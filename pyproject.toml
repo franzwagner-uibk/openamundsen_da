@@ -1,0 +1,13 @@
+[project]
+name = "openamundsen-da"
+version = "0.0.1"
+description = "Data assimilation extension for openAMUNDSEN"
+requires-python = ">=3.10"
+dependencies = ["openamundsen>=1.1"]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]

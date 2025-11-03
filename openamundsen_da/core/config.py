@@ -1,50 +1,30 @@
-# Minimal config merging using openAMUNDSEN utilities.
-# - Reads project.yml, season.yml, step.yml with openamundsen.util.read_yaml_file
-# - Merges layers with priority: step > season > project
-# - Injects per-member meteo directory (mandatory)
-# - Optionally sets results_dir
-# - Returns a fully validated Configuration via openamundsen.conf.parse_config
-
+from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from openamundsen.conf import parse_config
-from openamundsen.util import read_yaml_file
-
+from openamundsen.util import read_yaml_file, to_yaml
 
 def merge_configs(
     project_cfg: Dict[str, Any],
     season_cfg: Dict[str, Any],
     step_cfg: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """
-    Merge three configuration layers with fixed precedence:
-    step_cfg > season_cfg > project_cfg.
-    Nested dictionaries are merged shallowly per top-level key.
-    """
+    """Shallow top-level merge with precedence: step > season > project."""
     merged: Dict[str, Any] = {}
-    all_keys = set()
+    keys = set()
     for d in (project_cfg or {}, season_cfg or {}, step_cfg or {}):
-        all_keys.update(d.keys())
-
-    for k in all_keys:
-        p = (project_cfg or {}).get(k)
-        s = (season_cfg or {}).get(k)
-        t = (step_cfg or {}).get(k)
-
+        keys.update(d.keys())
+    for k in keys:
+        p, s, t = (project_cfg or {}).get(k), (season_cfg or {}).get(k), (step_cfg or {}).get(k)
         if isinstance(p, dict) or isinstance(s, dict) or isinstance(t, dict):
             merged[k] = {}
-            if isinstance(p, dict):
-                merged[k].update(p)
-            if isinstance(s, dict):
-                merged[k].update(s)
-            if isinstance(t, dict):
-                merged[k].update(t)
+            if isinstance(p, dict): merged[k].update(p)
+            if isinstance(s, dict): merged[k].update(s)
+            if isinstance(t, dict): merged[k].update(t)
         else:
             merged[k] = t if t is not None else (s if s is not None else p)
-
     return merged
-
 
 def load_merged_config(
     project_yaml: Path | str,
@@ -55,61 +35,68 @@ def load_merged_config(
     results_dir: Optional[Path | str] = None,
 ) -> Any:
     """
-    Build and validate an openAMUNDSEN Configuration by merging YAML layers.
-
-    Parameters
-    ----------
-    project_yaml : Path or str
-        Path to project.yml (global settings).
-    season_yaml : Path or str
-        Path to season.yml (season-wide configuration).
-    step_yaml : Path or str
-        Path to step.yml (per-step overrides, may define results_dir or shorter date range).
-    member_meteo_dir : Path or str
-        Directory of the ensemble member's meteorological input.
-        Injected as config.input_data.meteo.dir.
-    results_dir : Optional[Path or str]
-        Optional override for config.results_dir.
-        If None, uses the layered value or defaults to "results".
-
-    Returns
-    -------
-    openamundsen.conf.Configuration
-        Fully parsed and validated Configuration object.
+    Build and validate an openAMUNDSEN Configuration by merging YAML layers and
+    injecting member-specific meteo/results paths.
     """
     project_yaml = Path(project_yaml)
     season_yaml = Path(season_yaml)
-    step_yaml = Path(step_yaml)
+    step_yaml   = Path(step_yaml)
 
-    # Load YAML configs using openAMUNDSEN’s native reader
     proj_cfg = read_yaml_file(project_yaml)
     seas_cfg = read_yaml_file(season_yaml)
     step_cfg = read_yaml_file(step_yaml)
 
-    # Merge configurations with defined precedence
     cfg = merge_configs(proj_cfg, seas_cfg, step_cfg)
 
-    # Ensure meteo key exists before injection
-    cfg.setdefault("input_data", {})
-    cfg["input_data"].setdefault("meteo", {})
+    cfg.pop("environment", None)
 
-    # Inject ensemble-specific meteo directory
+    # Inject per-member paths
+    cfg.setdefault("input_data", {}).setdefault("meteo", {})
     cfg["input_data"]["meteo"]["dir"] = str(Path(member_meteo_dir))
 
-    # Resolve results directory logic
     if results_dir is not None:
-        cfg["results_dir"] = str(Path(results_dir))
+        cfg["results_dir"] = str(results_dir)
+
+    # Make important paths absolute relative to project root
+    project_root = project_yaml.parent
+
+    # grids dir
+    if "input_data" in cfg and "grids" in cfg["input_data"] and "dir" in cfg["input_data"]["grids"]:
+        gdir = Path(cfg["input_data"]["grids"]["dir"])
+        if not gdir.is_absolute():
+            gdir = project_root / gdir
+        cfg["input_data"]["grids"]["dir"] = str(gdir)
+
+    # meteo dir (ensure absolute)
+    if "input_data" in cfg and "meteo" in cfg["input_data"] and "dir" in cfg["input_data"]["meteo"]:
+        mdir = Path(cfg["input_data"]["meteo"]["dir"])
+        if not mdir.is_absolute():
+            mdir = project_root / mdir
+        cfg["input_data"]["meteo"]["dir"] = str(mdir)
+
+    # results_dir
+    if "results_dir" in cfg:
+        rdir = Path(cfg["results_dir"])
+        if not rdir.is_absolute():
+            rdir = project_root / rdir
+        cfg["results_dir"] = str(rdir)
     else:
-        if "results_dir" not in cfg or not cfg["results_dir"]:
-            cfg["results_dir"] = "results"
+        cfg["results_dir"] = str(project_root / "results")
 
-    # Basic time range sanity check
-    missing = [k for k in ("start_date", "end_date") if k not in cfg or not cfg[k]]
-    if missing:
-        raise ValueError(
-            f"Missing required key(s) in merged configuration: {', '.join(missing)}. "
-            "Provide them in season.yml and/or step.yml."
-        )
+    # Basic time keys
+    for k in ("start_date", "end_date"):
+        if k not in cfg or not cfg[k]:
+            raise ValueError(f"Missing required key '{k}' in merged config.")
 
-    # Final validation + normalization through openAMUNDSEN core
+
+    # Gemergte Config im Member-Ordner als 'config.py' ablegen (Sibling von 'results')
+    try:
+        member_root = Path(member_meteo_dir).parent  # .../member_xxx
+        member_root.mkdir(parents=True, exist_ok=True)
+        (member_root / "config.yml").write_text(to_yaml(cfg), encoding="utf-8")
+    except Exception:
+        # Best-effort; Fehler hier sollen den Lauf nicht abbrechen
+        pass
+
+    # Final validation
     return parse_config(cfg)

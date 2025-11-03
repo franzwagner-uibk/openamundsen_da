@@ -1,64 +1,49 @@
+from __future__ import annotations
 from pathlib import Path
-from typing import Iterable, List
 
+# ---- YAML discovery helpers -------------------------------------------------
 
-def find_project_yaml(project_dir: Path | str) -> Path:
-    """
-    Return path to project.yml inside the project root directory.
-    Raises FileNotFoundError if missing.
-    """
-    p = Path(project_dir) / "project.yml"
-    if not p.is_file():
-        raise FileNotFoundError(f"project.yml not found at: {p}")
-    return p
+def find_project_yaml(project_dir: str | Path) -> Path:
+    project_dir = Path(project_dir)
+    for name in ("project.yml", "project.yaml"):
+        p = project_dir / name
+        if p.is_file():
+            return p
+    raise FileNotFoundError(f"Could not find project.yml in {project_dir}")
 
+def find_season_yaml(season_dir: str | Path) -> Path:
+    season_dir = Path(season_dir)
+    for name in ("season.yml", "season.yaml"):
+        p = season_dir / name
+        if p.is_file():
+            return p
+    raise FileNotFoundError(f"Could not find season.yml in {season_dir}")
 
-def find_season_yaml(season_dir: Path | str) -> Path:
-    """
-    Return path to season.yml inside a season folder (e.g. propagation/season_YYYY-YYYY).
-    """
-    p = Path(season_dir) / "season.yml"
-    if not p.is_file():
-        raise FileNotFoundError(f"season.yml not found at: {p}")
-    return p
-
-
-def find_step_yaml(step_dir: Path | str) -> Path:
-    """
-    Return the single step YAML inside a step folder.
-    Convention: exactly one *.yml file at the step root (e.g. step_00.yml).
-    """
+def find_step_yaml(step_dir: str | Path) -> Path:
     step_dir = Path(step_dir)
-    ymls = [p for p in step_dir.glob("*.yml") if p.is_file()]
-    if len(ymls) != 1:
-        raise FileNotFoundError(
-            f"Expected exactly one step YAML in {step_dir}, found: {[p.name for p in ymls]}"
-        )
+    # allow flexible step file name (e.g. step_00.yml)
+    ymls = sorted(step_dir.glob("*.yml")) + sorted(step_dir.glob("*.yaml"))
+    if not ymls:
+        raise FileNotFoundError(f"No step YAML found in {step_dir}")
     return ymls[0]
 
+# ---- Ensemble layout helpers -----------------------------------------------
 
-def discover_prior_members(step_dir: Path | str) -> List[Path]:
-    """
-    List member directories under: <step_dir>/ensembles/prior/member_*/
-    Returns sorted paths (by name). Empty list if none.
-    """
-    base = Path(step_dir) / "ensembles" / "prior"
-    if not base.is_dir():
-        return []
-    members = [p for p in base.glob("member_*") if p.is_dir()]
-    return sorted(members, key=lambda p: p.name)
-
-
-def meteo_dir_for_member(member_dir: Path | str) -> Path:
-    """
-    Conventional meteo input location for a member.
-    """
+def meteo_dir_for_member(member_dir: str | Path) -> Path:
+    """Member meteo directory: <member_dir>/meteo"""
     return Path(member_dir) / "meteo"
 
-
-def default_results_dir(member_dir: Path | str) -> Path:
-    """
-    Conventional results output location for a member.
-    Note: this function only computes the path; it does NOT create any folders.
-    """
+def default_results_dir(member_dir: str | Path) -> Path:
+    """Default outputs under <member_dir>/results"""
     return Path(member_dir) / "results"
+
+def list_member_dirs(base_dir: str | Path, ensemble: str) -> list[Path]:
+    base_dir = Path(base_dir)
+    if ensemble not in {"prior", "posterior"}:
+        raise ValueError("ensemble must be 'prior' or 'posterior'")
+
+    roots = [base_dir / ensemble, base_dir / "ensembles" / ensemble]
+    for root in roots:
+        if root.is_dir():
+            return [p for p in sorted(root.glob("member_*")) if p.is_dir()]
+    return []

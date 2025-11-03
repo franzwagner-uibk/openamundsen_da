@@ -115,4 +115,6 @@ def configure_logger(log_path=None):
     Kein direktes xarray-Resampling in engen Schleifen.
 
     Ordentliche Exceptions bei I/O-Problemen, keine stummen Fehler.
+
+10) Keine unicode characters in log statements verwenden -> ausschliesslich ascii! -> bei Pfeilen aufpassen
 ```

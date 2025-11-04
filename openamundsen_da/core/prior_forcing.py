@@ -49,6 +49,9 @@ from openamundsen_da.io.paths import (
     find_step_yaml,
     meteo_dir_for_member,
     default_results_dir,
+    prior_root as prior_root_dir,
+    open_loop_dir as open_loop_dir_for_step,
+    member_dir_for_index,
 )
 
 
@@ -200,8 +203,8 @@ def build_prior_ensemble(input_meteo_dir: Path | str, project_dir: Path | str, s
     rng = np.random.default_rng(params.random_seed)
 
     # Prepare open_loop
-    prior_root = step_dir / "ensembles" / ENSEMBLE_PRIOR
-    open_loop_root = prior_root / "open_loop"
+    prior_root = prior_root_dir(step_dir)
+    open_loop_root = open_loop_dir_for_step(step_dir)
     meteo_ol, results_ol = _make_member_dirs(open_loop_root)
 
     # Process open_loop (unperturbed, filtered)
@@ -216,7 +219,7 @@ def build_prior_ensemble(input_meteo_dir: Path | str, project_dir: Path | str, s
     # Create members
     for i in range(1, params.ensemble_size + 1):
         member_name = f"member_{i:03d}"
-        member_root = prior_root / member_name
+        member_root = member_dir_for_index(step_dir, i)
         meteo_dir, _ = _make_member_dirs(member_root)
 
         # Sample perturbations (stationary per member)
@@ -260,4 +263,3 @@ def main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

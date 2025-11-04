@@ -11,6 +11,7 @@ from rasterio.transform import guard_transform
 
 from loguru import logger
 from openamundsen_da.core.env import apply_numeric_thread_defaults
+from openamundsen_da.core.constants import MEMBER_LOG_REL, MEMBER_MANIFEST
 from openamundsen.model import OpenAmundsen
 
 from openamundsen_da.core.config import load_merged_config
@@ -138,7 +139,7 @@ def _patch_linear_fit() -> None:
 def _write_manifest(results_dir: Path, manifest: Dict[str, Any]) -> None:
     try:
         results_dir.mkdir(parents=True, exist_ok=True)
-        with (results_dir / "member_run.json").open("w", encoding="utf-8") as f:
+        with (results_dir / MEMBER_MANIFEST).open("w", encoding="utf-8") as f:
             json.dump(manifest, f, ensure_ascii=False, indent=2)
     except Exception as e:
         logger.warning(f"Could not write manifest in {results_dir}: {e}")
@@ -174,9 +175,9 @@ def run_member(
     # Prepare logging to a per-member file to avoid interleaved console output
     # Use a dedicated logs/ folder under the member directory to not interfere
     # with results existence checks.
-    log_dir = member_dir / "logs"
+    log_dir = member_dir / MEMBER_LOG_REL[0]
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / "member.log"
+    log_file = log_dir / MEMBER_LOG_REL[1]
     old_stderr = sys.stderr
     log_handle = log_file.open("a", encoding="utf-8")
     sys.stderr = log_handle

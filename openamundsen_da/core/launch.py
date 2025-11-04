@@ -12,9 +12,7 @@ if TYPE_CHECKING:
 import sys
 
 from loguru import logger
-
-# Safe: only reads YAML, does not pull in GDAL/PROJ
-from openamundsen.util import read_yaml_file
+import ruamel.yaml
 
 from openamundsen_da.io.paths import (
     find_project_yaml,
@@ -31,6 +29,17 @@ def _clamp_workers(n: int) -> int:
     return max(1, min(n, os.cpu_count() or 1))
 
 
+_yaml = ruamel.yaml.YAML(typ="safe")
+
+
+def _read_yaml_file(p: Path) -> dict:
+    try:
+        with Path(p).open("r", encoding="utf-8") as f:
+            return _yaml.load(f) or {}
+    except Exception:
+        return {}
+
+
 def _apply_env_from_project(project_yaml: Path) -> None:
     """
     Read project.yml with openAMUNDSEN's reader and export 'environment' keys.
@@ -41,7 +50,7 @@ def _apply_env_from_project(project_yaml: Path) -> None:
         OMP_NUM_THREADS: "1"
     """
     try:
-        cfg = read_yaml_file(project_yaml)
+        cfg = _read_yaml_file(project_yaml)
     except Exception as e:
         logger.warning(f"Could not read project YAML to set environment ({project_yaml}): {e}")
         cfg = {}

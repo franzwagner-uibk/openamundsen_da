@@ -3,7 +3,6 @@ import json
 import os
 import sys
 import time
-import numpy as np
 import rasterio.transform as rt
 from dataclasses import dataclass
 from pathlib import Path

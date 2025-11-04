@@ -97,7 +97,6 @@ def _discover_members(
     seas_yaml = find_season_yaml(season_dir)
     step_yaml = find_step_yaml(step_dir)
 
-    base = season_dir if ensemble == "prior" else step_dir
     member_root = step_dir / "ensembles"
     members = list_member_dirs(member_root, ensemble=ensemble)
     if not members:
@@ -176,17 +175,18 @@ def launch_members(
         for m in members
     ]
 
+    workers = _clamp_workers(max_workers)
     logger.info(
         "Launching {n} member(s) with max_workers={mw}",
         n=len(tasks),
-        mw=_clamp_workers(max_workers),
+        mw=workers,
     )
     results: List[RunResult] = []
     failed = 0
     skipped = 0
     ok = 0
 
-    with cf.ProcessPoolExecutor(max_workers=_clamp_workers(max_workers)) as ex:
+    with cf.ProcessPoolExecutor(max_workers=workers) as ex:
         # Log a start line as we submit each member to the pool
         fut_to_member = {}
         for t in tasks:
@@ -209,14 +209,14 @@ def launch_members(
                     logger.error(f"[{res.member_name}] finished: failed ({res.error})")
             except Exception as e:
                 failed += 1
-                logger.error(f"[{m.name}] failed: {e}")
+                logger.error(f"[{m.name}] failed: {e!r}")
 
     summary = {"total": len(members), "ok": ok, "skipped": skipped, "failed": failed}
     logger.info("Summary: total={total}  ok={ok}  skipped={skipped}  failed={failed}", **summary)
     return {"summary": summary, "results": results}
 
 
-def parse_args(argv: Iterable[str] | None = None):
+def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Launch openAMUNDSEN ensemble members")
     p.add_argument("--project-dir", required=True, type=Path)
     p.add_argument("--season-dir", required=True, type=Path)

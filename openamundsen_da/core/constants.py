@@ -8,7 +8,7 @@ END_DATE = "end_date"
 LOG_LEVEL = "log_level"
 ENVIRONMENT = "environment"
 
-# Environment variables we export/apply from project.yml or sensible defaults
+# Environment variables to export/apply from project.yml or sensible defaults
 ENV_VARS_EXPORT = (
     "GDAL_DATA",
     "PROJ_LIB",

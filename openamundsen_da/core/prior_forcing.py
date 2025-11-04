@@ -12,8 +12,8 @@ Design
 - Params: read from project.yml under data_assimilation.prior_forcing
 - Perturbations: temperature additive ΔT ~ N(0, σ_T²), precipitation factor
   f_p ~ LogNormal(μ_P, σ_P²), constant per member across stations and time
-- Schema: strict, requires columns 'date', 'temp', 'precip'
-- Precip negatives: abort if any negative values are present (pre-perturbation)
+- Schema: requires 'date'; 'temp' and 'precip' are optional per station file
+- Precip negatives: if 'precip' exists and contains negatives, abort
 - Output: <step_dir>/ensembles/prior/{open_loop,member_XXX}/{meteo,results}
 """
 
@@ -113,15 +113,17 @@ def _list_station_csvs(meteo_dir: Path) -> Tuple[Path, List[Path]]:
 
 
 def _ensure_schema_and_precip_positive(df: pd.DataFrame, src: Path) -> None:
-    """Validate required columns and ensure no negative precipitation values exist."""
-    required = [DEFAULT_TIME_COL, DEFAULT_TEMP_COL, DEFAULT_PRECIP_COL]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise ValueError(f"{src.name}: missing required column(s): {', '.join(missing)}")
-    # Ensure no negative precip values pre-perturbation
-    p = pd.to_numeric(df[DEFAULT_PRECIP_COL], errors="coerce")
-    if (p.dropna() < 0).any():
-        raise ValueError(f"{src.name}: precipitation contains negative values")
+    """Validate required columns and ensure no negative precipitation values exist.
+
+    - 'date' must be present in all files
+    - 'temp' and 'precip' are optional; if 'precip' exists it must be non-negative
+    """
+    if DEFAULT_TIME_COL not in df.columns:
+        raise ValueError(f"{src.name}: missing required column: {DEFAULT_TIME_COL}")
+    if DEFAULT_PRECIP_COL in df.columns:
+        p = pd.to_numeric(df[DEFAULT_PRECIP_COL], errors="coerce")
+        if (p.dropna() < 0).any():
+            raise ValueError(f"{src.name}: precipitation contains negative values")
 
 
 def _inclusive_filter(df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
@@ -231,9 +233,11 @@ def build_prior_ensemble(input_meteo_dir: Path | str, project_dir: Path | str, s
             df = pd.read_csv(src)
             _ensure_schema_and_precip_positive(df, src)
             df = _inclusive_filter(df, start, end)
-            # Apply perturbations only to required columns
-            df[DEFAULT_TEMP_COL] = pd.to_numeric(df[DEFAULT_TEMP_COL], errors="coerce") + delta_t
-            df[DEFAULT_PRECIP_COL] = pd.to_numeric(df[DEFAULT_PRECIP_COL], errors="coerce") * f_p
+            # Apply perturbations only where columns exist
+            if DEFAULT_TEMP_COL in df.columns:
+                df[DEFAULT_TEMP_COL] = pd.to_numeric(df[DEFAULT_TEMP_COL], errors="coerce") + delta_t
+            if DEFAULT_PRECIP_COL in df.columns:
+                df[DEFAULT_PRECIP_COL] = pd.to_numeric(df[DEFAULT_PRECIP_COL], errors="coerce") * f_p
             _write_csv(df, meteo_dir / src.name)
 
         # Copy stations.csv unchanged and write member INFO

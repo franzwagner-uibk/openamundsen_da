@@ -178,7 +178,12 @@ def launch_members(
     ok = 0
 
     with cf.ProcessPoolExecutor(max_workers=_clamp_workers(max_workers)) as ex:
-        fut_to_member = {ex.submit(_run_one, t): t[3] for t in tasks}
+        # Log a start line as we submit each member to the pool
+        fut_to_member = {}
+        for t in tasks:
+            m = t[3]
+            logger.info(f"[{m.name}] starting")
+            fut_to_member[ex.submit(_run_one, t)] = m
         for fut in cf.as_completed(fut_to_member):
             m = fut_to_member[fut]
             try:

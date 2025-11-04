@@ -4,6 +4,18 @@ from typing import Any, Dict, Optional
 
 from openamundsen.conf import parse_config
 from openamundsen.util import read_yaml_file, to_yaml
+from openamundsen_da.io.paths import abspath_relative_to
+from openamundsen_da.core.constants import (
+    INPUT_DATA,
+    GRIDS,
+    METEO,
+    DIR,
+    RESULTS_DIR,
+    START_DATE,
+    END_DATE,
+    LOG_LEVEL,
+    ENVIRONMENT,
+)
 
 def merge_configs(
     project_cfg: Dict[str, Any],
@@ -27,10 +39,7 @@ def merge_configs(
     return merged
 
 
-def _abs_if_relative(path_str: str | Path, base: Path) -> str:
-    """Return absolute string path; resolve relative to base."""
-    p = Path(path_str)
-    return str(p if p.is_absolute() else base / p)
+## moved to openamundsen_da.io.paths.abspath_relative_to
 
 def load_merged_config(
     project_yaml: Path | str,

@@ -1,4 +1,18 @@
 from __future__ import annotations
+"""
+openamundsen_da.core.launch
+
+Purpose
+- CLI entry and coordinator for launching an ensemble of openAMUNDSEN runs.
+- Discovers members, prepares environment, fans out work to processes, and
+  reports concise progress and a final summary.
+
+Key Behaviors
+- Avoids importing heavy GDAL/PROJ users in the parent process.
+- Applies environment (GDAL/PROJ + numeric thread defaults) before forking so
+  children inherit it.
+- Writes detailed logs per member to files; parent console shows start/finish lines.
+"""
 
 import argparse
 import concurrent.futures as cf
@@ -29,11 +43,18 @@ from openamundsen_da.io.paths import (
 
 
 def _clamp_workers(n: int) -> int:
+    """Clamp worker count to CPU, leaving headroom on Windows."""
     # keep some headroom on Windows; OA uses NumPy/numexpr underneath
     return max(1, min(n, os.cpu_count() or 1))
 
 
 def _apply_env(project_yaml: Path) -> None:
+    """Apply environment variables from project.yml and sane defaults.
+
+    - Reads the `environment` block and exports selected keys
+    - Ensures GDAL/PROJ vars from the active conda env if missing
+    - Sets numeric library thread defaults to 1 (can be overridden)
+    """
     try:
         apply_env_from_project(project_yaml)
     except Exception as e:
@@ -53,6 +74,9 @@ def _discover_members(
 ) -> Tuple[Path, Path, Path, List[Path]]:
     """
     Resolve YAMLs and member directories using our path helpers.
+
+    Returns the concrete YAML files and the list of member directories under
+    `<step_dir>/ensembles/<ensemble>/member_*`.
     """
     proj_yaml = find_project_yaml(project_dir)
     seas_yaml = find_season_yaml(season_dir)
@@ -118,6 +142,17 @@ def launch_members(
     *,
     log_level: str | None,
 ) -> dict:
+    """Launch all ensemble members and return a small run summary.
+
+    Steps
+    1) Discover YAMLs and member dirs
+    2) Apply environment before spawning workers
+    3) Ensure Windows-safe start method (spawn)
+    4) Build the task list per member
+    5) Submit tasks, logging a single "starting" line per member
+    6) As tasks complete, log a concise finish line and count outcomes
+    7) Log and return the final summary
+    """
     proj_yaml, seas_yaml, step_yaml, members = _discover_members(project_dir, season_dir, step_dir, ensemble)
 
     # Make sure GDAL/PROJ & threading env are exported before workers spawn
@@ -178,6 +213,7 @@ def launch_members(
 
 
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments for the ensemble launcher."""
     p = argparse.ArgumentParser(description="Launch openAMUNDSEN ensemble members")
     p.add_argument("--project-dir", required=True, type=Path)
     p.add_argument("--season-dir", required=True, type=Path)
@@ -196,6 +232,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: Iterable[str] | None = None) -> int:
+    """CLI entry: configure parent logger, run launcher, and map exceptions to exit codes."""
     args = parse_args(argv)
     logger.remove()
     logger.add(

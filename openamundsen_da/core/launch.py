@@ -12,8 +12,11 @@ if TYPE_CHECKING:
 import sys
 
 from loguru import logger
-import ruamel.yaml
-from openamundsen_da.core.constants import ENV_VARS_EXPORT, ENVIRONMENT
+from openamundsen_da.core.env import (
+    apply_env_from_project,
+    ensure_gdal_proj_from_conda,
+    apply_numeric_thread_defaults,
+)
 
 from openamundsen_da.io.paths import (
     find_project_yaml,
@@ -30,55 +33,13 @@ def _clamp_workers(n: int) -> int:
     return max(1, min(n, os.cpu_count() or 1))
 
 
-_yaml = ruamel.yaml.YAML(typ="safe")
-
-
-def _read_yaml_file(p: Path) -> dict:
+def _apply_env(project_yaml: Path) -> None:
     try:
-        with Path(p).open("r", encoding="utf-8") as f:
-            return _yaml.load(f) or {}
-    except Exception:
-        return {}
-
-
-def _apply_env_from_project(project_yaml: Path) -> None:
-    """
-    Read project.yml with openAMUNDSEN's reader and export 'environment' keys.
-    Expected structure, e.g.:
-      environment:
-        GDAL_DATA: "C:/.../Library/share/gdal"
-        PROJ_LIB:  "C:/.../Library/share/proj"
-        OMP_NUM_THREADS: "1"
-    """
-    try:
-        cfg = _read_yaml_file(project_yaml)
+        apply_env_from_project(project_yaml)
     except Exception as e:
         logger.warning(f"Could not read project YAML to set environment ({project_yaml}): {e}")
-        cfg = {}
-
-    env_cfg = (cfg or {}).get(ENVIRONMENT) or {}
-
-    # Only set if specified in YAML
-    for k in ENV_VARS_EXPORT:
-        v = env_cfg.get(k)
-        if v:
-            os.environ[k] = str(v)
-
-    # Reasonable fallbacks if still not set (common for conda on Windows)
-    # <env>\Library\share\{gdal,proj}
-    conda = os.environ.get("CONDA_PREFIX") or os.environ.get("PREFIX")
-    if conda:
-        gdal_default = str(Path(conda) / "Library" / "share" / "gdal")
-        proj_default = str(Path(conda) / "Library" / "share" / "proj")
-        os.environ.setdefault("GDAL_DATA", gdal_default)
-        os.environ.setdefault("PROJ_LIB", proj_default)
-
-    # Numeric libs -> one thread per process (can be overridden in YAML)
-    os.environ.setdefault("OMP_NUM_THREADS", "1")
-    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-    os.environ.setdefault("MKL_NUM_THREADS", "1")
-    os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
-
+    ensure_gdal_proj_from_conda()
+    apply_numeric_thread_defaults()
     logger.debug(
         "Env set -> GDAL_DATA='{}', PROJ_LIB='{}', OMP_NUM_THREADS='{}'",
         os.environ.get("GDAL_DATA"),
@@ -160,7 +121,7 @@ def launch_members(
     proj_yaml, seas_yaml, step_yaml, members = _discover_members(project_dir, season_dir, step_dir, ensemble)
 
     # Make sure GDAL/PROJ & threading env are exported before workers spawn
-    _apply_env_from_project(proj_yaml)
+    _apply_env(proj_yaml)
 
     # Use spawn on Windows explicitly to be safe
     try:

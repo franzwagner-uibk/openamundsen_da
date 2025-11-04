@@ -1,6 +1,6 @@
 from __future__ import annotations
 """
-openamundsen_da.core.stats
+openamundsen_da.util.stats
 
 Compact statistical helpers used across DA modules.
 

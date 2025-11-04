@@ -241,7 +241,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         sys.stderr,
         level=args.log_level,
         enqueue=True,
-        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {message}",
+        colorize=True,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | {message}",
     )
 
     try:

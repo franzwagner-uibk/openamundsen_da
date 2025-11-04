@@ -38,6 +38,7 @@ from openamundsen_da.core.constants import (
     END_DATE,
     LOG_LEVEL,
     ENVIRONMENT,
+    DA_BLOCK,
 )
 
 def merge_configs(
@@ -106,9 +107,10 @@ def load_merged_config(
     seas_cfg = read_yaml_file(season_yaml)
     step_cfg = read_yaml_file(step_yaml)
 
-    # Step 2: Merge and Step 3: remove environment (handled by core.env)
+    # Step 2: Merge and Step 3: remove blocks not understood by OA parser
     cfg = merge_configs(proj_cfg, seas_cfg, step_cfg)
     cfg.pop(ENVIRONMENT, None)
+    cfg.pop(DA_BLOCK, None)
 
     # Step 4: Inject per‑member paths (meteo dir always, results optional)
     cfg.setdefault(INPUT_DATA, {}).setdefault(METEO, {})

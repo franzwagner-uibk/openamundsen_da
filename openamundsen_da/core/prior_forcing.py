@@ -52,7 +52,7 @@ from openamundsen_da.core.constants import (
     START_DATE,
     END_DATE,
 )
-from openamundsen_da.core.stats import sample_delta_t, sample_precip_factor
+from openamundsen_da.util.stats import sample_delta_t, sample_precip_factor
 from openamundsen_da.io.paths import (
     find_project_yaml,
     find_step_yaml,

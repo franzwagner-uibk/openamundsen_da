@@ -19,6 +19,7 @@ Design
 
 import argparse
 import sys
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Tuple
@@ -299,6 +300,22 @@ def main(argv: Iterable[str] | None = None) -> int:
             pass
         ensure_gdal_proj_from_conda()
         apply_numeric_thread_defaults()
+        # Quiet GDAL warnings and set GDAL_DATA if discoverable
+        os.environ.setdefault("CPL_DEBUG", "OFF")
+        if not os.environ.get("GDAL_DATA"):
+            try:
+                import osgeo  # type: ignore
+                d = Path(osgeo.__file__).parent / "data"
+                if d.is_dir():
+                    os.environ["GDAL_DATA"] = str(d)
+            except Exception:
+                pass
+        try:
+            from osgeo import gdal as _gdal  # type: ignore
+            # Suppress warnings to stderr
+            _gdal.PushErrorHandler("CPLQuietErrorHandler")
+        except Exception:
+            pass
 
         build_prior_ensemble(
             args.input_meteo_dir,

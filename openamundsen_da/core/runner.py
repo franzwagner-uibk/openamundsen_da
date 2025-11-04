@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import os
+import sys
 import time
 import numpy as np
 import rasterio.transform as rt
@@ -150,6 +151,7 @@ def run_member(
     *,
     results_dir: Optional[Path | str] = None,
     overwrite: bool = False,
+    log_level: Optional[str] = None,
 ) -> RunResult:
     # keep BLAS threads to 1 per worker
     os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -171,6 +173,22 @@ def run_member(
     step_yaml = find_step_yaml(step_dir)
     meteo_dir = meteo_dir_for_member(member_dir)
     results_dir = Path(results_dir) if results_dir is not None else default_results_dir(member_dir)
+
+    # Prepare logging to a per-member file to avoid interleaved console output
+    # Use a dedicated logs/ folder under the member directory to not interfere
+    # with results existence checks.
+    log_dir = member_dir / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "member.log"
+    old_stderr = sys.stderr
+    log_handle = log_file.open("a", encoding="utf-8")
+    sys.stderr = log_handle
+    try:
+        logger.remove()
+        logger.add(sys.stderr, level=(log_level or "INFO"))
+    except Exception:
+        # If Loguru reconfiguration fails, continue with default stderr
+        pass
 
     os.chdir(project_dir)
 
@@ -197,6 +215,7 @@ def run_member(
             proj_yaml, seas_yaml, step_yaml,
             member_meteo_dir=meteo_dir,
             results_dir=results_dir,
+            log_level=log_level,
         )
 
         results_dir.mkdir(parents=True, exist_ok=True)
@@ -218,3 +237,13 @@ def run_member(
         _write_manifest(results_dir, manifest)
         logger.exception(f"[{member_name}] Failed with error: {e}")
         return RunResult(member_name, "failed", str(results_dir), dur, repr(e))
+    finally:
+        try:
+            logger.remove()
+        except Exception:
+            pass
+        sys.stderr = old_stderr
+        try:
+            log_handle.close()
+        except Exception:
+            pass

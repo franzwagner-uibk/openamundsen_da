@@ -33,6 +33,7 @@ def load_merged_config(
     *,
     member_meteo_dir: Path | str,
     results_dir: Optional[Path | str] = None,
+    log_level: Optional[str] = None,
 ) -> Any:
     """
     Build and validate an openAMUNDSEN Configuration by merging YAML layers and
@@ -56,6 +57,10 @@ def load_merged_config(
 
     if results_dir is not None:
         cfg["results_dir"] = str(results_dir)
+
+    # Ensure log level from CLI is applied to openAMUNDSEN logger configuration
+    if log_level is not None:
+        cfg["log_level"] = str(log_level)
 
     # Make important paths absolute relative to project root
     project_root = project_yaml.parent

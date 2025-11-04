@@ -1,4 +1,3 @@
-# openamundsen_da/core/launch.py
 from __future__ import annotations
 
 import argparse
@@ -6,14 +5,17 @@ import concurrent.futures as cf
 import multiprocessing as mp
 import os
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Tuple, TYPE_CHECKING
+if TYPE_CHECKING:
+    # For type checking only; avoids importing heavy dependencies at runtime
+    from openamundsen_da.core.runner import RunResult
+import sys
 
 from loguru import logger
 
 # Safe: only reads YAML, does not pull in GDAL/PROJ
 from openamundsen.util import read_yaml_file
 
-# Our own helpers (path discovery etc.)
 from openamundsen_da.io.paths import (
     find_project_yaml,
     find_season_yaml,
@@ -104,12 +106,12 @@ def _discover_members(
     return proj_yaml, seas_yaml, step_yaml, members
 
 
-def _run_one(args: Tuple[Path, Path, Path, Path, bool, Path | None]) -> "RunResult":
+def _run_one(args: Tuple[Path, Path, Path, Path, bool, Path | None, str | None]) -> RunResult:
     """
     Small wrapper so ProcessPoolExecutor can pickle the callable easily.
     Import of runner happens inside the child worker.
     """
-    proj_yaml, seas_yaml, step_yaml, member_dir, overwrite, results_root = args
+    proj_yaml, seas_yaml, step_yaml, member_dir, overwrite, results_root, log_level = args
 
     # Local import inside the worker to avoid importing GDAL users in the parent
     from openamundsen_da.core.runner import run_member
@@ -132,6 +134,7 @@ def _run_one(args: Tuple[Path, Path, Path, Path, bool, Path | None]) -> "RunResu
         member_dir=member_dir,
         results_dir=results_dir,
         overwrite=overwrite,
+        log_level=log_level,
     )
 
 
@@ -143,6 +146,8 @@ def launch_members(
     max_workers: int,
     overwrite: bool,
     results_root: Path | None,
+    *,
+    log_level: str | None,
 ) -> dict:
     proj_yaml, seas_yaml, step_yaml, members = _discover_members(project_dir, season_dir, step_dir, ensemble)
 
@@ -158,26 +163,36 @@ def launch_members(
 
     # Fan out
     tasks = [
-        (proj_yaml, seas_yaml, step_yaml, m, overwrite, results_root)
+        (proj_yaml, seas_yaml, step_yaml, m, overwrite, results_root, log_level)
         for m in members
     ]
-    results: List["RunResult"] = []
+
+    logger.info(
+        "Launching {n} member(s) with max_workers={mw}",
+        n=len(tasks),
+        mw=_clamp_workers(max_workers),
+    )
+    results: List[RunResult] = []
     failed = 0
     skipped = 0
     ok = 0
 
     with cf.ProcessPoolExecutor(max_workers=_clamp_workers(max_workers)) as ex:
-        futs = [ex.submit(_run_one, t) for t in tasks]
-        for m, f in zip(members, futs):
+        fut_to_member = {ex.submit(_run_one, t): t[3] for t in tasks}
+        for fut in cf.as_completed(fut_to_member):
+            m = fut_to_member[fut]
             try:
-                res = f.result()
+                res = fut.result()
                 results.append(res)
                 if res.status == "success":
                     ok += 1
+                    logger.info(f"[{res.member_name}] finished: success ({res.duration_seconds:.1f}s)")
                 elif res.status == "skipped":
                     skipped += 1
+                    logger.info(f"[{res.member_name}] skipped")
                 else:
                     failed += 1
+                    logger.error(f"[{res.member_name}] finished: failed ({res.error})")
             except Exception as e:
                 failed += 1
                 logger.error(f"[{m.name}] failed: {e}")
@@ -208,8 +223,7 @@ def parse_args(argv: Iterable[str] | None = None):
 def main(argv: Iterable[str] | None = None) -> int:
     args = parse_args(argv)
     logger.remove()
-    logger.add(lambda msg: print(msg, end=""))
-    logger.level(args.log_level)
+    logger.add(sys.stderr, level=args.log_level, enqueue=True)
 
     try:
         launch_members(
@@ -220,6 +234,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             max_workers=args.max_workers,
             overwrite=args.overwrite,
             results_root=args.results_root,
+            log_level=args.log_level,
         )
         return 0
     except Exception as e:

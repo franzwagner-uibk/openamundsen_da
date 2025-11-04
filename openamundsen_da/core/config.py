@@ -26,6 +26,12 @@ def merge_configs(
             merged[k] = t if t is not None else (s if s is not None else p)
     return merged
 
+
+def _abs_if_relative(path_str: str | Path, base: Path) -> str:
+    """Return absolute string path; resolve relative to base."""
+    p = Path(path_str)
+    return str(p if p.is_absolute() else base / p)
+
 def load_merged_config(
     project_yaml: Path | str,
     season_yaml: Path | str,
@@ -67,24 +73,15 @@ def load_merged_config(
 
     # grids dir
     if "input_data" in cfg and "grids" in cfg["input_data"] and "dir" in cfg["input_data"]["grids"]:
-        gdir = Path(cfg["input_data"]["grids"]["dir"])
-        if not gdir.is_absolute():
-            gdir = project_root / gdir
-        cfg["input_data"]["grids"]["dir"] = str(gdir)
+        cfg["input_data"]["grids"]["dir"] = _abs_if_relative(cfg["input_data"]["grids"]["dir"], project_root)
 
     # meteo dir (ensure absolute)
     if "input_data" in cfg and "meteo" in cfg["input_data"] and "dir" in cfg["input_data"]["meteo"]:
-        mdir = Path(cfg["input_data"]["meteo"]["dir"])
-        if not mdir.is_absolute():
-            mdir = project_root / mdir
-        cfg["input_data"]["meteo"]["dir"] = str(mdir)
+        cfg["input_data"]["meteo"]["dir"] = _abs_if_relative(cfg["input_data"]["meteo"]["dir"], project_root)
 
     # results_dir
     if "results_dir" in cfg:
-        rdir = Path(cfg["results_dir"])
-        if not rdir.is_absolute():
-            rdir = project_root / rdir
-        cfg["results_dir"] = str(rdir)
+        cfg["results_dir"] = _abs_if_relative(cfg["results_dir"], project_root)
     else:
         cfg["results_dir"] = str(project_root / "results")
 
@@ -94,14 +91,12 @@ def load_merged_config(
             raise ValueError(f"Missing required key '{k}' in merged config.")
 
 
-    # Gemergte Config im Member-Ordner als 'config.py' ablegen (Sibling von 'results')
     try:
         member_root = Path(member_meteo_dir).parent  # .../member_xxx
         member_root.mkdir(parents=True, exist_ok=True)
         (member_root / "config.yml").write_text(to_yaml(cfg), encoding="utf-8")
     except Exception:
-        # Best-effort; Fehler hier sollen den Lauf nicht abbrechen
+        # Best-effort; do not fail the run on write issues
         pass
 
-    # Final validation
     return parse_config(cfg)

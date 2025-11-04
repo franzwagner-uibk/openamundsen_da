@@ -1,5 +1,12 @@
 from __future__ import annotations
 from pathlib import Path
+from typing import Union
+
+from openamundsen_da.core.constants import (
+    ENSEMBLE_PRIOR,
+    MEMBER_PREFIX,
+    OPEN_LOOP,
+)
 
 # ---- YAML discovery helpers -------------------------------------------------
 
@@ -56,3 +63,21 @@ def abspath_relative_to(base: str | Path, p: str | Path) -> str:
     base = Path(base)
     pp = Path(p)
     return str(pp if pp.is_absolute() else (base / pp))
+
+
+# ---- Prior ensemble layout helpers -----------------------------------------
+
+PathLike = Union[str, Path]
+
+def prior_root(step_dir: PathLike) -> Path:
+    """<step_dir>/ensembles/prior root directory."""
+    return Path(step_dir) / "ensembles" / ENSEMBLE_PRIOR
+
+def open_loop_dir(step_dir: PathLike) -> Path:
+    """<step_dir>/ensembles/prior/open_loop directory."""
+    return prior_root(step_dir) / OPEN_LOOP
+
+def member_dir_for_index(step_dir: PathLike, index: int, width: int = 3) -> Path:
+    """Member directory path using zero-padded index: member_XXX."""
+    name = f"{MEMBER_PREFIX}{index:0{width}d}"
+    return prior_root(step_dir) / name

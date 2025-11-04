@@ -237,7 +237,12 @@ def parse_args(argv: Iterable[str] | None = None):
 def main(argv: Iterable[str] | None = None) -> int:
     args = parse_args(argv)
     logger.remove()
-    logger.add(sys.stderr, level=args.log_level, enqueue=True)
+    logger.add(
+        sys.stderr,
+        level=args.log_level,
+        enqueue=True,
+        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {message}",
+    )
 
     try:
         launch_members(

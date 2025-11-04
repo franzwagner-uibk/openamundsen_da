@@ -1,3 +1,17 @@
+"""
+openamundsen_da.core.runner
+
+Purpose
+- Execute a single ensemble member in an isolated worker process.
+- Prepare the environment, build the merged openAMUNDSEN configuration,
+  run initialize() and run(), and persist a small manifest and logs.
+
+Key Behaviors
+- Redirects stderr to a per-member log file so child logs don’t flood the parent console.
+- Applies numeric thread defaults (1 thread per process) for BLAS/NumExpr.
+- Writes a manifest JSON with status, timing, and errors for post-mortem.
+"""
+
 from __future__ import annotations
 import json
 import os
@@ -32,6 +46,11 @@ class RunResult:
     error: Optional[str] = None
 
 def _patch_rasterio_transform() -> None:
+    """Guard rasterio.transform helpers against non-affine transforms.
+
+    Keeps behavior identical to rasterio for unsupported cases but avoids
+    errors for simple, common affine cases used by OA.
+    """
     import numpy as np
     import rasterio.transform as rt
     from rasterio.transform import guard_transform
@@ -111,6 +130,7 @@ def _patch_rasterio_transform() -> None:
 
 
 def _patch_linear_fit() -> None:
+    """Replace a fragile linear fit with a robust, dependency-free variant."""
     import numpy as np
     from openamundsen.meteo import interpolation as oa_interp
 
@@ -137,6 +157,7 @@ def _patch_linear_fit() -> None:
     oa_interp._linear_fit = safe_linear_fit
 
 def _write_manifest(results_dir: Path, manifest: Dict[str, Any]) -> None:
+    """Best-effort write of the per-member run manifest JSON."""
     try:
         results_dir.mkdir(parents=True, exist_ok=True)
         with (results_dir / MEMBER_MANIFEST).open("w", encoding="utf-8") as f:
@@ -154,27 +175,30 @@ def run_member(
     overwrite: bool = False,
     log_level: Optional[str] = None,
 ) -> RunResult:
-    # keep BLAS threads to 1 per worker
+    # Step 1: Constrain numeric library threads (one per worker)
     apply_numeric_thread_defaults()
 
+    # Step 2: Apply light runtime patches
     _patch_rasterio_transform()
     _patch_linear_fit()
 
+    # Step 3: Normalize inputs to Path objects
     member_dir = Path(member_dir)
     project_dir = Path(project_dir)
     season_dir  = Path(season_dir)
     step_dir    = Path(step_dir)
 
     member_name = member_dir.name
+    # Step 4: Resolve YAMLs and member directories
     proj_yaml = find_project_yaml(project_dir)
     seas_yaml = find_season_yaml(season_dir)
     step_yaml = find_step_yaml(step_dir)
     meteo_dir = meteo_dir_for_member(member_dir)
     results_dir = Path(results_dir) if results_dir is not None else default_results_dir(member_dir)
 
-    # Prepare logging to a per-member file to avoid interleaved console output
-    # Use a dedicated logs/ folder under the member directory to not interfere
-    # with results existence checks.
+    # Step 5: Redirect stderr/logging to a per-member log file
+    # Use a dedicated logs/ folder under the member directory to not
+    # interfere with results existence checks.
     log_dir = member_dir / MEMBER_LOG_REL[0]
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / MEMBER_LOG_REL[1]
@@ -188,12 +212,15 @@ def run_member(
         # If Loguru reconfiguration fails, continue with default stderr
         pass
 
+    # Step 6: Change to project root (OA expects relative paths from here)
     os.chdir(project_dir)
 
+    # Step 7: Skip if results exist and overwrite is not requested
     if results_dir.exists() and not overwrite:
         logger.info(f"[{member_name}] Results already exist -> skipping (use --overwrite to rerun)")
         return RunResult(member_name, "skipped", str(results_dir), 0.0, None)
 
+    # Step 8: Initialize manifest and timing
     start = time.time()
     manifest: Dict[str, Any] = {
         "member": member_name,
@@ -208,6 +235,7 @@ def run_member(
     }
     _write_manifest(results_dir, manifest)
 
+    # Step 9: Build merged OA config and run the model
     try:
         cfg = load_merged_config(
             proj_yaml, seas_yaml, step_yaml,
@@ -225,17 +253,27 @@ def run_member(
         model.run()
 
         dur = time.time() - start
-        manifest.update({"status": "success", "finished": time.strftime("%Y-%m-%d %H:%M:%S"), "duration_seconds": dur})
+        manifest.update({
+            "status": "success",
+            "finished": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "duration_seconds": dur,
+        })
         _write_manifest(results_dir, manifest)
         return RunResult(member_name, "success", str(results_dir), dur, None)
 
     except Exception as e:
         dur = time.time() - start
-        manifest.update({"status": "failed", "finished": time.strftime("%Y-%m-%d %H:%M:%S"), "duration_seconds": dur, "error": repr(e)})
+        manifest.update({
+            "status": "failed",
+            "finished": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "duration_seconds": dur,
+            "error": repr(e),
+        })
         _write_manifest(results_dir, manifest)
         logger.exception(f"[{member_name}] Failed with error: {e}")
         return RunResult(member_name, "failed", str(results_dir), dur, repr(e))
     finally:
+        # Step 10: Restore stderr and close log file
         try:
             logger.remove()
         except Exception:

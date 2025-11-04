@@ -47,3 +47,12 @@ def list_member_dirs(base_dir: str | Path, ensemble: str) -> list[Path]:
         if root.is_dir():
             return [p for p in sorted(root.glob("member_*")) if p.is_dir()]
     return []
+
+
+# ---- Generic path helpers ---------------------------------------------------
+
+def abspath_relative_to(base: str | Path, p: str | Path) -> str:
+    """Return absolute path string, resolving `p` against `base` if relative."""
+    base = Path(base)
+    pp = Path(p)
+    return str(pp if pp.is_absolute() else (base / pp))

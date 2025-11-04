@@ -64,38 +64,38 @@ def load_merged_config(
 
     cfg = merge_configs(proj_cfg, seas_cfg, step_cfg)
 
-    cfg.pop("environment", None)
+    cfg.pop(ENVIRONMENT, None)
 
     # Inject per-member paths
-    cfg.setdefault("input_data", {}).setdefault("meteo", {})
-    cfg["input_data"]["meteo"]["dir"] = str(Path(member_meteo_dir))
+    cfg.setdefault(INPUT_DATA, {}).setdefault(METEO, {})
+    cfg[INPUT_DATA][METEO][DIR] = str(Path(member_meteo_dir))
 
     if results_dir is not None:
-        cfg["results_dir"] = str(results_dir)
+        cfg[RESULTS_DIR] = str(results_dir)
 
     # Ensure log level from CLI is applied to openAMUNDSEN logger configuration
     if log_level is not None:
-        cfg["log_level"] = str(log_level)
+        cfg[LOG_LEVEL] = str(log_level)
 
     # Make important paths absolute relative to project root
     project_root = project_yaml.parent
 
     # grids dir
-    if "input_data" in cfg and "grids" in cfg["input_data"] and "dir" in cfg["input_data"]["grids"]:
-        cfg["input_data"]["grids"]["dir"] = _abs_if_relative(cfg["input_data"]["grids"]["dir"], project_root)
+    if INPUT_DATA in cfg and GRIDS in cfg[INPUT_DATA] and DIR in cfg[INPUT_DATA][GRIDS]:
+        cfg[INPUT_DATA][GRIDS][DIR] = abspath_relative_to(project_root, cfg[INPUT_DATA][GRIDS][DIR])
 
     # meteo dir (ensure absolute)
-    if "input_data" in cfg and "meteo" in cfg["input_data"] and "dir" in cfg["input_data"]["meteo"]:
-        cfg["input_data"]["meteo"]["dir"] = _abs_if_relative(cfg["input_data"]["meteo"]["dir"], project_root)
+    if INPUT_DATA in cfg and METEO in cfg[INPUT_DATA] and DIR in cfg[INPUT_DATA][METEO]:
+        cfg[INPUT_DATA][METEO][DIR] = abspath_relative_to(project_root, cfg[INPUT_DATA][METEO][DIR])
 
     # results_dir
-    if "results_dir" in cfg:
-        cfg["results_dir"] = _abs_if_relative(cfg["results_dir"], project_root)
+    if RESULTS_DIR in cfg:
+        cfg[RESULTS_DIR] = abspath_relative_to(project_root, cfg[RESULTS_DIR])
     else:
-        cfg["results_dir"] = str(project_root / "results")
+        cfg[RESULTS_DIR] = str(project_root / "results")
 
     # Basic time keys
-    for k in ("start_date", "end_date"):
+    for k in (START_DATE, END_DATE):
         if k not in cfg or not cfg[k]:
             raise ValueError(f"Missing required key '{k}' in merged config.")
 

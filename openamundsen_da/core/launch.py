@@ -13,6 +13,7 @@ import sys
 
 from loguru import logger
 import ruamel.yaml
+from openamundsen_da.core.constants import ENV_VARS_EXPORT, ENVIRONMENT
 
 from openamundsen_da.io.paths import (
     find_project_yaml,
@@ -55,11 +56,10 @@ def _apply_env_from_project(project_yaml: Path) -> None:
         logger.warning(f"Could not read project YAML to set environment ({project_yaml}): {e}")
         cfg = {}
 
-    env_cfg = (cfg or {}).get("environment") or {}
+    env_cfg = (cfg or {}).get(ENVIRONMENT) or {}
 
     # Only set if specified in YAML
-    for k in ("GDAL_DATA", "PROJ_LIB", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
-              "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    for k in ENV_VARS_EXPORT:
         v = env_cfg.get(k)
         if v:
             os.environ[k] = str(v)

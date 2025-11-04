@@ -17,3 +17,7 @@ ENV_VARS_EXPORT = (
     "MKL_NUM_THREADS",
     "NUMEXPR_NUM_THREADS",
 )
+
+# Member artifacts
+MEMBER_LOG_REL = ("logs", "member.log")
+MEMBER_MANIFEST = "member_run.json"

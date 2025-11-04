@@ -18,6 +18,7 @@ Design
 """
 
 import argparse
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Tuple
@@ -52,6 +53,11 @@ from openamundsen_da.io.paths import (
     prior_root as prior_root_dir,
     open_loop_dir as open_loop_dir_for_step,
     member_dir_for_index,
+)
+from openamundsen_da.core.env import (
+    apply_env_from_project,
+    ensure_gdal_proj_from_conda,
+    apply_numeric_thread_defaults,
 )
 
 
@@ -253,12 +259,33 @@ def _parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     p.add_argument("--input-meteo-dir", required=True, type=Path)
     p.add_argument("--project-dir", required=True, type=Path)
     p.add_argument("--step-dir", required=True, type=Path)
+    p.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return p.parse_args(argv)
 
 
 def main(argv: Iterable[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
+        # Configure logger to match launcher formatting (green timestamp | level | message)
+        logger.remove()
+        logger.add(
+            sys.stderr,
+            level=args.log_level,
+            enqueue=True,
+            colorize=True,
+            format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | {message}",
+        )
+
+        # Apply environment (suppress GDAL warnings by setting GDAL_DATA/PROJ_LIB where possible)
+        try:
+            proj_yaml = find_project_yaml(args.project_dir)
+            apply_env_from_project(proj_yaml)
+        except Exception:
+            # Best-effort: continue even if project env section is missing
+            pass
+        ensure_gdal_proj_from_conda()
+        apply_numeric_thread_defaults()
+
         build_prior_ensemble(args.input_meteo_dir, args.project_dir, args.step_dir)
         return 0
     except Exception as e:

@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 from rasterio.transform import guard_transform
 
 from loguru import logger
+from openamundsen_da.core.env import apply_numeric_thread_defaults
 from openamundsen.model import OpenAmundsen
 
 from openamundsen_da.core.config import load_merged_config
@@ -154,10 +155,7 @@ def run_member(
     log_level: Optional[str] = None,
 ) -> RunResult:
     # keep BLAS threads to 1 per worker
-    os.environ.setdefault("OMP_NUM_THREADS", "1")
-    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-    os.environ.setdefault("MKL_NUM_THREADS", "1")
-    os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+    apply_numeric_thread_defaults()
 
     _patch_rasterio_transform()
     _patch_linear_fit()

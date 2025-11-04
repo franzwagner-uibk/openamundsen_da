@@ -88,16 +88,16 @@ data_assimilation:
   prior_forcing:
     ensemble_size: 15
     random_seed: 42
-    sigma_t: 0.5      # additive temperature stddev
-    mu_p: 0.0         # log-space mean for precip factor
-    sigma_p: 0.2      # log-space stddev for precip factor
+    sigma_t: 0.5 # additive temperature stddev
+    mu_p: 0.0 # log-space mean for precip factor
+    sigma_p: 0.2 # log-space stddev for precip factor
 ```
 
 Step YAML must define the time window:
 
 ```yaml
 start_date: 2017-10-01 00:00:00
-end_date:   2018-09-30 23:59:59
+end_date: 2018-09-30 23:59:59
 ```
 
 Run the builder directly (PowerShell):
@@ -109,7 +109,7 @@ $seas = "$proj\propagation\season_2017-2018"
 $step = "$seas\step_00_init"
 $meteo = "$proj\meteo"   # long-span original meteo (stations.csv + station CSVs)
 
-python -m openamundsen_da.core.prior_forcing `
+& C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m openamundsen_da.core.prior_forcing `
   --input-meteo-dir $meteo `
   --project-dir     $proj `
   --step-dir        $step
@@ -131,6 +131,7 @@ Output structure (created under the step):
 ```
 
 Notes:
+
 - CSV schema is strict: column `date` is required; `temp` and `precip` are optional.
 - If a station file has `precip`, it must not contain negative values; otherwise the run aborts.
 - Temperature and precipitation perturbations are constant per member across all stations/timesteps.

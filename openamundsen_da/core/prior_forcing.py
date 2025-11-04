@@ -183,7 +183,13 @@ def _write_csv(df: pd.DataFrame, dst: Path) -> None:
     df.to_csv(dst, index=False)
 
 
-def build_prior_ensemble(input_meteo_dir: Path | str, project_dir: Path | str, step_dir: Path | str) -> None:
+def build_prior_ensemble(
+    input_meteo_dir: Path | str,
+    project_dir: Path | str,
+    step_dir: Path | str,
+    *,
+    overwrite: bool = False,
+) -> None:
     """Build open-loop and prior ensemble member meteo directories for a step.
 
     Parameters
@@ -191,6 +197,8 @@ def build_prior_ensemble(input_meteo_dir: Path | str, project_dir: Path | str, s
       (contains stations.csv and <station_id>.csv files)
     - project_dir: Path to project root containing project.yml
     - step_dir: Path to step directory containing step_XX.yml with dates
+    - overwrite: If False, skip existing open_loop/member directories; if True,
+      (re)write outputs
     """
     input_meteo_dir = Path(input_meteo_dir)
     project_dir = Path(project_dir)
@@ -214,21 +222,26 @@ def build_prior_ensemble(input_meteo_dir: Path | str, project_dir: Path | str, s
     # Prepare open_loop
     prior_root = prior_root_dir(step_dir)
     open_loop_root = open_loop_dir_for_step(step_dir)
-    meteo_ol, results_ol = _make_member_dirs(open_loop_root)
-
-    # Process open_loop (unperturbed, filtered)
-    for src in station_files:
-        df = pd.read_csv(src)
-        _ensure_schema_and_precip_positive(df, src)
-        df = _inclusive_filter(df, start, end)
-        _write_csv(df, meteo_ol / src.name)
-    (meteo_ol / "stations.csv").write_text(Path(stations_csv).read_text(encoding="utf-8"), encoding="utf-8")
-    logger.info("Open-loop written: {p}", p=str(open_loop_root))
+    if open_loop_root.exists() and not overwrite:
+        logger.info("Open-loop exists -> skipping (use --overwrite to rebuild)")
+    else:
+        meteo_ol, results_ol = _make_member_dirs(open_loop_root)
+        # Process open_loop (unperturbed, filtered)
+        for src in station_files:
+            df = pd.read_csv(src)
+            _ensure_schema_and_precip_positive(df, src)
+            df = _inclusive_filter(df, start, end)
+            _write_csv(df, meteo_ol / src.name)
+        (meteo_ol / "stations.csv").write_text(Path(stations_csv).read_text(encoding="utf-8"), encoding="utf-8")
+        logger.info("Open-loop written: {p}", p=str(open_loop_root))
 
     # Create members
     for i in range(1, params.ensemble_size + 1):
         member_name = f"member_{i:03d}"
         member_root = member_dir_for_index(step_dir, i)
+        if member_root.exists() and not overwrite:
+            logger.info(f"[{member_name}] exists -> skipping (use --overwrite)")
+            continue
         meteo_dir, _ = _make_member_dirs(member_root)
 
         # Sample perturbations (stationary per member)
@@ -260,6 +273,7 @@ def _parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     p.add_argument("--project-dir", required=True, type=Path)
     p.add_argument("--step-dir", required=True, type=Path)
     p.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
+    p.add_argument("--overwrite", action="store_true")
     return p.parse_args(argv)
 
 
@@ -286,7 +300,12 @@ def main(argv: Iterable[str] | None = None) -> int:
         ensure_gdal_proj_from_conda()
         apply_numeric_thread_defaults()
 
-        build_prior_ensemble(args.input_meteo_dir, args.project_dir, args.step_dir)
+        build_prior_ensemble(
+            args.input_meteo_dir,
+            args.project_dir,
+            args.step_dir,
+            overwrite=args.overwrite,
+        )
         return 0
     except Exception as e:
         logger.exception(e)

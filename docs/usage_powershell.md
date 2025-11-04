@@ -112,7 +112,8 @@ $meteo = "$proj\meteo"   # long-span original meteo (stations.csv + station CSVs
 & C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m openamundsen_da.core.prior_forcing `
   --input-meteo-dir $meteo `
   --project-dir     $proj `
-  --step-dir        $step
+  --step-dir        $step `
+  --overwrite
 ```
 
 Output structure (created under the step):
@@ -136,11 +137,6 @@ Notes:
 - If a station file has `precip`, it must not contain negative values; otherwise the run aborts.
 - Temperature and precipitation perturbations are constant per member across all stations/timesteps.
 - Stations without `precip` receive temperature-only perturbations.
- - Time window must align with the project timestep: ensure `start_date` and
-   `end_date` lie on the timestep grid defined in `project.yml:timestep` (e.g.,
-   for `3H` valid times are `00:00, 03:00, …, 21:00`; avoid `23:59:59`). If you
-   need to include a full day with `3H`, choose `21:00:00` on that day or
-   `00:00:00` of the next day. openAMUNDSEN will error if dates are off-grid.
 
 ## Inspect Per‑Member Logs
 

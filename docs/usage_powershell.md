@@ -72,8 +72,69 @@ python -m openamundsen_da.core.launch `
   --season-dir  $seas `
   --step-dir    $step `
   --ensemble    prior `
-  --overwrite
+--overwrite
 ```
+
+## Build Prior Forcing Ensemble (Standalone)
+
+The prior ensemble builder creates an open-loop forcing set and N perturbed members
+for a specific step. It reads dates (inclusive) from the step YAML and prior parameters
+from `project.yml` under `data_assimilation.prior_forcing`.
+
+Required keys in `project.yml` (example):
+
+```yaml
+data_assimilation:
+  prior_forcing:
+    ensemble_size: 15
+    random_seed: 42
+    sigma_t: 0.5      # additive temperature stddev
+    mu_p: 0.0         # log-space mean for precip factor
+    sigma_p: 0.2      # log-space stddev for precip factor
+```
+
+Step YAML must define the time window:
+
+```yaml
+start_date: 2017-10-01 00:00:00
+end_date:   2018-09-30 23:59:59
+```
+
+Run the builder directly (PowerShell):
+
+```powershell
+# Paths
+$proj = "C:\Daten\PhD\openamundsen_da\examples\test-project"
+$seas = "$proj\propagation\season_2017-2018"
+$step = "$seas\step_00_init"
+$meteo = "$proj\meteo"   # long-span original meteo (stations.csv + station CSVs)
+
+python -m openamundsen_da.core.prior_forcing `
+  --input-meteo-dir $meteo `
+  --project-dir     $proj `
+  --step-dir        $step
+```
+
+Output structure (created under the step):
+
+```text
+<step>\ensembles\prior\
+  open_loop\
+    meteo\   # date-filtered, unperturbed CSVs + stations.csv
+    results\
+  member_001\
+    meteo\   # perturbed CSVs + stations.csv (T additive; P multiplicative)
+    results\
+    INFO.txt
+  member_002\
+    ...
+```
+
+Notes:
+- CSV schema is strict: column `date` is required; `temp` and `precip` are optional.
+- If a station file has `precip`, it must not contain negative values; otherwise the run aborts.
+- Temperature and precipitation perturbations are constant per member across all stations/timesteps.
+- Stations without `precip` receive temperature-only perturbations.
 
 ## Inspect Per‑Member Logs
 

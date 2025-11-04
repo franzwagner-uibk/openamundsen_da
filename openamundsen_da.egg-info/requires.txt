@@ -1,0 +1,1 @@
+openamundsen>=1.1

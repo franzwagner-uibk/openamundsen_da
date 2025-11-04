@@ -4,23 +4,24 @@ This guide shows common PowerShell commands to run the ensemble launcher and whe
 
 ## Quick Start
 
-```powershell
+```powershell (ore miniconda prompt)
 # Activate your environment first
 conda activate openamundsen
 
 # Define paths (adjust to your project layout)
-$proj = "C:\\data\\oa_project"
-$seas = "$proj\\seasons\\2017_2018"
-$step = "$seas\\steps\\step_01"
+$proj = "C:\Daten\PhD\openamundsen_da\examples\test-project"
+$seas = "$proj\\propagation\\season_2017-2018"
+$step = "$seas\\step_00_init"
 
-# Launch prior ensemble with 4 workers at INFO level
-python -m openamundsen_da.core.launch `
+# Launch prior ensemble with 16 workers at INFO level
+& C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m openamundsen_da.core.launch `
   --project-dir $proj `
   --season-dir  $seas `
   --step-dir    $step `
   --ensemble    prior `
-  --max-workers 4 `
-  --log-level   INFO
+  --max-workers 16 `
+  --log-level   INFO `
+  --overwrite
 ```
 
 - Parent progress appears in the console (start/finish per member + summary).

@@ -32,6 +32,9 @@ DEFAULT_TIME_COL = "date"
 DEFAULT_TEMP_COL = "temp"
 DEFAULT_PRECIP_COL = "precip"
 
+# Station metadata filename (CSV schema used by openAMUNDSEN)
+STATIONS_CSV = "stations.csv"
+
 # Data assimilation config blocks and keys (project.yml)
 DA_BLOCK = "data_assimilation"
 DA_PRIOR_BLOCK = "prior_forcing"

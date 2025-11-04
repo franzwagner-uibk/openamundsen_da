@@ -20,6 +20,7 @@ Design
 import argparse
 import sys
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Tuple
@@ -46,6 +47,7 @@ from openamundsen_da.core.constants import (
     DEFAULT_TIME_COL,
     DEFAULT_TEMP_COL,
     DEFAULT_PRECIP_COL,
+    STATIONS_CSV,
     ENSEMBLE_PRIOR,
     START_DATE,
     END_DATE,
@@ -93,7 +95,7 @@ def _read_prior_params(project_dir: Path) -> PriorParams:
         ) from e
 
 
-def _read_step_dates(step_dir: Path) -> Tuple[pd.Timestamp, pd.Timestamp, Path]:
+def _read_step_dates(step_dir: Path) -> Tuple[pd.Timestamp, pd.Timestamp]:
     """Read inclusive [start_date..end_date] from the step YAML in step_dir."""
     step_yaml = find_step_yaml(step_dir)
     step_cfg = _read_yaml_file(step_yaml) or {}
@@ -105,15 +107,15 @@ def _read_step_dates(step_dir: Path) -> Tuple[pd.Timestamp, pd.Timestamp, Path]:
         raise ValueError(f"Missing required key '{missing}' in {step_yaml}") from e
     if pd.isna(start) or pd.isna(end):
         raise ValueError(f"Invalid start/end date in {step_yaml}")
-    return start, end, step_yaml
+    return start, end
 
 
 def _list_station_csvs(meteo_dir: Path) -> Tuple[Path, List[Path]]:
     """Return path to stations.csv and a sorted list of per-station CSV files."""
-    stations = meteo_dir / "stations.csv"
+    stations = meteo_dir / STATIONS_CSV
     if not stations.is_file():
         raise FileNotFoundError(f"Missing stations.csv in {meteo_dir}")
-    csvs = sorted(p for p in meteo_dir.glob("*.csv") if p.name != "stations.csv")
+    csvs = sorted(p for p in meteo_dir.glob("*.csv") if p.name != STATIONS_CSV)
     if not csvs:
         raise FileNotFoundError(f"No station CSV files found in {meteo_dir}")
     return stations, csvs
@@ -138,6 +140,26 @@ def _inclusive_filter(df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) 
     t = pd.to_datetime(df[DEFAULT_TIME_COL], errors="coerce")
     mask = (t >= start) & (t <= end)
     return df.loc[mask].copy()
+
+
+def _process_and_write(
+    src: Path,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    dst: Path,
+    *,
+    delta_t: float | None = None,
+    f_p: float | None = None,
+) -> None:
+    """Read, validate, filter, optionally perturb, then write CSV to dst."""
+    df = pd.read_csv(src)
+    _ensure_schema_and_precip_positive(df, src)
+    df = _inclusive_filter(df, start, end)
+    if (delta_t is not None) and (DEFAULT_TEMP_COL in df.columns):
+        df[DEFAULT_TEMP_COL] = pd.to_numeric(df[DEFAULT_TEMP_COL], errors="coerce") + float(delta_t)
+    if (f_p is not None) and (DEFAULT_PRECIP_COL in df.columns):
+        df[DEFAULT_PRECIP_COL] = pd.to_numeric(df[DEFAULT_PRECIP_COL], errors="coerce") * float(f_p)
+    _write_csv(df, dst)
 
 
 def _make_member_dirs(root: Path) -> Tuple[Path, Path]:
@@ -207,7 +229,7 @@ def build_prior_ensemble(
 
     # Read configuration
     params = _read_prior_params(project_dir)
-    start, end, step_yaml = _read_step_dates(step_dir)
+    start, end = _read_step_dates(step_dir)
 
     logger.info(
         "Building prior ensemble -> ensemble={ens}  N={n}  seed={seed}",
@@ -226,14 +248,11 @@ def build_prior_ensemble(
     if open_loop_root.exists() and not overwrite:
         logger.info("Open-loop exists -> skipping (use --overwrite to rebuild)")
     else:
-        meteo_ol, results_ol = _make_member_dirs(open_loop_root)
+        meteo_ol, _ = _make_member_dirs(open_loop_root)
         # Process open_loop (unperturbed, filtered)
         for src in station_files:
-            df = pd.read_csv(src)
-            _ensure_schema_and_precip_positive(df, src)
-            df = _inclusive_filter(df, start, end)
-            _write_csv(df, meteo_ol / src.name)
-        (meteo_ol / "stations.csv").write_text(Path(stations_csv).read_text(encoding="utf-8"), encoding="utf-8")
+            _process_and_write(src, start, end, meteo_ol / src.name)
+        shutil.copy2(stations_csv, meteo_ol / STATIONS_CSV)
         logger.info("Open-loop written: {p}", p=str(open_loop_root))
 
     # Create members
@@ -251,18 +270,10 @@ def build_prior_ensemble(
         logger.info("[{m}] delta_T={dt:+.3f}  f_p={fp:.3f}", m=member_name, dt=delta_t, fp=f_p)
 
         for src in station_files:
-            df = pd.read_csv(src)
-            _ensure_schema_and_precip_positive(df, src)
-            df = _inclusive_filter(df, start, end)
-            # Apply perturbations only where columns exist
-            if DEFAULT_TEMP_COL in df.columns:
-                df[DEFAULT_TEMP_COL] = pd.to_numeric(df[DEFAULT_TEMP_COL], errors="coerce") + delta_t
-            if DEFAULT_PRECIP_COL in df.columns:
-                df[DEFAULT_PRECIP_COL] = pd.to_numeric(df[DEFAULT_PRECIP_COL], errors="coerce") * f_p
-            _write_csv(df, meteo_dir / src.name)
+            _process_and_write(src, start, end, meteo_dir / src.name, delta_t=delta_t, f_p=f_p)
 
         # Copy stations.csv unchanged and write member INFO
-        (meteo_dir / "stations.csv").write_text(Path(stations_csv).read_text(encoding="utf-8"), encoding="utf-8")
+        shutil.copy2(stations_csv, meteo_dir / STATIONS_CSV)
         _write_info(member_root, member_name, params.random_seed, delta_t, f_p, start, end, input_meteo_dir)
 
     logger.info("Prior ensemble completed under: {root}", root=str(prior_root))

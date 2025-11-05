@@ -49,3 +49,7 @@ OBS_DIR_NAME = "obs"
 SCF_BLOCK = "scf"
 SCF_NDSI_THRESHOLD = "ndsi_threshold"
 SCF_REGION_ID_FIELD = "region_id_field"
+
+# MODIS MOD10A1 (Collection 6/6.1) processing
+MOD10A1_PRODUCT = "MOD10A1"
+MOD10A1_SDS_NAME = "NDSI_Snow_Cover"

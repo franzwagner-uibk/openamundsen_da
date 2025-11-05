@@ -14,3 +14,4 @@ where = ["."]
 
 [project.scripts]
 oa-da-scf = "openamundsen_da.observer.satellite_scf:cli_main"
+oa-da-mod10a1 = "openamundsen_da.observer.mod10a1_preprocess:cli_main"

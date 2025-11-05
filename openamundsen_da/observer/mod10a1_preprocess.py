@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Iterable
 
 import geopandas as gpd
+import numpy as np
 from loguru import logger
 
 try:  # GDAL is required for HDF handling
@@ -196,6 +197,7 @@ def convert_mod10a1_directory(
     use_envelope: bool,
     recursive: bool,
     overwrite: bool,
+    max_cloud_fraction: float | None,
 ) -> list[Path]:
     """Convert all MOD10A1 HDF files under *input_dir* to GeoTIFFs."""
 
@@ -243,9 +245,37 @@ def convert_mod10a1_directory(
             logger.error("Conversion failed for {}: {}", hdf.name, exc)
             continue
 
-        logger.info(
-            "Converted {} -> {}", hdf.name, destination.relative_to(output_root)
-        )
+        cloud_fraction = None
+        if max_cloud_fraction is not None:
+            try:
+                cloud_fraction = _cloud_fraction(destination)
+            except Exception as exc:
+                logger.error("Failed computing cloud fraction for {}: {}", destination.name, exc)
+                if destination.exists():
+                    destination.unlink(missing_ok=True)
+                continue
+
+            if cloud_fraction is None:
+                logger.error("No usable pixels after warp for {}", destination.name)
+                if destination.exists():
+                    destination.unlink(missing_ok=True)
+                continue
+
+            if cloud_fraction > max_cloud_fraction:
+                logger.info(
+                    "Skipping {} due to cloud_fraction {:.3f} > {:.3f}",
+                    hdf.name,
+                    cloud_fraction,
+                    max_cloud_fraction,
+                )
+                if destination.exists():
+                    destination.unlink(missing_ok=True)
+                continue
+
+        msg = "Converted {} -> {}".format(hdf.name, destination.relative_to(output_root))
+        if cloud_fraction is not None:
+            msg += f" (cloud_fraction={cloud_fraction:.3f})"
+        logger.info(msg)
         outputs.append(destination)
 
     return outputs
@@ -275,6 +305,11 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--no-envelope", action="store_true", help="Use exact AOI cutline instead of envelope bounds")
     parser.add_argument("--no-recursive", action="store_true", help="Do not search subdirectories for HDF files")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing GeoTIFFs")
+    parser.add_argument(
+        "--max-cloud-fraction",
+        type=float,
+        help="Skip scenes with cloud coverage higher than this fraction (e.g., 0.1 for 10%)",
+    )
     parser.add_argument("--log-level", default="INFO", help="Loguru log level (default: INFO)")
 
     args = parser.parse_args(list(argv) if argv is not None else None)
@@ -295,6 +330,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
         use_envelope=not args.no_envelope,
         recursive=not args.no_recursive,
         overwrite=bool(args.overwrite),
+        max_cloud_fraction=float(args.max_cloud_fraction) if args.max_cloud_fraction is not None else None,
     )
 
     logger.info("Finished - generated {} GeoTIFF(s)", len(outputs))
@@ -309,6 +345,39 @@ def _ensure_gdal() -> None:
             "osgeo.gdal is required but not available. Install GDAL with Python bindings in the "
             "active environment."
         ) from _GDAL_IMPORT_ERROR
+
+
+def _cloud_fraction(raster_path: Path) -> float | None:
+    """Return fraction of cloud pixels (value 200) among usable pixels (0-100 or 200).
+
+    Returns None if no usable pixels remain after masking.
+    """
+
+    ds = gdal.Open(str(raster_path), gdal.GA_ReadOnly)
+    if ds is None:
+        raise RuntimeError(f"Could not open GeoTIFF for cloud fraction: {raster_path}")
+
+    band = ds.GetRasterBand(1)
+    arr = band.ReadAsArray()
+    nodata = band.GetNoDataValue()
+    ds = None
+
+    if arr is None:
+        return None
+
+    data = np.asarray(arr)
+    mask = np.zeros(data.shape, dtype=bool)
+    if nodata is not None:
+        mask |= data == nodata
+
+    usable = (~mask) & ((data == 200) | ((data >= 0) & (data <= 100)))
+    if not np.any(usable):
+        return None
+
+    cloud = (~mask) & (data == 200)
+    cloud_count = int(np.count_nonzero(cloud))
+    usable_count = int(np.count_nonzero(usable))
+    return cloud_count / usable_count
 
 
 if __name__ == "__main__":  # pragma: no cover

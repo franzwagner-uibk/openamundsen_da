@@ -1,12 +1,15 @@
 """openamundsen_da.observer.mod10a1_preprocess
 
-Helper utilities to convert MODIS/Terra MOD10A1 (Collection 6/6.1) HDF files
-into GeoTIFFs containing the `NDSI_Snow_Cover` layer, optionally clipped to an
-AOI and reprojected to a target CRS.
+Convert MODIS/Terra MOD10A1 (Collection 6/6.1) HDF files into observation-ready
+products for the data-assimilation workflow. For each scene the module:
 
-Outputs target GeoTIFFs named `NDSI_Snow_Cover_YYYYMMDD.tif` under
-`<output_root>/<season_label>/<YYYY>/<YYYY-MM-DD>/`, matching the expectations
-of :mod:`openamundsen_da.observer.satellite_scf`.
+* extracts the `NDSI_Snow_Cover` layer as a GeoTIFF (optional AOI clip + reprojection),
+* computes a 3-class classification raster (0=invalid, 1=no snow, 2=snow),
+* estimates cloud fraction (value `200`) and snow-cover fraction (SCF), and
+* appends the results to a per-season CSV table for quick look-ups.
+
+Outputs live under `<output_root>/<season_label>/` and feed directly into
+``openamundsen_da.observer.satellite_scf``.
 """
 
 from __future__ import annotations

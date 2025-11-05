@@ -160,7 +160,7 @@ def run_observation_processing(
 
 
 def cli_main(argv: list[str] | None = None) -> int:
-    """CLI entry for single-image, single-region SCF extraction.
+    """CLI entry for single MODIS/Terra MOD10A1 (C6/6.1) SCF extraction.
 
     Examples
     --------
@@ -172,10 +172,23 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(
         prog="oa-da-scf",
-        description="Compute SCF from one MOD10A1 NDSI raster and one AOI",
+        description=(
+            "Compute SCF from one MODIS/Terra MOD10A1 Collection 6/6.1 "
+            "NDSI_Snow_Cover GeoTIFF and one AOI polygon"
+        ),
     )
-    parser.add_argument("--raster", required=True, type=Path, help="Path to NDSI GeoTIFF (0..100)")
-    parser.add_argument("--region", required=True, type=Path, help="Path to AOI vector with 'region_id'")
+    parser.add_argument(
+        "--raster",
+        required=True,
+        type=Path,
+        help="Path to MOD10A1 C6/6.1 NDSI_Snow_Cover GeoTIFF (0..100)",
+    )
+    parser.add_argument(
+        "--region",
+        required=True,
+        type=Path,
+        help="Path to AOI vector (single feature) with field 'region_id'",
+    )
     parser.add_argument("--step-dir", type=Path, help="Step directory to place CSV under 'obs' and read config")
     parser.add_argument("--output", type=Path, help="Explicit output CSV path (overrides --step-dir)")
     parser.add_argument("--ndsi-threshold", type=float, help="Override NDSI threshold (default 40)")

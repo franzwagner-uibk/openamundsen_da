@@ -133,7 +133,7 @@ def _warp_ndsi(
     """Reproject and optionally crop the NDSI subdataset into *destination*."""
 
     if destination.exists() and not overwrite:
-        logger.info("Skipping existing %s (use --overwrite to replace)", destination)
+        logger.info("Skipping existing {} (use --overwrite to replace)", destination)
         return
 
     _ensure_gdal()
@@ -202,30 +202,30 @@ def convert_mod10a1_directory(
     _ensure_gdal()
     ensure_gdal_proj_from_conda()
 
-    logger.debug("Scanning %s for MOD10A1 HDF files (recursive=%s)", input_dir, recursive)
+    logger.debug("Scanning {} for MOD10A1 HDF files (recursive={})", input_dir, recursive)
     hdf_files = _list_hdf_files(Path(input_dir), recursive)
     if not hdf_files:
-        logger.warning("No MOD10A1 HDF files found in %s", input_dir)
+        logger.warning("No MOD10A1 HDF files found in {}", input_dir)
         return []
 
     bounds = None
     aoi = Path(aoi_path) if aoi_path is not None else None
     if aoi and use_envelope:
         bounds = _target_bounds(aoi, target_epsg)
-        logger.debug("AOI bounds in EPSG:%s -> %s", target_epsg, bounds)
+        logger.debug("AOI bounds in EPSG:{} -> {}", target_epsg, bounds)
 
     outputs: list[Path] = []
     for hdf in hdf_files:
         try:
             meta = _parse_mod10a1_name(hdf)
         except ValueError as exc:
-            logger.error("Skipping %s: %s", hdf.name, exc)
+            logger.error("Skipping {}: {}", hdf.name, exc)
             continue
 
         try:
             subdataset = _find_ndsi_subdataset(hdf)
         except RuntimeError as exc:
-            logger.error("Skipping %s: %s", hdf.name, exc)
+            logger.error("Skipping {}: {}", hdf.name, exc)
             continue
 
         destination = _build_output_path(output_root, season_label, meta.date)
@@ -240,11 +240,11 @@ def convert_mod10a1_directory(
                 overwrite=overwrite,
             )
         except Exception as exc:
-            logger.error("Conversion failed for %s: %s", hdf.name, exc)
+            logger.error("Conversion failed for {}: {}", hdf.name, exc)
             continue
 
         logger.info(
-            "Converted %s -> %s", hdf.name, destination.relative_to(output_root)
+            "Converted {} -> {}", hdf.name, destination.relative_to(output_root)
         )
         outputs.append(destination)
 
@@ -297,7 +297,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
         overwrite=bool(args.overwrite),
     )
 
-    logger.info("Finished - generated %d GeoTIFF(s)", len(outputs))
+    logger.info("Finished - generated {} GeoTIFF(s)", len(outputs))
     return 0
 
 

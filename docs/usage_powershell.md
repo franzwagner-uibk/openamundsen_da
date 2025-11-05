@@ -57,6 +57,29 @@ scf:
 - To write elsewhere: `oa-da-scf --raster ... --region ... --output C:\tmp\myscf.csv`.
 - The tool fails if the AOI lacks `region_id`, contains multiple features, or no valid pixels remain after masking.
 
+## MOD10A1 Preprocess
+
+Batch-convert MODIS/Terra MOD10A1 Collection 6/6.1 HDF files into
+`NDSI_Snow_Cover` GeoTIFFs ready for the SCF script:
+
+```powershell
+$input = "C:\data\modis\raw_hdf"
+$proj  = "C:\Daten\PhD\openamundsen_da\examples\test-project"
+$aoi   = "$proj\env\GMBA_Inventory_L8_15422.gpkg"
+
+oa-da-mod10a1 --input-dir $input `
+              --project-dir $proj `
+              --season-label season_2017-2018 `
+              --aoi $aoi `
+              --target-epsg 25832
+```
+
+- Output folder: `$proj\obs\season_2017-2018\YYYY\YYYY-MM-DD\NDSI_Snow_Cover_YYYYMMDD.tif`.
+- The tool keeps only the `NDSI_Snow_Cover` layer, reprojects to `--target-epsg`,
+  and clips to the AOI (bounding box by default, use `--no-envelope` for exact cutline).
+- Use `--resolution` (e.g. `500`) to set output pixel size in meters; omit for native.
+- Existing GeoTIFFs are skipped unless `--overwrite` is provided.
+
 ## Show Help
 
 ```powershell

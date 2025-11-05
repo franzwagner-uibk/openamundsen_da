@@ -63,15 +63,19 @@ Batch-convert MODIS/Terra MOD10A1 Collection 6/6.1 HDF files into
 `NDSI_Snow_Cover` GeoTIFFs ready for the SCF script:
 
 ```powershell
-$input = "C:\data\modis\raw_hdf"
+$input = "C:\Daten\PhD\openamundsen_da\examples\test-project\obs\MOD10A1_61_HDF"
 $proj  = "C:\Daten\PhD\openamundsen_da\examples\test-project"
 $aoi   = "$proj\env\GMBA_Inventory_L8_15422.gpkg"
 
-oa-da-mod10a1 --input-dir $input `
-              --project-dir $proj `
-              --season-label season_2017-2018 `
-              --aoi $aoi `
-              --target-epsg 25832
+& C:\Users\franz\miniconda3\envs\openamundsen\python.exe `
+  -m openamundsen_da.observer.mod10a1_preprocess `
+  --input-dir "C:\Daten\PhD\openamundsen_da\examples\test-project\obs\MOD10A1_61_HDF" `
+  --project-dir "C:\Daten\PhD\openamundsen_da\examples\test-project" `
+  --season-label season_2017-2018 `
+  --aoi "C:\Daten\PhD\openamundsen_da\examples\test-project\env\GMBA_Inventory_L8_15422.gpkg" `
+  --target-epsg 25832 `
+  --resolution 500 `
+  --overwrite
 ```
 
 - Output folder: `$proj\obs\season_2017-2018\YYYY\YYYY-MM-DD\NDSI_Snow_Cover_YYYYMMDD.tif`.

@@ -41,6 +41,7 @@ oa-da-scf --raster $raster --region $region --step-dir $step
 ```
 
 Input expectations:
+
 - Raster: MODIS/Terra MOD10A1 Collection 6/6.1 exported to GeoTIFF, single band
   `NDSI_Snow_Cover`, values scaled 0..100, nodata already applied.
 - AOI: exactly one polygon feature with field `region_id`, same CRS as the raster.
@@ -183,3 +184,18 @@ Get-Content $log -Tail 50 -Wait
 - Quote paths containing spaces: `"C:\\path with spaces\\..."`.
 - GDAL/PROJ and threading env are auto‑applied from `project.yml` when present; you usually don’t need to set them manually.
 - `--log-level` controls both the parent process and the openAMUNDSEN logger inside workers.
+
+## Helpers
+
+# convert shp to gpkg
+
+& C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m osgeo.ogr2ogr -f GPKG "C:\path\to\output.gpkg" "C:\path\to\input.shp"
+
+```powershell
+# Paths
+
+$inshp = "C:\\Daten\\PhD\\02-Daten\\15422\\misc\\GMBA_Inventory_L8_15422.shp"
+$outgpkg = "C:\\Daten\\PhD\\openamundsen_da\\examples\\test-project\\env\\GMBA_Inventory_L8_15422.gpkg"
+
+"C:\Users\franz\miniconda3\envs\openamundsen\Library\bin\ogr2ogr.exe" -f GPKG "$outgpkg" "$inshp"
+```

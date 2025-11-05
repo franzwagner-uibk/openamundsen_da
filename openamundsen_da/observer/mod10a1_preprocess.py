@@ -301,10 +301,6 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     return 0
 
 
-if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(cli_main())
-
-
 def _ensure_gdal() -> None:
     """Raise a helpful error if GDAL bindings are missing."""
 
@@ -313,3 +309,7 @@ def _ensure_gdal() -> None:
             "osgeo.gdal is required but not available. Install GDAL with Python bindings in the "
             "active environment."
         ) from _GDAL_IMPORT_ERROR
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(cli_main())

@@ -31,15 +31,20 @@ $step = "$seas\\step_00_init"
 
 Single-image, single-region SCF extraction with the new observer:
 
-```powershell
-# Activate env first (conda activate openamundsen)
-$step   = "C:\Daten\PhD\openamundsen_da\examples\test-project\propagation\season_2017-2018\step_00_init"
-$raster = "C:\data\modis\NDSI_Snow_Cover_20250315.tif"
-$region = "C:\data\modis\region.gpkg"
-
-oa-da-scf --raster $raster --region $region --step-dir $step
-```
-
+-```powershell
+-# Activate env first (conda activate openamundsen)
+-$step   = "C:\Daten\PhD\openamundsen_da\examples\test-project\propagation\season_2017-2018\step_00_init"
+-$raster = "C:\data\modis\NDSI_Snow_Cover_20250315.tif"
+-$region = "C:\data\modis\region.gpkg"
+-
+-oa-da-scf --raster $raster --region $region --step-dir $step
+-```
+-
+-Input expectations:
+- The raster must be MODIS/Terra MOD10A1 Collection 6/6.1 exported to GeoTIFF,
+- single band `NDSI_Snow_Cover`, values scaled 0..100, nodata already applied.
+- The AOI vector must contain exactly one polygon with field `region_id` in the
+- same CRS as the raster.
 - Output: `<step>\obs\obs_scf_MOD10A1_YYYYMMDD.csv` with columns `date,region_id,scf`.
 - Threshold override via step YAML (`step_00.yml`):
 

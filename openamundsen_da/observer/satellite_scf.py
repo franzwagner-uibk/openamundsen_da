@@ -1,15 +1,18 @@
 """
 openamundsen_da.observer.satellite_scf
 
-Minimal observation processing for MODIS MOD10A1 SCF (first experimental version).
+Minimal observation processing for MODIS/Terra Snow Cover Daily (MOD10A1
+Collection 6/6.1). Assumes the product was exported as a single-band GeoTIFF
+containing the layer `NDSI_Snow_Cover` scaled to 0..100 and with nodata already
+applied.
 
-Reads a single preprocessed NDSI GeoTIFF (0..100), masks it by a single AOI
-polygon (field 'region_id'), applies a fixed/ configurable threshold to derive
-SCF = N_snow / N_valid, and writes one CSV row: date,region_id,scf.
+Reads one preprocessed raster, masks it by a single AOI polygon (field
+`region_id`), applies a fixed/configurable NDSI threshold, and writes one CSV
+row (`date,region_id,scf`).
 
 Notes
-- Inputs must be preprocessed (CRS aligned, QA done, etc.).
-- Intended for single-image, single-region runs; batch support will come later.
+- Inputs must be preprocessed (CRS aligned, QA filtering, mosaicking, etc.).
+- Only one raster and one region per run; batch support will come later.
 """
 
 from __future__ import annotations
@@ -102,7 +105,8 @@ def run_observation_processing(
     Parameters
     ----------
     input_raster : Path
-        Path to the preprocessed MOD10A1 NDSI raster (0..100 values).
+        Path to a MODIS/Terra MOD10A1 Collection 6/6.1 raster exported to
+        GeoTIFF containing band `NDSI_Snow_Cover`, scaled 0..100 with nodata.
     region_path : Path
         Path to a vector file containing a single AOI polygon with field
         `region_id` (or `region_id_field`).
@@ -214,4 +218,3 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(cli_main())
-

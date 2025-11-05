@@ -83,12 +83,15 @@ python -m openamundsen_da.observer.mod10a1_preprocess `
 ```
 
 - Output folder: `$proj\obs\season_2017-2018\NDSI_Snow_Cover_YYYYMMDD.tif` (flat per season).
+- Each accepted scene also yields `NDSI_Snow_Cover_YYYYMMDD_class.tif` (0=invalid, 1=no snow, 2=snow).
+- The script maintains `$proj\obs\season_2017-2018\scf_summary.csv` with columns `date,region_id,scf,cloud_fraction,source`.
 - The tool keeps only the `NDSI_Snow_Cover` layer, reprojects to `--target-epsg`,
   and clips to the AOI (bounding box by default, use `--no-envelope` for exact cutline).
 - Use `--resolution` (e.g. `500`) to set output pixel size in meters; omit for native.
 - Existing GeoTIFFs are skipped unless `--overwrite` is provided.
 - Use `--max-cloud-fraction` (e.g. `0.1`) to reject scenes where more than 10% of usable pixels are
   flagged as cloudy (`NDSI_Snow_Cover == 200`).
+- Adjust `--ndsi-threshold` if you need a different snow classification limit (default 40).
 
 ## Show Help
 

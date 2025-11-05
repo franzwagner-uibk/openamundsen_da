@@ -24,6 +24,7 @@ from typing import Iterable
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 from loguru import logger
 
 try:  # GDAL is required for HDF handling
@@ -39,6 +40,7 @@ from openamundsen_da.core.constants import (
     MOD10A1_PRODUCT,
     MOD10A1_SDS_NAME,
     OBS_DIR_NAME,
+    SCF_REGION_ID_FIELD,
 )
 from openamundsen_da.core.env import ensure_gdal_proj_from_conda
 
@@ -101,18 +103,6 @@ def _find_ndsi_subdataset(hdf_path: Path) -> str:
     finally:
         ds = None
     raise RuntimeError(f"Subdataset '{MOD10A1_SDS_NAME}' not found in {hdf_path.name}")
-
-
-def _target_bounds(aoi_path: Path, target_epsg: int) -> tuple[float, float, float, float]:
-    """Compute AOI bounds in *target_epsg* for fast cropping."""
-
-    gdf = gpd.read_file(aoi_path)
-    if gdf.empty:
-        raise ValueError(f"AOI file is empty: {aoi_path}")
-    if target_epsg and gdf.crs is not None and gdf.crs.to_epsg() != target_epsg:
-        gdf = gdf.to_crs(target_epsg)
-    minx, miny, maxx, maxy = gdf.total_bounds
-    return float(minx), float(miny), float(maxx), float(maxy)
 
 
 def _build_output_path(output_root: Path, season_label: str, when: datetime) -> Path:
@@ -200,6 +190,7 @@ def convert_mod10a1_directory(
     recursive: bool,
     overwrite: bool,
     max_cloud_fraction: float | None,
+    ndsi_threshold: float,
 ) -> list[Path]:
     """Convert all MOD10A1 HDF files under *input_dir* to GeoTIFFs."""
 
@@ -212,11 +203,28 @@ def convert_mod10a1_directory(
         logger.warning("No MOD10A1 HDF files found in {}", input_dir)
         return []
 
+    season_dir = output_root / season_label
+    season_dir.mkdir(parents=True, exist_ok=True)
+
     bounds = None
+    region_id = "region"
     aoi = Path(aoi_path) if aoi_path is not None else None
-    if aoi and use_envelope:
-        bounds = _target_bounds(aoi, target_epsg)
-        logger.debug("AOI bounds in EPSG:{} -> {}", target_epsg, bounds)
+    if aoi:
+        gdf = gpd.read_file(aoi)
+        if gdf.empty:
+            raise ValueError("AOI file does not contain geometries")
+        if len(gdf) != 1:
+            raise ValueError("AOI must contain exactly one feature")
+        if SCF_REGION_ID_FIELD not in gdf.columns:
+            raise KeyError(f"AOI missing field '{SCF_REGION_ID_FIELD}'")
+        region_id = str(gdf.iloc[0][SCF_REGION_ID_FIELD])
+        if use_envelope:
+            if gdf.crs is None:
+                raise ValueError("AOI CRS is undefined")
+            gdf_target = gdf if (target_epsg is None or gdf.crs.to_epsg() == target_epsg) else gdf.to_crs(target_epsg)
+            tb = gdf_target.total_bounds
+            bounds = (float(tb[0]), float(tb[1]), float(tb[2]), float(tb[3]))
+            logger.debug("AOI bounds in EPSG:{} -> {}", target_epsg, bounds)
 
     outputs: list[Path] = []
     for hdf in hdf_files:
@@ -247,40 +255,81 @@ def convert_mod10a1_directory(
             logger.error("Conversion failed for {}: {}", hdf.name, exc)
             continue
 
-        cloud_fraction = None
-        if max_cloud_fraction is not None:
-            try:
-                cloud_fraction = _cloud_fraction(destination)
-            except Exception as exc:
-                logger.error("Failed computing cloud fraction for {}: {}", destination.name, exc)
-                if destination.exists():
-                    destination.unlink(missing_ok=True)
-                continue
+        try:
+            data, nodata, transform, projection = _read_ndsi_raster(destination)
+        except Exception as exc:
+            logger.error("Failed reading {}: {}", destination.name, exc)
+            if destination.exists():
+                destination.unlink(missing_ok=True)
+            continue
 
-            if cloud_fraction is None:
-                logger.warning(
-                    "Discarded {} because AOI contained no usable NDSI pixels (only nodata or QA codes)",
-                    destination.name,
-                )
-                if destination.exists():
-                    destination.unlink(missing_ok=True)
-                continue
+        cloud_fraction = _cloud_fraction_from_data(data, nodata)
+        if cloud_fraction is None:
+            logger.warning(
+                "Discarded {} because AOI contained no usable NDSI pixels (only nodata or QA codes)",
+                destination.name,
+            )
+            if destination.exists():
+                destination.unlink(missing_ok=True)
+            continue
 
-            if cloud_fraction > max_cloud_fraction:
-                logger.info(
-                    "Skipping {} due to cloud_fraction {:.3f} > {:.3f}",
-                    hdf.name,
-                    cloud_fraction,
-                    max_cloud_fraction,
-                )
-                if destination.exists():
-                    destination.unlink(missing_ok=True)
-                continue
+        if max_cloud_fraction is not None and cloud_fraction > max_cloud_fraction:
+            logger.info(
+                "Skipping {} due to cloud_fraction {:.3f} > {:.3f}",
+                hdf.name,
+                cloud_fraction,
+                max_cloud_fraction,
+            )
+            if destination.exists():
+                destination.unlink(missing_ok=True)
+            continue
 
-        msg = "Converted {} -> {}".format(hdf.name, destination.relative_to(output_root))
-        if cloud_fraction is not None:
-            msg += f" (cloud_fraction={cloud_fraction:.3f})"
-        logger.info(msg)
+        class_arr, scf = _classify_ndsi_data(data, nodata, ndsi_threshold)
+        if scf is None:
+            logger.warning(
+                "Discarded {} because no valid NDSI pixels remained after filtering",
+                destination.name,
+            )
+            if destination.exists():
+                destination.unlink(missing_ok=True)
+            continue
+
+        class_path = destination.with_name(destination.stem + "_class.tif")
+        try:
+            _write_classification_raster(
+                class_path,
+                class_arr,
+                transform,
+                projection,
+                overwrite,
+            )
+        except Exception as exc:
+            logger.error("Failed writing classification {}: {}", class_path.name, exc)
+            if destination.exists():
+                destination.unlink(missing_ok=True)
+            if class_path.exists():
+                class_path.unlink(missing_ok=True)
+            continue
+
+        try:
+            _update_scf_summary(
+                summary_path,
+                meta.date,
+                region_id,
+                scf,
+                cloud_fraction,
+                destination.name,
+            )
+        except Exception as exc:
+            logger.error("Failed updating SCF summary for {}: {}", destination.name, exc)
+
+        logger.info(
+            "Converted {} -> {} (scf={:.2f}, cloud_fraction={:.3f})",
+            hdf.name,
+            destination.relative_to(output_root),
+            scf,
+            cloud_fraction,
+        )
         outputs.append(destination)
 
     return outputs
@@ -307,6 +356,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--aoi", type=Path, help="AOI vector for clipping (GeoPackage, Shapefile, etc.)")
     parser.add_argument("--target-epsg", type=int, default=25832, help="Output EPSG code (default: 25832)")
     parser.add_argument("--resolution", type=float, help="Output pixel size in target units (e.g., 500)")
+    parser.add_argument("--ndsi-threshold", type=float, default=40.0, help="NDSI threshold for snow classification (default: 40)")
     parser.add_argument("--no-envelope", action="store_true", help="Use exact AOI cutline instead of envelope bounds")
     parser.add_argument("--no-recursive", action="store_true", help="Do not search subdirectories for HDF files")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing GeoTIFFs")
@@ -336,6 +386,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
         recursive=not args.no_recursive,
         overwrite=bool(args.overwrite),
         max_cloud_fraction=float(args.max_cloud_fraction) if args.max_cloud_fraction is not None else None,
+        ndsi_threshold=float(args.ndsi_threshold),
     )
 
     logger.info("Finished - generated {} GeoTIFF(s)", len(outputs))
@@ -352,25 +403,31 @@ def _ensure_gdal() -> None:
         ) from _GDAL_IMPORT_ERROR
 
 
-def _cloud_fraction(raster_path: Path) -> float | None:
-    """Return fraction of cloud pixels (value 200) among usable pixels (0-100 or 200).
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(cli_main())
 
-    Returns None if no usable pixels remain after masking.
-    """
+
+def _read_ndsi_raster(raster_path: Path) -> tuple[np.ndarray, float | None, tuple | None, str | None]:
+    """Read raster values, nodata, transform, and projection from GeoTIFF."""
 
     ds = gdal.Open(str(raster_path), gdal.GA_ReadOnly)
     if ds is None:
-        raise RuntimeError(f"Could not open GeoTIFF for cloud fraction: {raster_path}")
+        raise RuntimeError(f"Could not open GeoTIFF: {raster_path}")
 
     band = ds.GetRasterBand(1)
     arr = band.ReadAsArray()
-    nodata = band.GetNoDataValue()
-    ds = None
-
     if arr is None:
-        return None
+        raise RuntimeError(f"Could not read data array from {raster_path}")
+    nodata = band.GetNoDataValue()
+    transform = ds.GetGeoTransform()
+    projection = ds.GetProjection()
+    ds = None
+    return np.asarray(arr), nodata, transform, projection
 
-    data = np.asarray(arr)
+
+def _cloud_fraction_from_data(data: np.ndarray, nodata: float | None) -> float | None:
+    """Fraction of cloud pixels (value 200) among usable pixels (0-100 or 200)."""
+
     mask = np.zeros(data.shape, dtype=bool)
     if nodata is not None:
         mask |= data == nodata
@@ -385,5 +442,97 @@ def _cloud_fraction(raster_path: Path) -> float | None:
     return cloud_count / usable_count
 
 
-if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(cli_main())
+def _classify_ndsi_data(
+    data: np.ndarray,
+    nodata: float | None,
+    threshold: float,
+) -> tuple[np.ndarray, float | None]:
+    """Return (classification array, SCF) derived from NDSI data."""
+
+    mask_invalid = np.zeros(data.shape, dtype=bool)
+    if nodata is not None:
+        mask_invalid |= data == nodata
+
+    valid = (~mask_invalid) & (data >= 0) & (data <= 100)
+    snow = valid & (data > threshold)
+    no_snow = valid & (data <= threshold)
+
+    class_arr = np.zeros(data.shape, dtype=np.uint8)
+    class_arr[no_snow] = 1
+    class_arr[snow] = 2
+
+    valid_count = int(np.count_nonzero(valid))
+    if valid_count == 0:
+        return class_arr, None
+
+    snow_count = int(np.count_nonzero(snow))
+    scf = snow_count / valid_count
+    return class_arr, scf
+
+
+def _write_classification_raster(
+    output_path: Path,
+    data: np.ndarray,
+    transform: tuple | None,
+    projection: str | None,
+    overwrite: bool,
+) -> None:
+    """Write classification raster as Byte GeoTIFF with nodata=0."""
+
+    if output_path.exists():
+        if overwrite:
+            output_path.unlink()
+        else:
+            return
+
+    height, width = data.shape
+    driver = gdal.GetDriverByName("GTiff")
+    dst = driver.Create(
+        str(output_path),
+        width,
+        height,
+        1,
+        gdal.GDT_Byte,
+        ["TILED=YES", "COMPRESS=DEFLATE", "PREDICTOR=2"],
+    )
+    if dst is None:
+        raise RuntimeError(f"Could not create classification raster {output_path}")
+    if transform:
+        dst.SetGeoTransform(transform)
+    if projection:
+        dst.SetProjection(projection)
+
+    band = dst.GetRasterBand(1)
+    band.WriteArray(data)
+    band.SetNoDataValue(0)
+    band.FlushCache()
+    dst = None
+
+
+def _update_scf_summary(
+    summary_path: Path,
+    date: datetime,
+    region_id: str,
+    scf: float,
+    cloud_fraction: float,
+    source_name: str,
+) -> None:
+    """Append or update SCF summary CSV in the season directory."""
+
+    row = pd.DataFrame(
+        {
+            "date": [date.strftime("%Y-%m-%d")],
+            "region_id": [region_id],
+            "scf": [round(scf, 2)],
+            "cloud_fraction": [round(cloud_fraction, 3)],
+            "source": [source_name],
+        }
+    )
+
+    if summary_path.exists():
+        existing = pd.read_csv(summary_path)
+        existing = existing[existing["date"] != row.loc[0, "date"]]
+        row = pd.concat([existing, row], ignore_index=True)
+        row = row.sort_values("date")
+
+    row.to_csv(summary_path, index=False)

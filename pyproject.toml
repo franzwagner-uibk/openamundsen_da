@@ -11,3 +11,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[project.scripts]
+oa-da-scf = "openamundsen_da.observer.satellite_scf:cli_main"

@@ -43,3 +43,9 @@ DA_RANDOM_SEED = "random_seed"
 DA_SIGMA_T = "sigma_t"
 DA_MU_P = "mu_p"
 DA_SIGMA_P = "sigma_p"
+
+# Observation processing (satellite SCF)
+OBS_DIR_NAME = "obs"
+SCF_BLOCK = "scf"
+SCF_NDSI_THRESHOLD = "ndsi_threshold"
+SCF_REGION_ID_FIELD = "region_id_field"

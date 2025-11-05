@@ -82,7 +82,7 @@ python -m openamundsen_da.observer.mod10a1_preprocess `
   --overwrite
 ```
 
-- Output folder: `$proj\obs\season_2017-2018\YYYY\YYYY-MM-DD\NDSI_Snow_Cover_YYYYMMDD.tif`.
+- Output folder: `$proj\obs\season_2017-2018\NDSI_Snow_Cover_YYYYMMDD.tif` (flat per season).
 - The tool keeps only the `NDSI_Snow_Cover` layer, reprojects to `--target-epsg`,
   and clips to the AOI (bounding box by default, use `--no-envelope` for exact cutline).
 - Use `--resolution` (e.g. `500`) to set output pixel size in meters; omit for native.

@@ -113,12 +113,11 @@ def _target_bounds(aoi_path: Path, target_epsg: int) -> tuple[float, float, floa
 
 
 def _build_output_path(output_root: Path, season_label: str, when: datetime) -> Path:
-    """Derive output path for the converted GeoTIFF."""
+    """Derive output path for the converted GeoTIFF (flat per season)."""
 
     season_dir = output_root / season_label
-    datedir = season_dir / when.strftime("%Y") / when.strftime("%Y-%m-%d")
-    datedir.mkdir(parents=True, exist_ok=True)
-    return datedir / f"{MOD10A1_SDS_NAME}_{when.strftime('%Y%m%d')}.tif"
+    season_dir.mkdir(parents=True, exist_ok=True)
+    return season_dir / f"{MOD10A1_SDS_NAME}_{when.strftime('%Y%m%d')}.tif"
 
 
 def _warp_ndsi(
@@ -256,7 +255,10 @@ def convert_mod10a1_directory(
                 continue
 
             if cloud_fraction is None:
-                logger.error("No usable pixels after warp for {}", destination.name)
+                logger.warning(
+                    "Discarded {} because AOI contained no usable NDSI pixels (only nodata or QA codes)",
+                    destination.name,
+                )
                 if destination.exists():
                     destination.unlink(missing_ok=True)
                 continue

@@ -78,6 +78,7 @@ python -m openamundsen_da.observer.mod10a1_preprocess `
   --aoi "C:\Daten\PhD\openamundsen_da\examples\test-project\env\GMBA_Inventory_L8_15422.gpkg" `
   --target-epsg 25832 `
   --resolution 500 `
+  --max-cloud-fraction 0.1 `
   --overwrite
 ```
 
@@ -86,6 +87,8 @@ python -m openamundsen_da.observer.mod10a1_preprocess `
   and clips to the AOI (bounding box by default, use `--no-envelope` for exact cutline).
 - Use `--resolution` (e.g. `500`) to set output pixel size in meters; omit for native.
 - Existing GeoTIFFs are skipped unless `--overwrite` is provided.
+- Use `--max-cloud-fraction` (e.g. `0.1`) to reject scenes where more than 10% of usable pixels are
+  flagged as cloudy (`NDSI_Snow_Cover == 200`).
 
 ## Show Help
 

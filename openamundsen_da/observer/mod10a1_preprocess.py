@@ -21,7 +21,15 @@ from typing import Iterable
 
 import geopandas as gpd
 from loguru import logger
-from osgeo import gdal
+
+try:  # GDAL is required for HDF handling
+    from osgeo import gdal  # type: ignore
+except ImportError as exc:  # pragma: no cover - handled at runtime
+    gdal = None  # type: ignore
+    _GDAL_IMPORT_ERROR: Exception | None = exc
+else:  # pragma: no cover - import side effect
+    gdal.UseExceptions()
+    _GDAL_IMPORT_ERROR = None
 
 from openamundsen_da.core.constants import (
     MOD10A1_PRODUCT,
@@ -30,8 +38,6 @@ from openamundsen_da.core.constants import (
 )
 from openamundsen_da.core.env import ensure_gdal_proj_from_conda
 
-
-gdal.UseExceptions()
 
 
 @dataclass(frozen=True)
@@ -80,6 +86,7 @@ def _list_hdf_files(root: Path, recursive: bool) -> list[Path]:
 def _find_ndsi_subdataset(hdf_path: Path) -> str:
     """Locate the `NDSI_Snow_Cover` subdataset within the HDF container."""
 
+    _ensure_gdal()
     ds = gdal.Open(str(hdf_path), gdal.GA_ReadOnly)
     if ds is None:
         raise RuntimeError(f"Could not open HDF file: {hdf_path}")
@@ -129,6 +136,7 @@ def _warp_ndsi(
         logger.info("Skipping existing %s (use --overwrite to replace)", destination)
         return
 
+    _ensure_gdal()
     src = gdal.Open(subdataset, gdal.GA_ReadOnly)
     if src is None:
         raise RuntimeError(f"Could not open subdataset: {subdataset}")
@@ -191,6 +199,7 @@ def convert_mod10a1_directory(
 ) -> list[Path]:
     """Convert all MOD10A1 HDF files under *input_dir* to GeoTIFFs."""
 
+    _ensure_gdal()
     ensure_gdal_proj_from_conda()
 
     logger.debug("Scanning %s for MOD10A1 HDF files (recursive=%s)", input_dir, recursive)
@@ -294,3 +303,13 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
+
+
+def _ensure_gdal() -> None:
+    """Raise a helpful error if GDAL bindings are missing."""
+
+    if gdal is None:  # type: ignore[truth-value]
+        raise RuntimeError(
+            "osgeo.gdal is required but not available. Install GDAL with Python bindings in the "
+            "active environment."
+        ) from _GDAL_IMPORT_ERROR

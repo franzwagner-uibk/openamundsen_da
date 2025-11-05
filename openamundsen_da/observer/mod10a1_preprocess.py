@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable
 
 import geopandas as gpd
 from loguru import logger
@@ -270,7 +271,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     logger.remove()
-    logger.add(lambda msg: print(msg, end=""), level=args.log_level.upper())
+    logger.add(sys.stdout, level=args.log_level.upper())
 
     project_dir = Path(args.project_dir) if args.project_dir else Path.cwd()
     output_root = Path(args.output_root) if args.output_root else project_dir / OBS_DIR_NAME
@@ -293,4 +294,3 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-

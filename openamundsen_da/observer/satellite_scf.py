@@ -149,13 +149,13 @@ def run_observation_processing(
     df = pd.DataFrame({
         "date": [dt.strftime("%Y-%m-%d")],
         "region_id": [region_id],
-        "scf": [scf],
+        "scf": [round(scf, 2)],
     })
     df.to_csv(output_csv, index=False)
 
     # Single concise log line
     logger.info(
-        f"SCF | raster={input_raster.name} region={region_id} valid={n_valid} snow={n_snow} scf={scf:.3f} -> {output_csv.name}"
+        f"SCF | raster={input_raster.name} region={region_id} valid={n_valid} snow={n_snow} scf={scf:.2f} -> {output_csv.name}"
     )
 
 

@@ -27,6 +27,31 @@ $step = "$seas\\step_00_init"
 - Parent progress appears in the console (start/finish per member + summary).
 - Each worker writes its own log file to `<member_dir>\\logs\\member.log`.
 
+## Satellite SCF Observation
+
+Single-image, single-region SCF extraction with the new observer:
+
+```powershell
+# Activate env first (conda activate openamundsen)
+$step   = "C:\Daten\PhD\openamundsen_da\examples\test-project\propagation\season_2017-2018\step_00_init"
+$raster = "C:\data\modis\NDSI_Snow_Cover_20250315.tif"
+$region = "C:\data\modis\region.gpkg"
+
+oa-da-scf --raster $raster --region $region --step-dir $step
+```
+
+- Output: `<step>\obs\obs_scf_MOD10A1_YYYYMMDD.csv` with columns `date,region_id,scf`.
+- Threshold override via step YAML (`step_00.yml`):
+
+```yaml
+scf:
+  ndsi_threshold: 35
+  region_id_field: region_id
+```
+
+- To write elsewhere: `oa-da-scf --raster ... --region ... --output C:\tmp\myscf.csv`.
+- The tool fails if the AOI lacks `region_id`, contains multiple features, or no valid pixels remain after masking.
+
 ## Show Help
 
 ```powershell

@@ -51,6 +51,7 @@ from openamundsen_da.core.constants import (
     ENSEMBLE_PRIOR,
     START_DATE,
     END_DATE,
+    LOGURU_FORMAT,
 )
 from openamundsen_da.util.stats import sample_delta_t, sample_precip_factor
 from openamundsen_da.io.paths import (
@@ -299,7 +300,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             level=args.log_level,
             enqueue=True,
             colorize=True,
-            format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | {message}",
+            format=LOGURU_FORMAT,
         )
 
         # Apply environment (suppress GDAL warnings by setting GDAL_DATA/PROJ_LIB where possible)

@@ -371,8 +371,9 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
     args = parser.parse_args(list(argv) if argv is not None else None)
 
+    from openamundsen_da.core.constants import LOGURU_FORMAT
     logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper())
+    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
     project_dir = Path(args.project_dir) if args.project_dir else Path.cwd()
     output_root = Path(args.output_root) if args.output_root else project_dir / OBS_DIR_NAME

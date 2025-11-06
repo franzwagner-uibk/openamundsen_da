@@ -25,7 +25,7 @@ from rasterio.transform import guard_transform
 
 from loguru import logger
 from openamundsen_da.core.env import apply_numeric_thread_defaults
-from openamundsen_da.core.constants import MEMBER_LOG_REL, MEMBER_MANIFEST
+from openamundsen_da.core.constants import MEMBER_LOG_REL, MEMBER_MANIFEST, LOGURU_FORMAT
 from openamundsen.model import OpenAmundsen
 
 from openamundsen_da.core.config import load_merged_config
@@ -207,7 +207,7 @@ def run_member(
     sys.stderr = log_handle
     try:
         logger.remove()
-        logger.add(sys.stderr, level=(log_level or "INFO"))
+        logger.add(sys.stderr, level=(log_level or "INFO"), colorize=True, format=LOGURU_FORMAT)
     except Exception:
         # If Loguru reconfiguration fails, continue with default stderr
         pass

@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 import sys
 
 from loguru import logger
+from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import (
     apply_env_from_project,
     ensure_gdal_proj_from_conda,
@@ -235,13 +236,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     """CLI entry: configure parent logger, run launcher, and map exceptions to exit codes."""
     args = parse_args(argv)
     logger.remove()
-    logger.add(
-        sys.stderr,
-        level=args.log_level,
-        enqueue=True,
-        colorize=True,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | {message}",
-    )
+    logger.add(sys.stderr, level=args.log_level, enqueue=True, colorize=True, format=LOGURU_FORMAT)
 
     try:
         launch_members(

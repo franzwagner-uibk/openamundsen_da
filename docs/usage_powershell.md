@@ -63,8 +63,8 @@ Batch-convert MODIS/Terra MOD10A1 Collection 6/6.1 HDF files into
 `NDSI_Snow_Cover` GeoTIFFs ready for the SCF script:
 
 ```powershell
-# load conda functions for this PowerShell session
-& C:\Users\franz\miniconda3\shell\condabin\conda-hook.ps1
+C:\Users\franz\miniconda3\condabin\conda.bat run -n gistools --no-capture-output `
+  pip install -e C:\Daten\PhD\openamundsen_da
 
 $input = "C:\Daten\PhD\openamundsen_da\examples\test-project\obs\MOD10A1_61_HDF"
 $proj  = "C:\Daten\PhD\openamundsen_da\examples\test-project"

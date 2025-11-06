@@ -40,7 +40,6 @@ from openamundsen_da.core.constants import (
     MOD10A1_PRODUCT,
     MOD10A1_SDS_NAME,
     OBS_DIR_NAME,
-    SCF_REGION_ID_FIELD,
 )
 from openamundsen_da.core.env import ensure_gdal_proj_from_conda
 
@@ -110,6 +109,7 @@ def _build_output_path(output_root: Path, season_label: str, when: datetime) -> 
 
     season_dir = output_root / season_label
     season_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = season_dir / "scf_summary.csv"
     return season_dir / f"{MOD10A1_SDS_NAME}_{when.strftime('%Y%m%d')}.tif"
 
 
@@ -191,6 +191,7 @@ def convert_mod10a1_directory(
     overwrite: bool,
     max_cloud_fraction: float | None,
     ndsi_threshold: float,
+    region_field: str,
 ) -> list[Path]:
     """Convert all MOD10A1 HDF files under *input_dir* to GeoTIFFs."""
 
@@ -207,7 +208,7 @@ def convert_mod10a1_directory(
     season_dir.mkdir(parents=True, exist_ok=True)
 
     bounds = None
-    region_id = "region"
+    region_id = region_field
     aoi = Path(aoi_path) if aoi_path is not None else None
     if aoi:
         gdf = gpd.read_file(aoi)
@@ -215,9 +216,9 @@ def convert_mod10a1_directory(
             raise ValueError("AOI file does not contain geometries")
         if len(gdf) != 1:
             raise ValueError("AOI must contain exactly one feature")
-        if SCF_REGION_ID_FIELD not in gdf.columns:
-            raise KeyError(f"AOI missing field '{SCF_REGION_ID_FIELD}'")
-        region_id = str(gdf.iloc[0][SCF_REGION_ID_FIELD])
+        if region_field not in gdf.columns:
+            raise KeyError(f"AOI missing field '{region_field}'")
+        region_id = str(gdf.iloc[0][region_field])
         if use_envelope:
             if gdf.crs is None:
                 raise ValueError("AOI CRS is undefined")
@@ -354,6 +355,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
         help="Override output root directory (default: <project-dir>/obs)",
     )
     parser.add_argument("--aoi", type=Path, help="AOI vector for clipping (GeoPackage, Shapefile, etc.)")
+    parser.add_argument("--aoi-field", default="region_id", help="Field name in AOI with the region identifier (default: region_id)")
     parser.add_argument("--target-epsg", type=int, default=25832, help="Output EPSG code (default: 25832)")
     parser.add_argument("--resolution", type=float, help="Output pixel size in target units (e.g., 500)")
     parser.add_argument("--ndsi-threshold", type=float, default=40.0, help="NDSI threshold for snow classification (default: 40)")
@@ -387,6 +389,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
         overwrite=bool(args.overwrite),
         max_cloud_fraction=float(args.max_cloud_fraction) if args.max_cloud_fraction is not None else None,
         ndsi_threshold=float(args.ndsi_threshold),
+        region_field=args.aoi_field,
     )
 
     logger.info("Finished - generated {} GeoTIFF(s)", len(outputs))
@@ -403,8 +406,8 @@ def _ensure_gdal() -> None:
         ) from _GDAL_IMPORT_ERROR
 
 
-if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(cli_main())
+## NOTE: Keep CLI guard at the very end of the file so that all
+## helper functions are defined before cli_main() is executed.
 
 
 def _read_ndsi_raster(raster_path: Path) -> tuple[np.ndarray, float | None, tuple | None, str | None]:
@@ -536,3 +539,7 @@ def _update_scf_summary(
         row = row.sort_values("date")
 
     row.to_csv(summary_path, index=False)
+
+if __name__ == '__main__':  # pragma: no cover
+    raise SystemExit(cli_main())
+

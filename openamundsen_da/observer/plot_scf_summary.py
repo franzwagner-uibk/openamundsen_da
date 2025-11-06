@@ -1,10 +1,20 @@
 """
 openamundsen_da.observer.plot_scf_summary
 
-Small helper to plot SCF time series from a season-level `scf_summary.csv`.
+Purpose
+- Plot a simple, publication-ready SCF time series from a season-level
+  `scf_summary.csv` produced by the MOD10A1 preprocessing workflow.
 
-Focus: Visualize `scf` over time (0..1). Optionally write PNG to disk.
-Logs basic information (rows, date range, output path).
+Behavior
+- Reads CSV, parses/validates the `date` and `scf` columns, sorts by date,
+  then renders a compact line + scatter figure with SCF on [0..1].
+- Saves a PNG next to the CSV unless `--output` is given.
+- Logs concise context (rows, date range, output path) with a green-timestamp
+  format consistent with the rest of the toolkit.
+
+Notes
+- Designed for single-region summaries (one row per day).
+- Uses a headless Matplotlib backend; no GUI required.
 """
 
 from __future__ import annotations
@@ -14,12 +24,27 @@ from pathlib import Path
 
 import pandas as pd
 from loguru import logger
+import sys
 
 
 def _load_summary(csv_path: Path) -> pd.DataFrame:
+    """Load and normalize SCF summary CSV.
+
+    Parameters
+    ----------
+    csv_path : Path
+        Path to `scf_summary.csv` containing at least `date` and `scf`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Data sorted by `date` with parsed datetime column.
+    """
+    # Read and validate minimal schema
     df = pd.read_csv(csv_path)
     if "date" not in df or "scf" not in df:
         raise ValueError("CSV must contain columns 'date' and 'scf'")
+    # Parse dates and sort chronologically
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"]).sort_values("date")
@@ -27,6 +52,22 @@ def _load_summary(csv_path: Path) -> pd.DataFrame:
 
 
 def _plot(df: pd.DataFrame, title: str | None = None, subtitle: str | None = None):
+    """Render a compact SCF time series plot.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame with `date` and `scf` columns.
+    title : str, optional
+        Main title placed above the axes.
+    subtitle : str, optional
+        Secondary title placed just below the main title.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The created figure (not shown).
+    """
     import matplotlib
     matplotlib.use("Agg")  # headless
     import matplotlib.pyplot as plt
@@ -50,6 +91,15 @@ def _plot(df: pd.DataFrame, title: str | None = None, subtitle: str | None = Non
 
 
 def cli_main(argv: list[str] | None = None) -> int:
+    """CLI entry point to plot SCF from `scf_summary.csv`.
+
+    Examples
+    --------
+    oa-da-plot-scf path\to\scf_summary.csv \
+      --output path\to\scf_summary.png \
+      --title "Snow Cover Fraction for observation period" \
+      --subtitle "derived from MODIS 10A1 v6 NDSI"
+    """
     parser = argparse.ArgumentParser(
         prog="oa-da-plot-scf",
         description="Plot SCF vs time from scf_summary.csv",
@@ -78,18 +128,26 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    # configure logging to console
+    # Configure logging: green timestamp | level | message
+    from openamundsen_da.core.constants import LOGURU_FORMAT
     logger.remove()
-    logger.add(lambda m: print(m, end=""), level=args.log_level.upper())
+    logger.add(
+        sys.stdout,
+        level=args.log_level.upper(),
+        colorize=True,
+        enqueue=True,
+        format=LOGURU_FORMAT,
+    )
 
     csv_path = Path(args.csv)
-    logger.info("Reading SCF summary: {}\n", csv_path)
+    # Read and validate CSV
+    logger.info("Reading SCF summary: {}", csv_path)
     df = _load_summary(csv_path)
     if df.empty:
-        logger.warning("No rows found in {}\n", csv_path)
+        logger.warning("No rows found in {}", csv_path)
     else:
         logger.info(
-            "Loaded {} row(s) | date range: {} .. {}\n",
+            "Loaded {} row(s) | date range: {} .. {}",
             len(df),
             df["date"].min().date(),
             df["date"].max().date(),
@@ -102,8 +160,9 @@ def cli_main(argv: list[str] | None = None) -> int:
         ) from e
 
     out = Path(args.output) if args.output else csv_path.parent / "scf_summary.png"
+    # Save image
     fig.savefig(out, dpi=150, bbox_inches="tight", pad_inches=0.1)
-    logger.info("Wrote plot: {}\n", out)
+    logger.info("Wrote plot: {}", out)
     return 0
 
 

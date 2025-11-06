@@ -93,6 +93,20 @@ python -m openamundsen_da.observer.mod10a1_preprocess `
   flagged as cloudy (`NDSI_Snow_Cover == 200`).
 - Adjust `--ndsi-threshold` if you need a different snow classification limit (default 40).
 
+## Plot SCF Summary
+
+Create a simple PNG plot of SCF over time from the season summary CSV:
+
+```powershell
+oa-da-plot-scf "C:\Daten\PhD\openamundsen_da\examples\test-project\obs\season_2017-2018\scf_summary.csv"
+```
+
+Optionally set output path/title:
+
+```powershell
+oa-da-plot-scf "...\scf_summary.csv" --output "...\scf_summary.png" --title "SCF 2017-2018"
+```
+
 ## Show Help
 
 ```powershell

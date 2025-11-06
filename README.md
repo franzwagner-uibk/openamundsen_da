@@ -4,6 +4,40 @@ Lightweight tooling to run openAMUNDSEN ensembles and assimilate satellite snow 
 
 This README is structured along the project workflow and can be extended over time.
 
+## Theoretical Overview
+
+- Sequential cycle: Initialization → Prediction (model propagation) → Update (data assimilation) repeats over the snow season.
+- Dynamic model: openAMUNDSEN provides physically based snow evolution (SWE, HS, energy/mass balance).
+- Uncertainty: An ensemble represents prior uncertainty via perturbed forcings/parameters.
+
+Key phases
+
+- Initialization
+  - Define ensemble size, dates, and perturbation schemes.
+  - Typical perturbations: temperature (additive Gaussian), precipitation (multiplicative log-normal), radiation/wind/humidity (proportional scaling).
+- Prediction (Propagation)
+  - Run each ensemble member independently with its perturbed inputs.
+  - Produce daily outputs (e.g., `swe_daily`, `snowdepth_daily`) used by the observation operator H(x).
+- Update (Assimilation)
+  - Observation processing: derive satellite SCF for the date/AOI (see Observation Processing).
+  - Observation operator H(x): map model fields (HS/SWE) to model SCF consistent with the satellite product.
+  - Likelihood: compare observed vs. model SCF per member; recommended logit-domain Gaussian for stability near 0/1; alternative linear-domain with variance scaling by `p·(1−p)`.
+  - Weighting: convert likelihoods to normalized weights; monitor effective sample size `ESS = 1 / Σ w_m^2`.
+  - Resampling: when ESS drops below a threshold (e.g., 0.5·N), resample using systematic/stratified methods.
+  - Rejuvenation: apply small, controlled noise after resampling to maintain ensemble diversity for the next cycle.
+
+Scales and aggregation
+
+- Single AOI (first version); extendable to multiple AOIs or elevation bands by combining likelihoods (e.g., product or weighted sum).
+- Pixel-level comparison is possible but costs more I/O; start with AOI-aggregated SCF for robustness.
+
+Design defaults (tunable)
+
+- H(x): logistic depth with `h0 ≈ 0.04–0.05 m`, `k` set from desired 10–90% transition width (`ΔHS ≈ 4.394/k`).
+- Likelihood: logit-domain Gaussian with `eps = 1e−3`, `σ_z ≈ 0.4–0.6`; or linear-domain Gaussian with `τ ≈ 0.2–0.3` and variance scaling.
+- Resampling: systematic; trigger at `ESS/N < 0.5`.
+- Rejuvenation: small noise to selected parameters/forcings (magnitudes to be calibrated).
+
 ## General Project Information
 
 - Goal: seasonal snow cover prediction with an ensemble openAMUNDSEN model and a particle filter. Over the season, the model predicts forward, observations provide SCF updates, and the posterior becomes the next prior.
@@ -47,16 +81,16 @@ data_assimilation:
   prior_forcing:
     ensemble_size: 30
     random_seed: 42
-    sigma_t: 0.5   # additive temperature stddev
-    mu_p:   0.0   # log-space mean for precip factor
-    sigma_p: 0.2  # log-space stddev for precip factor
+    sigma_t: 0.5 # additive temperature stddev
+    mu_p: 0.0 # log-space mean for precip factor
+    sigma_p: 0.2 # log-space stddev for precip factor
 ```
 
 Step YAML must define the time window:
 
 ```yaml
 start_date: 2017-10-01 00:00:00
-end_date:   2018-09-30 23:59:59
+end_date: 2018-09-30 23:59:59
 ```
 
 Run the builder (PowerShell):
@@ -146,37 +180,6 @@ Help:
 python -m openamundsen_da.core.launch --help
 ```
 
-## Theoretical Overview
-
-- Sequential cycle: Initialization → Prediction (model propagation) → Update (data assimilation) repeats over the snow season.
-- Dynamic model: openAMUNDSEN provides physically based snow evolution (SWE, HS, energy/mass balance).
-- Uncertainty: An ensemble represents prior uncertainty via perturbed forcings/parameters.
-
-Key phases
-- Initialization
-  - Define ensemble size, dates, and perturbation schemes.
-  - Typical perturbations: temperature (additive Gaussian), precipitation (multiplicative log-normal), radiation/wind/humidity (proportional scaling).
-- Prediction (Propagation)
-  - Run each ensemble member independently with its perturbed inputs.
-  - Produce daily outputs (e.g., `swe_daily`, `snowdepth_daily`) used by the observation operator H(x).
-- Update (Assimilation)
-  - Observation processing: derive satellite SCF for the date/AOI (see Observation Processing).
-  - Observation operator H(x): map model fields (HS/SWE) to model SCF consistent with the satellite product.
-  - Likelihood: compare observed vs. model SCF per member; recommended logit-domain Gaussian for stability near 0/1; alternative linear-domain with variance scaling by `p·(1−p)`.
-  - Weighting: convert likelihoods to normalized weights; monitor effective sample size `ESS = 1 / Σ w_m^2`.
-  - Resampling: when ESS drops below a threshold (e.g., 0.5·N), resample using systematic/stratified methods.
-  - Rejuvenation: apply small, controlled noise after resampling to maintain ensemble diversity for the next cycle.
-
-Scales and aggregation
-- Single AOI (first version); extendable to multiple AOIs or elevation bands by combining likelihoods (e.g., product or weighted sum).
-- Pixel-level comparison is possible but costs more I/O; start with AOI-aggregated SCF for robustness.
-
-Design defaults (tunable)
-- H(x): logistic depth with `h0 ≈ 0.04–0.05 m`, `k` set from desired 10–90% transition width (`ΔHS ≈ 4.394/k`).
-- Likelihood: logit-domain Gaussian with `eps = 1e−3`, `σ_z ≈ 0.4–0.6`; or linear-domain Gaussian with `τ ≈ 0.2–0.3` and variance scaling.
-- Resampling: systematic; trigger at `ESS/N < 0.5`.
-- Rejuvenation: small noise to selected parameters/forcings (magnitudes to be calibrated).
-
 ## Observation Processing
 
 ### MOD10A1 Preprocess (HDF ➜ GeoTIFF + Summary)
@@ -253,15 +256,19 @@ oa-da-plot-scf "$proj\obs\season_2017-2018\scf_summary.csv" `
 ## Model SCF Operator (H(x))
 
 Purpose
+
 - Derive model-based Snow Cover Fraction (SCF) from openAMUNDSEN outputs within an AOI to match satellite SCF for data assimilation.
 
 Inputs
+
 - Member results directory: contains daily rasters `snowdepth_daily_YYYY-MM-DDT0000.tif` and/or `swe_daily_YYYY-MM-DDT0000.tif`.
 - AOI polygon: single feature vector file; reprojected to raster CRS if needed.
 - Date: `YYYY-MM-DD`.
 
 Methods
+
 - Depth threshold (deterministic)
+
   - Per-cell indicator: `I = 1 if X > h0 else 0`; SCF = mean(I).
   - `h0` is in the same units as `X` (m for HS, or SWE units if using SWE).
   - Pros: simple, transparent; Cons: hard transition near snowline.
@@ -273,40 +280,47 @@ Methods
   - Pros: smooth, stable for DA; Cons: choose `k` sensibly.
 
 Variables
+
 - `X` can be snow depth (`hs`) or `swe`. Parameters are in the same units as `X`.
 - Defaults: `h0 = 0.05` (m for `hs`), `k = 80` (m⁻¹) – adjust by grid scale and heterogeneity.
 
 Output
+
 - CSV per member/date: `model_scf_YYYYMMDD.csv` in the member `results` directory.
 - Columns: `date, member_id, region_id, variable, method, h0, k, n_valid, scf_model, raster`.
 
 CLI
-```
-oa-da-model-scf \
-  --member-results <.../member_001/results> \
-  --aoi <region.gpkg> \
-  --date 2017-12-10 \
-  --variable hs \
-  --method logistic \
-  --h0 0.05 --k 80
+
+```powershell
+oa-da-model-scf `
+  --member-results "<.../member_001/results>" `
+  --aoi "<region.gpkg>" `
+  --date 2017-12-10 `
+  --variable hs `
+  --method logistic `
+  --h0 0.05 `
+  --k 80
 ```
 
 Configuration (optional)
+
 ```yaml
 data_assimilation:
   h_of_x:
-    method: logistic   # or depth_threshold
-    variable: hs       # or swe
+    method: logistic # or depth_threshold
+    variable: hs # or swe
     params:
-      h0: 0.05         # units of variable
-      k: 80            # 1/units (logistic only)
+      h0: 0.05 # units of variable
+      k: 80 # 1/units (logistic only)
 ```
 
 Tuning Hints
+
 - Pick `h0` ~ 0.04–0.05 m for HS; for SWE, choose an equivalent threshold in SWE units.
 - Choose `k` from desired transition width: finer/less heterogeneous grids → larger `k` (sharper), coarser/more heterogeneous → smaller `k`.
 
 Assimilation Note
+
 - When comparing model SCF to satellite SCF, prefer a logit-domain Gaussian likelihood for stability near bounds, or a linear-domain Gaussian with variance scaled by `p·(1−p)`.
 
 ## General Information (Logging, Environment, Tips)
@@ -331,4 +345,4 @@ Get-Content $log -Tail 50 -Wait
 - `openamundsen_da/observer/plot_scf_summary.py` — SCF time‑series plotter
 
 - `openamundsen_da/methods/h_of_x/model_scf.py` — model-derived SCF operator (depth threshold, logistic) and CLI `oa-da-model-scf`.
-Roadmap (planned): likelihood utilities, resampling, rejuvenation under `methods/`.
+  Roadmap (planned): likelihood utilities, resampling, rejuvenation under `methods/`.

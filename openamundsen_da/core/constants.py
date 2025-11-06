@@ -53,3 +53,6 @@ SCF_REGION_ID_FIELD = "region_id_field"
 # MODIS MOD10A1 (Collection 6/6.1) processing
 MOD10A1_PRODUCT = "MOD10A1"
 MOD10A1_SDS_NAME = "NDSI_Snow_Cover"
+
+# Logging format (green timestamp | level | message)
+LOGURU_FORMAT = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | {message}"

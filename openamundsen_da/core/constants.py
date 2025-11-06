@@ -54,5 +54,17 @@ SCF_REGION_ID_FIELD = "region_id_field"
 MOD10A1_PRODUCT = "MOD10A1"
 MOD10A1_SDS_NAME = "NDSI_Snow_Cover"
 
+# H(x) model SCF operator config
+HOFX_BLOCK = "h_of_x"
+HOFX_METHOD = "method"
+HOFX_VARIABLE = "variable"
+HOFX_PARAMS = "params"
+HOFX_PARAM_H0 = "h0"
+HOFX_PARAM_K = "k"
+
+# Variable identifiers
+VAR_HS = "hs"
+VAR_SWE = "swe"
+
 # Logging format (green timestamp | level | message)
 LOGURU_FORMAT = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | {message}"

@@ -1,10 +1,10 @@
-# Running openamundsen_da from PowerShell
+﻿# Running openamundsen_da from PowerShell
 
 This guide shows common PowerShell commands to run the ensemble launcher and where to find logs/results on Windows.
 
 ## Quick Start
 
-```powershell (ore miniconda prompt)
+```powershell
 # Activate your environment first
 conda activate openamundsen
 
@@ -220,7 +220,7 @@ Notes:
 - Temperature and precipitation perturbations are constant per member across all stations/timesteps.
 - Stations without `precip` receive temperature-only perturbations.
 
-## Inspect Per‑Member Logs
+## Inspect Per-Member Logs
 
 ```powershell
 # List all member.log files under the ensemble
@@ -234,7 +234,7 @@ Get-Content $log -Tail 50 -Wait
 ## Notes
 
 - Quote paths containing spaces: `"C:\\path with spaces\\..."`.
-- GDAL/PROJ and threading env are auto‑applied from `project.yml` when present; you usually don’t need to set them manually.
+- GDAL/PROJ and threading env are autoâ€‘applied from `project.yml` when present; you usually donâ€™t need to set them manually.
 - `--log-level` controls both the parent process and the openAMUNDSEN logger inside workers.
 
 ## Helpers
@@ -251,3 +251,4 @@ $outgpkg = "C:\\Daten\\PhD\\openamundsen_da\\examples\\test-project\\env\\GMBA_I
 
 "C:\Users\franz\miniconda3\envs\openamundsen\Library\bin\ogr2ogr.exe" -f GPKG "$outgpkg" "$inshp"
 ```
+

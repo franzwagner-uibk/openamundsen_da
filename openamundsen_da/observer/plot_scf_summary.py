@@ -32,19 +32,19 @@ def _plot(df: pd.DataFrame, title: str | None = None, subtitle: str | None = Non
     import matplotlib.pyplot as plt
 
     # Use manual layout reservation for title/subtitle to avoid clipping
-    fig, ax = plt.subplots(figsize=(10, 4.6))
+    fig, ax = plt.subplots(figsize=(10, 4.3))
     ax.plot(df["date"], df["scf"], color="#1f77b4", linewidth=1.8)
     ax.scatter(df["date"], df["scf"], s=10, color="#1f77b4", alpha=0.8)
     ax.set_ylim(0, 1)
     ax.set_ylabel("SCF")
     ax.set_xlabel("Date")
-    # Reserve top margin for headers
-    top_rect = 0.80 if (title or subtitle) else 0.92
+    # Reserve a modest top margin for headers
+    top_rect = 0.90 if (title or subtitle) else 0.94
     fig.tight_layout(rect=[0.02, 0.02, 0.98, top_rect])
     if title:
-        fig.text(0.5, 0.97, title, ha="center", va="top", fontsize=12)
+        fig.text(0.5, 0.965, title, ha="center", va="top", fontsize=12)
     if subtitle:
-        fig.text(0.5, 0.935, subtitle, ha="center", va="top", fontsize=10, color="#555555")
+        fig.text(0.5, 0.925, subtitle, ha="center", va="top", fontsize=10, color="#555555")
     ax.grid(True, linestyle=":", linewidth=0.6, alpha=0.7)
     return fig
 
@@ -62,13 +62,13 @@ def cli_main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--title",
-        default="Snow Cover Fraction for observation period",
-        help="Plot title (default: 'Snow Cover Fraction for observation period')",
+        default="Snow Cover Fraction (SCF) for observation period",
+        help="Plot title (default: 'Snow Cover Fraction (SCF) for observation period')",
     )
     parser.add_argument(
         "--subtitle",
-        default="derived from MODIS 10A1 v6 NDSI",
-        help="Plot subtitle (default: 'derived from MODIS 10A1 v6 NDSI')",
+        default="derived from MODIS 10A1 v6 NDSI (threshold = 0.4)",
+        help="Plot subtitle (default: 'derived from MODIS 10A1 v6 NDSI (threshold = 0.4)')",
     )
     parser.add_argument(
         "--log-level",
@@ -102,7 +102,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         ) from e
 
     out = Path(args.output) if args.output else csv_path.parent / "scf_summary.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight", pad_inches=0.2)
+    fig.savefig(out, dpi=150, bbox_inches="tight", pad_inches=0.1)
     logger.info("Wrote plot: {}\n", out)
     return 0
 

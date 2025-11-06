@@ -4,37 +4,6 @@ Lightweight tooling to run openAMUNDSEN ensembles and assimilate satellite snow 
 
 This README is structured along the project workflow and can be extended over time.
 
-## Theoretical Overview
-
-- Sequential cycle: Initialization ��' Prediction (model propagation) ��' Update (data assimilation) repeats over the snow season.
-- Dynamic model: openAMUNDSEN provides physically based snow evolution (SWE, HS, energy/mass balance).
-- Uncertainty: An ensemble represents prior uncertainty via perturbed forcings/parameters.
-
-Key phases
-- Initialization
-  - Define ensemble size, dates, and perturbation schemes.
-  - Typical perturbations: temperature (additive Gaussian), precipitation (multiplicative log-normal), radiation/wind/humidity (proportional scaling).
-- Prediction (Propagation)
-  - Run each ensemble member independently with its perturbed inputs.
-  - Produce daily outputs (e.g., `swe_daily`, `snowdepth_daily`) used by the observation operator H(x).
-- Update (Assimilation)
-  - Observation processing: derive satellite SCF for the date/AOI (see Observation Processing).
-  - Observation operator H(x): map model fields (HS/SWE) to model SCF consistent with the satellite product.
-  - Likelihood: compare observed vs. model SCF per member; recommended logit-domain Gaussian for stability near 0/1; alternative linear-domain with variance scaling by `p��(1�^'p)`.
-  - Weighting: convert likelihoods to normalized weights; monitor effective sample size `ESS = 1 / ל w_m^2`.
-  - Resampling: when ESS drops below a threshold (e.g., 0.5��N), resample using systematic/stratified methods.
-  - Rejuvenation: apply small, controlled noise after resampling to maintain ensemble diversity for the next cycle.
-
-Scales and aggregation
-- Single AOI (first version); extendable to multiple AOIs or elevation bands by combining likelihoods (e.g., product or weighted sum).
-- Pixel-level comparison is possible but costs more I/O; start with AOI-aggregated SCF for robustness.
-
-Design defaults (tunable)
-- H(x): logistic depth with `h0 �%^ 0.04�?"0.05 m`, `k` set from desired 10�?"90% transition width (`�"HS �%^ 4.394/k`).
-- Likelihood: logit-domain Gaussian with `eps = 1e�^'3`, `؟_z �%^ 0.4�?"0.6`; or linear-domain Gaussian with `�" �%^ 0.2�?"0.3` and variance scaling.
-- Resampling: systematic; trigger at `ESS/N < 0.5`.
-- Rejuvenation: small noise to selected parameters/forcings (magnitudes to be calibrated).
-
 ## General Project Information
 
 - Goal: seasonal snow cover prediction with an ensemble openAMUNDSEN model and a particle filter. Over the season, the model predicts forward, observations provide SCF updates, and the posterior becomes the next prior.

@@ -1,0 +1,6 @@
+﻿"""
+openamundsen_da.observer.satellite_scf
+
+Minimal observation processing for MODIS/Terra Snow Cover Daily (MOD10A1
+Collection 6/6.1). Assumes the product was exported as a single-band GeoTIFF
+contai

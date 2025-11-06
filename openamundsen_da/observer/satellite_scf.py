@@ -1,18 +1,18 @@
-"""
-openamundsen_da.observer.satellite_scf
+﻿"""openamundsen_da.observer.satellite_scf
 
-Minimal observation processing for MODIS/Terra Snow Cover Daily (MOD10A1
-Collection 6/6.1). Assumes the product was exported as a single-band GeoTIFF
-containing the layer `NDSI_Snow_Cover` scaled to 0..100 and with nodata already
-applied.
+Purpose
+- Compute a single snow‑cover fraction (SCF) from a preprocessed MODIS/Terra
+  MOD10A1 (C6/6.1) NDSI raster and a single‑feature AOI.
 
-Reads one preprocessed raster, masks it by a single AOI polygon (field
-`region_id`), applies a fixed/configurable NDSI threshold, and writes one CSV
-row (`date,region_id,scf`).
+Behavior
+- Reads the `NDSI_Snow_Cover` GeoTIFF (0..100 scale), masks by AOI polygon,
+  validates CRS match, thresholds NDSI (default 40) to classify snow, and
+  writes one CSV row: `date,region_id,scf`.
 
 Notes
-- Inputs must be preprocessed (CRS aligned, QA filtering, mosaicking, etc.).
-- Only one raster and one region per run; batch support will come later.
+- Inputs are assumed pre‑screened (projection/QA/mosaics) for this minimal
+  experimental implementation.
+- One image + one region per run; batch/multi‑region can be added later.
 """
 
 from __future__ import annotations
@@ -36,6 +36,7 @@ from openamundsen_da.core.constants import (
     SCF_NDSI_THRESHOLD,
     SCF_REGION_ID_FIELD,
 )
+from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import ensure_gdal_proj_from_conda
 from openamundsen_da.io.paths import find_step_yaml
 
@@ -117,13 +118,14 @@ def run_observation_processing(
     region_id_field : str, optional
         Name of the region identifier field in AOI (default 'region_id').
     """
-    ensure_gdal_proj_from_conda()  # help GDAL/PROJ locate data on Windows/conda
+    # Step 1: Ensure GDAL/PROJ lookup from active conda env (Windows safety)
+    ensure_gdal_proj_from_conda()
 
     input_raster = Path(input_raster)
     region_path = Path(region_path)
     output_csv = Path(output_csv)
 
-    # Load AOI, enforce single feature and required field
+    # Step 3: Load AOI and enforce single feature + required field
     gdf = gpd.read_file(region_path)
     if len(gdf) != 1:
         raise ValueError(f"AOI must contain exactly one feature (got {len(gdf)})")
@@ -131,7 +133,7 @@ def run_observation_processing(
         raise KeyError(f"AOI missing field '{region_id_field}'")
     region_id = str(gdf.iloc[0][region_id_field])
 
-    # Open raster and validate CRS alignment
+    # Step 4: Open raster and validate CRS alignment
     with rasterio.open(input_raster) as src:
         if gdf.crs is None or src.crs is None or gdf.crs != src.crs:
             raise ValueError("CRS mismatch or missing CRS between raster and AOI")
@@ -140,11 +142,11 @@ def run_observation_processing(
         data, _ = rio_mask(src, shapes, crop=True, nodata=src.nodata, filled=False)
         band = np.ma.array(data[0], copy=False)  # first band
 
-    # Compute SCF and date
+    # Step 5: Compute SCF and date
     n_valid, n_snow, scf = _compute_scf(band, float(ndsi_threshold))
     dt = _extract_yyyymmdd(input_raster)
 
-    # Prepare output directory and CSV content
+    # Step 6: Prepare output directory and write CSV
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame({
         "date": [dt.strftime("%Y-%m-%d")],
@@ -153,7 +155,7 @@ def run_observation_processing(
     })
     df.to_csv(output_csv, index=False)
 
-    # Single concise log line
+    # Step 7: Single concise log line (ready for DA ingestion)
     logger.info(
         f"SCF | raster={input_raster.name} region={region_id} valid={n_valid} snow={n_snow} scf={scf:.2f} -> {output_csv.name}"
     )
@@ -170,6 +172,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     """
     import argparse
 
+    # Step 1: Parse CLI arguments
     parser = argparse.ArgumentParser(
         prog="oa-da-scf",
         description=(
@@ -192,10 +195,14 @@ def cli_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--step-dir", type=Path, help="Step directory to place CSV under 'obs' and read config")
     parser.add_argument("--output", type=Path, help="Explicit output CSV path (overrides --step-dir)")
     parser.add_argument("--ndsi-threshold", type=float, help="Override NDSI threshold (default 40)")
+    parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
 
     args = parser.parse_args(argv)
+    # Step 2: Configure logging (green timestamp | level | message)
+    logger.remove()
+    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
-    # Resolve config overrides from step YAML if provided
+    # Step 3: Resolve config overrides from step YAML if provided
     ndsi_thr = args.ndsi_threshold if args.ndsi_threshold is not None else 40.0
     region_field = "region_id"
     out_csv: Path | None = args.output
@@ -215,6 +222,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     if out_csv is None:
         parser.error("Either --step-dir or --output must be provided")
 
+    # Step 4: Run processing and map exceptions to exit code
     try:
         run_observation_processing(
             input_raster=Path(args.raster),
@@ -231,3 +239,5 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(cli_main())
+
+

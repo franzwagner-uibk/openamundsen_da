@@ -1,15 +1,21 @@
 """openamundsen_da.observer.mod10a1_preprocess
 
-Convert MODIS/Terra MOD10A1 (Collection 6/6.1) HDF files into observation-ready
-products for the data-assimilation workflow. For each scene the module:
+Purpose
+- Convert MODIS/Terra MOD10A1 (Collection 6/6.1) HDF files into observation‑ready
+  artifacts for the data‑assimilation workflow.
 
-* extracts the `NDSI_Snow_Cover` layer as a GeoTIFF (optional AOI clip + reprojection),
-* computes a 3-class classification raster (0=invalid, 1=no snow, 2=snow),
-* estimates cloud fraction (value `200`) and snow-cover fraction (SCF), and
-* appends the results to a per-season CSV table for quick look-ups.
+Per scene outputs
+- `NDSI_Snow_Cover_YYYYMMDD.tif` (GeoTIFF) — NDSI_Snow_Cover band reprojected to
+  the target CRS, optionally clipped to a single AOI.
+- `NDSI_Snow_Cover_YYYYMMDD_class.tif` (Byte GeoTIFF) — simple 3‑class product
+  encoded as 0=invalid, 1=no snow, 2=snow (threshold on 0..100 NDSI).
+- `scf_summary.csv` (season‑level table) — one row per accepted day with
+  date, region_id, SCF (0..1), cloud_fraction (0..1), and source filename.
 
-Outputs live under `<output_root>/<season_label>/` and feed directly into
-``openamundsen_da.observer.satellite_scf``.
+Notes
+- Assumes single‑region AOI (exactly one polygon feature) and preprocessed inputs.
+- Cloud screening is optional via `--max-cloud-fraction` using value 200 pixels.
+- Designed to feed directly into `openamundsen_da.observer.satellite_scf`.
 """
 
 from __future__ import annotations
@@ -62,7 +68,18 @@ _MOD10A1_RE = re.compile(
 
 
 def _parse_mod10a1_name(hdf_path: Path) -> Mod10A1Meta:
-    """Parse product, acquisition date, and tile from a MOD10A1 filename."""
+    """Parse product, acquisition date, and tile from a MOD10A1 filename.
+
+    Parameters
+    ----------
+    hdf_path : Path
+        Path to the MOD10A1 HDF file.
+
+    Returns
+    -------
+    Mod10A1Meta
+        Parsed product name, acquisition date, and optional h/v tile string.
+    """
 
     match = _MOD10A1_RE.match(hdf_path.name)
     if not match:
@@ -79,7 +96,15 @@ def _parse_mod10a1_name(hdf_path: Path) -> Mod10A1Meta:
 
 
 def _list_hdf_files(root: Path, recursive: bool) -> list[Path]:
-    """Return sorted list of MOD10A1 HDF files under *root*."""
+    """Return sorted list of MOD10A1 HDF files under a root directory.
+
+    Parameters
+    ----------
+    root : Path
+        Input directory to scan.
+    recursive : bool
+        If True, search subdirectories; otherwise only the top level.
+    """
 
     if recursive:
         files = root.rglob("*.hdf")
@@ -122,7 +147,12 @@ def _warp_ndsi(
     aoi_path: Path | None,
     overwrite: bool,
 ) -> None:
-    """Reproject and optionally crop the NDSI subdataset into *destination*."""
+    """Reproject and optionally crop the NDSI subdataset into *destination*.
+
+    Uses nearest neighbor resampling and preserves or sets nodata=255.
+    Envelope cropping uses AOI bounds in target CRS; cutline performs an
+    exact polygon clip.
+    """
 
     if destination.exists() and not overwrite:
         logger.info("Skipping existing {} (use --overwrite to replace)", destination)
@@ -192,17 +222,47 @@ def convert_mod10a1_directory(
     ndsi_threshold: float,
     region_field: str,
 ) -> list[Path]:
-    """Convert all MOD10A1 HDF files under *input_dir* to GeoTIFFs."""
+    """Convert all MOD10A1 HDF files under `input_dir` to GeoTIFFs.
+
+    Parameters
+    ----------
+    input_dir : Path
+        Root directory containing MOD10A1 HDF files.
+    output_root : Path
+        Output root directory (season folder is created below this path).
+    season_label : str
+        Season folder name below `output_root`.
+    aoi_path : Path | None
+        AOI vector path (single feature) used for envelope or cutline clipping.
+    target_epsg : int
+        EPSG code of the output CRS.
+    resolution : float | None
+        Output pixel size in target CRS units (meters for UTM). If None, auto.
+    use_envelope : bool
+        If True, crop by AOI bounds; otherwise use exact polygon cutline.
+    recursive : bool
+        If True, search input directory recursively for HDF files.
+    overwrite : bool
+        If True, overwrite existing outputs.
+    max_cloud_fraction : float | None
+        Reject scenes with cloud fraction above this threshold (0..1).
+    ndsi_threshold : float
+        Threshold (0..100) to classify snow (NDSI > threshold).
+    region_field : str
+        AOI attribute name with the region identifier written to the summary.
+    """
 
     _ensure_gdal()
     ensure_gdal_proj_from_conda()
 
+    # Step 1: Discover input files
     logger.debug("Scanning {} for MOD10A1 HDF files (recursive={})", input_dir, recursive)
     hdf_files = _list_hdf_files(Path(input_dir), recursive)
     if not hdf_files:
         logger.warning("No MOD10A1 HDF files found in {}", input_dir)
         return []
 
+    # Step 2: Prepare season directory and (optional) AOI context
     season_dir = output_root / season_label
     season_dir.mkdir(parents=True, exist_ok=True)
     summary_path = season_dir / "scf_summary.csv"
@@ -228,6 +288,7 @@ def convert_mod10a1_directory(
             logger.debug("AOI bounds in EPSG:{} -> {}", target_epsg, bounds)
 
     outputs: list[Path] = []
+    # Step 3: Process each HDF -> NDSI, classify, summarize
     for hdf in hdf_files:
         try:
             meta = _parse_mod10a1_name(hdf)
@@ -242,7 +303,7 @@ def convert_mod10a1_directory(
             continue
 
         destination = _build_output_path(output_root, season_label, meta.date)
-        try:
+        try:  # Warp the NDSI subdataset to GeoTIFF (CRS/resolution/clip)
             _warp_ndsi(
                 subdataset,
                 destination,
@@ -256,7 +317,7 @@ def convert_mod10a1_directory(
             logger.error("Conversion failed for {}: {}", hdf.name, exc)
             continue
 
-        try:
+        try:  # Read array + metadata for cloud/SCF classification
             data, nodata, transform, projection = _read_ndsi_raster(destination)
         except Exception as exc:
             logger.error("Failed reading {}: {}", destination.name, exc)
@@ -264,6 +325,7 @@ def convert_mod10a1_directory(
                 destination.unlink(missing_ok=True)
             continue
 
+        # Step 4: Compute cloud fraction and apply threshold if requested
         cloud_fraction = _cloud_fraction_from_data(data, nodata)
         if cloud_fraction is None:
             logger.warning(
@@ -285,6 +347,7 @@ def convert_mod10a1_directory(
                 destination.unlink(missing_ok=True)
             continue
 
+        # Step 5: Classify and compute SCF
         class_arr, scf = _classify_ndsi_data(data, nodata, ndsi_threshold)
         if scf is None:
             logger.warning(
@@ -296,7 +359,7 @@ def convert_mod10a1_directory(
             continue
 
         class_path = destination.with_name(destination.stem + "_class.tif")
-        try:
+        try:  # Step 6: Write classification raster
             _write_classification_raster(
                 class_path,
                 class_arr,
@@ -312,7 +375,7 @@ def convert_mod10a1_directory(
                 class_path.unlink(missing_ok=True)
             continue
 
-        try:
+        try:  # Step 7: Update season summary table
             _update_scf_summary(
                 summary_path,
                 meta.date,
@@ -324,6 +387,7 @@ def convert_mod10a1_directory(
         except Exception as exc:
             logger.error("Failed updating SCF summary for {}: {}", destination.name, exc)
 
+        # Step 8: Log success and add to outputs
         logger.info(
             "Converted {} -> {} (scf={:.2f}, cloud_fraction={:.3f})",
             hdf.name,

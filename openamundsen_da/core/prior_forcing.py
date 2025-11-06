@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 """
 openamundsen_da.core.prior_forcing
 
@@ -10,8 +10,8 @@ Design
 - Inputs: explicit input meteo dir, project dir, and step dir
 - Dates: inclusive [start_date..end_date] read from the step YAML
 - Params: read from project.yml under data_assimilation.prior_forcing
-- Perturbations: temperature additive ΔT ~ N(0, σ_T²), precipitation factor
-  f_p ~ LogNormal(μ_P, σ_P²), constant per member across stations and time
+- Perturbations: temperature additive dT ~ N(0, sigma_T), precipitation factor
+  f_p ~ LogNormal(mu_P, sigma_P), constant per member across stations and time
 - Schema: requires 'date'; 'temp' and 'precip' are optional per station file
 - Precip negatives: if 'precip' exists and contains negatives, abort
 - Output: <step_dir>/ensembles/prior/{open_loop,member_XXX}/{meteo,results}
@@ -329,3 +329,7 @@ def main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+
+

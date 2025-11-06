@@ -6,6 +6,8 @@ from openamundsen_da.core.constants import (
     ENSEMBLE_PRIOR,
     MEMBER_PREFIX,
     OPEN_LOOP,
+    VAR_HS,
+    VAR_SWE,
 )
 
 # ---- YAML discovery helpers -------------------------------------------------
@@ -81,3 +83,41 @@ def member_dir_for_index(step_dir: PathLike, index: int, width: int = 3) -> Path
     """Member directory path using zero-padded index: member_XXX."""
     name = f"{MEMBER_PREFIX}{index:0{width}d}"
     return prior_root(step_dir) / name
+
+
+# ---- Member results helpers -------------------------------------------------
+
+def member_id_from_results_dir(results_dir: str | Path) -> str:
+    """Return member ID (e.g., 'member_001') given a member results dir."""
+    return Path(results_dir).parent.name
+
+
+def find_member_daily_raster(results_dir: str | Path, variable: str, date_str: str) -> Path:
+    """Find a daily raster for a given variable and date in a member results dir.
+
+    Parameters
+    ----------
+    results_dir : Path-like
+        Path to the member results directory (contains daily GeoTIFFs).
+    variable : str
+        One of VAR_HS ('hs') or VAR_SWE ('swe').
+    date_str : str
+        Date string in 'YYYY-MM-DD' format.
+
+    Returns
+    -------
+    Path
+        Path to the first matching raster.
+    """
+    results_dir = Path(results_dir)
+    if variable == VAR_HS:
+        prefix = "snowdepth_daily_"
+    elif variable == VAR_SWE:
+        prefix = "swe_daily_"
+    else:
+        raise ValueError(f"Unknown variable '{variable}', expected '{VAR_HS}' or '{VAR_SWE}'")
+    patt = f"{prefix}{date_str}T*.tif"
+    matches = sorted(results_dir.glob(patt))
+    if not matches:
+        raise FileNotFoundError(f"No raster found matching {patt} in {results_dir}")
+    return matches[0]

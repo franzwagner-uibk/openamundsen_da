@@ -252,3 +252,6 @@ $outgpkg = "C:\\Daten\\PhD\\openamundsen_da\\examples\\test-project\\env\\GMBA_I
 "C:\Users\franz\miniconda3\envs\openamundsen\Library\bin\ogr2ogr.exe" -f GPKG "$outgpkg" "$inshp"
 ```
 
+
+Classification details
+- Class raster codes:  =invalid, 1=no snow, 2=snow.\n- Invalid includes nodata and values outside 0..100; cloud pixels (200) are treated as invalid and excluded from SCF.\n- Snow decision is NDSI > ndsi_threshold (default 40); no snow is NDSI <= ndsi_threshold.\n

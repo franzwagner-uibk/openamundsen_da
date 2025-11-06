@@ -4,9 +4,12 @@ openamundsen_da.util.stats
 
 Compact statistical helpers used across DA modules.
 
-Currently provides sampling for prior forcing perturbations:
-- Temperature offset: Normal(0, sigma_t^2)
-- Precipitation factor: LogNormal(mu_p, sigma_p^2)
+Includes:
+- Prior forcing perturbation samplers
+  - Temperature offset: Normal(0, sigma_t^2)
+  - Precipitation factor: LogNormal(mu_p, sigma_p^2)
+- Core math utilities
+  - Logistic sigmoid with numerical stability
 """
 
 from numpy.random import Generator

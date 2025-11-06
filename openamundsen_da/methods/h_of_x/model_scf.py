@@ -25,7 +25,6 @@ Notes
 
 from __future__ import annotations
 
-import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -40,7 +39,22 @@ from loguru import logger
 from rasterio.mask import mask as rio_mask
 
 from openamundsen_da.core.env import ensure_gdal_proj_from_conda
-from openamundsen_da.core.constants import LOGURU_FORMAT
+from openamundsen_da.core.constants import (
+    LOGURU_FORMAT,
+    VAR_HS,
+    VAR_SWE,
+    HOFX_BLOCK,
+    HOFX_METHOD,
+    HOFX_VARIABLE,
+    HOFX_PARAMS,
+    HOFX_PARAM_H0,
+    HOFX_PARAM_K,
+)
+from openamundsen_da.io.paths import (
+    find_member_daily_raster,
+    member_id_from_results_dir,
+)
+from openamundsen_da.util.stats import sigmoid
 
 
 Variable = Literal["hs", "swe"]
@@ -66,44 +80,8 @@ class SCFParams:
     k: float = 80.0
 
 
-def _parse_date_from_filename(p: Path) -> datetime:
-    """Extract date from file name formats like snowdepth_daily_YYYY-MM-DDT....tif.
-
-    Tries ISO 'YYYY-MM-DD' first; falls back to first contiguous 8 digits.
-    """
-    stem = p.stem
-    m = re.search(r"(\d{4}-\d{2}-\d{2})", stem)
-    if m:
-        return datetime.strptime(m.group(1), "%Y-%m-%d")
-    m2 = re.search(r"(\d{8})", stem)
-    if m2:
-        return datetime.strptime(m2.group(1), "%Y%m%d")
-    raise ValueError(f"Could not parse date from raster name: {p.name}")
-
-
-def _member_id_from_results_dir(results_dir: Path) -> str:
-    """Return member ID like 'member_001' given results dir .../member_001/results"""
-    parent = Path(results_dir).parent
-    return parent.name
-
-
-def _find_member_raster(results_dir: Path, variable: Variable, date: datetime) -> Path:
-    """Locate the raster file for the given date and variable in a member results dir.
-
-    Expected patterns:
-    - snowdepth_daily_YYYY-MM-DDT*.tif for variable='hs'
-    - swe_daily_YYYY-MM-DDT*.tif      for variable='swe'
-    """
-    prefix = "snowdepth_daily_" if variable == "hs" else "swe_daily_"
-    patt = f"{prefix}{date.strftime('%Y-%m-%d')}T*.tif"
-    matches = sorted(Path(results_dir).glob(patt))
-    if not matches:
-        raise FileNotFoundError(f"No raster found matching {patt} in {results_dir}")
-    return matches[0]
-
-
-def _read_masked_array(raster_path: Path, aoi_path: Path) -> Tuple[np.ma.MaskedArray, dict]:
-    """Read raster and mask by AOI geometry; return masked array and raster profile."""
+def _read_masked_array(raster_path: Path, aoi_path: Path) -> np.ma.MaskedArray:
+    """Read raster and mask by AOI geometry; return masked array."""
     gdf = gpd.read_file(aoi_path)
     if len(gdf) != 1:
         raise ValueError(f"AOI must contain exactly one feature (got {len(gdf)})")
@@ -118,8 +96,7 @@ def _read_masked_array(raster_path: Path, aoi_path: Path) -> Tuple[np.ma.MaskedA
         shapes: Iterable = gdf.geometry
         data, _ = rio_mask(src, shapes, crop=True, nodata=src.nodata, filled=False)
         arr = np.ma.array(data[0], copy=False)
-        profile = src.profile
-    return arr, profile
+    return arr
 
 
 def _valid_mask(x: np.ma.MaskedArray) -> np.ndarray:
@@ -147,7 +124,7 @@ def _scf_logistic(x: np.ma.MaskedArray, h0: float, k: float) -> Tuple[int, float
     if n_valid == 0:
         raise ValueError("AOI contains no valid pixels for SCF computation")
     dx = np.clip((x - h0), a_min=-1e6, a_max=1e6)
-    p = 1.0 / (1.0 + np.exp(-k * dx))
+    p = sigmoid(k * dx)
     scf = float(p[valid].mean())
     return n_valid, scf
 
@@ -186,8 +163,9 @@ def compute_model_scf(
     ensure_gdal_proj_from_conda()
     params = params or SCFParams()
 
-    raster_path = _find_member_raster(Path(results_dir), variable, date)
-    arr, _profile = _read_masked_array(raster_path, Path(aoi_path))
+    var = variable if variable in (VAR_HS, VAR_SWE) else VAR_HS
+    raster_path = find_member_daily_raster(Path(results_dir), var, date.strftime("%Y-%m-%d"))
+    arr = _read_masked_array(raster_path, Path(aoi_path))
 
     if method == "depth_threshold":
         n_valid, n_snow, scf = _scf_depth_threshold(arr, float(params.h0))
@@ -197,11 +175,11 @@ def compute_model_scf(
     else:
         raise ValueError(f"Unknown method: {method}")
 
-    member_id = _member_id_from_results_dir(Path(results_dir))
+    member_id = member_id_from_results_dir(Path(results_dir))
     return {
         "date": date.strftime("%Y-%m-%d"),
         "member_id": member_id,
-        "variable": variable,
+        "variable": var,
         "method": method,
         "h0": float(params.h0),
         "k": float(params.k),
@@ -237,10 +215,11 @@ def cli_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--member-results", type=Path, required=True, help="Path to member results directory")
     parser.add_argument("--aoi", type=Path, required=True, help="Path to single-feature AOI vector file")
     parser.add_argument("--date", type=str, required=True, help="Date in YYYY-MM-DD")
-    parser.add_argument("--variable", type=str, default="hs", choices=["hs", "swe"], help="Use HS or SWE raster")
-    parser.add_argument("--method", type=str, default="depth_threshold", choices=["depth_threshold", "logistic"], help="SCF operator")
+    parser.add_argument("--variable", type=str, default=None, choices=["hs", "swe"], help="Use HS or SWE raster")
+    parser.add_argument("--method", type=str, default=None, choices=["depth_threshold", "logistic"], help="SCF operator")
     parser.add_argument("--h0", type=float, default=None, help="Threshold/midpoint h0 (units of variable)")
     parser.add_argument("--k", type=float, default=None, help="Logistic slope k (1/units of variable)")
+    parser.add_argument("--step-dir", type=Path, default=None, help="Optional step directory to read H(x) defaults from YAML")
     parser.add_argument("--output", type=Path, default=None, help="Optional output CSV path")
     parser.add_argument("--region-id-field", type=str, default="region_id", help="AOI field name for region_id")
     parser.add_argument("--log-level", type=str, default="INFO", help="Log level (INFO, DEBUG, ...)")
@@ -258,16 +237,43 @@ def cli_main(argv: list[str] | None = None) -> int:
         logger.error(f"Invalid --date format (expected YYYY-MM-DD): {args.date}")
         return 2
 
-    # Parameters
+    # Parameters (defaults, possibly overridden by step YAML or CLI)
+    method = "depth_threshold"
+    variable = VAR_HS
     prm = SCFParams()
+
+    # Optional: read defaults from step YAML
+    if args.step_dir is not None:
+        try:
+            import ruamel.yaml as _yaml
+            from openamundsen_da.io.paths import find_step_yaml as _find_step_yaml
+            yml = _find_step_yaml(Path(args.step_dir))
+            y = _yaml.YAML(typ="safe")
+            with Path(yml).open("r", encoding="utf-8") as f:
+                cfg = y.load(f) or {}
+            hofx = (cfg or {}).get(HOFX_BLOCK) or {}
+            method = str(hofx.get(HOFX_METHOD, method))
+            variable = str(hofx.get(HOFX_VARIABLE, variable))
+            params = (hofx.get(HOFX_PARAMS) or {})
+            if HOFX_PARAM_H0 in params:
+                prm.h0 = float(params[HOFX_PARAM_H0])
+            if HOFX_PARAM_K in params:
+                prm.k = float(params[HOFX_PARAM_K])
+        except Exception:
+            # best-effort; ignore YAML read errors
+            pass
+
+    # CLI overrides
+    if args.method is not None:
+        method = args.method
+    if args.variable is not None:
+        variable = args.variable
     if args.h0 is not None:
         prm.h0 = float(args.h0)
     if args.k is not None:
         prm.k = float(args.k)
-    if args.method == "depth_threshold":
-        # k is unused; warn if provided
-        if args.k is not None:
-            logger.warning("--k provided but unused for depth_threshold method")
+    if method == "depth_threshold" and args.k is not None:
+        logger.warning("--k provided but unused for depth_threshold method")
 
     # Compute SCF
     try:
@@ -275,8 +281,8 @@ def cli_main(argv: list[str] | None = None) -> int:
             results_dir=Path(args.member_results),
             aoi_path=Path(args.aoi),
             date=dt,
-            variable=args.variable,  # type: ignore[arg-type]
-            method=("logistic" if args.method == "logistic" else "depth_threshold"),  # type: ignore[arg-type]
+            variable=variable,  # type: ignore[arg-type]
+            method=("logistic" if method == "logistic" else "depth_threshold"),  # type: ignore[arg-type]
             params=prm,
         )
     except Exception as e:
@@ -324,4 +330,3 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(cli_main())
-

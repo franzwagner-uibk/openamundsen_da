@@ -31,16 +31,20 @@ def _plot(df: pd.DataFrame, title: str | None = None, subtitle: str | None = Non
     matplotlib.use("Agg")  # headless
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(10, 4), constrained_layout=True)
+    # Use manual layout reservation for title/subtitle to avoid clipping
+    fig, ax = plt.subplots(figsize=(10, 4.6))
     ax.plot(df["date"], df["scf"], color="#1f77b4", linewidth=1.8)
     ax.scatter(df["date"], df["scf"], s=10, color="#1f77b4", alpha=0.8)
     ax.set_ylim(0, 1)
     ax.set_ylabel("SCF")
     ax.set_xlabel("Date")
+    # Reserve top margin for headers
+    top_rect = 0.80 if (title or subtitle) else 0.92
+    fig.tight_layout(rect=[0.02, 0.02, 0.98, top_rect])
     if title:
-        fig.suptitle(title, fontsize=12, y=1.02)
+        fig.text(0.5, 0.97, title, ha="center", va="top", fontsize=12)
     if subtitle:
-        ax.set_title(subtitle, fontsize=10)
+        fig.text(0.5, 0.935, subtitle, ha="center", va="top", fontsize=10, color="#555555")
     ax.grid(True, linestyle=":", linewidth=0.6, alpha=0.7)
     return fig
 
@@ -98,7 +102,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         ) from e
 
     out = Path(args.output) if args.output else csv_path.parent / "scf_summary.png"
-    fig.savefig(out, dpi=150)
+    fig.savefig(out, dpi=150, bbox_inches="tight", pad_inches=0.2)
     logger.info("Wrote plot: {}\n", out)
     return 0
 

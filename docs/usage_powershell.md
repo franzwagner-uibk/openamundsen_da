@@ -98,7 +98,9 @@ python -m openamundsen_da.observer.mod10a1_preprocess `
 Create a simple PNG plot of SCF over time from the season summary CSV:
 
 ```powershell
-oa-da-plot-scf "C:\Daten\PhD\openamundsen_da\examples\test-project\obs\season_2017-2018\scf_summary.csv"
+C:\Users\franz\miniconda3\condabin\conda.bat run -n gistools --no-capture-output python -m openamundsen_da.observer.plot_scf_summary "C:\Daten\PhD\openamundsen_da\examples\test-project\obs\season_2017-2018\scf_summary.csv"
+
+
 ```
 
 Optionally set output path/title:

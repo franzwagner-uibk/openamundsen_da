@@ -109,7 +109,6 @@ def _build_output_path(output_root: Path, season_label: str, when: datetime) -> 
 
     season_dir = output_root / season_label
     season_dir.mkdir(parents=True, exist_ok=True)
-    summary_path = season_dir / "scf_summary.csv"
     return season_dir / f"{MOD10A1_SDS_NAME}_{when.strftime('%Y%m%d')}.tif"
 
 
@@ -206,6 +205,7 @@ def convert_mod10a1_directory(
 
     season_dir = output_root / season_label
     season_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = season_dir / "scf_summary.csv"
 
     bounds = None
     region_id = region_field

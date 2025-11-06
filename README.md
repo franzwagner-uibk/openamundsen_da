@@ -219,6 +219,54 @@ oa-da-plot-scf "$proj\obs\season_2017-2018\scf_summary.csv" `
   --subtitle "derived from MODIS 10A1 v6 NDSI"
 ```
 
+## Model SCF Operator (H(x))
+
+Purpose
+- Derive model-based Snow Cover Fraction (SCF) from openAMUNDSEN outputs within an AOI to match satellite SCF for data assimilation.
+
+Inputs
+- Member results directory: contains daily rasters `snowdepth_daily_YYYY-MM-DDT0000.tif` and/or `swe_daily_YYYY-MM-DDT0000.tif`.
+- AOI polygon: single feature vector file; reprojected to raster CRS if needed.
+- Date: `YYYY-MM-DD`.
+
+Methods
+- Depth threshold (deterministic)
+  - Per-cell indicator: `I = 1 if X > h0 else 0`; SCF = mean(I).
+  - `h0` is in the same units as `X` (m for HS, or SWE units if using SWE).
+  - Pros: simple, transparent; Cons: hard transition near snowline.
+
+- Logistic (probabilistic)
+  - Per-cell probability: `p = 1 / (1 + exp(-k * (X - h0)))`; SCF = mean(p).
+  - `h0` is the 50% point; `k` controls sharpness (1/units of `X`).
+  - Rule-of-thumb: 10–90% transition width `ΔX ≈ 4.394 / k`.
+  - Pros: smooth, stable for DA; Cons: choose `k` sensibly.
+
+Variables
+- `X` can be snow depth (`hs`) or `swe`. Parameters are in the same units as `X`.
+- Defaults: `h0 = 0.05` (m for `hs`), `k = 80` (m⁻¹) – adjust by grid scale and heterogeneity.
+
+Output
+- CSV per member/date: `model_scf_YYYYMMDD.csv` in the member `results` directory.
+- Columns: `date, member_id, region_id, variable, method, h0, k, n_valid, scf_model, raster`.
+
+CLI
+```
+oa-da-model-scf \
+  --member-results <.../member_001/results> \
+  --aoi <region.gpkg> \
+  --date 2017-12-10 \
+  --variable hs \
+  --method logistic \
+  --h0 0.05 --k 80
+```
+
+Tuning Hints
+- Pick `h0` ~ 0.04–0.05 m for HS; for SWE, choose an equivalent threshold in SWE units.
+- Choose `k` from desired transition width: finer/less heterogeneous grids → larger `k` (sharper), coarser/more heterogeneous → smaller `k`.
+
+Assimilation Note
+- When comparing model SCF to satellite SCF, prefer a logit-domain Gaussian likelihood for stability near bounds, or a linear-domain Gaussian with variance scaled by `p·(1−p)`.
+
 ## General Information (Logging, Environment, Tips)
 
 - Per‑member logs: `<member_dir>\logs\member.log`. Tail a log:
@@ -240,4 +288,5 @@ Get-Content $log -Tail 50 -Wait
 - `openamundsen_da/observer/satellite_scf.py` — single‑image, single‑region SCF extraction
 - `openamundsen_da/observer/plot_scf_summary.py` — SCF time‑series plotter
 
-Roadmap (planned): observation operator H(x), likelihood, resampling, rejuvenation under `methods/`.
+- `openamundsen_da/methods/h_of_x/model_scf.py` — model-derived SCF operator (depth threshold, logistic) and CLI `oa-da-model-scf`.
+Roadmap (planned): likelihood utilities, resampling, rejuvenation under `methods/`.

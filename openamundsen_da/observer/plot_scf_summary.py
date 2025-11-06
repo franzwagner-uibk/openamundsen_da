@@ -71,6 +71,7 @@ def _plot(df: pd.DataFrame, title: str | None = None, subtitle: str | None = Non
     import matplotlib
     matplotlib.use("Agg")  # headless
     import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
 
     # Use manual layout reservation for title/subtitle to avoid clipping
     fig, ax = plt.subplots(figsize=(10, 4.3))
@@ -79,6 +80,9 @@ def _plot(df: pd.DataFrame, title: str | None = None, subtitle: str | None = Non
     ax.set_ylim(0, 1)
     ax.set_ylabel("SCF")
     ax.set_xlabel("Date")
+    # One major tick per month
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
     # Reserve a modest top margin for headers
     top_rect = 0.90 if (title or subtitle) else 0.94
     fig.tight_layout(rect=[0.02, 0.02, 0.98, top_rect])

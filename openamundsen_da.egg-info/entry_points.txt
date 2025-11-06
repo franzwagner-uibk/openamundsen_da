@@ -1,3 +1,4 @@
 [console_scripts]
 oa-da-mod10a1 = openamundsen_da.observer.mod10a1_preprocess:cli_main
+oa-da-plot-scf = openamundsen_da.observer.plot_scf_summary:cli_main
 oa-da-scf = openamundsen_da.observer.satellite_scf:cli_main

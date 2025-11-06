@@ -19,6 +19,7 @@ openamundsen_da/io/paths.py
 openamundsen_da/methods/__init__.py
 openamundsen_da/observer/__init__.py
 openamundsen_da/observer/mod10a1_preprocess.py
+openamundsen_da/observer/plot_scf_summary.py
 openamundsen_da/observer/satellite_scf.py
 openamundsen_da/util/__init__.py
 openamundsen_da/util/stats.py

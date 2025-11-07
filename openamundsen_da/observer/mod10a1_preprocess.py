@@ -348,7 +348,7 @@ def convert_mod10a1_directory(
             continue
 
         # Step 5: Classify and compute SCF
-        class_arr, scf = _classify_ndsi_data(data, nodata, ndsi_threshold)
+        class_arr, scf, n_valid, n_snow = _classify_ndsi_data(data, nodata, ndsi_threshold)
         if scf is None:
             logger.warning(
                 "Discarded {} because no valid NDSI pixels remained after filtering",
@@ -383,6 +383,8 @@ def convert_mod10a1_directory(
                 scf,
                 cloud_fraction,
                 destination.name,
+                n_valid,
+                n_snow,
             )
         except Exception as exc:
             logger.error("Failed updating SCF summary for {}: {}", destination.name, exc)
@@ -514,8 +516,8 @@ def _classify_ndsi_data(
     data: np.ndarray,
     nodata: float | None,
     threshold: float,
-) -> tuple[np.ndarray, float | None]:
-    """Return (classification array, SCF) derived from NDSI data."""
+) -> tuple[np.ndarray, float | None, int, int]:
+    """Return (classification array, SCF, n_valid, n_snow) derived from NDSI data."""
 
     mask_invalid = np.zeros(data.shape, dtype=bool)
     if nodata is not None:
@@ -531,11 +533,11 @@ def _classify_ndsi_data(
 
     valid_count = int(np.count_nonzero(valid))
     if valid_count == 0:
-        return class_arr, None
+        return class_arr, None, 0, 0
 
     snow_count = int(np.count_nonzero(snow))
     scf = snow_count / valid_count
-    return class_arr, scf
+    return class_arr, scf, valid_count, snow_count
 
 
 def _write_classification_raster(
@@ -584,6 +586,8 @@ def _update_scf_summary(
     scf: float,
     cloud_fraction: float,
     source_name: str,
+    n_valid: int,
+    n_snow: int,
 ) -> None:
     """Append or update SCF summary CSV in the season directory."""
 
@@ -591,7 +595,9 @@ def _update_scf_summary(
         {
             "date": [date.strftime("%Y-%m-%d")],
             "region_id": [region_id],
-            "scf": [round(scf, 2)],
+            "n_valid": [int(n_valid)],
+            "n_snow": [int(n_snow)],
+            "scf": [round(scf, 3)],
             "cloud_fraction": [round(cloud_fraction, 3)],
             "source": [source_name],
         }

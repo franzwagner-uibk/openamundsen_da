@@ -431,7 +431,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument(
         "--max-cloud-fraction",
         type=float,
-        help="Skip scenes with cloud coverage higher than this fraction (e.g., 0.1 for 10%)",
+        help="Skip scenes with cloud coverage higher than this fraction (e.g., 0.1 for 10%%)",
     )
     parser.add_argument("--log-level", default="INFO", help="Loguru log level (default: INFO)")
 

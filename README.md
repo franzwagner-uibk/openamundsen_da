@@ -105,7 +105,7 @@ $seas = "$proj\\propagation\\season_2017-2018"
 $step = "$seas\\step_00_init"
 $meteo = "$proj\\meteo"   # original long-span meteo
 
-python -m openamundsen_da.core.prior_forcing `
+& C:\\Users\\franz\\miniconda3\\envs\\openamundsen\\python.exe -m openamundsen_da.core.prior_forcing `
   --input-meteo-dir $meteo `
   --project-dir     $proj `
   --step-dir        $step `
@@ -139,7 +139,7 @@ $proj = "$repo\\examples\\test-project"
 $seas = "$proj\\propagation\\season_2017-2018"
 $step = "$seas\\step_00_init"
 
-python -m openamundsen_da.core.launch `
+& C:\\Users\\franz\\miniconda3\\envs\\openamundsen\\python.exe -m openamundsen_da.core.launch `
   --project-dir $proj `
   --season-dir  $seas `
   --step-dir    $step `
@@ -166,7 +166,7 @@ python -m openamundsen_da.core.launch `
 Single‑threaded debug run:
 
 ```powershell
-python -m openamundsen_da.core.launch `
+& C:\\Users\\franz\\miniconda3\\envs\\openamundsen\\python.exe -m openamundsen_da.core.launch `
   --project-dir $proj `
   --season-dir  $seas `
   --step-dir    $step `
@@ -178,7 +178,7 @@ python -m openamundsen_da.core.launch `
 Help:
 
 ```powershell
-python -m openamundsen_da.core.launch --help
+& C:\\Users\\franz\\miniconda3\\envs\\openamundsen\\python.exe -m openamundsen_da.core.launch --help
 ```
 
 ## Observation Processing
@@ -188,7 +188,7 @@ python -m openamundsen_da.core.launch --help
 Batch‑convert MODIS/Terra MOD10A1 (C6/6.1) HDF files into `NDSI_Snow_Cover_YYYYMMDD.tif` and maintain a season‑level `scf_summary.csv`.
 
 ```powershell
-oa-da-mod10a1 `
+& C:\\Users\\franz\\miniconda3\\envs\\openamundsen\\python.exe -m openamundsen_da.observer.mod10a1_preprocess `
   --input-dir   "$proj\obs\MOD10A1_61_HDF" `
   --project-dir "$proj" `
   --season-label season_2017-2018 `
@@ -199,7 +199,7 @@ oa-da-mod10a1 `
   --overwrite
 
 # or
-python -m openamundsen_da.observer.mod10a1_preprocess ...
+& C:\\Users\\franz\\miniconda3\\envs\\openamundsen\\python.exe -m openamundsen_da.observer.mod10a1_preprocess ...
 ```
 
 Outputs (under `$proj\obs\season_yyyy-yyyy`):
@@ -219,12 +219,12 @@ Notes:
 Compute SCF from one preprocessed `NDSI_Snow_Cover_YYYYMMDD.tif` and a single AOI polygon.
 
 ```powershell
-oa-da-scf --raster "C:\\data\\modis\\NDSI_Snow_Cover_20250315.tif" `
+& C:\\Users\\franz\\miniconda3\\envs\\openamundsen\\python.exe -m openamundsen_da.observer.satellite_scf --raster "C:\\data\\modis\\NDSI_Snow_Cover_20250315.tif" `
           --region "C:\\data\\modis\\region.gpkg" `
           --step-dir $step
 
 # or
-python -m openamundsen_da.observer.satellite_scf ...
+& C:\\Users\\franz\\miniconda3\\envs\\openamundsen\\python.exe -m openamundsen_da.observer.satellite_scf ...
 ```
 
 Expectations and overrides:
@@ -242,13 +242,13 @@ scf:
 Custom output path:
 
 ```powershell
-oa-da-scf --raster ... --region ... --output C:\\tmp\\myscf.csv
+& C:\\Users\\franz\\miniconda3\\envs\\openamundsen\\python.exe -m openamundsen_da.observer.satellite_scf --raster ... --region ... --output C:\\tmp\\myscf.csv
 ```
 
 ### Plot SCF Summary
 
 ```powershell
-oa-da-plot-scf "$proj\obs\season_2017-2018\scf_summary.csv" `
+& C:\\Users\\franz\\miniconda3\\envs\\openamundsen\\python.exe -m openamundsen_da.observer.plot_scf_summary "$proj\obs\season_2017-2018\scf_summary.csv" `
   --output  "$proj\obs\season_2017-2018\scf_summary.png" `
   --title   "SCF 2017-2018" `
   --subtitle "derived from MODIS 10A1 v6 NDSI"
@@ -293,7 +293,7 @@ Output
 CLI
 
 ```powershell
-oa-da-model-scf `
+& C:\\Users\\franz\\miniconda3\\envs\\openamundsen\\python.exe -m openamundsen_da.methods.h_of_x.model_scf `
   --member-results "<.../member_001/results>" `
   --aoi "<region.gpkg>" `
   --date 2017-12-10 `
@@ -329,7 +329,7 @@ Assimilation Note
 Compute Gaussian weights for one assimilation date by comparing the observed SCF with model-derived SCF (H(x)) for all members. Outputs a CSV with per-member weights and reports ESS.
 
 ```powershell
-oa-da-assimilate-scf `
+& C:\\Users\\franz\\miniconda3\\envs\\openamundsen\\python.exe -m openamundsen_da.methods.pf.assimilate_scf `
   --project-dir $proj `
   --step-dir    $step `
   --ensemble    prior `

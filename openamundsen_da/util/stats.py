@@ -40,3 +40,68 @@ def sigmoid(x):
     ex = np.exp(x[neg])
     out[neg] = ex / (1.0 + ex)
     return out
+
+
+# ---- Likelihood and PF helpers ---------------------------------------------
+
+def gaussian_logpdf(residual: np.ndarray, sigma: np.ndarray | float) -> np.ndarray:
+    """Elementwise log N(0, sigma^2) evaluated at residual.
+
+    residual and sigma can be broadcastable arrays or scalars.
+    Returns an array of log-likelihoods.
+    """
+    r = np.asarray(residual, dtype=float)
+    s = np.asarray(sigma, dtype=float)
+    return -0.5 * (np.log(2.0 * np.pi) + 2.0 * np.log(s) + (r * r) / (s * s))
+
+
+def logsumexp(a: np.ndarray) -> float:
+    """Stable log-sum-exp over a 1D array."""
+    a = np.asarray(a, dtype=float)
+    m = np.max(a)
+    return float(m + np.log(np.sum(np.exp(a - m))))
+
+
+def normalize_log_weights(logw: np.ndarray) -> np.ndarray:
+    """Return normalized weights from log-weights (stable softmax)."""
+    lw = np.asarray(logw, dtype=float)
+    lse = logsumexp(lw)
+    w = np.exp(lw - lse)
+    return w / np.sum(w)
+
+
+def effective_sample_size(w: np.ndarray) -> float:
+    """Effective sample size ESS = 1 / sum(w^2)."""
+    w = np.asarray(w, dtype=float)
+    s = np.sum(w * w)
+    return float(1.0 / s) if s > 0 else 0.0
+
+
+def systematic_resample(rng: Generator, weights: np.ndarray, n: int | None = None) -> np.ndarray:
+    """Systematic resampling; returns integer indices of selected particles.
+
+    Parameters
+    ----------
+    rng : numpy.random.Generator
+        Random generator for the initial offset u ~ U[0, 1/n).
+    weights : array-like
+        Normalized weights (sum to 1).
+    n : int, optional
+        Number of indices to draw; default len(weights).
+    """
+    w = np.asarray(weights, dtype=float)
+    if n is None:
+        n = w.size
+    # cumulative sum
+    c = np.cumsum(w)
+    # positions
+    u0 = rng.random() / n
+    u = u0 + (np.arange(n) / n)
+    # walk c to pick indices
+    i = 0
+    idx = np.empty(n, dtype=int)
+    for j, uj in enumerate(u):
+        while uj > c[i]:
+            i += 1
+        idx[j] = i
+    return idx

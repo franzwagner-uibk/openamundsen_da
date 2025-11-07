@@ -66,5 +66,21 @@ HOFX_PARAM_K = "k"
 VAR_HS = "hs"
 VAR_SWE = "swe"
 
+# Likelihood / Resampling config blocks (project.yml)
+LIKELIHOOD_BLOCK = "likelihood"
+LIK_OBS_SIGMA = "obs_sigma"
+LIK_USE_BINOMIAL = "use_binomial"
+LIK_SIGMA_FLOOR = "sigma_floor"
+LIK_SIGMA_CLOUD_SCALE = "sigma_cloud_scale"
+LIK_MIN_SIGMA = "min_sigma"
+
+RESAMPLING_BLOCK = "resampling"
+RESAMPLING_ALGORITHM = "algorithm"  # multinomial|systematic|stratified (we implement systematic)
+RESAMPLING_ESS_THRESHOLD = "ess_threshold"
+
+REJUVENATION_BLOCK = "rejuvenation"
+REJ_SIGMA_T = "sigma_t"
+REJ_SIGMA_P = "sigma_p"
+
 # Logging format (green timestamp | level | message)
 LOGURU_FORMAT = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | {message}"

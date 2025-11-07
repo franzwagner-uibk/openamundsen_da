@@ -323,6 +323,25 @@ Assimilation Note
 
 - When comparing model SCF to satellite SCF, prefer a logit-domain Gaussian likelihood for stability near bounds, or a linear-domain Gaussian with variance scaled by `p·(1−p)`.
 
+## Assimilation (SCF Weights)
+
+Compute Gaussian weights for one assimilation date by comparing the observed SCF with model-derived SCF (H(x)) for all members. Outputs a CSV with per-member weights and reports ESS.
+
+```powershell
+oa-da-assimilate-scf `
+  --project-dir $proj `
+  --step-dir    $step `
+  --ensemble    prior `
+  --date        2018-02-15 `
+  --aoi         "$proj\env\GMBA_Inventory_L8_15422.gpkg"
+```
+
+Notes:
+
+- Observation CSV is auto-discovered at `<step>/obs/obs_scf_MOD10A1_YYYYMMDD.csv` (from `oa-da-scf`).
+- If present, `n_valid` and `cloud_fraction` are used to set sigma via a binomial + quality model; otherwise a fixed sigma from `project.yml` is used.
+- H(x) parameters (variable, method, h0, k) can be set in the step YAML under `h_of_x` and are reused here.
+
 ## General Information (Logging, Environment, Tips)
 
 - Per‑member logs: `<member_dir>\logs\member.log`. Tail a log:

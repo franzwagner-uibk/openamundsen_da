@@ -66,8 +66,9 @@ examples/test-project/
 
 Dev install:
 
-```bash
-pip install -e .
+```powershell
+cd C:\Daten\PhD\openamundsen_da
+C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m pip install -e . --no-deps
 ```
 
 ## Build Ensemble (Prior Forcing)

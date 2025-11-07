@@ -1,4 +1,6 @@
 [console_scripts]
+oa-da-assimilate-scf = openamundsen_da.methods.pf.assimilate_scf:cli_main
 oa-da-mod10a1 = openamundsen_da.observer.mod10a1_preprocess:cli_main
+oa-da-model-scf = openamundsen_da.methods.h_of_x.model_scf:cli_main
 oa-da-plot-scf = openamundsen_da.observer.plot_scf_summary:cli_main
 oa-da-scf = openamundsen_da.observer.satellite_scf:cli_main

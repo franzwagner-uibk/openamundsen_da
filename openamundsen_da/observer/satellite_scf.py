@@ -151,7 +151,9 @@ def run_observation_processing(
     df = pd.DataFrame({
         "date": [dt.strftime("%Y-%m-%d")],
         "region_id": [region_id],
-        "scf": [round(scf, 2)],
+        "n_valid": [n_valid],
+        "n_snow": [n_snow],
+        "scf": [round(scf, 3)],
     })
     df.to_csv(output_csv, index=False)
 

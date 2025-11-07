@@ -1,4 +1,4 @@
-# openamundsen_da - Data Assimilation for openAMUNDSEN
+﻿# openamundsen_da - Data Assimilation for openAMUNDSEN
 
 Lightweight tooling to run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF). This README focuses on context and practical usage: launching ensemble members, preprocessing MOD10A1, extracting SCF for assimilation, computing weights, and inspecting outputs/logs.
 
@@ -48,16 +48,16 @@ data_assimilation:
   prior_forcing:
     ensemble_size: 30
     random_seed: 42
-    sigma_t: 0.5   # additive temperature stddev
-    mu_p:   0.0   # log-space mean for precip factor
-    sigma_p: 0.2  # log-space stddev for precip factor
+    sigma_t: 0.5 # additive temperature stddev
+    mu_p: 0.0 # log-space mean for precip factor
+    sigma_p: 0.2 # log-space stddev for precip factor
 ```
 
 Step YAML must define the time window:
 
 ```yaml
 start_date: 2017-10-01 00:00:00
-end_date:   2018-09-30 23:59:59
+end_date: 2018-09-30 23:59:59
 ```
 
 Run the builder (PowerShell):
@@ -229,7 +229,7 @@ Methods
   - Per-cell indicator: I = 1 if X > h0 else 0; SCF = mean(I).
   - h0 is in the same units as X (m for HS, or SWE units if using SWE).
 - Logistic (probabilistic)
-  - Per-cell probability: p = 1 / (1 + exp(-k * (X - h0))); SCF = mean(p).
+  - Per-cell probability: p = 1 / (1 + exp(-k \* (X - h0))); SCF = mean(p).
   - h0 is the 50% point; k controls sharpness (1/units of X).
 
 Output
@@ -245,7 +245,7 @@ CLI
   --aoi "$proj\env\GMBA_Inventory_L8_15422.gpkg" `
   --date 2018-01-10 `
   --variable hs `
-  --method depth_threshold
+  --method logistic
 ```
 
 Configuration (optional)
@@ -254,7 +254,7 @@ Configuration (optional)
 data_assimilation:
   h_of_x:
     method: logistic # or depth_threshold
-    variable: hs     # or swe
+    variable: hs # or swe
     params:
       h0: 0.05
       k: 80

@@ -1,0 +1,120 @@
+"""openamundsen_da.methods.pf.plot_weights
+
+Plot per-date SCF assimilation weights and residuals.
+
+Inputs
+- weights CSV produced by oa-da-assimilate-scf with columns:
+  member_id, scf_model, scf_obs, residual, sigma, log_weight, weight
+
+Outputs
+- A PNG saved next to the CSV (or --output) with two panels:
+  A) sorted normalized weights with ESS annotation
+  B) residual histogram with sigma annotated
+
+Logging uses LOGURU_FORMAT from core.constants.
+"""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import sys
+
+import numpy as np
+import pandas as pd
+from loguru import logger
+
+
+def _load_weights(csv_path: Path) -> pd.DataFrame:
+    df = pd.read_csv(csv_path)
+    needed = {"weight", "residual"}
+    if not needed.issubset(df.columns):
+        missing = ", ".join(sorted(needed - set(df.columns)))
+        raise ValueError(f"CSV missing required columns: {missing}")
+    return df
+
+
+def _ess(weights: np.ndarray) -> float:
+    w = np.asarray(weights, dtype=float)
+    s = float((w * w).sum())
+    return 1.0 / s if s > 0 else 0.0
+
+
+def _plot(df: pd.DataFrame, title: str, subtitle: str | None):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    w = np.asarray(df["weight"], dtype=float)
+    resid = np.asarray(df["residual"], dtype=float)
+    sigma = float(df.get("sigma", pd.Series([np.nan])).iloc[0])
+    n = w.size
+    ess = _ess(w)
+
+    fig = plt.figure(figsize=(10, 4.5))
+    gs = fig.add_gridspec(1, 2, width_ratios=[3, 2])
+
+    ax0 = fig.add_subplot(gs[0, 0])
+    ax1 = fig.add_subplot(gs[0, 1])
+
+    # Panel A: sorted weights
+    ws = np.sort(w)[::-1]
+    ax0.plot(np.arange(1, n + 1), ws, color="#1f77b4", lw=1.8)
+    ax0.set_xlabel("member (sorted)")
+    ax0.set_ylabel("weight")
+    ax0.grid(True, ls=":", lw=0.6, alpha=0.7)
+    ax0.set_title(f"weights (ESS={ess:.1f} / N={n})", fontsize=10)
+
+    # Panel B: residual histogram
+    ax1.hist(resid, bins=20, color="#ff7f0e", alpha=0.85, edgecolor="white")
+    ax1.set_xlabel("residual = scf_obs - scf_model")
+    ax1.set_ylabel("count")
+    if np.isfinite(sigma):
+        ax1.axvline(0.0, color="k", lw=1.0)
+        ax1.axvspan(-sigma, sigma, color="#999999", alpha=0.2, label=f"sigma={sigma:.3f}")
+        ax1.legend(loc="best", frameon=False, fontsize=8)
+    ax1.grid(True, ls=":", lw=0.6, alpha=0.7)
+
+    top_rect = 0.90 if (title or subtitle) else 0.94
+    fig.tight_layout(rect=[0.02, 0.04, 0.98, top_rect])
+    if title:
+        fig.text(0.5, 0.965, title, ha="center", va="top", fontsize=12)
+    if subtitle:
+        fig.text(0.5, 0.925, subtitle, ha="center", va="top", fontsize=10, color="#555555")
+    return fig
+
+
+def cli_main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(prog="oa-da-plot-weights", description="Plot SCF assimilation weights and residuals")
+    p.add_argument("csv", type=Path, help="Path to weights_scf_YYYYMMDD.csv")
+    p.add_argument("--output", type=Path, help="Output PNG path (default: same dir as CSV)")
+    p.add_argument("--title", default="SCF Assimilation Weights", help="Plot title")
+    p.add_argument("--subtitle", default="", help="Plot subtitle")
+    p.add_argument("--log-level", default="INFO")
+    args = p.parse_args(argv)
+
+    from openamundsen_da.core.constants import LOGURU_FORMAT
+    logger.remove()
+    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+
+    try:
+        df = _load_weights(Path(args.csv))
+    except Exception as e:
+        logger.error(f"Failed reading weights CSV: {e}")
+        return 1
+
+    try:
+        fig = _plot(df, title=args.title, subtitle=(args.subtitle or None))
+    except ModuleNotFoundError as e:
+        logger.error("matplotlib is required to plot. Install it in your environment.")
+        return 2
+
+    out = Path(args.output) if args.output else Path(args.csv).with_suffix(".png")
+    fig.savefig(out, dpi=150, bbox_inches="tight", pad_inches=0.1)
+    logger.info("Wrote plot: {}", out)
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(cli_main())
+

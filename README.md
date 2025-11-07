@@ -279,6 +279,26 @@ Notes:
 - If present, n_valid and cloud_fraction are used to set sigma via a binomial + quality model; otherwise a fixed sigma from project.yml is used.
 - H(x) parameters (variable, method, h0, k) can be set in the step YAML under h_of_x and are reused here.
 
+### Plot Weights (single date)
+
+```powershell
+& C:\\Users\\franz\\miniconda3\\envs\\openamundsen\\python.exe -m openamundsen_da.methods.pf.plot_weights `
+  "$step\\assim\\weights_scf_20180110.csv" `
+  --output "$step\\assim\\weights_scf_20180110.png" `
+  --title  "SCF Weights 2018-01-10" `
+  --subtitle "prior ensemble vs observed SCF"
+```
+
+### Plot ESS timeline (multiple dates)
+
+```powershell
+& C:\\Users\\franz\\miniconda3\\envs\\openamundsen\\python.exe -m openamundsen_da.methods.pf.plot_ess_timeline `
+  --step-dir "$step" `
+  --normalized `
+  --threshold 0.5 `
+  --output "$step\\assim\\ess_timeline.png"
+```
+
 ## General Information (Logging, Environment, Tips)
 
 - Per-member logs: <member_dir>\logs\member.log. Tail a log:

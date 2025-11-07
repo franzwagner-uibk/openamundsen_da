@@ -17,6 +17,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 from loguru import logger
+from openamundsen_da.util.stats import effective_sample_size
 
 
 _RE_DATE = re.compile(r"weights_scf_(\d{8})\.csv$", re.IGNORECASE)
@@ -33,12 +34,6 @@ def _scan_weights(assim_dir: Path) -> list[tuple[datetime, Path]]:
     return files
 
 
-def _ess(weights: np.ndarray) -> float:
-    w = np.asarray(weights, dtype=float)
-    s = float((w * w).sum())
-    return 1.0 / s if s > 0 else 0.0
-
-
 def _compute_series(files: list[tuple[datetime, Path]]) -> pd.DataFrame:
     rows: list[dict] = []
     for dt, p in files:
@@ -46,7 +41,7 @@ def _compute_series(files: list[tuple[datetime, Path]]) -> pd.DataFrame:
         if "weight" not in df:
             continue
         w = np.asarray(df["weight"], dtype=float)
-        ess = _ess(w)
+        ess = effective_sample_size(w)
         rows.append({"date": dt, "ess": ess, "n": w.size, "ess_norm": ess / w.size if w.size > 0 else np.nan})
     return pd.DataFrame(rows).sort_values("date")
 
@@ -117,4 +112,3 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-

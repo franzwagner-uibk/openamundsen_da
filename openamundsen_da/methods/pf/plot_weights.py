@@ -23,6 +23,7 @@ import sys
 import numpy as np
 import pandas as pd
 from loguru import logger
+from openamundsen_da.util.stats import effective_sample_size
 
 
 def _load_weights(csv_path: Path) -> pd.DataFrame:
@@ -34,12 +35,6 @@ def _load_weights(csv_path: Path) -> pd.DataFrame:
     return df
 
 
-def _ess(weights: np.ndarray) -> float:
-    w = np.asarray(weights, dtype=float)
-    s = float((w * w).sum())
-    return 1.0 / s if s > 0 else 0.0
-
-
 def _plot(df: pd.DataFrame, title: str, subtitle: str | None):
     import matplotlib
     matplotlib.use("Agg")
@@ -49,7 +44,7 @@ def _plot(df: pd.DataFrame, title: str, subtitle: str | None):
     resid = np.asarray(df["residual"], dtype=float)
     sigma = float(df.get("sigma", pd.Series([np.nan])).iloc[0])
     n = w.size
-    ess = _ess(w)
+    ess = effective_sample_size(w)
 
     fig = plt.figure(figsize=(10, 4.5))
     gs = fig.add_gridspec(1, 2, width_ratios=[3, 2])
@@ -117,4 +112,3 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-

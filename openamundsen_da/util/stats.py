@@ -105,3 +105,32 @@ def systematic_resample(rng: Generator, weights: np.ndarray, n: int | None = Non
             i += 1
         idx[j] = i
     return idx
+
+
+def compute_obs_sigma(
+    y: float,
+    n_valid: int | None,
+    cloud_fraction: float,
+    *,
+    use_binomial: bool,
+    sigma_floor: float,
+    sigma_cloud_scale: float,
+    min_sigma: float,
+    obs_sigma: float | None = None,
+) -> float:
+    """Compute observation sigma for SCF in the linear domain.
+
+    Combines (optional) binomial variance with a floor and cloud inflation.
+    If ``use_binomial`` is False and ``obs_sigma`` is provided, returns at least
+    that fixed value.
+    """
+    var_binom = 0.0
+    if use_binomial and n_valid is not None and n_valid > 0:
+        var_binom = max(0.0, float(y) * (1.0 - float(y)) / float(n_valid))
+    var_floor = float(sigma_floor) ** 2
+    var_cloud = float(sigma_cloud_scale) ** 2 * float(cloud_fraction) ** 2
+    base = max(float(min_sigma) ** 2, var_binom + var_floor + var_cloud)
+    s = float(np.sqrt(base))
+    if not use_binomial and obs_sigma is not None:
+        s = max(s, float(obs_sigma))
+    return s

@@ -41,10 +41,12 @@ from openamundsen_da.core.constants import (
     HOFX_PARAMS,
     HOFX_PARAM_H0,
     HOFX_PARAM_K,
+    OBS_DIR_NAME,
 )
-from openamundsen_da.io.paths import list_member_dirs, default_results_dir, find_step_yaml
+from openamundsen_da.io.paths import list_member_dirs, default_results_dir, find_step_yaml, find_project_yaml
 from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf, SCFParams
-from openamundsen_da.util.stats import gaussian_logpdf, normalize_log_weights, effective_sample_size
+from openamundsen_da.util.stats import gaussian_logpdf, normalize_log_weights, effective_sample_size, compute_obs_sigma
+from openamundsen_da.core.env import _read_yaml_file
 
 
 @dataclass
@@ -81,15 +83,8 @@ def _read_step_hofx(step_dir: Path) -> tuple[str, str, SCFParams]:
 def _read_likelihood_from_project(project_dir: Path) -> LikelihoodParams:
     """Read likelihood settings from project.yml if available."""
     try:
-        import ruamel.yaml as _yaml
-        y = _yaml.YAML(typ="safe")
-        proj = project_dir / "project.yml"
-        if not proj.exists():
-            proj = project_dir / "project.yaml"
-        if not proj.exists():
-            return LikelihoodParams()
-        with proj.open("r", encoding="utf-8") as f:
-            cfg = y.load(f) or {}
+        proj = find_project_yaml(project_dir)
+        cfg = _read_yaml_file(proj) or {}
         lk = (cfg.get(LIKELIHOOD_BLOCK) or {})
         p = LikelihoodParams()
         if LIK_OBS_SIGMA in lk:
@@ -108,7 +103,7 @@ def _read_likelihood_from_project(project_dir: Path) -> LikelihoodParams:
 
 
 def _find_obs_csv(step_dir: Path, date: datetime) -> Optional[Path]:
-    obs_dir = step_dir / "obs"
+    obs_dir = step_dir / OBS_DIR_NAME
     patt = f"obs_scf_MOD10A1_{date.strftime('%Y%m%d')}.csv"
     p = obs_dir / patt
     return p if p.exists() else None
@@ -132,15 +127,16 @@ def _read_obs(csv_path: Path) -> dict:
 
 
 def _compute_sigma(y: float, n_valid: Optional[int], cloud_fraction: float, prm: LikelihoodParams) -> float:
-    # Binomial component if requested and available
-    var_binom = 0.0
-    if prm.use_binomial and n_valid is not None and n_valid > 0:
-        var_binom = float(max(0.0, y * (1.0 - y) / float(n_valid)))
-    var_floor = prm.sigma_floor * prm.sigma_floor
-    var_cloud = (prm.sigma_cloud_scale * cloud_fraction) ** 2
-    sigma = float(np.sqrt(max(prm.min_sigma * prm.min_sigma, var_binom + var_floor + var_cloud)))
-    # Fallback to fixed sigma if binomial disabled and floor was not set
-    return max(sigma, prm.obs_sigma) if not prm.use_binomial and prm.obs_sigma is not None else sigma
+    return compute_obs_sigma(
+        y,
+        n_valid,
+        cloud_fraction,
+        use_binomial=prm.use_binomial,
+        sigma_floor=prm.sigma_floor,
+        sigma_cloud_scale=prm.sigma_cloud_scale,
+        min_sigma=prm.min_sigma,
+        obs_sigma=prm.obs_sigma,
+    )
 
 
 def assimilate_scf_for_date(
@@ -263,4 +259,3 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-

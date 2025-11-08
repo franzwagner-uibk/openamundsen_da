@@ -43,7 +43,7 @@ from openamundsen_da.core.constants import (
     HOFX_PARAM_K,
     OBS_DIR_NAME,
 )
-from openamundsen_da.io.paths import list_member_dirs, default_results_dir, find_step_yaml, find_project_yaml
+from openamundsen_da.io.paths import list_member_dirs, default_results_dir, find_project_yaml, read_step_config
 from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf, SCFParams
 from openamundsen_da.util.stats import gaussian_logpdf, normalize_log_weights, effective_sample_size, compute_obs_sigma
 from openamundsen_da.core.env import _read_yaml_file
@@ -61,12 +61,8 @@ class LikelihoodParams:
 def _read_step_hofx(step_dir: Path) -> tuple[str, str, SCFParams]:
     """Read H(x) defaults from step YAML if available."""
     try:
-        import ruamel.yaml as _yaml
-        yml = find_step_yaml(step_dir)
-        y = _yaml.YAML(typ="safe")
-        with Path(yml).open("r", encoding="utf-8") as f:
-            cfg = y.load(f) or {}
-        hofx = (cfg or {}).get(HOFX_BLOCK) or {}
+        cfg = read_step_config(step_dir) or {}
+        hofx = (cfg.get(HOFX_BLOCK) or {})
         method = str(hofx.get(HOFX_METHOD, "depth_threshold"))
         variable = str(hofx.get(HOFX_VARIABLE, "hs"))
         params = SCFParams()

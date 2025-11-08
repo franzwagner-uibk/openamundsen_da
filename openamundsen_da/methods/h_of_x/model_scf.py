@@ -53,7 +53,9 @@ from openamundsen_da.core.constants import (
 from openamundsen_da.io.paths import (
     find_member_daily_raster,
     member_id_from_results_dir,
+    read_step_config,
 )
+from openamundsen_da.util.aoi import read_single_aoi
 from openamundsen_da.util.stats import sigmoid
 
 
@@ -82,17 +84,10 @@ class SCFParams:
 
 def _read_masked_array(raster_path: Path, aoi_path: Path) -> np.ma.MaskedArray:
     """Read raster and mask by AOI geometry; return masked array."""
-    gdf = gpd.read_file(aoi_path)
-    if len(gdf) != 1:
-        raise ValueError(f"AOI must contain exactly one feature (got {len(gdf)})")
     with rasterio.open(raster_path) as src:
-        # Reproject AOI if needed
-        if gdf.crs is None:
-            raise ValueError("AOI has no CRS; unable to align with raster")
         if src.crs is None:
             raise ValueError("Raster has no CRS; unable to align with AOI")
-        if gdf.crs != src.crs:
-            gdf = gdf.to_crs(src.crs)
+        gdf, _ = read_single_aoi(aoi_path, required_field="region_id", to_crs=src.crs)
         shapes: Iterable = gdf.geometry
         data, _ = rio_mask(src, shapes, crop=True, nodata=src.nodata, filled=False)
         arr = np.ma.array(data[0], copy=False)
@@ -245,13 +240,8 @@ def cli_main(argv: list[str] | None = None) -> int:
     # Optional: read defaults from step YAML
     if args.step_dir is not None:
         try:
-            import ruamel.yaml as _yaml
-            from openamundsen_da.io.paths import find_step_yaml as _find_step_yaml
-            yml = _find_step_yaml(Path(args.step_dir))
-            y = _yaml.YAML(typ="safe")
-            with Path(yml).open("r", encoding="utf-8") as f:
-                cfg = y.load(f) or {}
-            hofx = (cfg or {}).get(HOFX_BLOCK) or {}
+            cfg = read_step_config(Path(args.step_dir)) or {}
+            hofx = (cfg.get(HOFX_BLOCK) or {})
             method = str(hofx.get(HOFX_METHOD, method))
             variable = str(hofx.get(HOFX_VARIABLE, variable))
             params = (hofx.get(HOFX_PARAMS) or {})

@@ -1,13 +1,13 @@
-# openamundsen_da — Data Assimilation for openAMUNDSEN
+# openamundsen_da - Data Assimilation for openAMUNDSEN
 
-Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF) with a particle filter. This README is Docker-only to ensure copy/pasteable, platform‑independent usage on Windows/macOS/Linux.
+Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF) with a particle filter. This README is Docker-only to ensure copy/pasteable, platform-independent usage on Windows/macOS/Linux.
 
 This file uses plain ASCII to avoid encoding issues on Windows.
 
 ## Overview
 
 - Goal: seasonal snow cover prediction with an ensemble openAMUNDSEN model and a particle filter. The model advances in time, satellite SCF updates the ensemble weights, and the posterior becomes the next prior.
-- Status: prior ensemble building, ensemble launcher, MOD10A1 preprocessing, single‑region SCF extraction, H(x) model SCF, assimilation weights, and plotting utilities.
+- Status: prior ensemble building, ensemble launcher, MOD10A1 preprocessing, single-region SCF extraction, H(x) model SCF, assimilation weights, and plotting utilities.
 
 Example project layout:
 
@@ -59,11 +59,70 @@ Notes on updates:
 - For code edits only: no image rebuild is needed. Re‑run the editable install command above.
 - If you change dependencies, environment.yml, or the Dockerfile: rebuild the image (`docker build -t oa-da .`).
 
+## Configuration Cheat Sheet
+
+Minimal files and keys used by the workflow.
+
+- project.yml (at project root)
+  - data_assimilation.prior_forcing (required)
+    - ensemble_size: int
+    - random_seed: int
+    - sigma_t: float   # temperature additive stddev (°C)
+    - mu_p: float      # log-space mean for precip factor
+    - sigma_p: float   # log-space stddev for precip factor
+  - data_assimilation.h_of_x (optional defaults for H(x))
+    - method: depth_threshold | logistic
+    - variable: hs | swe
+    - params.h0: float
+    - params.k: float
+  - likelihood (optional; assimilation)
+    - obs_sigma: float (base sigma if no quality info)
+    - sigma_floor: float (lower bound for sigma)
+    - sigma_cloud_scale: float (extra sigma per unit cloud_fraction)
+    - min_sigma: float (final clamp)
+  - environment (optional)
+    - Keys like GDAL_DATA/PROJ_LIB can be set; inside this Docker image they are auto-configured and usually not needed.
+
+- season.yml (under the season directory)
+  - start_date: YYYY-MM-DD
+  - end_date: YYYY-MM-DD
+
+- Step YAML (any *.yml in the step directory)
+  - start_date: 2017-10-01 00:00:00
+  - end_date:   2018-09-30 23:59:59
+  - scf (optional)
+    - ndsi_threshold: 40
+    - region_id_field: region_id
+  - h_of_x (optional; same keys as in project.yml)
+
+- Meteo input (under project meteo dir)
+  - stations.csv (as required by openAMUNDSEN)
+  - One CSV per station with at least column `date` (ISO). Columns `temp` and/or `precip` are optional; if present, `precip` must not contain negative values.
+
+- AOI requirements
+  - Vector file with exactly one polygon feature and a field `region_id` (or override name). CRS must match the raster/model outputs.
+
+Tip: The launcher discovers YAMLs automatically: project.yml at project root; season.yml in the season folder; the first *.yml in the step folder.
+
+Templates
+
+- Starter templates are included under `templates/project`. You can copy them
+  into a new project folder and adapt:
+  - `templates/project/project.yml`
+  - `templates/project/propagation/season_YYYY-YYYY/season.yml`
+  - `templates/project/propagation/season_YYYY-YYYY/step_00_init/step_00.yml`
+
 ## Workflow and Commands (Docker)
 
-The commands below follow the project framework order: Build Ensemble → Run Ensemble → Observation Processing → H(x) → Assimilation → Plots → General Info.
+The commands below follow the project framework order: Build Ensemble -> Run Ensemble -> Observation Processing -> H(x) -> Assimilation -> Plots -> General Info.
 
 ### Build Ensemble (Prior Forcing)
+
+Context
+
+- Represents the prior distribution via an ensemble of meteorological forcings. Each member uses a constant additive temperature offset (Gaussian, sigma_t) and a constant multiplicative precipitation factor (lognormal, mu_p/sigma_p) across time and stations.
+- The open-loop is an unperturbed copy used as a baseline for comparison.
+- The step dates define an inclusive filter so all members share the same time window.
 
 Required keys in `project.yml` (example):
 
@@ -72,16 +131,16 @@ data_assimilation:
   prior_forcing:
     ensemble_size: 30
     random_seed: 42
-    sigma_t: 0.5   # additive temperature stddev
-    mu_p: 0.0      # log-space mean for precip factor
-    sigma_p: 0.2   # log-space stddev for precip factor
+    sigma_t: 0.5 # additive temperature stddev
+    mu_p: 0.0 # log-space mean for precip factor
+    sigma_p: 0.2 # log-space stddev for precip factor
 ```
 
 Each step YAML defines the time window:
 
 ```yaml
 start_date: 2017-10-01 00:00:00
-end_date:   2018-09-30 23:59:59
+end_date: 2018-09-30 23:59:59
 ```
 
 Run the builder:
@@ -106,7 +165,12 @@ Output under the step:
 
 ### Run Ensemble
 
-Launch openAMUNDSEN for all members of an ensemble (e.g., prior). Results land in each member’s `results` directory.
+Context
+
+- Forecast step of the particle filter: propagate each prior member forward with openAMUNDSEN to produce model states and outputs (e.g., daily snow depth rasters).
+- These outputs feed the observation operator H(x) for comparison against satellite SCF.
+
+Launch openAMUNDSEN for all members of an ensemble (e.g., prior). Results land in each member's `results` directory.
 
 ```
 docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
@@ -122,7 +186,13 @@ docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
 
 ### Observation Processing
 
-- MOD10A1 preprocess (HDF → GeoTIFF + season summary):
+Context
+
+- MOD10A1 preprocess converts HDF to analysis-ready GeoTIFFs and maintains a season summary CSV. A simple NDSI thresholding yields snow/no-snow classification, and SCF is the fraction of snow-classified pixels inside the AOI.
+- Single-image SCF extraction computes an observed SCF for a specific date and AOI; this is the observation y_t for assimilation.
+- Note: The Docker image includes the GDAL HDF4 plugin; if you ever rebuild dependencies, ensure hdf4 and libgdal-hdf4 are present.
+
+- MOD10A1 preprocess (HDF -> GeoTIFF + season summary):
 
 ```
 docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
@@ -159,12 +229,18 @@ docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
 
 ### Model SCF Operator (H(x))
 
+Context
+
+- H(x) maps model state/outputs into observation space. Here, it converts model snow depth (hs) or SWE into a probabilistic or deterministic SCF over the AOI to match the satellite product.
+  - depth_threshold: I = 1 if X > h0 else 0; SCF = mean(I).
+  - logistic: p = 1/(1 + exp(-k\*(X - h0))); SCF = mean(p). Parameters h0 and k are calibratable per site/region.
+
 Derive model SCF within the AOI so it is comparable to satellite SCF.
 
 Methods:
 
 - depth_threshold (deterministic): indicator on X > h0, SCF = mean(I).
-- logistic (probabilistic): p = 1/(1+exp(-k·(X-h0))), SCF = mean(p).
+- logistic (probabilistic): p = 1/(1+exp(-k\*(X - h0))), SCF = mean(p).
 
 ```
 docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
@@ -181,14 +257,19 @@ Optional configuration in `project.yml`:
 ```yaml
 data_assimilation:
   h_of_x:
-    method: logistic   # or depth_threshold
-    variable: hs       # or swe
+    method: logistic # or depth_threshold
+    variable: hs # or swe
     params:
       h0: 0.05
       k: 80
 ```
 
 ### Assimilation (SCF Weights)
+
+Context
+
+- Bayesian update step: compute per-member likelihoods p(y_t | x_t^i) using a Gaussian error model with sigma for observation uncertainty, then normalize to weights w_t^i.
+- Effective Sample Size (ESS) indicates weight degeneracy; low ESS suggests resampling. This module computes weights and ESS; resampling/rejuvenation can be applied in subsequent steps.
 
 Compute Gaussian likelihood weights for a date by comparing observed SCF with H(x) across members. Outputs a CSV and reports ESS.
 
@@ -209,6 +290,11 @@ Notes:
 - H(x) parameters (variable, method, h0, k) can be set under `h_of_x` in the step config and are reused.
 
 ### Plots
+
+Context
+
+- Weight plots visualize the normalized weights and residual distribution to diagnose degeneracy and sigma calibration.
+- ESS timeline summarizes how informative observations are across dates and helps plan resampling frequency.
 
 - Weights (single date, SVG):
 
@@ -232,18 +318,20 @@ docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
     --backend SVG
 ```
 
-### Help
+### Help (no install needed)
+
+Use PYTHONPATH with the repo mounted so modules can be imported without a prior editable install.
 
 ```
-docker run --rm oa-da python -m openamundsen_da.core.prior_forcing --help
-docker run --rm oa-da python -m openamundsen_da.core.launch --help
-docker run --rm oa-da python -m openamundsen_da.observer.mod10a1_preprocess --help
-docker run --rm oa-da python -m openamundsen_da.observer.satellite_scf --help
-docker run --rm oa-da python -m openamundsen_da.observer.plot_scf_summary --help
-docker run --rm oa-da python -m openamundsen_da.methods.h_of_x.model_scf --help
-docker run --rm oa-da python -m openamundsen_da.methods.pf.assimilate_scf --help
-docker run --rm oa-da python -m openamundsen_da.methods.pf.plot_weights --help
-docker run --rm oa-da python -m openamundsen_da.methods.pf.plot_ess_timeline --help
+docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.core.prior_forcing --help
+docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.core.launch --help
+docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.observer.mod10a1_preprocess --help
+docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.observer.satellite_scf --help
+docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.observer.plot_scf_summary --help
+docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.methods.h_of_x.model_scf --help
+docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.methods.pf.assimilate_scf --help
+docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.methods.pf.plot_weights --help
+docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.methods.pf.plot_ess_timeline --help
 ```
 
 ## General Information
@@ -253,3 +341,24 @@ docker run --rm oa-da python -m openamundsen_da.methods.pf.plot_ess_timeline --h
 - Use forward slashes for in-container paths (`/workspace`, `/data`).
 - Prefer `--backend SVG` for plots on all platforms.
 
+## Theory Primer (Very Short)
+
+- Prior: An ensemble represents p(x_t) via N members created by perturbing forcings.
+- Observation: Satellite SCF y_t with uncertainty sigma (quality-driven where available).
+- H(x): Maps model outputs to SCF in the AOI (threshold or logistic).
+- Likelihood: For each member i, L_i = N(y_t - H(x_t^i); 0, sigma^2).
+- Weights: w_i = L_i / sum_j L_j (computed in log-space for stability).
+- ESS: 1/sum(w_i^2) quantifies degeneracy; low ESS suggests resampling.
+- Next steps (future): resampling and rejuvenation to form the posterior/next prior.
+
+## Troubleshooting
+
+- Python package not found in container when running help:
+  - Use `-e PYTHONPATH=/workspace -v "${repo}:/workspace"` with `python -m ...`.
+  - Or install editable inside the container for the current session.
+- HDF not recognized in preprocess:
+  - Rebuild the image to include `hdf4` and `libgdal-hdf4` (already in environment.yml). Verify: `gdalinfo --formats | findstr HDF4`.
+- Windows bind mounts and file metadata:
+  - Some operations (e.g., copy2) may fail to preserve times/permissions. The code falls back to a content-only copy automatically.
+- Plots crash or produce no output on Windows:
+  - Use `--backend SVG` to avoid backend/DLL issues.

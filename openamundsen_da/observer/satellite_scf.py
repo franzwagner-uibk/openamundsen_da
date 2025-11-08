@@ -114,19 +114,13 @@ def run_observation_processing(
 
     # Step 3: Load AOI and enforce single feature + required field
     # AOI and region id
-    gdf = gpd.read_file(region_path)
-    if len(gdf) != 1:
-        raise ValueError(f"AOI must contain exactly one feature (got {len(gdf)})")
-    if region_id_field not in gdf.columns:
-        raise KeyError(f"AOI missing field '{region_id_field}'")
-    region_id = str(gdf.iloc[0][region_id_field])
+    # Need raster CRS for reprojecting AOI; open raster first to get src.crs
 
     # Step 4: Open raster and validate CRS alignment
     with rasterio.open(input_raster) as src:
-        if gdf.crs is None or src.crs is None:
-            raise ValueError("CRS mismatch or missing CRS between raster and AOI")
-        if gdf.crs != src.crs:
-            gdf = gdf.to_crs(src.crs)
+        if src.crs is None:
+            raise ValueError("Raster has no CRS; unable to align with AOI")
+        gdf, region_id = read_single_aoi(region_path, required_field=region_id_field, to_crs=src.crs)
         # Rasterize-mask by AOI geometry, preserve mask (masked array)
         shapes: Iterable = gdf.geometry
         data, _ = rio_mask(src, shapes, crop=True, nodata=src.nodata, filled=False)

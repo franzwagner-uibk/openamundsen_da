@@ -38,7 +38,8 @@ from openamundsen_da.core.constants import (
 )
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import ensure_gdal_proj_from_conda
-from openamundsen_da.io.paths import find_step_yaml
+from openamundsen_da.io.paths import read_step_config
+from openamundsen_da.util.aoi import read_single_aoi
 
 
 def _extract_yyyymmdd(p: Path) -> datetime:
@@ -57,22 +58,8 @@ def _extract_yyyymmdd(p: Path) -> datetime:
 
 
 def _read_step_config(step_dir: Path) -> dict:
-    """Best-effort read of the step YAML to pick SCF overrides.
-
-    Returns an empty dict on failure; only top-level block `scf` is used.
-    """
-    try:
-        yml = find_step_yaml(step_dir)
-    except Exception:
-        return {}
-    try:
-        import ruamel.yaml as _yaml
-
-        y = _yaml.YAML(typ="safe")
-        with Path(yml).open("r", encoding="utf-8") as f:
-            return y.load(f) or {}
-    except Exception:
-        return {}
+    """Read step YAML using shared helper and return dict (or {})."""
+    return read_step_config(step_dir)
 
 
 def _compute_scf(arr: np.ma.MaskedArray, threshold: float) -> tuple[int, int, float]:
@@ -126,6 +113,7 @@ def run_observation_processing(
     output_csv = Path(output_csv)
 
     # Step 3: Load AOI and enforce single feature + required field
+    # AOI and region id
     gdf = gpd.read_file(region_path)
     if len(gdf) != 1:
         raise ValueError(f"AOI must contain exactly one feature (got {len(gdf)})")
@@ -135,8 +123,10 @@ def run_observation_processing(
 
     # Step 4: Open raster and validate CRS alignment
     with rasterio.open(input_raster) as src:
-        if gdf.crs is None or src.crs is None or gdf.crs != src.crs:
+        if gdf.crs is None or src.crs is None:
             raise ValueError("CRS mismatch or missing CRS between raster and AOI")
+        if gdf.crs != src.crs:
+            gdf = gdf.to_crs(src.crs)
         # Rasterize-mask by AOI geometry, preserve mask (masked array)
         shapes: Iterable = gdf.geometry
         data, _ = rio_mask(src, shapes, crop=True, nodata=src.nodata, filled=False)

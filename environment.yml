@@ -6,6 +6,8 @@ dependencies:
   - pip
   # geo stack
   - gdal
+  - hdf4
+  - libgdal-hdf4
   - proj
   - geos
   - fiona

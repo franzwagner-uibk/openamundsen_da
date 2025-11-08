@@ -12,9 +12,7 @@ RUN micromamba create -y -n openamundsen -f /tmp/environment.yml && \
 # Work inside /workspace; mount your repo here at runtime
 WORKDIR /workspace
 
-# Optional convenience script to run the demo inside the container
-COPY docker/oa-da-demo.sh /usr/local/bin/oa-da-demo
-RUN chmod +x /usr/local/bin/oa-da-demo || true
+# (demo script removed; keep image minimal)
 
 # Default to executing inside env 'openamundsen'
 ENTRYPOINT ["micromamba", "run", "-n", "openamundsen"]

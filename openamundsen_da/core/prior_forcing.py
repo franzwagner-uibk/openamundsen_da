@@ -207,6 +207,32 @@ def _write_csv(df: pd.DataFrame, dst: Path) -> None:
     df.to_csv(dst, index=False)
 
 
+def _copy_file_content_only(src: Path, dst: Path) -> None:
+    """Copy file bytes without attempting to preserve metadata.
+
+    On Windows bind mounts (Docker Desktop), preserving metadata (times/mode)
+    may fail with EPERM. This helper ensures content is copied robustly.
+    """
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, dst)
+
+
+def _copy_with_metadata_fallback(src: Path, dst: Path) -> None:
+    """Try copy2, fall back to content-only copy when metadata fails.
+
+    copy2 may raise PermissionError on mounted volumes when setting file times
+    or permissions. In that case, copy bytes only and continue.
+    """
+    try:
+        shutil.copy2(src, dst)
+    except PermissionError:
+        _copy_file_content_only(src, dst)
+        logger.warning(
+            "copy2 failed due to permissions; performed content-only copy: {p}",
+            p=str(dst),
+        )
+
+
 def build_prior_ensemble(
     input_meteo_dir: Path | str,
     project_dir: Path | str,
@@ -253,7 +279,7 @@ def build_prior_ensemble(
         # Process open_loop (unperturbed, filtered)
         for src in station_files:
             _process_and_write(src, start, end, meteo_ol / src.name)
-        shutil.copy2(stations_csv, meteo_ol / STATIONS_CSV)
+        _copy_with_metadata_fallback(stations_csv, meteo_ol / STATIONS_CSV)
         logger.info("Open-loop written: {p}", p=str(open_loop_root))
 
     # Create members
@@ -274,7 +300,7 @@ def build_prior_ensemble(
             _process_and_write(src, start, end, meteo_dir / src.name, delta_t=delta_t, f_p=f_p)
 
         # Copy stations.csv unchanged and write member INFO
-        shutil.copy2(stations_csv, meteo_dir / STATIONS_CSV)
+        _copy_with_metadata_fallback(stations_csv, meteo_dir / STATIONS_CSV)
         _write_info(member_root, member_name, params.random_seed, delta_t, f_p, start, end, input_meteo_dir)
 
     logger.info("Prior ensemble completed under: {root}", root=str(prior_root))

@@ -1,25 +1,25 @@
-# openamundsen_da - Data Assimilation for openAMUNDSEN
+# openamundsen_da — Data Assimilation for openAMUNDSEN
 
-Lightweight tooling to run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF). This README focuses on context and practical usage: launching ensemble members, preprocessing MOD10A1, extracting SCF for assimilation, computing weights, and inspecting outputs/logs.
+Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF) with a particle filter. This README is Docker-only to ensure copy/pasteable, platform‑independent usage on Windows/macOS/Linux.
 
-This file uses plain ASCII and standard hyphens to avoid encoding issues on Windows.
+This file uses plain ASCII to avoid encoding issues on Windows.
 
-## General Project Information
+## Overview
 
-- Goal: seasonal snow cover prediction with an ensemble openAMUNDSEN model and a particle filter. Over the season, the model predicts forward, observations provide SCF updates, and the posterior becomes the next prior.
-- Status: prior ensemble building, ensemble launch orchestration, MOD10A1 preprocessing, single-region SCF extraction, and plotting utilities are available. Likelihood, resampling, and rejuvenation are in progress.
+- Goal: seasonal snow cover prediction with an ensemble openAMUNDSEN model and a particle filter. The model advances in time, satellite SCF updates the ensemble weights, and the posterior becomes the next prior.
+- Status: prior ensemble building, ensemble launcher, MOD10A1 preprocessing, single‑region SCF extraction, H(x) model SCF, assimilation weights, and plotting utilities.
 
-Project layout (example):
+Example project layout:
 
 ```
 examples/test-project/
-  project.yml                # project configuration (incl. prior_forcing block)
+  project.yml                # project configuration
   env/                       # AOI etc. (e.g., GMBA_Inventory_*.gpkg)
   grids/                     # model grids
-  meteo/                     # station CSVs + stations.csv (input for prior builder)
+  meteo/                     # station CSVs + stations.csv (prior builder input)
   obs/
     MOD10A1_61_HDF/         # raw MODIS HDF input
-    season_2017-2018/       # preprocessed GeoTIFFs + scf_summary.csv (after preprocess)
+    season_2017-2018/       # preprocessed GeoTIFFs + scf_summary.csv
   propagation/
     season_2017-2018/
       step_00_init/
@@ -30,359 +30,226 @@ examples/test-project/
             member_XXX/{meteo,logs,results}
 ```
 
-Dev install:
+## Docker Quick Start
 
-```powershell
-cd C:\Daten\PhD\openamundsen_da
-& C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m pip install -e C:\Daten\PhD\openamundsen_da --no-deps
-& C:\Users\franz\miniconda3\envs\gistools\python.exe -m pip install -e C:\Daten\PhD\openamundsen_da --no-deps
-& C:\Users\franz\miniconda3\envs\oa-viz\python.exe -m pip install -e C:\Daten\PhD\openamundsen_da --no-deps
+- Install Docker Desktop (Windows/macOS) or Docker Engine (Linux).
+- On Windows, enable WSL2 and share the drive that contains your repo/data in Docker Desktop Settings.
+- From repo root, build the image once:
+
+```
+docker build -t oa-da .
 ```
 
-## Build Ensemble (Prior Forcing)
+Set paths once per session (Windows PowerShell example):
 
-Create an open-loop set and N perturbed members for a step. Dates are read from the step YAML; prior parameters live under data_assimilation.prior_forcing in project.yml.
+```
+$repo = "C:\Daten\PhD\openamundsen_da"
+$proj = "$repo\examples\test-project"
+```
 
-Required keys in project.yml (example):
+Editable install inside the container (run after you change the source code):
+
+```
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+  python -m pip install -e /workspace --no-deps
+```
+
+Notes on updates:
+
+- For code edits only: no image rebuild is needed. Re‑run the editable install command above.
+- If you change dependencies, environment.yml, or the Dockerfile: rebuild the image (`docker build -t oa-da .`).
+
+## Workflow and Commands (Docker)
+
+The commands below follow the project framework order: Build Ensemble → Run Ensemble → Observation Processing → H(x) → Assimilation → Plots → General Info.
+
+### Build Ensemble (Prior Forcing)
+
+Required keys in `project.yml` (example):
 
 ```yaml
 data_assimilation:
   prior_forcing:
     ensemble_size: 30
     random_seed: 42
-    sigma_t: 0.5 # additive temperature stddev
-    mu_p: 0.0 # log-space mean for precip factor
-    sigma_p: 0.2 # log-space stddev for precip factor
+    sigma_t: 0.5   # additive temperature stddev
+    mu_p: 0.0      # log-space mean for precip factor
+    sigma_p: 0.2   # log-space stddev for precip factor
 ```
 
-Step YAML must define the time window:
+Each step YAML defines the time window:
 
 ```yaml
 start_date: 2017-10-01 00:00:00
-end_date: 2018-09-30 23:59:59
+end_date:   2018-09-30 23:59:59
 ```
 
-Run the builder (PowerShell):
-
-```powershell
-$repo = "C:\Daten\PhD\openamundsen_da"
-$proj = "$repo\examples\test-project"
-$seas = "$proj\propagation\season_2017-2018"
-$step = "$seas\step_00_init"
-$meteo = "$proj\meteo"
-
-& C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m openamundsen_da.core.prior_forcing `
-  --input-meteo-dir $meteo `
-  --project-dir     $proj `
-  --step-dir        $step `
-  --overwrite
-```
-
-Output structure under the step:
+Run the builder:
 
 ```
-<step>\ensembles\prior\
-  open_loop\{meteo,results}
-  member_001\{meteo,results}\INFO.txt
-  member_002\...
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+  python -m openamundsen_da.core.prior_forcing `
+    --input-meteo-dir /data/meteo `
+    --project-dir /data `
+    --step-dir /data/propagation/season_2017-2018/step_00_init `
+    --overwrite
 ```
 
-Notes:
+Output under the step:
 
-- CSV schema is strict: column date is required; temp and precip are optional.
-- If a station file has precip, it must not contain negative values (aborts otherwise).
-- Temperature and precipitation perturbations are stationary per member across stations/timesteps.
-
-## Run Ensemble
-
-Launch openAMUNDSEN for all members of a chosen ensemble (e.g., prior). Member results go to <member_dir>\results by default; use --results-root to collect under a single directory.
-
-```powershell
-$repo = "C:\Daten\PhD\openamundsen_da"
-$proj = "$repo\examples\test-project"
-$seas = "$proj\propagation\season_2017-2018"
-$step = "$seas\step_00_init"
-
-& C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m openamundsen_da.core.launch `
-  --project-dir $proj `
-  --season-dir  $seas `
-  --step-dir    $step `
-  --ensemble    prior `
-  --max-workers 18 `
-  --log-level   INFO `
-  --overwrite
+```
+/data/propagation/season_2017-2018/step_00_init/ensembles/prior/
+  open_loop/{meteo,results}
+  member_001/{meteo,results}
+  member_002/...
 ```
 
-Global results root (optional):
+### Run Ensemble
 
-```powershell
-$resultsRoot = "D:\oa_runs\2025-11-04"
-& C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m openamundsen_da.core.launch `
-  --project-dir $proj `
-  --season-dir  $seas `
-  --step-dir    $step `
-  --ensemble    prior `
-  --max-workers 18 `
-  --results-root $resultsRoot `
-  --log-level   INFO
+Launch openAMUNDSEN for all members of an ensemble (e.g., prior). Results land in each member’s `results` directory.
+
+```
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+  python -m openamundsen_da.core.launch `
+    --project-dir /data `
+    --season-dir  /data/propagation/season_2017-2018 `
+    --step-dir    /data/propagation/season_2017-2018/step_00_init `
+    --ensemble    prior `
+    --max-workers 2 `
+    --log-level   INFO `
+    --overwrite
 ```
 
-Single-threaded debug run:
+### Observation Processing
 
-```powershell
-& C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m openamundsen_da.core.launch `
-  --project-dir $proj `
-  --season-dir  $seas `
-  --step-dir    $step `
-  --ensemble    prior `
-  --max-workers 1 `
-  --log-level   DEBUG
+- MOD10A1 preprocess (HDF → GeoTIFF + season summary):
+
+```
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+  python -m openamundsen_da.observer.mod10a1_preprocess `
+    --input-dir   /data/obs/MOD10A1_61_HDF `
+    --project-dir /data `
+    --season-label season_2017-2018 `
+    --aoi         /data/env/GMBA_Inventory_L8_15422.gpkg `
+    --target-epsg 25832 `
+    --resolution  500 `
+    --max-cloud-fraction 0.1 `
+    --overwrite
 ```
 
-Help:
+- Single-image SCF extraction (preprocessed GeoTIFF):
 
-```powershell
-& C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m openamundsen_da.core.launch --help
+```
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+  python -m openamundsen_da.observer.satellite_scf `
+    --raster  /data/obs/season_2017-2018/NDSI_Snow_Cover_20180110.tif `
+    --region  /data/env/GMBA_Inventory_L8_15422.gpkg `
+    --step-dir /data/propagation/season_2017-2018/step_00_init
 ```
 
-## Observation Processing
+- Plot SCF summary (SVG backend recommended):
 
-### MOD10A1 Preprocess (HDF -> GeoTIFF + Summary)
-
-Batch-convert MODIS/Terra MOD10A1 (C6/6.1) HDF files into NDSI_Snow_Cover_YYYYMMDD.tif and maintain a season-level scf_summary.csv.
-
-```powershell
-& C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m openamundsen_da.observer.mod10a1_preprocess `
-  --input-dir   "$proj\obs\MOD10A1_61_HDF" `
-  --project-dir "$proj" `
-  --season-label season_2017-2018 `
-  --aoi         "$proj\env\GMBA_Inventory_L8_15422.gpkg" `
-  --target-epsg 25832 `
-  --resolution  500 `
-  --max-cloud-fraction 0.1 `
-  --overwrite
+```
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+  python -m openamundsen_da.observer.plot_scf_summary `
+    /data/obs/season_2017-2018/scf_summary.csv `
+    --output /data/obs/season_2017-2018/scf_summary.svg `
+    --backend SVG
 ```
 
-Outputs (under $proj\obs\season_yyyy-yyyy):
+### Model SCF Operator (H(x))
 
-- NDSI_Snow_Cover_YYYYMMDD.tif — reprojected/cropped GeoTIFF
-- NDSI_Snow_Cover_YYYYMMDD_class.tif — 0=invalid, 1=no snow, 2=snow
-- scf_summary.csv — date,region_id,scf,cloud_fraction,source
+Derive model SCF within the AOI so it is comparable to satellite SCF.
 
-Notes:
+Methods:
 
-- Use --resolution (meters) and --max-cloud-fraction (0..1)
-- Use --ndsi-threshold (default 40)
-- Envelope crop is default; add --no-envelope for cutline
+- depth_threshold (deterministic): indicator on X > h0, SCF = mean(I).
+- logistic (probabilistic): p = 1/(1+exp(-k·(X-h0))), SCF = mean(p).
 
-### Single-Image SCF Extraction
-
-Compute SCF from one preprocessed NDSI_Snow_Cover_YYYYMMDD.tif and a single AOI polygon.
-
-```powershell
-& C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m openamundsen_da.observer.satellite_scf `
-  --raster  "$proj\obs\season_2017-2018\NDSI_Snow_Cover_20180110.tif" `
-  --region  "$proj\env\GMBA_Inventory_L8_15422.gpkg" `
-  --step-dir $step
+```
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+  python -m openamundsen_da.methods.h_of_x.model_scf `
+    --member-results /data/propagation/season_2017-2018/step_00_init/ensembles/prior/member_001/results `
+    --aoi /data/env/GMBA_Inventory_L8_15422.gpkg `
+    --date 2018-01-10 `
+    --variable hs `
+    --method depth_threshold
 ```
 
-Expectations and overrides:
-
-- AOI: exactly one polygon with field region_id (same CRS as raster)
-- Output: <step>\obs\obs_scf_MOD10A1_YYYYMMDD.csv
-- Step YAML overrides (step_XX.yml):
-
-```yaml
-scf:
-  ndsi_threshold: 35
-  region_id_field: region_id
-```
-
-Custom output path:
-
-```powershell
-& C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m openamundsen_da.observer.satellite_scf --raster ... --region ... --output C:\tmp\myscf.csv
-```
-
-### Plot SCF Summary
-
-```powershell
-& C:\Users\franz\miniconda3\envs\gistools\python.exe -m openamundsen_da.observer.plot_scf_summary "$proj\obs\season_2017-2018\scf_summary.csv" `
-  --output  "$proj\obs\season_2017-2018\scf_summary.png" `
-  --title   "SCF 2017-2018" `
-  --subtitle "derived from MODIS 10A1 v6 NDSI"
-```
-
-## Model SCF Operator (H(x))
-
-Purpose
-
-- Derive model-based Snow Cover Fraction (SCF) from openAMUNDSEN outputs within an AOI to match satellite SCF for data assimilation.
-
-Inputs
-
-- Member results directory: contains daily rasters snowdepth_daily_YYYY-MM-DDT0000.tif and/or swe_daily_YYYY-MM-DDT0000.tif.
-- AOI polygon: single feature vector file; reprojected to raster CRS if needed.
-- Date: YYYY-MM-DD.
-
-Methods
-
-- Depth threshold (deterministic)
-  - Per-cell indicator: I = 1 if X > h0 else 0; SCF = mean(I).
-  - h0 is in the same units as X (m for HS, or SWE units if using SWE).
-- Logistic (probabilistic)
-  - Per-cell probability: p = 1 / (1 + exp(-k \* (X - h0))); SCF = mean(p).
-  - h0 is the 50% point; k controls sharpness (1/units of X).
-
-Output
-
-- CSV per member/date: model_scf_YYYYMMDD.csv in the member results directory.
-- Columns: date, member_id, region_id, variable, method, h0, k, n_valid, scf_model, raster.
-
-CLI
-
-```powershell
-& C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m openamundsen_da.methods.h_of_x.model_scf `
-  --member-results "$step\ensembles\prior\member_001\results" `
-  --aoi "$proj\env\GMBA_Inventory_L8_15422.gpkg" `
-  --date 2018-01-10 `
-  --variable hs `
-  --method logistic
-```
-
-Configuration (optional)
+Optional configuration in `project.yml`:
 
 ```yaml
 data_assimilation:
   h_of_x:
-    method: logistic # or depth_threshold
-    variable: hs # or swe
+    method: logistic   # or depth_threshold
+    variable: hs       # or swe
     params:
       h0: 0.05
       k: 80
 ```
 
-## Assimilation (SCF Weights)
+### Assimilation (SCF Weights)
 
-Compute Gaussian weights for one assimilation date by comparing the observed SCF with model-derived SCF (H(x)) for all members. Outputs a CSV with per-member weights and reports ESS.
+Compute Gaussian likelihood weights for a date by comparing observed SCF with H(x) across members. Outputs a CSV and reports ESS.
 
-```powershell
-& C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m openamundsen_da.methods.pf.assimilate_scf `
-  --project-dir $proj `
-  --step-dir    $step `
-  --ensemble    prior `
-  --date        2018-01-10 `
-  --aoi         "$proj\env\GMBA_Inventory_L8_15422.gpkg"
+```
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+  python -m openamundsen_da.methods.pf.assimilate_scf `
+    --project-dir /data `
+    --step-dir    /data/propagation/season_2017-2018/step_00_init `
+    --ensemble    prior `
+    --date        2018-01-10 `
+    --aoi         /data/env/GMBA_Inventory_L8_15422.gpkg
 ```
 
 Notes:
 
-- Observation CSV is auto-discovered at <step>\obs\obs_scf_MOD10A1_YYYYMMDD.csv (from the SCF tool).
-- If present, n_valid and cloud_fraction are used to set sigma via a binomial + quality model; otherwise a fixed sigma from project.yml is used.
-- H(x) parameters (variable, method, h0, k) can be set in the step YAML under h_of_x and are reused here.
+- Observation CSV is auto-discovered at `/data/.../step_XX/obs/obs_scf_MOD10A1_YYYYMMDD.csv`.
+- If available, `n_valid` and `cloud_fraction` inform sigma; otherwise a fixed sigma from `project.yml` is used.
+- H(x) parameters (variable, method, h0, k) can be set under `h_of_x` in the step config and are reused.
 
-### Plot Weights (single date)
+### Plots
 
-```powershell
-& C:\\Users\\franz\\miniconda3\\envs\\perturb\\python.exe -m openamundsen_da.methods.pf.plot_weights `
-  "$step\\assim\\weights_scf_20180110.csv" `
-  --output "$step\\assim\\weights_scf_20180110.png" `
-  --title  "SCF Weights 2018-01-10" `
-  --subtitle "prior ensemble vs observed SCF"
+- Weights (single date, SVG):
+
+```
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+  python -m openamundsen_da.methods.pf.plot_weights `
+    /data/propagation/season_2017-2018/step_00_init/assim/weights_scf_20180110.csv `
+    --output /data/propagation/season_2017-2018/step_00_init/assim/weights_scf_20180110.svg `
+    --backend SVG
 ```
 
-### Plot ESS timeline (multiple dates)
+- ESS timeline (from all `weights_scf_*.csv`):
 
-```powershell
-& C:\\Users\\franz\\miniconda3\\envs\\oa-viz\\python.exe -m openamundsen_da.methods.pf.plot_ess_timeline `
-  --step-dir "$step" `
-  --normalized `
-  --threshold 0.5 `
-  --output "$step\\assim\\ess_timeline.png"
+```
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+  python -m openamundsen_da.methods.pf.plot_ess_timeline `
+    --step-dir /data/propagation/season_2017-2018/step_00_init `
+    --normalized `
+    --threshold 0.5 `
+    --output /data/propagation/season_2017-2018/step_00_init/assim/ess_timeline.svg `
+    --backend SVG
 ```
 
-## General Information (Logging, Environment, Tips)
+### Help
 
-- Per-member logs: <member_dir>\logs\member.log. Tail a log:
-
-```powershell
-$log = "$step\ensembles\prior\member_0001\logs\member.log"
-Get-Content $log -Tail 50 -Wait
+```
+docker run --rm oa-da python -m openamundsen_da.core.prior_forcing --help
+docker run --rm oa-da python -m openamundsen_da.core.launch --help
+docker run --rm oa-da python -m openamundsen_da.observer.mod10a1_preprocess --help
+docker run --rm oa-da python -m openamundsen_da.observer.satellite_scf --help
+docker run --rm oa-da python -m openamundsen_da.observer.plot_scf_summary --help
+docker run --rm oa-da python -m openamundsen_da.methods.h_of_x.model_scf --help
+docker run --rm oa-da python -m openamundsen_da.methods.pf.assimilate_scf --help
+docker run --rm oa-da python -m openamundsen_da.methods.pf.plot_weights --help
+docker run --rm oa-da python -m openamundsen_da.methods.pf.plot_ess_timeline --help
 ```
 
-- --log-level controls the parent launcher and passes through to openAMUNDSEN inside workers.
-- Quote paths with spaces: "C:\path with spaces\...".
-- Environment variables for GDAL/PROJ and numeric threading are applied from project.yml when present.
+## General Information
 
-## Modules
+- Per-member logs: `<member_dir>/logs/member.log`.
+- Quote bind mounts like `"${repo}:/workspace"` to avoid PowerShell parsing issues.
+- Use forward slashes for in-container paths (`/workspace`, `/data`).
+- Prefer `--backend SVG` for plots on all platforms.
 
-- openamundsen_da/core/launch.py - orchestrates ensemble runs (fan-out, logging)
-- openamundsen_da/core/prior_forcing.py - builds open-loop and perturbed meteo members
-- openamundsen_da/observer/mod10a1_preprocess.py - HDF to GeoTIFF + season summary
-- openamundsen_da/observer/satellite_scf.py - single-image, single-region SCF extraction
-- openamundsen_da/observer/plot_scf_summary.py - SCF time-series plotter
-- openamundsen_da/methods/h_of_x/model_scf.py - model-derived SCF operator and CLI
-- openamundsen_da/methods/pf/assimilate_scf.py - Gaussian likelihood weights for SCF
-
-## Run In Docker (No Local Python)
-
-Use a container with a pinned conda‑forge environment named `openamundsen`. This avoids host DLL issues and works on Windows/Mac/Linux.
-
-Prerequisites
-
-- Install Docker Desktop (Windows/macOS) or Docker Engine (Linux).
-- On Windows, enable WSL2 and share the drive that contains your repo/data in Docker Desktop Settings.
-
-Build image (from repo root)
-
-```powershell
-docker build -t oa-da .
-```
-
-Mount repo + example data and run the demo (one command)
-
-```powershell
-$repo = "C:\Daten\PhD\openamundsen_da"
-$proj = "$repo\examples\test-project"
-docker run --rm -it `
-  -v "$repo:/workspace" `
-  -v "$proj:/data" `
-  oa-da oa-da-demo
-```
-
-Manual run (editable install + individual steps)
-
-```powershell
-$repo = "C:\Daten\PhD\openamundsen_da"
-$proj = "$repo\examples\test-project"
-docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da bash
-
-# inside the container shell
-pip install -e /workspace --no-deps
-
-# Assimilation (example date)
-python -m openamundsen_da.methods.pf.assimilate_scf \
-  --project-dir /data \
-  --step-dir    /data/propagation/season_2017-2018/step_00_init \
-  --ensemble    prior \
-  --date        2018-01-10 \
-  --aoi         /data/env/GMBA_Inventory_L8_15422.gpkg
-
-# Plot weights (SVG backend)
-python -m openamundsen_da.methods.pf.plot_weights \
-  /data/propagation/season_2017-2018/step_00_init/assim/weights_scf_20180110.csv \
-  --output /data/propagation/season_2017-2018/step_00_init/assim/weights_scf_20180110.svg \
-  --backend SVG
-
-# Plot SCF summary (SVG backend)
-python -m openamundsen_da.observer.plot_scf_summary \
-  /data/obs/season_2017-2018/scf_summary.csv \
-  --output /data/obs/season_2017-2018/scf_summary.svg \
-  --backend SVG
-```
-
-Notes
-
-- The container creates a single conda environment named `openamundsen` (no host Python needed).
-- Use forward slashes inside the container (`/workspace`, `/data`).
-- Prefer `--backend SVG` (vector) or add `mplcairo` later and use `--backend module://mplcairo.Agg` for PNG.

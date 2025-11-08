@@ -1,5 +1,7 @@
 context
+docker
 docs
 examples
 openamundsen_da
+scripts
 templates

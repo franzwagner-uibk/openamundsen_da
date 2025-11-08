@@ -323,3 +323,66 @@ Get-Content $log -Tail 50 -Wait
 - openamundsen_da/observer/plot_scf_summary.py - SCF time-series plotter
 - openamundsen_da/methods/h_of_x/model_scf.py - model-derived SCF operator and CLI
 - openamundsen_da/methods/pf/assimilate_scf.py - Gaussian likelihood weights for SCF
+
+## Run In Docker (No Local Python)
+
+Use a container with a pinned conda‑forge environment named `openamundsen`. This avoids host DLL issues and works on Windows/Mac/Linux.
+
+Prerequisites
+
+- Install Docker Desktop (Windows/macOS) or Docker Engine (Linux).
+- On Windows, enable WSL2 and share the drive that contains your repo/data in Docker Desktop Settings.
+
+Build image (from repo root)
+
+```powershell
+docker build -t oa-da .
+```
+
+Mount repo + example data and run the demo (one command)
+
+```powershell
+$repo = "C:\Daten\PhD\openamundsen_da"
+$proj = "$repo\examples\test-project"
+docker run --rm -it `
+  -v "$repo:/workspace" `
+  -v "$proj:/data" `
+  oa-da oa-da-demo
+```
+
+Manual run (editable install + individual steps)
+
+```powershell
+$repo = "C:\Daten\PhD\openamundsen_da"
+$proj = "$repo\examples\test-project"
+docker run --rm -it -v "$repo:/workspace" -v "$proj:/data" oa-da bash
+
+# inside the container shell
+pip install -e /workspace --no-deps
+
+# Assimilation (example date)
+python -m openamundsen_da.methods.pf.assimilate_scf \
+  --project-dir /data \
+  --step-dir    /data/propagation/season_2017-2018/step_00_init \
+  --ensemble    prior \
+  --date        2018-01-10 \
+  --aoi         /data/env/GMBA_Inventory_L8_15422.gpkg
+
+# Plot weights (SVG backend)
+python -m openamundsen_da.methods.pf.plot_weights \
+  /data/propagation/season_2017-2018/step_00_init/assim/weights_scf_20180110.csv \
+  --output /data/propagation/season_2017-2018/step_00_init/assim/weights_scf_20180110.svg \
+  --backend SVG
+
+# Plot SCF summary (SVG backend)
+python -m openamundsen_da.observer.plot_scf_summary \
+  /data/obs/season_2017-2018/scf_summary.csv \
+  --output /data/obs/season_2017-2018/scf_summary.svg \
+  --backend SVG
+```
+
+Notes
+
+- The container creates a single conda environment named `openamundsen` (no host Python needed).
+- Use forward slashes inside the container (`/workspace`, `/data`).
+- Prefer `--backend SVG` (vector) or add `mplcairo` later and use `--backend module://mplcairo.Agg` for PNG.

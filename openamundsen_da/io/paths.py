@@ -1,5 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
+from typing import Any
 from typing import Union
 
 from openamundsen_da.core.constants import (
@@ -35,6 +36,23 @@ def find_step_yaml(step_dir: str | Path) -> Path:
     if not ymls:
         raise FileNotFoundError(f"No step YAML found in {step_dir}")
     return ymls[0]
+
+
+def read_step_config(step_dir: str | Path) -> dict[str, Any]:
+    """Read and return the step YAML as a dict.
+
+    Best-effort reader using ruamel.yaml safe loader. Returns an empty dict
+    if reading fails for any reason.
+    """
+    try:
+        import ruamel.yaml as _yaml
+
+        yml = find_step_yaml(step_dir)
+        y = _yaml.YAML(typ="safe")
+        with Path(yml).open("r", encoding="utf-8") as f:
+            return y.load(f) or {}
+    except Exception:
+        return {}
 
 # ---- Ensemble layout helpers -----------------------------------------------
 

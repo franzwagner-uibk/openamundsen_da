@@ -46,9 +46,9 @@ def _compute_series(files: list[tuple[datetime, Path]]) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("date")
 
 
-def _plot(df: pd.DataFrame, normalized: bool, threshold: float | None, title: str, subtitle: str | None):
+def _plot(df: pd.DataFrame, normalized: bool, threshold: float | None, title: str, subtitle: str | None, *, backend: str = "Agg"):
     import matplotlib
-    matplotlib.use("Agg")
+    matplotlib.use(backend or "Agg")
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
 
@@ -82,30 +82,52 @@ def cli_main(argv: list[str] | None = None) -> int:
     p.add_argument("--title", default="ESS over time", help="Plot title")
     p.add_argument("--subtitle", default="", help="Plot subtitle")
     p.add_argument("--log-level", default="INFO")
+    p.add_argument("--backend", default="Agg", help="Matplotlib backend (Agg, SVG, module://mplcairo.Agg)")
     args = p.parse_args(argv)
 
     from openamundsen_da.core.constants import LOGURU_FORMAT
     logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    # Avoid enqueue for short-lived CLIs so messages flush before exit
+    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=False, format=LOGURU_FORMAT)
 
     assim = Path(args.assim_dir) if args.assim_dir else (Path(args.step_dir) / "assim" if args.step_dir else None)
     if assim is None:
         logger.error("Provide --step-dir or --assim-dir")
         return 2
+    logger.info("Scanning for weights under: {}", assim)
     files = _scan_weights(assim)
+    logger.info("Found {} file(s)", len(files))
     if not files:
         logger.error("No weights_scf_*.csv found under {}", assim)
         return 1
 
     df = _compute_series(files)
+    logger.info("Computed ESS for {} date(s) (normalized={}): {}", len(df), bool(args.normalized), 
+                ", ".join(d.strftime("%Y-%m-%d") for d in df["date"]))
     try:
-        fig = _plot(df, normalized=bool(args.normalized), threshold=args.threshold, title=args.title, subtitle=(args.subtitle or None))
+        fig = _plot(
+            df,
+            normalized=bool(args.normalized),
+            threshold=args.threshold,
+            title=args.title,
+            subtitle=(args.subtitle or None),
+            backend=args.backend,
+        )
     except ModuleNotFoundError:
         logger.error("matplotlib is required to plot. Install it in your environment.")
         return 3
+    except Exception as e:
+        logger.error(f"Plotting failed: {e}")
+        return 4
 
     out = Path(args.output) if args.output else (assim / "ess_timeline.png")
-    fig.savefig(out, dpi=150, bbox_inches="tight", pad_inches=0.1)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    logger.info("Saving plot to: {}", out)
+    try:
+        fig.savefig(out, dpi=150, bbox_inches="tight", pad_inches=0.1)
+    except Exception as e:
+        logger.error(f"Saving PNG failed: {e}")
+        return 5
     logger.info("Wrote plot: {}", out)
     return 0
 

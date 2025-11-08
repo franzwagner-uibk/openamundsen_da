@@ -51,7 +51,7 @@ def _load_summary(csv_path: Path) -> pd.DataFrame:
     return df
 
 
-def _plot(df: pd.DataFrame, title: str | None = None, subtitle: str | None = None):
+def _plot(df: pd.DataFrame, title: str | None = None, subtitle: str | None = None, *, backend: str = "Agg"):
     """Render a compact SCF time series plot.
 
     Parameters
@@ -69,7 +69,7 @@ def _plot(df: pd.DataFrame, title: str | None = None, subtitle: str | None = Non
         The created figure (not shown).
     """
     import matplotlib
-    matplotlib.use("Agg")  # headless
+    matplotlib.use(backend or "Agg")  # headless or user-provided
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
 
@@ -125,6 +125,11 @@ def cli_main(argv: list[str] | None = None) -> int:
         help="Plot subtitle (default: 'derived from MODIS 10A1 v6 NDSI (threshold = 0.4)')",
     )
     parser.add_argument(
+        "--backend",
+        default="Agg",
+        help="Matplotlib backend (e.g., Agg, SVG, module://mplcairo.Agg)",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         help="Log level (default: INFO)",
@@ -157,7 +162,7 @@ def cli_main(argv: list[str] | None = None) -> int:
             df["date"].max().date(),
         )
     try:
-        fig = _plot(df, title=args.title, subtitle=args.subtitle)
+        fig = _plot(df, title=args.title, subtitle=args.subtitle, backend=args.backend)
     except ModuleNotFoundError as e:
         raise SystemExit(
             "matplotlib is required to plot. Install it in your environment."

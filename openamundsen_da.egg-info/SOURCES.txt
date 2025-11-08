@@ -65,6 +65,8 @@ openamundsen_da/methods/h_of_x/__init__.py
 openamundsen_da/methods/h_of_x/model_scf.py
 openamundsen_da/methods/pf/__init__.py
 openamundsen_da/methods/pf/assimilate_scf.py
+openamundsen_da/methods/pf/plot_ess_timeline.py
+openamundsen_da/methods/pf/plot_weights.py
 openamundsen_da/observer/__init__.py
 openamundsen_da/observer/mod10a1_preprocess.py
 openamundsen_da/observer/plot_scf_summary.py

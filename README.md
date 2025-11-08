@@ -1,4 +1,4 @@
-﻿# openamundsen_da - Data Assimilation for openAMUNDSEN
+# openamundsen_da - Data Assimilation for openAMUNDSEN
 
 Lightweight tooling to run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF). This README focuses on context and practical usage: launching ensemble members, preprocessing MOD10A1, extracting SCF for assimilation, computing weights, and inspecting outputs/logs.
 
@@ -34,7 +34,9 @@ Dev install:
 
 ```powershell
 cd C:\Daten\PhD\openamundsen_da
-C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m pip install -e . --no-deps
+& C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m pip install -e C:\Daten\PhD\openamundsen_da --no-deps
+& C:\Users\franz\miniconda3\envs\gistools\python.exe -m pip install -e C:\Daten\PhD\openamundsen_da --no-deps
+& C:\Users\franz\miniconda3\envs\oa-viz\python.exe -m pip install -e C:\Daten\PhD\openamundsen_da --no-deps
 ```
 
 ## Build Ensemble (Prior Forcing)
@@ -205,7 +207,7 @@ Custom output path:
 ### Plot SCF Summary
 
 ```powershell
-& C:\Users\franz\miniconda3\envs\openamundsen\python.exe -m openamundsen_da.observer.plot_scf_summary "$proj\obs\season_2017-2018\scf_summary.csv" `
+& C:\Users\franz\miniconda3\envs\gistools\python.exe -m openamundsen_da.observer.plot_scf_summary "$proj\obs\season_2017-2018\scf_summary.csv" `
   --output  "$proj\obs\season_2017-2018\scf_summary.png" `
   --title   "SCF 2017-2018" `
   --subtitle "derived from MODIS 10A1 v6 NDSI"
@@ -282,7 +284,7 @@ Notes:
 ### Plot Weights (single date)
 
 ```powershell
-& C:\\Users\\franz\\miniconda3\\envs\\openamundsen\\python.exe -m openamundsen_da.methods.pf.plot_weights `
+& C:\\Users\\franz\\miniconda3\\envs\\perturb\\python.exe -m openamundsen_da.methods.pf.plot_weights `
   "$step\\assim\\weights_scf_20180110.csv" `
   --output "$step\\assim\\weights_scf_20180110.png" `
   --title  "SCF Weights 2018-01-10" `
@@ -292,7 +294,7 @@ Notes:
 ### Plot ESS timeline (multiple dates)
 
 ```powershell
-& C:\\Users\\franz\\miniconda3\\envs\\openamundsen\\python.exe -m openamundsen_da.methods.pf.plot_ess_timeline `
+& C:\\Users\\franz\\miniconda3\\envs\\oa-viz\\python.exe -m openamundsen_da.methods.pf.plot_ess_timeline `
   --step-dir "$step" `
   --normalized `
   --threshold 0.5 `
@@ -321,4 +323,3 @@ Get-Content $log -Tail 50 -Wait
 - openamundsen_da/observer/plot_scf_summary.py - SCF time-series plotter
 - openamundsen_da/methods/h_of_x/model_scf.py - model-derived SCF operator and CLI
 - openamundsen_da/methods/pf/assimilate_scf.py - Gaussian likelihood weights for SCF
-

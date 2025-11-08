@@ -1,0 +1,23 @@
+name: openamundsen
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  # geo stack
+  - gdal
+  - proj
+  - geos
+  - fiona
+  - shapely
+  - rasterio
+  - geopandas
+  # numeric + viz
+  - numpy>=1.23
+  - pandas
+  - matplotlib=3.9.2
+  - loguru
+  - ruamel.yaml
+  # openAMUNDSEN (model)
+  - pip:
+      - openamundsen>=1.1

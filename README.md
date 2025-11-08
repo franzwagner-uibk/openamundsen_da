@@ -355,7 +355,7 @@ Manual run (editable install + individual steps)
 ```powershell
 $repo = "C:\Daten\PhD\openamundsen_da"
 $proj = "$repo\examples\test-project"
-docker run --rm -it -v "$repo:/workspace" -v "$proj:/data" oa-da bash
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da bash
 
 # inside the container shell
 pip install -e /workspace --no-deps

@@ -244,20 +244,24 @@ def _plot_station(
         ax1.grid(True, ls=":", lw=0.6, alpha=0.7)
 
     # Layout and legend below
-    top_rect = 0.90 if (title or subtitle) else 0.94
+    # Provide headroom above axes; temp-only plots keep extra space at top
+    top_rect = (0.88 if (title or subtitle) else 0.94) if not has_precip else (0.90 if (title or subtitle) else 0.94)
     fig.tight_layout(rect=[0.02, 0.08, 0.98, top_rect])
     if title:
         fig.text(0.5, 0.965, title, ha="center", va="top", fontsize=12)
     if subtitle:
-        fig.text(0.5, 0.925, subtitle, ha="center", va="top", fontsize=10, color="#555555")
+        # Position subtitle slightly lower (closer to axes); use different offsets
+        # for temp-only vs two-panel layouts.
+        sub_y = 0.920 if not has_precip else 0.910
+        fig.text(0.5, sub_y, subtitle, ha="center", va="top", fontsize=10, color="#555555")
 
     # Compose a shared legend from ax0 handles (they include member labels if provided)
     handles, labels = ax0.get_legend_handles_labels()
     if handles and labels:
         fig.legend(handles, labels, loc="lower center", ncol=LEGEND_NCOL, frameon=False, fontsize=8)
-        # increase bottom margin to avoid overlapping x-axis
-        # more space for temperature-only plots
-        fig.subplots_adjust(bottom=0.26 if has_precip else 0.32)
+        # Increase bottom margin so the legend sits clearly below x tick labels.
+        # Provide extra space for temperature-only plots.
+        fig.subplots_adjust(bottom=0.30 if has_precip else 0.40)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.1)
@@ -312,6 +316,8 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
     out_root = args.output_dir if args.output_dir else (Path(args.step_dir) / "assim" / "plots" / "forcing")
     stations_df = _load_stations_table(Path(args.step_dir), args.ensemble)
+    step_name = Path(args.step_dir).name
+    effective_title = f"{args.title} | {step_name}" if args.title else step_name
 
     for fname in station_files:
         # Read open_loop (if present)
@@ -365,11 +371,11 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
         auto_sub = None
         if not args.subtitle:
             if st_name and st_alt is not None:
-                auto_sub = f"{st_name} | alt={st_alt:.0f} m"
+                auto_sub = f"{st_name} ({st_alt:.0f} m)"
             elif st_name:
                 auto_sub = st_name
             elif st_alt is not None:
-                auto_sub = f"alt={st_alt:.0f} m"
+                auto_sub = f"({st_alt:.0f} m)"
         out_path = out_root / f"{token}.png"
         _plot_station(
             station_name=token,
@@ -379,7 +385,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
             precip_col=args.precip_col,
             hydro_m=int(args.hydro_month),
             hydro_d=int(args.hydro_day),
-            title=args.title,
+            title=effective_title,
             subtitle=(args.subtitle or auto_sub),
             backend=args.backend,
             out_path=out_path,

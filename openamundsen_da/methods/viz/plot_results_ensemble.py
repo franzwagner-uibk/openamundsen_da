@@ -232,6 +232,8 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
     out_root = args.output_dir if args.output_dir else (Path(args.step_dir) / "assim" / "plots" / "results")
     stations_df = _load_stations_table(Path(args.step_dir), args.ensemble)
+    step_name = Path(args.step_dir).name
+    effective_title = f"{args.title} | {step_name}" if args.title else step_name
 
     for fname in point_files:
         # open_loop
@@ -269,18 +271,18 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
         auto_sub = None
         if not args.subtitle:
             if st_name and st_alt is not None:
-                auto_sub = f"{st_name} | alt={st_alt:.0f} m"
+                auto_sub = f"{st_name} ({st_alt:.0f} m)"
             elif st_name:
                 auto_sub = st_name
             elif st_alt is not None:
-                auto_sub = f"alt={st_alt:.0f} m"
+                auto_sub = f"({st_alt:.0f} m)"
         out_path = out_root / f"{token}_{args.var_col}.png"
         _plot_point(
             token=token,
             var_col=args.var_col,
             ol_df=ol_df,
             mem_dfs=mem_dfs,
-            title=args.title,
+            title=effective_title,
             subtitle=(args.subtitle or auto_sub),
             backend=args.backend,
             out_path=out_path,

@@ -1,5 +1,6 @@
 README.md
 pyproject.toml
+context/01-plotEnsemble.py
 context/02-modisHDFtoTIFF.py
 openamundsen_da/__init__.py
 openamundsen_da.egg-info/PKG-INFO
@@ -67,9 +68,15 @@ openamundsen_da/methods/pf/__init__.py
 openamundsen_da/methods/pf/assimilate_scf.py
 openamundsen_da/methods/pf/plot_ess_timeline.py
 openamundsen_da/methods/pf/plot_weights.py
+openamundsen_da/methods/viz/__init__.py
+openamundsen_da/methods/viz/_style.py
+openamundsen_da/methods/viz/plot_forcing_ensemble.py
+openamundsen_da/methods/viz/plot_results_ensemble.py
 openamundsen_da/observer/__init__.py
 openamundsen_da/observer/mod10a1_preprocess.py
 openamundsen_da/observer/plot_scf_summary.py
 openamundsen_da/observer/satellite_scf.py
 openamundsen_da/util/__init__.py
+openamundsen_da/util/aoi.py
 openamundsen_da/util/stats.py
+openamundsen_da/util/ts.py

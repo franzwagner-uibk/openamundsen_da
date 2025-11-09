@@ -25,6 +25,17 @@ from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.io.paths import list_member_dirs
+from openamundsen_da.util.ts import apply_window, resample_and_smooth
+from openamundsen_da.util.stats import envelope
+from openamundsen_da.methods.viz._style import (
+    COLOR_MEAN,
+    COLOR_OPEN_LOOP,
+    BAND_ALPHA,
+    LW_MEMBER,
+    LW_MEAN,
+    LW_OPEN,
+    LEGEND_NCOL,
+)
 
 
 def _list_point_files(step_dir: Path, ensemble: str) -> Tuple[Optional[Path], List[str]]:
@@ -66,36 +77,7 @@ def _read_point_csv(csv_path: Path, time_col: str, var_col: str) -> pd.DataFrame
     return pd.DataFrame({var_col: s}).sort_index()
 
 
-def _apply_window(df: pd.DataFrame, start: Optional[datetime], end: Optional[datetime]) -> pd.DataFrame:
-    if not isinstance(df.index, pd.DatetimeIndex):
-        return df
-    out = df
-    if start is not None:
-        out = out[out.index >= start]
-    if end is not None:
-        out = out[out.index <= end]
-    return out
-
-
-def _resample_and_smooth(df: pd.DataFrame, rule: Optional[str], var_col: str, rolling: Optional[int]) -> pd.DataFrame:
-    out = df
-    if isinstance(out.index, pd.DatetimeIndex) and rule:
-        out = out.resample(rule).mean()
-    if rolling and rolling > 1:
-        out[var_col] = out[var_col].rolling(rolling, min_periods=1).mean()
-    return out
-
-
-def _envelope(series_list: List[pd.Series]) -> Tuple[pd.Series, pd.Series, pd.Series]:
-    if not series_list:
-        return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
-    aligned = pd.concat(series_list, axis=1, join="inner")
-    if aligned.empty:
-        return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
-    mean = aligned.mean(axis=1)
-    p05 = aligned.quantile(0.05, axis=1)
-    p95 = aligned.quantile(0.95, axis=1)
-    return mean, p05, p95
+    # removed local helpers; use util.ts and util.stats
 
 
 def _plot_point(
@@ -118,12 +100,12 @@ def _plot_point(
     mem_series = [d[var_col].copy() for d in mem_dfs if var_col in d.columns]
     m_mean, m_lo, m_hi = _envelope(mem_series)
     for s in mem_series:
-        ax.plot(s.index, s.values, lw=1.2, alpha=0.85)
+        ax.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.85)
     if not m_mean.empty:
-        ax.fill_between(m_mean.index, m_lo, m_hi, color="#1f77b4", alpha=0.18, linewidth=0)
-        ax.plot(m_mean.index, m_mean.values, color="#1f77b4", lw=2.0, label="ensemble mean")
+        ax.fill_between(m_mean.index, m_lo, m_hi, color=COLOR_MEAN, alpha=BAND_ALPHA, linewidth=0)
+        ax.plot(m_mean.index, m_mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
     if ol_df is not None and var_col in ol_df.columns:
-        ax.plot(ol_df.index, ol_df[var_col], color="black", lw=2.4, label="open_loop")
+        ax.plot(ol_df.index, ol_df[var_col], color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open_loop")
 
     ax.set_xlabel("date")
     ax.set_ylabel(var_col)
@@ -138,7 +120,7 @@ def _plot_point(
 
     handles, labels = ax.get_legend_handles_labels()
     if handles and labels:
-        fig.legend(handles, labels, loc="lower center", ncol=4, frameon=False, fontsize=8)
+        fig.legend(handles, labels, loc="lower center", ncol=LEGEND_NCOL, frameon=False, fontsize=8)
         fig.subplots_adjust(bottom=0.16)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -196,8 +178,8 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
             if p.is_file():
                 try:
                     ol_df = _read_point_csv(p, args.time_col, args.var_col)
-                    ol_df = _resample_and_smooth(ol_df, args.resample, args.var_col, args.rolling)
-                    ol_df = _apply_window(ol_df, start, end)
+                    ol_df = resample_and_smooth(ol_df, args.resample, {args.var_col: "mean"}, args.rolling)
+                    ol_df = apply_window(ol_df, start, end)
                 except Exception as e:
                     logger.warning("open_loop read failed for {}: {}", fname, e)
                     ol_df = None
@@ -209,8 +191,8 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
                 continue
             try:
                 d = _read_point_csv(p, args.time_col, args.var_col)
-                d = _resample_and_smooth(d, args.resample, args.var_col, args.rolling)
-                d = _apply_window(d, start, end)
+                d = resample_and_smooth(d, args.resample, {args.var_col: "mean"}, args.rolling)
+                d = apply_window(d, start, end)
                 mem_dfs.append(d)
             except Exception as e:
                 logger.warning("member read failed for {} in {}: {}", fname, m.name, e)
@@ -238,4 +220,3 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(cli_main())
-

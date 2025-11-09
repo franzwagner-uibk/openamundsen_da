@@ -31,6 +31,17 @@ from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.io.paths import list_member_dirs
+from openamundsen_da.util.ts import apply_window, resample_and_smooth, cumulative_hydro
+from openamundsen_da.util.stats import envelope
+from openamundsen_da.methods.viz._style import (
+    COLOR_MEAN,
+    COLOR_OPEN_LOOP,
+    BAND_ALPHA,
+    LW_MEMBER,
+    LW_MEAN,
+    LW_OPEN,
+    LEGEND_NCOL,
+)
 
 
 def _list_station_files(step_dir: Path, ensemble: str) -> Tuple[Optional[Path], List[str]]:
@@ -69,51 +80,7 @@ def _read_station_series(csv_path: Path, time_col: str, temp_col: str, precip_co
     return _parse_time_index(df, time_col)
 
 
-def _apply_window(df: pd.DataFrame, start: Optional[datetime], end: Optional[datetime]) -> pd.DataFrame:
-    if not isinstance(df.index, pd.DatetimeIndex):
-        return df
-    out = df
-    if start is not None:
-        out = out[out.index >= start]
-    if end is not None:
-        out = out[out.index <= end]
-    return out
-
-
-def _resample_and_smooth(df: pd.DataFrame, rule: Optional[str], temp_col: str, precip_col: str,
-                         rolling: Optional[int]) -> pd.DataFrame:
-    out = df
-    if isinstance(out.index, pd.DatetimeIndex) and rule:
-        out = out.resample(rule).agg({temp_col: "mean", precip_col: "sum"})
-    if rolling and rolling > 1:
-        for c in (temp_col, precip_col):
-            out[c] = out[c].rolling(rolling, min_periods=1).mean()
-    return out
-
-
-def _hydro_year_index(idx: pd.DatetimeIndex, m0: int, d0: int) -> np.ndarray:
-    before = (idx.month < m0) | ((idx.month == m0) & (idx.day < d0))
-    return (idx.year - before.astype(int)).astype(int, copy=False)
-
-
-def _cumulative_hydro(df: pd.DataFrame, precip_col: str, m0: int, d0: int) -> pd.Series:
-    if not isinstance(df.index, pd.DatetimeIndex):
-        return pd.Series(dtype=float)
-    pr = pd.to_numeric(df[precip_col], errors="coerce").fillna(0.0).clip(lower=0.0)
-    hy = _hydro_year_index(df.index, m0, d0)
-    return pr.groupby(hy).cumsum()
-
-
-def _envelope(series_list: List[pd.Series]) -> Tuple[pd.Series, pd.Series, pd.Series]:
-    if not series_list:
-        return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
-    aligned = pd.concat(series_list, axis=1, join="inner")
-    if aligned.empty:
-        return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
-    mean = aligned.mean(axis=1)
-    p05 = aligned.quantile(0.05, axis=1)
-    p95 = aligned.quantile(0.95, axis=1)
-    return mean, p05, p95
+    # removed: use util.ts and util.stats helpers
 
 
 def _read_member_perturbations(step_dir: Path, ensemble: str) -> Dict[str, Tuple[Optional[float], Optional[float]]]:
@@ -162,15 +129,15 @@ def _plot_station(
 
     # Temperature panel
     temp_series = [d[temp_col].copy() for d in mem_dfs if temp_col in d.columns]
-    t_mean, t_lo, t_hi = _envelope(temp_series)
+    t_mean, t_lo, t_hi = envelope(temp_series)
     for i, s in enumerate(temp_series):
         lbl = member_labels[i] if member_labels and i < len(member_labels) else None
-        ax0.plot(s.index, s.values, lw=1.2, alpha=0.85, label=lbl)
+        ax0.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.85, label=lbl)
     if not t_mean.empty:
-        ax0.fill_between(t_mean.index, t_lo, t_hi, color="#1f77b4", alpha=0.18, linewidth=0)
-        ax0.plot(t_mean.index, t_mean.values, color="#1f77b4", lw=2.0, label="ensemble mean")
+        ax0.fill_between(t_mean.index, t_lo, t_hi, color=COLOR_MEAN, alpha=BAND_ALPHA, linewidth=0)
+        ax0.plot(t_mean.index, t_mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
     if ol_df is not None and temp_col in ol_df.columns:
-        ax0.plot(ol_df.index, ol_df[temp_col], color="black", lw=2.4, label="open_loop")
+        ax0.plot(ol_df.index, ol_df[temp_col], color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open_loop")
     ax0.set_ylabel(temp_col)
     ax0.grid(True, ls=":", lw=0.6, alpha=0.7)
 
@@ -178,19 +145,19 @@ def _plot_station(
     mem_prec_cum = []
     for d in mem_dfs:
         if precip_col in d.columns:
-            mem_prec_cum.append(_cumulative_hydro(d[[precip_col]], precip_col, hydro_m, hydro_d))
-    p_mean, p_lo, p_hi = _envelope(mem_prec_cum)
+            mem_prec_cum.append(cumulative_hydro(d[precip_col], hydro_m, hydro_d))
+    p_mean, p_lo, p_hi = envelope(mem_prec_cum)
     for i, d in enumerate(mem_dfs):
         if precip_col in d.columns:
-            s = _cumulative_hydro(d[[precip_col]], precip_col, hydro_m, hydro_d)
+            s = cumulative_hydro(d[precip_col], hydro_m, hydro_d)
             lbl = member_labels[i] if member_labels and i < len(member_labels) else None
-            ax1.plot(s.index, s.values, lw=1.2, alpha=0.85, label=lbl)
+            ax1.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.85, label=lbl)
     if not p_mean.empty:
-        ax1.fill_between(p_mean.index, p_lo, p_hi, color="#1f77b4", alpha=0.18, linewidth=0)
-        ax1.plot(p_mean.index, p_mean.values, color="#1f77b4", lw=2.0, label="ensemble mean")
+        ax1.fill_between(p_mean.index, p_lo, p_hi, color=COLOR_MEAN, alpha=BAND_ALPHA, linewidth=0)
+        ax1.plot(p_mean.index, p_mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
     if ol_df is not None and precip_col in ol_df.columns:
-        s = _cumulative_hydro(ol_df[[precip_col]], precip_col, hydro_m, hydro_d)
-        ax1.plot(s.index, s.values, color="black", lw=2.4, label="open_loop")
+        s = cumulative_hydro(ol_df[precip_col], hydro_m, hydro_d)
+        ax1.plot(s.index, s.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open_loop")
     ax1.set_xlabel("date")
     ax1.set_ylabel(f"{precip_col} (cumulative)")
     ax1.grid(True, ls=":", lw=0.6, alpha=0.7)
@@ -206,7 +173,7 @@ def _plot_station(
     # Compose a shared legend from ax0 handles (they include member labels if provided)
     handles, labels = ax0.get_legend_handles_labels()
     if handles and labels:
-        fig.legend(handles, labels, loc="lower center", ncol=4, frameon=False, fontsize=8)
+        fig.legend(handles, labels, loc="lower center", ncol=LEGEND_NCOL, frameon=False, fontsize=8)
         fig.subplots_adjust(bottom=0.18)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -268,8 +235,8 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
         if ol_dir is not None:
             try:
                 ol_df = _read_station_series(ol_dir / fname, args.time_col, args.temp_col, args.precip_col)
-                ol_df = _resample_and_smooth(ol_df, args.resample, args.temp_col, args.precip_col, args.rolling)
-                ol_df = _apply_window(ol_df, start, end)
+                ol_df = resample_and_smooth(ol_df, args.resample, {args.temp_col: "mean", args.precip_col: "sum"}, args.rolling)
+                ol_df = apply_window(ol_df, start, end)
             except Exception as e:
                 logger.warning("open_loop read failed for {}: {}", fname, e)
                 ol_df = None
@@ -283,8 +250,8 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
                 continue
             try:
                 d = _read_station_series(p, args.time_col, args.temp_col, args.precip_col)
-                d = _resample_and_smooth(d, args.resample, args.temp_col, args.precip_col, args.rolling)
-                d = _apply_window(d, start, end)
+                d = resample_and_smooth(d, args.resample, {args.temp_col: "mean", args.precip_col: "sum"}, args.rolling)
+                d = apply_window(d, start, end)
                 mem_dfs.append(d)
                 dt, fp = pert_labels.get(m.name, (None, None))
                 if dt is not None or fp is not None:
@@ -320,4 +287,3 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(cli_main())
-

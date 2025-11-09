@@ -64,12 +64,13 @@ Notes on updates:
 Minimal files and keys used by the workflow.
 
 - project.yml (at project root)
+
   - data_assimilation.prior_forcing (required)
     - ensemble_size: int
     - random_seed: int
-    - sigma_t: float   # temperature additive stddev (°C)
-    - mu_p: float      # log-space mean for precip factor
-    - sigma_p: float   # log-space stddev for precip factor
+    - sigma_t: float # temperature additive stddev (°C)
+    - mu_p: float # log-space mean for precip factor
+    - sigma_p: float # log-space stddev for precip factor
   - data_assimilation.h_of_x (optional defaults for H(x))
     - method: depth_threshold | logistic
     - variable: hs | swe
@@ -84,25 +85,28 @@ Minimal files and keys used by the workflow.
     - Keys like GDAL_DATA/PROJ_LIB can be set; inside this Docker image they are auto-configured and usually not needed.
 
 - season.yml (under the season directory)
+
   - start_date: YYYY-MM-DD
   - end_date: YYYY-MM-DD
 
-- Step YAML (any *.yml in the step directory)
+- Step YAML (any \*.yml in the step directory)
+
   - start_date: 2017-10-01 00:00:00
-  - end_date:   2018-09-30 23:59:59
+  - end_date: 2018-09-30 23:59:59
   - scf (optional)
     - ndsi_threshold: 40
     - region_id_field: region_id
   - h_of_x (optional; same keys as in project.yml)
 
 - Meteo input (under project meteo dir)
+
   - stations.csv (as required by openAMUNDSEN)
   - One CSV per station with at least column `date` (ISO). Columns `temp` and/or `precip` are optional; if present, `precip` must not contain negative values.
 
 - AOI requirements
   - Vector file with exactly one polygon feature and a field `region_id` (or override name). CRS must match the raster/model outputs.
 
-Tip: The launcher discovers YAMLs automatically: project.yml at project root; season.yml in the season folder; the first *.yml in the step folder.
+Tip: The launcher discovers YAMLs automatically: project.yml at project root; season.yml in the season folder; the first \*.yml in the step folder.
 
 Templates
 
@@ -335,7 +339,7 @@ docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da \
     --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/forcing
 ```
 
-- Results per-point (SWE or snow_depth) from `point_*.csv`:
+- Results per-point (SWE or snow*depth) from `point*\*.csv`:
 
 ```
 docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da \

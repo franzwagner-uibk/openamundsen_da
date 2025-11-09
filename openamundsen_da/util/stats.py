@@ -14,6 +14,7 @@ Includes:
 
 from numpy.random import Generator
 import numpy as np
+import pandas as pd
 
 
 def sample_delta_t(rng: Generator, sigma_t: float) -> float:
@@ -134,3 +135,21 @@ def compute_obs_sigma(
     if not use_binomial and obs_sigma is not None:
         s = max(s, float(obs_sigma))
     return s
+
+
+# ---- Time-series ensemble helpers ------------------------------------------
+
+def envelope(series_list: list[pd.Series], q_low: float = 0.05, q_high: float = 0.95) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Return (mean, q_low, q_high) across a list of aligned series.
+
+    Joins on the intersection of indices to avoid implicit up/down-sampling.
+    """
+    if not series_list:
+        return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
+    aligned = pd.concat(series_list, axis=1, join="inner")
+    if aligned.empty:
+        return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
+    mean = aligned.mean(axis=1)
+    lo = aligned.quantile(q_low, axis=1)
+    hi = aligned.quantile(q_high, axis=1)
+    return mean, lo, hi

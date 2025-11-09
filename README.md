@@ -374,6 +374,37 @@ docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da pytho
 docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.methods.pf.plot_ess_timeline --help
 ```
 
+## Resampling & Posterior Ensemble
+
+Create a posterior ensemble from single-date weights using systematic resampling. If the effective sample size (ESS) is above a threshold, mirroring (no resampling) can be used.
+
+```
+$date = "2018-02-15"
+$step = "/data/propagation/season_2017-2018/step_00_init"
+
+docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+  oa-da-resample `
+    --project-dir /data `
+    --step-dir $step `
+    --ensemble prior `
+    --weights "$step/assim/weights_scf_${date.Replace('-', '')}.csv" `
+    --target posterior `
+    --ess-threshold-ratio 0.5 `
+    --seed 123 `
+    --overwrite
+```
+
+Outputs
+- Posterior members under `<step>/ensembles/posterior/member_XXX`.
+- Mapping CSV and manifest under `<step>/assim/resample_*`.
+  - The mapping CSV now includes `posterior_member_id,source_member_id,weight`.
+
+Notes
+- The CLI reads defaults from `project.yml` (block `resampling`), including `algorithm`, `ess_threshold`, and falls back to `data_assimilation.prior_forcing.random_seed` for `seed` when present.
+- Default materialization copies files (robust and portable). Use `--prefer-symlink` to opt in to symlinks (with copy fallback).
+- Manifest also reports ESS, N, threshold, and the mapping CSV; uniqueness stats are logged by the CLI.
+ - Thresholds: you can specify `--ess-threshold-ratio` in (0,1] to resample when ESS < ratio*N (e.g., 0.5 for 50%). If you pass `--ess-threshold` in (0,1], it is treated as a ratio; otherwise as an absolute count. In `project.yml`, set either `data_assimilation.resampling.ess_threshold_ratio` (preferred) or `data_assimilation.resampling.ess_threshold`. For backward compatibility, a top-level `resampling` block is also recognized.
+
 ## General Information
 
 - Per-member logs: `<member_dir>/logs/member.log`.

@@ -77,6 +77,7 @@ LIK_MIN_SIGMA = "min_sigma"
 RESAMPLING_BLOCK = "resampling"
 RESAMPLING_ALGORITHM = "algorithm"  # multinomial|systematic|stratified (we implement systematic)
 RESAMPLING_ESS_THRESHOLD = "ess_threshold"
+RESAMPLING_ESS_THRESHOLD_RATIO = "ess_threshold_ratio"  # optional, 0..1 interpreted as fraction of N
 
 REJUVENATION_BLOCK = "rejuvenation"
 REJ_SIGMA_T = "sigma_t"

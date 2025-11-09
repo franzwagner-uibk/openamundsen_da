@@ -1,0 +1,33 @@
+# Example project.yml with recommended resampling defaults.
+# This template uses plain ASCII and compact keys.
+
+data_assimilation:
+  prior_forcing:
+    ensemble_size: 30        # example size
+    random_seed: 123         # global seed used for reproducibility
+    sigma_t: 1.0             # temperature additive stddev (deg C)
+    mu_p: 0.0                # precipitation factor log-mean
+    sigma_p: 0.3             # precipitation factor log-stddev
+  # Ratio-based ESS threshold (preferred; scales with N).
+  # Resample if ESS < ess_threshold_ratio * N.
+  resampling:
+    algorithm: systematic
+    ess_threshold_ratio: 0.5   # recommended: 0.5..0.66 (use 0.5 by default)
+    # Optional absolute threshold alternative (count):
+    # ess_threshold: 15        # only used if ratio not set
+    # Optional explicit seed; if omitted, falls back to data_assimilation.prior_forcing.random_seed
+    # seed: 123
+
+# Optional: likelihood and H(x) defaults can be added here if desired.
+#likelihood:
+#  obs_sigma: 0.10
+#  sigma_floor: 0.05
+#  sigma_cloud_scale: 0.10
+#  min_sigma: 0.03
+
+#h_of_x:
+#  method: depth_threshold    # or logistic
+#  variable: hs               # or swe
+#  params:
+#    h0: 0.03
+#    k: 0.15

@@ -72,11 +72,16 @@ def _parse_time_index(df: pd.DataFrame, time_col: str) -> pd.DataFrame:
 
 
 def _read_station_series(csv_path: Path, time_col: str, temp_col: str, precip_col: str) -> pd.DataFrame:
+    """Read station CSV and set datetime index; temp/precip columns are optional.
+
+    - Requires time_col to exist and be parseable.
+    - If temp_col or precip_col are present, they are coerced to numeric.
+    """
     df = pd.read_csv(csv_path)
-    for c in (temp_col, precip_col):
-        if c not in df.columns:
-            raise ValueError(f"{csv_path.name}: missing required column: {c}")
-        df[c] = pd.to_numeric(df[c], errors="coerce")
+    if temp_col in df.columns:
+        df[temp_col] = pd.to_numeric(df[temp_col], errors="coerce")
+    if precip_col in df.columns:
+        df[precip_col] = pd.to_numeric(df[precip_col], errors="coerce")
     return _parse_time_index(df, time_col)
 
 
@@ -125,7 +130,14 @@ def _plot_station(
     matplotlib.use(backend or "Agg")
     import matplotlib.pyplot as plt
 
-    fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(11.5, 7.2), sharex=True)
+    has_precip = bool(
+        (ol_df is not None and precip_col in ol_df.columns)
+        or any(precip_col in d.columns for d in mem_dfs)
+    )
+    if has_precip:
+        fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(11.5, 7.2), sharex=True)
+    else:
+        fig, ax0 = plt.subplots(1, 1, figsize=(11.5, 4.2))
 
     # Temperature panel
     temp_series = [d[temp_col].copy() for d in mem_dfs if temp_col in d.columns]
@@ -142,25 +154,26 @@ def _plot_station(
     ax0.grid(True, ls=":", lw=0.6, alpha=0.7)
 
     # Precip cumulative panel
-    mem_prec_cum = []
-    for d in mem_dfs:
-        if precip_col in d.columns:
-            mem_prec_cum.append(cumulative_hydro(d[precip_col], hydro_m, hydro_d))
-    p_mean, p_lo, p_hi = envelope(mem_prec_cum)
-    for i, d in enumerate(mem_dfs):
-        if precip_col in d.columns:
-            s = cumulative_hydro(d[precip_col], hydro_m, hydro_d)
-            lbl = member_labels[i] if member_labels and i < len(member_labels) else None
-            ax1.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.85, label=lbl)
-    if not p_mean.empty:
-        ax1.fill_between(p_mean.index, p_lo, p_hi, color=COLOR_MEAN, alpha=BAND_ALPHA, linewidth=0)
-        ax1.plot(p_mean.index, p_mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
-    if ol_df is not None and precip_col in ol_df.columns:
-        s = cumulative_hydro(ol_df[precip_col], hydro_m, hydro_d)
-        ax1.plot(s.index, s.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open_loop")
-    ax1.set_xlabel("date")
-    ax1.set_ylabel(f"{precip_col} (cumulative)")
-    ax1.grid(True, ls=":", lw=0.6, alpha=0.7)
+    if has_precip:
+        mem_prec_cum = []
+        for d in mem_dfs:
+            if precip_col in d.columns:
+                mem_prec_cum.append(cumulative_hydro(d[precip_col], hydro_m, hydro_d))
+        p_mean, p_lo, p_hi = envelope(mem_prec_cum)
+        for i, d in enumerate(mem_dfs):
+            if precip_col in d.columns:
+                s = cumulative_hydro(d[precip_col], hydro_m, hydro_d)
+                lbl = member_labels[i] if member_labels and i < len(member_labels) else None
+                ax1.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.85, label=lbl)
+        if not p_mean.empty:
+            ax1.fill_between(p_mean.index, p_lo, p_hi, color=COLOR_MEAN, alpha=BAND_ALPHA, linewidth=0)
+            ax1.plot(p_mean.index, p_mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
+        if ol_df is not None and precip_col in ol_df.columns:
+            s = cumulative_hydro(ol_df[precip_col], hydro_m, hydro_d)
+            ax1.plot(s.index, s.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open_loop")
+        ax1.set_xlabel("date")
+        ax1.set_ylabel(f"{precip_col} (cumulative)")
+        ax1.grid(True, ls=":", lw=0.6, alpha=0.7)
 
     # Layout and legend below
     top_rect = 0.90 if (title or subtitle) else 0.94
@@ -174,7 +187,8 @@ def _plot_station(
     handles, labels = ax0.get_legend_handles_labels()
     if handles and labels:
         fig.legend(handles, labels, loc="lower center", ncol=LEGEND_NCOL, frameon=False, fontsize=8)
-        fig.subplots_adjust(bottom=0.18)
+        # increase bottom margin to avoid overlapping x-axis
+        fig.subplots_adjust(bottom=0.26 if has_precip else 0.22)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.1)
@@ -235,7 +249,12 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
         if ol_dir is not None:
             try:
                 ol_df = _read_station_series(ol_dir / fname, args.time_col, args.temp_col, args.precip_col)
-                ol_df = resample_and_smooth(ol_df, args.resample, {args.temp_col: "mean", args.precip_col: "sum"}, args.rolling)
+                agg_map = {}
+                if args.temp_col in ol_df.columns:
+                    agg_map[args.temp_col] = "mean"
+                if args.precip_col in ol_df.columns:
+                    agg_map[args.precip_col] = "sum"
+                ol_df = resample_and_smooth(ol_df, args.resample, agg_map if agg_map else None, args.rolling)
                 ol_df = apply_window(ol_df, start, end)
             except Exception as e:
                 logger.warning("open_loop read failed for {}: {}", fname, e)
@@ -250,7 +269,12 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
                 continue
             try:
                 d = _read_station_series(p, args.time_col, args.temp_col, args.precip_col)
-                d = resample_and_smooth(d, args.resample, {args.temp_col: "mean", args.precip_col: "sum"}, args.rolling)
+                agg_map = {}
+                if args.temp_col in d.columns:
+                    agg_map[args.temp_col] = "mean"
+                if args.precip_col in d.columns:
+                    agg_map[args.precip_col] = "sum"
+                d = resample_and_smooth(d, args.resample, agg_map if agg_map else None, args.rolling)
                 d = apply_window(d, start, end)
                 mem_dfs.append(d)
                 dt, fp = pert_labels.get(m.name, (None, None))

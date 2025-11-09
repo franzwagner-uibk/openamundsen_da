@@ -318,6 +318,38 @@ docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
     --backend SVG
 ```
 
+### Ensemble Visualization
+
+- Forcing per-station (temperature + cumulative precip):
+
+```
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da \
+  python -m openamundsen_da.methods.viz.plot_forcing_ensemble \
+    --step-dir /data/propagation/season_2017-2018/step_00_init \
+    --ensemble prior \
+    --time-col date --temp-col temp --precip-col precip \
+    --start-date 2017-10-01 --end-date 2018-03-31 \
+    --resample D --rolling 1 \
+    --title "Forcing Ensemble (prior)" \
+    --backend SVG \
+    --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/forcing
+```
+
+- Results per-point (SWE or snow_depth) from `point_*.csv`:
+
+```
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da \
+  python -m openamundsen_da.methods.viz.plot_results_ensemble \
+    --step-dir /data/propagation/season_2017-2018/step_00_init \
+    --ensemble prior \
+    --time-col time --var-col swe \
+    --start-date 2017-10-01 --end-date 2018-03-31 \
+    --resample D --rolling 1 \
+    --title "Results Ensemble (prior, SWE)" \
+    --backend SVG \
+    --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/results
+```
+
 ### Help (no install needed)
 
 Use PYTHONPATH with the repo mounted so modules can be imported without a prior editable install.

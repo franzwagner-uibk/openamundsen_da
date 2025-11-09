@@ -1,4 +1,4 @@
-# openamundsen_da - Data Assimilation for openAMUNDSEN
+﻿# openamundsen_da - Data Assimilation for openAMUNDSEN
 
 Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF) with a particle filter. This README is Docker-only to ensure copy/pasteable, platform-independent usage on Windows/macOS/Linux.
 
@@ -49,17 +49,17 @@ $proj = "$repo\examples\test-project"
 
 Editable install inside the container (run after you change the source code):
 
-```
+````
 docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
-  python -m pip install -e /workspace --no-deps
-```
-
-Notes on updates:
-
-- For code edits only: no image rebuild is needed. Re‑run the editable install command above.
-- If you change dependencies, environment.yml, or the Dockerfile: rebuild the image (`docker build -t oa-da .`).
-
-## Configuration Cheat Sheet
+  python -m openamundsen_da.methods.viz.plot_results_ensemble `
+    --step-dir /data/propagation/season_2017-2018/step_00_init `
+    --ensemble prior `
+    --time-col time --var-col swe `
+    --start-date 2017-11-01 --end-date 2018-04-30 `
+    --resample D --rolling 1 `
+    --title "Model Results Ensemble (prior)" `
+    --backend SVG `
+    --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/results
 
 Minimal files and keys used by the workflow.
 
@@ -68,7 +68,7 @@ Minimal files and keys used by the workflow.
   - data_assimilation.prior_forcing (required)
     - ensemble_size: int
     - random_seed: int
-    - sigma_t: float # temperature additive stddev (°C)
+    - sigma_t: float # temperature additive stddev (Â°C)
     - mu_p: float # log-space mean for precip factor
     - sigma_p: float # log-space stddev for precip factor
   - data_assimilation.h_of_x (optional defaults for H(x))
@@ -138,7 +138,7 @@ data_assimilation:
     sigma_t: 0.5 # additive temperature stddev
     mu_p: 0.0 # log-space mean for precip factor
     sigma_p: 0.2 # log-space stddev for precip factor
-```
+````
 
 Each step YAML defines the time window:
 
@@ -151,20 +151,22 @@ Run the builder:
 
 ```
 docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
-  python -m openamundsen_da.core.prior_forcing `
-    --input-meteo-dir /data/meteo `
-    --project-dir /data `
+  python -m openamundsen_da.methods.viz.plot_results_ensemble `
     --step-dir /data/propagation/season_2017-2018/step_00_init `
-    --overwrite
+    --ensemble prior `
+    --time-col time --var-col swe `
+    --start-date 2017-11-01 --end-date 2018-04-30 `
+    --resample D --rolling 1 `
+    --title "Model Results Ensemble (prior)" `
+    --backend SVG `
+    --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/results
 ```
 
-Output under the step:
-
-```
 /data/propagation/season_2017-2018/step_00_init/ensembles/prior/
-  open_loop/{meteo,results}
-  member_001/{meteo,results}
-  member_002/...
+open_loop/{meteo,results}
+member_001/{meteo,results}
+member_002/...
+
 ```
 
 ### Run Ensemble
@@ -177,15 +179,13 @@ Context
 Launch openAMUNDSEN for all members of an ensemble (e.g., prior). Results land in each member's `results` directory.
 
 ```
-docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
-  python -m openamundsen_da.core.launch `
-    --project-dir /data `
-    --season-dir  /data/propagation/season_2017-2018 `
-    --step-dir    /data/propagation/season_2017-2018/step_00_init `
-    --ensemble    prior `
-    --max-workers 2 `
-    --log-level   INFO `
-    --overwrite
+
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `  python -m openamundsen_da.core.launch`
+--project-dir /data `    --season-dir  /data/propagation/season_2017-2018`
+--step-dir /data/propagation/season_2017-2018/step_00_init `    --ensemble    prior`
+--max-workers 2 `    --log-level   INFO`
+--overwrite
+
 ```
 
 ### Observation Processing
@@ -199,36 +199,34 @@ Context
 - MOD10A1 preprocess (HDF -> GeoTIFF + season summary):
 
 ```
-docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
-  python -m openamundsen_da.observer.mod10a1_preprocess `
-    --input-dir   /data/obs/MOD10A1_61_HDF `
-    --project-dir /data `
-    --season-label season_2017-2018 `
-    --aoi         /data/env/GMBA_Inventory_L8_15422.gpkg `
-    --target-epsg 25832 `
-    --resolution  500 `
-    --max-cloud-fraction 0.1 `
-    --overwrite
+
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `  python -m openamundsen_da.observer.mod10a1_preprocess`
+--input-dir /data/obs/MOD10A1_61_HDF `    --project-dir /data`
+--season-label season_2017-2018 `    --aoi         /data/env/GMBA_Inventory_L8_15422.gpkg`
+--target-epsg 25832 `    --resolution  500`
+--max-cloud-fraction 0.1 `
+--overwrite
+
 ```
 
 - Single-image SCF extraction (preprocessed GeoTIFF):
 
 ```
-docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
-  python -m openamundsen_da.observer.satellite_scf `
-    --raster  /data/obs/season_2017-2018/NDSI_Snow_Cover_20180110.tif `
-    --region  /data/env/GMBA_Inventory_L8_15422.gpkg `
-    --step-dir /data/propagation/season_2017-2018/step_00_init
+
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `  python -m openamundsen_da.observer.satellite_scf`
+--raster /data/obs/season_2017-2018/NDSI_Snow_Cover_20180110.tif `    --region  /data/env/GMBA_Inventory_L8_15422.gpkg`
+--step-dir /data/propagation/season_2017-2018/step_00_init
+
 ```
 
 - Plot SCF summary (SVG backend recommended):
 
 ```
-docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
-  python -m openamundsen_da.observer.plot_scf_summary `
-    /data/obs/season_2017-2018/scf_summary.csv `
-    --output /data/obs/season_2017-2018/scf_summary.svg `
-    --backend SVG
+
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `  python -m openamundsen_da.observer.plot_scf_summary`
+/data/obs/season_2017-2018/scf_summary.csv `    --output /data/obs/season_2017-2018/scf_summary.svg`
+--backend SVG
+
 ```
 
 ### Model SCF Operator (H(x))
@@ -247,14 +245,13 @@ Methods:
 - logistic (probabilistic): p = 1/(1+exp(-k\*(X - h0))), SCF = mean(p).
 
 ```
-docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
-  python -m openamundsen_da.methods.h_of_x.model_scf `
-    --member-results /data/propagation/season_2017-2018/step_00_init/ensembles/prior/member_001/results `
-    --aoi /data/env/GMBA_Inventory_L8_15422.gpkg `
-    --date 2018-01-10 `
-    --variable hs `
-    --method depth_threshold
-```
+
+docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `  python -m openamundsen_da.methods.h_of_x.model_scf`
+--member-results /data/propagation/season_2017-2018/step_00_init/ensembles/prior/member_001/results `    --aoi /data/env/GMBA_Inventory_L8_15422.gpkg`
+--date 2018-01-10 `    --variable hs`
+--method depth_threshold
+
+````
 
 Optional configuration in `project.yml`:
 
@@ -266,7 +263,7 @@ data_assimilation:
     params:
       h0: 0.05
       k: 80
-```
+````
 
 ### Assimilation (SCF Weights)
 
@@ -339,7 +336,7 @@ docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
     --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/forcing
 ```
 
-- Results per-point (SWE or snow*depth) from `point*\*.csv`:
+- Results per-station (e.g., SWE from point CSVs):
 
 ```
 docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
@@ -347,12 +344,19 @@ docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
     --step-dir /data/propagation/season_2017-2018/step_00_init `
     --ensemble prior `
     --time-col time --var-col swe `
-    --start-date 2017-10-01 --end-date 2018-03-31 `
+    --start-date 2017-11-01 --end-date 2018-01-10 `
     --resample D --rolling 1 `
-    --title "Results Ensemble (prior, SWE)" `
+    --title "Model Results Ensemble (prior)" `
     --backend SVG `
     --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/results
 ```
+
+- Results module details (`openamundsen_da/methods/viz/plot_results_ensemble.py`):
+  - Scans `<step>/ensembles/<ensemble>/{open_loop,member_XXX}/results/point*/*.csv`.
+  - Expects a datetime column (default `time`) and one variable column (e.g., `swe` or `hs`).
+  - Options: `--resample` (pandas rule), `--rolling` (samples), `--start-date/--end-date`.
+  - Outputs one PNG per station into `--output-dir` (default: `<step>/assim/plots/results`).
+  - Uses ensemble mean and 5â€“95% band; overlays open_loop if available.
 
 ### Help (no install needed)
 

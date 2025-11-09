@@ -139,17 +139,29 @@ def compute_obs_sigma(
 
 # ---- Time-series ensemble helpers ------------------------------------------
 
-def envelope(series_list: list[pd.Series], q_low: float = 0.05, q_high: float = 0.95) -> tuple[pd.Series, pd.Series, pd.Series]:
-    """Return (mean, q_low, q_high) across a list of aligned series.
+def envelope(
+    series_list: list[pd.Series],
+    q_low: float = 0.05,
+    q_high: float = 0.95,
+    *,
+    min_count: int = 1,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Return (mean, q_low, q_high) across a list of series (union alignment).
 
-    Joins on the intersection of indices to avoid implicit up/down-sampling.
+    - Aligns on the union of timestamps (outer join) and computes row-wise
+      statistics while ignoring NaNs (skipna).
+    - Drops timestamps with fewer than ``min_count`` available series.
     """
     if not series_list:
         return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
-    aligned = pd.concat(series_list, axis=1, join="inner")
+    aligned = pd.concat(series_list, axis=1, join="outer")
     if aligned.empty:
         return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
-    mean = aligned.mean(axis=1)
-    lo = aligned.quantile(q_low, axis=1)
-    hi = aligned.quantile(q_high, axis=1)
+    valid = aligned.count(axis=1) >= max(1, int(min_count))
+    if not valid.any():
+        return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
+    sub = aligned.loc[valid]
+    mean = sub.mean(axis=1, skipna=True)
+    lo = sub.quantile(q_low, axis=1, numeric_only=True)
+    hi = sub.quantile(q_high, axis=1, numeric_only=True)
     return mean, lo, hi

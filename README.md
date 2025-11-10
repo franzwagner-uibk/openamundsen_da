@@ -592,12 +592,39 @@ to locate the external state file.
 Create a rejuvenated prior ensemble for the next step by adding light
 perturbations to meteo and carrying forward the saved state via a pointer.
 
+Modes
+
+- Compound (default): perturb the resampled source member’s meteo again for the
+  next window (adds small diversity on top of the prior perturbation).
+- Rebase: ignore the source member’s prior perturbation and perturb the
+  open_loop meteo for the next window (no compounding).
+
+Configure in `project.yml` under `data_assimilation.rejuvenation`:
+
+```
+rejuvenation:
+  sigma_t: 0.2
+  sigma_p: 0.2
+  rebase_open_loop: false   # set true to perturb open_loop instead of compounding
 ```
 
-docker compose run --rm oa `  python -m openamundsen_da.methods.pf.rejuvenate`
---project-dir /data `  --prev-step-dir /data/propagation/season_2017-2018/step_00_init`
---next-step-dir /data/propagation/season_2017-2018/step_01_20180110-20180316
+```
+docker compose run --rm oa `
+  python -m openamundsen_da.methods.pf.rejuvenate `
+  --project-dir /data `
+  --prev-step-dir /data/propagation/season_2017-2018/step_00_init `
+  --next-step-dir /data/propagation/season_2017-2018/step_01_20180110-20180316
+```
 
+Rebase (single run override):
+
+```
+docker compose run --rm oa `
+  python -m openamundsen_da.methods.pf.rejuvenate `
+  --project-dir /data `
+  --prev-step-dir /data/propagation/season_2017-2018/step_00_init `
+  --next-step-dir /data/propagation/season_2017-2018/step_01_20180110-20180316 `
+  --rebase-open-loop
 ```
 
 Behavior

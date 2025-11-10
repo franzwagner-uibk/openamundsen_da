@@ -362,11 +362,11 @@ def _dump_init_data(model, filename: Path) -> None:
     import gzip
     import pickle
 
+    init_data = {}
+    for category in model.state.categories:
+        init_data[category] = {}
+        for var_name in model.state[category]._meta.keys():
+            var_data = model.state[category][var_name]
+            init_data[category][var_name] = var_data
     with gzip.open(filename, "wb") as f:
-        init_data = {}
-        for category in model.state.categories:
-            init_data[category] = {}
-            for var_name in model.state[category]._meta.keys():
-                var_data = model.state[category][var_name]
-                init_data[category][var_name] = var_data
         pickle.dump(init_data, f)

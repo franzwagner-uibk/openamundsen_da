@@ -142,7 +142,7 @@ data_assimilation:
     sigma_t: 0.5 # additive temperature stddev
     mu_p: 0.0 # log-space mean for precip factor
     sigma_p: 0.2 # log-space stddev for precip factor
-````
+```
 
 Each step YAML defines the time window:
 
@@ -186,18 +186,15 @@ Context
 Launch openAMUNDSEN for all members of an ensemble (e.g., prior). Results land in each member's `results` directory.
 
 ```
-docker run --rm -it `
-  -v "${repo}:/workspace" `
-  -v "${proj}:/data" `
-  oa-da `
-  python -m openamundsen_da.core.launch `
-    --project-dir /data `
-    --season-dir /data/propagation/season_2017-2018 `
-    --step-dir /data/propagation/season_2017-2018/step_00_init `
-    --ensemble prior `
-    --max-workers 2 `
-    --log-level INFO `
-    --overwrite
+
+docker run --rm -it `  -v "${repo}:/workspace"`
+-v "${proj}:/data" `  oa-da`
+python -m openamundsen_da.core.launch `    --project-dir /data`
+--season-dir /data/propagation/season_2017-2018 `    --step-dir /data/propagation/season_2017-2018/step_00_init`
+--ensemble prior `    --dump-state`
+--max-workers 2 `    --log-level INFO`
+--overwrite
+
 ```
 
 ### Observation Processing
@@ -211,45 +208,39 @@ Context
 - MOD10A1 preprocess (HDF -> GeoTIFF + season summary):
 
 ```
-docker run --rm -it `
-  -v "${repo}:/workspace" `
-  -v "${proj}:/data" `
-  oa-da `
-  python -m openamundsen_da.observer.mod10a1_preprocess `
-    --input-dir /data/obs/MOD10A1_61_HDF `
-    --project-dir /data `
-    --season-label season_2017-2018 `
-    --aoi /data/env/GMBA_Inventory_L8_15422.gpkg `
-    --target-epsg 25832 `
-    --resolution 500 `
-    --max-cloud-fraction 0.1 `
-    --overwrite
+
+docker run --rm -it `  -v "${repo}:/workspace"`
+-v "${proj}:/data" `  oa-da`
+python -m openamundsen_da.observer.mod10a1_preprocess `    --input-dir /data/obs/MOD10A1_61_HDF`
+--project-dir /data `    --season-label season_2017-2018`
+--aoi /data/env/GMBA_Inventory_L8_15422.gpkg `    --target-epsg 25832`
+--resolution 500 `    --max-cloud-fraction 0.1`
+--overwrite
+
 ```
 
 - Single-image SCF extraction (preprocessed GeoTIFF):
 
 ```
-docker run --rm -it `
-  -v "${repo}:/workspace" `
-  -v "${proj}:/data" `
-  oa-da `
-  python -m openamundsen_da.observer.satellite_scf `
-    --raster /data/obs/season_2017-2018/NDSI_Snow_Cover_20180110.tif `
-    --region /data/env/GMBA_Inventory_L8_15422.gpkg `
-    --step-dir /data/propagation/season_2017-2018/step_00_init
+
+docker run --rm -it `  -v "${repo}:/workspace"`
+-v "${proj}:/data" `  oa-da`
+python -m openamundsen_da.observer.satellite_scf `    --raster /data/obs/season_2017-2018/NDSI_Snow_Cover_20180110.tif`
+--region /data/env/GMBA_Inventory_L8_15422.gpkg `
+--step-dir /data/propagation/season_2017-2018/step_00_init
+
 ```
 
 - Plot SCF summary (SVG backend recommended):
 
 ```
-docker run --rm -it `
-  -v "${repo}:/workspace" `
-  -v "${proj}:/data" `
-  oa-da `
-  python -m openamundsen_da.observer.plot_scf_summary `
-    /data/obs/season_2017-2018/scf_summary.csv `
-    --output /data/obs/season_2017-2018/scf_summary.svg `
-    --backend SVG
+
+docker run --rm -it `  -v "${repo}:/workspace"`
+-v "${proj}:/data" `  oa-da`
+python -m openamundsen_da.observer.plot_scf_summary `    /data/obs/season_2017-2018/scf_summary.csv`
+--output /data/obs/season_2017-2018/scf_summary.svg `
+--backend SVG
+
 ```
 
 ### Model SCF Operator (H(x))
@@ -268,17 +259,15 @@ Methods:
 - logistic (probabilistic): p = 1/(1+exp(-k\*(X - h0))), SCF = mean(p).
 
 ```
-docker run --rm -it `
-  -v "${repo}:/workspace" `
-  -v "${proj}:/data" `
-  oa-da `
-  python -m openamundsen_da.methods.h_of_x.model_scf `
-    --member-results /data/propagation/season_2017-2018/step_00_init/ensembles/prior/member_001/results `
-    --aoi /data/env/GMBA_Inventory_L8_15422.gpkg `
-    --date 2018-01-10 `
-    --variable hs `
-    --method depth_threshold
-```
+
+docker run --rm -it `  -v "${repo}:/workspace"`
+-v "${proj}:/data" `  oa-da`
+python -m openamundsen_da.methods.h_of_x.model_scf `    --member-results /data/propagation/season_2017-2018/step_00_init/ensembles/prior/member_001/results`
+--aoi /data/env/GMBA_Inventory_L8_15422.gpkg `    --date 2018-01-10`
+--variable hs `
+--method depth_threshold
+
+````
 
 Optional configuration in `project.yml`:
 
@@ -390,15 +379,68 @@ docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
 Use PYTHONPATH with the repo mounted so modules can be imported without a prior editable install.
 
 ```
-docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.core.prior_forcing --help
-docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.core.launch --help
-docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.observer.mod10a1_preprocess --help
-docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.observer.satellite_scf --help
-docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.observer.plot_scf_summary --help
-docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.methods.h_of_x.model_scf --help
-docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.methods.pf.assimilate_scf --help
-docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.methods.pf.plot_weights --help
-docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" oa-da python -m openamundsen_da.methods.pf.plot_ess_timeline --help
+docker run --rm -it `
+  -e PYTHONPATH=/workspace `
+  -v "${repo}:/workspace" `
+  oa-da `
+  python -m openamundsen_da.core.prior_forcing `
+  --help
+
+docker run --rm -it `
+  -e PYTHONPATH=/workspace `
+  -v "${repo}:/workspace" `
+  oa-da `
+  python -m openamundsen_da.core.launch `
+  --help
+
+docker run --rm -it `
+  -e PYTHONPATH=/workspace `
+  -v "${repo}:/workspace" `
+  oa-da `
+  python -m openamundsen_da.observer.mod10a1_preprocess `
+  --help
+
+docker run --rm -it `
+  -e PYTHONPATH=/workspace `
+  -v "${repo}:/workspace" `
+  oa-da `
+  python -m openamundsen_da.observer.satellite_scf `
+  --help
+
+docker run --rm -it `
+  -e PYTHONPATH=/workspace `
+  -v "${repo}:/workspace" `
+  oa-da `
+  python -m openamundsen_da.observer.plot_scf_summary `
+  --help
+
+docker run --rm -it `
+  -e PYTHONPATH=/workspace `
+  -v "${repo}:/workspace" `
+  oa-da `
+  python -m openamundsen_da.methods.h_of_x.model_scf `
+  --help
+
+docker run --rm -it `
+  -e PYTHONPATH=/workspace `
+  -v "${repo}:/workspace" `
+  oa-da `
+  python -m openamundsen_da.methods.pf.assimilate_scf `
+  --help
+
+docker run --rm -it `
+  -e PYTHONPATH=/workspace `
+  -v "${repo}:/workspace" `
+  oa-da `
+  python -m openamundsen_da.methods.pf.plot_weights `
+  --help
+
+docker run --rm -it `
+  -e PYTHONPATH=/workspace `
+  -v "${repo}:/workspace" `
+  oa-da `
+  python -m openamundsen_da.methods.pf.plot_ess_timeline `
+  --help
 ```
 
 ## Resampling & Posterior Ensemble

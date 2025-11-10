@@ -163,7 +163,8 @@ def _mirror_or_resample(
                 matches.sort(key=lambda x: x.stat().st_mtime, reverse=True)
                 src_state = matches[0]
         if src_state is not None:
-            (tgt_member / "results" / STATE_POINTER_JSON).write_text(
+            # Write pointer at member root (portable across layouts)
+            (tgt_member / STATE_POINTER_JSON).write_text(
                 json.dumps({"path": str(src_state.resolve())}, indent=2), encoding="utf-8"
             )
     return pairs

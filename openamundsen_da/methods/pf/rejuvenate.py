@@ -55,6 +55,7 @@ from openamundsen_da.io.paths import (
     default_results_dir,
     find_step_yaml,
     find_season_yaml,
+    open_loop_dir,
 )
 
 
@@ -63,6 +64,7 @@ class RejuvenationParams:
     sigma_t: float
     sigma_p: float
     seed: Optional[int]
+    rebase_open_loop: bool
 
 
 def _read_rejuvenation_params(project_dir: Path) -> RejuvenationParams:
@@ -76,7 +78,13 @@ def _read_rejuvenation_params(project_dir: Path) -> RejuvenationParams:
     if seed is None:
         pr = (da.get("prior_forcing") or {})
         seed = pr.get(DA_RANDOM_SEED)
-    return RejuvenationParams(sigma_t=sigma_t, sigma_p=sigma_p, seed=(int(seed) if seed is not None else None))
+    rebase = bool(rj.get("rebase_open_loop", False))
+    return RejuvenationParams(
+        sigma_t=sigma_t,
+        sigma_p=sigma_p,
+        seed=(int(seed) if seed is not None else None),
+        rebase_open_loop=rebase,
+    )
 
 
 def _read_next_step_dates(next_step_dir: Path) -> tuple[pd.Timestamp, pd.Timestamp]:
@@ -99,8 +107,8 @@ def _read_next_step_dates(next_step_dir: Path) -> tuple[pd.Timestamp, pd.Timesta
     return start, end
 
 
-def _inclusive_filter(df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-    t = pd.to_datetime(df[DEFAULT_TIME_COL], errors="coerce")
+def _inclusive_filter(df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp, *, time_col: str) -> pd.DataFrame:
+    t = pd.to_datetime(df[time_col], errors="coerce")
     mask = (t >= start) & (t <= end)
     return df.loc[mask].copy()
 
@@ -133,10 +141,12 @@ def rejuvenate(
     next_step_dir: Path,
     source_ensemble: str = "posterior",
     target_ensemble: str = "prior",
+    rebase_open_loop: Optional[bool] = None,
 ) -> dict:
     params = _read_rejuvenation_params(project_dir)
     start, end = _read_next_step_dates(next_step_dir)
     rng = np.random.default_rng(params.seed if params.seed is not None else None)
+    effective_rebase = bool(rebase_open_loop) if (rebase_open_loop is not None) else bool(params.rebase_open_loop)
 
     src_members = list_member_dirs(Path(prev_step_dir) / "ensembles", source_ensemble)
     if not src_members:
@@ -162,17 +172,20 @@ def rejuvenate(
         dT = float(rng.normal(0.0, params.sigma_t)) if params.sigma_t else 0.0
         fP = float(rng.lognormal(mean=0.0, sigma=params.sigma_p)) if params.sigma_p else 1.0
 
-        # Read stations from source meteo
-        src_meteo = meteo_dir_for_member(src_member)
+        # Read stations from source meteo (either source member or open_loop if rebase)
+        base_for_meteo = open_loop_dir(prev_step_dir) if effective_rebase else src_member
+        src_meteo = meteo_dir_for_member(base_for_meteo)
         stations_csv = src_meteo / "stations.csv"
         if not stations_csv.exists():
             raise FileNotFoundError(f"Missing stations.csv in {src_meteo}")
 
         for csv in sorted(p for p in src_meteo.glob("*.csv") if p.name != "stations.csv"):
             df = pd.read_csv(csv)
-            if DEFAULT_TIME_COL not in df.columns:
-                raise ValueError(f"{csv.name}: missing required column '{DEFAULT_TIME_COL}'")
-            df = _inclusive_filter(df, start, end)
+            # Accept either 'date' (default) or 'time' as time column
+            time_col = DEFAULT_TIME_COL if DEFAULT_TIME_COL in df.columns else ("time" if "time" in df.columns else None)
+            if time_col is None:
+                raise ValueError(f"{csv.name}: missing required time column ('date' or 'time')")
+            df = _inclusive_filter(df, start, end, time_col=time_col)
             if (dT != 0.0) and (DEFAULT_TEMP_COL in df.columns):
                 df[DEFAULT_TEMP_COL] = pd.to_numeric(df[DEFAULT_TEMP_COL], errors="coerce") + dT
             if (fP != 1.0) and (DEFAULT_PRECIP_COL in df.columns):
@@ -182,11 +195,14 @@ def rejuvenate(
         # Copy stations.csv unchanged
         (tgt_meteo / "stations.csv").write_bytes(stations_csv.read_bytes())
 
-        # Copy state pointer if present
-        post_ptr = default_results_dir(post_member) / STATE_POINTER_JSON
-        if post_ptr.exists():
-            (tgt_results / STATE_POINTER_JSON).write_text(post_ptr.read_text(encoding="utf-8"), encoding="utf-8")
-            copied_pointers += 1
+    # Copy state pointer if present (support root or results location)
+    post_ptr_root = post_member / STATE_POINTER_JSON
+    post_ptr_results = default_results_dir(post_member) / STATE_POINTER_JSON
+    post_ptr = post_ptr_root if post_ptr_root.exists() else post_ptr_results
+    if post_ptr.exists():
+        # Place pointer at member root in the next step
+        (tgt_member / STATE_POINTER_JSON).write_text(post_ptr.read_text(encoding="utf-8"), encoding="utf-8")
+        copied_pointers += 1
 
         rows.append({
             "member": member_name,
@@ -194,8 +210,9 @@ def rejuvenate(
             "delta_T": dT,
             "f_p": fP,
             "copied_state_pointer": post_ptr.exists(),
+            "rebase_open_loop": bool(effective_rebase),
         })
-        logger.info("[{m}] dT={dt:+.3f} f_p={fp:.3f} state_ptr={sp}", m=member_name, dt=dT, fp=fP, sp=bool(post_ptr.exists()))
+        logger.info("[{m}] dT={dt:+.3f} f_p={fp:.3f} state_ptr={sp} rebase={rb}", m=member_name, dt=dT, fp=fP, sp=bool(post_ptr.exists()), rb=bool(effective_rebase))
 
     out_dir = Path(next_step_dir) / "assim"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -220,6 +237,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     p.add_argument("--project-dir", required=True, type=Path)
     p.add_argument("--prev-step-dir", required=True, type=Path)
     p.add_argument("--next-step-dir", required=True, type=Path)
+    p.add_argument("--rebase-open-loop", action="store_true", help="Use open_loop meteo as base (apply only rejuvenation noise)")
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(list(argv) if argv is not None else None)
 
@@ -231,6 +249,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
             project_dir=Path(args.project_dir),
             prev_step_dir=Path(args.prev_step_dir),
             next_step_dir=Path(args.next_step_dir),
+            rebase_open_loop=bool(args.rebase_open_loop),
         )
         logger.info("Rejuvenated prior | members={} state_ptrs={}", summary.get("members"), summary.get("copied_state_pointers"))
         return 0
@@ -241,4 +260,3 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-

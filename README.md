@@ -473,7 +473,7 @@ docker compose run --rm oa `
 
 ### Help (no install needed)
 
-Use PYTHONPATH with the repo mounted so modules can be imported without a prior editable install.
+Compose sets PYTHONPATH=/workspace so modules import directly from your repo without an editable install.
 
 ```
 docker compose run --rm oa `
@@ -518,15 +518,17 @@ docker compose run --rm oa `
 Create a posterior ensemble from single-date weights using systematic resampling. If the effective sample size (ESS) is above a threshold, mirroring (no resampling) can be used.
 
 ```
-$date = "2018-02-15"
+$date = "2018-01-10"
 $step = "/data/propagation/season_2017-2018/step_00_init"
+$dateTag = ($date -replace '-', '')
+$weights = "$step/assim/weights_scf_$dateTag.csv"
 
 docker compose run --rm oa `
-  oa-da-resample `
+  python -m openamundsen_da.methods.pf.resample `
   --project-dir /data `
   --step-dir $step `
   --ensemble prior `
-  --weights "$step/assim/weights_scf_${date.Replace('-', '')}.csv" `
+  --weights $weights `
   --target posterior `
   --ess-threshold-ratio 0.5 `
   --seed 123 `
@@ -537,12 +539,12 @@ Outputs
 
 - Posterior members under `<step>/ensembles/posterior/member_XXX`.
 - Mapping CSV and manifest under `<step>/assim/resample_*`.
-  - The mapping CSV now includes `posterior_member_id,source_member_id,weight`.
+  - The mapping CSV includes `posterior_member_id,source_member_id,weight`.
 
 No duplication policy
 
 - Resampling does not duplicate large state files. Each posterior member contains:
-  - `results/state_pointer.json` pointing to the source member's saved state file.
+  - `state_pointer.json` at member root pointing to the source member's saved state file.
   - `source_pointer.json` at member root with the absolute path of the source member and its weight.
   - Empty `meteo/` and `results/` folders for compatibility.
   - This keeps disk usage low and is portable across Windows/macOS/Linux.
@@ -594,7 +596,7 @@ perturbations to meteo and carrying forward the saved state via a pointer.
 
 docker compose run --rm oa `  python -m openamundsen_da.methods.pf.rejuvenate`
 --project-dir /data `  --prev-step-dir /data/propagation/season_2017-2018/step_00_init`
---next-step-dir /data/propagation/season_2017-2018/step_01_20180215-20180301
+--next-step-dir /data/propagation/season_2017-2018/step_01_20180110-20180316
 
 ```
 
@@ -605,7 +607,7 @@ Behavior
   - Finds its source member (from `source_pointer.json`).
   - Filters meteo to the next step window, applies dT ~ N(0, sigma_t), f_p ~ LogNormal(0, sigma_p).
   - Writes meteo to next step `ensembles/prior/member_XXX/meteo`.
-  - Copies `results/state_pointer.json` so warm start can load the saved state without duplication.
+  - Copies `state_pointer.json` to the next step prior member root so warm start can load the saved state without duplication.
 ```
 
 Notes
@@ -633,10 +635,9 @@ Notes
 ## Troubleshooting
 
 - Python package not found in container when running help:
-  - The image should already include the package. If you need an editable run, either rebuild the image or set `-e PYTHONPATH=/workspace` on the compose run:
-    - `docker compose run --rm -e PYTHONPATH=/workspace oa \`
-      `python -m openamundsen_da.core.launch \`
-      `--help`
+  - The image should already include the package. Compose exports PYTHONPATH=/workspace; if you prefer, you can rebuild the image to bake the package.
+    `python -m openamundsen_da.core.launch \`
+    `--help`
 - HDF not recognized in preprocess:
   - Rebuild the image to include `hdf4` and `libgdal-hdf4` (already in environment.yml). Verify: `gdalinfo --formats | findstr HDF4`.
 - Windows bind mounts and file metadata:

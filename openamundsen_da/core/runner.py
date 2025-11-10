@@ -358,6 +358,21 @@ def _resolve_state_file(results_dir: Path, pattern: str) -> Path | None:
                     return q
     except Exception:
         pass
+    # 3) Also support pointer at member root (parent directory)
+    try:
+        import json
+        root_ptr = results_dir.parent / STATE_POINTER_JSON
+        if root_ptr.exists():
+            d = json.loads(root_ptr.read_text(encoding="utf-8")) or {}
+            target = d.get("path") or d.get("state_path")
+            if target:
+                q = Path(target)
+                if not q.is_absolute():
+                    q = (results_dir.parent / q).resolve()
+                if q.exists() and q.is_file():
+                    return q
+    except Exception:
+        pass
     return None
 
 

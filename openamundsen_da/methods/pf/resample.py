@@ -360,7 +360,6 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     p.add_argument("--ess-threshold", type=float, help="Absolute threshold; if 0<val<=1 treated as ratio")
     p.add_argument("--ess-threshold-ratio", type=float, help="Ratio threshold in (0,1]; overrides --ess-threshold if set")
     p.add_argument("--overwrite", action="store_true", help="Overwrite existing target members")
-    # Deprecated: we avoid duplicating files; pointers are used for heavy state
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(list(argv) if argv is not None else None)
 
@@ -377,13 +376,6 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     ess_thr_abs = cli_abs if cli_abs is not None else rs_cfg.ess_threshold
 
     try:
-        # Default policy: copy; allow opt-in to symlink preference
-        always_copy = True
-        if args.prefer_symlink:
-            always_copy = False
-        if args.always_copy:
-            always_copy = True
-
         algo = rs_cfg.algorithm or "systematic"
         summary = resample_from_weights(
             step_dir=Path(args.step_dir),
@@ -395,7 +387,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
             ess_threshold=ess_thr_abs,
             ess_threshold_ratio=ess_thr_ratio,
             overwrite=bool(args.overwrite),
-            always_copy=bool(always_copy),
+            always_copy=True,
         )
     except Exception as e:
         logger.error(f"Resampling failed: {e}")

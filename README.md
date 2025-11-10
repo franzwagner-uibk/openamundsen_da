@@ -132,6 +132,7 @@ cp .env.example .env      # Linux/macOS
 ```
 
 - Edit `.env` and set:
+
   - `REPO` → absolute path to this repo on your machine
   - `PROJ` → absolute path to your project data (the example uses `examples/test-project`)
   - `CPUS`, `MEMORY` → per-container limits (keep within your VM/global limits)
@@ -278,16 +279,14 @@ Context
 Launch openAMUNDSEN for all members of an ensemble (e.g., prior). Results land in each member's `results` directory.
 
 ```
-docker compose run --rm oa `
-  python -m openamundsen_da.core.launch `
-  --project-dir /data `
-  --season-dir /data/propagation/season_2017-2018 `
-  --step-dir /data/propagation/season_2017-2018/step_00_init `
-  --ensemble prior `
-  --dump-state `
-  --max-workers 2 `
-  --log-level INFO `
-  --overwrite
+
+docker compose run --rm oa `  python -m openamundsen_da.core.launch`
+--project-dir /data `  --season-dir /data/propagation/season_2017-2018`
+--step-dir /data/propagation/season_2017-2018/step_00_init `  --ensemble prior`
+--dump-state `  --max-workers 2`
+--log-level INFO `
+--overwrite
+
 ```
 
 ### Observation Processing
@@ -301,36 +300,34 @@ Context
 - MOD10A1 preprocess (HDF -> GeoTIFF + season summary):
 
 ```
-docker compose run --rm oa `
-  python -m openamundsen_da.observer.mod10a1_preprocess `
-  --input-dir /data/obs/MOD10A1_61_HDF `
-  --project-dir /data `
-  --season-label season_2017-2018 `
-  --aoi /data/env/GMBA_Inventory_L8_15422.gpkg `
-  --target-epsg 25832 `
-  --resolution 500 `
-  --max-cloud-fraction 0.1 `
-  --overwrite
+
+docker compose run --rm oa `  python -m openamundsen_da.observer.mod10a1_preprocess`
+--input-dir /data/obs/MOD10A1_61_HDF `  --project-dir /data`
+--season-label season_2017-2018 `  --aoi /data/env/GMBA_Inventory_L8_15422.gpkg`
+--target-epsg 25832 `  --resolution 500`
+--max-cloud-fraction 0.1 `
+--overwrite
+
 ```
 
 - Single-image SCF extraction (preprocessed GeoTIFF):
 
 ```
-docker compose run --rm oa `
-  python -m openamundsen_da.observer.satellite_scf `
-  --raster /data/obs/season_2017-2018/NDSI_Snow_Cover_20180110.tif `
-  --region /data/env/GMBA_Inventory_L8_15422.gpkg `
-  --step-dir /data/propagation/season_2017-2018/step_00_init
+
+docker compose run --rm oa `  python -m openamundsen_da.observer.satellite_scf`
+--raster /data/obs/season_2017-2018/NDSI_Snow_Cover_20180110.tif `  --region /data/env/GMBA_Inventory_L8_15422.gpkg`
+--step-dir /data/propagation/season_2017-2018/step_00_init
+
 ```
 
 - Plot SCF summary (SVG backend recommended):
 
 ```
-docker compose run --rm oa `
-  python -m openamundsen_da.observer.plot_scf_summary `
-  /data/obs/season_2017-2018/scf_summary.csv `
-  --output /data/obs/season_2017-2018/scf_summary.svg `
-  --backend SVG
+
+docker compose run --rm oa `  python -m openamundsen_da.observer.plot_scf_summary`
+/data/obs/season_2017-2018/scf_summary.csv `  --output /data/obs/season_2017-2018/scf_summary.svg`
+--backend SVG
+
 ```
 
 ### Model SCF Operator (H(x))
@@ -372,7 +369,7 @@ data_assimilation:
     params:
       h0: 0.05
       k: 80
-````
+```
 
 ### Assimilation (SCF Weights)
 
@@ -594,11 +591,11 @@ Create a rejuvenated prior ensemble for the next step by adding light
 perturbations to meteo and carrying forward the saved state via a pointer.
 
 ```
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.pf.rejuvenate `
-  --project-dir /data `
-  --prev-step-dir /data/propagation/season_2017-2018/step_00_init `
-  --next-step-dir /data/propagation/season_2017-2018/step_01_20180215-20180301
+
+docker compose run --rm oa `  python -m openamundsen_da.methods.pf.rejuvenate`
+--project-dir /data `  --prev-step-dir /data/propagation/season_2017-2018/step_00_init`
+--next-step-dir /data/propagation/season_2017-2018/step_01_20180215-20180301
+
 ```
 
 Behavior

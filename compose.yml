@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   oa:
     image: oa-da:latest
@@ -8,6 +6,7 @@ services:
       - ${REPO}:/workspace
       - ${PROJ}:/data
     environment:
+      PYTHONPATH: /workspace
       OMP_NUM_THREADS: ${OMP_THREADS:-1}
       OPENBLAS_NUM_THREADS: ${OMP_THREADS:-1}
       MKL_NUM_THREADS: ${OMP_THREADS:-1}

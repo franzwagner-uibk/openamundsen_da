@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 import numpy as np
+import json
 import pandas as pd
 from loguru import logger
 
@@ -124,6 +125,9 @@ def _mirror_or_resample(
         w_map = [float(weights[int(i)]) if weights is not None else None for i in draw_indices]
 
     pairs: list[tuple[str, str, float | None]] = []
+    from openamundsen_da.core.constants import STATE_POINTER_JSON, MEMBER_SOURCE_POINTER, STATE_DEFAULT_NAME
+    patt = STATE_DEFAULT_NAME
+
     for k, (src_member, wv) in enumerate(zip(mapping, w_map), start=1):
         tgt_member = tgt_root / f"{MEMBER_PREFIX}{k:03d}"
         pairs.append((tgt_member.name, src_member.name, wv))
@@ -134,27 +138,34 @@ def _mirror_or_resample(
             # Keep existing unless overwrite requested
             continue
 
-        # Create target member dir and populate by linking or copying
+        # Create minimal target member dir; avoid duplicating large files.
         tgt_member.mkdir(parents=True, exist_ok=True)
-        for child in src_member.iterdir():
-            dst = tgt_member / child.name
-            if force_copy:
-                if child.is_dir():
-                    shutil.copytree(child, dst, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(child, dst)
-                continue
-            try:
-                if child.is_dir():
-                    _symlink_dir(child, dst)
-                else:
-                    _symlink_file(child, dst)
-            except Exception:
-                # Symlink not available/allowed -> copy fallback
-                if child.is_dir():
-                    shutil.copytree(child, dst, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(child, dst)
+
+        # Write a member-level source pointer for downstream tools (portable)
+        (tgt_member / MEMBER_SOURCE_POINTER).write_text(
+            json.dumps({"member_dir": str(src_member.resolve()), "weight": (float(wv) if wv is not None else None)}, indent=2),
+            encoding="utf-8",
+        )
+
+        # Ensure an empty meteo/ and results/ exist for compatibility
+        (tgt_member / "meteo").mkdir(exist_ok=True)
+        (tgt_member / "results").mkdir(exist_ok=True)
+
+        # Create a state pointer instead of copying the state file
+        src_state = None
+        # Try exact file, then glob
+        exact = (src_member / "results" / str(patt))
+        if exact.exists() and exact.is_file():
+            src_state = exact
+        else:
+            matches = list((src_member / "results").glob(str(patt)))
+            if matches:
+                matches.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+                src_state = matches[0]
+        if src_state is not None:
+            (tgt_member / "results" / STATE_POINTER_JSON).write_text(
+                json.dumps({"path": str(src_state.resolve())}, indent=2), encoding="utf-8"
+            )
     return pairs
 
 
@@ -339,7 +350,7 @@ def resample_from_weights(
 
 
 def cli_main(argv: Iterable[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="oa-da-resample", description="Systematic resampling to form a posterior ensemble")
+    p = argparse.ArgumentParser(prog="oa-da-resample", description="Systematic resampling to form a posterior ensemble (no duplication; uses pointers for state)")
     p.add_argument("--project-dir", required=True, type=Path)
     p.add_argument("--step-dir", required=True, type=Path)
     p.add_argument("--ensemble", required=True, choices=("prior", "posterior"), help="Source ensemble")
@@ -349,8 +360,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     p.add_argument("--ess-threshold", type=float, help="Absolute threshold; if 0<val<=1 treated as ratio")
     p.add_argument("--ess-threshold-ratio", type=float, help="Ratio threshold in (0,1]; overrides --ess-threshold if set")
     p.add_argument("--overwrite", action="store_true", help="Overwrite existing target members")
-    p.add_argument("--always-copy", action="store_true", help="Copy files instead of creating symlinks (default)")
-    p.add_argument("--prefer-symlink", action="store_true", help="Prefer symlinks over copying (opt-in)")
+    # Deprecated: we avoid duplicating files; pointers are used for heavy state
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(list(argv) if argv is not None else None)
 

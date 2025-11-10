@@ -35,6 +35,7 @@ from openamundsen_da.core.constants import (
     RESTART_DUMP_STATE,
     RESTART_STATE_PATTERN,
     STATE_DEFAULT_NAME,
+    STATE_POINTER_JSON,
 )
 from openamundsen.model import OpenAmundsen
 
@@ -333,14 +334,31 @@ def _state_output_name(pattern: str) -> str:
 
 
 def _resolve_state_file(results_dir: Path, pattern: str) -> Path | None:
+    # 1) Direct match or glob within results_dir
     p = results_dir / pattern
     if p.exists() and p.is_file():
         return p
     matches = list(results_dir.glob(pattern))
-    if not matches:
-        return None
-    matches.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-    return matches[0]
+    if matches:
+        matches.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        return matches[0]
+    # 2) Pointer-based resolution: read STATE_POINTER_JSON for external path
+    try:
+        ptr = results_dir / STATE_POINTER_JSON
+        if ptr.exists():
+            import json
+            d = json.loads(ptr.read_text(encoding="utf-8")) or {}
+            target = d.get("path") or d.get("state_path")
+            if target:
+                q = Path(target)
+                if not q.is_absolute():
+                    # Resolve relative to results_dir
+                    q = (results_dir / q).resolve()
+                if q.exists() and q.is_file():
+                    return q
+    except Exception:
+        pass
+    return None
 
 
 def _copy_state_vars_from_init_file(filename: Path, dst_model) -> None:

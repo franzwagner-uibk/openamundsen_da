@@ -176,20 +176,44 @@ wsl -d docker-desktop sh -c "grep -c ^processor /proc/cpuinfo"  # 19
 wsl -d docker-desktop grep -i swaptotal /proc/meminfo  # ~16 GB
 ```
 
-- Run the example with state dumps enabled (default in `compose.yml`):
+- Run the launcher explicitly (resources via Compose, command provided here):
 
 ```
-docker compose run --rm oa
+docker compose run --rm oa \
+  python -m openamundsen_da.core.launch \
+    --project-dir /data \
+    --season-dir /data/propagation/season_2017-2018 \
+    --step-dir /data/propagation/season_2017-2018/step_00_init \
+    --ensemble prior \
+    --dump-state \
+    --max-workers 4 \
+    --log-level INFO
 ```
 
 You can temporarily override knobs without editing `.env`:
 
 ```
 # Windows PowerShell (this shell only)
-$env:MAX_WORKERS=2; $env:MEMORY="20g"; docker compose run --rm oa
+$env:MAX_WORKERS=2; $env:MEMORY="20g"; docker compose run --rm oa `
+  python -m openamundsen_da.core.launch `
+    --project-dir /data `
+    --season-dir /data/propagation/season_2017-2018 `
+    --step-dir /data/propagation/season_2017-2018/step_00_init `
+    --ensemble prior `
+    --dump-state `
+    --max-workers $env:MAX_WORKERS `
+    --log-level INFO
 
 # Linux/macOS
-MAX_WORKERS=2 MEMORY=20g docker compose run --rm oa
+MAX_WORKERS=2 MEMORY=20g docker compose run --rm oa \
+  python -m openamundsen_da.core.launch \
+    --project-dir /data \
+    --season-dir /data/propagation/season_2017-2018 \
+    --step-dir /data/propagation/season_2017-2018/step_00_init \
+    --ensemble prior \
+    --dump-state \
+    --max-workers ${MAX_WORKERS} \
+    --log-level INFO
 ```
 
 Notes
@@ -197,7 +221,7 @@ Notes
 - Volumes: `${REPO}` → `/workspace` (source), `${PROJ}` → `/data` (project root in commands)
 - Resource limits are set via `deploy.resources.limits` in `compose.yml` and applied when `COMPOSE_COMPATIBILITY=1` is set.
 - `compose.yml` pins numerical library threads to 1 per worker to avoid oversubscription.
-- The default command launches the example prior ensemble for step_00_init with `--dump-state`. Adjust the paths or command if you run different steps.
+- This service has no default command. Always append the command you want to run, as shown above.
 
 ## Workflow and Commands (Docker)
 

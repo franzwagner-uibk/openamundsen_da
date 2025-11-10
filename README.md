@@ -395,15 +395,17 @@ docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" -v "${proj}
 ```
 
 Outputs
+
 - Posterior members under `<step>/ensembles/posterior/member_XXX`.
 - Mapping CSV and manifest under `<step>/assim/resample_*`.
   - The mapping CSV now includes `posterior_member_id,source_member_id,weight`.
 
 Notes
+
 - The CLI reads defaults from `project.yml` (block `resampling`), including `algorithm`, `ess_threshold`, and falls back to `data_assimilation.prior_forcing.random_seed` for `seed` when present.
 - Default materialization copies files (robust and portable). Use `--prefer-symlink` to opt in to symlinks (with copy fallback).
 - Manifest also reports ESS, N, threshold, and the mapping CSV; uniqueness stats are logged by the CLI.
- - Thresholds: you can specify `--ess-threshold-ratio` in (0,1] to resample when ESS < ratio*N (e.g., 0.5 for 50%). If you pass `--ess-threshold` in (0,1], it is treated as a ratio; otherwise as an absolute count. In `project.yml`, set either `data_assimilation.resampling.ess_threshold_ratio` (preferred) or `data_assimilation.resampling.ess_threshold`. For backward compatibility, a top-level `resampling` block is also recognized.
+- Thresholds: you can specify `--ess-threshold-ratio` in (0,1] to resample when ESS < ratio\*N (e.g., 0.5 for 50%). If you pass `--ess-threshold` in (0,1], it is treated as a ratio; otherwise as an absolute count. In `project.yml`, set either `data_assimilation.resampling.ess_threshold_ratio` (preferred) or `data_assimilation.resampling.ess_threshold`. For backward compatibility, a top-level `resampling` block is also recognized.
 
 ## Warm Start (Restart)
 
@@ -434,6 +436,7 @@ docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" -v "${proj}
 ```
 
 Notes
+
 - Runner looks for `state_pattern` inside each member’s `results` dir. If it contains wildcards, it picks the newest match.
 - Current implementation supports gzip+pickle files (e.g., `*.pickle.gz`). Support for zip-based states can be added once the file format is confirmed.
 

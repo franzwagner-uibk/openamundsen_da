@@ -57,6 +57,7 @@ from openamundsen_da.util.stats import sample_delta_t, sample_precip_factor
 from openamundsen_da.io.paths import (
     find_project_yaml,
     find_step_yaml,
+    find_season_yaml,
     meteo_dir_for_member,
     default_results_dir,
     prior_root as prior_root_dir,
@@ -96,18 +97,43 @@ def _read_prior_params(project_dir: Path) -> PriorParams:
         ) from e
 
 
-def _read_step_dates(step_dir: Path) -> Tuple[pd.Timestamp, pd.Timestamp]:
-    """Read inclusive [start_date..end_date] from the step YAML in step_dir."""
+def _read_step_start_and_season_end(step_dir: Path) -> Tuple[pd.Timestamp, pd.Timestamp]:
+    """Read step start_date and season end_date (inclusive).
+
+    Robustness:
+    - step start_date is mandatory (from step YAML)
+    - season end_date is preferred (from season.yml in the parent directory)
+    - fallback: if season.yml is not found, use step end_date
+    """
+    # Step: start (required)
     step_yaml = find_step_yaml(step_dir)
     step_cfg = _read_yaml_file(step_yaml) or {}
     try:
         start = pd.to_datetime(step_cfg[START_DATE])
-        end = pd.to_datetime(step_cfg[END_DATE])
     except KeyError as e:
-        missing = str(e).strip("'")
-        raise ValueError(f"Missing required key '{missing}' in {step_yaml}") from e
-    if pd.isna(start) or pd.isna(end):
-        raise ValueError(f"Invalid start/end date in {step_yaml}")
+        raise ValueError(f"Missing required key '{START_DATE}' in {step_yaml}") from e
+    if pd.isna(start):
+        raise ValueError(f"Invalid {START_DATE} in {step_yaml}")
+
+    # Season: end (preferred)
+    season_dir = step_dir.parent
+    end: pd.Timestamp
+    try:
+        seas_yaml = find_season_yaml(season_dir)
+        seas_cfg = _read_yaml_file(seas_yaml) or {}
+        end = pd.to_datetime(seas_cfg[END_DATE])
+        if pd.isna(end):
+            raise ValueError
+    except Exception:
+        # Fallback to step end_date if season not available
+        try:
+            end = pd.to_datetime(step_cfg[END_DATE])
+        except KeyError as e:
+            raise ValueError(
+                "Could not determine season end_date (missing season.yml and step END_DATE)"
+            ) from e
+        if pd.isna(end):
+            raise ValueError("Invalid end_date from step YAML")
     return start, end
 
 
@@ -256,7 +282,7 @@ def build_prior_ensemble(
 
     # Read configuration
     params = _read_prior_params(project_dir)
-    start, end = _read_step_dates(step_dir)
+    start, end = _read_step_start_and_season_end(step_dir)
 
     logger.info(
         "Building prior ensemble -> ensemble={ens}  N={n}  seed={seed}",

@@ -169,6 +169,10 @@ docker run --rm -it `
     --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/results
 ```
 
+Notes
+
+- For all steps, forcing is perturbed from the step start_date to the season end_date (season-forward). This ensures the next propagation has sufficient forcing without having to rebuild mid-season.
+
 /data/propagation/season_2017-2018/step_00_init/ensembles/prior/
 open_loop/{meteo,results}
 member_001/{meteo,results}

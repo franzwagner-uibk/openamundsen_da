@@ -542,6 +542,14 @@ Outputs
 - Mapping CSV and manifest under `<step>/assim/resample_*`.
   - The mapping CSV now includes `posterior_member_id,source_member_id,weight`.
 
+No duplication policy
+
+- Resampling does not duplicate large state files. Each posterior member contains:
+  - `results/state_pointer.json` pointing to the source member's saved state file.
+  - `source_pointer.json` at member root with the absolute path of the source member and its weight.
+  - Empty `meteo/` and `results/` folders for compatibility.
+  - This keeps disk usage low and is portable across Windows/macOS/Linux.
+
 Notes
 
 - The CLI reads defaults from `project.yml` (block `resampling`), including `algorithm`, `ess_threshold`, and falls back to `data_assimilation.prior_forcing.random_seed` for `seed` when present.
@@ -575,6 +583,32 @@ docker compose run --rm oa `
   --restart-from-state `
   --dump-state `
   --log-level INFO
+
+Note: The launcher supports pointer-based states. If `model_state.pickle.gz` is
+not present in a member's `results/`, it will read `results/state_pointer.json`
+to locate the external state file.
+
+## Rejuvenation (Posterior → Prior for Next Step)
+
+Create a rejuvenated prior ensemble for the next step by adding light
+perturbations to meteo and carrying forward the saved state via a pointer.
+
+```
+docker compose run --rm oa `
+  python -m openamundsen_da.methods.pf.rejuvenate `
+  --project-dir /data `
+  --prev-step-dir /data/propagation/season_2017-2018/step_00_init `
+  --next-step-dir /data/propagation/season_2017-2018/step_01_20180215-20180301
+```
+
+Behavior
+
+- Reads `data_assimilation.rejuvenation.{sigma_t,sigma_p}` from `project.yml`.
+- For each posterior member in the previous step:
+  - Finds its source member (from `source_pointer.json`).
+  - Filters meteo to the next step window, applies dT ~ N(0, sigma_t), f_p ~ LogNormal(0, sigma_p).
+  - Writes meteo to next step `ensembles/prior/member_XXX/meteo`.
+  - Copies `results/state_pointer.json` so warm start can load the saved state without duplication.
 ```
 
 Notes

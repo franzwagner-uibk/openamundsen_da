@@ -18,6 +18,12 @@ data_assimilation:
     # Optional explicit seed; if omitted, falls back to data_assimilation.prior_forcing.random_seed
     # seed: 123
 
+  # Warm start (restart) settings for multi-step propagation
+  restart:
+    use_state: false            # set true for steps after the first assimilation
+    dump_state: true            # save final state at the end of each member run
+    state_pattern: model_state.pickle.gz  # filename or glob under member results_dir
+
 # Optional: likelihood and H(x) defaults can be added here if desired.
 #likelihood:
 #  obs_sigma: 0.10

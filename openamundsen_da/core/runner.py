@@ -24,8 +24,18 @@ from typing import Any, Dict, Optional
 from rasterio.transform import guard_transform
 
 from loguru import logger
-from openamundsen_da.core.env import apply_numeric_thread_defaults
-from openamundsen_da.core.constants import MEMBER_LOG_REL, MEMBER_MANIFEST, LOGURU_FORMAT
+from openamundsen_da.core.env import apply_numeric_thread_defaults, _read_yaml_file
+from openamundsen_da.core.constants import (
+    MEMBER_LOG_REL,
+    MEMBER_MANIFEST,
+    LOGURU_FORMAT,
+    DA_BLOCK,
+    RESTART_BLOCK,
+    RESTART_USE_STATE,
+    RESTART_DUMP_STATE,
+    RESTART_STATE_PATTERN,
+    STATE_DEFAULT_NAME,
+)
 from openamundsen.model import OpenAmundsen
 
 from openamundsen_da.core.config import load_merged_config
@@ -174,6 +184,9 @@ def run_member(
     results_dir: Optional[Path | str] = None,
     overwrite: bool = False,
     log_level: Optional[str] = None,
+    restart_from_state: Optional[bool] = None,
+    dump_state: Optional[bool] = None,
+    state_pattern: Optional[str] = None,
 ) -> RunResult:
     # Step 1: Constrain numeric library threads (one per worker)
     apply_numeric_thread_defaults()
@@ -237,6 +250,14 @@ def run_member(
 
     # Step 9: Build merged OA config and run the model
     try:
+        # Resolve restart behavior from project.yml (overridable via args)
+        cfg_yaml = _read_yaml_file(proj_yaml)
+        da_cfg = (cfg_yaml.get(DA_BLOCK) or {}) if isinstance(cfg_yaml, dict) else {}
+        rs_cfg = (da_cfg.get(RESTART_BLOCK) or {}) if isinstance(da_cfg, dict) else {}
+        do_restart = (restart_from_state if restart_from_state is not None else bool(rs_cfg.get(RESTART_USE_STATE, False)))
+        do_dump = (dump_state if dump_state is not None else bool(rs_cfg.get(RESTART_DUMP_STATE, False)))
+        patt = (state_pattern if state_pattern is not None else (rs_cfg.get(RESTART_STATE_PATTERN) or STATE_DEFAULT_NAME))
+
         cfg = load_merged_config(
             proj_yaml, seas_yaml, step_yaml,
             member_meteo_dir=meteo_dir,
@@ -249,8 +270,27 @@ def run_member(
         logger.info(f"[{member_name}] Initializing model")
         model = OpenAmundsen(cfg)
         model.initialize()
+        # Warm start (optional): copy state from saved file into model
+        if do_restart:
+            try:
+                state_file = _resolve_state_file(results_dir, patt)
+                if state_file is None:
+                    logger.warning(f"[{member_name}] Warm start enabled but no state file found (pattern='{patt}')")
+                else:
+                    _copy_state_vars_from_init_file(state_file, model)
+                    logger.info(f"[{member_name}] Loaded state from {state_file.name}")
+            except Exception as e:
+                logger.warning(f"[{member_name}] Warm start failed ({e}); continuing from cold init")
         logger.info(f"[{member_name}] Running model")
         model.run()
+        # Dump final state (optional)
+        if do_dump:
+            try:
+                out_name = _state_output_name(patt)
+                _dump_init_data(model, results_dir / out_name)
+                logger.info(f"[{member_name}] Saved state to {out_name}")
+            except Exception as e:
+                logger.warning(f"[{member_name}] Could not save state ({e})")
 
         dur = time.time() - start
         manifest.update({
@@ -283,3 +323,50 @@ def run_member(
             log_handle.close()
         except Exception:
             pass
+
+
+# ---- Warm start helpers -----------------------------------------------------
+
+def _state_output_name(pattern: str) -> str:
+    # Use explicit filename if no wildcards; else fall back to default name
+    return STATE_DEFAULT_NAME if any(ch in str(pattern) for ch in "*?[]") else str(pattern)
+
+
+def _resolve_state_file(results_dir: Path, pattern: str) -> Path | None:
+    p = results_dir / pattern
+    if p.exists() and p.is_file():
+        return p
+    matches = list(results_dir.glob(pattern))
+    if not matches:
+        return None
+    matches.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    return matches[0]
+
+
+def _copy_state_vars_from_init_file(filename: Path, dst_model) -> None:
+    import gzip
+    import pickle
+
+    with gzip.open(filename, "rb") as f:
+        d = pickle.load(f)
+    for category in dst_model.state.categories:
+        for var_name in dst_model.state[category]._meta.keys():
+            try:
+                var_data = d[category][var_name]
+            except KeyError:
+                continue
+            dst_model.state[category][var_name][:] = var_data
+
+
+def _dump_init_data(model, filename: Path) -> None:
+    import gzip
+    import pickle
+
+    with gzip.open(filename, "wb") as f:
+        init_data = {}
+        for category in model.state.categories:
+            init_data[category] = {}
+            for var_name in model.state[category]._meta.keys():
+                var_data = model.state[category][var_name]
+                init_data[category][var_name] = var_data
+        pickle.dump(init_data, f)

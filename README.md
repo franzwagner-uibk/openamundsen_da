@@ -405,6 +405,38 @@ Notes
 - Manifest also reports ESS, N, threshold, and the mapping CSV; uniqueness stats are logged by the CLI.
  - Thresholds: you can specify `--ess-threshold-ratio` in (0,1] to resample when ESS < ratio*N (e.g., 0.5 for 50%). If you pass `--ess-threshold` in (0,1], it is treated as a ratio; otherwise as an absolute count. In `project.yml`, set either `data_assimilation.resampling.ess_threshold_ratio` (preferred) or `data_assimilation.resampling.ess_threshold`. For backward compatibility, a top-level `resampling` block is also recognized.
 
+## Warm Start (Restart)
+
+Use saved model state from the end of a run as the initial state for the next step.
+
+Config (project.yml):
+
+```
+data_assimilation:
+  restart:
+    use_state: false            # set true for steps after the first
+    dump_state: true            # save state at end of runs
+    state_pattern: model_state.pickle.gz
+```
+
+CLI (PowerShell-safe line breaks with `):
+
+```
+docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+  python -m openamundsen_da.core.launch `
+    --project-dir /data `
+    --season-dir /data/propagation/season_2017-2018 `
+    --step-dir /data/propagation/season_2017-2018/step_01_20180215-20180301 `
+    --ensemble posterior `
+    --restart-from-state `
+    --dump-state `
+    --log-level INFO
+```
+
+Notes
+- Runner looks for `state_pattern` inside each member’s `results` dir. If it contains wildcards, it picks the newest match.
+- Current implementation supports gzip+pickle files (e.g., `*.pickle.gz`). Support for zip-based states can be added once the file format is confirmed.
+
 ## General Information
 
 - Per-member logs: `<member_dir>/logs/member.log`.

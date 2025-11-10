@@ -40,29 +40,22 @@ examples/test-project/
 docker build -t oa-da .
 ```
 
-Set paths once per session (Windows PowerShell example):
+Editable run (Compose + .env):
 
 ```
-$repo = "C:\Daten\PhD\openamundsen_da"
-$proj = "$repo\examples\test-project"
-```
-
-Editable install inside the container (run after you change the source code):
-
-```
-docker run --rm -it `
-  -v "${repo}:/workspace" `
-  -v "${proj}:/data" `
-  oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.methods.viz.plot_results_ensemble `
-    --step-dir /data/propagation/season_2017-2018/step_00_init `
-    --ensemble prior `
-    --time-col time --var-col swe `
-    --start-date 2017-11-01 --end-date 2018-04-30 `
-    --resample D --rolling 1 `
-    --title "Model Results Ensemble (prior)" `
-    --backend SVG `
-    --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/results
+  --step-dir /data/propagation/season_2017-2018/step_00_init `
+  --ensemble prior `
+  --time-col time `
+  --var-col swe `
+  --start-date 2017-11-01 `
+  --end-date 2018-04-30 `
+  --resample D `
+  --rolling 1 `
+  --title "Model Results Ensemble (prior)" `
+  --backend SVG `
+  --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/results
 ```
 
 Minimal files and keys used by the workflow.
@@ -179,15 +172,15 @@ wsl -d docker-desktop grep -i swaptotal /proc/meminfo  # ~16 GB
 - Run the launcher explicitly (resources via Compose, command provided here):
 
 ```
-docker compose run --rm oa \
-  python -m openamundsen_da.core.launch \
-    --project-dir /data \
-    --season-dir /data/propagation/season_2017-2018 \
-    --step-dir /data/propagation/season_2017-2018/step_00_init \
-    --ensemble prior \
-    --dump-state \
-    --max-workers 4 \
-    --log-level INFO
+docker compose run --rm oa `
+  python -m openamundsen_da.core.launch `
+  --project-dir /data `
+  --season-dir /data/propagation/season_2017-2018 `
+  --step-dir /data/propagation/season_2017-2018/step_00_init `
+  --ensemble prior `
+  --dump-state `
+  --max-workers 4 `
+  --log-level INFO
 ```
 
 You can temporarily override knobs without editing `.env`:
@@ -204,16 +197,8 @@ $env:MAX_WORKERS=2; $env:MEMORY="20g"; docker compose run --rm oa `
     --max-workers $env:MAX_WORKERS `
     --log-level INFO
 
-# Linux/macOS
-MAX_WORKERS=2 MEMORY=20g docker compose run --rm oa \
-  python -m openamundsen_da.core.launch \
-    --project-dir /data \
-    --season-dir /data/propagation/season_2017-2018 \
-    --step-dir /data/propagation/season_2017-2018/step_00_init \
-    --ensemble prior \
-    --dump-state \
-    --max-workers ${MAX_WORKERS} \
-    --log-level INFO
+# (Compose uses .env; override in this PowerShell session only)
+# Example above shows adding MAX_WORKERS/MEMORY for a single run.
 ```
 
 Notes
@@ -257,19 +242,19 @@ end_date: 2018-09-30 23:59:59
 Run the builder:
 
 ```
-docker run --rm -it `
-  -v "${repo}:/workspace" `
-  -v "${proj}:/data" `
-  oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.methods.viz.plot_results_ensemble `
-    --step-dir /data/propagation/season_2017-2018/step_00_init `
-    --ensemble prior `
-    --time-col time --var-col swe `
-    --start-date 2017-11-01 --end-date 2018-04-30 `
-    --resample D --rolling 1 `
-    --title "Model Results Ensemble (prior)" `
-    --backend SVG `
-    --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/results
+  --step-dir /data/propagation/season_2017-2018/step_00_init `
+  --ensemble prior `
+  --time-col time `
+  --var-col swe `
+  --start-date 2017-11-01 `
+  --end-date 2018-04-30 `
+  --resample D `
+  --rolling 1 `
+  --title "Model Results Ensemble (prior)" `
+  --backend SVG `
+  --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/results
 ```
 
 Notes
@@ -293,15 +278,16 @@ Context
 Launch openAMUNDSEN for all members of an ensemble (e.g., prior). Results land in each member's `results` directory.
 
 ```
-
-docker run --rm -it `  -v "${repo}:/workspace"`
--v "${proj}:/data" `  oa-da`
-python -m openamundsen_da.core.launch `    --project-dir /data`
---season-dir /data/propagation/season_2017-2018 `    --step-dir /data/propagation/season_2017-2018/step_00_init`
---ensemble prior `    --dump-state`
---max-workers 2 `    --log-level INFO`
---overwrite
-
+docker compose run --rm oa `
+  python -m openamundsen_da.core.launch `
+  --project-dir /data `
+  --season-dir /data/propagation/season_2017-2018 `
+  --step-dir /data/propagation/season_2017-2018/step_00_init `
+  --ensemble prior `
+  --dump-state `
+  --max-workers 2 `
+  --log-level INFO `
+  --overwrite
 ```
 
 ### Observation Processing
@@ -315,39 +301,36 @@ Context
 - MOD10A1 preprocess (HDF -> GeoTIFF + season summary):
 
 ```
-
-docker run --rm -it `  -v "${repo}:/workspace"`
--v "${proj}:/data" `  oa-da`
-python -m openamundsen_da.observer.mod10a1_preprocess `    --input-dir /data/obs/MOD10A1_61_HDF`
---project-dir /data `    --season-label season_2017-2018`
---aoi /data/env/GMBA_Inventory_L8_15422.gpkg `    --target-epsg 25832`
---resolution 500 `    --max-cloud-fraction 0.1`
---overwrite
-
+docker compose run --rm oa `
+  python -m openamundsen_da.observer.mod10a1_preprocess `
+  --input-dir /data/obs/MOD10A1_61_HDF `
+  --project-dir /data `
+  --season-label season_2017-2018 `
+  --aoi /data/env/GMBA_Inventory_L8_15422.gpkg `
+  --target-epsg 25832 `
+  --resolution 500 `
+  --max-cloud-fraction 0.1 `
+  --overwrite
 ```
 
 - Single-image SCF extraction (preprocessed GeoTIFF):
 
 ```
-
-docker run --rm -it `  -v "${repo}:/workspace"`
--v "${proj}:/data" `  oa-da`
-python -m openamundsen_da.observer.satellite_scf `    --raster /data/obs/season_2017-2018/NDSI_Snow_Cover_20180110.tif`
---region /data/env/GMBA_Inventory_L8_15422.gpkg `
---step-dir /data/propagation/season_2017-2018/step_00_init
-
+docker compose run --rm oa `
+  python -m openamundsen_da.observer.satellite_scf `
+  --raster /data/obs/season_2017-2018/NDSI_Snow_Cover_20180110.tif `
+  --region /data/env/GMBA_Inventory_L8_15422.gpkg `
+  --step-dir /data/propagation/season_2017-2018/step_00_init
 ```
 
 - Plot SCF summary (SVG backend recommended):
 
 ```
-
-docker run --rm -it `  -v "${repo}:/workspace"`
--v "${proj}:/data" `  oa-da`
-python -m openamundsen_da.observer.plot_scf_summary `    /data/obs/season_2017-2018/scf_summary.csv`
---output /data/obs/season_2017-2018/scf_summary.svg `
---backend SVG
-
+docker compose run --rm oa `
+  python -m openamundsen_da.observer.plot_scf_summary `
+  /data/obs/season_2017-2018/scf_summary.csv `
+  --output /data/obs/season_2017-2018/scf_summary.svg `
+  --backend SVG
 ```
 
 ### Model SCF Operator (H(x))
@@ -367,14 +350,17 @@ Methods:
 
 ```
 
-docker run --rm -it `  -v "${repo}:/workspace"`
--v "${proj}:/data" `  oa-da`
-python -m openamundsen_da.methods.h_of_x.model_scf `    --member-results /data/propagation/season_2017-2018/step_00_init/ensembles/prior/member_001/results`
---aoi /data/env/GMBA_Inventory_L8_15422.gpkg `    --date 2018-01-10`
---variable hs `
---method depth_threshold
+Compose equivalent:
 
-````
+```
+docker compose run --rm oa `
+  python -m openamundsen_da.methods.h_of_x.model_scf `
+  --member-results /data/propagation/season_2017-2018/step_00_init/ensembles/prior/member_001/results `
+  --aoi /data/env/GMBA_Inventory_L8_15422.gpkg `
+  --date 2018-01-10 `
+  --variable hs `
+  --method depth_threshold
+```
 
 Optional configuration in `project.yml`:
 
@@ -398,13 +384,13 @@ Context
 Compute Gaussian likelihood weights for a date by comparing observed SCF with H(x) across members. Outputs a CSV and reports ESS.
 
 ```
-docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.methods.pf.assimilate_scf `
-    --project-dir /data `
-    --step-dir    /data/propagation/season_2017-2018/step_00_init `
-    --ensemble    prior `
-    --date        2018-01-10 `
-    --aoi         /data/env/GMBA_Inventory_L8_15422.gpkg
+  --project-dir /data `
+  --step-dir /data/propagation/season_2017-2018/step_00_init `
+  --ensemble prior `
+  --date 2018-01-10 `
+  --aoi /data/env/GMBA_Inventory_L8_15422.gpkg
 ```
 
 Notes:
@@ -423,23 +409,23 @@ Context
 - Weights (single date, SVG):
 
 ```
-docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.methods.pf.plot_weights `
-    /data/propagation/season_2017-2018/step_00_init/assim/weights_scf_20180110.csv `
-    --output /data/propagation/season_2017-2018/step_00_init/assim/weights_scf_20180110.svg `
-    --backend SVG
+  /data/propagation/season_2017-2018/step_00_init/assim/weights_scf_20180110.csv `
+  --output /data/propagation/season_2017-2018/step_00_init/assim/weights_scf_20180110.svg `
+  --backend SVG
 ```
 
 - ESS timeline (from all `weights_scf_*.csv`):
 
 ```
-docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.methods.pf.plot_ess_timeline `
-    --step-dir /data/propagation/season_2017-2018/step_00_init `
-    --normalized `
-    --threshold 0.5 `
-    --output /data/propagation/season_2017-2018/step_00_init/assim/ess_timeline.svg `
-    --backend SVG
+  --step-dir /data/propagation/season_2017-2018/step_00_init `
+  --normalized `
+  --threshold 0.5 `
+  --output /data/propagation/season_2017-2018/step_00_init/assim/ess_timeline.svg `
+  --backend SVG
 ```
 
 ### Ensemble Visualization
@@ -447,31 +433,38 @@ docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
 - Forcing per-station (temperature + cumulative precip):
 
 ```
-docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.methods.viz.plot_forcing_ensemble `
-    --step-dir /data/propagation/season_2017-2018/step_00_init `
-    --ensemble prior `
-    --time-col date --temp-col temp --precip-col precip `
-    --start-date 2017-10-01 --end-date 2018-03-31 `
-    --resample D --rolling 1 `
-    --title "Forcing Ensemble (prior)" `
-    --backend SVG `
-    --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/forcing
+  --step-dir /data/propagation/season_2017-2018/step_00_init `
+  --ensemble prior `
+  --time-col date `
+  --temp-col temp `
+  --precip-col precip `
+  --start-date 2017-10-01 `
+  --end-date 2018-03-31 `
+  --resample D `
+  --rolling 1 `
+  --title "Forcing Ensemble (prior)" `
+  --backend SVG `
+  --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/forcing
 ```
 
 - Results per-station (e.g., SWE from point CSVs):
 
 ```
-docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.methods.viz.plot_results_ensemble `
-    --step-dir /data/propagation/season_2017-2018/step_00_init `
-    --ensemble prior `
-    --time-col time --var-col swe `
-    --start-date 2017-11-01 --end-date 2018-01-10 `
-    --resample D --rolling 1 `
-    --title "Model Results Ensemble (prior)" `
-    --backend SVG `
-    --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/results
+  --step-dir /data/propagation/season_2017-2018/step_00_init `
+  --ensemble prior `
+  --time-col time `
+  --var-col swe `
+  --start-date 2017-11-01 `
+  --end-date 2018-01-10 `
+  --resample D `
+  --rolling 1 `
+  --title "Model Results Ensemble (prior)" `
+  --backend SVG `
+  --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/results
 ```
 
 - Results module details (`openamundsen_da/methods/viz/plot_results_ensemble.py`):
@@ -486,66 +479,39 @@ docker run --rm -it -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
 Use PYTHONPATH with the repo mounted so modules can be imported without a prior editable install.
 
 ```
-docker run --rm -it `
-  -e PYTHONPATH=/workspace `
-  -v "${repo}:/workspace" `
-  oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.core.prior_forcing `
   --help
 
-docker run --rm -it `
-  -e PYTHONPATH=/workspace `
-  -v "${repo}:/workspace" `
-  oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.core.launch `
   --help
 
-docker run --rm -it `
-  -e PYTHONPATH=/workspace `
-  -v "${repo}:/workspace" `
-  oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.observer.mod10a1_preprocess `
   --help
 
-docker run --rm -it `
-  -e PYTHONPATH=/workspace `
-  -v "${repo}:/workspace" `
-  oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.observer.satellite_scf `
   --help
 
-docker run --rm -it `
-  -e PYTHONPATH=/workspace `
-  -v "${repo}:/workspace" `
-  oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.observer.plot_scf_summary `
   --help
 
-docker run --rm -it `
-  -e PYTHONPATH=/workspace `
-  -v "${repo}:/workspace" `
-  oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.methods.h_of_x.model_scf `
   --help
 
-docker run --rm -it `
-  -e PYTHONPATH=/workspace `
-  -v "${repo}:/workspace" `
-  oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.methods.pf.assimilate_scf `
   --help
 
-docker run --rm -it `
-  -e PYTHONPATH=/workspace `
-  -v "${repo}:/workspace" `
-  oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.methods.pf.plot_weights `
   --help
 
-docker run --rm -it `
-  -e PYTHONPATH=/workspace `
-  -v "${repo}:/workspace" `
-  oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.methods.pf.plot_ess_timeline `
   --help
 ```
@@ -558,16 +524,16 @@ Create a posterior ensemble from single-date weights using systematic resampling
 $date = "2018-02-15"
 $step = "/data/propagation/season_2017-2018/step_00_init"
 
-docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+docker compose run --rm oa `
   oa-da-resample `
-    --project-dir /data `
-    --step-dir $step `
-    --ensemble prior `
-    --weights "$step/assim/weights_scf_${date.Replace('-', '')}.csv" `
-    --target posterior `
-    --ess-threshold-ratio 0.5 `
-    --seed 123 `
-    --overwrite
+  --project-dir /data `
+  --step-dir $step `
+  --ensemble prior `
+  --weights "$step/assim/weights_scf_${date.Replace('-', '')}.csv" `
+  --target posterior `
+  --ess-threshold-ratio 0.5 `
+  --seed 123 `
+  --overwrite
 ```
 
 Outputs
@@ -600,15 +566,15 @@ data_assimilation:
 CLI (PowerShell-safe line breaks with `):
 
 ```
-docker run --rm -it -e PYTHONPATH=/workspace -v "${repo}:/workspace" -v "${proj}:/data" oa-da `
+docker compose run --rm oa `
   python -m openamundsen_da.core.launch `
-    --project-dir /data `
-    --season-dir /data/propagation/season_2017-2018 `
-    --step-dir /data/propagation/season_2017-2018/step_01_20180215-20180301 `
-    --ensemble posterior `
-    --restart-from-state `
-    --dump-state `
-    --log-level INFO
+  --project-dir /data `
+  --season-dir /data/propagation/season_2017-2018 `
+  --step-dir /data/propagation/season_2017-2018/step_01_20180215-20180301 `
+  --ensemble posterior `
+  --restart-from-state `
+  --dump-state `
+  --log-level INFO
 ```
 
 Notes
@@ -636,8 +602,10 @@ Notes
 ## Troubleshooting
 
 - Python package not found in container when running help:
-  - Use `-e PYTHONPATH=/workspace -v "${repo}:/workspace"` with `python -m ...`.
-  - Or install editable inside the container for the current session.
+  - The image should already include the package. If you need an editable run, either rebuild the image or set `-e PYTHONPATH=/workspace` on the compose run:
+    - `docker compose run --rm -e PYTHONPATH=/workspace oa \`
+      `python -m openamundsen_da.core.launch \`
+      `--help`
 - HDF not recognized in preprocess:
   - Rebuild the image to include `hdf4` and `libgdal-hdf4` (already in environment.yml). Verify: `gdalinfo --formats | findstr HDF4`.
 - Windows bind mounts and file metadata:

@@ -120,6 +120,85 @@ Templates
   - `templates/project/propagation/season_YYYY-YYYY/season.yml`
   - `templates/project/propagation/season_YYYY-YYYY/step_00_init/step_00.yml`
 
+## Docker Compose (Recommended)
+
+Compose simplifies resource limits and paths for all users via a small `.env`.
+
+- One-time build (from repo root):
+
+```
+docker build -t oa-da .
+```
+
+- Create your environment file:
+
+```
+copy .env.example .env    # Windows
+# or
+cp .env.example .env      # Linux/macOS
+```
+
+- Edit `.env` and set:
+  - `REPO` → absolute path to this repo on your machine
+  - `PROJ` → absolute path to your project data (the example uses `examples/test-project`)
+  - `CPUS`, `MEMORY` → per-container limits (keep within your VM/global limits)
+  - `MAX_WORKERS` → parallel openAMUNDSEN runs inside the container
+
+- Enable Compose compatibility so limits apply without Swarm:
+
+Windows PowerShell (persist):
+
+```
+setx COMPOSE_COMPATIBILITY 1
+```
+
+Linux/macOS (current shell):
+
+```
+export COMPOSE_COMPATIBILITY=1
+```
+
+- Optional (Windows/WSL2): set a global VM ceiling via `%UserProfile%\\.wslconfig`:
+
+```
+[wsl2]
+memory=25GB
+processors=19
+swap=16GB
+localhostForwarding=true
+```
+
+Apply by quitting Docker Desktop → `wsl --shutdown` → start Docker Desktop. Verify:
+
+```
+wsl -d docker-desktop grep -i memtotal /proc/meminfo   # ~25 GB
+wsl -d docker-desktop sh -c "grep -c ^processor /proc/cpuinfo"  # 19
+wsl -d docker-desktop grep -i swaptotal /proc/meminfo  # ~16 GB
+```
+
+- Run the example with state dumps enabled (default in `compose.yml`):
+
+```
+docker compose run --rm oa
+```
+
+You can temporarily override knobs without editing `.env`:
+
+```
+# Windows PowerShell (this shell only)
+$env:MAX_WORKERS=2; $env:MEMORY="20g"; docker compose run --rm oa
+
+# Linux/macOS
+MAX_WORKERS=2 MEMORY=20g docker compose run --rm oa
+```
+
+Notes
+
+- Volumes: `${REPO}` → `/workspace` (source), `${PROJ}` → `/data` (project root in commands)
+- Resource limits are set via `deploy.resources.limits` in `compose.yml` and applied when `COMPOSE_COMPATIBILITY=1` is set.
+- `compose.yml` pins numerical library threads to 1 per worker to avoid oversubscription.
+- The default command launches the example prior ensemble for step_00_init with `--dump-state`. Adjust the paths or command if you run different steps.
+
 ## Workflow and Commands (Docker)
 
 The commands below follow the project framework order: Build Ensemble -> Run Ensemble -> Observation Processing -> H(x) -> Assimilation -> Plots -> General Info.

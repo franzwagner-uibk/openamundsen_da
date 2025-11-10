@@ -83,5 +83,12 @@ REJUVENATION_BLOCK = "rejuvenation"
 REJ_SIGMA_T = "sigma_t"
 REJ_SIGMA_P = "sigma_p"
 
+# Warm start / restart configuration
+RESTART_BLOCK = "restart"
+RESTART_USE_STATE = "use_state"         # bool
+RESTART_DUMP_STATE = "dump_state"       # bool
+RESTART_STATE_PATTERN = "state_pattern" # filename or glob (relative to member results_dir)
+STATE_DEFAULT_NAME = "model_state.pickle.gz"
+
 # Logging format (green timestamp | level | message)
 LOGURU_FORMAT = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | {message}"

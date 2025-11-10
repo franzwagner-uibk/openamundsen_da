@@ -90,5 +90,9 @@ RESTART_DUMP_STATE = "dump_state"       # bool
 RESTART_STATE_PATTERN = "state_pattern" # filename or glob (relative to member results_dir)
 STATE_DEFAULT_NAME = "model_state.pickle.gz"
 
+# Pointer files to avoid duplicating large state/outputs across steps
+STATE_POINTER_JSON = "state_pointer.json"      # {"path": "/abs/or/rel/path/to/model_state.pickle.gz"}
+MEMBER_SOURCE_POINTER = "source_pointer.json"  # {"member_dir": "/abs/or/rel/path/to/source_member"}
+
 # Logging format (green timestamp | level | message)
 LOGURU_FORMAT = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | {message}"

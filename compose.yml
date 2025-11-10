@@ -1,0 +1,33 @@
+version: "3.8"
+
+services:
+  oa:
+    image: oa-da:latest
+    working_dir: /workspace
+    volumes:
+      - ${REPO}:/workspace
+      - ${PROJ}:/data
+    environment:
+      OMP_NUM_THREADS: ${OMP_THREADS:-1}
+      OPENBLAS_NUM_THREADS: ${OMP_THREADS:-1}
+      MKL_NUM_THREADS: ${OMP_THREADS:-1}
+      NUMEXPR_NUM_THREADS: ${OMP_THREADS:-1}
+    # Default command runs the ensemble launcher for the example project.
+    # Customize via .env to change workers, CPU/RAM limits, etc.
+    command: >
+      python -m openamundsen_da.core.launch
+      --project-dir /data
+      --season-dir /data/propagation/season_2017-2018
+      --step-dir /data/propagation/season_2017-2018/step_00_init
+      --ensemble ${ENSEMBLE:-prior}
+      --dump-state
+      --max-workers ${MAX_WORKERS:-4}
+      --log-level ${LOG_LEVEL:-INFO}
+    # These limits are applied by Docker Compose when compatibility mode is enabled.
+    # See README for enabling COMPOSE_COMPATIBILITY.
+    deploy:
+      resources:
+        limits:
+          cpus: "${CPUS:-8}"
+          memory: "${MEMORY:-16g}"
+

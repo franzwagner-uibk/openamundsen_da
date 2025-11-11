@@ -142,6 +142,7 @@ def rejuvenate(
     source_ensemble: str = "posterior",
     target_ensemble: str = "prior",
     rebase_open_loop: Optional[bool] = None,
+    source_meteo_dir: Optional[Path] = None,
 ) -> dict:
     params = _read_rejuvenation_params(project_dir)
     start, end = _read_next_step_dates(next_step_dir)
@@ -172,9 +173,14 @@ def rejuvenate(
         dT = float(rng.normal(0.0, params.sigma_t)) if params.sigma_t else 0.0
         fP = float(rng.lognormal(mean=0.0, sigma=params.sigma_p)) if params.sigma_p else 1.0
 
-        # Read stations from source meteo (either source member or open_loop if rebase)
-        base_for_meteo = open_loop_dir(prev_step_dir) if effective_rebase else src_member
-        src_meteo = meteo_dir_for_member(base_for_meteo)
+        # Read stations from source meteo:
+        #  - explicit source_meteo_dir if provided
+        #  - else source member meteo (compound) or open_loop meteo (rebase)
+        if source_meteo_dir is not None:
+            src_meteo = Path(source_meteo_dir)
+        else:
+            base_for_meteo = open_loop_dir(prev_step_dir) if effective_rebase else src_member
+            src_meteo = meteo_dir_for_member(base_for_meteo)
         stations_csv = src_meteo / "stations.csv"
         if not stations_csv.exists():
             raise FileNotFoundError(f"Missing stations.csv in {src_meteo}")
@@ -195,14 +201,14 @@ def rejuvenate(
         # Copy stations.csv unchanged
         (tgt_meteo / "stations.csv").write_bytes(stations_csv.read_bytes())
 
-    # Copy state pointer if present (support root or results location)
-    post_ptr_root = post_member / STATE_POINTER_JSON
-    post_ptr_results = default_results_dir(post_member) / STATE_POINTER_JSON
-    post_ptr = post_ptr_root if post_ptr_root.exists() else post_ptr_results
-    if post_ptr.exists():
-        # Place pointer at member root in the next step
-        (tgt_member / STATE_POINTER_JSON).write_text(post_ptr.read_text(encoding="utf-8"), encoding="utf-8")
-        copied_pointers += 1
+        # Copy state pointer if present (support root or results location)
+        post_ptr_root = post_member / STATE_POINTER_JSON
+        post_ptr_results = default_results_dir(post_member) / STATE_POINTER_JSON
+        post_ptr = post_ptr_root if post_ptr_root.exists() else post_ptr_results
+        if post_ptr.exists():
+            # Place pointer at member root in the next step
+            (tgt_member / STATE_POINTER_JSON).write_text(post_ptr.read_text(encoding="utf-8"), encoding="utf-8")
+            copied_pointers += 1
 
         rows.append({
             "member": member_name,
@@ -238,6 +244,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     p.add_argument("--prev-step-dir", required=True, type=Path)
     p.add_argument("--next-step-dir", required=True, type=Path)
     p.add_argument("--rebase-open-loop", action="store_true", help="Use open_loop meteo as base (apply only rejuvenation noise)")
+    p.add_argument("--source-meteo-dir", type=Path, help="Explicit meteo source directory (stations.csv + per-station CSVs). Overrides rebase/compound base selection")
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(list(argv) if argv is not None else None)
 
@@ -250,6 +257,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
             prev_step_dir=Path(args.prev_step_dir),
             next_step_dir=Path(args.next_step_dir),
             rebase_open_loop=bool(args.rebase_open_loop),
+            source_meteo_dir=(Path(args.source_meteo_dir) if args.source_meteo_dir is not None else None),
         )
         logger.info("Rejuvenated prior | members={} state_ptrs={}", summary.get("members"), summary.get("copied_state_pointers"))
         return 0

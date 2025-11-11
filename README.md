@@ -584,8 +584,9 @@ docker compose run --rm oa `
   --log-level INFO
 
 Note: The launcher supports pointer-based states. If `model_state.pickle.gz` is
-not present in a member's `results/`, it will read `results/state_pointer.json`
-to locate the external state file.
+not present in a member's `results/`, it will read `state_pointer.json` at the
+member root (or `results/state_pointer.json` for backward compatibility) to
+locate the external state file.
 
 ## Rejuvenation (Posterior → Prior for Next Step)
 

@@ -147,9 +147,8 @@ def _mirror_or_resample(
             encoding="utf-8",
         )
 
-        # Ensure an empty meteo/ and results/ exist for compatibility
+        # Ensure meteo/ exists for compatibility; results/ will be created by the launcher
         (tgt_member / "meteo").mkdir(exist_ok=True)
-        (tgt_member / "results").mkdir(exist_ok=True)
 
         # Create a state pointer instead of copying the state file
         src_state = None

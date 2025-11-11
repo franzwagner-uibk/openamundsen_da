@@ -165,9 +165,8 @@ def rejuvenate(
 
         tgt_member = tgt_root / member_name
         tgt_meteo = meteo_dir_for_member(tgt_member)
-        tgt_results = default_results_dir(tgt_member)
         tgt_meteo.mkdir(parents=True, exist_ok=True)
-        tgt_results.mkdir(parents=True, exist_ok=True)
+        # Do not pre-create results/ to avoid the launcher skipping members; it will be created on first write
 
         # Sample stationary perturbations per member
         dT = float(rng.normal(0.0, params.sigma_t)) if params.sigma_t else 0.0

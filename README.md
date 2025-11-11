@@ -577,10 +577,10 @@ docker compose run --rm oa `
   python -m openamundsen_da.core.launch `
   --project-dir /data `
   --season-dir /data/propagation/season_2017-2018 `
-  --step-dir /data/propagation/season_2017-2018/step_01_20180215-20180301 `
-  --ensemble posterior `
-  --restart-from-state `
+  --step-dir /data/propagation/season_2017-2018/step_01_20180110-20180316 `
+  --ensemble prior `
   --dump-state `
+  --max-workers 4 `
   --log-level INFO
 
 Note: The launcher supports pointer-based states. If `model_state.pickle.gz` is
@@ -603,29 +603,31 @@ Modes
 Configure in `project.yml` under `data_assimilation.rejuvenation`:
 
 ```
+
 rejuvenation:
-  sigma_t: 0.2
-  sigma_p: 0.2
-  rebase_open_loop: false   # set true to perturb open_loop instead of compounding
+sigma_t: 0.2
+sigma_p: 0.2
+rebase_open_loop: false # set true to perturb open_loop instead of compounding
+
 ```
 
 ```
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.pf.rejuvenate `
-  --project-dir /data `
-  --prev-step-dir /data/propagation/season_2017-2018/step_00_init `
-  --next-step-dir /data/propagation/season_2017-2018/step_01_20180110-20180316
+
+docker compose run --rm oa `  python -m openamundsen_da.methods.pf.rejuvenate`
+--project-dir /data `  --prev-step-dir /data/propagation/season_2017-2018/step_00_init`
+--next-step-dir /data/propagation/season_2017-2018/step_01_20180110-20180316
+
 ```
 
 Rebase (single run override):
 
 ```
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.pf.rejuvenate `
-  --project-dir /data `
-  --prev-step-dir /data/propagation/season_2017-2018/step_00_init `
-  --next-step-dir /data/propagation/season_2017-2018/step_01_20180110-20180316 `
-  --rebase-open-loop
+
+docker compose run --rm oa `  python -m openamundsen_da.methods.pf.rejuvenate`
+--project-dir /data `  --prev-step-dir /data/propagation/season_2017-2018/step_00_init`
+--next-step-dir /data/propagation/season_2017-2018/step_01_20180110-20180316 `
+--rebase-open-loop
+
 ```
 
 Behavior

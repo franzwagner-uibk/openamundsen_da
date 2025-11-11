@@ -18,6 +18,26 @@ When reviewing or developing a new module:
 - Does the module follow our established structure and formatting conventions?
 - Is the configuration handled consistently and externally defined where possible?
 
+List fo helper functions:
+
+#### Core and IO
+
+- C:\Daten\PhD\openamundsen_da\openamundsen_da\core\constants.py
+- C:\Daten\PhD\openamundsen_da\openamundsen_da\core\config.py
+- C:\Daten\PhD\openamundsen_da\openamundsen_da\core\env.py
+- C:\Daten\PhD\openamundsen_da\openamundsen_da\io\paths.py
+
+#### Utilities
+
+- C:\Daten\PhD\openamundsen_da\openamundsen_da\util\ts.py
+- C:\Daten\PhD\openamundsen_da\openamundsen_da\util\stats.py
+- C:\Daten\PhD\openamundsen_da\openamundsen_da\util\aoi.py
+
+#### Viz helpers
+
+- C:\Daten\PhD\openamundsen_da\openamundsen_da\methods\viz_style.py
+- C:\Daten\PhD\openamundsen_da\openamundsen_da\methods\viz_utils.py
+
 ---
 
 ## 2. Code Design Principles

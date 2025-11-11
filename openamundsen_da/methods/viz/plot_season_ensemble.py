@@ -1,15 +1,35 @@
 """openamundsen_da.methods.viz.plot_season_ensemble
 
-Season-wide plots that stitch together all steps into a single figure per
-station, with vertical markers for assimilation dates. Two plot types are
-supported:
+Season-wide ensemble plots that stitch together all step segments into a single
+figure per station, with vertical dashed lines marking assimilation instants.
 
-- Forcing: two-panel layout (temperature, cumulative precipitation)
+Provides two plot types in the same style as the per-step modules:
+- Forcing: two-panel layout (top: air temperature timeseries; bottom: cumulative
+  precipitation by hydrological year)
 - Results: single-panel (e.g., SWE or snow_depth)
 
-Layout and style mirror the existing per-step modules while aggregating data
-across all steps found in a season directory. Only the prior ensemble is
-supported as requested.
+Behavior and conventions
+- Discovers steps under a season root (e.g., ``.../propagation/season_2017-2018``)
+  by reading each ``step_XX.yml`` for ``start_date`` and ``end_date``.
+- Uses the prior ensemble only and optionally draws open-loop segments when
+  present in steps.
+- Draws vertical dashed lines at the start of each step i >= 1 (assimilation
+  times), excluding the first step (typically October 1st).
+- Output figures are written under ``<season_dir>/plots/{forcing,results}/`` and
+  include the season identifier in the filename.
+
+CLI usage examples
+- Forcing (two panels):
+  ``python -m openamundsen_da.methods.viz.plot_season_ensemble forcing --season-dir <path/to/season> --hydro-month 10 --hydro-day 1``
+- Results (SWE):
+  ``python -m openamundsen_da.methods.viz.plot_season_ensemble results --season-dir <path/to/season> --var-col swe``
+
+Notes
+- End date accepts both ``YYYY-MM-DD`` and compact forms like ``YYYY-06_01``; the
+  latter is normalized to ``YYYY-06-01``.
+- Results autostop: if plotting a snow variable (SWE/HS/snow_depth), the plot is
+  automatically truncated one month after the last date when any member remains
+  positive, unless an explicit ``--end-date`` is earlier.
 """
 
 from __future__ import annotations
@@ -172,6 +192,25 @@ def plot_season_forcing(
     backend: str = "Agg",
     log_level: str = "INFO",
 ) -> Path:
+    """Create season-wide forcing plots for one or more stations.
+
+    Parameters
+    - season_dir: Season root directory (contains ``step_*`` subfolders).
+    - date_col: Timestamp column in station CSVs (default: ``date``).
+    - temp_col: Temperature column (default: ``temp``).
+    - precip_col: Precipitation column (default: ``precip``).
+    - hydro_month, hydro_day: Hydrological year start (default: 10/1).
+    - stations: Optional list of station filenames to include (e.g., ``102376.csv``).
+    - max_stations: Optional cap on the number of stations.
+    - start_date, end_date: Optional window for the x-axis.
+    - resample: Optional pandas resample rule (e.g., ``D``).
+    - rolling: Optional rolling window (samples) applied after resampling.
+    - backend: Matplotlib backend (default: ``Agg`` for headless).
+    - log_level: Loguru level string (e.g., ``INFO``).
+
+    Returns
+    - Path to the output directory ``<season_dir>/plots/forcing``.
+    """
     import matplotlib
 
     matplotlib.use(backend or "Agg")
@@ -263,7 +302,7 @@ def plot_season_forcing(
         # Prepare figure
         fig, axes = plt.subplots(2, 1, figsize=(12.0, 6.8), sharex=True)
 
-        # Panel A: Temperature
+        # Panel A: Temperature (members + mean band + open-loop)
         ax = axes[0]
         for s in member_series_temp:
             ax.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.9)
@@ -303,12 +342,12 @@ def plot_season_forcing(
         ax.set_ylabel("Cum. precipitation (mm)")
         ax.grid(True, ls=":", lw=0.6, alpha=0.7)
 
-        # Assimilation markers on both panels
+        # Assimilation markers on both panels (step starts i >= 1)
         assim_dates = _assimilation_dates(steps)
         for ax in axes:
             _draw_assim_and_legend(ax, assim_dates)
 
-        # Titles and legend
+        # Titles and figure-level legend (de-duplicated)
         token = Path(fname).stem
         title = f"Season Forcing | {season_dir.name}"
         subtitle = f"Station {token}"
@@ -356,6 +395,28 @@ def plot_season_results(
     backend: str = "Agg",
     log_level: str = "INFO",
 ) -> Path:
+    """Create season-wide results plots (e.g., SWE) for one or more stations.
+
+    Parameters
+    - season_dir: Season root directory (contains ``step_*`` subfolders).
+    - time_col: Timestamp column in results CSVs (default: ``time``).
+    - var_col: Variable column to plot (default: ``swe``; supports ``snow_depth``).
+    - var_label: Pretty label for titles and y-axis (defaults to ``var_col``).
+    - var_units: Units appended in parentheses to the label.
+    - stations: Optional list of station result filenames (e.g., ``point_001.csv``).
+    - max_stations: Optional cap on number of stations.
+    - start_date, end_date: Optional explicit window for the x-axis.
+    - resample, resample_agg, rolling: Time-aggregation and smoothing controls.
+    - band_low, band_high: Quantile band for the ensemble envelope (default 5–95%).
+    - backend, log_level: Matplotlib backend and Loguru level.
+
+    Behavior
+    - Autostop for snow variables: automatically truncates to one month after all
+      members reach zero (unless an earlier explicit ``end_date`` is provided).
+
+    Returns
+    - Path to the output directory ``<season_dir>/plots/results``.
+    """
     import matplotlib
 
     matplotlib.use(backend or "Agg")
@@ -444,7 +505,7 @@ def plot_season_results(
         if auto_end is not None:
             effective_end = min(effective_end, auto_end) if effective_end else auto_end
 
-        # Build figure
+        # Build figure (members + mean band + open-loop)
         import matplotlib.pyplot as plt  # ensure pyplot is loaded
         fig, ax = plt.subplots(figsize=(12.0, 5.2))
 
@@ -483,7 +544,7 @@ def plot_season_results(
         ax.set_ylabel(var_title)
         ax.grid(True, ls=":", lw=0.6, alpha=0.7)
 
-        # Assimilation markers
+        # Assimilation markers (step starts i >= 1)
         assim_dates = _assimilation_dates(steps)
         _draw_assim_and_legend(ax, assim_dates)
 
@@ -534,6 +595,7 @@ def plot_season_both(
     backend: str = "Agg",
     log_level: str = "INFO",
 ) -> Tuple[Path, Path]:
+    """Convenience wrapper: generate both forcing and results season plots."""
     forcing_dir = plot_season_forcing(
         season_dir=season_dir,
         stations=stations,

@@ -8,7 +8,8 @@ precipitation.
 """
 
 from datetime import datetime
-from typing import Optional, Dict
+from pathlib import Path
+from typing import Optional, Dict, Iterable, List, Sequence
 
 import numpy as np
 import pandas as pd
@@ -64,3 +65,67 @@ def cumulative_hydro(series: pd.Series, start_month: int, start_day: int) -> pd.
     hy = hydro_year_index(pr.index, start_month, start_day)
     return pr.groupby(hy).cumsum()
 
+
+# ---- Shared parsing/loading helpers ----------------------------------------
+
+
+def parse_time_column(series: pd.Series) -> pd.DatetimeIndex:
+    """Parse mixed date/datetime columns robustly.
+
+    Tries common explicit formats before falling back to pandas' parser.
+    """
+    text = series.astype(str)
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            parsed = pd.to_datetime(text, format=fmt, errors="coerce")
+        except Exception:
+            continue
+        if not parsed.isna().all():
+            return pd.DatetimeIndex(parsed)
+    return pd.DatetimeIndex(pd.to_datetime(text, errors="coerce"))
+
+
+def collapse_duplicates(df: pd.DataFrame) -> pd.DataFrame:
+    """Collapse duplicate timestamps by mean if index is DatetimeIndex.
+
+    Returns the input unchanged if index is not DatetimeIndex.
+    """
+    if not isinstance(df.index, pd.DatetimeIndex):
+        return df
+    out = df.sort_index()
+    if out.index.is_unique:
+        return out
+    return out.groupby(level=0).mean(numeric_only=True)
+
+
+def read_timeseries_csv(csv_path: Path, time_col: str, columns: Sequence[str]) -> pd.DataFrame:
+    """Read one or more numeric columns with a parsed datetime index.
+
+    - Ensures `time_col` exists and columns exist; coerces to numeric.
+    - Drops rows with NaT index; collapses duplicate timestamps by mean.
+    """
+    df = pd.read_csv(csv_path)
+    if time_col not in df.columns:
+        raise ValueError(f"Missing time column '{time_col}' in {Path(csv_path).name}")
+    for col in columns:
+        if col not in df.columns:
+            raise ValueError(f"Missing column '{col}' in {Path(csv_path).name}")
+    idx = parse_time_column(df[time_col])
+    out = pd.DataFrame({c: pd.to_numeric(df[c], errors="coerce") for c in columns})
+    out.index = idx
+    out = out[~out.index.isna()]
+    return collapse_duplicates(out)
+
+
+def concat_series(series_list: List[pd.Series]) -> pd.Series:
+    """Concatenate multiple series along the time axis and collapse duplicates."""
+    if not series_list:
+        return pd.Series(dtype=float)
+    df = pd.concat(series_list, axis=0)
+    df = collapse_duplicates(df.to_frame("v") if not isinstance(df, pd.DataFrame) else df)
+    if isinstance(df, pd.DataFrame):
+        # return the single column if present
+        if df.shape[1] == 1:
+            return df.iloc[:, 0]
+    # already a Series
+    return df

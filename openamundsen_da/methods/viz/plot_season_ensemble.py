@@ -25,7 +25,12 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
-from openamundsen_da.io.paths import list_member_dirs, read_step_config
+from openamundsen_da.io.paths import (
+    list_member_dirs,
+    read_step_config,
+    list_station_files_forcing as io_list_station_files_forcing,
+    list_point_files_results as io_list_point_files_results,
+)
 from openamundsen_da.methods.viz._style import (
     BAND_ALPHA,
     COLOR_MEAN,
@@ -36,7 +41,14 @@ from openamundsen_da.methods.viz._style import (
     LW_OPEN,
 )
 from openamundsen_da.util.stats import envelope
-from openamundsen_da.util.ts import apply_window, resample_and_smooth, cumulative_hydro
+from openamundsen_da.util.ts import (
+    apply_window,
+    resample_and_smooth,
+    cumulative_hydro,
+    read_timeseries_csv,
+    concat_series,
+)
+from openamundsen_da.methods.viz._utils import draw_assimilation_vlines, dedupe_legend
 
 
 # ---- Data structures --------------------------------------------------------
@@ -105,103 +117,6 @@ def _season_id_from_dir(season_dir: Path) -> str:
     return name
 
 
-def _list_station_files_forcing(step_dir: Path) -> List[str]:
-    # Find station CSVs from open_loop/meteo or first member's meteo
-    from glob import glob
-
-    base_prior = step_dir / "ensembles" / "prior"
-    ol_meteo = base_prior / "open_loop" / "meteo"
-    files: List[Path] = []
-    if ol_meteo.is_dir():
-        files = [p for p in sorted(ol_meteo.glob("*.csv")) if p.name.lower() != "stations.csv"]
-    if not files:
-        members = list_member_dirs(step_dir / "ensembles", "prior")
-        if members:
-            meteo_dir = members[0] / "meteo"
-            files = [p for p in sorted(meteo_dir.glob("*.csv")) if p.name.lower() != "stations.csv"]
-    return [p.name for p in files]
-
-
-def _list_point_files_results(step_dir: Path) -> List[str]:
-    # Similar to per-step results module: point_*.csv under results
-    base_prior = step_dir / "ensembles" / "prior"
-    ol_results = base_prior / "open_loop" / "results"
-    files = [p.name for p in sorted(ol_results.glob("point_*.csv"))] if ol_results.is_dir() else []
-    if not files:
-        members = list_member_dirs(step_dir / "ensembles", "prior")
-        for m in members:
-            d = m / "results"
-            if not d.is_dir():
-                continue
-            files = [p.name for p in sorted(d.glob("point_*.csv"))]
-            if files:
-                break
-    return files
-
-
-def _parse_time_column(series: pd.Series) -> pd.DatetimeIndex:
-    text = series.astype(str)
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-        try:
-            parsed = pd.to_datetime(text, format=fmt, errors="coerce")
-        except Exception:
-            continue
-        if not parsed.isna().all():
-            return pd.DatetimeIndex(parsed)
-    return pd.DatetimeIndex(pd.to_datetime(text, errors="coerce"))
-
-
-def _collapse_duplicates(df: pd.DataFrame, value_col: str) -> pd.DataFrame:
-    if not isinstance(df.index, pd.DatetimeIndex):
-        return df
-    out = df.sort_index()
-    if out.index.is_unique:
-        return out
-    return out.groupby(level=0).mean(numeric_only=True)
-
-
-def _read_station_forcing(csv_path: Path, date_col: str, temp_col: str, precip_col: str) -> pd.DataFrame:
-    df = pd.read_csv(csv_path)
-    if date_col not in df.columns:
-        raise ValueError(f"Missing time column '{date_col}' in {csv_path.name}")
-    for col in (temp_col, precip_col):
-        if col not in df.columns:
-            raise ValueError(f"Missing column '{col}' in {csv_path.name}")
-    idx = _parse_time_column(df[date_col])
-    out = pd.DataFrame({
-        temp_col: pd.to_numeric(df[temp_col], errors="coerce"),
-        precip_col: pd.to_numeric(df[precip_col], errors="coerce"),
-    })
-    out.index = idx
-    out = out[~out.index.isna()]
-    return _collapse_duplicates(out, temp_col)
-
-
-def _read_point_series(csv_path: Path, time_col: str, value_col: str) -> pd.DataFrame:
-    df = pd.read_csv(csv_path)
-    if time_col not in df.columns:
-        raise ValueError(f"Missing time column '{time_col}' in {csv_path.name}")
-    if value_col not in df.columns:
-        raise ValueError(f"Missing variable column '{value_col}' in {csv_path.name}")
-    idx = _parse_time_column(df[time_col])
-    out = pd.DataFrame({value_col: pd.to_numeric(df[value_col], errors="coerce")})
-    out.index = idx
-    out = out[~out.index.isna()]
-    return _collapse_duplicates(out, value_col)
-
-
-def _concat_series_across_steps(series_list: List[pd.Series]) -> pd.Series:
-    if not series_list:
-        return pd.Series(dtype=float)
-    df = pd.concat(series_list, axis=0)
-    # sort by index and collapse duplicates
-    df = df.sort_index()
-    if not isinstance(df.index, pd.DatetimeIndex):
-        return df.iloc[:, 0]
-    if not df.index.is_unique:
-        df = df.groupby(level=0).mean(numeric_only=True)
-        return df.iloc[:, 0] if isinstance(df, pd.DataFrame) else df
-    return df.iloc[:, 0] if isinstance(df, pd.DataFrame) else df
 
 
 def _auto_end_from_swe_zero(member_series: List[pd.Series]) -> Optional[datetime]:
@@ -227,23 +142,14 @@ def _auto_end_from_swe_zero(member_series: List[pd.Series]) -> Optional[datetime
     return (last_pos_idx + timedelta(days=30)).to_pydatetime()
 
 
-def _draw_assimilation_vlines(ax, dates: Sequence[datetime]) -> None:
-    import matplotlib.pyplot as plt  # noqa: F401  (ensure backend loaded by caller)
-
-    for d in dates:
-        ax.axvline(d, color="#777777", ls="--", lw=1.0, alpha=0.9, label="assimilation")
-    # De-duplicate legend entries for multiple vlines
+def _draw_assim_and_legend(ax, dates: Sequence[datetime]) -> None:
+    draw_assimilation_vlines(ax, dates)
     handles, labels = ax.get_legend_handles_labels()
-    seen: Dict[str, int] = {}
-    new_h, new_l = [], []
-    for h, l in zip(handles, labels):
-        if l not in seen:
-            seen[l] = 1
-            new_h.append(h)
-            new_l.append(l)
-    ax.legend_.remove() if getattr(ax, 'legend_', None) else None
-    if new_h:
-        ax.legend(new_h, new_l, loc="best", frameon=False, fontsize=8)
+    if handles:
+        h, l = dedupe_legend(handles, labels)
+        ax.legend_.remove() if getattr(ax, "legend_", None) else None
+        if h:
+            ax.legend(h, l, loc="best", frameon=False, fontsize=8)
 
 
 # ---- Plotting: Forcing (two-panel) -----------------------------------------
@@ -255,6 +161,8 @@ def plot_season_forcing(
     date_col: str = "date",
     temp_col: str = "temp",
     precip_col: str = "precip",
+    hydro_month: int = 10,
+    hydro_day: int = 1,
     stations: Optional[List[str]] = None,
     max_stations: Optional[int] = None,
     start_date: Optional[datetime] = None,
@@ -280,7 +188,7 @@ def plot_season_forcing(
     # Determine station files from first step with meteo
     station_files: List[str] = []
     for s in steps:
-        station_files = _list_station_files_forcing(s.path)
+        _ol, station_files = io_list_station_files_forcing(s.path, "prior")
         if station_files:
             break
     if not station_files:
@@ -310,7 +218,7 @@ def plot_season_forcing(
                 csv_path = ol_dir / fname
                 if csv_path.is_file():
                     try:
-                        df = _read_station_forcing(csv_path, date_col, temp_col, precip_col)
+                        df = read_timeseries_csv(csv_path, date_col, [temp_col, precip_col])
                         df = resample_and_smooth(df, resample, None, rolling)
                         df = apply_window(df, start_date, end_date)
                         if temp_col in df.columns:
@@ -334,7 +242,7 @@ def plot_season_forcing(
                 if not csv_path.is_file():
                     continue
                 try:
-                    df = _read_station_forcing(csv_path, date_col, temp_col, precip_col)
+                    df = read_timeseries_csv(csv_path, date_col, [temp_col, precip_col])
                     df = resample_and_smooth(df, resample, None, rolling)
                     df = apply_window(df, start_date, end_date)
                     if temp_col in df.columns:
@@ -364,7 +272,7 @@ def plot_season_forcing(
             ax.fill_between(mean.index, lo.values, hi.values, color=COLOR_MEAN, alpha=BAND_ALPHA, linewidth=0, label="ensemble band")
             ax.plot(mean.index, mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
         if open_loop_temp:
-            ol = _concat_series_across_steps(open_loop_temp)
+            ol = concat_series(open_loop_temp)
             if not ol.empty:
                 ax.plot(ol.index, ol.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open loop", zorder=5)
         ax.set_ylabel("Temperature (°C)")
@@ -375,7 +283,7 @@ def plot_season_forcing(
         mem_cum: List[pd.Series] = []
         for s in member_series_prec:
             try:
-                mem_cum.append(cumulative_hydro(s))
+                mem_cum.append(cumulative_hydro(s, hydro_month, hydro_day))
             except Exception:
                 mem_cum.append(s)
         for s in mem_cum:
@@ -385,10 +293,10 @@ def plot_season_forcing(
             ax.fill_between(mean.index, lo.values, hi.values, color=COLOR_MEAN, alpha=BAND_ALPHA, linewidth=0, label="ensemble band")
             ax.plot(mean.index, mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
         if open_loop_prec:
-            olp = _concat_series_across_steps(open_loop_prec)
+            olp = concat_series(open_loop_prec)
             if not olp.empty:
                 try:
-                    olp = cumulative_hydro(olp)
+                    olp = cumulative_hydro(olp, hydro_month, hydro_day)
                 except Exception:
                     pass
                 ax.plot(olp.index, olp.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open loop", zorder=5)
@@ -398,7 +306,7 @@ def plot_season_forcing(
         # Assimilation markers on both panels
         assim_dates = _assimilation_dates(steps)
         for ax in axes:
-            _draw_assimilation_vlines(ax, assim_dates)
+            _draw_assim_and_legend(ax, assim_dates)
 
         # Titles and legend
         token = Path(fname).stem
@@ -414,23 +322,8 @@ def plot_season_forcing(
             handles.extend(h)
             labels.extend(l)
         if handles:
-            # de-duplicate
-            seen: Dict[str, int] = {}
-            new_h, new_l = [], []
-            for h, l in zip(handles, labels):
-                if l not in seen:
-                    seen[l] = 1
-                    new_h.append(h)
-                    new_l.append(l)
-            fig.legend(
-                new_h,
-                new_l,
-                loc="lower center",
-                bbox_to_anchor=(0.5, -0.02),
-                ncol=LEGEND_NCOL,
-                frameon=False,
-                fontsize=8,
-            )
+            new_h, new_l = dedupe_legend(handles, labels)
+            fig.legend(new_h, new_l, loc="lower center", bbox_to_anchor=(0.5, -0.02), ncol=LEGEND_NCOL, frameon=False, fontsize=8)
             fig.subplots_adjust(bottom=0.17)
 
         out_path = out_root / f"season_forcing_{token}_{season_id}.png"
@@ -479,7 +372,7 @@ def plot_season_results(
     # Determine available stations from first step that has results
     point_files: List[str] = []
     for s in steps:
-        point_files = _list_point_files_results(s.path)
+        _ol, point_files = io_list_point_files_results(s.path, "prior")
         if point_files:
             break
     if not point_files:
@@ -579,7 +472,7 @@ def plot_season_results(
             ax.plot(mean.index, mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
 
         if open_loop:
-            ol = _concat_series_across_steps(open_loop)
+            ol = concat_series(open_loop)
             if effective_end or start_date:
                 df = apply_window(ol.to_frame(var_col), start_date, effective_end)
                 ol = df[var_col].dropna()
@@ -592,7 +485,7 @@ def plot_season_results(
 
         # Assimilation markers
         assim_dates = _assimilation_dates(steps)
-        _draw_assimilation_vlines(ax, assim_dates)
+        _draw_assim_and_legend(ax, assim_dates)
 
         # Titles/legend
         token = Path(fname).stem
@@ -688,6 +581,8 @@ def _cli(argv: Iterable[str] | None = None) -> int:
     sp_f.add_argument("--precip-col", default="precip")
     sp_f.add_argument("--resample", type=str, help="Pandas resample rule (e.g., D)")
     sp_f.add_argument("--rolling", type=int, help="Rolling window length (samples) after resample")
+    sp_f.add_argument("--hydro-month", type=int, default=10, help="Hydrological year start month (default: 10)")
+    sp_f.add_argument("--hydro-day", type=int, default=1, help="Hydrological year start day (default: 1)")
 
     sp_r = sub.add_parser("results", help="Results season plot (e.g., SWE or snow_depth)")
     _common(sp_r)
@@ -712,6 +607,8 @@ def _cli(argv: Iterable[str] | None = None) -> int:
             date_col=args.date_col,
             temp_col=args.temp_col,
             precip_col=args.precip_col,
+            hydro_month=int(args.hydro_month),
+            hydro_day=int(args.hydro_day),
             stations=args.station,
             max_stations=args.max_stations,
             start_date=start,
@@ -748,4 +645,3 @@ def _cli(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_cli())
-

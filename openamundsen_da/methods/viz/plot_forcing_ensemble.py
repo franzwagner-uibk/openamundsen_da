@@ -30,8 +30,8 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
-from openamundsen_da.io.paths import list_member_dirs, read_step_config
-from openamundsen_da.util.ts import apply_window, resample_and_smooth, cumulative_hydro
+from openamundsen_da.io.paths import list_member_dirs, read_step_config, list_station_files_forcing
+from openamundsen_da.util.ts import apply_window, resample_and_smooth, cumulative_hydro, read_timeseries_csv
 from openamundsen_da.util.stats import envelope
 from openamundsen_da.methods.viz._style import (
     COLOR_MEAN,
@@ -45,19 +45,8 @@ from openamundsen_da.methods.viz._style import (
 
 
 def _list_station_files(step_dir: Path, ensemble: str) -> Tuple[Optional[Path], List[str]]:
-    """Return (open_loop_meteo_dir_if_any, station_filenames)."""
-    base = step_dir / "ensembles" / ensemble
-    ol_meteo = base / "open_loop" / "meteo"
-    if ol_meteo.is_dir():
-        files = [f.name for f in sorted(ol_meteo.glob("*.csv")) if f.name.lower() != "stations.csv"]
-        return ol_meteo, files
-    # Fallback: infer from first member
-    members = list_member_dirs(step_dir / "ensembles", ensemble)
-    if not members:
-        return None, []
-    first_meteo = members[0] / "meteo"
-    files = [f.name for f in sorted(first_meteo.glob("*.csv")) if f.name.lower() != "stations.csv"]
-    return None, files
+    """Delegate to io.paths.list_station_files_forcing for discovery."""
+    return list_station_files_forcing(step_dir, ensemble)
 
 
 def _load_stations_table(step_dir: Path, ensemble: str) -> Optional[pd.DataFrame]:
@@ -129,28 +118,20 @@ def _find_station_meta(st_df: Optional[pd.DataFrame], token: str) -> Tuple[Optio
 
 
 def _parse_time_index(df: pd.DataFrame, time_col: str) -> pd.DataFrame:
-    if time_col not in df.columns:
-        raise ValueError(f"Missing required time column: {time_col}")
-    t = pd.to_datetime(df[time_col], errors="coerce")
-    if t.isna().all():
-        raise ValueError(f"Failed to parse datetime in column: {time_col}")
+    # Kept for backward compatibility; prefer util.ts.read_timeseries_csv
+    idx = pd.to_datetime(df[time_col], errors="coerce")
     out = df.copy()
-    out.index = t
+    out.index = idx
     return out
 
 
 def _read_station_series(csv_path: Path, time_col: str, temp_col: str, precip_col: str) -> pd.DataFrame:
-    """Read station CSV and set datetime index; temp/precip columns are optional.
-
-    - Requires time_col to exist and be parseable.
-    - If temp_col or precip_col are present, they are coerced to numeric.
-    """
-    df = pd.read_csv(csv_path)
-    if temp_col in df.columns:
-        df[temp_col] = pd.to_numeric(df[temp_col], errors="coerce")
-    if precip_col in df.columns:
-        df[precip_col] = pd.to_numeric(df[precip_col], errors="coerce")
-    return _parse_time_index(df, time_col)
+    """Thin wrapper around util.ts.read_timeseries_csv."""
+    cols: List[str] = []
+    # We request both, then drop missing after
+    cols = [c for c in (temp_col, precip_col) if c]
+    df = read_timeseries_csv(csv_path, time_col, cols)
+    return df
 
 
     # removed: use util.ts and util.stats helpers

@@ -76,6 +76,48 @@ def list_member_dirs(base_dir: str | Path, ensemble: str) -> list[Path]:
     return []
 
 
+# ---- Per-step file discovery helpers ---------------------------------------
+
+def list_station_files_forcing(step_dir: str | Path, ensemble: str = "prior") -> tuple[Path | None, list[str]]:
+    """Return (open_loop_meteo_dir_if_any, station_filenames) for forcing.
+
+    Prefers `<step>/ensembles/<ensemble>/open_loop/meteo/*.csv` (excluding
+    stations.csv). Falls back to the first member's meteo directory.
+    """
+    step_dir = Path(step_dir)
+    base = step_dir / "ensembles" / ensemble
+    ol_meteo = base / "open_loop" / "meteo"
+    if ol_meteo.is_dir():
+        files = [f.name for f in sorted(ol_meteo.glob("*.csv")) if f.name.lower() != "stations.csv"]
+        return ol_meteo, files
+    members = list_member_dirs(step_dir / "ensembles", ensemble)
+    if not members:
+        return None, []
+    first_meteo = members[0] / "meteo"
+    files = [f.name for f in sorted(first_meteo.glob("*.csv")) if f.name.lower() != "stations.csv"]
+    return None, files
+
+
+def list_point_files_results(step_dir: str | Path, ensemble: str = "prior") -> tuple[Path | None, list[str]]:
+    """Return (open_loop_results_dir_if_any, sorted point_*.csv files) for results."""
+    step_dir = Path(step_dir)
+    base = step_dir / "ensembles" / ensemble
+    ol_results = base / "open_loop" / "results"
+    files: list[str] = []
+    if ol_results.is_dir():
+        files = [f.name for f in sorted(ol_results.glob("point_*.csv"))]
+    if not files:
+        members = list_member_dirs(step_dir / "ensembles", ensemble)
+        for member in members:
+            res_dir = member / "results"
+            if not res_dir.is_dir():
+                continue
+            files = [f.name for f in sorted(res_dir.glob("point_*.csv"))]
+            if files:
+                break
+    return (ol_results if ol_results.is_dir() else None), files
+
+
 # ---- Generic path helpers ---------------------------------------------------
 
 def abspath_relative_to(base: str | Path, p: str | Path) -> str:

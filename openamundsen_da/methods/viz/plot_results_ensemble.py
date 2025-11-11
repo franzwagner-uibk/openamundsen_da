@@ -20,7 +20,7 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
-from openamundsen_da.io.paths import list_member_dirs
+from openamundsen_da.io.paths import list_member_dirs, list_point_files_results
 from openamundsen_da.methods.viz._style import (
     BAND_ALPHA,
     COLOR_MEAN,
@@ -31,7 +31,7 @@ from openamundsen_da.methods.viz._style import (
     LW_OPEN,
 )
 from openamundsen_da.util.stats import envelope
-from openamundsen_da.util.ts import apply_window, resample_and_smooth
+from openamundsen_da.util.ts import apply_window, resample_and_smooth, read_timeseries_csv
 
 
 FIGSIZE = (12.0, 5.2)
@@ -40,22 +40,8 @@ DEFAULT_BAND_HIGH = 0.95
 
 
 def _list_point_files(step_dir: Path, ensemble: str) -> Tuple[Optional[Path], List[str]]:
-    """Return (open_loop_results_dir_if_any, sorted_point_csv_files)."""
-    base = step_dir / "ensembles" / ensemble
-    ol_results = base / "open_loop" / "results"
-    files: List[str] = []
-    if ol_results.is_dir():
-        files = [f.name for f in sorted(ol_results.glob("point_*.csv"))]
-    if not files:
-        members = list_member_dirs(step_dir / "ensembles", ensemble)
-        for member in members:
-            res_dir = member / "results"
-            if not res_dir.is_dir():
-                continue
-            files = [f.name for f in sorted(res_dir.glob("point_*.csv"))]
-            if files:
-                break
-    return (ol_results if ol_results.is_dir() else None), files
+    """Delegate to io.paths.list_point_files_results for discovery."""
+    return list_point_files_results(step_dir, ensemble)
 
 
 def _load_stations_table(step_dir: Path, ensemble: str) -> Optional[pd.DataFrame]:
@@ -125,40 +111,10 @@ def _find_station_meta(st_df: Optional[pd.DataFrame], token: str) -> Tuple[Optio
     return name_val, alt_val
 
 
-def _collapse_duplicates(df: pd.DataFrame, value_col: str) -> pd.DataFrame:
-    if not isinstance(df.index, pd.DatetimeIndex):
-        return df
-    out = df.sort_index()
-    if out.index.is_unique:
-        return out
-    return out.groupby(level=0).mean(numeric_only=True)
-
-
 def _read_point_series(csv_path: Path, time_col: str, value_col: str) -> pd.DataFrame:
-    df = pd.read_csv(csv_path)
-    if time_col not in df.columns:
-        raise ValueError(f"Missing time column '{time_col}' in {csv_path.name}")
-    if value_col not in df.columns:
-        raise ValueError(f"Missing variable column '{value_col}' in {csv_path.name}")
-    idx = _parse_time_column(df[time_col])
-    out = pd.DataFrame({value_col: pd.to_numeric(df[value_col], errors="coerce")})
-    out.index = idx
-    out = out[~out.index.isna()]
-    out = _collapse_duplicates(out, value_col)
-    return out
-
-
-def _parse_time_column(series: pd.Series) -> pd.DatetimeIndex:
-    """Parse mixed date/datetime columns robustly."""
-    text = series.astype(str)
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-        try:
-            parsed = pd.to_datetime(text, format=fmt, errors="coerce")
-        except Exception:
-            continue
-        if not parsed.isna().all():
-            return pd.DatetimeIndex(parsed)
-    return pd.DatetimeIndex(pd.to_datetime(text, errors="coerce"))
+    # Thin wrapper around util.ts.read_timeseries_csv
+    df = read_timeseries_csv(csv_path, time_col, [value_col])
+    return df
 
 
 def _read_member_perturbations(step_dir: Path, ensemble: str) -> Dict[str, Tuple[Optional[float], Optional[float]]]:

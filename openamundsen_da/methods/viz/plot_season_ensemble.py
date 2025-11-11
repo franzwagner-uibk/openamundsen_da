@@ -137,6 +137,54 @@ def _season_id_from_dir(season_dir: Path) -> str:
     return name
 
 
+def _read_member_perturbations(step_dir: Path) -> Dict[str, Tuple[Optional[float], Optional[float]]]:
+    """Return mapping member_name -> (delta_T, f_p) parsed from INFO.txt if present (prior)."""
+    out: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
+    members = list_member_dirs(step_dir / "ensembles", "prior")
+    import re as _re
+    for member in members:
+        info = member / "INFO.txt"
+        dT: Optional[float] = None
+        fp: Optional[float] = None
+        if info.is_file():
+            try:
+                text = info.read_text(encoding="utf-8", errors="ignore")
+                for line in text.splitlines():
+                    lower = line.lower()
+                    if "delta" in lower or "dt" in lower:
+                        m = _re.search(r"([-+]?\d+\.?\d*)", line)
+                        if m:
+                            dT = float(m.group(1))
+                    if "f_p" in lower or "precip factor" in lower:
+                        m = _re.search(r"([-+]?\d+\.?\d*)", line)
+                        if m:
+                            fp = float(m.group(1))
+            except Exception:
+                pass
+        out[member.name] = (dT, fp)
+    return out
+
+
+def _format_member_label(member_name: str, pert: Tuple[Optional[float], Optional[float]]) -> str:
+    dT, fp = pert
+    if dT is None and fp is None:
+        return member_name
+    parts: List[str] = []
+    if dT is not None:
+        parts.append(f"dT={dT:+.2f}")
+    if fp is not None:
+        parts.append(f"f_p={fp:.2f}")
+    return f"{member_name} ({', '.join(parts)})"
+
+
+def _build_member_label_map(steps: Sequence[StepInfo]) -> Dict[str, str]:
+    """Build member label map from the first step that provides INFO.txt; fallback to names."""
+    for st in steps:
+        perts = _read_member_perturbations(st.path)
+        if perts:
+            return {name: _format_member_label(name, perts.get(name, (None, None))) for name in perts}
+    return {}
+
 
 
 def _auto_end_from_swe_zero(member_series: List[pd.Series]) -> Optional[datetime]:
@@ -162,14 +210,77 @@ def _auto_end_from_swe_zero(member_series: List[pd.Series]) -> Optional[datetime
     return (last_pos_idx + timedelta(days=30)).to_pydatetime()
 
 
-def _draw_assim_and_legend(ax, dates: Sequence[datetime]) -> None:
+def _draw_assim(ax, dates: Sequence[datetime]) -> None:
+    """Draw assimilation vlines only; figure-level legend is composed later."""
     draw_assimilation_vlines(ax, dates)
-    handles, labels = ax.get_legend_handles_labels()
-    if handles:
-        h, l = dedupe_legend(handles, labels)
-        ax.legend_.remove() if getattr(ax, "legend_", None) else None
-        if h:
-            ax.legend(h, l, loc="best", frameon=False, fontsize=8)
+
+
+def _load_stations_table_from_steps(steps: Sequence["StepInfo"]) -> Optional[pd.DataFrame]:
+    """Load stations.csv from the first step that provides it (open_loop or member)."""
+    for st in steps:
+        base = st.path / "ensembles" / "prior"
+        candidates = [base / "open_loop" / "meteo" / "stations.csv"]
+        members = list_member_dirs(st.path / "ensembles", "prior")
+        if members:
+            candidates.append(members[0] / "meteo" / "stations.csv")
+        for p in candidates:
+            if p.is_file():
+                try:
+                    return pd.read_csv(p)
+                except Exception:
+                    continue
+    return None
+
+
+def _find_station_meta(st_df: Optional[pd.DataFrame], token: str) -> Tuple[Optional[str], Optional[float]]:
+    """Return (name, altitude_m) for a station token using a stations table."""
+    if st_df is None or st_df.empty:
+        return None, None
+    df = st_df.copy()
+    cols_lower = {c.lower().strip(): c for c in df.columns}
+    id_candidates = [c for c in ("id", "station_id", "station", "code") if c in cols_lower]
+    name_candidates = [c for c in ("name", "station_name") if c in cols_lower]
+    alt_candidates = [c for c in ("alt", "altitude", "elev", "elevation", "z", "height", "height_m") if c in cols_lower]
+    alt_col = cols_lower[alt_candidates[0]] if alt_candidates else None
+
+    def _match(col_key: str) -> Optional[pd.Series]:
+        col = cols_lower[col_key]
+        try:
+            normalized = df[col].astype(str).str.strip().str.lower()
+            hit = df.loc[normalized == token.lower()]
+            if not hit.empty:
+                return hit.iloc[0]
+        except Exception:
+            return None
+        return None
+
+    row = None
+    for k in id_candidates:
+        row = _match(k)
+        if row is not None:
+            break
+    if row is None:
+        for k in name_candidates:
+            row = _match(k)
+            if row is not None:
+                break
+    if row is None:
+        return None, None
+
+    name_val = None
+    for k in name_candidates:
+        try:
+            name_val = str(row[cols_lower[k]]).strip()
+            break
+        except Exception:
+            continue
+    alt_val = None
+    if alt_col is not None:
+        try:
+            alt_val = float(row[alt_col])
+        except Exception:
+            alt_val = None
+    return name_val, alt_val
 
 
 # ---- Plotting: Forcing (two-panel) -----------------------------------------
@@ -242,11 +353,16 @@ def plot_season_forcing(
     out_root = season_dir / "plots" / "forcing"
     out_root.mkdir(parents=True, exist_ok=True)
     season_id = _season_id_from_dir(season_dir)
+    stations_df = _load_stations_table_from_steps(steps)
+    member_label_map = _build_member_label_map(steps)
+    member_label_map = _build_member_label_map(steps)
 
     for fname in station_files:
         # Collect series per member across all steps
         member_series_temp: List[pd.Series] = []
         member_series_prec: List[pd.Series] = []
+        member_labels_temp: List[str] = []
+        member_labels_prec: List[str] = []
         open_loop_temp: List[pd.Series] = []
         open_loop_prec: List[pd.Series] = []
 
@@ -288,10 +404,12 @@ def plot_season_forcing(
                         s = df[temp_col].dropna()
                         if not s.empty:
                             member_series_temp.append(s)
+                            member_labels_temp.append(member_label_map.get(m.name, m.name))
                     if precip_col in df.columns:
                         s = df[precip_col].dropna()
                         if not s.empty:
                             member_series_prec.append(s)
+                            member_labels_prec.append(member_label_map.get(m.name, m.name))
                 except Exception as exc:
                     logger.warning("Failed reading member forcing {} in {}: {}", fname, m.name, exc)
 
@@ -302,10 +420,10 @@ def plot_season_forcing(
         # Prepare figure
         fig, axes = plt.subplots(2, 1, figsize=(12.0, 6.8), sharex=True)
 
-        # Panel A: Temperature (members + mean band + open-loop)
+        # Panel A: Temperature (degC)
         ax = axes[0]
-        for s in member_series_temp:
-            ax.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.9)
+        for s, lbl in zip(member_series_temp, member_labels_temp):
+            ax.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.9, label=lbl)
         mean, lo, hi = envelope(member_series_temp, q_low=0.05, q_high=0.95)
         if not mean.empty:
             ax.fill_between(mean.index, lo.values, hi.values, color=COLOR_MEAN, alpha=BAND_ALPHA, linewidth=0, label="ensemble band")
@@ -314,7 +432,7 @@ def plot_season_forcing(
             ol = concat_series(open_loop_temp)
             if not ol.empty:
                 ax.plot(ol.index, ol.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open loop", zorder=5)
-        ax.set_ylabel("Temperature (°C)")
+        ax.set_ylabel("Temperature (degC)")
         ax.grid(True, ls=":", lw=0.6, alpha=0.7)
 
         # Panel B: Cumulative precipitation (hydrological year)
@@ -345,12 +463,20 @@ def plot_season_forcing(
         # Assimilation markers on both panels (step starts i >= 1)
         assim_dates = _assimilation_dates(steps)
         for ax in axes:
-            _draw_assim_and_legend(ax, assim_dates)
+            _draw_assim(ax, assim_dates)
 
         # Titles and figure-level legend (de-duplicated)
         token = Path(fname).stem
         title = f"Season Forcing | {season_dir.name}"
-        subtitle = f"Station {token}"
+        st_name, st_alt = _find_station_meta(stations_df, token)
+        if st_name and st_alt is not None:
+            subtitle = f"{st_name} ({st_alt:.0f} m)"
+        elif st_name:
+            subtitle = st_name
+        elif st_alt is not None:
+            subtitle = f"({st_alt:.0f} m)"
+        else:
+            subtitle = token
         fig.text(0.5, 0.97, title, ha="center", va="top", fontsize=12)
         fig.text(0.5, 0.93, subtitle, ha="center", va="top", fontsize=10, color="#555555")
 
@@ -451,9 +577,12 @@ def plot_season_results(
     var_title = var_label or var_col
     if var_units:
         var_title = f"{var_title} ({var_units})"
+    stations_df = _load_stations_table_from_steps(steps)
+    member_label_map = _build_member_label_map(steps)
 
     for fname in point_files:
         member_series: List[pd.Series] = []
+        member_labels: List[str] = []
         open_loop: List[pd.Series] = []
 
         for st in steps:
@@ -463,7 +592,7 @@ def plot_season_results(
                 csv_path = ol_dir / fname
                 if csv_path.is_file():
                     try:
-                        df = _read_point_series(csv_path, time_col, var_col)
+                        df = read_timeseries_csv(csv_path, time_col, [var_col])
                         df = resample_and_smooth(df, resample, {var_col: resample_agg} if resample else None, rolling)
                         df = apply_window(df, start_date, end_date)
                         if var_col in df.columns:
@@ -483,7 +612,7 @@ def plot_season_results(
                 if not csv_path.is_file():
                     continue
                 try:
-                    df = _read_point_series(csv_path, time_col, var_col)
+                    df = read_timeseries_csv(csv_path, time_col, [var_col])
                     df = resample_and_smooth(df, resample, {var_col: resample_agg} if resample else None, rolling)
                     df = apply_window(df, start_date, end_date)
                     if var_col not in df.columns:
@@ -492,6 +621,7 @@ def plot_season_results(
                     if s.empty:
                         continue
                     member_series.append(s)
+                    member_labels.append(member_label_map.get(m.name, m.name))
                 except Exception as exc:
                     logger.warning("Failed reading member results {} in {}: {}", fname, m.name, exc)
 
@@ -509,13 +639,13 @@ def plot_season_results(
         import matplotlib.pyplot as plt  # ensure pyplot is loaded
         fig, ax = plt.subplots(figsize=(12.0, 5.2))
 
-        for s in member_series:
+        for s, lbl in zip(member_series, member_labels):
             if effective_end or start_date:
                 df = apply_window(s.to_frame(var_col), start_date, effective_end)
                 s_use = df[var_col].dropna()
             else:
                 s_use = s
-            ax.plot(s_use.index, s_use.values, lw=LW_MEMBER, alpha=0.9)
+            ax.plot(s_use.index, s_use.values, lw=LW_MEMBER, alpha=0.9, label=lbl)
 
         # Envelope
         mem_for_env: List[pd.Series] = []
@@ -546,12 +676,16 @@ def plot_season_results(
 
         # Assimilation markers (step starts i >= 1)
         assim_dates = _assimilation_dates(steps)
-        _draw_assim_and_legend(ax, assim_dates)
+        _draw_assim(ax, assim_dates)
 
         # Titles/legend
         token = Path(fname).stem
+        display_token = token.replace("point_", "", 1)
+        st_name, st_alt = _find_station_meta(stations_df, display_token)
+        station_label = st_name or display_token
+        alt_suffix = f" ({st_alt:.0f} m)" if st_alt is not None else ""
         title = f"Season Results | {season_dir.name}"
-        subtitle = f"Station {token} - {var_title}"
+        subtitle = f"{station_label}{alt_suffix} - {var_title}"
         fig.text(0.5, 0.97, title, ha="center", va="top", fontsize=12)
         fig.text(0.5, 0.92, subtitle, ha="center", va="top", fontsize=10, color="#555555")
 
@@ -707,3 +841,5 @@ def _cli(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_cli())
+
+

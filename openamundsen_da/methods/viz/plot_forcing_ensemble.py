@@ -30,7 +30,7 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
-from openamundsen_da.io.paths import list_member_dirs
+from openamundsen_da.io.paths import list_member_dirs, read_step_config
 from openamundsen_da.util.ts import apply_window, resample_and_smooth, cumulative_hydro
 from openamundsen_da.util.stats import envelope
 from openamundsen_da.methods.viz._style import (
@@ -295,6 +295,26 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
     start = datetime.strptime(args.start_date, "%Y-%m-%d") if args.start_date else None
     end = datetime.strptime(args.end_date, "%Y-%m-%d") if args.end_date else None
+
+    # If no explicit dates are provided, try to read the step YAML for defaults
+    if start is None or end is None:
+        try:
+            cfg = read_step_config(Path(args.step_dir))
+        except Exception:
+            cfg = {}
+        def _parse_dt(val):
+            try:
+                return pd.to_datetime(val).to_pydatetime()
+            except Exception:
+                return None
+        if start is None and cfg.get("start_date") is not None:
+            start = _parse_dt(cfg.get("start_date"))
+        if end is None and cfg.get("end_date") is not None:
+            end = _parse_dt(cfg.get("end_date"))
+        if (args.start_date is None and args.end_date is None) and (start is not None or end is not None):
+            logger.info("Using step YAML window: start_date={} end_date={}",
+                        (start.strftime("%Y-%m-%d") if start else "None"),
+                        (end.strftime("%Y-%m-%d") if end else "None"))
 
     ol_dir, station_files = _list_station_files(Path(args.step_dir), args.ensemble)
     if not station_files:

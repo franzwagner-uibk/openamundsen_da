@@ -214,6 +214,30 @@ def _draw_assim(ax, dates: Sequence[datetime]) -> None:
     """Draw assimilation vlines only; figure-level legend is composed later."""
     draw_assimilation_vlines(ax, dates)
 
+def _draw_assim_labels(ax, dates: Sequence[datetime]) -> None:
+    """Draw per-assimilation labels centered on each vline above the axes.
+
+    Labels are placed in the axes coordinate space just above the plotting area
+    using a blended transform (x in data coords, y in axes coords).
+    """
+    if not dates:
+        return
+    # Place labels with a fixed offset (in points) above the axes top
+    for i, d in enumerate(dates, start=1):
+        label = f"DA{i} {d.strftime('%Y-%m-%d')}"
+        ax.annotate(
+            label,
+            xy=(d, 1.0),
+            xycoords=("data", "axes fraction"),
+            xytext=(0, 8),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            color="black",
+            clip_on=False,
+        )
+
 
 def _load_stations_table_from_steps(steps: Sequence["StepInfo"]) -> Optional[pd.DataFrame]:
     """Load stations.csv from the first step that provides it (open_loop or member)."""
@@ -465,7 +489,7 @@ def plot_season_forcing(
         for ax in axes:
             _draw_assim(ax, assim_dates)
 
-        # Titles and figure-level legend (de-duplicated)
+        # Titles, assimilation date line, and figure-level legend (de-duplicated)
         token = Path(fname).stem
         title = f"Season Forcing | {season_dir.name}"
         st_name, st_alt = _find_station_meta(stations_df, token)
@@ -479,6 +503,13 @@ def plot_season_forcing(
             subtitle = token
         fig.text(0.5, 0.97, title, ha="center", va="top", fontsize=12)
         fig.text(0.5, 0.93, subtitle, ha="center", va="top", fontsize=10, color="#555555")
+        # Per-assimilation labels centered above the vlines on the top panel
+        assim_dates = _assimilation_dates(steps)
+        _draw_assim_labels(axes[0], assim_dates)
+        # Provide extra vertical space between subtitle and axes for labels
+        # Increase space slightly when many assimilation dates exist
+        top_margin = 0.88 if len(assim_dates) <= 4 else (0.86 if len(assim_dates) <= 8 else 0.84)
+        fig.subplots_adjust(top=top_margin)
 
         # Build a clean figure-level legend (avoid per-member clutter)
         handles, labels = [], []
@@ -688,6 +719,11 @@ def plot_season_results(
         subtitle = f"{station_label}{alt_suffix} - {var_title}"
         fig.text(0.5, 0.97, title, ha="center", va="top", fontsize=12)
         fig.text(0.5, 0.92, subtitle, ha="center", va="top", fontsize=10, color="#555555")
+        # Per-assimilation labels centered above the vlines on the results panel
+        assim_dates = _assimilation_dates(steps)
+        _draw_assim_labels(ax, assim_dates)
+        top_margin = 0.88 if len(assim_dates) <= 4 else (0.86 if len(assim_dates) <= 8 else 0.84)
+        fig.subplots_adjust(top=top_margin)
 
         handles, labels = ax.get_legend_handles_labels()
         if handles:

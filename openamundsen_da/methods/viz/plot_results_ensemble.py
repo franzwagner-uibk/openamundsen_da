@@ -39,6 +39,26 @@ DEFAULT_BAND_LOW = 0.05
 DEFAULT_BAND_HIGH = 0.95
 
 
+def _pretty_var_title(var_col: str, var_label: str = "", var_units: str = "") -> str:
+    """Return a friendly variable title with units for subtitles and y-labels.
+
+    Defaults when no explicit label/units given:
+    - swe -> "snow water equivalent [mm]"
+    - snow_depth|snowdepth|hs -> "snow depth [m]"
+    Otherwise: use provided label/units or prettified var_col.
+    """
+    v = (var_col or "").strip().lower()
+    if not var_label and not var_units:
+        if v == "swe":
+            return "snow water equivalent [mm]"
+        if v in ("snow_depth", "snowdepth", "hs"):
+            return "snow depth [m]"
+    base = (var_label.strip() if var_label else v.replace("_", " "))
+    if var_units:
+        return f"{base} [{var_units}]"
+    return base
+
+
 def _list_point_files(step_dir: Path, ensemble: str) -> Tuple[Optional[Path], List[str]]:
     """Delegate to io.paths.list_point_files_results for discovery."""
     return list_point_files_results(step_dir, ensemble)
@@ -284,7 +304,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     step_name = step_dir.name
     effective_title = f"{args.title} | {step_name}" if args.title else step_name
     var_label = args.var_label or args.var_col
-    var_title = f"{var_label} ({args.var_units})" if args.var_units else var_label
+    var_title = _pretty_var_title(args.var_col, args.var_label, args.var_units)
 
     for fname in point_files:
         ol_series: Optional[pd.Series] = None

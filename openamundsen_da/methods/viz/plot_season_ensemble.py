@@ -603,9 +603,19 @@ def plot_season_results(
     out_root = season_dir / "plots" / "results"
     out_root.mkdir(parents=True, exist_ok=True)
     season_id = _season_id_from_dir(season_dir)
-    var_title = var_label or var_col
-    if var_units:
-        var_title = f"{var_title} ({var_units})"
+    # Friendly default titles with units for common vars
+    vv = (var_col or "").strip().lower()
+    if not var_label and not var_units:
+        if vv == "swe":
+            var_title = "snow water equivalent [mm]"
+        elif vv in ("snow_depth", "snowdepth", "hs"):
+            var_title = "snow depth [m]"
+        else:
+            var_title = vv.replace("_", " ")
+    else:
+        var_title = var_label or var_col
+        if var_units:
+            var_title = f"{var_title} [{var_units}]"
     stations_df = _load_stations_table_from_steps(steps)
     member_label_map = _build_member_label_map(steps)
 

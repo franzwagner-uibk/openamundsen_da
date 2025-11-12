@@ -200,12 +200,11 @@ def rejuvenate(
         # Copy stations.csv unchanged
         (tgt_meteo / "stations.csv").write_bytes(stations_csv.read_bytes())
 
-        # Copy state pointer if present (support root or results location)
+        # Copy state pointer if present (support root or results location) -> write only to member root in next step
         post_ptr_root = post_member / STATE_POINTER_JSON
         post_ptr_results = default_results_dir(post_member) / STATE_POINTER_JSON
         post_ptr = post_ptr_root if post_ptr_root.exists() else post_ptr_results
         if post_ptr.exists():
-            # Place pointer at member root in the next step
             (tgt_member / STATE_POINTER_JSON).write_text(post_ptr.read_text(encoding="utf-8"), encoding="utf-8")
             copied_pointers += 1
 

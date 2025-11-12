@@ -37,6 +37,15 @@ examples/test-project/
 - Use forward slashes for in-container paths (`/workspace`, `/data`).
 - Prefer `--backend SVG` for plots on all platforms.
 
+### Warm Start Policy (Strict)
+
+- Step 00 (first step): always cold start; no state is read. A fresh model state is saved at the end of the run for each member.
+- Steps ≥ 01: always warm start; restart is mandatory. The runner reads a single pointer file at member root:
+  - `<step>/ensembles/prior/<member>/state_pointer.json` with a JSON object: `{ "path": "/data/.../model_state.pickle.gz" }`.
+  - Only this pointer is used. Local files under `results/` are ignored to avoid ambiguity.
+  - If the pointer is missing/corrupt or the target file fails integrity, the run aborts (no silent cold starts).
+- Rejuvenation writes the pointer into the next step’s prior member root. Pointers should use absolute Linux paths inside the container (start with `/data/`).
+
 ## Theory Primer (Very Short)
 
 - Prior: An ensemble represents p(x_t) via N members created by perturbing forcings.

@@ -178,11 +178,12 @@ def _format_member_label(member_name: str, pert: Tuple[Optional[float], Optional
 
 
 def _build_member_label_map(steps: Sequence[StepInfo]) -> Dict[str, str]:
-    """Build member label map from the first step that provides INFO.txt; fallback to names."""
-    for st in steps:
-        perts = _read_member_perturbations(st.path)
-        if perts:
-            return {name: _format_member_label(name, perts.get(name, (None, None))) for name in perts}
+    """Return empty map to avoid ambiguous labels across steps.
+
+    Season plots span multiple steps; rejuvenation can change perturbations per
+    step, so embedding (dT, f_p) in labels becomes misleading. We therefore use
+    plain member names in legends for season plots.
+    """
     return {}
 
 

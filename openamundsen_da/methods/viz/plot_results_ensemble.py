@@ -244,7 +244,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     p.add_argument("--band-high", type=float, default=DEFAULT_BAND_HIGH)
     p.add_argument("--title", default="Model Results Ensemble")
     p.add_argument("--subtitle", default="")
-    p.add_argument("--output-dir", type=Path, help="Output directory (default: <step>/assim/plots/results)")
+    p.add_argument("--output-dir", type=Path, help="Output directory (default: <step>/plots/results)")
     p.add_argument("--backend", default="Agg")
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(list(argv) if argv is not None else None)
@@ -283,7 +283,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
     pert_map = _read_member_perturbations(step_dir, args.ensemble)
     stations_df = _load_stations_table(step_dir, args.ensemble)
-    out_root = args.output_dir if args.output_dir else (step_dir / "assim" / "plots" / "results")
+    out_root = args.output_dir if args.output_dir else (step_dir / "plots" / "results")
     step_name = step_dir.name
     effective_title = f"{args.title} | {step_name}" if args.title else step_name
     var_label = args.var_label or args.var_col

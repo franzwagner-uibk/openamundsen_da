@@ -266,7 +266,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     p.add_argument("--hydro-day", type=int, default=1)
     p.add_argument("--title", default="Forcing Ensemble")
     p.add_argument("--subtitle", default="")
-    p.add_argument("--output-dir", type=Path, help="Output directory (default: <step>/assim/plots/forcing)")
+    p.add_argument("--output-dir", type=Path, help="Output directory (default: <step>/plots/forcing)")
     p.add_argument("--backend", default="Agg")
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(list(argv) if argv is not None else None)
@@ -315,7 +315,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     # Member perturbation labels for legend (if INFO.txt present)
     pert_labels: Dict[str, Tuple[Optional[float], Optional[float]]] = _read_member_perturbations(Path(args.step_dir), args.ensemble)
 
-    out_root = args.output_dir if args.output_dir else (Path(args.step_dir) / "assim" / "plots" / "forcing")
+    out_root = args.output_dir if args.output_dir else (Path(args.step_dir) / "plots" / "forcing")
     stations_df = _load_stations_table(Path(args.step_dir), args.ensemble)
     step_name = Path(args.step_dir).name
     effective_title = f"{args.title} | {step_name}" if args.title else step_name

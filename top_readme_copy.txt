@@ -72,7 +72,7 @@ docker compose run --rm oa `
   --rolling 1 `
   --title "Model Results Ensemble (prior)" `
   --backend SVG `
-  --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/results
+  --output-dir /data/propagation/season_2017-2018/step_00_init/plots/results
 ```
 
 Minimal files and keys used by the workflow.

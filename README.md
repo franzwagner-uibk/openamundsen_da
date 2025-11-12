@@ -81,7 +81,7 @@ docker compose run --rm oa `
   --rolling 1 `
   --title "Model Results Ensemble (prior)" `
   --backend SVG `
-  --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/results
+  --output-dir /data/propagation/season_2017-2018/step_00_init/plots/results
 ```
 
 Minimal files and keys used by the workflow.
@@ -281,7 +281,7 @@ docker compose run --rm oa `
   --rolling 1 `
   --title "Model Results Ensemble (prior)" `
   --backend SVG `
-  --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/results
+  --output-dir /data/propagation/season_2017-2018/step_00_init/plots/results
 ```
 
 Notes
@@ -469,7 +469,7 @@ docker compose run --rm oa `
   --rolling 1 `
   --title "Forcing Ensemble (prior)" `
   --backend SVG `
-  --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/forcing
+  --output-dir /data/propagation/season_2017-2018/step_00_init/plots/forcing
 ```
 
 - Results per-station (e.g., SWE from point CSVs):
@@ -487,14 +487,14 @@ docker compose run --rm oa `
   --rolling 1 `
   --title "Model Results Ensemble (prior)" `
   --backend SVG `
-  --output-dir /data/propagation/season_2017-2018/step_00_init/assim/plots/results
+  --output-dir /data/propagation/season_2017-2018/step_00_init/plots/results
 ```
 
 - Results module details (`openamundsen_da/methods/viz/plot_results_ensemble.py`):
   - Scans `<step>/ensembles/<ensemble>/{open_loop,member_XXX}/results/point*/*.csv`.
   - Expects a datetime column (default `time`) and one variable column (e.g., `swe` or `hs`).
   - Options: `--resample` (pandas rule), `--rolling` (samples), `--start-date/--end-date`.
-  - Outputs one PNG per station into `--output-dir` (default: `<step>/assim/plots/results`).
+  - Outputs one PNG per station into `--output-dir` (default: `<step>/plots/results`).
   - Uses ensemble mean and 5â€“95% band; overlays open_loop if available.
 
 ### Help (no install needed)

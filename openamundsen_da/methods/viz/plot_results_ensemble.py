@@ -186,9 +186,7 @@ def _plot_point_station(
     for series, label in zip(mem_series, mem_labels):
         ax.plot(series.index, series.values, lw=LW_MEMBER, alpha=0.9, label=label)
 
-    mean, lo, hi = envelope(mem_series, q_low=band_low, q_high=band_high)
-    if not mean.empty:
-        ax.plot(mean.index, mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
+    # Removed ensemble mean line
 
     if open_loop is not None and _series_has_data(open_loop):
         ax.plot(open_loop.index, open_loop.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open loop", zorder=5)

@@ -512,7 +512,7 @@ docker compose run --rm oa `
   - Expects a datetime column (default `time`) and one variable column (e.g., `swe` or `hs`).
   - Options: `--resample` (pandas rule), `--rolling` (samples), `--start-date/--end-date`.
   - Outputs one PNG per station into `--output-dir` (default: `<step>/plots/results`).
-  - Uses ensemble mean; overlays open_loop if available.
+  - Overlays open_loop if available (members only otherwise).
 
 ### Help (no install needed)
 

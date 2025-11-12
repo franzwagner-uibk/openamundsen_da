@@ -450,8 +450,7 @@ def plot_season_forcing(
         for s, lbl in zip(member_series_temp, member_labels_temp):
             ax.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.9, label=lbl)
         mean, lo, hi = envelope(member_series_temp, q_low=0.05, q_high=0.95)
-        if not mean.empty:
-            ax.plot(mean.index, mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
+        # Removed ensemble mean line
         if open_loop_temp:
             ol = concat_series(open_loop_temp)
             if not ol.empty:
@@ -470,8 +469,7 @@ def plot_season_forcing(
         for s in mem_cum:
             ax.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.9)
         mean, lo, hi = envelope(mem_cum, q_low=0.05, q_high=0.95)
-        if not mean.empty:
-            ax.plot(mean.index, mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
+        # Removed ensemble mean line
         if open_loop_prec:
             olp = concat_series(open_loop_prec)
             if not olp.empty:
@@ -689,8 +687,7 @@ def plot_season_results(
             if not ss.empty:
                 mem_for_env.append(ss)
         mean, lo, hi = envelope(mem_for_env, q_low=band_low, q_high=band_high)
-        if not mean.empty:
-            ax.plot(mean.index, mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
+        # Removed ensemble mean line
 
         if open_loop:
             ol = concat_series(open_loop)

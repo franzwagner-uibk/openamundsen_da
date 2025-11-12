@@ -334,15 +334,14 @@ def _state_output_name(pattern: str) -> str:
 
 
 def _resolve_state_file(results_dir: Path, pattern: str) -> Path | None:
-    # 1) Direct match or glob within results_dir
-    p = results_dir / pattern
-    if p.exists() and p.is_file():
-        return p
-    matches = list(results_dir.glob(pattern))
-    if matches:
-        matches.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-        return matches[0]
-    # 2) Pointer-based resolution: read STATE_POINTER_JSON for external path
+    """Resolve a restart state file path with safe precedence.
+
+    Precedence (to avoid using stale local states):
+    1) Pointer file under results_dir (STATE_POINTER_JSON)
+    2) Pointer file at member root (parent directory)
+    3) Direct match or glob within results_dir by pattern
+    """
+    # 1) Pointer in results_dir
     try:
         ptr = results_dir / STATE_POINTER_JSON
         if ptr.exists():
@@ -352,13 +351,13 @@ def _resolve_state_file(results_dir: Path, pattern: str) -> Path | None:
             if target:
                 q = Path(target)
                 if not q.is_absolute():
-                    # Resolve relative to results_dir
                     q = (results_dir / q).resolve()
                 if q.exists() and q.is_file():
                     return q
     except Exception:
         pass
-    # 3) Also support pointer at member root (parent directory)
+
+    # 2) Pointer at member root
     try:
         import json
         root_ptr = results_dir.parent / STATE_POINTER_JSON
@@ -373,6 +372,15 @@ def _resolve_state_file(results_dir: Path, pattern: str) -> Path | None:
                     return q
     except Exception:
         pass
+
+    # 3) Local file in results_dir
+    p = results_dir / pattern
+    if p.exists() and p.is_file():
+        return p
+    matches = list(results_dir.glob(pattern))
+    if matches:
+        matches.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        return matches[0]
     return None
 
 

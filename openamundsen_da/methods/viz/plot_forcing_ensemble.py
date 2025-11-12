@@ -195,7 +195,7 @@ def _plot_station(
         lbl = member_labels[i] if member_labels and i < len(member_labels) else None
         ax0.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.85, label=lbl)
     if not t_mean.empty:
-        ax0.fill_between(t_mean.index, t_lo, t_hi, color=COLOR_MEAN, alpha=BAND_ALPHA, linewidth=0)
+        # Removed ensemble band fill; keep mean line only
         ax0.plot(t_mean.index, t_mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
     if ol_df is not None and temp_col in ol_df.columns:
         ax0.plot(ol_df.index, ol_df[temp_col], color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open_loop")
@@ -215,7 +215,7 @@ def _plot_station(
                 lbl = member_labels[i] if member_labels and i < len(member_labels) else None
                 ax1.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.85, label=lbl)
         if not p_mean.empty:
-            ax1.fill_between(p_mean.index, p_lo, p_hi, color=COLOR_MEAN, alpha=BAND_ALPHA, linewidth=0)
+            # Removed ensemble band fill; keep mean line only
             ax1.plot(p_mean.index, p_mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
         if ol_df is not None and precip_col in ol_df.columns:
             s = cumulative_hydro(ol_df[precip_col], hydro_m, hydro_d)

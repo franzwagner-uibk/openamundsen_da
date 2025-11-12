@@ -1,4 +1,4 @@
-# openamundsen_da - Data Assimilation for openAMUNDSEN
+﻿# openamundsen_da - Data Assimilation for openAMUNDSEN
 
 Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF) with a particle filter. This README is Docker-only to ensure copy/pasteable, platform-independent usage on Windows/macOS/Linux.
 
@@ -40,11 +40,11 @@ examples/test-project/
 ### Warm Start Policy (Strict)
 
 - Step 00 (first step): always cold start; no state is read. A fresh model state is saved at the end of the run for each member.
-- Steps ≥ 01: always warm start; restart is mandatory. The runner reads a single pointer file at member root:
+- Steps â‰¥ 01: always warm start; restart is mandatory. The runner reads a single pointer file at member root:
   - `<step>/ensembles/prior/<member>/state_pointer.json` with a JSON object: `{ "path": "/data/.../model_state.pickle.gz" }`.
   - Only this pointer is used. Local files under `results/` are ignored to avoid ambiguity.
   - If the pointer is missing/corrupt or the target file fails integrity, the run aborts (no silent cold starts).
-- Rejuvenation writes the pointer into the next step’s prior member root. Pointers should use absolute Linux paths inside the container (start with `/data/`).
+- Rejuvenation writes the pointer into the next stepâ€™s prior member root. Pointers should use absolute Linux paths inside the container (start with `/data/`).
 
 ## Theory Primer (Very Short)
 
@@ -159,10 +159,10 @@ cp .env.example .env      # Linux/macOS
 
 - Edit `.env` and set:
 
-  - `REPO` → absolute path to this repo on your machine
-  - `PROJ` → absolute path to your project data (the example uses `examples/test-project`)
-  - `CPUS`, `MEMORY` → per-container limits (keep within your VM/global limits)
-  - `MAX_WORKERS` → parallel openAMUNDSEN runs inside the container
+  - `REPO` â†’ absolute path to this repo on your machine
+  - `PROJ` â†’ absolute path to your project data (the example uses `examples/test-project`)
+  - `CPUS`, `MEMORY` â†’ per-container limits (keep within your VM/global limits)
+  - `MAX_WORKERS` â†’ parallel openAMUNDSEN runs inside the container
 
 - Enable Compose compatibility so limits apply without Swarm:
 
@@ -188,7 +188,7 @@ swap=16GB
 localhostForwarding=true
 ```
 
-Apply by quitting Docker Desktop → `wsl --shutdown` → start Docker Desktop. Verify:
+Apply by quitting Docker Desktop â†’ `wsl --shutdown` â†’ start Docker Desktop. Verify:
 
 ```
 wsl -d docker-desktop grep -i memtotal /proc/meminfo   # ~25 GB
@@ -228,7 +228,7 @@ $env:MAX_WORKERS=2; $env:MEMORY="20g"; docker compose run --rm oa `
 
 Notes
 
-- Volumes: `${REPO}` → `/workspace` (source), `${PROJ}` → `/data` (project root in commands)
+- Volumes: `${REPO}` â†’ `/workspace` (source), `${PROJ}` â†’ `/data` (project root in commands)
 - Resource limits are set via `deploy.resources.limits` in `compose.yml` and applied when `COMPOSE_COMPATIBILITY=1` is set.
 - `compose.yml` pins numerical library threads to 1 per worker to avoid oversubscription.
 - This service has no default command. Always append the command you want to run, as shown above.
@@ -376,7 +376,7 @@ Methods:
 
 Recommended usage (all members)
 
-- Most users should run the all‑members assimilation command, which computes H(x) for every member and produces the weights CSV. Internally, it calls the single‑member H(x) for each member.
+- Most users should run the allâ€‘members assimilation command, which computes H(x) for every member and produces the weights CSV. Internally, it calls the singleâ€‘member H(x) for each member.
 
 ```
 docker compose run --rm oa `
@@ -388,9 +388,9 @@ docker compose run --rm oa `
   --aoi /data/env/GMBA_Inventory_L8_15422.gpkg
 ```
 
-Single‑member (debugging and tuning)
+Singleâ€‘member (debugging and tuning)
 
-- The single‑member tool is intended for quick checks (paths/CRS/AOI), troubleshooting, or tuning `h0`/`k`. It requires a specific member’s `results` directory.
+- The singleâ€‘member tool is intended for quick checks (paths/CRS/AOI), troubleshooting, or tuning `h0`/`k`. It requires a specific memberâ€™s `results` directory.
 
 ```
 docker compose run --rm oa `
@@ -512,7 +512,7 @@ docker compose run --rm oa `
   - Expects a datetime column (default `time`) and one variable column (e.g., `swe` or `hs`).
   - Options: `--resample` (pandas rule), `--rolling` (samples), `--start-date/--end-date`.
   - Outputs one PNG per station into `--output-dir` (default: `<step>/plots/results`).
-  - Uses ensemble mean and 5â€“95% band; overlays open_loop if available.
+  - Uses ensemble mean; overlays open_loop if available.
 
 ### Help (no install needed)
 
@@ -604,7 +604,7 @@ When to skip resampling
 - High ESS (near N) means weights are close to uniform; resampling would duplicate/drop members needlessly and can reduce diversity (particle impoverishment).
 - Skipping avoids injecting Monte Carlo noise when the observation is weak or only mildly informative; the posterior effectively equals the prior.
 - Efficiency and reproducibility: mirroring is fast and deterministic; the tool still writes indices and a manifest for traceability.
-- Practical thresholds: choose `--ess-threshold-ratio` in 0.5–0.67. With N members and ratio r, the absolute threshold is r·N; the tool skips when `ESS >= r·N`.
+- Practical thresholds: choose `--ess-threshold-ratio` in 0.5â€“0.67. With N members and ratio r, the absolute threshold is rÂ·N; the tool skips when `ESS >= rÂ·N`.
 - To force resampling: raise the ratio above ESS/N, or pass `--ess-threshold 0` to always resample.
 
 ## Warm Start (Restart)
@@ -638,16 +638,16 @@ not present in a member's `results/`, it will read `state_pointer.json` at the
 member root (or `results/state_pointer.json` for backward compatibility) to
 locate the external state file.
 
-## Rejuvenation (Posterior → Prior for Next Step)
+## Rejuvenation (Posterior â†’ Prior for Next Step)
 
 Create a rejuvenated prior ensemble for the next step by adding light
 perturbations to meteo and carrying forward the saved state via a pointer.
 
 Modes
 
-- Compound (default): perturb the resampled source member’s meteo again for the
+- Compound (default): perturb the resampled source memberâ€™s meteo again for the
   next window (adds small diversity on top of the prior perturbation).
-- Rebase: ignore the source member’s prior perturbation and perturb the
+- Rebase: ignore the source memberâ€™s prior perturbation and perturb the
   open_loop meteo for the next window (no compounding).
 
 Configure in `project.yml` under `data_assimilation.rejuvenation`:
@@ -692,7 +692,7 @@ Behavior
 
 Notes
 
-- Runner looks for `state_pattern` inside each member’s `results` dir. If it contains wildcards, it picks the newest match.
+- Runner looks for `state_pattern` inside each memberâ€™s `results` dir. If it contains wildcards, it picks the newest match.
 - Current implementation supports gzip+pickle files (e.g., `*.pickle.gz`). Support for zip-based states can be added once the file format is confirmed.
 
 ## Troubleshooting

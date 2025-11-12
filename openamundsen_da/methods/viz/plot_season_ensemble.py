@@ -450,7 +450,6 @@ def plot_season_forcing(
             ax.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.9, label=lbl)
         mean, lo, hi = envelope(member_series_temp, q_low=0.05, q_high=0.95)
         if not mean.empty:
-            ax.fill_between(mean.index, lo.values, hi.values, color=COLOR_MEAN, alpha=BAND_ALPHA, linewidth=0, label="ensemble band")
             ax.plot(mean.index, mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
         if open_loop_temp:
             ol = concat_series(open_loop_temp)
@@ -471,7 +470,6 @@ def plot_season_forcing(
             ax.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.9)
         mean, lo, hi = envelope(mem_cum, q_low=0.05, q_high=0.95)
         if not mean.empty:
-            ax.fill_between(mean.index, lo.values, hi.values, color=COLOR_MEAN, alpha=BAND_ALPHA, linewidth=0, label="ensemble band")
             ax.plot(mean.index, mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
         if open_loop_prec:
             olp = concat_series(open_loop_prec)
@@ -691,7 +689,6 @@ def plot_season_results(
                 mem_for_env.append(ss)
         mean, lo, hi = envelope(mem_for_env, q_low=band_low, q_high=band_high)
         if not mean.empty:
-            ax.fill_between(mean.index, lo.values, hi.values, color=COLOR_MEAN, alpha=BAND_ALPHA, linewidth=0, label="ensemble band")
             ax.plot(mean.index, mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
 
         if open_loop:

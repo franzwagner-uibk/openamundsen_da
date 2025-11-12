@@ -188,7 +188,6 @@ def _plot_point_station(
 
     mean, lo, hi = envelope(mem_series, q_low=band_low, q_high=band_high)
     if not mean.empty:
-        ax.fill_between(mean.index, lo.values, hi.values, color=COLOR_MEAN, alpha=BAND_ALPHA, linewidth=0, label="ensemble band")
         ax.plot(mean.index, mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean")
 
     if open_loop is not None and _series_has_data(open_loop):

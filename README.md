@@ -596,6 +596,14 @@ Notes
 - Manifest also reports ESS, N, threshold, and the mapping CSV; uniqueness stats are logged by the CLI.
 - Thresholds: you can specify `--ess-threshold-ratio` in (0,1] to resample when ESS < ratio\*N (e.g., 0.5 for 50%). If you pass `--ess-threshold` in (0,1], it is treated as a ratio; otherwise as an absolute count. In `project.yml`, set either `data_assimilation.resampling.ess_threshold_ratio` (preferred) or `data_assimilation.resampling.ess_threshold`. For backward compatibility, a top-level `resampling` block is also recognized.
 
+When to skip resampling
+
+- High ESS (near N) means weights are close to uniform; resampling would duplicate/drop members needlessly and can reduce diversity (particle impoverishment).
+- Skipping avoids injecting Monte Carlo noise when the observation is weak or only mildly informative; the posterior effectively equals the prior.
+- Efficiency and reproducibility: mirroring is fast and deterministic; the tool still writes indices and a manifest for traceability.
+- Practical thresholds: choose `--ess-threshold-ratio` in 0.5–0.67. With N members and ratio r, the absolute threshold is r·N; the tool skips when `ESS >= r·N`.
+- To force resampling: raise the ratio above ESS/N, or pass `--ess-threshold 0` to always resample.
+
 ## Warm Start (Restart)
 
 Use saved model state from the end of a run as the initial state for the next step.

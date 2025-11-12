@@ -45,6 +45,7 @@ from openamundsen_da.core.constants import (
     DEFAULT_PRECIP_COL,
     MEMBER_PREFIX,
     STATE_POINTER_JSON,
+    STATE_DEFAULT_NAME,
     MEMBER_SOURCE_POINTER,
     LOGURU_FORMAT,
 )
@@ -218,6 +219,12 @@ def rejuvenate(
         })
         logger.info("[{m}] dT={dt:+.3f} f_p={fp:.3f} state_ptr={sp} rebase={rb}", m=member_name, dt=dT, fp=fP, sp=bool(post_ptr.exists()), rb=bool(effective_rebase))
 
+    # Also prepare open_loop for the next step and copy state pointer
+    try:
+        _copy_open_loop_to_next(Path(prev_step_dir), Path(next_step_dir), start=start, end=end)
+    except Exception as e:
+        logger.warning("Could not prepare open_loop for next step: {}", e)
+
     out_dir = Path(next_step_dir) / "assim"
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = {
@@ -234,6 +241,55 @@ def rejuvenate(
     (out_dir / "rejuvenate_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     return {"members": len(rows), "copied_state_pointers": copied_pointers}
+
+
+def _copy_open_loop_to_next(
+    prev_step_dir: Path,
+    next_step_dir: Path,
+    *,
+    start: "pd.Timestamp",
+    end: "pd.Timestamp",
+) -> None:
+    """Prepare next-step open_loop meteo and write a state pointer.
+
+    - Filters previous step open_loop meteo to [start..end] and writes into
+      next step prior open_loop/meteo.
+    - Writes next step prior open_loop/STATE_POINTER_JSON pointing to the
+      previous step open_loop state file.
+    """
+    prev_ol = open_loop_dir(prev_step_dir)
+    next_ol = open_loop_dir(next_step_dir)
+
+    met_prev = prev_ol / "meteo"
+    met_next = next_ol / "meteo"
+    met_next.mkdir(parents=True, exist_ok=True)
+
+    stations_csv = met_prev / "stations.csv"
+    if stations_csv.exists():
+        (met_next / "stations.csv").write_bytes(stations_csv.read_bytes())
+
+    for src in sorted(met_prev.glob("*.csv")):
+        if src.name.lower() == "stations.csv":
+            continue
+        df = pd.read_csv(src)
+        time_col = DEFAULT_TIME_COL if DEFAULT_TIME_COL in df.columns else ("time" if "time" in df.columns else None)
+        if time_col is not None:
+            t = pd.to_datetime(df[time_col], errors="coerce")
+            mask = (t >= start) & (t <= end)
+            df = df.loc[mask].copy()
+        (met_next / src.name).write_text(df.to_csv(index=False))
+
+    # Copy a pointer to the previous step's open_loop state file
+    res_prev = prev_ol / "results"
+    cand = res_prev / STATE_DEFAULT_NAME
+    if not cand.exists():
+        picks = sorted(res_prev.glob("*.pickle.gz"), key=lambda p: p.stat().st_mtime, reverse=True)
+        cand = picks[0] if picks else None
+    if cand and cand.exists():
+        next_ol.mkdir(parents=True, exist_ok=True)
+        (next_ol / STATE_POINTER_JSON).write_text(
+            json.dumps({"path": str(cand.resolve())}, indent=2), encoding="utf-8"
+        )
 
 
 def cli_main(argv: Iterable[str] | None = None) -> int:

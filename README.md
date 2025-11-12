@@ -313,6 +313,11 @@ docker compose run --rm oa `  python -m openamundsen_da.core.launch`
 
 ```
 
+Notes
+
+- The launcher also runs the `open_loop` alongside `member_*` so a continuous, unperturbed reference is produced for each step under `<step>/ensembles/prior/open_loop/results`.
+- For steps after the first, the open loop is warm-started via a state pointer created during rejuvenation.
+
 ### Observation Processing
 
 Context

@@ -85,6 +85,15 @@ def _discover_members(
 
     member_root = step_dir / "ensembles"
     members = list_member_dirs(member_root, ensemble=ensemble)
+    # Always include open_loop as the first runnable unit when present
+    try:
+        from openamundsen_da.io.paths import open_loop_dir as _ol_dir
+        ol = _ol_dir(step_dir)
+        if ol.is_dir():
+            members = [ol] + members
+    except Exception:
+        # best-effort; if helper not available, continue with members only
+        pass
     if not members:
         raise RuntimeError(
             f"No members found for ensemble='{ensemble}' under {member_root / ensemble}"

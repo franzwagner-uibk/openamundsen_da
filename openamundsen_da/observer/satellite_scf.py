@@ -62,6 +62,46 @@ def _read_step_config(step_dir: Path) -> dict:
     return read_step_config(step_dir)
 
 
+def _parse_dt_opt(text: str | None) -> datetime | None:
+    if not text:
+        return None
+    t = str(text).strip().replace("_", "-")
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(t, fmt)
+        except Exception:
+            continue
+    try:
+        return datetime.fromisoformat(t)
+    except Exception:
+        return None
+
+
+def _find_step_for_date(season_dir: Path, dt: datetime) -> Path | None:
+    """Return the step directory under season_dir whose window contains dt.
+
+    Preference: start <= dt <= end. If none, prefer a step whose end == dt.
+    Returns None if no suitable step windows could be parsed.
+    """
+    candidates: list[tuple[Path, datetime | None, datetime | None]] = []
+    for p in sorted(season_dir.glob("step_*")):
+        if not p.is_dir():
+            continue
+        cfg = _read_step_config(p) or {}
+        sd = _parse_dt_opt(str(cfg.get("start_date")))
+        ed = _parse_dt_opt(str(cfg.get("end_date")))
+        candidates.append((p, sd, ed))
+    # First pass: containment
+    for p, sd, ed in candidates:
+        if sd is not None and ed is not None and sd <= dt <= ed:
+            return p
+    # Second pass: exact end match
+    for p, _sd, ed in candidates:
+        if ed is not None and ed.date() == dt.date():
+            return p
+    return None
+
+
 def _compute_scf(arr: np.ma.MaskedArray, threshold: float) -> tuple[int, int, float]:
     """Compute N_valid, N_snow, SCF given a masked NDSI array and threshold.
 
@@ -194,13 +234,28 @@ def cli_main(argv: list[str] | None = None) -> int:
     out_csv: Path | None = args.output
 
     if args.step_dir and out_csv is None:
-        # Derive output path under <step_dir>/obs with date from raster name
+        # Derive output path; if the provided step looks like an init step or a
+        # season root, try to route to the concrete step window that contains the date.
         dt = _extract_yyyymmdd(Path(args.raster))
-        out_dir = Path(args.step_dir) / OBS_DIR_NAME
+        step_dir = Path(args.step_dir)
+        target_step = None
+        # If the given path is a season root (contains step_*), auto-select
+        if any(step_dir.glob("step_*")):
+            target_step = _find_step_for_date(step_dir, dt)
+        else:
+            # Try sibling step under the same season if name suggests an init placeholder
+            if step_dir.name.endswith("_init") and step_dir.parent.is_dir():
+                target_step = _find_step_for_date(step_dir.parent, dt)
+        if target_step is None:
+            target_step = step_dir
+        if target_step != step_dir:
+            logger.info("Routing SCF output to '{}' for date {} (was given '{}')", target_step.name, dt.strftime("%Y-%m-%d"), step_dir.name)
+
+        out_dir = target_step / OBS_DIR_NAME
         out_csv = out_dir / f"obs_scf_MOD10A1_{dt.strftime('%Y%m%d')}.csv"
 
-        # Load SCF overrides from step YAML
-        cfg = _read_step_config(Path(args.step_dir))
+        # Load SCF overrides from the target step YAML (if available)
+        cfg = _read_step_config(target_step)
         scf_cfg = (cfg or {}).get(SCF_BLOCK) or {}
         ndsi_thr = float(scf_cfg.get(SCF_NDSI_THRESHOLD, ndsi_thr))
         region_field = str(scf_cfg.get(SCF_REGION_ID_FIELD, region_field))

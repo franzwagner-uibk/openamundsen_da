@@ -371,9 +371,23 @@ Methods:
 - depth_threshold (deterministic): indicator on X > h0, SCF = mean(I).
 - logistic (probabilistic): p = 1/(1+exp(-k\*(X - h0))), SCF = mean(p).
 
+Recommended usage (all members)
+
+- Most users should run the all‑members assimilation command, which computes H(x) for every member and produces the weights CSV. Internally, it calls the single‑member H(x) for each member.
+
+```
+docker compose run --rm oa `
+  python -m openamundsen_da.methods.pf.assimilate_scf `
+  --project-dir /data `
+  --step-dir /data/propagation/season_2017-2018/step_00_init `
+  --ensemble prior `
+  --date 2018-01-10 `
+  --aoi /data/env/GMBA_Inventory_L8_15422.gpkg
 ```
 
-Compose equivalent:
+Single‑member (debugging and tuning)
+
+- The single‑member tool is intended for quick checks (paths/CRS/AOI), troubleshooting, or tuning `h0`/`k`. It requires a specific member’s `results` directory.
 
 ```
 docker compose run --rm oa `

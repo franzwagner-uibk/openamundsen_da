@@ -8,8 +8,10 @@ members, then evaluates log-likelihoods and normalized weights. Outputs a CSV
 with per-member weights and summary stats (ESS).
 
 Configuration
-- Reads optional defaults from the step YAML (h_of_x block) and project.yml
-  (likelihood block). Falls back to sensible defaults if missing.
+- H(x) configuration is read from project.yml (data_assimilation.h_of_x).
+  Falls back to a step YAML h_of_x block if not set in project.yml.
+- Likelihood configuration is read from project.yml (likelihood block).
+  Falls back to sensible defaults if missing.
 
 Logging
 - Uses loguru with a green timestamp format defined in constants.LOGURU_FORMAT.
@@ -29,6 +31,7 @@ from loguru import logger
 
 from openamundsen_da.core.constants import (
     LOGURU_FORMAT,
+    DA_BLOCK,
     LIKELIHOOD_BLOCK,
     LIK_OBS_SIGMA,
     LIK_USE_BINOMIAL,
@@ -67,6 +70,30 @@ def _read_step_hofx(step_dir: Path) -> tuple[str, str, SCFParams]:
         variable = str(hofx.get(HOFX_VARIABLE, "hs"))
         params = SCFParams()
         p = (hofx.get(HOFX_PARAMS) or {})
+        if HOFX_PARAM_H0 in p:
+            params.h0 = float(p[HOFX_PARAM_H0])
+        if HOFX_PARAM_K in p:
+            params.k = float(p[HOFX_PARAM_K])
+        return method, variable, params
+    except Exception:
+        return "depth_threshold", "hs", SCFParams()
+
+
+def _read_hofx_from_project(project_dir: Path) -> tuple[str, str, SCFParams]:
+    """Read H(x) configuration from project.yml.
+
+    Looks under data_assimilation.h_of_x, with a fallback to top-level h_of_x
+    for backward compatibility. Returns defaults if not found or on error.
+    """
+    try:
+        proj = find_project_yaml(project_dir)
+        cfg = _read_yaml_file(proj) or {}
+        da = cfg.get(DA_BLOCK, {}) if isinstance(cfg, dict) else {}
+        hofx = da.get(HOFX_BLOCK) or cfg.get(HOFX_BLOCK) or {}
+        method = str(hofx.get(HOFX_METHOD, "depth_threshold"))
+        variable = str(hofx.get(HOFX_VARIABLE, "hs"))
+        params = SCFParams()
+        p = (hofx.get(HOFX_PARAMS) or {}) if isinstance(hofx, dict) else {}
         if HOFX_PARAM_H0 in p:
             params.h0 = float(p[HOFX_PARAM_H0])
         if HOFX_PARAM_K in p:
@@ -150,7 +177,10 @@ def assimilate_scf_for_date(
     member_id, scf_model, scf_obs, residual, sigma, log_weight, weight
     """
     # Read config blocks
-    method, variable, hofx_params = _read_step_hofx(step_dir)
+    # H(x): prefer project-level configuration; fallback to step YAML if missing
+    method, variable, hofx_params = _read_hofx_from_project(project_dir)
+    if method is None or variable is None or hofx_params is None:  # defensive
+        method, variable, hofx_params = _read_step_hofx(step_dir)
     lk = _read_likelihood_from_project(project_dir)
 
     # Read observation

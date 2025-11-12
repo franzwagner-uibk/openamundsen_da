@@ -205,7 +205,6 @@ docker compose run --rm oa `
   --season-dir /data/propagation/season_2017-2018 `
   --step-dir /data/propagation/season_2017-2018/step_00_init `
   --ensemble prior `
-  --dump-state `
   --max-workers 4 `
   --log-level INFO
 ```
@@ -220,7 +219,6 @@ $env:MAX_WORKERS=2; $env:MEMORY="20g"; docker compose run --rm oa `
     --season-dir /data/propagation/season_2017-2018 `
     --step-dir /data/propagation/season_2017-2018/step_00_init `
     --ensemble prior `
-    --dump-state `
     --max-workers $env:MAX_WORKERS `
     --log-level INFO
 
@@ -309,7 +307,7 @@ Launch openAMUNDSEN for all members of an ensemble (e.g., prior). Results land i
 docker compose run --rm oa `  python -m openamundsen_da.core.launch`
 --project-dir /data `  --season-dir /data/propagation/season_2017-2018`
 --step-dir /data/propagation/season_2017-2018/step_00_init `  --ensemble prior`
---dump-state `  --max-workers 2`
+--max-workers 2`
 --log-level INFO `
 --overwrite
 
@@ -627,7 +625,6 @@ docker compose run --rm oa `
   --season-dir /data/propagation/season_2017-2018 `
   --step-dir /data/propagation/season_2017-2018/step_01_20180110-20180316 `
   --ensemble prior `
-  --dump-state `
   --max-workers 4 `
   --log-level INFO
 

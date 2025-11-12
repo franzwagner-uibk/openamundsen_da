@@ -501,14 +501,15 @@ def plot_season_forcing(
             subtitle = f"({st_alt:.0f} m)"
         else:
             subtitle = token
-        fig.text(0.5, 0.97, title, ha="center", va="top", fontsize=12)
-        fig.text(0.5, 0.93, subtitle, ha="center", va="top", fontsize=10, color="#555555")
+        # Move title and subtitle slightly up to create more clearance
+        fig.text(0.5, 0.985, title, ha="center", va="top", fontsize=12)
+        fig.text(0.5, 0.955, subtitle, ha="center", va="top", fontsize=10, color="#555555")
         # Per-assimilation labels centered above the vlines on the top panel
         assim_dates = _assimilation_dates(steps)
         _draw_assim_labels(axes[0], assim_dates)
         # Provide extra vertical space between subtitle and axes for labels
-        # Increase space slightly when many assimilation dates exist
-        top_margin = 0.88 if len(assim_dates) <= 4 else (0.86 if len(assim_dates) <= 8 else 0.84)
+        # Increase space further when many assimilation dates exist
+        top_margin = 0.84 if len(assim_dates) <= 4 else (0.82 if len(assim_dates) <= 8 else 0.80)
         fig.subplots_adjust(top=top_margin)
 
         # Build a clean figure-level legend (avoid per-member clutter)
@@ -717,12 +718,13 @@ def plot_season_results(
         alt_suffix = f" ({st_alt:.0f} m)" if st_alt is not None else ""
         title = f"Season Results | {season_dir.name}"
         subtitle = f"{station_label}{alt_suffix} - {var_title}"
-        fig.text(0.5, 0.97, title, ha="center", va="top", fontsize=12)
-        fig.text(0.5, 0.92, subtitle, ha="center", va="top", fontsize=10, color="#555555")
+        # Move title and subtitle slightly up to create more clearance
+        fig.text(0.5, 0.985, title, ha="center", va="top", fontsize=12)
+        fig.text(0.5, 0.95, subtitle, ha="center", va="top", fontsize=10, color="#555555")
         # Per-assimilation labels centered above the vlines on the results panel
         assim_dates = _assimilation_dates(steps)
         _draw_assim_labels(ax, assim_dates)
-        top_margin = 0.88 if len(assim_dates) <= 4 else (0.86 if len(assim_dates) <= 8 else 0.84)
+        top_margin = 0.84 if len(assim_dates) <= 4 else (0.82 if len(assim_dates) <= 8 else 0.80)
         fig.subplots_adjust(top=top_margin)
 
         handles, labels = ax.get_legend_handles_labels()

@@ -94,7 +94,7 @@ Minimal files and keys used by the workflow.
     - sigma_t: float # temperature additive stddev (degC)
     - mu_p: float # log-space mean for precip factor
     - sigma_p: float # log-space stddev for precip factor
-  - data_assimilation.h_of_x (optional defaults for H(x))
+  - data_assimilation.h_of_x (H(x) configuration used by assimilation)
     - method: depth_threshold | logistic
     - variable: hs | swe
     - params.h0: float
@@ -119,7 +119,7 @@ Minimal files and keys used by the workflow.
   - scf (optional)
     - ndsi_threshold: 40
     - region_id_field: region_id
-  - h_of_x (optional; same keys as in project.yml)
+  - h_of_x (optional fallback; same keys as in project.yml)
 
 - Meteo input (under project meteo dir)
 

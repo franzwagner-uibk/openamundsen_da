@@ -724,7 +724,51 @@ Notes
 - Plots crash or produce no output on Windows:
   - Use `--backend SVG` to avoid backend/DLL issues.
 
-## Plot: Season Ensemble
+## Season Pipeline
+
+- Purpose: run an entire season end‑to‑end across all `step_*` in order.
+- What it does per step:
+  - Runs the ensemble (open_loop + members) with strict cold/warm semantics.
+  - For non‑final steps: assimilates SCF at the next step’s start_date, resamples to posterior, rejuvenates into the next step’s prior (also sets up open_loop pointer/meteo).
+  - Generates season forcing/results plots at the end.
+
+Compose:
+
+```
+docker compose run --rm oa `
+  python -m openamundsen_da.pipeline.season `
+  --project-dir /data `
+  --season-dir /data/propagation/season_2017-2018 `
+  --max-workers 4 `
+  --log-level INFO
+```
+
+Inputs/assumptions
+
+- Season folder contains `step_*` each with `start_date` and `end_date` in its step YAML.
+- `project.yml` defines data assimilation blocks: `prior_forcing`, `likelihood`, `resampling`, `rejuvenation`.
+- AOI exists under `/data/env/*.gpkg|*.shp` (used by assimilation).
+- Observation CSVs (obs_scf_*.csv) exist in each step’s `obs` for the assimilation dates, or create via satellite SCF:
+
+```
+docker compose run --rm oa `
+  python -m openamundsen_da.observer.satellite_scf `
+  --raster /data/obs/season_2017-2018/NDSI_Snow_Cover_YYYYMMDD.tif `
+  --region /data/env/GMBA_Inventory_L8_15422.gpkg `
+  --step-dir /data/propagation/season_2017-2018/step_XX_...
+```
+
+Outputs
+
+- Per-step runs under `<step>/ensembles/{prior,posterior}` (open_loop + member_XXX).
+- Weights and indices under `<step>/assim/weights_scf_*.csv` and `resample_indices_*.csv`.
+- Rejuvenated next-step prior (members + open_loop with state_pointer.json).
+- Season plots under `<season_dir>/plots/{forcing,results}`.
+
+Notes
+
+- The launcher always includes open_loop; assimilation and resampling operate on members only.
+- Warm start is enforced for steps >= 01; state pointers are used (members and open_loop).## Plot: Season Ensemble
 
 Create season-wide plots that stitch all step segments together for a given season. Two modes are available:
 

@@ -1,4 +1,11 @@
 ﻿# openamundsen_da - Data Assimilation for openAMUNDSEN
+Outputs are written to `<season_dir>/plots/forcing` and `<season_dir>/plots/results` and include the season identifier (e.g., `season_results_point_001_swe_2017-2018.png`).
+rejuvenation:
+  # Rejuvenation noise (defaults can match prior_forcing)
+  sigma_t: 0.2
+  sigma_p: 0.2
+
+# openamundsen_da - Data Assimilation for openAMUNDSEN
 
 Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF) with a particle filter. This README is Docker-only to ensure copy/pasteable, platform-independent usage on Windows/macOS/Linux.
 
@@ -233,6 +240,21 @@ Notes
 - `compose.yml` pins numerical library threads to 1 per worker to avoid oversubscription.
 - This service has no default command. Always append the command you want to run, as shown above.
 
+## Project Variables (PowerShell)
+
+Define once per shell and reuse in all commands:
+
+```
+$project = "/data"                                 # in-container project root
+$season  = "$project/propagation/season_2017-2018" # season folder
+$step    = "$season/step_00_init"                  # current step
+$date    = "2018-01-10"                             # assimilation date
+$dateTag = ($date -replace '-', '')
+$aoi     = "$project/env/GMBA_Inventory_L8_15422.gpkg"
+```
+
+Optional flags are listed under each command; examples only show required flags.
+
 ## Workflow and Commands (Docker)
 
 The commands below follow the project framework order: Build Ensemble -> Run Ensemble -> Observation Processing -> H(x) -> Assimilation -> Plots -> General Info.
@@ -381,11 +403,11 @@ Recommended usage (all members)
 ```
 docker compose run --rm oa `
   python -m openamundsen_da.methods.pf.assimilate_scf `
-  --project-dir /data `
-  --step-dir /data/propagation/season_2017-2018/step_00_init `
+  --project-dir $project `
+  --step-dir $step `
   --ensemble prior `
-  --date 2018-01-10 `
-  --aoi /data/env/GMBA_Inventory_L8_15422.gpkg
+  --date $date `
+  --aoi $aoi
 ```
 
 Singleâ€‘member (debugging and tuning)
@@ -451,9 +473,11 @@ Context
 ```
 docker compose run --rm oa `
   python -m openamundsen_da.methods.pf.plot_weights `
-  /data/propagation/season_2017-2018/step_00_init/assim/weights_scf_20180110.csv `
-  --output /data/propagation/season_2017-2018/step_00_init/assim/weights_scf_20180110.svg `
-  --backend SVG
+  "$step/assim/weights_scf_$dateTag.csv"
+
+Optional:
+- --output "$step/assim/weights_scf_$dateTag.svg"
+- --backend SVG
 ```
 
 Weights Plot Guide
@@ -578,20 +602,22 @@ Create a posterior ensemble from single-date weights using systematic resampling
 
 ```
 $date = "2018-01-10"
-$step = "/data/propagation/season_2017-2018/step_00_init"
+$step = "$season/step_00_init"
 $dateTag = ($date -replace '-', '')
 $weights = "$step/assim/weights_scf_$dateTag.csv"
 
 docker compose run --rm oa `
   python -m openamundsen_da.methods.pf.resample `
-  --project-dir /data `
+  --project-dir $project `
   --step-dir $step `
   --ensemble prior `
   --weights $weights `
-  --target posterior `
-  --ess-threshold-ratio 0.5 `
-  --seed 123 `
-  --overwrite
+  --target posterior
+
+Optional:
+- --ess-threshold-ratio 0.5
+- --seed 123
+- --overwrite
 ```
 
 Outputs
@@ -656,8 +682,7 @@ locate the external state file.
 
 ## Rejuvenation (Posterior â†’ Prior for Next Step)
 
-Create a rejuvenated prior ensemble for the next step by adding light
-perturbations to meteo and carrying forward the saved state via a pointer.
+Create a rejuvenated prior ensemble for the next step by carrying forward the saved state via a pointer and adding light meteo perturbations rebased on the open_loop forcing (no compounding across windows).
 
 Modes
 
@@ -679,26 +704,19 @@ rebase_open_loop: false # set true to perturb open_loop instead of compounding
 
 ```
 
-docker compose run --rm oa `  python -m openamundsen_da.methods.pf.rejuvenate`
---project-dir /data `  --prev-step-dir /data/propagation/season_2017-2018/step_00_init`
---next-step-dir /data/propagation/season_2017-2018/step_01_20180110-20180316
+docker compose run --rm oa `
+  python -m openamundsen_da.methods.pf.rejuvenate `
+  --project-dir $project `
+  --prev-step-dir "$season/step_00_init" `
+  --next-step-dir "$season/step_01_20180110-20180316"
 
 ```
 
-Rebase (single run override):
-
-```
-
-docker compose run --rm oa `  python -m openamundsen_da.methods.pf.rejuvenate`
---project-dir /data `  --prev-step-dir /data/propagation/season_2017-2018/step_00_init`
---next-step-dir /data/propagation/season_2017-2018/step_01_20180110-20180316 `
---rebase-open-loop
-
-```
+Rebase is the default; no override flag is needed.
 
 Behavior
 
-- Reads `data_assimilation.rejuvenation.{sigma_t,sigma_p}` from `project.yml`.
+- Reads `data_assimilation.rejuvenation.{sigma_t,sigma_p}` from `project.yml`; if absent, falls back to `data_assimilation.prior_forcing.{sigma_t,sigma_p}`.
 - For each posterior member in the previous step:
   - Finds its source member (from `source_pointer.json`).
   - Filters meteo to the next step window, applies dT ~ N(0, sigma_t), f_p ~ LogNormal(0, sigma_p).

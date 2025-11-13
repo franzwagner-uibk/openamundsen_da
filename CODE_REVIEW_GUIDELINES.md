@@ -17,7 +17,7 @@ When reviewing or developing a new module:
 - Should any logic be centralized (e.g., helpers in `util`, `viz`, or `io.paths`)?
 - Does the module follow our structure and formatting conventions?
 - Is configuration handled consistently and defined externally where possible?
-- Is there any functionality/CLI flag/option that is not necessary and can be assumed by default and therefore dropped?
+- Is there any functionality/CLI flag/option that is not necessary and can be assumed by default following the framework/ ptoject template/structure and workflow and therefore dropped? Think aboput input paths/ flags/ options that dont need to bechosen because they are pre-defined by the process
 
 List of helper modules (repo‑relative paths):
 

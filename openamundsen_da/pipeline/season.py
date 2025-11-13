@@ -155,7 +155,6 @@ def run_season(cfg: OrchestratorConfig) -> None:
             next_step_dir=steps[i + 1],
             source_ensemble="posterior",
             target_ensemble="prior",
-            rebase_open_loop=None,
             source_meteo_dir=None,
         )
 
@@ -190,4 +189,3 @@ def cli(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli())
-

@@ -106,7 +106,6 @@ def _mirror_or_resample(
     members_order: list[Path],
     draw_indices: Optional[np.ndarray],
     overwrite: bool,
-    force_copy: bool,
     weights: Optional[np.ndarray] = None,
 ) -> list[tuple[str, str, float | None]]:
     """Create target ensemble by mirroring or resampling from source.
@@ -242,7 +241,6 @@ def resample_from_weights(
     ess_threshold: float,
     ess_threshold_ratio: float | None,
     overwrite: bool,
-    always_copy: bool,
 ) -> dict:
     """Core API: read weights, compute ESS, and materialize target ensemble.
 
@@ -316,7 +314,6 @@ def resample_from_weights(
         members_order=src_members,
         draw_indices=indices,
         overwrite=overwrite,
-        force_copy=always_copy,
         weights=w,
     )
 
@@ -387,7 +384,6 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
             ess_threshold=ess_thr_abs,
             ess_threshold_ratio=ess_thr_ratio,
             overwrite=bool(args.overwrite),
-            always_copy=True,
         )
     except Exception as e:
         logger.error(f"Resampling failed: {e}")

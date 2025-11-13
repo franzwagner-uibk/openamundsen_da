@@ -29,7 +29,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Literal, Tuple
+from typing import Any, Iterable, Literal, Tuple
 
 import geopandas as gpd
 import numpy as np
@@ -38,7 +38,7 @@ import rasterio
 from loguru import logger
 from rasterio.mask import mask as rio_mask
 
-from openamundsen_da.core.env import ensure_gdal_proj_from_conda
+from openamundsen_da.core.env import ensure_gdal_proj_from_conda, _read_yaml_file
 from openamundsen_da.core.constants import (
     LOGURU_FORMAT,
     VAR_HS,
@@ -49,11 +49,12 @@ from openamundsen_da.core.constants import (
     HOFX_PARAMS,
     HOFX_PARAM_H0,
     HOFX_PARAM_K,
+    DA_BLOCK,
 )
 from openamundsen_da.io.paths import (
     find_member_daily_raster,
     member_id_from_results_dir,
-    read_step_config,
+    find_project_yaml,
 )
 from openamundsen_da.util.aoi import read_single_aoi
 from openamundsen_da.util.stats import sigmoid
@@ -80,6 +81,33 @@ class SCFParams:
 
     h0: float = 0.05
     k: float = 80.0
+
+
+def _parse_hofx_block(hofx: dict[str, Any]) -> tuple[str, str, SCFParams]:
+    """Return H(x) settings from a config block, applying defaults where keys are missing."""
+    method = str(hofx.get(HOFX_METHOD, "depth_threshold"))
+    variable = str(hofx.get(HOFX_VARIABLE, "hs"))
+    params = SCFParams()
+    plist = hofx.get(HOFX_PARAMS) or {}
+    if isinstance(plist, dict):
+        if HOFX_PARAM_H0 in plist:
+            params.h0 = float(plist[HOFX_PARAM_H0])
+        if HOFX_PARAM_K in plist:
+            params.k = float(plist[HOFX_PARAM_K])
+    return method, variable, params
+
+
+def load_hofx_from_project(project_dir: Path) -> tuple[str, str, SCFParams]:
+    """Read required H(x) configuration from project.yml."""
+    proj = find_project_yaml(project_dir)
+    cfg = _read_yaml_file(proj) or {}
+    da = cfg.get(DA_BLOCK, {}) if isinstance(cfg, dict) else {}
+    hofx = da.get(HOFX_BLOCK) or cfg.get(HOFX_BLOCK)
+    if not isinstance(hofx, dict):
+        hofx = {}
+    if not hofx:
+        raise ValueError(f"Missing '{DA_BLOCK}.{HOFX_BLOCK}' section in {proj}")
+    return _parse_hofx_block(hofx)
 
 
 def _read_masked_array(raster_path: Path, aoi_path: Path) -> np.ma.MaskedArray:
@@ -191,12 +219,10 @@ def cli_main(argv: list[str] | None = None) -> int:
     Examples
     --------
     oa-da-model-scf \
+      --project-dir C:/.../examples/test-project \
       --member-results C:/.../member_001/results \
       --aoi examples/test-project/env/GMBA_Inventory_L8_15422.gpkg \
-      --date 2017-12-10 \
-      --variable hs \
-      --method logistic \
-      --h0 0.05 --k 80
+      --date 2017-12-10
     """
     import argparse
 
@@ -204,17 +230,14 @@ def cli_main(argv: list[str] | None = None) -> int:
         prog="oa-da-model-scf",
         description=(
             "Compute model-derived Snow Cover Fraction (SCF) from openAMUNDSEN "
-            "daily outputs (HS/SWE) within an AOI for one member/date."
+            "daily outputs (HS/SWE) within an AOI for one member/date using the "
+            "project-level H(x) configuration."
         ),
     )
+    parser.add_argument("--project-dir", type=Path, required=True, help="Project root containing project.yml with data_assimilation.h_of_x")
     parser.add_argument("--member-results", type=Path, required=True, help="Path to member results directory")
     parser.add_argument("--aoi", type=Path, required=True, help="Path to single-feature AOI vector file")
     parser.add_argument("--date", type=str, required=True, help="Date in YYYY-MM-DD")
-    parser.add_argument("--variable", type=str, default=None, choices=["hs", "swe"], help="Use HS or SWE raster")
-    parser.add_argument("--method", type=str, default=None, choices=["depth_threshold", "logistic"], help="SCF operator")
-    parser.add_argument("--h0", type=float, default=None, help="Threshold/midpoint h0 (units of variable)")
-    parser.add_argument("--k", type=float, default=None, help="Logistic slope k (1/units of variable)")
-    parser.add_argument("--step-dir", type=Path, default=None, help="Optional step directory to read H(x) defaults from YAML")
     parser.add_argument("--output", type=Path, default=None, help="Optional output CSV path")
     parser.add_argument("--region-id-field", type=str, default="region_id", help="AOI field name for region_id")
     parser.add_argument("--log-level", type=str, default="INFO", help="Log level (INFO, DEBUG, ...)")
@@ -232,38 +255,11 @@ def cli_main(argv: list[str] | None = None) -> int:
         logger.error(f"Invalid --date format (expected YYYY-MM-DD): {args.date}")
         return 2
 
-    # Parameters (defaults, possibly overridden by step YAML or CLI)
-    method = "depth_threshold"
-    variable = VAR_HS
-    prm = SCFParams()
-
-    # Optional: read defaults from step YAML
-    if args.step_dir is not None:
-        try:
-            cfg = read_step_config(Path(args.step_dir)) or {}
-            hofx = (cfg.get(HOFX_BLOCK) or {})
-            method = str(hofx.get(HOFX_METHOD, method))
-            variable = str(hofx.get(HOFX_VARIABLE, variable))
-            params = (hofx.get(HOFX_PARAMS) or {})
-            if HOFX_PARAM_H0 in params:
-                prm.h0 = float(params[HOFX_PARAM_H0])
-            if HOFX_PARAM_K in params:
-                prm.k = float(params[HOFX_PARAM_K])
-        except Exception:
-            # best-effort; ignore YAML read errors
-            pass
-
-    # CLI overrides
-    if args.method is not None:
-        method = args.method
-    if args.variable is not None:
-        variable = args.variable
-    if args.h0 is not None:
-        prm.h0 = float(args.h0)
-    if args.k is not None:
-        prm.k = float(args.k)
-    if method == "depth_threshold" and args.k is not None:
-        logger.warning("--k provided but unused for depth_threshold method")
+    try:
+        method, variable, prm = load_hofx_from_project(Path(args.project_dir))
+    except Exception as e:
+        logger.error("Failed to read H(x) configuration: {}", e)
+        return 2
 
     # Compute SCF
     try:

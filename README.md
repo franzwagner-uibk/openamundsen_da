@@ -87,15 +87,18 @@ docker compose run --rm oa `
 
 Optional: `--output <csv>`, `--ndsi-threshold <val>`, `--log-level <LEVEL>`
 
-### H(x) Model SCF (optional, per-member debug)
+  ### H(x) Model SCF (optional, per-member debug)
+  
+  ```powershell
+  docker compose run --rm oa `
+    python -m openamundsen_da.methods.h_of_x.model_scf `
+    --project-dir $project `
+    --member-results $step/ensembles/prior/member_001/results `
+    --aoi $aoi `
+    --date $date
+  ```
 
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.h_of_x.model_scf `
-  --member-results $step/ensembles/prior/member_001/results `
-  --aoi $aoi `
-  --date $date
-```
+Model parameters (`variable`, `method`, `h0`, `k`) are now read strictly from `project.yml` under `data_assimilation.h_of_x`, so the CLI no longer accepts overrides; providing `--project-dir` ensures the command uses the same configuration as the rest of the pipeline.
 
 Optional: `--variable hs|swe`, `--method depth_threshold|logistic`, `--log-level <LEVEL>`
 

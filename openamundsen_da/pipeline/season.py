@@ -160,7 +160,6 @@ def run_season(cfg: OrchestratorConfig) -> None:
             ess_threshold=0.0,
             ess_threshold_ratio=None,
             overwrite=True,
-            always_copy=True,
         )
 
         # Rejuvenate posterior -> next prior

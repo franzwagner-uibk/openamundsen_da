@@ -8,8 +8,7 @@ members, then evaluates log-likelihoods and normalized weights. Outputs a CSV
 with per-member weights and summary stats (ESS).
 
 Configuration
-- H(x) configuration is read from project.yml (data_assimilation.h_of_x).
-  Falls back to a step YAML h_of_x block if not set in project.yml.
+- H(x) configuration is read from project.yml (data_assimilation.h_of_x) and is required.
 - Likelihood configuration is read from project.yml (likelihood block).
   Falls back to sensible defaults if missing.
 
@@ -31,25 +30,17 @@ from loguru import logger
 
 from openamundsen_da.core.constants import (
     LOGURU_FORMAT,
-    DA_BLOCK,
     LIKELIHOOD_BLOCK,
     LIK_OBS_SIGMA,
     LIK_USE_BINOMIAL,
     LIK_SIGMA_FLOOR,
     LIK_SIGMA_CLOUD_SCALE,
     LIK_MIN_SIGMA,
-    HOFX_BLOCK,
-    HOFX_METHOD,
-    HOFX_VARIABLE,
-    HOFX_PARAMS,
-    HOFX_PARAM_H0,
-    HOFX_PARAM_K,
     OBS_DIR_NAME,
 )
-from openamundsen_da.io.paths import list_member_dirs, default_results_dir, find_project_yaml, read_step_config
-from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf, SCFParams
+from openamundsen_da.io.paths import list_member_dirs, default_results_dir
+from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf, SCFParams, load_hofx_from_project
 from openamundsen_da.util.stats import gaussian_logpdf, normalize_log_weights, effective_sample_size, compute_obs_sigma
-from openamundsen_da.core.env import _read_yaml_file
 
 
 @dataclass
@@ -59,48 +50,6 @@ class LikelihoodParams:
     sigma_floor: float = 0.05
     sigma_cloud_scale: float = 0.10
     min_sigma: float = 0.03
-
-
-def _read_step_hofx(step_dir: Path) -> tuple[str, str, SCFParams]:
-    """Read H(x) defaults from step YAML if available."""
-    try:
-        cfg = read_step_config(step_dir) or {}
-        hofx = (cfg.get(HOFX_BLOCK) or {})
-        method = str(hofx.get(HOFX_METHOD, "depth_threshold"))
-        variable = str(hofx.get(HOFX_VARIABLE, "hs"))
-        params = SCFParams()
-        p = (hofx.get(HOFX_PARAMS) or {})
-        if HOFX_PARAM_H0 in p:
-            params.h0 = float(p[HOFX_PARAM_H0])
-        if HOFX_PARAM_K in p:
-            params.k = float(p[HOFX_PARAM_K])
-        return method, variable, params
-    except Exception:
-        return "depth_threshold", "hs", SCFParams()
-
-
-def _read_hofx_from_project(project_dir: Path) -> tuple[str, str, SCFParams]:
-    """Read H(x) configuration from project.yml.
-
-    Looks under data_assimilation.h_of_x, with a fallback to top-level h_of_x
-    for backward compatibility. Returns defaults if not found or on error.
-    """
-    try:
-        proj = find_project_yaml(project_dir)
-        cfg = _read_yaml_file(proj) or {}
-        da = cfg.get(DA_BLOCK, {}) if isinstance(cfg, dict) else {}
-        hofx = da.get(HOFX_BLOCK) or cfg.get(HOFX_BLOCK) or {}
-        method = str(hofx.get(HOFX_METHOD, "depth_threshold"))
-        variable = str(hofx.get(HOFX_VARIABLE, "hs"))
-        params = SCFParams()
-        p = (hofx.get(HOFX_PARAMS) or {}) if isinstance(hofx, dict) else {}
-        if HOFX_PARAM_H0 in p:
-            params.h0 = float(p[HOFX_PARAM_H0])
-        if HOFX_PARAM_K in p:
-            params.k = float(p[HOFX_PARAM_K])
-        return method, variable, params
-    except Exception:
-        return "depth_threshold", "hs", SCFParams()
 
 
 def _read_likelihood_from_project(project_dir: Path) -> LikelihoodParams:
@@ -176,11 +125,7 @@ def assimilate_scf_for_date(
     Returns a DataFrame with columns:
     member_id, scf_model, scf_obs, residual, sigma, log_weight, weight
     """
-    # Read config blocks
-    # H(x): prefer project-level configuration; fallback to step YAML if missing
-    method, variable, hofx_params = _read_hofx_from_project(project_dir)
-    if method is None or variable is None or hofx_params is None:  # defensive
-        method, variable, hofx_params = _read_step_hofx(step_dir)
+    method, variable, hofx_params = load_hofx_from_project(project_dir)
     lk = _read_likelihood_from_project(project_dir)
 
     # Read observation

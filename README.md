@@ -35,6 +35,36 @@ Notes
 - Use forward slashes in paths (`/workspace`, `/data`).
 - Optional flags are listed under each command; examples show only required flags.
 
+## Required Project Structure
+
+This repo expects your project to follow the fixed layout shown below. Commands derive everything from these paths, so no CLI flag is needed for files/directories that live under the structure.
+
+```
+project/
+├── env/
+│   └── <single AOI vector, e.g., my_region.gpkg>
+├── meteo/
+│   ├── stations.csv
+│   └── <station>.csv  (long-span forcing inputs)
+├── propagation/
+│   └── season_YYYY-YYYY/
+│       ├── step_XX_name/
+│       │   ├── step_XX_name.yml  (dates, h_of_x overrides discouraged)
+│       │   └── ensembles/
+│       │       ├── prior/  (created by season.py; contains member_<NNN>)
+│       │       └── posterior/  (produced by resampling)
+│       └── ... additional steps ...
+├── obs/
+│   └── season_YYYY-YYYY/
+│       └── obs_scf_MOD10A1_YYYYMMDD.csv
+└── project.yml  (contains data_assimilation.h_of_x, resampling, etc.)
+```
+
+- `project.yml` must define `data_assimilation.h_of_x` (used by `model_scf` + `assimilate_scf`) and the DA blocks referenced by the pipeline.
+- `propagation/season_X/step_Y/ensembles/prior` is created automatically by `season.py` (using `${project}/meteo` for forcing); you only need to ensure the step YAMLs and meteorological inputs exist.
+- Observations (MODIS preprocessed GeoTIFFs → CSV) live under `obs/season_X`; the pipeline assumes the CSVs follow `obs_scf_MOD10A1_YYYYMMDD.csv`.
+- AOI vector: `env/*.gpkg` (single feature) is mandatory for every command that masks spatial data.
+
 ## Workflow/Commands
 
 ### Prior Forcing (build ensemble)

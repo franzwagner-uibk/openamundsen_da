@@ -26,6 +26,7 @@ from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.launch import launch_members
+from openamundsen_da.core.prior_forcing import build_prior_ensemble
 from openamundsen_da.io.paths import read_step_config
 from openamundsen_da.methods.pf.assimilate_scf import assimilate_scf_for_date
 from openamundsen_da.methods.pf.rejuvenate import rejuvenate
@@ -85,6 +86,19 @@ def run_season(cfg: OrchestratorConfig) -> None:
     if not steps:
         raise FileNotFoundError(f"No steps found under {cfg.season_dir}")
     logger.info("Discovered {} step(s)", len(steps))
+
+    # Ensure first step has its prior ensemble (project/meteo is required)
+    if steps:
+        meteo_dir = cfg.project_dir / "meteo"
+        if not meteo_dir.is_dir():
+            raise FileNotFoundError(f"Required meteo directory not found: {meteo_dir}")
+        logger.info("Initializing prior ensemble for step {} …", steps[0].name)
+        build_prior_ensemble(
+            input_meteo_dir=meteo_dir,
+            project_dir=cfg.project_dir,
+            step_dir=steps[0],
+            overwrite=bool(cfg.overwrite),
+        )
 
     aoi = _find_aoi(cfg.project_dir)
     logger.info("Using AOI: {}", aoi)

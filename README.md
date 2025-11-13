@@ -201,6 +201,8 @@ docker compose run --rm oa `
   --season-dir $season
 ```
 
+The launcher automatically pulls the initial forcing from `$project/meteo` and builds the first prior ensemble (errors if the directory is missing), so you no longer need a separate `prior_forcing` run before `season.py` as long as the long-span station files live under `project/meteo`.
+
 Optional: `--max-workers <N>`, `--overwrite`, `--log-level <LEVEL>`
 
 Outputs

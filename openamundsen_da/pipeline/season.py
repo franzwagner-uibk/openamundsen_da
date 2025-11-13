@@ -116,6 +116,22 @@ def run_season(cfg: OrchestratorConfig) -> None:
             logger.info("Final step reached; skipping assimilation/resample/rejuvenate.")
             continue
 
+        # Quick warm-start boundary check (best effort)
+        try:
+            curr_cfg = read_step_config(step_dir) or {}
+            end_val = curr_cfg.get("end_date")
+            if end_val is not None and next_start is not None:
+                from datetime import datetime
+                curr_end = datetime.fromisoformat(str(end_val))
+                gap = (next_start - curr_end).total_seconds()
+                if gap <= 0:
+                    logger.warning("Next step start ({}) is not after current step end ({}). Warm start expects start = end + one model timestep.", next_start, curr_end)
+                else:
+                    logger.info("Step boundary gap: {} seconds. Ensure it equals exactly one model timestep.", int(gap))
+        except Exception:
+            # Best-effort; do not fail if step YAMLs are incomplete or unparsable
+            pass
+
         # Assimilation date = next step start_date
         logger.info("Assimilating SCF for date {}", next_start.strftime("%Y-%m-%d"))
         weights = assimilate_scf_for_date(

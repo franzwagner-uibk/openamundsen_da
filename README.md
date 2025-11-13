@@ -1,4 +1,4 @@
-# openamundsen_da — Data Assimilation for openAMUNDSEN
+﻿# openamundsen_da â€” Data Assimilation for openAMUNDSEN
 
 Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF) with a particle filter. Commands are Docker/Compose friendly and use generic variables to work across projects.
 
@@ -16,7 +16,7 @@ Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satelli
   - `PROJ` = path to your project data
   - Optional: `CPUS`, `MEMORY`, `MAX_WORKERS`
 - Set Compose compatibility if needed: `setx COMPOSE_COMPATIBILITY 1` (Windows) or `export COMPOSE_COMPATIBILITY=1` (Linux/macOS).
-- Volumes: `${REPO}` → `/workspace`, `${PROJ}` → `/data`.
+- Volumes: `${REPO}` â†’ `/workspace`, `${PROJ}` â†’ `/data`.
 
 ## Project Variables
 
@@ -64,7 +64,7 @@ Optional: `--max-workers <N>`, `--overwrite`, `--restart-from-state`, `--dump-st
 
 ### Observation Processing
 
-- MOD10A1 preprocess (HDF → GeoTIFF + season summary):
+- MOD10A1 preprocess (HDF â†’ GeoTIFF + season summary):
 
 ```powershell
 docker compose run --rm oa `
@@ -75,7 +75,7 @@ docker compose run --rm oa `
 
 Optional: `--project-dir $project`, `--aoi $aoi`, `--aoi-field <field>`, `--target-epsg <code>`, `--resolution <m>`, `--ndsi-threshold <val>`, `--no-envelope`, `--no-recursive`, `--overwrite`, `--log-level <LEVEL>`
 
-- Single-image SCF extraction (GeoTIFF → obs CSV):
+- Single-image SCF extraction (GeoTIFF â†’ obs CSV):
 
 ```powershell
 docker compose run --rm oa `
@@ -130,7 +130,7 @@ docker compose run --rm oa `
 
 Optional: `--ess-threshold-ratio <0..1>`, `--ess-threshold <n|ratio>`, `--seed <int>`, `--overwrite`, `--log-level <LEVEL>`
 
-### Rejuvenation (posterior → prior)
+### Rejuvenation (posterior â†’ prior)
 
 Rebase is default (perturbations are applied relative to open_loop). If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas.
 
@@ -217,3 +217,15 @@ Outputs
 
 - All commands accept `--log-level`.
 - Internally uses loguru with the standard format in `openamundsen_da/core/constants.py`.
+
+## Warm Start and Step Chaining
+
+- Warm start uses the model state saved at the end of a step (when data_assimilation.restart.dump_state: true) to initialize the following step (when data_assimilation.restart.use_state: true). The runner loads the state pointed to by state_pattern or state_pointer.json under each member's results directory.
+- Step boundaries must align with the model time step. If a step ends at end_date = T, the next step must start exactly one model time step later: start_date = T + one model timestep.
+  - Example: With a 3-hour model time step and Step i ending at `2018-10-10 00:00:00`, Step i+1 must start at `2018-10-10 03:00:00`.
+- Why: Misalignment can cause duplicated/skipped timesteps, inconsistent warm starts, or assimilation at a wrong time.
+- Assimilation date: The pipeline uses the next step's start_date as the SCF assimilation date.
+- Tips
+  - Keep a constant model time step across steps.
+  - Verify the effective time step via the merged OA config persisted next to members (e.g., `<step>/ensembles/prior/member_001/config.yml`).
+  - Ensure `dump_state: true` for steps feeding warm starts, and `use_state: true` for steps starting warm.

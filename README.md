@@ -48,6 +48,7 @@ project/
 │   └── <station>.csv  (long-span forcing inputs)
 ├── propagation/
 │   └── season_YYYY-YYYY/
+│       ├── season.yml  (season metadata, dates)
 │       ├── step_XX_name/
 │       │   ├── step_XX_name.yml  (dates, h_of_x overrides discouraged)
 │       │   └── ensembles/

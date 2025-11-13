@@ -1,5 +1,26 @@
 from __future__ import annotations
 
+"""
+openamundsen_da.core.env
+
+Purpose
+- Apply project-level GDAL/PROJ/numeric-thread settings so every runner sees a consistent environment.
+-
+Key Behaviors
+- Read the `environment` block from `project.yml` and export the constrained list of vars.
+- Fall back to active conda `CONDA_PREFIX`/`PREFIX` for GDAL/PROJ when keys are missing.
+- Enforce a single-thread limit for numeric libraries and capture snapshots for diagnostics.
+
+Inputs/Outputs
+- `apply_env_from_project(path)` exports vars and returns the subset applied.
+- `ensure_gdal_proj_from_conda()` and `apply_numeric_thread_defaults()` mutate `os.environ`.
+- `snapshot_env(keys)` reports the current values of the selected variables.
+
+Assumptions
+- `project.yml` is UTF-8 readable and may omit the `environment` block entirely.
+- Conda prefixes live under `CONDA_PREFIX` or `PREFIX` when present.
+"""
+
 import os
 from pathlib import Path
 from typing import Iterable, Dict

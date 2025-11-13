@@ -1,4 +1,23 @@
 from __future__ import annotations
+
+"""
+openamundsen_da.io.paths
+
+Purpose
+- Centralize filesystem helpers for discovering configs, ensembles, and rasters.
+-
+Key Behaviors
+- Locate project/season/step YAMLs, member meteo/results layouts, and daily rasters.
+- Normalize user paths relative to the project root.
+- Provide ensemble helpers (open_loop/member naming) used across core/methods modules.
+
+Inputs/Outputs
+- Functions accept `Path`-like args and return `Path` objects or structured metadata.
+
+Assumptions
+- Repository layout matches the openAMUNDSEN convention (season/step/ensembles/member_*).
+"""
+
 from pathlib import Path
 from typing import Any
 from typing import Union

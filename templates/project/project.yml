@@ -1,4 +1,4 @@
-# Example project.yml with recommended resampling defaults.
+﻿# Example project.yml with recommended resampling defaults.
 # This template uses plain ASCII and compact keys.
 
 data_assimilation:
@@ -22,7 +22,7 @@ data_assimilation:
   rejuvenation:
     sigma_t: 0.2            # additive temperature noise (deg C)
     sigma_p: 0.2            # lognormal sigma for precip factor (mu=0)
-    rebase_open_loop: false  # false: compound on source member meteo; true: perturb open_loop meteo
+
     # seed: 123             # optional; falls back to prior_forcing.random_seed
 
   # Warm start (restart) settings for multi-step propagation

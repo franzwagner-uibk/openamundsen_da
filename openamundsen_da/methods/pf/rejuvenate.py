@@ -65,26 +65,28 @@ class RejuvenationParams:
     sigma_t: float
     sigma_p: float
     seed: Optional[int]
-    rebase_open_loop: bool
 
 
 def _read_rejuvenation_params(project_dir: Path) -> RejuvenationParams:
+    """Read rejuvenation params; reuse prior_forcing sigmas by default.
+
+    If rejuvenation.sigma_t/p are provided, they override; otherwise we fall
+    back to data_assimilation.prior_forcing.{sigma_t,sigma_p}. Seed falls back
+    to prior_forcing.random_seed if not set under rejuvenation.
+    """
     proj = Path(project_dir) / "project.yml"
     cfg = _read_yaml_file(proj) or {}
     da = cfg.get(DA_BLOCK) or {}
     rj = da.get(REJUVENATION_BLOCK) or {}
-    sigma_t = float(rj.get(REJ_SIGMA_T, 0.0))
-    sigma_p = float(rj.get(REJ_SIGMA_P, 0.0))
-    seed = rj.get("seed")
-    if seed is None:
-        pr = (da.get("prior_forcing") or {})
-        seed = pr.get(DA_RANDOM_SEED)
-    rebase = bool(rj.get("rebase_open_loop", False))
+    prior = (da.get("prior_forcing") or {})
+    # Defaults: reuse prior_forcing
+    sigma_t = float(rj.get(REJ_SIGMA_T, prior.get("sigma_t", 0.0)))
+    sigma_p = float(rj.get(REJ_SIGMA_P, prior.get("sigma_p", 0.0)))
+    seed = rj.get("seed", prior.get(DA_RANDOM_SEED))
     return RejuvenationParams(
         sigma_t=sigma_t,
         sigma_p=sigma_p,
         seed=(int(seed) if seed is not None else None),
-        rebase_open_loop=rebase,
     )
 
 
@@ -142,13 +144,11 @@ def rejuvenate(
     next_step_dir: Path,
     source_ensemble: str = "posterior",
     target_ensemble: str = "prior",
-    rebase_open_loop: Optional[bool] = None,
     source_meteo_dir: Optional[Path] = None,
 ) -> dict:
     params = _read_rejuvenation_params(project_dir)
     start, end = _read_next_step_dates(next_step_dir)
     rng = np.random.default_rng(params.seed if params.seed is not None else None)
-    effective_rebase = bool(rebase_open_loop) if (rebase_open_loop is not None) else bool(params.rebase_open_loop)
 
     src_members = list_member_dirs(Path(prev_step_dir) / "ensembles", source_ensemble)
     if not src_members:
@@ -175,12 +175,13 @@ def rejuvenate(
 
         # Read stations from source meteo:
         #  - explicit source_meteo_dir if provided
-        #  - else source member meteo (compound) or open_loop meteo (rebase)
+        #  - else: always rebase on open_loop meteo for the next window
         if source_meteo_dir is not None:
             src_meteo = Path(source_meteo_dir)
         else:
-            base_for_meteo = open_loop_dir(prev_step_dir) if effective_rebase else src_member
-            src_meteo = meteo_dir_for_member(base_for_meteo)
+            # Always rebase on the project-level open_loop meteo directory
+            # (project_root/meteo), filtered to the next step time window.
+            src_meteo = Path(project_dir) / "meteo"
         stations_csv = src_meteo / "stations.csv"
         if not stations_csv.exists():
             raise FileNotFoundError(f"Missing stations.csv in {src_meteo}")
@@ -215,13 +216,13 @@ def rejuvenate(
             "delta_T": dT,
             "f_p": fP,
             "copied_state_pointer": post_ptr.exists(),
-            "rebase_open_loop": bool(effective_rebase),
+            "rebase_open_loop": True,
         })
-        logger.info("[{m}] dT={dt:+.3f} f_p={fp:.3f} state_ptr={sp} rebase={rb}", m=member_name, dt=dT, fp=fP, sp=bool(post_ptr.exists()), rb=bool(effective_rebase))
+        logger.info("[{m}] dT={dt:+.3f} f_p={fp:.3f} state_ptr={sp} rebase={rb}", m=member_name, dt=dT, fp=fP, sp=bool(post_ptr.exists()), rb=True)
 
     # Also prepare open_loop for the next step and copy state pointer
     try:
-        _copy_open_loop_to_next(Path(prev_step_dir), Path(next_step_dir), start=start, end=end)
+        _copy_open_loop_to_next(Path(project_dir), Path(prev_step_dir), Path(next_step_dir), start=start, end=end)
     except Exception as e:
         logger.warning("Could not prepare open_loop for next step: {}", e)
 
@@ -244,6 +245,7 @@ def rejuvenate(
 
 
 def _copy_open_loop_to_next(
+    project_dir: Path,
     prev_step_dir: Path,
     next_step_dir: Path,
     *,
@@ -260,7 +262,8 @@ def _copy_open_loop_to_next(
     prev_ol = open_loop_dir(prev_step_dir)
     next_ol = open_loop_dir(next_step_dir)
 
-    met_prev = prev_ol / "meteo"
+    # Base meteo comes from project-level meteo directory
+    met_prev = Path(project_dir) / "meteo"
     met_next = next_ol / "meteo"
     met_next.mkdir(parents=True, exist_ok=True)
 
@@ -293,11 +296,10 @@ def _copy_open_loop_to_next(
 
 
 def cli_main(argv: Iterable[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="oa-da-rejuvenate", description="Rejuvenate posterior into prior for next step (no state duplication)")
+    p = argparse.ArgumentParser(prog="oa-da-rejuvenate", description="Rejuvenate posterior into prior for next step (rebase on open_loop; no state duplication)")
     p.add_argument("--project-dir", required=True, type=Path)
     p.add_argument("--prev-step-dir", required=True, type=Path)
     p.add_argument("--next-step-dir", required=True, type=Path)
-    p.add_argument("--rebase-open-loop", action="store_true", help="Use open_loop meteo as base (apply only rejuvenation noise)")
     p.add_argument("--source-meteo-dir", type=Path, help="Explicit meteo source directory (stations.csv + per-station CSVs). Overrides rebase/compound base selection")
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(list(argv) if argv is not None else None)
@@ -310,7 +312,6 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
             project_dir=Path(args.project_dir),
             prev_step_dir=Path(args.prev_step_dir),
             next_step_dir=Path(args.next_step_dir),
-            rebase_open_loop=bool(args.rebase_open_loop),
             source_meteo_dir=(Path(args.source_meteo_dir) if args.source_meteo_dir is not None else None),
         )
         logger.info("Rejuvenated prior | members={} state_ptrs={}", summary.get("members"), summary.get("copied_state_pointers"))

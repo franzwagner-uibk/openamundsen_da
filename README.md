@@ -456,6 +456,22 @@ docker compose run --rm oa `
   --backend SVG
 ```
 
+Weights Plot Guide
+
+- Left panel (weights):
+  - Shows each member’s normalized weight for the date, sorted high→low along the x‑axis (rank, not member_id).
+  - Interpretation: higher weight = model SCF closer to observed SCF. Title shows ESS/N, a diversity metric.
+  - ESS (Effective Sample Size): 1/sum(w^2) with normalized weights; fractional and in [1, N].
+    - ESS ≈ N: near‑uniform weights (healthy diversity). ESS ≈ 1: one member dominates.
+  - A weight of 1 means a single member got all mass; others are 0 (complete degeneracy).
+
+- Right panel (residuals):
+  - Histogram of residual r = scf_obs − scf_model across members.
+  - r > 0: model underestimates SCF; r < 0: model overestimates SCF.
+  - Grey dashed lines mark ±σ (the observation uncertainty). Many residuals within ±σ → more uniform weights and higher ESS; many outside → concentrated weights and lower ESS.
+
+- Identify members: the x‑axis is rank. To map rank→member_id, sort the weights CSV by weight descending and read off the k‑th row for x=k.
+
 - ESS timeline (from all `weights_scf_*.csv`):
 
 ```

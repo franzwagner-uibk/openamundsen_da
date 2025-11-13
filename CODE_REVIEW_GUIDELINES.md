@@ -17,7 +17,8 @@ When reviewing or developing a new module:
 - Should any logic be centralized (e.g., helpers in `util`, `viz`, or `io.paths`)?
 - Does the module follow our structure and formatting conventions?
 - Is configuration handled consistently and defined externally where possible?
-- Is there any functionality/CLI flag/option that is not necessary and can be assumed by default following the framework/ ptoject template/structure and workflow and therefore dropped? Think aboput input paths/ flags/ options that dont need to bechosen because they are pre-defined by the process
+- Is there any functionality/CLI flag/option that is unnecessary given the framework/template and workflow? Prefer sensible defaults.
+- Consider dropping inputs (e.g., paths or flags) that are already predefined by the process.
 
 List of helper modules (repo‑relative paths):
 
@@ -79,5 +80,45 @@ logger.add(sys.stdout, level="INFO", colorize=True, enqueue=True, format=LOGURU_
   - H(x) configuration (method/variable/params) is read from `project.yml` under `data_assimilation.h_of_x`; the step YAML `h_of_x` is a fallback.
 - Open loop handling:
   - The launcher always runs `open_loop` alongside `member_*` to produce a continuous reference; assimilation and resampling operate on members only.
-- Plotting defaults:
-  - Ensemble plots show members (and open loop when present); ensemble mean and bands are intentionally omitted.
+ - Plotting defaults:
+   - Ensemble plots show members (and open loop when present); ensemble mean and bands are intentionally omitted.
+
+---
+
+## 5. Documentation
+
+- Module headers: add a module-level docstring stating purpose, inputs/outputs, assumptions, and important side effects.
+- Function docstrings: describe parameters (with types), return values, errors, and behavior. Prefer Google- or NumPy-style.
+- Inline comments: annotate critical steps, invariants, and non-obvious decisions; avoid narrating the obvious.
+- README updates: when adding workflows/commands, extend `README.md` at the repo root in the existing style and keep sections aligned with the repo's workflow/framework.
+- Encoding: use ASCII-safe characters in docs and comments to avoid rendering issues across environments.
+
+---
+
+## 6. CLI, PowerShell, and Docker
+
+- PowerShell continuation: use the backtick ` for line continuation; do not use `\`.
+- One-arg-per-line style for long commands, with trailing backticks for clarity in docs.
+- Docker/Docker Compose examples: prefer `docker compose run` snippets and show one CLI parameter per line using PowerShell backticks.
+- Provide runnable examples for key scripts to ensure a consistent execution path across environments.
+
+Example (PowerShell formatting):
+
+```
+docker compose run `
+  --rm `
+  app `
+  python -m openamundsen_da.pipeline.season `
+  --project my-project `
+  --season 2017-2018 `
+  --log-level INFO
+```
+
+---
+
+## 7. Dependencies and Configuration
+
+- Prefer the Python standard library when feasible; avoid adding third-party dependencies without strong justification.
+- Reuse libraries already present in `openamundsen` or `openamundsen_da` to minimize environment drift.
+- Centralize configuration in conf files; prefer `project.yml` for project-wide settings and keep step-specific overrides minimal.
+- Leverage existing repo helpers (`core/config.py`, `core/env.py`, `core/constants.py`, `io/paths.py`, `util/stats.py`, etc.) rather than reimplementing functionality.

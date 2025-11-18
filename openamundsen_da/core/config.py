@@ -111,6 +111,8 @@ def load_merged_config(
     cfg = merge_configs(proj_cfg, seas_cfg, step_cfg)
     cfg.pop(ENVIRONMENT, None)
     cfg.pop(DA_BLOCK, None)
+    # DA-only helper metadata used by OA-DA (not part of openAMUNDSEN schema)
+    cfg.pop("assimilation_dates", None)
 
     # Step 4: Inject per‑member paths (meteo dir always, results optional)
     cfg.setdefault(INPUT_DATA, {}).setdefault(METEO, {})

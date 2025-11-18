@@ -82,6 +82,10 @@ def run_season(cfg: OrchestratorConfig) -> None:
     logger.remove()
     logger.add(sys.stdout, level=cfg.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
+    # File log under season root (e.g. season_2017-2018/season_2017-2018.log)
+    log_file = Path(cfg.season_dir) / f"{Path(cfg.season_dir).name}.log"
+    logger.add(log_file, level=cfg.log_level.upper(), colorize=False, enqueue=True, format=LOGURU_FORMAT)
+
     steps = _list_steps_sorted(cfg.season_dir)
     if not steps:
         raise FileNotFoundError(f"No steps found under {cfg.season_dir}")
@@ -148,14 +152,26 @@ def run_season(cfg: OrchestratorConfig) -> None:
 
         # Assimilation date = next step start_date
         logger.info("Assimilating SCF for date {}", next_start.strftime("%Y-%m-%d"))
-        weights = assimilate_scf_for_date(
-            project_dir=cfg.project_dir,
-            step_dir=step_dir,
-            ensemble="prior",
-            date=next_start,
-            aoi=aoi,
-            obs_csv=None,
-        )
+        try:
+            weights = assimilate_scf_for_date(
+                project_dir=cfg.project_dir,
+                step_dir=step_dir,
+                ensemble="prior",
+                date=next_start,
+                aoi=aoi,
+                obs_csv=None,
+            )
+        except FileNotFoundError as exc:
+            logger.error(
+                "SCF assimilation failed for step {} at date {}: {}. "
+                "Ensure obs_scf_MOD10A1_YYYYMMDD.csv exists under {}/obs for this date "
+                "or generate it via oa-da-scf.",
+                step_name,
+                next_start.strftime("%Y-%m-%d"),
+                exc,
+                step_dir,
+            )
+            raise
         assim_dir = Path(step_dir) / "assim"
         assim_dir.mkdir(parents=True, exist_ok=True)
         wcsv = assim_dir / f"weights_scf_{next_start.strftime('%Y%m%d')}.csv"

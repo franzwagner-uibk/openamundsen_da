@@ -176,6 +176,20 @@ def _write_manifest(results_dir: Path, manifest: Dict[str, Any]) -> None:
     except Exception as e:
         logger.warning(f"Could not write manifest in {results_dir}: {e}")
 
+
+def _is_successful_run(results_dir: Path) -> bool:
+    """Return True if member_run.json exists and reports status='success'."""
+    manifest_path = results_dir / MEMBER_MANIFEST
+    if not manifest_path.is_file():
+        return False
+    try:
+        with manifest_path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        return str(data.get("status", "")).lower() == "success"
+    except Exception:
+        # Corrupt or unreadable manifest -> treat as not successfully completed.
+        return False
+
 def run_member(
     project_dir: Path | str,
     season_dir: Path | str,
@@ -230,9 +244,9 @@ def run_member(
     os.chdir(project_dir)
 
     # Step 7: Skip only if a previous run is clearly completed and overwrite is not requested.
-    # Rationale: prior_forcing may create empty results/ dirs; skipping solely on the
-    # directory existing would prevent the first model run for a step.
-    if results_dir.exists() and (results_dir / MEMBER_MANIFEST).exists() and not overwrite:
+    # Rationale: prior_forcing may create empty results/ dirs and manifests start as
+    # 'starting'; we only trust status='success' as a signal to skip.
+    if results_dir.exists() and _is_successful_run(results_dir) and not overwrite:
         logger.info(f"[{member_name}] Results already exist -> skipping (use --overwrite to rerun)")
         return RunResult(member_name, "skipped", str(results_dir), 0.0, None)
 

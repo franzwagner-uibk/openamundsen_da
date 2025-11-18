@@ -229,8 +229,10 @@ def run_member(
     # Step 6: Change to project root (OA expects relative paths from here)
     os.chdir(project_dir)
 
-    # Step 7: Skip if results exist and overwrite is not requested
-    if results_dir.exists() and not overwrite:
+    # Step 7: Skip only if a previous run is clearly completed and overwrite is not requested.
+    # Rationale: prior_forcing may create empty results/ dirs; skipping solely on the
+    # directory existing would prevent the first model run for a step.
+    if results_dir.exists() and (results_dir / MEMBER_MANIFEST).exists() and not overwrite:
         logger.info(f"[{member_name}] Results already exist -> skipping (use --overwrite to rerun)")
         return RunResult(member_name, "skipped", str(results_dir), 0.0, None)
 

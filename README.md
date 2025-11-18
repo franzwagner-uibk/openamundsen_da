@@ -32,6 +32,7 @@ $aoi     = "$project/env/your_aoi.gpkg"            # single-feature AOI
 ```
 
 Notes
+
 - Use forward slashes in paths (`/workspace`, `/data`).
 - Optional flags are listed under each command; examples show only required flags.
 
@@ -95,7 +96,7 @@ Optional: `--max-workers <N>`, `--overwrite`, `--restart-from-state`, `--dump-st
 
 ### Observation Processing
 
-- MOD10A1 preprocess (HDF â†’ GeoTIFF + season summary):
+- MOD10A1 preprocess (HDF -> GeoTIFF + season summary):
 
 ```powershell
 docker compose run --rm oa `
@@ -104,7 +105,7 @@ docker compose run --rm oa `
   --season-label season_YYYY-YYYY
 ```
 
-Optional: `--project-dir $project`, `--aoi $aoi`, `--aoi-field <field>`, `--target-epsg <code>`, `--resolution <m>`, `--ndsi-threshold <val>`, `--no-envelope`, `--no-recursive`, `--overwrite`, `--log-level <LEVEL>`
+Optional: --project-dir $project, --aoi $aoi, --aoi-field <field>, --target-epsg <code>, --resolution <m>, --ndsi-threshold <val>, --no-envelope, --no-recursive, --overwrite, --log-level <LEVEL>
 
 - Single-image SCF extraction (GeoTIFF â†’ obs CSV):
 
@@ -124,10 +125,11 @@ Optional: `--output <csv>`, `--ndsi-threshold <val>`, `--log-level <LEVEL>`
 docker compose run --rm oa `
   python -m openamundsen_da.observer.satellite_scf `
   --season-dir $season `
-  --region $aoi
+  --summary-csv $project/obs/season_YYYY-YYYY/scf_summary.csv `
+  --overwrite
 ```
 
-Optional: `--obs-dir $project/obs/season_YYYY-YYYY`, `--raster-glob <glob>`, `--overwrite`, `--ndsi-threshold <val>`, `--region-field <field>`, `--log-level <LEVEL>`
+Optional: --overwrite, --log-level <LEVEL> (the summary path defaults to <project>/obs/<season>/scf_summary.csv). No AOI argument is required because the CSV already stores the AOI-derived SCF stats for each date.
 
 Batch mode walks `propagation/season_YYYY-YYYY/step_*`, matches each raster by date to its step (or the step whose `end_date` matches the raster date), and writes `obs_scf_MOD10A1_YYYYMMDD.csv` into `<step>/obs`. Per-step `scf` overrides still apply.
 
@@ -154,7 +156,7 @@ Note: the summary-based workflow is the recommended way to prepare SCF observati
     --member-results $step/ensembles/prior/member_001/results `
     --aoi $aoi `
     --date $date
-  ```
+```
 
 Model parameters (`variable`, `method`, `h0`, `k`) are now read strictly from `project.yml` under `data_assimilation.h_of_x`, so the CLI no longer accepts overrides; providing `--project-dir` ensures the command uses the same configuration as the rest of the pipeline.
 
@@ -263,9 +265,10 @@ The launcher automatically pulls the initial forcing from `$project/meteo` and b
 
 Optional: `--max-workers <N>`, `--overwrite`, `--log-level <LEVEL>`
 
-The pipeline drives each step in order, assimilates SCF on the *next* step's start date, resamples the resulting weights to the posterior, and rejuvenates that posterior into the next prior before proceeding. Assimilation looks for the single-row CSV `obs_scf_MOD10A1_YYYYMMDD.csv` inside `<step>/obs/` for the date being processed; generate those files with `openamundsen_da.observer.satellite_scf` after you preprocess the MOD10A1 NDSI raster for your AOI (projection, QA/masking, and mosaicking). `season.py` never reads raw imagery, so the CSV must already reflect any filtering or thresholding you want applied.
+The pipeline drives each step in order, assimilates SCF on the _next_ step's start date, resamples the resulting weights to the posterior, and rejuvenates that posterior into the next prior before proceeding. Assimilation looks for the single-row CSV `obs_scf_MOD10A1_YYYYMMDD.csv` inside `<step>/obs/` for the date being processed; generate those files with `openamundsen_da.observer.satellite_scf` after you preprocess the MOD10A1 NDSI raster for your AOI (projection, QA/masking, and mosaicking). `season.py` never reads raw imagery, so the CSV must already reflect any filtering or thresholding you want applied.
 
 Outputs
+
 - Per-step runs in `<step>/ensembles/{prior,posterior}` (open_loop + members)
 - Weights and indices in `<step>/assim/`
 - Rejuvenated next-step prior (members + open_loop with state_pointer.json)

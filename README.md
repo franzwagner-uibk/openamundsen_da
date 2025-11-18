@@ -137,12 +137,13 @@ Alternatively, skip reprocessing entirely by driving the season mode from the `s
 docker compose run --rm oa `
   python -m openamundsen_da.observer.satellite_scf `
   --season-dir $season `
-  --summary-csv $project/obs/season_2017-2018/scf_summary.csv
+  --summary-csv $project/obs/season_YYYY-YYYY/scf_summary.csv `
+  --overwrite
 ```
 
 Optional: `--overwrite`, `--log-level <LEVEL>` (the summary path defaults to `<project>/obs/<season>/scf_summary.csv`). No AOI argument is required because the CSV already stores the AOI-derived SCF stats for each date.
 
-When a raster contains no valid pixels for the AOI, the season mode now logs a warning and skips that file while continuing with the rest; the single-raster mode still raises an error so you can catch missing data for a specific assimilation date.
+Note: the summary-based workflow is the recommended way to prepare SCF observations for assimilation; the single-image and raster batch modes are kept for backward compatibility only.
 
 ### H(x) Model SCF (optional, per-member debug)
 

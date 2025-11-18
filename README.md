@@ -263,18 +263,38 @@ The launcher automatically pulls the initial forcing from `$project/meteo` and b
 
 Optional: `--max-workers <N>`, `--overwrite`, `--log-level <LEVEL>`
 
-The pipeline drives each step in order, assimilates SCF on the *next* step’s start date, resamples the resulting weights to
-the posterior, and rejuvenates that posterior into the next prior before proceeding. Assimilation looks for the single-row
-CSV `obs_scf_MOD10A1_YYYYMMDD.csv` inside `<step>/obs/` for the date being processed; generate those files with
-`openamundsen_da.observer.satellite_scf` after you preprocess the MOD10A1 NDSI raster for your AOI (projection, QA/masking,
-and mosaicking). `season.py` never reads raw imagery, so the CSV must already reflect any filtering or thresholding you
-want applied.
+The pipeline drives each step in order, assimilates SCF on the *next* step's start date, resamples the resulting weights to the posterior, and rejuvenates that posterior into the next prior before proceeding. Assimilation looks for the single-row CSV `obs_scf_MOD10A1_YYYYMMDD.csv` inside `<step>/obs/` for the date being processed; generate those files with `openamundsen_da.observer.satellite_scf` after you preprocess the MOD10A1 NDSI raster for your AOI (projection, QA/masking, and mosaicking). `season.py` never reads raw imagery, so the CSV must already reflect any filtering or thresholding you want applied.
 
 Outputs
 - Per-step runs in `<step>/ensembles/{prior,posterior}` (open_loop + members)
 - Weights and indices in `<step>/assim/`
 - Rejuvenated next-step prior (members + open_loop with state_pointer.json)
 - Season plots under `<season_dir>/plots/{forcing,results}`
+
+### Season Skeleton (optional helper)
+
+To create an empty season layout with `step_*` folders and minimal step YAMLs from a list of assimilation dates, add them to `season.yml`:
+
+```yaml
+start_date: 2017-10-01
+end_date: 2018-09-30
+assimilation_dates:
+  - 2017-11-23
+  - 2017-12-24
+  - 2018-01-30
+  # ...
+```
+
+Then run:
+
+```powershell
+docker compose run --rm oa `
+  python -m openamundsen_da.pipeline.season_skeleton `
+  --project-dir $project `
+  --season-dir $season
+```
+
+This creates `step_00_init`, `step_01_*`, … with `start_date`, `end_date`, and `results_dir: results` aligned to the model timestep and the specified assimilation dates.
 
 ## Troubleshooting
 

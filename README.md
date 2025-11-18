@@ -118,9 +118,35 @@ docker compose run --rm oa `
 
 Optional: `--output <csv>`, `--ndsi-threshold <val>`, `--log-level <LEVEL>`
 
-  ### H(x) Model SCF (optional, per-member debug)
-  
-  ```powershell
+- Season batch mode (turns every raster in `obs/season_YYYY-YYYY` into the per-step CSVs):
+
+```powershell
+docker compose run --rm oa `
+  python -m openamundsen_da.observer.satellite_scf `
+  --season-dir $season `
+  --region $aoi
+```
+
+Optional: `--obs-dir $project/obs/season_YYYY-YYYY`, `--raster-glob <glob>`, `--overwrite`, `--ndsi-threshold <val>`, `--region-field <field>`, `--log-level <LEVEL>`
+
+Batch mode walks `propagation/season_YYYY-YYYY/step_*`, matches each raster by date to its step (or the step whose `end_date` matches the raster date), and writes `obs_scf_MOD10A1_YYYYMMDD.csv` into `<step>/obs`. Per-step `scf` overrides still apply.
+
+Alternatively, skip reprocessing entirely by driving the season mode from the `scf_summary.csv` produced by `mod10a1_preprocess`. It copies each summary row for an assimilation date into the matching `<step>/obs/` file, so you only need:
+
+```powershell
+docker compose run --rm oa `
+  python -m openamundsen_da.observer.satellite_scf `
+  --season-dir $season `
+  --summary-csv $project/obs/season_2017-2018/scf_summary.csv
+```
+
+Optional: `--overwrite`, `--log-level <LEVEL>` (the summary path defaults to `<project>/obs/<season>/scf_summary.csv`). No AOI argument is required because the CSV already stores the AOI-derived SCF stats for each date.
+
+When a raster contains no valid pixels for the AOI, the season mode now logs a warning and skips that file while continuing with the rest; the single-raster mode still raises an error so you can catch missing data for a specific assimilation date.
+
+### H(x) Model SCF (optional, per-member debug)
+
+```powershell
   docker compose run --rm oa `
     python -m openamundsen_da.methods.h_of_x.model_scf `
     --project-dir $project `

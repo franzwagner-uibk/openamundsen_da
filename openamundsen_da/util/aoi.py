@@ -33,7 +33,17 @@ def read_single_aoi(
     to_crs : Any, optional
         If provided, the AOI is reprojected to this CRS.
     """
-    gdf = gpd.read_file(aoi_path)
+    # Prefer the default engine (pyogrio in newer GeoPandas) but fall back
+    # to Fiona if the GDAL / pyogrio stack is misconfigured. This makes AOI
+    # handling robust across environments and Docker images.
+    try:
+        gdf = gpd.read_file(aoi_path)
+    except Exception as e:
+        msg = str(e)
+        if "GDAL data directory" in msg or "pyogrio" in msg:
+            gdf = gpd.read_file(aoi_path, engine="fiona")
+        else:
+            raise
     if len(gdf) != 1:
         raise ValueError(f"AOI must contain exactly one feature (got {len(gdf)})")
     if required_field not in gdf.columns:
@@ -44,4 +54,3 @@ def read_single_aoi(
         gdf = gdf.to_crs(to_crs)
     region_id = str(gdf.iloc[0][required_field])
     return gdf, region_id
-

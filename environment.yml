@@ -4,16 +4,16 @@ channels:
 dependencies:
   - python=3.11
   - pip
-  # geo stack
-  - gdal
+  # geo stack (pinned for reproducibility)
+  - gdal=3.8.5
   - hdf4
   - libgdal-hdf4
-  - proj
-  - geos
-  - fiona
-  - shapely
-  - rasterio
-  - geopandas
+  - proj=9.3
+  - geos=3.12
+  - fiona=1.9.6
+  - shapely=2.0.4
+  - rasterio=1.3.9
+  - geopandas=0.14.4
   # numeric + viz
   - numpy>=1.23
   - pandas

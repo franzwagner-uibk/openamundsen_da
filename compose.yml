@@ -11,6 +11,9 @@ services:
       OPENBLAS_NUM_THREADS: ${OMP_THREADS:-1}
       MKL_NUM_THREADS: ${OMP_THREADS:-1}
       NUMEXPR_NUM_THREADS: ${OMP_THREADS:-1}
+      # Prefer Fiona over pyogrio for robust vector I/O.
+      # Newer GeoPandas honours GPD_USE_PYOGRIO=0 to disable pyogrio.
+      GPD_USE_PYOGRIO: "0"
     # This service intentionally has no default command.
     # Use `docker compose run --rm oa <your command>` to execute tasks.
     # These limits are applied by Docker Compose when compatibility mode is enabled.

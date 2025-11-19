@@ -767,11 +767,28 @@ def plot_season_results(
             logger.warning("No data for station {} across season; skipping.", fname)
             continue
 
+        # Determine model-driven end date (last timestamp across all series)
+        model_end: Optional[datetime] = None
+        for s in member_series + open_loop:
+            if s.empty:
+                continue
+            last_ts = s.index.max()
+            if isinstance(last_ts, pd.Timestamp):
+                last_dt = last_ts.to_pydatetime()
+            else:
+                last_dt = datetime.fromisoformat(str(last_ts))
+            if model_end is None or last_dt > model_end:
+                model_end = last_dt
+
         # Determine autostop if requested: one month after all members reach zero
         auto_end = _auto_end_from_swe_zero(member_series) if var_col.lower() in ("swe", "hs", "snow_depth", "snowdepth") else None
         effective_end = end_date
         if auto_end is not None:
             effective_end = min(effective_end, auto_end) if effective_end else auto_end
+        # For SCF plots, cap the effective end at the last model timestamp so the
+        # x-axis does not extend beyond the model timeline even if observations do.
+        if vv == "scf" and model_end is not None:
+            effective_end = min(effective_end, model_end) if effective_end else model_end
 
         # Build figure (members + mean band + open-loop)
         import matplotlib.pyplot as plt  # ensure pyplot is loaded
@@ -824,12 +841,11 @@ def plot_season_results(
                 mask = (obs["date"] >= start_obs) & (obs["date"] <= end_obs)
                 obs = obs.loc[mask].copy()
             if not obs.empty:
-                ax.plot(
+                ax.scatter(
                     obs["date"],
                     obs["scf"],
                     color="#d62728",
-                    lw=1.8,
-                    marker="o",
+                    s=15,
                     label="obs SCF",
                     zorder=6,
                 )

@@ -183,29 +183,38 @@ def run_season(cfg: OrchestratorConfig) -> None:
         logger.info("Wrote weights -> {}", wcsv)
 
         # Resample to posterior
-        logger.info("Resampling to posterior ...")
-        resample_from_weights(
-            step_dir=step_dir,
-            source_ensemble="prior",
-            weights_csv=wcsv,
-            target_ensemble="posterior",
-            seed=None,
-            algorithm="systematic",
-            ess_threshold=0.0,
-            ess_threshold_ratio=None,
-            overwrite=True,
-        )
+        posterior_root = Path(step_dir) / "ensembles" / "posterior"
+        has_posterior = posterior_root.is_dir() and any(posterior_root.glob("member_*"))
+        if has_posterior and not cfg.overwrite:
+            logger.info("Posterior ensemble already exists and overwrite=False; skipping resampling.")
+        else:
+            logger.info("Resampling to posterior ...")
+            resample_from_weights(
+                step_dir=step_dir,
+                source_ensemble="prior",
+                weights_csv=wcsv,
+                target_ensemble="posterior",
+                seed=None,
+                algorithm="systematic",
+                ess_threshold=0.0,
+                ess_threshold_ratio=None,
+                overwrite=bool(cfg.overwrite),
+            )
 
         # Rejuvenate posterior -> next prior
-        logger.info("Rejuvenating posterior -> {} (prior) ...", steps[i + 1].name)
-        rejuvenate(
-            project_dir=cfg.project_dir,
-            prev_step_dir=step_dir,
-            next_step_dir=steps[i + 1],
-            source_ensemble="posterior",
-            target_ensemble="prior",
-            source_meteo_dir=None,
-        )
+        rejuvenate_manifest = Path(steps[i + 1]) / "assim" / "rejuvenate_manifest.json"
+        if rejuvenate_manifest.is_file() and not cfg.overwrite:
+            logger.info("Rejuvenation manifest already exists for {}; overwrite=False -> skipping rejuvenation.", steps[i + 1].name)
+        else:
+            logger.info("Rejuvenating posterior -> {} (prior) ...", steps[i + 1].name)
+            rejuvenate(
+                project_dir=cfg.project_dir,
+                prev_step_dir=step_dir,
+                next_step_dir=steps[i + 1],
+                source_ensemble="posterior",
+                target_ensemble="prior",
+                source_meteo_dir=None,
+            )
 
         # Update season-wide plots after each assimilation/rejuvenation cycle so
         # users can monitor progress while the pipeline continues running. Plots

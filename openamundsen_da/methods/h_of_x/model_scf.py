@@ -363,10 +363,15 @@ def compute_step_scf_daily_for_all_members(
 
     # Use member results directories
     jobs: list[tuple[str, str, str, str, str, bool]] = []
+    all_exist = True
     for mdir in members:
         res_dir = Path(mdir) / "results"
         if not res_dir.is_dir():
+            all_exist = False
             continue
+        out_csv = res_dir / "point_scf_aoi.csv"
+        if not out_csv.is_file():
+            all_exist = False
         jobs.append(
             (
                 str(project_dir),
@@ -377,6 +382,14 @@ def compute_step_scf_daily_for_all_members(
                 bool(overwrite),
             )
         )
+
+    # If every member already has SCF output and overwrite=False, skip work.
+    if jobs and all_exist and not overwrite:
+        logger.info(
+            "SCF daily series already present for all members in {}; overwrite=False -> skipping SCF computation.",
+            step_dir.name,
+        )
+        return
 
     if not jobs:
         logger.warning("No member results directories found for {}; skipping SCF computation.", step_dir)

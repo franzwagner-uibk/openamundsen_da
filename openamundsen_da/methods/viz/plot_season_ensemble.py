@@ -655,7 +655,19 @@ def plot_season_results(
     if not point_files:
         raise FileNotFoundError("No point_*.csv files found in any step's results directories")
 
-    if stations:
+    # When plotting SCF, prefer the synthetic AOI point file if present.
+    vv = (var_col or "").strip().lower()
+    if vv == "scf":
+        preferred = "point_scf_aoi.csv"
+        if stations:
+            # Respect explicit station selection
+            keep = set(stations)
+            point_files = [f for f in point_files if f in keep]
+        else:
+            # Auto-select point_scf_aoi.csv when available
+            if preferred in point_files:
+                point_files = [preferred]
+    elif stations:
         keep = set(stations)
         point_files = [f for f in point_files if f in keep]
     if max_stations is not None:
@@ -671,12 +683,34 @@ def plot_season_results(
             var_title = "snow water equivalent [mm]"
         elif vv in ("snow_depth", "snowdepth", "hs"):
             var_title = "snow depth [m]"
+        elif vv == "scf":
+            var_title = "snow cover fraction [-]"
         else:
             var_title = vv.replace("_", " ")
     else:
         var_title = var_label or var_col
         if var_units:
             var_title = f"{var_title} [{var_units}]"
+
+    # Observation SCF overlay for SCF plots (season-level scf_summary.csv)
+    obs_scf_df: Optional[pd.DataFrame] = None
+    if vv == "scf":
+        try:
+            project_dir = season_dir.parent.parent
+            obs_path = project_dir / "obs" / season_dir.name / "scf_summary.csv"
+            if obs_path.is_file():
+                tmp = pd.read_csv(obs_path)
+                if {"date", "scf"}.issubset(tmp.columns):
+                    tmp = tmp.copy()
+                    tmp["date"] = pd.to_datetime(tmp["date"], errors="coerce")
+                    tmp = tmp.dropna(subset=["date"]).sort_values("date")
+                    obs_scf_df = tmp[["date", "scf"]]
+                else:
+                    logger.warning("Obs SCF summary {} missing required columns 'date' and 'scf'; skipping overlay.", obs_path)
+            else:
+                logger.warning("Obs SCF summary not found at {}; skipping SCF overlay.", obs_path)
+        except Exception as exc:
+            logger.warning("Failed to load obs SCF summary for {}: {}", season_dir.name, exc)
     stations_df = _load_stations_table_from_steps(steps)
     member_label_map = _build_member_label_map(steps)
 
@@ -776,6 +810,25 @@ def plot_season_results(
                 ol = df[var_col].dropna()
             if not ol.empty:
                 ax.plot(ol.index, ol.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open loop", zorder=5)
+
+        # Obs SCF overlay (mandatory when plotting SCF and summary is available)
+        if vv == "scf" and obs_scf_df is not None and not obs_scf_df.empty:
+            obs = obs_scf_df
+            if effective_end or start_date:
+                start_obs = start_date or obs["date"].min()
+                end_obs = effective_end or obs["date"].max()
+                mask = (obs["date"] >= start_obs) & (obs["date"] <= end_obs)
+                obs = obs.loc[mask].copy()
+            if not obs.empty:
+                ax.plot(
+                    obs["date"],
+                    obs["scf"],
+                    color="#d62728",
+                    lw=1.8,
+                    marker="o",
+                    label="obs SCF",
+                    zorder=6,
+                )
 
         ax.set_xlabel("Time")
         ax.set_ylabel(var_title)

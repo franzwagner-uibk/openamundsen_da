@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Literal, Tuple
+import concurrent.futures as cf
 
 import geopandas as gpd
 import numpy as np
@@ -55,6 +56,9 @@ from openamundsen_da.io.paths import (
     find_member_daily_raster,
     member_id_from_results_dir,
     find_project_yaml,
+    read_step_config,
+    list_member_dirs,
+    open_loop_dir,
 )
 from openamundsen_da.util.aoi import read_single_aoi
 from openamundsen_da.util.stats import sigmoid
@@ -213,6 +217,198 @@ def compute_model_scf(
     }
 
 
+def compute_member_scf_daily(
+    *,
+    project_dir: Path,
+    results_dir: Path,
+    aoi_path: Path,
+    start: datetime,
+    end: datetime,
+) -> pd.DataFrame:
+    """Compute daily AOI-mean SCF for one member over a date range.
+
+    Uses the same H(x) configuration as assimilation (data_assimilation.h_of_x)
+    and reuses :func:`compute_model_scf` for each day where a daily raster is
+    available. Missing rasters for particular days are skipped.
+
+    Returns a DataFrame with columns ``time`` (datetime) and ``scf`` sorted by
+    time.
+    """
+    method, variable, params = load_hofx_from_project(Path(project_dir))
+
+    # Normalize variable name for internal use
+    var = variable if variable in (VAR_HS, VAR_SWE) else VAR_HS
+
+    # Build daily date range (inclusive, based on calendar days)
+    start_day = datetime(start.year, start.month, start.day)
+    end_day = datetime(end.year, end.month, end.day)
+    if end_day < start_day:
+        return pd.DataFrame(columns=["time", "scf"])
+    dates = pd.date_range(start_day, end_day, freq="D").to_pydatetime()
+
+    times: list[datetime] = []
+    scfs: list[float] = []
+    for dt in dates:
+        try:
+            out = compute_model_scf(
+                results_dir=Path(results_dir),
+                aoi_path=Path(aoi_path),
+                date=dt,
+                variable=var,  # type: ignore[arg-type]
+                method=method,  # type: ignore[arg-type]
+                params=params,
+            )
+        except FileNotFoundError:
+            # No daily raster for this date -> skip
+            continue
+        except Exception as exc:
+            logger.warning("SCF daily computation failed for {} at {}: {}", results_dir, dt.date(), exc)
+            continue
+        times.append(dt)
+        scfs.append(float(out["scf"]))
+
+    if not times:
+        return pd.DataFrame(columns=["time", "scf"])
+    df = pd.DataFrame({"time": times, "scf": scfs})
+    return df.sort_values("time")
+
+
+def _compute_member_scf_for_step_worker(
+    project_dir: str,
+    aoi_path: str,
+    results_dir: str,
+    start_iso: str,
+    end_iso: str,
+    overwrite: bool,
+) -> tuple[str, bool]:
+    """Worker: compute SCF daily series for a single member results dir.
+
+    Returns (member_name, created) where created indicates whether a CSV was
+    written (False when skipped due to overwrite=False and existing output).
+    """
+    res_dir = Path(results_dir)
+    out_csv = res_dir / "point_scf_aoi.csv"
+    if out_csv.exists() and not overwrite:
+        return res_dir.parent.name, False
+
+    start = datetime.fromisoformat(start_iso)
+    end = datetime.fromisoformat(end_iso)
+    df = compute_member_scf_daily(
+        project_dir=Path(project_dir),
+        results_dir=res_dir,
+        aoi_path=Path(aoi_path),
+        start=start,
+        end=end,
+    )
+    if df.empty:
+        return res_dir.parent.name, False
+
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out_csv, index=False)
+    return res_dir.parent.name, True
+
+
+def compute_step_scf_daily_for_all_members(
+    *,
+    project_dir: Path,
+    season_dir: Path,
+    step_dir: Path,
+    aoi_path: Path,
+    max_workers: int = 4,
+    overwrite: bool = False,
+) -> None:
+    """Compute daily model SCF for all prior members in a step.
+
+    For the given ``step_dir``, this function:
+    - Reads the step start/end dates from its YAML.
+    - Discovers prior ensemble members (including open_loop when present).
+    - In parallel across members, computes daily AOI-mean SCF time series
+      using :func:`compute_member_scf_daily`.
+    - Writes the result to ``<member>/results/point_scf_aoi.csv`` for each
+      member, which can then be used by the season plotting utilities via
+      ``var_col='scf'`` and ``station='point_scf_aoi.csv'``.
+
+    Existing CSVs are skipped unless ``overwrite=True``.
+    """
+    step_dir = Path(step_dir)
+    project_dir = Path(project_dir)
+    season_dir = Path(season_dir)
+    aoi_path = Path(aoi_path)
+
+    cfg = read_step_config(step_dir) or {}
+    try:
+        s_val = cfg.get("start_date")
+        e_val = cfg.get("end_date")
+        start = datetime.fromisoformat(str(s_val))
+        end = datetime.fromisoformat(str(e_val))
+    except Exception as exc:
+        raise ValueError(f"Missing or invalid start_date/end_date in step config for {step_dir}") from exc
+
+    prior_root = step_dir / "ensembles" / "prior"
+    if not prior_root.is_dir():
+        raise FileNotFoundError(f"No prior ensemble found under {prior_root}")
+
+    members = list_member_dirs(step_dir / "ensembles", "prior")
+    if not members:
+        logger.warning("No prior members found under {}; skipping SCF computation.", step_dir)
+        return
+
+    # Include open_loop if present
+    try:
+        ol_dir = open_loop_dir(step_dir)
+        if ol_dir.is_dir():
+            members = [ol_dir] + members
+    except Exception:
+        pass
+
+    # Use member results directories
+    jobs: list[tuple[str, str, str, str, str, bool]] = []
+    for mdir in members:
+        res_dir = Path(mdir) / "results"
+        if not res_dir.is_dir():
+            continue
+        jobs.append(
+            (
+                str(project_dir),
+                str(aoi_path),
+                str(res_dir),
+                start.isoformat(),
+                end.isoformat(),
+                bool(overwrite),
+            )
+        )
+
+    if not jobs:
+        logger.warning("No member results directories found for {}; skipping SCF computation.", step_dir)
+        return
+
+    n_workers = max(1, min(int(max_workers or 1), len(jobs)))
+    logger.info(
+        "Computing daily model SCF for {} member(s) in {} using {} worker(s) ...",
+        len(jobs),
+        step_dir.name,
+        n_workers,
+    )
+
+    created = 0
+    with cf.ProcessPoolExecutor(max_workers=n_workers) as ex:
+        futures = [ex.submit(_compute_member_scf_for_step_worker, *args) for args in jobs]
+        for fut in cf.as_completed(futures):
+            try:
+                name, did_create = fut.result()
+                if did_create:
+                    created += 1
+            except Exception as exc:
+                logger.warning("SCF computation failed for a member in {}: {}", step_dir, exc)
+
+    logger.info(
+        "Model SCF daily series written for {} / {} member(s) in {}",
+        created,
+        len(jobs),
+        step_dir.name,
+    )
+
+
 def cli_main(argv: list[str] | None = None) -> int:
     """CLI for computing model SCF per member/date.
 
@@ -311,6 +507,63 @@ def cli_main(argv: list[str] | None = None) -> int:
             out["raster"], out["member_id"], region_id if region_id else "", out["variable"], out["method"], out["h0"], out["k"], out["n_valid"], out["scf"], out_csv.name
         )
     )
+    return 0
+
+
+def cli_season_daily(argv: list[str] | None = None) -> int:
+    """CLI: compute daily model SCF for all members and steps in a season.
+
+    Example
+    -------
+    oa-da-model-scf-season-daily \\
+      --project-dir C:/.../examples/test-project \\
+      --season-dir C:/.../propagation/season_2017-2018 \\
+      --aoi C:/.../env/GMBA_Inventory_L8_15422.gpkg \\
+      --max-workers 8
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="oa-da-model-scf-season-daily",
+        description=(
+            "Compute daily model SCF (AOI-mean) for all prior members in each "
+            "step of a season, writing point_scf_aoi.csv per member."
+        ),
+    )
+    parser.add_argument("--project-dir", type=Path, required=True, help="Project root containing project.yml")
+    parser.add_argument("--season-dir", type=Path, required=True, help="Season root containing step_* directories")
+    parser.add_argument("--aoi", type=Path, required=True, help="Single-feature AOI vector (same as used by assimilation)")
+    parser.add_argument("--max-workers", type=int, default=4, help="Max parallel workers per step")
+    parser.add_argument("--overwrite", action="store_true", help="Recompute SCF even if point_scf_aoi.csv exists")
+    parser.add_argument("--log-level", type=str, default="INFO", help="Log level (INFO, DEBUG, ...)")
+
+    args = parser.parse_args(argv)
+
+    # Configure logging
+    logger.remove()
+    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+
+    season_dir = Path(args.season_dir)
+    steps = sorted(p for p in season_dir.glob("step_*") if p.is_dir())
+    if not steps:
+        logger.error("No step_* directories found under {}", season_dir)
+        return 1
+
+    logger.info("Computing daily model SCF for season: {} ({} step(s))", season_dir.name, len(steps))
+    for step in steps:
+        try:
+            compute_step_scf_daily_for_all_members(
+                project_dir=Path(args.project_dir),
+                season_dir=season_dir,
+                step_dir=step,
+                aoi_path=Path(args.aoi),
+                max_workers=int(args.max_workers or 4),
+                overwrite=bool(args.overwrite),
+            )
+        except Exception as exc:
+            logger.error("SCF daily computation failed for step {}: {}", step.name, exc)
+            return 2
+    logger.info("Season-wide model SCF daily computation complete for {}", season_dir)
     return 0
 
 

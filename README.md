@@ -292,9 +292,22 @@ docker compose run --rm oa `
   --var-col swe
 ```
 
+- Season-wide SCF (model + obs SCF):
+
+```powershell
+docker compose run --rm oa `
+  python -m openamundsen_da.methods.viz.plot_season_ensemble `
+  results `
+  --season-dir $season `
+  --var-col scf `
+  --station point_scf_aoi.csv
+```
+
+This uses per-member `point_scf_aoi.csv` files (model SCF derived from HS/SWE grids) written under each member's `results` directory and overlays observed SCF from `obs/<season>/scf_summary.csv` when available.
+
 Optional: `--station`, `--max-stations`, `--start-date`, `--end-date`, `--resample`, `--rolling`, `--hydro-month`, `--hydro-day`, `--backend`, `--log-level`, `--var-label`, `--var-units`, `--band-low`, `--band-high`.
 
-Note: running the season pipeline (see below) also generates these season plots automatically under `<season_dir>/plots/{forcing,results}`.
+Note: running the season pipeline (see below) also generates these season plots automatically under `<season_dir>/plots/{forcing,results}>` and a SCF season plot when SCF data and obs summaries are present.
 
 ## Season Pipeline
 
@@ -317,6 +330,22 @@ Outputs
 - Weights and indices in `<step>/assim/`
 - Rejuvenated next-step prior (members + open_loop with state_pointer.json)
 - Season plots under `<season_dir>/plots/{forcing,results}`
+- When model SCF is enabled, daily AOI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_aoi.csv` and a season-wide SCF plot (model ensemble + obs overlay) is written next to the SWE plots via `plot_season_results(..., var_col="scf")`.
+
+### Backfilling model SCF for an existing season (optional)
+
+If you have already run a season and want to compute daily AOI-mean model SCF for all members (to enable SCF season plots), you can run:
+
+```powershell
+$project = "/data"
+$season  = "$project/propagation/season_YYYY-YYYY"
+$aoi     = "$project/env/your_aoi.gpkg"
+
+docker compose run --rm oa `
+  python -c "from openamundsen_da.methods.h_of_x.model_scf import cli_season_daily; import sys; sys.exit(cli_season_daily(['--project-dir','$project','--season-dir','$season','--aoi','$aoi','--max-workers','20']))"
+```
+
+This writes per-member SCF time series to `<step>/ensembles/prior/<member>/results/point_scf_aoi.csv` for all steps, so `plot_season_ensemble` with `var_col="scf"` can consume them.
 
 ### Season Skeleton (optional helper)
 

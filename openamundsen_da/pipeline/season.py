@@ -29,11 +29,12 @@ from openamundsen_da.core.launch import launch_members
 from openamundsen_da.core.prior_forcing import build_prior_ensemble
 from openamundsen_da.io.paths import read_step_config
 from openamundsen_da.methods.pf.assimilate_scf import assimilate_scf_for_date
+from openamundsen_da.methods.h_of_x.model_scf import compute_step_scf_daily_for_all_members
 from openamundsen_da.methods.pf.rejuvenate import rejuvenate
 from openamundsen_da.methods.pf.resample import resample_from_weights
 from openamundsen_da.methods.pf.plot_weights import plot_weights_for_csv
 from openamundsen_da.methods.pf.plot_ess_timeline import plot_season_ess_timeline
-from openamundsen_da.methods.viz.plot_season_ensemble import plot_season_both
+from openamundsen_da.methods.viz.plot_season_ensemble import plot_season_both, plot_season_results
 
 
 def _list_steps_sorted(season_dir: Path) -> List[Path]:
@@ -133,6 +134,21 @@ def run_season(cfg: OrchestratorConfig) -> None:
             dump_state=None,
             state_pattern=None,
         )
+
+        # After propagation: compute daily model SCF for all prior members in
+        # this step so that season-level plots can use var_col='scf' via the
+        # generated point_scf_aoi.csv files.
+        try:
+            compute_step_scf_daily_for_all_members(
+                project_dir=cfg.project_dir,
+                season_dir=cfg.season_dir,
+                step_dir=step_dir,
+                aoi_path=aoi,
+                max_workers=int(cfg.max_workers),
+                overwrite=bool(cfg.overwrite),
+            )
+        except Exception as exc:
+            logger.warning("Model SCF daily computation failed for {}: {}", step_name, exc)
 
         # If not the last step: Assimilation -> Resample -> Rejuvenate
         next_start = _next_step_start(steps, i)
@@ -266,6 +282,12 @@ def run_season(cfg: OrchestratorConfig) -> None:
     # Season plots (both forcing and results)
     logger.info("Generating season plots ...")
     plot_season_both(season_dir=cfg.season_dir)
+    # Also generate season-wide SCF results plot (model + obs overlay) when
+    # SCF point files and obs summaries are available.
+    try:
+        plot_season_results(season_dir=cfg.season_dir, var_col="scf")
+    except FileNotFoundError as exc:
+        logger.warning("SCF season plot skipped: {}", exc)
     _setup_logger(cfg.season_dir, cfg.log_level)
     logger.info("Season processing complete: {}", cfg.season_dir)
 

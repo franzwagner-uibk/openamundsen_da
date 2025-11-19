@@ -655,8 +655,12 @@ def plot_season_results(
     if not point_files:
         raise FileNotFoundError("No point_*.csv files found in any step's results directories")
 
-    # When plotting SCF, prefer the synthetic AOI point file if present.
     vv = (var_col or "").strip().lower()
+    # For non-SCF variables, ignore the synthetic SCF point file if present.
+    if vv != "scf":
+        point_files = [f for f in point_files if f != "point_scf_aoi.csv"]
+
+    # When plotting SCF, prefer the synthetic AOI point file if present.
     if vv == "scf":
         preferred = "point_scf_aoi.csv"
         if stations:

@@ -17,11 +17,14 @@ Behavior
   - ``step_00_init`` for the initial cold-start window.
   - ``step_01_*``, ..., ``step_N_*`` for subsequent windows.
 - For each assimilation date ``D_i``:
-  - Step i's end_date is set such that the *next* step starts one model
-    time step after the assimilation time.
-  - The following step (i+1) receives a ``start_date`` whose calendar
-    date equals ``D_i``; this matches the convention used by the season
-    pipeline, which assimilates on the next step's ``start_date`` date.
+  - Step i ends at calendar date ``D_i`` with the same time-of-day as
+    its own ``start_date``. This guarantees that the run produces a
+    daily grid for ``D_i`` (assuming daily outputs are written at a
+    fixed clock time per step, as in the examples).
+  - The following step (i+1) starts exactly one model time step after
+    that end instant. Its calendar date therefore equals ``D_i``, which
+    matches the convention used by the season pipeline (it assimilates
+    on the next step's ``start_date`` date).
 - The final step's ``end_date`` is aligned with ``season.yml.end_date``.
 
 This module does not touch ensembles or observations; it only creates
@@ -173,8 +176,12 @@ def create_season_skeleton(project_dir: Path, season_dir: Path, *, overwrite: bo
 
     Steps are defined such that:
     - Step 0 starts at season.start_date.
-    - For each assimilation date D_i, the next step (i+1) starts at
-      D_i + timestep, and step i ends at that start minus one timestep.
+    - For each assimilation date D_i, step i ends at D_i with the same
+      time-of-day as its own start_date, so the model produces a daily
+      raster for that date.
+    - The next step (i+1) starts exactly one model time step after that
+      end instant (no duplicated timesteps; gap = one timestep), and its
+      calendar date equals D_i (used by the season pipeline for SCF DA).
     - The last step ends at season.end_date.
     """
     dt, season = _load_season_config(project_dir, season_dir)
@@ -186,10 +193,18 @@ def create_season_skeleton(project_dir: Path, season_dir: Path, *, overwrite: bo
     step_start = season.start
     for idx in range(n_steps):
         if idx < len(assim):
-            # Assimilation date for this window
+            # Assimilation date for this window (calendar date)
             a = assim[idx]
-            next_start = a + dt
-            step_end = next_start - dt
+            # Align assimilation datetime to this step's time-of-day so that
+            # the model produces a daily raster for D_i within this window.
+            step_time = step_start.time()
+            step_end = a.replace(
+                hour=step_time.hour,
+                minute=step_time.minute,
+                second=step_time.second,
+                microsecond=step_time.microsecond,
+            )
+            next_start = step_end + dt
         else:
             # Final step: run until season end
             next_start = None

@@ -1,6 +1,6 @@
 """Shared visualization style constants for ensemble plots."""
 
-COLOR_MEAN = "#1f77b4"
+COLOR_MEAN = "#120fb6"
 COLOR_OPEN_LOOP = "black"
 BAND_ALPHA = 0.18
 LW_MEMBER = 1.2

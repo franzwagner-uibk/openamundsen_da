@@ -12,8 +12,9 @@ Purpose
 Behavior
 --------
 - Reads all steps under ``<season_dir>/step_*`` and their YAML configs.
-- For every step i that has a following step i+1, uses the next step's
-  ``start_date`` as the assimilation date.
+- For every step i that has a following step i+1, uses this step's
+  ``end_date`` as the assimilation datetime (mirroring the season
+  orchestrator) and its calendar date as the assimilation date.
 - Looks up that date in ``scf_summary.csv`` and writes a single-row CSV
   into ``step_i/obs/obs_scf_MOD10A1_YYYYMMDD.csv``.
 - Does not touch rasters; all SCF statistics come from the summary file.
@@ -97,33 +98,35 @@ def generate_season_from_summary(
 
     written = skipped_missing = skipped_existing = 0
     for i in range(len(steps) - 1):
-        # Assimilation date = next step's start_date
-        next_cfg = read_step_config(steps[i + 1]) or {}
-        start = _parse_dt_opt(str(next_cfg.get("start_date")))
-        if start is None:
-            logger.warning("Skipping step {} (missing start_date)", steps[i + 1].name)
+        # Assimilation datetime = current step end_date (aligned with
+        # season_skeleton and season orchestrator). We intentionally skip
+        # the final step, which has no following assimilation.
+        curr_cfg = read_step_config(steps[i]) or {}
+        end_dt = _parse_dt_opt(str(curr_cfg.get("end_date")))
+        if end_dt is None:
+            logger.warning("Skipping step {} (missing end_date)", steps[i].name)
             continue
 
-        row = by_date.get(start.date())
+        row = by_date.get(end_dt.date())
         if row is None:
-            logger.warning("No summary entry for assimilation date {}; skipping {}", start.date(), steps[i].name)
+            logger.warning("No summary entry for assimilation date {}; skipping {}", end_dt.date(), steps[i].name)
             skipped_missing += 1
             continue
 
         out_dir = steps[i] / OBS_DIR_NAME
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_csv = out_dir / f"obs_scf_MOD10A1_{start.strftime('%Y%m%d')}.csv"
+        out_csv = out_dir / f"obs_scf_MOD10A1_{end_dt.strftime('%Y%m%d')}.csv"
         if out_csv.exists() and not overwrite:
-            logger.info("Skipping existing obs CSV for {} (step {})", start.strftime("%Y-%m-%d"), steps[i].name)
+            logger.info("Skipping existing obs CSV for {} (step {})", end_dt.strftime("%Y-%m-%d"), steps[i].name)
             skipped_existing += 1
             continue
 
         payload = {col: _sanitize_summary_value(row[col]) for col in row.index}
-        payload["date"] = start.strftime("%Y-%m-%d")
+        payload["date"] = end_dt.strftime("%Y-%m-%d")
         out_df = pd.DataFrame({k: [v] for k, v in payload.items()})
         out_df.to_csv(out_csv, index=False)
         written += 1
-        logger.info("Wrote summary obs {} -> {} ({})", start.strftime("%Y-%m-%d"), steps[i].name, out_csv.name)
+        logger.info("Wrote summary obs {} -> {} ({})", end_dt.strftime("%Y-%m-%d"), steps[i].name, out_csv.name)
 
     logger.info(
         "Season summary prep complete: written={} skipped_missing={} skipped_existing={}",
@@ -179,4 +182,3 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-

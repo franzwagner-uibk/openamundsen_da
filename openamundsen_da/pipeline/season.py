@@ -156,33 +156,57 @@ def run_season(cfg: OrchestratorConfig) -> None:
             # Best-effort; do not fail if step YAMLs are incomplete or unparsable
             pass
 
-        # Assimilation date = next step start_date
-        logger.info("Assimilating SCF for date {}", next_start.strftime("%Y-%m-%d"))
+        # Assimilation date: use current step end_date (aligned with season.yml
+        # assimilation_dates via the season_skeleton). This ensures that:
+        # - The model has produced a daily raster for this date within this
+        #   step's window.
+        # - We never request a raster for a date beyond the step's end.
+        # Fallback to next_start if end_date is missing or unparsable.
+        assim_dt = None
         try:
-            weights = assimilate_scf_for_date(
-                project_dir=cfg.project_dir,
-                step_dir=step_dir,
-                ensemble="prior",
-                date=next_start,
-                aoi=aoi,
-                obs_csv=None,
-            )
-        except FileNotFoundError as exc:
-            logger.error(
-                "SCF assimilation failed for step {} at date {}: {}. "
-                "Ensure obs_scf_MOD10A1_YYYYMMDD.csv exists under {}/obs for this date "
-                "or generate it via oa-da-scf.",
-                step_name,
-                next_start.strftime("%Y-%m-%d"),
-                exc,
-                step_dir,
-            )
-            raise
+            curr_cfg = read_step_config(step_dir) or {}
+            end_val = curr_cfg.get("end_date")
+            if end_val is not None:
+                assim_dt = datetime.fromisoformat(str(end_val))
+        except Exception:
+            assim_dt = None
+        if assim_dt is None:
+            assim_dt = next_start
+
+        logger.info("Assimilating SCF for date {}", assim_dt.strftime("%Y-%m-%d"))
+
+        # Reuse existing weights if present and overwrite=False so that
+        # re-running oa-da-season can skip already-assimilated steps.
         assim_dir = Path(step_dir) / "assim"
         assim_dir.mkdir(parents=True, exist_ok=True)
-        wcsv = assim_dir / f"weights_scf_{next_start.strftime('%Y%m%d')}.csv"
-        weights.to_csv(wcsv, index=False)
-        logger.info("Wrote weights -> {}", wcsv)
+        wcsv = assim_dir / f"weights_scf_{assim_dt.strftime('%Y%m%d')}.csv"
+        if wcsv.is_file() and not cfg.overwrite:
+            logger.info("Weights CSV already exists for {}; overwrite=False -> reusing existing weights: {}", step_name, wcsv)
+            # Downstream resampling/rejuvenation will read this file; no need
+            # to recompute or touch assimilation for this step.
+        else:
+            try:
+                weights = assimilate_scf_for_date(
+                    project_dir=cfg.project_dir,
+                    step_dir=step_dir,
+                    ensemble="prior",
+                    date=assim_dt,
+                    aoi=aoi,
+                    obs_csv=None,
+                )
+            except FileNotFoundError as exc:
+                logger.error(
+                    "SCF assimilation failed for step {} at date {}: {}. "
+                    "Ensure obs_scf_MOD10A1_YYYYMMDD.csv exists under {}/obs for this date "
+                    "or generate it via oa-da-scf.",
+                    step_name,
+                    assim_dt.strftime("%Y-%m-%d"),
+                    exc,
+                    step_dir,
+                )
+                raise
+            weights.to_csv(wcsv, index=False)
+            logger.info("Wrote weights -> {}", wcsv)
 
         # Resample to posterior
         posterior_root = Path(step_dir) / "ensembles" / "posterior"

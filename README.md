@@ -307,7 +307,7 @@ This uses per-member `point_scf_aoi.csv` files (model SCF derived from HS/SWE gr
 
 Optional: `--station`, `--max-stations`, `--start-date`, `--end-date`, `--resample`, `--rolling`, `--hydro-month`, `--hydro-day`, `--backend`, `--log-level`, `--var-label`, `--var-units`, `--band-low`, `--band-high`.
 
-Note: running the season pipeline (see below) also generates these season plots automatically under `<season_dir>/plots/{forcing,results}>` and a SCF season plot when SCF data and obs summaries are present.
+Note: running the season pipeline (see below) also generates these season plots automatically under `<season_dir>/plots/{forcing,results}` and a SCF season plot when SCF data and obs summaries are present.
 
 ## Season Pipeline
 
@@ -320,7 +320,7 @@ docker compose run --rm oa `
 
 The launcher automatically pulls the initial forcing from `$project/meteo` and builds the first prior ensemble (errors if the directory is missing), so you no longer need a separate `prior_forcing` run before `season.py` as long as the long-span station files live under `project/meteo`.
 
-Optional: `--max-workers <N>`, `--overwrite`, `--no-live-plots`, `--log-level <LEVEL>`
+Optional: `--max-workers <N>`, `--overwrite`, `--no-live-plots`, `--log-level <LEVEL>` (`--no-live-plots` skips plotting during the run; all plots are created once at the end).
 
 The pipeline drives each step in order, assimilates SCF on the _next_ step's start date, resamples the resulting weights to the posterior, and rejuvenates that posterior into the next prior before proceeding. Assimilation looks for the single-row CSV `obs_scf_MOD10A1_YYYYMMDD.csv` inside `<step>/obs/` for the date being processed; generate those files with `openamundsen_da.observer.satellite_scf` after you preprocess the MOD10A1 NDSI raster for your AOI (projection, QA/masking, and mosaicking). `season.py` never reads raw imagery, so the CSV must already reflect any filtering or thresholding you want applied.
 
@@ -331,6 +331,7 @@ Outputs
 - Rejuvenated next-step prior (members + open_loop with state_pointer.json)
 - Season plots under `<season_dir>/plots/{forcing,results}`
 - When model SCF is enabled, daily AOI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_aoi.csv` and a season-wide SCF plot (model ensemble + obs overlay) is written next to the SWE plots via `plot_season_results(..., var_col="scf")`.
+At the end of the season run, per-step weights plots (`step_XX_weights.png`) and the season ESS timeline (`season_ess_timeline_<season_id>.png`) are also generated under `<season_dir>/plots/assim/{weights,ess}`.
 
 ### Backfilling model SCF for an existing season (optional)
 

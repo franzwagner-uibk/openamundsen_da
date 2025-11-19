@@ -1,4 +1,4 @@
-﻿# openamundsen_da â€” Data Assimilation for openAMUNDSEN
+﻿# openamundsen_da - Data Assimilation for openAMUNDSEN
 
 Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF) with a particle filter. Commands are Docker/Compose friendly and use generic variables to work across projects.
 
@@ -193,7 +193,7 @@ docker compose run --rm oa `
 
 Optional: `--ess-threshold-ratio <0..1>`, `--ess-threshold <n|ratio>`, `--seed <int>`, `--overwrite`, `--log-level <LEVEL>`
 
-### Rejuvenation (posterior â†’ prior)
+### Rejuvenation (posterior -> prior)
 
 Rebase is default (perturbations are applied relative to open_loop). If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas.
 
@@ -331,7 +331,7 @@ Outputs
 - Rejuvenated next-step prior (members + open_loop with state_pointer.json)
 - Season plots under `<season_dir>/plots/{forcing,results}`
 - When model SCF is enabled, daily AOI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_aoi.csv` and a season-wide SCF plot (model ensemble + obs overlay) is written next to the SWE plots via `plot_season_results(..., var_col="scf")`.
-At the end of the season run, per-step weights plots (`step_XX_weights.png`) and the season ESS timeline (`season_ess_timeline_<season_id>.png`) are also generated under `<season_dir>/plots/assim/{weights,ess}`.
+  At the end of the season run, per-step weights plots (`step_XX_weights.png`) and the season ESS timeline (`season_ess_timeline_<season_id>.png`) are also generated under `<season_dir>/plots/assim/{weights,ess}`.
 
 ### Backfilling model SCF for an existing season (optional)
 

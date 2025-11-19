@@ -31,6 +31,8 @@ from openamundsen_da.io.paths import read_step_config
 from openamundsen_da.methods.pf.assimilate_scf import assimilate_scf_for_date
 from openamundsen_da.methods.pf.rejuvenate import rejuvenate
 from openamundsen_da.methods.pf.resample import resample_from_weights
+from openamundsen_da.methods.pf.plot_weights import plot_weights_for_csv
+from openamundsen_da.methods.pf.plot_ess_timeline import plot_season_ess_timeline
 from openamundsen_da.methods.viz.plot_season_ensemble import plot_season_both
 
 
@@ -222,7 +224,16 @@ def run_season(cfg: OrchestratorConfig) -> None:
         # each update.
         try:
             logger.info("Updating season plots after assimilation step {} ...", step_name)
+            # Forcing/results season plots
             plot_season_both(season_dir=cfg.season_dir)
+            # Per-step weights plot at season level
+            plot_weights_for_csv(wcsv)
+            # Season-wide ESS timeline across all available assimilation dates
+            try:
+                plot_season_ess_timeline(cfg.season_dir)
+            except FileNotFoundError:
+                # Best-effort: skip if weights are not yet available
+                pass
         except Exception as exc:
             logger.warning("Season plotting failed after step {}: {}", step_name, exc)
         # Restore orchestrator logging sinks after plot_season_* reconfigures Loguru.

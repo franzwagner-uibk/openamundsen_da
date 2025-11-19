@@ -72,6 +72,60 @@ def _plot(df: pd.DataFrame, normalized: bool, threshold: float | None, title: st
     return fig
 
 
+def _season_id_from_dir(season_dir: Path) -> str:
+    """Derive a compact season identifier from a season directory name.
+
+    Mirrors the behavior used in plot_season_ensemble: if the directory
+    name contains an underscore (e.g., 'season_2017-2018'), the portion
+    after the first underscore is used; otherwise the directory name is
+    returned as-is.
+    """
+    name = season_dir.name
+    if "_" in name:
+        return name.split("_", 1)[1]
+    return name
+
+
+def plot_season_ess_timeline(
+    season_dir: Path,
+    *,
+    normalized: bool = False,
+    threshold: float | None = None,
+    backend: str = "Agg",
+) -> Path:
+    """Season-wide ESS timeline across all steps.
+
+    Scans step_*/assim/weights_scf_*.csv under season_dir, computes ESS per
+    assimilation date, and writes a single PNG under
+    <season_dir>/plots/assim/ess/season_ess_timeline_<season_id>.png.
+    """
+    season_dir = Path(season_dir)
+    files: list[tuple[datetime, Path]] = []
+    for step in sorted(season_dir.glob("step_*")):
+        assim_dir = step / "assim"
+        if not assim_dir.is_dir():
+            continue
+        files.extend(_scan_weights(assim_dir))
+    if not files:
+        raise FileNotFoundError(f"No weights_scf_*.csv found under steps in {season_dir}")
+
+    df = _compute_series(files)
+    fig = _plot(
+        df,
+        normalized=normalized,
+        threshold=threshold,
+        title="ESS over time",
+        subtitle=None,
+        backend=backend,
+    )
+    season_id = _season_id_from_dir(season_dir)
+    out_dir = season_dir / "plots" / "assim" / "ess"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"season_ess_timeline_{season_id}.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight", pad_inches=0.1)
+    return out
+
+
 def cli_main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="oa-da-plot-ess", description="Plot ESS over time from weights_scf_*.csv files")
     p.add_argument("--step-dir", type=Path, help="Step directory containing 'assim' folder")

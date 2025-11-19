@@ -85,6 +85,44 @@ def _plot(df: pd.DataFrame, title: str, subtitle: str | None, *, backend: str = 
     return fig
 
 
+def _default_output_path(csv_path: Path) -> Path:
+    """Return default output PNG path for a weights CSV.
+
+    If the CSV lives under <season>/step_XX_*/assim/, write to
+    <season>/plots/assim/weights/step_XX_weights.png. Otherwise, fall back
+    to csv_path.with_suffix('.png').
+    """
+    csv_path = csv_path.resolve()
+    # Expect .../season_YYYY-YYYY/step_XX_*/assim/weights_scf_YYYYMMDD.csv
+    if csv_path.parent.name == "assim":
+        step_dir = csv_path.parent.parent
+        season_dir = step_dir.parent
+        if step_dir.name.startswith("step_") and (season_dir / "season.yml").is_file():
+            parts = step_dir.name.split("_")
+            step_token = "_".join(parts[:2]) if len(parts) >= 2 else step_dir.name
+            out_dir = season_dir / "plots" / "assim" / "weights"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            return out_dir / f"{step_token}_weights.png"
+    # Fallback: same dir as CSV
+    return csv_path.with_suffix(".png")
+
+
+def plot_weights_for_csv(
+    csv_path: Path,
+    *,
+    title: str = "SCF Assimilation Weights",
+    subtitle: str | None = None,
+    backend: str = "Agg",
+) -> Path:
+    """Library API: plot weights for a single CSV and return PNG path."""
+    df = _load_weights(csv_path)
+    fig = _plot(df, title=title, subtitle=subtitle, backend=backend)
+    out = _default_output_path(csv_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=150, bbox_inches="tight", pad_inches=0.1)
+    return out
+
+
 def cli_main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="oa-da-plot-weights", description="Plot SCF assimilation weights and residuals")
     p.add_argument("csv", type=Path, help="Path to weights_scf_YYYYMMDD.csv")
@@ -127,7 +165,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         logger.error(f"Plotting failed: {e}")
         return 3
 
-    out = Path(args.output) if args.output else csv_path.with_suffix(".png")
+    out = Path(args.output) if args.output else _default_output_path(csv_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     logger.info("Saving plot to: {}", out)
     try:

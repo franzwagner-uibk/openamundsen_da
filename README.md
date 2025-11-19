@@ -252,6 +252,29 @@ Optional: `--normalized`, `--threshold <ratio>`, `--output <svg>`, `--backend`, 
 
 Outputs are written to `$season/plots/forcing` and `$season/plots/results` with the season identifier in filenames.
 
+- Season-level assimilation plots:
+
+  - Per-step weights (season view):
+
+  ```powershell
+  $weights = "$season/step_01_20171122-20171224/assim/weights_scf_20171122.csv"
+
+  docker compose run --rm oa `
+    python -m openamundsen_da.methods.pf.plot_weights `
+    $weights
+  ```
+
+  When the CSV lives under `$season/step_XX_*/assim/`, the plot is written to `$season/plots/assim/weights/step_XX_weights.png`.
+
+  - Season ESS timeline (all steps):
+
+  ```powershell
+  docker compose run --rm oa `
+    python -c "from pathlib import Path; from openamundsen_da.methods.pf.plot_ess_timeline import plot_season_ess_timeline; plot_season_ess_timeline(Path('$season'))"
+  ```
+
+  This scans `step_*/assim/weights_scf_*.csv` under `$season` and writes the timeline to `$season/plots/assim/ess/season_ess_timeline_<season_id>.png`.
+
 - Season-wide forcing/results (stitch all steps together):
 
 ```powershell

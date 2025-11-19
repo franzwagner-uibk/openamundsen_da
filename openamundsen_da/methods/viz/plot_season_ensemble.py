@@ -758,7 +758,16 @@ def plot_season_results(
             if not ss.empty:
                 mem_for_env.append(ss)
         mean, lo, hi = envelope(mem_for_env, q_low=band_low, q_high=band_high)
-        # Removed ensemble mean line
+        # Ensemble mean line (blue, same thickness as open loop)
+        if not mean.empty:
+            ax.plot(
+                mean.index,
+                mean.values,
+                color=COLOR_MEAN,
+                lw=LW_OPEN,
+                label="ensemble mean",
+                zorder=4,
+            )
 
         if open_loop:
             ol = concat_series(open_loop)

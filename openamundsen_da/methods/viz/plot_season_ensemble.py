@@ -447,6 +447,9 @@ def plot_season_forcing(
                             if not s.empty:
                                 open_loop_prec.append(s)
                     except Exception as exc:
+                        # Missing precip is expected for many stations -> skip quietly
+                        if isinstance(exc, ValueError) and f"Missing column '{precip_col}'" in str(exc):
+                            continue
                         logger.warning("Failed reading open_loop forcing {} in {}: {}", fname, st.path.name, exc)
 
             # Members
@@ -473,6 +476,9 @@ def plot_season_forcing(
                             member_series_prec.append(s)
                             member_labels_prec.append(member_label_map.get(m.name, m.name))
                 except Exception as exc:
+                    # Missing precip is expected for many stations -> skip quietly
+                    if isinstance(exc, ValueError) and f"Missing column '{precip_col}'" in str(exc):
+                        continue
                     logger.warning("Failed reading member forcing {} in {}: {}", fname, m.name, exc)
 
         if not member_series_temp and not member_series_prec:

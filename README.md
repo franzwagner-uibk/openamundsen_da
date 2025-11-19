@@ -320,7 +320,7 @@ docker compose run --rm oa `
 
 The launcher automatically pulls the initial forcing from `$project/meteo` and builds the first prior ensemble (errors if the directory is missing), so you no longer need a separate `prior_forcing` run before `season.py` as long as the long-span station files live under `project/meteo`.
 
-Optional: `--max-workers <N>`, `--overwrite`, `--log-level <LEVEL>`
+Optional: `--max-workers <N>`, `--overwrite`, `--no-live-plots`, `--log-level <LEVEL>`
 
 The pipeline drives each step in order, assimilates SCF on the _next_ step's start date, resamples the resulting weights to the posterior, and rejuvenates that posterior into the next prior before proceeding. Assimilation looks for the single-row CSV `obs_scf_MOD10A1_YYYYMMDD.csv` inside `<step>/obs/` for the date being processed; generate those files with `openamundsen_da.observer.satellite_scf` after you preprocess the MOD10A1 NDSI raster for your AOI (projection, QA/masking, and mosaicking). `season.py` never reads raw imagery, so the CSV must already reflect any filtering or thresholding you want applied.
 

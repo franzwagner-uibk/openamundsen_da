@@ -79,6 +79,7 @@ class OrchestratorConfig:
     max_workers: int = 4
     overwrite: bool = False
     log_level: str = "INFO"
+    live_plots: bool = True
 
 
 def _setup_logger(season_dir: Path, log_level: str) -> None:
@@ -262,20 +263,21 @@ def run_season(cfg: OrchestratorConfig) -> None:
         # users can monitor progress while the pipeline continues running. Plots
         # are written with deterministic filenames and therefore overwritten on
         # each update.
-        try:
-            logger.info("Updating season plots after assimilation step {} ...", step_name)
-            # Forcing/results season plots
-            plot_season_both(season_dir=cfg.season_dir)
-            # Per-step weights plot at season level
-            plot_weights_for_csv(wcsv)
-            # Season-wide ESS timeline across all available assimilation dates
+        if cfg.live_plots:
             try:
-                plot_season_ess_timeline(cfg.season_dir)
-            except FileNotFoundError:
-                # Best-effort: skip if weights are not yet available
-                pass
-        except Exception as exc:
-            logger.warning("Season plotting failed after step {}: {}", step_name, exc)
+                logger.info("Updating season plots after assimilation step {} ...", step_name)
+                # Forcing/results season plots
+                plot_season_both(season_dir=cfg.season_dir)
+                # Per-step weights plot at season level
+                plot_weights_for_csv(wcsv)
+                # Season-wide ESS timeline across all available assimilation dates
+                try:
+                    plot_season_ess_timeline(cfg.season_dir)
+                except FileNotFoundError:
+                    # Best-effort: skip if weights are not yet available
+                    pass
+            except Exception as exc:
+                logger.warning("Season plotting failed after step {}: {}", step_name, exc)
         # Restore orchestrator logging sinks after plot_season_* reconfigures Loguru.
         _setup_logger(cfg.season_dir, cfg.log_level)
 
@@ -300,6 +302,12 @@ def cli(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--season-dir", required=True, type=Path)
     p.add_argument("--max-workers", type=int, default=4)
     p.add_argument("--overwrite", action="store_true")
+    p.add_argument(
+        "--no-live-plots",
+        dest="live_plots",
+        action="store_false",
+        help="Skip plotting during the season; only create final plots at the end.",
+    )
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(argv)
 
@@ -310,6 +318,7 @@ def cli(argv: Optional[List[str]] = None) -> int:
             max_workers=int(args.max_workers or 4),
             overwrite=bool(args.overwrite),
             log_level=str(args.log_level or "INFO"),
+            live_plots=bool(getattr(args, "live_plots", True)),
         )
     )
     return 0

@@ -281,6 +281,24 @@ def run_season(cfg: OrchestratorConfig) -> None:
         # Restore orchestrator logging sinks after plot_season_* reconfigures Loguru.
         _setup_logger(cfg.season_dir, cfg.log_level)
 
+    # Final assimilation-level plots (weights per step + ESS timeline),
+    # regardless of live_plots. Best-effort: failures do not abort.
+    try:
+        for step_dir in steps:
+            assim_dir = Path(step_dir) / "assim"
+            if not assim_dir.is_dir():
+                continue
+            candidates = sorted(assim_dir.glob("weights_scf_*.csv"))
+            if not candidates:
+                continue
+            plot_weights_for_csv(candidates[-1])
+        try:
+            plot_season_ess_timeline(cfg.season_dir)
+        except FileNotFoundError:
+            pass
+    except Exception as exc:
+        logger.warning("Final assimilation plotting failed: {}", exc)
+
     # Season plots (both forcing and results)
     logger.info("Generating season plots ...")
     plot_season_both(season_dir=cfg.season_dir)

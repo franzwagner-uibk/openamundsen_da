@@ -78,13 +78,17 @@ class OrchestratorConfig:
     log_level: str = "INFO"
 
 
-def run_season(cfg: OrchestratorConfig) -> None:
+def _setup_logger(season_dir: Path, log_level: str) -> None:
+    """Configure Loguru sinks for console and season file log."""
     logger.remove()
-    logger.add(sys.stdout, level=cfg.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    logger.add(sys.stdout, level=log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    log_file = Path(season_dir) / f"{Path(season_dir).name}.log"
+    logger.add(log_file, level=log_level.upper(), colorize=False, enqueue=True, format=LOGURU_FORMAT)
 
-    # File log under season root (e.g. season_2017-2018/season_2017-2018.log)
-    log_file = Path(cfg.season_dir) / f"{Path(cfg.season_dir).name}.log"
-    logger.add(log_file, level=cfg.log_level.upper(), colorize=False, enqueue=True, format=LOGURU_FORMAT)
+
+def run_season(cfg: OrchestratorConfig) -> None:
+    # Console + file log under season root (e.g. season_2017-2018/season_2017-2018.log)
+    _setup_logger(cfg.season_dir, cfg.log_level)
 
     steps = _list_steps_sorted(cfg.season_dir)
     if not steps:
@@ -203,9 +207,22 @@ def run_season(cfg: OrchestratorConfig) -> None:
             source_meteo_dir=None,
         )
 
+        # Update season-wide plots after each assimilation/rejuvenation cycle so
+        # users can monitor progress while the pipeline continues running. Plots
+        # are written with deterministic filenames and therefore overwritten on
+        # each update.
+        try:
+            logger.info("Updating season plots after assimilation step {} ...", step_name)
+            plot_season_both(season_dir=cfg.season_dir)
+        except Exception as exc:
+            logger.warning("Season plotting failed after step {}: {}", step_name, exc)
+        # Restore orchestrator logging sinks after plot_season_* reconfigures Loguru.
+        _setup_logger(cfg.season_dir, cfg.log_level)
+
     # Season plots (both forcing and results)
     logger.info("Generating season plots ...")
     plot_season_both(season_dir=cfg.season_dir)
+    _setup_logger(cfg.season_dir, cfg.log_level)
     logger.info("Season processing complete: {}", cfg.season_dir)
 
 

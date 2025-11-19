@@ -215,6 +215,7 @@ def _draw_assim(ax, dates: Sequence[datetime]) -> None:
     """Draw assimilation vlines only; figure-level legend is composed later."""
     draw_assimilation_vlines(ax, dates)
 
+
 def _draw_assim_labels(ax, dates: Sequence[datetime]) -> None:
     """Draw per-assimilation labels centered on each vline above the axes.
 
@@ -224,8 +225,9 @@ def _draw_assim_labels(ax, dates: Sequence[datetime]) -> None:
     if not dates:
         return
     # Place labels with a fixed offset (in points) above the axes top
+    # and rotate slightly to reduce overlap when many DA instants exist.
     for i, d in enumerate(dates, start=1):
-        label = f"DA{i} {d.strftime('%Y-%m-%d')}"
+        label = f"DA{i}"
         ax.annotate(
             label,
             xy=(d, 1.0),
@@ -236,8 +238,43 @@ def _draw_assim_labels(ax, dates: Sequence[datetime]) -> None:
             va="bottom",
             fontsize=9,
             color="black",
+            rotation=45,
+            rotation_mode="anchor",
             clip_on=False,
         )
+
+
+def _format_assim_summary(dates: Sequence[datetime]) -> str:
+    """Return multi-line summary DAi: YYYY-MM-DD for assimilation dates."""
+    return "\n".join(f"DA{i}: {d.strftime('%Y-%m-%d')}" for i, d in enumerate(dates, start=1))
+
+
+def _draw_assim_summary_box(fig, ax, dates: Sequence[datetime], base_y: Optional[float] = None) -> None:
+    """Draw a small box with DA index -> date mapping under the plot area.
+
+    The box is horizontally aligned with the axes (not full figure width) and
+    placed near the lower-right corner below the x-axis.
+    """
+    if not dates:
+        return
+    text = _format_assim_summary(dates)
+    pos = ax.get_position()
+    x0, x1 = pos.x0, pos.x1
+    width = x1 - x0
+    # Place box under the plot near the lower-right corner of the axes span,
+    # clearly below the axes bottom.
+    x = x0 + width * 0.90
+    y = max(0.01, pos.y0 - 0.22)
+    fig.text(
+        x,
+        y,
+        text,
+        ha="left",
+        va="bottom",
+        fontsize=7,
+        family="monospace",
+        bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.85, edgecolor="#999999"),
+    )
 
 
 def _load_stations_table_from_steps(steps: Sequence["StepInfo"]) -> Optional[pd.DataFrame]:
@@ -507,7 +544,8 @@ def plot_season_forcing(
         # Provide extra vertical space between subtitle and axes for labels
         # Increase space further when many assimilation dates exist
         top_margin = 0.84 if len(assim_dates) <= 4 else (0.82 if len(assim_dates) <= 8 else 0.80)
-        fig.subplots_adjust(top=top_margin)
+        bottom_margin = 0.24
+        fig.subplots_adjust(top=top_margin, bottom=bottom_margin)
 
         # Build a clean figure-level legend (avoid per-member clutter)
         handles, labels = [], []
@@ -517,8 +555,25 @@ def plot_season_forcing(
             labels.extend(l)
         if handles:
             new_h, new_l = dedupe_legend(handles, labels)
-            fig.legend(new_h, new_l, loc="lower center", bbox_to_anchor=(0.5, -0.02), ncol=LEGEND_NCOL, frameon=False, fontsize=8)
-            fig.subplots_adjust(bottom=0.17)
+            # Align legend directly under the left part of the plot area
+            pos = axes[0].get_position()
+            legend_x = pos.x0
+            legend_y = max(0.02, pos.y0 - 0.06)
+            # Fixed 6 columns in the legend
+            fig.legend(
+                new_h,
+                new_l,
+                loc="upper left",
+                bbox_to_anchor=(legend_x, legend_y),
+                ncol=6,
+                frameon=False,
+                fontsize=8,
+            )
+            # DA date summary box under the right part of the plot area,
+            # sharing the same vertical baseline as the legend.
+            _draw_assim_summary_box(fig, axes[0], assim_dates, base_y=legend_y)
+        else:
+            _draw_assim_summary_box(fig, axes[0], assim_dates)
 
         out_path = out_root / f"season_forcing_{token}_{season_id}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.08)
@@ -730,7 +785,8 @@ def plot_season_results(
         assim_dates = _assimilation_dates(steps)
         _draw_assim_labels(ax, assim_dates)
         top_margin = 0.84 if len(assim_dates) <= 4 else (0.82 if len(assim_dates) <= 8 else 0.80)
-        fig.subplots_adjust(top=top_margin)
+        bottom_margin = 0.30
+        fig.subplots_adjust(top=top_margin, bottom=bottom_margin)
 
         handles, labels = ax.get_legend_handles_labels()
         if handles:
@@ -742,16 +798,21 @@ def plot_season_results(
                     seen[l] = 1
                     new_h.append(h)
                     new_l.append(l)
+            pos = ax.get_position()
+            legend_x = pos.x0
+            legend_y = max(0.02, pos.y0 - 0.06)
             fig.legend(
                 new_h,
                 new_l,
-                loc="lower center",
-                bbox_to_anchor=(0.5, -0.05),
-                ncol=LEGEND_NCOL,
+                loc="upper left",
+                bbox_to_anchor=(legend_x, legend_y),
+                ncol=6,
                 frameon=False,
                 fontsize=8,
             )
-            fig.subplots_adjust(bottom=0.32)
+            _draw_assim_summary_box(fig, ax, assim_dates, base_y=legend_y)
+        else:
+            _draw_assim_summary_box(fig, ax, assim_dates)
 
         out_path = out_root / f"season_results_{token}_{var_col}_{season_id}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.08)

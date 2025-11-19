@@ -252,6 +252,27 @@ Optional: `--normalized`, `--threshold <ratio>`, `--output <svg>`, `--backend`, 
 
 Outputs are written to `$season/plots/forcing` and `$season/plots/results` with the season identifier in filenames.
 
+- Season-wide forcing/results (stitch all steps together):
+
+```powershell
+docker compose run --rm oa `
+  python -m openamundsen_da.methods.viz.plot_season_ensemble `
+  forcing `
+  --season-dir $season
+```
+
+```powershell
+docker compose run --rm oa `
+  python -m openamundsen_da.methods.viz.plot_season_ensemble `
+  results `
+  --season-dir $season `
+  --var-col swe
+```
+
+Optional: `--station`, `--max-stations`, `--start-date`, `--end-date`, `--resample`, `--rolling`, `--hydro-month`, `--hydro-day`, `--backend`, `--log-level`, `--var-label`, `--var-units`, `--band-low`, `--band-high`.
+
+Note: running the season pipeline (see below) also generates these season plots automatically under `<season_dir>/plots/{forcing,results}`.
+
 ## Season Pipeline
 
 ```powershell

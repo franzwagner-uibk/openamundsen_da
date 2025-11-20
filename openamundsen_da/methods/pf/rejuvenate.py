@@ -57,6 +57,7 @@ from openamundsen_da.io.paths import (
     find_step_yaml,
     find_season_yaml,
     open_loop_dir,
+    find_project_yaml,
 )
 
 
@@ -74,7 +75,7 @@ def _read_rejuvenation_params(project_dir: Path) -> RejuvenationParams:
     back to data_assimilation.prior_forcing.{sigma_t,sigma_p}. Seed falls back
     to prior_forcing.random_seed if not set under rejuvenation.
     """
-    proj = Path(project_dir) / "project.yml"
+    proj = find_project_yaml(project_dir)
     cfg = _read_yaml_file(proj) or {}
     da = cfg.get(DA_BLOCK) or {}
     rj = da.get(REJUVENATION_BLOCK) or {}

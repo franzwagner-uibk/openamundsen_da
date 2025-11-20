@@ -38,9 +38,10 @@ from openamundsen_da.core.constants import (
     LIK_MIN_SIGMA,
     OBS_DIR_NAME,
 )
-from openamundsen_da.io.paths import list_member_dirs, default_results_dir
+from openamundsen_da.io.paths import list_member_dirs, default_results_dir, find_project_yaml
 from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf, SCFParams, load_hofx_from_project
 from openamundsen_da.util.stats import gaussian_logpdf, normalize_log_weights, effective_sample_size, compute_obs_sigma
+from openamundsen_da.core.env import _read_yaml_file
 
 
 @dataclass

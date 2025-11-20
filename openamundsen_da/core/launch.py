@@ -109,12 +109,12 @@ def _discover_members(
     return proj_yaml, seas_yaml, step_yaml, members
 
 
-def _run_one(args: Tuple[Path, Path, Path, Path, bool, Path | None, str | None, bool | None, bool | None, str | None]) -> RunResult:
+def _run_one(args: Tuple[Path, Path, Path, Path, bool, Path | None, str | None, str | None]) -> RunResult:
     """
     Small wrapper so ProcessPoolExecutor can pickle the callable easily.
     Import of runner happens inside the child worker.
     """
-    proj_yaml, seas_yaml, step_yaml, member_dir, overwrite, results_root, log_level, restart_from_state, dump_state, state_pattern = args
+    proj_yaml, seas_yaml, step_yaml, member_dir, overwrite, results_root, log_level, state_pattern = args
 
     # Local import inside the worker to avoid importing GDAL users in the parent
     from openamundsen_da.core.runner import run_member
@@ -138,8 +138,6 @@ def _run_one(args: Tuple[Path, Path, Path, Path, bool, Path | None, str | None, 
         results_dir=results_dir,
         overwrite=overwrite,
         log_level=log_level,
-        restart_from_state=restart_from_state,
-        dump_state=dump_state,
         state_pattern=state_pattern,
     )
 
@@ -154,8 +152,6 @@ def launch_members(
     results_root: Path | None,
     *,
     log_level: str | None,
-    restart_from_state: bool | None,
-    dump_state: bool | None,
     state_pattern: str | None,
 ) -> dict:
     """Launch all ensemble members and return a small run summary.
@@ -183,7 +179,7 @@ def launch_members(
 
     # Fan out
     tasks = [
-        (proj_yaml, seas_yaml, step_yaml, m, overwrite, results_root, log_level, restart_from_state, dump_state, state_pattern)
+        (proj_yaml, seas_yaml, step_yaml, m, overwrite, results_root, log_level, state_pattern)
         for m in members
     ]
 
@@ -244,8 +240,6 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         help="Optional global results root; per-member results dirs will be placed under this",
     )
     p.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
-    p.add_argument("--restart-from-state", action="store_true", help="Initialize members from saved state files (see project.yml for pattern). If omitted, falls back to project.yml")
-    p.add_argument("--dump-state", action="store_true", help="Save final model state to results for restart in next step. If omitted, falls back to project.yml")
     p.add_argument("--state-pattern", help="State filename or glob relative to member results_dir (e.g., model_state.pickle.gz or state_*.pickle.gz)")
     return p.parse_args(argv)
 
@@ -266,9 +260,6 @@ def main(argv: Iterable[str] | None = None) -> int:
             overwrite=args.overwrite,
             results_root=args.results_root,
             log_level=args.log_level,
-            # If flags are omitted, pass None so runner can fall back to project.yml
-            restart_from_state=(True if args.restart_from_state else None),
-            dump_state=(True if args.dump_state else None),
             state_pattern=(str(args.state_pattern) if args.state_pattern else None),
         )
         return 0

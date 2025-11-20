@@ -199,8 +199,6 @@ def run_member(
     results_dir: Optional[Path | str] = None,
     overwrite: bool = False,
     log_level: Optional[str] = None,
-    restart_from_state: Optional[bool] = None,
-    dump_state: Optional[bool] = None,
     state_pattern: Optional[str] = None,
 ) -> RunResult:
     # Step 1: Constrain numeric library threads (one per worker)

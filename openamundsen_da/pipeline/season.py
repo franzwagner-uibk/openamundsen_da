@@ -131,8 +131,6 @@ def run_season(cfg: OrchestratorConfig) -> None:
             overwrite=bool(cfg.overwrite),
             results_root=None,
             log_level=cfg.log_level,
-            restart_from_state=None,
-            dump_state=None,
             state_pattern=None,
         )
 

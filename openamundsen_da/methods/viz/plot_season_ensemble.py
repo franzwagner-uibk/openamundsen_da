@@ -59,6 +59,21 @@ from openamundsen_da.methods.viz._style import (
     LW_MEMBER,
     LW_MEAN,
     LW_OPEN,
+    COLOR_DA_OBS,
+    SIZE_DA_OBS,
+    LW_DA_OBS,
+    COLOR_OBS_SCF,
+    SIZE_OBS_SCF,
+    GRID_LS,
+    GRID_LW,
+    GRID_ALPHA,
+    FS_TITLE,
+    FS_SUBTITLE,
+    COLOR_SUBTITLE,
+    FS_ASSIM_LABEL,
+    ASSIM_LABEL_ROT,
+    FIGSIZE_FORCING,
+    FIGSIZE_RESULTS,
 )
 from openamundsen_da.util.stats import envelope
 from openamundsen_da.util.ts import (
@@ -236,9 +251,9 @@ def _draw_assim_labels(ax, dates: Sequence[datetime]) -> None:
             textcoords="offset points",
             ha="center",
             va="bottom",
-            fontsize=9,
+            fontsize=FS_ASSIM_LABEL,
             color="black",
-            rotation=45,
+            rotation=ASSIM_LABEL_ROT,
             rotation_mode="anchor",
             clip_on=False,
         )
@@ -419,7 +434,6 @@ def plot_season_forcing(
     member_label_map = _build_member_label_map(steps)
     assim_dates = _assimilation_dates(steps)
     assim_date_set = {d.date() for d in assim_dates}
-    member_label_map = _build_member_label_map(steps)
 
     for fname in station_files:
         # Collect series per member across all steps
@@ -488,7 +502,7 @@ def plot_season_forcing(
             continue
 
         # Prepare figure
-        fig, axes = plt.subplots(2, 1, figsize=(12.0, 6.8), sharex=True)
+        fig, axes = plt.subplots(2, 1, figsize=FIGSIZE_FORCING, sharex=True)
 
         # Panel A: Temperature (degC)
         ax = axes[0]
@@ -501,7 +515,7 @@ def plot_season_forcing(
             if not ol.empty:
                 ax.plot(ol.index, ol.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open loop", zorder=5)
         ax.set_ylabel("Temperature (degC)")
-        ax.grid(True, ls=":", lw=0.6, alpha=0.7)
+        ax.grid(True, ls=GRID_LS, lw=GRID_LW, alpha=GRID_ALPHA)
 
         # Panel B: Cumulative precipitation (hydrological year)
         ax = axes[1]
@@ -524,7 +538,7 @@ def plot_season_forcing(
                     pass
                 ax.plot(olp.index, olp.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open loop", zorder=5)
         ax.set_ylabel("Cum. precipitation (mm)")
-        ax.grid(True, ls=":", lw=0.6, alpha=0.7)
+        ax.grid(True, ls=GRID_LS, lw=GRID_LW, alpha=GRID_ALPHA)
 
         # Assimilation markers on both panels (step starts i >= 1)
         assim_dates = _assimilation_dates(steps)
@@ -544,8 +558,8 @@ def plot_season_forcing(
         else:
             subtitle = token
         # Move title and subtitle slightly up to create more clearance
-        fig.text(0.5, 0.985, title, ha="center", va="top", fontsize=12)
-        fig.text(0.5, 0.955, subtitle, ha="center", va="top", fontsize=10, color="#555555")
+        fig.text(0.5, 0.985, title, ha="center", va="top", fontsize=FS_TITLE)
+        fig.text(0.5, 0.955, subtitle, ha="center", va="top", fontsize=FS_SUBTITLE, color=COLOR_SUBTITLE)
         # Per-assimilation labels centered above the vlines on the top panel
         assim_dates = _assimilation_dates(steps)
         _draw_assim_labels(axes[0], assim_dates)
@@ -647,6 +661,10 @@ def plot_season_results(
     steps = _list_steps_sorted(season_dir)
     if not steps:
         raise FileNotFoundError(f"No step_* directories found under {season_dir}")
+
+    assim_dates = _assimilation_dates(steps)
+    # Normalize assimilation instants to midnight for day-level matching with obs
+    assim_days = pd.to_datetime(assim_dates).normalize()
 
     # Determine available stations from first step that has results
     point_files: List[str] = []
@@ -794,7 +812,7 @@ def plot_season_results(
 
         # Build figure (members + mean band + open-loop)
         import matplotlib.pyplot as plt  # ensure pyplot is loaded
-        fig, ax = plt.subplots(figsize=(12.0, 5.2))
+        fig, ax = plt.subplots(figsize=FIGSIZE_RESULTS)
 
         for s, lbl in zip(member_series, member_labels):
             if effective_end or start_date:
@@ -846,28 +864,27 @@ def plot_season_results(
                 ax.scatter(
                     obs["date"],
                     obs["scf"],
-                    color="#d62728",
-                    s=15,
+                    color=COLOR_OBS_SCF,
+                    s=SIZE_OBS_SCF,
                     label="obs SCF",
                     zorder=6,
                 )
-                assim_mask = obs["date"].dt.normalize().isin(assim_date_set)
+                assim_mask = obs["date"].dt.normalize().isin(assim_days)
                 if assim_mask.any():
                     ax.scatter(
                         obs.loc[assim_mask, "date"],
                         obs.loc[assim_mask, "scf"],
-                        facecolors="none",
-                        edgecolors="black",
+                        color=COLOR_DA_OBS,
                         marker="x",
-                        s=80,
-                        linewidths=1.5,
+                        s=SIZE_DA_OBS,
+                        linewidths=LW_DA_OBS,
                         label="DA obs",
                         zorder=7,
                     )
 
         ax.set_xlabel("Time")
         ax.set_ylabel(var_title)
-        ax.grid(True, ls=":", lw=0.6, alpha=0.7)
+        ax.grid(True, ls=GRID_LS, lw=GRID_LW, alpha=GRID_ALPHA)
 
         # Assimilation markers (step starts i >= 1)
         _draw_assim(ax, assim_dates)
@@ -881,10 +898,9 @@ def plot_season_results(
         title = f"Season Results | {season_dir.name}"
         subtitle = f"{station_label}{alt_suffix} - {var_title}"
         # Move title and subtitle slightly up to create more clearance
-        fig.text(0.5, 0.985, title, ha="center", va="top", fontsize=12)
-        fig.text(0.5, 0.95, subtitle, ha="center", va="top", fontsize=10, color="#555555")
+        fig.text(0.5, 0.985, title, ha="center", va="top", fontsize=FS_TITLE)
+        fig.text(0.5, 0.95, subtitle, ha="center", va="top", fontsize=FS_SUBTITLE, color=COLOR_SUBTITLE)
         # Per-assimilation labels centered above the vlines on the results panel
-        _draw_assim_labels(ax, assim_dates)
         _draw_assim_labels(ax, assim_dates)
         top_margin = 0.84 if len(assim_dates) <= 4 else (0.82 if len(assim_dates) <= 8 else 0.80)
         bottom_margin = 0.30

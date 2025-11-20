@@ -417,6 +417,8 @@ def plot_season_forcing(
     season_id = _season_id_from_dir(season_dir)
     stations_df = _load_stations_table_from_steps(steps)
     member_label_map = _build_member_label_map(steps)
+    assim_dates = _assimilation_dates(steps)
+    assim_date_set = {d.date() for d in assim_dates}
     member_label_map = _build_member_label_map(steps)
 
     for fname in station_files:
@@ -688,7 +690,7 @@ def plot_season_results(
         elif vv in ("snow_depth", "snowdepth", "hs"):
             var_title = "snow depth [m]"
         elif vv == "scf":
-            var_title = "snow cover fraction [-]"
+            var_title = "snow cover fraction"
         else:
             var_title = vv.replace("_", " ")
     else:
@@ -849,13 +851,25 @@ def plot_season_results(
                     label="obs SCF",
                     zorder=6,
                 )
+                assim_mask = obs["date"].dt.normalize().isin(assim_date_set)
+                if assim_mask.any():
+                    ax.scatter(
+                        obs.loc[assim_mask, "date"],
+                        obs.loc[assim_mask, "scf"],
+                        facecolors="none",
+                        edgecolors="black",
+                        marker="x",
+                        s=80,
+                        linewidths=1.5,
+                        label="DA obs",
+                        zorder=7,
+                    )
 
         ax.set_xlabel("Time")
         ax.set_ylabel(var_title)
         ax.grid(True, ls=":", lw=0.6, alpha=0.7)
 
         # Assimilation markers (step starts i >= 1)
-        assim_dates = _assimilation_dates(steps)
         _draw_assim(ax, assim_dates)
 
         # Titles/legend
@@ -870,7 +884,7 @@ def plot_season_results(
         fig.text(0.5, 0.985, title, ha="center", va="top", fontsize=12)
         fig.text(0.5, 0.95, subtitle, ha="center", va="top", fontsize=10, color="#555555")
         # Per-assimilation labels centered above the vlines on the results panel
-        assim_dates = _assimilation_dates(steps)
+        _draw_assim_labels(ax, assim_dates)
         _draw_assim_labels(ax, assim_dates)
         top_margin = 0.84 if len(assim_dates) <= 4 else (0.82 if len(assim_dates) <= 8 else 0.80)
         bottom_margin = 0.30

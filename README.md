@@ -92,7 +92,7 @@ docker compose run --rm oa `
   --ensemble prior
 ```
 
-Optional: `--max-workers <N>`, `--overwrite`, `--restart-from-state`, `--dump-state`, `--state-pattern <glob>`, `--log-level <LEVEL>`
+Optional: `--max-workers <N>`, `--overwrite`, `--state-pattern <glob>`, `--log-level <LEVEL>`
 
 ### Observation Processing
 
@@ -389,7 +389,7 @@ The skeleton uses the `timestep` from `project.yml` (e.g. `3H`, `6H`, `1D`) to d
 
 ## Warm Start and Step Chaining
 
-- Warm start uses the model state saved at the end of a step (when data_assimilation.restart.dump_state: true) to initialize the following step (when data_assimilation.restart.use_state: true). The runner loads the state pointed to by state_pattern or state_pointer.json under each member's results directory.
+- Warm start uses the model state saved at the end of each step. The runner loads the state pointed to by `state_pointer.json` under each member's directory and writes a new state file in the results directory (optionally named via `--state-pattern`).
 - Step boundaries must align with the model time step. If a step ends at end_date = T, the next step must start exactly one model time step later: start_date = T + one model timestep.
   - Example: With a 3-hour model time step and Step i ending at `2018-10-10 00:00:00`, Step i+1 must start at `2018-10-10 03:00:00`.
 - Why: Misalignment can cause duplicated/skipped timesteps, inconsistent warm starts, or assimilation at a wrong time.
@@ -397,4 +397,3 @@ The skeleton uses the `timestep` from `project.yml` (e.g. `3H`, `6H`, `1D`) to d
 - Tips
   - Keep a constant model time step across steps.
   - Verify the effective time step via the merged OA config persisted next to members (e.g., `<step>/ensembles/prior/member_001/config.yml`).
-  - Ensure `dump_state: true` for steps feeding warm starts, and `use_state: true` for steps starting warm.

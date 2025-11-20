@@ -107,6 +107,51 @@ def _default_output_path(csv_path: Path) -> Path:
     return csv_path.with_suffix(".png")
 
 
+def _augment_title_from_path(
+    csv_path: Path,
+    title: str,
+    subtitle: str | None,
+) -> tuple[str, str | None]:
+    """Augment the plot title with step name and date inferred from path.
+
+    - Step: taken from the parent step directory name (e.g., step_01_spinup)
+    - Date: parsed from weights_scf_YYYYMMDD.csv -> YYYY-MM-DD
+
+    Only applies when the caller uses the default title and no subtitle;
+    explicit titles/subtitles are left unchanged.
+    """
+    if title != "SCF Assimilation Weights" or subtitle is not None:
+        return title, subtitle
+
+    csv_path = csv_path.resolve()
+    step_label = None
+    date_label = None
+
+    # Infer step from .../season_YYYY-YYYY/step_XX_*/assim/weights_scf_YYYYMMDD.csv
+    if csv_path.parent.name == "assim":
+        step_dir = csv_path.parent.parent
+        if step_dir.name.startswith("step_"):
+            step_label = step_dir.name
+
+    # Infer date from filename
+    stem = csv_path.stem  # e.g., weights_scf_20180215
+    prefix = "weights_scf_"
+    if stem.startswith(prefix):
+        ds = stem[len(prefix) :]
+        if len(ds) == 8 and ds.isdigit():
+            date_label = f"{ds[0:4]}-{ds[4:6]}-{ds[6:8]}"
+
+    parts = []
+    if step_label:
+        parts.append(step_label)
+    if date_label:
+        parts.append(date_label)
+    if not parts:
+        return title, subtitle
+
+    return f"{title} – " + " – ".join(parts), subtitle
+
+
 def plot_weights_for_csv(
     csv_path: Path,
     *,
@@ -116,6 +161,7 @@ def plot_weights_for_csv(
 ) -> Path:
     """Library API: plot weights for a single CSV and return PNG path."""
     df = _load_weights(csv_path)
+    title, subtitle = _augment_title_from_path(csv_path, title, subtitle)
     fig = _plot(df, title=title, subtitle=subtitle, backend=backend)
     out = _default_output_path(csv_path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -157,7 +203,9 @@ def cli_main(argv: list[str] | None = None) -> int:
         pass
 
     try:
-        fig = _plot(df, title=args.title, subtitle=(args.subtitle or None), backend=args.backend)
+        # Automatically augment title with step/date when caller uses defaults
+        title, subtitle = _augment_title_from_path(csv_path, args.title, (args.subtitle or None))
+        fig = _plot(df, title=title, subtitle=subtitle, backend=args.backend)
     except ModuleNotFoundError:
         logger.error("matplotlib is required to plot. Install it in your environment.")
         return 2

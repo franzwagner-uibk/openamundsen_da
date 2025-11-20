@@ -1,4 +1,4 @@
-"""openamundsen_da.methods.pf.plot_weights
+﻿"""openamundsen_da.methods.pf.plot_weights
 
 Plot per-date SCF assimilation weights and residuals.
 
@@ -59,6 +59,7 @@ def _plot(df: pd.DataFrame, title: str, subtitle: str | None, *, backend: str = 
     ax0.set_ylabel("weight")
     ax0.grid(True, ls=":", lw=0.6, alpha=0.7)
     ax0.set_title(f"weights (ESS={ess:.1f} / N={n})", fontsize=10)
+    ax0.set_ylim(0.0, 1.0)
 
     # Panel B: residual distribution (line histogram to avoid Windows patch crashes)
     resid_finite = resid[np.isfinite(resid)]
@@ -107,49 +108,39 @@ def _default_output_path(csv_path: Path) -> Path:
     return csv_path.with_suffix(".png")
 
 
-def _augment_title_from_path(
-    csv_path: Path,
-    title: str,
-    subtitle: str | None,
-) -> tuple[str, str | None]:
-    """Augment the plot title with step name and date inferred from path.
+def _step_date_label_from_path(csv_path: Path) -> str | None:
+    """Return \"Step <number> - <YYYY-MM-DD>\" inferred from the CSV path, or None."""
+    try:
+        csv_path = csv_path.resolve()
+    except Exception:
+        return None
 
-    - Step: taken from the parent step directory name (e.g., step_01_spinup)
-    - Date: parsed from weights_scf_YYYYMMDD.csv -> YYYY-MM-DD
-
-    Only applies when the caller uses the default title and no subtitle;
-    explicit titles/subtitles are left unchanged.
-    """
-    if title != "SCF Assimilation Weights" or subtitle is not None:
-        return title, subtitle
-
-    csv_path = csv_path.resolve()
-    step_label = None
-    date_label = None
-
-    # Infer step from .../season_YYYY-YYYY/step_XX_*/assim/weights_scf_YYYYMMDD.csv
+    step_num: int | None = None
+    # Infer step number from .../season_YYYY-YYYY/step_XX_*/assim/weights_scf_YYYYMMDD.csv
     if csv_path.parent.name == "assim":
         step_dir = csv_path.parent.parent
-        if step_dir.name.startswith("step_"):
-            step_label = step_dir.name
+        name = step_dir.name
+        if name.startswith("step_"):
+            tail = name[len("step_") :]
+            token = tail.split("_", 1)[0] if tail else ""
+            if token and token.isdigit():
+                try:
+                    step_num = int(token)
+                except ValueError:
+                    step_num = None
 
     # Infer date from filename
+    date_str: str | None = None
     stem = csv_path.stem  # e.g., weights_scf_20180215
     prefix = "weights_scf_"
     if stem.startswith(prefix):
         ds = stem[len(prefix) :]
         if len(ds) == 8 and ds.isdigit():
-            date_label = f"{ds[0:4]}-{ds[4:6]}-{ds[6:8]}"
+            date_str = f"{ds[0:4]}-{ds[4:6]}-{ds[6:8]}"
 
-    parts = []
-    if step_label:
-        parts.append(step_label)
-    if date_label:
-        parts.append(date_label)
-    if not parts:
-        return title, subtitle
-
-    return f"{title} – " + " – ".join(parts), subtitle
+    if step_num is None or date_str is None:
+        return None
+    return f"Step {step_num} - {date_str}"
 
 
 def plot_weights_for_csv(
@@ -161,7 +152,12 @@ def plot_weights_for_csv(
 ) -> Path:
     """Library API: plot weights for a single CSV and return PNG path."""
     df = _load_weights(csv_path)
-    title, subtitle = _augment_title_from_path(csv_path, title, subtitle)
+    # If caller uses the default title and no subtitle, derive a compact
+    # label from the path: "Step <number> - <YYYY-MM-DD>".
+    if title == "SCF Assimilation Weights" and subtitle is None:
+        label = _step_date_label_from_path(csv_path)
+        if label:
+            subtitle = label
     fig = _plot(df, title=title, subtitle=subtitle, backend=backend)
     out = _default_output_path(csv_path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -203,9 +199,14 @@ def cli_main(argv: list[str] | None = None) -> int:
         pass
 
     try:
-        # Automatically augment title with step/date when caller uses defaults
-        title, subtitle = _augment_title_from_path(csv_path, args.title, (args.subtitle or None))
-        fig = _plot(df, title=title, subtitle=subtitle, backend=args.backend)
+        # Automatically derive a compact "Step <number> - <YYYY-MM-DD>" label
+        # when the caller uses the default title and no explicit subtitle.
+        subtitle = (args.subtitle or None)
+        if args.title == "SCF Assimilation Weights" and not subtitle:
+            label = _step_date_label_from_path(csv_path)
+            if label:
+                subtitle = label
+        fig = _plot(df, title=args.title, subtitle=subtitle, backend=args.backend)
     except ModuleNotFoundError:
         logger.error("matplotlib is required to plot. Install it in your environment.")
         return 2

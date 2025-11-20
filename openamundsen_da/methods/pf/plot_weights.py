@@ -23,6 +23,8 @@ import sys
 import numpy as np
 import pandas as pd
 from loguru import logger
+from openamundsen_da.core.env import _read_yaml_file
+from openamundsen_da.io.paths import find_season_yaml
 from openamundsen_da.util.stats import effective_sample_size
 
 
@@ -109,40 +111,52 @@ def _default_output_path(csv_path: Path) -> Path:
 
 
 def _step_date_label_from_path(csv_path: Path) -> str | None:
-    """Return \"Step <number> - <YYYY-MM-DD>\" inferred from the CSV path, or None."""
+    """Return "DA# - YYYY-MM-DD" (or fallback step label) inferred from the CSV path."""
     try:
         csv_path = csv_path.resolve()
     except Exception:
         return None
 
-    step_num: int | None = None
-    # Infer step number from .../season_YYYY-YYYY/step_XX_*/assim/weights_scf_YYYYMMDD.csv
+    stem = csv_path.stem
+    prefix = "weights_scf_"
+    if not stem.startswith(prefix):
+        return None
+    ds = stem[len(prefix) :]
+    if len(ds) != 8 or not ds.isdigit():
+        return None
+    date_str = f"{ds[0:4]}-{ds[4:6]}-{ds[6:8]}"
+    try:
+        date_val = pd.to_datetime(date_str).date()
+    except Exception:
+        return None
+
     if csv_path.parent.name == "assim":
         step_dir = csv_path.parent.parent
+        season_dir = step_dir.parent
+        try:
+            seas_yaml = find_season_yaml(season_dir)
+            cfg = _read_yaml_file(seas_yaml) or {}
+            assim_dates = cfg.get("assimilation_dates") or []
+            for idx, entry in enumerate(assim_dates, start=1):
+                try:
+                    cand_date = pd.to_datetime(entry).date()
+                except Exception:
+                    continue
+                if cand_date == date_val:
+                    return f"DA{idx} - {date_str}"
+        except Exception:
+            pass
+
         name = step_dir.name
         if name.startswith("step_"):
             tail = name[len("step_") :]
             token = tail.split("_", 1)[0] if tail else ""
-            if token and token.isdigit():
-                try:
-                    step_num = int(token)
-                except ValueError:
-                    step_num = None
-
-    # Infer date from filename
-    date_str: str | None = None
-    stem = csv_path.stem  # e.g., weights_scf_20180215
-    prefix = "weights_scf_"
-    if stem.startswith(prefix):
-        ds = stem[len(prefix) :]
-        if len(ds) == 8 and ds.isdigit():
-            date_str = f"{ds[0:4]}-{ds[4:6]}-{ds[6:8]}"
-
-    if step_num is None or date_str is None:
-        return None
-    return f"Step {step_num} - {date_str}"
-
-
+            if token:
+                label = f"Step {token}"
+            else:
+                label = name
+            return f"{label} - {date_str}"
+    return None
 def plot_weights_for_csv(
     csv_path: Path,
     *,

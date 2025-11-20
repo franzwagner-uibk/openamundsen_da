@@ -7,6 +7,7 @@ LW_MEMBER = 0.8
 LW_MEAN = 2.0
 LW_OPEN = 2.4
 LEGEND_NCOL = 4
+LEGEND_NCOL_SEASON = 6
 
 # Observation markers (e.g., SCF DA points)
 COLOR_DA_OBS = "black"

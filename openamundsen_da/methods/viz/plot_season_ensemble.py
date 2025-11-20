@@ -56,6 +56,7 @@ from openamundsen_da.methods.viz._style import (
     COLOR_MEAN,
     COLOR_OPEN_LOOP,
     LEGEND_NCOL,
+    LEGEND_NCOL_SEASON,
     LW_MEMBER,
     LW_MEAN,
     LW_OPEN,
@@ -541,7 +542,6 @@ def plot_season_forcing(
         ax.grid(True, ls=GRID_LS, lw=GRID_LW, alpha=GRID_ALPHA)
 
         # Assimilation markers on both panels (step starts i >= 1)
-        assim_dates = _assimilation_dates(steps)
         for ax in axes:
             _draw_assim(ax, assim_dates)
 
@@ -561,7 +561,6 @@ def plot_season_forcing(
         fig.text(0.5, 0.985, title, ha="center", va="top", fontsize=FS_TITLE)
         fig.text(0.5, 0.955, subtitle, ha="center", va="top", fontsize=FS_SUBTITLE, color=COLOR_SUBTITLE)
         # Per-assimilation labels centered above the vlines on the top panel
-        assim_dates = _assimilation_dates(steps)
         _draw_assim_labels(axes[0], assim_dates)
         # Provide extra vertical space between subtitle and axes for labels
         # Increase space further when many assimilation dates exist
@@ -587,7 +586,7 @@ def plot_season_forcing(
                 new_l,
                 loc="upper left",
                 bbox_to_anchor=(legend_x, legend_y),
-                ncol=6,
+                ncol=LEGEND_NCOL_SEASON,
                 frameon=False,
                 fontsize=8,
             )
@@ -924,7 +923,7 @@ def plot_season_results(
                 new_l,
                 loc="upper left",
                 bbox_to_anchor=(legend_x, legend_y),
-                ncol=6,
+                ncol=LEGEND_NCOL_SEASON,
                 frameon=False,
                 fontsize=8,
             )

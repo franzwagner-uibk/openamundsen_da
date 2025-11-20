@@ -254,6 +254,13 @@ Outputs are written to `$season/plots/forcing` and `$season/plots/results` with 
 
 - Season-level assimilation plots:
 
+  Each weights plot shows the posterior probability assigned to every member after assimilating SCF on that date. The y-axis is normalized to `[0,1]` so you can directly compare different steps, and the subtitle now records `Step <n> - <YYYY-MM-DD>` when the CSV lives under the expected `step_XX_*/assim/` layout.
+
+  Keep these interpretation tips in mind:
+  - A steep fall-off after the top members implies the observation strongly favors a few particles; this also drives the ESS timeline downward for that step.
+  - A flatter trend with many weights ≈ `0.05` means the observation is not differentiating members, which can reflect broad uncertainties or overly similar ensemble members.
+  - Use the residual histogram and sigma markers on the right panel: tight residuals centered near zero mean the model already matched the observation, while heavy tails or offsets may flag issue with the obs CSV or indicate the model spread is too small.
+
   - Per-step weights (season view):
 
   ```powershell

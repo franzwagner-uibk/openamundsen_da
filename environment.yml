@@ -7,8 +7,7 @@ dependencies:
   # geo stack (pinned for reproducibility)
   - gdal=3.8.5
   - hdf4
-  - libgdal-hdf4
-  - proj=9.3
+  - proj=9.4,<9.5
   - geos=3.12
   - fiona=1.9.6
   - shapely=2.0.4
@@ -16,7 +15,7 @@ dependencies:
   - geopandas=0.14.4
   # numeric + viz
   - numpy>=1.23
-  - pandas
+  - pandas<2.2
   - matplotlib=3.9.2
   - loguru
   - ruamel.yaml

@@ -56,6 +56,30 @@ class RunResult:
     duration_seconds: float
     error: Optional[str] = None
 
+
+def _patch_pandas_inferred_freq() -> None:
+    """Ensure pandas.Index has inferred_freq attribute for OA meteo code."""
+    try:
+        import pandas as pd
+        from pandas import infer_freq
+    except Exception:
+        return
+
+    idx_cls = pd.Index
+
+    # If already present, do nothing.
+    if hasattr(idx_cls, "inferred_freq"):
+        return
+
+    def _inferred_freq(self):
+        try:
+            return infer_freq(self)
+        except Exception:
+            return None
+
+    idx_cls.inferred_freq = property(_inferred_freq)
+
+
 def _patch_rasterio_transform() -> None:
     """Guard rasterio.transform helpers against non-affine transforms.
 
@@ -203,6 +227,9 @@ def run_member(
 ) -> RunResult:
     # Step 1: Constrain numeric library threads (one per worker)
     apply_numeric_thread_defaults()
+
+    # Make pandas.Index.inferred_freq available for openAMUNDSEN
+    _patch_pandas_inferred_freq()
 
     # Step 2: Apply light runtime patches
     _patch_rasterio_transform()

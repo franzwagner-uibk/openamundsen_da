@@ -1,7 +1,7 @@
 context
 docker
-docs
 examples
+openamundsen
 openamundsen_da
-scripts
 templates
+testdata

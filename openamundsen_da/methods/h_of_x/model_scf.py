@@ -29,7 +29,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable, Literal, Tuple
+from typing import Any, Dict, Iterable, Literal, Tuple
 import concurrent.futures as cf
 
 import geopandas as gpd
@@ -62,6 +62,10 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.util.aoi import read_single_aoi
 from openamundsen_da.util.stats import sigmoid
+from openamundsen_da.methods.daily_aoi_series import (
+    compute_step_daily_series_for_all_members,
+    step_start_end,
+)
 
 
 Variable = Literal["hs", "swe"]
@@ -274,44 +278,34 @@ def compute_member_scf_daily(
 
 
 def _compute_member_scf_for_step_worker(
-    project_dir: str,
-    aoi_path: str,
-    results_dir: str,
-    start_iso: str,
-    end_iso: str,
+    results_dir: Path,
+    aoi_path: Path,
+    start: datetime,
+    end: datetime,
+    out_csv: Path,
     overwrite: bool,
-) -> tuple[str, bool]:
-    """Worker: compute SCF daily series for a single member results dir.
-
-    Returns (member_name, created) where created indicates whether a CSV was
-    written (False when skipped due to overwrite=False and existing output).
-    """
-    res_dir = Path(results_dir)
-    out_csv = res_dir / "point_scf_aoi.csv"
-    if out_csv.exists() and not overwrite:
-        return res_dir.parent.name, False
-
-    start = datetime.fromisoformat(start_iso)
-    end = datetime.fromisoformat(end_iso)
+    extra: Dict[str, Any],
+) -> bool:
+    """Worker: compute SCF daily series for a single member results dir."""
     df = compute_member_scf_daily(
-        project_dir=Path(project_dir),
-        results_dir=res_dir,
-        aoi_path=Path(aoi_path),
+        project_dir=Path(extra["project_dir"]),
+        results_dir=results_dir,
+        aoi_path=aoi_path,
         start=start,
         end=end,
     )
     if df.empty:
-        return res_dir.parent.name, False
-
+        return False
+    if out_csv.exists() and not overwrite:
+        return False
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_csv, index=False)
-    return res_dir.parent.name, True
+    return True
 
 
 def compute_step_scf_daily_for_all_members(
     *,
     project_dir: Path,
-    season_dir: Path,
     step_dir: Path,
     aoi_path: Path,
     max_workers: int = 4,
@@ -332,93 +326,22 @@ def compute_step_scf_daily_for_all_members(
     """
     step_dir = Path(step_dir)
     project_dir = Path(project_dir)
-    season_dir = Path(season_dir)
     aoi_path = Path(aoi_path)
 
-    cfg = read_step_config(step_dir) or {}
-    try:
-        s_val = cfg.get("start_date")
-        e_val = cfg.get("end_date")
-        start = datetime.fromisoformat(str(s_val))
-        end = datetime.fromisoformat(str(e_val))
-    except Exception as exc:
-        raise ValueError(f"Missing or invalid start_date/end_date in step config for {step_dir}") from exc
+    start, end = step_start_end(step_dir)
 
-    prior_root = step_dir / "ensembles" / "prior"
-    if not prior_root.is_dir():
-        raise FileNotFoundError(f"No prior ensemble found under {prior_root}")
-
-    members = list_member_dirs(step_dir / "ensembles", "prior")
-    if not members:
-        logger.warning("No prior members found under {}; skipping SCF computation.", step_dir)
-        return
-
-    # Include open_loop if present
-    try:
-        ol_dir = open_loop_dir(step_dir)
-        if ol_dir.is_dir():
-            members = [ol_dir] + members
-    except Exception:
-        pass
-
-    # Use member results directories
-    jobs: list[tuple[str, str, str, str, str, bool]] = []
-    all_exist = True
-    for mdir in members:
-        res_dir = Path(mdir) / "results"
-        if not res_dir.is_dir():
-            all_exist = False
-            continue
-        out_csv = res_dir / "point_scf_aoi.csv"
-        if not out_csv.is_file():
-            all_exist = False
-        jobs.append(
-            (
-                str(project_dir),
-                str(aoi_path),
-                str(res_dir),
-                start.isoformat(),
-                end.isoformat(),
-                bool(overwrite),
-            )
-        )
-
-    # If every member already has SCF output and overwrite=False, skip work.
-    if jobs and all_exist and not overwrite:
-        logger.info(
-            "SCF daily series already present for all members in {}; overwrite=False -> skipping SCF computation.",
-            step_dir.name,
-        )
-        return
-
-    if not jobs:
-        logger.warning("No member results directories found for {}; skipping SCF computation.", step_dir)
-        return
-
-    n_workers = max(1, min(int(max_workers or 1), len(jobs)))
-    logger.info(
-        "Computing daily model SCF for {} member(s) in {} using {} worker(s) ...",
-        len(jobs),
-        step_dir.name,
-        n_workers,
-    )
-
-    created = 0
-    with cf.ProcessPoolExecutor(max_workers=n_workers) as ex:
-        futures = [ex.submit(_compute_member_scf_for_step_worker, *args) for args in jobs]
-        for fut in cf.as_completed(futures):
-            try:
-                name, did_create = fut.result()
-                if did_create:
-                    created += 1
-            except Exception as exc:
-                logger.warning("SCF computation failed for a member in {}: {}", step_dir, exc)
-
-    logger.info(
-        "Model SCF daily series written for {} / {} member(s) in {}",
-        created,
-        len(jobs),
-        step_dir.name,
+    compute_step_daily_series_for_all_members(
+        step_dir=step_dir,
+        aoi_path=aoi_path,
+        start=start,
+        end=end,
+        csv_name="point_scf_aoi.csv",
+        worker=_compute_member_scf_for_step_worker,
+        ensemble="prior",
+        include_open_loop=True,
+        max_workers=max_workers,
+        overwrite=overwrite,
+        worker_kwargs={"project_dir": str(project_dir)},
     )
 
 
@@ -567,7 +490,6 @@ def cli_season_daily(argv: list[str] | None = None) -> int:
         try:
             compute_step_scf_daily_for_all_members(
                 project_dir=Path(args.project_dir),
-                season_dir=season_dir,
                 step_dir=step,
                 aoi_path=Path(args.aoi),
                 max_workers=int(args.max_workers or 4),

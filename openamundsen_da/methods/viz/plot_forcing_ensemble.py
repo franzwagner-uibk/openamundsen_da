@@ -195,8 +195,9 @@ def _plot_station(
         lbl = member_labels[i] if member_labels and i < len(member_labels) else None
         ax0.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.85, label=lbl)
     if not t_mean.empty:
-        # Removed ensemble band fill; keep mean line only
-        # Removed ensemble mean line
+        # Removed ensemble band fill and explicit mean line;
+        # keep per-member lines only for now.
+        pass
     if ol_df is not None and temp_col in ol_df.columns:
         ax0.plot(ol_df.index, ol_df[temp_col], color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open_loop")
     ax0.set_ylabel(temp_col)
@@ -215,8 +216,9 @@ def _plot_station(
                 lbl = member_labels[i] if member_labels and i < len(member_labels) else None
                 ax1.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.85, label=lbl)
         if not p_mean.empty:
-            # Removed ensemble band fill; keep mean line only
-            # Removed ensemble mean line
+            # Removed ensemble band fill and explicit mean line;
+            # keep per-member lines only for now.
+            pass
         if ol_df is not None and precip_col in ol_df.columns:
             s = cumulative_hydro(ol_df[precip_col], hydro_m, hydro_d)
             ax1.plot(s.index, s.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open_loop")

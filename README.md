@@ -147,6 +147,28 @@ Optional: `--overwrite`, `--log-level <LEVEL>` (the summary path defaults to `<p
 
 Note: the summary-based workflow is the recommended way to prepare SCF observations for assimilation; the single-image and raster batch modes are kept for backward compatibility only.
 
+### Wet Snow Classification
+
+Classify wet-versus-dry snow grids directly from the OA raster outputs following the volumetric liquid water content definition (Rottler et al., 2024): sum the layer-wise liquid water (kg m-2), divide by water density (1000 kg m-3) and snow depth (m), then multiply by 100 for percent. The CLI below walks every step and ensemble member (or a single step) and writes the binary mask (1 = wet, 0 = dry, 255 = nodata) plus an optional percent raster per timestamp.
+
+```powershell
+$project = "/data"
+$season  = "$project/propagation/season_2019-2020"
+
+docker compose run --rm oa `
+  python -m openamundsen_da.methods.wet_snow.classify `
+  --season-dir $season
+```
+
+Key flags:
+
+- `--step-dir <path>` to process just one step (mutually exclusive with `--season-dir`).
+- `--members member_001 member_042` to restrict the ensemble subset (the open_loop run is always processed in addition to any members).
+- `--threshold <percent>` sets the wet/dry cutoff (default 0.1% volumetric fraction per Rottler et al., 2024).
+- `--write-fraction` adds the liquid water percent rasters; omit it to only emit the binary masks (default behavior).
+- `--min-depth-mm <mm>` masks extremely shallow snow before evaluating LWC (default 5 mm).
+- Outputs land under each member's `results/<output-subdir>` (default `wet_snow`): `wet_snow_mask_<timestamp>.tif` and `lwc_fraction_<timestamp>.tif` when `--write-fraction` is set.
+
 ### H(x) Model SCF (optional, per-member debug)
 
 ```powershell
@@ -257,6 +279,7 @@ Outputs are written to `$season/plots/forcing` and `$season/plots/results` with 
   Each weights plot shows the posterior probability assigned to every member after assimilating SCF on that date. The y-axis is normalized to `[0,1]` so you can directly compare different steps, and the subtitle now records `Step <n> - <YYYY-MM-DD>` when the CSV lives under the expected `step_XX_*/assim/` layout.
 
   Keep these interpretation tips in mind:
+
   - A steep fall-off after the top members implies the observation strongly favors a few particles; this also drives the ESS timeline downward for that step.
   - A flatter trend with many weights ≈ `0.05` means the observation is not differentiating members, which can reflect broad uncertainties or overly similar ensemble members.
   - Use the residual histogram and sigma markers on the right panel: tight residuals centered near zero mean the model already matched the observation, while heavy tails or offsets may flag issue with the obs CSV or indicate the model spread is too small.

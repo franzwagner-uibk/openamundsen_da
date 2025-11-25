@@ -21,8 +21,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Sequence
-import concurrent.futures as cf
+from typing import Any, Dict, Iterable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -31,11 +30,10 @@ from loguru import logger
 from rasterio.mask import mask as rio_mask
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
-from openamundsen_da.io.paths import (
-    list_member_dirs,
-    member_id_from_results_dir,
-    open_loop_dir,
-    read_step_config,
+from openamundsen_da.io.paths import member_id_from_results_dir
+from openamundsen_da.methods.daily_aoi_series import (
+    compute_step_daily_series_for_all_members,
+    step_start_end,
 )
 from openamundsen_da.util.aoi import read_single_aoi
 
@@ -240,39 +238,36 @@ def compute_member_wet_snow_daily(
 
 
 def _compute_member_daily_worker(
-    results_dir: str,
-    aoi_path: str,
-    start_iso: str,
-    end_iso: str,
-    mask_subdir: str,
-    mask_prefix: str,
+    results_dir: Path,
+    aoi_path: Path,
+    start: datetime,
+    end: datetime,
+    out_csv: Path,
     overwrite: bool,
-) -> tuple[str, bool]:
-    res_dir = Path(results_dir)
-    out_csv = res_dir / "point_wet_snow_aoi.csv"
-    if out_csv.exists() and not overwrite:
-        return res_dir.parent.name, False
-
-    start = datetime.fromisoformat(start_iso)
-    end = datetime.fromisoformat(end_iso)
+    extra: Dict[str, Any],
+) -> bool:
+    """Worker: compute wet-snow daily series for a single member results dir."""
+    mask_subdir = str(extra.get("mask_subdir", "wet_snow"))
+    mask_prefix = str(extra.get("mask_prefix", "wet_snow_mask"))
     df = compute_member_wet_snow_daily(
-        results_dir=res_dir,
-        aoi_path=Path(aoi_path),
+        results_dir=results_dir,
+        aoi_path=aoi_path,
         start=start,
         end=end,
         mask_subdir=mask_subdir,
         mask_prefix=mask_prefix,
     )
     if df.empty:
-        return res_dir.parent.name, False
+        return False
+    if out_csv.exists() and not overwrite:
+        return False
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_csv, index=False)
-    return res_dir.parent.name, True
+    return True
 
 
 def compute_step_wet_snow_daily_for_all_members(
     *,
-    season_dir: Path,
     step_dir: Path,
     aoi_path: Path,
     max_workers: int = 4,
@@ -282,69 +277,26 @@ def compute_step_wet_snow_daily_for_all_members(
 ) -> None:
     """Compute daily wet-snow fractions for all prior members in a step."""
 
-    season_dir = Path(season_dir)
     step_dir = Path(step_dir)
     aoi_path = Path(aoi_path)
 
-    logger.info("Computing wet-snow daily fractions for {}/{}", season_dir.name, step_dir.name)
+    logger.info("Computing wet-snow daily fractions for {}", step_dir.name)
 
-    cfg = read_step_config(step_dir) or {}
-    try:
-        start = datetime.fromisoformat(str(cfg.get("start_date")))
-        end = datetime.fromisoformat(str(cfg.get("end_date")))
-    except Exception as exc:
-        raise ValueError(f"Missing/invalid start_date or end_date in {step_dir}") from exc
+    start, end = step_start_end(step_dir)
 
-    # Members (including optional open_loop)
-    prior_members = list_member_dirs(step_dir / "ensembles", "prior")
-    try:
-        ol_dir = open_loop_dir(step_dir)
-        if ol_dir.is_dir():
-            prior_members = [ol_dir] + prior_members
-    except Exception:
-        pass
-
-    if not prior_members:
-        logger.warning("No prior members under {} -> skipping wet-snow fractions", step_dir)
-        return
-
-    jobs: list[tuple[str, str, str, str, str, str, bool]] = []
-    all_exist = True
-    for member in prior_members:
-        res_dir = Path(member) / "results"
-        if not res_dir.is_dir():
-            all_exist = False
-            continue
-        out_csv = res_dir / "point_wet_snow_aoi.csv"
-        if not out_csv.exists():
-            all_exist = False
-        jobs.append(
-            (
-                str(res_dir),
-                str(aoi_path),
-                start.isoformat(),
-                end.isoformat(),
-                mask_subdir,
-                mask_prefix,
-                overwrite,
-            )
-        )
-
-    if not jobs:
-        logger.warning("No member results directories for {} -> skipping", step_dir)
-        return
-    if all_exist and not overwrite:
-        logger.info("Wet-snow CSVs already exist for {} (overwrite=False) -> skipping", step_dir.name)
-        return
-
-    n_workers = max(1, min(int(max_workers or 1), len(jobs)))
-    with cf.ProcessPoolExecutor(max_workers=n_workers) as ex:
-        futures = [ex.submit(_compute_member_daily_worker, *args) for args in jobs]
-        for fut in cf.as_completed(futures):
-            try:
-                fut.result()
-            except Exception as exc:
-                logger.warning("Wet-snow daily computation failed: {}", exc)
+    compute_step_daily_series_for_all_members(
+        step_dir=step_dir,
+        aoi_path=aoi_path,
+        start=start,
+        end=end,
+        csv_name="point_wet_snow_aoi.csv",
+        worker=_compute_member_daily_worker,
+        ensemble="prior",
+        include_open_loop=True,
+        max_workers=max_workers,
+        overwrite=overwrite,
+        worker_kwargs={"mask_subdir": mask_subdir, "mask_prefix": mask_prefix},
+    )
 
 
 def summarize_s1_directory(
@@ -504,7 +456,6 @@ def cli_model_season(argv: list[str] | None = None) -> int:
     for step in steps:
         try:
             compute_step_wet_snow_daily_for_all_members(
-                season_dir=Path(args.season_dir),
                 step_dir=step,
                 aoi_path=Path(args.aoi),
                 max_workers=int(args.max_workers or 1),

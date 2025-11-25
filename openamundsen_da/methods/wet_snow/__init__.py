@@ -6,4 +6,4 @@ Description:
     Helpers for wet-snow diagnostics (volumetric liquid water content).
 """
 
-__all__ = ["classify"]
+__all__ = ["classify", "area"]

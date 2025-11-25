@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -27,8 +27,11 @@ from loguru import logger
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.launch import launch_members
 from openamundsen_da.core.prior_forcing import build_prior_ensemble
-from openamundsen_da.io.paths import read_step_config
-from openamundsen_da.methods.pf.assimilate_scf import assimilate_scf_for_date
+from openamundsen_da.io.paths import read_step_config, find_season_yaml
+from openamundsen_da.methods.pf.assimilate_scf import (
+    assimilate_scf_for_date,
+    assimilate_wet_snow_for_date,
+)
 from openamundsen_da.methods.h_of_x.model_scf import compute_step_scf_daily_for_all_members
 from openamundsen_da.methods.pf.rejuvenate import rejuvenate
 from openamundsen_da.methods.pf.resample import resample_from_weights
@@ -82,12 +85,97 @@ class OrchestratorConfig:
     live_plots: bool = True
 
 
+@dataclass(frozen=True)
+class AssimilationEvent:
+    date: date
+    variable: str
+    product: str
+
+
 def _setup_logger(season_dir: Path, log_level: str) -> None:
     """Configure Loguru sinks for console and season file log."""
     logger.remove()
     logger.add(sys.stdout, level=log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
     log_file = Path(season_dir) / f"{Path(season_dir).name}.log"
     logger.add(log_file, level=log_level.upper(), colorize=False, enqueue=True, format=LOGURU_FORMAT)
+
+
+def _read_yaml(path: Path) -> dict:
+    """Read a YAML file into a dict (best-effort)."""
+    try:
+        import ruamel.yaml as _yaml
+
+        y = _yaml.YAML(typ="safe")
+        with path.open("r", encoding="utf-8") as f:
+            return y.load(f) or {}
+    except Exception as exc:
+        raise RuntimeError(f"Could not read YAML from {path}: {exc}") from exc
+
+
+def _parse_event_date(text: str | None) -> date:
+    if not text:
+        raise ValueError("Empty assimilation event date")
+    t = str(text).strip()
+    try:
+        dt = datetime.strptime(t, "%Y-%m-%d")
+        return dt.date()
+    except Exception as exc:
+        raise ValueError(f"Invalid assimilation event date (expected YYYY-MM-DD): {text}") from exc
+
+
+def _load_assimilation_events(season_dir: Path) -> dict[date, AssimilationEvent]:
+    """Load assimilation events from season.yml (variable/product per date).
+
+    Supports both the new structured block:
+
+    data_assimilation:
+      assimilation_events:
+        - date: 2020-03-19
+          variable: scf
+          product: MOD10A1
+
+    and the legacy flat list:
+
+    assimilation_dates:
+      - 2020-03-19
+      - 2020-04-06
+
+    In the legacy case, all events use variable='scf' and product='MOD10A1'.
+    """
+    season_yaml = find_season_yaml(season_dir)
+    cfg = _read_yaml(season_yaml) or {}
+
+    events: list[AssimilationEvent] = []
+
+    da_cfg = cfg.get("data_assimilation") or {}
+    raw_events = da_cfg.get("assimilation_events") or []
+    if isinstance(raw_events, list) and raw_events:
+        for entry in raw_events:
+            if not isinstance(entry, dict):
+                continue
+            dtxt = entry.get("date")
+            if not dtxt:
+                continue
+            dval = _parse_event_date(str(dtxt))
+            var = str(entry.get("variable") or "scf")
+            if "product" in entry and entry["product"] is not None:
+                prod = str(entry["product"])
+            else:
+                prod = "MOD10A1" if var == "scf" else "S1"
+            events.append(AssimilationEvent(date=dval, variable=var, product=prod))
+    else:
+        raw_dates = cfg.get("assimilation_dates") or []
+        for text in raw_dates:
+            dval = _parse_event_date(str(text))
+            events.append(AssimilationEvent(date=dval, variable="scf", product="MOD10A1"))
+
+    if not events:
+        raise ValueError(f"No assimilation_events or assimilation_dates found in {season_yaml}")
+
+    mapping: dict[date, AssimilationEvent] = {}
+    for ev in events:
+        mapping[ev.date] = ev
+    return mapping
 
 
 def run_season(cfg: OrchestratorConfig) -> None:
@@ -114,6 +202,9 @@ def run_season(cfg: OrchestratorConfig) -> None:
 
     aoi = _find_aoi(cfg.project_dir)
     logger.info("Using AOI: {}", aoi)
+
+    # Assimilation configuration (variable/product per date)
+    events_by_date = _load_assimilation_events(cfg.season_dir)
 
     # Process each step
     for i, step_dir in enumerate(steps):
@@ -188,38 +279,62 @@ def run_season(cfg: OrchestratorConfig) -> None:
         if assim_dt is None:
             assim_dt = next_start
 
-        logger.info("Assimilating SCF for date {}", assim_dt.strftime("%Y-%m-%d"))
+        ev = events_by_date.get(assim_dt.date())
+        if ev is None:
+            logger.warning("No assimilation event configured for {} -> skipping assimilation for {}", assim_dt.date(), step_name)
+            continue
+
+        logger.info(
+            "Assimilating {} (product {}) for date {}",
+            ev.variable,
+            ev.product,
+            assim_dt.strftime("%Y-%m-%d"),
+        )
 
         # Reuse existing weights if present and overwrite=False so that
         # re-running oa-da-season can skip already-assimilated steps.
         assim_dir = Path(step_dir) / "assim"
         assim_dir.mkdir(parents=True, exist_ok=True)
-        wcsv = assim_dir / f"weights_scf_{assim_dt.strftime('%Y%m%d')}.csv"
+        if ev.variable == "wet_snow":
+            weights_name = f"weights_wet_snow_{assim_dt.strftime('%Y%m%d')}.csv"
+        else:
+            weights_name = f"weights_scf_{assim_dt.strftime('%Y%m%d')}.csv"
+        wcsv = assim_dir / weights_name
         if wcsv.is_file() and not cfg.overwrite:
             logger.info("Weights CSV already exists for {}; overwrite=False -> reusing existing weights: {}", step_name, wcsv)
             # Downstream resampling/rejuvenation will read this file; no need
             # to recompute or touch assimilation for this step.
         else:
-            try:
-                weights = assimilate_scf_for_date(
-                    project_dir=cfg.project_dir,
-                    step_dir=step_dir,
-                    ensemble="prior",
-                    date=assim_dt,
-                    aoi=aoi,
-                    obs_csv=None,
-                )
-            except FileNotFoundError as exc:
-                logger.error(
-                    "SCF assimilation failed for step {} at date {}: {}. "
-                    "Ensure obs_scf_MOD10A1_YYYYMMDD.csv exists under {}/obs for this date "
-                    "or generate it via oa-da-scf.",
-                    step_name,
-                    assim_dt.strftime("%Y-%m-%d"),
-                    exc,
-                    step_dir,
-                )
-                raise
+              try:
+                  if ev.variable == "wet_snow":
+                      weights = assimilate_wet_snow_for_date(
+                          project_dir=cfg.project_dir,
+                          step_dir=step_dir,
+                          ensemble="prior",
+                          date=assim_dt,
+                          aoi=aoi,
+                          obs_csv=None,
+                      )
+                  else:
+                      weights = assimilate_scf_for_date(
+                          project_dir=cfg.project_dir,
+                          step_dir=step_dir,
+                          ensemble="prior",
+                          date=assim_dt,
+                          aoi=aoi,
+                          obs_csv=None,
+                      )
+              except FileNotFoundError as exc:
+                  logger.error(
+                      "Assimilation failed for step {} at date {}: {}. "
+                      "Ensure the appropriate obs CSV exists under {}/obs for this date "
+                      "or generate it via the corresponding observer CLI.",
+                      step_name,
+                      assim_dt.strftime("%Y-%m-%d"),
+                      exc,
+                      step_dir,
+                  )
+                  raise
             weights.to_csv(wcsv, index=False)
             logger.info("Wrote weights -> {}", wcsv)
 
@@ -286,7 +401,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
             assim_dir = Path(step_dir) / "assim"
             if not assim_dir.is_dir():
                 continue
-            candidates = sorted(assim_dir.glob("weights_scf_*.csv"))
+            candidates = sorted(assim_dir.glob("weights_*_*.csv"))
             if not candidates:
                 continue
             plot_weights_for_csv(candidates[-1])

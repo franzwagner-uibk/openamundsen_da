@@ -8,8 +8,11 @@ Inputs
   - Uses the ``timestep`` field (e.g. ``"3H"``) to infer the model time step.
 - propagation/season_YYYY-YYYY/season.yml
   - ``start_date`` and ``end_date`` (dates or ISO datetimes).
-  - ``assimilation_dates``: list of calendar dates (YYYY-MM-DD) at which
-    SCF assimilation should occur.
+  - Either a flat list of ``assimilation_dates`` (calendar dates
+    YYYY-MM-DD) or a structured
+    ``data_assimilation.assimilation_events`` block with per-date
+    variable/product metadata. In both cases, only the dates are used
+    to derive step boundaries.
 
 Behavior
 --------
@@ -124,11 +127,28 @@ def _load_season_config(project_dir: Path, season_dir: Path) -> tuple[timedelta,
     start = _parse_datetime(str(cfg.get("start_date")))
     end = _parse_datetime(str(cfg.get("end_date")))
 
-    raw_dates = cfg.get("assimilation_dates")
-    if not raw_dates:
-        raise ValueError(f"'assimilation_dates' missing or empty in {season_yaml}")
+    # Prefer structured assimilation_events if present; otherwise fall back
+    # to the legacy assimilation_dates list.
+    assim_dates: List[datetime] = []
+    da_cfg = cfg.get("data_assimilation") or {}
+    events_cfg = da_cfg.get("assimilation_events") or []
+    if isinstance(events_cfg, list) and events_cfg:
+        for entry in events_cfg:
+            if not isinstance(entry, dict):
+                continue
+            date_txt = entry.get("date")
+            if not date_txt:
+                continue
+            assim_dates.append(_parse_date(str(date_txt)))
+    else:
+        raw_dates = cfg.get("assimilation_dates")
+        if not raw_dates:
+            raise ValueError(
+                f"'assimilation_dates' or 'data_assimilation.assimilation_events' missing or empty in {season_yaml}"
+            )
+        assim_dates = [_parse_date(str(d)) for d in raw_dates]
 
-    assim: List[datetime] = [_parse_date(str(d)) for d in raw_dates]
+    assim: List[datetime] = assim_dates
     assim.sort(key=lambda d: d)
 
     if start >= end:

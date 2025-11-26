@@ -215,15 +215,21 @@ def create_season_skeleton(project_dir: Path, season_dir: Path, *, overwrite: bo
         if idx < len(assim):
             # Assimilation date for this window (calendar date)
             a = assim[idx]
-            # Align assimilation datetime to this step's time-of-day so that
-            # the model produces a daily raster for D_i within this window.
+            # Assimilation datetime at this step's time-of-day
             step_time = step_start.time()
-            step_end = a.replace(
+            assim_dt = a.replace(
                 hour=step_time.hour,
                 minute=step_time.minute,
                 second=step_time.second,
                 microsecond=step_time.microsecond,
             )
+            # Ensure the step runs far enough beyond the assimilation date so
+            # that daily diagnostics (e.g. HS/LWC) are available for that day.
+            # For sub-daily timesteps we extend by at least one full day.
+            extra = dt if dt >= timedelta(days=1) else timedelta(days=1)
+            step_end = assim_dt + extra
+            if step_end > season.end and idx == len(assim) - 1:
+                step_end = season.end
             next_start = step_end + dt
         else:
             # Final step: run until season end

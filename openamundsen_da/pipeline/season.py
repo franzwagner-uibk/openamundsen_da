@@ -263,24 +263,31 @@ def run_season(cfg: OrchestratorConfig) -> None:
             # Best-effort; do not fail if step YAMLs are incomplete or unparsable
             pass
 
-        # Assimilation date: use current step end_date (aligned with season.yml
-        # assimilation_dates via the season_skeleton). This ensures that:
-        # - The model has produced a daily raster for this date within this
-        #   step's window.
-        # - We never request a raster for a date beyond the step's end.
-        # Fallback to next_start if end_date is missing or unparsable.
+        # Assimilation date: use the configured event date that falls inside
+        # this step's window, rather than implicitly assuming end_date.
         assim_dt = None
+        ev: AssimilationEvent | None = None
         try:
             curr_cfg = read_step_config(step_dir) or {}
+            start_val = curr_cfg.get("start_date")
             end_val = curr_cfg.get("end_date")
-            if end_val is not None:
-                assim_dt = datetime.fromisoformat(str(end_val))
+            start_dt = datetime.fromisoformat(str(start_val)) if start_val is not None else None
+            end_dt = datetime.fromisoformat(str(end_val)) if end_val is not None else None
         except Exception:
-            assim_dt = None
+            start_dt = None
+            end_dt = None
+
+        if start_dt is not None and end_dt is not None:
+            for d, candidate in events_by_date.items():
+                if start_dt.date() <= d <= end_dt.date():
+                    ev = candidate
+                    # Use the step's start time-of-day for the assimilation datetime;
+                    # all downstream paths only use the calendar date.
+                    assim_dt = datetime.combine(d, start_dt.time())
+                    break
         if assim_dt is None:
             assim_dt = next_start
 
-        ev = events_by_date.get(assim_dt.date())
         if ev is None:
             logger.warning(
                 "No assimilation event configured for {} -> skipping assimilation for {}",

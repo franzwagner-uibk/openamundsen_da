@@ -84,7 +84,9 @@ def _read_mask_by_aoi(
     with rasterio.open(raster_path) as src:
         if src.crs is None:
             raise ValueError(f"Raster {raster_path} lacks a CRS")
-        gdf, region_id = read_single_aoi(aoi_path, to_crs=src.crs)
+        # For wet-snow summaries we only require a single-feature AOI,
+        # not a specific attribute schema.
+        gdf, region_id = read_single_aoi(aoi_path, required_field=None, to_crs=src.crs)
         data, transform = rio_mask(
             src,
             gdf.geometry,
@@ -342,9 +344,15 @@ def summarize_s1_directory(
 
     if not rows:
         raise RuntimeError(f"No valid Sentinel-1 rasters processed in {raster_dir}")
+
     df = pd.DataFrame(rows).sort_values("date")
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_csv, index=False)
+    logger.info(
+        "Sentinel-1 wet-snow summary written: {} ({} day(s))",
+        output_csv,
+        len(df),
+    )
     return output_csv
 
 
@@ -489,7 +497,7 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
     logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
     try:
-        summarize_s1_directory(
+        out_csv = summarize_s1_directory(
             raster_dir=Path(args.raster_dir),
             aoi_path=Path(args.aoi),
             output_csv=Path(args.output),
@@ -498,6 +506,8 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
     except Exception as exc:
         logger.error("Sentinel-1 wet-snow summary failed: {}", exc)
         return 1
+
+    logger.info("Sentinel-1 wet-snow summary complete -> {}", out_csv)
     return 0
 
 

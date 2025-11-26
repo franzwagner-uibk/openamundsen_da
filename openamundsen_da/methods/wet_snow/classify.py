@@ -12,6 +12,7 @@ import argparse
 import re
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
+from types import SimpleNamespace
 
 import numpy as np
 import rasterio
@@ -384,6 +385,49 @@ def cli_main(argv: Optional[Sequence[str]] = None) -> int:
             _process_member(member_dir, threshold_frac, args)
 
     return 0
+
+
+def classify_step_wet_snow(
+    step_dir: Path,
+    *,
+    members: Optional[Sequence[str]] = None,
+    threshold_percent: float = 0.1,
+    output_subdir: str = "wet_snow",
+    mask_prefix: str = "wet_snow_mask",
+    fraction_prefix: str = "lwc_fraction",
+    write_fraction: bool = False,
+    overwrite: bool = False,
+    water_density: float = _RHO_WATER_DEFAULT,
+    min_depth_mm: float = 5.0,
+) -> None:
+    """Classify wet-snow masks for a single step directory.
+
+    This programmatic helper mirrors the CLI behavior for one step. It is
+    used by the season pipeline to ensure wet-snow masks are available
+    for assimilation when required.
+    """
+    step_dir = Path(step_dir)
+    threshold_frac = float(threshold_percent) / 100.0
+
+    args = SimpleNamespace(
+        output_subdir=output_subdir,
+        mask_prefix=mask_prefix,
+        fraction_prefix=fraction_prefix,
+        write_fraction=bool(write_fraction),
+        overwrite=bool(overwrite),
+        water_density=float(water_density),
+        min_depth_mm=float(min_depth_mm),
+    )
+
+    logger.info("Classifying wet snow for step {}", step_dir)
+    members_iter = list(_iter_members(step_dir, members))
+    if not members_iter:
+        logger.warning("No members found under {}; skipping wet-snow classification.", step_dir)
+        return
+
+    for member_dir in members_iter:
+        logger.info("Classifying wet snow for {}", member_dir)
+        _process_member(member_dir, threshold_frac, args)
 
 
 if __name__ == "__main__":

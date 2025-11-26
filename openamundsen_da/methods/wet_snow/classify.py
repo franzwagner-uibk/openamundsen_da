@@ -171,23 +171,37 @@ def _compute_fraction(
         profile = depth_src.profile
         depth_nodata = depth_src.nodata
 
-    depth_mask = ~np.isfinite(depth)
+    # True nodata: invalid depth values (outside grid or flagged nodata).
+    depth_invalid = ~np.isfinite(depth)
     if depth_nodata is not None:
-        depth_mask |= depth == depth_nodata
-    depth_mask |= depth <= min_depth_m
-    depth = np.where(depth_mask, np.nan, depth)
+        depth_invalid |= depth == depth_nodata
 
+    # Within the model domain, we distinguish shallow/no-snow from deeper snow.
+    depth_valid = ~depth_invalid
+    shallow = depth_valid & (depth <= min_depth_m)
+    deep = depth_valid & (depth > min_depth_m)
+
+    # For theta computation we only use "deep" pixels. Shallow/no-snow pixels
+    # are treated as non-wet AOI (dry) but are excluded from the ratio.
+    depth_theta = np.where(deep, depth, np.nan)
+
+    # Sum LWC layers. Missing LWC is interpreted as zero (dry) where depth is
+    # valid; only true outside-of-domain remains nodata.
     lw_total = _read_sum_lwc(lw_paths)
+    lw_total = np.where(np.isfinite(lw_total), lw_total, 0.0)
 
-    denom = rho_water * depth
+    denom = rho_water * depth_theta
     theta = np.full(depth.shape, np.nan, dtype=np.float32)
-    valid = np.isfinite(lw_total) & np.isfinite(depth)
-    np.divide(lw_total, denom, out=theta, where=valid)
+    valid_theta = np.isfinite(lw_total) & np.isfinite(denom)
+    np.divide(lw_total, denom, out=theta, where=valid_theta)
 
-    # Classification: nodata=255, dry=0, wet=1
+    # Classification: nodata=255 (true missing), dry/land=0, wet=1.
     wet_mask = np.full(depth.shape, _MASK_NODATA, dtype=np.uint8)
-    wet_mask = np.where(np.isfinite(theta), 0, wet_mask)
-    wet_mask = np.where(theta >= threshold_frac, 1, wet_mask)
+    # All depth-valid pixels (shallow or deep) are considered land AOI by
+    # default and classified as non-wet (0).
+    wet_mask = np.where(depth_valid, 0, wet_mask)
+    # Among deep pixels with a valid theta, mark wet where threshold exceeded.
+    wet_mask = np.where(deep & (theta >= threshold_frac), 1, wet_mask)
 
     mask_profile = profile.copy()
     mask_profile.update(dtype="uint8", count=1, nodata=int(_MASK_NODATA), compress="lzw")

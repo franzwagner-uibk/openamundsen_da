@@ -94,6 +94,12 @@ docker compose run --rm oa `
 
 Optional: `--max-workers <N>`, `--overwrite`, `--state-pattern <glob>`, `--log-level <LEVEL>`
 
+Parallelism and CPU limits
+
+- The `--max-workers` value is an upper bound. The launcher clamps the actual worker count to `os.cpu_count()` inside the container and to the number of available members, so the effective workers are `min(max_workers, CPUs visible, #members)`.
+- Under Docker/WSL2 the CPUs visible to the container are controlled by your WSL `.wslconfig` and the `CPUS` variable used in `compose.yml` (`deploy.resources.limits.cpus: "${CPUS:-8}"`).
+- Each prior run launches `open_loop` plus `ensemble_size` members from `project.yml`. If you want to run “one process per core” in a single batch, a common pattern is: set `CPUS = N`, `ensemble_size = N-1`, and use `--max-workers N`.
+
 ### Observation Processing
 
 - MOD10A1 preprocess (HDF -> GeoTIFF + season summary):

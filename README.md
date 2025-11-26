@@ -169,6 +169,21 @@ Key flags:
 - `--min-depth-mm <mm>` masks extremely shallow snow before evaluating LWC (default 5 mm).
 - Outputs land under each member's `results/<output-subdir>` (default `wet_snow`): `wet_snow_mask_<timestamp>.tif` and `lwc_fraction_<timestamp>.tif` when `--write-fraction` is set.
 
+Sentinel-1 wet-snow observations use pre-classified WSM rasters with four classes:
+
+- `110` = wet snow
+- `125` = dry/no snow
+- `200` = radar shadow (excluded from the statistics)
+- `210` = water (excluded from the statistics)
+
+The S1 summary CLI (`oa-da-wet-snow-s1`) clips each WSM raster to the single-feature AOI, drops shadow and water pixels, and computes a two-class wet-snow fraction as:
+
+```text
+wet_snow_fraction = (# pixels == 110) / (# pixels in {110, 125})
+```
+
+This fraction is written to `wet_snow_summary.csv` along with `n_valid`, `n_wet`, and the source filename, and is later converted into per-step `obs_wet_snow_S1_YYYYMMDD.csv` files by the season helper.
+
 ### H(x) Model SCF (optional, per-member debug)
 
 ```powershell

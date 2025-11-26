@@ -33,6 +33,7 @@ from openamundsen_da.methods.pf.assimilate_scf import (
     assimilate_wet_snow_for_date,
 )
 from openamundsen_da.methods.h_of_x.model_scf import compute_step_scf_daily_for_all_members
+from openamundsen_da.methods.wet_snow.classify import classify_step_wet_snow
 from openamundsen_da.methods.pf.rejuvenate import rejuvenate
 from openamundsen_da.methods.pf.resample import resample_from_weights
 from openamundsen_da.methods.pf.plot_weights import plot_weights_for_csv
@@ -281,7 +282,11 @@ def run_season(cfg: OrchestratorConfig) -> None:
 
         ev = events_by_date.get(assim_dt.date())
         if ev is None:
-            logger.warning("No assimilation event configured for {} -> skipping assimilation for {}", assim_dt.date(), step_name)
+            logger.warning(
+                "No assimilation event configured for {} -> skipping assimilation for {}",
+                assim_dt.date(),
+                step_name,
+            )
             continue
 
         logger.info(
@@ -290,6 +295,24 @@ def run_season(cfg: OrchestratorConfig) -> None:
             ev.product,
             assim_dt.strftime("%Y-%m-%d"),
         )
+
+        # Ensure required model-side diagnostics are available for the chosen
+        # observable. SCF daily series are computed above; for wet snow we
+        # classify masks on demand.
+        if ev.variable == "wet_snow":
+            try:
+                classify_step_wet_snow(
+                    step_dir=step_dir,
+                    members=None,
+                    threshold_percent=0.1,
+                    output_subdir="wet_snow",
+                    mask_prefix="wet_snow_mask",
+                    fraction_prefix="lwc_fraction",
+                    write_fraction=False,
+                    overwrite=bool(cfg.overwrite),
+                )
+            except Exception as exc:
+                logger.warning("Wet-snow classification failed for {}: {}", step_name, exc)
 
         # Reuse existing weights if present and overwrite=False so that
         # re-running oa-da-season can skip already-assimilated steps.
@@ -301,40 +324,44 @@ def run_season(cfg: OrchestratorConfig) -> None:
             weights_name = f"weights_scf_{assim_dt.strftime('%Y%m%d')}.csv"
         wcsv = assim_dir / weights_name
         if wcsv.is_file() and not cfg.overwrite:
-            logger.info("Weights CSV already exists for {}; overwrite=False -> reusing existing weights: {}", step_name, wcsv)
+            logger.info(
+                "Weights CSV already exists for {}; overwrite=False -> reusing existing weights: {}",
+                step_name,
+                wcsv,
+            )
             # Downstream resampling/rejuvenation will read this file; no need
             # to recompute or touch assimilation for this step.
         else:
-              try:
-                  if ev.variable == "wet_snow":
-                      weights = assimilate_wet_snow_for_date(
-                          project_dir=cfg.project_dir,
-                          step_dir=step_dir,
-                          ensemble="prior",
-                          date=assim_dt,
-                          aoi=aoi,
-                          obs_csv=None,
-                      )
-                  else:
-                      weights = assimilate_scf_for_date(
-                          project_dir=cfg.project_dir,
-                          step_dir=step_dir,
-                          ensemble="prior",
-                          date=assim_dt,
-                          aoi=aoi,
-                          obs_csv=None,
-                      )
-              except FileNotFoundError as exc:
-                  logger.error(
-                      "Assimilation failed for step {} at date {}: {}. "
-                      "Ensure the appropriate obs CSV exists under {}/obs for this date "
-                      "or generate it via the corresponding observer CLI.",
-                      step_name,
-                      assim_dt.strftime("%Y-%m-%d"),
-                      exc,
-                      step_dir,
-                  )
-                  raise
+            try:
+                if ev.variable == "wet_snow":
+                    weights = assimilate_wet_snow_for_date(
+                        project_dir=cfg.project_dir,
+                        step_dir=step_dir,
+                        ensemble="prior",
+                        date=assim_dt,
+                        aoi=aoi,
+                        obs_csv=None,
+                    )
+                else:
+                    weights = assimilate_scf_for_date(
+                        project_dir=cfg.project_dir,
+                        step_dir=step_dir,
+                        ensemble="prior",
+                        date=assim_dt,
+                        aoi=aoi,
+                        obs_csv=None,
+                    )
+            except FileNotFoundError as exc:
+                logger.error(
+                    "Assimilation failed for step {} at date {}: {}. "
+                    "Ensure the appropriate obs CSV exists under {}/obs for this date "
+                    "or generate it via the corresponding observer CLI.",
+                    step_name,
+                    assim_dt.strftime("%Y-%m-%d"),
+                    exc,
+                    step_dir,
+                )
+                raise
             weights.to_csv(wcsv, index=False)
             logger.info("Wrote weights -> {}", wcsv)
 

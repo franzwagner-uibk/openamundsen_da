@@ -12,7 +12,9 @@ RUN micromamba create -y -n openamundsen -f /tmp/environment.yml && \
 # Work inside /workspace; mount your repo here at runtime
 WORKDIR /workspace
 
-# (demo script removed; keep image minimal)
+# Install openamundsen_da into the image so `oa-da-*` entrypoints are available
+COPY . /workspace
+RUN micromamba run -n openamundsen python -m pip install -e . --no-deps
 
 # Default to executing inside env 'openamundsen'
 ENTRYPOINT ["micromamba", "run", "-n", "openamundsen"]

@@ -149,9 +149,11 @@ openamundsen_da/methods/wet_snow/__init__.py
 openamundsen_da/methods/wet_snow/area.py
 openamundsen_da/methods/wet_snow/classify.py
 openamundsen_da/observer/__init__.py
+openamundsen_da/observer/fraction_obs.py
 openamundsen_da/observer/mod10a1_preprocess.py
 openamundsen_da/observer/plot_scf_summary.py
 openamundsen_da/observer/satellite_scf.py
+openamundsen_da/observer/satellite_wet_snow_s1.py
 openamundsen_da/pipeline/season.py
 openamundsen_da/pipeline/season_skeleton.py
 openamundsen_da/util/__init__.py

@@ -43,6 +43,7 @@ from openamundsen_da.methods.pf.rejuvenate import rejuvenate
 from openamundsen_da.methods.pf.resample import resample_from_weights
 from openamundsen_da.methods.pf.plot_weights import plot_weights_for_csv
 from openamundsen_da.methods.pf.plot_ess_timeline import plot_season_ess_timeline
+from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_envelope
 from openamundsen_da.methods.viz.plot_season_ensemble import plot_season_both, plot_season_results
 
 
@@ -521,6 +522,26 @@ def run_season(cfg: OrchestratorConfig) -> None:
         )
     except FileNotFoundError as exc:
         logger.warning("Wet-snow season plot skipped: {}", exc)
+
+    # Aggregate fraction envelopes (SCF and wet snow) for quick plotting/analysis
+    try:
+        aggregate_fraction_envelope(
+            season_dir=cfg.season_dir,
+            filename="point_scf_aoi.csv",
+            value_col="scf",
+            output_name="point_scf_aoi_envelope.csv",
+        )
+    except Exception as exc:
+        logger.warning("SCF envelope aggregation failed: {}", exc)
+    try:
+        aggregate_fraction_envelope(
+            season_dir=cfg.season_dir,
+            filename="point_wet_snow_aoi.csv",
+            value_col="wet_snow_fraction",
+            output_name="point_wet_snow_aoi_envelope.csv",
+        )
+    except Exception as exc:
+        logger.warning("Wet-snow envelope aggregation failed: {}", exc)
 
     _setup_logger(cfg.season_dir, cfg.log_level)
     run_end = datetime.utcnow()

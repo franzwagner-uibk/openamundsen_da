@@ -51,6 +51,7 @@ from openamundsen_da.io.paths import (
     list_station_files_forcing as io_list_station_files_forcing,
     list_point_files_results as io_list_point_files_results,
 )
+from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.methods.viz._style import (
     BAND_ALPHA,
     COLOR_MEAN,
@@ -134,15 +135,10 @@ def _list_steps_sorted(season_dir: Path) -> List[StepInfo]:
     return steps
 
 
-def _assimilation_dates(steps: Sequence[StepInfo]) -> List[datetime]:
-    # Use each step's start_date for i >= 1 as assimilation instant
-    dates: List[datetime] = []
-    for i, s in enumerate(steps):
-        if i == 0:
-            continue
-        if s.start is not None:
-            dates.append(s.start)
-    return dates
+def _assimilation_dates(season_dir: Path) -> List[datetime]:
+    """Return assimilation datetimes (midnight) from season.yml events."""
+    events = load_assimilation_events(season_dir)
+    return [datetime.combine(ev.date, datetime.min.time()) for ev in events]
 
 
 def _season_id_from_dir(season_dir: Path) -> str:
@@ -433,7 +429,7 @@ def plot_season_forcing(
     season_id = _season_id_from_dir(season_dir)
     stations_df = _load_stations_table_from_steps(steps)
     member_label_map = _build_member_label_map(steps)
-    assim_dates = _assimilation_dates(steps)
+    assim_dates = _assimilation_dates(season_dir)
     assim_date_set = {d.date() for d in assim_dates}
 
     for fname in station_files:
@@ -623,6 +619,7 @@ def plot_season_results(
     rolling: Optional[int] = None,
     band_low: float = 0.05,
     band_high: float = 0.95,
+    show_members: bool = False,
     backend: str = "Agg",
     log_level: str = "INFO",
 ) -> Path:
@@ -639,6 +636,7 @@ def plot_season_results(
     - start_date, end_date: Optional explicit window for the x-axis.
     - resample, resample_agg, rolling: Time-aggregation and smoothing controls.
     - band_low, band_high: Quantile band for the ensemble envelope (default 5–95%).
+    - show_members: Plot individual ensemble members when True (default: False).
     - backend, log_level: Matplotlib backend and Loguru level.
 
     Behavior
@@ -661,7 +659,7 @@ def plot_season_results(
     if not steps:
         raise FileNotFoundError(f"No step_* directories found under {season_dir}")
 
-    assim_dates = _assimilation_dates(steps)
+    assim_dates = _assimilation_dates(season_dir)
     # Normalize assimilation instants to midnight for day-level matching with obs
     assim_days = pd.to_datetime(assim_dates).normalize()
 
@@ -734,6 +732,29 @@ def plot_season_results(
                 logger.warning("Obs SCF summary not found at {}; skipping SCF overlay.", obs_path)
         except Exception as exc:
             logger.warning("Failed to load obs SCF summary for {}: {}", season_dir.name, exc)
+
+    # Observation wet-snow overlay for wet-snow plots (season-level wet_snow_summary.csv)
+    obs_wet_df: Optional[pd.DataFrame] = None
+    if vv == "wet_snow_fraction":
+        try:
+            project_dir = season_dir.parent.parent
+            obs_path = project_dir / "obs" / season_dir.name / "wet_snow_summary.csv"
+            if obs_path.is_file():
+                tmp = pd.read_csv(obs_path)
+                if {"date", "wet_snow_fraction"}.issubset(tmp.columns):
+                    tmp = tmp.copy()
+                    tmp["date"] = pd.to_datetime(tmp["date"], errors="coerce")
+                    tmp = tmp.dropna(subset=["date"]).sort_values("date")
+                    obs_wet_df = tmp[["date", "wet_snow_fraction"]]
+                else:
+                    logger.warning(
+                        "Obs wet-snow summary {} missing required columns 'date' and 'wet_snow_fraction'; skipping overlay.",
+                        obs_path,
+                    )
+            else:
+                logger.warning("Obs wet-snow summary not found at {}; skipping wet-snow overlay.", obs_path)
+        except Exception as exc:
+            logger.warning("Failed to load obs wet-snow summary for {}: {}", season_dir.name, exc)
     stations_df = _load_stations_table_from_steps(steps)
     member_label_map = _build_member_label_map(steps)
 
@@ -819,7 +840,8 @@ def plot_season_results(
                 s_use = df[var_col].dropna()
             else:
                 s_use = s
-            ax.plot(s_use.index, s_use.values, lw=LW_MEMBER, alpha=0.9, label=lbl)
+            if show_members:
+                ax.plot(s_use.index, s_use.values, lw=LW_MEMBER, alpha=0.9, label=lbl)
 
         # Envelope
         mem_for_env: List[pd.Series] = []
@@ -832,8 +854,18 @@ def plot_season_results(
             if not ss.empty:
                 mem_for_env.append(ss)
         mean, lo, hi = envelope(mem_for_env, q_low=band_low, q_high=band_high)
-        # Ensemble mean line (blue, same thickness as open loop)
         if not mean.empty:
+            label_band = f"{int(band_low*100)}-{int(band_high*100)}% band"
+            ax.fill_between(
+                mean.index,
+                lo,
+                hi,
+                color=COLOR_MEAN,
+                alpha=BAND_ALPHA,
+                label=label_band,
+                zorder=2,
+            )
+            # Ensemble mean line (blue, same thickness as open loop)
             ax.plot(
                 mean.index,
                 mean.values,
@@ -873,6 +905,35 @@ def plot_season_results(
                     ax.scatter(
                         obs.loc[assim_mask, "date"],
                         obs.loc[assim_mask, "scf"],
+                        color=COLOR_DA_OBS,
+                        marker="x",
+                        s=SIZE_DA_OBS,
+                        linewidths=LW_DA_OBS,
+                        label="DA obs",
+                        zorder=7,
+                    )
+        # Obs wet-snow overlay when plotting wet-snow fraction and summary is available
+        if vv == "wet_snow_fraction" and obs_wet_df is not None and not obs_wet_df.empty:
+            obs = obs_wet_df
+            if effective_end or start_date:
+                start_obs = start_date or obs["date"].min()
+                end_obs = effective_end or obs["date"].max()
+                mask = (obs["date"] >= start_obs) & (obs["date"] <= end_obs)
+                obs = obs.loc[mask].copy()
+            if not obs.empty:
+                ax.scatter(
+                    obs["date"],
+                    obs["wet_snow_fraction"],
+                    color=COLOR_OBS_SCF,
+                    s=SIZE_OBS_SCF,
+                    label="obs wet snow",
+                    zorder=6,
+                )
+                assim_mask = obs["date"].dt.normalize().isin(assim_days)
+                if assim_mask.any():
+                    ax.scatter(
+                        obs.loc[assim_mask, "date"],
+                        obs.loc[assim_mask, "wet_snow_fraction"],
                         color=COLOR_DA_OBS,
                         marker="x",
                         s=SIZE_DA_OBS,
@@ -947,6 +1008,7 @@ def plot_season_both(
     max_stations: Optional[int] = None,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
+    show_members: bool = False,
     backend: str = "Agg",
     log_level: str = "INFO",
 ) -> Tuple[Path, Path]:
@@ -966,6 +1028,7 @@ def plot_season_both(
         max_stations=max_stations,
         start_date=start_date,
         end_date=end_date,
+        show_members=show_members,
         backend=backend,
         log_level=log_level,
     )
@@ -1012,6 +1075,7 @@ def _cli(argv: Iterable[str] | None = None) -> int:
     sp_r.add_argument("--rolling", type=int, help="Rolling window length (samples) after resample")
     sp_r.add_argument("--band-low", type=float, default=0.05)
     sp_r.add_argument("--band-high", type=float, default=0.95)
+    sp_r.add_argument("--show-members", action="store_true", help="Draw individual ensemble members (default: hidden)")
 
     args = p.parse_args(list(argv) if argv is not None else None)
 
@@ -1054,6 +1118,7 @@ def _cli(argv: Iterable[str] | None = None) -> int:
             rolling=args.rolling,
             band_low=float(args.band_low),
             band_high=float(args.band_high),
+            show_members=bool(getattr(args, "show_members", False)),
             backend=args.backend,
             log_level=args.log_level,
         )

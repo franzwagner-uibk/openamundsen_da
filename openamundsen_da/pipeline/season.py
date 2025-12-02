@@ -18,22 +18,27 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from datetime import datetime, date
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
+from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.core.launch import launch_members
 from openamundsen_da.core.prior_forcing import build_prior_ensemble
-from openamundsen_da.io.paths import read_step_config, find_season_yaml
+from openamundsen_da.io.paths import read_step_config, find_project_yaml, find_season_yaml
+from openamundsen_da.util.aoi import read_single_aoi
+from openamundsen_da.util.da_events import load_assimilation_events, AssimilationEvent
+from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.methods.pf.assimilate_scf import (
     assimilate_scf_for_date,
     assimilate_wet_snow_for_date,
 )
 from openamundsen_da.methods.h_of_x.model_scf import compute_step_scf_daily_for_all_members
 from openamundsen_da.methods.wet_snow.classify import classify_step_wet_snow
+from openamundsen_da.methods.wet_snow.area import compute_step_wet_snow_daily_for_all_members
 from openamundsen_da.methods.pf.rejuvenate import rejuvenate
 from openamundsen_da.methods.pf.resample import resample_from_weights
 from openamundsen_da.methods.pf.plot_weights import plot_weights_for_csv
@@ -76,6 +81,38 @@ def _find_aoi(project_dir: Path) -> Path:
     return sorted(cands)[0]
 
 
+def _parse_datetime_opt(text: str | None) -> datetime | None:
+    """Best-effort datetime parser for season/project config values."""
+    if not text:
+        return None
+    t = str(text).strip().replace("_", "-")
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(t, fmt)
+        except Exception:
+            continue
+    try:
+        return datetime.fromisoformat(t)
+    except Exception:
+        return None
+
+
+def _load_wet_snow_threshold_percent(project_dir: Path) -> float:
+    """Read wet-snow classification threshold (percent) from project.yml."""
+    try:
+        proj_yaml = find_project_yaml(project_dir)
+        cfg = _read_yaml_file(proj_yaml) or {}
+        da_cfg = cfg.get("data_assimilation") or {}
+        wet_cfg = da_cfg.get("wet_snow") or {}
+        if "classification_threshold_percent" in wet_cfg:
+            return float(wet_cfg["classification_threshold_percent"])
+        if "classification_threshold" in wet_cfg:
+            return float(wet_cfg["classification_threshold"])
+    except Exception:
+        pass
+    return 0.1
+
+
 @dataclass
 class OrchestratorConfig:
     project_dir: Path
@@ -84,13 +121,9 @@ class OrchestratorConfig:
     overwrite: bool = False
     log_level: str = "INFO"
     live_plots: bool = True
-
-
-@dataclass(frozen=True)
-class AssimilationEvent:
-    date: date
-    variable: str
-    product: str
+    monitor_perf: bool = False
+    perf_sample_interval: float = 5.0
+    perf_plot_interval: float = 30.0
 
 
 def _setup_logger(season_dir: Path, log_level: str) -> None:
@@ -101,85 +134,8 @@ def _setup_logger(season_dir: Path, log_level: str) -> None:
     logger.add(log_file, level=log_level.upper(), colorize=False, enqueue=True, format=LOGURU_FORMAT)
 
 
-def _read_yaml(path: Path) -> dict:
-    """Read a YAML file into a dict (best-effort)."""
-    try:
-        import ruamel.yaml as _yaml
-
-        y = _yaml.YAML(typ="safe")
-        with path.open("r", encoding="utf-8") as f:
-            return y.load(f) or {}
-    except Exception as exc:
-        raise RuntimeError(f"Could not read YAML from {path}: {exc}") from exc
-
-
-def _parse_event_date(text: str | None) -> date:
-    if not text:
-        raise ValueError("Empty assimilation event date")
-    t = str(text).strip()
-    try:
-        dt = datetime.strptime(t, "%Y-%m-%d")
-        return dt.date()
-    except Exception as exc:
-        raise ValueError(f"Invalid assimilation event date (expected YYYY-MM-DD): {text}") from exc
-
-
-def _load_assimilation_events(season_dir: Path) -> dict[date, AssimilationEvent]:
-    """Load assimilation events from season.yml (variable/product per date).
-
-    Supports both the new structured block:
-
-    data_assimilation:
-      assimilation_events:
-        - date: 2020-03-19
-          variable: scf
-          product: MOD10A1
-
-    and the legacy flat list:
-
-    assimilation_dates:
-      - 2020-03-19
-      - 2020-04-06
-
-    In the legacy case, all events use variable='scf' and product='MOD10A1'.
-    """
-    season_yaml = find_season_yaml(season_dir)
-    cfg = _read_yaml(season_yaml) or {}
-
-    events: list[AssimilationEvent] = []
-
-    da_cfg = cfg.get("data_assimilation") or {}
-    raw_events = da_cfg.get("assimilation_events") or []
-    if isinstance(raw_events, list) and raw_events:
-        for entry in raw_events:
-            if not isinstance(entry, dict):
-                continue
-            dtxt = entry.get("date")
-            if not dtxt:
-                continue
-            dval = _parse_event_date(str(dtxt))
-            var = str(entry.get("variable") or "scf")
-            if "product" in entry and entry["product"] is not None:
-                prod = str(entry["product"])
-            else:
-                prod = "MOD10A1" if var == "scf" else "S1"
-            events.append(AssimilationEvent(date=dval, variable=var, product=prod))
-    else:
-        raw_dates = cfg.get("assimilation_dates") or []
-        for text in raw_dates:
-            dval = _parse_event_date(str(text))
-            events.append(AssimilationEvent(date=dval, variable="scf", product="MOD10A1"))
-
-    if not events:
-        raise ValueError(f"No assimilation_events or assimilation_dates found in {season_yaml}")
-
-    mapping: dict[date, AssimilationEvent] = {}
-    for ev in events:
-        mapping[ev.date] = ev
-    return mapping
-
-
 def run_season(cfg: OrchestratorConfig) -> None:
+    run_start = datetime.utcnow()
     # Console + file log under season root (e.g. season_2017-2018/season_2017-2018.log)
     _setup_logger(cfg.season_dir, cfg.log_level)
 
@@ -204,8 +160,82 @@ def run_season(cfg: OrchestratorConfig) -> None:
     aoi = _find_aoi(cfg.project_dir)
     logger.info("Using AOI: {}", aoi)
 
+    # Project/season metadata for DA and performance monitoring
+    wet_snow_threshold = _load_wet_snow_threshold_percent(cfg.project_dir)
+    logger.info("Wet-snow classification threshold set to {:.3f} % (project.yml or default)", wet_snow_threshold)
+
+    proj_resolution = None
+    proj_timestep = None
+    proj_crs = None
+    season_days = None
+    ensemble_size = None
+    try:
+        proj_yaml = find_project_yaml(cfg.project_dir)
+        proj_cfg = _read_yaml_file(proj_yaml) or {}
+        if "resolution" in proj_cfg:
+            try:
+                proj_resolution = float(proj_cfg.get("resolution"))
+            except Exception:
+                proj_resolution = None
+        if "timestep" in proj_cfg:
+            proj_timestep = str(proj_cfg.get("timestep"))
+        proj_crs = proj_cfg.get("crs")
+        da_cfg = proj_cfg.get("data_assimilation") or {}
+        pf_cfg = da_cfg.get("prior_forcing") or {}
+        if "ensemble_size" in pf_cfg:
+            try:
+                ensemble_size = int(pf_cfg.get("ensemble_size"))
+            except Exception:
+                ensemble_size = None
+    except Exception as exc:
+        logger.warning("Perf monitor: failed to read project.yml metadata: {}", exc)
+
+    # Season length (days) from season.yml
+    try:
+        seas_yaml = find_season_yaml(cfg.season_dir)
+        seas_cfg = _read_yaml_file(seas_yaml) or {}
+        start_val = seas_cfg.get("start_date")
+        end_val = seas_cfg.get("end_date")
+        start_dt = _parse_datetime_opt(str(start_val)) if start_val is not None else None
+        end_dt = _parse_datetime_opt(str(end_val)) if end_val is not None else None
+        if start_dt is not None and end_dt is not None:
+            season_days = (end_dt.date() - start_dt.date()).days + 1
+    except Exception as exc:
+        logger.warning("Perf monitor: failed to read season.yml dates: {}", exc)
+
     # Assimilation configuration (variable/product per date)
-    events_by_date = _load_assimilation_events(cfg.season_dir)
+    events = load_assimilation_events(cfg.season_dir)
+    n_expected = max(0, len(steps) - 1)
+    if len(events) < n_expected:
+        logger.warning("Fewer assimilation events ({}) than steps needing DA ({}); later steps will skip DA.", len(events), n_expected)
+    if len(events) > n_expected:
+        logger.warning("More assimilation events ({}) than steps needing DA ({}); extra events will be ignored.", len(events), n_expected)
+
+    # Approximate AOI area in km2 for performance summary
+    roi_area_km2 = None
+    try:
+        gdf, _ = read_single_aoi(Path(aoi), required_field=None, to_crs=proj_crs if proj_crs is not None else None)
+        roi_area_km2 = float(gdf.geometry.area.iloc[0]) / 1_000_000.0
+    except Exception as exc:
+        logger.warning("Perf monitor: failed to compute AOI area: {}", exc)
+
+    perf_stop_event = None
+    if cfg.monitor_perf:
+        pm_cfg = PerfMonitorConfig(
+            season_dir=cfg.season_dir,
+            sample_interval_sec=float(cfg.perf_sample_interval or 5.0),
+            plot_interval_sec=float(cfg.perf_plot_interval or 30.0),
+            roi_area_km2=roi_area_km2,
+            resolution_m=proj_resolution,
+            timestep=proj_timestep,
+            season_days=season_days,
+            num_da_dates=len(events),
+            num_workers=int(cfg.max_workers),
+            ensemble_size=ensemble_size,
+            run_start=run_start,
+            tz_offset_hours=None,
+        )
+        perf_stop_event = start_perf_monitor(pm_cfg)
 
     # Process each step
     for i, step_dir in enumerate(steps):
@@ -241,6 +271,32 @@ def run_season(cfg: OrchestratorConfig) -> None:
         except Exception as exc:
             logger.warning("Model SCF daily computation failed for {}: {}", step_name, exc)
 
+        # After propagation: also compute model wet-snow diagnostics (masks +
+        # daily AOI fractions) for all prior members in this step so that
+        # wet-snow plots are always available regardless of which observable
+        # is assimilated.
+        try:
+            classify_step_wet_snow(
+                step_dir=step_dir,
+                members=None,
+                threshold_percent=wet_snow_threshold,
+                output_subdir="wet_snow",
+                mask_prefix="wet_snow_mask",
+                fraction_prefix="lwc_fraction",
+                write_fraction=False,
+                overwrite=bool(cfg.overwrite),
+            )
+            compute_step_wet_snow_daily_for_all_members(
+                step_dir=step_dir,
+                aoi_path=aoi,
+                max_workers=int(cfg.max_workers),
+                overwrite=bool(cfg.overwrite),
+                mask_subdir="wet_snow",
+                mask_prefix="wet_snow_mask",
+            )
+        except Exception as exc:
+            logger.warning("Model wet-snow diagnostics failed for {}: {}", step_name, exc)
+
         # If not the last step: Assimilation -> Resample -> Rejuvenate
         next_start = _next_step_start(steps, i)
         if next_start is None:
@@ -252,19 +308,21 @@ def run_season(cfg: OrchestratorConfig) -> None:
             curr_cfg = read_step_config(step_dir) or {}
             end_val = curr_cfg.get("end_date")
             if end_val is not None and next_start is not None:
-                from datetime import datetime
                 curr_end = datetime.fromisoformat(str(end_val))
                 gap = (next_start - curr_end).total_seconds()
                 if gap <= 0:
-                    logger.warning("Next step start ({}) is not after current step end ({}). Warm start expects start = end + one model timestep.", next_start, curr_end)
+                    logger.warning(
+                        "Next step start ({}) is not after current step end ({}). Warm start expects start = end + one model timestep.",
+                        next_start,
+                        curr_end,
+                    )
                 else:
                     logger.info("Step boundary gap: {} seconds. Ensure it equals exactly one model timestep.", int(gap))
         except Exception:
             # Best-effort; do not fail if step YAMLs are incomplete or unparsable
             pass
 
-        # Assimilation date: use the configured event date that falls inside
-        # this step's window, rather than implicitly assuming end_date.
+        # Assimilation date: map step i -> event i (skip last step)
         assim_dt = None
         ev: AssimilationEvent | None = None
         try:
@@ -277,15 +335,19 @@ def run_season(cfg: OrchestratorConfig) -> None:
             start_dt = None
             end_dt = None
 
-        if start_dt is not None and end_dt is not None:
-            for d, candidate in events_by_date.items():
-                if start_dt.date() <= d <= end_dt.date():
-                    ev = candidate
-                    # Use the step's start time-of-day for the assimilation datetime;
-                    # all downstream paths only use the calendar date.
-                    assim_dt = datetime.combine(d, start_dt.time())
-                    break
-        if assim_dt is None:
+        if i < len(events):
+            ev = events[i]
+            assim_dt = datetime.combine(ev.date, (start_dt or datetime.min).time())
+            if start_dt is not None and end_dt is not None:
+                if not (start_dt.date() <= ev.date <= end_dt.date()):
+                    logger.warning(
+                        "Configured DA date {} is outside step {} window ({} .. {})",
+                        ev.date,
+                        step_name,
+                        start_dt.date(),
+                        end_dt.date(),
+                    )
+        else:
             assim_dt = next_start
 
         if ev is None:
@@ -302,24 +364,6 @@ def run_season(cfg: OrchestratorConfig) -> None:
             ev.product,
             assim_dt.strftime("%Y-%m-%d"),
         )
-
-        # Ensure required model-side diagnostics are available for the chosen
-        # observable. SCF daily series are computed above; for wet snow we
-        # classify masks on demand.
-        if ev.variable == "wet_snow":
-            try:
-                classify_step_wet_snow(
-                    step_dir=step_dir,
-                    members=None,
-                    threshold_percent=0.1,
-                    output_subdir="wet_snow",
-                    mask_prefix="wet_snow_mask",
-                    fraction_prefix="lwc_fraction",
-                    write_fraction=False,
-                    overwrite=bool(cfg.overwrite),
-                )
-            except Exception as exc:
-                logger.warning("Wet-snow classification failed for {}: {}", step_name, exc)
 
         # Reuse existing weights if present and overwrite=False so that
         # re-running oa-da-season can skip already-assimilated steps.
@@ -415,6 +459,16 @@ def run_season(cfg: OrchestratorConfig) -> None:
                 logger.info("Updating season plots after assimilation step {} ...", step_name)
                 # Forcing/results season plots
                 plot_season_both(season_dir=cfg.season_dir)
+                # Wet-snow season plot (when data exists) after each step
+                try:
+                    plot_season_results(
+                        season_dir=cfg.season_dir,
+                        var_col="wet_snow_fraction",
+                        stations=["point_wet_snow_aoi.csv"],
+                    )
+                except FileNotFoundError:
+                    # Best-effort: skip if wet-snow point files are not yet available
+                    pass
                 # Per-step weights plot at season level
                 plot_weights_for_csv(wcsv)
                 # Season-wide ESS timeline across all available assimilation dates
@@ -455,8 +509,25 @@ def run_season(cfg: OrchestratorConfig) -> None:
         plot_season_results(season_dir=cfg.season_dir, var_col="scf")
     except FileNotFoundError as exc:
         logger.warning("SCF season plot skipped: {}", exc)
+
+    # When wet-snow point files are present, generate a season-wide wet-snow
+    # fraction plot using the AOI-aggregated series.
+    try:
+        plot_season_results(
+            season_dir=cfg.season_dir,
+            var_col="wet_snow_fraction",
+            stations=["point_wet_snow_aoi.csv"],
+        )
+    except FileNotFoundError as exc:
+        logger.warning("Wet-snow season plot skipped: {}", exc)
+
     _setup_logger(cfg.season_dir, cfg.log_level)
-    logger.info("Season processing complete: {}", cfg.season_dir)
+    run_end = datetime.utcnow()
+    duration = (run_end - run_start).total_seconds()
+    logger.info("Season processing complete: {} (wall-clock {:.1f} s, ~{:.2f} h)", cfg.season_dir, duration, duration / 3600.0)
+
+    if perf_stop_event is not None:
+        perf_stop_event.set()
 
 
 def cli(argv: Optional[List[str]] = None) -> int:
@@ -473,6 +544,23 @@ def cli(argv: Optional[List[str]] = None) -> int:
         action="store_false",
         help="Skip plotting during the season; only create final plots at the end.",
     )
+    p.add_argument(
+        "--monitor-perf",
+        action="store_true",
+        help="Enable background performance monitor (CPU/RAM/disk) during the season run.",
+    )
+    p.add_argument(
+        "--perf-sample-interval",
+        type=float,
+        default=5.0,
+        help="Performance monitor sampling interval in seconds (default: 5).",
+    )
+    p.add_argument(
+        "--perf-plot-interval",
+        type=float,
+        default=30.0,
+        help="Performance monitor plot refresh interval in seconds (default: 30).",
+    )
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(argv)
 
@@ -484,6 +572,9 @@ def cli(argv: Optional[List[str]] = None) -> int:
             overwrite=bool(args.overwrite),
             log_level=str(args.log_level or "INFO"),
             live_plots=bool(getattr(args, "live_plots", True)),
+            monitor_perf=bool(getattr(args, "monitor_perf", False)),
+            perf_sample_interval=float(getattr(args, "perf_sample_interval", 5.0)),
+            perf_plot_interval=float(getattr(args, "perf_plot_interval", 30.0)),
         )
     )
     return 0

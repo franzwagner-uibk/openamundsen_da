@@ -196,12 +196,12 @@ def create_season_skeleton(project_dir: Path, season_dir: Path, *, overwrite: bo
 
     Steps are defined such that:
     - Step 0 starts at season.start_date.
-    - For each assimilation date D_i, step i ends at D_i with the same
-      time-of-day as its own start_date, so the model produces a daily
-      raster for that date.
-    - The next step (i+1) starts exactly one model time step after that
-      end instant (no duplicated timesteps; gap = one timestep), and its
-      calendar date equals D_i (used by the season pipeline for SCF DA).
+    - For each assimilation date D_i, step i includes D_i and ends so
+      that the model produces a daily raster for that date. For sub-daily
+      timesteps we extend to cover the whole day, then back off one
+      timestep so the next step starts exactly one timestep later.
+    - The next step (i+1) starts exactly one model time step after the
+      end instant (no duplicated timesteps).
     - The last step ends at season.end_date.
     """
     dt, season = _load_season_config(project_dir, season_dir)
@@ -223,11 +223,11 @@ def create_season_skeleton(project_dir: Path, season_dir: Path, *, overwrite: bo
                 second=step_time.second,
                 microsecond=step_time.microsecond,
             )
-            # Ensure the step runs far enough beyond the assimilation date so
-            # that daily diagnostics (e.g. HS/LWC) are available for that day.
-            # For sub-daily timesteps we extend by at least one full day.
+            # Ensure the step covers the assimilation date's daily outputs.
+            # Extend to the end of that calendar day (at least one full day),
+            # then back off one timestep so the next step can start at +dt.
             extra = dt if dt >= timedelta(days=1) else timedelta(days=1)
-            step_end = assim_dt + extra
+            step_end = assim_dt + (extra - dt)
             if step_end > season.end and idx == len(assim) - 1:
                 step_end = season.end
             next_start = step_end + dt

@@ -19,6 +19,7 @@ dependencies:
   - matplotlib=3.9.2
   - loguru
   - ruamel.yaml
+  - psutil
   # openAMUNDSEN (model)
   - pip:
       - openamundsen>=1.1

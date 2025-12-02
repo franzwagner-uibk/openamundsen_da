@@ -24,6 +24,7 @@ from openamundsen_da.observer.fraction_obs import (
     write_obs_from_summary_row,
 )
 from openamundsen_da.io.paths import read_step_config
+from openamundsen_da.util.da_events import load_assimilation_events
 
 
 def _parse_dt_opt(text: str | None) -> datetime | None:
@@ -55,28 +56,49 @@ def generate_season_from_summary(
         raise FileNotFoundError(f"Summary CSV not found: {summary_csv}")
 
     summary = read_fraction_summary(summary_csv, date_col="date")
+    events = load_assimilation_events(season_dir)
 
     steps = list_steps_sorted(season_dir)
     if len(steps) < 2:
         raise FileNotFoundError(f"Not enough steps to derive assimilation dates under {season_dir}")
 
-    written = skipped_missing = skipped_existing = 0
-    for i in range(len(steps) - 1):
-        curr_cfg = read_step_config(steps[i]) or {}
-        end_dt = _parse_dt_opt(str(curr_cfg.get("end_date")))
-        if end_dt is None:
-            logger.warning("Skipping step {} (missing end_date)", steps[i].name)
-            continue
+    n = min(len(events), len(steps) - 1)
+    if n < len(events):
+        logger.warning("Only {} steps (excluding final) available for {} assimilation events; extra events will be ignored.", n, len(events))
+    if n < len(steps) - 1:
+        logger.warning("Only {} assimilation events available for {} steps; later steps will not receive obs CSVs.", len(events), len(steps) - 1)
 
-        row = summary.by_date.get(end_dt.date())
+    written = skipped_missing = skipped_existing = 0
+    for i in range(n):
+        step = steps[i]
+        ev = events[i]
+        cfg = read_step_config(step) or {}
+        start_dt = _parse_dt_opt(str(cfg.get("start_date")))
+        end_dt = _parse_dt_opt(str(cfg.get("end_date")))
+        if start_dt and end_dt:
+            if not (start_dt.date() <= ev.date <= end_dt.date()):
+                logger.warning(
+                    "Assimilation date {} is outside step {} window ({} .. {})",
+                    ev.date,
+                    step.name,
+                    start_dt.date(),
+                    end_dt.date(),
+                )
+
+        row = summary.by_date.get(ev.date)
         if row is None:
-            logger.warning("No wet-snow summary entry for assimilation date {}; skipping {}", end_dt.date(), steps[i].name)
+            logger.warning(
+                "No wet-snow summary entry for assimilation date {}; skipping {}",
+                ev.date,
+                step.name,
+            )
             skipped_missing += 1
             continue
 
+        assim_dt = datetime.combine(ev.date, (start_dt or datetime.min).time())
         out_csv = write_obs_from_summary_row(
-            step_dir=steps[i],
-            date=end_dt,
+            step_dir=step,
+            date=assim_dt,
             row=row,
             value_col="wet_snow_fraction",
             product="S1",
@@ -84,7 +106,7 @@ def generate_season_from_summary(
             overwrite=overwrite,
         )
         written += 1
-        logger.info("Wrote wet-snow obs {} -> {} ({})", end_dt.strftime("%Y-%m-%d"), steps[i].name, out_csv.name)
+        logger.info("Wrote wet-snow obs {} -> {} ({})", assim_dt.strftime("%Y-%m-%d"), step.name, out_csv.name)
 
     logger.info(
         "Wet-snow season summary prep complete: written={} skipped_missing={} skipped_existing={}",
@@ -140,4 +162,3 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-

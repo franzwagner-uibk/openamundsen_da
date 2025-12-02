@@ -153,6 +153,24 @@ Optional: `--overwrite`, `--log-level <LEVEL>` (the summary path defaults to `<p
 
 Note: the summary-based workflow is the recommended way to prepare SCF observations for assimilation; the single-image and raster batch modes are kept for backward compatibility only.
 
+Snowflake FSC (Sentinel-2) summarization (GeoTIFF -> season summary)
+-------------------------------------------------------------------
+
+```powershell
+docker compose run --rm oa `
+  python -m openamundsen_da.observer.snowflake_fsc `
+  --input-dir $project/obs/FSC_snowflake `
+  --season-label season_YYYY-YYYY `
+  --project-dir $project
+```
+
+Optional: --aoi <path> (auto-detect single AOI under env/ if omitted), --aoi-field <field>, --recursive, --log-level. Writes `obs/<season>/scf_summary.csv` with `date, region_id, n_valid, n_snow, scf, source` from FSC values 0..100.
+
+Product-aware SCF CSVs
+----------------------
+
+Season mode for SCF supports a product tag so filenames match assimilation events (e.g., `--product SNOWFLAKE` -> `obs_scf_SNOWFLAKE_YYYYMMDD.csv`).
+
 ### Wet Snow Classification
 
 Classify wet-versus-dry snow grids directly from the OA raster outputs following the volumetric liquid water content definition (Rottler et al., 2024): sum the layer-wise liquid water (kg m-2), divide by water density (1000 kg m-3) and snow depth (m), then multiply by 100 for percent. The CLI below walks every step and ensemble member (or a single step) and writes the binary mask (1 = wet, 0 = dry, 255 = nodata) plus an optional percent raster per timestamp.
@@ -189,6 +207,39 @@ wet_snow_fraction = (# pixels == 110) / (# pixels in {110, 125})
 ```
 
 This fraction is written to `wet_snow_summary.csv` along with `n_valid`, `n_wet`, and the source filename, and is later converted into per-step `obs_wet_snow_S1_YYYYMMDD.csv` files by the season helper.
+
+Season-level model envelopes for plotting
+-----------------------------------------
+
+Season runs now aggregate member AOI series into:
+
+- `point_scf_aoi_envelope.csv`
+- `point_wet_snow_aoi_envelope.csv`
+
+Each contains `date, value_mean, value_min, value_max, n` computed from all available prior member `point_*_aoi.csv` files. Generate manually if needed:
+
+```powershell
+docker compose run --rm oa `
+  python -m openamundsen_da.methods.viz.aggregate_fractions `
+  --season-dir $season `
+  --filename point_scf_aoi.csv `
+  --value-col scf `
+  --output-name point_scf_aoi_envelope.csv
+```
+
+Plotting SCF + wet-snow obs/model overlay
+-----------------------------------------
+
+Use the combined plot helper to overlay observations, optional single-model series, and envelopes:
+
+```powershell
+docker compose run --rm oa `
+  python -m openamundsen_da.observer.plot_fractions `
+  --season-dir $season `
+  --project-dir $project
+```
+
+Defaults read obs from `obs/<season>/scf_summary.csv` and `obs/<season>/wet_snow_summary.csv`, envelopes from the season root, and write `plots/obs/fraction_timeseries.png`. Add `--scf-model-csv` / `--wet-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` to use custom envelopes.
 
 ### H(x) Model SCF (optional, per-member debug)
 

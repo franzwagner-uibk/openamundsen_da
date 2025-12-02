@@ -192,6 +192,7 @@ def assimilate_scf_for_date(
     date: datetime,
     aoi: Path,
     obs_csv: Optional[Path] = None,
+    product: str = "MOD10A1",
 ) -> pd.DataFrame:
     """Backward-compatible wrapper: SCF-specific assimilation for one date."""
     method, variable, hofx_params = load_hofx_from_project(project_dir)
@@ -216,7 +217,7 @@ def assimilate_scf_for_date(
         obs_csv=obs_csv,
         value_col="scf",
         observable="scf",
-        obs_pattern="obs_scf_MOD10A1_{yyyymmdd}.csv",
+        obs_pattern=f"obs_scf_{str(product).upper()}_" + "{yyyymmdd}.csv",
         model_eval=_model_eval,
     )
     # Preserve SCF-specific column names for downstream tools.
@@ -279,6 +280,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     p.add_argument("--ensemble", required=True, choices=("prior", "posterior"))
     p.add_argument("--date", required=True, type=str, help="YYYY-MM-DD")
     p.add_argument("--aoi", required=True, type=Path, help="AOI vector (single feature)")
+    p.add_argument("--product", type=str, default="MOD10A1", help="Product code used in obs filename (default: MOD10A1)")
     p.add_argument("--obs-csv", type=Path, help="Optional path to obs_scf_*.csv; default: <step>/obs")
     p.add_argument("--output", type=Path, help="Optional output CSV path")
     p.add_argument("--log-level", default="INFO")
@@ -298,6 +300,7 @@ def cli_main(argv: list[str] | None = None) -> int:
             date=dt,
             aoi=Path(args.aoi),
             obs_csv=Path(args.obs_csv) if args.obs_csv else None,
+            product=str(args.product or "MOD10A1"),
         )
     except Exception as e:
         logger.error(f"Assimilation failed: {e}")

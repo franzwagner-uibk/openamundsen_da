@@ -123,7 +123,10 @@ def _read_masked_array(raster_path: Path, aoi_path: Path) -> np.ma.MaskedArray:
     with rasterio.open(raster_path) as src:
         if src.crs is None:
             raise ValueError("Raster has no CRS; unable to align with AOI")
-        gdf, _ = read_single_aoi(aoi_path, required_field="region_id", to_crs=src.crs)
+        try:
+            gdf, _ = read_single_aoi(aoi_path, required_field="region_id", to_crs=src.crs)
+        except KeyError:
+            gdf, _ = read_single_aoi(aoi_path, required_field=None, to_crs=src.crs)
         shapes: Iterable = gdf.geometry
         data, _ = rio_mask(src, shapes, crop=True, nodata=src.nodata, filled=False)
         arr = np.ma.array(data[0], copy=False)

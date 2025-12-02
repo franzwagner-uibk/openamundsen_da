@@ -21,7 +21,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Sequence
+from typing import Any, Dict, Iterable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -486,8 +486,9 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
         prog="oa-da-wet-snow-s1",
         description="Aggregate Sentinel-1 WSM wet-snow rasters into a CSV summary.",
     )
-    parser.add_argument("--raster-dir", required=True, type=Path, help="Directory with WSM_S1*_*.tif rasters")
-    parser.add_argument("--aoi", required=True, type=Path, help="Single-feature AOI vector")
+    parser.add_argument("--project-dir", type=Path, help="Project root; defaults raster-dir=<project>/obs/WSM_S1_SAR and aoi=<project>/env/*.gpkg|*.shp")
+    parser.add_argument("--raster-dir", type=Path, help="Directory with WSM_S1*_*.tif rasters (default: <project>/obs/WSM_S1_SAR when project-dir is set)")
+    parser.add_argument("--aoi", type=Path, help="Single-feature AOI vector (default: first *.gpkg/*.shp in <project>/env when project-dir is set)")
     parser.add_argument("--output", required=True, type=Path, help="Output CSV (e.g., wet_snow_summary.csv)")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--log-level", default="INFO")
@@ -496,10 +497,34 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
     logger.remove()
     logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
+    # Derive defaults from project dir if provided.
+    proj_dir: Optional[Path] = Path(args.project_dir) if args.project_dir else None
+    raster_dir: Optional[Path] = Path(args.raster_dir) if args.raster_dir else None
+    aoi_path: Optional[Path] = Path(args.aoi) if args.aoi else None
+
+    if proj_dir is not None:
+        if raster_dir is None:
+            cand = proj_dir / "obs" / "WSM_S1_SAR"
+            if not cand.is_dir():
+                logger.error("Default raster dir not found: {}", cand)
+                return 1
+            raster_dir = cand
+        if aoi_path is None:
+            env_dir = proj_dir / "env"
+            candidates = sorted(list(env_dir.glob("*.gpkg")) + list(env_dir.glob("*.shp")))
+            if not candidates:
+                logger.error("No AOI found under {}", env_dir)
+                return 1
+            aoi_path = candidates[0]
+
+    if raster_dir is None or aoi_path is None:
+        logger.error("Both --raster-dir and --aoi are required when --project-dir is not provided.")
+        return 1
+
     try:
         out_csv = summarize_s1_directory(
-            raster_dir=Path(args.raster_dir),
-            aoi_path=Path(args.aoi),
+            raster_dir=raster_dir,
+            aoi_path=aoi_path,
             output_csv=Path(args.output),
             overwrite=bool(args.overwrite),
         )

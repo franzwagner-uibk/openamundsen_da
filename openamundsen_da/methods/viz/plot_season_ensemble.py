@@ -85,7 +85,11 @@ from openamundsen_da.util.ts import (
     read_timeseries_csv,
     concat_series,
 )
-from openamundsen_da.methods.viz._utils import draw_assimilation_vlines, dedupe_legend
+from openamundsen_da.methods.viz._utils import (
+    draw_assimilation_vlines,
+    dedupe_legend,
+    draw_assimilation_markers,
+)
 
 
 # ---- Data structures --------------------------------------------------------
@@ -900,18 +904,18 @@ def plot_season_results(
                     label="obs SCF",
                     zorder=6,
                 )
-                assim_mask = obs["date"].dt.normalize().isin(assim_days)
-                if assim_mask.any():
-                    ax.scatter(
-                        obs.loc[assim_mask, "date"],
-                        obs.loc[assim_mask, "scf"],
-                        color=COLOR_DA_OBS,
-                        marker="x",
-                        s=SIZE_DA_OBS,
-                        linewidths=LW_DA_OBS,
-                        label="DA obs",
-                        zorder=7,
-                    )
+                draw_assimilation_markers(
+                    ax,
+                    dates=assim_dates,
+                    obs=obs,
+                    value_col="scf",
+                    color=COLOR_DA_OBS,
+                    label="DA obs",
+                    marker="x",
+                    size=SIZE_DA_OBS,
+                    zorder=7,
+                    draw_vlines=False,
+                )
         # Obs wet-snow overlay when plotting wet-snow fraction and summary is available
         if vv == "wet_snow_fraction" and obs_wet_df is not None and not obs_wet_df.empty:
             obs = obs_wet_df
@@ -929,18 +933,18 @@ def plot_season_results(
                     label="obs wet snow",
                     zorder=6,
                 )
-                assim_mask = obs["date"].dt.normalize().isin(assim_days)
-                if assim_mask.any():
-                    ax.scatter(
-                        obs.loc[assim_mask, "date"],
-                        obs.loc[assim_mask, "wet_snow_fraction"],
-                        color=COLOR_DA_OBS,
-                        marker="x",
-                        s=SIZE_DA_OBS,
-                        linewidths=LW_DA_OBS,
-                        label="DA obs",
-                        zorder=7,
-                    )
+                draw_assimilation_markers(
+                    ax,
+                    dates=assim_dates,
+                    obs=obs,
+                    value_col="wet_snow_fraction",
+                    color=COLOR_DA_OBS,
+                    label="DA obs",
+                    marker="x",
+                    size=SIZE_DA_OBS,
+                    zorder=7,
+                    draw_vlines=False,
+                )
 
         ax.set_xlabel("Time")
         ax.set_ylabel(var_title)

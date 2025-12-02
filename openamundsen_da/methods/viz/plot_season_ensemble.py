@@ -913,6 +913,7 @@ def plot_season_results(
                     label="DA obs",
                     marker="x",
                     size=SIZE_DA_OBS,
+                    linewidth=LW_DA_OBS,
                     zorder=7,
                     draw_vlines=False,
                 )
@@ -942,6 +943,7 @@ def plot_season_results(
                     label="DA obs",
                     marker="x",
                     size=SIZE_DA_OBS,
+                    linewidth=LW_DA_OBS,
                     zorder=7,
                     draw_vlines=False,
                 )

@@ -77,8 +77,9 @@ def plot_fractions(
     scf_env: Optional[pd.DataFrame],
     wet_env: Optional[pd.DataFrame],
     output: Path,
+    title: str | None = None,
 ) -> None:
-    """Render SCF and wet-snow series into one PNG."""
+    """Render SCF and wet-snow series into one PNG (obs + ensemble bands)."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -98,6 +99,9 @@ def plot_fractions(
     if n_axes == 1:
         axes = [axes]
 
+    fig_title = title if title else "openAMUNDSEN ensemble vs observations"
+    fig.suptitle(fig_title, fontsize=14, y=0.98)
+
     idx = 0
     if has_scf:
         ax = axes[idx]
@@ -106,16 +110,16 @@ def plot_fractions(
                 scf_env["date"],
                 scf_env["value_min"],
                 scf_env["value_max"],
-                color="tab:blue",
-                alpha=0.1,
-                label="SCF model band",
+                color="#6ba9ff",  # soft snow-blue band
+                alpha=0.6,
+                label="SCF ensemble band",
             )
-            ax.plot(scf_env["date"], scf_env["value_mean"], "-", color="tab:blue", alpha=0.7, label="SCF model mean")
+            ax.plot(scf_env["date"], scf_env["value_mean"], "-", color="#1f5faa", alpha=0.8, label="SCF ensemble mean")
         if scf_model is not None and not scf_model.empty:
-            ax.plot(scf_model["date"], scf_model["scf"], "-", color="tab:blue", label="SCF model (single)")
+            ax.plot(scf_model["date"], scf_model["scf"], "-", color="#1f5faa", label="SCF model (single)")
         if scf_obs is not None and not scf_obs.empty:
             ax.plot(scf_obs["date"], scf_obs["scf"], "o", color="tab:orange", label="SCF obs")
-        ax.set_ylabel("SCF (0..1)")
+        ax.set_ylabel("Snow cover fraction")
         ax.set_ylim(0, 1)
         ax.legend()
         ax.grid(True, alpha=0.2)
@@ -128,16 +132,16 @@ def plot_fractions(
                 wet_env["date"],
                 wet_env["value_min"],
                 wet_env["value_max"],
-                color="tab:green",
-                alpha=0.1,
-                label="Wet-snow model band",
+                color="#58c59c",  # wet-snow teal band
+                alpha=0.6,
+                label="Wet-snow ensemble band",
             )
-            ax.plot(wet_env["date"], wet_env["value_mean"], "-", color="tab:green", alpha=0.7, label="Wet-snow model mean")
+            ax.plot(wet_env["date"], wet_env["value_mean"], "-", color="#1f7a5d", alpha=0.8, label="Wet-snow ensemble mean")
         if wet_model is not None and not wet_model.empty:
-            ax.plot(wet_model["date"], wet_model["wet_snow_fraction"], "-", color="tab:green", label="Wet-snow model (single)")
+            ax.plot(wet_model["date"], wet_model["wet_snow_fraction"], "-", color="#1f7a5d", label="Wet-snow model (single)")
         if wet_obs is not None and not wet_obs.empty:
             ax.plot(wet_obs["date"], wet_obs["wet_snow_fraction"], "o", color="tab:red", label="Wet-snow obs")
-        ax.set_ylabel("Wet snow (0..1)")
+        ax.set_ylabel("Wet snow")
         ax.set_ylim(0, 1)
         ax.legend()
         ax.grid(True, alpha=0.2)
@@ -164,6 +168,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--scf-env-csv", type=Path, help="SCF envelope CSV (value_min/value_max/value_mean)")
     parser.add_argument("--wet-env-csv", type=Path, help="Wet-snow envelope CSV (value_min/value_max/value_mean)")
     parser.add_argument("--output", type=Path, help="Output PNG path (default: <season>/plots/obs/fraction_timeseries.png)")
+    parser.add_argument("--title", type=str, help="Figure title")
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
     args = parser.parse_args(argv)
 
@@ -209,6 +214,7 @@ def cli_main(argv: list[str] | None = None) -> int:
             scf_env=scf_env,
             wet_env=wet_env,
             output=out_path,
+            title=str(args.title) if args.title else "openAMUNDSEN model vs observations",
         )
     except ModuleNotFoundError as exc:
         logger.error("matplotlib is required to plot: {}", exc)

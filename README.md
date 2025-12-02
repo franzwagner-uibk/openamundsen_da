@@ -356,9 +356,36 @@ docker compose run --rm oa `
 
 This uses per-member `point_scf_aoi.csv` files (model SCF derived from HS/SWE grids) written under each member's `results` directory and overlays observed SCF from `obs/<season>/scf_summary.csv` when available.
 
-Optional: `--station`, `--max-stations`, `--start-date`, `--end-date`, `--resample`, `--rolling`, `--hydro-month`, `--hydro-day`, `--backend`, `--log-level`, `--var-label`, `--var-units`, `--band-low`, `--band-high`.
+Defaults: ensemble members are hidden; plots show the ensemble mean, the 90% envelope (5–95% quantiles), and the open loop. Use `--show-members` to draw all members.  
+Optional: `--station`, `--max-stations`, `--start-date`, `--end-date`, `--resample`, `--rolling`, `--hydro-month`, `--hydro-day`, `--backend`, `--log-level`, `--var-label`, `--var-units`, `--band-low`, `--band-high`, `--show-members`.
 
 Note: running the season pipeline (see below) also generates these season plots automatically under `<season_dir>/plots/{forcing,results}` and a SCF season plot when SCF data and obs summaries are present.
+
+- Manual station result plotting (single CSV, single variable):
+
+  For quick manual inspection of one variable from a single station results CSV (e.g., SWE, snow_depth, temperature), use the lightweight CLI `plot_station_variable`. It works on exactly one CSV and one column at a time and writes a PNG next to the CSV.
+
+  ```powershell
+  $project = "/data"
+  $season  = "$project/propagation/season_2019-2020"
+  $step    = "$season/step_00_init"
+
+  docker compose run --rm oa `
+    python -m openamundsen_da.methods.viz.plot_station_variable `
+    "$step/ensembles/prior/member_001/results/point_latschbloder.csv" `
+    --var swe
+  ```
+
+  Key options:
+
+  - `--time-col` timestamp column in the CSV (default: `time`)
+  - `--var` column to plot (e.g., `swe`, `snow_depth`, `temp`) – required
+  - `--var-label` pretty y-axis/title label (defaults to column name)
+  - `--var-units` units appended to the label (e.g., `mm`, `m`, `K`)
+  - `--start-date`, `--end-date` optional ISO dates (`YYYY-MM-DD`) to restrict the time window
+  - `--backend` Matplotlib backend (default: `Agg`, headless)
+
+  The output file is written next to the input CSV as `<basename>.<var>.png`, e.g., `point_latschbloder.swe.png`.
 
 ## Season Pipeline
 
@@ -382,6 +409,7 @@ Outputs
 - Rejuvenated next-step prior (members + open_loop with state_pointer.json)
 - Season plots under `<season_dir>/plots/{forcing,results}`
 - When model SCF is enabled, daily AOI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_aoi.csv` and a season-wide SCF plot (model ensemble + obs overlay) is written next to the SWE plots via `plot_season_results(..., var_col="scf")`.
+  Season results plots now show the ensemble mean, the 90% envelope, and the open loop by default; individual members are hidden unless `--show-members` is passed to the plot CLI. Wet-snow season plots overlay available observations from `obs/<season>/wet_snow_summary.csv` automatically.
   At the end of the season run, per-step weights plots (`step_XX_weights.png`) and the season ESS timeline (`season_ess_timeline_<season_id>.png`) are also generated under `<season_dir>/plots/assim/{weights,ess}`.
 
 ### Backfilling model SCF for an existing season (optional)
@@ -443,6 +471,82 @@ docker compose run --rm oa `
 This creates `step_00_init`, `step_01_*`, … with `start_date`, `end_date`, and `results_dir: results` aligned to the model timestep and the specified assimilation dates.
 
 The skeleton uses the `timestep` from `project.yml` (e.g. `3H`, `6H`, `1D`) to define step boundaries. For each assimilation date `D_i`, step i runs long enough that openAMUNDSEN produces a daily grid for `D_i` in the preceding step, and step boundaries satisfy `start_{i+1} = end_i + timestep` (no duplicated timesteps). The season pipeline then assimilates SCF on the calendar date of `start_{i+1}`, which matches `D_i`.
+
+### Performance monitoring (CPU / RAM / disk)
+
+The framework includes a lightweight performance monitor that can be used to inspect
+system bottlenecks during a season run.
+
+What it records
+
+- CPU and RSS memory of processes related to the season run (Python workers, etc.).
+- System memory usage (used vs. total).
+- Total size of the season directory on disk.
+- Static metadata from project/season config:
+  - AOI area (km²)
+  - spatial resolution (m)
+  - model timestep (e.g. `3H`)
+  - number of days in the season
+  - number of DA dates configured in `season.yml`
+  - number of workers used (`--max-workers`)
+- Wall-clock time since the season started.
+
+Outputs
+
+- CSV time series:
+  - `<season_dir>/plots/perf/season_perf_metrics.csv`
+- PNG plot (updated every few seconds):
+  - `<season_dir>/plots/perf/season_perf.png`
+
+The CSV contains, per sample:
+
+- `timestamp` (UTC)
+- `cpu_tracked_pct` – sum of CPU% over tracked processes
+- `mem_tracked_mb` – sum of RSS memory over tracked processes (MB)
+- `mem_used_gb`, `mem_total_gb` – system memory used/total (GB)
+- `season_size_gb` – total size of `<season_dir>` on disk (GB)
+- `elapsed_run_sec` – seconds since the season run started
+- `roi_km2`, `resolution_m`, `timestep`, `season_days`, `num_da_dates`, `num_workers`
+- `progress_steps` – fraction of completed steps (0..1)
+- `done_steps` / `total_steps` – step progress counters
+- `eta_utc`, `eta_local` – estimated finish time in UTC and local (if configured)
+
+Enabling monitoring for a season run
+
+```powershell
+docker compose run --rm oa `
+  oa-da-season `
+  --project-dir $project `
+  --season-dir $season `
+  --max-workers 20 `
+  --monitor-perf `
+  --perf-sample-interval 5 `
+  --perf-plot-interval 30
+```
+
+- `--monitor-perf` turns on the background monitor thread.
+- `--perf-sample-interval` and `--perf-plot-interval` are optional; defaults are
+  5 seconds and 30 seconds respectively.
+
+Running the monitor manually
+
+You can also attach the monitor manually to an existing season directory (for example,
+while a season run is already in progress from another shell):
+
+```powershell
+$season = "$project/propagation/season_YYYY-YYYY"
+
+docker compose run --rm oa `
+  oa-da-perf-monitor `
+  --season-dir $season `
+  --sample-interval 5 `
+  --plot-interval 30
+```
+
+This foreground command will keep updating the CSV and plot until interrupted
+with `Ctrl+C`. The ETA shown in the plot is based on a simple linear model
+using completed steps vs total steps; it is intended as a rough indication
+only and can change as the run progresses.
 
 ## Troubleshooting
 

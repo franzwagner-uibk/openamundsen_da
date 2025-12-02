@@ -118,10 +118,11 @@ def _step_date_label_from_path(csv_path: Path) -> str | None:
         return None
 
     stem = csv_path.stem
-    prefix = "weights_scf_"
-    if not stem.startswith(prefix):
+    # Accept any weights_..._YYYYMMDD pattern (SCF or wet_snow)
+    parts = stem.split("_")
+    if len(parts) < 2:
         return None
-    ds = stem[len(prefix) :]
+    ds = parts[-1]
     if len(ds) != 8 or not ds.isdigit():
         return None
     date_str = f"{ds[0:4]}-{ds[4:6]}-{ds[6:8]}"
@@ -136,13 +137,31 @@ def _step_date_label_from_path(csv_path: Path) -> str | None:
         try:
             seas_yaml = find_season_yaml(season_dir)
             cfg = _read_yaml_file(seas_yaml) or {}
-            assim_dates = cfg.get("assimilation_dates") or []
-            for idx, entry in enumerate(assim_dates, start=1):
-                try:
-                    cand_date = pd.to_datetime(entry).date()
-                except Exception:
-                    continue
-                if cand_date == date_val:
+            # Prefer structured assimilation_events; fallback to legacy assimilation_dates
+            da_cfg = cfg.get("data_assimilation") or {}
+            events = da_cfg.get("assimilation_events") or []
+            if isinstance(events, list) and events:
+                dates = []
+                for entry in events:
+                    if not isinstance(entry, dict):
+                        continue
+                    dtxt = entry.get("date")
+                    if not dtxt:
+                        continue
+                    try:
+                        dates.append(pd.to_datetime(str(dtxt)).date())
+                    except Exception:
+                        continue
+            else:
+                raw_dates = cfg.get("assimilation_dates") or []
+                dates = []
+                for entry in raw_dates:
+                    try:
+                        dates.append(pd.to_datetime(entry).date())
+                    except Exception:
+                        continue
+            for idx, d in enumerate(dates, start=1):
+                if d == date_val:
                     return f"DA{idx} - {date_str}"
         except Exception:
             pass

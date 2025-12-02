@@ -27,7 +27,14 @@ from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.observer.plot_scf_summary import _load_summary as _load_scf_obs
+from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_envelope
+from openamundsen_da.methods.viz._utils import (
+    draw_assimilation_markers,
+    dedupe_legend,
+    apply_fraction_grid,
+)
+from openamundsen_da.methods.viz._style import COLOR_DA_OBS
 
 
 def _parse_dates(df: pd.DataFrame) -> pd.DataFrame:
@@ -78,6 +85,8 @@ def plot_fractions(
     wet_env: Optional[pd.DataFrame],
     output: Path,
     title: str | None = None,
+    assim_scf: Optional[list[pd.Timestamp]] = None,
+    assim_wet: Optional[list[pd.Timestamp]] = None,
 ) -> None:
     """Render SCF and wet-snow series into one PNG (obs + ensemble bands)."""
     import matplotlib
@@ -119,10 +128,21 @@ def plot_fractions(
             ax.plot(scf_model["date"], scf_model["scf"], "-", color="#1f5faa", label="SCF model (single)")
         if scf_obs is not None and not scf_obs.empty:
             ax.plot(scf_obs["date"], scf_obs["scf"], "o", color="tab:orange", label="SCF obs")
+        if assim_scf:
+            draw_assimilation_markers(
+                ax,
+                dates=assim_scf,
+                obs=scf_obs,
+                value_col="scf",
+                color=COLOR_DA_OBS,
+                label="SCF DA obs",
+            )
         ax.set_ylabel("Snow cover fraction")
         ax.set_ylim(0, 1)
-        ax.legend()
-        ax.grid(True, alpha=0.2)
+        h, l = ax.get_legend_handles_labels()
+        h, l = dedupe_legend(h, l)
+        ax.legend(h, l, loc="upper right")
+        apply_fraction_grid(ax, y_step=0.1)
         idx += 1
 
     if has_wet:
@@ -141,10 +161,21 @@ def plot_fractions(
             ax.plot(wet_model["date"], wet_model["wet_snow_fraction"], "-", color="#1f7a5d", label="Wet-snow model (single)")
         if wet_obs is not None and not wet_obs.empty:
             ax.plot(wet_obs["date"], wet_obs["wet_snow_fraction"], "o", color="tab:red", label="Wet-snow obs")
+        if assim_wet:
+            draw_assimilation_markers(
+                ax,
+                dates=assim_wet,
+                obs=wet_obs,
+                value_col="wet_snow_fraction",
+                color=COLOR_DA_OBS,
+                label="Wet-snow DA obs",
+            )
         ax.set_ylabel("Wet snow")
         ax.set_ylim(0, 1)
-        ax.legend()
-        ax.grid(True, alpha=0.2)
+        h, l = ax.get_legend_handles_labels()
+        h, l = dedupe_legend(h, l)
+        ax.legend(h, l, loc="upper right")
+        apply_fraction_grid(ax, y_step=0.1)
 
     axes[-1].set_xlabel("Date")
     fig.autofmt_xdate()
@@ -200,11 +231,23 @@ def cli_main(argv: list[str] | None = None) -> int:
     if wet_env is not None and not wet_env.empty and {"value_min", "value_max"}.issubset(wet_env.columns) is False:
         wet_env = None
 
+    assim_events = []
+    try:
+        assim_events = load_assimilation_events(season_dir)
+    except Exception:
+        assim_events = []
+    assim_scf = [pd.to_datetime(ev.date) for ev in assim_events if ev.variable == "scf"]
+    assim_wet = [pd.to_datetime(ev.date) for ev in assim_events if ev.variable == "wet_snow"]
+    assim_vars = sorted({ev.variable for ev in assim_events}) if assim_events else []
+
     if all(x is None or x.empty for x in (scf_obs, wet_obs, scf_model, wet_model, scf_env, wet_env)):
         logger.error("No data available to plot. Provide at least one obs/model series.")
         return 1
 
     out_path = _default_output(season_dir, args.output)
+    fig_title = str(args.title) if args.title else None
+    if not fig_title and assim_vars:
+        fig_title = f"openAMUNDSEN ensemble vs observations (assimilated: {', '.join(assim_vars)})"
     try:
         plot_fractions(
             scf_obs=scf_obs,
@@ -214,7 +257,9 @@ def cli_main(argv: list[str] | None = None) -> int:
             scf_env=scf_env,
             wet_env=wet_env,
             output=out_path,
-            title=str(args.title) if args.title else "openAMUNDSEN model vs observations",
+            title=fig_title or "openAMUNDSEN ensemble vs observations",
+            assim_scf=assim_scf,
+            assim_wet=assim_wet,
         )
     except ModuleNotFoundError as exc:
         logger.error("matplotlib is required to plot: {}", exc)

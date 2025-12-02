@@ -44,6 +44,7 @@ from openamundsen_da.methods.pf.resample import resample_from_weights
 from openamundsen_da.methods.pf.plot_weights import plot_weights_for_csv
 from openamundsen_da.methods.pf.plot_ess_timeline import plot_season_ess_timeline
 from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_envelope
+from openamundsen_da.observer.plot_fractions import cli_main as plot_fractions_cli
 from openamundsen_da.methods.viz.plot_season_ensemble import plot_season_both, plot_season_results
 
 
@@ -542,6 +543,16 @@ def run_season(cfg: OrchestratorConfig) -> None:
         )
     except Exception as exc:
         logger.warning("Wet-snow envelope aggregation failed: {}", exc)
+
+    # Generate combined SCF + wet-snow fraction plot (obs + ensemble bands + open loop)
+    try:
+        logger.info("Generating fraction overlay plot (SCF + wet snow) ...")
+        plot_fractions_cli([
+            "--season-dir", str(cfg.season_dir),
+            "--project-dir", str(cfg.project_dir),
+        ])
+    except Exception as exc:
+        logger.warning("Fraction overlay plot skipped: {}", exc)
 
     _setup_logger(cfg.season_dir, cfg.log_level)
     run_end = datetime.utcnow()

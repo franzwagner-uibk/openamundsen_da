@@ -40,6 +40,22 @@ from openamundsen_da.observer.fraction_obs import (
 from openamundsen_da.util.da_events import load_assimilation_events
 
 
+def _parse_dt_opt(text: str | None) -> datetime | None:
+    """Best-effort datetime parser for step YAML values."""
+    if not text:
+        return None
+    t = str(text).strip().replace("_", "-")
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(t, fmt)
+        except Exception:
+            continue
+    try:
+        return datetime.fromisoformat(t)
+    except Exception:
+        return None
+
+
 def generate_season_from_summary(
     season_dir: Path,
     summary_csv: Path,

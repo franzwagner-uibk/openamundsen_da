@@ -16,6 +16,7 @@ Minimal CLI; defaults handle all formats/columns/behavior without user choices.
 
 from __future__ import annotations
 
+import shutil
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -113,6 +114,31 @@ def _load_wet_snow_threshold_percent(project_dir: Path) -> float:
     except Exception:
         pass
     return 0.1
+
+
+def _aggregate_and_copy_fraction(
+    season_dir: Path,
+    filename: str,
+    value_col: str,
+    output_name: str,
+) -> tuple[Path | None, Path | None]:
+    """Aggregate fraction envelopes and mirror them into plots/results."""
+    env_path = aggregate_fraction_envelope(
+        season_dir=season_dir,
+        filename=filename,
+        value_col=value_col,
+        output_name=output_name,
+    )
+    copy_path: Path | None = None
+    if env_path is not None:
+        try:
+            copy_path = Path(season_dir) / "plots" / "results" / Path(output_name).name
+            copy_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(env_path, copy_path)
+        except Exception as exc:
+            logger.warning("Failed to copy {} -> {}: {}", env_path, copy_path, exc)
+            copy_path = None
+    return env_path, copy_path
 
 
 @dataclass
@@ -460,8 +486,32 @@ def run_season(cfg: OrchestratorConfig) -> None:
         if cfg.live_plots:
             try:
                 logger.info("Updating season plots after assimilation step {} ...", step_name)
+                # Refresh aggregated fraction envelopes and copy them into plots/results.
+                try:
+                    _aggregate_and_copy_fraction(
+                        season_dir=cfg.season_dir,
+                        filename="point_scf_aoi.csv",
+                        value_col="scf",
+                        output_name="point_scf_aoi_envelope.csv",
+                    )
+                except Exception as exc:
+                    logger.warning("SCF envelope aggregation failed after step {}: {}", step_name, exc)
+                try:
+                    _aggregate_and_copy_fraction(
+                        season_dir=cfg.season_dir,
+                        filename="point_wet_snow_aoi.csv",
+                        value_col="wet_snow_fraction",
+                        output_name="point_wet_snow_aoi_envelope.csv",
+                    )
+                except Exception as exc:
+                    logger.warning("Wet-snow envelope aggregation failed after step {}: {}", step_name, exc)
                 # Forcing/results season plots
                 plot_season_both(season_dir=cfg.season_dir)
+                # SCF season plot (model + obs overlay) after each step
+                try:
+                    plot_season_results(season_dir=cfg.season_dir, var_col="scf")
+                except FileNotFoundError:
+                    pass
                 # Wet-snow season plot (when data exists) after each step
                 try:
                     plot_season_results(
@@ -526,7 +576,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
 
     # Aggregate fraction envelopes (SCF and wet snow) for quick plotting/analysis
     try:
-        aggregate_fraction_envelope(
+        _aggregate_and_copy_fraction(
             season_dir=cfg.season_dir,
             filename="point_scf_aoi.csv",
             value_col="scf",
@@ -535,7 +585,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
     except Exception as exc:
         logger.warning("SCF envelope aggregation failed: {}", exc)
     try:
-        aggregate_fraction_envelope(
+        _aggregate_and_copy_fraction(
             season_dir=cfg.season_dir,
             filename="point_wet_snow_aoi.csv",
             value_col="wet_snow_fraction",

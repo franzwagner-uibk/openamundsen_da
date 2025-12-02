@@ -32,32 +32,34 @@ def draw_assimilation_markers(
     color: str,
     label: str,
     marker: str = "x",
-    size: float = 80.0,
-    zorder: int = 5,
+    size: float = 120.0,
+    linewidth: float = 2.0,
+    zorder: int = 30,
     draw_vlines: bool = True,
 ) -> None:
     """Draw assimilation vlines and overlay obs crosses on the same dates."""
-    if draw_vlines:
-        draw_assimilation_vlines(ax, dates)
-    if obs is None or obs.empty:
+    target = pd.to_datetime(list(dates))
+    if draw_vlines and len(target) > 0:
+        draw_assimilation_vlines(ax, target)
+    if obs is None or obs.empty or len(target) == 0:
         return
     try:
-        obs_dates = pd.to_datetime(obs["date"]).normalize()
-        target = pd.to_datetime(list(dates)).normalize()
+        obs_dt = pd.to_datetime(obs["date"])
+        mask = obs_dt.dt.normalize().isin(target.normalize())
     except Exception:
         return
-    mask = obs_dates.isin(target)
-    if not mask.any():
-        return
-    ax.scatter(
-        obs.loc[mask, "date"],
-        obs.loc[mask, value_col],
-        color=color,
-        marker=marker,
-        s=size,
-        zorder=zorder,
-        label=label,
-    )
+    if mask.any():
+        ax.scatter(
+            obs_dt.loc[mask],
+            obs.loc[mask, value_col],
+            color=color,
+            marker=marker,
+            s=size,
+            linewidths=linewidth,
+            zorder=zorder,
+            clip_on=False,
+            label=label,
+        )
 
 
 def apply_fraction_grid(ax, *, y_step: float = 0.1) -> None:

@@ -34,7 +34,7 @@ from openamundsen_da.methods.viz._utils import (
     dedupe_legend,
     apply_fraction_grid,
 )
-from openamundsen_da.methods.viz._style import COLOR_DA_OBS
+from openamundsen_da.methods.viz._style import COLOR_DA_OBS, SIZE_DA_OBS, LW_DA_OBS
 
 
 def _parse_dates(df: pd.DataFrame) -> pd.DataFrame:
@@ -73,6 +73,22 @@ def _default_output(season_dir: Path, output: Optional[Path]) -> Path:
     out_dir = season_dir / "plots" / "obs"
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir / "fraction_timeseries.png"
+
+
+def _load_open_loop_series(season_dir: Path, filename: str, value_col: str) -> Optional[pd.DataFrame]:
+    """Stitch open_loop point series across steps into one DataFrame."""
+    files = sorted(season_dir.glob(f"step_*/ensembles/prior/open_loop/results/{filename}"))
+    frames: list[pd.DataFrame] = []
+    for f in files:
+        df = _load_fraction(f, value_col)
+        if df is not None and not df.empty:
+            frames.append(df)
+    if not frames:
+        return None
+    out = pd.concat(frames, ignore_index=True).dropna(subset=[value_col])
+    if out.empty:
+        return None
+    return out.sort_values("date")
 
 
 def plot_fractions(
@@ -125,9 +141,9 @@ def plot_fractions(
             )
             ax.plot(scf_env["date"], scf_env["value_mean"], "-", color="#1f5faa", alpha=0.8, label="SCF ensemble mean")
         if scf_model is not None and not scf_model.empty:
-            ax.plot(scf_model["date"], scf_model["scf"], "-", color="#1f5faa", label="SCF model (single)")
+            ax.plot(scf_model["date"], scf_model["scf"], "-", color="black", label="SCF open loop")
         if scf_obs is not None and not scf_obs.empty:
-            ax.plot(scf_obs["date"], scf_obs["scf"], "o", color="tab:orange", label="SCF obs")
+            ax.plot(scf_obs["date"], scf_obs["scf"], "o", ms=5, color="tab:orange", label="SCF obs")
         if assim_scf:
             draw_assimilation_markers(
                 ax,
@@ -136,6 +152,8 @@ def plot_fractions(
                 value_col="scf",
                 color=COLOR_DA_OBS,
                 label="SCF DA obs",
+                size=SIZE_DA_OBS,
+                linewidth=LW_DA_OBS,
             )
         ax.set_ylabel("Snow cover fraction")
         ax.set_ylim(0, 1)
@@ -158,9 +176,9 @@ def plot_fractions(
             )
             ax.plot(wet_env["date"], wet_env["value_mean"], "-", color="#1f7a5d", alpha=0.8, label="Wet-snow ensemble mean")
         if wet_model is not None and not wet_model.empty:
-            ax.plot(wet_model["date"], wet_model["wet_snow_fraction"], "-", color="#1f7a5d", label="Wet-snow model (single)")
+            ax.plot(wet_model["date"], wet_model["wet_snow_fraction"], "-", color="black", label="Wet-snow open loop")
         if wet_obs is not None and not wet_obs.empty:
-            ax.plot(wet_obs["date"], wet_obs["wet_snow_fraction"], "o", color="tab:red", label="Wet-snow obs")
+            ax.plot(wet_obs["date"], wet_obs["wet_snow_fraction"], "o", ms=5, color="tab:red", label="Wet-snow obs")
         if assim_wet:
             draw_assimilation_markers(
                 ax,
@@ -169,6 +187,8 @@ def plot_fractions(
                 value_col="wet_snow_fraction",
                 color=COLOR_DA_OBS,
                 label="Wet-snow DA obs",
+                size=SIZE_DA_OBS,
+                linewidth=LW_DA_OBS,
             )
         ax.set_ylabel("Wet snow")
         ax.set_ylim(0, 1)
@@ -177,7 +197,7 @@ def plot_fractions(
         ax.legend(h, l, loc="upper right")
         apply_fraction_grid(ax, y_step=0.1)
 
-    axes[-1].set_xlabel("Date")
+    axes[-1].set_xlabel("")
     fig.autofmt_xdate()
     fig.tight_layout()
     fig.savefig(output, dpi=150, bbox_inches="tight")
@@ -224,6 +244,10 @@ def cli_main(argv: list[str] | None = None) -> int:
     wet_obs = _load_fraction(wet_obs_path, "wet_snow_fraction")
     scf_model = _load_fraction(Path(args.scf_model_csv), "scf") if args.scf_model_csv else None
     wet_model = _load_fraction(Path(args.wet_model_csv), "wet_snow_fraction") if args.wet_model_csv else None
+    if scf_model is None:
+        scf_model = _load_open_loop_series(season_dir, "point_scf_aoi.csv", "scf")
+    if wet_model is None:
+        wet_model = _load_open_loop_series(season_dir, "point_wet_snow_aoi.csv", "wet_snow_fraction")
     scf_env = _load_fraction(scf_env_path, "value_mean")
     if scf_env is not None and not scf_env.empty and {"value_min", "value_max"}.issubset(scf_env.columns) is False:
         scf_env = None
@@ -246,8 +270,6 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     out_path = _default_output(season_dir, args.output)
     fig_title = str(args.title) if args.title else None
-    if not fig_title and assim_vars:
-        fig_title = f"openAMUNDSEN ensemble vs observations (assimilated: {', '.join(assim_vars)})"
     try:
         plot_fractions(
             scf_obs=scf_obs,

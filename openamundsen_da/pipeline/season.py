@@ -401,6 +401,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
                         date=assim_dt,
                         aoi=aoi,
                         obs_csv=None,
+                        product=ev.product,
                     )
             except FileNotFoundError as exc:
                 logger.error(

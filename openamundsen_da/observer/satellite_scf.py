@@ -44,6 +44,7 @@ def generate_season_from_summary(
     season_dir: Path,
     summary_csv: Path,
     *,
+    product: str = "MOD10A1",
     overwrite: bool,
 ) -> None:
     """Extract per-step obs CSVs from a season-wide ``scf_summary.csv``."""
@@ -88,7 +89,8 @@ def generate_season_from_summary(
             skipped_missing += 1
             continue
 
-        out_csv = steps[i] / OBS_DIR_NAME / f"obs_scf_MOD10A1_{ev.date.strftime('%Y%m%d')}.csv"
+        prod_tag = str(product).upper()
+        out_csv = steps[i] / OBS_DIR_NAME / f"obs_scf_{prod_tag}_{ev.date.strftime('%Y%m%d')}.csv"
         if out_csv.exists() and not overwrite:
             logger.info("Skipping existing obs CSV for {} (step {})", ev.date.strftime("%Y-%m-%d"), steps[i].name)
             skipped_existing += 1
@@ -99,7 +101,7 @@ def generate_season_from_summary(
             date=datetime.combine(ev.date, datetime.min.time()),
             row=row,
             value_col="scf",
-            product="MOD10A1",
+            product=prod_tag,
             variable="scf",
             overwrite=overwrite,
         )
@@ -130,6 +132,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Path to scf_summary.csv (default: <project>/obs/<season>/scf_summary.csv)",
     )
+    parser.add_argument("--product", default="MOD10A1", help="Product code to use in obs filename (default: MOD10A1)")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing obs_scf_*.csv files")
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
 
@@ -149,6 +152,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         generate_season_from_summary(
             season_dir=season_dir,
             summary_csv=summary_path,
+            product=str(args.product or "MOD10A1"),
             overwrite=args.overwrite,
         )
         return 0

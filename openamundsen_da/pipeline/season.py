@@ -522,6 +522,15 @@ def run_season(cfg: OrchestratorConfig) -> None:
                 except FileNotFoundError:
                     # Best-effort: skip if wet-snow point files are not yet available
                     pass
+                # Combined fraction overlay (SCF + wet snow)
+                try:
+                    plot_fractions_cli([
+                        "--season-dir", str(cfg.season_dir),
+                        "--project-dir", str(cfg.project_dir),
+                        "--log-level", cfg.log_level,
+                    ])
+                except Exception as exc:
+                    logger.warning("Fraction overlay plot skipped after step {}: {}", step_name, exc)
                 # Per-step weights plot at season level
                 plot_weights_for_csv(wcsv)
                 # Season-wide ESS timeline across all available assimilation dates

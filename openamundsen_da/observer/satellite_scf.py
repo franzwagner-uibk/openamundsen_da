@@ -86,6 +86,9 @@ def generate_season_from_summary(
     written = skipped_missing = skipped_existing = 0
     for i in range(n):
         ev = events[i]
+        # Only handle SCF assimilation events here; skip others silently.
+        if str(ev.variable).lower() != "scf":
+            continue
         curr_cfg = read_step_config(steps[i]) or {}
         start_dt = _parse_dt_opt(str(curr_cfg.get("start_date")))
         end_dt = _parse_dt_opt(str(curr_cfg.get("end_date")))
@@ -101,7 +104,7 @@ def generate_season_from_summary(
 
         row = summary.by_date.get(ev.date)
         if row is None:
-            logger.warning("No summary entry for assimilation date {}; skipping {}", ev.date, steps[i].name)
+            logger.debug("No SCF summary entry for assimilation date {}; skipping {}", ev.date, steps[i].name)
             skipped_missing += 1
             continue
 

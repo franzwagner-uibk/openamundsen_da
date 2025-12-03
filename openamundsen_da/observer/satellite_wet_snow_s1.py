@@ -72,6 +72,9 @@ def generate_season_from_summary(
     for i in range(n):
         step = steps[i]
         ev = events[i]
+        # Only handle wet-snow assimilation events here; skip others silently.
+        if str(ev.variable).lower() not in ("wet_snow", "wet_snow_fraction"):
+            continue
         cfg = read_step_config(step) or {}
         start_dt = _parse_dt_opt(str(cfg.get("start_date")))
         end_dt = _parse_dt_opt(str(cfg.get("end_date")))
@@ -87,11 +90,7 @@ def generate_season_from_summary(
 
         row = summary.by_date.get(ev.date)
         if row is None:
-            logger.warning(
-                "No wet-snow summary entry for assimilation date {}; skipping {}",
-                ev.date,
-                step.name,
-            )
+            logger.debug("No wet-snow summary entry for assimilation date {}; skipping {}", ev.date, step.name)
             skipped_missing += 1
             continue
 

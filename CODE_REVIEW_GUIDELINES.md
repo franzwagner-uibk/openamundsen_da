@@ -20,7 +20,7 @@ When reviewing or developing a new module:
 - Is there any functionality/CLI flag/option that is unnecessary given the framework/template and workflow? Prefer sensible defaults.
 - Consider dropping inputs (e.g., paths or flags) that are already predefined by the process.
 
-List of helper modules (repo‑relative paths):
+List of helper modules (repo-relative paths):
 
 #### Core and IO
 
@@ -34,11 +34,16 @@ List of helper modules (repo‑relative paths):
 - openamundsen_da/util/ts.py
 - openamundsen_da/util/stats.py
 - openamundsen_da/util/aoi.py
+- openamundsen_da/util/da_events.py
+- openamundsen_da/util/perf_monitor.py
 
-#### Viz helpers
+#### Methods and viz helpers
 
-- openamundsen_da/methods/viz/\_style.py
-- openamundsen_da/methods/viz/\_utils.py
+- openamundsen_da/methods/daily_aoi_series.py
+- openamundsen_da/methods/wet_snow/area.py
+- openamundsen_da/methods/wet_snow/classify.py
+- openamundsen_da/methods/viz/_style.py
+- openamundsen_da/methods/viz/_utils.py
 
 ---
 
@@ -46,11 +51,11 @@ List of helper modules (repo‑relative paths):
 
 - Write compact, readable, and modular code.
 - Ensure all variables, constants, and functions are used.
-- Avoid duplicate code — consolidate shared logic in helper modules.
+- Avoid duplicate code - consolidate shared logic in helper modules.
 - Keep code robust, extensible, and maintainable for future additions.
 - Use type hints and explicit function signatures.
-- Follow openAMUNDSEN‑style conventions for naming, structure, and error handling.
-- Prioritize clarity over cleverness — the code should be self‑explanatory.
+- Follow openAMUNDSEN style conventions for naming, structure, and error handling.
+- Prioritize clarity over cleverness - the code should be self-explanatory.
 
 ---
 
@@ -70,18 +75,22 @@ logger.add(sys.stdout, level="INFO", colorize=True, enqueue=True, format=LOGURU_
 
 ---
 
-## 4. Repo‑Specific Conventions (quick reference)
+## 4. Repo-Specific Conventions (quick reference)
 
-- Prefer existing helpers over re‑implementing:
+- Prefer existing helpers over re-implementing:
   - IO/paths: `list_member_dirs`, `find_member_daily_raster`, `abspath_relative_to`
-  - Stats: `effective_sample_size`, `normalize_log_weights`, `sigmoid`, `envelope`
+  - Stats: `effective_sample_size`, `normalize_log_weights`, `sigmoid`, `envelope`, `compute_obs_sigma`
   - Viz: `draw_assimilation_vlines`, `dedupe_legend`
-- Assimilation configuration precedence:
-  - H(x) configuration (method/variable/params) is read from `project.yml` under `data_assimilation.h_of_x`; the step YAML `h_of_x` is a fallback.
+  - DA orchestration: `load_assimilation_events`, `compute_step_daily_series_for_all_members`, `start_perf_monitor`
+- Assimilation configuration:
+  - H(x) configuration (method/variable/params) is read from `project.yml` under `data_assimilation.h_of_x` (or top-level `h_of_x`); step YAML overrides are ignored.
+  - Assimilation events come from `season.yml` via `data_assimilation.assimilation_events` (variable/product per date), with legacy `assimilation_dates` as a fallback; use `util.da_events.load_assimilation_events`.
 - Open loop handling:
   - The launcher always runs `open_loop` alongside `member_*` to produce a continuous reference; assimilation and resampling operate on members only.
- - Plotting defaults:
-   - Ensemble plots show members (and open loop when present); ensemble mean and bands are intentionally omitted.
+- Plotting defaults:
+  - Ensemble plots show members (and open loop when present); ensemble mean and bands are intentionally omitted.
+- Performance monitoring:
+  - The season pipeline can run the background monitor in `util.perf_monitor`; extend it instead of adding new ad hoc metrics.
 
 ---
 

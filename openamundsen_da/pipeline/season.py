@@ -9,7 +9,7 @@ End-to-end season orchestrator with strict, opinionated behavior:
   - Assimilate SCF on the next step start_date.
   - Resample to posterior using project.yml resampling defaults.
   - Rejuvenate posterior -> next-step prior (writes only member-root pointers).
-- At the end: generates season plots (forcing + results).
+- At the end: generates season plots (forcing + fraction overlay).
 
 Minimal CLI; defaults handle all formats/columns/behavior without user choices.
 """
@@ -46,7 +46,8 @@ from openamundsen_da.methods.pf.plot_weights import plot_weights_for_csv
 from openamundsen_da.methods.pf.plot_ess_timeline import plot_season_ess_timeline
 from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_envelope
 from openamundsen_da.observer.plot_fractions import cli_main as plot_fractions_cli
-from openamundsen_da.methods.viz.plot_season_ensemble import plot_season_both, plot_season_results
+from openamundsen_da.methods.viz.plot_season_ensemble import plot_season_results
+from openamundsen_da.methods.viz.plot_forcing_ensemble import cli_main as plot_forcing_cli
 
 
 def _list_steps_sorted(season_dir: Path) -> List[Path]:
@@ -290,7 +291,6 @@ def run_season(cfg: OrchestratorConfig) -> None:
         try:
             compute_step_scf_daily_for_all_members(
                 project_dir=cfg.project_dir,
-                season_dir=cfg.season_dir,
                 step_dir=step_dir,
                 aoi_path=aoi,
                 max_workers=int(cfg.max_workers),
@@ -505,29 +505,28 @@ def run_season(cfg: OrchestratorConfig) -> None:
                     )
                 except Exception as exc:
                     logger.warning("Wet-snow envelope aggregation failed after step {}: {}", step_name, exc)
-                # Forcing/results season plots
-                plot_season_both(season_dir=cfg.season_dir)
-                # SCF season plot (model + obs overlay) after each step
+                # Per-step forcing plots (temperature in K, cumulative precip) for the current step
                 try:
-                    plot_season_results(season_dir=cfg.season_dir, var_col="scf")
-                except FileNotFoundError:
-                    pass
-                # Wet-snow season plot (when data exists) after each step
+                    plot_forcing_cli([
+                        "--step-dir", str(step_dir),
+                        "--ensemble", "prior",
+                        "--log-level", cfg.log_level,
+                    ])
+                except Exception as exc:
+                    logger.warning("Forcing plot failed for {}: {}", step_name, exc)
+                # Point results (SWE and snow depth) in member mode for all stations
                 try:
-                    plot_season_results(
-                        season_dir=cfg.season_dir,
-                        var_col="wet_snow_fraction",
-                        stations=["point_wet_snow_aoi.csv"],
-                    )
-                except FileNotFoundError:
-                    # Best-effort: skip if wet-snow point files are not yet available
-                    pass
-                # Combined fraction overlay (SCF + wet snow)
+                    plot_season_results(season_dir=cfg.season_dir, var_col="swe", mode="members")
+                    plot_season_results(season_dir=cfg.season_dir, var_col="snow_depth", mode="members")
+                except Exception as exc:
+                    logger.warning("Season point results plot failed after step {}: {}", step_name, exc)
+                # Combined fraction overlay (SCF + wet snow), written under plots/results
                 try:
                     plot_fractions_cli([
                         "--season-dir", str(cfg.season_dir),
                         "--project-dir", str(cfg.project_dir),
                         "--log-level", cfg.log_level,
+                        "--mode", "band",
                     ])
                 except Exception as exc:
                     logger.warning("Fraction overlay plot skipped after step {}: {}", step_name, exc)
@@ -562,26 +561,21 @@ def run_season(cfg: OrchestratorConfig) -> None:
     except Exception as exc:
         logger.warning("Final assimilation plotting failed: {}", exc)
 
-    # Season plots (both forcing and results)
-    logger.info("Generating season plots ...")
-    plot_season_both(season_dir=cfg.season_dir)
-    # Also generate season-wide SCF results plot (model + obs overlay) when
-    # SCF point files and obs summaries are available.
+    # Season plots (point results + fraction overlay). Forcing plotted per step above.
     try:
-        plot_season_results(season_dir=cfg.season_dir, var_col="scf")
-    except FileNotFoundError as exc:
-        logger.warning("SCF season plot skipped: {}", exc)
-
-    # When wet-snow point files are present, generate a season-wide wet-snow
-    # fraction plot using the AOI-aggregated series.
+        plot_season_results(season_dir=cfg.season_dir, var_col="swe", mode="members")
+        plot_season_results(season_dir=cfg.season_dir, var_col="snow_depth", mode="members")
+    except Exception as exc:
+        logger.warning("Season point results plot failed: {}", exc)
     try:
-        plot_season_results(
-            season_dir=cfg.season_dir,
-            var_col="wet_snow_fraction",
-            stations=["point_wet_snow_aoi.csv"],
-        )
-    except FileNotFoundError as exc:
-        logger.warning("Wet-snow season plot skipped: {}", exc)
+        logger.info("Generating fraction overlay plot (SCF + wet snow) ...")
+        plot_fractions_cli([
+            "--season-dir", str(cfg.season_dir),
+            "--project-dir", str(cfg.project_dir),
+            "--mode", "band",
+        ])
+    except Exception as exc:
+        logger.warning("Fraction overlay plot skipped: {}", exc)
 
     # Aggregate fraction envelopes (SCF and wet snow) for quick plotting/analysis
     try:

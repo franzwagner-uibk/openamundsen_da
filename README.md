@@ -208,6 +208,18 @@ wet_snow_fraction = (# pixels == 110) / (# pixels in {110, 125})
 
 This fraction is written to `wet_snow_summary.csv` along with `n_valid`, `n_wet`, and the source filename, and is later converted into per-step `obs_wet_snow_S1_YYYYMMDD.csv` files by the season helper.
 
+Per-step forcing plots
+----------------------
+
+Forcing (temperature in K, cumulative precipitation) is plotted per step with all members and the open loop. The season pipeline calls this automatically for each step. Manual trigger:
+
+```powershell
+docker compose run --rm oa `
+  python -m openamundsen_da.methods.viz.plot_forcing_ensemble `
+  --step-dir $step `
+  --ensemble prior
+```
+
 Season-level model envelopes for plotting
 -----------------------------------------
 
@@ -239,7 +251,19 @@ docker compose run --rm oa `
   --project-dir $project
 ```
 
-Defaults read obs from `obs/<season>/scf_summary.csv` and `obs/<season>/wet_snow_summary.csv`, envelopes from the season root, and write `plots/obs/fraction_timeseries.png`. Add `--scf-model-csv` / `--wet-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` to use custom envelopes.
+Defaults read obs from `obs/<season>/scf_summary.csv` and `obs/<season>/wet_snow_summary.csv`, envelopes from the season root, and write `plots/results/fraction_timeseries.png`. Add `--scf-model-csv` / `--wet-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` to use custom envelopes. Plot mode can be switched with `--mode band|members` (pipeline default: `band`).
+
+Season point results (SWE / snow depth, member mode)
+----------------------------------------------------
+
+Generate season-wide point plots (members only, legend shows just open loop + assimilation markers):
+
+```powershell
+docker compose run --rm oa python -m openamundsen_da.methods.viz.plot_season_ensemble results --season-dir $season --var-col swe --mode members --log-level INFO
+docker compose run --rm oa python -m openamundsen_da.methods.viz.plot_season_ensemble results --season-dir $season --var-col snow_depth --mode members --log-level INFO
+```
+
+Outputs are written to `<season>/plots/results/season_results_point_<station>_{swe|snow_depth}_<season>.png`. The season pipeline calls the same functions with `mode=members` after each step and at the end.
 
 ### H(x) Model SCF (optional, per-member debug)
 
@@ -459,7 +483,7 @@ Outputs
 - Weights and indices in `<step>/assim/`
 - Rejuvenated next-step prior (members + open_loop with state_pointer.json)
 - Season plots under `<season_dir>/plots/{forcing,results}`
-- When model SCF is enabled, daily AOI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_aoi.csv` and a season-wide SCF plot (model ensemble + obs overlay) is written next to the SWE plots via `plot_season_results(..., var_col="scf")`.
+- When model SCF is enabled, daily AOI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_aoi.csv`; the combined SCF + wet-snow fraction plot (`plots/results/fraction_timeseries.png`) provides the season-level view.
   Season results plots now show the ensemble mean, the 90% envelope, and the open loop by default; individual members are hidden unless `--show-members` is passed to the plot CLI. Wet-snow season plots overlay available observations from `obs/<season>/wet_snow_summary.csv` automatically.
   At the end of the season run, per-step weights plots (`step_XX_weights.png`) and the season ESS timeline (`season_ess_timeline_<season_id>.png`) are also generated under `<season_dir>/plots/assim/{weights,ess}`.
 

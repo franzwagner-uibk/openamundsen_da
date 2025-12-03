@@ -191,16 +191,15 @@ def _plot_station(
     # Temperature panel
     temp_series = [d[temp_col].copy() for d in mem_dfs if temp_col in d.columns]
     t_mean, t_lo, t_hi = envelope(temp_series)
-    for i, s in enumerate(temp_series):
-        lbl = member_labels[i] if member_labels and i < len(member_labels) else None
-        ax0.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.85, label=lbl)
+    for s in temp_series:
+        ax0.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.85, label="_nolegend_")
     if not t_mean.empty:
         # Removed ensemble band fill and explicit mean line;
         # keep per-member lines only for now.
         pass
     if ol_df is not None and temp_col in ol_df.columns:
-        ax0.plot(ol_df.index, ol_df[temp_col], color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open_loop")
-    ax0.set_ylabel(temp_col)
+        ax0.plot(ol_df.index, ol_df[temp_col], color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="_nolegend_")
+    ax0.set_ylabel("Temperature (K)")
     ax0.grid(True, ls=":", lw=0.6, alpha=0.7)
 
     # Precip cumulative panel
@@ -210,19 +209,18 @@ def _plot_station(
             if precip_col in d.columns:
                 mem_prec_cum.append(cumulative_hydro(d[precip_col], hydro_m, hydro_d))
         p_mean, p_lo, p_hi = envelope(mem_prec_cum)
-        for i, d in enumerate(mem_dfs):
+        for d in mem_dfs:
             if precip_col in d.columns:
                 s = cumulative_hydro(d[precip_col], hydro_m, hydro_d)
-                lbl = member_labels[i] if member_labels and i < len(member_labels) else None
-                ax1.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.85, label=lbl)
+                ax1.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.85, label="_nolegend_")
         if not p_mean.empty:
             # Removed ensemble band fill and explicit mean line;
             # keep per-member lines only for now.
             pass
         if ol_df is not None and precip_col in ol_df.columns:
             s = cumulative_hydro(ol_df[precip_col], hydro_m, hydro_d)
-            ax1.plot(s.index, s.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open_loop")
-        ax1.set_xlabel("date")
+            ax1.plot(s.index, s.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="_nolegend_")
+        ax1.set_xlabel("")
         ax1.set_ylabel(f"{precip_col} (cumulative)")
         ax1.grid(True, ls=":", lw=0.6, alpha=0.7)
 
@@ -239,12 +237,7 @@ def _plot_station(
         fig.text(0.5, sub_y, subtitle, ha="center", va="top", fontsize=10, color="#555555")
 
     # Compose a shared legend from ax0 handles (they include member labels if provided)
-    handles, labels = ax0.get_legend_handles_labels()
-    if handles and labels:
-        fig.legend(handles, labels, loc="lower center", ncol=LEGEND_NCOL, frameon=False, fontsize=8)
-        # Increase bottom margin so the legend sits clearly below x tick labels.
-        # Provide extra space for temperature-only plots.
-        fig.subplots_adjust(bottom=0.30 if has_precip else 0.40)
+    # No legend needed
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.1)

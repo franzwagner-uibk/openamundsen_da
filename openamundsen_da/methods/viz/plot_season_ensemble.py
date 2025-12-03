@@ -89,6 +89,7 @@ from openamundsen_da.methods.viz._utils import (
     draw_assimilation_vlines,
     dedupe_legend,
     draw_assimilation_markers,
+    draw_assim_labels,
 )
 
 
@@ -233,31 +234,8 @@ def _draw_assim(ax, dates: Sequence[datetime]) -> None:
 
 
 def _draw_assim_labels(ax, dates: Sequence[datetime]) -> None:
-    """Draw per-assimilation labels centered on each vline above the axes.
-
-    Labels are placed in the axes coordinate space just above the plotting area
-    using a blended transform (x in data coords, y in axes coords).
-    """
-    if not dates:
-        return
-    # Place labels with a fixed offset (in points) above the axes top
-    # and rotate slightly to reduce overlap when many DA instants exist.
-    for i, d in enumerate(dates, start=1):
-        label = f"DA{i}"
-        ax.annotate(
-            label,
-            xy=(d, 1.0),
-            xycoords=("data", "axes fraction"),
-            xytext=(0, 8),
-            textcoords="offset points",
-            ha="center",
-            va="bottom",
-            fontsize=FS_ASSIM_LABEL,
-            color="black",
-            rotation=ASSIM_LABEL_ROT,
-            rotation_mode="anchor",
-            clip_on=False,
-        )
+    """Draw per-assimilation labels centered on each vline above the axes."""
+    draw_assim_labels(ax, dates, labels=None, max_labels=12, y_offset_pts=3.0, fontsize=FS_ASSIM_LABEL, color="black")
 
 
 def _format_assim_summary(dates: Sequence[datetime]) -> str:
@@ -266,31 +244,8 @@ def _format_assim_summary(dates: Sequence[datetime]) -> str:
 
 
 def _draw_assim_summary_box(fig, ax, dates: Sequence[datetime], base_y: Optional[float] = None) -> None:
-    """Draw a small box with DA index -> date mapping under the plot area.
-
-    The box is horizontally aligned with the axes (not full figure width) and
-    placed near the lower-right corner below the x-axis.
-    """
-    if not dates:
-        return
-    text = _format_assim_summary(dates)
-    pos = ax.get_position()
-    x0, x1 = pos.x0, pos.x1
-    width = x1 - x0
-    # Place box under the plot near the lower-right corner of the axes span,
-    # clearly below the axes bottom.
-    x = x0 + width * 0.90
-    y = max(0.01, pos.y0 - 0.22)
-    fig.text(
-        x,
-        y,
-        text,
-        ha="left",
-        va="bottom",
-        fontsize=7,
-        family="monospace",
-        bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.85, edgecolor="#999999"),
-    )
+    """Disabled: assimilation date summary box removed to reduce clutter."""
+    return
 
 
 def _load_stations_table_from_steps(steps: Sequence["StepInfo"]) -> Optional[pd.DataFrame]:
@@ -626,29 +581,13 @@ def plot_season_results(
     show_members: bool = False,
     backend: str = "Agg",
     log_level: str = "INFO",
+    mode: str = "members",
 ) -> Path:
-    """Create season-wide results plots (e.g., SWE) for one or more stations.
+    """Create season-wide results plots (e.g., SWE or snow_depth) for one or more stations.
 
-    Parameters
-    - season_dir: Season root directory (contains ``step_*`` subfolders).
-    - time_col: Timestamp column in results CSVs (default: ``time``).
-    - var_col: Variable column to plot (default: ``swe``; supports ``snow_depth``).
-    - var_label: Pretty label for titles and y-axis (defaults to ``var_col``).
-    - var_units: Units appended in parentheses to the label.
-    - stations: Optional list of station result filenames (e.g., ``point_001.csv``).
-    - max_stations: Optional cap on number of stations.
-    - start_date, end_date: Optional explicit window for the x-axis.
-    - resample, resample_agg, rolling: Time-aggregation and smoothing controls.
-    - band_low, band_high: Quantile band for the ensemble envelope (default 5–95%).
-    - show_members: Plot individual ensemble members when True (default: False).
-    - backend, log_level: Matplotlib backend and Loguru level.
-
-    Behavior
-    - Autostop for snow variables: automatically truncates to one month after all
-      members reach zero (unless an earlier explicit ``end_date`` is provided).
-
-    Returns
-    - Path to the output directory ``<season_dir>/plots/results``.
+    mode:
+      - "members": draw member traces (no band); member traces are hidden from the legend. (default)
+      - "band": draw only the ensemble band/mean (no member traces).
     """
     import matplotlib
 
@@ -663,9 +602,11 @@ def plot_season_results(
     if not steps:
         raise FileNotFoundError(f"No step_* directories found under {season_dir}")
 
+    mode = (mode or "members").lower()
+    if mode not in {"members", "band"}:
+        mode = "members"
+
     assim_dates = _assimilation_dates(season_dir)
-    # Normalize assimilation instants to midnight for day-level matching with obs
-    assim_days = pd.to_datetime(assim_dates).normalize()
 
     # Determine available stations from first step that has results
     point_files: List[str] = []
@@ -676,23 +617,7 @@ def plot_season_results(
     if not point_files:
         raise FileNotFoundError("No point_*.csv files found in any step's results directories")
 
-    vv = (var_col or "").strip().lower()
-    # For non-SCF variables, ignore the synthetic SCF point file if present.
-    if vv != "scf":
-        point_files = [f for f in point_files if f != "point_scf_aoi.csv"]
-
-    # When plotting SCF, prefer the synthetic AOI point file if present.
-    if vv == "scf":
-        preferred = "point_scf_aoi.csv"
-        if stations:
-            # Respect explicit station selection
-            keep = set(stations)
-            point_files = [f for f in point_files if f in keep]
-        else:
-            # Auto-select point_scf_aoi.csv when available
-            if preferred in point_files:
-                point_files = [preferred]
-    elif stations:
+    if stations:
         keep = set(stations)
         point_files = [f for f in point_files if f in keep]
     if max_stations is not None:
@@ -701,15 +626,13 @@ def plot_season_results(
     out_root = season_dir / "plots" / "results"
     out_root.mkdir(parents=True, exist_ok=True)
     season_id = _season_id_from_dir(season_dir)
-    # Friendly default titles with units for common vars
+
     vv = (var_col or "").strip().lower()
     if not var_label and not var_units:
         if vv == "swe":
             var_title = "snow water equivalent [mm]"
         elif vv in ("snow_depth", "snowdepth", "hs"):
             var_title = "snow depth [m]"
-        elif vv == "scf":
-            var_title = "snow cover fraction"
         else:
             var_title = vv.replace("_", " ")
     else:
@@ -717,49 +640,6 @@ def plot_season_results(
         if var_units:
             var_title = f"{var_title} [{var_units}]"
 
-    # Observation SCF overlay for SCF plots (season-level scf_summary.csv)
-    obs_scf_df: Optional[pd.DataFrame] = None
-    if vv == "scf":
-        try:
-            project_dir = season_dir.parent.parent
-            obs_path = project_dir / "obs" / season_dir.name / "scf_summary.csv"
-            if obs_path.is_file():
-                tmp = pd.read_csv(obs_path)
-                if {"date", "scf"}.issubset(tmp.columns):
-                    tmp = tmp.copy()
-                    tmp["date"] = pd.to_datetime(tmp["date"], errors="coerce")
-                    tmp = tmp.dropna(subset=["date"]).sort_values("date")
-                    obs_scf_df = tmp[["date", "scf"]]
-                else:
-                    logger.warning("Obs SCF summary {} missing required columns 'date' and 'scf'; skipping overlay.", obs_path)
-            else:
-                logger.warning("Obs SCF summary not found at {}; skipping SCF overlay.", obs_path)
-        except Exception as exc:
-            logger.warning("Failed to load obs SCF summary for {}: {}", season_dir.name, exc)
-
-    # Observation wet-snow overlay for wet-snow plots (season-level wet_snow_summary.csv)
-    obs_wet_df: Optional[pd.DataFrame] = None
-    if vv == "wet_snow_fraction":
-        try:
-            project_dir = season_dir.parent.parent
-            obs_path = project_dir / "obs" / season_dir.name / "wet_snow_summary.csv"
-            if obs_path.is_file():
-                tmp = pd.read_csv(obs_path)
-                if {"date", "wet_snow_fraction"}.issubset(tmp.columns):
-                    tmp = tmp.copy()
-                    tmp["date"] = pd.to_datetime(tmp["date"], errors="coerce")
-                    tmp = tmp.dropna(subset=["date"]).sort_values("date")
-                    obs_wet_df = tmp[["date", "wet_snow_fraction"]]
-                else:
-                    logger.warning(
-                        "Obs wet-snow summary {} missing required columns 'date' and 'wet_snow_fraction'; skipping overlay.",
-                        obs_path,
-                    )
-            else:
-                logger.warning("Obs wet-snow summary not found at {}; skipping wet-snow overlay.", obs_path)
-        except Exception as exc:
-            logger.warning("Failed to load obs wet-snow summary for {}: {}", season_dir.name, exc)
-    stations_df = _load_stations_table_from_steps(steps)
     member_label_map = _build_member_label_map(steps)
 
     for fname in point_files:
@@ -811,192 +691,89 @@ def plot_season_results(
             logger.warning("No data for station {} across season; skipping.", fname)
             continue
 
-        # Determine model-driven end date (last timestamp across all series)
-        model_end: Optional[datetime] = None
-        for s in member_series + open_loop:
-            if s.empty:
-                continue
-            last_ts = s.index.max()
-            if isinstance(last_ts, pd.Timestamp):
-                last_dt = last_ts.to_pydatetime()
-            else:
-                last_dt = datetime.fromisoformat(str(last_ts))
-            if model_end is None or last_dt > model_end:
-                model_end = last_dt
-
-        # Determine autostop if requested: one month after all members reach zero
-        auto_end = _auto_end_from_swe_zero(member_series) if var_col.lower() in ("swe", "hs", "snow_depth", "snowdepth") else None
-        effective_end = end_date
-        if auto_end is not None:
-            effective_end = min(effective_end, auto_end) if effective_end else auto_end
-        # For SCF plots, cap the effective end at the last model timestamp so the
-        # x-axis does not extend beyond the model timeline even if observations do.
-        if vv == "scf" and model_end is not None:
-            effective_end = min(effective_end, model_end) if effective_end else model_end
-
-        # Build figure (members + mean band + open-loop)
-        import matplotlib.pyplot as plt  # ensure pyplot is loaded
+        # Build figure
         fig, ax = plt.subplots(figsize=FIGSIZE_RESULTS)
 
-        for s, lbl in zip(member_series, member_labels):
-            if effective_end or start_date:
-                df = apply_window(s.to_frame(var_col), start_date, effective_end)
-                s_use = df[var_col].dropna()
-            else:
-                s_use = s
-            if show_members:
-                ax.plot(s_use.index, s_use.values, lw=LW_MEMBER, alpha=0.9, label=lbl)
-
-        # Envelope
-        mem_for_env: List[pd.Series] = []
-        for s in member_series:
-            if effective_end or start_date:
-                df = apply_window(s.to_frame(var_col), start_date, effective_end)
-                ss = df[var_col].dropna()
-            else:
-                ss = s
-            if not ss.empty:
-                mem_for_env.append(ss)
-        mean, lo, hi = envelope(mem_for_env, q_low=band_low, q_high=band_high)
-        if not mean.empty:
-            label_band = f"{int(band_low*100)}-{int(band_high*100)}% band"
-            ax.fill_between(
-                mean.index,
-                lo,
-                hi,
-                color=COLOR_MEAN,
-                alpha=BAND_ALPHA,
-                label=label_band,
-                zorder=2,
-            )
-            # Ensemble mean line (blue, same thickness as open loop)
-            ax.plot(
-                mean.index,
-                mean.values,
-                color=COLOR_MEAN,
-                lw=LW_OPEN,
-                label="ensemble mean",
-                zorder=4,
-            )
+        # Members or band
+        if mode == "members":
+            for s in member_series:
+                ax.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.9, label="_nolegend_")
+        else:
+            mem_for_env: List[pd.Series] = []
+            for s in member_series:
+                mem_for_env.append(s)
+            mean, lo, hi = envelope(mem_for_env, q_low=band_low, q_high=band_high)
+            if not mean.empty:
+                label_band = f"{int(band_low*100)}-{int(band_high*100)}% band"
+                ax.fill_between(
+                    mean.index,
+                    lo,
+                    hi,
+                    color=COLOR_MEAN,
+                    alpha=BAND_ALPHA,
+                    label=label_band,
+                    zorder=2,
+                )
+                ax.plot(
+                    mean.index,
+                    mean.values,
+                    color=COLOR_MEAN,
+                    lw=LW_OPEN,
+                    label="ensemble mean",
+                    zorder=4,
+                )
 
         if open_loop:
             ol = concat_series(open_loop)
-            if effective_end or start_date:
-                df = apply_window(ol.to_frame(var_col), start_date, effective_end)
-                ol = df[var_col].dropna()
             if not ol.empty:
                 ax.plot(ol.index, ol.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open loop", zorder=5)
 
-        # Obs SCF overlay (mandatory when plotting SCF and summary is available)
-        if vv == "scf" and obs_scf_df is not None and not obs_scf_df.empty:
-            obs = obs_scf_df
-            if effective_end or start_date:
-                start_obs = start_date or obs["date"].min()
-                end_obs = effective_end or obs["date"].max()
-                mask = (obs["date"] >= start_obs) & (obs["date"] <= end_obs)
-                obs = obs.loc[mask].copy()
-            if not obs.empty:
-                ax.scatter(
-                    obs["date"],
-                    obs["scf"],
-                    color=COLOR_OBS_SCF,
-                    s=SIZE_OBS_SCF,
-                    label="obs SCF",
-                    zorder=6,
-                )
-                draw_assimilation_markers(
-                    ax,
-                    dates=assim_dates,
-                    obs=obs,
-                    value_col="scf",
-                    color=COLOR_DA_OBS,
-                    label="DA obs",
-                    marker="x",
-                    size=SIZE_DA_OBS,
-                    linewidth=LW_DA_OBS,
-                    zorder=7,
-                    draw_vlines=False,
-                )
-        # Obs wet-snow overlay when plotting wet-snow fraction and summary is available
-        if vv == "wet_snow_fraction" and obs_wet_df is not None and not obs_wet_df.empty:
-            obs = obs_wet_df
-            if effective_end or start_date:
-                start_obs = start_date or obs["date"].min()
-                end_obs = effective_end or obs["date"].max()
-                mask = (obs["date"] >= start_obs) & (obs["date"] <= end_obs)
-                obs = obs.loc[mask].copy()
-            if not obs.empty:
-                ax.scatter(
-                    obs["date"],
-                    obs["wet_snow_fraction"],
-                    color=COLOR_OBS_SCF,
-                    s=SIZE_OBS_SCF,
-                    label="obs wet snow",
-                    zorder=6,
-                )
-                draw_assimilation_markers(
-                    ax,
-                    dates=assim_dates,
-                    obs=obs,
-                    value_col="wet_snow_fraction",
-                    color=COLOR_DA_OBS,
-                    label="DA obs",
-                    marker="x",
-                    size=SIZE_DA_OBS,
-                    linewidth=LW_DA_OBS,
-                    zorder=7,
-                    draw_vlines=False,
-                )
-
-        ax.set_xlabel("Time")
         ax.set_ylabel(var_title)
         ax.grid(True, ls=GRID_LS, lw=GRID_LW, alpha=GRID_ALPHA)
 
-        # Assimilation markers (step starts i >= 1)
+        # Assimilation markers and labels
         _draw_assim(ax, assim_dates)
+        _draw_assim_labels(ax, assim_dates)
 
         # Titles/legend
         token = Path(fname).stem
         display_token = token.replace("point_", "", 1)
-        st_name, st_alt = _find_station_meta(stations_df, display_token)
+        st_name, st_alt = _find_station_meta(None, display_token)
         station_label = st_name or display_token
         alt_suffix = f" ({st_alt:.0f} m)" if st_alt is not None else ""
         title = f"Season Results | {season_dir.name}"
         subtitle = f"{station_label}{alt_suffix} - {var_title}"
-        # Move title and subtitle slightly up to create more clearance
-        fig.text(0.5, 0.985, title, ha="center", va="top", fontsize=FS_TITLE)
-        fig.text(0.5, 0.95, subtitle, ha="center", va="top", fontsize=FS_SUBTITLE, color=COLOR_SUBTITLE)
-        # Per-assimilation labels centered above the vlines on the results panel
-        _draw_assim_labels(ax, assim_dates)
-        top_margin = 0.84 if len(assim_dates) <= 4 else (0.82 if len(assim_dates) <= 8 else 0.80)
+        # Reduce vertical gap between title/subtitle and the plot area.
+        fig.text(0.5, 0.975, title, ha="center", va="top", fontsize=FS_TITLE)
+        fig.text(0.5, 0.94, subtitle, ha="center", va="top", fontsize=FS_SUBTITLE, color=COLOR_SUBTITLE)
+        top_margin = 0.90 if len(assim_dates) <= 4 else (0.88 if len(assim_dates) <= 8 else 0.86)
         bottom_margin = 0.30
         fig.subplots_adjust(top=top_margin, bottom=bottom_margin)
 
         handles, labels = ax.get_legend_handles_labels()
         if handles:
-            # de-duplicate
-            seen: Dict[str, int] = {}
-            new_h, new_l = [], []
+            # Keep only one open loop and one assimilation entry; drop members/_nolegend_.
+            want = {"open loop", "assimilation"}
+            filtered = []
+            seen = set()
             for h, l in zip(handles, labels):
-                if l not in seen:
-                    seen[l] = 1
-                    new_h.append(h)
-                    new_l.append(l)
-            pos = ax.get_position()
-            legend_x = pos.x0
-            legend_y = max(0.02, pos.y0 - 0.06)
-            fig.legend(
-                new_h,
-                new_l,
-                loc="upper left",
-                bbox_to_anchor=(legend_x, legend_y),
-                ncol=LEGEND_NCOL_SEASON,
-                frameon=False,
-                fontsize=8,
-            )
-            _draw_assim_summary_box(fig, ax, assim_dates, base_y=legend_y)
-        else:
-            _draw_assim_summary_box(fig, ax, assim_dates)
+                if l == "_nolegend_":
+                    continue
+                if l in want and l not in seen:
+                    filtered.append((h, l))
+                    seen.add(l)
+            if filtered:
+                handles, labels = zip(*filtered)
+                ax.legend(
+                    handles,
+                    labels,
+                    loc="upper right",
+                    fontsize=8.5,
+                    labelspacing=0.3,
+                    borderpad=0.3,
+                    handlelength=1.2,
+                    handletextpad=0.4,
+                )
 
         out_path = out_root / f"season_results_{token}_{var_col}_{season_id}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.08)
@@ -1082,6 +859,7 @@ def _cli(argv: Iterable[str] | None = None) -> int:
     sp_r.add_argument("--band-low", type=float, default=0.05)
     sp_r.add_argument("--band-high", type=float, default=0.95)
     sp_r.add_argument("--show-members", action="store_true", help="Draw individual ensemble members (default: hidden)")
+    sp_r.add_argument("--mode", choices=["band", "members"], default="members", help="Plot mode: members (default) or band")
 
     args = p.parse_args(list(argv) if argv is not None else None)
 
@@ -1127,6 +905,7 @@ def _cli(argv: Iterable[str] | None = None) -> int:
             show_members=bool(getattr(args, "show_members", False)),
             backend=args.backend,
             log_level=args.log_level,
+            mode=str(args.mode or "members"),
         )
     return 0
 

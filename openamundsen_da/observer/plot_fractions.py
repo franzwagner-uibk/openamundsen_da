@@ -12,7 +12,7 @@ Description:
     - Model wet snow: CSV with date/time column and wet_snow_fraction
 
     Defaults resolve obs paths from season/project and write
-    plots/obs/fraction_timeseries.png under the season directory.
+    plots/results/fraction_timeseries.png under the season directory.
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from openamundsen_da.methods.viz._utils import (
     draw_assimilation_markers,
     dedupe_legend,
     apply_fraction_grid,
+    draw_assim_labels,
 )
 from openamundsen_da.methods.viz._style import COLOR_DA_OBS, SIZE_DA_OBS, LW_DA_OBS
 
@@ -70,7 +71,7 @@ def _default_obs_path(project_dir: Path, season_name: str, filename: str) -> Pat
 def _default_output(season_dir: Path, output: Optional[Path]) -> Path:
     if output is not None:
         return output
-    out_dir = season_dir / "plots" / "obs"
+    out_dir = season_dir / "plots" / "results"
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir / "fraction_timeseries.png"
 
@@ -103,6 +104,8 @@ def plot_fractions(
     title: str | None = None,
     assim_scf: Optional[list[pd.Timestamp]] = None,
     assim_wet: Optional[list[pd.Timestamp]] = None,
+    assim_labels: Optional[dict[pd.Timestamp, str]] = None,
+    mode: str = "band",
 ) -> None:
     """Render SCF and wet-snow series into one PNG (obs + ensemble bands)."""
     import matplotlib
@@ -128,9 +131,29 @@ def plot_fractions(
     fig.suptitle(fig_title, fontsize=14, y=0.98)
 
     idx = 0
+    # Build DA date -> label mapping so labels match the global DA sequence
+    label_map = {pd.to_datetime(k): v for k, v in (assim_labels or {}).items()}
+
+    def _label_tuples(dates: Optional[list[pd.Timestamp]]) -> list[tuple[pd.Timestamp, str]]:
+        if not dates:
+            return []
+        out = []
+        for idx, d in enumerate(sorted(set(pd.to_datetime(dates))), start=1):
+            lbl = label_map.get(d)
+            if lbl is None and label_map:
+                lbl = str(idx)
+            out.append((d, lbl if lbl is not None else str(idx)))
+        return out
+
+    scf_labels = _label_tuples(assim_scf)
+    wet_labels = _label_tuples(assim_wet)
+    mode = (mode or "band").lower()
+    if mode not in {"band", "members"}:
+        mode = "band"
+
     if has_scf:
         ax = axes[idx]
-        if scf_env is not None and not scf_env.empty:
+        if mode == "band" and scf_env is not None and not scf_env.empty:
             ax.fill_between(
                 scf_env["date"],
                 scf_env["value_min"],
@@ -141,7 +164,13 @@ def plot_fractions(
             )
             ax.plot(scf_env["date"], scf_env["value_mean"], "-", color="#1f5faa", alpha=0.8, label="SCF ensemble mean")
         if scf_model is not None and not scf_model.empty:
-            ax.plot(scf_model["date"], scf_model["scf"], "-", color="black", label="SCF open loop")
+            ax.plot(
+                scf_model["date"],
+                scf_model["scf"],
+                "-",
+                color="black",
+                label="SCF open loop" if mode == "band" else "_nolegend_",
+            )
         if scf_obs is not None and not scf_obs.empty:
             ax.plot(scf_obs["date"], scf_obs["scf"], "o", ms=5, color="tab:orange", label="SCF obs")
         if assim_scf:
@@ -155,17 +184,36 @@ def plot_fractions(
                 size=SIZE_DA_OBS,
                 linewidth=LW_DA_OBS,
             )
+        # Draw SCF DA labels on the SCF panel.
+        draw_assim_labels(
+            ax,
+            [d for d, _ in scf_labels],
+            labels=[lbl for _, lbl in scf_labels] if scf_labels else None,
+            max_labels=12,
+            y_offset_pts=3.0,
+            fontsize=8.0,
+            color="black",
+        )
         ax.set_ylabel("Snow cover fraction")
         ax.set_ylim(0, 1)
         h, l = ax.get_legend_handles_labels()
         h, l = dedupe_legend(h, l)
-        ax.legend(h, l, loc="upper right")
+        ax.legend(
+            h,
+            l,
+            loc="upper right",
+            fontsize=8.5,
+            labelspacing=0.3,
+            borderpad=0.3,
+            handlelength=1.2,
+            handletextpad=0.4,
+        )
         apply_fraction_grid(ax, y_step=0.1)
         idx += 1
 
     if has_wet:
         ax = axes[idx]
-        if wet_env is not None and not wet_env.empty:
+        if mode == "band" and wet_env is not None and not wet_env.empty:
             ax.fill_between(
                 wet_env["date"],
                 wet_env["value_min"],
@@ -176,7 +224,13 @@ def plot_fractions(
             )
             ax.plot(wet_env["date"], wet_env["value_mean"], "-", color="#1f7a5d", alpha=0.8, label="Wet-snow ensemble mean")
         if wet_model is not None and not wet_model.empty:
-            ax.plot(wet_model["date"], wet_model["wet_snow_fraction"], "-", color="black", label="Wet-snow open loop")
+            ax.plot(
+                wet_model["date"],
+                wet_model["wet_snow_fraction"],
+                "-",
+                color="black",
+                label="Wet-snow open loop" if mode == "band" else "_nolegend_",
+            )
         if wet_obs is not None and not wet_obs.empty:
             ax.plot(wet_obs["date"], wet_obs["wet_snow_fraction"], "o", ms=5, color="tab:red", label="Wet-snow obs")
         if assim_wet:
@@ -190,11 +244,30 @@ def plot_fractions(
                 size=SIZE_DA_OBS,
                 linewidth=LW_DA_OBS,
             )
-        ax.set_ylabel("Wet snow")
+        # Always draw wet-snow DA labels on the wet-snow panel.
+        draw_assim_labels(
+            ax,
+            [d for d, _ in wet_labels],
+            labels=[lbl for _, lbl in wet_labels] if wet_labels else None,
+            max_labels=12,
+            y_offset_pts=3.0,
+            fontsize=8.0,
+            color="black",
+        )
+        ax.set_ylabel("Wet snow fraction")
         ax.set_ylim(0, 1)
         h, l = ax.get_legend_handles_labels()
         h, l = dedupe_legend(h, l)
-        ax.legend(h, l, loc="upper right")
+        ax.legend(
+            h,
+            l,
+            loc="upper right",
+            fontsize=8.5,
+            labelspacing=0.3,
+            borderpad=0.3,
+            handlelength=1.2,
+            handletextpad=0.4,
+        )
         apply_fraction_grid(ax, y_step=0.1)
 
     axes[-1].set_xlabel("")
@@ -218,9 +291,10 @@ def cli_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--wet-model-csv", type=Path, help="Model wet-snow CSV (date/time + wet_snow_fraction)")
     parser.add_argument("--scf-env-csv", type=Path, help="SCF envelope CSV (value_min/value_max/value_mean)")
     parser.add_argument("--wet-env-csv", type=Path, help="Wet-snow envelope CSV (value_min/value_max/value_mean)")
-    parser.add_argument("--output", type=Path, help="Output PNG path (default: <season>/plots/obs/fraction_timeseries.png)")
+    parser.add_argument("--output", type=Path, help="Output PNG path (default: <season>/plots/results/fraction_timeseries.png)")
     parser.add_argument("--title", type=str, help="Figure title")
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
+    parser.add_argument("--mode", choices=["band", "members"], default="band", help="Plot mode: band (default) or members")
     args = parser.parse_args(argv)
 
     logger.remove()
@@ -270,6 +344,10 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     out_path = _default_output(season_dir, args.output)
     fig_title = str(args.title) if args.title else None
+    # Build global DA labels (shared numbering across variables) for consistent
+    # annotation in both SCF and wet-snow panels.
+    assim_labels = {pd.to_datetime(ev.date): str(i) for i, ev in enumerate(assim_events, start=1)}
+
     try:
         plot_fractions(
             scf_obs=scf_obs,
@@ -282,6 +360,8 @@ def cli_main(argv: list[str] | None = None) -> int:
             title=fig_title or "openAMUNDSEN ensemble vs observations",
             assim_scf=assim_scf,
             assim_wet=assim_wet,
+            assim_labels=assim_labels,
+            mode=str(args.mode or "band"),
         )
     except ModuleNotFoundError as exc:
         logger.error("matplotlib is required to plot: {}", exc)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Iterable, List, Tuple
+import math
 
 import pandas as pd
 
@@ -21,6 +22,44 @@ def dedupe_legend(handles: List, labels: List) -> Tuple[List, List]:
             new_h.append(h)
             new_l.append(l)
     return new_h, new_l
+
+
+def draw_assim_labels(
+    ax,
+    dates: Iterable,
+    *,
+    labels: Iterable[str] | None = None,
+    max_labels: int = 12,
+    y_offset_pts: float = 3.0,
+    fontsize: float = 8.0,
+    color: str = "black",
+) -> None:
+    """Draw decimated, upright assimilation labels near the top of the axes."""
+    dates = list(dates)
+    label_list = list(labels) if labels is not None else None
+    if label_list is not None and len(label_list) != len(dates):
+        label_list = None
+    if not dates:
+        return
+    step = max(1, math.ceil(len(dates) / max(1, int(max_labels))))
+    for i, d in enumerate(dates, start=1):
+        if (i - 1) % step != 0:
+            continue
+        text = label_list[i - 1] if label_list is not None else f"{i}"
+        ax.annotate(
+            text,
+            xy=(d, 1.0),
+            xycoords=("data", "axes fraction"),
+            xytext=(0, y_offset_pts),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=fontsize,
+            color=color,
+            rotation=0,
+            rotation_mode="anchor",
+            clip_on=False,
+        )
 
 
 def draw_assimilation_markers(

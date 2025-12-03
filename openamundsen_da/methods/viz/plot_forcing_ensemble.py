@@ -221,7 +221,7 @@ def _plot_station(
             s = cumulative_hydro(ol_df[precip_col], hydro_m, hydro_d)
             ax1.plot(s.index, s.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="_nolegend_")
         ax1.set_xlabel("")
-        ax1.set_ylabel(f"{precip_col} (cumulative)")
+        ax1.set_ylabel("Precipitation (mm, cumulative)")
         ax1.grid(True, ls=":", lw=0.6, alpha=0.7)
 
     # Layout and legend below

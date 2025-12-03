@@ -662,6 +662,8 @@ def plot_season_results(
                             if not s.empty:
                                 open_loop.append(s)
                     except Exception as exc:
+                        if isinstance(exc, ValueError) and f"Missing column '{var_col}'" in str(exc):
+                            continue
                         logger.warning("Failed reading open_loop results {} in {}: {}", fname, st.path.name, exc)
 
             # Members
@@ -685,6 +687,8 @@ def plot_season_results(
                     member_series.append(s)
                     member_labels.append(member_label_map.get(m.name, m.name))
                 except Exception as exc:
+                    if isinstance(exc, ValueError) and f"Missing column '{var_col}'" in str(exc):
+                        continue
                     logger.warning("Failed reading member results {} in {}: {}", fname, m.name, exc)
 
         if not member_series and not open_loop:

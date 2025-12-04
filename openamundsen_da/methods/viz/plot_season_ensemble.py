@@ -90,6 +90,7 @@ from openamundsen_da.methods.viz._utils import (
     dedupe_legend,
     draw_assimilation_markers,
     draw_assim_labels,
+    format_station_label,
 )
 
 
@@ -263,57 +264,6 @@ def _load_stations_table_from_steps(steps: Sequence["StepInfo"]) -> Optional[pd.
                 except Exception:
                     continue
     return None
-
-
-def _find_station_meta(st_df: Optional[pd.DataFrame], token: str) -> Tuple[Optional[str], Optional[float]]:
-    """Return (name, altitude_m) for a station token using a stations table."""
-    if st_df is None or st_df.empty:
-        return None, None
-    df = st_df.copy()
-    cols_lower = {c.lower().strip(): c for c in df.columns}
-    id_candidates = [c for c in ("id", "station_id", "station", "code") if c in cols_lower]
-    name_candidates = [c for c in ("name", "station_name") if c in cols_lower]
-    alt_candidates = [c for c in ("alt", "altitude", "elev", "elevation", "z", "height", "height_m") if c in cols_lower]
-    alt_col = cols_lower[alt_candidates[0]] if alt_candidates else None
-
-    def _match(col_key: str) -> Optional[pd.Series]:
-        col = cols_lower[col_key]
-        try:
-            normalized = df[col].astype(str).str.strip().str.lower()
-            hit = df.loc[normalized == token.lower()]
-            if not hit.empty:
-                return hit.iloc[0]
-        except Exception:
-            return None
-        return None
-
-    row = None
-    for k in id_candidates:
-        row = _match(k)
-        if row is not None:
-            break
-    if row is None:
-        for k in name_candidates:
-            row = _match(k)
-            if row is not None:
-                break
-    if row is None:
-        return None, None
-
-    name_val = None
-    for k in name_candidates:
-        try:
-            name_val = str(row[cols_lower[k]]).strip()
-            break
-        except Exception:
-            continue
-    alt_val = None
-    if alt_col is not None:
-        try:
-            alt_val = float(row[alt_col])
-        except Exception:
-            alt_val = None
-    return name_val, alt_val
 
 
 # ---- Plotting: Forcing (two-panel) -----------------------------------------
@@ -503,15 +453,8 @@ def plot_season_forcing(
         # Titles, assimilation date line, and figure-level legend (de-duplicated)
         token = Path(fname).stem
         title = f"Season Forcing | {season_dir.name}"
-        st_name, st_alt = _find_station_meta(stations_df, token)
-        if st_name and st_alt is not None:
-            subtitle = f"{st_name} ({st_alt:.0f} m)"
-        elif st_name:
-            subtitle = st_name
-        elif st_alt is not None:
-            subtitle = f"({st_alt:.0f} m)"
-        else:
-            subtitle = token
+        _base, _alt, station_label = format_station_label(token, stations_df, fallback=token)
+        subtitle = station_label
         # Move title and subtitle slightly up to create more clearance
         fig.text(0.5, 0.985, title, ha="center", va="top", fontsize=FS_TITLE)
         fig.text(0.5, 0.955, subtitle, ha="center", va="top", fontsize=FS_SUBTITLE, color=COLOR_SUBTITLE)
@@ -626,6 +569,7 @@ def plot_season_results(
     out_root = season_dir / "plots" / "results"
     out_root.mkdir(parents=True, exist_ok=True)
     season_id = _season_id_from_dir(season_dir)
+    stations_df = _load_stations_table_from_steps(steps)
 
     vv = (var_col or "").strip().lower()
     if not var_label and not var_units:
@@ -742,11 +686,9 @@ def plot_season_results(
         # Titles/legend
         token = Path(fname).stem
         display_token = token.replace("point_", "", 1)
-        st_name, st_alt = _find_station_meta(None, display_token)
-        station_label = st_name or display_token
-        alt_suffix = f" ({st_alt:.0f} m)" if st_alt is not None else ""
+        _base, _alt, station_label = format_station_label(display_token, stations_df, fallback=display_token)
         title = f"Season Results | {season_dir.name}"
-        subtitle = f"{station_label}{alt_suffix} - {var_title}"
+        subtitle = f"{station_label} - {var_title}"
         # Reduce vertical gap between title/subtitle and the plot area.
         fig.text(0.5, 0.975, title, ha="center", va="top", fontsize=FS_TITLE)
         fig.text(0.5, 0.94, subtitle, ha="center", va="top", fontsize=FS_SUBTITLE, color=COLOR_SUBTITLE)

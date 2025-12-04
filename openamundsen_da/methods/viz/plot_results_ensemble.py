@@ -30,6 +30,7 @@ from openamundsen_da.methods.viz._style import (
     LW_MEAN,
     LW_OPEN,
 )
+from openamundsen_da.methods.viz._utils import format_station_label
 from openamundsen_da.util.stats import envelope
 from openamundsen_da.util.ts import apply_window, resample_and_smooth, read_timeseries_csv
 
@@ -78,57 +79,6 @@ def _load_stations_table(step_dir: Path, ensemble: str) -> Optional[pd.DataFrame
             except Exception:
                 return None
     return None
-
-
-def _find_station_meta(st_df: Optional[pd.DataFrame], token: str) -> Tuple[Optional[str], Optional[float]]:
-    """Return (name, altitude_m) for a station token using a stations table."""
-    if st_df is None or st_df.empty:
-        return None, None
-    df = st_df.copy()
-    cols_lower = {c.lower().strip(): c for c in df.columns}
-    id_candidates = [c for c in ("id", "station_id", "station", "code") if c in cols_lower]
-    name_candidates = [c for c in ("name", "station_name") if c in cols_lower]
-    alt_candidates = [c for c in ("alt", "altitude", "elev", "elevation", "z", "height", "height_m") if c in cols_lower]
-    alt_col = cols_lower[alt_candidates[0]] if alt_candidates else None
-
-    def _match(col_key: str) -> Optional[pd.Series]:
-        col = cols_lower[col_key]
-        try:
-            normalized = df[col].astype(str).str.strip().str.lower()
-            hit = df.loc[normalized == token.lower()]
-            if not hit.empty:
-                return hit.iloc[0]
-        except Exception:
-            return None
-        return None
-
-    row = None
-    for k in id_candidates:
-        row = _match(k)
-        if row is not None:
-            break
-    if row is None:
-        for k in name_candidates:
-            row = _match(k)
-            if row is not None:
-                break
-    if row is None:
-        return None, None
-
-    name_val = None
-    for k in name_candidates:
-        try:
-            name_val = str(row[cols_lower[k]]).strip()
-            break
-        except Exception:
-            continue
-    alt_val = None
-    if alt_col is not None:
-        try:
-            alt_val = float(row[alt_col])
-        except Exception:
-            alt_val = None
-    return name_val, alt_val
 
 
 def _read_point_series(csv_path: Path, time_col: str, value_col: str) -> pd.DataFrame:
@@ -348,8 +298,8 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
         token = Path(fname).stem
         display_token = token.replace("point_", "", 1)
-        st_name, st_alt = _find_station_meta(stations_df, display_token)
-        station_name = st_name or display_token
+        station_name, st_alt, station_label = format_station_label(display_token, stations_df, fallback=display_token)
+        subtitle_text = args.subtitle or f"{station_label} - {var_title}"
 
         out_path = out_root / f"{token}_{args.var_col}.png"
         _plot_point_station(
@@ -361,7 +311,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
             open_loop=ol_series,
             var_title=var_title,
             title=effective_title,
-            subtitle=args.subtitle,
+            subtitle=subtitle_text,
             backend=args.backend,
             out_path=out_path,
             band_low=float(args.band_low),

@@ -2,3 +2,7 @@
 /context/
 openamundsen/
 /testdata/
+*.egg-info
+.env
+.sync-exclude.lst
+.vscode/

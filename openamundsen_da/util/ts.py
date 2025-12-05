@@ -129,3 +129,19 @@ def concat_series(series_list: List[pd.Series]) -> pd.Series:
             return df.iloc[:, 0]
     # already a Series
     return df
+
+
+def parse_datetime_opt(text: str | None) -> "pd.Timestamp | None":
+    """Best-effort datetime parser for config values (YYYY-MM-DD[_HH:MM:SS] allowed)."""
+    if not text:
+        return None
+    t = str(text).strip().replace("_", "-")
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return pd.to_datetime(t, format=fmt)
+        except Exception:
+            continue
+    try:
+        return pd.to_datetime(t)
+    except Exception:
+        return None

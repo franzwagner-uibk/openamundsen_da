@@ -5,7 +5,7 @@ Date: 2025-12-02
 Description:
     Aggregate member-level fraction time series into a season-wide envelope.
 
-    Looks for member CSVs (e.g., point_scf_aoi.csv or point_wet_snow_aoi.csv)
+    Looks for member CSVs (e.g., point_scf_roi.csv or point_wet_snow_roi.csv)
     under <season>/step_*/ensembles/prior/*/results and writes an envelope CSV
     with date, value_mean, value_min, value_max, n.
 """
@@ -62,7 +62,7 @@ def aggregate_fraction_envelope(
     season_dir : Path
         Season directory containing step_* folders.
     filename : str
-        Member CSV filename to collect (e.g., point_scf_aoi.csv).
+        Member CSV filename to collect (e.g., point_scf_roi.csv).
     value_col : str
         Value column to aggregate (e.g., scf or wet_snow_fraction).
     output_name : str
@@ -120,9 +120,9 @@ def cli_main(argv: list[str] | None = None) -> int:
         description="Aggregate member fraction time series into a season-level envelope CSV.",
     )
     p.add_argument("--season-dir", required=True, type=Path, help="Season directory (propagation/season_YYYY-YYYY)")
-    p.add_argument("--filename", required=True, help="Member CSV filename to collect (e.g., point_scf_aoi.csv)")
+    p.add_argument("--filename", required=True, help="Member CSV filename to collect (e.g., point_scf_roi.csv)")
     p.add_argument("--value-col", required=True, help="Value column to aggregate (e.g., scf)")
-    p.add_argument("--output-name", required=True, help="Output CSV name (e.g., point_scf_aoi_envelope.csv)")
+    p.add_argument("--output-name", required=True, help="Output CSV name (e.g., point_scf_roi_envelope.csv)")
     p.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
     args = p.parse_args(argv)
 

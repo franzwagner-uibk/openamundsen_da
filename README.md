@@ -28,7 +28,7 @@ $season  = "$project/propagation/season_YYYY-YYYY" # season folder
 $step    = "$season/step_XX_name"                  # current step
 $date    = "YYYY-MM-DD"                            # assimilation date
 $dateTag = ($date -replace '-', '')
-$aoi     = "$project/env/your_aoi.gpkg"            # single-feature AOI
+$roi     = "$project/env/roi.gpkg"                 # single-feature ROI
 ```
 
 Notes
@@ -43,7 +43,7 @@ This repo expects your project to follow the fixed layout shown below. Commands 
 ```
 project/
 ├── env/
-│   └── <single AOI vector, e.g., my_region.gpkg>
+│   └── roi.gpkg  # single ROI (preferred name)
 ├── meteo/
 │   ├── stations.csv
 │   └── <station>.csv  (long-span forcing inputs)
@@ -65,7 +65,21 @@ project/
 - `project.yml` must define `data_assimilation.h_of_x` (used by `model_scf` + `assimilate_scf`) and the DA blocks referenced by the pipeline.
 - `propagation/season_X/step_Y/ensembles/prior` is created automatically by `season.py` (using `${project}/meteo` for forcing); you only need to ensure the step YAMLs and meteorological inputs exist.
 - Observations (MODIS preprocessed GeoTIFFs → CSV) live under `obs/season_X`; the pipeline assumes the CSVs follow `obs_scf_MOD10A1_YYYYMMDD.csv`.
-- AOI vector: `env/*.gpkg` (single feature) is mandatory for every command that masks spatial data.
+- ROI vector: `env/roi.gpkg` (single feature) is the default for all masking; other vectors under `env/` are ignored unless you explicitly pass a different ROI.
+- Glacier masking (optional but recommended for SCF/wet-snow DA): place a glacier outline at `env/glaciers.gpkg` (may contain many polygons; only those intersecting the ROI are used). When enabled, glaciers are subtracted from the ROI for model H(x), wet-snow fractions, and FSC/S1 summaries so firn/ice pixels are excluded before comparing model vs obs. Toggle via `project.yml`:
+
+```yaml
+data_assimilation:
+  glacier_mask:
+    enabled: true   # default: auto-on when env/glaciers.gpkg exists
+    path: env/glaciers.gpkg  # optional override
+```
+
+Why glacier masking matters
+- openAMUNDSEN (multilayer, seasonal snow) does not represent firn/ice, but SCF/FSC and wet-snow products “see” all bright or radar-wet surfaces (snow + firn + ice), especially on glaciers.
+- Comparing unmasked obs to a seasonal-snow-only model biases both diagnostics and assimilation.
+- Masking out glaciers keeps model vs obs consistent by removing firn/ice pixels from both sides.
+
 
 ## Workflow/Commands
 
@@ -111,7 +125,7 @@ docker compose run --rm oa `
   --season-label season_YYYY-YYYY
 ```
 
-Optional: --project-dir $project, --aoi $aoi, --aoi-field <field>, --target-epsg <code>, --resolution <m>, --ndsi-threshold <val>, --no-envelope, --no-recursive, --overwrite, --log-level <LEVEL>
+Optional: --project-dir $project, --roi $roi, --roi-field <field>, --target-epsg <code>, --resolution <m>, --ndsi-threshold <val>, --no-envelope, --no-recursive, --overwrite, --log-level <LEVEL>
 
 - Single-image SCF extraction (GeoTIFF â†’ obs CSV):
 
@@ -119,7 +133,7 @@ Optional: --project-dir $project, --aoi $aoi, --aoi-field <field>, --target-epsg
 docker compose run --rm oa `
   python -m openamundsen_da.observer.satellite_scf `
   --raster $project/obs/season_YYYY-YYYY/NDSI_Snow_Cover_YYYYMMDD.tif `
-  --region $aoi `
+  --region $roi `
   --step-dir $step
 ```
 
@@ -135,7 +149,7 @@ docker compose run --rm oa `
   --overwrite
 ```
 
-Optional: --overwrite, --log-level <LEVEL> (the summary path defaults to <project>/obs/<season>/scf_summary.csv). No AOI argument is required because the CSV already stores the AOI-derived SCF stats for each date.
+Optional: --overwrite, --log-level <LEVEL> (the summary path defaults to <project>/obs/<season>/scf_summary.csv). No ROI argument is required because the CSV already stores the ROI-derived SCF stats for each date.
 
 Batch mode walks `propagation/season_YYYY-YYYY/step_*`, matches each raster by date to its step (or the step whose `end_date` matches the raster date), and writes `obs_scf_MOD10A1_YYYYMMDD.csv` into `<step>/obs`. Per-step `scf` overrides still apply.
 
@@ -149,7 +163,7 @@ docker compose run --rm oa `
   --overwrite
 ```
 
-Optional: `--overwrite`, `--log-level <LEVEL>` (the summary path defaults to `<project>/obs/<season>/scf_summary.csv`). No AOI argument is required because the CSV already stores the AOI-derived SCF stats for each date.
+Optional: `--overwrite`, `--log-level <LEVEL>` (the summary path defaults to `<project>/obs/<season>/scf_summary.csv`). No ROI argument is required because the CSV already stores the ROI-derived SCF stats for each date.
 
 Note: the summary-based workflow is the recommended way to prepare SCF observations for assimilation; the single-image and raster batch modes are kept for backward compatibility only.
 
@@ -164,7 +178,7 @@ docker compose run --rm oa `
   --project-dir $project
 ```
 
-Optional: --aoi <path> (auto-detect single AOI under env/ if omitted), --aoi-field <field>, --recursive, --log-level. Writes `obs/<season>/scf_summary.csv` with `date, region_id, n_valid, n_snow, scf, source` from FSC values 0..100.
+Optional: --roi <path> (auto-detect single ROI under env/ if omitted), --roi-field <field>, --recursive, --log-level. Writes `obs/<season>/scf_summary.csv` with `date, region_id, n_valid, n_snow, scf, source` from FSC values 0..100.
 
 Product-aware SCF CSVs
 ----------------------
@@ -200,7 +214,7 @@ Sentinel-1 wet-snow observations use pre-classified WSM rasters with four classe
 - `200` = radar shadow (excluded from the statistics)
 - `210` = water (excluded from the statistics)
 
-The S1 summary CLI (`oa-da-wet-snow-s1`) clips each WSM raster to the single-feature AOI, drops shadow and water pixels, and computes a two-class wet-snow fraction as:
+The S1 summary CLI (`oa-da-wet-snow-s1`) clips each WSM raster to the single-feature ROI, drops shadow and water pixels, and computes a two-class wet-snow fraction as:
 
 ```text
 wet_snow_fraction = (# pixels == 110) / (# pixels in {110, 125})
@@ -223,20 +237,20 @@ docker compose run --rm oa `
 Season-level model envelopes for plotting
 -----------------------------------------
 
-Season runs now aggregate member AOI series into:
+Season runs now aggregate member ROI series into:
 
-- `point_scf_aoi_envelope.csv`
-- `point_wet_snow_aoi_envelope.csv`
+- `point_scf_roi_envelope.csv`
+- `point_wet_snow_roi_envelope.csv`
 
-Each contains `date, value_mean, value_min, value_max, n` computed from all available prior member `point_*_aoi.csv` files. Generate manually if needed:
+Each contains `date, value_mean, value_min, value_max, n` computed from all available prior member `point_*_roi.csv` files. Generate manually if needed:
 
 ```powershell
 docker compose run --rm oa `
   python -m openamundsen_da.methods.viz.aggregate_fractions `
   --season-dir $season `
-  --filename point_scf_aoi.csv `
+  --filename point_scf_roi.csv `
   --value-col scf `
-  --output-name point_scf_aoi_envelope.csv
+  --output-name point_scf_roi_envelope.csv
 ```
 
 Plotting SCF + wet-snow obs/model overlay
@@ -272,7 +286,7 @@ Outputs are written to `<season>/plots/results/season_results_point_<station>_{s
     python -m openamundsen_da.methods.h_of_x.model_scf `
     --project-dir $project `
     --member-results $step/ensembles/prior/member_001/results `
-    --aoi $aoi `
+    --roi $roi `
     --date $date
 ```
 
@@ -289,7 +303,7 @@ docker compose run --rm oa `
   --step-dir $step `
   --ensemble prior `
   --date $date `
-  --aoi $aoi
+  --roi $roi
 ```
 
 Optional: `--obs-csv <path>`, `--output <csv>`, `--log-level <LEVEL>`
@@ -310,6 +324,13 @@ docker compose run --rm oa `
 ```
 
 Optional: `--ess-threshold-ratio <0..1>`, `--ess-threshold <n|ratio>`, `--seed <int>`, `--overwrite`, `--log-level <LEVEL>`
+
+Resampling configuration (season + CLI)
+
+- The pipeline and CLI both read `data_assimilation.resampling` from `project.yml`.
+- Keys: `algorithm` (systematic), `ess_threshold_ratio` (recommended 0.5–0.66), optional `ess_threshold` (absolute), and `seed`.
+- Behavior: if ESS >= threshold, resampling is skipped and the prior is mirrored to the posterior; a log line like `Skipping resampling | ESS=38.2 >= thr_abs=30.0 (ensemble healthy; mirroring source->target; ess_ratio=0.637)` is emitted.
+- If no threshold is set, resampling always runs.
 
 ### Rejuvenation (posterior -> prior)
 
@@ -426,10 +447,10 @@ docker compose run --rm oa `
   results `
   --season-dir $season `
   --var-col scf `
-  --station point_scf_aoi.csv
+  --station point_scf_roi.csv
 ```
 
-This uses per-member `point_scf_aoi.csv` files (model SCF derived from HS/SWE grids) written under each member's `results` directory and overlays observed SCF from `obs/<season>/scf_summary.csv` when available.
+This uses per-member `point_scf_roi.csv` files (model SCF derived from HS/SWE grids) written under each member's `results` directory and overlays observed SCF from `obs/<season>/scf_summary.csv` when available.
 
 Defaults: ensemble members are hidden; plots show the ensemble mean, the 90% envelope (5–95% quantiles), and the open loop. Use `--show-members` to draw all members.  
 Optional: `--station`, `--max-stations`, `--start-date`, `--end-date`, `--resample`, `--rolling`, `--hydro-month`, `--hydro-day`, `--backend`, `--log-level`, `--var-label`, `--var-units`, `--band-low`, `--band-high`, `--show-members`.
@@ -475,7 +496,7 @@ The launcher automatically pulls the initial forcing from `$project/meteo` and b
 
 Optional: `--max-workers <N>`, `--overwrite`, `--no-live-plots`, `--log-level <LEVEL>` (`--no-live-plots` skips plotting during the run; all plots are created once at the end).
 
-The pipeline drives each step in order, assimilates SCF on the _next_ step's start date, resamples the resulting weights to the posterior, and rejuvenates that posterior into the next prior before proceeding. Assimilation looks for the single-row CSV `obs_scf_MOD10A1_YYYYMMDD.csv` inside `<step>/obs/` for the date being processed; generate those files with `openamundsen_da.observer.satellite_scf` after you preprocess the MOD10A1 NDSI raster for your AOI (projection, QA/masking, and mosaicking). `season.py` never reads raw imagery, so the CSV must already reflect any filtering or thresholding you want applied.
+The pipeline drives each step in order, assimilates SCF on the _next_ step's start date, resamples the resulting weights to the posterior, and rejuvenates that posterior into the next prior before proceeding. Assimilation looks for the single-row CSV `obs_scf_MOD10A1_YYYYMMDD.csv` inside `<step>/obs/` for the date being processed; generate those files with `openamundsen_da.observer.satellite_scf` after you preprocess the MOD10A1 NDSI raster for your ROI (projection, QA/masking, and mosaicking). `season.py` never reads raw imagery, so the CSV must already reflect any filtering or thresholding you want applied.
 
 Outputs
 
@@ -483,24 +504,24 @@ Outputs
 - Weights and indices in `<step>/assim/`
 - Rejuvenated next-step prior (members + open_loop with state_pointer.json)
 - Season plots under `<season_dir>/plots/{forcing,results}`
-- When model SCF is enabled, daily AOI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_aoi.csv`; the combined SCF + wet-snow fraction plot (`plots/results/fraction_timeseries.png`) provides the season-level view.
+- When model SCF is enabled, daily ROI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_roi.csv`; the combined SCF + wet-snow fraction plot (`plots/results/fraction_timeseries.png`) provides the season-level view.
   Season results plots now show the ensemble mean, the 90% envelope, and the open loop by default; individual members are hidden unless `--show-members` is passed to the plot CLI. Wet-snow season plots overlay available observations from `obs/<season>/wet_snow_summary.csv` automatically.
   At the end of the season run, per-step weights plots (`step_XX_weights.png`) and the season ESS timeline (`season_ess_timeline_<season_id>.png`) are also generated under `<season_dir>/plots/assim/{weights,ess}`.
 
 ### Backfilling model SCF for an existing season (optional)
 
-If you have already run a season and want to compute daily AOI-mean model SCF for all members (to enable SCF season plots), you can run:
+If you have already run a season and want to compute daily ROI-mean model SCF for all members (to enable SCF season plots), you can run:
 
 ```powershell
 $project = "/data"
 $season  = "$project/propagation/season_YYYY-YYYY"
-$aoi     = "$project/env/your_aoi.gpkg"
+$roi     = "$project/env/roi.gpkg"
 
 docker compose run --rm oa `
-  python -c "from openamundsen_da.methods.h_of_x.model_scf import cli_season_daily; import sys; sys.exit(cli_season_daily(['--project-dir','$project','--season-dir','$season','--aoi','$aoi','--max-workers','20']))"
+  python -c "from openamundsen_da.methods.h_of_x.model_scf import cli_season_daily; import sys; sys.exit(cli_season_daily(['--project-dir','$project','--season-dir','$season','--roi','$roi','--max-workers','20']))"
 ```
 
-This writes per-member SCF time series to `<step>/ensembles/prior/<member>/results/point_scf_aoi.csv` for all steps, so `plot_season_ensemble` with `var_col="scf"` can consume them.
+This writes per-member SCF time series to `<step>/ensembles/prior/<member>/results/point_scf_roi.csv` for all steps, so `plot_season_ensemble` with `var_col="scf"` can consume them.
 
 ### Season Skeleton (optional helper)
 
@@ -558,7 +579,7 @@ What it records
 - System memory usage (used vs. total).
 - Total size of the season directory on disk.
 - Static metadata from project/season config:
-  - AOI area (km²)
+  - ROI area (km²)
   - spatial resolution (m)
   - model timestep (e.g. `3H`)
   - number of days in the season

@@ -11,7 +11,7 @@ but works on categorical wet-snow masks:
 
 Both paths clip the raster to a single-feature AOI and report the fraction of
 wet pixels among all valid pixels (area-weighted under the equal-area pixel
-assumption). ``point_wet_snow_aoi.csv`` mirrors ``point_scf_aoi.csv`` and can
+assumption). ``point_wet_snow_roi.csv`` mirrors ``point_scf_roi.csv`` and can
 be generated per member or per season via the provided CLIs.
 """
 
@@ -35,7 +35,7 @@ from openamundsen_da.methods.daily_aoi_series import (
     compute_step_daily_series_for_all_members,
     step_start_end,
 )
-from openamundsen_da.util.aoi import read_single_aoi
+from openamundsen_da.util.glacier_mask import resolve_glacier_mask, mask_aoi_with_glaciers
 
 
 _MODEL_WET = (1,)
@@ -78,6 +78,7 @@ def _find_mask_raster(
 def _read_mask_by_aoi(
     raster_path: Path,
     aoi_path: Path,
+    glacier_path: Path | None = None,
 ) -> tuple[np.ma.MaskedArray, float | None, str]:
     """Read raster values cropped to the AOI; return masked array and AOI area."""
 
@@ -86,7 +87,12 @@ def _read_mask_by_aoi(
             raise ValueError(f"Raster {raster_path} lacks a CRS")
         # For wet-snow summaries we only require a single-feature AOI,
         # not a specific attribute schema.
-        gdf, region_id = read_single_aoi(aoi_path, required_field=None, to_crs=src.crs)
+        gdf, region_id = mask_aoi_with_glaciers(
+            aoi_path,
+            glacier_path=glacier_path,
+            required_field=None,
+            to_crs=src.crs,
+        )
         data, transform = rio_mask(
             src,
             gdf.geometry,
@@ -154,10 +160,15 @@ def compute_wet_snow_fraction_from_raster(
     wet_values: Sequence[int],
     valid_values: Sequence[int] | None = None,
     exclude_values: Sequence[int] | None = None,
+    glacier_path: Path | None = None,
 ) -> WetSnowStats:
     """Compute wet-snow coverage from an arbitrary categorical raster."""
 
-    arr, pixel_area, region_id = _read_mask_by_aoi(Path(raster_path), Path(aoi_path))
+    arr, pixel_area, region_id = _read_mask_by_aoi(
+        Path(raster_path),
+        Path(aoi_path),
+        glacier_path=glacier_path,
+    )
     return _compute_fraction(
         arr,
         wet_values=wet_values,
@@ -172,6 +183,7 @@ def compute_model_wet_snow_fraction(
     *,
     results_dir: Path,
     aoi_path: Path,
+    glacier_path: Path | None = None,
     date: datetime,
     mask_subdir: str = "wet_snow",
     mask_prefix: str = "wet_snow_mask",
@@ -184,6 +196,7 @@ def compute_model_wet_snow_fraction(
         aoi_path,
         wet_values=_MODEL_WET,
         valid_values=_MODEL_VALID,
+        glacier_path=glacier_path,
     )
     member_id = member_id_from_results_dir(Path(results_dir))
     return {
@@ -203,6 +216,7 @@ def compute_member_wet_snow_daily(
     *,
     results_dir: Path,
     aoi_path: Path,
+    glacier_path: Path | None = None,
     start: datetime,
     end: datetime,
     mask_subdir: str = "wet_snow",
@@ -222,6 +236,7 @@ def compute_member_wet_snow_daily(
             stats = compute_model_wet_snow_fraction(
                 results_dir=Path(results_dir),
                 aoi_path=Path(aoi_path),
+                glacier_path=Path(glacier_path) if glacier_path else None,
                 date=dt,
                 mask_subdir=mask_subdir,
                 mask_prefix=mask_prefix,
@@ -251,9 +266,11 @@ def _compute_member_daily_worker(
     """Worker: compute wet-snow daily series for a single member results dir."""
     mask_subdir = str(extra.get("mask_subdir", "wet_snow"))
     mask_prefix = str(extra.get("mask_prefix", "wet_snow_mask"))
+    glacier_path = extra.get("glacier_path")
     df = compute_member_wet_snow_daily(
         results_dir=results_dir,
         aoi_path=aoi_path,
+        glacier_path=Path(glacier_path) if glacier_path else None,
         start=start,
         end=end,
         mask_subdir=mask_subdir,
@@ -272,6 +289,7 @@ def compute_step_wet_snow_daily_for_all_members(
     *,
     step_dir: Path,
     aoi_path: Path,
+    glacier_path: Path | None = None,
     max_workers: int = 4,
     overwrite: bool = False,
     mask_subdir: str = "wet_snow",
@@ -291,13 +309,17 @@ def compute_step_wet_snow_daily_for_all_members(
         aoi_path=aoi_path,
         start=start,
         end=end,
-        csv_name="point_wet_snow_aoi.csv",
+        csv_name="point_wet_snow_roi.csv",
         worker=_compute_member_daily_worker,
         ensemble="prior",
         include_open_loop=True,
         max_workers=max_workers,
         overwrite=overwrite,
-        worker_kwargs={"mask_subdir": mask_subdir, "mask_prefix": mask_prefix},
+        worker_kwargs={
+            "mask_subdir": mask_subdir,
+            "mask_prefix": mask_prefix,
+            "glacier_path": str(glacier_path) if glacier_path else None,
+        },
     )
 
 
@@ -306,6 +328,7 @@ def summarize_s1_directory(
     raster_dir: Path,
     aoi_path: Path,
     output_csv: Path,
+    glacier_path: Path | None = None,
     overwrite: bool = False,
 ) -> Path:
     """Summarize Sentinel-1 wet-snow maps into one CSV (date, fraction)."""
@@ -327,6 +350,7 @@ def summarize_s1_directory(
                 wet_values=_S1_WET,
                 valid_values=_S1_VALID,
                 exclude_values=_S1_EXCLUDE,
+                glacier_path=glacier_path,
             )
         except Exception as exc:
             logger.warning("Skipping {}: {}", tif.name, exc)
@@ -377,7 +401,7 @@ def cli_model(argv: list[str] | None = None) -> int:
         description="Compute AOI wet-snow fraction for one member/date.",
     )
     parser.add_argument("--member-results", required=True, type=Path, help="Member results directory (contains wet_snow/)")
-    parser.add_argument("--aoi", required=True, type=Path, help="Single-feature AOI vector file")
+    parser.add_argument("--aoi", "--roi", dest="aoi", required=True, type=Path, help="Single-feature ROI vector file")
     parser.add_argument("--date", required=True, type=str, help="Date YYYY-MM-DD")
     parser.add_argument("--mask-subdir", default="wet_snow", help="Subdirectory under results/ holding masks")
     parser.add_argument("--mask-prefix", default="wet_snow_mask", help="Filename prefix of masks")
@@ -436,7 +460,7 @@ def cli_model(argv: list[str] | None = None) -> int:
 
 
 def cli_model_season(argv: list[str] | None = None) -> int:
-    """CLI: compute point_wet_snow_aoi.csv for every member in each step."""
+    """CLI: compute point_wet_snow_roi.csv for every member in each step."""
 
     import argparse
 
@@ -445,7 +469,7 @@ def cli_model_season(argv: list[str] | None = None) -> int:
         description="Compute daily AOI wet-snow fractions for all prior members in a season.",
     )
     parser.add_argument("--season-dir", required=True, type=Path, help="Season directory containing step_* folders")
-    parser.add_argument("--aoi", required=True, type=Path, help="Single-feature AOI vector")
+    parser.add_argument("--aoi", "--roi", dest="aoi", required=True, type=Path, help="Single-feature ROI vector")
     parser.add_argument("--max-workers", type=int, default=4)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--mask-subdir", default="wet_snow")
@@ -488,7 +512,7 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--project-dir", type=Path, help="Project root; defaults raster-dir=<project>/obs/WSM_S1_SAR and aoi=<project>/env/*.gpkg|*.shp")
     parser.add_argument("--raster-dir", type=Path, help="Directory with WSM_S1*_*.tif rasters (default: <project>/obs/WSM_S1_SAR when project-dir is set)")
-    parser.add_argument("--aoi", type=Path, help="Single-feature AOI vector (default: first *.gpkg/*.shp in <project>/env when project-dir is set)")
+    parser.add_argument("--aoi", "--roi", dest="aoi", type=Path, help="Single-feature ROI vector (default: env/roi.gpkg or first *.gpkg/*.shp in <project>/env when project-dir is set)")
     parser.add_argument("--output", required=True, type=Path, help="Output CSV (e.g., wet_snow_summary.csv)")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--log-level", default="INFO")
@@ -516,9 +540,13 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
                 logger.error("No AOI found under {}", env_dir)
                 return 1
             aoi_path = candidates[0]
+        glacier_cfg = resolve_glacier_mask(proj_dir)
+        glacier_path = glacier_cfg.path if glacier_cfg.enabled else None
+    else:
+        glacier_path = None
 
     if raster_dir is None or aoi_path is None:
-        logger.error("Both --raster-dir and --aoi are required when --project-dir is not provided.")
+        logger.error("Both --raster-dir and --roi/--aoi are required when --project-dir is not provided.")
         return 1
 
     try:
@@ -526,6 +554,7 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
             raster_dir=raster_dir,
             aoi_path=aoi_path,
             output_csv=Path(args.output),
+            glacier_path=glacier_path,
             overwrite=bool(args.overwrite),
         )
     except Exception as exc:
@@ -547,3 +576,7 @@ __all__ = [
     "cli_model_season",
     "cli_s1_summary",
 ]
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(cli_s1_summary())

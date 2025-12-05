@@ -26,7 +26,7 @@ from loguru import logger
 
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml, find_season_yaml
-from openamundsen_da.util.aoi import read_single_aoi
+from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.da_events import load_assimilation_events
 
 try:  # psutil is required for process metrics
@@ -531,7 +531,7 @@ def cli_main(argv: List[str] | None = None) -> int:
         env_dir = Path(project_dir) / "env"
         aoi_candidates = list(env_dir.glob("*.gpkg")) + list(env_dir.glob("*.shp"))
         if aoi_candidates:
-            gdf, _ = read_single_aoi(aoi_candidates[0], required_field=None, to_crs=proj_crs if proj_crs is not None else None)
+            gdf, _ = read_single_roi(aoi_candidates[0], required_field=None, to_crs=proj_crs if proj_crs is not None else None)
             roi_area_km2 = float(gdf.geometry.area.iloc[0]) / 1_000_000.0
     except Exception as exc:
         logger.warning("Perf monitor CLI: failed to read project/AOI metadata: {}", exc)

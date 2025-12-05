@@ -2,10 +2,69 @@
 
 from __future__ import annotations
 
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Optional, Tuple
 import math
 
 import pandas as pd
+
+
+def find_station_meta(st_df: Optional[pd.DataFrame], token: str) -> Tuple[Optional[str], Optional[float]]:
+    """Return (name, altitude_m) for a station token using a stations table."""
+    if st_df is None or st_df.empty:
+        return None, None
+    df = st_df.copy()
+    cols_lower = {c.lower().strip(): c for c in df.columns}
+    id_candidates = [c for c in ("id", "station_id", "station", "code") if c in cols_lower]
+    name_candidates = [c for c in ("name", "station_name") if c in cols_lower]
+    alt_candidates = [c for c in ("alt", "altitude", "elev", "elevation", "z", "height", "height_m") if c in cols_lower]
+    alt_col = cols_lower[alt_candidates[0]] if alt_candidates else None
+
+    def _match(col_key: str) -> Optional[pd.Series]:
+        col = cols_lower[col_key]
+        try:
+            normalized = df[col].astype(str).str.strip().str.lower()
+            hit = df.loc[normalized == token.lower()]
+            if not hit.empty:
+                return hit.iloc[0]
+        except Exception:
+            return None
+        return None
+
+    row = None
+    for k in id_candidates:
+        row = _match(k)
+        if row is not None:
+            break
+    if row is None:
+        for k in name_candidates:
+            row = _match(k)
+            if row is not None:
+                break
+    if row is None:
+        return None, None
+
+    name_val = None
+    for k in name_candidates:
+        try:
+            name_val = str(row[cols_lower[k]]).strip()
+            break
+        except Exception:
+            continue
+    alt_val = None
+    if alt_col is not None:
+        try:
+            alt_val = float(row[alt_col])
+        except Exception:
+            alt_val = None
+    return name_val, alt_val
+
+
+def format_station_label(token: str, st_df: Optional[pd.DataFrame], *, fallback: Optional[str] = None) -> Tuple[str, Optional[float], str]:
+    """Return (display_name, altitude_m, label_with_alt) for a station token."""
+    name, alt = find_station_meta(st_df, token)
+    display = name or fallback or token
+    label = f"{display} ({alt:.0f} m)" if alt is not None else display
+    return display, alt, label
 
 
 def draw_assimilation_vlines(ax, dates: Iterable) -> None:

@@ -18,6 +18,11 @@ Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satelli
 - Set Compose compatibility if needed: `setx COMPOSE_COMPATIBILITY 1` (Windows) or `export COMPOSE_COMPATIBILITY=1` (Linux/macOS).
 - Volumes: `${REPO}` â†’ `/workspace`, `${PROJ}` â†’ `/data`.
 
+Environment notes
+
+- GDAL/PROJ are required; prefer installing via Conda. Ensure `GDAL_DATA` and `PROJ_LIB` point to your environment (see example `project.yml`).
+- Python 3.10+ is required; dependencies are declared in `pyproject.toml`.
+
 ## Project Variables
 
 Define once per shell and reuse in all commands:
@@ -221,6 +226,13 @@ wet_snow_fraction = (# pixels == 110) / (# pixels in {110, 125})
 ```
 
 This fraction is written to `wet_snow_summary.csv` along with `n_valid`, `n_wet`, and the source filename, and is later converted into per-step `obs_wet_snow_S1_YYYYMMDD.csv` files by the season helper.
+
+Wet-snow assimilation workflow
+------------------------------
+
+- Summarize observations into `wet_snow_summary.csv` (e.g., `oa-da-wet-snow-s1`), then drive the season helper to write per-step `obs_wet_snow_*.csv` aligned to assimilation dates.
+- The season pipeline reads `data_assimilation.assimilation_events` from `season.yml`; it now errors if fewer events than DA steps are configured.
+- Wet-snow masks/fractions are computed for all members before DA using the project wet-snow threshold; assimilation/resampling/rejuvenation then proceed like SCF.
 
 Per-step forcing plots
 ----------------------

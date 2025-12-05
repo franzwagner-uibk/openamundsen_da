@@ -31,7 +31,7 @@ from openamundsen_da.core.launch import launch_members
 from openamundsen_da.core.prior_forcing import build_prior_ensemble
 from openamundsen_da.io.paths import read_step_config, find_project_yaml, find_season_yaml
 from openamundsen_da.util.roi import read_single_roi
-from openamundsen_da.util.glacier_mask import resolve_glacier_mask
+from openamundsen_da.util.glacier_mask import resolve_glacier_mask, default_roi_path
 from openamundsen_da.util.da_events import load_assimilation_events, AssimilationEvent
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.methods.pf.assimilate_scf import (
@@ -81,7 +81,7 @@ def _next_step_start(steps: List[Path], idx: int) -> Optional[datetime]:
 def _find_roi(project_dir: Path) -> Path:
     """Return the conventional ROI path env/roi.gpkg if present."""
     env_dir = Path(project_dir) / "env"
-    roi = env_dir / "roi.gpkg"
+    roi = default_roi_path(project_dir)
     if roi.is_file():
         return roi
     cands = list(env_dir.glob("*.gpkg")) + list(env_dir.glob("*.shp"))
@@ -145,6 +145,78 @@ def _aggregate_and_copy_fraction(
             logger.warning("Failed to copy {} -> {}: {}", env_path, copy_path, exc)
             copy_path = None
     return env_path, copy_path
+
+
+def _aggregate_fraction_envelopes(season_dir: Path) -> None:
+    """Aggregate SCF and wet-snow envelopes and mirror them into plots/results."""
+    try:
+        _aggregate_and_copy_fraction(
+            season_dir=season_dir,
+            filename="point_scf_roi.csv",
+            value_col="scf",
+            output_name="point_scf_roi_envelope.csv",
+        )
+    except Exception as exc:
+        logger.warning("SCF envelope aggregation failed: {}", exc)
+    try:
+        _aggregate_and_copy_fraction(
+            season_dir=season_dir,
+            filename="point_wet_snow_roi.csv",
+            value_col="wet_snow_fraction",
+            output_name="point_wet_snow_roi_envelope.csv",
+        )
+    except Exception as exc:
+        logger.warning("Wet-snow envelope aggregation failed: {}", exc)
+
+
+def _run_live_plots(cfg: OrchestratorConfig, step_dir: Path, step_name: str, wcsv: Path) -> None:
+    """Run per-step plotting suite and restore orchestrator logging."""
+    try:
+        logger.info("Updating season plots after assimilation step {} ...", step_name)
+        _aggregate_fraction_envelopes(cfg.season_dir)
+        try:
+            plot_forcing_cli([
+                "--step-dir", str(step_dir),
+                "--ensemble", "prior",
+                "--log-level", cfg.log_level,
+            ])
+        except Exception as exc:
+            logger.warning("Forcing plot failed for {}: {}", step_name, exc)
+        try:
+            plot_season_results(
+                season_dir=cfg.season_dir,
+                var_col="swe",
+                mode="members",
+                resample="D",
+                resample_agg="mean",
+            )
+            plot_season_results(
+                season_dir=cfg.season_dir,
+                var_col="snow_depth",
+                mode="members",
+                resample="D",
+                resample_agg="mean",
+            )
+        except Exception as exc:
+            logger.warning("Season point results plot failed after step {}: {}", step_name, exc)
+        try:
+            plot_fractions_cli([
+                "--season-dir", str(cfg.season_dir),
+                "--project-dir", str(cfg.project_dir),
+                "--log-level", cfg.log_level,
+                "--mode", "band",
+            ])
+        except Exception as exc:
+            logger.warning("Fraction overlay plot skipped after step {}: {}", step_name, exc)
+        plot_weights_for_csv(wcsv)
+        try:
+            plot_season_ess_timeline(cfg.season_dir)
+        except FileNotFoundError:
+            pass
+    except Exception as exc:
+        logger.warning("Season plotting failed after step {}: {}", step_name, exc)
+    finally:
+        _setup_logger(cfg.season_dir, cfg.log_level)
 
 
 @dataclass
@@ -515,76 +587,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
         # are written with deterministic filenames and therefore overwritten on
         # each update.
         if cfg.live_plots:
-            try:
-                logger.info("Updating season plots after assimilation step {} ...", step_name)
-                # Refresh aggregated fraction envelopes and copy them into plots/results.
-                try:
-                    _aggregate_and_copy_fraction(
-                        season_dir=cfg.season_dir,
-                filename="point_scf_roi.csv",
-                value_col="scf",
-                output_name="point_scf_roi_envelope.csv",
-                    )
-                except Exception as exc:
-                    logger.warning("SCF envelope aggregation failed after step {}: {}", step_name, exc)
-                try:
-                    _aggregate_and_copy_fraction(
-                        season_dir=cfg.season_dir,
-                        filename="point_wet_snow_roi.csv",
-                        value_col="wet_snow_fraction",
-                        output_name="point_wet_snow_roi_envelope.csv",
-                    )
-                except Exception as exc:
-                    logger.warning("Wet-snow envelope aggregation failed after step {}: {}", step_name, exc)
-                # Per-step forcing plots (temperature in K, cumulative precip) for the current step
-                try:
-                    plot_forcing_cli([
-                        "--step-dir", str(step_dir),
-                        "--ensemble", "prior",
-                        "--log-level", cfg.log_level,
-                    ])
-                except Exception as exc:
-                    logger.warning("Forcing plot failed for {}: {}", step_name, exc)
-                # Point results (SWE and snow depth), daily aggregated, in member mode for all stations
-                try:
-                    plot_season_results(
-                        season_dir=cfg.season_dir,
-                        var_col="swe",
-                        mode="members",
-                        resample="D",
-                        resample_agg="mean",
-                    )
-                    plot_season_results(
-                        season_dir=cfg.season_dir,
-                        var_col="snow_depth",
-                        mode="members",
-                        resample="D",
-                        resample_agg="mean",
-                    )
-                except Exception as exc:
-                    logger.warning("Season point results plot failed after step {}: {}", step_name, exc)
-                # Combined fraction overlay (SCF + wet snow), written under plots/results
-                try:
-                    plot_fractions_cli([
-                        "--season-dir", str(cfg.season_dir),
-                        "--project-dir", str(cfg.project_dir),
-                        "--log-level", cfg.log_level,
-                        "--mode", "band",
-                    ])
-                except Exception as exc:
-                    logger.warning("Fraction overlay plot skipped after step {}: {}", step_name, exc)
-                # Per-step weights plot at season level
-                plot_weights_for_csv(wcsv)
-                # Season-wide ESS timeline across all available assimilation dates
-                try:
-                    plot_season_ess_timeline(cfg.season_dir)
-                except FileNotFoundError:
-                    # Best-effort: skip if weights are not yet available
-                    pass
-            except Exception as exc:
-                logger.warning("Season plotting failed after step {}: {}", step_name, exc)
-        # Restore orchestrator logging sinks after plot_season_* reconfigures Loguru.
-        _setup_logger(cfg.season_dir, cfg.log_level)
+            _run_live_plots(cfg, step_dir, step_name, wcsv)
 
     # Final assimilation-level plots (weights per step + ESS timeline),
     # regardless of live_plots. Best-effort: failures do not abort.
@@ -627,40 +630,12 @@ def run_season(cfg: OrchestratorConfig) -> None:
         plot_fractions_cli([
             "--season-dir", str(cfg.season_dir),
             "--project-dir", str(cfg.project_dir),
-            "--mode", "band",
         ])
     except Exception as exc:
         logger.warning("Fraction overlay plot skipped: {}", exc)
 
     # Aggregate fraction envelopes (SCF and wet snow) for quick plotting/analysis
-    try:
-        _aggregate_and_copy_fraction(
-            season_dir=cfg.season_dir,
-            filename="point_scf_roi.csv",
-            value_col="scf",
-            output_name="point_scf_roi_envelope.csv",
-        )
-    except Exception as exc:
-        logger.warning("SCF envelope aggregation failed: {}", exc)
-    try:
-        _aggregate_and_copy_fraction(
-            season_dir=cfg.season_dir,
-            filename="point_wet_snow_roi.csv",
-            value_col="wet_snow_fraction",
-            output_name="point_wet_snow_roi_envelope.csv",
-        )
-    except Exception as exc:
-        logger.warning("Wet-snow envelope aggregation failed: {}", exc)
-
-    # Generate combined SCF + wet-snow fraction plot (obs + ensemble bands + open loop)
-    try:
-        logger.info("Generating fraction overlay plot (SCF + wet snow) ...")
-        plot_fractions_cli([
-            "--season-dir", str(cfg.season_dir),
-            "--project-dir", str(cfg.project_dir),
-        ])
-    except Exception as exc:
-        logger.warning("Fraction overlay plot skipped: {}", exc)
+    _aggregate_fraction_envelopes(cfg.season_dir)
 
     _setup_logger(cfg.season_dir, cfg.log_level)
     run_end = datetime.utcnow()

@@ -121,16 +121,20 @@ def _list_rasters(
 
 
 def _auto_aoi(project_dir: Path) -> Path:
-    """Pick a single ROI from <project>/env if present."""
+    """Pick ROI from <project>/env; prefer roi.gpkg (single-feature)."""
+
     env_dir = project_dir / "env"
     roi = env_dir / "roi.gpkg"
     if roi.is_file():
         return roi
-    cands = list(env_dir.glob("*.gpkg")) + list(env_dir.glob("*.shp"))
+    cands = sorted(env_dir.glob("*.gpkg")) + sorted(env_dir.glob("*.shp"))
     if not cands:
         raise FileNotFoundError(f"No ROI found under {env_dir}")
     if len(cands) > 1:
-        raise ValueError(f"Multiple ROI candidates under {env_dir}; specify --roi/--aoi")
+        raise ValueError(
+            f"Expected roi.gpkg under {env_dir}; found multiple candidates. "
+            "Please provide --aoi/--roi explicitly."
+        )
     return cands[0]
 
 

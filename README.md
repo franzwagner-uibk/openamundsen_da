@@ -325,6 +325,13 @@ docker compose run --rm oa `
 
 Optional: `--ess-threshold-ratio <0..1>`, `--ess-threshold <n|ratio>`, `--seed <int>`, `--overwrite`, `--log-level <LEVEL>`
 
+Resampling configuration (season + CLI)
+
+- The pipeline and CLI both read `data_assimilation.resampling` from `project.yml`.
+- Keys: `algorithm` (systematic), `ess_threshold_ratio` (recommended 0.5–0.66), optional `ess_threshold` (absolute), and `seed`.
+- Behavior: if ESS >= threshold, resampling is skipped and the prior is mirrored to the posterior; a log line like `Skipping resampling | ESS=38.2 >= thr_abs=30.0 (ensemble healthy; mirroring source->target; ess_ratio=0.637)` is emitted.
+- If no threshold is set, resampling always runs.
+
 ### Rejuvenation (posterior -> prior)
 
 Rebase is default (perturbations are applied relative to open_loop). If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas.

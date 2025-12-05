@@ -301,9 +301,10 @@ def resample_from_weights(
     else:
         indices = None
         logger.info(
-            "Skipping resampling | ESS={:.1f} >= thr_abs={:.1f} (mirror source->target)",
+            "Skipping resampling | ESS={:.1f} >= thr_abs={:.1f} (ensemble healthy; mirroring source->target; ess_ratio={:.3f})",
             ess,
             thr_abs,
+            (ess / float(n) if n > 0 else 0.0),
         )
 
     # Materialize posterior

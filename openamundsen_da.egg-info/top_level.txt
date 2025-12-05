@@ -1,7 +1,0 @@
-context
-docker
-examples
-openamundsen
-openamundsen_da
-templates
-testdata

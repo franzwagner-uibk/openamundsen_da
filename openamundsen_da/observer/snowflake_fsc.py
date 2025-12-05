@@ -27,6 +27,7 @@ from typing import Iterable, Optional
 import numpy as np
 import pandas as pd
 import rasterio
+import yaml
 from loguru import logger
 from rasterio.mask import mask as rio_mask
 
@@ -97,9 +98,26 @@ def _compute_stats_for_raster(
     )
 
 
-def _list_rasters(root: Path, recursive: bool) -> list[Path]:
+def _list_rasters(
+    root: Path,
+    recursive: bool,
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> list[Path]:
     files: Iterable[Path] = root.rglob("*.tif") if recursive else root.glob("*.tif")
-    return sorted(p for p in files if p.is_file())
+    filtered: list[Path] = []
+    for p in sorted(p for p in files if p.is_file()):
+        try:
+            date = _extract_date(p)
+        except ValueError:
+            logger.warning("Skipping FSC raster with no parsable date: {}", p.name)
+            continue
+        if start and date < start:
+            continue
+        if end and date > end:
+            continue
+        filtered.append(p)
+    return filtered
 
 
 def _auto_aoi(project_dir: Path) -> Path:
@@ -147,9 +165,11 @@ def summarize_snowflake_directory(
     region_field: str | None = None,
     glacier_path: Path | None = None,
     recursive: bool = False,
+    start: datetime | None = None,
+    end: datetime | None = None,
 ) -> list[Path]:
     """Summarize all FSC rasters under input_dir into scf_summary.csv."""
-    rasters = _list_rasters(input_dir, recursive)
+    rasters = _list_rasters(input_dir, recursive, start=start, end=end)
     if not rasters:
         logger.warning("No FSC rasters found in {}", input_dir)
         return []
@@ -216,6 +236,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     output_root = Path(args.output_root) if args.output_root else project_dir / OBS_DIR_NAME
     glacier_cfg = resolve_glacier_mask(project_dir)
     glacier_path = glacier_cfg.path if glacier_cfg.enabled else None
+    season_dates = _resolve_season_dates(project_dir, args.season_label)
 
     try:
         aoi_path = Path(args.aoi) if args.aoi else _auto_aoi(project_dir)
@@ -227,11 +248,29 @@ def cli_main(argv: list[str] | None = None) -> int:
             region_field=str(args.aoi_field) if args.aoi_field else None,
             glacier_path=glacier_path,
             recursive=bool(args.recursive),
+            start=season_dates["start"] if season_dates else None,
+            end=season_dates["end"] if season_dates else None,
         )
         return 0
     except Exception as exc:
         logger.error("Snowflake FSC summarization failed: {}", exc)
         return 1
+
+
+def _resolve_season_dates(project_dir: Path, season_label: str) -> dict[str, datetime] | None:
+    """Load start/end dates from propagation/<season_label>/season.yml if present."""
+
+    season_yml = project_dir / "propagation" / season_label / "season.yml"
+    if not season_yml.exists():
+        return None
+    try:
+        data = yaml.safe_load(season_yml.read_text())
+        start = datetime.fromisoformat(str(data.get("start_date")))
+        end = datetime.fromisoformat(str(data.get("end_date")))
+        return {"start": start, "end": end}
+    except Exception as exc:
+        logger.warning("Could not parse season dates from {}: {}", season_yml, exc)
+        return None
 
 
 if __name__ == "__main__":  # pragma: no cover

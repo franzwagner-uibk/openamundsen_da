@@ -3,16 +3,20 @@
 COLOR_MEAN = "#120fb6"
 COLOR_OPEN_LOOP = "black"
 BAND_ALPHA = 0.18
-LW_MEMBER = 0.8
-LW_MEAN = 1.0
-LW_OPEN = 1.2
+LW_MEMBER = 0.9
+# Use a common (slightly thicker) linewidth for key summary lines
+# (ensemble mean, open loop, and station observations).
+LW_MEAN = 1.6
+LW_OPEN = 1.6
 LEGEND_NCOL = 4
 LEGEND_NCOL_SEASON = 6
 
-# Observation markers (e.g., SCF DA points)
-COLOR_DA_OBS = "black"
+# Observation markers (e.g., SCF DA points and station obs)
+# Use a distinct color from COLOR_OPEN_LOOP ("black") so open-loop and
+# observations are clearly distinguishable in results plots.
+COLOR_DA_OBS = "#d62728"
 SIZE_DA_OBS = 100
-LW_DA_OBS = 1.5
+LW_DA_OBS = 1.6
 COLOR_OBS_SCF = "#d62728"
 SIZE_OBS_SCF = 10
 

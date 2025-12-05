@@ -3,6 +3,7 @@
 openamundsen/
 /testdata/
 *.egg-info
-.env
+/.env
 .sync-exclude.lst
-.vscode/
+/.vscode/
+/.claude/

@@ -306,8 +306,8 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     scf_obs_path = Path(args.scf_obs_csv) if args.scf_obs_csv else _default_obs_path(project_dir, season_name, "scf_summary.csv")
     wet_obs_path = Path(args.wet_obs_csv) if args.wet_obs_csv else _default_obs_path(project_dir, season_name, "wet_snow_summary.csv")
-    scf_env_path = Path(args.scf_env_csv) if args.scf_env_csv else (season_dir / "point_scf_aoi_envelope.csv")
-    wet_env_path = Path(args.wet_env_csv) if args.wet_env_csv else (season_dir / "point_wet_snow_aoi_envelope.csv")
+    scf_env_path = Path(args.scf_env_csv) if args.scf_env_csv else (season_dir / "point_scf_roi_envelope.csv")
+    wet_env_path = Path(args.wet_env_csv) if args.wet_env_csv else (season_dir / "point_wet_snow_roi_envelope.csv")
 
     scf_obs = None
     try:
@@ -319,9 +319,9 @@ def cli_main(argv: list[str] | None = None) -> int:
     scf_model = _load_fraction(Path(args.scf_model_csv), "scf") if args.scf_model_csv else None
     wet_model = _load_fraction(Path(args.wet_model_csv), "wet_snow_fraction") if args.wet_model_csv else None
     if scf_model is None:
-        scf_model = _load_open_loop_series(season_dir, "point_scf_aoi.csv", "scf")
+        scf_model = _load_open_loop_series(season_dir, "point_scf_roi.csv", "scf")
     if wet_model is None:
-        wet_model = _load_open_loop_series(season_dir, "point_wet_snow_aoi.csv", "wet_snow_fraction")
+        wet_model = _load_open_loop_series(season_dir, "point_wet_snow_roi.csv", "wet_snow_fraction")
     scf_env = _load_fraction(scf_env_path, "value_mean")
     if scf_env is not None and not scf_env.empty and {"value_min", "value_max"}.issubset(scf_env.columns) is False:
         scf_env = None

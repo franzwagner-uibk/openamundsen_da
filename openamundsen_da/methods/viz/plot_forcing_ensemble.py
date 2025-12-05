@@ -42,6 +42,7 @@ from openamundsen_da.methods.viz._style import (
     LW_OPEN,
     LEGEND_NCOL,
 )
+from openamundsen_da.methods.viz._utils import format_station_label
 
 
 def _list_station_files(step_dir: Path, ensemble: str) -> Tuple[Optional[Path], List[str]]:
@@ -63,58 +64,6 @@ def _load_stations_table(step_dir: Path, ensemble: str) -> Optional[pd.DataFrame
             except Exception:
                 return None
     return None
-
-
-def _find_station_meta(st_df: Optional[pd.DataFrame], token: str) -> Tuple[Optional[str], Optional[float]]:
-    """Return (name, altitude_m) for a station token using a stations table.
-
-    Recognizes common column names for id/name and altitude in a case-insensitive
-    manner. Returns (None, None) if not found.
-    """
-    if st_df is None or st_df.empty:
-        return None, None
-    df = st_df.copy()
-    cols_lower = {c.lower().strip(): c for c in df.columns}
-    id_candidates = [c for c in ("id", "station_id", "station", "code") if c in cols_lower]
-    name_candidates = [c for c in ("name", "station_name") if c in cols_lower]
-    alt_candidates = [c for c in ("alt", "altitude", "elev", "elevation", "z", "height", "height_m") if c in cols_lower]
-    alt_col = cols_lower[alt_candidates[0]] if alt_candidates else None
-    def _match(col_key: str) -> Optional[pd.Series]:
-        col = cols_lower[col_key]
-        try:
-            s = df[col].astype(str).str.strip().str.lower()
-            hit = df.loc[s == token.lower()]
-            if not hit.empty:
-                return hit.iloc[0]
-        except Exception:
-            return None
-        return None
-    row = None
-    for k in id_candidates:
-        row = _match(k)
-        if row is not None:
-            break
-    if row is None:
-        for k in name_candidates:
-            row = _match(k)
-            if row is not None:
-                break
-    if row is None:
-        return None, None
-    name_val = None
-    for k in name_candidates:
-        try:
-            name_val = str(row[cols_lower[k]]).strip()
-            break
-        except Exception:
-            continue
-    alt_val = None
-    if alt_col is not None:
-        try:
-            alt_val = float(row[alt_col])
-        except Exception:
-            alt_val = None
-    return name_val, alt_val
 
 
 def _parse_time_index(df: pd.DataFrame, time_col: str) -> pd.DataFrame:
@@ -362,16 +311,8 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
             continue
 
         token = Path(fname).stem
-        st_name, st_alt = _find_station_meta(stations_df, token)
-        # If no custom subtitle, build one from station metadata
-        auto_sub = None
-        if not args.subtitle:
-            if st_name and st_alt is not None:
-                auto_sub = f"{st_name} ({st_alt:.0f} m)"
-            elif st_name:
-                auto_sub = st_name
-            elif st_alt is not None:
-                auto_sub = f"({st_alt:.0f} m)"
+        _base, _alt, station_label = format_station_label(token, stations_df, fallback=token)
+        subtitle = args.subtitle or station_label
         out_path = out_root / f"{token}.png"
         _plot_station(
             station_name=token,
@@ -382,7 +323,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
             hydro_m=int(args.hydro_month),
             hydro_d=int(args.hydro_day),
             title=effective_title,
-            subtitle=(args.subtitle or auto_sub),
+            subtitle=subtitle,
             backend=args.backend,
             out_path=out_path,
             member_labels=mem_labels,

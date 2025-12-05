@@ -30,7 +30,8 @@ from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.core.launch import launch_members
 from openamundsen_da.core.prior_forcing import build_prior_ensemble
 from openamundsen_da.io.paths import read_step_config, find_project_yaml, find_season_yaml
-from openamundsen_da.util.aoi import read_single_aoi
+from openamundsen_da.util.roi import read_single_roi
+from openamundsen_da.util.glacier_mask import resolve_glacier_mask
 from openamundsen_da.util.da_events import load_assimilation_events, AssimilationEvent
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.methods.pf.assimilate_scf import (
@@ -41,7 +42,7 @@ from openamundsen_da.methods.h_of_x.model_scf import compute_step_scf_daily_for_
 from openamundsen_da.methods.wet_snow.classify import classify_step_wet_snow
 from openamundsen_da.methods.wet_snow.area import compute_step_wet_snow_daily_for_all_members
 from openamundsen_da.methods.pf.rejuvenate import rejuvenate
-from openamundsen_da.methods.pf.resample import resample_from_weights
+from openamundsen_da.methods.pf.resample import resample_from_weights, _read_resampling_from_project
 from openamundsen_da.methods.pf.plot_weights import plot_weights_for_csv
 from openamundsen_da.methods.pf.plot_ess_timeline import plot_season_ess_timeline
 from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_envelope
@@ -77,11 +78,15 @@ def _next_step_start(steps: List[Path], idx: int) -> Optional[datetime]:
         return None
 
 
-def _find_aoi(project_dir: Path) -> Path:
+def _find_roi(project_dir: Path) -> Path:
+    """Return the conventional ROI path env/roi.gpkg if present."""
     env_dir = Path(project_dir) / "env"
+    roi = env_dir / "roi.gpkg"
+    if roi.is_file():
+        return roi
     cands = list(env_dir.glob("*.gpkg")) + list(env_dir.glob("*.shp"))
     if not cands:
-        raise FileNotFoundError(f"No AOI vector found under {env_dir}")
+        raise FileNotFoundError(f"No ROI vector found under {env_dir}")
     return sorted(cands)[0]
 
 
@@ -179,15 +184,23 @@ def run_season(cfg: OrchestratorConfig) -> None:
         if not meteo_dir.is_dir():
             raise FileNotFoundError(f"Required meteo directory not found: {meteo_dir}")
         logger.info("Initializing prior ensemble for step {} …", steps[0].name)
-        build_prior_ensemble(
-            input_meteo_dir=meteo_dir,
-            project_dir=cfg.project_dir,
-            step_dir=steps[0],
-            overwrite=bool(cfg.overwrite),
-        )
+    build_prior_ensemble(
+        input_meteo_dir=meteo_dir,
+        project_dir=cfg.project_dir,
+        step_dir=steps[0],
+        overwrite=bool(cfg.overwrite),
+    )
 
-    aoi = _find_aoi(cfg.project_dir)
-    logger.info("Using AOI: {}", aoi)
+    roi = _find_roi(cfg.project_dir)
+    logger.info("Using ROI: {}", roi)
+    glacier_cfg = resolve_glacier_mask(cfg.project_dir)
+    glacier_path = glacier_cfg.path if glacier_cfg.enabled else None
+    if glacier_path:
+        logger.info("Glacier masking enabled -> {}", glacier_path)
+    elif glacier_cfg.enabled:
+        logger.warning("Glacier masking enabled in config but mask file not found; proceeding without masking")
+    else:
+        logger.info("Glacier masking disabled or no mask present; proceeding without masking")
 
     # Project/season metadata for DA and performance monitoring
     wet_snow_threshold = _load_wet_snow_threshold_percent(cfg.project_dir)
@@ -236,14 +249,17 @@ def run_season(cfg: OrchestratorConfig) -> None:
     events = load_assimilation_events(cfg.season_dir)
     n_expected = max(0, len(steps) - 1)
     if len(events) < n_expected:
-        logger.warning("Fewer assimilation events ({}) than steps needing DA ({}); later steps will skip DA.", len(events), n_expected)
+        raise ValueError(
+            f"Configured {len(events)} assimilation event(s) but the season needs {n_expected}. "
+            "Add events in season.yml (data_assimilation.assimilation_events) or adjust steps."
+        )
     if len(events) > n_expected:
         logger.warning("More assimilation events ({}) than steps needing DA ({}); extra events will be ignored.", len(events), n_expected)
 
     # Approximate AOI area in km2 for performance summary
     roi_area_km2 = None
     try:
-        gdf, _ = read_single_aoi(Path(aoi), required_field=None, to_crs=proj_crs if proj_crs is not None else None)
+        gdf, _ = read_single_roi(Path(roi), required_field=None, to_crs=proj_crs if proj_crs is not None else None)
         roi_area_km2 = float(gdf.geometry.area.iloc[0]) / 1_000_000.0
     except Exception as exc:
         logger.warning("Perf monitor: failed to compute AOI area: {}", exc)
@@ -287,12 +303,13 @@ def run_season(cfg: OrchestratorConfig) -> None:
 
         # After propagation: compute daily model SCF for all prior members in
         # this step so that season-level plots can use var_col='scf' via the
-        # generated point_scf_aoi.csv files.
+        # generated point_scf_roi.csv files.
         try:
             compute_step_scf_daily_for_all_members(
                 project_dir=cfg.project_dir,
                 step_dir=step_dir,
-                aoi_path=aoi,
+                aoi_path=roi,
+                glacier_path=glacier_path,
                 max_workers=int(cfg.max_workers),
                 overwrite=bool(cfg.overwrite),
             )
@@ -316,7 +333,8 @@ def run_season(cfg: OrchestratorConfig) -> None:
             )
             compute_step_wet_snow_daily_for_all_members(
                 step_dir=step_dir,
-                aoi_path=aoi,
+                aoi_path=roi,
+                glacier_path=glacier_path,
                 max_workers=int(cfg.max_workers),
                 overwrite=bool(cfg.overwrite),
                 mask_subdir="wet_snow",
@@ -418,7 +436,8 @@ def run_season(cfg: OrchestratorConfig) -> None:
                         step_dir=step_dir,
                         ensemble="prior",
                         date=assim_dt,
-                        aoi=aoi,
+                        aoi=roi,
+                        glacier_path=glacier_path,
                         obs_csv=None,
                     )
                 else:
@@ -427,7 +446,8 @@ def run_season(cfg: OrchestratorConfig) -> None:
                         step_dir=step_dir,
                         ensemble="prior",
                         date=assim_dt,
-                        aoi=aoi,
+                        aoi=roi,
+                        glacier_path=glacier_path,
                         obs_csv=None,
                         product=ev.product,
                     )
@@ -451,16 +471,27 @@ def run_season(cfg: OrchestratorConfig) -> None:
         if has_posterior and not cfg.overwrite:
             logger.info("Posterior ensemble already exists and overwrite=False; skipping resampling.")
         else:
-            logger.info("Resampling to posterior ...")
+            rs_cfg = _read_resampling_from_project(cfg.project_dir)
+            algo = rs_cfg.algorithm or "systematic"
+            ess_thr_abs = float(rs_cfg.ess_threshold or 0.0)
+            ess_thr_ratio = rs_cfg.ess_threshold_ratio
+            ratio_text = f"{ess_thr_ratio:.3f}" if ess_thr_ratio is not None else "None"
+            logger.info(
+                "Resampling to posterior ... (algorithm={} seed={} ess_thr_abs={} ess_thr_ratio={})",
+                algo,
+                rs_cfg.seed if rs_cfg.seed is not None else "auto",
+                ess_thr_abs,
+                ratio_text,
+            )
             resample_from_weights(
                 step_dir=step_dir,
                 source_ensemble="prior",
                 weights_csv=wcsv,
                 target_ensemble="posterior",
-                seed=None,
-                algorithm="systematic",
-                ess_threshold=0.0,
-                ess_threshold_ratio=None,
+                seed=rs_cfg.seed,
+                algorithm=algo,
+                ess_threshold=ess_thr_abs,
+                ess_threshold_ratio=ess_thr_ratio,
                 overwrite=bool(cfg.overwrite),
             )
 
@@ -490,18 +521,18 @@ def run_season(cfg: OrchestratorConfig) -> None:
                 try:
                     _aggregate_and_copy_fraction(
                         season_dir=cfg.season_dir,
-                        filename="point_scf_aoi.csv",
-                        value_col="scf",
-                        output_name="point_scf_aoi_envelope.csv",
+                filename="point_scf_roi.csv",
+                value_col="scf",
+                output_name="point_scf_roi_envelope.csv",
                     )
                 except Exception as exc:
                     logger.warning("SCF envelope aggregation failed after step {}: {}", step_name, exc)
                 try:
                     _aggregate_and_copy_fraction(
                         season_dir=cfg.season_dir,
-                        filename="point_wet_snow_aoi.csv",
+                        filename="point_wet_snow_roi.csv",
                         value_col="wet_snow_fraction",
-                        output_name="point_wet_snow_aoi_envelope.csv",
+                        output_name="point_wet_snow_roi_envelope.csv",
                     )
                 except Exception as exc:
                     logger.warning("Wet-snow envelope aggregation failed after step {}: {}", step_name, exc)
@@ -514,10 +545,22 @@ def run_season(cfg: OrchestratorConfig) -> None:
                     ])
                 except Exception as exc:
                     logger.warning("Forcing plot failed for {}: {}", step_name, exc)
-                # Point results (SWE and snow depth) in member mode for all stations
+                # Point results (SWE and snow depth), daily aggregated, in member mode for all stations
                 try:
-                    plot_season_results(season_dir=cfg.season_dir, var_col="swe", mode="members")
-                    plot_season_results(season_dir=cfg.season_dir, var_col="snow_depth", mode="members")
+                    plot_season_results(
+                        season_dir=cfg.season_dir,
+                        var_col="swe",
+                        mode="members",
+                        resample="D",
+                        resample_agg="mean",
+                    )
+                    plot_season_results(
+                        season_dir=cfg.season_dir,
+                        var_col="snow_depth",
+                        mode="members",
+                        resample="D",
+                        resample_agg="mean",
+                    )
                 except Exception as exc:
                     logger.warning("Season point results plot failed after step {}: {}", step_name, exc)
                 # Combined fraction overlay (SCF + wet snow), written under plots/results
@@ -563,8 +606,20 @@ def run_season(cfg: OrchestratorConfig) -> None:
 
     # Season plots (point results + fraction overlay). Forcing plotted per step above.
     try:
-        plot_season_results(season_dir=cfg.season_dir, var_col="swe", mode="members")
-        plot_season_results(season_dir=cfg.season_dir, var_col="snow_depth", mode="members")
+        plot_season_results(
+            season_dir=cfg.season_dir,
+            var_col="swe",
+            mode="members",
+            resample="D",
+            resample_agg="mean",
+        )
+        plot_season_results(
+            season_dir=cfg.season_dir,
+            var_col="snow_depth",
+            mode="members",
+            resample="D",
+            resample_agg="mean",
+        )
     except Exception as exc:
         logger.warning("Season point results plot failed: {}", exc)
     try:
@@ -581,18 +636,18 @@ def run_season(cfg: OrchestratorConfig) -> None:
     try:
         _aggregate_and_copy_fraction(
             season_dir=cfg.season_dir,
-            filename="point_scf_aoi.csv",
+            filename="point_scf_roi.csv",
             value_col="scf",
-            output_name="point_scf_aoi_envelope.csv",
+            output_name="point_scf_roi_envelope.csv",
         )
     except Exception as exc:
         logger.warning("SCF envelope aggregation failed: {}", exc)
     try:
         _aggregate_and_copy_fraction(
             season_dir=cfg.season_dir,
-            filename="point_wet_snow_aoi.csv",
+            filename="point_wet_snow_roi.csv",
             value_col="wet_snow_fraction",
-            output_name="point_wet_snow_aoi_envelope.csv",
+            output_name="point_wet_snow_roi_envelope.csv",
         )
     except Exception as exc:
         logger.warning("Wet-snow envelope aggregation failed: {}", exc)

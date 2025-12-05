@@ -31,7 +31,7 @@ from loguru import logger
 from rasterio.mask import mask as rio_mask
 
 from openamundsen_da.core.constants import LOGURU_FORMAT, OBS_DIR_NAME
-from openamundsen_da.util.aoi import read_single_aoi
+from openamundsen_da.util.glacier_mask import mask_aoi_with_glaciers, resolve_glacier_mask
 
 
 _DATE_RE = re.compile(r"(\d{4})_(\d{2})_(\d{2})")
@@ -56,15 +56,20 @@ def _extract_date(path: Path) -> datetime:
     return datetime(year=y, month=mo, day=d)
 
 
-def _compute_stats_for_raster(raster_path: Path, aoi_path: Path, region_field: str | None) -> Optional[FscStats]:
-    """Mask raster to AOI and return SCF stats."""
+def _compute_stats_for_raster(
+    raster_path: Path,
+    aoi_path: Path,
+    region_field: str | None,
+    glacier_path: Path | None = None,
+) -> Optional[FscStats]:
+    """Mask raster to AOI (minus glaciers) and return SCF stats."""
     with rasterio.open(raster_path) as src:
-        try:
-            gdf, region_id = read_single_aoi(aoi_path, required_field=region_field, to_crs=src.crs)
-        except KeyError:
-            # AOI has no region_id field -> accept empty region_id
-            gdf, region_id = read_single_aoi(aoi_path, required_field=None, to_crs=src.crs)
-            region_id = ""
+        gdf, region_id = mask_aoi_with_glaciers(
+            aoi_path,
+            glacier_path=glacier_path,
+            required_field=region_field,
+            to_crs=src.crs,
+        )
         data, _ = rio_mask(src, gdf.geometry, crop=True, nodata=src.nodata, filled=False)
         arr = np.ma.array(data[0], copy=False)
         nodata = src.nodata
@@ -98,13 +103,16 @@ def _list_rasters(root: Path, recursive: bool) -> list[Path]:
 
 
 def _auto_aoi(project_dir: Path) -> Path:
-    """Pick a single AOI from <project>/env if present."""
+    """Pick a single ROI from <project>/env if present."""
     env_dir = project_dir / "env"
+    roi = env_dir / "roi.gpkg"
+    if roi.is_file():
+        return roi
     cands = list(env_dir.glob("*.gpkg")) + list(env_dir.glob("*.shp"))
     if not cands:
-        raise FileNotFoundError(f"No AOI found under {env_dir}")
+        raise FileNotFoundError(f"No ROI found under {env_dir}")
     if len(cands) > 1:
-        raise ValueError(f"Multiple AOI candidates under {env_dir}; specify --aoi")
+        raise ValueError(f"Multiple ROI candidates under {env_dir}; specify --roi/--aoi")
     return cands[0]
 
 
@@ -136,7 +144,8 @@ def summarize_snowflake_directory(
     aoi: Path,
     season_label: str,
     output_root: Path,
-    region_field: str | None = "region_id",
+    region_field: str | None = None,
+    glacier_path: Path | None = None,
     recursive: bool = False,
 ) -> list[Path]:
     """Summarize all FSC rasters under input_dir into scf_summary.csv."""
@@ -152,7 +161,7 @@ def summarize_snowflake_directory(
     written: list[Path] = []
     for rast in rasters:
         try:
-            stats = _compute_stats_for_raster(rast, aoi, region_field)
+            stats = _compute_stats_for_raster(rast, aoi, region_field, glacier_path=glacier_path)
         except Exception as exc:
             logger.error("Skipping {}: {}", rast.name, exc)
             continue
@@ -186,7 +195,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         description="Summarize Snowflake FSC GeoTIFFs (0..100 %) into scf_summary.csv for a season.",
     )
     p.add_argument("--input-dir", required=True, type=Path, help="Directory containing FSC GeoTIFFs (0..100 %)")
-    p.add_argument("--aoi", type=Path, help="Single-feature AOI vector (auto-detected from <project>/env if omitted)")
+    p.add_argument("--aoi", "--roi", dest="aoi", type=Path, help="Single-feature ROI vector (auto-detected from <project>/env if omitted)")
     p.add_argument("--season-label", required=True, help="Season folder name under the obs root")
     p.add_argument("--project-dir", type=Path, help="Project directory (default: current working directory)")
     p.add_argument(
@@ -194,7 +203,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Override output root (default: <project-dir>/obs)",
     )
-    p.add_argument("--aoi-field", default="region_id", help="Field name in AOI with the region identifier (ignored if missing)")
+    p.add_argument("--aoi-field", "--roi-field", dest="aoi_field", default=None, help="Field name in ROI with the region identifier (optional)")
     p.add_argument("--recursive", action="store_true", help="Recurse into subdirectories for FSC rasters")
     p.add_argument("--log-level", default="INFO", help="Loguru log level (default: INFO)")
 
@@ -205,6 +214,8 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     project_dir = Path(args.project_dir) if args.project_dir else Path.cwd()
     output_root = Path(args.output_root) if args.output_root else project_dir / OBS_DIR_NAME
+    glacier_cfg = resolve_glacier_mask(project_dir)
+    glacier_path = glacier_cfg.path if glacier_cfg.enabled else None
 
     try:
         aoi_path = Path(args.aoi) if args.aoi else _auto_aoi(project_dir)
@@ -214,6 +225,7 @@ def cli_main(argv: list[str] | None = None) -> int:
             season_label=str(args.season_label),
             output_root=output_root,
             region_field=str(args.aoi_field) if args.aoi_field else None,
+            glacier_path=glacier_path,
             recursive=bool(args.recursive),
         )
         return 0

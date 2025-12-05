@@ -98,7 +98,7 @@ docker compose run --rm oa `
   --step-dir $step
 ```
 
-Optional: `--overwrite`, `--log-level <LEVEL>`
+Optional flags: `--overwrite`, `--log-level <LEVEL>`
 
 ### Run Ensemble
 
@@ -111,7 +111,7 @@ docker compose run --rm oa `
   --ensemble prior
 ```
 
-Optional: `--max-workers <N>`, `--overwrite`, `--state-pattern <glob>`, `--log-level <LEVEL>`
+Optional flags: `--max-workers <N>`, `--overwrite`, `--state-pattern <glob>`, `--log-level <LEVEL>`
 
 Parallelism and CPU limits
 
@@ -130,7 +130,7 @@ docker compose run --rm oa `
   --season-label season_YYYY-YYYY
 ```
 
-Optional: --project-dir $project, --roi $roi, --roi-field <field>, --target-epsg <code>, --resolution <m>, --ndsi-threshold <val>, --no-envelope, --no-recursive, --overwrite, --log-level <LEVEL>
+Optional flags: `--project-dir $project`, `--roi $roi`, `--roi-field <field>`, `--target-epsg <code>`, `--resolution <m>`, `--ndsi-threshold <val>`, `--no-envelope`, `--no-recursive`, `--overwrite`, `--log-level <LEVEL>`
 
 - Single-image SCF extraction (GeoTIFF â†’ obs CSV):
 
@@ -142,7 +142,7 @@ docker compose run --rm oa `
   --step-dir $step
 ```
 
-Optional: `--output <csv>`, `--ndsi-threshold <val>`, `--log-level <LEVEL>`
+Optional flags: `--output <csv>`, `--ndsi-threshold <val>`, `--log-level <LEVEL>`
 
 - Season batch mode (turns every raster in `obs/season_YYYY-YYYY` into the per-step CSVs):
 
@@ -154,7 +154,7 @@ docker compose run --rm oa `
   --overwrite
 ```
 
-Optional: --overwrite, --log-level <LEVEL> (the summary path defaults to <project>/obs/<season>/scf_summary.csv). No ROI argument is required because the CSV already stores the ROI-derived SCF stats for each date.
+Optional flags: `--log-level <LEVEL>` (the summary path defaults to `<project>/obs/<season>/scf_summary.csv`). No ROI argument is required because the CSV already stores the ROI-derived SCF stats for each date.
 
 Batch mode walks `propagation/season_YYYY-YYYY/step_*`, matches each raster by date to its step (or the step whose `end_date` matches the raster date), and writes `obs_scf_MOD10A1_YYYYMMDD.csv` into `<step>/obs`. Per-step `scf` overrides still apply.
 
@@ -183,7 +183,7 @@ docker compose run --rm oa `
   --project-dir $project
 ```
 
-Optional: --roi <path> (auto-detect single ROI under env/ if omitted), --roi-field <field>, --recursive, --log-level. Writes `obs/<season>/scf_summary.csv` with `date, region_id, n_valid, n_snow, scf, source` from FSC values 0..100.
+Optional flags: `--roi <path>` (auto-detect single ROI under env/ if omitted), `--roi-field <field>`, `--recursive`, `--log-level`. Writes `obs/<season>/scf_summary.csv` with `date, region_id, n_valid, n_snow, scf, source` from FSC values 0..100.
 
 Product-aware SCF CSVs
 ----------------------
@@ -203,14 +203,7 @@ docker compose run --rm oa `
   --season-dir $season
 ```
 
-Key flags:
-
-- `--step-dir <path>` to process just one step (mutually exclusive with `--season-dir`).
-- `--members member_001 member_042` to restrict the ensemble subset (the open_loop run is always processed in addition to any members).
-- `--threshold <percent>` sets the wet/dry cutoff (default 0.1% volumetric fraction per Rottler et al., 2024).
-- `--write-fraction` adds the liquid water percent rasters; omit it to only emit the binary masks (default behavior).
-- `--min-depth-mm <mm>` masks extremely shallow snow before evaluating LWC (default 5 mm).
-- Outputs land under each member's `results/<output-subdir>` (default `wet_snow`): `wet_snow_mask_<timestamp>.tif` and `lwc_fraction_<timestamp>.tif` when `--write-fraction` is set.
+Optional flags: `--step-dir <path>` (mutually exclusive with `--season-dir`), `--members member_001 ...`, `--threshold <percent>`, `--write-fraction`, `--min-depth-mm <mm>`. Outputs land under each member's `results/<output-subdir>` (default `wet_snow`): `wet_snow_mask_<timestamp>.tif` and `lwc_fraction_<timestamp>.tif` when `--write-fraction` is set.
 
 Sentinel-1 wet-snow observations use pre-classified WSM rasters with four classes:
 
@@ -318,7 +311,7 @@ docker compose run --rm oa `
   --roi $roi
 ```
 
-Optional: `--obs-csv <path>`, `--output <csv>`, `--log-level <LEVEL>`
+Optional flags: `--obs-csv <path>`, `--output <csv>`, `--log-level <LEVEL>`
 
 ### Resampling (posterior ensemble)
 
@@ -335,7 +328,7 @@ docker compose run --rm oa `
   --target posterior
 ```
 
-Optional: `--ess-threshold-ratio <0..1>`, `--ess-threshold <n|ratio>`, `--seed <int>`, `--overwrite`, `--log-level <LEVEL>`
+Optional flags: `--ess-threshold-ratio <0..1>`, `--ess-threshold <n|ratio>`, `--seed <int>`, `--overwrite`, `--log-level <LEVEL>`
 
 Resampling configuration (season + CLI)
 
@@ -378,7 +371,7 @@ docker compose run --rm oa `
   --ensemble prior
 ```
 
-Optional: `--time-col`, `--temp-col`, `--precip-col`, `--start-date`, `--end-date`, `--resample`, `--rolling`, `--hydro-month`, `--hydro-day`, `--title`, `--subtitle`, `--output-dir`, `--backend`, `--log-level`
+Optional flags: `--time-col`, `--temp-col`, `--precip-col`, `--start-date`, `--end-date`, `--resample`, `--rolling`, `--hydro-month`, `--hydro-day`, `--title`, `--subtitle`, `--output-dir`, `--backend`, `--log-level`
 
 - Results per-station:
 
@@ -389,7 +382,7 @@ docker compose run --rm oa `
   --ensemble prior
 ```
 
-Optional: `--time-col`, `--var-col`, `--var-label`, `--var-units`, `--start-date`, `--end-date`, `--resample`, `--resample-agg`, `--rolling`, `--band-low`, `--band-high`, `--title`, `--subtitle`, `--output-dir`, `--backend`, `--log-level`
+Optional flags: `--time-col`, `--var-col`, `--var-label`, `--var-units`, `--start-date`, `--end-date`, `--resample`, `--resample-agg`, `--rolling`, `--band-low`, `--band-high`, `--title`, `--subtitle`, `--output-dir`, `--backend`, `--log-level`
 
 - ESS timeline:
 

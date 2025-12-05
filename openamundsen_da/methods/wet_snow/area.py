@@ -22,10 +22,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Sequence
-
 import numpy as np
 import pandas as pd
 import rasterio
+import yaml
 from loguru import logger
 from rasterio.mask import mask as rio_mask
 
@@ -330,6 +330,8 @@ def summarize_s1_directory(
     output_csv: Path,
     glacier_path: Path | None = None,
     overwrite: bool = False,
+    start: datetime | None = None,
+    end: datetime | None = None,
 ) -> Path:
     """Summarize Sentinel-1 wet-snow maps into one CSV (date, fraction)."""
 
@@ -342,6 +344,10 @@ def summarize_s1_directory(
         try:
             date = _parse_s1_timestamp(tif.name)
         except ValueError:
+            continue
+        if start and date < start:
+            continue
+        if end and date > end:
             continue
         try:
             stats = compute_wet_snow_fraction_from_raster(
@@ -389,6 +395,24 @@ def _parse_s1_timestamp(name: str) -> datetime:
     except Exception as exc:
         raise ValueError(f"Cannot parse date from {name}") from exc
     return datetime(year, month, day)
+
+
+def _resolve_season_dates(project_dir: Optional[Path], season_label: Optional[str]) -> dict[str, datetime] | None:
+    """Load start/end dates from propagation/<season_label>/season.yml if present."""
+
+    if project_dir is None or season_label is None:
+        return None
+    season_yml = project_dir / "propagation" / season_label / "season.yml"
+    if not season_yml.exists():
+        return None
+    try:
+        data = yaml.safe_load(season_yml.read_text())
+        start = datetime.fromisoformat(str(data.get("start_date")))
+        end = datetime.fromisoformat(str(data.get("end_date")))
+        return {"start": start, "end": end}
+    except Exception as exc:
+        logger.warning("Could not parse season dates from {}: {}", season_yml, exc)
+        return None
 
 
 def cli_model(argv: list[str] | None = None) -> int:
@@ -514,6 +538,7 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
     parser.add_argument("--raster-dir", type=Path, help="Directory with WSM_S1*_*.tif rasters (default: <project>/obs/WSM_S1_SAR when project-dir is set)")
     parser.add_argument("--aoi", "--roi", dest="aoi", type=Path, help="Single-feature ROI vector (default: env/roi.gpkg or first *.gpkg/*.shp in <project>/env when project-dir is set)")
     parser.add_argument("--output", required=True, type=Path, help="Output CSV (e.g., wet_snow_summary.csv)")
+    parser.add_argument("--season-label", type=str, help="Season label to bound dates (default: inferred from output path name season_YYYY-YYYY when possible)")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args(argv)
@@ -525,6 +550,7 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
     proj_dir: Optional[Path] = Path(args.project_dir) if args.project_dir else None
     raster_dir: Optional[Path] = Path(args.raster_dir) if args.raster_dir else None
     aoi_path: Optional[Path] = Path(args.aoi) if args.aoi else None
+    season_label: Optional[str] = args.season_label
 
     if proj_dir is not None:
         if raster_dir is None:
@@ -540,6 +566,10 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
                 logger.error("No AOI found under {}", env_dir)
                 return 1
             aoi_path = candidates[0]
+        if season_label is None and args.output:
+            parent = Path(args.output).parent.name
+            if parent.startswith("season_"):
+                season_label = parent
         glacier_cfg = resolve_glacier_mask(proj_dir)
         glacier_path = glacier_cfg.path if glacier_cfg.enabled else None
     else:
@@ -549,6 +579,8 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
         logger.error("Both --raster-dir and --roi/--aoi are required when --project-dir is not provided.")
         return 1
 
+    season_dates = _resolve_season_dates(proj_dir, season_label) if proj_dir and season_label else None
+
     try:
         out_csv = summarize_s1_directory(
             raster_dir=raster_dir,
@@ -556,6 +588,8 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
             output_csv=Path(args.output),
             glacier_path=glacier_path,
             overwrite=bool(args.overwrite),
+            start=season_dates["start"] if season_dates else None,
+            end=season_dates["end"] if season_dates else None,
         )
     except Exception as exc:
         logger.error("Sentinel-1 wet-snow summary failed: {}", exc)

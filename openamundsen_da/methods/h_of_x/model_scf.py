@@ -60,7 +60,7 @@ from openamundsen_da.io.paths import (
     list_member_dirs,
     open_loop_dir,
 )
-from openamundsen_da.util.aoi import read_single_aoi
+from openamundsen_da.util.glacier_mask import mask_aoi_with_glaciers
 from openamundsen_da.util.stats import sigmoid
 from openamundsen_da.methods.daily_aoi_series import (
     compute_step_daily_series_for_all_members,
@@ -118,15 +118,21 @@ def load_hofx_from_project(project_dir: Path) -> tuple[str, str, SCFParams]:
     return _parse_hofx_block(hofx)
 
 
-def _read_masked_array(raster_path: Path, aoi_path: Path) -> np.ma.MaskedArray:
-    """Read raster and mask by AOI geometry; return masked array."""
+def _read_masked_array(
+    raster_path: Path,
+    aoi_path: Path,
+    glacier_path: Path | None = None,
+) -> np.ma.MaskedArray:
+    """Read raster and mask by AOI geometry (optionally minus glaciers)."""
     with rasterio.open(raster_path) as src:
         if src.crs is None:
             raise ValueError("Raster has no CRS; unable to align with AOI")
-        try:
-            gdf, _ = read_single_aoi(aoi_path, required_field="region_id", to_crs=src.crs)
-        except KeyError:
-            gdf, _ = read_single_aoi(aoi_path, required_field=None, to_crs=src.crs)
+        gdf, _ = mask_aoi_with_glaciers(
+            aoi_path,
+            glacier_path=glacier_path,
+            required_field=None,
+            to_crs=src.crs,
+        )
         shapes: Iterable = gdf.geometry
         data, _ = rio_mask(src, shapes, crop=True, nodata=src.nodata, filled=False)
         arr = np.ma.array(data[0], copy=False)
@@ -167,6 +173,7 @@ def compute_model_scf(
     *,
     results_dir: Path,
     aoi_path: Path,
+    glacier_path: Path | None = None,
     date: datetime,
     variable: Variable = "hs",
     method: Method = "depth_threshold",
@@ -199,7 +206,7 @@ def compute_model_scf(
 
     var = variable if variable in (VAR_HS, VAR_SWE) else VAR_HS
     raster_path = find_member_daily_raster(Path(results_dir), var, date.strftime("%Y-%m-%d"))
-    arr = _read_masked_array(raster_path, Path(aoi_path))
+    arr = _read_masked_array(raster_path, Path(aoi_path), glacier_path=glacier_path)
 
     if method == "depth_threshold":
         n_valid, n_snow, scf = _scf_depth_threshold(arr, float(params.h0))
@@ -229,6 +236,7 @@ def compute_member_scf_daily(
     project_dir: Path,
     results_dir: Path,
     aoi_path: Path,
+    glacier_path: Path | None = None,
     start: datetime,
     end: datetime,
 ) -> pd.DataFrame:
@@ -260,6 +268,7 @@ def compute_member_scf_daily(
             out = compute_model_scf(
                 results_dir=Path(results_dir),
                 aoi_path=Path(aoi_path),
+                glacier_path=Path(glacier_path) if glacier_path else None,
                 date=dt,
                 variable=var,  # type: ignore[arg-type]
                 method=method,  # type: ignore[arg-type]
@@ -294,6 +303,7 @@ def _compute_member_scf_for_step_worker(
         project_dir=Path(extra["project_dir"]),
         results_dir=results_dir,
         aoi_path=aoi_path,
+        glacier_path=Path(extra["glacier_path"]) if extra.get("glacier_path") else None,
         start=start,
         end=end,
     )
@@ -311,6 +321,7 @@ def compute_step_scf_daily_for_all_members(
     project_dir: Path,
     step_dir: Path,
     aoi_path: Path,
+    glacier_path: Path | None = None,
     max_workers: int = 4,
     overwrite: bool = False,
 ) -> None:
@@ -321,9 +332,9 @@ def compute_step_scf_daily_for_all_members(
     - Discovers prior ensemble members (including open_loop when present).
     - In parallel across members, computes daily AOI-mean SCF time series
       using :func:`compute_member_scf_daily`.
-    - Writes the result to ``<member>/results/point_scf_aoi.csv`` for each
+    - Writes the result to ``<member>/results/point_scf_roi.csv`` for each
       member, which can then be used by the season plotting utilities via
-      ``var_col='scf'`` and ``station='point_scf_aoi.csv'``.
+      ``var_col='scf'`` and ``station='point_scf_roi.csv'``.
 
     Existing CSVs are skipped unless ``overwrite=True``.
     """
@@ -338,13 +349,16 @@ def compute_step_scf_daily_for_all_members(
         aoi_path=aoi_path,
         start=start,
         end=end,
-        csv_name="point_scf_aoi.csv",
+        csv_name="point_scf_roi.csv",
         worker=_compute_member_scf_for_step_worker,
         ensemble="prior",
         include_open_loop=True,
         max_workers=max_workers,
         overwrite=overwrite,
-        worker_kwargs={"project_dir": str(project_dir)},
+        worker_kwargs={
+            "project_dir": str(project_dir),
+            "glacier_path": str(glacier_path) if glacier_path else None,
+        },
     )
 
 
@@ -371,7 +385,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--project-dir", type=Path, required=True, help="Project root containing project.yml with data_assimilation.h_of_x")
     parser.add_argument("--member-results", type=Path, required=True, help="Path to member results directory")
-    parser.add_argument("--aoi", type=Path, required=True, help="Path to single-feature AOI vector file")
+    parser.add_argument("--aoi", "--roi", dest="aoi", type=Path, required=True, help="Path to single-feature ROI vector file")
     parser.add_argument("--date", type=str, required=True, help="Date in YYYY-MM-DD")
     parser.add_argument("--output", type=Path, default=None, help="Optional output CSV path")
     parser.add_argument("--region-id-field", type=str, default="region_id", help="AOI field name for region_id")
@@ -466,14 +480,14 @@ def cli_season_daily(argv: list[str] | None = None) -> int:
         prog="oa-da-model-scf-season-daily",
         description=(
             "Compute daily model SCF (AOI-mean) for all prior members in each "
-            "step of a season, writing point_scf_aoi.csv per member."
+            "step of a season, writing point_scf_roi.csv per member."
         ),
     )
     parser.add_argument("--project-dir", type=Path, required=True, help="Project root containing project.yml")
     parser.add_argument("--season-dir", type=Path, required=True, help="Season root containing step_* directories")
-    parser.add_argument("--aoi", type=Path, required=True, help="Single-feature AOI vector (same as used by assimilation)")
+    parser.add_argument("--aoi", "--roi", dest="aoi", type=Path, required=True, help="Single-feature ROI vector (same as used by assimilation)")
     parser.add_argument("--max-workers", type=int, default=4, help="Max parallel workers per step")
-    parser.add_argument("--overwrite", action="store_true", help="Recompute SCF even if point_scf_aoi.csv exists")
+    parser.add_argument("--overwrite", action="store_true", help="Recompute SCF even if point_scf_roi.csv exists")
     parser.add_argument("--log-level", type=str, default="INFO", help="Log level (INFO, DEBUG, ...)")
 
     args = parser.parse_args(argv)

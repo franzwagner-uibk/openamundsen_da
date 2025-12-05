@@ -420,8 +420,8 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
         type=Path,
         help="Override output root directory (default: <project-dir>/obs)",
     )
-    parser.add_argument("--aoi", type=Path, help="AOI vector for clipping (GeoPackage, Shapefile, etc.)")
-    parser.add_argument("--aoi-field", default="region_id", help="Field name in AOI with the region identifier (default: region_id)")
+    parser.add_argument("--aoi", "--roi", dest="aoi", type=Path, help="ROI vector for clipping (GeoPackage, Shapefile, etc.)")
+    parser.add_argument("--aoi-field", "--roi-field", dest="aoi_field", default="region_id", help="Field name in ROI with the region identifier (default: region_id)")
     parser.add_argument("--target-epsg", type=int, default=25832, help="Output EPSG code (default: 25832)")
     parser.add_argument("--resolution", type=float, help="Output pixel size in target units (e.g., 500)")
     parser.add_argument("--ndsi-threshold", type=float, default=40.0, help="NDSI threshold for snow classification (default: 40)")

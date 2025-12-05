@@ -249,6 +249,33 @@ def _draw_assim_summary_box(fig, ax, dates: Sequence[datetime], base_y: Optional
     return
 
 
+def _plot_stepwise_mean(
+    ax,
+    mean: pd.Series,
+    steps: Sequence[StepInfo],
+    *,
+    label: str,
+    lw: float,
+    color: str,
+    zorder: int = 4,
+) -> None:
+    """Plot ensemble mean as separate line segments per step to avoid jumps.
+
+    Draws one labeled segment for the first step that has data and hides
+    subsequent segments from the legend (``_nolegend_``).
+    """
+    plotted = False
+    for st in steps:
+        if st.start is None or st.end is None:
+            continue
+        seg = mean[(mean.index >= st.start) & (mean.index <= st.end)]
+        if seg.empty:
+            continue
+        this_label = label if not plotted else "_nolegend_"
+        ax.plot(seg.index, seg.values, color=color, lw=lw, label=this_label, zorder=zorder)
+        plotted = True
+
+
 def _project_dir_from_season(season_dir: Path) -> Optional[Path]:
     """Best-effort project directory inference from a season directory.
 
@@ -753,19 +780,19 @@ def plot_season_results(
         if station_obs:
             obs_series = station_obs.get(display_token.lower())
 
-        # Members or band + ensemble mean
+        # Members or band + ensemble mean (stepwise, to avoid jumps after resampling)
         if mode == "members":
             for s in member_series:
                 ax.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.9, label="_nolegend_")
-            # Draw ensemble mean as a single blue line for context
             mean, _, _ = envelope(member_series, q_low=band_low, q_high=band_high)
             if not mean.empty:
-                ax.plot(
-                    mean.index,
-                    mean.values,
-                    color=COLOR_MEAN,
-                    lw=LW_MEAN,
+                _plot_stepwise_mean(
+                    ax,
+                    mean,
+                    steps,
                     label="ensemble mean",
+                    lw=LW_MEAN,
+                    color=COLOR_MEAN,
                     zorder=4,
                 )
         else:
@@ -784,12 +811,13 @@ def plot_season_results(
                     label=label_band,
                     zorder=2,
                 )
-                ax.plot(
-                    mean.index,
-                    mean.values,
-                    color=COLOR_MEAN,
-                    lw=LW_MEAN,
+                _plot_stepwise_mean(
+                    ax,
+                    mean,
+                    steps,
                     label="ensemble mean",
+                    lw=LW_MEAN,
+                    color=COLOR_MEAN,
                     zorder=4,
                 )
         # Station observations (line) on top of ensemble/open loop

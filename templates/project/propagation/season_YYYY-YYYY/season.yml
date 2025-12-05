@@ -1,2 +1,19 @@
 start_date: YYYY-MM-DD
 end_date: YYYY-MM-DD
+
+data_assimilation:
+  # Example assimilation_events block (mix of SCF and wet-snow dates).
+  # Adjust dates and products for your project.
+  assimilation_events:
+    - date: YYYY-MM-DD
+      variable: scf
+      product: MOD10A1
+    - date: YYYY-MM-DD
+      variable: scf
+      product: MOD10A1
+    - date: YYYY-MM-DD
+      variable: wet_snow
+      product: S1
+    - date: YYYY-MM-DD
+      variable: wet_snow
+      product: S1

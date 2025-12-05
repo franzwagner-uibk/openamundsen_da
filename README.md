@@ -16,7 +16,7 @@ Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satelli
   - `PROJ` = path to your project data
   - Optional: `CPUS`, `MEMORY`, `MAX_WORKERS`
 - Set Compose compatibility if needed: `setx COMPOSE_COMPATIBILITY 1` (Windows) or `export COMPOSE_COMPATIBILITY=1` (Linux/macOS).
-- Volumes: `${REPO}` â†’ `/workspace`, `${PROJ}` â†’ `/data`.
+- Volumes: `${REPO}` -> `/workspace`, `${PROJ}` -> `/data`.
 
 ### Environment notes
 
@@ -79,6 +79,10 @@ project/
   project.yml            # contains data_assimilation.h_of_x, resampling, etc.
 
 ```
+
+You can use the scaffold under `templates/project` as a starting point for new projects.
+Each directory in that template contains a small `readme.txt` describing the expected files
+and naming conventions.
 
 - `project.yml` must define `data_assimilation.h_of_x` (used by `model_scf` + `assimilate_scf`) and the DA blocks referenced by the pipeline.
 - `propagation/season_X/step_Y/ensembles/prior` is created automatically by `season.py` (using `${project}/meteo` for forcing); you only need to ensure the step YAMLs and meteorological inputs exist.

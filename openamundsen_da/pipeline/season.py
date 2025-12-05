@@ -34,6 +34,7 @@ from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.glacier_mask import resolve_glacier_mask, default_roi_path
 from openamundsen_da.util.da_events import load_assimilation_events, AssimilationEvent
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
+from openamundsen_da.util.ts import parse_datetime_opt
 from openamundsen_da.methods.pf.assimilate_scf import (
     assimilate_scf_for_date,
     assimilate_wet_snow_for_date,
@@ -88,22 +89,6 @@ def _find_roi(project_dir: Path) -> Path:
     if not cands:
         raise FileNotFoundError(f"No ROI vector found under {env_dir}")
     return sorted(cands)[0]
-
-
-def _parse_datetime_opt(text: str | None) -> datetime | None:
-    """Best-effort datetime parser for season/project config values."""
-    if not text:
-        return None
-    t = str(text).strip().replace("_", "-")
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(t, fmt)
-        except Exception:
-            continue
-    try:
-        return datetime.fromisoformat(t)
-    except Exception:
-        return None
 
 
 def _load_wet_snow_threshold_percent(project_dir: Path) -> float:
@@ -310,8 +295,8 @@ def run_season(cfg: OrchestratorConfig) -> None:
         seas_cfg = _read_yaml_file(seas_yaml) or {}
         start_val = seas_cfg.get("start_date")
         end_val = seas_cfg.get("end_date")
-        start_dt = _parse_datetime_opt(str(start_val)) if start_val is not None else None
-        end_dt = _parse_datetime_opt(str(end_val)) if end_val is not None else None
+        start_dt = parse_datetime_opt(str(start_val)) if start_val is not None else None
+        end_dt = parse_datetime_opt(str(end_val)) if end_val is not None else None
         if start_dt is not None and end_dt is not None:
             season_days = (end_dt.date() - start_dt.date()).days + 1
     except Exception as exc:

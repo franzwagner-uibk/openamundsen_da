@@ -249,6 +249,84 @@ def _draw_assim_summary_box(fig, ax, dates: Sequence[datetime], base_y: Optional
     return
 
 
+def _project_dir_from_season(season_dir: Path) -> Optional[Path]:
+    """Best-effort project directory inference from a season directory.
+
+    Assumes layout <project>/propagation/season_xx. Returns None if the
+    expected parents are not present.
+    """
+    season_dir = Path(season_dir)
+    try:
+        return season_dir.parent.parent
+    except Exception:
+        return None
+
+
+def _load_station_obs_for_season(
+    *,
+    season_dir: Path,
+    time_col: str,
+    var_col: str,
+    start_date: Optional[datetime],
+    end_date: Optional[datetime],
+    resample: Optional[str],
+    resample_agg: str,
+    rolling: Optional[int],
+) -> Dict[str, pd.Series]:
+    """Load station observations for the season window, if available.
+
+    Expects station CSVs under ``<project>/obs/stations`` with filenames
+    matching station tokens (e.g., ``latschbloder.csv``). Each file should
+    contain a time column (``time_col``) and the requested variable
+    (``var_col``, e.g., ``swe`` or ``snow_depth``). Data are clipped to the
+    provided start/end dates (typically the full season).
+
+    Returns
+    -------
+    dict
+        Mapping ``station_token.lower()`` -> non-empty pandas Series.
+    """
+    project_dir = _project_dir_from_season(season_dir)
+    if project_dir is None:
+        return {}
+
+    obs_dir = project_dir / "obs" / "stations"
+    if not obs_dir.is_dir():
+        return {}
+
+    out: Dict[str, pd.Series] = {}
+    for csv_path in sorted(obs_dir.glob("*.csv")):
+        token = csv_path.stem.strip()
+        if not token:
+            continue
+        try:
+            df = read_timeseries_csv(csv_path, time_col, [var_col])
+        except Exception as exc:
+            # Missing column or parse error -> skip this station silently.
+            if isinstance(exc, ValueError) and f"Missing column '{var_col}'" in str(exc):
+                continue
+            logger.debug("Skipping station obs {}: {}", csv_path.name, exc)
+            continue
+        try:
+            df = resample_and_smooth(
+                df,
+                resample,
+                {var_col: resample_agg} if resample else None,
+                rolling,
+            )
+            df = apply_window(df, start_date, end_date)
+        except Exception as exc:
+            logger.debug("Failed to resample/window station obs {}: {}", csv_path.name, exc)
+            continue
+        if var_col not in df.columns:
+            continue
+        s = df[var_col].dropna()
+        if s.empty:
+            continue
+        out[token.lower()] = s
+    return out
+
+
 def _load_stations_table_from_steps(steps: Sequence["StepInfo"]) -> Optional[pd.DataFrame]:
     """Load stations.csv from the first step that provides it (open_loop or member)."""
     for st in steps:
@@ -551,6 +629,19 @@ def plot_season_results(
 
     assim_dates = _assimilation_dates(season_dir)
 
+    # Effective season window from step configs if not explicitly provided
+    season_start: Optional[datetime] = None
+    season_end: Optional[datetime] = None
+    if steps:
+        starts = [s.start for s in steps if s.start is not None]
+        ends = [s.end for s in steps if s.end is not None]
+        if starts:
+            season_start = min(starts)
+        if ends:
+            season_end = max(ends)
+    effective_start = start_date or season_start
+    effective_end = end_date or season_end
+
     # Determine available stations from first step that has results
     point_files: List[str] = []
     for s in steps:
@@ -585,6 +676,17 @@ def plot_season_results(
             var_title = f"{var_title} [{var_units}]"
 
     member_label_map = _build_member_label_map(steps)
+    # Best-effort station observations (e.g., SWE/HS) over the full season window
+    station_obs = _load_station_obs_for_season(
+        season_dir=season_dir,
+        time_col=time_col,
+        var_col=var_col,
+        start_date=effective_start,
+        end_date=effective_end,
+        resample=resample,
+        resample_agg=resample_agg,
+        rolling=rolling,
+    )
 
     for fname in point_files:
         member_series: List[pd.Series] = []
@@ -600,7 +702,7 @@ def plot_season_results(
                     try:
                         df = read_timeseries_csv(csv_path, time_col, [var_col])
                         df = resample_and_smooth(df, resample, {var_col: resample_agg} if resample else None, rolling)
-                        df = apply_window(df, start_date, end_date)
+                        df = apply_window(df, effective_start, effective_end)
                         if var_col in df.columns:
                             s = df[var_col].dropna()
                             if not s.empty:
@@ -622,7 +724,7 @@ def plot_season_results(
                 try:
                     df = read_timeseries_csv(csv_path, time_col, [var_col])
                     df = resample_and_smooth(df, resample, {var_col: resample_agg} if resample else None, rolling)
-                    df = apply_window(df, start_date, end_date)
+                    df = apply_window(df, effective_start, effective_end)
                     if var_col not in df.columns:
                         continue
                     s = df[var_col].dropna()
@@ -642,10 +744,30 @@ def plot_season_results(
         # Build figure
         fig, ax = plt.subplots(figsize=FIGSIZE_RESULTS)
 
-        # Members or band
+        # Station token (e.g., point_latschbloder -> latschbloder)
+        token = Path(fname).stem
+        display_token = token.replace("point_", "", 1)
+
+        # Optional station observations (if available for this station/variable)
+        obs_series: Optional[pd.Series] = None
+        if station_obs:
+            obs_series = station_obs.get(display_token.lower())
+
+        # Members or band + ensemble mean
         if mode == "members":
             for s in member_series:
                 ax.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.9, label="_nolegend_")
+            # Draw ensemble mean as a single blue line for context
+            mean, _, _ = envelope(member_series, q_low=band_low, q_high=band_high)
+            if not mean.empty:
+                ax.plot(
+                    mean.index,
+                    mean.values,
+                    color=COLOR_MEAN,
+                    lw=LW_MEAN,
+                    label="ensemble mean",
+                    zorder=4,
+                )
         else:
             mem_for_env: List[pd.Series] = []
             for s in member_series:
@@ -666,10 +788,20 @@ def plot_season_results(
                     mean.index,
                     mean.values,
                     color=COLOR_MEAN,
-                    lw=LW_OPEN,
+                    lw=LW_MEAN,
                     label="ensemble mean",
                     zorder=4,
                 )
+        # Station observations (line) on top of ensemble/open loop
+        if obs_series is not None and not obs_series.empty:
+            ax.plot(
+                obs_series.index,
+                obs_series.values,
+                color=COLOR_DA_OBS,
+                lw=LW_DA_OBS,
+                label="station obs",
+                zorder=6,
+            )
 
         if open_loop:
             ol = concat_series(open_loop)
@@ -683,9 +815,15 @@ def plot_season_results(
         _draw_assim(ax, assim_dates)
         _draw_assim_labels(ax, assim_dates)
 
+        # Always show the full season window on the x-axis when available,
+        # regardless of station/model data coverage.
+        if effective_start is not None and effective_end is not None:
+            try:
+                ax.set_xlim(effective_start, effective_end)
+            except Exception:
+                pass
+
         # Titles/legend
-        token = Path(fname).stem
-        display_token = token.replace("point_", "", 1)
         _base, _alt, station_label = format_station_label(display_token, stations_df, fallback=display_token)
         title = f"Season Results | {season_dir.name}"
         subtitle = f"{station_label} - {var_title}"
@@ -698,8 +836,9 @@ def plot_season_results(
 
         handles, labels = ax.get_legend_handles_labels()
         if handles:
-            # Keep only one open loop and one assimilation entry; drop members/_nolegend_.
-            want = {"open loop", "assimilation"}
+            # Keep a compact legend with key elements only:
+            # ensemble mean, open loop, assimilation markers, and station observations.
+            want = {"ensemble mean", "open loop", "assimilation", "station obs"}
             filtered = []
             seen = set()
             for h, l in zip(handles, labels):
@@ -772,7 +911,9 @@ def _cli(argv: Iterable[str] | None = None) -> int:
         prog="oa-da-plot-season",
         description="Season-wide ensemble plots (forcing/results) with assimilation markers.",
     )
-    sub = p.add_subparsers(dest="mode", required=True)
+    # Use a separate dest name for the subcommand to avoid clashing with the
+    # '--mode' option used by the results plot (band vs members).
+    sub = p.add_subparsers(dest="command", required=True)
 
     def _common(sp):
         sp.add_argument("--season-dir", required=True, type=Path)
@@ -812,7 +953,7 @@ def _cli(argv: Iterable[str] | None = None) -> int:
     start = _parse_date_opt(args.start_date)
     end = _parse_date_opt(args.end_date)
 
-    if args.mode == "forcing":
+    if args.command == "forcing":
         plot_season_forcing(
             season_dir=args.season_dir,
             date_col=args.date_col,
@@ -829,7 +970,7 @@ def _cli(argv: Iterable[str] | None = None) -> int:
             backend=args.backend,
             log_level=args.log_level,
         )
-    elif args.mode == "results":
+    elif args.command == "results":
         if args.band_low >= args.band_high:
             logger.error("--band-low ({}) must be smaller than --band-high ({})", args.band_low, args.band_high)
             return 2

@@ -7,21 +7,25 @@ Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satelli
 - Seasonal snow cover prediction with an ensemble model + particle filter.
 - Includes prior forcing builder, ensemble launcher, MOD10A1 preprocessing, SCF extraction, H(x) model SCF, assimilation, resampling, rejuvenation, and plotting utilities.
 
-## Setup
+## Installation
 
 - Install Docker Desktop (Windows/macOS) or Docker Engine (Linux).
 - Build the image once from repo root: `docker build -t oa-da .`
-- Copy `.env.example` to `.env` and edit:
+- Copy `.env.example` to `.env` (local only, ignored by Git) and edit:
   - `REPO` = path to this repo on your machine
   - `PROJ` = path to your project data
   - Optional: `CPUS`, `MEMORY`, `MAX_WORKERS`
 - Set Compose compatibility if needed: `setx COMPOSE_COMPATIBILITY 1` (Windows) or `export COMPOSE_COMPATIBILITY=1` (Linux/macOS).
 - Volumes: `${REPO}` â†’ `/workspace`, `${PROJ}` â†’ `/data`.
 
-Environment notes
+### Environment notes
 
 - GDAL/PROJ are required; prefer installing via Conda. Ensure `GDAL_DATA` and `PROJ_LIB` point to your environment (see example `project.yml`).
 - Python 3.10+ is required; dependencies are declared in `pyproject.toml`.
+
+The `.env` file is read automatically by `docker compose` from the repo root.
+Keep `.env` machine-specific and untracked; `.env.example` is the template you
+should commit to the repo.
 
 ## Project Variables
 
@@ -47,24 +51,33 @@ This repo expects your project to follow the fixed layout shown below. Commands 
 
 ```
 project/
-├── env/
-│   └── roi.gpkg  # single ROI (preferred name)
-├── meteo/
-│   ├── stations.csv
-│   └── <station>.csv  (long-span forcing inputs)
-├── propagation/
-│   └── season_YYYY-YYYY/
-│       ├── season.yml  (season metadata, dates)
-│       ├── step_XX_name/
-│       │   ├── step_XX_name.yml  (dates, h_of_x overrides discouraged)
-│       │   └── ensembles/
-│       │       ├── prior/  (created by season.py; contains member_<NNN>)
-│       │       └── posterior/  (produced by resampling)
-│       └── ... additional steps ...
-├── obs/
-│   └── season_YYYY-YYYY/
-│       └── obs_scf_MOD10A1_YYYYMMDD.csv
-└── project.yml  (contains data_assimilation.h_of_x, resampling, etc.)
+  env/
+    roi.gpkg                # single ROI (preferred name)
+    glaciers.gpkg           # optional glacier outlines
+  meteo/
+    stations.csv
+    <station>.csv           # long-span forcing inputs
+  propagation/
+    season_YYYY-YYYY/
+      season.yml            # season metadata, dates, assimilation events
+      step_00_init/
+        step_00.yml         # initial spin-up step
+        ensembles/
+          prior/            # created by season pipeline; contains member_<NNN>
+          posterior/        # created by resampling (when enabled)
+      step_01_YYYYMMDD-YYYYMMDD/
+        step_01.yml
+        ensembles/
+          prior/
+          posterior/
+      ... additional steps ...
+  obs/
+    season_YYYY-YYYY/
+      scf_summary.csv                       # season-wide SCF summary
+      obs_scf_MOD10A1_YYYYMMDD.csv         # per-date SCF CSVs
+      obs_wet_snow_S1_YYYYMMDD.csv         # optional wet-snow CSVs
+  project.yml            # contains data_assimilation.h_of_x, resampling, etc.
+
 ```
 
 - `project.yml` must define `data_assimilation.h_of_x` (used by `model_scf` + `assimilate_scf`) and the DA blocks referenced by the pipeline.
@@ -76,15 +89,15 @@ project/
 ```yaml
 data_assimilation:
   glacier_mask:
-    enabled: true   # default: auto-on when env/glaciers.gpkg exists
-    path: env/glaciers.gpkg  # optional override
+    enabled: true # default: auto-on when env/glaciers.gpkg exists
+    path: env/glaciers.gpkg # optional override
 ```
 
 Why glacier masking matters
+
 - openAMUNDSEN (multilayer, seasonal snow) does not represent firn/ice, but SCF/FSC and wet-snow products “see” all bright or radar-wet surfaces (snow + firn + ice), especially on glaciers.
 - Comparing unmasked obs to a seasonal-snow-only model biases both diagnostics and assimilation.
 - Masking out glaciers keeps model vs obs consistent by removing firn/ice pixels from both sides.
-
 
 ## Workflow/Commands
 
@@ -172,8 +185,7 @@ Optional: `--overwrite`, `--log-level <LEVEL>` (the summary path defaults to `<p
 
 Note: the summary-based workflow is the recommended way to prepare SCF observations for assimilation; the single-image and raster batch modes are kept for backward compatibility only.
 
-Snowflake FSC (Sentinel-2) summarization (GeoTIFF -> season summary)
--------------------------------------------------------------------
+## Snowflake FSC (Sentinel-2) summarization (GeoTIFF -> season summary)
 
 ```powershell
 docker compose run --rm oa `
@@ -185,8 +197,7 @@ docker compose run --rm oa `
 
 Optional flags: `--roi <path>` (auto-detect single ROI under env/ if omitted), `--roi-field <field>`, `--recursive`, `--log-level`. Writes `obs/<season>/scf_summary.csv` with `date, region_id, n_valid, n_snow, scf, source` from FSC values 0..100.
 
-Product-aware SCF CSVs
-----------------------
+## Product-aware SCF CSVs
 
 Season mode for SCF supports a product tag so filenames match assimilation events (e.g., `--product SNOWFLAKE` -> `obs_scf_SNOWFLAKE_YYYYMMDD.csv`).
 
@@ -220,15 +231,13 @@ wet_snow_fraction = (# pixels == 110) / (# pixels in {110, 125})
 
 This fraction is written to `wet_snow_summary.csv` along with `n_valid`, `n_wet`, and the source filename, and is later converted into per-step `obs_wet_snow_S1_YYYYMMDD.csv` files by the season helper.
 
-Wet-snow assimilation workflow
-------------------------------
+## Wet-snow assimilation workflow
 
 - Summarize observations into `wet_snow_summary.csv` (e.g., `oa-da-wet-snow-s1`), then drive the season helper to write per-step `obs_wet_snow_*.csv` aligned to assimilation dates.
 - The season pipeline reads `data_assimilation.assimilation_events` from `season.yml`; it now errors if fewer events than DA steps are configured.
 - Wet-snow masks/fractions are computed for all members before DA using the project wet-snow threshold; assimilation/resampling/rejuvenation then proceed like SCF.
 
-Per-step forcing plots
-----------------------
+## Per-step forcing plots
 
 Forcing (temperature in K, cumulative precipitation) is plotted per step with all members and the open loop. The season pipeline calls this automatically for each step. Manual trigger:
 
@@ -239,8 +248,7 @@ docker compose run --rm oa `
   --ensemble prior
 ```
 
-Season-level model envelopes for plotting
------------------------------------------
+## Season-level model envelopes for plotting
 
 Season runs now aggregate member ROI series into:
 
@@ -258,8 +266,7 @@ docker compose run --rm oa `
   --output-name point_scf_roi_envelope.csv
 ```
 
-Plotting SCF + wet-snow obs/model overlay
------------------------------------------
+## Plotting SCF + wet-snow obs/model overlay
 
 Use the combined plot helper to overlay observations, optional single-model series, and envelopes:
 
@@ -272,8 +279,7 @@ docker compose run --rm oa `
 
 Defaults read obs from `obs/<season>/scf_summary.csv` and `obs/<season>/wet_snow_summary.csv`, envelopes from the season root, and write `plots/results/fraction_timeseries.png`. Add `--scf-model-csv` / `--wet-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` to use custom envelopes. Plot mode can be switched with `--mode band|members` (pipeline default: `band`).
 
-Season point results (SWE / snow depth, member mode)
-----------------------------------------------------
+## Season point results (SWE / snow depth, member mode)
 
 Generate season-wide point plots (members only, legend shows just open loop + assimilation markers):
 

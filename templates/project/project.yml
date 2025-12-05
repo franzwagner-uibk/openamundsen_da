@@ -1,28 +1,67 @@
-﻿# Example project.yml with recommended resampling defaults.
-# This template uses plain ASCII and compact keys.
+domain: "example_domain"
+# start_date:  # defined in season.yml
+# end_date:    # defined in season.yml
+resolution: 100            # spatial resolution (m)
+timestep: "3H"             # temporal resolution as a pandas-compatible string (e.g. "3H", "1D")
+crs: "epsg:25832"          # CRS of the input grids
+timezone: 1                # timezone of the model domain (UTC offset in hours)
+
+environment:
+  # Set GDAL/PROJ paths for your Conda env (examples only; adjust for your system).
+  GDAL_DATA: "/path/to/conda/env/share/gdal"
+  PROJ_LIB: "/path/to/conda/env/share/proj"
 
 data_assimilation:
+  # Prior forcing ensemble (REQUIRED for DA runs)
   prior_forcing:
-    ensemble_size: 30        # example size
-    random_seed: 123         # global seed used for reproducibility
-    sigma_t: 1.0             # temperature additive stddev (deg C)
-    mu_p: 0.0                # precipitation factor log-mean
-    sigma_p: 0.3             # precipitation factor log-stddev
-  # Ratio-based ESS threshold (preferred; scales with N).
-  # Resample if ESS < ess_threshold_ratio * N.
+    ensemble_size: 20       # number of ensemble members
+    random_seed: 42         # RNG seed for reproducibility
+    sigma_t: 0.5            # additive temperature stddev (deg C)
+    mu_p: 0.0               # log-space mean for precip factor
+    sigma_p: 0.5            # log-space stddev for precip factor
+
+  # Model SCF operator H(x) (REQUIRED when assimilating SCF)
+  h_of_x:
+    method: depth_threshold # or "logistic"
+    variable: hs            # or "swe"
+    params:
+      h0: 0.01
+      k: 80
+
+  # Wet-snow classification (OPTIONAL)
+  wet_snow:
+    classification_threshold_percent: 0.5
+
+  # Glacier masking (OPTIONAL)
+  glacier_mask:
+    enabled: true
+    path: env/glaciers.gpkg
+
+  # Likelihood (OPTIONAL; sensible defaults if omitted)
+  likelihood:
+    scf:
+      obs_sigma: 0.10
+      use_binomial: true
+      sigma_floor: 0.05
+      sigma_cloud_scale: 0.10
+      min_sigma: 0.03
+    wet_snow:
+      obs_sigma: 0.10
+      use_binomial: false
+      sigma_floor: 0.05
+      sigma_cloud_scale: 0.10
+      min_sigma: 0.03
+
+  # Resampling (OPTIONAL; explicit settings recommended)
   resampling:
     algorithm: systematic
-    ess_threshold_ratio: 0.5   # recommended: 0.5..0.66 (use 0.5 by default)
-    # Optional absolute threshold alternative (count):
-    # ess_threshold: 15        # only used if ratio not set
-    # Optional explicit seed; if omitted, falls back to data_assimilation.prior_forcing.random_seed
-    # seed: 123
+    ess_threshold_ratio: 0.5   # resample if ESS < ratio * N
+    # seed: 123                # optional; if omitted, uses an internal default
 
   # Rejuvenation (posterior -> prior for next step)
   rejuvenation:
     sigma_t: 0.2            # additive temperature noise (deg C)
     sigma_p: 0.2            # lognormal sigma for precip factor (mu=0)
-
     # seed: 123             # optional; falls back to prior_forcing.random_seed
 
   # Warm start (restart) settings for multi-step propagation
@@ -31,16 +70,3 @@ data_assimilation:
     dump_state: true            # save final state at the end of each member run
     state_pattern: model_state.pickle.gz  # filename or glob under member results_dir
 
-# Optional: likelihood and H(x) defaults can be added here if desired.
-#likelihood:
-#  obs_sigma: 0.10
-#  sigma_floor: 0.05
-#  sigma_cloud_scale: 0.10
-#  min_sigma: 0.03
-
-#h_of_x:
-#  method: depth_threshold    # or logistic
-#  variable: hs               # or swe
-#  params:
-#    h0: 0.03
-#    k: 0.15

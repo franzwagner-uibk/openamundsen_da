@@ -561,11 +561,18 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
             raster_dir = cand
         if aoi_path is None:
             env_dir = proj_dir / "env"
-            candidates = sorted(list(env_dir.glob("*.gpkg")) + list(env_dir.glob("*.shp")))
-            if not candidates:
-                logger.error("No AOI found under {}", env_dir)
-                return 1
-            aoi_path = candidates[0]
+            roi = env_dir / "roi.gpkg"
+            if roi.is_file():
+                aoi_path = roi
+            else:
+                candidates = sorted(list(env_dir.glob("*.gpkg")) + list(env_dir.glob("*.shp")))
+                if not candidates:
+                    logger.error("No AOI found under {}", env_dir)
+                    return 1
+                if len(candidates) > 1:
+                    logger.error("Expected roi.gpkg under {}; found multiple candidates. Please pass --aoi.", env_dir)
+                    return 1
+                aoi_path = candidates[0]
         if season_label is None and args.output:
             parent = Path(args.output).parent.name
             if parent.startswith("season_"):

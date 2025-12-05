@@ -42,7 +42,7 @@ from openamundsen_da.methods.h_of_x.model_scf import compute_step_scf_daily_for_
 from openamundsen_da.methods.wet_snow.classify import classify_step_wet_snow
 from openamundsen_da.methods.wet_snow.area import compute_step_wet_snow_daily_for_all_members
 from openamundsen_da.methods.pf.rejuvenate import rejuvenate
-from openamundsen_da.methods.pf.resample import resample_from_weights
+from openamundsen_da.methods.pf.resample import resample_from_weights, _read_resampling_from_project
 from openamundsen_da.methods.pf.plot_weights import plot_weights_for_csv
 from openamundsen_da.methods.pf.plot_ess_timeline import plot_season_ess_timeline
 from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_envelope
@@ -249,7 +249,10 @@ def run_season(cfg: OrchestratorConfig) -> None:
     events = load_assimilation_events(cfg.season_dir)
     n_expected = max(0, len(steps) - 1)
     if len(events) < n_expected:
-        logger.warning("Fewer assimilation events ({}) than steps needing DA ({}); later steps will skip DA.", len(events), n_expected)
+        raise ValueError(
+            f"Configured {len(events)} assimilation event(s) but the season needs {n_expected}. "
+            "Add events in season.yml (data_assimilation.assimilation_events) or adjust steps."
+        )
     if len(events) > n_expected:
         logger.warning("More assimilation events ({}) than steps needing DA ({}); extra events will be ignored.", len(events), n_expected)
 
@@ -468,16 +471,27 @@ def run_season(cfg: OrchestratorConfig) -> None:
         if has_posterior and not cfg.overwrite:
             logger.info("Posterior ensemble already exists and overwrite=False; skipping resampling.")
         else:
-            logger.info("Resampling to posterior ...")
+            rs_cfg = _read_resampling_from_project(cfg.project_dir)
+            algo = rs_cfg.algorithm or "systematic"
+            ess_thr_abs = float(rs_cfg.ess_threshold or 0.0)
+            ess_thr_ratio = rs_cfg.ess_threshold_ratio
+            ratio_text = f"{ess_thr_ratio:.3f}" if ess_thr_ratio is not None else "None"
+            logger.info(
+                "Resampling to posterior ... (algorithm={} seed={} ess_thr_abs={} ess_thr_ratio={})",
+                algo,
+                rs_cfg.seed if rs_cfg.seed is not None else "auto",
+                ess_thr_abs,
+                ratio_text,
+            )
             resample_from_weights(
                 step_dir=step_dir,
                 source_ensemble="prior",
                 weights_csv=wcsv,
                 target_ensemble="posterior",
-                seed=None,
-                algorithm="systematic",
-                ess_threshold=0.0,
-                ess_threshold_ratio=None,
+                seed=rs_cfg.seed,
+                algorithm=algo,
+                ess_threshold=ess_thr_abs,
+                ess_threshold_ratio=ess_thr_ratio,
                 overwrite=bool(cfg.overwrite),
             )
 

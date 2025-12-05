@@ -531,10 +531,22 @@ def run_season(cfg: OrchestratorConfig) -> None:
                     ])
                 except Exception as exc:
                     logger.warning("Forcing plot failed for {}: {}", step_name, exc)
-                # Point results (SWE and snow depth) in member mode for all stations
+                # Point results (SWE and snow depth), daily aggregated, in member mode for all stations
                 try:
-                    plot_season_results(season_dir=cfg.season_dir, var_col="swe", mode="members")
-                    plot_season_results(season_dir=cfg.season_dir, var_col="snow_depth", mode="members")
+                    plot_season_results(
+                        season_dir=cfg.season_dir,
+                        var_col="swe",
+                        mode="members",
+                        resample="D",
+                        resample_agg="mean",
+                    )
+                    plot_season_results(
+                        season_dir=cfg.season_dir,
+                        var_col="snow_depth",
+                        mode="members",
+                        resample="D",
+                        resample_agg="mean",
+                    )
                 except Exception as exc:
                     logger.warning("Season point results plot failed after step {}: {}", step_name, exc)
                 # Combined fraction overlay (SCF + wet snow), written under plots/results
@@ -580,8 +592,20 @@ def run_season(cfg: OrchestratorConfig) -> None:
 
     # Season plots (point results + fraction overlay). Forcing plotted per step above.
     try:
-        plot_season_results(season_dir=cfg.season_dir, var_col="swe", mode="members")
-        plot_season_results(season_dir=cfg.season_dir, var_col="snow_depth", mode="members")
+        plot_season_results(
+            season_dir=cfg.season_dir,
+            var_col="swe",
+            mode="members",
+            resample="D",
+            resample_agg="mean",
+        )
+        plot_season_results(
+            season_dir=cfg.season_dir,
+            var_col="snow_depth",
+            mode="members",
+            resample="D",
+            resample_agg="mean",
+        )
     except Exception as exc:
         logger.warning("Season point results plot failed: {}", exc)
     try:

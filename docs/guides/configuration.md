@@ -212,7 +212,40 @@ output_data:
       - snow_water_equivalent
 ```
 
-See [openAMUNDSEN Configuration documentation](http://doc.openamundsen.org/doc/configuration) for all available model configuration options.
+### Key Output Variables for Data Assimilation
+
+For DA workflows, configure these essential variables in `project.yml`:
+
+```yaml
+output_data:
+  grids:
+    format: netcdf
+    variables:
+      - var: snow.swe           # Snow water equivalent (essential for DA)
+        name: swe
+        freq: D                 # Daily output
+      - var: snow.depth         # Snow depth (for H(x) operator)
+        name: hs
+        freq: D
+      - var: snow.albedo        # Snow albedo
+        name: albedo
+        freq: D
+      - var: snow.lwc           # Liquid water content (for wet snow DA)
+        name: lwc
+        freq: D
+```
+
+**Available aggregation options**:
+- `agg: sum` - Sum over period (e.g., for snowmelt)
+- `agg: mean` - Mean over period
+- (empty) - Instantaneous values
+
+**Frequency codes**:
+- `D`: Daily
+- `M`: Monthly
+- Specific dates: `[2019-11-22, 2019-12-10]`
+
+See [openAMUNDSEN Output Data documentation](http://doc.openamundsen.org/doc/output) for complete variable list and [Configuration documentation](http://doc.openamundsen.org/doc/configuration) for all model options.
 
 ---
 

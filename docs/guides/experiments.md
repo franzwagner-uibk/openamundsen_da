@@ -121,7 +121,7 @@ ogr2ogr -clipsrc env/roi.gpkg -t_srs EPSG:32632 \
 
 ### 2.1 Meteorological Forcing
 
-Prepare meteorological station data in openAMUNDSEN format.
+Prepare meteorological station data in openAMUNDSEN format. See the [openAMUNDSEN Input Data documentation](http://doc.openamundsen.org/doc/input) for complete details.
 
 **Station metadata** (`meteo/stations.csv`):
 ```csv
@@ -132,21 +132,22 @@ station_id,x,y,z,name
 
 **Station time series** (`meteo/station_001.csv`, etc.):
 ```csv
-time,temp,precip,rel_hum,wind_speed,sw_in
-2019-11-01 00:00:00,2.5,0.0,75,3.2,0
-2019-11-01 03:00:00,1.8,0.5,82,2.9,50
+date,temp,precip,rel_hum,wind_speed,sw_in
+2019-11-01 00:00:00,275.65,0.0,75,3.2,0
+2019-11-01 03:00:00,274.95,0.5,82,2.9,50
 ...
 ```
 
-**Required variables**:
-- `temp`: Air temperature (°C)
-- `precip`: Precipitation (mm per timestep)
+**Required variables** (CSV format):
+- `date`: Timestamp (YYYY-MM-DD HH:MM)
+- `temp`: Air temperature (K) - **Note: Kelvin, not Celsius**
+- `precip`: Precipitation sum (kg m⁻²) - equivalent to mm per timestep
 - `rel_hum`: Relative humidity (%)
-- `wind_speed`: Wind speed (m/s)
-- `sw_in`: Incoming shortwave radiation (W/m²)
+- `wind_speed`: Wind speed (m s⁻¹)
+- `sw_in`: Global radiation (W m⁻²)
 
 {: .note }
-> Time series should span beyond your season dates to allow for spin-up and spin-down.
+> Time series must cover the entire simulation period plus buffer for spin-up. openAMUNDSEN also supports NetCDF format (CF-1.6 conventions) - see documentation for details.
 
 ### 2.2 Satellite Observations
 

@@ -106,12 +106,6 @@ See the [Installation Guide]({{ site.baseurl }}{% link installation.md %}) for d
 
 ---
 
-## Contributing
-
-We welcome contributions! Please see our [Contributing Guidelines]({{ site.baseurl }}{% link contributing.md %}) for more information.
-
----
-
 ## License
 
 This project is distributed under the MIT License. See `LICENSE` file for more information.

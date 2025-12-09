@@ -1,0 +1,67 @@
+# Just the Docs configuration
+title: openamundsen_da
+description: Data Assimilation Framework for openAMUNDSEN
+theme: just-the-docs
+url: https://franzwagner-uibk.github.io
+baseurl: /openamundsen_da
+
+# Theme settings
+color_scheme: light
+search_enabled: true
+search:
+  heading_level: 2
+  previews: 3
+  preview_words_before: 5
+  preview_words_after: 10
+  tokenizer_separator: /[\s/]+/
+  rel_url: true
+  button: true
+
+# Navigation structure
+nav_sort: order
+
+# Footer content
+footer_content: "Copyright &copy; 2024. Distributed under the MIT License."
+
+# Google Analytics (optional - remove if not needed)
+# ga_tracking: UA-XXXXXXXX-X
+
+# Aux links for the top navigation
+aux_links:
+  "openamundsen_da on GitHub":
+    - "//github.com/franzwagner-uibk/openamundsen_da"
+
+# Back to top link
+back_to_top: true
+back_to_top_text: "Back to top"
+
+# Footer navigation
+footer_nav_enabled: true
+
+# External navigation links
+nav_external_links:
+  - title: openAMUNDSEN
+    url: https://github.com/openamundsen/openamundsen
+    hide_icon: false
+
+# Mermaid diagrams support
+mermaid:
+  version: "9.1.3"
+
+# Callouts
+callouts_level: loud
+callouts:
+  highlight:
+    color: yellow
+  important:
+    title: Important
+    color: blue
+  new:
+    title: New
+    color: green
+  note:
+    title: Note
+    color: purple
+  warning:
+    title: Warning
+    color: red

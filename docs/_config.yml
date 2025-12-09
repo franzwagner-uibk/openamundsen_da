@@ -1,7 +1,7 @@
 # Just the Docs configuration
 title: openamundsen_da
 description: Data Assimilation Framework for openAMUNDSEN
-remote_theme: just-the-docs/just-the-docs@v0.8.2
+remote_theme: just-the-docs/just-the-docs@v0.4.0
 url: https://franzwagner-uibk.github.io
 baseurl: /openamundsen_da
 

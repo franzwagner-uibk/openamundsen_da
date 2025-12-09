@@ -8,6 +8,8 @@ baseurl: /openamundsen_da
 # Plugins
 plugins:
   - jekyll-remote-theme
+  - jekyll-include-cache
+  - jekyll-seo-tag
 
 # Theme settings
 color_scheme: light
@@ -48,9 +50,9 @@ nav_external_links:
     url: https://github.com/openamundsen/openamundsen
     hide_icon: false
 
-# Mermaid diagrams support
-mermaid:
-  version: "9.1.3"
+# Mermaid diagrams support (disabled for GitHub Pages compatibility)
+# mermaid:
+#   version: "9.1.3"
 
 # Callouts
 callouts_level: loud

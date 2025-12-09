@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>openamundsen_da Package Structure</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            text-align: center;
+            color: #2d3748;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #718096;
+            margin-bottom: 40px;
+            font-size: 1.2em;
+        }
+        
+        .workflow {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+            margin-bottom: 50px;
+        }
+        
+        .phase {
+            background: linear-gradient(135deg, #f6f8fb 0%, #e9ecef 100%);
+            border-radius: 15px;
+            padding: 25px;
+            border-left: 6px solid #667eea;
+        }
+        
+        .phase-title {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #2d3748;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .phase-number {
+            background: #667eea;
+            color: white;
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+        }
+        
+        .modules {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .module {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            border: 2px solid #e2e8f0;
+            transition: all 0.3s ease;
+        }
+        
+        .module:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+            border-color: #667eea;
+        }
+        
+        .module-name {
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 8px;
+            font-size: 1.1em;
+        }
+        
+        .module-desc {
+            color: #4a5568;
+            font-size: 0.9em;
+            line-height: 1.5;
+        }
+        
+        .arrow {
+            text-align: center;
+            color: #667eea;
+            font-size: 2em;
+            margin: 10px 0;
+        }
+        
+        .package-structure {
+            background: #f7fafc;
+            border-radius: 15px;
+            padding: 30px;
+            margin-top: 40px;
+        }
+        
+        .structure-title {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #2d3748;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .structure-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        
+        .structure-section {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            border: 2px solid #667eea;
+        }
+        
+        .section-header {
+            font-weight: bold;
+            color: #667eea;
+            font-size: 1.3em;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .section-icon {
+            font-size: 1.5em;
+        }
+        
+        .section-items {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .section-items li {
+            padding: 8px 0;
+            border-bottom: 1px solid #e2e8f0;
+            color: #4a5568;
+        }
+        
+        .section-items li:last-child {
+            border-bottom: none;
+        }
+        
+        .section-items li::before {
+            content: "▸ ";
+            color: #667eea;
+            font-weight: bold;
+        }
+        
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-top: 40px;
+            padding: 20px;
+            background: #edf2f7;
+            border-radius: 10px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #2d3748;
+        }
+        
+        .legend-box {
+            width: 20px;
+            height: 20px;
+            border-radius: 5px;
+        }
+        
+        .tree-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+            gap: 30px;
+        }
+        
+        .tree-section {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            border: 2px solid #e2e8f0;
+        }
+        
+        .tree-title {
+            font-size: 1.4em;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        
+        .tree-content {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        .tree-item {
+            padding: 5px 0;
+            padding-left: 20px;
+            position: relative;
+            color: #2d3748;
+            line-height: 1.8;
+        }
+        
+        .tree-item.folder {
+            cursor: pointer;
+            font-weight: 500;
+        }
+        
+        .tree-item.folder:hover {
+            background: #f7fafc;
+            border-radius: 4px;
+        }
+        
+        .tree-item.file {
+            color: #4a5568;
+        }
+        
+        .tree-item.highlight {
+            background: #fff5f5;
+            border-left: 3px solid #fc8181;
+            padding-left: 17px;
+        }
+        
+        .tree-children {
+            padding-left: 25px;
+            border-left: 1px solid #e2e8f0;
+            margin-left: 10px;
+            margin-top: 5px;
+        }
+        
+        .folder-icon, .file-icon {
+            display: inline-block;
+            width: 20px;
+            margin-right: 5px;
+        }
+        
+        .folder-badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.75em;
+            margin-left: 8px;
+            font-weight: normal;
+        }
+        
+        .file-desc {
+            color: #718096;
+            font-style: italic;
+            font-size: 0.85em;
+            margin-left: 10px;
+        }
+        
+        .data-flow {
+            margin-top: 40px;
+            padding: 30px;
+            background: linear-gradient(135deg, #fff5f5 0%, #fed7d7 100%);
+            border-radius: 15px;
+        }
+        
+        .flow-title {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #742a2a;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .flow-diagram {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        .flow-box {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            min-width: 150px;
+            text-align: center;
+            border: 3px solid #fc8181;
+            font-weight: bold;
+            color: #742a2a;
+        }
+        
+        .flow-arrow {
+            font-size: 2em;
+            color: #fc8181;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏔️ openamundsen_da</h1>
+        <div class="subtitle">Data Assimilation Framework for Snow Cover Prediction</div>
+        
+        <div class="workflow">
+            <div class="phase">
+                <div class="phase-title">
+                    <div class="phase-number">1</div>
+                    <span>Initialization & Setup</span>
+                </div>
+                <div class="modules">
+                    <div class="module">
+                        <div class="module-name">🗂️ Project Structure</div>
+                        <div class="module-desc">Defines meteo/, env/, obs/, propagation/ directories with ROI, forcing data, and observations</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">📐 Season Skeleton</div>
+                        <div class="module-desc">Creates step_XX_* folders with YAMLs based on assimilation dates</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">⚙️ Configuration</div>
+                        <div class="module-desc">project.yml, season.yml define ensemble size, DA parameters, timesteps</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arrow">↓</div>
+            
+            <div class="phase">
+                <div class="phase-title">
+                    <div class="phase-number">2</div>
+                    <span>Prior Ensemble Generation</span>
+                </div>
+                <div class="modules">
+                    <div class="module">
+                        <div class="module-name">🌡️ Prior Forcing</div>
+                        <div class="module-desc">Perturbs temperature (±σ_T) and precipitation (×σ_P) for each ensemble member</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">🔄 Open Loop</div>
+                        <div class="module-desc">Unperturbed baseline run using original meteorological data</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">👥 Members</div>
+                        <div class="module-desc">N perturbed ensemble members (member_001, member_002, ...)</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arrow">↓</div>
+            
+            <div class="phase">
+                <div class="phase-title">
+                    <div class="phase-number">3</div>
+                    <span>Model Execution</span>
+                </div>
+                <div class="modules">
+                    <div class="module">
+                        <div class="module-name">🚀 Launch Ensemble</div>
+                        <div class="module-desc">Runs openAMUNDSEN in parallel for all members with warm-start capability</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">💾 State Management</div>
+                        <div class="module-desc">Saves model state at step boundaries via state_pointer.json</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">📊 Results Output</div>
+                        <div class="module-desc">Generates NetCDF grids and point CSV time series (SWE, snow depth, temp)</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arrow">↓</div>
+            
+            <div class="phase">
+                <div class="phase-title">
+                    <div class="phase-number">4</div>
+                    <span>Observation Processing</span>
+                </div>
+                <div class="modules">
+                    <div class="module">
+                        <div class="module-name">🛰️ MOD10A1 Preprocessing</div>
+                        <div class="module-desc">Converts HDF → GeoTIFF, applies QA masking, reprojects to study area</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">❄️ SCF Extraction</div>
+                        <div class="module-desc">Computes snow cover fraction from NDSI threshold for ROI</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">💧 Wet Snow (S1)</div>
+                        <div class="module-desc">Processes Sentinel-1 wet snow masks (WSM classes 110/125)</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">🏔️ Glacier Masking</div>
+                        <div class="module-desc">Excludes firn/ice areas from SCF comparisons using env/glaciers.gpkg</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arrow">↓</div>
+            
+            <div class="phase">
+                <div class="phase-title">
+                    <div class="phase-number">5</div>
+                    <span>Data Assimilation (Particle Filter)</span>
+                </div>
+                <div class="modules">
+                    <div class="module">
+                        <div class="module-name">📐 H(x) Forward Operator</div>
+                        <div class="module-desc">Computes model-equivalent SCF from snow depth/SWE using depth_threshold or logistic methods</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">⚖️ Weight Calculation</div>
+                        <div class="module-desc">Assigns likelihood weights to each member based on obs-model mismatch</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">📈 ESS Monitoring</div>
+                        <div class="module-desc">Tracks Effective Sample Size to detect particle degeneracy</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arrow">↓</div>
+            
+            <div class="phase">
+                <div class="phase-title">
+                    <div class="phase-number">6</div>
+                    <span>Ensemble Update</span>
+                </div>
+                <div class="modules">
+                    <div class="module">
+                        <div class="module-name">🔀 Resampling</div>
+                        <div class="module-desc">Systematic resampling to create posterior ensemble (skipped if ESS > threshold)</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">✨ Rejuvenation</div>
+                        <div class="module-desc">Re-perturbs forcing for next step to maintain ensemble spread</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">🔄 State Propagation</div>
+                        <div class="module-desc">Copies resampled states to next step's prior ensemble</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arrow">↓</div>
+            
+            <div class="phase">
+                <div class="phase-title">
+                    <div class="phase-number">7</div>
+                    <span>Visualization & Analysis</span>
+                </div>
+                <div class="modules">
+                    <div class="module">
+                        <div class="module-name">📊 Forcing Plots</div>
+                        <div class="module-desc">Temperature and precipitation ensemble time series per station</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">🎯 Results Plots</div>
+                        <div class="module-desc">SWE, snow depth, SCF with ensemble mean + 90% envelope</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">⚖️ Weight Plots</div>
+                        <div class="module-desc">Particle weights and residual histograms per assimilation date</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">📉 ESS Timeline</div>
+                        <div class="module-desc">Season-wide effective sample size evolution</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-name">⚡ Performance Monitor</div>
+                        <div class="module-desc">CPU, RAM, disk usage tracking with ETA estimation</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="package-structure">
+            <div class="structure-title">📦 Repository Structure</div>
+            
+            <div class="tree-container">
+                <div class="tree-section">
+                    <div class="tree-title">🗂️ Repository Root</div>
+                    <div class="tree-content">
+                        <div class="tree-item folder" onclick="toggleFolder(this)">
+                            <span class="folder-icon">📁</span> .vscode/
+                        </div>
+                        <div class="tree-item folder" onclick="toggleFolder(this)">
+                            <span class="folder-icon">📁</span> openamundsen_da.egg-info/
+                        </div>
+                        <div class="tree-item folder expanded" onclick="toggleFolder(this)">
+                            <span class="folder-icon">📂</span> openamundsen_da/ <span class="folder-badge">main package</span>
+                            <div class="tree-children">
+                                <div class="tree-item folder" onclick="toggleFolder(this)">
+                                    <span class="folder-icon">📁</span> core/
+                                    <div class="tree-children">
+                                        <div class="tree-item file"><span class="file-icon">🐍</span> __init__.py</div>
+                                        <div class="tree-item file highlight"><span class="file-icon">🐍</span> prior_forcing.py <span class="file-desc">Ensemble forcing builder</span></div>
+                                        <div class="tree-item file highlight"><span class="file-icon">🐍</span> launch.py <span class="file-desc">Parallel ensemble runner</span></div>
+                                        <div class="tree-item file"><span class="file-icon">🐍</span> constants.py</div>
+                                        <div class="tree-item file"><span class="file-icon">🐍</span> config.py</div>
+                                    </div>
+                                </div>
+                                <div class="tree-item folder" onclick="toggleFolder(this)">
+                                    <span class="folder-icon">📁</span> observer/
+                                    <div class="tree-children">
+                                        <div class="tree-item file"><span class="file-icon">🐍</span> __init__.py</div>
+                                        <div class="tree-item file highlight"><span class="file-icon">🐍</span> mod10a1_preprocess.py <span class="file-desc">MODIS HDF→GeoTIFF</span></div>
+                                        <div class="tree-item file highlight"><span class="file-icon">🐍</span> satellite_scf.py <span class="file-desc">SCF extraction</span></div>
+                                        <div class="tree-item file highlight"><span class="file-icon">🐍</span> snowflake_fsc.py <span class="file-desc">Sentinel-2 FSC</span></div>
+                                        <div class="tree-item file"><span class="file-icon">🐍</span> plot_fractions.py</div>
+                                    </div>
+                                </div>
+                                <div class="tree-item folder" onclick="toggleFolder(this)">
+                                    <span class="folder-icon">📁</span> methods/
+                                    <div class="tree-children">
+                                        <div class="tree-item folder" onclick="toggleFolder(this)">
+                                            <span class="folder-icon">📁</span> pf/ <span class="folder-badge">Particle Filter</span>
+                                            <div class="tree-children">
+                                                <div class="tree-item file"><span class="file-icon">🐍</span> __init__.py</div>
+                                                <div class="tree-item file highlight"><span class="file-icon">🐍</span> assimilate_scf.py <span class="file-desc">Weight calculation</span></div>
+                                                <div class="tree-item file highlight"><span class="file-icon">🐍</span> resample.py <span class="file-desc">Systematic resampling</span></div>
+                                                <div class="tree-item file highlight"><span class="file-icon">🐍</span> rejuvenate.py <span class="file-desc">Ensemble perturbation</span></div>
+                                                <div class="tree-item file"><span class="file-icon">🐍</span> plot_weights.py</div>
+                                                <div class="tree-item file"><span class="file-icon">🐍</span> plot_ess_timeline.py</div>
+                                            </div>
+                                        </div>
+                                        <div class="tree-item folder" onclick="toggleFolder(this)">
+                                            <span class="folder-icon">📁</span> h_of_x/ <span class="folder-badge">Forward Operator</span>
+                                            <div class="tree-children">
+                                                <div class="tree-item file"><span class="file-icon">🐍</span> __init__.py</div>
+                                                <div class="tree-item file highlight"><span class="file-icon">🐍</span> model_scf.py <span class="file-desc">Model→SCF operator</span></div>
+                                            </div>
+                                        </div>
+                                        <div class="tree-item folder" onclick="toggleFolder(this)">
+                                            <span class="folder-icon">📁</span> wet_snow/
+                                            <div class="tree-children">
+                                                <div class="tree-item file"><span class="file-icon">🐍</span> __init__.py</div>
+                                                <div class="tree-item file highlight"><span class="file-icon">🐍</span> classify.py <span class="file-desc">LWC-based wet/dry</span></div>
+                                            </div>
+                                        </div>
+                                        <div class="tree-item folder" onclick="toggleFolder(this)">
+                                            <span class="folder-icon">📁</span> viz/
+                                            <div class="tree-children">
+                                                <div class="tree-item file"><span class="file-icon">🐍</span> __init__.py</div>
+                                                <div class="tree-item file"><span class="file-icon">🐍</span> plot_forcing_ensemble.py</div>
+                                                <div class="tree-item file"><span class="file-icon">🐍</span> plot_results_ensemble.py</div>
+                                                <div class="tree-item file"><span class="file-icon">🐍</span> plot_season_ensemble.py</div>
+                                                <div class="tree-item file"><span class="file-icon">🐍</span> aggregate_fractions.py</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tree-item folder" onclick="toggleFolder(this)">
+                                    <span class="folder-icon">📁</span> pipeline/
+                                    <div class="tree-children">
+                                        <div class="tree-item file"><span class="file-icon">🐍</span> __init__.py</div>
+                                        <div class="tree-item file highlight"><span class="file-icon">🐍</span> season.py <span class="file-desc">Main orchestrator</span></div>
+                                        <div class="tree-item file"><span class="file-icon">🐍</span> season_skeleton.py</div>
+                                        <div class="tree-item file"><span class="file-icon">🐍</span> perf_monitor.py</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tree-item folder" onclick="toggleFolder(this)">
+                            <span class="folder-icon">📁</span> propagation/
+                            <div class="tree-children">
+                                <div class="tree-item folder" onclick="toggleFolder(this)">
+                                    <span class="folder-icon">📁</span> season_2019-2020/
+                                    <div class="tree-children">
+                                        <div class="tree-item file"><span class="file-icon">📄</span> season.yml</div>
+                                        <div class="tree-item folder"><span class="folder-icon">📁</span> step_00_init/</div>
+                                        <div class="tree-item folder"><span class="folder-icon">📁</span> step_01_.../</div>
+                                        <div class="tree-item folder"><span class="folder-icon">📁</span> ...</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tree-item folder" onclick="toggleFolder(this)">
+                            <span class="folder-icon">📁</span> templates/
+                            <div class="tree-children">
+                                <div class="tree-item folder" onclick="toggleFolder(this)">
+                                    <span class="folder-icon">📁</span> project/
+                                    <div class="tree-children">
+                                        <div class="tree-item file"><span class="file-icon">⚙️</span> project.yml</div>
+                                        <div class="tree-item file"><span class="file-icon">⚙️</span> season.yml</div>
+                                        <div class="tree-item file"><span class="file-icon">⚙️</span> step.yml</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tree-item file"><span class="file-icon">📄</span> .dockerignore</div>
+                        <div class="tree-item file"><span class="file-icon">📄</span> .env</div>
+                        <div class="tree-item file"><span class="file-icon">📄</span> .gitignore</div>
+                        <div class="tree-item file"><span class="file-icon">📄</span> CODE_REVIEW_GUIDELINES.md</div>
+                        <div class="tree-item file highlight"><span class="file-icon">🐳</span> Dockerfile <span class="file-desc">Container definition</span></div>
+                        <div class="tree-item file"><span class="file-icon">📄</span> RAM_storage_overview.md</div>
+                        <div class="tree-item file highlight"><span class="file-icon">📘</span> README.md <span class="file-desc">Main documentation</span></div>
+                        <div class="tree-item file"><span class="file-icon">🐳</span> compose.yml</div>
+                        <div class="tree-item file highlight"><span class="file-icon">📦</span> environment.yml <span class="file-desc">Conda environment</span></div>
+                        <div class="tree-item file"><span class="file-icon">📦</span> pyproject.toml</div>
+                    </div>
+                </div>
+                
+                <div class="tree-section">
+                    <div class="tree-title">📊 Expected Project Data Structure</div>
+                    <div class="tree-content">
+                        <div class="tree-item folder expanded">
+                            <span class="folder-icon">📂</span> project/ <span class="folder-badge">User data</span>
+                            <div class="tree-children">
+                                <div class="tree-item folder" onclick="toggleFolder(this)">
+                                    <span class="folder-icon">📁</span> env/
+                                    <div class="tree-children">
+                                        <div class="tree-item file highlight"><span class="file-icon">🗺️</span> roi.gpkg <span class="file-desc">Study region (required)</span></div>
+                                        <div class="tree-item file"><span class="file-icon">🗺️</span> glaciers.gpkg <span class="file-desc">Glacier mask (optional)</span></div>
+                                    </div>
+                                </div>
+                                <div class="tree-item folder" onclick="toggleFolder(this)">
+                                    <span class="folder-icon">📁</span> meteo/
+                                    <div class="tree-children">
+                                        <div class="tree-item file highlight"><span class="file-icon">📊</span> stations.csv <span class="file-desc">Station metadata</span></div>
+                                        <div class="tree-item file"><span class="file-icon">📊</span> station_001.csv</div>
+                                        <div class="tree-item file"><span class="file-icon">📊</span> station_002.csv</div>
+                                        <div class="tree-item file"><span class="file-icon">📊</span> ...</div>
+                                    </div>
+                                </div>
+                                <div class="tree-item folder" onclick="toggleFolder(this)">
+                                    <span class="folder-icon">📁</span> obs/
+                                    <div class="tree-children">
+                                        <div class="tree-item folder" onclick="toggleFolder(this)">
+                                            <span class="folder-icon">📁</span> season_2019-2020/
+                                            <div class="tree-children">
+                                                <div class="tree-item file highlight"><span class="file-icon">📊</span> scf_summary.csv <span class="file-desc">Aggregated SCF obs</span></div>
+                                                <div class="tree-item file"><span class="file-icon">📊</span> wet_snow_summary.csv</div>
+                                                <div class="tree-item file"><span class="file-icon">🛰️</span> NDSI_Snow_Cover_*.tif</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tree-item folder" onclick="toggleFolder(this)">
+                                    <span class="folder-icon">📁</span> propagation/
+                                    <div class="tree-children">
+                                        <div class="tree-item folder" onclick="toggleFolder(this)">
+                                            <span class="folder-icon">📁</span> season_2019-2020/
+                                            <div class="tree-children">
+                                                <div class="tree-item file highlight"><span class="file-icon">⚙️</span> season.yml</div>
+                                                <div class="tree-item folder" onclick="toggleFolder(this)">
+                                                    <span class="folder-icon">📁</span> step_00_init/
+                                                    <div class="tree-children">
+                                                        <div class="tree-item file"><span class="file-icon">⚙️</span> step_00_init.yml</div>
+                                                        <div class="tree-item folder" onclick="toggleFolder(this)">
+                                                            <span class="folder-icon">📁</span> ensembles/
+                                                            <div class="tree-children">
+                                                                <div class="tree-item folder" onclick="toggleFolder(this)">
+                                                                    <span class="folder-icon">📁</span> prior/
+                                                                    <div class="tree-children">
+                                                                        <div class="tree-item folder"><span class="folder-icon">📁</span> open_loop/</div>
+                                                                        <div class="tree-item folder"><span class="folder-icon">📁</span> member_001/</div>
+                                                                        <div class="tree-item folder"><span class="folder-icon">📁</span> member_002/</div>
+                                                                        <div class="tree-item folder"><span class="folder-icon">📁</span> ...</div>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="tree-item folder"><span class="folder-icon">📁</span> posterior/</div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="tree-item folder"><span class="folder-icon">📁</span> assim/</div>
+                                                        <div class="tree-item folder"><span class="folder-icon">📁</span> obs/</div>
+                                                    </div>
+                                                </div>
+                                                <div class="tree-item folder"><span class="folder-icon">📁</span> step_01_.../</div>
+                                                <div class="tree-item folder"><span class="folder-icon">📁</span> plots/</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tree-item file highlight"><span class="file-icon">⚙️</span> project.yml <span class="file-desc">Main config (required)</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+            function toggleFolder(element) {
+                element.classList.toggle('expanded');
+                const children = element.querySelector('.tree-children');
+                if (children) {
+                    children.style.display = children.style.display === 'none' ? 'block' : 'none';
+                }
+            }
+            
+            // Initialize collapsed folders
+            document.querySelectorAll('.tree-item.folder:not(.expanded)').forEach(folder => {
+                const children = folder.querySelector('.tree-children');
+                if (children) {
+                    children.style.display = 'none';
+                }
+            });
+        </script>
+        
+        <div class="data-flow">
+            <div class="flow-title">🔄 Data Flow</div>
+            <div class="flow-diagram">
+                <div class="flow-box">Meteo<br/>Inputs</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">Prior<br/>Forcing</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">openAMUNDSEN<br/>Ensemble</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">Model<br/>States</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">H(x)<br/>SCF</div>
+                <div class="flow-arrow">⊕</div>
+                <div class="flow-box">Satellite<br/>Obs</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">Particle<br/>Filter</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">Posterior<br/>Ensemble</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">Rejuvenate</div>
+                <div class="flow-arrow">↻</div>
+            </div>
+        </div>
+        
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-box" style="background: #667eea;"></div>
+                <span>Core Processing</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-box" style="background: #48bb78;"></div>
+                <span>Observations</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-box" style="background: #ed8936;"></div>
+                <span>Data Assimilation</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-box" style="background: #9f7aea;"></div>
+                <span>Visualization</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

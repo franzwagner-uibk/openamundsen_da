@@ -212,7 +212,7 @@ output_data:
       - snow_water_equivalent
 ```
 
-See [openAMUNDSEN documentation](https://openamundsen.readthedocs.io/) for all available options.
+See [openAMUNDSEN Configuration documentation](http://doc.openamundsen.org/doc/configuration) for all available model configuration options.
 
 ---
 

@@ -7,3 +7,4 @@ openamundsen/
 .sync-exclude.lst
 /.vscode/
 /.claude/
+/MuSA/

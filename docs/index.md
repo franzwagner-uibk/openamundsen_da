@@ -110,7 +110,7 @@ See the [Installation Guide]({{ site.baseurl }}{% link installation.md %}) for d
 
 ## License
 
-This project is distributed under the GPL-3.0 License to maintain compatibility with openAMUNDSEN (GPL-3.0). See `LICENSE` file for more information.
+This project is distributed under the MIT License, the same as openAMUNDSEN. See `LICENSE` file for more information.
 
 ---
 

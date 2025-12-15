@@ -291,61 +291,6 @@ with rasterio.open('obs/season_2019-2020/WSM_S1_20200415_masked.tif', 'w', **src
 
 ---
 
-## Multi-Sensor Fusion
-
-### Combining MOD10A1 and Sentinel-2
-
-Use MOD10A1 for daily coverage, Sentinel-2 for cloud-free high-resolution:
-
-```yaml
-# season.yml
-assimilation_events:
-  - date: 2019-11-22
-    type: scf
-    product: MOD10A1
-    weight: 1.0
-
-  - date: 2019-11-25
-    type: scf
-    product: SNOWFLAKE
-    weight: 1.5  # Higher weight for higher resolution
-```
-
-**Implementation** (custom):
-
-```python
-# In assimilation loop
-if event['product'] == 'SNOWFLAKE':
-    obs_error = 0.05  # Lower error for S2
-else:
-    obs_error = 0.10  # Standard for MODIS
-```
-
-### Combining SCF and Wet Snow
-
-Assimilate both snow cover and wet snow state:
-
-```yaml
-assimilation_events:
-  - date: 2020-03-15
-    type: scf
-    product: MOD10A1
-
-  - date: 2020-04-12
-    type: wet_snow
-    product: S1
-```
-
-The framework handles both observation types:
-
-```bash
-# Automatic detection based on obs file prefix
-# obs_scf_*.csv → SCF assimilation
-# obs_wet_snow_*.csv → Wet snow assimilation
-```
-
----
-
 ## Observation Operators (H(x))
 
 ### SCF Forward Operator
@@ -506,3 +451,4 @@ Glacier-covered pixels are excluded from:
 ### Snow Cover Data Assimilation
 
 - Baba, M. W., Gascoin, S., and Hanich, L.: Assimilation of Sentinel-2 Data into a Snowpack Model in the High Atlas of Morocco, Remote Sensing, 10, 1982, [https://doi.org/10.3390/rs10121982](https://doi.org/10.3390/rs10121982), 2018.
+

@@ -14,11 +14,14 @@ Python API documentation for openamundsen_da.
 {: .note }
 > **Work in Progress**: Full API documentation is being developed. For now, see the [Package Structure]({{ site.baseurl }}{% link reference/package-structure.md %}) for module overview.
 
-## Table of contents
-{: .no_toc .text-delta }
-
+<details markdown="block">
+  <summary>
+    Table of contents
+  </summary>
+  {: .text-delta }
 1. TOC
 {:toc}
+</details>
 
 ---
 

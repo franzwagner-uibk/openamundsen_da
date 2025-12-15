@@ -14,11 +14,14 @@ Complete YAML configuration reference for openamundsen_da.
 {: .note }
 > This guide covers openamundsen_da-specific configuration. For openAMUNDSEN model configuration, see the [openAMUNDSEN Configuration Guide](http://doc.openamundsen.org/en/stable/configuration.html).
 
-## Table of contents
-{: .no_toc .text-delta }
-
+<details markdown="block">
+  <summary>
+    Table of contents
+  </summary>
+  {: .text-delta }
 1. TOC
 {:toc}
+</details>
 
 ---
 

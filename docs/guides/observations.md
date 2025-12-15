@@ -29,6 +29,24 @@ openamundsen_da supports three types of satellite snow observations:
 
 This guide covers downloading, preprocessing, and quality control for each product.
 
+### Data Assimilation Workflow
+
+The figure below shows how observations are integrated into the ensemble data assimilation cycle:
+
+![Data Assimilation Architecture]({{ site.baseurl }}/assets/images/da_architecture.png)
+*Figure 1: Data assimilation workflow showing prior generation, forecast propagation, and the update cycle with observation processing, likelihood computation, resampling, and rejuvenation.*
+
+**Key steps**:
+1. **Prior Generation**: Perturb forcing to build ensemble input
+2. **Forecast/Propagation**: Run openAMUNDSEN for each ensemble member
+3. **Update**: When observations are available:
+   - Load satellite data (SCF, wet snow)
+   - Apply forward operator H(x) to transform model states to observable space
+   - Compute Gaussian likelihood (compare model vs satellite SCF)
+   - Calculate importance weights and resample particles
+   - Apply rejuvenation to maintain ensemble diversity
+4. **Posterior → New Prior**: Updated ensemble becomes the prior for the next cycle
+
 ---
 
 ## MODIS MOD10A1 Snow Cover
@@ -336,8 +354,7 @@ The framework expects **pre-processed wet snow masks** (not raw SAR):
 
 Use tools like:
 - [SNAP](https://step.esa.int/main/download/snap-download/) (ESA Sentinel Application Platform)
-- [SWI algorithm](https://www.mdpi.com/2072-4292/12/12/1959) (Nagler et al., 2016)
-- Custom change detection scripts
+- Custom change detection scripts based on temporal SAR backscatter analysis
 
 **Example SNAP workflow**:
 1. Apply orbit file
@@ -397,6 +414,22 @@ with rasterio.open('obs/season_2019-2020/WSM_S1_20200415_masked.tif', 'w', **src
 ---
 
 ## Multi-Sensor Fusion
+
+### Ensemble Update Cycle
+
+The figure below illustrates how satellite observations correct the model ensemble over a snow season:
+
+![Data Assimilation Experiment Cycle]({{ site.baseurl }}/assets/images/da_experiment_cycle.png)
+*Figure 2: Example data assimilation cycle showing Snow Cover Area (SCA) evolution. The ensemble (colored lines) is initialized, propagated through model runs, and corrected at observation times (satellite icons). Each update step applies importance weighting, resampling, and rejuvenation to constrain the ensemble spread around observations while maintaining diversity for the next forecast cycle.*
+
+**Interpretation**:
+- **Initialization** (Oct 2017): Ensemble generated with perturbed forcings
+- **Propagation**: Ensemble spreads as model uncertainty grows
+- **Update** (Jan 2018, Mar 2018): Satellite observations constrain the ensemble, reducing spread
+- **Prior states** (left panels): Ensemble distribution before observation
+- **Posterior states** (right panels): Ensemble distribution after observation assimilation
+
+This cycle repeats throughout the season, continuously correcting the model with satellite data.
 
 ### Combining MOD10A1 and Sentinel-2
 
@@ -602,11 +635,12 @@ Glacier-covered pixels are excluded from:
 
 ## References
 
-### MODIS MOD10A1
-- Hall, D.K., Riggs, G.A. (2016). *MODIS/Terra Snow Cover Daily L3 Global 500m Grid, Version 6*. NASA NSIDC DAAC. [https://doi.org/10.5067/MODIS/MOD10A1.006](https://doi.org/10.5067/MODIS/MOD10A1.006)
+### Wet Snow Dynamics and Remote Sensing
 
-### Sentinel-2 FSC
-- Gascoin, S., et al. (2019). *Theia Snow collection: high-resolution operational snow cover maps from Sentinel-2 and Landsat-8 data*. Earth System Science Data, 11(2), 493-514. [https://doi.org/10.5194/essd-11-493-2019](https://doi.org/10.5194/essd-11-493-2019)
+- Rottler, E., Warscher, M., Hanzer, F., and Strasser, U.: Spatio‐temporal wet snow dynamics from model simulations and remote sensing: A case study from the Rofental, Austria, Hydrological Processes, 38, e15279, [https://doi.org/10.1002/hyp.15279](https://doi.org/10.1002/hyp.15279), 2024.
 
-### Sentinel-1 Wet Snow
-- Nagler, T., et al. (2016). *Retrieval of wet snow by means of multitemporal SAR data*. Remote Sensing, 8(9), 754. [https://doi.org/10.3390/rs8090754](https://doi.org/10.3390/rs8090754)
+- Cluzet, B., Magnusson, J., Quéno, L., Mazzotti, G., Mott, R., and Jonas, T.: Exploring how Sentinel-1 wet-snow maps can inform fully distributed physically based snowpack models, The Cryosphere, 18, 5753–5767, [https://doi.org/10.5194/tc-18-5753-2024](https://doi.org/10.5194/tc-18-5753-2024), 2024.
+
+### Snow Cover Data Assimilation
+
+- Baba, M. W., Gascoin, S., and Hanich, L.: Assimilation of Sentinel-2 Data into a Snowpack Model in the High Atlas of Morocco, Remote Sensing, 10, 1982, [https://doi.org/10.3390/rs10121982](https://doi.org/10.3390/rs10121982), 2018.

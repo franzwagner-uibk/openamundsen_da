@@ -26,8 +26,12 @@ search:
 # Navigation structure
 nav_sort: order
 
+# Table of contents settings - make TOC less prominent
+# Heading anchor links will still work, but TOC won't dominate the page
+nav_fold: true
+
 # Footer content
-footer_content: "Copyright &copy; 2024. Distributed under the MIT License."
+footer_content: "Copyright &copy; 2025. Distributed under the GPL-3.0 License."
 
 # Google Analytics (optional - remove if not needed)
 # ga_tracking: UA-XXXXXXXX-X

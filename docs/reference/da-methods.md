@@ -349,21 +349,21 @@ where `λ > 1` (e.g., 1.05).
 
 ## References
 
-### Particle Filters
+### Snow Data Assimilation Systems
 
-- Doucet, A., et al. (2001). *Sequential Monte Carlo Methods in Practice*. Springer.
-- Arulampalam, M.S., et al. (2002). *A tutorial on particle filters for online nonlinear/non-Gaussian Bayesian tracking*. IEEE Transactions on Signal Processing.
+- Alonso-González, E., Aalstad, K., Baba, M. W., Revuelto, J., López-Moreno, J. I., Fiddes, J., Essery, R., and Gascoin, S.: The Multiple Snow Data Assimilation System (MuSA v1.0), Geosci. Model Dev., 15, 9127–9155, [https://doi.org/10.5194/gmd-15-9127-2022](https://doi.org/10.5194/gmd-15-9127-2022), 2022.
 
-### Snow Data Assimilation
+- Largeron, C., Dumont, M., Morin, S., Boone, A., Lafaysse, M., Metref, S., Cosme, E., Jonas, T., Winstral, A., and Margulis, S. A.: Toward Snow Cover Estimation in Mountainous Areas Using Modern Data Assimilation Methods: A Review, Front. Earth Sci., 8, [https://doi.org/10.3389/feart.2020.00325](https://doi.org/10.3389/feart.2020.00325), 2020.
 
-- Margulis, S.A., et al. (2019). *A Landsat-Era Sierra Nevada Snow Reanalysis (1985–2015)*. Journal of Hydrometeorology.
-- Griessinger, N., et al. (2019). *Assimilation of snow cover derived from MODIS into a snow model*. The Cryosphere.
-- Huang, C., et al. (2017). *Assimilation of snow cover and snow depth into a snow model*. Water Resources Research.
+### Observation Assimilation
 
-### Forward Operators
+- Cluzet, B., Magnusson, J., Quéno, L., Mazzotti, G., Mott, R., and Jonas, T.: Exploring how Sentinel-1 wet-snow maps can inform fully distributed physically based snowpack models, The Cryosphere, 18, 5753–5767, [https://doi.org/10.5194/tc-18-5753-2024](https://doi.org/10.5194/tc-18-5753-2024), 2024.
 
-- Aalstad, K., et al. (2018). *Ensemble-based assimilation of fractional snow-covered area satellite retrievals*. The Cryosphere.
-- De Lannoy, G.J.M., et al. (2012). *Assimilating satellite-based snow depth and snow cover products*. Journal of Hydrometeorology.
+- Baba, M. W., Gascoin, S., and Hanich, L.: Assimilation of Sentinel-2 Data into a Snowpack Model in the High Atlas of Morocco, Remote Sensing, 10, 1982, [https://doi.org/10.3390/rs10121982](https://doi.org/10.3390/rs10121982), 2018.
+
+### Forcing Perturbations
+
+- Oberrauch, M., Cluzet, B., Magnusson, J., and Jonas, T.: Improving Fully Distributed Snowpack Simulations by Mapping Perturbations of Meteorological Forcings Inferred From Particle Filter Assimilation of Snow Monitoring Data, Water Resour. Res., 60, e2023WR036994, [https://doi.org/10.1029/2023WR036994](https://doi.org/10.1029/2023WR036994), 2024.
 
 ---
 

@@ -650,6 +650,6 @@ Try different configurations:
 
 ## Further Reading
 
-- Margulis, S.A., et al. (2019). *A particle batch smoother approach to snow water equivalent estimation*. JGR Atmospheres.
-- Griessinger, N., et al. (2019). *Assimilation of snow cover derived from MODIS into a snow model*. The Cryosphere.
-- openAMUNDSEN documentation: [https://openamundsen.readthedocs.io/](https://openamundsen.readthedocs.io/)
+- Alonso-González, E., Aalstad, K., Baba, M. W., Revuelto, J., López-Moreno, J. I., Fiddes, J., Essery, R., and Gascoin, S.: The Multiple Snow Data Assimilation System (MuSA v1.0), Geosci. Model Dev., 15, 9127–9155, [https://doi.org/10.5194/gmd-15-9127-2022](https://doi.org/10.5194/gmd-15-9127-2022), 2022.
+- Largeron, C., Dumont, M., Morin, S., Boone, A., Lafaysse, M., Metref, S., Cosme, E., Jonas, T., Winstral, A., and Margulis, S. A.: Toward Snow Cover Estimation in Mountainous Areas Using Modern Data Assimilation Methods: A Review, Front. Earth Sci., 8, [https://doi.org/10.3389/feart.2020.00325](https://doi.org/10.3389/feart.2020.00325), 2020.
+- openAMUNDSEN documentation: [http://doc.openamundsen.org/](http://doc.openamundsen.org/)

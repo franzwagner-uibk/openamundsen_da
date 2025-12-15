@@ -1,4 +1,10 @@
-# openamundsen_da vs MuSA (MuSA v1.0, Alonso-Gonzalez et al. 2022)
+---
+layout: default
+title: Comparison with MuSA
+nav_exclude: true
+---
+
+# openamundsen_da vs MuSA (MuSA v1.0, Alonso-GonzÃ¡lez et al. 2022)
 
 This report summarizes similarities and differences between the openamundsen_da data-assimilation toolkit in this repo and the Multiple Snow Data Assimilation System (MuSA) cloned under `MuSA/`.
 
@@ -18,7 +24,7 @@ This report summarizes similarities and differences between the openamundsen_da 
 | Inputs | Meteo station CSVs -> OA forcing; ROI vector (`env/roi.gpkg`); obs CSVs per date (`obs_scf_*` / `obs_wet_snow_*`); YAML configs (`project.yml`, `season.yml`, step YAMLs). | NetCDF forcing (hourly) and obs on identical grid; optional mask/dem; ensemble perturbation settings in `constants.py` and `config.py`; obs schedule `dates_obs`. |
 | Outputs | Per-member OA results dirs plus assimilation weights CSVs (`weights_scf_*.csv`), resampled posterior ensembles, plots (forcing, results, SCF/wet-snow envelopes, ESS/weights). | Pickled, blosc-compressed per-cell dictionaries with DA_Results, OL_Sim, mean/std prior/post; optional ensemble dumps; supports restart/real-time outputs. |
 | Parallelism | Python multiprocessing for ensemble launch; Docker resource limits; max workers clamp to CPU count; no MPI. | Multiprocessing or MPI; PBS/Slurm array compatible; configurable work chunking and numpy thread limits. |
-| Licensing | MIT-style (inherits openAMUNDSEN’s GPL? check project); container-focused distribution. | GPL-3.0 with required citation (Alonso-Gonzalez et al. 2022). |
+| Licensing | MIT-style (inherits openAMUNDSENï¿½s GPL? check project); container-focused distribution. | GPL-3.0 with required citation (Alonso-Gonzalez et al. 2022). |
 
 ## Similarities
 - Ensemble-based DA around snow models; both implement particle filters with systematic/bootstrapping-style resampling.

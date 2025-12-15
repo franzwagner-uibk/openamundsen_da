@@ -11,6 +11,9 @@ nav_order: 2
 Complete YAML configuration reference for openamundsen_da.
 {: .fs-6 .fw-300 }
 
+{: .note }
+> This guide covers openamundsen_da-specific configuration. For openAMUNDSEN model configuration, see the [openAMUNDSEN Configuration Guide](http://doc.openamundsen.org/en/stable/configuration.html).
+
 ## Table of contents
 {: .no_toc .text-delta }
 

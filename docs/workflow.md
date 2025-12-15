@@ -22,6 +22,40 @@ Understanding the particle filter data assimilation cycle.
 
 The openamundsen_da framework implements a sequential particle filter for snow data assimilation. The workflow consists of 7 main phases that repeat for each assimilation cycle.
 
+### Architecture
+
+![Data Assimilation Architecture]({{ site.baseurl }}/assets/images/da_architecture.png)
+*Figure 1: Data assimilation architecture showing the complete workflow from prior generation through forecast propagation to the update cycle. Observations are processed, transformed via the forward operator H(x), and used to compute Gaussian likelihoods. Importance weighting and resampling select the most consistent ensemble members, while rejuvenation maintains diversity for the next cycle.*
+
+**Key components**:
+- **Prior Generation** (orange): Perturb meteorological forcing to create ensemble input
+- **Forecast/Propagation** (purple): Run openAMUNDSEN for each ensemble member
+- **Update Cycle** (blue):
+  - Load and preprocess satellite observations (SCF, wet snow)
+  - Apply forward operator H(x) to map model states to observation space
+  - Compute Gaussian likelihood comparing model predictions to observations
+  - Calculate importance weights and normalize
+  - Systematic resampling to select posterior ensemble
+  - Rejuvenation to re-perturb forcing and maintain ensemble spread
+- **Configuration** (yellow): `project.yml` controls openAMUNDSEN and DA settings, `season.yml` defines assimilation dates
+
+### Ensemble Update Cycle Example
+
+![Data Assimilation Experiment Cycle]({{ site.baseurl }}/assets/images/da_experiment_cycle.png)
+*Figure 2: Example showing how the ensemble evolves over a snow season. Snow Cover Area (SCA) is shown as colored lines (each representing one ensemble member). The cycle progresses from initialization (Oct 2017) through multiple forecast-update steps. Satellite observations (icons) constrain the ensemble spread at update times. Lower panels show detailed views of the assimilation process: ensemble generation with perturbed forcings, propagation of prior states, correction using observations (importance weighting, resampling, rejuvenation), and propagation of updated posterior states.*
+
+**Interpretation**:
+- **Initialization**: Ensemble spread created by perturbing meteorological forcings
+- **Propagation**: Model uncertainty grows as ensemble members diverge
+- **Update** (satellite icons): Observations constrain the ensemble, reducing spread
+- **Prior states** (left distribution panels): Ensemble before assimilation shows wide spread
+- **Posterior states** (right distribution panels): Ensemble after assimilation is concentrated around observations
+- **Cycle repeats**: Posterior becomes the prior for the next step, continuously improving the forecast
+
+### Workflow Phases
+
+The complete workflow consists of these phases:
+
 ```mermaid
 graph TD
     A[1. Initialization & Setup] --> B[2. Prior Ensemble Generation]

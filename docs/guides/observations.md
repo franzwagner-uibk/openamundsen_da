@@ -29,24 +29,6 @@ openamundsen_da supports three types of satellite snow observations:
 
 This guide covers downloading, preprocessing, and quality control for each product.
 
-### Data Assimilation Workflow
-
-The figure below shows how observations are integrated into the ensemble data assimilation cycle:
-
-![Data Assimilation Architecture]({{ site.baseurl }}/assets/images/da_architecture.png)
-*Figure 1: Data assimilation workflow showing prior generation, forecast propagation, and the update cycle with observation processing, likelihood computation, resampling, and rejuvenation.*
-
-**Key steps**:
-1. **Prior Generation**: Perturb forcing to build ensemble input
-2. **Forecast/Propagation**: Run openAMUNDSEN for each ensemble member
-3. **Update**: When observations are available:
-   - Load satellite data (SCF, wet snow)
-   - Apply forward operator H(x) to transform model states to observable space
-   - Compute Gaussian likelihood (compare model vs satellite SCF)
-   - Calculate importance weights and resample particles
-   - Apply rejuvenation to maintain ensemble diversity
-4. **Posterior → New Prior**: Updated ensemble becomes the prior for the next cycle
-
 ---
 
 ## MODIS MOD10A1 Snow Cover
@@ -414,22 +396,6 @@ with rasterio.open('obs/season_2019-2020/WSM_S1_20200415_masked.tif', 'w', **src
 ---
 
 ## Multi-Sensor Fusion
-
-### Ensemble Update Cycle
-
-The figure below illustrates how satellite observations correct the model ensemble over a snow season:
-
-![Data Assimilation Experiment Cycle]({{ site.baseurl }}/assets/images/da_experiment_cycle.png)
-*Figure 2: Example data assimilation cycle showing Snow Cover Area (SCA) evolution. The ensemble (colored lines) is initialized, propagated through model runs, and corrected at observation times (satellite icons). Each update step applies importance weighting, resampling, and rejuvenation to constrain the ensemble spread around observations while maintaining diversity for the next forecast cycle.*
-
-**Interpretation**:
-- **Initialization** (Oct 2017): Ensemble generated with perturbed forcings
-- **Propagation**: Ensemble spreads as model uncertainty grows
-- **Update** (Jan 2018, Mar 2018): Satellite observations constrain the ensemble, reducing spread
-- **Prior states** (left panels): Ensemble distribution before observation
-- **Posterior states** (right panels): Ensemble distribution after observation assimilation
-
-This cycle repeats throughout the season, continuously correcting the model with satellite data.
 
 ### Combining MOD10A1 and Sentinel-2
 

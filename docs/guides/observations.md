@@ -52,45 +52,8 @@ This guide covers downloading, preprocessing, and quality control for each produ
 
 ### Downloading MOD10A1
 
-#### Option 1: NASA Earthdata Search
-
-1. Go to [Earthdata Search](https://search.earthdata.nasa.gov/)
-2. Create free account if needed
-3. Search for "MOD10A1"
-4. Filter by:
-   - Version: 061
-   - Date range: Your season dates
-   - Spatial extent: Draw or upload ROI
-5. Select tiles covering your ROI
-6. Download HDF files
-
-#### Option 2: Python (earthaccess)
-
-```python
-import earthaccess
-
-# Authenticate
-earthaccess.login()
-
-# Search for MOD10A1
-results = earthaccess.search_data(
-    short_name="MOD10A1",
-    version="061",
-    temporal=("2019-11-01", "2020-07-31"),
-    bounding_box=(-10.5, 46.5, -9.5, 47.5)  # (W, S, E, N)
-)
-
-# Download
-earthaccess.download(results, local_path="./MOD10A1_61_HDF")
-```
-
-#### Option 3: AppEEARS
-
-For large areas or long periods, use [AppEEARS](https://appeears.earthdatacloud.nasa.gov/):
-1. Submit area extraction request
-2. Select MOD10A1 layers
-3. Choose output format (HDF or GeoTIFF)
-4. Download when ready (email notification)
+{: .note }
+> MOD10A1 data must be obtained from NASA Earthdata. The framework expects HDF files as input for preprocessing.
 
 ### Preprocessing MOD10A1
 
@@ -197,30 +160,8 @@ head obs/season_2019-2020_ndsi*/scf_summary.csv
 
 ### Downloading Sentinel-2 FSC
 
-#### Snowflake Product
-
-The [Snowflake project](https://www.snowflake-project.eu/) provides Sentinel-2 FSC for the Alps:
-
-1. Go to [Snowflake Data Portal](https://data.snowflake-project.eu/)
-2. Select region and date range
-3. Download GeoTIFF files
-
-**Filename format**: `FSC_YYYYMMDD_Txxxx_*.tif`
-
-#### Theia Snow Collection
-
-Alternative source: [Theia Snow Collection](https://www.theia-land.fr/)
-
-```bash
-# Download using Theia downloader
-python theia_download.py \
-  --collection SENTINEL2 \
-  --level LEVEL2A \
-  --start 2019-11-01 \
-  --end 2020-07-31 \
-  --tile 32TMS \
-  --product SEB
-```
+{: .note }
+> Sentinel-2 FSC data must be obtained from external sources. The framework expects GeoTIFF files as input for preprocessing.
 
 ### Preprocessing Sentinel-2 FSC
 
@@ -290,64 +231,16 @@ docker compose run --rm oa \
 
 **Detection**: Wet snow reduces backscatter significantly → detectable via change detection.
 
-### Downloading Sentinel-1
-
-#### Option 1: Copernicus Data Space
-
-1. Go to [Copernicus Data Space](https://dataspace.copernicus.eu/)
-2. Search for Sentinel-1 GRD products
-3. Filter by:
-   - Polarization: VV or VH
-   - Pass direction: Ascending or Descending
-   - Date range
-4. Download
-
-#### Option 2: Google Earth Engine
-
-```python
-import ee
-ee.Initialize()
-
-# Define ROI
-roi = ee.Geometry.Rectangle([10.0, 46.5, 11.0, 47.5])
-
-# Get Sentinel-1 GRD collection
-s1 = ee.ImageCollection('COPERNICUS/S1_GRD') \
-  .filterBounds(roi) \
-  .filterDate('2019-11-01', '2020-07-31') \
-  .filter(ee.Filter.eq('instrumentMode', 'IW')) \
-  .filter(ee.Filter.eq('orbitProperties_pass', 'ASCENDING')) \
-  .select('VH')
-
-# Export
-for img in s1.toList(s1.size()).getInfo():
-    # Export each image
-    pass
-```
-
 ### Wet Snow Detection
 
-The framework expects **pre-processed wet snow masks** (not raw SAR):
+{: .note }
+> The framework expects **pre-processed wet snow masks** (not raw SAR). Wet snow masks must be obtained and processed externally before use with this framework.
 
 **WSM Classes**:
 - **110**: Wet snow
 - **125**: Dry snow or no snow
 - **200**: Radar shadow (masked out)
 - **210**: Water (masked out)
-
-**Generate WSM** (external processing required):
-
-Use tools like:
-- [SNAP](https://step.esa.int/main/download/snap-download/) (ESA Sentinel Application Platform)
-- Custom change detection scripts based on temporal SAR backscatter analysis
-
-**Example SNAP workflow**:
-1. Apply orbit file
-2. Thermal noise removal
-3. Calibration (σ0)
-4. Terrain correction
-5. Change detection (reference vs. current)
-6. Threshold: ΔσVH < -3 dB → wet snow
 
 ### Preprocessing Sentinel-1 WSM
 

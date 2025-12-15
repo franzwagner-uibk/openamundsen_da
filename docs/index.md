@@ -110,7 +110,7 @@ See the [Installation Guide]({{ site.baseurl }}{% link installation.md %}) for d
 
 ## License
 
-This project is distributed under the MIT License. See `LICENSE` file for more information.
+This project is distributed under the GPL-3.0 License to maintain compatibility with openAMUNDSEN (GPL-3.0). See `LICENSE` file for more information.
 
 ---
 
@@ -120,10 +120,12 @@ If you use this software in your research, please cite both this framework and o
 
 ```bibtex
 @software{openamundsen_da,
-  author = {Your Name},
+  author = {Wagner, Franz},
   title = {openamundsen_da: Data Assimilation Framework for openAMUNDSEN},
-  year = {2024},
-  url = {https://github.com/franzwagner-uibk/openamundsen_da}
+  year = {2025},
+  institution = {University of Innsbruck},
+  url = {https://github.com/franzwagner-uibk/openamundsen_da},
+  note = {Pre-release 2025}
 }
 
 @article{strasser2024openamundsen,

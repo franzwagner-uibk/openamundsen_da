@@ -125,9 +125,55 @@ This setup created/modified the following files:
 - [docs/Gemfile](docs/Gemfile) - Updated to remove GitHub Pages dependency
 - This setup guide
 
+## Adding Access Control (Optional - Protect Your Docs)
+
+If you want to restrict who can view your documentation, you can use Cloudflare Access for free (up to 50 users):
+
+### Step 1: Navigate to Zero Trust
+1. Go to https://one.dash.cloudflare.com/
+2. Click **"Access"** in the left sidebar
+3. Click **"Applications"**
+
+### Step 2: Create an Access Application
+1. Click **"Add an application"**
+2. Select **"Self-hosted"**
+
+### Step 3: Configure the Application
+Fill in these details:
+- **Application name**: `openAMUNDSEN Docs`
+- **Session duration**: `24h` (or your preference)
+- **Application domain**: `openamundsen-da.pages.dev`
+  - ⚠️ **Important**: Make sure it's exactly `openamundsen-da.pages.dev` (not duplicated like `openamundsen-da.openamundsen-da.pages.dev`)
+- **Path**: Leave empty for entire site
+
+### Step 4: Add an Access Policy
+1. Click **"Add a policy"**
+2. **Policy name**: `Allow specific users`
+3. **Action**: `Allow`
+4. **Configure rules** - Choose one:
+   - **Emails**: Add specific email addresses (e.g., `you@example.com`)
+   - **Email domains**: Allow entire domains (e.g., `uibk.ac.at`)
+   - **Everyone**: For testing or public access
+
+### Step 5: Save and Test
+1. Click **"Add application"**
+2. Wait 2-3 minutes for changes to propagate
+3. Open your site in an **incognito/private window**
+4. You should see a Cloudflare Access login screen!
+
+### Troubleshooting Access
+- **Site still accessible without login?**
+  - Check the domain is exactly `openamundsen-da.pages.dev` (no duplicates)
+  - Wait 5 minutes for global propagation
+  - Try incognito mode
+- **Can't access even with correct email?**
+  - Verify your policy has **Action: Allow** (not Deny or Block)
+  - Check your email is in the Include rules
+
 ## Next Steps
 
-1. Add the GitHub secrets (Steps 2-3)
-2. Push your changes
-3. Watch your docs deploy automatically!
-4. (Optional) Set up a custom domain in Cloudflare
+1. ✅ Add the GitHub secrets (Steps 2-3)
+2. ✅ Create Cloudflare Pages project (Step 4)
+3. ✅ Push your changes and watch them deploy
+4. 🔒 (Optional) Set up Cloudflare Access for authentication
+5. 🌐 (Optional) Set up a custom domain in Cloudflare

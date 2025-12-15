@@ -239,7 +239,7 @@ member_001/
 │   ├── station_001.csv
 │   └── ...
 ├── results/                 # Model outputs
-│   ├── grids/              # NetCDF grids
+│   ├── grids/              # NetCDF grids (see openAMUNDSEN output docs)
 │   │   ├── snow.nc
 │   │   └── meteo.nc
 │   ├── point_station.csv    # Point time series
@@ -247,6 +247,9 @@ member_001/
 │   └── state_YYYYMMDD_HHMMSS.nc  # Model state
 └── state_pointer.json       # Points to current state file
 ```
+
+{: .note }
+> For details on available output variables (SWE, snow depth, temperature, etc.), see the [openAMUNDSEN Output Documentation](http://doc.openamundsen.org/en/stable/outputs.html).
 
 ---
 

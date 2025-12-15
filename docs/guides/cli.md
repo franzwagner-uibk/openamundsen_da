@@ -11,11 +11,14 @@ nav_order: 1
 Complete reference for all CLI commands.
 {: .fs-6 .fw-300 }
 
-## Table of contents
-{: .no_toc .text-delta }
-
+<details markdown="block">
+  <summary>
+    Table of contents
+  </summary>
+  {: .text-delta }
 1. TOC
 {:toc}
+</details>
 
 ---
 

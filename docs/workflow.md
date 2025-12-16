@@ -26,7 +26,7 @@ Understanding the particle filter data assimilation cycle.
 
 The openamundsen_da framework implements a sequential particle filter for snow data assimilation. The workflow cycles through prior generation, forecast propagation, and observation-based updates.
 
-![Data Assimilation Architecture]({{ site.baseurl }}/assets/images/DataAssimilation_Design%20_DOCS%20_Architecture.drawio.svg)
+![Data Assimilation Architecture]({{ site.baseurl }}/assets/images/DataAssimilation_Design%20_DOCS%20_Architecture.drawio.png)
 
 **Key components**:
 
@@ -35,7 +35,7 @@ The openamundsen_da framework implements a sequential particle filter for snow d
 - **Update Cycle** (blue): Observation processing, likelihood computation, resampling, rejuvenation
 - **Configuration** (yellow): `project.yml` controls openAMUNDSEN and DA settings, `season.yml` defines assimilation dates
 
-![Data Assimilation Experiment Cycle]({{ site.baseurl }}/assets/images/Particle_Filter%20_DOCS.drawio.svg)
+![Data Assimilation Experiment Cycle]({{ site.baseurl }}/assets/images/Particle_Filter%20_DOCS.drawio.png)
 
 ---
 

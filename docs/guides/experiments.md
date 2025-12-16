@@ -193,67 +193,58 @@ obs/MOD10A1_61_HDF/
 Edit `project.yml` with your settings:
 
 ```yaml
-# Basic settings
-model: openamundsen
-timestep: 3H
+domain: "my_domain"
+resolution: 100            # spatial resolution (m)
+timestep: "3H"             # temporal resolution
+crs: "epsg:32632"          # CRS of the input grids
+timezone: 1                # UTC offset in hours
 
-# Domain
-domain:
-  aoi: env/roi.gpkg
-  crs: EPSG:32632
-
-# Ensemble
-ensemble:
-  size: 30  # Start with 30 for testing
-  prior_forcing:
-    sigma_t: 1.5
-    sigma_p: 0.20
-    seed: 42
-
-# Data assimilation
-data_assimilation:
-  h_of_x:
-    variable: hs
-    method: logistic
-    h0: 0.05
-    k: 50.0
-
-  observation_error:
-    scf: 0.10
-    wet_snow: 0.15
-
-  resampling:
-    algorithm: systematic
-    ess_threshold_ratio: 0.5
-    seed: 42
-
-  rejuvenation:
-    enabled: true
-    sigma_t: 0.2
-    sigma_p: 0.2
-    rebase: true
-    seed: 42
-
-  glacier_mask:
-    enabled: true  # Set false if no glaciers
-    path: env/glaciers.gpkg
-
-# Environment
 environment:
   GDAL_DATA: /usr/share/gdal
   PROJ_LIB: /usr/share/proj
 
-# openAMUNDSEN output
-output_data:
-  grids:
-    format: netcdf
-    variables:
-      - snow_depth
-      - snow_water_equivalent
-      - albedo
-      - lwc
-  timeseries:
-    format: csv
+data_assimilation:
+  prior_forcing:
+    ensemble_size: 30       # Start with 30 for testing
+    random_seed: 42
+    sigma_t: 1.5            # temperature perturbation stddev (deg C)
+    mu_p: 0.0               # log-space mean for precip factor
+    sigma_p: 0.20           # log-space stddev for precip factor
+
+  h_of_x:
+    method: logistic        # or "depth_threshold"
+    variable: hs            # or "swe"
+    params:
+      h0: 0.05
+      k: 50.0
+
+  likelihood:
+    scf:
+      obs_sigma: 0.10
+      use_binomial: true
+      sigma_floor: 0.05
+      sigma_cloud_scale: 0.10
+      min_sigma: 0.03
+    wet_snow:
+      obs_sigma: 0.15
+      use_binomial: false
+
+  resampling:
+    algorithm: systematic
+    ess_threshold_ratio: 0.5
+
+  rejuvenation:
+    sigma_t: 0.2
+    sigma_p: 0.2
+
+  glacier_mask:
+    enabled: true           # Set false if no glaciers
+    path: env/glaciers.gpkg
+
+  restart:
+    use_state: false
+    dump_state: true
+    state_pattern: model_state.pickle.gz
 ```
 
 See [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) for all options.
@@ -392,30 +383,27 @@ find propagation/season_2019-2020 -name "obs_scf_*.csv" | wc -l
 
 ## Step 7: Run Season Pipeline
 
-### 7.1 Test Run (Single Step)
+### 7.1 Test Run
 
-Before running the full season, test with a single step:
+Before running the full season, verify your configuration by running the pipeline:
 
 ```bash
 docker compose run --rm oa \
   python -m openamundsen_da.pipeline.season \
   --project-dir /data \
   --season-dir /data/propagation/season_2019-2020 \
-  --max-workers 4 \
-  --stop-after-step 1
+  --max-workers 4
 ```
 
-**What happens**:
-1. ✅ Generate prior forcing (step 00)
-2. ✅ Run prior ensemble (step 00)
-3. ✅ Generate prior forcing (step 01)
-4. ✅ Run prior ensemble (step 01)
-5. ✅ Compute model SCF
-6. ✅ Assimilate → compute weights
-7. ✅ Resample (if ESS < threshold)
-8. ✅ Rejuvenate
-9. ✅ Generate plots
-10. ⏹️ Stop
+**What happens** (per assimilation cycle):
+1. Generate prior forcing
+2. Run prior ensemble
+3. Compute model SCF (H(x))
+4. Assimilate observations → compute weights
+5. Resample (if ESS < threshold)
+6. Rejuvenate → create next prior
+7. Generate plots
+8. Repeat for next step
 
 **Check outputs**:
 ```bash
@@ -526,50 +514,53 @@ docker compose run --rm oa \
 
 ### 9.1 Compare with Independent Observations
 
-If you have in-situ observations (not assimilated), compare:
+If you have in-situ observations (not assimilated), compare model outputs with station data. openAMUNDSEN writes time series outputs to CSV files (see [openAMUNDSEN output documentation](http://doc.openamundsen.org/doc/output) for details).
 
 ```python
 import pandas as pd
-import xarray as xr
 
-# Load posterior member results
-posterior = xr.open_dataset('propagation/season_2019-2020/step_XX/ensembles/posterior/member_001/results/grids/snow.nc')
+# Load posterior member point results
+model_df = pd.read_csv(
+    'propagation/season_2019-2020/step_XX/ensembles/posterior/member_001/results/point_station.csv',
+    parse_dates=['time']
+)
 
 # Load in-situ observations
 obs = pd.read_csv('path/to/insitu_swe.csv', parse_dates=['time'])
 
-# Extract model at station location
-model_swe = posterior['swe'].sel(x=station_x, y=station_y, method='nearest').to_pandas()
+# Merge on time
+merged = model_df.merge(obs, on='time', suffixes=('_model', '_obs'))
 
 # Compute metrics
-rmse = ((model_swe - obs['swe'])**2).mean()**0.5
-bias = (model_swe - obs['swe']).mean()
+rmse = ((merged['swe_model'] - merged['swe_obs'])**2).mean()**0.5
+bias = (merged['swe_model'] - merged['swe_obs']).mean()
 ```
 
 ### 9.2 Ensemble Spread Analysis
 
-Check if ensemble spread is appropriate:
+Check if ensemble spread is appropriate by analyzing the ROI-mean SCF values across members:
 
 ```python
-import xarray as xr
+import pandas as pd
 import glob
+import numpy as np
 
-# Load all posterior members for a date
-members = []
-for path in glob.glob('propagation/season_2019-2020/step_XX/ensembles/posterior/member_*/results/grids/snow.nc'):
-    ds = xr.open_dataset(path)
-    members.append(ds['swe'].sel(time='2020-03-01'))
+# Load all posterior member SCF time series
+scf_values = []
+for path in glob.glob('propagation/season_2019-2020/step_XX/ensembles/posterior/member_*/results/point_scf_roi.csv'):
+    df = pd.read_csv(path, parse_dates=['time'])
+    scf_values.append(df.set_index('time')['scf'])
 
-# Stack into ensemble dimension
-ensemble = xr.concat(members, dim='member')
+# Stack into DataFrame (columns = members)
+ensemble = pd.concat(scf_values, axis=1)
 
-# Compute ensemble spread
-spread = ensemble.std(dim='member')
-mean = ensemble.mean(dim='member')
+# Compute ensemble statistics
+spread = ensemble.std(axis=1)
+mean = ensemble.mean(axis=1)
 
 # Coefficient of variation
 cv = spread / mean
-print(f"Mean CV: {cv.mean().values:.2f}")
+print(f"Mean CV: {cv.mean():.2f}")
 ```
 
 **Interpretation**:
@@ -586,7 +577,7 @@ print(f"Mean CV: {cv.mean().values:.2f}")
 **Cause**: Observation error too large, or model-obs mismatch too small
 
 **Solution**:
-- Reduce `observation_error.scf` in `project.yml`
+- Reduce `likelihood.scf.obs_sigma` in `project.yml`
 - Check if observations are meaningful (not all 0 or 1)
 - Verify H(x) parameters (`h0`, `k`)
 
@@ -595,7 +586,7 @@ print(f"Mean CV: {cv.mean().values:.2f}")
 **Cause**: Observation error too small, or severe model-obs mismatch
 
 **Solution**:
-- Increase `observation_error.scf`
+- Increase `likelihood.scf.obs_sigma`
 - Check ensemble spread (may need larger `sigma_t`, `sigma_p`)
 - Verify observations are correctly preprocessed
 

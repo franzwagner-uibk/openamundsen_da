@@ -175,30 +175,30 @@ project/
 Edit `project/project.yml` to configure your experiment:
 
 ```yaml
-# Basic model configuration
-model: openamundsen
-timestep: 3H
+domain: "your_domain"
+resolution: 100            # spatial resolution (m)
+timestep: "3H"             # temporal resolution
+crs: "epsg:25832"          # CRS of the input grids
+timezone: 1                # UTC offset in hours
 
-# Ensemble configuration
-ensemble:
-  size: 20                    # Number of ensemble members
-  prior_forcing:
-    sigma_t: 1.0             # Temperature perturbation (K)
-    sigma_p: 0.15            # Precipitation perturbation (multiplicative)
-    seed: 42
-
-# Data assimilation configuration
 data_assimilation:
+  prior_forcing:
+    ensemble_size: 20       # number of ensemble members
+    random_seed: 42
+    sigma_t: 0.5            # temperature perturbation stddev (deg C)
+    mu_p: 0.0               # log-space mean for precip factor
+    sigma_p: 0.5            # log-space stddev for precip factor
+
   h_of_x:
-    variable: hs             # 'hs' or 'swe'
-    method: logistic         # 'depth_threshold' or 'logistic'
-    h0: 0.05                # Threshold (m) for depth_threshold
-    k: 50.0                 # Steepness for logistic
+    method: depth_threshold # or "logistic"
+    variable: hs            # or "swe"
+    params:
+      h0: 0.01
+      k: 80
 
   resampling:
     algorithm: systematic
     ess_threshold_ratio: 0.5
-    seed: 42
 
   rejuvenation:
     sigma_t: 0.2

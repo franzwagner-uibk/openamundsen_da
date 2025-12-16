@@ -138,8 +138,8 @@ dependencies = [
 Verify file path in `project.yml`:
 
 ```yaml
-domain:
-  aoi: env/roi.gpkg  # Relative to project root
+# ROI is auto-detected from env/roi.gpkg by default
+# or specified via CLI --roi argument
 ```
 
 Check file exists:
@@ -181,8 +181,7 @@ ogrinfo -al -so env/roi.gpkg | grep PROJCRS
 Update `project.yml`:
 
 ```yaml
-domain:
-  crs: EPSG:32632  # Must match ROI CRS or be valid target
+crs: "epsg:32632"  # Must match ROI CRS or be valid target
 ```
 
 ### "Timestep format invalid"
@@ -272,8 +271,9 @@ If weights are nearly uniform (all ~1/N), observations aren't constraining the e
 1. **Reduce observation error**:
    ```yaml
    data_assimilation:
-     observation_error:
-       scf: 0.05  # Reduce from 0.10
+     likelihood:
+       scf:
+         obs_sigma: 0.05  # Reduce from 0.10
    ```
 
 2. **Check observation quality**:
@@ -310,13 +310,14 @@ docker compose run --rm oa oa-da-plot-weights weights.csv
 1. **Increase observation error**:
    ```yaml
    data_assimilation:
-     observation_error:
-       scf: 0.15  # Increase from 0.10
+     likelihood:
+       scf:
+         obs_sigma: 0.15  # Increase from 0.10
    ```
 
 2. **Increase ensemble spread**:
    ```yaml
-   ensemble:
+   data_assimilation:
      prior_forcing:
        sigma_t: 2.0  # Increase from 1.5
        sigma_p: 0.25 # Increase from 0.20
@@ -336,8 +337,9 @@ docker compose run --rm oa oa-da-plot-weights weights.csv
 
 1. **Reduce ensemble size**:
    ```yaml
-   ensemble:
-     size: 20  # Reduce from 50
+   data_assimilation:
+     prior_forcing:
+       ensemble_size: 20  # Reduce from 50
    ```
 
 2. **Increase Docker memory limit**:
@@ -563,7 +565,7 @@ MPLBACKEND=Agg
 
 1. **Delete corrupted file**:
    ```bash
-   rm member_001/results/grids/snow.nc
+   rm member_001/results/model_state.pickle.gz
    ```
 
 2. **Re-run step**:

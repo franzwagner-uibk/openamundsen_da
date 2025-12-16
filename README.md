@@ -149,19 +149,7 @@ docker compose run --rm oa `
 
 Optional flags: `--project-dir $project`, `--roi $roi`, `--roi-field <field>`, `--target-epsg <code>`, `--resolution <m>`, `--ndsi-threshold <val>`, `--no-envelope`, `--no-recursive`, `--overwrite`, `--log-level <LEVEL>`
 
-- Single-image SCF extraction (GeoTIFF â†’ obs CSV):
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.observer.satellite_scf `
-  --raster $project/obs/season_YYYY-YYYY/NDSI_Snow_Cover_YYYYMMDD.tif `
-  --region $roi `
-  --step-dir $step
-```
-
-Optional flags: `--output <csv>`, `--ndsi-threshold <val>`, `--log-level <LEVEL>`
-
-- Season batch mode (turns every raster in `obs/season_YYYY-YYYY` into the per-step CSVs):
+- Prepare per-step SCF observation CSVs from `scf_summary.csv` (recommended):
 
 ```powershell
 docker compose run --rm oa `
@@ -171,23 +159,9 @@ docker compose run --rm oa `
   --overwrite
 ```
 
-Optional flags: `--log-level <LEVEL>` (the summary path defaults to `<project>/obs/<season>/scf_summary.csv`). No ROI argument is required because the CSV already stores the ROI-derived SCF stats for each date.
+Optional flags: `--product <CODE>`, `--overwrite`, `--log-level <LEVEL>` (the summary path defaults to `<project>/obs/<season>/scf_summary.csv`). No ROI argument is required because the CSV already stores the ROI-derived SCF stats for each date.
 
-Batch mode walks `propagation/season_YYYY-YYYY/step_*`, matches each raster by date to its step (or the step whose `end_date` matches the raster date), and writes `obs_scf_MOD10A1_YYYYMMDD.csv` into `<step>/obs`. Per-step `scf` overrides still apply.
-
-Alternatively, skip reprocessing entirely by driving the season mode from the `scf_summary.csv` produced by `mod10a1_preprocess`. It copies each summary row for an assimilation date into the matching `<step>/obs/` file, so you only need:
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.observer.satellite_scf `
-  --season-dir $season `
-  --summary-csv $project/obs/season_YYYY-YYYY/scf_summary.csv `
-  --overwrite
-```
-
-Optional: `--overwrite`, `--log-level <LEVEL>` (the summary path defaults to `<project>/obs/<season>/scf_summary.csv`). No ROI argument is required because the CSV already stores the ROI-derived SCF stats for each date.
-
-Note: the summary-based workflow is the recommended way to prepare SCF observations for assimilation; the single-image and raster batch modes are kept for backward compatibility only.
+This command copies each `scf_summary.csv` row for an assimilation date into the matching `<step>/obs/obs_scf_<PRODUCT>_YYYYMMDD.csv` file.
 
 ## Snowflake FSC (Sentinel-2) summarization (GeoTIFF -> season summary)
 

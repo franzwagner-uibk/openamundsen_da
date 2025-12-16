@@ -26,6 +26,7 @@ Data Assimilation Framework for openAMUNDSEN
 - there is no scientific publication for the **openamundsen_da** framwework yet
 - **do not use information from this documentation for critical work**
 - **this version of the documentation is lacking scientific references**
+- this documentation is **not complete**. More da algorithms and observation interfaces will be added later
 
 ## Overview
 

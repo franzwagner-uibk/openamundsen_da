@@ -454,7 +454,7 @@ print(w['weight'].sum())  # Should be 1.0
 ```
 
 **Solution**: If weights are invalid, check:
-- Observation file format (should have `scf_mean` column)
+- Observation file format (should have `scf` column)
 - Model SCF files exist and are valid
 - No division by zero in likelihood calculation
 
@@ -480,13 +480,7 @@ print(w['weight'].sum())  # Should be 1.0
 
 3. **Verify CRS match**:
    Glacier mask must be in same CRS as ROI/model domain.
-
-   ```bash
-   # Reproject if needed
-   ogr2ogr -t_srs EPSG:32632 \
-     env/glaciers_reprojected.gpkg \
-     env/glaciers.gpkg
-   ```
+   If needed, reproject the glacier vector with your preferred GIS tooling.
 
 ---
 

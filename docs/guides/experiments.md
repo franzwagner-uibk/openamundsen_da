@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Running Experiments
 parent: Guides
@@ -8,260 +8,96 @@ nav_order: 4
 # Running Experiments
 {: .no_toc }
 
-Complete walkthrough for setting up and running a data assimilation experiment.
+Fast path to run a seasonal data assimilation experiment.
 {: .fs-6 .fw-300 }
-
-<details markdown="block">
-  <summary>
-    Table of contents
-  </summary>
-  {: .text-delta }
-1. TOC
-{:toc}
-</details>
 
 ---
 
 ## Overview
 
-This guide walks you through a complete seasonal data assimilation experiment from scratch, covering:
+Minimal steps to get a season running:
 
-1. Project setup
-2. Data preparation
-3. Configuration
-4. Observation preprocessing
-5. Running the season pipeline
-6. Analysis and visualization
-
-**Estimated time**: 2-4 hours (depending on domain size and ensemble size)
+1. Prepare the project folder and ROI.
+2. Add meteo forcing and download observations.
+3. Configure `project.yml`/`season.yml`.
+4. Preprocess observations.
+5. Build season skeleton and distribute obs.
+6. Run the season pipeline (test, then full).
 
 ---
 
 ## Prerequisites
 
-Before starting, ensure you have:
-
 - Docker installed and running
-- openamundsen_da repository cloned
-- Docker image built (`docker build -t oa-da .`)
-- `.env` file configured with your paths
+- Repository cloned; image built (`docker build -t oa-da .`)
+- `.env` configured with your paths
 
-See the [Installation Guide]({{ site.baseurl }}{% link installation.md %}) if you haven't completed these steps.
-
----
-
-## Step 1: Project Setup
-
-### 1.1 Copy Project Template
-
-Copy `templates/project` to a new project directory. The project root should contain `project.yml` and the `env/`, `meteo/`, and `obs/` folders.
-
-### 1.2 Define Study Area (ROI)
-
-Provide a Region of Interest (ROI) polygon (GeoPackage or Shapefile). Creating/editing the ROI is outside the scope of this documentation.
-
-**Requirements**:
-- File path: `env/roi.gpkg` (recommended) or `env/roi.shp`
-- Geometry: single polygon feature (your study area)
-- CRS: valid CRS (projected recommended)
-- Attributes: must contain a region identifier field (default: `region_id`, override via `--roi-field`/`--aoi-field`)
-
-### 1.3 (Optional) Glacier Outlines
-
-If you enable glacier masking, provide a glacier outline polygon layer (GeoPackage or Shapefile), typically at `env/glaciers.gpkg`. The glacier layer must use the same CRS as your ROI/model domain.
+See the [Installation Guide]({{ site.baseurl }}{% link installation.md %}).
 
 ---
 
-## Step 2: Data Preparation
+## 1) Prepare Project
 
-### 2.1 Meteorological Forcing
-
-Prepare meteorological station data in openAMUNDSEN format. See the [openAMUNDSEN Input Data documentation](http://doc.openamundsen.org/doc/input) for complete details.
-
-**Station metadata** (`meteo/stations.csv`):
-```csv
-station_id,x,y,z,name
-1,655000,5215000,1500,Station_A
-2,672000,5220000,2100,Station_B
-```
-
-**Station time series** (`meteo/station_001.csv`, etc.):
-```csv
-date,temp,precip,rel_hum,wind_speed,sw_in
-2019-11-01 00:00:00,275.65,0.0,75,3.2,0
-2019-11-01 03:00:00,274.95,0.5,82,2.9,50
-...
-```
-
-**Required variables** (CSV format):
-- `date`: Timestamp (YYYY-MM-DD HH:MM)
-- `temp`: Air temperature (K) - **Note: Kelvin, not Celsius**
-- `precip`: Precipitation sum (kg m⁻²) - equivalent to mm per timestep
-- `rel_hum`: Relative humidity (%)
-- `wind_speed`: Wind speed (m s⁻¹)
-- `sw_in`: Global radiation (W m⁻²)
-
-{: .note }
-> Time series must cover the entire simulation period plus buffer for spin-up. openAMUNDSEN also supports NetCDF format (CF-1.6 conventions) - see documentation for details.
-
-### 2.2 Satellite Observations
-
-Download satellite observations for your season.
-
-#### MODIS MOD10A1 (Snow Cover)
-
-**Download**:
-- Source: [NASA Earthdata](https://search.earthdata.nasa.gov/)
-- Product: MOD10A1 v6.1
-- Format: HDF (download all tiles covering your ROI)
-
-**Organization**:
-```
-obs/MOD10A1_61_HDF/
-├── MOD10A1.A2019326.h18v04.061.*.hdf
-├── MOD10A1.A2019327.h18v04.061.*.hdf
-└── ...
-```
-
-#### Sentinel-2 FSC (Optional)
-
-**Download**:
-- Source: [Snowflake](https://www.snowflake-project.eu/) or [Theia Snow Collection](https://www.theia-land.fr/)
-- Product: Fractional Snow Cover (FSC)
-- Format: GeoTIFF
-
-#### Sentinel-1 Wet Snow (Optional)
-
-**Download**:
-- Source: Custom processing or [SWI product](https://land.copernicus.eu/global/products/swi)
-- Format: GeoTIFF with wet snow mask
+- Copy `templates/project` to your workspace (contains `env/`, `meteo/`, `obs/`, `project.yml`).
+- ROI polygon at `env/roi.gpkg` (single polygon; projected CRS; field `region_id` by default).
+- Optional glacier mask at `env/glaciers.gpkg` (same CRS as ROI) if glacier masking is enabled.
 
 ---
 
-## Step 3: Configuration
+## 2) Data Inputs
 
-### 3.1 Edit project.yml
-
-Edit `project.yml` with your settings:
-
-```yaml
-domain: "my_domain"
-resolution: 100            # spatial resolution (m)
-timestep: "3H"             # temporal resolution
-crs: "epsg:32632"          # CRS of the input grids
-timezone: 1                # UTC offset in hours
-
-environment:
-  GDAL_DATA: /usr/share/gdal
-  PROJ_LIB: /usr/share/proj
-
-data_assimilation:
-  prior_forcing:
-    ensemble_size: 30       # Start with 30 for testing
-    random_seed: 42
-    sigma_t: 1.5            # temperature perturbation stddev (deg C)
-    mu_p: 0.0               # log-space mean for precip factor
-    sigma_p: 0.20           # log-space stddev for precip factor
-
-  h_of_x:
-    method: logistic        # or "depth_threshold"
-    variable: hs            # or "swe"
-    params:
-      h0: 0.05
-      k: 50.0
-
-  likelihood:
-    scf:
-      obs_sigma: 0.10
-      use_binomial: true
-      sigma_floor: 0.05
-      sigma_cloud_scale: 0.10
-      min_sigma: 0.03
-    wet_snow:
-      obs_sigma: 0.15
-      use_binomial: false
-
-  resampling:
-    algorithm: systematic
-    ess_threshold_ratio: 0.5
-
-  rejuvenation:
-    sigma_t: 0.2
-    sigma_p: 0.2
-
-  glacier_mask:
-    enabled: true           # Set false if no glaciers
-    path: env/glaciers.gpkg
-
-  restart:
-    use_state: false
-    dump_state: true
-    state_pattern: model_state.pickle.gz
-```
-
-See [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) for all options.
-
-### 3.2 Create season.yml
-
-Create `propagation/season_2019-2020/season.yml`:
-
-```yaml
-# Season boundaries
-start_date: 2019-11-01
-end_date: 2020-07-31
-
-# Assimilation dates (will be populated after preprocessing)
-assimilation_dates: []
-```
-
-We'll populate `assimilation_dates` after preprocessing observations.
+- Meteorological forcing: openAMUNDSEN station files (`meteo/stations.csv` + time series). See openAMUNDSEN input docs for details.
+- MODIS MOD10A1 HDFs under `obs/MOD10A1_61_HDF/` (all tiles covering ROI).
+- Optional Sentinel-2 Snowflake FSC rasters (GeoTIFF) under `obs/FSC_snowflake/`.
+- Optional Sentinel-1 wet-snow masks (GeoTIFF) under `obs/WSM_S1_SAR/`.
 
 ---
 
-## Step 4: Observation Preprocessing
+## 3) Configure
 
-### 4.1 MODIS MOD10A1 Preprocessing
+Edit `project.yml` (essentials):
 
-Process MODIS HDF files to GeoTIFF and generate season summary:
+- Domain/CRS/resolution/timestep (`crs`, `resolution`, `timestep`).
+- `data_assimilation.prior_forcing.ensemble_size` and perturbation sigmas.
+- `data_assimilation.h_of_x` method/params for SCF.
+- Observation errors: `likelihood.scf.obs_sigma` (and `wet_snow.obs_sigma` if used).
+- Resampling threshold: `resampling.ess_threshold_ratio`.
+- Glacier mask path if enabled.
 
+Set season bounds in `propagation/<season>/season.yml` (`start_date`, `end_date`); leave `assimilation_dates: []` until observations are summarized.
+
+---
+
+## 4) Preprocess Observations
+
+MODIS SCF summary (required):
 ```bash
 docker compose run --rm oa oa-da-mod10a1 \
   --input-dir /data/obs/MOD10A1_61_HDF \
   --season-label season_2019-2020 \
   --project-dir /data \
-  --target-epsg 32632 \
-  --resolution 500 \
   --ndsi-threshold 40
 ```
 
-**Output**:
-- `obs/season_2019-2020/NDSI_Snow_Cover_YYYYMMDD.tif` (per date)
-- `obs/season_2019-2020/scf_summary.csv` (season summary)
-- `scf_summary.csv` columns: `date`, `region_id`, `n_valid`, `n_snow`, `scf`, `cloud_fraction`, `source`
-
-### 4.2 Update season.yml with Observation Dates
-
-Populate `assimilation_dates` in `propagation/season_2019-2020/season.yml` based on the dates available in `obs/season_2019-2020/scf_summary.csv` (after applying your quality-control rules, e.g., minimum `n_valid`, maximum `cloud_fraction`, etc.):
-
-```yaml
-start_date: 2019-11-01
-end_date: 2020-07-31
-
-assimilation_dates:
-  - 2019-11-22
-  - 2019-11-25
-  - 2019-12-03
-  # ... (add more dates)
+Optional Snowflake FSC summary:
+```bash
+docker compose run --rm oa \
+  python -m openamundsen_da.observer.snowflake_fsc \
+  --input-dir /data/obs/FSC_snowflake \
+  --season-label season_2019-2020 \
+  --project-dir /data
 ```
 
-{: .note }
-> You can thin dates (e.g., every 7-10 days) to reduce computational cost.
+Optional Sentinel-1 wet-snow summary:
+```bash
+docker compose run --rm oa oa-da-wet-snow-s1 \
+  --project-dir /data \
+  --output /data/obs/season_2019-2020/wet_snow_summary.csv
+```
 
 ---
 
-## Step 5: Build Season Skeleton
-
-Create the season directory structure with step folders:
+## 5) Build Season Skeleton
 
 ```bash
 docker compose run --rm oa \
@@ -270,45 +106,34 @@ docker compose run --rm oa \
   --season-dir /data/propagation/season_2019-2020
 ```
 
-**Output**:
-```
-propagation/season_2019-2020/
-├── season.yml
-├── step_00_init/
-│   └── step_00_init.yml
-├── step_01_20191122-20191125/
-│   └── step_01.yml
-├── step_02_20191125-20191203/
-│   └── step_02.yml
-└── ...
-```
+Populate `assimilation_dates` in `season.yml` using the dates you want to assimilate (from `scf_summary.csv`, and optionally `wet_snow_summary.csv`).
 
 ---
 
-## Step 6: Extract SCF Observations Per Step
+## 6) Distribute Observations to Steps
 
-Distribute SCF observations to step directories:
-
+SCF per-step files from `scf_summary.csv`:
 ```bash
 docker compose run --rm oa oa-da-scf \
   --season-dir /data/propagation/season_2019-2020 \
   --summary-csv /data/obs/season_2019-2020/scf_summary.csv \
+  --product MOD10A1 \
   --overwrite
 ```
 
-**Output** (per step):
-```
-step_01_20191122-20191125/obs/obs_scf_MOD10A1_20191122.csv
+Wet snow per-step files (optional):
+```bash
+docker compose run --rm oa oa-da-wet-snow-s1-season \
+  --season-dir /data/propagation/season_2019-2020 \
+  --summary-csv /data/obs/season_2019-2020/wet_snow_summary.csv \
+  --overwrite
 ```
 
 ---
 
-## Step 7: Run Season Pipeline
+## 7) Run Season Pipeline
 
-### 7.1 Test Run
-
-Before running the full season, verify your configuration by running the pipeline:
-
+Smoke test (low parallelism):
 ```bash
 docker compose run --rm oa \
   python -m openamundsen_da.pipeline.season \
@@ -317,24 +142,7 @@ docker compose run --rm oa \
   --max-workers 4
 ```
 
-**What happens** (per assimilation cycle):
-1. Generate prior forcing
-2. Run prior ensemble
-3. Compute model SCF (H(x))
-4. Assimilate observations → compute weights
-5. Resample (if ESS < threshold)
-6. Rejuvenate → create next prior
-7. Generate plots
-8. Repeat for next step
-
-Key outputs:
-- Per step: `propagation/<season>/step_XX_*/assim/weights_scf_YYYYMMDD.csv` (and `indices_YYYYMMDD.csv` when resampling happens)
-- Plots: `propagation/<season>/plots/assim/weights/` (and other plot subfolders)
-
-### 7.2 Full Season Run
-
-If test run succeeded, run the full season:
-
+Full run (adjust `--max-workers` to your CPUs):
 ```bash
 docker compose run --rm oa \
   python -m openamundsen_da.pipeline.season \
@@ -344,223 +152,14 @@ docker compose run --rm oa \
   --monitor-perf
 ```
 
-**Options**:
-- `--max-workers 8`: Use 8 parallel workers (adjust based on CPU count)
-- `--monitor-perf`: Enable performance monitoring
-- `--overwrite`: Overwrite existing outputs (use with caution)
-- `--no-live-plots`: Skip live plotting (plot at end only)
-
-**Estimated runtime**:
-- **Small domain** (< 100 km²), N=30, 10 steps: 2-4 hours
-- **Medium domain** (100-500 km²), N=50, 20 steps: 6-12 hours
-- **Large domain** (> 500 km²), N=100, 30 steps: 24-48 hours
-
-{: .note }
-> Pipeline progress is logged to console and season log file. You can safely interrupt (Ctrl+C) and resume later.
+Key outputs: per-step `assim/weights_scf_YYYYMMDD.csv` (and `indices_*.csv` when resampling), plots under `propagation/<season>/plots/`.
 
 ---
 
-## Step 8: Analysis & Visualization
+## References
 
-### 8.1 Inspect ESS Evolution
-
-Check effective sample size timeline:
-
-```bash
-docker compose run --rm oa oa-da-plot-ess \
-  --season-dir /data/propagation/season_2019-2020
-```
-
-**Output**: `plots/assim/ess/season_ess_timeline_season_2019-2020.png`
-
-**Interpretation**:
-- ESS near N → Low information from observations
-- ESS near threshold → Resampling triggered
-- ESS = 1 → Severe degeneracy (check observation error settings)
-
-### 8.2 SCF Time Series
-
-Plot observed vs. modeled SCF:
-
-```bash
-docker compose run --rm oa oa-da-plot-scf \
-  --season-dir /data/propagation/season_2019-2020 \
-  --project-dir /data
-```
-
-**Output**: `plots/results/fraction_timeseries.png`
-
-Shows:
-- Observed SCF (points)
-- Prior ensemble mean ± 90% envelope
-- Posterior ensemble mean ± 90% envelope
-- Open loop
-
-### 8.3 Particle Weights
-
-Inspect weights for a specific assimilation date:
-
-```bash
-docker compose run --rm oa oa-da-plot-weights \
-  propagation/season_2019-2020/step_05_*/assim/weights_scf_20200115.csv
-```
-
-**Output**: `plots/assim/weights/step_05_weights.png`
-
-Shows:
-- Normalized particle weights (bar plot)
-- Observation-model residuals (histogram)
-- ESS value
-
-### 8.4 Results Ensemble Plots
-
-Plot SWE/snow depth time series for specific locations:
-
-```bash
-docker compose run --rm oa \
-  python -m openamundsen_da.methods.viz.plot_results_ensemble \
-  --season-dir /data/propagation/season_2019-2020 \
-  --variable snow_water_equivalent
-```
-
-**Output**: `plots/results/swe_ensemble_timeseries.png`
-
----
-
-## Step 9: Model Evaluation
-
-### 9.1 Compare with Independent Observations
-
-If you have in-situ observations (not assimilated), compare model outputs with station data. openAMUNDSEN writes time series outputs to CSV files (see [openAMUNDSEN output documentation](http://doc.openamundsen.org/doc/output) for details).
-
-```python
-import pandas as pd
-
-# Load posterior member point results
-model_df = pd.read_csv(
-    'propagation/season_2019-2020/step_XX/ensembles/posterior/member_001/results/point_station.csv',
-    parse_dates=['time']
-)
-
-# Load in-situ observations
-obs = pd.read_csv('path/to/insitu_swe.csv', parse_dates=['time'])
-
-# Merge on time
-merged = model_df.merge(obs, on='time', suffixes=('_model', '_obs'))
-
-# Compute metrics
-rmse = ((merged['swe_model'] - merged['swe_obs'])**2).mean()**0.5
-bias = (merged['swe_model'] - merged['swe_obs']).mean()
-```
-
-### 9.2 Ensemble Spread Analysis
-
-Check if ensemble spread is appropriate by analyzing the ROI-mean SCF values across members:
-
-```python
-import pandas as pd
-import glob
-import numpy as np
-
-# Load all posterior member SCF time series
-scf_values = []
-for path in glob.glob('propagation/season_2019-2020/step_XX/ensembles/posterior/member_*/results/point_scf_roi.csv'):
-    df = pd.read_csv(path, parse_dates=['time'])
-    scf_values.append(df.set_index('time')['scf'])
-
-# Stack into DataFrame (columns = members)
-ensemble = pd.concat(scf_values, axis=1)
-
-# Compute ensemble statistics
-spread = ensemble.std(axis=1)
-mean = ensemble.mean(axis=1)
-
-# Coefficient of variation
-cv = spread / mean
-print(f"Mean CV: {cv.mean():.2f}")
-```
-
-**Interpretation**:
-- CV < 0.2: Ensemble may be under-dispersed
-- CV = 0.2-0.4: Appropriate spread
-- CV > 0.5: Ensemble may be over-dispersed
-
----
-
-## Troubleshooting
-
-### Issue: ESS always near N (no resampling)
-
-**Cause**: Observation error too large, or model-obs mismatch too small
-
-**Solution**:
-- Reduce `likelihood.scf.obs_sigma` in `project.yml`
-- Check if observations are meaningful (not all 0 or 1)
-- Verify H(x) parameters (`h0`, `k`)
-
-### Issue: ESS drops to 1 immediately
-
-**Cause**: Observation error too small, or severe model-obs mismatch
-
-**Solution**:
-- Increase `likelihood.scf.obs_sigma`
-- Check ensemble spread (may need larger `sigma_t`, `sigma_p`)
-- Verify observations are correctly preprocessed
-
-### Issue: Pipeline crashes during ensemble run
-
-**Cause**: openAMUNDSEN configuration error, or resource limits
-
-**Solution**:
-- Check openAMUNDSEN config in `project.yml`
-- Verify forcing data quality
-- Reduce `max_workers` if RAM is limited
-- Check Docker resource limits (`.env`: `MEMORY=16G`)
-
-### Issue: High memory usage
-
-**Solution**:
-- Reduce ensemble size
-- Reduce domain resolution
-- Limit output variables in `project.yml`
-- Set `NUMEXPR_MAX_THREADS=4` in environment
-
-See [Troubleshooting Guide]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) for more issues.
-
----
-
-## Next Steps
-
-### Experiment Variations
-
-Try different configurations:
-
-1. **Ensemble size sensitivity**:
-   - Run with N=20, 30, 50, 100
-   - Compare posterior uncertainty
-
-2. **Perturbation magnitude**:
-   - Test different `sigma_t`, `sigma_p` values
-   - Assess impact on ensemble spread
-
-3. **H(x) method**:
-   - Compare `depth_threshold` vs. `logistic`
-   - Test different `h0`, `k` parameters
-
-4. **Observation thinning**:
-   - Assimilate every 7 days vs. every 1-2 days
-   - Evaluate impact on skill
-
-### Advanced Topics
-
-- [Performance Tuning]({{ site.baseurl }}{% link advanced/performance.md %}) - Optimize runtime
-- [API Reference]({{ site.baseurl }}{% link reference/api.md %}) - Use Python API directly
-- [Custom DA Methods]({{ site.baseurl }}{% link reference/da-methods.md %}) - Implement custom algorithms
-
----
-
-## Further Reading
-
-- Alonso-González, E., Aalstad, K., Baba, M. W., Revuelto, J., López-Moreno, J. I., Fiddes, J., Essery, R., and Gascoin, S.: The Multiple Snow Data Assimilation System (MuSA v1.0), Geosci. Model Dev., 15, 9127–9155, [https://doi.org/10.5194/gmd-15-9127-2022](https://doi.org/10.5194/gmd-15-9127-2022), 2022.
-- Largeron, C., Dumont, M., Morin, S., Boone, A., Lafaysse, M., Metref, S., Cosme, E., Jonas, T., Winstral, A., and Margulis, S. A.: Toward Snow Cover Estimation in Mountainous Areas Using Modern Data Assimilation Methods: A Review, Front. Earth Sci., 8, [https://doi.org/10.3389/feart.2020.00325](https://doi.org/10.3389/feart.2020.00325), 2020.
-- openAMUNDSEN documentation: [http://doc.openamundsen.org/](http://doc.openamundsen.org/)
+- Strasser, U., Warscher, M., Rottler, E., and Hanzer, F. (2024). openAMUNDSEN v1.0: an open-source snow-hydrological model for mountain regions. Geoscientific Model Development, 17, 6775-6797. https://doi.org/10.5194/gmd-17-6775-2024.
+- Barella, R., Marin, C., Gianinetto, M., and Notarnicola, C. (2022). A novel approach to high resolution snow cover fraction retrieval in mountainous regions. IGARSS 2022 - IEEE International Geoscience and Remote Sensing Symposium, 3856-3859. https://doi.org/10.1109/IGARSS46834.2022.9884177.
+- Nagler, T., Rott, H., Ripper, E., Bippus, G., and Hetzenecker, M. (2016). Advancements for snowmelt monitoring by means of Sentinel-1 SAR. Remote Sensing, 8(4), 348. https://doi.org/10.3390/rs8040348.
+- Rottler, E., Warscher, M., Hanzer, F., and Strasser, U. (2024). Spatio-temporal wet snow dynamics from model simulations and remote sensing: a case study from the Rofental, Austria. Hydrological Processes, 38, e15279. https://doi.org/10.1002/hyp.15279.
+- Cluzet, B., Magnusson, J., Queno, L., Mazzotti, G., Mott, R., and Jonas, T. (2024). Exploring how Sentinel-1 wet-snow maps can inform fully distributed physically based snowpack models. The Cryosphere, 18, 5753-5767. https://doi.org/10.5194/tc-18-5753-2024.

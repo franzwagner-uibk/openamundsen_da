@@ -3,6 +3,7 @@ layout: default
 title: Troubleshooting
 parent: Advanced Topics
 nav_order: 2
+nav_exclude: true
 ---
 
 # Troubleshooting

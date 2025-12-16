@@ -5,6 +5,7 @@ nav_order: 4
 ---
 
 # Data Assimilation Workflow
+
 {: .no_toc }
 
 Understanding the particle filter data assimilation cycle.
@@ -28,9 +29,9 @@ The openamundsen_da framework implements a sequential particle filter for snow d
 ### Architecture
 
 ![Data Assimilation Architecture]({{ site.baseurl }}/assets/images/DataAssimilation_Design%20_DOCS%20_Architecture.drawio.png)
-*Figure 1: Data assimilation architecture overview. The workflow cycles through prior generation (orange), forecast propagation (purple), and the update cycle (blue). Configuration files (yellow) control the system parameters, and warm-start enables continuous state transfer between cycles.*
 
 **Key components**:
+
 - **Prior Generation** (orange): Perturb meteorological forcing to create ensemble input
 - **Forecast/Propagation** (purple): Run openAMUNDSEN for each ensemble member
 - **Update Cycle** (blue): Observation processing, likelihood computation, resampling, rejuvenation
@@ -39,7 +40,6 @@ The openamundsen_da framework implements a sequential particle filter for snow d
 ### Ensemble Update Cycle
 
 ![Data Assimilation Experiment Cycle]({{ site.baseurl }}/assets/images/Particle_Filter%20_DOCS.drawio.png)
-*Figure 2: Ensemble evolution throughout a snow season. The upper panel shows Snow Cover Area (SCA) trajectories for each ensemble member. Satellite observation times are marked with icons. Lower panels illustrate the assimilation cycle: prior ensemble generation, propagation, observation-based correction (importance weighting, resampling, rejuvenation), and posterior state propagation.*
 
 ---
 
@@ -48,16 +48,19 @@ The openamundsen_da framework implements a sequential particle filter for snow d
 ### Meteorological Forcing Perturbation
 
 **Temperature**: Additive Gaussian noise
+
 ```
 T_perturbed = T_original + ε_T,  ε_T ~ N(0, σ_T²)
 ```
 
 **Precipitation**: Multiplicative log-normal noise
+
 ```
 P_perturbed = P_original × exp(ε_P),  ε_P ~ N(μ_P, σ_P²)
 ```
 
 **Command**:
+
 ```bash
 docker compose run --rm oa \
   python -m openamundsen_da.core.prior_forcing \
@@ -91,6 +94,7 @@ Optional flags: `--overwrite`, `--state-pattern <glob>`, `--log-level <LEVEL>`
 ### State Management
 
 Warm start uses the model state saved at the end of each step via `state_pointer.json`:
+
 ```json
 {
   "path": "/abs/or/rel/path/to/model_state.pickle.gz"
@@ -115,7 +119,7 @@ docker compose run --rm oa \
 
 **Output**: `obs/season_2019-2020/scf_summary.csv`
 
-### Sentinel-2 FSC (Snowflake)
+### Sentinel-2 FSC (Snowflake) (Barella et al., 2022)
 
 ```bash
 docker compose run --rm oa \
@@ -125,9 +129,10 @@ docker compose run --rm oa \
   --project-dir /data
 ```
 
-### Sentinel-1 Wet Snow
+### Sentinel-1 Wet Snow (Nagler et al., 2016; Rottler et al., 2024; Cluzet et al., 2024)
 
 **WSM Classes**:
+
 - 110: Wet snow
 - 125: Dry/no snow
 - 200: Radar shadow (excluded)
@@ -138,6 +143,7 @@ Wet snow fraction: `(# pixels == 110) / (# pixels in {110, 125})`
 ### Glacier Masking
 
 When enabled in `project.yml`:
+
 ```yaml
 data_assimilation:
   glacier_mask:
@@ -158,6 +164,7 @@ Maps model state (snow depth or SWE) to observation space (SCF).
 **Methods**:
 
 1. **Depth Threshold**:
+
    ```
    SCF = 1  if HS > h0
    SCF = 0  otherwise
@@ -169,11 +176,12 @@ Maps model state (snow depth or SWE) to observation space (SCF).
    ```
 
 **Configuration** (in `project.yml`):
+
 ```yaml
 data_assimilation:
   h_of_x:
-    method: depth_threshold  # or "logistic"
-    variable: hs             # or "swe"
+    method: depth_threshold # or "logistic"
+    variable: hs # or "swe"
     params:
       h0: 0.01
       k: 80
@@ -182,6 +190,7 @@ data_assimilation:
 ### Likelihood Calculation
 
 Gaussian likelihood function:
+
 ```
 w_i ∝ exp(-0.5 × ((y_obs - H(x_i)) / σ_obs)²)
 ```
@@ -205,15 +214,17 @@ ESS = 1 / Σ(w_i²)
 ### Systematic Resampling
 
 **Configuration**:
+
 ```yaml
 data_assimilation:
   resampling:
     algorithm: systematic
-    ess_threshold_ratio: 0.5  # Resample if ESS < 0.5 × N
+    ess_threshold_ratio: 0.5 # Resample if ESS < 0.5 × N
     seed: 42
 ```
 
 **Behavior**:
+
 - If `ESS ≥ threshold`: Skip resampling, mirror prior → posterior
 - If `ESS < threshold`: Resample
 
@@ -222,16 +233,18 @@ data_assimilation:
 After resampling, ensemble spread is reduced. Rejuvenation adds noise to maintain diversity.
 
 Perturbations are always applied relative to the open loop forcing:
+
 ```
 forcing_new = open_loop_forcing + new_perturbation
 ```
 
 **Configuration**:
+
 ```yaml
 data_assimilation:
   rejuvenation:
-    sigma_t: 0.2  # Additive temperature noise (deg C)
-    sigma_p: 0.2  # Lognormal sigma for precip factor (mu=0)
+    sigma_t: 0.2 # Additive temperature noise (deg C)
+    sigma_p: 0.2 # Lognormal sigma for precip factor (mu=0)
 ```
 
 If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas.
@@ -239,6 +252,7 @@ If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas.
 ### State Propagation
 
 Copy posterior states + perturbed forcing to next step's prior:
+
 ```
 step_N/ensembles/posterior/member_i/ → step_N+1/ensembles/prior/member_j/
 ```
@@ -261,6 +275,7 @@ docker compose run --rm oa \
 Optional: `--overwrite`, `--no-live-plots`, `--log-level <LEVEL>`
 
 **Pipeline steps** (per assimilation cycle):
+
 1. Generate prior forcing
 2. Run prior ensemble
 3. Compute model H(x) (SCF/wet-snow)
@@ -271,6 +286,7 @@ Optional: `--overwrite`, `--no-live-plots`, `--log-level <LEVEL>`
 8. Repeat for next step
 
 **Outputs**:
+
 - Per-step runs in `<step>/ensembles/{prior,posterior}`
 - Weights and indices in `<step>/assim/`
 - Rejuvenated next-step prior with `state_pointer.json`
@@ -313,3 +329,14 @@ data_assimilation:
 - [Configuration Guide]({{ site.baseurl }}{% link guides/configuration.md %}) - Detailed configuration reference
 - [Running Experiments]({{ site.baseurl }}{% link guides/experiments.md %}) - Step-by-step experiment setup
 - [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}) - Command-line tools
+
+
+---
+
+## References
+
+- Strasser, U., Warscher, M., Rottler, E., and Hanzer, F. (2024). openAMUNDSEN v1.0: an open-source snow-hydrological model for mountain regions. Geoscientific Model Development, 17, 6775-6797. https://doi.org/10.5194/gmd-17-6775-2024.
+- Barella, R., Marin, C., Gianinetto, M., and Notarnicola, C. (2022). A novel approach to high resolution snow cover fraction retrieval in mountainous regions. IGARSS 2022 - IEEE International Geoscience and Remote Sensing Symposium, 3856-3859. https://doi.org/10.1109/IGARSS46834.2022.9884177.
+- Nagler, T., Rott, H., Ripper, E., Bippus, G., and Hetzenecker, M. (2016). Advancements for snowmelt monitoring by means of Sentinel-1 SAR. Remote Sensing, 8(4), 348. https://doi.org/10.3390/rs8040348.
+- Rottler, E., Warscher, M., Hanzer, F., and Strasser, U. (2024). Spatio-temporal wet snow dynamics from model simulations and remote sensing: a case study from the Rofental, Austria. Hydrological Processes, 38, e15279. https://doi.org/10.1002/hyp.15279.
+- Cluzet, B., Magnusson, J., Queno, L., Mazzotti, G., Mott, R., and Jonas, T. (2024). Exploring how Sentinel-1 wet-snow maps can inform fully distributed physically based snowpack models. The Cryosphere, 18, 5753-5767. https://doi.org/10.5194/tc-18-5753-2024.

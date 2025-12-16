@@ -31,7 +31,6 @@ nav_sort: order
 nav_fold: true
 
 # Footer content
-footer_content: "Copyright &copy; 2025 Franz Wagner. Distributed under the MIT License."
 
 # Google Analytics (optional - remove if not needed)
 # ga_tracking: UA-XXXXXXXX-X

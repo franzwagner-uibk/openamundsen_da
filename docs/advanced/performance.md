@@ -90,16 +90,7 @@ Higher resolution = more computation. Consider your science goals:
 
 ### Spatial Subsetting
 
-Reduce domain size to area of interest:
-
-```python
-# Clip ROI to smaller extent
-import geopandas as gpd
-
-roi = gpd.read_file('env/roi_full.gpkg')
-roi_subset = roi.cx[xmin:xmax, ymin:ymax]  # Bounding box clip
-roi_subset.to_file('env/roi_subset.gpkg')
-```
+Reduce domain size by using a smaller ROI polygon (e.g., replace `env/roi.gpkg` with a reduced study area). How you create/edit the ROI is outside the scope of this documentation.
 
 ---
 

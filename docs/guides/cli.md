@@ -79,39 +79,27 @@ docker compose run --rm oa oa-da-season \
 
 ### oa-da-scf
 
-**SCF extraction & batch processing**
+**Prepare per-step SCF observation CSVs**
 
-Extracts snow cover fraction from satellite rasters or processes season-wide from summary CSV.
+Copies SCF rows from `scf_summary.csv` into per-step `obs/obs_scf_<PRODUCT>_YYYYMMDD.csv` files under each step directory.
 
 ```bash
 oa-da-scf \
-  --raster PATH --region PATH --step-dir PATH  # Single raster mode
-# OR
-oa-da-scf \
-  --season-dir PATH --summary-csv PATH  # Season batch mode
+  --season-dir PATH \
+  [--summary-csv PATH] \
+  [--product MOD10A1] \
+  [--overwrite] \
+  [--log-level LEVEL]
 ```
 
-**Single Raster Mode:**
-- `--raster PATH` - Input GeoTIFF raster
-- `--region PATH` - ROI vector (GeoPackage/Shapefile)
-- `--step-dir PATH` - Target step directory
-- `--output PATH` - Output CSV (optional)
-- `--ndsi-threshold VALUE` - NDSI threshold (default: 0.4)
-
-**Season Batch Mode:**
-- `--season-dir PATH` - Season directory
-- `--summary-csv PATH` - Season summary CSV (from mod10a1_preprocess)
-- `--overwrite` - Overwrite existing step CSVs
+**Arguments:**
+- `--season-dir PATH` - Season directory (e.g., `propagation/season_2019-2020`)
+- `--summary-csv PATH` - Optional path to `scf_summary.csv` (default: `<project>/obs/<season>/scf_summary.csv`)
+- `--product CODE` - Product tag used in filenames (default: `MOD10A1`)
+- `--overwrite` - Overwrite existing `obs_scf_*.csv` files
 
 **Example:**
 ```bash
-# Single raster
-oa-da-scf \
-  --raster /data/obs/season_2019-2020/NDSI_Snow_Cover_20191122.tif \
-  --region /data/env/roi.gpkg \
-  --step-dir /data/propagation/season_2019-2020/step_01_*
-
-# Season batch
 oa-da-scf \
   --season-dir /data/propagation/season_2019-2020 \
   --summary-csv /data/obs/season_2019-2020/scf_summary.csv \
@@ -139,11 +127,12 @@ oa-da-mod10a1 \
 
 **Optional Arguments:**
 - `--project-dir PATH` - Project root (default: current directory)
-- `--roi PATH` - ROI vector (auto-detected if omitted)
-- `--roi-field FIELD` - ROI identifier field (default: first feature)
-- `--target-epsg CODE` - Target CRS EPSG code (default: from ROI)
+- `--roi PATH` - ROI vector used for clipping (recommended)
+- `--roi-field FIELD` - ROI identifier field (default: `region_id`)
+- `--target-epsg CODE` - Target CRS EPSG code (default: 25832)
 - `--resolution METERS` - Output resolution (default: 500)
-- `--ndsi-threshold VALUE` - NDSI snow threshold (default: 0.4)
+- `--ndsi-threshold VALUE` - NDSI snow threshold (0..100, default: 40)
+- `--max-cloud-fraction VALUE` - Skip scenes with cloud fraction above this threshold (0..1)
 - `--no-envelope` - Skip computing ROI envelope (use full extent)
 - `--no-recursive` - Don't search subdirectories
 - `--overwrite` - Overwrite existing outputs

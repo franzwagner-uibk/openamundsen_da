@@ -41,10 +41,10 @@ This guide walks you through a complete seasonal data assimilation experiment fr
 
 Before starting, ensure you have:
 
-- ✅ Docker installed and running
-- ✅ openamundsen_da repository cloned
-- ✅ Docker image built (`docker build -t oa-da .`)
-- ✅ `.env` file configured with your paths
+- Docker installed and running
+- openamundsen_da repository cloned
+- Docker image built (`docker build -t oa-da .`)
+- `.env` file configured with your paths
 
 See the [Installation Guide]({{ site.baseurl }}{% link installation.md %}) if you haven't completed these steps.
 
@@ -54,69 +54,21 @@ See the [Installation Guide]({{ site.baseurl }}{% link installation.md %}) if yo
 
 ### 1.1 Copy Project Template
 
-```bash
-# Copy template to your project directory
-cp -r templates/project /path/to/my_project
-
-# Verify structure
-ls /path/to/my_project
-# Should see: env/ meteo/ obs/ project.yml
-```
+Copy `templates/project` to a new project directory. The project root should contain `project.yml` and the `env/`, `meteo/`, and `obs/` folders.
 
 ### 1.2 Define Study Area (ROI)
 
-Create a Region of Interest (ROI) polygon in GeoPackage or Shapefile format:
+Provide a Region of Interest (ROI) polygon (GeoPackage or Shapefile). Creating/editing the ROI is outside the scope of this documentation.
 
 **Requirements**:
-- Single-feature polygon
-- Valid CRS (preferably projected, e.g., UTM)
-- Field: Any identifier field (e.g., "name", "id")
-
-**Example using QGIS**:
-1. Open QGIS
-2. Create new GeoPackage layer (`env/roi.gpkg`)
-3. Draw your study area polygon
-4. Add attribute field (e.g., "name" = "study_area")
-5. Save
-
-**Example using Python**:
-```python
-import geopandas as gpd
-from shapely.geometry import Polygon
-
-# Define bounding box (UTM Zone 32N coordinates)
-coords = [
-    (650000, 5200000),
-    (680000, 5200000),
-    (680000, 5230000),
-    (650000, 5230000),
-    (650000, 5200000)
-]
-
-gdf = gpd.GeoDataFrame(
-    {'name': ['study_area']},
-    geometry=[Polygon(coords)],
-    crs='EPSG:32632'
-)
-
-gdf.to_file('env/roi.gpkg', driver='GPKG')
-```
+- File path: `env/roi.gpkg` (recommended) or `env/roi.shp`
+- Geometry: single polygon feature (your study area)
+- CRS: valid CRS (projected recommended)
+- Attributes: must contain a region identifier field (default: `region_id`, override via `--roi-field`/`--aoi-field`)
 
 ### 1.3 (Optional) Glacier Outlines
 
-If your domain includes glaciers, add glacier outlines:
-
-**Sources**:
-- [Randolph Glacier Inventory (RGI)](https://www.glims.org/RGI/)
-- National glacier inventories
-
-**Preparation**:
-```bash
-# Clip to ROI extent and reproject if needed
-ogr2ogr -clipsrc env/roi.gpkg -t_srs EPSG:32632 \
-  env/glaciers.gpkg \
-  /path/to/rgi_region.shp
-```
+If you enable glacier masking, provide a glacier outline polygon layer (GeoPackage or Shapefile), typically at `env/glaciers.gpkg`. The glacier layer must use the same CRS as your ROI/model domain.
 
 ---
 
@@ -279,36 +231,17 @@ docker compose run --rm oa oa-da-mod10a1 \
   --project-dir /data \
   --target-epsg 32632 \
   --resolution 500 \
-  --ndsi-threshold 0.4
+  --ndsi-threshold 40
 ```
 
 **Output**:
 - `obs/season_2019-2020/NDSI_Snow_Cover_YYYYMMDD.tif` (per date)
 - `obs/season_2019-2020/scf_summary.csv` (season summary)
-
-**Inspect summary**:
-```bash
-head obs/season_2019-2020/scf_summary.csv
-```
-
-Should see:
-```csv
-date,product,scf_mean,scf_std,pixel_count
-2019-11-22,MOD10A1,0.45,0.32,12500
-2019-11-23,MOD10A1,0.52,0.28,12500
-...
-```
+- `scf_summary.csv` columns: `date`, `region_id`, `n_valid`, `n_snow`, `scf`, `cloud_fraction`, `source`
 
 ### 4.2 Update season.yml with Observation Dates
 
-Extract dates from summary and update `season.yml`:
-
-```bash
-# Extract dates (excluding cloudy/low-quality dates)
-awk -F, 'NR>1 && $3>0.1 {print $1}' obs/season_2019-2020/scf_summary.csv > dates.txt
-```
-
-Edit `propagation/season_2019-2020/season.yml`:
+Populate `assimilation_dates` in `propagation/season_2019-2020/season.yml` based on the dates available in `obs/season_2019-2020/scf_summary.csv` (after applying your quality-control rules, e.g., minimum `n_valid`, maximum `cloud_fraction`, etc.):
 
 ```yaml
 start_date: 2019-11-01
@@ -318,7 +251,7 @@ assimilation_dates:
   - 2019-11-22
   - 2019-11-25
   - 2019-12-03
-  # ... (paste dates from dates.txt)
+  # ... (add more dates)
 ```
 
 {: .note }
@@ -350,11 +283,6 @@ propagation/season_2019-2020/
 └── ...
 ```
 
-**Verify**:
-```bash
-ls -d propagation/season_2019-2020/step_*
-```
-
 ---
 
 ## Step 6: Extract SCF Observations Per Step
@@ -371,12 +299,6 @@ docker compose run --rm oa oa-da-scf \
 **Output** (per step):
 ```
 step_01_20191122-20191125/obs/obs_scf_MOD10A1_20191122.csv
-```
-
-**Verify**:
-```bash
-find propagation/season_2019-2020 -name "obs_scf_*.csv" | wc -l
-# Should match number of assimilation dates
 ```
 
 ---
@@ -405,14 +327,9 @@ docker compose run --rm oa \
 7. Generate plots
 8. Repeat for next step
 
-**Check outputs**:
-```bash
-ls propagation/season_2019-2020/step_01_*/assim/
-# Should see: weights_scf_YYYYMMDD.csv, indices_YYYYMMDD.csv
-
-ls propagation/season_2019-2020/plots/assim/weights/
-# Should see: step_01_weights.png
-```
+Key outputs:
+- Per step: `propagation/<season>/step_XX_*/assim/weights_scf_YYYYMMDD.csv` (and `indices_YYYYMMDD.csv` when resampling happens)
+- Plots: `propagation/<season>/plots/assim/weights/` (and other plot subfolders)
 
 ### 7.2 Full Season Run
 

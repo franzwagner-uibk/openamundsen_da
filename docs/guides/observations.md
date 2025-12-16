@@ -96,26 +96,9 @@ docker compose run --rm oa oa-da-scf \\
 
 ### Quality Control
 
-Inspect the summary CSV:
+Use `obs/<season-label>/scf_summary.csv` for quality control and to decide which dates to assimilate (set `assimilation_dates` in `propagation/<season-label>/season.yml`).
 
-```bash
-head -20 obs/season_2019-2020/scf_summary.csv
-```
-
-`scf_summary.csv` contains (per date): `date`, `region_id`, `n_valid`, `n_snow`, `scf`, `cloud_fraction`, `source`.
-
-A simple filter example:
-
-```python
-import pandas as pd
-
-df = pd.read_csv('obs/season_2019-2020/scf_summary.csv', parse_dates=['date'])
-
-# Example: keep dates with at least some valid pixels and limited cloud cover
-df_clean = df[(df['n_valid'] > 0) & (df['cloud_fraction'] <= 0.3)]
-
-df_clean['date'].dt.strftime('%Y-%m-%d').to_csv('assimilation_dates.txt', index=False, header=False)
-```
+`scf_summary.csv` contains (per date): `date`, `region_id`, `n_valid`, `n_snow`, `scf`, `cloud_fraction`, `source`. Typical filters include a minimum `n_valid` and a maximum `cloud_fraction`.
 
 ### NDSI Threshold Selection
 
@@ -126,22 +109,7 @@ The MOD10A1 `NDSI_Snow_Cover` layer uses values in the range **0..100**. A thres
 - **40** (default): Typical starting point
 - **50+**: Conservative (reduces commission errors)
 
-**Testing thresholds**:
-
-```bash
-# Generate summaries with different thresholds
-for thresh in 30 40 50; do
-  docker compose run --rm oa oa-da-mod10a1 \\
-    --input-dir /data/obs/MOD10A1_61_HDF \\
-    --season-label season_2019-2020_ndsi${thresh} \\
-    --project-dir /data \\
-    --ndsi-threshold $thresh
-
-done
-
-# Compare
-head obs/season_2019-2020_ndsi*/scf_summary.csv
-```
+To test thresholds, rerun `oa-da-mod10a1` with different `--ndsi-threshold` values and compare the resulting `scf_summary.csv` outputs.
 
 ---
 
@@ -395,4 +363,3 @@ Glacier-covered pixels are excluded from:
 ### Snow Cover Data Assimilation
 
 - Baba, M. W., Gascoin, S., and Hanich, L.: Assimilation of Sentinel-2 Data into a Snowpack Model in the High Atlas of Morocco, Remote Sensing, 10, 1982, [https://doi.org/10.3390/rs10121982](https://doi.org/10.3390/rs10121982), 2018.
-

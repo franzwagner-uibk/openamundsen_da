@@ -1,4 +1,4 @@
-﻿---
+---
 layout: default
 title: Configuration Reference
 parent: Guides

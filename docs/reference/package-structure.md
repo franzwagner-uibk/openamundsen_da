@@ -1,4 +1,4 @@
-﻿---
+---
 layout: default
 title: Package Structure
 parent: Reference

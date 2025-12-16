@@ -21,9 +21,9 @@ Understanding the particle filter data assimilation cycle.
 
 ---
 
-## Workflow Overview
+## Overview
 
-The openamundsen_da framework implements a sequential particle filter for snow data assimilation. The workflow consists of 7 main phases that repeat for each assimilation cycle.
+The openamundsen_da framework implements a sequential particle filter for snow data assimilation. The workflow cycles through prior generation, forecast propagation, and observation-based updates.
 
 ### Architecture
 
@@ -33,92 +33,31 @@ The openamundsen_da framework implements a sequential particle filter for snow d
 **Key components**:
 - **Prior Generation** (orange): Perturb meteorological forcing to create ensemble input
 - **Forecast/Propagation** (purple): Run openAMUNDSEN for each ensemble member
-- **Update Cycle** (blue):
-  - Load and preprocess satellite observations (SCF, wet snow)
-  - Apply forward operator H(x) to map model states to observation space
-  - Compute Gaussian likelihood comparing model predictions to observations
-  - Calculate importance weights and normalize
-  - Systematic resampling to select posterior ensemble
-  - Rejuvenation to re-perturb forcing and maintain ensemble spread
+- **Update Cycle** (blue): Observation processing, likelihood computation, resampling, rejuvenation
 - **Configuration** (yellow): `project.yml` controls openAMUNDSEN and DA settings, `season.yml` defines assimilation dates
 
-### Ensemble Update Cycle Example
+### Ensemble Update Cycle
 
 ![Data Assimilation Experiment Cycle]({{ site.baseurl }}/assets/images/Particle_Filter%20_DOCS.drawio.png)
 *Figure 2: Ensemble evolution throughout a snow season. The upper panel shows Snow Cover Area (SCA) trajectories for each ensemble member. Satellite observation times are marked with icons. Lower panels illustrate the assimilation cycle: prior ensemble generation, propagation, observation-based correction (importance weighting, resampling, rejuvenation), and posterior state propagation.*
 
-**Interpretation**:
-- **Initialization**: Ensemble spread created by perturbing meteorological forcings
-- **Propagation**: Model uncertainty grows as ensemble members diverge
-- **Update** (satellite icons): Observations constrain the ensemble, reducing spread
-- **Prior states** (left distribution panels): Ensemble before assimilation shows wide spread
-- **Posterior states** (right distribution panels): Ensemble after assimilation is concentrated around observations
-- **Cycle repeats**: Posterior becomes the prior for the next step, continuously improving the forecast
-
-### Workflow Phases
-
-The complete workflow consists of these phases:
-
-```mermaid
-graph TD
-    A[1. Initialization & Setup] --> B[2. Prior Ensemble Generation]
-    B --> C[3. Model Execution]
-    C --> D[4. Observation Processing]
-    D --> E[5. Data Assimilation]
-    E --> F[6. Ensemble Update]
-    F --> G[7. Visualization & Analysis]
-    G --> H{More steps?}
-    H -->|Yes| B
-    H -->|No| I[End]
-```
-
 ---
 
-## Phase 1: Initialization & Setup
-
-### Project Structure Definition
-
-Create the required directory structure:
-- `env/` - ROI and glacier masks
-- `meteo/` - Meteorological forcing data
-- `obs/` - Satellite observations
-- `propagation/` - Ensemble runs (auto-created)
-
-### Season Skeleton Creation
-
-```bash
-docker compose run --rm oa \
-  python -m openamundsen_da.pipeline.season_skeleton \
-  --project-dir /data \
-  --season-dir /data/propagation/season_2019-2020
-```
-
-Creates `step_XX_*/` directories with date boundaries aligned to assimilation dates.
-
-### Configuration
-
-Three configuration levels:
-1. **project.yml** - Project-wide settings (ensemble size, DA parameters)
-2. **season.yml** - Season dates and assimilation events
-3. **step_XX.yml** - Step-specific settings (auto-generated)
-
----
-
-## Phase 2: Prior Ensemble Generation
+## Prior Ensemble Generation
 
 ### Meteorological Forcing Perturbation
 
 **Temperature**: Additive Gaussian noise
 ```
-T_perturbed = T_original + Îµ_T,  Îµ_T ~ N(0, Ïƒ_TÂ²)
+T_perturbed = T_original + ε_T,  ε_T ~ N(0, σ_T²)
 ```
 
 **Precipitation**: Multiplicative log-normal noise
 ```
-P_perturbed = P_original Ã— exp(Îµ_P),  Îµ_P ~ N(0, Ïƒ_PÂ²)
+P_perturbed = P_original × exp(ε_P),  ε_P ~ N(μ_P, σ_P²)
 ```
 
-**Implementation**:
+**Command**:
 ```bash
 docker compose run --rm oa \
   python -m openamundsen_da.core.prior_forcing \
@@ -127,17 +66,11 @@ docker compose run --rm oa \
   --step-dir /data/propagation/season_2019-2020/step_01_*
 ```
 
-### Open Loop Reference
-
-An unperturbed baseline run using original meteorological data for comparison.
-
-### Ensemble Members
-
-N independent members (member_001, member_002, ..., member_N) with independent perturbations.
+Optional flags: `--overwrite`, `--log-level <LEVEL>`
 
 ---
 
-## Phase 3: Model Execution
+## Model Execution
 
 ### Parallel Ensemble Runs
 
@@ -151,33 +84,24 @@ docker compose run --rm oa \
   --max-workers 8
 ```
 
-**Features**:
-- Parallel execution using `multiprocessing`
-- Worker count: `min(max_workers, CPU_count, N_members)`
-- Warm-start capability via `state_pointer.json`
+Optional flags: `--overwrite`, `--state-pattern <glob>`, `--log-level <LEVEL>`
+
+**Parallelism**: The `--max-workers` value is an upper bound. The launcher clamps to `min(max_workers, CPUs visible, #members)`.
 
 ### State Management
 
-Each member saves its state at step boundaries:
+Warm start uses the model state saved at the end of each step via `state_pointer.json`:
 ```json
 {
-  "state_file": "results/state_20191122_000000.nc",
-  "timestamp": "2019-11-22T00:00:00"
+  "path": "/abs/or/rel/path/to/model_state.pickle.gz"
 }
 ```
 
-### Results Output
-
-Per member:
-- NetCDF grids (snow.nc, meteo.nc)
-- Point CSV time series
-- Optional model SCF time series
-
 ---
 
-## Phase 4: Observation Processing
+## Observation Processing
 
-### MODIS MOD10A1 Preprocessing
+### MODIS MOD10A1
 
 ```bash
 docker compose run --rm oa \
@@ -187,13 +111,7 @@ docker compose run --rm oa \
   --project-dir /data
 ```
 
-**Steps**:
-1. HDF â†’ GeoTIFF conversion
-2. QA masking (cloud-free pixels only)
-3. Reprojection to study area CRS
-4. ROI clipping
-5. NDSI thresholding â†’ binary snow mask
-6. SCF calculation per ROI
+**Steps**: HDF → GeoTIFF conversion, QA masking, reprojection, ROI clipping, NDSI thresholding, SCF calculation.
 
 **Output**: `obs/season_2019-2020/scf_summary.csv`
 
@@ -209,23 +127,17 @@ docker compose run --rm oa \
 
 ### Sentinel-1 Wet Snow
 
-```bash
-docker compose run --rm oa \
-  python -m openamundsen_da.observer.satellite_wet_snow_s1 \
-  --input-dir /data/obs/WSM_S1 \
-  --season-label season_2019-2020 \
-  --project-dir /data
-```
-
 **WSM Classes**:
 - 110: Wet snow
 - 125: Dry/no snow
 - 200: Radar shadow (excluded)
 - 210: Water (excluded)
 
+Wet snow fraction: `(# pixels == 110) / (# pixels in {110, 125})`
+
 ### Glacier Masking
 
-When enabled (`project.yml`):
+When enabled in `project.yml`:
 ```yaml
 data_assimilation:
   glacier_mask:
@@ -233,11 +145,11 @@ data_assimilation:
     path: env/glaciers.gpkg
 ```
 
-Firn/ice areas are excluded from obs-model comparisons to ensure consistency (seasonal snow model vs. observations including glaciers).
+Firn/ice areas are excluded from obs-model comparisons since openAMUNDSEN models seasonal snow only, but SCF/FSC observations see all bright surfaces including firn/ice.
 
 ---
 
-## Phase 5: Data Assimilation (Particle Filter)
+## Data Assimilation
 
 ### H(x) Forward Operator
 
@@ -253,77 +165,63 @@ Maps model state (snow depth or SWE) to observation space (SCF).
 
 2. **Logistic** (smooth):
    ```
-   SCF = 1 / (1 + exp(-k Ã— (HS - h0)))
+   SCF = 1 / (1 + exp(-k × (HS - h0)))
    ```
 
 **Configuration** (in `project.yml`):
 ```yaml
 data_assimilation:
   h_of_x:
-    variable: hs      # 'hs' or 'swe'
-    method: logistic  # 'depth_threshold' or 'logistic'
-    h0: 0.05         # Threshold (m)
-    k: 50.0          # Steepness (logistic only)
+    method: depth_threshold  # or "logistic"
+    variable: hs             # or "swe"
+    params:
+      h0: 0.01
+      k: 80
 ```
 
-### Likelihood Weight Calculation
+### Likelihood Calculation
 
 Gaussian likelihood function:
 ```
-w_i âˆ exp(-0.5 Ã— ((y_obs - H(x_i)) / Ïƒ_obs)Â²)
+w_i ∝ exp(-0.5 × ((y_obs - H(x_i)) / σ_obs)²)
 ```
 
-where:
-- `y_obs`: Observed SCF
-- `H(x_i)`: Model SCF for member i
-- `Ïƒ_obs`: Observation error std (from config)
-
-**Normalization**:
-```
-w_i = w_i / Î£(w_j)
-```
+Weights are normalized: `w_i = w_i / Σ(w_j)`
 
 ### Effective Sample Size (ESS)
 
 ```
-ESS = 1 / Î£(w_iÂ²)
+ESS = 1 / Σ(w_i²)
 ```
 
 - ESS = N: All weights equal (no information from obs)
 - ESS = 1: One particle dominates (particle degeneracy)
-- ESS < threshold â†’ Trigger resampling
+- ESS < threshold → Trigger resampling
 
 ---
 
-## Phase 6: Ensemble Update
+## Ensemble Update
 
 ### Systematic Resampling
-
-**Algorithm**:
-1. Generate systematic samples: `u_i = (i + U) / N`, where `U ~ Uniform(0,1)`
-2. Map samples to cumulative weight distribution
-3. Select members according to mapped indices
-4. Duplicate high-weight members, discard low-weight members
 
 **Configuration**:
 ```yaml
 data_assimilation:
   resampling:
     algorithm: systematic
-    ess_threshold_ratio: 0.5  # Resample if ESS < 0.5 Ã— N
+    ess_threshold_ratio: 0.5  # Resample if ESS < 0.5 × N
     seed: 42
 ```
 
 **Behavior**:
-- If `ESS â‰¥ threshold`: Skip resampling, mirror prior â†’ posterior
+- If `ESS ≥ threshold`: Skip resampling, mirror prior → posterior
 - If `ESS < threshold`: Resample
 
 ### Rejuvenation
 
-After resampling, ensemble spread is reduced (identical states). Rejuvenation adds noise to maintain spread.
+After resampling, ensemble spread is reduced. Rejuvenation adds noise to maintain diversity.
 
-**Rebase mode** (default):
-Perturbations applied relative to open loop:
+Perturbations are always applied relative to the open loop forcing:
 ```
 forcing_new = open_loop_forcing + new_perturbation
 ```
@@ -332,65 +230,22 @@ forcing_new = open_loop_forcing + new_perturbation
 ```yaml
 data_assimilation:
   rejuvenation:
-    sigma_t: 0.2  # Usually smaller than prior
-    sigma_p: 0.2
+    sigma_t: 0.2  # Additive temperature noise (deg C)
+    sigma_p: 0.2  # Lognormal sigma for precip factor (mu=0)
 ```
+
+If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas.
 
 ### State Propagation
 
 Copy posterior states + perturbed forcing to next step's prior:
 ```
-step_N/ensembles/posterior/member_i/ â†’ step_N+1/ensembles/prior/member_j/
+step_N/ensembles/posterior/member_i/ → step_N+1/ensembles/prior/member_j/
 ```
 
-where `j = indices[i]` from resampling.
-
 ---
 
-## Phase 7: Visualization & Analysis
-
-### Forcing Plots
-
-Per-station temperature and precipitation time series showing:
-- Open loop
-- All ensemble members
-- Ensemble mean Â± spread
-
-### Results Plots
-
-SWE, snow depth, SCF time series:
-- Ensemble mean
-- 90% envelope (5th-95th percentiles)
-- Open loop
-- Observations (when available)
-
-### Weight & Residual Plots
-
-Per assimilation date:
-- Normalized particle weights (bar plot)
-- Observation-model residuals (histogram)
-- ESS value
-
-### ESS Timeline
-
-Season-wide ESS evolution:
-- ESS vs. time
-- ESS threshold (horizontal line)
-- Resampling events (markers)
-
-### Performance Monitoring
-
-When enabled (`--monitor-perf`):
-- CPU usage
-- Memory (RSS, system)
-- Disk usage
-- ETA estimation
-
-**Output**: `plots/perf/season_perf.png` (live-updated)
-
----
-
-## Automated Season Pipeline
+## Season Pipeline
 
 The season pipeline automates all phases:
 
@@ -403,55 +258,52 @@ docker compose run --rm oa \
   --monitor-perf
 ```
 
+Optional: `--overwrite`, `--no-live-plots`, `--log-level <LEVEL>`
+
 **Pipeline steps** (per assimilation cycle):
 1. Generate prior forcing
 2. Run prior ensemble
 3. Compute model H(x) (SCF/wet-snow)
-4. Assimilate observations â†’ weights
-5. Check ESS â†’ resample if needed
-6. Rejuvenate â†’ next prior
+4. Assimilate observations → weights
+5. Check ESS → resample if needed
+6. Rejuvenate → next prior
 7. Generate plots
 8. Repeat for next step
 
+**Outputs**:
+- Per-step runs in `<step>/ensembles/{prior,posterior}`
+- Weights and indices in `<step>/assim/`
+- Rejuvenated next-step prior with `state_pointer.json`
+- Season plots under `<season_dir>/plots/{forcing,results}`
+
 ---
 
-## Best Practices
+## Configuration Reference
 
-### Ensemble Size
+### Likelihood Settings
 
-- **Small domains** (< 100 kmÂ²): 20-30 members
-- **Medium domains**: 30-50 members
-- **Large domains** (> 500 kmÂ²): 50-100 members
-
-Trade-off: More members = better posterior but higher computational cost.
-
-### Perturbation Magnitudes
-
-**Prior**:
-- `Ïƒ_T`: 1.0-2.0 K (typical)
-- `Ïƒ_P`: 0.15-0.25 (15-25% uncertainty)
-
-**Rejuvenation**: Use smaller values (0.1-0.2) to avoid over-perturbation.
-
-### ESS Threshold
-
-- `ess_threshold_ratio = 0.5`: Resample when ESS < 50% of ensemble size
-- Lower threshold: Less frequent resampling but risk of degeneracy
-- Higher threshold: More resampling but may lose diversity
-
-### Observation Error
-
-Depends on data source:
-- MODIS MOD10A1: Ïƒ_obs â‰ˆ 0.1-0.15
-- Sentinel-2 FSC: Ïƒ_obs â‰ˆ 0.05-0.10
-- In-situ: Ïƒ_obs â‰ˆ 0.05
-
-Configure in `project.yml`:
 ```yaml
 data_assimilation:
-  observation_error:
-    scf: 0.10
-    wet_snow: 0.15
+  likelihood:
+    scf:
+      obs_sigma: 0.10
+      use_binomial: true
+      sigma_floor: 0.05
+      sigma_cloud_scale: 0.10
+      min_sigma: 0.03
+    wet_snow:
+      obs_sigma: 0.15
+      use_binomial: false
+```
+
+### Warm Start Settings
+
+```yaml
+data_assimilation:
+  restart:
+    use_state: true
+    dump_state: true
+    state_pattern: model_state.pickle.gz
 ```
 
 ---
@@ -461,4 +313,3 @@ data_assimilation:
 - [Configuration Guide]({{ site.baseurl }}{% link guides/configuration.md %}) - Detailed configuration reference
 - [Running Experiments]({{ site.baseurl }}{% link guides/experiments.md %}) - Step-by-step experiment setup
 - [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}) - Command-line tools
-

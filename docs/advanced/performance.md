@@ -3,6 +3,7 @@ layout: default
 title: Performance Tuning
 parent: Advanced Topics
 nav_order: 1
+nav_exclude: true
 ---
 
 # Performance Tuning

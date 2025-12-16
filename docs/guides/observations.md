@@ -6,6 +6,7 @@ nav_order: 3
 ---
 
 # Observation Processing
+
 {: .no_toc }
 
 Working with satellite snow observations for data assimilation.
@@ -39,6 +40,7 @@ This guide covers downloading, preprocessing, and quality control for each produ
 ### Product Overview
 
 **MODIS MOD10A1 v6.1**:
+
 - **Sensor**: Terra/MODIS
 - **Resolution**: 500m
 - **Temporal**: Daily
@@ -46,6 +48,7 @@ This guide covers downloading, preprocessing, and quality control for each produ
 - **Latency**: 1-2 days
 
 **Key Layers**:
+
 - `NDSI_Snow_Cover`: Normalized Difference Snow Index (0-100)
 - `NDSI_Snow_Cover_Basic_QA`: Quality flags
 - `NDSI_Snow_Cover_Algorithm_Flags_QA`: Algorithm flags
@@ -53,6 +56,7 @@ This guide covers downloading, preprocessing, and quality control for each produ
 ### Downloading MOD10A1
 
 {: .note }
+
 > MOD10A1 data must be obtained from NASA Earthdata. The framework expects HDF files as input for preprocessing.
 
 ### Preprocessing MOD10A1
@@ -70,6 +74,7 @@ docker compose run --rm oa oa-da-mod10a1 \
 ```
 
 **Processing steps**:
+
 1. **HDF → GeoTIFF**: Extract NDSI_Snow_Cover layer
 2. **QA masking**: Remove cloudy/poor-quality pixels
 3. **Reprojection**: Reproject to study area CRS
@@ -78,6 +83,7 @@ docker compose run --rm oa oa-da-mod10a1 \
 6. **SCF calculation**: Mean snow fraction per ROI
 
 **Output**:
+
 - `obs/season_2019-2020/NDSI_Snow_Cover_YYYYMMDD.tif` (per date)
 - `obs/season_2019-2020/scf_summary.csv`
 
@@ -93,7 +99,6 @@ docker compose run --rm oa oa-da-scf \\
   --overwrite
 ```
 
-
 ### Quality Control
 
 Use `obs/<season-label>/scf_summary.csv` for quality control and to decide which dates to assimilate (set `assimilation_dates` in `propagation/<season-label>/season.yml`).
@@ -105,6 +110,7 @@ Use `obs/<season-label>/scf_summary.csv` for quality control and to decide which
 The MOD10A1 `NDSI_Snow_Cover` layer uses values in the range **0..100**. A threshold of **40** corresponds to an NDSI of **0.40**.
 
 **Common thresholds (MOD10A1 band units)**:
+
 - **30**: More sensitive (captures patchy snow, may increase false positives)
 - **40** (default): Typical starting point
 - **50+**: Conservative (reduces commission errors)
@@ -118,11 +124,13 @@ To test thresholds, rerun `oa-da-mod10a1` with different `--ndsi-threshold` valu
 ### Product Overview
 
 **Sentinel-2 FSC (Snowflake)**:
+
 - **Sensor**: Sentinel-2 MSI
 - **Resolution**: Product-dependent (often 20m)
 - **Temporal**: ~5-day revisit (cloud-dependent)
 
 **Input**: GeoTIFF FSC rasters with values in **0..100 (%)** (NoData for invalid/cloud pixels).
+This guide assumes the Snowflake FSC product (Barella et al., 2022).
 
 ### Summarizing to `scf_summary.csv`
 
@@ -137,6 +145,7 @@ docker compose run --rm oa \\
 ```
 
 **Notes**:
+
 - The ROI is auto-detected from `/data/env/roi.gpkg` unless you pass `--aoi`.
 - The acquisition date is parsed from the filename as `YYYY_MM_DD` (e.g. `..._2019_10_01.tif`).
 - Use `--recursive` if your rasters are in subfolders.
@@ -159,15 +168,18 @@ docker compose run --rm oa oa-da-scf \\
 
 ### Product Overview
 
-**Sentinel-1 Wet Snow Mask (WSM)**:
+**Sentinel-1 Wet Snow Mask (WSM)** (Nagler et al., 2016; Rottler et al., 2024; Cluzet et al., 2024):
+
 - **Sensor**: Sentinel-1 SAR (C-band)
 - **Resolution**: product-dependent (often 20-30m)
 - **Temporal**: ~6-12 day revisit
 
 {: .note }
+
 > The framework expects **pre-processed wet-snow mask rasters** (not raw SAR).
 
 **WSM Classes** (expected by the summarizer):
+
 - **110**: Wet snow
 - **125**: Dry snow or no snow
 - **200**: Radar shadow (excluded)
@@ -184,6 +196,7 @@ docker compose run --rm oa oa-da-wet-snow-s1 \\
 ```
 
 With `--project-dir`, the command uses these defaults:
+
 - WSM rasters: `/data/obs/WSM_S1_SAR`
 - ROI: `/data/env/roi.gpkg`
 
@@ -209,12 +222,14 @@ This writes one-row `obs_wet_snow_S1_YYYYMMDD.csv` files into each step's `obs/`
 Maps model snow depth/SWE to snow cover fraction:
 
 **Depth Threshold**:
+
 ```
 H(x) = 1  if HS > h0
        0  otherwise
 ```
 
 **Logistic** (recommended):
+
 ```
 H(x) = 1 / (1 + exp(-k × (HS - h0)))
 ```
@@ -234,7 +249,7 @@ Wet snow = LWC > threshold (e.g., 1-3% of SWE)
 ```yaml
 data_assimilation:
   wet_snow:
-    classification_threshold_percent: 0.5  # LWC fraction threshold (0-1 scale)
+    classification_threshold_percent: 0.5 # LWC fraction threshold (0-1 scale)
 ```
 
 The classification threshold is a volumetric LWC fraction. A value of 0.5 means snow is classified as "wet" when LWC exceeds 50% of the maximum possible LWC.
@@ -243,33 +258,13 @@ The classification threshold is a volumetric LWC fraction. A value of 0.5 means 
 
 ## Best Practices
 
-### Observation Thinning
-
-**Too many observations** → computational cost, redundancy
-
-**Strategies**:
-1. **Temporal thinning**: Every 7-10 days instead of daily
-2. **Spatial thinning**: Aggregate to coarser resolution
-3. **Quality filtering**: High-quality obs only
-
-**Example**:
-
-```python
-import pandas as pd
-
-df = pd.read_csv('obs/season_2019-2020/scf_summary.csv', parse_dates=['date'])
-
-# Keep every 7 days with high quality
-df_thin = df.resample('7D', on='date').first()
-df_clean = df[df['n_valid'] > 0.8 * df['n_valid'].max()]
-```
-
 ### Observation Error Tuning
 
 **Too small** → particle degeneracy (ESS → 1)
 **Too large** → no weight update (ESS → N)
 
 **Starting values**:
+
 - MOD10A1 SCF: σ_obs = 0.10-0.15
 - Sentinel-2 FSC: σ_obs = 0.05-0.10
 - Sentinel-1 Wet Snow: σ_obs = 0.15-0.20
@@ -298,6 +293,7 @@ data_assimilation:
 ```
 
 Glacier-covered pixels are excluded from:
+
 - H(x) computation
 - Likelihood calculation
 - SCF mean/statistics
@@ -311,6 +307,7 @@ Glacier-covered pixels are excluded from:
 **Cause**: NDSI threshold too high/low, or binary H(x)
 
 **Solution**:
+
 - Test different NDSI thresholds (0.3-0.5)
 - Use `logistic` H(x) instead of `depth_threshold`
 
@@ -319,6 +316,7 @@ Glacier-covered pixels are excluded from:
 **Cause**: Cloud cover, or preprocessing failed
 
 **Solution**:
+
 - Check raw HDF/GeoTIFF files for those dates
 - Inspect preprocessing log for errors
 - Accept that some dates have no observations (common for optical sensors)
@@ -328,6 +326,7 @@ Glacier-covered pixels are excluded from:
 **Cause**: Radar shadow, steep slopes, forest
 
 **Solution**:
+
 - Mask steep slopes (> 30°)
 - Exclude forested areas
 - Use only high-confidence wet snow pixels
@@ -337,6 +336,7 @@ Glacier-covered pixels are excluded from:
 **Cause**: H(x) parameters, timing mismatch, or model bias
 
 **Solution**:
+
 - Check observation time of day vs. model output time
 - Tune H(x) parameters (`h0`, `k`)
 - Verify glacier masking is enabled
@@ -354,12 +354,8 @@ Glacier-covered pixels are excluded from:
 
 ## References
 
-### Wet Snow Dynamics and Remote Sensing
-
-- Rottler, E., Warscher, M., Hanzer, F., and Strasser, U.: Spatio-temporal wet snow dynamics from model simulations and remote sensing: A case study from the Rofental, Austria, Hydrological Processes, 38, e15279, [https://doi.org/10.1002/hyp.15279](https://doi.org/10.1002/hyp.15279), 2024.
-
-- Cluzet, B., Magnusson, J., Quéno, L., Mazzotti, G., Mott, R., and Jonas, T.: Exploring how Sentinel-1 wet-snow maps can inform fully distributed physically based snowpack models, The Cryosphere, 18, 5753–5767, [https://doi.org/10.5194/tc-18-5753-2024](https://doi.org/10.5194/tc-18-5753-2024), 2024.
-
-### Snow Cover Data Assimilation
-
-- Baba, M. W., Gascoin, S., and Hanich, L.: Assimilation of Sentinel-2 Data into a Snowpack Model in the High Atlas of Morocco, Remote Sensing, 10, 1982, [https://doi.org/10.3390/rs10121982](https://doi.org/10.3390/rs10121982), 2018.
+- Strasser, U., Warscher, M., Rottler, E., and Hanzer, F. (2024). openAMUNDSEN v1.0: an open-source snow-hydrological model for mountain regions. Geoscientific Model Development, 17, 6775-6797. https://doi.org/10.5194/gmd-17-6775-2024.
+- Barella, R., Marin, C., Gianinetto, M., and Notarnicola, C. (2022). A novel approach to high resolution snow cover fraction retrieval in mountainous regions. IGARSS 2022 - IEEE International Geoscience and Remote Sensing Symposium, 3856-3859. https://doi.org/10.1109/IGARSS46834.2022.9884177.
+- Nagler, T., Rott, H., Ripper, E., Bippus, G., and Hetzenecker, M. (2016). Advancements for snowmelt monitoring by means of Sentinel-1 SAR. Remote Sensing, 8(4), 348. https://doi.org/10.3390/rs8040348.
+- Rottler, E., Warscher, M., Hanzer, F., and Strasser, U. (2024). Spatio-temporal wet snow dynamics from model simulations and remote sensing: a case study from the Rofental, Austria. Hydrological Processes, 38, e15279. https://doi.org/10.1002/hyp.15279.
+- Cluzet, B., Magnusson, J., Quéno, L., Mazzotti, G., Mott, R., and Jonas, T. (2024). Exploring how Sentinel-1 wet-snow maps can inform fully distributed physically based snowpack models. The Cryosphere, 18, 5753-5767. https://doi.org/10.5194/tc-18-5753-2024.

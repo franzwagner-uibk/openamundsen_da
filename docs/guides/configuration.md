@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Configuration Reference
 parent: Guides
@@ -407,19 +407,9 @@ output_data:
 
 ## Configuration Validation
 
-The framework validates configuration on load:
+Configuration is checked when you run the CLI (for example `oa-da-season`, `oa-da-mod10a1`, or `oa-da-assimilate-scf`). Internally, the framework merges YAML layers and hands the merged model configuration to openAMUNDSEN for parsing.
 
-```python
-from openamundsen_da.core.config import load_config
-
-config = load_config('/data/project.yml')
-```
-
-**Common validation errors**:
-- Missing required keys (`ensemble.size`, `data_assimilation.h_of_x`, etc.)
-- Invalid timestep format (must be pandas-compatible, e.g., '3H')
-- Invalid CRS (must be valid EPSG code or PROJ string)
-- File paths that don't exist (ROI, glacier mask)
+If something is missing or inconsistent, the CLI will fail early with a descriptive error message (missing required keys, invalid timestep format, missing files like ROI/glacier masks, etc.).
 
 ---
 

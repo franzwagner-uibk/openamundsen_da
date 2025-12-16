@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Workflow
 nav_order: 4
@@ -27,7 +27,7 @@ The openamundsen_da framework implements a sequential particle filter for snow d
 
 ### Architecture
 
-![Data Assimilation Architecture]({{ site.baseurl }}/assets/images/da_architecture.png)
+![Data Assimilation Architecture]({{ site.baseurl }}/assets/images/DataAssimilation_Design%20_DOCS%20_Architecture.drawio.png)
 *Figure 1: Data assimilation architecture showing the complete workflow from prior generation through forecast propagation to the update cycle. Observations are processed, transformed via the forward operator H(x), and used to compute Gaussian likelihoods. Importance weighting and resampling select the most consistent ensemble members, while rejuvenation maintains diversity for the next cycle.*
 
 **Key components**:
@@ -44,7 +44,7 @@ The openamundsen_da framework implements a sequential particle filter for snow d
 
 ### Ensemble Update Cycle Example
 
-![Data Assimilation Experiment Cycle]({{ site.baseurl }}/assets/images/da_experiment_cycle.png)
+![Data Assimilation Experiment Cycle]({{ site.baseurl }}/assets/images/Particle_Filter%20_DOCS.drawio.png)
 *Figure 2: Example showing how the ensemble evolves over a snow season. Snow Cover Area (SCA) is shown as colored lines (each representing one ensemble member). The cycle progresses from initialization (Oct 2017) through multiple forecast-update steps. Satellite observations (icons) constrain the ensemble spread at update times. Lower panels show detailed views of the assimilation process: ensemble generation with perturbed forcings, propagation of prior states, correction using observations (importance weighting, resampling, rejuvenation), and propagation of updated posterior states.*
 
 **Interpretation**:
@@ -110,12 +110,12 @@ Three configuration levels:
 
 **Temperature**: Additive Gaussian noise
 ```
-T_perturbed = T_original + ε_T,  ε_T ~ N(0, σ_T²)
+T_perturbed = T_original + Îµ_T,  Îµ_T ~ N(0, Ïƒ_TÂ²)
 ```
 
 **Precipitation**: Multiplicative log-normal noise
 ```
-P_perturbed = P_original × exp(ε_P),  ε_P ~ N(0, σ_P²)
+P_perturbed = P_original Ã— exp(Îµ_P),  Îµ_P ~ N(0, Ïƒ_PÂ²)
 ```
 
 **Implementation**:
@@ -188,11 +188,11 @@ docker compose run --rm oa \
 ```
 
 **Steps**:
-1. HDF → GeoTIFF conversion
+1. HDF â†’ GeoTIFF conversion
 2. QA masking (cloud-free pixels only)
 3. Reprojection to study area CRS
 4. ROI clipping
-5. NDSI thresholding → binary snow mask
+5. NDSI thresholding â†’ binary snow mask
 6. SCF calculation per ROI
 
 **Output**: `obs/season_2019-2020/scf_summary.csv`
@@ -253,7 +253,7 @@ Maps model state (snow depth or SWE) to observation space (SCF).
 
 2. **Logistic** (smooth):
    ```
-   SCF = 1 / (1 + exp(-k × (HS - h0)))
+   SCF = 1 / (1 + exp(-k Ã— (HS - h0)))
    ```
 
 **Configuration** (in `project.yml`):
@@ -270,28 +270,28 @@ data_assimilation:
 
 Gaussian likelihood function:
 ```
-w_i ∝ exp(-0.5 × ((y_obs - H(x_i)) / σ_obs)²)
+w_i âˆ exp(-0.5 Ã— ((y_obs - H(x_i)) / Ïƒ_obs)Â²)
 ```
 
 where:
 - `y_obs`: Observed SCF
 - `H(x_i)`: Model SCF for member i
-- `σ_obs`: Observation error std (from config)
+- `Ïƒ_obs`: Observation error std (from config)
 
 **Normalization**:
 ```
-w_i = w_i / Σ(w_j)
+w_i = w_i / Î£(w_j)
 ```
 
 ### Effective Sample Size (ESS)
 
 ```
-ESS = 1 / Σ(w_i²)
+ESS = 1 / Î£(w_iÂ²)
 ```
 
 - ESS = N: All weights equal (no information from obs)
 - ESS = 1: One particle dominates (particle degeneracy)
-- ESS < threshold → Trigger resampling
+- ESS < threshold â†’ Trigger resampling
 
 ---
 
@@ -310,12 +310,12 @@ ESS = 1 / Σ(w_i²)
 data_assimilation:
   resampling:
     algorithm: systematic
-    ess_threshold_ratio: 0.5  # Resample if ESS < 0.5 × N
+    ess_threshold_ratio: 0.5  # Resample if ESS < 0.5 Ã— N
     seed: 42
 ```
 
 **Behavior**:
-- If `ESS ≥ threshold`: Skip resampling, mirror prior → posterior
+- If `ESS â‰¥ threshold`: Skip resampling, mirror prior â†’ posterior
 - If `ESS < threshold`: Resample
 
 ### Rejuvenation
@@ -340,7 +340,7 @@ data_assimilation:
 
 Copy posterior states + perturbed forcing to next step's prior:
 ```
-step_N/ensembles/posterior/member_i/ → step_N+1/ensembles/prior/member_j/
+step_N/ensembles/posterior/member_i/ â†’ step_N+1/ensembles/prior/member_j/
 ```
 
 where `j = indices[i]` from resampling.
@@ -354,7 +354,7 @@ where `j = indices[i]` from resampling.
 Per-station temperature and precipitation time series showing:
 - Open loop
 - All ensemble members
-- Ensemble mean ± spread
+- Ensemble mean Â± spread
 
 ### Results Plots
 
@@ -407,9 +407,9 @@ docker compose run --rm oa \
 1. Generate prior forcing
 2. Run prior ensemble
 3. Compute model H(x) (SCF/wet-snow)
-4. Assimilate observations → weights
-5. Check ESS → resample if needed
-6. Rejuvenate → next prior
+4. Assimilate observations â†’ weights
+5. Check ESS â†’ resample if needed
+6. Rejuvenate â†’ next prior
 7. Generate plots
 8. Repeat for next step
 
@@ -419,17 +419,17 @@ docker compose run --rm oa \
 
 ### Ensemble Size
 
-- **Small domains** (< 100 km²): 20-30 members
+- **Small domains** (< 100 kmÂ²): 20-30 members
 - **Medium domains**: 30-50 members
-- **Large domains** (> 500 km²): 50-100 members
+- **Large domains** (> 500 kmÂ²): 50-100 members
 
 Trade-off: More members = better posterior but higher computational cost.
 
 ### Perturbation Magnitudes
 
 **Prior**:
-- `σ_T`: 1.0-2.0 K (typical)
-- `σ_P`: 0.15-0.25 (15-25% uncertainty)
+- `Ïƒ_T`: 1.0-2.0 K (typical)
+- `Ïƒ_P`: 0.15-0.25 (15-25% uncertainty)
 
 **Rejuvenation**: Use smaller values (0.1-0.2) to avoid over-perturbation.
 
@@ -442,9 +442,9 @@ Trade-off: More members = better posterior but higher computational cost.
 ### Observation Error
 
 Depends on data source:
-- MODIS MOD10A1: σ_obs ≈ 0.1-0.15
-- Sentinel-2 FSC: σ_obs ≈ 0.05-0.10
-- In-situ: σ_obs ≈ 0.05
+- MODIS MOD10A1: Ïƒ_obs â‰ˆ 0.1-0.15
+- Sentinel-2 FSC: Ïƒ_obs â‰ˆ 0.05-0.10
+- In-situ: Ïƒ_obs â‰ˆ 0.05
 
 Configure in `project.yml`:
 ```yaml
@@ -461,3 +461,4 @@ data_assimilation:
 - [Configuration Guide]({{ site.baseurl }}{% link guides/configuration.md %}) - Detailed configuration reference
 - [Running Experiments]({{ site.baseurl }}{% link guides/experiments.md %}) - Step-by-step experiment setup
 - [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}) - Command-line tools
+

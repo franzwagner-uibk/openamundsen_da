@@ -44,28 +44,23 @@ The main configuration file that defines all project-wide settings.
 ### Basic Configuration
 
 ```yaml
-# Model settings
-model: openamundsen
-timestep: 3H  # Model timestep (1H, 3H, 24H, etc.)
-
-# Domain settings
-domain:
-  aoi: env/roi.gpkg  # Area of interest (required)
-  crs: EPSG:32632    # Coordinate reference system
+domain: "your_domain"
+resolution: 100            # spatial resolution (m)
+timestep: "3H"             # temporal resolution (pandas-compatible string)
+crs: "epsg:32632"          # CRS of the input grids
+timezone: 1                # UTC offset in hours
 ```
 
-### Ensemble Configuration
+### Prior Forcing Configuration
 
 ```yaml
-ensemble:
-  size: 30  # Number of ensemble members
-
-  # Prior forcing perturbations
+data_assimilation:
   prior_forcing:
-    sigma_t: 1.5      # Temperature perturbation std (K)
-    sigma_p: 0.20     # Precipitation perturbation std (multiplicative)
-    seed: 42          # Random seed for reproducibility
-    rebase: false     # Rebase mode (default: false)
+    ensemble_size: 20       # number of ensemble members
+    random_seed: 42         # RNG seed for reproducibility
+    sigma_t: 0.5            # additive temperature stddev (deg C)
+    mu_p: 0.0               # log-space mean for precip factor
+    sigma_p: 0.5            # log-space stddev for precip factor
 ```
 
 #### Perturbation Details
@@ -73,18 +68,11 @@ ensemble:
 **Temperature Perturbations** (`sigma_t`):
 - Additive Gaussian noise: `T_perturbed = T + ε`, where `ε ~ N(0, σ_T²)`
 - Typical range: 0.5-2.0 K
-- Larger values → more ensemble spread
-- Consider regional climate uncertainty when choosing
 
-**Precipitation Perturbations** (`sigma_p`):
-- Multiplicative log-normal noise: `P_perturbed = P × exp(ε)`, where `ε ~ N(0, σ_P²)`
-- Typical range: 0.10-0.30 (10-30% uncertainty)
-- Preserves zero values (no precipitation when P=0)
-- Larger values → more uncertainty in precipitation amounts
-
-**Rebase Mode**:
-- `false` (default): Perturbations applied to member's own previous forcing
-- `true`: Perturbations applied relative to open loop forcing
+**Precipitation Perturbations** (`sigma_p`, `mu_p`):
+- Multiplicative log-normal noise: `P_perturbed = P × exp(ε)`, where `ε ~ N(μ_P, σ_P²)`
+- Typical range for sigma_p: 0.15-0.50
+- mu_p is typically 0.0
 
 ---
 
@@ -94,34 +82,44 @@ ensemble:
 data_assimilation:
   # H(x) forward operator configuration
   h_of_x:
-    variable: hs              # State variable: 'hs' (snow depth) or 'swe'
-    method: logistic          # Method: 'depth_threshold' or 'logistic'
-    h0: 0.05                 # Threshold (m)
-    k: 50.0                  # Steepness parameter (logistic only)
+    method: depth_threshold   # or "logistic"
+    variable: hs              # or "swe"
+    params:
+      h0: 0.01
+      k: 80
 
-  # Observation errors
-  observation_error:
-    scf: 0.10                # SCF observation error std
-    wet_snow: 0.15           # Wet snow observation error std
+  # Likelihood settings
+  likelihood:
+    scf:
+      obs_sigma: 0.10
+      use_binomial: true
+      sigma_floor: 0.05
+      sigma_cloud_scale: 0.10
+      min_sigma: 0.03
+    wet_snow:
+      obs_sigma: 0.15
+      use_binomial: false
 
   # Resampling configuration
   resampling:
-    algorithm: systematic     # Algorithm: 'systematic' (only option currently)
+    algorithm: systematic
     ess_threshold_ratio: 0.5  # Resample if ESS < ratio × N
-    seed: 42                 # Random seed
 
   # Rejuvenation (post-resampling perturbations)
   rejuvenation:
-    enabled: true
-    sigma_t: 0.2             # Temperature perturbation (smaller than prior)
-    sigma_p: 0.2             # Precipitation perturbation
-    rebase: true             # Usually true for rejuvenation
-    seed: 42
+    sigma_t: 0.2             # Additive temperature noise (deg C)
+    sigma_p: 0.2             # Lognormal sigma for precip factor (mu=0)
 
   # Glacier masking
   glacier_mask:
     enabled: true
-    path: env/glaciers.gpkg  # Glacier outlines (optional)
+    path: env/glaciers.gpkg
+
+  # Warm start settings
+  restart:
+    use_state: true
+    dump_state: true
+    state_pattern: model_state.pickle.gz
 ```
 
 #### H(x) Forward Operator Methods
@@ -259,46 +257,33 @@ See [openAMUNDSEN Output Data documentation](http://doc.openamundsen.org/doc/out
 
 Season-specific configuration stored in `propagation/season_YYYY-YYYY/season.yml`.
 
-```yaml
-# Season boundaries
-start_date: 2019-11-01
-end_date: 2020-07-31
+### Legacy Format (SCF-only)
 
-# Assimilation dates
+```yaml
+start_date: 2017-10-01
+end_date: 2018-09-30
 assimilation_dates:
-  - 2019-11-22  # First SCF observation
-  - 2019-12-10
-  - 2020-01-15
-  - 2020-02-20
-  - 2020-03-18
-  - 2020-04-12  # Wet snow observation
-  - 2020-05-05
-
-# Season-specific overrides
-ensemble:
-  size: 40  # Override project-wide ensemble size
-
-data_assimilation:
-  observation_error:
-    scf: 0.08  # Override for this season
+  - 2017-11-23
+  - 2017-12-24
+  - 2018-01-30
 ```
 
-### Assimilation Events
-
-Alternatively, use structured event definitions:
+### Structured Format (Preferred)
 
 ```yaml
-assimilation_events:
-  - date: 2019-11-22
-    type: scf
-    product: MOD10A1
-
-  - date: 2020-04-12
-    type: wet_snow
-    product: S1
+start_date: 2017-10-01
+end_date: 2018-09-30
+data_assimilation:
+  assimilation_events:
+    - date: 2017-11-23
+      variable: scf
+      product: MOD10A1
+    - date: 2018-03-19
+      variable: wet_snow
+      product: S1
 ```
 
-This provides more metadata for tracking observation sources.
+This format provides metadata about observation sources and variable types.
 
 ---
 
@@ -310,97 +295,71 @@ Step-specific configuration (auto-generated by season skeleton builder).
 # Step boundaries
 start_date: 2019-11-22
 end_date: 2019-12-10
-
-# Results configuration
-results:
-  directory: step_01_20191122-20191210
-  state_save: true
-
-# Warm-start pointers (populated after run)
-warm_start:
-  prior:
-    member_001: step_00_init/ensembles/posterior/member_001/results/state_20191122_000000.nc
-    member_002: step_00_init/ensembles/posterior/member_002/results/state_20191122_000000.nc
-    # ...
+results_dir: results
 ```
 
-These files are usually not edited manually.
+These files are usually not edited manually. The framework uses `state_pointer.json` files within each member directory to track warm-start state locations.
 
 ---
 
 ## Example: Complete project.yml
 
 ```yaml
-# =============================================================================
-# openamundsen_da Project Configuration
-# =============================================================================
+domain: "example_domain"
+resolution: 100
+timestep: "3H"
+crs: "epsg:32632"
+timezone: 1
 
-# Basic model settings
-model: openamundsen
-timestep: 3H
+environment:
+  GDAL_DATA: "/path/to/conda/env/share/gdal"
+  PROJ_LIB: "/path/to/conda/env/share/proj"
 
-# Domain
-domain:
-  aoi: env/roi.gpkg
-  crs: EPSG:32632
-
-# Ensemble configuration
-ensemble:
-  size: 30
-  prior_forcing:
-    sigma_t: 1.5
-    sigma_p: 0.20
-    seed: 42
-
-# Data assimilation
 data_assimilation:
+  prior_forcing:
+    ensemble_size: 20
+    random_seed: 42
+    sigma_t: 0.5
+    mu_p: 0.0
+    sigma_p: 0.5
+
   h_of_x:
+    method: depth_threshold
     variable: hs
-    method: logistic
-    h0: 0.05
-    k: 50.0
+    params:
+      h0: 0.01
+      k: 80
 
-  observation_error:
-    scf: 0.10
-    wet_snow: 0.15
-
-  resampling:
-    algorithm: systematic
-    ess_threshold_ratio: 0.5
-    seed: 42
-
-  rejuvenation:
-    enabled: true
-    sigma_t: 0.2
-    sigma_p: 0.2
-    rebase: true
-    seed: 42
+  wet_snow:
+    classification_threshold_percent: 0.5
 
   glacier_mask:
     enabled: true
     path: env/glaciers.gpkg
 
-# Environment
-environment:
-  GDAL_DATA: /usr/share/gdal
-  PROJ_LIB: /usr/share/proj
-  NUMEXPR_MAX_THREADS: 8
-  OMP_NUM_THREADS: 1
+  likelihood:
+    scf:
+      obs_sigma: 0.10
+      use_binomial: true
+      sigma_floor: 0.05
+      sigma_cloud_scale: 0.10
+      min_sigma: 0.03
+    wet_snow:
+      obs_sigma: 0.10
+      use_binomial: false
 
-# openAMUNDSEN configuration
-output_data:
-  grids:
-    format: netcdf
-    variables:
-      - snow_depth
-      - snow_water_equivalent
-      - albedo
-      - lwc
-  timeseries:
-    format: csv
-    variables:
-      - snow_depth
-      - snow_water_equivalent
+  resampling:
+    algorithm: systematic
+    ess_threshold_ratio: 0.5
+
+  rejuvenation:
+    sigma_t: 0.2
+    sigma_p: 0.2
+
+  restart:
+    use_state: false
+    dump_state: true
+    state_pattern: model_state.pickle.gz
 ```
 
 ---
@@ -415,68 +374,36 @@ If something is missing or inconsistent, the CLI will fail early with a descript
 
 ## Best Practices
 
-### Ensemble Size
-
-- **Small domains** (< 100 km²): 20-30 members
-- **Medium domains** (100-500 km²): 30-50 members
-- **Large domains** (> 500 km²): 50-100 members
-
-Trade-off: Computational cost vs. posterior quality.
-
 ### Perturbation Magnitudes
 
-**Conservative** (small uncertainty):
+**Prior forcing** (typical values from README):
 ```yaml
-ensemble:
+data_assimilation:
   prior_forcing:
-    sigma_t: 1.0
-    sigma_p: 0.15
+    sigma_t: 0.5     # Temperature: 0.5-2.0 K typical
+    sigma_p: 0.5     # Precipitation: 0.15-0.50 typical
 ```
 
-**Moderate** (typical):
-```yaml
-ensemble:
-  prior_forcing:
-    sigma_t: 1.5
-    sigma_p: 0.20
-```
-
-**Aggressive** (high uncertainty):
-```yaml
-ensemble:
-  prior_forcing:
-    sigma_t: 2.5
-    sigma_p: 0.30
-```
-
-### Rejuvenation
-
-Use **smaller** perturbations than prior:
+**Rejuvenation** - use smaller values than prior:
 ```yaml
 data_assimilation:
   rejuvenation:
-    sigma_t: 0.2   # vs. prior: 1.5
-    sigma_p: 0.2   # vs. prior: 0.20
+    sigma_t: 0.2     # Usually smaller than prior
+    sigma_p: 0.2
 ```
 
-This maintains diversity without over-perturbing after resampling.
+If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas.
 
 ### Random Seeds
 
 For reproducibility, set seeds explicitly:
 ```yaml
-ensemble:
-  prior_forcing:
-    seed: 42
-
 data_assimilation:
-  resampling:
-    seed: 42
-  rejuvenation:
-    seed: 42
+  prior_forcing:
+    random_seed: 42
 ```
 
-Use different seeds for different processes if needed.
+The resampling and rejuvenation use the prior_forcing seed as fallback if not specified separately.
 
 ---
 

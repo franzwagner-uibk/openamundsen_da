@@ -266,9 +266,10 @@ Wet snow = LWC > threshold (e.g., 1-3% of SWE)
 ```yaml
 data_assimilation:
   wet_snow:
-    lwc_threshold: 0.02  # 2% of SWE
-    min_depth: 0.01      # Minimum snow depth (m)
+    classification_threshold_percent: 0.5  # LWC fraction threshold (0-1 scale)
 ```
+
+The classification threshold is a volumetric LWC fraction. A value of 0.5 means snow is classified as "wet" when LWC exceeds 50% of the maximum possible LWC.
 
 ---
 

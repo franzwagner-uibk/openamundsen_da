@@ -241,18 +241,22 @@ member_001/
 ├── forcing/                 # Perturbed forcing
 │   ├── station_001.csv
 │   └── ...
-├── results/                 # Model outputs
-│   ├── grids/              # NetCDF grids (see openAMUNDSEN output docs)
-│   │   ├── snow.nc
-│   │   └── meteo.nc
+├── results/                 # Model outputs (see openAMUNDSEN output docs)
 │   ├── point_station.csv    # Point time series
 │   ├── point_scf_roi.csv    # Model SCF (when enabled)
-│   └── state_YYYYMMDD_HHMMSS.nc  # Model state
+│   └── model_state.pickle.gz  # Model state for warm start
 └── state_pointer.json       # Points to current state file
 ```
 
+The `state_pointer.json` contains the path to the model state:
+```json
+{
+  "path": "/abs/or/rel/path/to/model_state.pickle.gz"
+}
+```
+
 {: .note }
-> For details on available output variables (SWE, snow depth, temperature, etc.), see the [openAMUNDSEN Output Documentation](http://doc.openamundsen.org/en/stable/outputs.html).
+> For details on openAMUNDSEN output variables, see the [openAMUNDSEN Documentation](http://doc.openamundsen.org/).
 
 ---
 
@@ -296,8 +300,8 @@ graph TD
 
 ### Model States
 
-- **State files**: `state_{YYYYMMDD}_{HHMMSS}.nc`
-  - Example: `state_20191122_000000.nc`
+- **State files**: `model_state.pickle.gz` (default pattern)
+  - Configurable via `data_assimilation.restart.state_pattern` in `project.yml`
 
 ---
 

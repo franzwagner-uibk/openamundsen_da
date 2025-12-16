@@ -26,8 +26,6 @@ Understanding the particle filter data assimilation cycle.
 
 The openamundsen_da framework implements a sequential particle filter for snow data assimilation. The workflow cycles through prior generation, forecast propagation, and observation-based updates.
 
-### Architecture
-
 ![Data Assimilation Architecture]({{ site.baseurl }}/assets/images/DataAssimilation_Design%20_DOCS%20_Architecture.drawio.png)
 
 **Key components**:
@@ -36,8 +34,6 @@ The openamundsen_da framework implements a sequential particle filter for snow d
 - **Forecast/Propagation** (purple): Run openAMUNDSEN for each ensemble member
 - **Update Cycle** (blue): Observation processing, likelihood computation, resampling, rejuvenation
 - **Configuration** (yellow): `project.yml` controls openAMUNDSEN and DA settings, `season.yml` defines assimilation dates
-
-### Ensemble Update Cycle
 
 ![Data Assimilation Experiment Cycle]({{ site.baseurl }}/assets/images/Particle_Filter%20_DOCS.drawio.png)
 
@@ -129,7 +125,7 @@ docker compose run --rm oa \
   --project-dir /data
 ```
 
-### Sentinel-1 Wet Snow (Nagler et al., 2016; Rottler et al., 2024; Cluzet et al., 2024)
+### Sentinel-1 Wet Snow (Nagler et al., 2016)
 
 **WSM Classes**:
 
@@ -330,13 +326,9 @@ data_assimilation:
 - [Running Experiments]({{ site.baseurl }}{% link guides/experiments.md %}) - Step-by-step experiment setup
 - [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}) - Command-line tools
 
-
 ---
 
 ## References
 
-- Strasser, U., Warscher, M., Rottler, E., and Hanzer, F. (2024). openAMUNDSEN v1.0: an open-source snow-hydrological model for mountain regions. Geoscientific Model Development, 17, 6775-6797. https://doi.org/10.5194/gmd-17-6775-2024.
 - Barella, R., Marin, C., Gianinetto, M., and Notarnicola, C. (2022). A novel approach to high resolution snow cover fraction retrieval in mountainous regions. IGARSS 2022 - IEEE International Geoscience and Remote Sensing Symposium, 3856-3859. https://doi.org/10.1109/IGARSS46834.2022.9884177.
 - Nagler, T., Rott, H., Ripper, E., Bippus, G., and Hetzenecker, M. (2016). Advancements for snowmelt monitoring by means of Sentinel-1 SAR. Remote Sensing, 8(4), 348. https://doi.org/10.3390/rs8040348.
-- Rottler, E., Warscher, M., Hanzer, F., and Strasser, U. (2024). Spatio-temporal wet snow dynamics from model simulations and remote sensing: a case study from the Rofental, Austria. Hydrological Processes, 38, e15279. https://doi.org/10.1002/hyp.15279.
-- Cluzet, B., Magnusson, J., Queno, L., Mazzotti, G., Mott, R., and Jonas, T. (2024). Exploring how Sentinel-1 wet-snow maps can inform fully distributed physically based snowpack models. The Cryosphere, 18, 5753-5767. https://doi.org/10.5194/tc-18-5753-2024.

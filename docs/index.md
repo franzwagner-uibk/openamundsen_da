@@ -40,7 +40,7 @@ openAMUNDSEN is an open-source, fully distributed snow-hydrological model design
 - **Parallel ensemble launcher** with warm-start capability
 - **MODIS MOD10A1 preprocessing** (HDF → GeoTIFF, QA masking, reprojection)
 - **Sentinel-2 FSC extraction** via Snowflake product (Barella et al., 2022)
-- **Sentinel-1 wet snow classification** (Nagler et al., 2016; Rottler et al., 2024; Cluzet et al., 2024)
+- **Sentinel-1 wet snow classification** (Nagler et al., 2016)
 - **H(x) forward operators** for model-to-observation space mapping
 - **Particle filter implementation** (systematic resampling, ESS monitoring)
 - **Rejuvenation and state propagation** between assimilation cycles
@@ -136,7 +136,5 @@ If you use this software in your research, please cite openAMUNDSEN and (where r
 ## References
 
 - Strasser, U., Warscher, M., Rottler, E., and Hanzer, F. (2024). openAMUNDSEN v1.0: an open-source snow-hydrological model for mountain regions. Geoscientific Model Development, 17, 6775-6797. https://doi.org/10.5194/gmd-17-6775-2024.
-- Nagler, T., Rott, H., Ripper, E., Bippus, G., and Hetzenecker, M. (2016). Advancements for snowmelt monitoring by means of Sentinel-1 SAR. Remote Sensing, 8(4), 348. https://doi.org/10.3390/rs8040348.
-- Rottler, E., Warscher, M., Hanzer, F., and Strasser, U. (2024). Spatio-temporal wet snow dynamics from model simulations and remote sensing: a case study from the Rofental, Austria. Hydrological Processes, 38, e15279. https://doi.org/10.1002/hyp.15279.
-- Cluzet, B., Magnusson, J., Queno, L., Mazzotti, G., Mott, R., and Jonas, T. (2024). Exploring how Sentinel-1 wet-snow maps can inform fully distributed physically based snowpack models. The Cryosphere, 18, 5753-5767. https://doi.org/10.5194/tc-18-5753-2024.
 - Barella, R., Marin, C., Gianinetto, M., and Notarnicola, C. (2022). A novel approach to high resolution snow cover fraction retrieval in mountainous regions. IGARSS 2022 - IEEE International Geoscience and Remote Sensing Symposium, 3856-3859. https://doi.org/10.1109/IGARSS46834.2022.9884177.
+- Nagler, T., Rott, H., Ripper, E., Bippus, G., and Hetzenecker, M. (2016). Advancements for snowmelt monitoring by means of Sentinel-1 SAR. Remote Sensing, 8(4), 348. https://doi.org/10.3390/rs8040348.

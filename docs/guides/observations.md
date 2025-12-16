@@ -123,7 +123,7 @@ To test thresholds, rerun `oa-da-mod10a1` with different `--ndsi-threshold` valu
 
 ### Product Overview
 
-**Sentinel-2 FSC (Snowflake)**:
+**Sentinel-2 FSC (Snowflake)** (Barella et al., 2022):
 
 - **Sensor**: Sentinel-2 MSI
 - **Resolution**: Product-dependent (often 20m)
@@ -168,7 +168,7 @@ docker compose run --rm oa oa-da-scf \\
 
 ### Product Overview
 
-**Sentinel-1 Wet Snow Mask (WSM)** (Nagler et al., 2016; Rottler et al., 2024; Cluzet et al., 2024):
+**Sentinel-1 Wet Snow Mask (WSM)** (Nagler et al., 2016):
 
 - **Sensor**: Sentinel-1 SAR (C-band)
 - **Resolution**: product-dependent (often 20-30m)
@@ -300,49 +300,7 @@ Glacier-covered pixels are excluded from:
 
 ---
 
-## Troubleshooting
 
-### Issue: All SCF values are 0 or 1
-
-**Cause**: NDSI threshold too high/low, or binary H(x)
-
-**Solution**:
-
-- Test different NDSI thresholds (0.3-0.5)
-- Use `logistic` H(x) instead of `depth_threshold`
-
-### Issue: No observations found for some dates
-
-**Cause**: Cloud cover, or preprocessing failed
-
-**Solution**:
-
-- Check raw HDF/GeoTIFF files for those dates
-- Inspect preprocessing log for errors
-- Accept that some dates have no observations (common for optical sensors)
-
-### Issue: Wet snow observations have poor quality
-
-**Cause**: Radar shadow, steep slopes, forest
-
-**Solution**:
-
-- Mask steep slopes (> 30°)
-- Exclude forested areas
-- Use only high-confidence wet snow pixels
-
-### Issue: Model-obs mismatch is large
-
-**Cause**: H(x) parameters, timing mismatch, or model bias
-
-**Solution**:
-
-- Check observation time of day vs. model output time
-- Tune H(x) parameters (`h0`, `k`)
-- Verify glacier masking is enabled
-- Inspect ensemble spread (may need larger σ_T, σ_P)
-
----
 
 ## Next Steps
 
@@ -354,8 +312,5 @@ Glacier-covered pixels are excluded from:
 
 ## References
 
-- Strasser, U., Warscher, M., Rottler, E., and Hanzer, F. (2024). openAMUNDSEN v1.0: an open-source snow-hydrological model for mountain regions. Geoscientific Model Development, 17, 6775-6797. https://doi.org/10.5194/gmd-17-6775-2024.
 - Barella, R., Marin, C., Gianinetto, M., and Notarnicola, C. (2022). A novel approach to high resolution snow cover fraction retrieval in mountainous regions. IGARSS 2022 - IEEE International Geoscience and Remote Sensing Symposium, 3856-3859. https://doi.org/10.1109/IGARSS46834.2022.9884177.
 - Nagler, T., Rott, H., Ripper, E., Bippus, G., and Hetzenecker, M. (2016). Advancements for snowmelt monitoring by means of Sentinel-1 SAR. Remote Sensing, 8(4), 348. https://doi.org/10.3390/rs8040348.
-- Rottler, E., Warscher, M., Hanzer, F., and Strasser, U. (2024). Spatio-temporal wet snow dynamics from model simulations and remote sensing: a case study from the Rofental, Austria. Hydrological Processes, 38, e15279. https://doi.org/10.1002/hyp.15279.
-- Cluzet, B., Magnusson, J., Quéno, L., Mazzotti, G., Mott, R., and Jonas, T. (2024). Exploring how Sentinel-1 wet-snow maps can inform fully distributed physically based snowpack models. The Cryosphere, 18, 5753-5767. https://doi.org/10.5194/tc-18-5753-2024.

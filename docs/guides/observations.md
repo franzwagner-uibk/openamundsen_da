@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Observation Processing
 parent: Guides
@@ -66,7 +66,7 @@ docker compose run --rm oa oa-da-mod10a1 \
   --project-dir /data \
   --target-epsg 32632 \
   --resolution 500 \
-  --ndsi-threshold 0.4
+  --ndsi-threshold 40
 ```
 
 **Processing steps**:
@@ -74,12 +74,25 @@ docker compose run --rm oa oa-da-mod10a1 \
 2. **QA masking**: Remove cloudy/poor-quality pixels
 3. **Reprojection**: Reproject to study area CRS
 4. **ROI clipping**: Extract ROI extent
-5. **Binary masking**: NDSI ≥ 0.4 → snow, else no snow
+5. **Binary masking**: NDSI ≥ 40 → snow, else no snow
 6. **SCF calculation**: Mean snow fraction per ROI
 
 **Output**:
 - `obs/season_2019-2020/NDSI_Snow_Cover_YYYYMMDD.tif` (per date)
 - `obs/season_2019-2020/scf_summary.csv`
+
+### Creating per-step observation CSVs (for assimilation)
+
+After `scf_summary.csv` is created, generate per-step one-row observation CSVs (the season pipeline expects these under each step's `obs/` directory):
+
+```bash
+docker compose run --rm oa oa-da-scf \\
+  --season-dir /data/propagation/season_2019-2020 \\
+  --summary-csv /data/obs/season_2019-2020/scf_summary.csv \\
+  --product MOD10A1 \\
+  --overwrite
+```
+
 
 ### Quality Control
 
@@ -89,54 +102,41 @@ Inspect the summary CSV:
 head -20 obs/season_2019-2020/scf_summary.csv
 ```
 
-**Quality indicators**:
+`scf_summary.csv` contains (per date): `date`, `region_id`, `n_valid`, `n_snow`, `scf`, `cloud_fraction`, `source`.
 
-| Field | Description | Quality Threshold |
-|:------|:------------|:------------------|
-| `scf_mean` | Mean SCF over ROI | Use if > 0.0 |
-| `scf_std` | SCF standard deviation | Check for spatial variability |
-| `pixel_count` | Valid (cloud-free) pixels | Use if > 50% of ROI |
-| `cloud_fraction` | Cloud cover (if available) | Use if < 0.3 |
-
-**Filter low-quality dates**:
+A simple filter example:
 
 ```python
 import pandas as pd
 
-# Load summary
 df = pd.read_csv('obs/season_2019-2020/scf_summary.csv', parse_dates=['date'])
 
-# Filter: valid pixels > 80% of ROI area
-roi_area = 12500  # From ROI shapefile
-df_clean = df[df['pixel_count'] > 0.8 * roi_area]
+# Example: keep dates with at least some valid pixels and limited cloud cover
+df_clean = df[(df['n_valid'] > 0) & (df['cloud_fraction'] <= 0.3)]
 
-# Save filtered dates
 df_clean['date'].dt.strftime('%Y-%m-%d').to_csv('assimilation_dates.txt', index=False, header=False)
 ```
 
 ### NDSI Threshold Selection
 
-The NDSI threshold (default: 0.4) defines "snow" vs. "no snow":
+The MOD10A1 `NDSI_Snow_Cover` layer uses values in the range **0..100**. A threshold of **40** corresponds to an NDSI of **0.40**.
 
-```
-NDSI = (Green - SWIR) / (Green + SWIR)
-```
-
-**Common thresholds**:
-- **0.4** (standard): Conservative, reduces commission errors
-- **0.1-0.3**: More sensitive, captures patchy snow
-- **0.5+**: Very conservative, only certain snow
+**Common thresholds (MOD10A1 band units)**:
+- **30**: More sensitive (captures patchy snow, may increase false positives)
+- **40** (default): Typical starting point
+- **50+**: Conservative (reduces commission errors)
 
 **Testing thresholds**:
 
 ```bash
 # Generate summaries with different thresholds
-for thresh in 0.3 0.4 0.5; do
-  docker compose run --rm oa oa-da-mod10a1 \
-    --input-dir /data/obs/MOD10A1_61_HDF \
-    --season-label season_2019-2020_ndsi${thresh} \
-    --project-dir /data \
+for thresh in 30 40 50; do
+  docker compose run --rm oa oa-da-mod10a1 \\
+    --input-dir /data/obs/MOD10A1_61_HDF \\
+    --season-label season_2019-2020_ndsi${thresh} \\
+    --project-dir /data \\
     --ndsi-threshold $thresh
+
 done
 
 # Compare
@@ -149,72 +149,41 @@ head obs/season_2019-2020_ndsi*/scf_summary.csv
 
 ### Product Overview
 
-**Sentinel-2 FSC (via Snowflake)**:
+**Sentinel-2 FSC (Snowflake)**:
 - **Sensor**: Sentinel-2 MSI
-- **Resolution**: 20m
-- **Temporal**: 5-day revisit (cloud-dependent)
-- **Coverage**: Europe
-- **Latency**: Near real-time
+- **Resolution**: Product-dependent (often 20m)
+- **Temporal**: ~5-day revisit (cloud-dependent)
 
-**Output**: Fractional Snow Cover (0-100%)
+**Input**: GeoTIFF FSC rasters with values in **0..100 (%)** (NoData for invalid/cloud pixels).
 
-### Downloading Sentinel-2 FSC
+### Summarizing to `scf_summary.csv`
 
-{: .note }
-> Sentinel-2 FSC data must be obtained from external sources. The framework expects GeoTIFF files as input for preprocessing.
-
-### Preprocessing Sentinel-2 FSC
+The framework summarizes each FSC raster to a single ROI-mean `scf` value and appends/updates it in `obs/<season-label>/scf_summary.csv`:
 
 ```bash
-docker compose run --rm oa \
-  python -m openamundsen_da.observer.snowflake_fsc \
-  --input-dir /data/obs/FSC_snowflake \
-  --season-label season_2019-2020 \
-  --project-dir /data \
-  --resolution 100 \
-  --fsc-threshold 10
+docker compose run --rm oa \\
+  python -m openamundsen_da.observer.snowflake_fsc \\
+  --input-dir /data/obs/FSC_snowflake \\
+  --season-label season_2019-2020 \\
+  --project-dir /data
 ```
 
-**Parameters**:
-- `--resolution`: Resample to coarser resolution (optional, default: keep 20m)
-- `--fsc-threshold`: Minimum FSC to consider as snow (%, default: 10)
+**Notes**:
+- The ROI is auto-detected from `/data/env/roi.gpkg` unless you pass `--aoi`.
+- The acquisition date is parsed from the filename as `YYYY_MM_DD` (e.g. `..._2019_10_01.tif`).
+- Use `--recursive` if your rasters are in subfolders.
 
-**Output**: Same as MOD10A1 (GeoTIFFs + summary CSV)
+### Creating per-step observation CSVs (for assimilation)
 
-### Quality Control
-
-Sentinel-2 FSC includes quality layers:
-
-**Quality flags** (if available in product):
-- 0: High quality
-- 1: Medium quality
-- 2: Low quality (cloud shadow, topographic shadow)
-- 3: Invalid (cloud, outside mask)
-
-**Filter**:
+After `scf_summary.csv` exists, generate per-step one-row observation CSVs:
 
 ```bash
-# Keep only high/medium quality pixels during processing
-docker compose run --rm oa \
-  python -m openamundsen_da.observer.snowflake_fsc \
-  --input-dir /data/obs/FSC_snowflake \
-  --season-label season_2019-2020 \
-  --project-dir /data \
-  --quality-threshold 1  # 0-1: high/medium
+docker compose run --rm oa oa-da-scf \\
+  --season-dir /data/propagation/season_2019-2020 \\
+  --summary-csv /data/obs/season_2019-2020/scf_summary.csv \\
+  --product SNOWFLAKE \\
+  --overwrite
 ```
-
-### MOD10A1 vs. Sentinel-2 FSC
-
-| Aspect | MOD10A1 | Sentinel-2 FSC |
-|:-------|:--------|:---------------|
-| **Resolution** | 500m | 20m |
-| **Temporal** | Daily | 5 days |
-| **Cloud gaps** | Frequent | More frequent |
-| **Accuracy** | Binary (0/1) | Fractional (0-1) |
-| **Coverage** | Global | Regional |
-| **Best for** | Large domains, daily DA | Small domains, high detail |
-
-**Recommendation**: Use MOD10A1 for primary assimilation, Sentinel-2 FSC for validation or targeted periods.
 
 ---
 
@@ -222,72 +191,46 @@ docker compose run --rm oa \
 
 ### Product Overview
 
-**Sentinel-1 Wet Snow Mask**:
+**Sentinel-1 Wet Snow Mask (WSM)**:
 - **Sensor**: Sentinel-1 SAR (C-band)
-- **Resolution**: 20-30m
-- **Temporal**: 6-12 day revisit
-- **Coverage**: Global
-- **Latency**: 1-3 days
-
-**Detection**: Wet snow reduces backscatter significantly → detectable via change detection.
-
-### Wet Snow Detection
+- **Resolution**: product-dependent (often 20-30m)
+- **Temporal**: ~6-12 day revisit
 
 {: .note }
-> The framework expects **pre-processed wet snow masks** (not raw SAR). Wet snow masks must be obtained and processed externally before use with this framework.
+> The framework expects **pre-processed wet-snow mask rasters** (not raw SAR).
 
-**WSM Classes**:
+**WSM Classes** (expected by the summarizer):
 - **110**: Wet snow
 - **125**: Dry snow or no snow
-- **200**: Radar shadow (masked out)
-- **210**: Water (masked out)
+- **200**: Radar shadow (excluded)
+- **210**: Water (excluded)
 
-### Preprocessing Sentinel-1 WSM
+### Summarizing WSM to `wet_snow_summary.csv`
+
+First summarize Sentinel-1 WSM rasters into a season table:
 
 ```bash
-docker compose run --rm oa \
-  python -m openamundsen_da.observer.satellite_wet_snow_s1 \
-  --input-dir /data/obs/WSM_S1 \
-  --season-label season_2019-2020 \
-  --project-dir /data
+docker compose run --rm oa oa-da-wet-snow-s1 \\
+  --project-dir /data \\
+  --output /data/obs/season_2019-2020/wet_snow_summary.csv
 ```
 
-**Input**: GeoTIFFs with wet snow mask (class 110 = wet snow)
+With `--project-dir`, the command uses these defaults:
+- WSM rasters: `/data/obs/WSM_S1_SAR`
+- ROI: `/data/env/roi.gpkg`
 
-**Output**:
-- Reprojected/clipped GeoTIFFs
-- `obs/season_2019-2020/wet_snow_summary.csv`
+Override with `--raster-dir` / `--aoi` if your paths differ.
 
-### Quality Control
+### Creating per-step observation CSVs (for assimilation)
 
-Sentinel-1 has limitations:
-
-**Exclusions**:
-- **Radar shadow** (class 200): No signal, exclude
-- **Steep slopes** (> 30°): Layover/foreshortening, unreliable
-- **Forested areas**: Volume scattering, reduced sensitivity
-
-**Filter by terrain**:
-
-```python
-import rasterio
-import numpy as np
-
-# Load DEM slope
-with rasterio.open('path/to/slope.tif') as src:
-    slope = src.read(1)
-
-# Load WSM
-with rasterio.open('obs/season_2019-2020/WSM_S1_20200415.tif') as src:
-    wsm = src.read(1)
-
-# Mask steep slopes
-wsm[(slope > 30) | (wsm == 200) | (wsm == 210)] = 255  # NoData
-
-# Write masked WSM
-with rasterio.open('obs/season_2019-2020/WSM_S1_20200415_masked.tif', 'w', **src.meta) as dst:
-    dst.write(wsm, 1)
+```bash
+docker compose run --rm oa oa-da-wet-snow-s1-season \\
+  --season-dir /data/propagation/season_2019-2020 \\
+  --summary-csv /data/obs/season_2019-2020/wet_snow_summary.csv \\
+  --overwrite
 ```
+
+This writes one-row `obs_wet_snow_S1_YYYYMMDD.csv` files into each step's `obs/` directory for configured wet-snow assimilation dates.
 
 ---
 
@@ -349,7 +292,7 @@ df = pd.read_csv('obs/season_2019-2020/scf_summary.csv', parse_dates=['date'])
 
 # Keep every 7 days with high quality
 df_thin = df.resample('7D', on='date').first()
-df_thin = df_thin[df_thin['pixel_count'] > 0.8 * roi_area]
+df_clean = df[df['n_valid'] > 0.8 * df['n_valid'].max()]
 ```
 
 ### Observation Error Tuning
@@ -444,7 +387,7 @@ Glacier-covered pixels are excluded from:
 
 ### Wet Snow Dynamics and Remote Sensing
 
-- Rottler, E., Warscher, M., Hanzer, F., and Strasser, U.: Spatio‐temporal wet snow dynamics from model simulations and remote sensing: A case study from the Rofental, Austria, Hydrological Processes, 38, e15279, [https://doi.org/10.1002/hyp.15279](https://doi.org/10.1002/hyp.15279), 2024.
+- Rottler, E., Warscher, M., Hanzer, F., and Strasser, U.: Spatio-temporal wet snow dynamics from model simulations and remote sensing: A case study from the Rofental, Austria, Hydrological Processes, 38, e15279, [https://doi.org/10.1002/hyp.15279](https://doi.org/10.1002/hyp.15279), 2024.
 
 - Cluzet, B., Magnusson, J., Quéno, L., Mazzotti, G., Mott, R., and Jonas, T.: Exploring how Sentinel-1 wet-snow maps can inform fully distributed physically based snowpack models, The Cryosphere, 18, 5753–5767, [https://doi.org/10.5194/tc-18-5753-2024](https://doi.org/10.5194/tc-18-5753-2024), 2024.
 

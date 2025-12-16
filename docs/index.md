@@ -7,6 +7,7 @@ permalink: /
 ---
 
 # openamundsen_da
+
 {: .fs-9 }
 
 Data Assimilation Framework for openAMUNDSEN
@@ -17,18 +18,27 @@ Data Assimilation Framework for openAMUNDSEN
 
 ---
 
+## DISCLAIMER
+
+**This documentation may contain errors and incorrect statements.**
+
+- this documentation is **work in progress** and only **internaly** available to the _Fram3S_ project team
+- there is no scientific publication for the **openamundsen_da** framwework yet
+- **do not use information from this documentation for critical work**
+- **this version of the documentation is lacking scientific references**
+
 ## Overview
 
-**openamundsen_da** is a lightweight toolkit for building and running [openAMUNDSEN](http://doc.openamundsen.org/) ensembles with particle filter data assimilation. It enables seasonal snow cover prediction by assimilating satellite snow cover fraction (SCF) observations from MODIS and Sentinel-2, and wet snow detection from Sentinel-1.
+**openamundsen_da** is a lightweight toolkit for building and running [openAMUNDSEN](http://doc.openamundsen.org/) ensembles with particle filter data assimilation. It enables seasonal snow cover prediction by assimilating satellite snow cover and wet snow observations.
 
 openAMUNDSEN is an open-source, fully distributed snow-hydrological model designed for mountain regions (Strasser et al., 2024). This framework extends openAMUNDSEN with ensemble data assimilation capabilities for improved snow cover forecasting.
 
 ### Key Features
 
-- **Prior forcing builder** with meteorological perturbations (temperature ±σ<sub>T</sub>, precipitation ×σ<sub>P</sub>)
+- **Prior forcing builder** for meteorological perturbations (temperature ±σ<sub>T</sub>, precipitation ×σ<sub>P</sub>)
 - **Parallel ensemble launcher** with warm-start capability
 - **MODIS MOD10A1 preprocessing** (HDF → GeoTIFF, QA masking, reprojection)
-- **Sentinel-2 FSC extraction** via Snowflake product
+- **Sentinel-2 FSC extraction** via Snowflake (**TODO** _Source_) product
 - **Sentinel-1 wet snow classification**
 - **H(x) forward operators** for model-to-observation space mapping
 - **Particle filter implementation** (systematic resampling, ESS monitoring)
@@ -47,28 +57,33 @@ openAMUNDSEN is an open-source, fully distributed snow-hydrological model design
 ## Getting Started
 
 {: .note }
+
 > This framework is designed to work with Docker for easy deployment and reproducibility.
 
 ### Quick Start
 
 1. **Clone the repository**
+
    ```bash
    git clone https://github.com/franzwagner-uibk/openamundsen_da.git
    cd openamundsen_da
    ```
 
 2. **Build the Docker image**
+
    ```bash
    docker build -t oa-da .
    ```
 
 3. **Configure environment**
+
    ```bash
    cp .env.example .env
    # Edit .env with your paths
    ```
 
 4. **Set up your project**
+
    - Copy the template from `templates/project/` to your project directory
    - Configure `project.yml`, `season.yml`, and prepare your data
 
@@ -87,22 +102,26 @@ See the [Installation Guide]({{ site.baseurl }}{% link installation.md %}) for d
 ## Documentation Structure
 
 ### Core Documentation
+
 - [Installation]({{ site.baseurl }}{% link installation.md %}) - Setup and configuration
 - [Project Structure]({{ site.baseurl }}{% link project-structure.md %}) - Understanding the directory layout
 - [Workflow]({{ site.baseurl }}{% link workflow.md %}) - Data assimilation workflow overview
 
 ### User Guides
+
 - [Configuration]({{ site.baseurl }}{% link guides/configuration.md %}) - YAML configuration reference
 - [Command-Line Interface]({{ site.baseurl }}{% link guides/cli.md %}) - CLI commands reference
 - [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %}) - Working with satellite data
 - [Running Experiments]({{ site.baseurl }}{% link guides/experiments.md %}) - Step-by-step experiment setup
 
 ### Technical Reference
+
 - [Package Structure]({{ site.baseurl }}{% link reference/package-structure.md %}) - Module organization
 - [API Reference]({{ site.baseurl }}{% link reference/api.md %}) - Python API documentation
 - [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %}) - Particle filter implementation
 
 ### Advanced Topics
+
 - [Performance Tuning]({{ site.baseurl }}{% link advanced/performance.md %}) - Optimization strategies
 - [Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) - Common issues and solutions
 
@@ -110,7 +129,7 @@ See the [Installation Guide]({{ site.baseurl }}{% link installation.md %}) for d
 
 ## License
 
-This project is distributed under the MIT License, the same as openAMUNDSEN. See `LICENSE` file for more information.
+**TODO** _License information_
 
 ---
 
@@ -119,24 +138,7 @@ This project is distributed under the MIT License, the same as openAMUNDSEN. See
 If you use this software in your research, please cite both this framework and openAMUNDSEN:
 
 ```bibtex
-@software{openamundsen_da,
-  author = {Wagner, Franz},
-  title = {openamundsen_da: Data Assimilation Framework for openAMUNDSEN},
-  year = {2025},
-  institution = {University of Innsbruck},
-  url = {https://github.com/franzwagner-uibk/openamundsen_da},
-  note = {Pre-release 2025}
-}
-
-@article{strasser2024openamundsen,
-  author = {Strasser, U. and Warscher, M. and Rottler, E. and Hanzer, F.},
-  title = {openAMUNDSEN v1.0: an open-source snow-hydrological model for mountain regions},
-  journal = {Geoscientific Model Development},
-  volume = {17},
-  pages = {6775--6797},
-  year = {2024},
-  doi = {10.5194/gmd-17-6775-2024}
-}
+**TODO** citation guide
 ```
 
 ---
@@ -147,4 +149,4 @@ If you use this software in your research, please cite both this framework and o
 
 **openAMUNDSEN GitHub**: [github.com/openamundsen/openamundsen](https://github.com/openamundsen/openamundsen)
 
-**Model Description Paper**: Strasser, U., Warscher, M., Rottler, E., and Hanzer, F.: openAMUNDSEN v1.0: an open-source snow-hydrological model for mountain regions, Geosci. Model Dev., 17, 6775–6797, [https://doi.org/10.5194/gmd-17-6775-2024](https://doi.org/10.5194/gmd-17-6775-2024), 2024.
+Strasser, U., Warscher, M., Rottler, E., and Hanzer, F.: openAMUNDSEN v1.0: an open-source snow-hydrological model for mountain regions, Geosci. Model Dev., 17, 6775–6797, [https://doi.org/10.5194/gmd-17-6775-2024](https://doi.org/10.5194/gmd-17-6775-2024), 2024.

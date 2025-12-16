@@ -28,7 +28,7 @@ The openamundsen_da framework implements a sequential particle filter for snow d
 ### Architecture
 
 ![Data Assimilation Architecture]({{ site.baseurl }}/assets/images/DataAssimilation_Design%20_DOCS%20_Architecture.drawio.png)
-*Figure 1: Data assimilation architecture showing the complete workflow from prior generation through forecast propagation to the update cycle. Observations are processed, transformed via the forward operator H(x), and used to compute Gaussian likelihoods. Importance weighting and resampling select the most consistent ensemble members, while rejuvenation maintains diversity for the next cycle.*
+*Figure 1: Data assimilation architecture overview. The workflow cycles through prior generation (orange), forecast propagation (purple), and the update cycle (blue). Configuration files (yellow) control the system parameters, and warm-start enables continuous state transfer between cycles.*
 
 **Key components**:
 - **Prior Generation** (orange): Perturb meteorological forcing to create ensemble input
@@ -45,7 +45,7 @@ The openamundsen_da framework implements a sequential particle filter for snow d
 ### Ensemble Update Cycle Example
 
 ![Data Assimilation Experiment Cycle]({{ site.baseurl }}/assets/images/Particle_Filter%20_DOCS.drawio.png)
-*Figure 2: Example showing how the ensemble evolves over a snow season. Snow Cover Area (SCA) is shown as colored lines (each representing one ensemble member). The cycle progresses from initialization (Oct 2017) through multiple forecast-update steps. Satellite observations (icons) constrain the ensemble spread at update times. Lower panels show detailed views of the assimilation process: ensemble generation with perturbed forcings, propagation of prior states, correction using observations (importance weighting, resampling, rejuvenation), and propagation of updated posterior states.*
+*Figure 2: Ensemble evolution throughout a snow season. The upper panel shows Snow Cover Area (SCA) trajectories for each ensemble member. Satellite observation times are marked with icons. Lower panels illustrate the assimilation cycle: prior ensemble generation, propagation, observation-based correction (importance weighting, resampling, rejuvenation), and posterior state propagation.*
 
 **Interpretation**:
 - **Initialization**: Ensemble spread created by perturbing meteorological forcings

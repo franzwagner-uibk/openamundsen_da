@@ -18,6 +18,7 @@ dependencies:
   - pandas<2.2
   - matplotlib=3.9.2
   - loguru
+  - pyyaml
   - ruamel.yaml
   - psutil
   # openAMUNDSEN (model)

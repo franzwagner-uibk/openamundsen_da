@@ -48,7 +48,7 @@ See the [Installation Guide]({{ site.baseurl }}{% link installation.md %}).
 
 - Meteorological forcing: openAMUNDSEN station files (`meteo/stations.csv` + time series). See openAMUNDSEN input docs for details.
 - MODIS MOD10A1 HDFs under `obs/MOD10A1_61_HDF/` (all tiles covering ROI).
-- Optional Sentinel-2 Snowflake FSC rasters (GeoTIFF) under `obs/FSC_snowflake/`.
+- Optional Sentinel-2 SnowFLAKES FSC rasters (GeoTIFF or NetCDF) under `obs/FSC_snowflake*/`.
 - Optional Sentinel-1 wet-snow masks (GeoTIFF) under `obs/WSM_S1_SAR/`.
 
 ---
@@ -79,11 +79,11 @@ docker compose run --rm oa oa-da-mod10a1 \
   --ndsi-threshold 40
 ```
 
-Optional Snowflake FSC summary:
+Optional SnowFLAKES FSC summary:
 ```bash
 docker compose run --rm oa \
-  python -m openamundsen_da.observer.snowflake_fsc \
-  --input-dir /data/obs/FSC_snowflake \
+  oa-da-snowflakes-fsc \
+  --input-dir /data/obs/FSC_snowflake* \
   --season-label season_2019-2020 \
   --project-dir /data
 ```

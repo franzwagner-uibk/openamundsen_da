@@ -115,15 +115,17 @@ docker compose run --rm oa \
 
 **Output**: `obs/season_2019-2020/scf_summary.csv`
 
-### Sentinel-2 FSC (Snowflake) (Barella et al., 2022)
+### Sentinel-2 FSC (SnowFLAKES) (Barella et al., 2022)
 
 ```bash
 docker compose run --rm oa \
-  python -m openamundsen_da.observer.snowflake_fsc \
-  --input-dir /data/obs/FSC_snowflake \
+  oa-da-snowflakes-fsc \
+  --input-dir /data/obs/FSC_snowflake* \
   --season-label season_2019-2020 \
   --project-dir /data
 ```
+
+Accepts GeoTIFF or NetCDF FSC with classes 0..100 valid, 205 clouds, 210 water, 255/_FillValue nodata. Clouds contribute to `cloud_fraction`. Dates parsed from `YYYY_MM_DD` or `YYYYMMDD`.
 
 ### Sentinel-1 Wet Snow (Nagler et al., 2016)
 

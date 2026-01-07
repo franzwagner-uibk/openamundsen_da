@@ -1,24 +1,27 @@
-"""Snowflake FSC (fractional snow cover) summarization.
+"""SnowFLAKES FSC (fractional snow cover) summarization.
 
 Purpose
 -------
-- Read Snowflake FSC GeoTIFFs (0..100 %) for a season, clip to a single-feature
-  AOI, and compute season-level SCF statistics.
+- Read SnowFLAKES FSC rasters (GeoTIFF or NetCDF, 0..100 %) for a season,
+  clip to a single-feature AOI, and compute season-level SCF statistics.
 - Write/update ``scf_summary.csv`` under ``obs/<season_label>/`` with one row
-  per date: date, region_id, n_valid, n_snow, scf, source.
+  per date: date, region_id, n_valid, n_snow, scf, cloud_fraction, source.
 
 Assumptions
 -----------
-- Raster values are 0..100 percent FSC; clouds/invalid pixels are marked as
-  nodata. AOI CRS is reprojected to the raster CRS.
-- Filenames contain the acquisition date as YYYY_MM_DD (e.g.,
-  ``s2_fsc_snowflake_rofental_2019_10_01.tif``).
+- Raster values: 0..100 = valid FSC; 205 = clouds; 210 = water; 255/_FillValue
+  = nodata. Valid pixels are averaged (FSC/100) for SCF. Cloud fraction is
+  n_cloud / (n_valid + n_cloud).
+- AOI CRS is reprojected to the raster CRS.
+- Filenames contain the acquisition date as YYYY_MM_DD or YYYYMMDD (e.g.,
+  ``SnowFLAKES_20191001_*.nc``).
 """
 
 from __future__ import annotations
 
 import re
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -30,12 +33,19 @@ import rasterio
 import yaml
 from loguru import logger
 from rasterio.mask import mask as rio_mask
+from rasterio.crs import CRS
 
 from openamundsen_da.core.constants import LOGURU_FORMAT, OBS_DIR_NAME
 from openamundsen_da.util.glacier_mask import mask_aoi_with_glaciers, resolve_glacier_mask
 
 
 _DATE_RE = re.compile(r"(\d{4})_(\d{2})_(\d{2})")
+_DATE_COMPACT_RE = re.compile(r"(?<!\d)(\d{4})(\d{2})(\d{2})(?!\d)")
+
+FSC_SUBDATASET = "fsc"
+CLOUD_VALUE = 205
+WATER_VALUE = 210
+NODATA_VALUE = 255
 
 
 @dataclass(frozen=True)
@@ -46,15 +56,32 @@ class FscStats:
     n_snow: int
     scf: float
     source: str
+    cloud_fraction: float | None
 
 
 def _extract_date(path: Path) -> datetime:
-    """Parse YYYY_MM_DD from filename."""
-    m = _DATE_RE.search(path.name)
-    if not m:
-        raise ValueError(f"Filename missing date (YYYY_MM_DD): {path.name}")
-    y, mo, d = (int(m.group(i)) for i in range(1, 4))
-    return datetime(year=y, month=mo, day=d)
+    """Parse date from filename (YYYY_MM_DD or YYYYMMDD)."""
+
+    for rex in (_DATE_RE, _DATE_COMPACT_RE):
+        m = rex.search(path.name)
+        if m:
+            y, mo, d = (int(m.group(i)) for i in range(1, 4))
+            return datetime(year=y, month=mo, day=d)
+    raise ValueError(f"Filename missing date (YYYY_MM_DD or YYYYMMDD): {path.name}")
+
+
+@contextmanager
+def _open_fsc(path: Path):
+    """Open FSC raster or NetCDF variable."""
+
+    if path.suffix.lower() == ".nc":
+        # Use GDAL subdataset syntax; avoids writing intermediate GeoTIFFs.
+        url = f"NETCDF:{path}:{FSC_SUBDATASET}"
+        with rasterio.open(url) as src:
+            yield src
+    else:
+        with rasterio.open(path) as src:
+            yield src
 
 
 def _compute_stats_for_raster(
@@ -64,12 +91,14 @@ def _compute_stats_for_raster(
     glacier_path: Path | None = None,
 ) -> Optional[FscStats]:
     """Mask raster to AOI (minus glaciers) and return SCF stats."""
-    with rasterio.open(raster_path) as src:
+
+    with _open_fsc(raster_path) as src:
+        target_crs = _resolve_raster_crs(src, raster_path)
         gdf, region_id = mask_aoi_with_glaciers(
             aoi_path,
             glacier_path=glacier_path,
             required_field=region_field,
-            to_crs=src.crs,
+            to_crs=target_crs,
         )
         data, _ = rio_mask(src, gdf.geometry, crop=True, nodata=src.nodata, filled=False)
         arr = np.ma.array(data[0], copy=False)
@@ -78,7 +107,12 @@ def _compute_stats_for_raster(
     valid = (~arr.mask) & np.isfinite(arr)
     if nodata is not None:
         valid &= arr.data != nodata
+    # Apply class rules: 0-100 valid FSC; 205 clouds; 210 water; 255 nodata.
+    clouds = (~arr.mask) & (arr.data == CLOUD_VALUE)
     valid &= (arr.data >= 0) & (arr.data <= 100)
+    valid &= arr.data != CLOUD_VALUE
+    valid &= arr.data != WATER_VALUE
+    valid &= arr.data != NODATA_VALUE
 
     n_valid = int(np.count_nonzero(valid))
     if n_valid == 0:
@@ -88,6 +122,10 @@ def _compute_stats_for_raster(
     scf = float(vals.mean())
     n_snow = int(round(scf * n_valid))
 
+    n_cloud = int(np.count_nonzero(clouds))
+    denom = n_valid + n_cloud
+    cloud_fraction = (n_cloud / denom) if denom > 0 else 0.0
+
     return FscStats(
         date=_extract_date(raster_path),
         region_id=region_id,
@@ -95,6 +133,7 @@ def _compute_stats_for_raster(
         n_snow=n_snow,
         scf=scf,
         source=raster_path.name,
+        cloud_fraction=cloud_fraction,
     )
 
 
@@ -104,7 +143,11 @@ def _list_rasters(
     start: datetime | None = None,
     end: datetime | None = None,
 ) -> list[Path]:
-    files: Iterable[Path] = root.rglob("*.tif") if recursive else root.glob("*.tif")
+    patterns = ["*.tif", "*.tiff", "*.nc"]
+    if recursive:
+        files: Iterable[Path] = (p for patt in patterns for p in root.rglob(patt))
+    else:
+        files = (p for patt in patterns for p in root.glob(patt))
     filtered: list[Path] = []
     for p in sorted(p for p in files if p.is_file()):
         try:
@@ -118,6 +161,23 @@ def _list_rasters(
             continue
         filtered.append(p)
     return filtered
+
+
+def _resolve_raster_crs(src, raster_path: Path):
+    """Return a usable CRS; fallback for SnowFLAKES NetCDF LOCAL_CS."""
+
+    if src.crs and src.crs.to_epsg() is not None:
+        return src.crs
+    # SnowFLAKES NetCDF advertises LOCAL_CS with ETRS89 / UTM 32N (no EPSG authority).
+    wkt = src.crs.to_wkt() if src.crs else ""
+    if "ETRS89 / UTM zone 32N" in wkt:
+        try:
+            crs = CRS.from_epsg(25832)
+            logger.warning("Using fallback CRS EPSG:25832 for {}", raster_path.name)
+            return crs
+        except Exception:
+            return src.crs
+    return src.crs
 
 
 def _auto_aoi(project_dir: Path) -> Path:
@@ -147,6 +207,7 @@ def _update_summary(summary_path: Path, stats: FscStats) -> None:
             "n_valid": [int(stats.n_valid)],
             "n_snow": [int(stats.n_snow)],
             "scf": [round(stats.scf, 3)],
+            "cloud_fraction": [round(stats.cloud_fraction, 3) if stats.cloud_fraction is not None else None],
             "source": [stats.source],
         }
     )
@@ -215,10 +276,15 @@ def cli_main(argv: list[str] | None = None) -> int:
     import argparse
 
     p = argparse.ArgumentParser(
-        prog="oa-da-snowflake-fsc",
-        description="Summarize Snowflake FSC GeoTIFFs (0..100 %) into scf_summary.csv for a season.",
+        prog="oa-da-snowflakes-fsc",
+        description="Summarize SnowFLAKES FSC rasters (GeoTIFF or NetCDF) into scf_summary.csv for a season.",
     )
-    p.add_argument("--input-dir", required=True, type=Path, help="Directory containing FSC GeoTIFFs (0..100 %)")
+    p.add_argument(
+        "--input-dir",
+        required=True,
+        type=Path,
+        help="Directory containing SnowFLAKES FSC rasters (.tif/.tiff/.nc, values 0..100)",
+    )
     p.add_argument("--aoi", "--roi", dest="aoi", type=Path, help="Single-feature ROI vector (auto-detected from <project>/env if omitted)")
     p.add_argument("--season-label", required=True, help="Season folder name under the obs root")
     p.add_argument("--project-dir", type=Path, help="Project directory (default: current working directory)")

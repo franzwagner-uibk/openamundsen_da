@@ -119,18 +119,24 @@ To test thresholds, rerun `oa-da-mod10a1` with different `--ndsi-threshold` valu
 
 ---
 
-## Sentinel-2 FSC (Snowflake)
+## Sentinel-2 FSC (SnowFLAKES)
 
 ### Product Overview
 
-**Sentinel-2 FSC (Snowflake)** (Barella et al., 2022):
+**Sentinel-2 FSC (SnowFLAKES)** (Barella et al., 2022):
 
 - **Sensor**: Sentinel-2 MSI
 - **Resolution**: Product-dependent (often 20m)
 - **Temporal**: ~5-day revisit (cloud-dependent)
 
-**Input**: GeoTIFF FSC rasters with values in **0..100 (%)** (NoData for invalid/cloud pixels).
-This guide assumes the Snowflake FSC product (Barella et al., 2022).
+**Input**: GeoTIFF or NetCDF FSC rasters with values in **0..100 (%)**. Class handling:
+
+- 0..100 = valid FSC (percent)
+- 205 = clouds (excluded; counted in `cloud_fraction`)
+- 210 = water (excluded)
+- 255 or `_FillValue` = nodata (excluded)
+
+This guide assumes the SnowFLAKES FSC product (Barella et al., 2022).
 
 ### Summarizing to `scf_summary.csv`
 
@@ -138,17 +144,18 @@ The framework summarizes each FSC raster to a single ROI-mean `scf` value and ap
 
 ```bash
 docker compose run --rm oa \\
-  python -m openamundsen_da.observer.snowflake_fsc \\
-  --input-dir /data/obs/FSC_snowflake \\
+  oa-da-snowflakes-fsc \\
+  --input-dir /data/obs/FSC_snowflake* \\
   --season-label season_2019-2020 \\
   --project-dir /data
 ```
 
 **Notes**:
 
-- The ROI is auto-detected from `/data/env/roi.gpkg` unless you pass `--aoi`.
-- The acquisition date is parsed from the filename as `YYYY_MM_DD` (e.g. `..._2019_10_01.tif`).
+- The ROI is auto-detected from `/data/env/roi.gpkg` unless you pass `--aoi`; glaciers are masked out when `data_assimilation.glacier_mask.enabled: true` and `env/glaciers.gpkg` exists.
+- The acquisition date is parsed from the filename as `YYYY_MM_DD` or `YYYYMMDD` (e.g. `SnowFLAKES_20191001_v0_*.nc`).
 - Use `--recursive` if your rasters are in subfolders.
+- Outputs include `cloud_fraction` along with `n_valid`, `n_snow`, and `scf`.
 
 ### Creating per-step observation CSVs (for assimilation)
 
@@ -158,7 +165,7 @@ After `scf_summary.csv` exists, generate per-step one-row observation CSVs:
 docker compose run --rm oa oa-da-scf \\
   --season-dir /data/propagation/season_2019-2020 \\
   --summary-csv /data/obs/season_2019-2020/scf_summary.csv \\
-  --product SNOWFLAKE \\
+  --product SNOWFLAKES \\
   --overwrite
 ```
 

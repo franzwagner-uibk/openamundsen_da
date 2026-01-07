@@ -163,21 +163,21 @@ Optional flags: `--product <CODE>`, `--overwrite`, `--log-level <LEVEL>` (the su
 
 This command copies each `scf_summary.csv` row for an assimilation date into the matching `<step>/obs/obs_scf_<PRODUCT>_YYYYMMDD.csv` file.
 
-## Snowflake FSC (Sentinel-2) summarization (GeoTIFF -> season summary)
+## SnowFLAKES FSC (Sentinel-2) summarization (GeoTIFF/NetCDF -> season summary)
 
 ```powershell
 docker compose run --rm oa `
-  python -m openamundsen_da.observer.snowflake_fsc `
-  --input-dir $project/obs/FSC_snowflake `
+  oa-da-snowflakes-fsc `
+  --input-dir $project/obs/FSC_snowflakes `
   --season-label season_YYYY-YYYY `
   --project-dir $project
 ```
 
-Optional flags: `--roi <path>` (auto-detect single ROI under env/ if omitted), `--roi-field <field>`, `--recursive`, `--log-level`. Writes `obs/<season>/scf_summary.csv` with `date, region_id, n_valid, n_snow, scf, source` from FSC values 0..100.
+Optional flags: `--roi <path>` (auto-detect single ROI under env/ if omitted), `--roi-field <field>`, `--recursive`, `--log-level`. Accepts `.tif/.tiff` or `.nc` with classes: 0–100 = FSC, 205 = clouds, 210 = water, 255/_FillValue = nodata. Writes `obs/<season>/scf_summary.csv` with `date, region_id, n_valid, n_snow, scf, cloud_fraction, source` (SCF = mean(FSC/100) over valid pixels).
 
 ## Product-aware SCF CSVs
 
-Season mode for SCF supports a product tag so filenames match assimilation events (e.g., `--product SNOWFLAKE` -> `obs_scf_SNOWFLAKE_YYYYMMDD.csv`).
+Season mode for SCF supports a product tag so filenames match assimilation events (e.g., `--product SNOWFLAKES` -> `obs_scf_SNOWFLAKES_YYYYMMDD.csv`).
 
 ### Wet Snow Classification
 

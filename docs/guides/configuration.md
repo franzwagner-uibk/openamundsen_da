@@ -6,12 +6,14 @@ nav_order: 2
 ---
 
 # Configuration Reference
+
 {: .no_toc }
 
 Complete YAML configuration reference for openamundsen_da.
 {: .fs-6 .fw-300 }
 
 {: .note }
+
 > This guide covers openamundsen_da-specific configuration. For openAMUNDSEN model configuration, see the [openAMUNDSEN Configuration Guide](http://doc.openamundsen.org/en/stable/configuration.html).
 
 <details markdown="block">
@@ -45,10 +47,10 @@ The main configuration file that defines all project-wide settings.
 
 ```yaml
 domain: "your_domain"
-resolution: 100            # spatial resolution (m)
-timestep: "3H"             # temporal resolution (pandas-compatible string)
-crs: "epsg:32632"          # CRS of the input grids
-timezone: 1                # UTC offset in hours
+resolution: 100 # spatial resolution (m)
+timestep: "3H" # temporal resolution (pandas-compatible string)
+crs: "epsg:32632" # CRS of the input grids
+timezone: 1 # UTC offset in hours
 ```
 
 ### Prior Forcing Configuration
@@ -56,20 +58,22 @@ timezone: 1                # UTC offset in hours
 ```yaml
 data_assimilation:
   prior_forcing:
-    ensemble_size: 20       # number of ensemble members
-    random_seed: 42         # RNG seed for reproducibility
-    sigma_t: 0.5            # additive temperature stddev (deg C)
-    mu_p: 0.0               # log-space mean for precip factor
-    sigma_p: 0.5            # log-space stddev for precip factor
+    ensemble_size: 20 # number of ensemble members
+    random_seed: 42 # RNG seed for reproducibility
+    sigma_t: 0.5 # additive temperature stddev (deg C)
+    mu_p: 0.0 # log-space mean for precip factor
+    sigma_p: 0.5 # log-space stddev for precip factor
 ```
 
 #### Perturbation Details
 
 **Temperature Perturbations** (`sigma_t`):
+
 - Additive Gaussian noise: `T_perturbed = T + ε`, where `ε ~ N(0, σ_T²)`
 - Typical range: 0.5-2.0 K
 
 **Precipitation Perturbations** (`sigma_p`, `mu_p`):
+
 - Multiplicative log-normal noise: `P_perturbed = P × exp(ε)`, where `ε ~ N(μ_P, σ_P²)`
 - Typical range for sigma_p: 0.15-0.50
 - mu_p is typically 0.0
@@ -82,8 +86,8 @@ data_assimilation:
 data_assimilation:
   # H(x) forward operator configuration
   h_of_x:
-    method: depth_threshold   # or "logistic"
-    variable: hs              # or "swe"
+    method: depth_threshold # or "logistic"
+    variable: hs # or "swe"
     params:
       h0: 0.01
       k: 80
@@ -103,12 +107,12 @@ data_assimilation:
   # Resampling configuration
   resampling:
     algorithm: systematic
-    ess_threshold_ratio: 0.5  # Resample if ESS < ratio × N
+    ess_threshold_ratio: 0.5 # Resample if ESS < ratio × N
 
   # Rejuvenation (post-resampling perturbations)
   rejuvenation:
-    sigma_t: 0.2             # Additive temperature noise (deg C)
-    sigma_p: 0.2             # Lognormal sigma for precip factor (mu=0)
+    sigma_t: 0.2 # Additive temperature noise (deg C)
+    sigma_p: 0.2 # Lognormal sigma for precip factor (mu=0)
 
   # Glacier masking
   glacier_mask:
@@ -125,19 +129,23 @@ data_assimilation:
 #### H(x) Forward Operator Methods
 
 **Depth Threshold** (`depth_threshold`):
+
 ```
 SCF(x) = 1  if HS(x) > h0
          0  otherwise
 ```
+
 - Binary step function
 - Simple and fast
 - Parameter: `h0` (threshold in meters)
 - Typical value: 0.01-0.10 m
 
 **Logistic** (`logistic`):
+
 ```
 SCF(x) = 1 / (1 + exp(-k × (HS(x) - h0)))
 ```
+
 - Smooth transition
 - More realistic for coarse grids
 - Parameters:
@@ -148,20 +156,24 @@ SCF(x) = 1 / (1 + exp(-k × (HS(x) - h0)))
   - `k`: 30-100
 
 **Variable Selection**:
+
 - `hs`: Snow depth (default, recommended)
 - `swe`: Snow water equivalent
 
 #### Resampling Parameters
 
 **ESS Threshold**:
+
 - `ess_threshold_ratio = 0.5`: Resample when ESS < 50% of N
 - Lower values (0.3-0.4): Less frequent resampling, risk of degeneracy
 - Higher values (0.6-0.7): More frequent resampling, may lose diversity
 
 **Effective Sample Size (ESS)**:
+
 ```
 ESS = 1 / Σ(w_i²)
 ```
+
 - Range: [1, N]
 - ESS = N: All weights equal (uniform)
 - ESS = 1: One particle has all weight (degenerate)
@@ -169,6 +181,7 @@ ESS = 1 / Σ(w_i²)
 #### Glacier Masking
 
 When enabled, glacier-covered areas are excluded from observation-model comparisons:
+
 - Prevents assimilating firn/ice observations into seasonal snow model
 - Requires glacier outline vector (GeoPackage or Shapefile)
 - Applied during H(x) computation and likelihood calculation
@@ -186,6 +199,7 @@ environment:
 ```
 
 Commonly used variables:
+
 - `GDAL_DATA`: GDAL data directory path
 - `PROJ_LIB`: PROJ library data path
 - `NUMEXPR_MAX_THREADS`: NumPy parallelization
@@ -195,7 +209,7 @@ Commonly used variables:
 
 ### openAMUNDSEN Configuration
 
-You can include openAMUNDSEN-specific configuration directly in `project.yml`:
+You must include openAMUNDSEN-specific configuration directly in `project.yml`:
 
 ```yaml
 # openAMUNDSEN model configuration
@@ -225,26 +239,28 @@ output_data:
   grids:
     format: netcdf
     variables:
-      - var: snow.swe           # Snow water equivalent (essential for DA)
+      - var: snow.swe # Snow water equivalent (essential for DA)
         name: swe
-        freq: D                 # Daily output
-      - var: snow.depth         # Snow depth (for H(x) operator)
+        freq: D # Daily output
+      - var: snow.depth # Snow depth (for H(x) operator)
         name: hs
         freq: D
-      - var: snow.albedo        # Snow albedo
+      - var: snow.albedo # Snow albedo
         name: albedo
         freq: D
-      - var: snow.lwc           # Liquid water content (for wet snow DA)
+      - var: snow.lwc # Liquid water content (for wet snow DA)
         name: lwc
         freq: D
 ```
 
 **Available aggregation options**:
+
 - `agg: sum` - Sum over period (e.g., for snowmelt)
 - `agg: mean` - Mean over period
 - (empty) - Instantaneous values
 
 **Frequency codes**:
+
 - `D`: Daily
 - `M`: Monthly
 - Specific dates: `[2019-11-22, 2019-12-10]`
@@ -256,19 +272,6 @@ See [openAMUNDSEN Output Data documentation](http://doc.openamundsen.org/doc/out
 ## season.yml
 
 Season-specific configuration stored in `propagation/season_YYYY-YYYY/season.yml`.
-
-### Legacy Format (SCF-only)
-
-```yaml
-start_date: 2017-10-01
-end_date: 2018-09-30
-assimilation_dates:
-  - 2017-11-23
-  - 2017-12-24
-  - 2018-01-30
-```
-
-### Structured Format (Preferred)
 
 ```yaml
 start_date: 2017-10-01
@@ -377,18 +380,20 @@ If something is missing or inconsistent, the CLI will fail early with a descript
 ### Perturbation Magnitudes
 
 **Prior forcing** (typical values from README):
+
 ```yaml
 data_assimilation:
   prior_forcing:
-    sigma_t: 0.5     # Temperature: 0.5-2.0 K typical
-    sigma_p: 0.5     # Precipitation: 0.15-0.50 typical
+    sigma_t: 0.5 # Temperature: 0.5-2.0 K typical
+    sigma_p: 0.5 # Precipitation: 0.15-0.50 typical
 ```
 
 **Rejuvenation** - use smaller values than prior:
+
 ```yaml
 data_assimilation:
   rejuvenation:
-    sigma_t: 0.2     # Usually smaller than prior
+    sigma_t: 0.2 # Usually smaller than prior
     sigma_p: 0.2
 ```
 
@@ -397,6 +402,7 @@ If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas.
 ### Random Seeds
 
 For reproducibility, set seeds explicitly:
+
 ```yaml
 data_assimilation:
   prior_forcing:

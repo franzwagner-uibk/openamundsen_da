@@ -46,7 +46,7 @@ openamundsen_da/
 - **Step skeleton builder**: `openamundsen_da.pipeline.season_skeleton` (module has a CLI via `python -m ...`)
 - **MODIS preprocessing**: `openamundsen_da.observer.mod10a1_preprocess` (`oa-da-mod10a1`)
 - **SCF per-step obs CSVs**: `openamundsen_da.observer.satellite_scf` (`oa-da-scf`)
-- **Snowflake FSC summary**: `openamundsen_da.observer.snowflake_fsc` (module CLI via `python -m ...`)
+- **SnowFLAKES FSC summary**: `openamundsen_da.observer.snowflake_fsc` (`oa-da-snowflakes-fsc`, supports GeoTIFF/NetCDF)
 - **S1 WSM summary**: `openamundsen_da.methods.wet_snow.area` (`oa-da-wet-snow-s1`)
 - **S1 per-step obs CSVs**: `openamundsen_da.observer.satellite_wet_snow_s1` (`oa-da-wet-snow-s1-season`)
 

@@ -1,5 +1,20 @@
 {
   "python-envs.defaultEnvManager": "ms-python.python:conda",
   "python-envs.defaultPackageManager": "ms-python.python:conda",
-  "python-envs.pythonProjects": []
+  "python-envs.pythonProjects": [],
+  "logViewer.watch": [
+    {
+      "title": "Open loop logs",
+      "pattern": "${workspaceFolder}/examples/testsite/propagation/season_2018_2019/step_00_init/ensembles/prior/open_loop/logs/*.log"
+    },
+    {
+      "title": "Testsite logs (all)",
+      "pattern": "${workspaceFolder}/examples/testsite/**/*.log"
+    }
+  ],
+  "logViewer.followTailMode": "auto",
+  "logViewer.showStatusBarItemOnChange": true,
+  "files.associations": {
+    "*.log-viewer": "log"
+  }
 }

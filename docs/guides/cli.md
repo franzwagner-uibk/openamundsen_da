@@ -153,6 +153,44 @@ oa-da-mod10a1 \
 
 ---
 
+### oa-da-snowflakes-fsc
+
+**SnowFLAKES Sentinel-2 FSC summarization**
+
+Summarizes SnowFLAKES FSC rasters (GeoTIFF or NetCDF) to a season-level `scf_summary.csv` with `scf`, `n_valid`, `n_snow`, and `cloud_fraction`.
+
+```bash
+oa-da-snowflakes-fsc \
+  --input-dir PATH \
+  --season-label LABEL \
+  [OPTIONS]
+```
+
+**Required Arguments:**
+- `--input-dir PATH` - Directory with SnowFLAKES FSC rasters (`*.tif/*.tiff/*.nc`)
+- `--season-label LABEL` - Season identifier (e.g., season_2019-2020)
+
+**Optional Arguments:**
+- `--project-dir PATH` - Project root (default: current directory)
+- `--aoi PATH` - ROI vector (auto-detected from `<project>/env/roi.gpkg` if omitted)
+- `--roi-field FIELD` - ROI identifier field (optional)
+- `--recursive` - Recurse into subdirectories
+- `--output-root PATH` - Override obs root (default: `<project>/obs`)
+- `--log-level LEVEL` - Logging level
+
+**Class handling:** 0..100 = valid FSC (percent), 205 = clouds (excluded; counted in `cloud_fraction`), 210 = water (excluded), 255/_FillValue = nodata.
+
+**Example:**
+```bash
+oa-da-snowflakes-fsc \
+  --input-dir /data/obs/FSC_snowflake \
+  --season-label season_2019-2020 \
+  --project-dir /data \
+  --recursive
+```
+
+---
+
 ## Data Assimilation
 
 ### oa-da-model-scf

@@ -85,7 +85,7 @@ docker compose run --rm oa \
 
 Optional flags: `--overwrite`, `--state-pattern <glob>`, `--log-level <LEVEL>`
 
-**Parallelism**: The `--max-workers` value is an upper bound. The launcher clamps to `min(max_workers, CPUs visible, #members)`.
+**Parallelism**: The `--max-workers` value is an upper bound. The launcher clamps to `min(max_workers, CPUs visible, #members)`. An `open_loop` (unperturbed, unassimilated baseline) is run alongside the ensemble and carried through all steps for reference/plots.
 
 ### State Management
 

@@ -2,6 +2,11 @@
 
 Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF) with a particle filter. Commands are Docker/Compose friendly and use generic variables to work across projects.
 
+## Documentation
+
+Live docs: https://openamundsen-da.pages.dev/project-structure (Cloudflare Pages).
+This replaces the old GitHub Pages site.
+
 ## Overview
 
 - Seasonal snow cover prediction with an ensemble model + particle filter.

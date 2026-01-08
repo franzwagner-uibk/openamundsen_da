@@ -1,6 +1,6 @@
-Ôªø# openamundsen_da - Data Assimilation for openAMUNDSEN
+# openamundsen_da - Data Assimilation for openAMUNDSEN
 
-Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF) with a particle filter. Commands are Docker/Compose friendly and use generic variables to work across projects.
+Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF) and wet snow signals (e.g., Sentinel-1) with a particle filter. Commands are Docker/Compose friendly and use generic variables to work across projects.
 
 ## Documentation
 
@@ -10,7 +10,7 @@ This replaces the old GitHub Pages site.
 ## Overview
 
 - Seasonal snow cover prediction with an ensemble model + particle filter.
-- Includes prior forcing builder, ensemble launcher, MOD10A1 preprocessing, SCF extraction, H(x) model SCF, assimilation, resampling, rejuvenation, and plotting utilities.
+- Includes prior forcing builder, ensemble launcher, MOD10A1 preprocessing, SCF extraction, wet snow (e.g., Sentinel-1) support, H(x) model SCF, assimilation, resampling, rejuvenation, and plotting utilities.
 
 ## Installation
 
@@ -97,7 +97,7 @@ and naming conventions.
 
 - `project.yml` must define `data_assimilation.h_of_x` (used by `model_scf` + `assimilate_scf`) and the DA blocks referenced by the pipeline.
 - `propagation/season_X/step_Y/ensembles/prior` is created automatically by `season.py` (using `${project}/meteo` for forcing); you only need to ensure the step YAMLs and meteorological inputs exist.
-- Observations (MODIS preprocessed GeoTIFFs ‚Üí CSV) live under `obs/season_X`; the pipeline assumes the CSVs follow `obs_scf_MOD10A1_YYYYMMDD.csv`.
+- Observations (MODIS preprocessed GeoTIFFs ? CSV) live under `obs/season_X`; the pipeline assumes the CSVs follow `obs_scf_MOD10A1_YYYYMMDD.csv`.
 - ROI vector: `env/roi.gpkg` (single feature) is the default for all masking; other vectors under `env/` are ignored unless you explicitly pass a different ROI.
 - Glacier masking (optional but recommended for SCF/wet-snow DA): place a glacier outline at `env/glaciers.gpkg` (may contain many polygons; only those intersecting the ROI are used). When enabled, glaciers are subtracted from the ROI for model H(x), wet-snow fractions, and FSC/S1 summaries so firn/ice pixels are excluded before comparing model vs obs. Toggle via `project.yml`:
 
@@ -110,7 +110,7 @@ data_assimilation:
 
 Why glacier masking matters
 
-- openAMUNDSEN (multilayer, seasonal snow) does not represent firn/ice, but SCF/FSC and wet-snow products ‚Äúsee‚Äù all bright or radar-wet surfaces (snow + firn + ice), especially on glaciers.
+- openAMUNDSEN (multilayer, seasonal snow) does not represent firn/ice, but SCF/FSC and wet-snow products ìseeî all bright or radar-wet surfaces (snow + firn + ice), especially on glaciers.
 - Comparing unmasked obs to a seasonal-snow-only model biases both diagnostics and assimilation.
 - Masking out glaciers keeps model vs obs consistent by removing firn/ice pixels from both sides.
 
@@ -184,7 +184,7 @@ docker compose run --rm oa `
   --project-dir $project
 ```
 
-Optional flags: `--roi <path>` (auto-detect single ROI under env/ if omitted), `--roi-field <field>`, `--recursive`, `--log-level`. Accepts `.tif/.tiff` or `.nc` with classes: 0‚Äì100 = FSC, 205 = clouds, 210 = water, 255/_FillValue = nodata. Writes `obs/<season>/scf_summary.csv` with `date, region_id, n_valid, n_snow, scf, cloud_fraction, source` (SCF = mean(FSC/100) over valid pixels).
+Optional flags: `--roi <path>` (auto-detect single ROI under env/ if omitted), `--roi-field <field>`, `--recursive`, `--log-level`. Accepts `.tif/.tiff` or `.nc` with classes: 0ñ100 = FSC, 205 = clouds, 210 = water, 255/_FillValue = nodata. Writes `obs/<season>/scf_summary.csv` with `date, region_id, n_valid, n_snow, scf, cloud_fraction, source` (SCF = mean(FSC/100) over valid pixels).
 
 ## Product-aware SCF CSVs
 
@@ -328,7 +328,7 @@ Optional flags: `--ess-threshold-ratio <0..1>`, `--ess-threshold <n|ratio>`, `--
 Resampling configuration (season + CLI)
 
 - The pipeline and CLI both read `data_assimilation.resampling` from `project.yml`.
-- Keys: `algorithm` (systematic), `ess_threshold_ratio` (recommended 0.5‚Äì0.66), optional `ess_threshold` (absolute), and `seed`.
+- Keys: `algorithm` (systematic), `ess_threshold_ratio` (recommended 0.5ñ0.66), optional `ess_threshold` (absolute), and `seed`.
 - Behavior: if ESS >= threshold, resampling is skipped and the prior is mirrored to the posterior; a log line like `Skipping resampling | ESS=38.2 >= thr_abs=30.0 (ensemble healthy; mirroring source->target; ess_ratio=0.637)` is emitted.
 - If no threshold is set, resampling always runs.
 
@@ -398,7 +398,7 @@ Outputs are written to `$season/plots/forcing` and `$season/plots/results` with 
   Keep these interpretation tips in mind:
 
   - A steep fall-off after the top members implies the observation strongly favors a few particles; this also drives the ESS timeline downward for that step.
-  - A flatter trend with many weights ‚âà `0.05` means the observation is not differentiating members, which can reflect broad uncertainties or overly similar ensemble members.
+  - A flatter trend with many weights ò `0.05` means the observation is not differentiating members, which can reflect broad uncertainties or overly similar ensemble members.
   - Use the residual histogram and sigma markers on the right panel: tight residuals centered near zero mean the model already matched the observation, while heavy tails or offsets may flag issue with the obs CSV or indicate the model spread is too small.
 
   - Per-step weights (season view):
@@ -452,7 +452,7 @@ docker compose run --rm oa `
 
 This uses per-member `point_scf_roi.csv` files (model SCF derived from HS/SWE grids) written under each member's `results` directory and overlays observed SCF from `obs/<season>/scf_summary.csv` when available.
 
-Defaults: ensemble members are hidden; plots show the ensemble mean, the 90% envelope (5‚Äì95% quantiles), and the open loop. Use `--show-members` to draw all members.  
+Defaults: ensemble members are hidden; plots show the ensemble mean, the 90% envelope (5ñ95% quantiles), and the open loop. Use `--show-members` to draw all members.  
 Optional: `--station`, `--max-stations`, `--start-date`, `--end-date`, `--resample`, `--rolling`, `--hydro-month`, `--hydro-day`, `--backend`, `--log-level`, `--var-label`, `--var-units`, `--band-low`, `--band-high`, `--show-members`.
 
 Note: running the season pipeline (see below) also generates these season plots automatically under `<season_dir>/plots/{forcing,results}` and a SCF season plot when SCF data and obs summaries are present.
@@ -475,7 +475,7 @@ Note: running the season pipeline (see below) also generates these season plots 
   Key options:
 
   - `--time-col` timestamp column in the CSV (default: `time`)
-  - `--var` column to plot (e.g., `swe`, `snow_depth`, `temp`) ‚Äì required
+  - `--var` column to plot (e.g., `swe`, `snow_depth`, `temp`) ñ required
   - `--var-label` pretty y-axis/title label (defaults to column name)
   - `--var-units` units appended to the label (e.g., `mm`, `m`, `K`)
   - `--start-date`, `--end-date` optional ISO dates (`YYYY-MM-DD`) to restrict the time window
@@ -564,7 +564,7 @@ docker compose run --rm oa `
   --season-dir $season
 ```
 
-This creates `step_00_init`, `step_01_*`, ‚Ä¶ with `start_date`, `end_date`, and `results_dir: results` aligned to the model timestep and the specified assimilation dates.
+This creates `step_00_init`, `step_01_*`, Ö with `start_date`, `end_date`, and `results_dir: results` aligned to the model timestep and the specified assimilation dates.
 
 The skeleton uses the `timestep` from `project.yml` (e.g. `3H`, `6H`, `1D`) to define step boundaries. For each assimilation date `D_i`, step i runs long enough that openAMUNDSEN produces a daily grid for `D_i` in the preceding step, and step boundaries satisfy `start_{i+1} = end_i + timestep` (no duplicated timesteps). The season pipeline then assimilates SCF on the calendar date of `start_{i+1}`, which matches `D_i`.
 
@@ -579,7 +579,7 @@ What it records
 - System memory usage (used vs. total).
 - Total size of the season directory on disk.
 - Static metadata from project/season config:
-  - ROI area (km¬≤)
+  - ROI area (km≤)
   - spatial resolution (m)
   - model timestep (e.g. `3H`)
   - number of days in the season
@@ -597,15 +597,15 @@ Outputs
 The CSV contains, per sample:
 
 - `timestamp` (UTC)
-- `cpu_tracked_pct` ‚Äì sum of CPU% over tracked processes
-- `mem_tracked_mb` ‚Äì sum of RSS memory over tracked processes (MB)
-- `mem_used_gb`, `mem_total_gb` ‚Äì system memory used/total (GB)
-- `season_size_gb` ‚Äì total size of `<season_dir>` on disk (GB)
-- `elapsed_run_sec` ‚Äì seconds since the season run started
+- `cpu_tracked_pct` ñ sum of CPU% over tracked processes
+- `mem_tracked_mb` ñ sum of RSS memory over tracked processes (MB)
+- `mem_used_gb`, `mem_total_gb` ñ system memory used/total (GB)
+- `season_size_gb` ñ total size of `<season_dir>` on disk (GB)
+- `elapsed_run_sec` ñ seconds since the season run started
 - `roi_km2`, `resolution_m`, `timestep`, `season_days`, `num_da_dates`, `num_workers`
-- `progress_steps` ‚Äì fraction of completed steps (0..1)
-- `done_steps` / `total_steps` ‚Äì step progress counters
-- `eta_utc`, `eta_local` ‚Äì estimated finish time in UTC and local (if configured)
+- `progress_steps` ñ fraction of completed steps (0..1)
+- `done_steps` / `total_steps` ñ step progress counters
+- `eta_utc`, `eta_local` ñ estimated finish time in UTC and local (if configured)
 
 Enabling monitoring for a season run
 

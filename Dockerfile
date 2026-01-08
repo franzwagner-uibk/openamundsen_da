@@ -1,4 +1,5 @@
 FROM mambaorg/micromamba:1.5.8
+LABEL org.opencontainers.image.source="https://github.com/franzwagner-uibk/openamundsen_da"
 
 # Allow `micromamba run -n <env>` directly as entrypoint
 ARG MAMBA_DOCKERFILE_ACTIVATE=1

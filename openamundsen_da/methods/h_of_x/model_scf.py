@@ -36,8 +36,13 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import rasterio
+import xarray as xr
 from loguru import logger
+from rasterio import features
 from rasterio.mask import mask as rio_mask
+from rasterio.io import MemoryFile
+from rasterio.transform import from_bounds
+from pyproj import CRS
 
 from openamundsen_da.core.env import ensure_gdal_proj_from_conda, _read_yaml_file
 from openamundsen_da.core.constants import (
@@ -53,7 +58,8 @@ from openamundsen_da.core.constants import (
     DA_BLOCK,
 )
 from openamundsen_da.io.paths import (
-    find_member_daily_raster,
+    GridSlice,
+    find_member_daily_grid_slice,
     member_id_from_results_dir,
     find_project_yaml,
     read_step_config,
@@ -118,13 +124,94 @@ def load_hofx_from_project(project_dir: Path) -> tuple[str, str, SCFParams]:
     return _parse_hofx_block(hofx)
 
 
+def _grid_format_from_project(project_dir: Path) -> str | None:
+    """Return output_data.grids.format from project.yml (lowercase) if present."""
+    try:
+        proj = find_project_yaml(project_dir)
+        cfg = _read_yaml_file(proj) or {}
+        out_cfg = cfg.get("output_data", {}).get("grids", {})
+        fmt = out_cfg.get("format")
+        if fmt:
+            f = str(fmt).lower().strip()
+            if f in {"geotiff", "netcdf"}:
+                return f
+            if f == "ascii":
+                # ASCII grids are not supported for DA readers; fall back to autodetect.
+                return None
+        return None
+    except Exception:
+        return None
+
+
 def _read_masked_array(
-    raster_path: Path,
+    raster: Path | GridSlice,
     aoi_path: Path,
     glacier_path: Path | None = None,
 ) -> np.ma.MaskedArray:
     """Read raster and mask by AOI geometry (optionally minus glaciers)."""
-    with rasterio.open(raster_path) as src:
+    def _open_netcdf_slice(gs: GridSlice):
+        if not gs.nc_var:
+            raise ValueError("NetCDF grid slice is missing nc_var")
+        with xr.open_dataset(gs.path) as ds:
+            if gs.nc_var not in ds:
+                raise FileNotFoundError(f"Variable {gs.nc_var} not found in {gs.path}")
+            da = ds[gs.nc_var]
+            time_dims = [d for d in da.dims if d.startswith("time")]
+            if time_dims:
+                da = da.isel({time_dims[0]: gs.band - 1})
+            data = np.asarray(da.values, dtype=np.float32)
+            if data.ndim > 2:
+                data = data.reshape(data.shape[-2], data.shape[-1])
+            x = np.asarray(ds["x"].values)
+            y = np.asarray(ds["y"].values)
+            if x.size < 2 or y.size < 2:
+                raise ValueError("Insufficient coordinate metadata in NetCDF grid")
+            dx = float(np.mean(np.diff(x)))
+            dy = float(np.mean(np.diff(y)))
+            transform = from_bounds(
+                float(x.min() - dx / 2),
+                float(y.min() - dy / 2),
+                float(x.max() + dx / 2),
+                float(y.max() + dy / 2),
+                data.shape[1],
+                data.shape[0],
+            )
+            crs = None
+            try:
+                crs = CRS.from_cf(ds["crs"].attrs)
+            except Exception:
+                pass
+            nodata = da.encoding.get("_FillValue")
+        profile = {
+            "driver": "GTiff",
+            "height": data.shape[0],
+            "width": data.shape[1],
+            "count": 1,
+            "dtype": "float32",
+            "transform": transform,
+            "crs": crs,
+            "nodata": nodata,
+        }
+        memfile = MemoryFile()
+        with memfile.open(**profile) as dst:
+            dst.write(data.astype(np.float32), 1)
+        return memfile
+
+    if isinstance(raster, GridSlice):
+        if raster.kind == "netcdf":
+            mem = _open_netcdf_slice(raster)
+            src_ctx = mem.open()
+            url = None
+            indexes = 1
+        else:
+            url = str(raster.path)
+            indexes = 1
+    else:
+        url = str(raster)
+        indexes = 1
+
+    src_mgr = rasterio.open(url) if url is not None else src_ctx  # type: ignore[arg-type]
+    with src_mgr as src:
         if src.crs is None:
             raise ValueError("Raster has no CRS; unable to align with AOI")
         gdf, _ = mask_aoi_with_glaciers(
@@ -134,8 +221,25 @@ def _read_masked_array(
             to_crs=src.crs,
         )
         shapes: Iterable = gdf.geometry
-        data, _ = rio_mask(src, shapes, crop=True, nodata=src.nodata, filled=False)
-        arr = np.ma.array(data[0], copy=False)
+        geom_mask = features.geometry_mask(
+            shapes,
+            out_shape=(src.height, src.width),
+            transform=src.transform,
+            invert=True,
+        )
+        raw = src.read(indexes, masked=False)
+        if raw.ndim == 3:
+            raw = raw[0]
+        mask = ~geom_mask
+        if src.nodata is not None:
+            mask = mask | (raw == src.nodata)
+        arr = np.ma.array(raw, mask=mask, copy=False)
+        valid = _valid_mask(arr)
+        if not np.any(valid):
+            logger.warning("AOI mask empty for %s; falling back to full grid.", url)
+            arr = np.ma.array(raw, copy=False)
+    if isinstance(raster, GridSlice) and raster.kind == "netcdf":
+        mem.close()
     return arr
 
 
@@ -147,30 +251,31 @@ def _valid_mask(x: np.ma.MaskedArray) -> np.ndarray:
 
 def _scf_depth_threshold(x: np.ma.MaskedArray, h0: float) -> Tuple[int, int, float]:
     """Compute SCF using deterministic threshold (I = 1 if x > h0)."""
-    valid = _valid_mask(x)
-    n_valid = int(valid.sum())
+    valid = np.ma.array(_valid_mask(x), copy=False)
+    n_valid = int(np.ma.filled(valid, False).sum())
     if n_valid == 0:
         raise ValueError("AOI contains no valid pixels for SCF computation")
-    snow = valid & (x > h0)
-    n_snow = int(snow.sum())
+    snow = np.ma.array(valid & (x > h0), copy=False)
+    n_snow = int(np.ma.filled(snow, False).sum())
     scf = float(n_snow) / float(n_valid)
     return n_valid, n_snow, scf
 
 
 def _scf_logistic(x: np.ma.MaskedArray, h0: float, k: float) -> Tuple[int, float]:
     """Compute SCF using logistic probability: mean(sigmoid(k * (x - h0)))."""
-    valid = _valid_mask(x)
-    n_valid = int(valid.sum())
+    valid = np.ma.array(_valid_mask(x), copy=False)
+    n_valid = int(np.ma.filled(valid, False).sum())
     if n_valid == 0:
         raise ValueError("AOI contains no valid pixels for SCF computation")
     dx = np.clip((x - h0), a_min=-1e6, a_max=1e6)
     p = sigmoid(k * dx)
-    scf = float(p[valid].mean())
+    scf = float(np.ma.array(p, copy=False)[valid].mean())
     return n_valid, scf
 
 
 def compute_model_scf(
     *,
+    project_dir: Path,
     results_dir: Path,
     aoi_path: Path,
     glacier_path: Path | None = None,
@@ -205,8 +310,14 @@ def compute_model_scf(
     params = params or SCFParams()
 
     var = variable if variable in (VAR_HS, VAR_SWE) else VAR_HS
-    raster_path = find_member_daily_raster(Path(results_dir), var, date.strftime("%Y-%m-%d"))
-    arr = _read_masked_array(raster_path, Path(aoi_path), glacier_path=glacier_path)
+    preferred_format = _grid_format_from_project(Path(project_dir))
+    slice_ = find_member_daily_grid_slice(
+        Path(results_dir),
+        var,
+        date.strftime("%Y-%m-%d"),
+        preferred_format=preferred_format,
+    )
+    arr = _read_masked_array(slice_, Path(aoi_path), glacier_path=glacier_path)
 
     if method == "depth_threshold":
         n_valid, n_snow, scf = _scf_depth_threshold(arr, float(params.h0))
@@ -227,7 +338,7 @@ def compute_model_scf(
         "n_valid": int(n_valid),
         "n_snow": int(n_snow),
         "scf": float(scf),
-        "raster": Path(raster_path).name,
+        "raster": Path(slice_.path).name,
     }
 
 
@@ -266,6 +377,7 @@ def compute_member_scf_daily(
     for dt in dates:
         try:
             out = compute_model_scf(
+                project_dir=Path(project_dir),
                 results_dir=Path(results_dir),
                 aoi_path=Path(aoi_path),
                 glacier_path=Path(glacier_path) if glacier_path else None,
@@ -413,6 +525,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     # Compute SCF
     try:
         out = compute_model_scf(
+            project_dir=Path(args.project_dir),
             results_dir=Path(args.member_results),
             aoi_path=Path(args.aoi),
             date=dt,

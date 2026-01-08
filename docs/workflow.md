@@ -292,6 +292,27 @@ Optional: `--overwrite`, `--no-live-plots`, `--log-level <LEVEL>`
 
 ---
 
+## State cleanup
+
+- Automatic: `data_assimilation.restart.cleanup_after_season: true` (default) removes member state pickle files after a successful season to save disk space.
+- Manual: run the cleanup CLI to delete state files even if automatic cleanup is disabled.
+
+Clean all seasons:
+
+```powershell
+oa-da-clean-season --project-dir /data/your_project --all-seasons --log-level INFO
+```
+
+Clean one season:
+
+```powershell
+oa-da-clean-season --project-dir /data/your_project --season-dir /data/your_project/propagation/season_YYYY-YYYY --log-level INFO
+```
+
+Only state pickle files are removed; `state_pointer.json` files are left in place.
+
+---
+
 ## Configuration Reference
 
 ### Likelihood Settings

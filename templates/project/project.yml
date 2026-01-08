@@ -69,4 +69,5 @@ data_assimilation:
     use_state: false            # set true for steps after the first assimilation
     dump_state: true            # save final state at the end of each member run
     state_pattern: model_state.pickle.gz  # filename or glob under member results_dir
+    cleanup_after_season: true  # remove state pickle files automatically after a successful season
 

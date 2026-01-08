@@ -124,6 +124,19 @@ data_assimilation:
     use_state: true
     dump_state: true
     state_pattern: model_state.pickle.gz
+    cleanup_after_season: true  # delete state pickle files after a successful season run
+```
+
+`cleanup_after_season` defaults to `true` and removes state pickle files after a successful full-season run to save disk space. Set it to `false` to keep state files for debugging or manual restarts.
+
+Manual cleanup is available regardless of the toggle:
+
+```powershell
+# Single season
+oa-da-clean-season --project-dir /data --season-dir /data/propagation/season_YYYY-YYYY
+
+# All seasons under project/propagation
+oa-da-clean-season --project-dir /data --all-seasons
 ```
 
 #### H(x) Forward Operator Methods

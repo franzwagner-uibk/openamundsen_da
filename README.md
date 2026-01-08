@@ -4,7 +4,7 @@ Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satelli
 
 ## Documentation
 
-Live docs: https://openamundsen-da.pages.dev/project-structure (Cloudflare Pages).
+Live docs: https://openamundsen-da.pages.dev/ (Cloudflare Pages).
 This replaces the old GitHub Pages site.
 
 ## Overview

@@ -644,6 +644,35 @@ with `Ctrl+C`. The ETA shown in the plot is based on a simple linear model
 using completed steps vs total steps; it is intended as a rough indication
 only and can change as the run progresses.
 
+
+## State cleanup (free disk space)
+
+- Automatic: set `data_assimilation.restart.cleanup_after_season: true` (default) in `project.yml` to delete member state pickle files after a successful season run.
+- Manual (ignores the toggle): clean one or all seasons via Docker Compose.
+
+All seasons under a project:
+
+```powershell
+docker compose run --rm oa \
+  python -m openamundsen_da.pipeline.cleanup \
+  --project-dir /data/your_project \
+  --all-seasons \
+  --log-level INFO
+```
+
+Single season:
+
+```powershell
+docker compose run --rm oa \
+  python -m openamundsen_da.pipeline.cleanup \
+  --project-dir /data/your_project \
+  --season-dir /data/your_project/propagation/season_YYYY-YYYY \
+  --log-level INFO
+```
+
+If you rebuilt the image with the latest code, you can replace the `python -m ...cleanup` line with the shorter `oa-da-clean-season`.
+
+
 ## Troubleshooting
 
 - Plots on Windows: use `--backend SVG`.

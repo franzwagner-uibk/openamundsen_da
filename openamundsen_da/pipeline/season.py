@@ -39,6 +39,7 @@ from openamundsen_da.methods.pf.assimilate_scf import (
     assimilate_scf_for_date,
     assimilate_wet_snow_for_date,
 )
+from openamundsen_da.pipeline.cleanup import cleanup_season_dir, is_cleanup_enabled, state_patterns_from_project
 from openamundsen_da.methods.h_of_x.model_scf import compute_step_scf_daily_for_all_members
 from openamundsen_da.methods.wet_snow.classify import classify_step_wet_snow
 from openamundsen_da.methods.wet_snow.area import compute_step_wet_snow_daily_for_all_members
@@ -340,13 +341,15 @@ def run_season(cfg: OrchestratorConfig) -> None:
         perf_stop_event = start_perf_monitor(pm_cfg)
 
     # Process each step
+    cleanup_enabled = is_cleanup_enabled(cfg.project_dir)
+    member_failures = False
     for i, step_dir in enumerate(steps):
         step_name = Path(step_dir).name
         logger.info("== Step {} ==", step_name)
 
         # Launch ensemble (runner enforces strict cold/warm semantics by step)
         logger.info("Launching ensemble (prior) with max_workers={} overwrite={} ...", cfg.max_workers, cfg.overwrite)
-        launch_members(
+        launch_summary = launch_members(
             project_dir=cfg.project_dir,
             season_dir=cfg.season_dir,
             step_dir=step_dir,
@@ -357,6 +360,8 @@ def run_season(cfg: OrchestratorConfig) -> None:
             log_level=cfg.log_level,
             state_pattern=None,
         )
+        if launch_summary.get("summary", {}).get("failed", 0) > 0:
+            member_failures = True
 
         # After propagation: compute daily model SCF for all prior members in
         # this step so that season-level plots can use var_col='scf' via the
@@ -621,6 +626,25 @@ def run_season(cfg: OrchestratorConfig) -> None:
 
     # Aggregate fraction envelopes (SCF and wet snow) for quick plotting/analysis
     _aggregate_fraction_envelopes(cfg.season_dir)
+
+    # Cleanup state files if configured and no member failures occurred
+    try:
+        if cleanup_enabled:
+            if member_failures:
+                logger.info("Skipping season cleanup because some member runs failed.")
+            else:
+                patterns = state_patterns_from_project(cfg.project_dir)
+                summary = cleanup_season_dir(project_dir=cfg.project_dir, season_dir=cfg.season_dir, patterns=patterns)
+                logger.info(
+                    "Season cleanup removed {} file(s), freed {:.1f} MB (patterns={})",
+                    summary.files_deleted,
+                    summary.bytes_freed / 1_000_000.0,
+                    ",".join(summary.patterns),
+                )
+        else:
+            logger.info("Season cleanup disabled via project.yml (data_assimilation.restart.cleanup_after_season=false).")
+    except Exception as exc:
+        logger.warning("Season cleanup failed: {}", exc)
 
     _setup_logger(cfg.season_dir, cfg.log_level)
     run_end = datetime.utcnow()

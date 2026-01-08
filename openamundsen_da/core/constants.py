@@ -88,6 +88,7 @@ RESTART_BLOCK = "restart"
 RESTART_USE_STATE = "use_state"         # bool
 RESTART_DUMP_STATE = "dump_state"       # bool
 RESTART_STATE_PATTERN = "state_pattern" # filename or glob (relative to member results_dir)
+RESTART_CLEANUP_AFTER_SEASON = "cleanup_after_season"  # bool; delete state files after successful season
 STATE_DEFAULT_NAME = "model_state.pickle.gz"
 
 # Pointer files to avoid duplicating large state/outputs across steps

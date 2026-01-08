@@ -18,9 +18,12 @@ Assumptions
 - Repository layout matches the openAMUNDSEN convention (season/step/ensembles/member_*).
 """
 
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import Any
-from typing import Union
+from typing import Any, Literal, Union
+
+import pandas as pd
 
 from openamundsen_da.core.constants import (
     ENSEMBLE_PRIOR,
@@ -29,6 +32,25 @@ from openamundsen_da.core.constants import (
     VAR_HS,
     VAR_SWE,
 )
+
+# ---- Raster/NetCDF discovery helpers ---------------------------------------
+
+_VAR_TO_NC_NAME = {
+    VAR_HS: "snowdepth_daily",
+    VAR_SWE: "swe_daily",
+}
+
+
+@dataclass(frozen=True)
+class GridSlice:
+    """Descriptor for a daily grid slice in GeoTIFF or NetCDF form."""
+
+    kind: Literal["geotiff", "netcdf"]
+    path: Path
+    variable: str
+    date: datetime
+    band: int = 1
+    nc_var: str | None = None
 
 # ---- YAML discovery helpers -------------------------------------------------
 
@@ -200,3 +222,100 @@ def find_member_daily_raster(results_dir: str | Path, variable: str, date_str: s
     if not matches:
         raise FileNotFoundError(f"No raster found matching {patt} in {results_dir}")
     return matches[0]
+
+
+def find_member_daily_grid_slice(
+    results_dir: str | Path,
+    variable: str,
+    date_str: str,
+    preferred_format: str | None = None,
+) -> GridSlice:
+    """
+    Locate a daily gridded output for the given variable/date.
+
+    The search order honors `preferred_format` when provided. Otherwise it
+    tries GeoTIFF first for backward compatibility, then NetCDF.
+    """
+    results_dir = Path(results_dir)
+    date = datetime.fromisoformat(date_str)
+
+    fmt = (preferred_format or "").lower().strip() or None
+    if fmt not in {None, "geotiff", "netcdf"}:
+        fmt = None  # fall back to autodetect
+
+    def _try_geotiff() -> GridSlice | None:
+        try:
+            tif = find_member_daily_raster(results_dir, variable, date_str)
+            return GridSlice(kind="geotiff", path=tif, variable=variable, date=date, band=1)
+        except FileNotFoundError:
+            return None
+
+    nc_var = _VAR_TO_NC_NAME.get(variable)
+    if nc_var is None:
+        raise FileNotFoundError(f"No NetCDF mapping for variable '{variable}'")
+
+    def _try_netcdf() -> GridSlice | None:
+        candidates = sorted(results_dir.glob("*.nc"))
+        for nc_path in candidates:
+            try:
+                import xarray as xr  # lazy import
+            except Exception as exc:  # pragma: no cover - defensive
+                raise FileNotFoundError("xarray is required to read NetCDF outputs.") from exc
+
+            try:
+                with xr.open_dataset(nc_path) as ds:
+                    if nc_var not in ds:
+                        continue
+                    da = ds[nc_var]
+                    time_dims = [d for d in da.dims if d.startswith("time")]
+                    if not time_dims:
+                        continue
+                    time_dim = time_dims[0]
+                    times = pd.to_datetime(ds[time_dim].values)
+                    # Prefer exact datetime match; otherwise fall back to calendar date match.
+                    matches_dt = [i for i, t in enumerate(times) if pd.to_datetime(t) == date]
+                    idx = None
+                    if matches_dt:
+                        idx = matches_dt[0]
+                    else:
+                        matches_date = [i for i, t in enumerate(times) if pd.to_datetime(t).date() == date.date()]
+                        if matches_date:
+                            idx = matches_date[0]
+                    if idx is None:
+                        continue
+                    band = idx + 1  # rasterio flattens time to band (1-based)
+                    return GridSlice(
+                        kind="netcdf",
+                        path=nc_path,
+                        variable=variable,
+                        date=date,
+                        band=band,
+                        nc_var=nc_var,
+                    )
+            except Exception:
+                continue
+        return None
+
+    # Resolve according to preferred_format
+    if fmt == "geotiff":
+        tif_slice = _try_geotiff()
+        if tif_slice:
+            return tif_slice
+        raise FileNotFoundError(f"No GeoTIFF found for variable '{variable}' and date {date_str} in {results_dir}")
+    if fmt == "netcdf":
+        nc_slice = _try_netcdf()
+        if nc_slice:
+            return nc_slice
+        raise FileNotFoundError(f"No NetCDF grid found for variable '{variable}' and date {date_str} in {results_dir}")
+
+    # fmt None -> try GeoTIFF then NetCDF
+    tif_slice = _try_geotiff()
+    if tif_slice:
+        return tif_slice
+    nc_slice = _try_netcdf()
+    if nc_slice:
+        return nc_slice
+
+    raise FileNotFoundError(
+        f"No GeoTIFF or NetCDF daily grid found for variable '{variable}' and date {date_str} in {results_dir}"
+    )

@@ -18,6 +18,12 @@ Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satelli
 - Set Compose compatibility if needed: `setx COMPOSE_COMPATIBILITY 1` (Windows) or `export COMPOSE_COMPATIBILITY=1` (Linux/macOS).
 - Volumes: `${REPO}` -> `/workspace`, `${PROJ}` -> `/data`.
 
+### Container image (GHCR) and CI
+
+- Images are built/published to GHCR at `ghcr.io/franzwagner-uibk/openamundsen_da` (tags: `main-YYYYMMDD`, short SHA, `latest`).
+- GitHub Actions workflow `.github/workflows/ghcr-build.yml` builds on pushes to `main`; requires repo secret `GHCR_PAT` with `write:packages`.
+- To pull from GHCR locally/servers: `echo "$GHCR_PAT_RO" | docker login ghcr.io -u <github-user> --password-stdin` then `docker pull ghcr.io/franzwagner-uibk/openamundsen_da:<tag>`.
+
 ### Environment notes
 
 - GDAL/PROJ are required; prefer installing via Conda. Ensure `GDAL_DATA` and `PROJ_LIB` point to your environment (see example `project.yml`).

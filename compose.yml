@@ -10,6 +10,7 @@ services:
       PYTHONPATH: /workspace
       XDG_CACHE_HOME: /cache/xdg
       MAMBA_PKGS_DIRS: /cache/mamba/pkgs
+      MPLCONFIGDIR: /cache/mpl
       OMP_NUM_THREADS: ${OMP_THREADS:-48}
       OPENBLAS_NUM_THREADS: ${OMP_THREADS:-48}
       MKL_NUM_THREADS: ${OMP_THREADS:-48}

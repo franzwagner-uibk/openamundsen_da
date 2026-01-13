@@ -10,10 +10,10 @@ services:
       PYTHONPATH: /workspace
       XDG_CACHE_HOME: /cache/xdg
       MAMBA_PKGS_DIRS: /cache/mamba/pkgs
-      OMP_NUM_THREADS: ${OMP_THREADS:-1}
-      OPENBLAS_NUM_THREADS: ${OMP_THREADS:-1}
-      MKL_NUM_THREADS: ${OMP_THREADS:-1}
-      NUMEXPR_NUM_THREADS: ${OMP_THREADS:-1}
+      OMP_NUM_THREADS: ${OMP_THREADS:-48}
+      OPENBLAS_NUM_THREADS: ${OMP_THREADS:-48}
+      MKL_NUM_THREADS: ${OMP_THREADS:-48}
+      NUMEXPR_NUM_THREADS: ${OMP_THREADS:-48}
       # Prefer Fiona over pyogrio for robust vector I/O.
       # Newer GeoPandas honours GPD_USE_PYOGRIO=0 to disable pyogrio.
       GPD_USE_PYOGRIO: "0"
@@ -24,7 +24,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${CPUS:-8}"
-          memory: "${MEMORY:-16g}"
+          cpus: "${CPUS:-48}"
+          memory: "${MEMORY:-128g}"
 volumes:
   oa_cache:

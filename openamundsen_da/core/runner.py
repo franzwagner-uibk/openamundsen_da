@@ -31,7 +31,6 @@ from openamundsen_da.core.constants import (
     LOGURU_FORMAT,
     DA_BLOCK,
     RESTART_BLOCK,
-    RESTART_USE_STATE,
     RESTART_DUMP_STATE,
     RESTART_STATE_PATTERN,
     STATE_DEFAULT_NAME,

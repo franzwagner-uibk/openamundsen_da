@@ -9,7 +9,7 @@ services:
     environment:
       PYTHONPATH: /workspace
       XDG_CACHE_HOME: /cache/xdg
-      MAMBA_ROOT_PREFIX: /cache/mamba
+      MAMBA_PKGS_DIRS: /cache/mamba/pkgs
       OMP_NUM_THREADS: ${OMP_THREADS:-1}
       OPENBLAS_NUM_THREADS: ${OMP_THREADS:-1}
       MKL_NUM_THREADS: ${OMP_THREADS:-1}

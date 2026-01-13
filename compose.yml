@@ -5,8 +5,11 @@ services:
     volumes:
       - ${REPO}:/workspace
       - ${PROJ}:/data
+      - oa_cache:/cache
     environment:
       PYTHONPATH: /workspace
+      XDG_CACHE_HOME: /cache/xdg
+      MAMBA_ROOT_PREFIX: /cache/mamba
       OMP_NUM_THREADS: ${OMP_THREADS:-1}
       OPENBLAS_NUM_THREADS: ${OMP_THREADS:-1}
       MKL_NUM_THREADS: ${OMP_THREADS:-1}
@@ -23,3 +26,5 @@ services:
         limits:
           cpus: "${CPUS:-8}"
           memory: "${MEMORY:-16g}"
+volumes:
+  oa_cache:

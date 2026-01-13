@@ -336,7 +336,6 @@ data_assimilation:
 ```yaml
 data_assimilation:
   restart:
-    use_state: true
     dump_state: true
     state_pattern: model_state.pickle.gz
 ```

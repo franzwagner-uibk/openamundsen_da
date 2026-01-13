@@ -121,7 +121,6 @@ data_assimilation:
 
   # Warm start settings
   restart:
-    use_state: true
     dump_state: true
     state_pattern: model_state.pickle.gz
     cleanup_after_season: true  # delete state pickle files after a successful season run
@@ -373,7 +372,6 @@ data_assimilation:
     sigma_p: 0.2
 
   restart:
-    use_state: false
     dump_state: true
     state_pattern: model_state.pickle.gz
 ```

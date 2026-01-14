@@ -201,6 +201,7 @@ def assimilate_scf_for_date(
 
     def _model_eval(results_dir: Path, aoi_path: Path, dt: datetime) -> float:
         out = compute_model_scf(
+            project_dir=project_dir,
             results_dir=results_dir,
             aoi_path=aoi_path,
             glacier_path=glacier_path,

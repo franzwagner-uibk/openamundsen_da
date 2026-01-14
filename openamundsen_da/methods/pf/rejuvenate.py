@@ -208,8 +208,23 @@ def rejuvenate(
         post_ptr_results = default_results_dir(post_member) / STATE_POINTER_JSON
         post_ptr = post_ptr_root if post_ptr_root.exists() else post_ptr_results
         if post_ptr.exists():
-            (tgt_member / STATE_POINTER_JSON).write_text(post_ptr.read_text(encoding="utf-8"), encoding="utf-8")
-            copied_pointers += 1
+            try:
+                data = json.loads(post_ptr.read_text(encoding="utf-8")) or {}
+                target = data.get("path") or data.get("state_path")
+            except Exception:
+                data = None
+                target = None
+            if target:
+                q = Path(target)
+                if not q.is_absolute():
+                    q = (post_ptr.parent / q).resolve()
+                try:
+                    rel = q.relative_to(tgt_member)
+                    out = {"path": str(rel)}
+                except Exception:
+                    out = {"path": str(q)}
+                (tgt_member / STATE_POINTER_JSON).write_text(json.dumps(out, indent=2), encoding="utf-8")
+                copied_pointers += 1
 
         rows.append({
             "member": member_name,
@@ -291,9 +306,12 @@ def _copy_open_loop_to_next(
         cand = picks[0] if picks else None
     if cand and cand.exists():
         next_ol.mkdir(parents=True, exist_ok=True)
-        (next_ol / STATE_POINTER_JSON).write_text(
-            json.dumps({"path": str(cand.resolve())}, indent=2), encoding="utf-8"
-        )
+        try:
+            rel = cand.resolve().relative_to(next_ol)
+            out = {"path": str(rel)}
+        except Exception:
+            out = {"path": str(cand.resolve())}
+        (next_ol / STATE_POINTER_JSON).write_text(json.dumps(out, indent=2), encoding="utf-8")
 
 
 def cli_main(argv: Iterable[str] | None = None) -> int:

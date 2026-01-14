@@ -385,6 +385,25 @@ def _resolve_state_file(results_dir: Path) -> Path | None:
     Only `<member_dir>/state_pointer.json` is considered. Local files under
     results/ are ignored to avoid ambiguity.
     """
+    def _find_season_dir(p: Path) -> Path | None:
+        for parent in p.parents:
+            if parent.name.startswith("season_"):
+                return parent
+        return None
+
+    def _remap_to_local_season(target: Path, season_dir: Path) -> Path | None:
+        try:
+            parts = list(target.parts)
+        except Exception:
+            return None
+        if season_dir.name in parts:
+            idx = parts.index(season_dir.name)
+            suffix = parts[idx + 1 :]
+            cand = season_dir.joinpath(*suffix)
+            if cand.exists() and cand.is_file():
+                return cand
+        return None
+
     try:
         import json
         root_ptr = results_dir.parent / STATE_POINTER_JSON
@@ -399,6 +418,12 @@ def _resolve_state_file(results_dir: Path) -> Path | None:
             q = (results_dir.parent / q).resolve()
         if q.exists() and q.is_file():
             return q
+        if q.is_absolute():
+            season_dir = _find_season_dir(results_dir)
+            if season_dir is not None:
+                remapped = _remap_to_local_season(q, season_dir)
+                if remapped is not None:
+                    return remapped
     except Exception:
         return None
     return None

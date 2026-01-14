@@ -162,9 +162,13 @@ def _mirror_or_resample(
                 src_state = matches[0]
         if src_state is not None:
             # Write pointer at member root (portable across layouts)
-            (tgt_member / STATE_POINTER_JSON).write_text(
-                json.dumps({"path": str(src_state.resolve())}, indent=2), encoding="utf-8"
-            )
+            src_resolved = src_state.resolve()
+            try:
+                rel = src_resolved.relative_to(tgt_member)
+                out = {"path": str(rel)}
+            except Exception:
+                out = {"path": str(src_resolved)}
+            (tgt_member / STATE_POINTER_JSON).write_text(json.dumps(out, indent=2), encoding="utf-8")
     return pairs
 
 

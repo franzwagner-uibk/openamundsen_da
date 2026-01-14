@@ -17,5 +17,6 @@ WORKDIR /workspace
 COPY . /workspace
 RUN micromamba run -n openamundsen python -m pip install -e . --no-deps
 
-# Default to executing inside env 'openamundsen'
-ENTRYPOINT ["micromamba", "run", "-n", "openamundsen"]
+# Lightweight entrypoint to clear stale mamba locks and run inside env
+COPY scripts/oa_entrypoint.sh /usr/local/bin/oa_entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/oa_entrypoint.sh"]

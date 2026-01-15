@@ -152,7 +152,7 @@ docker compose run --rm oa \\
 
 **Notes**:
 
-- The ROI is auto-detected from `/data/env/roi.gpkg` unless you pass `--aoi`; land-cover exclusions use `grids/lc_<domain>_<resolution>.asc` and `data_assimilation.landcover_mask.classes_to_exclude` (defaults: 2 ice, 8-12 forests/mixed, 13 built-up). A warning is logged if >50% of the ROI is excluded; 100% exclusion fails.
+- The ROI is auto-detected from `/data/env/roi.gpkg` unless you pass `--aoi`; land-cover exclusions use `grids/lc_<domain>_<resolution>.asc` and `data_assimilation.landcover_mask.classes_to_exclude` (defaults: 2 ice, 8-12 forests/mixed, 13 built-up). Keep exactly one matching LC file per domain/resolution. A warning is logged if >50% of the ROI is excluded; 100% exclusion fails.
 - The acquisition date is parsed from the filename as `YYYY_MM_DD` or `YYYYMMDD` (e.g. `SnowFLAKES_20191001_v0_*.nc`).
 - Use `--recursive` if your rasters are in subfolders.
 - Outputs include `cloud_fraction` along with `n_valid`, `n_snow`, and `scf`.

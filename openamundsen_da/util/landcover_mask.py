@@ -43,12 +43,27 @@ def _format_resolution(resolution: object) -> str:
 
 
 def _derive_landcover_path(project_dir: Path, domain: str, resolution: object) -> Path:
-    """Find land-cover file matching lc_<domain>_<resolution>*.asc under grids/."""
+    """Find land-cover file matching lc_<domain>_<resolution>*.asc under grids/.
+
+    Prefers an exact name lc_<domain>_<resolution>.asc. If not present, falls
+    back to a single unique match with a suffix (e.g., lc_domain_res_large.asc).
+    Raises when zero or multiple matches are found to avoid ambiguous selection.
+    """
     grids_dir = Path(project_dir) / "grids"
     base = f"lc_{domain}_{_format_resolution(resolution)}"
-    candidates = sorted(grids_dir.glob(f"{base}*.asc"))
+    exact = grids_dir / f"{base}.asc"
+    if exact.is_file():
+        return exact
+
+    candidates = sorted(grids_dir.glob(f"{base}_*.asc"))
     if not candidates:
         raise FileNotFoundError(f"No land-cover file matching {base}*.asc under {grids_dir}")
+    if len(candidates) > 1:
+        names = ", ".join(p.name for p in candidates)
+        raise FileExistsError(
+            f"Multiple land-cover files match {base}_*.asc under {grids_dir}: {names}. "
+            "Keep exactly one matching file or rename to lc_<domain>_<resolution>.asc."
+        )
     return candidates[0]
 
 

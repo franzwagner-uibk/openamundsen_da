@@ -32,11 +32,17 @@ import pandas as pd
 import rasterio
 import yaml
 from loguru import logger
+from rasterio import features
 from rasterio.mask import mask as rio_mask
 from rasterio.crs import CRS
 
 from openamundsen_da.core.constants import LOGURU_FORMAT, OBS_DIR_NAME
-from openamundsen_da.util.glacier_mask import mask_aoi_with_glaciers, resolve_glacier_mask
+from openamundsen_da.util.landcover_mask import (
+    LandcoverMaskConfig,
+    apply_landcover_mask,
+    resolve_landcover_mask,
+)
+from openamundsen_da.util.roi import read_single_roi
 
 
 _DATE_RE = re.compile(r"(\d{4})_(\d{2})_(\d{2})")
@@ -88,20 +94,34 @@ def _compute_stats_for_raster(
     raster_path: Path,
     aoi_path: Path,
     region_field: str | None,
-    glacier_path: Path | None = None,
+    landcover_cfg: LandcoverMaskConfig,
 ) -> Optional[FscStats]:
-    """Mask raster to AOI (minus glaciers) and return SCF stats."""
+    """Mask raster to AOI (with land-cover exclusions) and return SCF stats."""
 
     with _open_fsc(raster_path) as src:
         target_crs = _resolve_raster_crs(src, raster_path)
-        gdf, region_id = mask_aoi_with_glaciers(
+        if target_crs is None:
+            raise ValueError(f"Raster {raster_path} has no CRS; cannot align AOI/land cover")
+        gdf, region_id = read_single_roi(
             aoi_path,
-            glacier_path=glacier_path,
             required_field=region_field,
             to_crs=target_crs,
         )
-        data, _ = rio_mask(src, gdf.geometry, crop=True, nodata=src.nodata, filled=False)
+        data, transform = rio_mask(src, gdf.geometry, crop=True, nodata=src.nodata, filled=False)
+        roi_mask = features.geometry_mask(
+            gdf.geometry,
+            out_shape=data.shape[1:],
+            transform=transform,
+            invert=True,
+        )
         arr = np.ma.array(data[0], copy=False)
+        arr, _ = apply_landcover_mask(
+            arr,
+            transform=transform,
+            target_crs=target_crs,
+            roi_mask=roi_mask,
+            lc_cfg=landcover_cfg,
+        )
         nodata = src.nodata
 
     valid = (~arr.mask) & np.isfinite(arr)
@@ -223,12 +243,13 @@ def _update_summary(summary_path: Path, stats: FscStats) -> None:
 
 def summarize_snowflake_directory(
     *,
+    project_dir: Path,
     input_dir: Path,
     aoi: Path,
     season_label: str,
     output_root: Path,
     region_field: str | None = None,
-    glacier_path: Path | None = None,
+    landcover_cfg: LandcoverMaskConfig | None = None,
     recursive: bool = False,
     start: datetime | None = None,
     end: datetime | None = None,
@@ -239,6 +260,7 @@ def summarize_snowflake_directory(
         logger.warning("No FSC rasters found in {}", input_dir)
         return []
 
+    lc_cfg = landcover_cfg or resolve_landcover_mask(Path(project_dir))
     season_dir = output_root / season_label
     season_dir.mkdir(parents=True, exist_ok=True)
     summary_path = season_dir / "scf_summary.csv"
@@ -246,7 +268,7 @@ def summarize_snowflake_directory(
     written: list[Path] = []
     for rast in rasters:
         try:
-            stats = _compute_stats_for_raster(rast, aoi, region_field, glacier_path=glacier_path)
+            stats = _compute_stats_for_raster(rast, aoi, region_field, landcover_cfg=lc_cfg)
         except Exception as exc:
             logger.error("Skipping {}: {}", rast.name, exc)
             continue
@@ -304,19 +326,19 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     project_dir = Path(args.project_dir) if args.project_dir else Path.cwd()
     output_root = Path(args.output_root) if args.output_root else project_dir / OBS_DIR_NAME
-    glacier_cfg = resolve_glacier_mask(project_dir)
-    glacier_path = glacier_cfg.path if glacier_cfg.enabled else None
+    lc_cfg = resolve_landcover_mask(project_dir)
     season_dates = _resolve_season_dates(project_dir, args.season_label)
 
     try:
         aoi_path = Path(args.aoi) if args.aoi else _auto_aoi(project_dir)
         summarize_snowflake_directory(
+            project_dir=project_dir,
             input_dir=Path(args.input_dir),
             aoi=aoi_path,
             season_label=str(args.season_label),
             output_root=output_root,
             region_field=str(args.aoi_field) if args.aoi_field else None,
-            glacier_path=glacier_path,
+            landcover_cfg=lc_cfg,
             recursive=bool(args.recursive),
             start=season_dates["start"] if season_dates else None,
             end=season_dates["end"] if season_dates else None,

@@ -114,10 +114,13 @@ data_assimilation:
     sigma_t: 0.2 # Additive temperature noise (deg C)
     sigma_p: 0.2 # Lognormal sigma for precip factor (mu=0)
 
-  # Glacier masking
-  glacier_mask:
+  # Land-cover masking (applies to obs + model SCF/wet-snow)
+  landcover_mask:
+    # Classes: 1 rock, 2 ice, 3 water, 4 grassland, 5 shrubland, 6 farmland,
+    # 7 transitional, 8 deciduous 30-60, 9 deciduous 60-100, 10 mixed,
+    # 11 coniferous 30-60, 12 coniferous 60-100, 13 built-up.
     enabled: true
-    path: env/glaciers.gpkg
+    classes_to_exclude: [2, 8, 9, 10, 11, 12, 13]
 
   # Warm start settings
   restart:
@@ -190,13 +193,13 @@ ESS = 1 / Σ(w_i²)
 - ESS = N: All weights equal (uniform)
 - ESS = 1: One particle has all weight (degenerate)
 
-#### Glacier Masking
+#### Land-cover Masking
 
-When enabled, glacier-covered areas are excluded from observation-model comparisons:
+Excluded land-cover classes (e.g., forest, ice, built-up) are removed from obs/model comparisons:
 
-- Prevents assimilating firn/ice observations into seasonal snow model
-- Requires glacier outline vector (GeoPackage or Shapefile)
-- Applied during H(x) computation and likelihood calculation
+- Prevents assimilating pixels where satellite visibility and model support diverge
+- Requires `grids/lc_<domain>_<resolution>.asc` and `data_assimilation.landcover_mask.classes_to_exclude`
+- Applied during observation preprocessing and H(x) computation; warns if >50% of ROI excluded and fails at 100%
 
 ---
 
@@ -348,9 +351,12 @@ data_assimilation:
   wet_snow:
     classification_threshold_percent: 0.5
 
-  glacier_mask:
+  landcover_mask:
+    # Classes: 1 rock, 2 ice, 3 water, 4 grassland, 5 shrubland, 6 farmland,
+    # 7 transitional, 8 deciduous 30-60, 9 deciduous 60-100, 10 mixed,
+    # 11 coniferous 30-60, 12 coniferous 60-100, 13 built-up.
     enabled: true
-    path: env/glaciers.gpkg
+    classes_to_exclude: [2, 8, 9, 10, 11, 12, 13]
 
   likelihood:
     scf:
@@ -382,7 +388,7 @@ data_assimilation:
 
 Configuration is checked when you run the CLI (for example `oa-da-season`, `oa-da-mod10a1`, or `oa-da-assimilate-scf`). Internally, the framework merges YAML layers and hands the merged model configuration to openAMUNDSEN for parsing.
 
-If something is missing or inconsistent, the CLI will fail early with a descriptive error message (missing required keys, invalid timestep format, missing files like ROI/glacier masks, etc.).
+If something is missing or inconsistent, the CLI will fail early with a descriptive error message (missing required keys, invalid timestep format, missing files like ROI/land-cover mask, etc.).
 
 ---
 

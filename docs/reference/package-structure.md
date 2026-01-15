@@ -35,7 +35,7 @@ openamundsen_da/
     wet_snow/  # wet-snow classification and ROI fraction summaries
     viz/       # plotting utilities
   pipeline/    # end-to-end season orchestration
-  util/        # ROI/glacier masking, DA event parsing, perf monitor
+  util/        # ROI/land-cover masking, DA event parsing, perf monitor
 ```
 
 ---

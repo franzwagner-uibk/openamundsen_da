@@ -32,10 +32,13 @@ data_assimilation:
   wet_snow:
     classification_threshold_percent: 0.5
 
-  # Glacier masking (OPTIONAL)
-  glacier_mask:
+  # Land-cover masking (OPTIONAL; applied to obs + model SCF/wet-snow)
+  landcover_mask:
+    # Classes: 1 rock, 2 ice, 3 water, 4 grassland, 5 shrubland, 6 farmland,
+    # 7 transitional, 8 deciduous 30-60, 9 deciduous 60-100, 10 mixed,
+    # 11 coniferous 30-60, 12 coniferous 60-100, 13 built-up.
     enabled: true
-    path: env/glaciers.gpkg
+    classes_to_exclude: [2, 8, 9, 10, 11, 12, 13]
 
   # Likelihood (OPTIONAL; sensible defaults if omitted)
   likelihood:

@@ -31,7 +31,7 @@ from openamundsen_da.core.launch import launch_members
 from openamundsen_da.core.prior_forcing import build_prior_ensemble
 from openamundsen_da.io.paths import read_step_config, find_project_yaml, find_season_yaml
 from openamundsen_da.util.roi import read_single_roi
-from openamundsen_da.util.glacier_mask import resolve_glacier_mask, default_roi_path
+from openamundsen_da.util.landcover_mask import resolve_landcover_mask
 from openamundsen_da.util.da_events import load_assimilation_events, AssimilationEvent
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.util.ts import parse_datetime_opt
@@ -83,7 +83,7 @@ def _next_step_start(steps: List[Path], idx: int) -> Optional[datetime]:
 def _find_roi(project_dir: Path) -> Path:
     """Return the conventional ROI path env/roi.gpkg if present."""
     env_dir = Path(project_dir) / "env"
-    roi = default_roi_path(project_dir)
+    roi = env_dir / "roi.gpkg"
     if roi.is_file():
         return roi
     cands = list(env_dir.glob("*.gpkg")) + list(env_dir.glob("*.shp"))
@@ -251,14 +251,11 @@ def run_season(cfg: OrchestratorConfig) -> None:
 
     roi = _find_roi(cfg.project_dir)
     logger.info("Using ROI: {}", roi)
-    glacier_cfg = resolve_glacier_mask(cfg.project_dir)
-    glacier_path = glacier_cfg.path if glacier_cfg.enabled else None
-    if glacier_path:
-        logger.info("Glacier masking enabled -> {}", glacier_path)
-    elif glacier_cfg.enabled:
-        logger.warning("Glacier masking enabled in config but mask file not found; proceeding without masking")
+    lc_cfg = resolve_landcover_mask(cfg.project_dir)
+    if lc_cfg.enabled:
+        logger.info("Land-cover mask enabled -> {} (classes {})", lc_cfg.path, list(lc_cfg.classes))
     else:
-        logger.info("Glacier masking disabled or no mask present; proceeding without masking")
+        logger.info("Land-cover mask disabled; no land-cover exclusions applied")
 
     # Project/season metadata for DA and performance monitoring
     wet_snow_threshold = _load_wet_snow_threshold_percent(cfg.project_dir)
@@ -371,7 +368,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
                 project_dir=cfg.project_dir,
                 step_dir=step_dir,
                 aoi_path=roi,
-                glacier_path=glacier_path,
+                landcover_cfg=lc_cfg,
                 max_workers=int(cfg.max_workers),
                 overwrite=bool(cfg.overwrite),
             )
@@ -394,9 +391,10 @@ def run_season(cfg: OrchestratorConfig) -> None:
                 overwrite=bool(cfg.overwrite),
             )
             compute_step_wet_snow_daily_for_all_members(
+                project_dir=cfg.project_dir,
                 step_dir=step_dir,
                 aoi_path=roi,
-                glacier_path=glacier_path,
+                landcover_cfg=lc_cfg,
                 max_workers=int(cfg.max_workers),
                 overwrite=bool(cfg.overwrite),
                 mask_subdir="wet_snow",
@@ -499,7 +497,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
                         ensemble="prior",
                         date=assim_dt,
                         aoi=roi,
-                        glacier_path=glacier_path,
+                        landcover_cfg=lc_cfg,
                         obs_csv=None,
                     )
                 else:
@@ -509,7 +507,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
                         ensemble="prior",
                         date=assim_dt,
                         aoi=roi,
-                        glacier_path=glacier_path,
+                        landcover_cfg=lc_cfg,
                         obs_csv=None,
                         product=ev.product,
                     )

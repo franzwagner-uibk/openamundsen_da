@@ -43,7 +43,7 @@ from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf, SCFParam
 from openamundsen_da.methods.wet_snow.area import compute_model_wet_snow_fraction
 from openamundsen_da.util.stats import gaussian_logpdf, normalize_log_weights, effective_sample_size, compute_obs_sigma
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.util.glacier_mask import resolve_glacier_mask
+from openamundsen_da.util.landcover_mask import LandcoverMaskConfig, resolve_landcover_mask
 
 
 @dataclass
@@ -192,19 +192,20 @@ def assimilate_scf_for_date(
     ensemble: str,
     date: datetime,
     aoi: Path,
-    glacier_path: Path | None = None,
+    landcover_cfg: LandcoverMaskConfig | None = None,
     obs_csv: Optional[Path] = None,
     product: str = "MOD10A1",
 ) -> pd.DataFrame:
     """Backward-compatible wrapper: SCF-specific assimilation for one date."""
     method, variable, hofx_params = load_hofx_from_project(project_dir)
+    lc_cfg = landcover_cfg or resolve_landcover_mask(project_dir)
 
     def _model_eval(results_dir: Path, aoi_path: Path, dt: datetime) -> float:
         out = compute_model_scf(
             project_dir=project_dir,
             results_dir=results_dir,
             aoi_path=aoi_path,
-            glacier_path=glacier_path,
+            landcover_cfg=lc_cfg,
             date=dt,
             variable=variable,  # type: ignore[arg-type]
             method=("logistic" if method == "logistic" else "depth_threshold"),  # type: ignore[arg-type]
@@ -236,16 +237,18 @@ def assimilate_wet_snow_for_date(
     ensemble: str,
     date: datetime,
     aoi: Path,
-    glacier_path: Path | None = None,
+    landcover_cfg: LandcoverMaskConfig | None = None,
     obs_csv: Optional[Path] = None,
 ) -> pd.DataFrame:
     """Wet-snow assimilation for one date (Sentinel-1 AOI fraction)."""
+    lc_cfg = landcover_cfg or resolve_landcover_mask(project_dir)
 
     def _model_eval(results_dir: Path, aoi_path: Path, dt: datetime) -> float:
         out = compute_model_wet_snow_fraction(
+            project_dir=project_dir,
             results_dir=results_dir,
             aoi_path=aoi_path,
-            glacier_path=glacier_path,
+            landcover_cfg=lc_cfg,
             date=dt,
         )
         return float(out["wet_fraction"])
@@ -299,15 +302,14 @@ def cli_main(argv: list[str] | None = None) -> int:
     # Run
     try:
         dt = datetime.strptime(args.date, "%Y-%m-%d")
-        glacier_cfg = resolve_glacier_mask(Path(args.project_dir))
-        glacier_path = glacier_cfg.path if glacier_cfg.enabled else None
+        lc_cfg = resolve_landcover_mask(Path(args.project_dir))
         df = assimilate_scf_for_date(
             project_dir=Path(args.project_dir),
             step_dir=Path(args.step_dir),
             ensemble=str(args.ensemble),
             date=dt,
             aoi=Path(args.aoi),
-            glacier_path=glacier_path,
+            landcover_cfg=lc_cfg,
             obs_csv=Path(args.obs_csv) if args.obs_csv else None,
             product=str(args.product or "MOD10A1"),
         )
@@ -345,15 +347,14 @@ def cli_main_wet_snow(argv: list[str] | None = None) -> int:
 
     try:
         dt = datetime.strptime(args.date, "%Y-%m-%d")
-        glacier_cfg = resolve_glacier_mask(Path(args.project_dir))
-        glacier_path = glacier_cfg.path if glacier_cfg.enabled else None
+        lc_cfg = resolve_landcover_mask(Path(args.project_dir))
         df = assimilate_wet_snow_for_date(
             project_dir=Path(args.project_dir),
             step_dir=Path(args.step_dir),
             ensemble=str(args.ensemble),
             date=dt,
             aoi=Path(args.aoi),
-            glacier_path=glacier_path,
+            landcover_cfg=lc_cfg,
             obs_csv=Path(args.obs_csv) if args.obs_csv else None,
         )
     except Exception as e:

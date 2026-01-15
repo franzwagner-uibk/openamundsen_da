@@ -152,7 +152,7 @@ docker compose run --rm oa \\
 
 **Notes**:
 
-- The ROI is auto-detected from `/data/env/roi.gpkg` unless you pass `--aoi`; glaciers are masked out when `data_assimilation.glacier_mask.enabled: true` and `env/glaciers.gpkg` exists.
+- The ROI is auto-detected from `/data/env/roi.gpkg` unless you pass `--aoi`; land-cover exclusions use `grids/lc_<domain>_<resolution>.asc` and `data_assimilation.landcover_mask.classes_to_exclude` (defaults: 2 ice, 8-12 forests/mixed, 13 built-up). A warning is logged if >50% of the ROI is excluded; 100% exclusion fails.
 - The acquisition date is parsed from the filename as `YYYY_MM_DD` or `YYYYMMDD` (e.g. `SnowFLAKES_20191001_v0_*.nc`).
 - Use `--recursive` if your rasters are in subfolders.
 - Outputs include `cloud_fraction` along with `n_valid`, `n_snow`, and `scf`.
@@ -284,26 +284,26 @@ The classification threshold is a volumetric LWC fraction. A value of 0.5 means 
    - ESS consistently near N → reduce σ_obs
    - ESS drops to 1 frequently → increase σ_obs
 
-### Glacier Masking
+### Land-Cover Masking
 
-**Why mask glaciers?**
+**Why mask certain classes?**
 
-Seasonal snow models (like openAMUNDSEN) simulate seasonal snow only. Satellite observations include firn/ice on glaciers. Assimilating glacier observations into a seasonal model causes mismatch.
+Satellite products often miss snow below dense canopy or in built-up areas, while the model can still simulate it. Ice/glacier classes should also be excluded to avoid mismatches between seasonal snow and firn/ice signals.
 
-**Enable glacier masking**:
+**Configure land-cover masking**:
 
 ```yaml
 data_assimilation:
-  glacier_mask:
+  landcover_mask:
+    # Classes: 1 rock, 2 ice, 3 water, 4 grassland, 5 shrubland, 6 farmland,
+    # 7 transitional, 8 deciduous 30-60, 9 deciduous 60-100, 10 mixed,
+    # 11 coniferous 30-60, 12 coniferous 60-100, 13 built-up.
     enabled: true
-    path: env/glaciers.gpkg
+    classes_to_exclude: [2, 8, 9, 10, 11, 12, 13]
 ```
 
-Glacier-covered pixels are excluded from:
-
-- H(x) computation
-- Likelihood calculation
-- SCF mean/statistics
+- Land-cover grid is resolved as `grids/lc_<domain>_<resolution>.asc`.
+- Excluded classes are removed from both obs-side summaries and model H(x); a warning is logged if >50% of the ROI would be excluded, and masking fails if 100% would be removed.
 
 ---
 

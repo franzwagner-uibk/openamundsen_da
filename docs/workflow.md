@@ -138,18 +138,21 @@ Accepts GeoTIFF or NetCDF FSC with classes 0..100 valid, 205 clouds, 210 water, 
 
 Wet snow fraction: `(# pixels == 110) / (# pixels in {110, 125})`
 
-### Glacier Masking
+### Land-Cover Masking
 
-When enabled in `project.yml`:
+Configured in `project.yml`:
 
 ```yaml
 data_assimilation:
-  glacier_mask:
+  landcover_mask:
+    # Classes: 1 rock, 2 ice, 3 water, 4 grassland, 5 shrubland, 6 farmland,
+    # 7 transitional, 8 deciduous 30-60, 9 deciduous 60-100, 10 mixed,
+    # 11 coniferous 30-60, 12 coniferous 60-100, 13 built-up.
     enabled: true
-    path: env/glaciers.gpkg
+    classes_to_exclude: [2, 8, 9, 10, 11, 12, 13]
 ```
 
-Firn/ice areas are excluded from obs-model comparisons since openAMUNDSEN models seasonal snow only, but SCF/FSC observations see all bright surfaces including firn/ice.
+Excluded land-cover classes are removed from both observations and model-derived fractions. A warning is logged if >50% of the ROI would be excluded; 100% exclusion fails.
 
 ---
 

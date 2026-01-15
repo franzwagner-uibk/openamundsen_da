@@ -91,6 +91,24 @@ def _read_rejuvenation_params(project_dir: Path) -> RejuvenationParams:
     )
 
 
+def _strip_timezone(ts: pd.Timestamp) -> pd.Timestamp:
+    """Convert tz-aware timestamps to UTC and drop tz info for safe comparisons."""
+    if getattr(ts, "tzinfo", None) is not None:
+        ts = ts.tz_convert("UTC")
+    try:
+        return ts.tz_localize(None)
+    except Exception:
+        return ts
+
+
+def _normalize_datetime_index(idx: pd.Index) -> pd.DatetimeIndex:
+    """Return a tz-naive DatetimeIndex (converted from UTC if originally tz-aware)."""
+    dt_idx = pd.to_datetime(idx, errors="coerce")
+    if getattr(dt_idx, "tz", None) is not None:
+        dt_idx = dt_idx.tz_convert("UTC").tz_localize(None)
+    return dt_idx
+
+
 def _read_next_step_dates(next_step_dir: Path) -> tuple[pd.Timestamp, pd.Timestamp]:
     step_yaml = find_step_yaml(next_step_dir)
     step_cfg = _read_yaml_file(step_yaml) or {}
@@ -111,10 +129,14 @@ def _read_next_step_dates(next_step_dir: Path) -> tuple[pd.Timestamp, pd.Timesta
     return start, end
 
 
-def _inclusive_filter(df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp, *, time_col: str) -> pd.DataFrame:
-    t = pd.to_datetime(df[time_col], errors="coerce")
-    mask = (t >= start) & (t <= end)
-    return df.loc[mask].copy()
+def _inclusive_filter(df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+    start = _strip_timezone(start)
+    end = _strip_timezone(end)
+    dt_idx = _normalize_datetime_index(df.index)
+    mask = (dt_idx >= start) & (dt_idx <= end)
+    out = df.loc[mask].copy()
+    out.index = dt_idx[mask]
+    return out
 
 
 def _write_csv(df: pd.DataFrame, dst: Path) -> None:
@@ -188,17 +210,18 @@ def rejuvenate(
             raise FileNotFoundError(f"Missing stations.csv in {src_meteo}")
 
         for csv in sorted(p for p in src_meteo.glob("*.csv") if p.name != "stations.csv"):
-            df = pd.read_csv(csv)
-            # Accept either 'date' (default) or 'time' as time column
-            time_col = DEFAULT_TIME_COL if DEFAULT_TIME_COL in df.columns else ("time" if "time" in df.columns else None)
-            if time_col is None:
-                raise ValueError(f"{csv.name}: missing required time column ('date' or 'time')")
-            df = _inclusive_filter(df, start, end, time_col=time_col)
+            # Use the first column as datetime index (name is flexible)
+            df = pd.read_csv(csv, parse_dates=True, index_col=0)
+            time_col = df.index.name or DEFAULT_TIME_COL
+            df = _inclusive_filter(df, start, end)
+            df.index = _normalize_datetime_index(df.index)
             if (dT != 0.0) and (DEFAULT_TEMP_COL in df.columns):
                 df[DEFAULT_TEMP_COL] = pd.to_numeric(df[DEFAULT_TEMP_COL], errors="coerce") + dT
             if (fP != 1.0) and (DEFAULT_PRECIP_COL in df.columns):
                 df[DEFAULT_PRECIP_COL] = pd.to_numeric(df[DEFAULT_PRECIP_COL], errors="coerce") * fP
-            _write_csv(df, tgt_meteo / csv.name)
+            idx_col_name = df.index.name or "index"
+            df_out = df.reset_index().rename(columns={idx_col_name: time_col})
+            _write_csv(df_out, tgt_meteo / csv.name)
 
         # Copy stations.csv unchanged
         (tgt_meteo / "stations.csv").write_bytes(stations_csv.read_bytes())
@@ -277,6 +300,8 @@ def _copy_open_loop_to_next(
     """
     prev_ol = open_loop_dir(prev_step_dir)
     next_ol = open_loop_dir(next_step_dir)
+    start = _strip_timezone(start)
+    end = _strip_timezone(end)
 
     # Base meteo comes from project-level meteo directory
     met_prev = Path(project_dir) / "meteo"
@@ -290,13 +315,13 @@ def _copy_open_loop_to_next(
     for src in sorted(met_prev.glob("*.csv")):
         if src.name.lower() == "stations.csv":
             continue
-        df = pd.read_csv(src)
-        time_col = DEFAULT_TIME_COL if DEFAULT_TIME_COL in df.columns else ("time" if "time" in df.columns else None)
-        if time_col is not None:
-            t = pd.to_datetime(df[time_col], errors="coerce")
-            mask = (t >= start) & (t <= end)
-            df = df.loc[mask].copy()
-        (met_next / src.name).write_text(df.to_csv(index=False))
+        df = pd.read_csv(src, parse_dates=True, index_col=0)
+        time_col = df.index.name or DEFAULT_TIME_COL
+        df = _inclusive_filter(df, start, end)
+        df.index = _normalize_datetime_index(df.index)
+        idx_col_name = df.index.name or "index"
+        df_out = df.reset_index().rename(columns={idx_col_name: time_col})
+        _write_csv(df_out, met_next / src.name)
 
     # Copy a pointer to the previous step's open_loop state file
     res_prev = prev_ol / "results"

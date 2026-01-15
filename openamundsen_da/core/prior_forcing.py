@@ -12,7 +12,8 @@ Design
 - Params: read from project.yml under data_assimilation.prior_forcing
 - Perturbations: temperature additive dT ~ N(0, sigma_T), precipitation factor
   f_p ~ LogNormal(mu_P, sigma_P), constant per member across stations and time
-- Schema: requires 'date'; 'temp' and 'precip' are optional per station file
+- Schema: first column must be datetime (name is flexible); 'temp' and 'precip'
+  are optional per station file
 - Precip negatives: if 'precip' exists and contains negatives, abort
 - Output: <step_dir>/ensembles/prior/{open_loop,member_XXX}/{meteo,results}
 """
@@ -148,14 +149,29 @@ def _list_station_csvs(meteo_dir: Path) -> Tuple[Path, List[Path]]:
     return stations, csvs
 
 
-def _ensure_schema_and_precip_positive(df: pd.DataFrame, src: Path) -> None:
-    """Validate required columns and ensure no negative precipitation values exist.
+def _strip_timezone(ts: pd.Timestamp) -> pd.Timestamp:
+    """Convert tz-aware timestamps to UTC and drop tz info for safe comparisons."""
+    if getattr(ts, "tzinfo", None) is not None:
+        ts = ts.tz_convert("UTC")
+    try:
+        return ts.tz_localize(None)
+    except Exception:
+        return ts
 
-    - 'date' must be present in all files
+
+def _normalize_datetime_index(idx: pd.Index) -> pd.DatetimeIndex:
+    """Return a tz-naive DatetimeIndex (converted from UTC if originally tz-aware)."""
+    dt_idx = pd.to_datetime(idx, errors="coerce")
+    if getattr(dt_idx, "tz", None) is not None:
+        dt_idx = dt_idx.tz_convert("UTC").tz_localize(None)
+    return dt_idx
+
+
+def _ensure_schema_and_precip_positive(df: pd.DataFrame, src: Path) -> None:
+    """Ensure no negative precipitation values exist if present.
+
     - 'temp' and 'precip' are optional; if 'precip' exists it must be non-negative
     """
-    if DEFAULT_TIME_COL not in df.columns:
-        raise ValueError(f"{src.name}: missing required column: {DEFAULT_TIME_COL}")
     if DEFAULT_PRECIP_COL in df.columns:
         p = pd.to_numeric(df[DEFAULT_PRECIP_COL], errors="coerce")
         if (p.dropna() < 0).any():
@@ -163,10 +179,14 @@ def _ensure_schema_and_precip_positive(df: pd.DataFrame, src: Path) -> None:
 
 
 def _inclusive_filter(df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-    """Inclusive date filtering on 'date' column."""
-    t = pd.to_datetime(df[DEFAULT_TIME_COL], errors="coerce")
-    mask = (t >= start) & (t <= end)
-    return df.loc[mask].copy()
+    """Inclusive date filtering on datetime index (first column of the CSV)."""
+    start = _strip_timezone(start)
+    end = _strip_timezone(end)
+    dt_idx = _normalize_datetime_index(df.index)
+    mask = (dt_idx >= start) & (dt_idx <= end)
+    out = df.loc[mask].copy()
+    out.index = dt_idx[mask]
+    return out
 
 
 def _process_and_write(
@@ -179,14 +199,22 @@ def _process_and_write(
     f_p: float | None = None,
 ) -> None:
     """Read, validate, filter, optionally perturb, then write CSV to dst."""
-    df = pd.read_csv(src)
+    # Use the first column as datetime index (name is flexible)
+    df = pd.read_csv(src, parse_dates=True, index_col=0)
+    time_col = df.index.name or DEFAULT_TIME_COL
+
     _ensure_schema_and_precip_positive(df, src)
     df = _inclusive_filter(df, start, end)
+    df.index = _normalize_datetime_index(df.index)
+
     if (delta_t is not None) and (DEFAULT_TEMP_COL in df.columns):
         df[DEFAULT_TEMP_COL] = pd.to_numeric(df[DEFAULT_TEMP_COL], errors="coerce") + float(delta_t)
     if (f_p is not None) and (DEFAULT_PRECIP_COL in df.columns):
         df[DEFAULT_PRECIP_COL] = pd.to_numeric(df[DEFAULT_PRECIP_COL], errors="coerce") * float(f_p)
-    _write_csv(df, dst)
+
+    idx_col_name = df.index.name or "index"
+    df_out = df.reset_index().rename(columns={idx_col_name: time_col})
+    _write_csv(df_out, dst)
 
 
 def _make_member_dirs(root: Path) -> Tuple[Path, Path]:
@@ -215,7 +243,7 @@ def _write_info(member_root: Path, name: str, seed: int, delta_t: float, f_p: fl
         f"  end_date:   {end}",
         "",
         "Schema:",
-        f"  required: {DEFAULT_TIME_COL}",
+        "  required: first column = datetime (name flexible)",
         f"  optional: {DEFAULT_TEMP_COL}, {DEFAULT_PRECIP_COL}",
         "",
         "Input:",

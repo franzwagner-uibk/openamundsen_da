@@ -40,7 +40,7 @@ See the [Installation Guide]({{ site.baseurl }}{% link installation.md %}).
 
 - Copy `templates/project` to your workspace (contains `env/`, `meteo/`, `obs/`, `project.yml`).
 - ROI polygon at `env/roi.gpkg` (single polygon; projected CRS; field `region_id` by default).
-- Optional glacier mask at `env/glaciers.gpkg` (same CRS as ROI) if glacier masking is enabled.
+- Land-cover grid at `grids/lc_<domain>_<resolution>.asc`; configure excluded classes in `data_assimilation.landcover_mask`.
 
 ---
 

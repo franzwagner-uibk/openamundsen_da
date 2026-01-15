@@ -66,7 +66,12 @@ from openamundsen_da.io.paths import (
     list_member_dirs,
     open_loop_dir,
 )
-from openamundsen_da.util.glacier_mask import mask_aoi_with_glaciers
+from openamundsen_da.util.landcover_mask import (
+    LandcoverMaskConfig,
+    apply_landcover_mask,
+    resolve_landcover_mask,
+)
+from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.stats import sigmoid
 from openamundsen_da.methods.daily_aoi_series import (
     compute_step_daily_series_for_all_members,
@@ -143,12 +148,40 @@ def _grid_format_from_project(project_dir: Path) -> str | None:
         return None
 
 
+def _serialize_lc_cfg(lc_cfg: LandcoverMaskConfig) -> dict[str, object]:
+    """Return a dict-safe representation of the land-cover config for pickling."""
+    return {
+        "enabled": lc_cfg.enabled,
+        "path": str(lc_cfg.path) if lc_cfg.path else None,
+        "classes": tuple(lc_cfg.classes),
+        "project_crs_wkt": lc_cfg.project_crs.to_wkt(),
+    }
+
+
+def _deserialize_lc_cfg(data: Any) -> LandcoverMaskConfig | None:
+    """Reconstruct LandcoverMaskConfig from serialized form."""
+    if isinstance(data, LandcoverMaskConfig):
+        return data
+    if not isinstance(data, dict):
+        return None
+    path_val = data.get("path")
+    project_crs_wkt = data.get("project_crs_wkt")
+    if project_crs_wkt is None:
+        return None
+    return LandcoverMaskConfig(
+        enabled=bool(data.get("enabled", False)),
+        path=Path(path_val) if path_val else None,
+        classes=tuple(data.get("classes") or ()),
+        project_crs=CRS.from_wkt(str(project_crs_wkt)),
+    )
+
+
 def _read_masked_array(
     raster: Path | GridSlice,
     aoi_path: Path,
-    glacier_path: Path | None = None,
+    lc_cfg: LandcoverMaskConfig,
 ) -> np.ma.MaskedArray:
-    """Read raster and mask by AOI geometry (optionally minus glaciers)."""
+    """Read raster and mask by AOI geometry, applying land-cover exclusions."""
     def _open_netcdf_slice(gs: GridSlice):
         if not gs.nc_var:
             raise ValueError("NetCDF grid slice is missing nc_var")
@@ -214,9 +247,8 @@ def _read_masked_array(
     with src_mgr as src:
         if src.crs is None:
             raise ValueError("Raster has no CRS; unable to align with AOI")
-        gdf, _ = mask_aoi_with_glaciers(
+        gdf, _ = read_single_roi(
             aoi_path,
-            glacier_path=glacier_path,
             required_field=None,
             to_crs=src.crs,
         )
@@ -234,6 +266,13 @@ def _read_masked_array(
         if src.nodata is not None:
             mask = mask | (raw == src.nodata)
         arr = np.ma.array(raw, mask=mask, copy=False)
+        arr, _ = apply_landcover_mask(
+            arr,
+            transform=src.transform,
+            target_crs=src.crs,
+            roi_mask=geom_mask,
+            lc_cfg=lc_cfg,
+        )
         valid = _valid_mask(arr)
         if not np.any(valid):
             logger.warning("AOI mask empty for %s; falling back to full grid.", url)
@@ -278,7 +317,7 @@ def compute_model_scf(
     project_dir: Path,
     results_dir: Path,
     aoi_path: Path,
-    glacier_path: Path | None = None,
+    landcover_cfg: LandcoverMaskConfig | None = None,
     date: datetime,
     variable: Variable = "hs",
     method: Method = "depth_threshold",
@@ -308,6 +347,7 @@ def compute_model_scf(
     """
     ensure_gdal_proj_from_conda()
     params = params or SCFParams()
+    lc_cfg = landcover_cfg or resolve_landcover_mask(Path(project_dir))
 
     var = variable if variable in (VAR_HS, VAR_SWE) else VAR_HS
     preferred_format = _grid_format_from_project(Path(project_dir))
@@ -317,7 +357,7 @@ def compute_model_scf(
         date.strftime("%Y-%m-%d"),
         preferred_format=preferred_format,
     )
-    arr = _read_masked_array(slice_, Path(aoi_path), glacier_path=glacier_path)
+    arr = _read_masked_array(slice_, Path(aoi_path), lc_cfg=lc_cfg)
 
     if method == "depth_threshold":
         n_valid, n_snow, scf = _scf_depth_threshold(arr, float(params.h0))
@@ -347,7 +387,7 @@ def compute_member_scf_daily(
     project_dir: Path,
     results_dir: Path,
     aoi_path: Path,
-    glacier_path: Path | None = None,
+    landcover_cfg: LandcoverMaskConfig | None = None,
     start: datetime,
     end: datetime,
 ) -> pd.DataFrame:
@@ -361,6 +401,7 @@ def compute_member_scf_daily(
     time.
     """
     method, variable, params = load_hofx_from_project(Path(project_dir))
+    lc_cfg = landcover_cfg or resolve_landcover_mask(Path(project_dir))
 
     # Normalize variable name for internal use
     var = variable if variable in (VAR_HS, VAR_SWE) else VAR_HS
@@ -380,7 +421,7 @@ def compute_member_scf_daily(
                 project_dir=Path(project_dir),
                 results_dir=Path(results_dir),
                 aoi_path=Path(aoi_path),
-                glacier_path=Path(glacier_path) if glacier_path else None,
+                landcover_cfg=lc_cfg,
                 date=dt,
                 variable=var,  # type: ignore[arg-type]
                 method=method,  # type: ignore[arg-type]
@@ -411,11 +452,12 @@ def _compute_member_scf_for_step_worker(
     extra: Dict[str, Any],
 ) -> bool:
     """Worker: compute SCF daily series for a single member results dir."""
+    lc_cfg = _deserialize_lc_cfg(extra.get("landcover_cfg"))
     df = compute_member_scf_daily(
         project_dir=Path(extra["project_dir"]),
         results_dir=results_dir,
         aoi_path=aoi_path,
-        glacier_path=Path(extra["glacier_path"]) if extra.get("glacier_path") else None,
+        landcover_cfg=lc_cfg,
         start=start,
         end=end,
     )
@@ -433,7 +475,7 @@ def compute_step_scf_daily_for_all_members(
     project_dir: Path,
     step_dir: Path,
     aoi_path: Path,
-    glacier_path: Path | None = None,
+    landcover_cfg: LandcoverMaskConfig | None = None,
     max_workers: int = 4,
     overwrite: bool = False,
 ) -> None:
@@ -453,6 +495,7 @@ def compute_step_scf_daily_for_all_members(
     step_dir = Path(step_dir)
     project_dir = Path(project_dir)
     aoi_path = Path(aoi_path)
+    lc_cfg = landcover_cfg or resolve_landcover_mask(project_dir)
 
     start, end = step_start_end(step_dir)
 
@@ -469,7 +512,7 @@ def compute_step_scf_daily_for_all_members(
         overwrite=overwrite,
         worker_kwargs={
             "project_dir": str(project_dir),
-            "glacier_path": str(glacier_path) if glacier_path else None,
+            "landcover_cfg": _serialize_lc_cfg(lc_cfg),
         },
     )
 
@@ -518,8 +561,9 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     try:
         method, variable, prm = load_hofx_from_project(Path(args.project_dir))
+        lc_cfg = resolve_landcover_mask(Path(args.project_dir))
     except Exception as e:
-        logger.error("Failed to read H(x) configuration: {}", e)
+        logger.error("Failed to read configuration: {}", e)
         return 2
 
     # Compute SCF
@@ -528,6 +572,7 @@ def cli_main(argv: list[str] | None = None) -> int:
             project_dir=Path(args.project_dir),
             results_dir=Path(args.member_results),
             aoi_path=Path(args.aoi),
+            landcover_cfg=lc_cfg,
             date=dt,
             variable=variable,  # type: ignore[arg-type]
             method=("logistic" if method == "logistic" else "depth_threshold"),  # type: ignore[arg-type]

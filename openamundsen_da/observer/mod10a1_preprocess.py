@@ -28,10 +28,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
-import geopandas as gpd
 import numpy as np
 import pandas as pd
 from loguru import logger
+from affine import Affine
+from pyproj import CRS
+from rasterio import features
 
 try:  # GDAL is required for HDF handling
     from osgeo import gdal  # type: ignore
@@ -48,6 +50,8 @@ from openamundsen_da.core.constants import (
     OBS_DIR_NAME,
 )
 from openamundsen_da.core.env import ensure_gdal_proj_from_conda
+from openamundsen_da.util.landcover_mask import apply_landcover_mask, resolve_landcover_mask
+from openamundsen_da.util.roi import read_single_roi
 
 
 
@@ -208,6 +212,7 @@ def _warp_ndsi(
 
 
 def convert_mod10a1_directory(
+    project_dir: Path,
     input_dir: Path,
     output_root: Path,
     season_label: str,
@@ -226,6 +231,8 @@ def convert_mod10a1_directory(
 
     Parameters
     ----------
+    project_dir : Path
+        Project root containing project.yml and grids/lc_*.asc.
     input_dir : Path
         Root directory containing MOD10A1 HDF files.
     output_root : Path
@@ -254,6 +261,11 @@ def convert_mod10a1_directory(
 
     _ensure_gdal()
     ensure_gdal_proj_from_conda()
+    project_dir = Path(project_dir)
+    lc_cfg = resolve_landcover_mask(project_dir)
+    target_crs_obj = CRS.from_epsg(int(target_epsg))
+    if lc_cfg.enabled and aoi_path is None:
+        raise ValueError("Land-cover mask is enabled but no AOI was provided")
 
     # Step 1: Discover input files
     logger.debug("Scanning {} for MOD10A1 HDF files (recursive={})", input_dir, recursive)
@@ -270,22 +282,22 @@ def convert_mod10a1_directory(
     bounds = None
     region_id = region_field
     aoi = Path(aoi_path) if aoi_path is not None else None
+    gdf_target = None
     if aoi:
-        gdf = gpd.read_file(aoi)
-        if gdf.empty:
-            raise ValueError("AOI file does not contain geometries")
-        if len(gdf) != 1:
-            raise ValueError("AOI must contain exactly one feature")
-        if region_field not in gdf.columns:
-            raise KeyError(f"AOI missing field '{region_field}'")
-        region_id = str(gdf.iloc[0][region_field])
+        gdf, region_id_val = read_single_roi(aoi, required_field=region_field, to_crs=None)
+        region_id = region_id_val
+        gdf_target = gdf if gdf.crs is None else gdf.to_crs(target_crs_obj)
+        if gdf_target.crs is None:
+            raise ValueError("AOI CRS is undefined")
         if use_envelope:
-            if gdf.crs is None:
-                raise ValueError("AOI CRS is undefined")
-            gdf_target = gdf if (target_epsg is None or gdf.crs.to_epsg() == target_epsg) else gdf.to_crs(target_epsg)
             tb = gdf_target.total_bounds
             bounds = (float(tb[0]), float(tb[1]), float(tb[2]), float(tb[3]))
             logger.debug("AOI bounds in EPSG:{} -> {}", target_epsg, bounds)
+        else:
+            if gdf_target.crs is None:
+                raise ValueError("AOI CRS is undefined")
+            if gdf_target.crs.to_epsg() != target_epsg:
+                gdf_target = gdf_target.to_crs(target_epsg)
 
     outputs: list[Path] = []
     # Step 3: Process each HDF -> NDSI, classify, summarize
@@ -321,6 +333,33 @@ def convert_mod10a1_directory(
             data, nodata, transform, projection = _read_ndsi_raster(destination)
         except Exception as exc:
             logger.error("Failed reading {}: {}", destination.name, exc)
+            if destination.exists():
+                destination.unlink(missing_ok=True)
+            continue
+
+        transform_affine = Affine.from_gdal(*transform) if transform else None
+        try:  # Apply land-cover exclusions
+            if lc_cfg.enabled:
+                if gdf_target is None or transform_affine is None:
+                    raise ValueError("AOI/transform missing for land-cover masking")
+                roi_mask = features.geometry_mask(
+                    gdf_target.geometry,
+                    out_shape=data.shape,
+                    transform=transform_affine,
+                    invert=True,
+                )
+                masked = np.ma.array(data, mask=np.zeros_like(data, dtype=bool), copy=False)
+                target_crs = CRS.from_wkt(projection) if projection else target_crs_obj
+                masked, _ = apply_landcover_mask(
+                    masked,
+                    transform=transform_affine,
+                    target_crs=target_crs,
+                    roi_mask=roi_mask,
+                    lc_cfg=lc_cfg,
+                )
+                data = np.ma.filled(masked, nodata if nodata is not None else 255)
+        except Exception as exc:
+            logger.error("Land-cover masking failed for {}: {}", destination.name, exc)
             if destination.exists():
                 destination.unlink(missing_ok=True)
             continue
@@ -445,6 +484,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     output_root = Path(args.output_root) if args.output_root else project_dir / OBS_DIR_NAME
 
     outputs = convert_mod10a1_directory(
+        project_dir=project_dir,
         input_dir=Path(args.input_dir),
         output_root=output_root,
         season_label=args.season_label,

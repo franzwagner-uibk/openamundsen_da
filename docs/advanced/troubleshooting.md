@@ -459,29 +459,27 @@ print(w['weight'].sum())  # Should be 1.0
 - Model SCF files exist and are valid
 - No division by zero in likelihood calculation
 
-### Glacier Mask Not Applied
+### Land-cover Mask Not Applied
 
-**Problem**: Glacier-covered areas still affect assimilation
+**Problem**: Excluded classes (e.g., forest/ice/urban) still affect assimilation
 
 **Solution**:
 
 1. **Verify mask enabled**:
    ```yaml
    data_assimilation:
-     glacier_mask:
+     landcover_mask:
        enabled: true
-       path: env/glaciers.gpkg
+       classes_to_exclude: [2, 8, 9, 10, 11, 12, 13]
    ```
 
-2. **Check mask file**:
+2. **Check land-cover file**:
    ```bash
-   ogrinfo -al -so env/glaciers.gpkg
-   # Should show valid polygon layer
+   gdalinfo grids/lc_<domain>_<resolution>.asc
+   # Should show valid raster; CRS must match project.yml (or be empty to fall back to project CRS)
    ```
 
-3. **Verify CRS match**:
-   Glacier mask must be in same CRS as ROI/model domain.
-   If needed, reproject the glacier vector with your preferred GIS tooling.
+3. **Ensure ROI provided** to preprocessing/assimilation commands so the land-cover mask can align with the AOI.
 
 ---
 

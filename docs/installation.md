@@ -155,8 +155,9 @@ Your project should have this structure:
 ```
 project/
 ├── env/
-│   ├── roi.gpkg              # Single-feature ROI polygon (required)
-│   └── glaciers.gpkg         # Glacier outlines (optional)
+│   └── roi.gpkg              # Single-feature ROI polygon (required)
+├── grids/
+│   └── lc_<domain>_<resolution>.asc  # Land-cover classes for DA masking
 ├── meteo/
 │   ├── stations.csv          # Station metadata
 │   ├── station_001.csv       # Meteorological forcing data
@@ -204,9 +205,12 @@ data_assimilation:
     sigma_t: 0.2
     sigma_p: 0.2
 
-  glacier_mask:
+  landcover_mask:
+    # Classes: 1 rock, 2 ice, 3 water, 4 grassland, 5 shrubland, 6 farmland,
+    # 7 transitional, 8 deciduous 30-60, 9 deciduous 60-100, 10 mixed,
+    # 11 coniferous 30-60, 12 coniferous 60-100, 13 built-up.
     enabled: true
-    path: env/glaciers.gpkg
+    classes_to_exclude: [2, 8, 9, 10, 11, 12, 13]
 ```
 
 See the [Configuration Guide]({{ site.baseurl }}{% link guides/configuration.md %}) for all options.

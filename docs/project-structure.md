@@ -136,7 +136,7 @@ openamundsen_da/
 |:-----|:------------|
 | `aoi.py` | Area of interest operations |
 | `roi.py` | ROI polygon handling |
-| `glacier_mask.py` | Glacier masking utilities |
+| `landcover_mask.py` | Land-cover masking utilities |
 | `da_events.py` | DA event parsing from season.yml |
 | `perf_monitor.py` | Performance monitoring |
 | `stats.py` | Statistical utilities |
@@ -151,8 +151,10 @@ When you set up a data assimilation project, it follows this structure:
 ```
 project/
 ├── env/                      # Environment data
-│   ├── roi.gpkg             # Study area polygon (required)
-│   └── glaciers.gpkg        # Glacier outlines (optional)
+│   └── roi.gpkg             # Study area polygon (required)
+│
+├── grids/
+│   └── lc_<domain>_<resolution>.asc  # Land-cover classes for DA masking
 │
 ├── meteo/                    # Meteorological forcing
 │   ├── stations.csv         # Station metadata

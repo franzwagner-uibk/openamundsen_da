@@ -27,7 +27,9 @@ import pandas as pd
 import rasterio
 import yaml
 from loguru import logger
+from rasterio import features
 from rasterio.mask import mask as rio_mask
+from pyproj import CRS
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.io.paths import member_id_from_results_dir
@@ -35,7 +37,12 @@ from openamundsen_da.methods.daily_aoi_series import (
     compute_step_daily_series_for_all_members,
     step_start_end,
 )
-from openamundsen_da.util.glacier_mask import resolve_glacier_mask, mask_aoi_with_glaciers
+from openamundsen_da.util.landcover_mask import (
+    LandcoverMaskConfig,
+    apply_landcover_mask,
+    resolve_landcover_mask,
+)
+from openamundsen_da.util.roi import read_single_roi
 
 
 _MODEL_WET = (1,)
@@ -55,6 +62,34 @@ class WetSnowStats:
     wet_area_m2: float | None
     valid_area_m2: float | None
     region_id: str
+
+
+def _serialize_lc_cfg(lc_cfg: LandcoverMaskConfig) -> dict[str, object]:
+    """Return a dict-friendly form of LandcoverMaskConfig."""
+    return {
+        "enabled": lc_cfg.enabled,
+        "path": str(lc_cfg.path) if lc_cfg.path else None,
+        "classes": tuple(lc_cfg.classes),
+        "project_crs_wkt": lc_cfg.project_crs.to_wkt(),
+    }
+
+
+def _deserialize_lc_cfg(data: Any) -> LandcoverMaskConfig | None:
+    """Rehydrate LandcoverMaskConfig from serialized data."""
+    if isinstance(data, LandcoverMaskConfig):
+        return data
+    if not isinstance(data, dict):
+        return None
+    path_val = data.get("path")
+    crs_wkt = data.get("project_crs_wkt")
+    if crs_wkt is None:
+        return None
+    return LandcoverMaskConfig(
+        enabled=bool(data.get("enabled", False)),
+        path=Path(path_val) if path_val else None,
+        classes=tuple(data.get("classes") or ()),
+        project_crs=CRS.from_wkt(str(crs_wkt)),
+    )
 
 
 def _find_mask_raster(
@@ -78,18 +113,16 @@ def _find_mask_raster(
 def _read_mask_by_aoi(
     raster_path: Path,
     aoi_path: Path,
-    glacier_path: Path | None = None,
-) -> tuple[np.ma.MaskedArray, float | None, str]:
-    """Read raster values cropped to the AOI; return masked array and AOI area."""
+    *,
+    lc_cfg: LandcoverMaskConfig,
+) -> tuple[np.ma.MaskedArray, np.ndarray, rasterio.Affine, float | None, str, object]:
+    """Read raster values cropped to the AOI; return masked array, ROI mask, and metadata."""
 
     with rasterio.open(raster_path) as src:
         if src.crs is None:
             raise ValueError(f"Raster {raster_path} lacks a CRS")
-        # For wet-snow summaries we only require a single-feature AOI,
-        # not a specific attribute schema.
-        gdf, region_id = mask_aoi_with_glaciers(
+        gdf, region_id = read_single_roi(
             aoi_path,
-            glacier_path=glacier_path,
             required_field=None,
             to_crs=src.crs,
         )
@@ -100,6 +133,12 @@ def _read_mask_by_aoi(
             nodata=src.nodata,
             filled=False,
         )
+        roi_mask = features.geometry_mask(
+            gdf.geometry,
+            out_shape=data.shape[1:],
+            transform=transform,
+            invert=True,
+        )
     arr = np.ma.array(data[0], copy=False)
     pixel_area = None
     if transform is not None:
@@ -107,7 +146,14 @@ def _read_mask_by_aoi(
             pixel_area = abs(float(transform.a) * float(transform.e))
         except AttributeError:
             pass
-    return arr, pixel_area, region_id
+    arr, _ = apply_landcover_mask(
+        arr,
+        transform=transform,
+        target_crs=src.crs,
+        roi_mask=roi_mask,
+        lc_cfg=lc_cfg,
+    )
+    return arr, roi_mask, transform, pixel_area, region_id, src.crs
 
 
 def _compute_fraction(
@@ -160,14 +206,14 @@ def compute_wet_snow_fraction_from_raster(
     wet_values: Sequence[int],
     valid_values: Sequence[int] | None = None,
     exclude_values: Sequence[int] | None = None,
-    glacier_path: Path | None = None,
+    landcover_cfg: LandcoverMaskConfig,
 ) -> WetSnowStats:
     """Compute wet-snow coverage from an arbitrary categorical raster."""
 
-    arr, pixel_area, region_id = _read_mask_by_aoi(
+    arr, roi_mask, transform, pixel_area, region_id, crs = _read_mask_by_aoi(
         Path(raster_path),
         Path(aoi_path),
-        glacier_path=glacier_path,
+        lc_cfg=landcover_cfg,
     )
     return _compute_fraction(
         arr,
@@ -181,22 +227,24 @@ def compute_wet_snow_fraction_from_raster(
 
 def compute_model_wet_snow_fraction(
     *,
+    project_dir: Path,
     results_dir: Path,
     aoi_path: Path,
-    glacier_path: Path | None = None,
+    landcover_cfg: LandcoverMaskConfig | None = None,
     date: datetime,
     mask_subdir: str = "wet_snow",
     mask_prefix: str = "wet_snow_mask",
 ) -> dict:
     """Compute AOI wet-snow fraction for one member/date."""
 
+    lc_cfg = landcover_cfg or resolve_landcover_mask(Path(project_dir))
     raster = _find_mask_raster(Path(results_dir), date, subdir=mask_subdir, prefix=mask_prefix)
     stats = compute_wet_snow_fraction_from_raster(
         raster,
         aoi_path,
         wet_values=_MODEL_WET,
         valid_values=_MODEL_VALID,
-        glacier_path=glacier_path,
+        landcover_cfg=lc_cfg,
     )
     member_id = member_id_from_results_dir(Path(results_dir))
     return {
@@ -214,9 +262,10 @@ def compute_model_wet_snow_fraction(
 
 def compute_member_wet_snow_daily(
     *,
+    project_dir: Path,
     results_dir: Path,
     aoi_path: Path,
-    glacier_path: Path | None = None,
+    landcover_cfg: LandcoverMaskConfig | None = None,
     start: datetime,
     end: datetime,
     mask_subdir: str = "wet_snow",
@@ -224,6 +273,7 @@ def compute_member_wet_snow_daily(
 ) -> pd.DataFrame:
     """Return daily wet-snow fraction inside the AOI for a member."""
 
+    lc_cfg = landcover_cfg or resolve_landcover_mask(Path(project_dir))
     start_day = datetime(start.year, start.month, start.day)
     end_day = datetime(end.year, end.month, end.day)
     if end_day < start_day:
@@ -234,9 +284,10 @@ def compute_member_wet_snow_daily(
     for dt in dates:
         try:
             stats = compute_model_wet_snow_fraction(
+                project_dir=Path(project_dir),
                 results_dir=Path(results_dir),
                 aoi_path=Path(aoi_path),
-                glacier_path=Path(glacier_path) if glacier_path else None,
+                landcover_cfg=lc_cfg,
                 date=dt,
                 mask_subdir=mask_subdir,
                 mask_prefix=mask_prefix,
@@ -266,11 +317,12 @@ def _compute_member_daily_worker(
     """Worker: compute wet-snow daily series for a single member results dir."""
     mask_subdir = str(extra.get("mask_subdir", "wet_snow"))
     mask_prefix = str(extra.get("mask_prefix", "wet_snow_mask"))
-    glacier_path = extra.get("glacier_path")
+    lc_cfg = _deserialize_lc_cfg(extra.get("landcover_cfg"))
     df = compute_member_wet_snow_daily(
+        project_dir=Path(extra["project_dir"]),
         results_dir=results_dir,
         aoi_path=aoi_path,
-        glacier_path=Path(glacier_path) if glacier_path else None,
+        landcover_cfg=lc_cfg,
         start=start,
         end=end,
         mask_subdir=mask_subdir,
@@ -287,9 +339,10 @@ def _compute_member_daily_worker(
 
 def compute_step_wet_snow_daily_for_all_members(
     *,
+    project_dir: Path,
     step_dir: Path,
     aoi_path: Path,
-    glacier_path: Path | None = None,
+    landcover_cfg: LandcoverMaskConfig | None = None,
     max_workers: int = 4,
     overwrite: bool = False,
     mask_subdir: str = "wet_snow",
@@ -299,6 +352,7 @@ def compute_step_wet_snow_daily_for_all_members(
 
     step_dir = Path(step_dir)
     aoi_path = Path(aoi_path)
+    lc_cfg = landcover_cfg or resolve_landcover_mask(Path(project_dir))
 
     logger.info("Computing wet-snow daily fractions for {}", step_dir.name)
 
@@ -318,23 +372,26 @@ def compute_step_wet_snow_daily_for_all_members(
         worker_kwargs={
             "mask_subdir": mask_subdir,
             "mask_prefix": mask_prefix,
-            "glacier_path": str(glacier_path) if glacier_path else None,
+            "landcover_cfg": _serialize_lc_cfg(lc_cfg),
+            "project_dir": str(project_dir),
         },
     )
 
 
 def summarize_s1_directory(
     *,
+    project_dir: Path,
     raster_dir: Path,
     aoi_path: Path,
     output_csv: Path,
-    glacier_path: Path | None = None,
+    landcover_cfg: LandcoverMaskConfig | None = None,
     overwrite: bool = False,
     start: datetime | None = None,
     end: datetime | None = None,
 ) -> Path:
     """Summarize Sentinel-1 wet-snow maps into one CSV (date, fraction)."""
 
+    lc_cfg = landcover_cfg or resolve_landcover_mask(Path(project_dir))
     if output_csv.exists() and not overwrite:
         return output_csv
 
@@ -356,7 +413,7 @@ def summarize_s1_directory(
                 wet_values=_S1_WET,
                 valid_values=_S1_VALID,
                 exclude_values=_S1_EXCLUDE,
-                glacier_path=glacier_path,
+                landcover_cfg=lc_cfg,
             )
         except Exception as exc:
             logger.warning("Skipping {}: {}", tif.name, exc)
@@ -424,6 +481,7 @@ def cli_model(argv: list[str] | None = None) -> int:
         prog="oa-da-model-wet-snow",
         description="Compute AOI wet-snow fraction for one member/date.",
     )
+    parser.add_argument("--project-dir", required=True, type=Path, help="Project root containing project.yml")
     parser.add_argument("--member-results", required=True, type=Path, help="Member results directory (contains wet_snow/)")
     parser.add_argument("--aoi", "--roi", dest="aoi", required=True, type=Path, help="Single-feature ROI vector file")
     parser.add_argument("--date", required=True, type=str, help="Date YYYY-MM-DD")
@@ -443,9 +501,12 @@ def cli_model(argv: list[str] | None = None) -> int:
         return 2
 
     try:
+        lc_cfg = resolve_landcover_mask(Path(args.project_dir))
         stats = compute_model_wet_snow_fraction(
+            project_dir=Path(args.project_dir),
             results_dir=Path(args.member_results),
             aoi_path=Path(args.aoi),
+            landcover_cfg=lc_cfg,
             date=dt,
             mask_subdir=args.mask_subdir,
             mask_prefix=args.mask_prefix,
@@ -492,6 +553,7 @@ def cli_model_season(argv: list[str] | None = None) -> int:
         prog="oa-da-model-wet-snow-season-daily",
         description="Compute daily AOI wet-snow fractions for all prior members in a season.",
     )
+    parser.add_argument("--project-dir", required=True, type=Path, help="Project root containing project.yml")
     parser.add_argument("--season-dir", required=True, type=Path, help="Season directory containing step_* folders")
     parser.add_argument("--aoi", "--roi", dest="aoi", required=True, type=Path, help="Single-feature ROI vector")
     parser.add_argument("--max-workers", type=int, default=4)
@@ -508,12 +570,15 @@ def cli_model_season(argv: list[str] | None = None) -> int:
     if not steps:
         logger.error("No steps found under {}", args.season_dir)
         return 1
+    lc_cfg = resolve_landcover_mask(Path(args.project_dir))
 
     for step in steps:
         try:
             compute_step_wet_snow_daily_for_all_members(
+                project_dir=Path(args.project_dir),
                 step_dir=step,
                 aoi_path=Path(args.aoi),
+                landcover_cfg=lc_cfg,
                 max_workers=int(args.max_workers or 1),
                 overwrite=bool(args.overwrite),
                 mask_subdir=args.mask_subdir,
@@ -534,9 +599,9 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
         prog="oa-da-wet-snow-s1",
         description="Aggregate Sentinel-1 WSM wet-snow rasters into a CSV summary.",
     )
-    parser.add_argument("--project-dir", type=Path, help="Project root; defaults raster-dir=<project>/obs/WSM_S1_SAR and aoi=<project>/env/*.gpkg|*.shp")
-    parser.add_argument("--raster-dir", type=Path, help="Directory with WSM_S1*_*.tif rasters (default: <project>/obs/WSM_S1_SAR when project-dir is set)")
-    parser.add_argument("--aoi", "--roi", dest="aoi", type=Path, help="Single-feature ROI vector (default: env/roi.gpkg or first *.gpkg/*.shp in <project>/env when project-dir is set)")
+    parser.add_argument("--project-dir", required=True, type=Path, help="Project root with project.yml and grids/lc_*.asc")
+    parser.add_argument("--raster-dir", type=Path, help="Directory with WSM_S1*_*.tif rasters (default: <project>/obs/WSM_S1_SAR)")
+    parser.add_argument("--aoi", "--roi", dest="aoi", type=Path, help="Single-feature ROI vector (default: <project>/env/roi.gpkg)")
     parser.add_argument("--output", required=True, type=Path, help="Output CSV (e.g., wet_snow_summary.csv)")
     parser.add_argument("--season-label", type=str, help="Season label to bound dates (default: inferred from output path name season_YYYY-YYYY when possible)")
     parser.add_argument("--overwrite", action="store_true")
@@ -546,54 +611,47 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
     logger.remove()
     logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
-    # Derive defaults from project dir if provided.
-    proj_dir: Optional[Path] = Path(args.project_dir) if args.project_dir else None
+    proj_dir: Path = Path(args.project_dir)
     raster_dir: Optional[Path] = Path(args.raster_dir) if args.raster_dir else None
     aoi_path: Optional[Path] = Path(args.aoi) if args.aoi else None
     season_label: Optional[str] = args.season_label
 
-    if proj_dir is not None:
-        if raster_dir is None:
-            cand = proj_dir / "obs" / "WSM_S1_SAR"
-            if not cand.is_dir():
-                logger.error("Default raster dir not found: {}", cand)
+    if raster_dir is None:
+        cand = proj_dir / "obs" / "WSM_S1_SAR"
+        if not cand.is_dir():
+            logger.error("Default raster dir not found: {}", cand)
+            return 1
+        raster_dir = cand
+    if aoi_path is None:
+        env_dir = proj_dir / "env"
+        roi = env_dir / "roi.gpkg"
+        if roi.is_file():
+            aoi_path = roi
+        else:
+            candidates = sorted(list(env_dir.glob("*.gpkg")) + list(env_dir.glob("*.shp")))
+            if not candidates:
+                logger.error("No AOI found under {}", env_dir)
                 return 1
-            raster_dir = cand
-        if aoi_path is None:
-            env_dir = proj_dir / "env"
-            roi = env_dir / "roi.gpkg"
-            if roi.is_file():
-                aoi_path = roi
-            else:
-                candidates = sorted(list(env_dir.glob("*.gpkg")) + list(env_dir.glob("*.shp")))
-                if not candidates:
-                    logger.error("No AOI found under {}", env_dir)
-                    return 1
-                if len(candidates) > 1:
-                    logger.error("Expected roi.gpkg under {}; found multiple candidates. Please pass --aoi.", env_dir)
-                    return 1
-                aoi_path = candidates[0]
-        if season_label is None and args.output:
-            parent = Path(args.output).parent.name
-            if parent.startswith("season_"):
-                season_label = parent
-        glacier_cfg = resolve_glacier_mask(proj_dir)
-        glacier_path = glacier_cfg.path if glacier_cfg.enabled else None
-    else:
-        glacier_path = None
+            if len(candidates) > 1:
+                logger.error("Expected roi.gpkg under {}; found multiple candidates. Please pass --aoi.", env_dir)
+                return 1
+            aoi_path = candidates[0]
+    if season_label is None and args.output:
+        parent = Path(args.output).parent.name
+        if parent.startswith("season_"):
+            season_label = parent
 
-    if raster_dir is None or aoi_path is None:
-        logger.error("Both --raster-dir and --roi/--aoi are required when --project-dir is not provided.")
-        return 1
+    lc_cfg = resolve_landcover_mask(proj_dir)
 
     season_dates = _resolve_season_dates(proj_dir, season_label) if proj_dir and season_label else None
 
     try:
         out_csv = summarize_s1_directory(
+            project_dir=proj_dir,
             raster_dir=raster_dir,
             aoi_path=aoi_path,
             output_csv=Path(args.output),
-            glacier_path=glacier_path,
+            landcover_cfg=lc_cfg,
             overwrite=bool(args.overwrite),
             start=season_dates["start"] if season_dates else None,
             end=season_dates["end"] if season_dates else None,

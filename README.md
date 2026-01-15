@@ -65,7 +65,8 @@ This repo expects your project to follow the fixed layout shown below. Commands 
 project/
   env/
     roi.gpkg                # single ROI (preferred name)
-    glaciers.gpkg           # optional glacier outlines
+  grids/
+    lc_<domain>_<resolution>.asc  # land-cover classes used for masking
   meteo/
     stations.csv
     <station>.csv           # long-span forcing inputs
@@ -100,20 +101,19 @@ and naming conventions.
 - `propagation/season_X/step_Y/ensembles/prior` is created automatically by `season.py` (using `${project}/meteo` for forcing); you only need to ensure the step YAMLs and meteorological inputs exist.
 - Observations (MODIS preprocessed GeoTIFFs ? CSV) live under `obs/season_X`; the pipeline assumes the CSVs follow `obs_scf_MOD10A1_YYYYMMDD.csv`.
 - ROI vector: `env/roi.gpkg` (single feature) is the default for all masking; other vectors under `env/` are ignored unless you explicitly pass a different ROI.
-- Glacier masking (optional but recommended for SCF/wet-snow DA): place a glacier outline at `env/glaciers.gpkg` (may contain many polygons; only those intersecting the ROI are used). When enabled, glaciers are subtracted from the ROI for model H(x), wet-snow fractions, and FSC/S1 summaries so firn/ice pixels are excluded before comparing model vs obs. Toggle via `project.yml`:
+- Land-cover masking (applied to obs + model SCF/wet-snow): the land-cover ASCII grid is auto-resolved as `grids/lc_<domain>_<resolution>.asc` from `project.yml`. Excluded classes are configured in `data_assimilation.landcover_mask.classes_to_exclude` (defaults: 2 ice, 8-12 forests/mixed, 13 built-up; class list: 1 rock, 2 ice, 3 water, 4 grassland, 5 shrubland, 6 farmland, 7 transitional, 8 deciduous 30-60, 9 deciduous 60-100, 10 mixed, 11 coniferous 30-60, 12 coniferous 60-100, 13 built-up). The pipeline logs a warning if >50% of the ROI is excluded and fails if 100% would be masked.
 
 ```yaml
 data_assimilation:
-  glacier_mask:
-    enabled: true # default: auto-on when env/glaciers.gpkg exists
-    path: env/glaciers.gpkg # optional override
+  landcover_mask:
+    enabled: true
+    classes_to_exclude: [2, 8, 9, 10, 11, 12, 13]
 ```
 
-Why glacier masking matters
+Why land-cover masking matters
 
-- openAMUNDSEN (multilayer, seasonal snow) does not represent firn/ice, but SCF/FSC and wet-snow products see all bright or radar-wet surfaces (snow + firn + ice), especially on glaciers.
-- Comparing unmasked obs to a seasonal-snow-only model biases both diagnostics and assimilation.
-- Masking out glaciers keeps model vs obs consistent by removing firn/ice pixels from both sides.
+- Dense forest and built-up surfaces often hide snow in satellite products while the model may still simulate snow below canopy or within cities. Ice/glacier classes are also excluded by default via the land-cover grid.
+- Masking keeps model vs obs consistent by removing pixels where observation/model support diverges.
 
 ## Workflow/Commands
 

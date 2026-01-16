@@ -38,6 +38,10 @@ This replaces the old GitHub Pages site.
 The `.env` file is read automatically by `docker compose` from the repo root.
 Keep `.env` machine-specific and untracked; `.env.example` is the template you
 should commit to the repo.
+- Per-user Compose settings: set `REPO`/`PROJ` (bind mounts) and, on Linux, set
+  `UID`/`GID` in your local `.env` so containers write as your host user. CPU and
+  memory limits come from `CPUS`/`MEMORY` in `.env`; adjust locally without
+  touching `compose.yml`.
 
 ## Project Variables
 

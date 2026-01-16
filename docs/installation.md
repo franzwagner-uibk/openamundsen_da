@@ -75,6 +75,9 @@ Edit `.env` with your local paths:
 # .env file
 REPO=/path/to/openamundsen_da        # Repository root on your machine
 PROJ=/path/to/your/project           # Your project data directory
+# Optional (Linux/macOS): map container user to host user to avoid root-owned files
+# UID=1000
+# GID=1000
 CPUS=8                               # Number of CPUs for Docker
 MEMORY=16G                           # Memory limit for Docker
 MAX_WORKERS=7                        # Default max parallel workers
@@ -82,6 +85,7 @@ MAX_WORKERS=7                        # Default max parallel workers
 
 {: .note }
 > The `.env` file is machine-specific and should not be committed to Git. It's already in `.gitignore`.
+> Compose pins OMP/BLAS threads to 1 inside the container; you don't need an `OMP_THREADS` entry.
 
 ### 4. Verify Installation
 

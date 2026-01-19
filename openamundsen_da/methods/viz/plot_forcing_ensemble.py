@@ -31,7 +31,14 @@ from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.io.paths import list_member_dirs, read_step_config, list_station_files_forcing
-from openamundsen_da.util.ts import apply_window, resample_and_smooth, cumulative_hydro, read_timeseries_csv
+from openamundsen_da.util.ts import (
+    apply_window,
+    resample_and_smooth,
+    cumulative_hydro,
+    read_timeseries_csv,
+    parse_time_column,
+    collapse_duplicates,
+)
 from openamundsen_da.util.stats import envelope
 from openamundsen_da.methods.viz._style import (
     COLOR_MEAN,
@@ -75,12 +82,18 @@ def _parse_time_index(df: pd.DataFrame, time_col: str) -> pd.DataFrame:
 
 
 def _read_station_series(csv_path: Path, time_col: str, temp_col: str, precip_col: str) -> pd.DataFrame:
-    """Thin wrapper around util.ts.read_timeseries_csv."""
-    cols: List[str] = []
-    # We request both, then drop missing after
-    cols = [c for c in (temp_col, precip_col) if c]
-    df = read_timeseries_csv(csv_path, time_col, cols)
-    return df
+    """Read available temp/precip columns; tolerate missing precip."""
+    df_raw = pd.read_csv(csv_path)
+    if time_col not in df_raw.columns:
+        raise ValueError(f"Missing time column '{time_col}' in {Path(csv_path).name}")
+    cols = [c for c in (temp_col, precip_col) if c and c in df_raw.columns]
+    if not cols:
+        raise ValueError(f"No requested columns present in {Path(csv_path).name}")
+    idx = parse_time_column(df_raw[time_col])
+    df = pd.DataFrame({c: pd.to_numeric(df_raw[c], errors="coerce") for c in cols})
+    df.index = idx
+    df = df[~df.index.isna()]
+    return collapse_duplicates(df)
 
 
     # removed: use util.ts and util.stats helpers

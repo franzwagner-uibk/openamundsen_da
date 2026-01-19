@@ -633,12 +633,26 @@ def run_season(cfg: OrchestratorConfig) -> None:
             else:
                 patterns = state_patterns_from_project(cfg.project_dir)
                 summary = cleanup_season_dir(project_dir=cfg.project_dir, season_dir=cfg.season_dir, patterns=patterns)
-                logger.info(
-                    "Season cleanup removed {} file(s), freed {:.1f} MB (patterns={})",
-                    summary.files_deleted,
-                    summary.bytes_freed / 1_000_000.0,
-                    ",".join(summary.patterns),
-                )
+                patt = ",".join(summary.patterns)
+                if summary.attempted == 0:
+                    logger.info("Season cleanup: no matching state files found (patterns={})", patt)
+                elif summary.failures:
+                    logger.warning(
+                        "Season cleanup completed with {} failure(s): deleted {}/{} file(s), freed {:.1f} MB (patterns={})",
+                        summary.failures,
+                        summary.files_deleted,
+                        summary.attempted,
+                        summary.bytes_freed / 1_000_000.0,
+                        patt,
+                    )
+                else:
+                    logger.info(
+                        "Season cleanup succeeded: deleted {}/{} file(s), freed {:.1f} MB (patterns={})",
+                        summary.files_deleted,
+                        summary.attempted,
+                        summary.bytes_freed / 1_000_000.0,
+                        patt,
+                    )
         else:
             logger.info("Season cleanup disabled via project.yml (data_assimilation.restart.cleanup_after_season=false).")
     except Exception as exc:

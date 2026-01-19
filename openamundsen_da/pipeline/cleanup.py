@@ -91,6 +91,7 @@ class CleanupSummary:
     files_deleted: int
     bytes_freed: int
     attempted: int
+    failures: int
 
 
 def cleanup_season_dir(
@@ -126,6 +127,7 @@ def cleanup_season_dir(
 
     bytes_freed = 0
     deleted = 0
+    failures = 0
     for f in files:
         try:
             size = f.stat().st_size
@@ -138,6 +140,7 @@ def cleanup_season_dir(
             logger.debug("Deleted state file {}", f)
         except Exception as exc:
             logger.warning("Could not delete {}: {}", f, exc)
+            failures += 1
 
     return CleanupSummary(
         season_dir=season_dir,
@@ -145,6 +148,7 @@ def cleanup_season_dir(
         files_deleted=deleted,
         bytes_freed=bytes_freed,
         attempted=len(files),
+        failures=failures,
     )
 
 
@@ -188,13 +192,28 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
             return 1
         total_files += summary.files_deleted
         total_bytes += summary.bytes_freed
-        logger.info(
-            "Cleaned {} -> removed {} file(s), freed {:.1f} MB (patterns={})",
-            s,
-            summary.files_deleted,
-            summary.bytes_freed / 1_000_000.0,
-            ",".join(summary.patterns),
-        )
+        patterns_str = ",".join(summary.patterns)
+        if summary.attempted == 0:
+            logger.info("Cleaned {} -> no matching state files found (patterns={})", s, patterns_str)
+        elif summary.failures:
+            logger.warning(
+                "Cleaned {} -> deleted {}/{} file(s), {} failure(s), freed {:.1f} MB (patterns={})",
+                s,
+                summary.files_deleted,
+                summary.attempted,
+                summary.failures,
+                summary.bytes_freed / 1_000_000.0,
+                patterns_str,
+            )
+        else:
+            logger.info(
+                "Cleaned {} -> deleted {}/{} file(s), freed {:.1f} MB (patterns={})",
+                s,
+                summary.files_deleted,
+                summary.attempted,
+                summary.bytes_freed / 1_000_000.0,
+                patterns_str,
+            )
 
     logger.info(
         "Cleanup complete | seasons={} files={} freed={:.1f} MB",

@@ -17,6 +17,7 @@ Minimal CLI; defaults handle all formats/columns/behavior without user choices.
 from __future__ import annotations
 
 import shutil
+import threading
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -36,6 +37,7 @@ from openamundsen_da.util.landcover_mask import (
     summarize_landcover_mask,
     write_landcover_mask_report,
 )
+from openamundsen_da.util.parallel import pick_max_workers
 from openamundsen_da.util.da_events import load_assimilation_events, AssimilationEvent
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.util.ts import parse_datetime_opt
@@ -55,6 +57,21 @@ from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_e
 from openamundsen_da.observer.plot_fractions import cli_main as plot_fractions_cli
 from openamundsen_da.methods.viz.plot_season_ensemble import plot_season_results
 from openamundsen_da.methods.viz.plot_forcing_ensemble import cli_main as plot_forcing_cli
+from openamundsen_da.util.da_events import AssimilationEvent
+
+# Map assimilation variables to the diagnostics/plots we should run.
+# Extend this mapping when new observables are added.
+DA_DIAGNOSTICS = {
+    "scf": {
+        "model_daily": True,
+        "plots": True,
+    },
+    "wet_snow": {
+        "wet_classify": True,
+        "wet_daily": True,
+        "wet_plots": True,
+    },
+}
 
 
 def _list_steps_sorted(season_dir: Path) -> List[Path]:
@@ -159,8 +176,16 @@ def _aggregate_fraction_envelopes(season_dir: Path) -> None:
         logger.warning("Wet-snow envelope aggregation failed: {}", exc)
 
 
-def _run_live_plots(cfg: OrchestratorConfig, step_dir: Path, step_name: str, wcsv: Path) -> None:
-    """Run per-step plotting suite and restore orchestrator logging."""
+def _run_live_plots(
+    cfg: OrchestratorConfig,
+    step_dir: Path,
+    step_name: str,
+    wcsv: Path,
+    *,
+    reset_logger: bool = True,
+    wet_snow_enabled: bool = True,
+) -> None:
+    """Run per-step plotting suite."""
     try:
         logger.info("Updating season plots after assimilation step {} ...", step_name)
         _aggregate_fraction_envelopes(cfg.season_dir)
@@ -206,7 +231,8 @@ def _run_live_plots(cfg: OrchestratorConfig, step_dir: Path, step_name: str, wcs
     except Exception as exc:
         logger.warning("Season plotting failed after step {}: {}", step_name, exc)
     finally:
-        _setup_logger(cfg.season_dir, cfg.log_level)
+        if reset_logger:
+            _setup_logger(cfg.season_dir, cfg.log_level)
 
 
 @dataclass
@@ -239,6 +265,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
     if not steps:
         raise FileNotFoundError(f"No steps found under {cfg.season_dir}")
     logger.info("Discovered {} step(s)", len(steps))
+    workers = pick_max_workers(cfg.max_workers)
 
     # Ensure first step has its prior ensemble (project/meteo is required)
     if steps:
@@ -250,6 +277,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
         input_meteo_dir=meteo_dir,
         project_dir=cfg.project_dir,
         step_dir=steps[0],
+        max_workers=int(workers),
         overwrite=bool(cfg.overwrite),
     )
 
@@ -314,6 +342,23 @@ def run_season(cfg: OrchestratorConfig) -> None:
         )
     if len(events) > n_expected:
         logger.warning("More assimilation events ({}) than steps needing DA ({}); extra events will be ignored.", len(events), n_expected)
+    vars_used = {getattr(ev, "variable", None) for ev in events if getattr(ev, "variable", None)}
+    scf_enabled = "scf" in vars_used
+    wet_snow_enabled = "wet_snow" in vars_used
+    if not vars_used:
+        logger.info("No assimilation events found; skipping SCF/wet-snow diagnostics (explicit variables only).")
+        scf_enabled = False
+        wet_snow_enabled = False
+    else:
+        logger.info("Assimilation variables detected: {}", ", ".join(sorted(vars_used)))
+        if wet_snow_enabled:
+            logger.info("Wet-snow diagnostics enabled (wet_snow present in assimilation_events).")
+        else:
+            logger.info("Wet-snow diagnostics disabled (wet_snow not in assimilation_events).")
+        if scf_enabled:
+            logger.info("SCF diagnostics enabled (scf present in assimilation_events).")
+        else:
+            logger.info("SCF diagnostics disabled (scf not in assimilation_events).")
 
     # Approximate AOI area in km2 for performance summary
     roi_area_km2 = None
@@ -370,15 +415,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
             season_dir=cfg.season_dir,
             sample_interval_sec=float(cfg.perf_sample_interval or 5.0),
             plot_interval_sec=float(cfg.perf_plot_interval or 30.0),
-            roi_area_km2=roi_area_km2,
-            resolution_m=proj_resolution,
-            timestep=proj_timestep,
-            season_days=season_days,
-            num_da_dates=len(events),
-            num_workers=int(cfg.max_workers),
-            ensemble_size=ensemble_size,
             run_start=run_start,
-            tz_offset_hours=None,
         )
         perf_stop_event = start_perf_monitor(pm_cfg)
 
@@ -390,13 +427,13 @@ def run_season(cfg: OrchestratorConfig) -> None:
         logger.info("== Step {} ==", step_name)
 
         # Launch ensemble (runner enforces strict cold/warm semantics by step)
-        logger.info("Launching ensemble (prior) with max_workers={} overwrite={} ...", cfg.max_workers, cfg.overwrite)
+        logger.info("Launching ensemble (prior) with max_workers={} overwrite={} ...", workers, cfg.overwrite)
         launch_summary = launch_members(
             project_dir=cfg.project_dir,
             season_dir=cfg.season_dir,
             step_dir=step_dir,
             ensemble="prior",
-            max_workers=int(cfg.max_workers),
+            max_workers=int(workers),
             overwrite=bool(cfg.overwrite),
             results_root=None,
             log_level=cfg.log_level,
@@ -409,14 +446,15 @@ def run_season(cfg: OrchestratorConfig) -> None:
         # this step so that season-level plots can use var_col='scf' via the
         # generated point_scf_roi.csv files.
         try:
-            compute_step_scf_daily_for_all_members(
-                project_dir=cfg.project_dir,
-                step_dir=step_dir,
-                aoi_path=roi,
-                landcover_cfg=lc_cfg,
-                max_workers=int(cfg.max_workers),
-                overwrite=bool(cfg.overwrite),
-            )
+            if scf_enabled:
+                compute_step_scf_daily_for_all_members(
+                    project_dir=cfg.project_dir,
+                    step_dir=step_dir,
+                    aoi_path=roi,
+                    landcover_cfg=lc_cfg,
+                    max_workers=int(workers),
+                    overwrite=bool(cfg.overwrite),
+                )
         except Exception as exc:
             logger.warning("Model SCF daily computation failed for {}: {}", step_name, exc)
 
@@ -425,26 +463,28 @@ def run_season(cfg: OrchestratorConfig) -> None:
         # wet-snow plots are always available regardless of which observable
         # is assimilated.
         try:
-            classify_step_wet_snow(
-                step_dir=step_dir,
-                members=None,
-                threshold_percent=wet_snow_threshold,
-                output_subdir="wet_snow",
-                mask_prefix="wet_snow_mask",
-                fraction_prefix="lwc_fraction",
-                write_fraction=False,
-                overwrite=bool(cfg.overwrite),
-            )
-            compute_step_wet_snow_daily_for_all_members(
-                project_dir=cfg.project_dir,
-                step_dir=step_dir,
-                aoi_path=roi,
-                landcover_cfg=lc_cfg,
-                max_workers=int(cfg.max_workers),
-                overwrite=bool(cfg.overwrite),
-                mask_subdir="wet_snow",
-                mask_prefix="wet_snow_mask",
-            )
+            if wet_snow_enabled:
+                classify_step_wet_snow(
+                    step_dir=step_dir,
+                    members=None,
+                    threshold_percent=wet_snow_threshold,
+                    output_subdir="wet_snow",
+                    mask_prefix="wet_snow_mask",
+                    fraction_prefix="lwc_fraction",
+                    write_fraction=False,
+                    overwrite=bool(cfg.overwrite),
+                    max_workers=int(workers),
+                )
+                compute_step_wet_snow_daily_for_all_members(
+                    project_dir=cfg.project_dir,
+                    step_dir=step_dir,
+                    aoi_path=roi,
+                    landcover_cfg=lc_cfg,
+                    max_workers=int(workers),
+                    overwrite=bool(cfg.overwrite),
+                    mask_subdir="wet_snow",
+                    mask_prefix="wet_snow_mask",
+                )
         except Exception as exc:
             logger.warning("Model wet-snow diagnostics failed for {}: {}", step_name, exc)
 
@@ -620,7 +660,13 @@ def run_season(cfg: OrchestratorConfig) -> None:
         # are written with deterministic filenames and therefore overwritten on
         # each update.
         if cfg.live_plots:
-            _run_live_plots(cfg, step_dir, step_name, wcsv)
+            logger.info("Dispatching live plots in background for {} ...", step_name)
+            threading.Thread(
+                target=_run_live_plots,
+                args=(cfg, step_dir, step_name, wcsv),
+                kwargs={"reset_logger": False, "wet_snow_enabled": wet_snow_enabled},
+                daemon=True,
+            ).start()
 
     # Final assimilation-level plots (weights per step + ESS timeline),
     # regardless of live_plots. Best-effort: failures do not abort.
@@ -718,7 +764,12 @@ def cli(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(prog="oa-da-season", description="Process a full season: run steps, assimilate, resample, rejuvenate, plot.")
     p.add_argument("--project-dir", required=True, type=Path)
     p.add_argument("--season-dir", required=True, type=Path)
-    p.add_argument("--max-workers", type=int, default=4)
+    p.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        help="Max workers (overrides MAX_WORKERS env). Defaults to min(CPU, #members).",
+    )
     p.add_argument("--overwrite", action="store_true")
     p.add_argument(
         "--no-live-plots",
@@ -746,11 +797,13 @@ def cli(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(argv)
 
+    resolved_workers = pick_max_workers(args.max_workers, fallback=4)
+
     run_season(
         OrchestratorConfig(
             project_dir=Path(args.project_dir),
             season_dir=Path(args.season_dir),
-            max_workers=int(args.max_workers or 4),
+            max_workers=int(resolved_workers),
             overwrite=bool(args.overwrite),
             log_level=str(args.log_level or "INFO"),
             live_plots=bool(getattr(args, "live_plots", True)),

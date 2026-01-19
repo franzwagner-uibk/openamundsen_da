@@ -461,7 +461,7 @@ oa-da-plot-ess --season-dir PATH  # Season-wide
 
 **Performance monitoring**
 
-Standalone performance monitor (can attach to running season).
+Standalone performance monitor (CPU/RAM% + season disk size) that can attach to a running season.
 
 ```bash
 oa-da-perf-monitor \
@@ -470,9 +470,11 @@ oa-da-perf-monitor \
   [--plot-interval SEC]
 ```
 
+Suggested intervals: sample every 5–10 seconds; refresh the plot every 30–60 seconds.
+
 **Output:**
 - `plots/perf/season_perf_metrics.csv`
-- `plots/perf/season_perf.png` (live-updated)
+- `plots/perf/season_perf.png` (CPU/RAM% left axis, disk GB right axis)
 
 ---
 

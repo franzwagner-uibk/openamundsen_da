@@ -81,6 +81,7 @@ PROJ=/path/to/your/project           # Your project data directory
 CPUS=8                               # Number of CPUs for Docker
 MEMORY=16G                           # Memory limit for Docker
 MAX_WORKERS=7                        # Default max parallel workers
+# OA_BASE_SEED=1337                  # Optional global base seed for DA stages
 ```
 
 {: .note }

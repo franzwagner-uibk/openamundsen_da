@@ -260,6 +260,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
     run_start = datetime.utcnow()
     # Console + file log under season root (e.g. season_2017-2018/season_2017-2018.log)
     _setup_logger(cfg.season_dir, cfg.log_level)
+    live_plot_threads: list[threading.Thread] = []
 
     steps = _list_steps_sorted(cfg.season_dir)
     if not steps:
@@ -661,15 +662,22 @@ def run_season(cfg: OrchestratorConfig) -> None:
         # each update.
         if cfg.live_plots:
             logger.info("Dispatching live plots in background for {} ...", step_name)
-            threading.Thread(
+            t = threading.Thread(
                 target=_run_live_plots,
                 args=(cfg, step_dir, step_name, wcsv),
                 kwargs={"reset_logger": False, "wet_snow_enabled": wet_snow_enabled},
-                daemon=True,
-            ).start()
+                daemon=False,
+            )
+            t.start()
+            live_plot_threads.append(t)
 
     # Final assimilation-level plots (weights per step + ESS timeline),
     # regardless of live_plots. Best-effort: failures do not abort.
+    for t in live_plot_threads:
+        try:
+            t.join()
+        except Exception:
+            pass
     try:
         for step_dir in steps:
             assim_dir = Path(step_dir) / "assim"

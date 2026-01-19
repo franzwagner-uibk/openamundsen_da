@@ -7,6 +7,7 @@ grid, and applies the requested exclusions.
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -17,14 +18,31 @@ import rasterio
 from affine import Affine
 from loguru import logger
 from pyproj import CRS
+from rasterio.mask import mask as rio_mask
 from rasterio.warp import Resampling, reproject
 
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml
+from openamundsen_da.util.roi import read_single_roi
 
 LC_MASK_BLOCK = "landcover_mask"
 LC_MASK_ENABLED = "enabled"
 LC_MASK_CLASSES = "classes_to_exclude"
+_LC_CLASS_NAMES = {
+    1: "rock",
+    2: "ice",
+    3: "water",
+    4: "grassland",
+    5: "shrubland",
+    6: "farmland",
+    7: "transitional",
+    8: "deciduous 30-60",
+    9: "deciduous 60-100",
+    10: "mixed forest",
+    11: "coniferous 30-60",
+    12: "coniferous 60-100",
+    13: "built-up",
+}
 
 
 @dataclass(frozen=True)
@@ -33,6 +51,25 @@ class LandcoverMaskConfig:
     path: Path | None
     classes: tuple[int, ...]
     project_crs: CRS
+
+
+@dataclass(frozen=True)
+class LandcoverMaskClassSummary:
+    code: str
+    name: str
+    cells: int
+    area_km2: float
+    percent_of_roi: float | None
+
+
+@dataclass(frozen=True)
+class LandcoverMaskSummary:
+    roi_area_km2: float | None
+    total_roi_cells: int
+    pixel_area_m2: float
+    masked_cells: int
+    masked_area_km2: float
+    classes: tuple[LandcoverMaskClassSummary, ...]
 
 
 def _format_resolution(resolution: object) -> str:
@@ -195,8 +232,117 @@ def apply_landcover_mask(
     return masked, excluded_pct
 
 
+def summarize_landcover_mask(roi_path: Path, lc_cfg: LandcoverMaskConfig) -> LandcoverMaskSummary:
+    """Summarize excluded land-cover classes within the ROI.
+
+    Returns counts, areas, and percentages for each masked class. Raises on
+    missing CRS or mask data; otherwise attempts best-effort reporting.
+    """
+    if not lc_cfg.enabled:
+        raise ValueError("Land-cover mask is disabled; no summary available")
+    if lc_cfg.path is None:
+        raise ValueError("Land-cover mask is enabled but no mask path is configured")
+
+    roi_gdf, _ = read_single_roi(Path(roi_path), required_field=None, to_crs=None)
+
+    with rasterio.open(lc_cfg.path) as src:
+        src_crs = src.crs if src.crs is not None else lc_cfg.project_crs
+        if roi_gdf.crs is None:
+            raise ValueError("ROI has no CRS; unable to align with land-cover mask")
+        roi_aligned = roi_gdf.to_crs(src_crs)
+        shapes = [roi_aligned.geometry.iloc[0]]
+
+        data, transform = rio_mask(src, shapes, crop=True, filled=False)
+        arr = np.ma.array(data[0])
+        valid_mask = ~np.ma.getmaskarray(arr)
+        pixel_area_m2 = abs(transform.a * transform.e)
+        roi_cells = int(valid_mask.sum())
+
+        roi_area_m2 = float(roi_aligned.geometry.area.iloc[0]) if roi_aligned.geometry.iloc[0] is not None else None
+
+    values = np.ma.compressed(arr)
+    class_summaries: list[LandcoverMaskClassSummary] = []
+    masked_cells = 0
+    for cls in lc_cfg.classes:
+        count = int(np.count_nonzero(values == cls))
+        masked_cells += count
+        area_km2 = (count * pixel_area_m2) / 1_000_000.0
+        pct = None
+        if roi_area_m2 and roi_area_m2 > 0:
+            pct = (count * pixel_area_m2 / roi_area_m2) * 100.0
+        code = str(int(cls))
+        name = _LC_CLASS_NAMES.get(int(cls), f"class {code}")
+        class_summaries.append(
+            LandcoverMaskClassSummary(
+                code=code,
+                name=name,
+                cells=count,
+                area_km2=area_km2,
+                percent_of_roi=pct,
+            )
+        )
+
+    # Combined forest row (classes 8-12) if any are part of the mask
+    forest_classes = {8, 9, 10, 11, 12}
+    forest_masked = forest_classes.intersection(set(int(c) for c in lc_cfg.classes))
+    if forest_masked:
+        forest_count = sum(cs.cells for cs in class_summaries if int(cs.code) in forest_classes)
+        forest_area_km2 = (forest_count * pixel_area_m2) / 1_000_000.0
+        forest_pct = None
+        if roi_area_m2 and roi_area_m2 > 0:
+            forest_pct = (forest_count * pixel_area_m2 / roi_area_m2) * 100.0
+        class_summaries.append(
+            LandcoverMaskClassSummary(
+                code="8,9,10,11,12",
+                name="forest",
+                cells=forest_count,
+                area_km2=forest_area_km2,
+                percent_of_roi=forest_pct,
+            )
+        )
+
+    masked_area_km2 = (masked_cells * pixel_area_m2) / 1_000_000.0
+    roi_area_km2 = roi_area_m2 / 1_000_000.0 if roi_area_m2 is not None else None
+
+    # Total row across all masked classes
+    total_pct = None
+    if roi_area_m2 and roi_area_m2 > 0:
+        total_pct = (masked_area_km2 * 1_000_000.0 / roi_area_m2) * 100.0
+    class_summaries.append(
+        LandcoverMaskClassSummary(
+            code="total",
+            name="total",
+            cells=masked_cells,
+            area_km2=masked_area_km2,
+            percent_of_roi=total_pct,
+        )
+    )
+
+    return LandcoverMaskSummary(
+        roi_area_km2=roi_area_km2,
+        total_roi_cells=roi_cells,
+        pixel_area_m2=pixel_area_m2,
+        masked_cells=masked_cells,
+        masked_area_km2=masked_area_km2,
+        classes=tuple(class_summaries),
+    )
+
+
+def write_landcover_mask_report(summary: LandcoverMaskSummary, output_path: Path) -> None:
+    """Write a per-class mask summary to CSV."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["class_code", "class_name", "cells", "area_km2", "percent_of_roi"])
+        for cls in summary.classes:
+            pct = "" if cls.percent_of_roi is None else f"{cls.percent_of_roi:.4f}"
+            writer.writerow([cls.code, cls.name, cls.cells, f"{cls.area_km2:.6f}", pct])
+
+
 __all__ = [
     "LandcoverMaskConfig",
     "resolve_landcover_mask",
     "apply_landcover_mask",
+    "summarize_landcover_mask",
+    "write_landcover_mask_report",
 ]

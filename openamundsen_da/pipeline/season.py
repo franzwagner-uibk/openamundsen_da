@@ -31,7 +31,11 @@ from openamundsen_da.core.launch import launch_members
 from openamundsen_da.core.prior_forcing import build_prior_ensemble
 from openamundsen_da.io.paths import read_step_config, find_project_yaml, find_season_yaml
 from openamundsen_da.util.roi import read_single_roi
-from openamundsen_da.util.landcover_mask import resolve_landcover_mask
+from openamundsen_da.util.landcover_mask import (
+    resolve_landcover_mask,
+    summarize_landcover_mask,
+    write_landcover_mask_report,
+)
 from openamundsen_da.util.da_events import load_assimilation_events, AssimilationEvent
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.util.ts import parse_datetime_opt
@@ -318,6 +322,47 @@ def run_season(cfg: OrchestratorConfig) -> None:
         roi_area_km2 = float(gdf.geometry.area.iloc[0]) / 1_000_000.0
     except Exception as exc:
         logger.warning("Perf monitor: failed to compute AOI area: {}", exc)
+
+    # Report land-cover mask coverage within the ROI
+    if lc_cfg.enabled:
+        try:
+            lc_report = summarize_landcover_mask(Path(roi), lc_cfg)
+            lc_report_path = Path(cfg.season_dir) / "plots" / "results" / "lc_mask_report.csv"
+            write_landcover_mask_report(lc_report, lc_report_path)
+            for cls in lc_report.classes:
+                label = cls.name
+                if cls.code != cls.name:
+                    label = f"{cls.name} ({cls.code})"
+                if cls.percent_of_roi is None:
+                    logger.info("LC mask class {}: {} cell(s), {:.3f} km^2", label, cls.cells, cls.area_km2)
+                else:
+                    logger.info(
+                        "LC mask class {}: {} cell(s), {:.3f} km^2 ({:.2f}% of ROI)",
+                        label,
+                        cls.cells,
+                        cls.area_km2,
+                        cls.percent_of_roi,
+                    )
+            if lc_report.roi_area_km2 is not None and lc_report.roi_area_km2 > 0:
+                masked_pct = (lc_report.masked_area_km2 / lc_report.roi_area_km2) * 100.0
+                logger.info(
+                    "LC mask total: masked {} cell(s), {:.3f} km^2 ({:.2f}% of ROI); report -> {}",
+                    lc_report.masked_cells,
+                    lc_report.masked_area_km2,
+                    masked_pct,
+                    lc_report_path,
+                )
+            else:
+                logger.info(
+                    "LC mask total: masked {} cell(s), {:.3f} km^2 (ROI area unknown); report -> {}",
+                    lc_report.masked_cells,
+                    lc_report.masked_area_km2,
+                    lc_report_path,
+                )
+            if roi_area_km2 is None and lc_report.roi_area_km2 is not None:
+                roi_area_km2 = lc_report.roi_area_km2
+        except Exception as exc:
+            logger.warning("Land-cover mask report failed: {}", exc)
 
     perf_stop_event = None
     if cfg.monitor_perf:

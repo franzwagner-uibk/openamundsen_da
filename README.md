@@ -19,7 +19,7 @@ This replaces the old GitHub Pages site.
 - Copy `.env.example` to `.env` (local only, ignored by Git) and edit:
   - `REPO` = path to this repo on your machine
   - `PROJ` = path to your project data
-  - Optional: `CPUS`, `MEMORY`, `MAX_WORKERS`
+  - Optional: `CPUS`, `MEMORY`, `MAX_WORKERS`, `OA_BASE_SEED`
 - Set Compose compatibility if needed: `setx COMPOSE_COMPATIBILITY 1` (Windows) or `export COMPOSE_COMPATIBILITY=1` (Linux/macOS).
 - Volumes: `${REPO}` -> `/workspace`, `${PROJ}` -> `/data`.
 - Docker permissions: ensure your user can access the Docker daemon. On Linux either run with sudo or add yourself to the docker group (sudo usermod -aG docker $USER + re-login); otherwise docker compose will fail with permission denied on /var/run/docker.sock.
@@ -575,44 +575,14 @@ The skeleton uses the `timestep` from `project.yml` (e.g. `3H`, `6H`, `1D`) to d
 
 ### Performance monitoring (CPU / RAM / disk)
 
-The framework includes a lightweight performance monitor that can be used to inspect
-system bottlenecks during a season run.
+A minimal monitor (opt-in) samples system CPU%, RAM%, and season directory size.
+Outputs under `<season_dir>/plots/perf/`:
+- `season_perf_metrics.csv` (timestamp, cpu_total_pct, mem_used_pct, mem_used_gb, mem_total_gb, season_size_gb)
+- `season_perf.png` (CPU/RAM% on the left axis, disk GB on the right)
 
-What it records
+Suggested intervals: sample every 5–10 seconds; refresh the plot every 30–60 seconds.
 
-- CPU and RSS memory of processes related to the season run (Python workers, etc.).
-- System memory usage (used vs. total).
-- Total size of the season directory on disk.
-- Static metadata from project/season config:
-  - ROI area (km)
-  - spatial resolution (m)
-  - model timestep (e.g. `3H`)
-  - number of days in the season
-  - number of DA dates configured in `season.yml`
-  - number of workers used (`--max-workers`)
-- Wall-clock time since the season started.
-
-Outputs
-
-- CSV time series:
-  - `<season_dir>/plots/perf/season_perf_metrics.csv`
-- PNG plot (updated every few seconds):
-  - `<season_dir>/plots/perf/season_perf.png`
-
-The CSV contains, per sample:
-
-- `timestamp` (UTC)
-- `cpu_tracked_pct`  sum of CPU% over tracked processes
-- `mem_tracked_mb`  sum of RSS memory over tracked processes (MB)
-- `mem_used_gb`, `mem_total_gb`  system memory used/total (GB)
-- `season_size_gb`  total size of `<season_dir>` on disk (GB)
-- `elapsed_run_sec`  seconds since the season run started
-- `roi_km2`, `resolution_m`, `timestep`, `season_days`, `num_da_dates`, `num_workers`
-- `progress_steps`  fraction of completed steps (0..1)
-- `done_steps` / `total_steps`  step progress counters
-- `eta_utc`, `eta_local`  estimated finish time in UTC and local (if configured)
-
-Enabling monitoring for a season run
+Enable monitoring for a season run
 
 ```powershell
 docker compose run --rm oa `
@@ -645,9 +615,7 @@ docker compose run --rm oa `
 ```
 
 This foreground command will keep updating the CSV and plot until interrupted
-with `Ctrl+C`. The ETA shown in the plot is based on a simple linear model
-using completed steps vs total steps; it is intended as a rough indication
-only and can change as the run progresses.
+with `Ctrl+C`.
 
 
 ## State cleanup (free disk space)

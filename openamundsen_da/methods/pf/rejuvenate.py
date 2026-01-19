@@ -24,6 +24,7 @@ This avoids copying large state files and keeps ensembles light.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures as cf
 import json
 import sys
 from dataclasses import dataclass
@@ -59,6 +60,8 @@ from openamundsen_da.io.paths import (
     open_loop_dir,
     find_project_yaml,
 )
+from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
+from openamundsen_da.util.meteo import filter_and_write_meteo
 
 
 @dataclass
@@ -160,6 +163,69 @@ def _source_member_dir(posterior_member: Path) -> Path:
     return posterior_member
 
 
+def _rejuvenate_member_task(
+    member_idx: int,
+    post_member: Path,
+    src_member: Path,
+    tgt_root: Path,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    dT: float,
+    fP: float,
+    project_dir: Path,
+    source_meteo_dir: Optional[Path],
+) -> dict:
+    """Worker: rebase one member's meteo and copy state pointer."""
+    member_name = f"{MEMBER_PREFIX}{member_idx:03d}"
+    tgt_member = tgt_root / member_name
+    tgt_meteo = meteo_dir_for_member(tgt_member)
+    tgt_meteo.mkdir(parents=True, exist_ok=True)
+
+    # Choose meteo source and write perturbed window
+    src_meteo = Path(source_meteo_dir) if source_meteo_dir is not None else (Path(project_dir) / "meteo")
+    filter_and_write_meteo(
+        src_dir=src_meteo,
+        dst_dir=tgt_meteo,
+        start=start,
+        end=end,
+        delta_t=dT,
+        f_p=fP,
+    )
+
+    # Copy state pointer if present (support root or results location)
+    post_ptr_root = post_member / STATE_POINTER_JSON
+    post_ptr_results = default_results_dir(post_member) / STATE_POINTER_JSON
+    post_ptr = post_ptr_root if post_ptr_root.exists() else post_ptr_results
+    copied_ptr = False
+    if post_ptr.exists():
+        try:
+            data = json.loads(post_ptr.read_text(encoding="utf-8")) or {}
+            target = data.get("path") or data.get("state_path")
+        except Exception:
+            data = None
+            target = None
+        if target:
+            q = Path(target)
+            if not q.is_absolute():
+                q = (post_ptr.parent / q).resolve()
+            try:
+                rel = q.relative_to(tgt_member)
+                out = {"path": str(rel)}
+            except Exception:
+                out = {"path": str(q)}
+            (tgt_member / STATE_POINTER_JSON).write_text(json.dumps(out, indent=2), encoding="utf-8")
+            copied_ptr = True
+
+    return {
+        "member": member_name,
+        "source_member": src_member.name,
+        "delta_T": dT,
+        "f_p": fP,
+        "copied_state_pointer": copied_ptr,
+        "rebase_open_loop": True,
+    }
+
+
 def rejuvenate(
     *,
     project_dir: Path,
@@ -180,84 +246,35 @@ def rejuvenate(
     tgt_root = Path(next_step_dir) / "ensembles" / target_ensemble
     tgt_root.mkdir(parents=True, exist_ok=True)
 
-    copied_pointers = 0
-    rows = []
-
+    tasks = []
     for i, post_member in enumerate(src_members, start=1):
-        member_name = f"{MEMBER_PREFIX}{i:03d}"
         src_member = _source_member_dir(post_member)
-
-        tgt_member = tgt_root / member_name
-        tgt_meteo = meteo_dir_for_member(tgt_member)
-        tgt_meteo.mkdir(parents=True, exist_ok=True)
-        # Do not pre-create results/ to avoid the launcher skipping members; it will be created on first write
-
-        # Sample stationary perturbations per member
         dT = float(rng.normal(0.0, params.sigma_t)) if params.sigma_t else 0.0
         fP = float(rng.lognormal(mean=0.0, sigma=params.sigma_p)) if params.sigma_p else 1.0
+        tasks.append((i, post_member, src_member, tgt_root, start, end, dT, fP, Path(project_dir), source_meteo_dir))
 
-        # Read stations from source meteo:
-        #  - explicit source_meteo_dir if provided
-        #  - else: always rebase on open_loop meteo for the next window
-        if source_meteo_dir is not None:
-            src_meteo = Path(source_meteo_dir)
-        else:
-            # Always rebase on the project-level open_loop meteo directory
-            # (project_root/meteo), filtered to the next step time window.
-            src_meteo = Path(project_dir) / "meteo"
-        stations_csv = src_meteo / "stations.csv"
-        if not stations_csv.exists():
-            raise FileNotFoundError(f"Missing stations.csv in {src_meteo}")
+    if not tasks:
+        return {"members": 0, "copied_state_pointers": 0}
 
-        for csv in sorted(p for p in src_meteo.glob("*.csv") if p.name != "stations.csv"):
-            # Use the first column as datetime index (name is flexible)
-            df = pd.read_csv(csv, parse_dates=True, index_col=0)
-            time_col = df.index.name or DEFAULT_TIME_COL
-            df = _inclusive_filter(df, start, end)
-            df.index = _normalize_datetime_index(df.index)
-            if (dT != 0.0) and (DEFAULT_TEMP_COL in df.columns):
-                df[DEFAULT_TEMP_COL] = pd.to_numeric(df[DEFAULT_TEMP_COL], errors="coerce") + dT
-            if (fP != 1.0) and (DEFAULT_PRECIP_COL in df.columns):
-                df[DEFAULT_PRECIP_COL] = pd.to_numeric(df[DEFAULT_PRECIP_COL], errors="coerce") * fP
-            idx_col_name = df.index.name or "index"
-            df_out = df.reset_index().rename(columns={idx_col_name: time_col})
-            _write_csv(df_out, tgt_meteo / csv.name)
+    workers = pick_max_workers(None, fallback=len(tasks), limit=len(tasks))
+    logger.info("Rejuvenating {} member(s) with max_workers={}", len(tasks), workers)
 
-        # Copy stations.csv unchanged
-        (tgt_meteo / "stations.csv").write_bytes(stations_csv.read_bytes())
-
-        # Copy state pointer if present (support root or results location) -> write only to member root in next step
-        post_ptr_root = post_member / STATE_POINTER_JSON
-        post_ptr_results = default_results_dir(post_member) / STATE_POINTER_JSON
-        post_ptr = post_ptr_root if post_ptr_root.exists() else post_ptr_results
-        if post_ptr.exists():
-            try:
-                data = json.loads(post_ptr.read_text(encoding="utf-8")) or {}
-                target = data.get("path") or data.get("state_path")
-            except Exception:
-                data = None
-                target = None
-            if target:
-                q = Path(target)
-                if not q.is_absolute():
-                    q = (post_ptr.parent / q).resolve()
-                try:
-                    rel = q.relative_to(tgt_member)
-                    out = {"path": str(rel)}
-                except Exception:
-                    out = {"path": str(q)}
-                (tgt_member / STATE_POINTER_JSON).write_text(json.dumps(out, indent=2), encoding="utf-8")
-                copied_pointers += 1
-
-        rows.append({
-            "member": member_name,
-            "source_member": src_member.name,
-            "delta_T": dT,
-            "f_p": fP,
-            "copied_state_pointer": post_ptr.exists(),
-            "rebase_open_loop": True,
-        })
-        logger.info("[{m}] dT={dt:+.3f} f_p={fp:.3f} state_ptr={sp} rebase={rb}", m=member_name, dt=dT, fp=fP, sp=bool(post_ptr.exists()), rb=True)
+    rows = run_tasks_with_pool(
+        _rejuvenate_member_task,
+        tasks,
+        max_workers=workers,
+        fallback_workers=len(tasks),
+        label="rejuvenate",
+    )
+    copied_pointers = sum(int(r.get("copied_state_pointer")) for r in rows)
+    for res in rows:
+        logger.info(
+            "[{m}] dT={dt:+.3f} f_p={fp:.3f} state_ptr={sp} rebase=True",
+            m=res["member"],
+            dt=res["delta_T"],
+            fp=res["f_p"],
+            sp=res["copied_state_pointer"],
+        )
 
     # Also prepare open_loop for the next step and copy state pointer
     try:
@@ -267,6 +284,7 @@ def rejuvenate(
 
     out_dir = Path(next_step_dir) / "assim"
     out_dir.mkdir(parents=True, exist_ok=True)
+    rows_sorted = sorted(rows, key=lambda r: r["member"])
     manifest = {
         "source_step": str(prev_step_dir),
         "target_step": str(next_step_dir),
@@ -276,11 +294,11 @@ def rejuvenate(
         "sigma_p": params.sigma_p,
         "seed": (int(params.seed) if params.seed is not None else None),
         "copied_state_pointers": int(copied_pointers),
-        "members": rows,
+        "members": rows_sorted,
     }
     (out_dir / "rejuvenate_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-    return {"members": len(rows), "copied_state_pointers": copied_pointers}
+    return {"members": len(rows_sorted), "copied_state_pointers": copied_pointers}
 
 
 def _copy_open_loop_to_next(

@@ -19,6 +19,7 @@ Design
 """
 
 import argparse
+import concurrent.futures as cf
 import sys
 import os
 import shutil
@@ -55,6 +56,8 @@ from openamundsen_da.core.constants import (
     LOGURU_FORMAT,
 )
 from openamundsen_da.util.stats import sample_delta_t, sample_precip_factor
+from openamundsen_da.util.parallel import pick_max_workers, resolve_base_seed
+from openamundsen_da.util.meteo import filter_and_write_meteo
 from openamundsen_da.io.paths import (
     find_project_yaml,
     find_step_yaml,
@@ -83,9 +86,13 @@ def _read_prior_params(project_dir: Path) -> PriorParams:
     cfg = _read_yaml_file(proj_yaml) or {}
     da = (cfg.get(DA_BLOCK) or {}).get(DA_PRIOR_BLOCK) or {}
     try:
+        cfg_seed = int(da[DA_RANDOM_SEED])
+        seed = resolve_base_seed(cfg_seed)
+        if seed != cfg_seed:
+            logger.info("OA_BASE_SEED override in effect -> seed={}", seed)
         return PriorParams(
             ensemble_size=int(da[DA_ENSEMBLE_SIZE]),
-            random_seed=int(da[DA_RANDOM_SEED]),
+            random_seed=seed,
             sigma_t=float(da[DA_SIGMA_T]),
             mu_p=float(da[DA_MU_P]),
             sigma_p=float(da[DA_SIGMA_P]),
@@ -287,11 +294,44 @@ def _copy_with_metadata_fallback(src: Path, dst: Path) -> None:
         )
 
 
+def _build_member(
+    member_idx: int,
+    member_root: Path,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    delta_t: float,
+    f_p: float,
+    random_seed: int,
+    input_meteo_dir: Path,
+) -> None:
+    """Worker: write perturbed meteo for one member."""
+    meteo_dir, _ = _make_member_dirs(member_root)
+    filter_and_write_meteo(
+        src_dir=input_meteo_dir,
+        dst_dir=meteo_dir,
+        start=start,
+        end=end,
+        delta_t=delta_t,
+        f_p=f_p,
+    )
+    _write_info(
+        member_root,
+        f"member_{member_idx:03d}",
+        seed=random_seed,
+        delta_t=delta_t,
+        f_p=f_p,
+        start=start,
+        end=end,
+        input_dir=input_meteo_dir,
+    )
+
+
 def build_prior_ensemble(
     input_meteo_dir: Path | str,
     project_dir: Path | str,
     step_dir: Path | str,
     *,
+    max_workers: int | None = None,
     overwrite: bool = False,
 ) -> None:
     """Build open-loop and prior ensemble member meteo directories for a step.
@@ -301,6 +341,8 @@ def build_prior_ensemble(
       (contains stations.csv and <station_id>.csv files)
     - project_dir: Path to project root containing project.yml
     - step_dir: Path to step directory containing step_XX.yml with dates
+    - max_workers: Optional worker cap for member creation (defaults to
+      min(CPU, ensemble_size, MAX_WORKERS env))
     - overwrite: If False, skip existing open_loop/member directories; if True,
       (re)write outputs
     """
@@ -318,8 +360,6 @@ def build_prior_ensemble(
     )
     logger.info("Dates (inclusive): {s} .. {e}", s=str(start), e=str(end))
 
-    stations_csv, station_files = _list_station_csvs(input_meteo_dir)
-
     # Set RNG deterministically
     rng = np.random.default_rng(params.random_seed)
 
@@ -330,32 +370,73 @@ def build_prior_ensemble(
         logger.info("Open-loop exists -> skipping (use --overwrite to rebuild)")
     else:
         meteo_ol, _ = _make_member_dirs(open_loop_root)
-        # Process open_loop (unperturbed, filtered)
-        for src in station_files:
-            _process_and_write(src, start, end, meteo_ol / src.name)
-        _copy_with_metadata_fallback(stations_csv, meteo_ol / STATIONS_CSV)
+        filter_and_write_meteo(
+            src_dir=input_meteo_dir,
+            dst_dir=meteo_ol,
+            start=start,
+            end=end,
+            delta_t=0.0,
+            f_p=1.0,
+        )
         logger.info("Open-loop written: {p}", p=str(open_loop_root))
 
-    # Create members
+    # Prepare member tasks (skip existing unless overwrite)
+    tasks = []
     for i in range(1, params.ensemble_size + 1):
         member_name = f"member_{i:03d}"
         member_root = member_dir_for_index(step_dir, i)
         if member_root.exists() and not overwrite:
             logger.info(f"[{member_name}] exists -> skipping (use --overwrite)")
             continue
-        meteo_dir, _ = _make_member_dirs(member_root)
-
-        # Sample perturbations (stationary per member)
         delta_t = sample_delta_t(rng, params.sigma_t)
         f_p = sample_precip_factor(rng, params.mu_p, params.sigma_p)
         logger.info("[{m}] delta_T={dt:+.3f}  f_p={fp:.3f}", m=member_name, dt=delta_t, fp=f_p)
+        tasks.append((i, member_root, delta_t, f_p, input_meteo_dir))
 
-        for src in station_files:
-            _process_and_write(src, start, end, meteo_dir / src.name, delta_t=delta_t, f_p=f_p)
+    if not tasks:
+        logger.info("No members to build (all exist and overwrite is False).")
+        logger.info("Prior ensemble completed under: {root}", root=str(prior_root))
+        return
 
-        # Copy stations.csv unchanged and write member INFO
-        _copy_with_metadata_fallback(stations_csv, meteo_dir / STATIONS_CSV)
-        _write_info(member_root, member_name, params.random_seed, delta_t, f_p, start, end, input_meteo_dir)
+    workers = pick_max_workers(max_workers, fallback=params.ensemble_size, limit=len(tasks))
+    logger.info("Building {} member(s) with max_workers={}", len(tasks), workers)
+
+    if workers <= 1:
+        for i, member_root, delta_t, f_p, src_dir in tasks:
+            _build_member(
+                member_idx=i,
+                member_root=member_root,
+                start=start,
+                end=end,
+                delta_t=delta_t,
+                f_p=f_p,
+                random_seed=params.random_seed,
+                input_meteo_dir=src_dir,
+            )
+    else:
+        with cf.ProcessPoolExecutor(max_workers=workers) as ex:
+            futs = {
+                ex.submit(
+                    _build_member,
+                    i,
+                    member_root,
+                    start,
+                    end,
+                    delta_t,
+                    f_p,
+                    params.random_seed,
+                    src_dir,
+                ): f"member_{i:03d}"
+                for i, member_root, delta_t, f_p, src_dir in tasks
+            }
+            for fut in cf.as_completed(futs):
+                name = futs[fut]
+                try:
+                    fut.result()
+                    logger.info("[{}] written", name)
+                except Exception as e:
+                    logger.error("[{}] failed: {}", name, e)
+                    raise
 
     logger.info("Prior ensemble completed under: {root}", root=str(prior_root))
 
@@ -365,6 +446,7 @@ def _parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     p.add_argument("--input-meteo-dir", required=True, type=Path)
     p.add_argument("--project-dir", required=True, type=Path)
     p.add_argument("--step-dir", required=True, type=Path)
+    p.add_argument("--max-workers", type=int, default=None, help="Max workers for member build (overrides MAX_WORKERS env)")
     p.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     p.add_argument("--overwrite", action="store_true")
     return p.parse_args(argv)
@@ -399,6 +481,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             args.input_meteo_dir,
             args.project_dir,
             args.step_dir,
+            max_workers=args.max_workers,
             overwrite=args.overwrite,
         )
         return 0
@@ -409,7 +492,3 @@ def main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-
-

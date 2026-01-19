@@ -9,6 +9,7 @@ Description:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures as cf
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,7 @@ from loguru import logger
 from openamundsen_da.core.constants import ENSEMBLE_PRIOR
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import list_member_dirs
+from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
 
 _RHO_WATER_DEFAULT = 1000.0  # kg m-3
 _MASK_NODATA = np.uint8(255)
@@ -410,7 +412,7 @@ def _iter_members(
 def _process_member(
     member_dir: Path,
     threshold_frac: float,
-    args: argparse.Namespace,
+    args: SimpleNamespace,
     grid_format: str | None,
 ) -> None:
     """
@@ -471,6 +473,24 @@ def _process_member(
             logger.error("Failed to classify {} {}: {}", member_dir.name, depth.stamp, exc)
 
 
+def _classify_members(
+    members: Sequence[Path],
+    threshold_frac: float,
+    args: SimpleNamespace,
+    grid_format: str | None,
+    max_workers: int | None,
+) -> None:
+    """Classify wet snow for all members, optionally in parallel."""
+    tasks = [(m, threshold_frac, args, grid_format) for m in members]
+    workers = pick_max_workers(max_workers, fallback=len(members), limit=len(members))
+    logger.info("Classifying {} member(s) with max_workers={}", len(tasks), workers)
+    try:
+        run_tasks_with_pool(_process_member, tasks, max_workers=workers, fallback_workers=len(tasks), label="wet_snow")
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Wet-snow classification failed: {}", exc)
+        raise
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """
     Build the CLI argument parser.
@@ -492,6 +512,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.1,
         help="Wet-snow threshold [%] (Rottler et al. 2024 default: 0.1).",
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        help="Worker cap (overrides MAX_WORKERS env). Defaults to min(CPU, #members).",
     )
     parser.add_argument("--output-subdir", default="wet_snow", help="Subdirectory under results/.")
     parser.add_argument("--mask-prefix", default="wet_snow_mask", help="Filename prefix for masks.")
@@ -526,6 +552,16 @@ def cli_main(argv: Optional[Sequence[str]] = None) -> int:
         parser.error(str(exc))
         return 1
 
+    worker_args = SimpleNamespace(
+        output_subdir=args.output_subdir,
+        mask_prefix=args.mask_prefix,
+        fraction_prefix=args.fraction_prefix,
+        write_fraction=bool(args.write_fraction),
+        overwrite=bool(args.overwrite),
+        water_density=float(args.water_density),
+        min_depth_mm=float(args.min_depth_mm),
+    )
+
     threshold_frac = args.threshold / 100.0
     for step_dir in step_dirs:
         logger.info("Processing step {}", step_dir)
@@ -534,9 +570,7 @@ def cli_main(argv: Optional[Sequence[str]] = None) -> int:
         if not members:
             logger.warning("No members found under {}", step_dir)
             continue
-        for member_dir in members:
-            logger.info("Classifying wet snow for {}", member_dir)
-            _process_member(member_dir, threshold_frac, args, grid_format)
+        _classify_members(members, threshold_frac, worker_args, grid_format, args.max_workers)
 
     return 0
 
@@ -553,6 +587,7 @@ def classify_step_wet_snow(
     overwrite: bool = False,
     water_density: float = _RHO_WATER_DEFAULT,
     min_depth_mm: float = 5.0,
+    max_workers: int | None = None,
 ) -> None:
     """Classify wet-snow masks for a single step directory.
 
@@ -580,9 +615,7 @@ def classify_step_wet_snow(
         return
     grid_format = _grid_format_for_step(step_dir)
 
-    for member_dir in members_iter:
-        logger.info("Classifying wet snow for {}", member_dir)
-        _process_member(member_dir, threshold_frac, args, grid_format)
+    _classify_members(members_iter, threshold_frac, args, grid_format, max_workers)
 
 
 if __name__ == "__main__":

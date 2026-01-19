@@ -15,7 +15,6 @@ Key Behaviors
 """
 
 import argparse
-import concurrent.futures as cf
 import multiprocessing as mp
 import os
 from pathlib import Path
@@ -39,14 +38,9 @@ from openamundsen_da.io.paths import (
     find_step_yaml,
     list_member_dirs,
 )
+from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
 
 # Do NOT import anything that pulls GDAL here. runner is imported later inside the worker.
-
-
-def _clamp_workers(n: int) -> int:
-    """Clamp worker count to CPU, leaving headroom on Windows."""
-    # keep some headroom on Windows; OA uses NumPy/numexpr underneath
-    return max(1, min(n, os.cpu_count() or 1))
 
 
 def _apply_env(project_yaml: Path) -> None:
@@ -147,7 +141,7 @@ def launch_members(
     season_dir: Path,
     step_dir: Path,
     ensemble: str,
-    max_workers: int,
+    max_workers: int | None,
     overwrite: bool,
     results_root: Path | None,
     *,
@@ -183,7 +177,7 @@ def launch_members(
         for m in members
     ]
 
-    workers = _clamp_workers(max_workers)
+    workers = pick_max_workers(max_workers, fallback=len(tasks), limit=len(tasks))
     logger.info(
         "Launching {n} member(s) with max_workers={mw}",
         n=len(tasks),
@@ -194,30 +188,33 @@ def launch_members(
     skipped = 0
     ok = 0
 
-    with cf.ProcessPoolExecutor(max_workers=workers) as ex:
-        # Log a start line as we submit each member to the pool
-        fut_to_member = {}
-        for t in tasks:
-            m = t[3]
-            logger.info(f"[{m.name}] starting")
-            fut_to_member[ex.submit(_run_one, t)] = m
-        for fut in cf.as_completed(fut_to_member):
-            m = fut_to_member[fut]
-            try:
-                res = fut.result()
-                results.append(res)
-                if res.status == "success":
-                    ok += 1
-                    logger.info(f"[{res.member_name}] finished: success ({res.duration_seconds:.1f}s)")
-                elif res.status == "skipped":
-                    skipped += 1
-                    logger.info(f"[{res.member_name}] skipped")
-                else:
-                    failed += 1
-                    logger.error(f"[{res.member_name}] finished: failed ({res.error})")
-            except Exception as e:
-                failed += 1
-                logger.error(f"[{m.name}] failed: {e!r}")
+    for t in tasks:
+        logger.info(f"[{t[3].name}] starting")
+
+    try:
+        run_results = run_tasks_with_pool(
+            _run_one,
+            tasks,
+            max_workers=workers,
+            fallback_workers=len(tasks),
+            label="launch",
+            unpack=False,
+        )
+    except Exception as e:
+        logger.error("Launch failed: {}", e)
+        raise
+
+    for res in run_results:
+        results.append(res)
+        if res.status == "success":
+            ok += 1
+            logger.info(f"[{res.member_name}] finished: success ({res.duration_seconds:.1f}s)")
+        elif res.status == "skipped":
+            skipped += 1
+            logger.info(f"[{res.member_name}] skipped")
+        else:
+            failed += 1
+            logger.error(f"[{res.member_name}] finished: failed ({res.error})")
 
     summary = {"total": len(members), "ok": ok, "skipped": skipped, "failed": failed}
     logger.info("Summary: total={total}  ok={ok}  skipped={skipped}  failed={failed}", **summary)
@@ -231,7 +228,12 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     p.add_argument("--season-dir", required=True, type=Path)
     p.add_argument("--step-dir", required=True, type=Path)
     p.add_argument("--ensemble", required=True, choices=("prior", "posterior"))
-    p.add_argument("--max-workers", type=int, default=max(1, (os.cpu_count() or 1) - 1))
+    p.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        help="Max workers (overrides MAX_WORKERS env). Defaults to min(CPU, #members).",
+    )
     p.add_argument("--overwrite", action="store_true")
     p.add_argument(
         "--results-root",

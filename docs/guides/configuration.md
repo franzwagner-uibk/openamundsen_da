@@ -295,7 +295,7 @@ data_assimilation:
   assimilation_events:
     - date: 2017-11-23
       variable: scf
-      product: MOD10A1
+      product: SNOWCOVER
     - date: 2018-03-19
       variable: wet_snow
       product: S1
@@ -386,7 +386,7 @@ data_assimilation:
 
 ## Configuration Validation
 
-Configuration is checked when you run the CLI (for example `oa-da-season`, `oa-da-mod10a1`, or `oa-da-assimilate-scf`). Internally, the framework merges YAML layers and hands the merged model configuration to openAMUNDSEN for parsing.
+Configuration is checked when you run the CLI (for example `oa-da-season`, `oa-da-snowcover`, or `oa-da-assimilate-scf`). Internally, the framework merges YAML layers and hands the merged model configuration to openAMUNDSEN for parsing.
 
 If something is missing or inconsistent, the CLI will fail early with a descriptive error message (missing required keys, invalid timestep format, missing files like ROI/land-cover mask, etc.).
 

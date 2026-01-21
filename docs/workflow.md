@@ -101,42 +101,38 @@ Warm start uses the model state saved at the end of each step via `state_pointer
 
 ## Observation Processing
 
-### MODIS MOD10A1
+### Snow cover (GeoTIFF/NetCDF → `scf_summary.csv`)
 
 ```bash
 docker compose run --rm oa \
-  python -m openamundsen_da.observer.mod10a1_preprocess \
-  --input-dir /data/obs/MOD10A1_61_HDF \
+  oa-da-snowcover \
+  --input-dir /data/obs/snowcover \
   --season-label season_2019-2020 \
   --project-dir /data
 ```
 
-**Steps**: HDF → GeoTIFF conversion, QA masking, reprojection, ROI clipping, NDSI thresholding, SCF calculation.
+Classes are read from `obs.snowcover.classes` in `project.yml` (defaults: valid 0–100, cloud 205, water 210, nodata 255). The land-cover mask from `project.yml` is applied to observations automatically.
 
-**Output**: `obs/season_2019-2020/scf_summary.csv`
-
-### Sentinel-2 FSC (SnowFLAKES) (Barella et al., 2022)
+### Wet snow (categorical rasters → `wet_snow_summary.csv`)
 
 ```bash
 docker compose run --rm oa \
-  oa-da-snowflakes-fsc \
-  --input-dir /data/obs/FSC_snowflake* \
+  oa-da-wetsnow \
+  --input-dir /data/obs/wetsnow \
   --season-label season_2019-2020 \
   --project-dir /data
 ```
 
-Accepts GeoTIFF or NetCDF FSC with classes 0..100 valid, 205 clouds, 210 water, 255/_FillValue nodata. Clouds contribute to `cloud_fraction`. Dates parsed from `YYYY_MM_DD` or `YYYYMMDD`.
+Wet/valid/exclude classes come from `obs.wetsnow.classes` (defaults: wet [1,2], valid [1,2,3,4,255], exclude [5,6]). ROI and land-cover masking mirror the snow-cover workflow.
 
-### Sentinel-1 Wet Snow (Nagler et al., 2016)
+### Per-step obs CSVs
 
-**WSM Classes**:
+```bash
+docker compose run --rm oa oa-da-scf --season-dir /data/propagation/season_2019-2020 --overwrite
+docker compose run --rm oa oa-da-wetsnow-season --season-dir /data/propagation/season_2019-2020 --overwrite
+```
 
-- 110: Wet snow
-- 125: Dry/no snow
-- 200: Radar shadow (excluded)
-- 210: Water (excluded)
-
-Wet snow fraction: `(# pixels == 110) / (# pixels in {110, 125})`
+Outputs: `step_*/obs/obs_scf_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`, with product tags resolved from `project.yml` (`SNOWCOVER`/`WETSNOW` by default).
 
 ### Land-Cover Masking
 

@@ -69,10 +69,10 @@ openamundsen_da/
 
 | File | Description |
 |:-----|:------------|
-| `mod10a1_preprocess.py` | MODIS MOD10A1 HDF→GeoTIFF conversion |
-| `satellite_scf.py` | SCF extraction from rasters |
-| `snowflake_fsc.py` | Sentinel-2 FSC (Snowflake product) |
-| `satellite_wet_snow_s1.py` | Sentinel-1 wet snow mask processing |
+| `snowcover.py` | Snow-cover summarization (class-configurable) |
+| `wetsnow.py` | Wet-snow summarization (class-configurable) |
+| `satellite_scf.py` | SCF per-step CSV writer from summaries |
+| `satellite_wet_snow_s1.py` | Wet-snow per-step CSV writer from summaries |
 | `fraction_obs.py` | Generic fraction observation handling |
 | `plot_fractions.py` | Observation visualization |
 | `plot_scf_summary.py` | SCF summary plots |
@@ -190,7 +190,7 @@ project/
 │       │   │   ├── weights_scf_YYYYMMDD.csv
 │       │   │   └── indices_YYYYMMDD.csv
 │       │   └── obs/                 # Per-step observations
-│       │       └── obs_scf_MOD10A1_YYYYMMDD.csv
+│       │       └── obs_scf_SNOWCOVER_YYYYMMDD.csv
 │       ├── step_02_.../
 │       └── plots/                   # All visualization outputs
 │           ├── forcing/
@@ -286,7 +286,7 @@ graph TD
 ### Observations
 
 - **SCF observations**: `obs_scf_{PRODUCT}_{YYYYMMDD}.csv`
-  - Example: `obs_scf_MOD10A1_20191122.csv`
+  - Example: `obs_scf_SNOWCOVER_20191122.csv`
   - Example: `obs_scf_SNOWFLAKE_20200315.csv`
 
 - **Wet snow observations**: `obs_wet_snow_{PRODUCT}_{YYYYMMDD}.csv`

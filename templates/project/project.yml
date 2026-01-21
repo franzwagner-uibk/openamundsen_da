@@ -72,3 +72,17 @@ data_assimilation:
     dump_state: true            # save final state at the end of each member run
     state_pattern: model_state.pickle.gz  # filename or glob under member results_dir
     cleanup_after_season: true  # remove state pickle files automatically after a successful season
+
+obs:
+  snowcover:
+    product_tag: SNOWCOVER
+    classes:
+      cloud: [205]
+      water: [210]
+      nodata: [255]
+  wetsnow:
+    product_tag: WETSNOW
+    classes:
+      wet: [1, 2]
+      valid: [1, 2, 3, 4, 255]
+      exclude: [5, 6]

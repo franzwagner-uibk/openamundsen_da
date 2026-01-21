@@ -407,7 +407,7 @@ See [Performance Tuning]({{ site.baseurl }}{% link advanced/performance.md %}) f
 
 ### "No observations found for assimilation date"
 
-**Problem**: `FileNotFoundError: obs/obs_scf_MOD10A1_YYYYMMDD.csv`
+**Problem**: `FileNotFoundError: obs/obs_scf_SNOWCOVER_YYYYMMDD.csv`
 
 **Cause**: Observation not extracted to step directory, or date mismatch
 
@@ -432,7 +432,7 @@ See [Performance Tuning]({{ site.baseurl }}{% link advanced/performance.md %}) f
      assimilation_events:
        - date: 2019-11-22  # Must exactly match observation date
          variable: scf
-         product: MOD10A1
+         product: SNOWCOVER
    ```
 
 ### "Resampling indices out of bounds"

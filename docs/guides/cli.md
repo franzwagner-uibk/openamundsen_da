@@ -85,7 +85,7 @@ Copies SCF rows from `scf_summary.csv` into per-step `obs/obs_scf_<PRODUCT>_YYYY
 oa-da-scf \
   --season-dir PATH \
   [--summary-csv PATH] \
-  [--product MOD10A1] \
+  [--product SNOWCOVER] \
   [--overwrite] \
   [--log-level LEVEL]
 ```
@@ -93,7 +93,7 @@ oa-da-scf \
 **Arguments:**
 - `--season-dir PATH` - Season directory (e.g., `propagation/season_2019-2020`)
 - `--summary-csv PATH` - Optional path to `scf_summary.csv` (default: `<project>/obs/<season>/scf_summary.csv`)
-- `--product CODE` - Product tag used in filenames (default: `MOD10A1`)
+- `--product CODE` - Product tag used in filenames (default: `SNOWCOVER`)
 - `--overwrite` - Overwrite existing `obs_scf_*.csv` files
 
 **Example:**
@@ -106,66 +106,51 @@ oa-da-scf \
 
 ---
 
-### oa-da-mod10a1
+### oa-da-snowcover
 
-**MODIS MOD10A1 preprocessing**
-
-Converts MODIS HDF files to GeoTIFF, applies QA masking, reprojects, and generates season summary.
+Summarizes snow-cover rasters (GeoTIFF/NetCDF) into `scf_summary.csv` using class mappings from `project.yml` (`obs.snowcover.classes`) and the project land-cover mask.
 
 ```bash
-oa-da-mod10a1 \
+oa-da-snowcover \
   --input-dir PATH \
   --season-label LABEL \
   [OPTIONS]
 ```
 
 **Required Arguments:**
-- `--input-dir PATH` - Directory with MOD10A1 HDF files
+- `--input-dir PATH` - Directory with snow-cover rasters (`*.tif/*.tiff/*.nc`)
 - `--season-label LABEL` - Season identifier (e.g., season_2019-2020)
 
 **Optional Arguments:**
 - `--project-dir PATH` - Project root (default: current directory)
-- `--roi PATH` - ROI vector used for clipping (recommended)
-- `--roi-field FIELD` - ROI identifier field (default: `region_id`)
-- `--target-epsg CODE` - Target CRS EPSG code (default: 25832)
-- `--resolution METERS` - Output resolution (default: 500)
-- `--ndsi-threshold VALUE` - NDSI snow threshold (0..100, default: 40)
-- `--max-cloud-fraction VALUE` - Skip scenes with cloud fraction above this threshold (0..1)
-- `--no-envelope` - Skip computing ROI envelope (use full extent)
-- `--no-recursive` - Don't search subdirectories
+- `--output-root PATH` - Override output root (default: `<project>/obs`)
+- `--roi PATH` - ROI vector used for clipping (default: `<project>/env/roi.gpkg`)
+- `--roi-field FIELD` - ROI identifier field (optional)
+- `--recursive` - Recurse into subdirectories
+- `--start-date/--end-date` - Optional date bounds
 - `--overwrite` - Overwrite existing outputs
+- `--log-level LEVEL` - Default: INFO
 
 **Output:**
-- GeoTIFFs: `obs/{season}/NDSI_Snow_Cover_YYYYMMDD.tif`
 - Summary CSV: `obs/{season}/scf_summary.csv`
-
-**Example:**
-```bash
-oa-da-mod10a1 \
-  --input-dir /data/obs/MOD10A1_61_HDF \
-  --season-label season_2019-2020 \
-  --project-dir /data \
-  --target-epsg 32632 \
-  --resolution 500
-```
 
 ---
 
-### oa-da-snowflakes-fsc
+### oa-da-snowcover
 
-**SnowFLAKES Sentinel-2 FSC summarization**
+**snow-cover Sentinel-2 FSC summarization**
 
-Summarizes SnowFLAKES FSC rasters (GeoTIFF or NetCDF) to a season-level `scf_summary.csv` with `scf`, `n_valid`, `n_snow`, and `cloud_fraction`.
+Summarizes snow-cover FSC rasters (GeoTIFF or NetCDF) to a season-level `scf_summary.csv` with `scf`, `n_valid`, `n_snow`, and `cloud_fraction`.
 
 ```bash
-oa-da-snowflakes-fsc \
+oa-da-snowcover \
   --input-dir PATH \
   --season-label LABEL \
   [OPTIONS]
 ```
 
 **Required Arguments:**
-- `--input-dir PATH` - Directory with SnowFLAKES FSC rasters (`*.tif/*.tiff/*.nc`)
+- `--input-dir PATH` - Directory with snow-cover FSC rasters (`*.tif/*.tiff/*.nc`)
 - `--season-label LABEL` - Season identifier (e.g., season_2019-2020)
 
 **Optional Arguments:**
@@ -180,8 +165,8 @@ oa-da-snowflakes-fsc \
 
 **Example:**
 ```bash
-oa-da-snowflakes-fsc \
-  --input-dir /data/obs/FSC_snowflake \
+oa-da-snowcover \
+  --input-dir /data/obs/snowcover \
   --season-label season_2019-2020 \
   --project-dir /data \
   --recursive
@@ -368,25 +353,25 @@ oa-da-model-wet-snow \
 
 ---
 
-### oa-da-wet-snow-s1
+### oa-da-wetsnow
 
 **Sentinel-1 wet snow summary**
 
 Processes Sentinel-1 WSM rasters into season summary.
 
 ```bash
-oa-da-wet-snow-s1 \
+oa-da-wetsnow \
   --input-dir PATH \
   --season-label LABEL \
   --project-dir PATH \
   [OPTIONS]
 ```
 
-Similar to `oa-da-mod10a1` but for Sentinel-1 wet snow masks.
+Similar to `oa-da-snowcover` but for Sentinel-1 wet snow masks.
 
 ---
 
-### oa-da-wet-snow-s1-season
+### oa-da-wetsnow-season
 
 **Season-wide S1 processing**
 
@@ -531,8 +516,8 @@ docker compose run --rm oa oa-da-season \
   --season-dir /data/propagation/season_2019-2020
 
 # MODIS preprocessing
-docker compose run --rm oa oa-da-mod10a1 \
-  --input-dir /data/obs/MOD10A1_61_HDF \
+docker compose run --rm oa oa-da-snowcover \
+  --input-dir /data/obs/SNOWCOVER_61_HDF \
   --season-label season_2019-2020 \
   --project-dir /data
 ```

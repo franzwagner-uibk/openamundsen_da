@@ -7,10 +7,10 @@ data_assimilation:
   assimilation_events:
     - date: YYYY-MM-DD
       variable: scf
-      product: MOD10A1
+      product: SNOWCOVER
     - date: YYYY-MM-DD
       variable: scf
-      product: MOD10A1
+      product: SNOWCOVER
     - date: YYYY-MM-DD
       variable: wet_snow
       product: S1

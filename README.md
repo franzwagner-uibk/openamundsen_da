@@ -10,7 +10,7 @@ This replaces the old GitHub Pages site.
 ## Overview
 
 - Seasonal snow cover prediction with an ensemble model + particle filter.
-- Includes prior forcing builder, ensemble launcher, MOD10A1 preprocessing, SCF extraction, wet snow (e.g., Sentinel-1) support, H(x) model SCF, assimilation, resampling, rejuvenation, and plotting utilities.
+- Includes prior forcing builder, ensemble launcher, generic snow-cover and wet-snow summarization, H(x) model SCF, assimilation, resampling, rejuvenation, and plotting utilities.
 
 ## Installation
 
@@ -91,8 +91,8 @@ project/
   obs/
     season_YYYY-YYYY/
       scf_summary.csv                       # season-wide SCF summary
-      obs_scf_MOD10A1_YYYYMMDD.csv         # per-date SCF CSVs
-      obs_wet_snow_S1_YYYYMMDD.csv         # optional wet-snow CSVs
+      obs_scf_SNOWCOVER_YYYYMMDD.csv       # per-date SCF CSVs
+      obs_wet_snow_WETSNOW_YYYYMMDD.csv    # optional wet-snow CSVs
   project.yml            # contains data_assimilation.h_of_x, resampling, etc.
 
 ```
@@ -103,7 +103,7 @@ and naming conventions.
 
 - `project.yml` must define `data_assimilation.h_of_x` (used by `model_scf` + `assimilate_scf`) and the DA blocks referenced by the pipeline.
 - `propagation/season_X/step_Y/ensembles/prior` is created automatically by `season.py` (using `${project}/meteo` for forcing); you only need to ensure the step YAMLs and meteorological inputs exist.
-- Observations (MODIS preprocessed GeoTIFFs ? CSV) live under `obs/season_X`; the pipeline assumes the CSVs follow `obs_scf_MOD10A1_YYYYMMDD.csv`.
+- Observations live under `obs/season_X`; the pipeline assumes the CSVs follow `obs_scf_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`, where product tags default to `SNOWCOVER` / `WETSNOW` (configurable via `project.yml`).
 - ROI vector: `env/roi.gpkg` (single feature) is the default for all masking; other vectors under `env/` are ignored unless you explicitly pass a different ROI.
 - Land-cover masking (applied to obs + model SCF/wet-snow): the land-cover ASCII grid is auto-resolved as `grids/lc_<domain>_<resolution>.asc` from `project.yml`. Excluded classes are configured in `data_assimilation.landcover_mask.classes_to_exclude` (defaults: 2 ice, 8-12 forests/mixed, 13 built-up; class list: 1 rock, 2 ice, 3 water, 4 grassland, 5 shrubland, 6 farmland, 7 transitional, 8 deciduous 30-60, 9 deciduous 60-100, 10 mixed, 11 coniferous 30-60, 12 coniferous 60-100, 13 built-up). Keep exactly one matching LC file per domain/resolution; the pipeline logs a warning if >50% of the ROI is excluded and fails if 100% would be masked.
 
@@ -154,46 +154,40 @@ Parallelism and CPU limits
 
 ### Observation Processing
 
-- MOD10A1 preprocess (HDF -> GeoTIFF + season summary):
+- Snow-cover summary (GeoTIFF/NetCDF -> `scf_summary.csv`):
 
 ```powershell
 docker compose run --rm oa `
-  python -m openamundsen_da.observer.mod10a1_preprocess `
-  --input-dir $project/obs/MOD10A1_61_HDF `
-  --season-label season_YYYY-YYYY
-```
-
-Optional flags: `--project-dir $project`, `--roi $roi`, `--roi-field <field>`, `--target-epsg <code>`, `--resolution <m>`, `--ndsi-threshold <val>`, `--no-envelope`, `--no-recursive`, `--overwrite`, `--log-level <LEVEL>`
-
-- Prepare per-step SCF observation CSVs from `scf_summary.csv` (recommended):
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.observer.satellite_scf `
-  --season-dir $season `
-  --summary-csv $project/obs/season_YYYY-YYYY/scf_summary.csv `
+  oa-da-snowcover `
+  --input-dir $project/obs/snowcover `
+  --season-label season_YYYY-YYYY `
+  --project-dir $project `
   --overwrite
 ```
 
-Optional flags: `--product <CODE>`, `--overwrite`, `--log-level <LEVEL>` (the summary path defaults to `<project>/obs/<season>/scf_summary.csv`). No ROI argument is required because the CSV already stores the ROI-derived SCF stats for each date.
+Classes and land-cover masking are read from `obs.snowcover` in `project.yml`; defaults match the template (valid 0–100, cloud 205, water 210, nodata 255).
 
-This command copies each `scf_summary.csv` row for an assimilation date into the matching `<step>/obs/obs_scf_<PRODUCT>_YYYYMMDD.csv` file.
-
-## SnowFLAKES FSC (Sentinel-2) summarization (GeoTIFF/NetCDF -> season summary)
+- Wet-snow summary (categorical rasters -> `wet_snow_summary.csv`):
 
 ```powershell
 docker compose run --rm oa `
-  oa-da-snowflakes-fsc `
-  --input-dir $project/obs/FSC_snowflakes `
+  oa-da-wetsnow `
+  --input-dir $project/obs/wetsnow `
   --season-label season_YYYY-YYYY `
-  --project-dir $project
+  --project-dir $project `
+  --overwrite
 ```
 
-Optional flags: `--roi <path>` (auto-detect single ROI under env/ if omitted), `--roi-field <field>`, `--recursive`, `--log-level`. Accepts `.tif/.tiff` or `.nc` with classes: 0100 = FSC, 205 = clouds, 210 = water, 255/_FillValue = nodata. Writes `obs/<season>/scf_summary.csv` with `date, region_id, n_valid, n_snow, scf, cloud_fraction, source` (SCF = mean(FSC/100) over valid pixels).
+Classes come from `obs.wetsnow.classes` (defaults: wet [1,2], valid [1,2,3,4,255], exclude [5,6]); the land-cover mask from `project.yml` is applied to observations automatically.
 
-## Product-aware SCF CSVs
+- Per-step obs CSVs (align summaries to assimilation events):
 
-Season mode for SCF supports a product tag so filenames match assimilation events (e.g., `--product SNOWFLAKES` -> `obs_scf_SNOWFLAKES_YYYYMMDD.csv`).
+```powershell
+docker compose run --rm oa oa-da-scf --season-dir $season --overwrite
+docker compose run --rm oa oa-da-wetsnow-season --season-dir $season --overwrite
+```
+
+Both commands default to `<project>/obs/<season>/scf_summary.csv` and `wet_snow_summary.csv` and derive product tags from `project.yml` (`obs.snowcover.product_tag`, `obs.wetsnow.product_tag`, defaulting to `SNOWCOVER` / `WETSNOW`). Outputs live under `<step>/obs/obs_<variable>_<PRODUCT>_YYYYMMDD.csv`.
 
 ### Wet Snow Classification
 
@@ -210,24 +204,11 @@ docker compose run --rm oa `
 
 Optional flags: `--step-dir <path>` (mutually exclusive with `--season-dir`), `--members member_001 ...`, `--threshold <percent>`, `--write-fraction`, `--min-depth-mm <mm>`. Outputs land under each member's `results/<output-subdir>` (default `wet_snow`): `wet_snow_mask_<timestamp>.tif` and `lwc_fraction_<timestamp>.tif` when `--write-fraction` is set.
 
-Sentinel-1 wet-snow observations use pre-classified WSM rasters with four classes:
-
-- `110` = wet snow
-- `125` = dry/no snow
-- `200` = radar shadow (excluded from the statistics)
-- `210` = water (excluded from the statistics)
-
-The S1 summary CLI (`oa-da-wet-snow-s1`) clips each WSM raster to the single-feature ROI, drops shadow and water pixels, and computes a two-class wet-snow fraction as:
-
-```text
-wet_snow_fraction = (# pixels == 110) / (# pixels in {110, 125})
-```
-
-This fraction is written to `wet_snow_summary.csv` along with `n_valid`, `n_wet`, and the source filename, and is later converted into per-step `obs_wet_snow_S1_YYYYMMDD.csv` files by the season helper.
+Wet-snow observations use categorical rasters (e.g., Sentinel-1 WSM). Class mappings are configurable via `obs.wetsnow.classes` in `project.yml` (defaults: wet [1,2], valid [1,2,3,4,255], exclude [5,6]). `oa-da-wetsnow` clips rasters to the ROI, applies the project land-cover mask, and writes `wet_snow_summary.csv` (`date, region_id, wet_snow_fraction, n_valid, n_wet, source`). The season helper then converts summary rows into per-step `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` files.
 
 ## Wet-snow assimilation workflow
 
-- Summarize observations into `wet_snow_summary.csv` (e.g., `oa-da-wet-snow-s1`), then drive the season helper to write per-step `obs_wet_snow_*.csv` aligned to assimilation dates.
+- Summarize observations into `wet_snow_summary.csv` (e.g., `oa-da-wetsnow`), then drive the season helper to write per-step `obs_wet_snow_*.csv` aligned to assimilation dates.
 - The season pipeline reads `data_assimilation.assimilation_events` from `season.yml`; it now errors if fewer events than DA steps are configured.
 - Wet-snow masks/fractions are computed for all members before DA using the project wet-snow threshold; assimilation/resampling/rejuvenation then proceed like SCF.
 
@@ -503,7 +484,7 @@ Optional: `--max-workers <N>`, `--overwrite`, `--live-plots`, `--log-level <LEVE
 
 At startup the launcher validates assimilation prerequisites: required grid outputs configured in `project.yml` (snow depth for SCF, liquid water content for wet-snow), matching model outputs in prior/open_loop results, and the expected obs CSV in each step directory. Missing items are listed and the run aborts early.
 
-The pipeline drives each step in order, assimilates SCF on the _next_ step's start date, resamples the resulting weights to the posterior, and rejuvenates that posterior into the next prior before proceeding. Assimilation looks for the single-row CSV `obs_scf_MOD10A1_YYYYMMDD.csv` inside `<step>/obs/` for the date being processed; generate those files with `openamundsen_da.observer.satellite_scf` after you preprocess the MOD10A1 NDSI raster for your ROI (projection, QA/masking, and mosaicking). `season.py` never reads raw imagery, so the CSV must already reflect any filtering or thresholding you want applied.
+The pipeline drives each step in order, assimilates SCF on the _next_ step's start date, resamples the resulting weights to the posterior, and rejuvenates that posterior into the next prior before proceeding. Assimilation looks for the single-row CSV `obs_scf_SNOWCOVER_YYYYMMDD.csv` inside `<step>/obs/` for the date being processed; generate those files with `openamundsen_da.observer.satellite_scf` after you summarize your snow-cover rasters into `scf_summary.csv`. `season.py` never reads raw imagery, so the CSV must already reflect any filtering or thresholding you want applied.
 
 Outputs
 
@@ -541,7 +522,7 @@ data_assimilation:
   assimilation_events:
     - date: 2017-11-23
       variable: scf
-      product: MOD10A1
+      product: SNOWCOVER
     - date: 2018-03-19
       variable: wet_snow
       product: S1

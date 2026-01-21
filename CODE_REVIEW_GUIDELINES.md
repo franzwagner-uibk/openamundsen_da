@@ -36,6 +36,7 @@ List of helper modules (repo-relative paths):
 - openamundsen_da/util/stats.py
 - openamundsen_da/util/aoi.py
 - openamundsen_da/util/da_events.py
+- openamundsen_da/util/validation.py
 - openamundsen_da/util/perf_monitor.py
 - openamundsen_da/util/parallel.py
 

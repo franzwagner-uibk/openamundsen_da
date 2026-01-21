@@ -273,7 +273,7 @@ docker compose run --rm oa \
   --monitor-perf
 ```
 
-Optional: `--overwrite`, `--no-live-plots`, `--log-level <LEVEL>`
+Optional: `--overwrite`, `--live-plots`, `--log-level <LEVEL>` (`--live-plots` enables in-run plotting; default is off and plots run once after completion)
 
 **Pipeline steps** (per assimilation cycle):
 

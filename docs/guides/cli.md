@@ -60,7 +60,7 @@ oa-da-season \
 **Optional Arguments:**
 - `--max-workers N` - Maximum parallel workers (default: from .env or 4)
 - `--overwrite` - Overwrite existing outputs
-- `--no-live-plots` - Skip plotting during run (plot at end only)
+- `--live-plots` - Enable plotting during run (default is off; plots are generated once after completion)
 - `--monitor-perf` - Enable performance monitoring
 - `--perf-sample-interval SEC` - Perf sampling interval (default: 5)
 - `--perf-plot-interval SEC` - Perf plotting interval (default: 30)

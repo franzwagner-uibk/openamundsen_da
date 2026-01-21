@@ -1,13 +1,12 @@
-"""Minimal performance monitor for season runs (CPU / RAM / disk).
+"""Minimal performance monitor for season runs (CPU / RAM).
 
 When enabled, a background thread samples:
 - System CPU percent
 - System RAM percent/GB
-- Season directory size (GB)
 
 Outputs under `<season_dir>/plots/perf/`:
 - `season_perf_metrics.csv`
-- `season_perf.png` (CPU+RAM on left axis, disk on right axis)
+- `season_perf.png` (CPU+RAM)
 
 Dependencies: psutil (required), matplotlib (optional for plotting).
 If psutil is missing, the monitor logs a warning and no files are written.
@@ -69,7 +68,6 @@ def start_perf_monitor(cfg: PerfMonitorConfig) -> Event:
 
 
 def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> None:
-    season_dir = Path(cfg.season_dir).resolve()
     csv_path = out_dir / "season_perf_metrics.csv"
     png_path = out_dir / "season_perf.png"
 
@@ -78,7 +76,6 @@ def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> N
     mem_pct: List[float] = []
     mem_used_gb: List[float] = []
     mem_total_gb: List[float] = []
-    disk_gb: List[float] = []
 
     last_plot_ts: float | None = None
     run_start = cfg.run_start or datetime.utcnow()
@@ -88,7 +85,6 @@ def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> N
         try:
             vm = psutil.virtual_memory() if psutil is not None else None  # type: ignore[assignment]
             cpu_val = psutil.cpu_percent(interval=None) if psutil is not None else 0.0  # type: ignore[assignment]
-            season_bytes = _season_dir_size(season_dir)
         except Exception as exc:  # pragma: no cover
             logger.warning("Performance monitor sampling failed: {}", exc)
             break
@@ -103,7 +99,6 @@ def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> N
             mem_pct.append(0.0)
             mem_used_gb.append(0.0)
             mem_total_gb.append(0.0)
-        disk_gb.append(season_bytes / (1024.0 * 1024.0 * 1024.0))
 
         try:
             _append_csv_row(
@@ -113,7 +108,6 @@ def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> N
                 mem_pct[-1],
                 mem_used_gb[-1],
                 mem_total_gb[-1],
-                disk_gb[-1],
             )
         except Exception as exc:  # pragma: no cover
             logger.warning("Performance monitor failed to update CSV {}: {}", csv_path, exc)
@@ -129,7 +123,6 @@ def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> N
                         mem_pct,
                         mem_used_gb,
                         mem_total_gb,
-                        disk_gb,
                         run_start,
                     )
                     last_plot_ts = ts
@@ -139,18 +132,6 @@ def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> N
         stop_event.wait(cfg.sample_interval_sec)
 
 
-def _season_dir_size(season_dir: Path) -> int:
-    """Return total size in bytes of all files under season_dir."""
-    total = 0
-    for path in season_dir.rglob("*"):
-        try:
-            if path.is_file():
-                total += path.stat().st_size
-        except Exception:
-            continue
-    return total
-
-
 def _append_csv_row(
     csv_path: Path,
     t: datetime,
@@ -158,16 +139,15 @@ def _append_csv_row(
     mem_used_pct: float,
     mem_used_gb: float,
     mem_total_gb: float,
-    season_size_gb: float,
 ) -> None:
     is_new = not csv_path.exists()
     line = (
         f"{t.isoformat(timespec='seconds')},{cpu_total_pct:.3f},{mem_used_pct:.3f},"
-        f"{mem_used_gb:.3f},{mem_total_gb:.3f},{season_size_gb:.3f}\n"
+        f"{mem_used_gb:.3f},{mem_total_gb:.3f}\n"
     )
     with csv_path.open("a", encoding="utf-8") as f:
         if is_new:
-            f.write("timestamp,cpu_total_pct,mem_used_pct,mem_used_gb,mem_total_gb,season_size_gb\n")
+            f.write("timestamp,cpu_total_pct,mem_used_pct,mem_used_gb,mem_total_gb\n")
         f.write(line)
 
 
@@ -178,25 +158,19 @@ def _render_plot(
     mem_pct: List[float],
     mem_used_gb: List[float],
     mem_total_gb: List[float],
-    disk_gb: List[float],
     run_start: datetime,
 ) -> None:
     if not timestamps or plt is None:
         return
 
     fig, ax1 = plt.subplots(figsize=(9, 5))
-    ax2 = ax1.twinx()
 
     ax1.plot(timestamps, cpu_pct, label="CPU [%]", color="tab:blue")
     ax1.plot(timestamps, mem_pct, label="RAM [%]", color="tab:orange")
     ax1.set_ylabel("CPU / RAM [%]")
     ax1.grid(True, alpha=0.3)
 
-    ax2.plot(timestamps, disk_gb, label="Season disk [GB]", color="tab:green")
-    ax2.set_ylabel("Disk [GB]")
-
     ax1.legend(loc="upper left", fontsize=8)
-    ax2.legend(loc="upper right", fontsize=8)
     ax1.set_xlabel("Time")
 
     elapsed_hours = (timestamps[-1] - run_start).total_seconds() / 3600.0
@@ -215,7 +189,7 @@ def cli_main(argv: List[str] | None = None) -> int:
 
     p = argparse.ArgumentParser(
         prog="oa-da-perf-monitor",
-        description="Monitor CPU/RAM/disk usage for a season directory.",
+        description="Monitor CPU/RAM usage for a season directory.",
     )
     p.add_argument("--season-dir", required=True, type=Path, help="Season directory (contains season.yml)")
     p.add_argument("--sample-interval", type=float, default=5.0, help="Sampling interval in seconds (default: 5)")

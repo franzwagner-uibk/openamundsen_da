@@ -206,7 +206,7 @@ def _plot_station(
     plt.close(fig)
 
 
-def cli_main(argv: Iterable[str] | None = None) -> int:
+def cli_main(argv: Iterable[str] | None = None, *, configure_logger: bool = True) -> int:
     p = argparse.ArgumentParser(prog="oa-da-plot-forcing", description="Per-station ensemble forcing plots (temp + cumulative precip)")
     p.add_argument("--step-dir", required=True, type=Path)
     p.add_argument("--ensemble", required=True, choices=("prior", "posterior"))
@@ -228,8 +228,9 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(list(argv) if argv is not None else None)
 
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), enqueue=False, colorize=True, format=LOGURU_FORMAT)
+    if configure_logger:
+        logger.remove()
+        logger.add(sys.stdout, level=args.log_level.upper(), enqueue=False, colorize=True, format=LOGURU_FORMAT)
 
     start = datetime.strptime(args.start_date, "%Y-%m-%d") if args.start_date else None
     end = datetime.strptime(args.end_date, "%Y-%m-%d") if args.end_date else None

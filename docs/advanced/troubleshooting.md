@@ -493,9 +493,8 @@ print(w['weight'].sum())  # Should be 1.0
 
 **Solution**:
 
-1. **Check if plotting is disabled**:
+1. **Check if plotting is disabled** (default is off):
    ```bash
-   # Season command with --no-live-plots skips plots during run
    # Manually generate plots after:
    docker compose run --rm oa oa-da-plot-scf --season-dir /data/propagation/season_2019-2020
    ```

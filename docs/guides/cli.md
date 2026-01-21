@@ -92,7 +92,7 @@ oa-da-scf \
 
 **Arguments:**
 - `--season-dir PATH` - Season directory (e.g., `propagation/season_2019-2020`)
-- `--summary-csv PATH` - Optional path to `scf_summary.csv` (default: `<project>/obs/<season>/scf_summary.csv`)
+- `--summary-csv PATH` - Optional path to `scf_summary.csv` (default: `<project>/obs/summaries/<season>/scf_summary.csv`)
 - `--product CODE` - Product tag used in filenames (default: `SNOWCOVER`)
 - `--overwrite` - Overwrite existing `obs_scf_*.csv` files
 
@@ -100,7 +100,7 @@ oa-da-scf \
 ```bash
 oa-da-scf \
   --season-dir /data/propagation/season_2019-2020 \
-  --summary-csv /data/obs/season_2019-2020/scf_summary.csv \
+  --summary-csv /data/obs/summaries/season_2019-2020/scf_summary.csv \
   --overwrite
 ```
 

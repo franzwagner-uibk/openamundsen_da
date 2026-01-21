@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 from openamundsen_da.util.stats import effective_sample_size
+from openamundsen_da.io.paths import list_step_dirs
 
 
 _RE_DATE = re.compile(r"weights_scf_(\d{8})\.csv$", re.IGNORECASE)
@@ -95,13 +96,13 @@ def plot_season_ess_timeline(
 ) -> Path:
     """Season-wide ESS timeline across all steps.
 
-    Scans step_*/assim/weights_scf_*.csv under season_dir, computes ESS per
+    Scans steps/step_*/assim/weights_scf_*.csv under season_dir, computes ESS per
     assimilation date, and writes a single PNG under
     <season_dir>/plots/assim/ess/season_ess_timeline_<season_id>.png.
     """
     season_dir = Path(season_dir)
     files: list[tuple[datetime, Path]] = []
-    for step in sorted(season_dir.glob("step_*")):
+    for step in list_step_dirs(season_dir):
         assim_dir = step / "assim"
         if not assim_dir.is_dir():
             continue

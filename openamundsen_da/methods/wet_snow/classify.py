@@ -371,7 +371,9 @@ def _iter_steps(season_dir: Optional[Path], step_dir: Optional[Path]) -> List[Pa
         return [step_dir]
     if season_dir is None:
         raise ValueError("Either --season-dir or --step-dir must be provided.")
-    return sorted(p for p in season_dir.glob("step_*") if p.is_dir())
+    from openamundsen_da.io.paths import list_step_dirs
+
+    return list_step_dirs(season_dir)
 
 
 def _iter_members(
@@ -504,7 +506,7 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="oa-da-wet-snow",
         description="Classify volumetric wet snow masks from openAMUNDSEN outputs.",
     )
-    parser.add_argument("--season-dir", type=Path, help="Season root (contains step_*).")
+    parser.add_argument("--season-dir", type=Path, help="Season root (contains steps/step_*).")
     parser.add_argument("--step-dir", type=Path, help="Single step directory to process.")
     parser.add_argument("--members", nargs="+", help="Only process listed member directories.")
     parser.add_argument(

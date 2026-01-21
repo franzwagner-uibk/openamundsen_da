@@ -21,7 +21,7 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.core.constants import OBS_DIR_NAME
-from openamundsen_da.io.paths import read_step_config
+from openamundsen_da.io.paths import read_step_config, list_steps_sorted as io_list_steps_sorted
 
 
 @dataclass(frozen=True)
@@ -62,9 +62,7 @@ def _parse_dt_opt(text: str | None) -> datetime | None:
 def list_steps_sorted(season_dir: Path) -> List[Path]:
     """Return step_* directories sorted by their start_date."""
     items: List[tuple[datetime, Path]] = []
-    for p in sorted(season_dir.glob("step_*")):
-        if not p.is_dir():
-            continue
+    for p in io_list_steps_sorted(season_dir):
         cfg = read_step_config(p) or {}
         start = _parse_dt_opt(str(cfg.get("start_date")))
         items.append((start or datetime.min, p))
@@ -106,5 +104,4 @@ def write_obs_from_summary_row(
     df.to_csv(out_csv, index=False)
     logger.info("Wrote obs {} -> {} ({})", date.strftime("%Y-%m-%d"), step_dir.name, out_csv.name)
     return out_csv
-
 

@@ -32,7 +32,7 @@ from rasterio.mask import mask as rio_mask
 from pyproj import CRS
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
-from openamundsen_da.io.paths import member_id_from_results_dir
+from openamundsen_da.io.paths import member_id_from_results_dir, list_step_dirs
 from openamundsen_da.methods.daily_aoi_series import (
     compute_step_daily_series_for_all_members,
     step_start_end,
@@ -554,7 +554,7 @@ def cli_model_season(argv: list[str] | None = None) -> int:
         description="Compute daily AOI wet-snow fractions for all prior members in a season.",
     )
     parser.add_argument("--project-dir", required=True, type=Path, help="Project root containing project.yml")
-    parser.add_argument("--season-dir", required=True, type=Path, help="Season directory containing step_* folders")
+    parser.add_argument("--season-dir", required=True, type=Path, help="Season directory containing step_* folders (under steps/)")
     parser.add_argument("--aoi", "--roi", dest="aoi", required=True, type=Path, help="Single-feature ROI vector")
     parser.add_argument("--max-workers", type=int, default=4)
     parser.add_argument("--overwrite", action="store_true")
@@ -566,7 +566,7 @@ def cli_model_season(argv: list[str] | None = None) -> int:
     logger.remove()
     logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
-    steps = sorted(p for p in Path(args.season_dir).glob("step_*") if p.is_dir())
+    steps = list_step_dirs(args.season_dir)
     if not steps:
         logger.error("No steps found under {}", args.season_dir)
         return 1

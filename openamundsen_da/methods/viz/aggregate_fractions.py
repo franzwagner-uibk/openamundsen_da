@@ -6,7 +6,7 @@ Description:
     Aggregate member-level fraction time series into a season-wide envelope.
 
     Looks for member CSVs (e.g., point_scf_roi.csv or point_wet_snow_roi.csv)
-    under <season>/step_*/ensembles/prior/*/results and writes an envelope CSV
+    under <season>/steps/step_*/ensembles/prior/*/results and writes an envelope CSV
     with date, value_mean, value_min, value_max, n.
 """
 
@@ -20,12 +20,16 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
+from openamundsen_da.io.paths import list_step_dirs
 
 
 def _find_series_files(season_dir: Path, filename: str) -> list[Path]:
     """Return all matching member result CSVs for a season."""
-    pattern = f"step_*/ensembles/prior/*/results/{filename}"
-    return sorted(p for p in season_dir.glob(pattern) if p.is_file())
+    files: list[Path] = []
+    for step_dir in list_step_dirs(season_dir):
+        pattern = "ensembles/prior/*/results/" + filename
+        files.extend(p for p in step_dir.glob(pattern) if p.is_file())
+    return sorted(files)
 
 
 def _load_series(path: Path, value_col: str) -> pd.DataFrame | None:
@@ -60,7 +64,7 @@ def aggregate_fraction_envelope(
     Parameters
     ----------
     season_dir : Path
-        Season directory containing step_* folders.
+        Season directory containing steps/step_* folders.
     filename : str
         Member CSV filename to collect (e.g., point_scf_roi.csv).
     value_col : str

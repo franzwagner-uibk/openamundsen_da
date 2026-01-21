@@ -95,6 +95,40 @@ def read_step_config(step_dir: str | Path) -> dict[str, Any]:
     except Exception:
         return {}
 
+# ---- Season step discovery helpers -----------------------------------------
+
+def steps_root(season_dir: str | Path) -> Path:
+    """Return the directory that contains step_* folders for a season.
+
+    New layout uses <season_dir>/steps and does not support top-level step_*.
+    """
+    season_dir = Path(season_dir)
+    candidate = season_dir / "steps"
+    if not candidate.is_dir():
+        raise FileNotFoundError(f"Steps directory not found: {candidate}")
+    return candidate
+
+
+def list_step_dirs(season_dir: str | Path) -> list[Path]:
+    """List step_* directories under a season, unsorted."""
+    root = steps_root(season_dir)
+    return [p for p in sorted(root.glob("step_*")) if p.is_dir()]
+
+
+def list_steps_sorted(season_dir: str | Path) -> list[Path]:
+    """List step_* directories sorted by start_date then name."""
+    items: list[tuple[datetime, Path]] = []
+    for p in list_step_dirs(season_dir):
+        cfg = read_step_config(p) or {}
+        try:
+            sd = cfg.get("start_date")
+            start = datetime.fromisoformat(str(sd)) if sd else None
+        except Exception:
+            start = None
+        items.append((start or datetime.min, p))
+    items.sort(key=lambda t: (t[0], t[1].name))
+    return [p for _, p in items]
+
 # ---- Ensemble layout helpers -----------------------------------------------
 
 def meteo_dir_for_member(member_dir: str | Path) -> Path:

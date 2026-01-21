@@ -16,7 +16,7 @@ Inputs
 
 Behavior
 --------
-- Creates one season directory of steps under ``<season_dir>/step_*``:
+- Creates one season directory of steps under ``<season_dir>/steps/step_*``:
   - ``step_00_init`` for the initial cold-start window.
   - ``step_01_*``, ..., ``step_N_*`` for subsequent windows.
 - For each assimilation date ``D_i``:
@@ -192,7 +192,7 @@ def _write_step_yaml(step_dir: Path, start: datetime, end: datetime, *, overwrit
 
 
 def create_season_skeleton(project_dir: Path, season_dir: Path, *, overwrite: bool = False) -> None:
-    """Create step_* directories and minimal step YAMLs for a season.
+    """Create step_* directories (under season_dir/steps) and minimal step YAMLs for a season.
 
     Steps are defined such that:
     - Step 0 starts at season.start_date.
@@ -208,6 +208,9 @@ def create_season_skeleton(project_dir: Path, season_dir: Path, *, overwrite: bo
 
     assim = season.assimilation_dates
     n_steps = len(assim) + 1
+
+    steps_root = season_dir / "steps"
+    steps_root.mkdir(parents=True, exist_ok=True)
 
     # Step 0
     step_start = season.start
@@ -247,7 +250,7 @@ def create_season_skeleton(project_dir: Path, season_dir: Path, *, overwrite: bo
             label = f"{assim[-1].strftime('%Y%m%d')}-{season.end.strftime('%Y%m%d')}"
 
         step_name = _step_dir_name(idx, label)
-        step_dir = season_dir / step_name
+        step_dir = steps_root / step_name
         if step_dir.exists() and not overwrite:
             raise FileExistsError(f"Step directory already exists and overwrite=False: {step_dir}")
 

@@ -66,7 +66,18 @@ def _load_fraction(path: Path, value_col: str) -> Optional[pd.DataFrame]:
 
 
 def _default_obs_path(project_dir: Path, season_name: str, filename: str) -> Path:
-    return project_dir / "obs" / season_name / filename
+    """Return obs path, with basic dash/underscore fallback on season name."""
+    candidates = [project_dir / "obs" / season_name / filename]
+    if "-" in season_name:
+        alt = season_name.replace("-", "_")
+        candidates.append(project_dir / "obs" / alt / filename)
+    elif "_" in season_name:
+        alt = season_name.replace("_", "-")
+        candidates.append(project_dir / "obs" / alt / filename)
+    for cand in candidates:
+        if cand.is_file():
+            return cand
+    return candidates[0]
 
 
 def _default_output(season_dir: Path, output: Optional[Path]) -> Path:

@@ -64,7 +64,7 @@ from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_e
 from openamundsen_da.observer.plot_fractions import cli_main as plot_fractions_cli
 from openamundsen_da.methods.viz.plot_season_ensemble import plot_season_results
 from openamundsen_da.methods.viz.plot_forcing_ensemble import cli_main as plot_forcing_cli
-from openamundsen_da.util.da_events import AssimilationEvent
+from openamundsen_da.util.validation import validate_assimilation_requirements
 
 # Map assimilation variables to the diagnostics/plots we should run.
 # Extend this mapping when new observables are added.
@@ -97,48 +97,6 @@ def _run_plot_task(task: PlotTask) -> tuple[str, str | None]:
         return task.name, None
     except Exception as exc:  # pragma: no cover
         return task.name, str(exc)
-
-
-def _validate_assimilation_prereqs(
-    project_dir: Path,
-    season_dir: Path,
-    steps: list[Path],
-    events: list[AssimilationEvent],
-) -> None:
-    """Ensure required outputs/config/obs exist before running a season."""
-    proj_cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
-    grid_vars = ((proj_cfg.get("output_data") or {}).get("grids") or {}).get("variables") or []
-    names: set[str] = set()
-    vars_: set[str] = set()
-    for entry in grid_vars:
-        if not isinstance(entry, dict):
-            continue
-        if entry.get("name"):
-            names.add(str(entry["name"]))
-        if entry.get("var"):
-            vars_.add(str(entry["var"]))
-
-    errors: list[str] = []
-
-    needs_scf = any(ev.variable == "scf" for ev in events)
-    if needs_scf and not ({"snowdepth_daily"} & names or {"snow.depth"} & vars_):
-        errors.append("Configure snow depth daily output (var: snow.depth, name: snowdepth_daily) in output_data.grids for SCF assimilation.")
-
-    needs_wet = any(ev.variable == "wet_snow" for ev in events)
-    if needs_wet and not ({"liquid_water_content"} & names or {"snow.liquid_water_content"} & vars_):
-        errors.append("Configure liquid water content output (var: snow.liquid_water_content, name: liquid_water_content) in output_data.grids for wet-snow assimilation.")
-
-    max_idx = min(len(events), len(steps) - 1)
-    for idx in range(max_idx):
-        ev = events[idx]
-        step_dir = Path(steps[idx])
-        obs_name = f"obs_{ev.variable}_{ev.product}_{ev.date.strftime('%Y%m%d')}.csv"
-        obs_path = step_dir / "obs" / obs_name
-        if not obs_path.is_file():
-            errors.append(f"Missing obs CSV for {ev.variable} ({ev.product}) on {ev.date}: expected {obs_path}")
-
-    if errors:
-        raise ValueError("Config/obs validation failed:\n- " + "\n- ".join(errors))
 
 
 def _list_steps_sorted(season_dir: Path) -> List[Path]:
@@ -364,8 +322,36 @@ def run_season(cfg: OrchestratorConfig) -> None:
             raise FileNotFoundError(f"Required meteo directory not found: {meteo_dir}")
         logger.info("Initializing prior ensemble for step {} …", steps[0].name)
 
+    # Assimilation configuration (variable/product per date)
+    events = load_assimilation_events(cfg.season_dir)
+    n_expected = max(0, len(steps) - 1)
+    if len(events) < n_expected:
+        raise ValueError(
+            f"Configured {len(events)} assimilation event(s) but the season needs {n_expected}. "
+            "Add events in season.yml (data_assimilation.assimilation_events) or adjust steps."
+        )
+    if len(events) > n_expected:
+        logger.warning("More assimilation events ({}) than steps needing DA ({}); extra events will be ignored.", len(events), n_expected)
+    vars_used = {getattr(ev, "variable", None) for ev in events if getattr(ev, "variable", None)}
+    scf_enabled = "scf" in vars_used
+    wet_snow_enabled = "wet_snow" in vars_used
+    if not vars_used:
+        logger.info("No assimilation events found; skipping SCF/wet-snow diagnostics (explicit variables only).")
+        scf_enabled = False
+        wet_snow_enabled = False
+    else:
+        logger.info("Assimilation variables detected: {}", ", ".join(sorted(vars_used)))
+        if wet_snow_enabled:
+            logger.info("Wet-snow diagnostics enabled (wet_snow present in assimilation_events).")
+        else:
+            logger.info("Wet-snow diagnostics disabled (wet_snow not in assimilation_events).")
+        if scf_enabled:
+            logger.info("SCF diagnostics enabled (scf present in assimilation_events).")
+        else:
+            logger.info("SCF diagnostics disabled (scf not in assimilation_events).")
+
     # Validate required outputs and obs inputs before running assimilation
-    _validate_assimilation_prereqs(cfg.project_dir, cfg.season_dir, steps, events)
+    validate_assimilation_requirements(cfg.project_dir, cfg.season_dir, steps, events)
     build_prior_ensemble(
         input_meteo_dir=meteo_dir,
         project_dir=cfg.project_dir,
@@ -424,34 +410,6 @@ def run_season(cfg: OrchestratorConfig) -> None:
             season_days = (end_dt.date() - start_dt.date()).days + 1
     except Exception as exc:
         logger.warning("Perf monitor: failed to read season.yml dates: {}", exc)
-
-    # Assimilation configuration (variable/product per date)
-    events = load_assimilation_events(cfg.season_dir)
-    n_expected = max(0, len(steps) - 1)
-    if len(events) < n_expected:
-        raise ValueError(
-            f"Configured {len(events)} assimilation event(s) but the season needs {n_expected}. "
-            "Add events in season.yml (data_assimilation.assimilation_events) or adjust steps."
-        )
-    if len(events) > n_expected:
-        logger.warning("More assimilation events ({}) than steps needing DA ({}); extra events will be ignored.", len(events), n_expected)
-    vars_used = {getattr(ev, "variable", None) for ev in events if getattr(ev, "variable", None)}
-    scf_enabled = "scf" in vars_used
-    wet_snow_enabled = "wet_snow" in vars_used
-    if not vars_used:
-        logger.info("No assimilation events found; skipping SCF/wet-snow diagnostics (explicit variables only).")
-        scf_enabled = False
-        wet_snow_enabled = False
-    else:
-        logger.info("Assimilation variables detected: {}", ", ".join(sorted(vars_used)))
-        if wet_snow_enabled:
-            logger.info("Wet-snow diagnostics enabled (wet_snow present in assimilation_events).")
-        else:
-            logger.info("Wet-snow diagnostics disabled (wet_snow not in assimilation_events).")
-        if scf_enabled:
-            logger.info("SCF diagnostics enabled (scf present in assimilation_events).")
-        else:
-            logger.info("SCF diagnostics disabled (scf not in assimilation_events).")
 
     # Approximate AOI area in km2 for performance summary
     roi_area_km2 = None

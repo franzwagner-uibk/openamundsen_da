@@ -84,6 +84,7 @@ logger.add(sys.stdout, level="INFO", colorize=True, enqueue=True, format=LOGURU_
   - Stats: `effective_sample_size`, `normalize_log_weights`, `sigmoid`, `envelope`, `compute_obs_sigma`
   - Viz: `draw_assimilation_vlines`, `dedupe_legend`
   - DA orchestration: `load_assimilation_events`, `compute_step_daily_series_for_all_members`, `start_perf_monitor`
+- Keep modules small and cohesive: split unrelated concerns into helper modules (e.g., io/paths, util/parallel, util/da_events) rather than growing monoliths; prefer thin orchestration that delegates to helpers.
 - Season layout:
   - Steps live under `season_dir/steps/step_*` (no top-level `step_*`).
 - Assimilation configuration:

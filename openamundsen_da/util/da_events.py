@@ -7,6 +7,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from openamundsen_da.io.paths import find_season_yaml
+from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,7 @@ def load_assimilation_events(season_dir: Path) -> list[AssimilationEvent]:
     """Load assimilation events from season.yml (variable/product per date)."""
     season_yaml = find_season_yaml(season_dir)
     cfg = _read_yaml(season_yaml) or {}
+    project_dir = season_dir.parent.parent if season_dir.parent.parent.is_dir() else None
 
     events: list[AssimilationEvent] = []
 
@@ -56,11 +58,19 @@ def load_assimilation_events(season_dir: Path) -> list[AssimilationEvent]:
             continue
         dval = _parse_event_date(str(dtxt))
         var = str(entry.get("variable") or "scf")
+        default_prod = resolve_obs_product_tag(var, project_dir=project_dir)
         if "product" in entry and entry["product"] is not None:
             prod = str(entry["product"])
         else:
-            prod = "MOD10A1" if var == "scf" else "S1"
-        events.append(AssimilationEvent(date=dval, variable=var, product=prod))
+            prod = default_prod
+
+        prod_upper = prod.upper()
+        if prod_upper in {"MOD10A1", "SNOWFLAKE", "SNOWFLAKES"} and var == "scf":
+            prod_upper = default_prod
+        if prod_upper in {"S1"} and var == "wet_snow":
+            prod_upper = default_prod
+
+        events.append(AssimilationEvent(date=dval, variable=var, product=prod_upper))
 
     if not events:
         raise ValueError(f"No assimilation_events found in {season_yaml}")

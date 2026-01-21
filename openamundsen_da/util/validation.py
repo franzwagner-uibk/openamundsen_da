@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
+from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
 from openamundsen_da.util.da_events import AssimilationEvent
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml, list_member_dirs
@@ -52,7 +53,8 @@ def validate_assimilation_requirements(
         ev = events[idx]
         step_dir = Path(steps[idx])
 
-        obs_name = f"obs_{ev.variable}_{ev.product}_{ev.date.strftime('%Y%m%d')}.csv"
+        prod_tag = ev.product or resolve_obs_product_tag(ev.variable, project_dir=project_dir)
+        obs_name = f"obs_{ev.variable}_{prod_tag}_{ev.date.strftime('%Y%m%d')}.csv"
         obs_path = step_dir / "obs" / obs_name
         if not obs_path.is_file():
             errors.append(f"{step_dir.name}: missing obs CSV for {ev.variable} ({ev.product}) on {ev.date} -> expected {obs_path}")

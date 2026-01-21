@@ -388,6 +388,10 @@ def summarize_s1_directory(
     overwrite: bool = False,
     start: datetime | None = None,
     end: datetime | None = None,
+    wet_values: Sequence[int] | None = None,
+    valid_values: Sequence[int] | None = None,
+    exclude_values: Sequence[int] | None = None,
+    recursive: bool = False,
 ) -> Path:
     """Summarize Sentinel-1 wet-snow maps into one CSV (date, fraction)."""
 
@@ -395,7 +399,10 @@ def summarize_s1_directory(
     if output_csv.exists() and not overwrite:
         return output_csv
 
-    files = sorted(Path(raster_dir).glob("*.tif"))
+    files = []
+    for patt in ("*.tif", "*.tiff", "*.nc"):
+        globber = Path(raster_dir).rglob if recursive else Path(raster_dir).glob
+        files.extend(sorted(globber(patt)))
     rows: list[dict[str, object]] = []
     for tif in files:
         try:
@@ -410,9 +417,9 @@ def summarize_s1_directory(
             stats = compute_wet_snow_fraction_from_raster(
                 tif,
                 aoi_path,
-                wet_values=_S1_WET,
-                valid_values=_S1_VALID,
-                exclude_values=_S1_EXCLUDE,
+                wet_values=wet_values if wet_values is not None else _S1_WET,
+                valid_values=valid_values if valid_values is not None else _S1_VALID,
+                exclude_values=exclude_values if exclude_values is not None else _S1_EXCLUDE,
                 landcover_cfg=lc_cfg,
             )
         except Exception as exc:
@@ -445,13 +452,21 @@ def summarize_s1_directory(
 
 def _parse_s1_timestamp(name: str) -> datetime:
     parts = name.split("_")
-    if len(parts) < 7:
-        raise ValueError(f"Cannot parse timestamp from {name}")
-    try:
-        year, month, day = map(int, parts[4:7])
-    except Exception as exc:
-        raise ValueError(f"Cannot parse date from {name}") from exc
-    return datetime(year, month, day)
+    # Legacy S1 pattern: *_YYYY_MM_DD_*
+    for idx in range(len(parts) - 2):
+        try:
+            year, month, day = map(int, parts[idx : idx + 3])
+            return datetime(year, month, day)
+        except Exception:
+            continue
+    # Fallback: look for an 8-digit token YYYYMMDD anywhere in the name.
+    for token in parts:
+        if len(token) == 8 and token.isdigit():
+            try:
+                return datetime.strptime(token, "%Y%m%d")
+            except Exception:
+                continue
+    raise ValueError(f"Cannot parse date from {name}")
 
 
 def _resolve_season_dates(project_dir: Optional[Path], season_label: Optional[str]) -> dict[str, datetime] | None:
@@ -596,8 +611,8 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(
-        prog="oa-da-wet-snow-s1",
-        description="Aggregate Sentinel-1 WSM wet-snow rasters into a CSV summary.",
+        prog="oa-da-wetsnow-raster",
+        description="Aggregate categorical wet-snow rasters into a CSV summary.",
     )
     parser.add_argument("--project-dir", required=True, type=Path, help="Project root with project.yml and grids/lc_*.asc")
     parser.add_argument("--raster-dir", type=Path, help="Directory with WSM_S1*_*.tif rasters (default: <project>/obs/WSM_S1_SAR)")

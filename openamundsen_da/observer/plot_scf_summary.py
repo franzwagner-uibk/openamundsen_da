@@ -3,7 +3,7 @@ openamundsen_da.observer.plot_scf_summary
 
 Purpose
 - Plot a simple, publication-ready SCF time series from a season-level
-  `scf_summary.csv` produced by the MOD10A1 preprocessing workflow.
+  `scf_summary.csv` produced by the snow-cover summarization workflow.
 
 Behavior
 - Reads CSV, parses/validates the `date` and `scf` columns, sorts by date,

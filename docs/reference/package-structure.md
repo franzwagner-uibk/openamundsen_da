@@ -44,11 +44,10 @@ openamundsen_da/
 
 - **Season pipeline**: `openamundsen_da.pipeline.season` (`oa-da-season`)
 - **Step skeleton builder**: `openamundsen_da.pipeline.season_skeleton` (module has a CLI via `python -m ...`)
-- **MODIS preprocessing**: `openamundsen_da.observer.mod10a1_preprocess` (`oa-da-mod10a1`)
+- **Snow-cover summary**: `openamundsen_da.observer.snowcover` (`oa-da-snowcover`, supports GeoTIFF/NetCDF)
+- **Wet-snow summary**: `openamundsen_da.observer.wetsnow` (`oa-da-wetsnow`, supports GeoTIFF/NetCDF)
 - **SCF per-step obs CSVs**: `openamundsen_da.observer.satellite_scf` (`oa-da-scf`)
-- **SnowFLAKES FSC summary**: `openamundsen_da.observer.snowflake_fsc` (`oa-da-snowflakes-fsc`, supports GeoTIFF/NetCDF)
-- **S1 WSM summary**: `openamundsen_da.methods.wet_snow.area` (`oa-da-wet-snow-s1`)
-- **S1 per-step obs CSVs**: `openamundsen_da.observer.satellite_wet_snow_s1` (`oa-da-wet-snow-s1-season`)
+- **Wet-snow per-step obs CSVs**: `openamundsen_da.observer.satellite_wet_snow_s1` (`oa-da-wetsnow-season`)
 
 For the complete, up-to-date CLI list, see [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}).
 

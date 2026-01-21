@@ -27,7 +27,7 @@ Working with satellite snow observations for data assimilation.
 
 openamundsen_da supports three types of satellite snow observations:
 
-1. **MODIS MOD10A1** - Daily snow cover at 500m resolution
+1. **Snow-cover** - Daily snow cover at 500m resolution
 2. **Sentinel-2 FSC** - Fractional snow cover at 20m resolution (via Snowflake product)
 3. **Sentinel-1 Wet Snow** - Wet snow detection at 20m resolution
 
@@ -35,57 +35,11 @@ This guide covers downloading, preprocessing, and quality control for each produ
 
 ---
 
-## MODIS MOD10A1 Snow Cover
+## Snow-cover Snow Cover
 
 ### Product Overview
 
-**MODIS MOD10A1 v6.1**:
-
-- **Sensor**: Terra/MODIS
-- **Resolution**: 500m
-- **Temporal**: Daily
-- **Coverage**: Global
-- **Latency**: 1-2 days
-
-**Key Layers**:
-
-- `NDSI_Snow_Cover`: Normalized Difference Snow Index (0-100)
-- `NDSI_Snow_Cover_Basic_QA`: Quality flags
-- `NDSI_Snow_Cover_Algorithm_Flags_QA`: Algorithm flags
-
-### Downloading MOD10A1
-
-{: .note }
-
-> MOD10A1 data must be obtained from NASA Earthdata. The framework expects HDF files as input for preprocessing.
-
-### Preprocessing MOD10A1
-
-The framework provides automated preprocessing:
-
-```bash
-docker compose run --rm oa oa-da-mod10a1 \
-  --input-dir /data/obs/MOD10A1_61_HDF \
-  --season-label season_2019-2020 \
-  --project-dir /data \
-  --target-epsg 32632 \
-  --resolution 500 \
-  --ndsi-threshold 40
-```
-
-**Processing steps**:
-
-1. **HDF → GeoTIFF**: Extract NDSI_Snow_Cover layer
-2. **QA masking**: Remove cloudy/poor-quality pixels
-3. **Reprojection**: Reproject to study area CRS
-4. **ROI clipping**: Extract ROI extent
-5. **Binary masking**: NDSI ≥ 40 → snow, else no snow
-6. **SCF calculation**: Mean snow fraction per ROI
-
-**Output**:
-
-- `obs/season_2019-2020/NDSI_Snow_Cover_YYYYMMDD.tif` (per date)
-- `obs/season_2019-2020/scf_summary.csv`
+Snow-cover rasters (GeoTIFF/NetCDF) encoded as 0..100% with configurable cloud/water/nodata classes (see `project.yml` under `obs.snowcover.classes`).
 
 ### Creating per-step observation CSVs (for assimilation)
 
@@ -95,7 +49,7 @@ After `scf_summary.csv` is created, generate per-step one-row observation CSVs (
 docker compose run --rm oa oa-da-scf \\
   --season-dir /data/propagation/season_2019-2020 \\
   --summary-csv /data/obs/season_2019-2020/scf_summary.csv \\
-  --product MOD10A1 \\
+  --product SNOWCOVER \\
   --overwrite
 ```
 
@@ -105,69 +59,39 @@ Use `obs/<season-label>/scf_summary.csv` for quality control and to decide which
 
 `scf_summary.csv` contains (per date): `date`, `region_id`, `n_valid`, `n_snow`, `scf`, `cloud_fraction`, `source`. Typical filters include a minimum `n_valid` and a maximum `cloud_fraction`.
 
-### NDSI Threshold Selection
+## Snow-cover rasters
 
-The MOD10A1 `NDSI_Snow_Cover` layer uses values in the range **0..100**. A threshold of **40** corresponds to an NDSI of **0.40**.
+### Class overview
 
-**Common thresholds (MOD10A1 band units)**:
-
-- **30**: More sensitive (captures patchy snow, may increase false positives)
-- **40** (default): Typical starting point
-- **50+**: Conservative (reduces commission errors)
-
-To test thresholds, rerun `oa-da-mod10a1` with different `--ndsi-threshold` values and compare the resulting `scf_summary.csv` outputs.
-
----
-
-## Sentinel-2 FSC (SnowFLAKES)
-
-### Product Overview
-
-**Sentinel-2 FSC (SnowFLAKES)** (Barella et al., 2022):
-
-- **Sensor**: Sentinel-2 MSI
-- **Resolution**: Product-dependent (often 20m)
-- **Temporal**: ~5-day revisit (cloud-dependent)
-
-**Input**: GeoTIFF or NetCDF FSC rasters with values in **0..100 (%)**. Class handling:
-
-- 0..100 = valid FSC (percent)
-- 205 = clouds (excluded; counted in `cloud_fraction`)
-- 210 = water (excluded)
-- 255 or `_FillValue` = nodata (excluded)
-
-This guide assumes the SnowFLAKES FSC product (Barella et al., 2022).
+- 0..100 = valid FSC (%)
+- Clouds, water, nodata classes are configurable under `obs.snowcover.classes` (defaults: cloud 205, water 210, nodata 255).
 
 ### Summarizing to `scf_summary.csv`
 
-The framework summarizes each FSC raster to a single ROI-mean `scf` value and appends/updates it in `obs/<season-label>/scf_summary.csv`:
-
 ```bash
-docker compose run --rm oa \\
-  oa-da-snowflakes-fsc \\
-  --input-dir /data/obs/FSC_snowflake* \\
-  --season-label season_2019-2020 \\
+docker compose run --rm oa \
+  oa-da-snowcover \
+  --input-dir /data/obs/snowcover \
+  --season-label season_2019-2020 \
   --project-dir /data
 ```
 
-**Notes**:
+Notes:
 
-- The ROI is auto-detected from `/data/env/roi.gpkg` unless you pass `--aoi`; land-cover exclusions use `grids/lc_<domain>_<resolution>.asc` and `data_assimilation.landcover_mask.classes_to_exclude` (defaults: 2 ice, 8-12 forests/mixed, 13 built-up). Keep exactly one matching LC file per domain/resolution. A warning is logged if >50% of the ROI is excluded; 100% exclusion fails.
-- The acquisition date is parsed from the filename as `YYYY_MM_DD` or `YYYYMMDD` (e.g. `SnowFLAKES_20191001_v0_*.nc`).
-- Use `--recursive` if your rasters are in subfolders.
-- Outputs include `cloud_fraction` along with `n_valid`, `n_snow`, and `scf`.
+- ROI defaults to `/data/env/roi.gpkg`; land-cover masking uses `grids/lc_<domain>_<resolution>.asc` and `data_assimilation.landcover_mask.classes_to_exclude`.
+- Acquisition date is parsed from tokens like `YYYY_MM_DD` or `YYYYMMDD`.
+- Supports `.tif/.tiff/.nc`; use `--recursive` for nested folders.
 
 ### Creating per-step observation CSVs (for assimilation)
 
-After `scf_summary.csv` exists, generate per-step one-row observation CSVs:
-
 ```bash
-docker compose run --rm oa oa-da-scf \\
-  --season-dir /data/propagation/season_2019-2020 \\
-  --summary-csv /data/obs/season_2019-2020/scf_summary.csv \\
-  --product SNOWFLAKES \\
+docker compose run --rm oa oa-da-scf \
+  --season-dir /data/propagation/season_2019-2020 \
+  --summary-csv /data/obs/season_2019-2020/scf_summary.csv \
   --overwrite
 ```
+
+Product tags are resolved from `project.yml` (`obs.snowcover.product_tag`, default `SNOWCOVER`).
 
 ---
 
@@ -194,31 +118,31 @@ docker compose run --rm oa oa-da-scf \\
 
 ### Summarizing WSM to `wet_snow_summary.csv`
 
-First summarize Sentinel-1 WSM rasters into a season table:
+Summarize wet-snow rasters into a season table:
 
 ```bash
-docker compose run --rm oa oa-da-wet-snow-s1 \\
-  --project-dir /data \\
-  --output /data/obs/season_2019-2020/wet_snow_summary.csv
+docker compose run --rm oa oa-da-wetsnow \
+  --project-dir /data \
+  --output-root /data/obs \
+  --season-label season_2019-2020
 ```
 
-With `--project-dir`, the command uses these defaults:
+Defaults (when `--project-dir` is set):
 
-- WSM rasters: `/data/obs/WSM_S1_SAR`
+- Rasters: `/data/obs/WSM_S1_SAR`
 - ROI: `/data/env/roi.gpkg`
-
-Override with `--raster-dir` / `--aoi` if your paths differ.
+- Land-cover mask: `/data/grids/lc_<domain>_<resolution>.asc`
 
 ### Creating per-step observation CSVs (for assimilation)
 
 ```bash
-docker compose run --rm oa oa-da-wet-snow-s1-season \\
+docker compose run --rm oa oa-da-wetsnow-season \\
   --season-dir /data/propagation/season_2019-2020 \\
   --summary-csv /data/obs/season_2019-2020/wet_snow_summary.csv \\
   --overwrite
 ```
 
-This writes one-row `obs_wet_snow_S1_YYYYMMDD.csv` files into each step's `obs/` directory for configured wet-snow assimilation dates.
+This writes one-row `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` files into each step's `obs/` directory (product tag from `project.yml`, default `WETSNOW`) for configured wet-snow assimilation dates.
 
 ---
 
@@ -272,7 +196,7 @@ The classification threshold is a volumetric LWC fraction. A value of 0.5 means 
 
 **Starting values**:
 
-- MOD10A1 SCF: σ_obs = 0.10-0.15
+- SNOWCOVER SCF: σ_obs = 0.10-0.15
 - Sentinel-2 FSC: σ_obs = 0.05-0.10
 - Sentinel-1 Wet Snow: σ_obs = 0.15-0.20
 

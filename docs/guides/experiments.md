@@ -47,8 +47,8 @@ See the [Installation Guide]({{ site.baseurl }}{% link installation.md %}).
 ## 2) Data Inputs
 
 - Meteorological forcing: openAMUNDSEN station files (`meteo/stations.csv` + time series). See openAMUNDSEN input docs for details.
-- MODIS MOD10A1 HDFs under `obs/MOD10A1_61_HDF/` (all tiles covering ROI).
-- Optional Sentinel-2 SnowFLAKES FSC rasters (GeoTIFF or NetCDF) under `obs/FSC_snowflake*/`.
+- MODIS SNOWCOVER HDFs under `obs/SNOWCOVER_61_HDF/` (all tiles covering ROI).
+- Optional Sentinel-2 snow-cover FSC rasters (GeoTIFF or NetCDF) under `obs/snowcover*/`.
 - Optional Sentinel-1 wet-snow masks (GeoTIFF) under `obs/WSM_S1_SAR/`.
 
 ---
@@ -72,25 +72,25 @@ Set season bounds in `propagation/<season>/season.yml` (`start_date`, `end_date`
 
 MODIS SCF summary (required):
 ```bash
-docker compose run --rm oa oa-da-mod10a1 \
-  --input-dir /data/obs/MOD10A1_61_HDF \
+docker compose run --rm oa oa-da-snowcover \
+  --input-dir /data/obs/SNOWCOVER_61_HDF \
   --season-label season_2019-2020 \
   --project-dir /data \
   --ndsi-threshold 40
 ```
 
-Optional SnowFLAKES FSC summary:
+Optional snow-cover FSC summary:
 ```bash
 docker compose run --rm oa \
-  oa-da-snowflakes-fsc \
-  --input-dir /data/obs/FSC_snowflake* \
+  oa-da-snowcover \
+  --input-dir /data/obs/snowcover* \
   --season-label season_2019-2020 \
   --project-dir /data
 ```
 
 Optional Sentinel-1 wet-snow summary:
 ```bash
-docker compose run --rm oa oa-da-wet-snow-s1 \
+docker compose run --rm oa oa-da-wetsnow \
   --project-dir /data \
   --output /data/obs/season_2019-2020/wet_snow_summary.csv
 ```
@@ -117,13 +117,13 @@ SCF per-step files from `scf_summary.csv`:
 docker compose run --rm oa oa-da-scf \
   --season-dir /data/propagation/season_2019-2020 \
   --summary-csv /data/obs/season_2019-2020/scf_summary.csv \
-  --product MOD10A1 \
+  --product SNOWCOVER \
   --overwrite
 ```
 
 Wet snow per-step files (optional):
 ```bash
-docker compose run --rm oa oa-da-wet-snow-s1-season \
+docker compose run --rm oa oa-da-wetsnow-season \
   --season-dir /data/propagation/season_2019-2020 \
   --summary-csv /data/obs/season_2019-2020/wet_snow_summary.csv \
   --overwrite

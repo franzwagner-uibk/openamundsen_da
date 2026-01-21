@@ -28,7 +28,7 @@ List of helper modules (repo-relative paths):
 - openamundsen_da/core/constants.py
 - openamundsen_da/core/config.py
 - openamundsen_da/core/env.py
-- openamundsen_da/io/paths.py
+- openamundsen_da/io/paths.py (step helpers: steps_root, list_step_dirs/list_steps_sorted)
 
 #### Utilities
 
@@ -37,6 +37,7 @@ List of helper modules (repo-relative paths):
 - openamundsen_da/util/aoi.py
 - openamundsen_da/util/da_events.py
 - openamundsen_da/util/perf_monitor.py
+- openamundsen_da/util/parallel.py
 
 #### Methods and viz helpers
 

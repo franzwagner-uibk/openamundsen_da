@@ -319,7 +319,7 @@ Performance optimization checklist:
 **Cause**: Deadlock or single member stuck
 
 **Solution**:
-- Check logs: `propagation/season_*/step_*/ensembles/prior/member_*/run.log`
+- Check logs: `propagation/season_*/steps/step_*/ensembles/prior/member_*/run.log`
 - Identify failing member
 - Check openAMUNDSEN config or forcing data
 

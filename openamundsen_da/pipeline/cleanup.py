@@ -107,7 +107,7 @@ def cleanup_season_dir(
     project_dir : Path
         Project root (for reading configuration).
     season_dir : Path
-        Season directory containing step_* subdirectories.
+        Season directory containing steps/step_* subdirectories.
     patterns : Sequence[str] | None
         Optional explicit patterns; defaults to project config + default name.
     """

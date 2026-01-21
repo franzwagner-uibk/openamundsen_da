@@ -11,7 +11,7 @@ Purpose
 
 Behavior
 --------
-- Reads all steps under ``<season_dir>/step_*`` and their YAML configs.
+- Reads all steps under ``<season_dir>/steps/step_*`` and their YAML configs.
 - For every step i that has a following step i+1, uses this step's
   ``end_date`` as the assimilation datetime (mirroring the season
   orchestrator) and its calendar date as the assimilation date.

@@ -47,6 +47,7 @@ from loguru import logger
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.io.paths import (
     list_member_dirs,
+    list_steps_sorted,
     read_step_config,
     list_station_files_forcing as io_list_station_files_forcing,
     list_point_files_results as io_list_point_files_results,
@@ -125,9 +126,7 @@ def _parse_date_opt(text: Optional[str]) -> Optional[datetime]:
 
 def _list_steps_sorted(season_dir: Path) -> List[StepInfo]:
     steps: List[StepInfo] = []
-    for p in sorted(season_dir.glob("step_*")):
-        if not p.is_dir():
-            continue
+    for p in list_steps_sorted(season_dir):
         cfg = read_step_config(p)
         steps.append(
             StepInfo(
@@ -136,8 +135,6 @@ def _list_steps_sorted(season_dir: Path) -> List[StepInfo]:
                 end=_parse_date_opt(str(cfg.get("end_date", ""))),
             )
         )
-    # sort by start date if present, else by name
-    steps.sort(key=lambda s: (s.start or datetime.min, s.path.name))
     return steps
 
 
@@ -390,11 +387,12 @@ def plot_season_forcing(
     rolling: Optional[int] = None,
     backend: str = "Agg",
     log_level: str = "INFO",
+    configure_logger: bool = True,
 ) -> Path:
     """Create season-wide forcing plots for one or more stations.
 
     Parameters
-    - season_dir: Season root directory (contains ``step_*`` subfolders).
+    - season_dir: Season root directory (contains ``steps/step_*`` subfolders).
     - date_col: Timestamp column in station CSVs (default: ``date``).
     - temp_col: Temperature column (default: ``temp``).
     - precip_col: Precipitation column (default: ``precip``).
@@ -415,13 +413,14 @@ def plot_season_forcing(
     matplotlib.use(backend or "Agg")
     import matplotlib.pyplot as plt
 
-    logger.remove()
-    logger.add(sys.stdout, level=(log_level or "INFO").upper(), enqueue=False, colorize=True, format=LOGURU_FORMAT)
+    if configure_logger:
+        logger.remove()
+        logger.add(sys.stdout, level=(log_level or "INFO").upper(), enqueue=False, colorize=True, format=LOGURU_FORMAT)
 
     season_dir = Path(season_dir)
     steps = _list_steps_sorted(season_dir)
     if not steps:
-        raise FileNotFoundError(f"No step_* directories found under {season_dir}")
+        raise FileNotFoundError(f"No step directories found under {season_dir / 'steps'}")
 
     # Determine station files from first step with meteo
     station_files: List[str] = []
@@ -630,6 +629,7 @@ def plot_season_results(
     backend: str = "Agg",
     log_level: str = "INFO",
     mode: str = "members",
+    configure_logger: bool = True,
 ) -> Path:
     """Create season-wide results plots (e.g., SWE or snow_depth) for one or more stations.
 
@@ -642,13 +642,14 @@ def plot_season_results(
     matplotlib.use(backend or "Agg")
     import matplotlib.pyplot as plt
 
-    logger.remove()
-    logger.add(sys.stdout, level=(log_level or "INFO").upper(), enqueue=False, colorize=True, format=LOGURU_FORMAT)
+    if configure_logger:
+        logger.remove()
+        logger.add(sys.stdout, level=(log_level or "INFO").upper(), enqueue=False, colorize=True, format=LOGURU_FORMAT)
 
     season_dir = Path(season_dir)
     steps = _list_steps_sorted(season_dir)
     if not steps:
-        raise FileNotFoundError(f"No step_* directories found under {season_dir}")
+        raise FileNotFoundError(f"No step directories found under {season_dir / 'steps'}")
 
     mode = (mode or "members").lower()
     if mode not in {"members", "band"}:
@@ -907,6 +908,7 @@ def plot_season_both(
     show_members: bool = False,
     backend: str = "Agg",
     log_level: str = "INFO",
+    configure_logger: bool = True,
 ) -> Tuple[Path, Path]:
     """Convenience wrapper: generate both forcing and results season plots."""
     forcing_dir = plot_season_forcing(
@@ -917,6 +919,7 @@ def plot_season_both(
         end_date=end_date,
         backend=backend,
         log_level=log_level,
+        configure_logger=configure_logger,
     )
     results_dir = plot_season_results(
         season_dir=season_dir,
@@ -927,6 +930,7 @@ def plot_season_both(
         show_members=show_members,
         backend=backend,
         log_level=log_level,
+        configure_logger=configure_logger,
     )
     return forcing_dir, results_dir
 
@@ -1027,5 +1031,3 @@ def _cli(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_cli())
-
-

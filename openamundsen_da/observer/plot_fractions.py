@@ -36,6 +36,7 @@ from openamundsen_da.methods.viz._utils import (
     draw_assim_labels,
 )
 from openamundsen_da.methods.viz._style import COLOR_DA_OBS, SIZE_DA_OBS, LW_DA_OBS
+from openamundsen_da.io.paths import list_step_dirs
 
 
 def _parse_dates(df: pd.DataFrame) -> pd.DataFrame:
@@ -78,7 +79,11 @@ def _default_output(season_dir: Path, output: Optional[Path]) -> Path:
 
 def _load_open_loop_series(season_dir: Path, filename: str, value_col: str) -> Optional[pd.DataFrame]:
     """Stitch open_loop point series across steps into one DataFrame."""
-    files = sorted(season_dir.glob(f"step_*/ensembles/prior/open_loop/results/{filename}"))
+    files: list[Path] = []
+    for step in list_step_dirs(season_dir):
+        f = step / "ensembles" / "prior" / "open_loop" / "results" / filename
+        if f.is_file():
+            files.append(f)
     frames: list[pd.DataFrame] = []
     for f in files:
         df = _load_fraction(f, value_col)
@@ -277,7 +282,7 @@ def plot_fractions(
     plt.close(fig)
 
 
-def cli_main(argv: list[str] | None = None) -> int:
+def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(
         prog="oa-da-plot-fractions",
@@ -297,8 +302,9 @@ def cli_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mode", choices=["band", "members"], default="band", help="Plot mode: band (default) or members")
     args = parser.parse_args(argv)
 
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    if configure_logger:
+        logger.remove()
+        logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
     season_dir = Path(args.season_dir)
     season_name = season_dir.name

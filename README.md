@@ -425,7 +425,7 @@ Outputs are written to `$season/plots/forcing` and `$season/plots/results` with 
     python -c "from pathlib import Path; from openamundsen_da.methods.pf.plot_ess_timeline import plot_season_ess_timeline; plot_season_ess_timeline(Path('$season'))"
   ```
 
-  This scans `step_*/assim/weights_scf_*.csv` under `$season` and writes the timeline to `$season/plots/assim/ess/season_ess_timeline_<season_id>.png`.
+  This scans `steps/step_*/assim/weights_scf_*.csv` under `$season` and writes the timeline to `$season/plots/assim/ess/season_ess_timeline_<season_id>.png`.
 
 - Season-wide forcing/results (stitch all steps together):
 
@@ -530,7 +530,7 @@ This writes per-member SCF time series to `<step>/ensembles/prior/<member>/resul
 
 ### Season Skeleton (optional helper)
 
-To create an empty season layout with `step_*` folders and minimal step YAMLs from a list of assimilation dates, you can either use the legacy flat list or the structured DA block.
+To create an empty season layout with `steps/step_*` folders and minimal step YAMLs from a list of assimilation dates, you can either use the legacy flat list or the structured DA block.
 
 Legacy (SCF-only) schema:
 

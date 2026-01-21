@@ -65,6 +65,7 @@ from openamundsen_da.io.paths import (
     read_step_config,
     list_member_dirs,
     open_loop_dir,
+    list_step_dirs,
 )
 from openamundsen_da.util.landcover_mask import (
     LandcoverMaskConfig,
@@ -642,7 +643,7 @@ def cli_season_daily(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--project-dir", type=Path, required=True, help="Project root containing project.yml")
-    parser.add_argument("--season-dir", type=Path, required=True, help="Season root containing step_* directories")
+    parser.add_argument("--season-dir", type=Path, required=True, help="Season root containing steps/step_* directories")
     parser.add_argument("--aoi", "--roi", dest="aoi", type=Path, required=True, help="Single-feature ROI vector (same as used by assimilation)")
     parser.add_argument("--max-workers", type=int, default=4, help="Max parallel workers per step")
     parser.add_argument("--overwrite", action="store_true", help="Recompute SCF even if point_scf_roi.csv exists")
@@ -655,9 +656,9 @@ def cli_season_daily(argv: list[str] | None = None) -> int:
     logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
     season_dir = Path(args.season_dir)
-    steps = sorted(p for p in season_dir.glob("step_*") if p.is_dir())
+    steps = list_step_dirs(season_dir)
     if not steps:
-        logger.error("No step_* directories found under {}", season_dir)
+        logger.error("No step directories found under {}", season_dir)
         return 1
 
     logger.info("Computing daily model SCF for season: {} ({} step(s))", season_dir.name, len(steps))

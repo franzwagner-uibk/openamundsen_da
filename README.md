@@ -530,21 +530,7 @@ This writes per-member SCF time series to `<step>/ensembles/prior/<member>/resul
 
 ### Season Skeleton (optional helper)
 
-To create an empty season layout with `steps/step_*` folders and minimal step YAMLs from a list of assimilation dates, you can either use the legacy flat list or the structured DA block.
-
-Legacy (SCF-only) schema:
-
-```yaml
-start_date: 2017-10-01
-end_date: 2018-09-30
-assimilation_dates:
-  - 2017-11-23
-  - 2017-12-24
-  - 2018-01-30
-  # ...
-```
-
-Structured schema with per-date observable/product (preferred):
+To create an empty season layout with `steps/step_*` folders and minimal step YAMLs, use the structured DA block:
 
 ```yaml
 start_date: 2017-10-01

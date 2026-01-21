@@ -89,7 +89,7 @@ logger.add(sys.stdout, level="INFO", colorize=True, enqueue=True, format=LOGURU_
   - Steps live under `season_dir/steps/step_*` (no top-level `step_*`).
 - Assimilation configuration:
   - H(x) configuration (method/variable/params) is read from `project.yml` under `data_assimilation.h_of_x` (or top-level `h_of_x`); step YAML overrides are ignored.
-  - Assimilation events come from `season.yml` via `data_assimilation.assimilation_events` (variable/product per date); use `util.da_events.load_assimilation_events`. Avoid legacy `assimilation_dates` unless cleaning up old configs.
+  - Assimilation events come from `season.yml` via `data_assimilation.assimilation_events` (variable/product per date); use `util.da_events.load_assimilation_events`.
 - Open loop handling:
   - The launcher always runs `open_loop` alongside `member_*` to produce a continuous reference; assimilation and resampling operate on members only.
 - Plotting defaults:

@@ -40,24 +40,7 @@ def _parse_event_date(text: str | None) -> date:
 
 
 def load_assimilation_events(season_dir: Path) -> list[AssimilationEvent]:
-    """Load assimilation events from season.yml (variable/product per date).
-
-    Supports both the new structured block:
-
-    data_assimilation:
-      assimilation_events:
-        - date: 2020-03-19
-          variable: scf
-          product: MOD10A1
-
-    and the legacy flat list:
-
-    assimilation_dates:
-      - 2020-03-19
-      - 2020-04-06
-
-    In the legacy case, all events use variable='scf' and product='MOD10A1'.
-    """
+    """Load assimilation events from season.yml (variable/product per date)."""
     season_yaml = find_season_yaml(season_dir)
     cfg = _read_yaml(season_yaml) or {}
 
@@ -65,28 +48,22 @@ def load_assimilation_events(season_dir: Path) -> list[AssimilationEvent]:
 
     da_cfg = cfg.get("data_assimilation") or {}
     raw_events = da_cfg.get("assimilation_events") or []
-    if isinstance(raw_events, list) and raw_events:
-        for entry in raw_events:
-            if not isinstance(entry, dict):
-                continue
-            dtxt = entry.get("date")
-            if not dtxt:
-                continue
-            dval = _parse_event_date(str(dtxt))
-            var = str(entry.get("variable") or "scf")
-            if "product" in entry and entry["product"] is not None:
-                prod = str(entry["product"])
-            else:
-                prod = "MOD10A1" if var == "scf" else "S1"
-            events.append(AssimilationEvent(date=dval, variable=var, product=prod))
-    else:
-        raw_dates = cfg.get("assimilation_dates") or []
-        for text in raw_dates:
-            dval = _parse_event_date(str(text))
-            events.append(AssimilationEvent(date=dval, variable="scf", product="MOD10A1"))
+    for entry in raw_events:
+        if not isinstance(entry, dict):
+            continue
+        dtxt = entry.get("date")
+        if not dtxt:
+            continue
+        dval = _parse_event_date(str(dtxt))
+        var = str(entry.get("variable") or "scf")
+        if "product" in entry and entry["product"] is not None:
+            prod = str(entry["product"])
+        else:
+            prod = "MOD10A1" if var == "scf" else "S1"
+        events.append(AssimilationEvent(date=dval, variable=var, product=prod))
 
     if not events:
-        raise ValueError(f"No assimilation_events or assimilation_dates found in {season_yaml}")
+        raise ValueError(f"No assimilation_events found in {season_yaml}")
 
     events.sort(key=lambda ev: ev.date)
     return events

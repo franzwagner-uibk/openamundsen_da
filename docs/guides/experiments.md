@@ -64,7 +64,7 @@ Edit `project.yml` (essentials):
 - Resampling threshold: `resampling.ess_threshold_ratio`.
 - Glacier mask path if enabled.
 
-Set season bounds in `propagation/<season>/season.yml` (`start_date`, `end_date`); leave `assimilation_dates: []` until observations are summarized.
+Set season bounds in `propagation/<season>/season.yml` (`start_date`, `end_date`); fill `data_assimilation.assimilation_events` after observations are summarized.
 
 ---
 
@@ -106,7 +106,7 @@ docker compose run --rm oa \
   --season-dir /data/propagation/season_2019-2020
 ```
 
-Populate `assimilation_dates` in `season.yml` using the dates you want to assimilate (from `scf_summary.csv`, and optionally `wet_snow_summary.csv`).
+Populate `data_assimilation.assimilation_events` in `season.yml` using the dates you want to assimilate (from `scf_summary.csv`, and optionally `wet_snow_summary.csv`).
 
 ---
 

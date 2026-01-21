@@ -428,8 +428,11 @@ See [Performance Tuning]({{ site.baseurl }}{% link advanced/performance.md %}) f
 
 3. **Check date in season.yml**:
    ```yaml
-   assimilation_dates:
-     - 2019-11-22  # Must exactly match observation date
+   data_assimilation:
+     assimilation_events:
+       - date: 2019-11-22  # Must exactly match observation date
+         variable: scf
+         product: MOD10A1
    ```
 
 ### "Resampling indices out of bounds"

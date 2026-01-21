@@ -346,6 +346,11 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     if wet_env is not None and not wet_env.empty and {"value_min", "value_max"}.issubset(wet_env.columns) is False:
         wet_env = None
 
+    if scf_obs is None or scf_obs.empty:
+        logger.warning("SCF obs not found at {} – plotting without obs points", scf_obs_path)
+    if wet_obs is None or wet_obs.empty:
+        logger.warning("Wet-snow obs not found at {} – plotting without obs points", wet_obs_path)
+
     assim_events = []
     try:
         assim_events = load_assimilation_events(season_dir)

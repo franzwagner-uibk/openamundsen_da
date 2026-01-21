@@ -515,9 +515,9 @@ docker compose run --rm oa oa-da-season \
   --project-dir /data \
   --season-dir /data/propagation/season_2019-2020
 
-# MODIS preprocessing
+# Snow-cover summary (GeoTIFF/NetCDF; MODIS after HDF→GeoTIFF with classes set in project.yml)
 docker compose run --rm oa oa-da-snowcover \
-  --input-dir /data/obs/SNOWCOVER_61_HDF \
+  --input-dir /data/obs/snowcover \
   --season-label season_2019-2020 \
   --project-dir /data
 ```

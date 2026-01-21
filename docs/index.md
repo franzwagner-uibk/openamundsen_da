@@ -38,7 +38,7 @@ openAMUNDSEN is an open-source, fully distributed snow-hydrological model design
 
 - **Prior forcing builder** for meteorological perturbations (temperature ±σ<sub>T</sub>, precipitation ×σ<sub>P</sub>)
 - **Parallel ensemble launcher** with warm-start capability
-- **MODIS SNOWCOVER preprocessing** (HDF → GeoTIFF, QA masking, reprojection)
+  - **Snow-cover preprocessing** (GeoTIFF/NetCDF; includes MODIS after HDF conversion with project.yml class mapping)
 - **Sentinel-2 FSC extraction** via Snowflake product (Barella et al., 2022)
 - **Sentinel-1 wet snow classification** (Nagler et al., 2016)
 - **H(x) forward operators** for model-to-observation space mapping

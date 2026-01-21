@@ -47,7 +47,7 @@ See the [Installation Guide]({{ site.baseurl }}{% link installation.md %}).
 ## 2) Data Inputs
 
 - Meteorological forcing: openAMUNDSEN station files (`meteo/stations.csv` + time series). See openAMUNDSEN input docs for details.
-- MODIS SNOWCOVER HDFs under `obs/SNOWCOVER_61_HDF/` (all tiles covering ROI).
+- Snow-cover rasters (GeoTIFF/NetCDF) under `obs/snowcover/` (for MODIS, convert MOD10A1 HDF to GeoTIFF first and set `obs.snowcover.classes` in `project.yml`).
 - Optional Sentinel-2 snow-cover FSC rasters (GeoTIFF or NetCDF) under `obs/snowcover*/`.
 - Optional Sentinel-1 wet-snow masks (GeoTIFF) under `obs/WSM_S1_SAR/`.
 
@@ -70,13 +70,12 @@ Set season bounds in `propagation/<season>/season.yml` (`start_date`, `end_date`
 
 ## 4) Preprocess Observations
 
-MODIS SCF summary (required):
+Snow-cover SCF summary (required; works with MODIS once converted to GeoTIFF and class mapping set in `project.yml`):
 ```bash
 docker compose run --rm oa oa-da-snowcover \
-  --input-dir /data/obs/SNOWCOVER_61_HDF \
+  --input-dir /data/obs/snowcover \
   --season-label season_2019-2020 \
-  --project-dir /data \
-  --ndsi-threshold 40
+  --project-dir /data
 ```
 
 Optional snow-cover FSC summary:

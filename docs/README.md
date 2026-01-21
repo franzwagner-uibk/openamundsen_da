@@ -119,7 +119,7 @@ Edit `_config.yml` to customize:
 - ✅ Workflow overview with mermaid diagrams
 - ✅ Complete CLI reference (all 16 commands)
 - ✅ Configuration reference (comprehensive YAML guide)
-- ✅ Observation processing guide (MODIS, Sentinel-2, Sentinel-1)
+- ✅ Observation processing guide (snow-cover incl. MODIS via converted rasters, Sentinel-2, Sentinel-1)
 - ✅ Running experiments guide (end-to-end walkthrough)
 - ✅ Troubleshooting guide (common issues and solutions)
 - ✅ Section index pages (Guides, Reference, Advanced)

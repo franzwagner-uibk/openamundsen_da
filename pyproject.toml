@@ -41,3 +41,4 @@ oa-da-model-wet-snow-season-daily = "openamundsen_da.methods.wet_snow.area:cli_m
 oa-da-wetsnow-season = "openamundsen_da.observer.satellite_wet_snow_s1:cli_main"
 oa-da-perf-monitor = "openamundsen_da.util.perf_monitor:cli_main"
 oa-da-clean-season = "openamundsen_da.pipeline.cleanup:cli_main"
+oa-da-prepare-season-obs = "openamundsen_da.pipeline.prepare_season_obs:cli_main"

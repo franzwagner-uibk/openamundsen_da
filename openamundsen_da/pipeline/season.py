@@ -299,7 +299,7 @@ def _setup_logger(season_dir: Path, log_level: str) -> None:
     """Configure Loguru sinks for console and season file log."""
     logger.remove()
     logger.add(sys.stdout, level=log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
-    log_file = Path(season_dir) / f"{Path(season_dir).name}.log"
+    log_file = _season_log_path(season_dir)
     logger.add(log_file, level=log_level.upper(), colorize=False, enqueue=True, format=LOGURU_FORMAT)
 
 
@@ -315,6 +315,35 @@ def _auto_project_dir(season_dir: Path) -> Path:
         f"Could not find project.yml for season_dir={season_dir}. "
         "Pass --project-dir explicitly or ensure project.yml exists in a parent directory."
     )
+
+
+def _season_log_path(season_dir: Path) -> Path:
+    """Return a season log path named by season years when available."""
+    season_dir = Path(season_dir)
+    label = season_dir.name
+    try:
+        cfg = _read_yaml_file(find_season_yaml(season_dir)) or {}
+        start_val = cfg.get("start_date")
+        end_val = cfg.get("end_date")
+
+        def _year(val: object | None) -> int | None:
+            if val is None:
+                return None
+            try:
+                return datetime.fromisoformat(str(val)).year
+            except Exception:
+                return None
+
+        sy = _year(start_val)
+        ey = _year(end_val)
+        if sy and ey:
+            label = f"season_{sy}_{ey}"
+        elif sy:
+            label = f"season_{sy}"
+    except Exception:
+        # fall back to directory name
+        pass
+    return season_dir / f"{label}.log"
 
 
 def run_season(cfg: OrchestratorConfig) -> None:

@@ -1,13 +1,4 @@
-"""Season helper for wet-snow observations from Sentinel-1 WSM summaries.
-
-Purpose
--------
-- Take the season-level ``wet_snow_summary.csv`` produced by
-  ``openamundsen_da.methods.wet_snow.area.summarize_s1_directory`` and
-  write one-row ``obs_wet_snow_S1_YYYYMMDD.csv`` files into each step's
-  ``obs/`` folder for the dates that are actually assimilated by the
-  season pipeline.
-"""
+"""Season helper for wet-snow observations from season summaries."""
 
 from __future__ import annotations
 
@@ -21,6 +12,7 @@ from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.observer.fraction_obs import (
     list_steps_sorted,
     read_fraction_summary,
+    resolve_obs_product_tag,
     write_obs_from_summary_row,
 )
 from openamundsen_da.io.paths import read_step_config
@@ -46,6 +38,7 @@ def generate_season_from_summary(
     season_dir: Path,
     summary_csv: Path,
     *,
+    product: str | None,
     overwrite: bool,
 ) -> None:
     """Extract per-step obs CSVs from a season-wide ``wet_snow_summary.csv``."""
@@ -62,11 +55,14 @@ def generate_season_from_summary(
     if len(steps) < 2:
         raise FileNotFoundError(f"Not enough steps to derive assimilation dates under {season_dir}")
 
+    project_dir = season_dir.parent.parent if season_dir.parent.parent.is_dir() else None
     n = min(len(events), len(steps) - 1)
     if n < len(events):
         logger.warning("Only {} steps (excluding final) available for {} assimilation events; extra events will be ignored.", n, len(events))
     if n < len(steps) - 1:
         logger.warning("Only {} assimilation events available for {} steps; later steps will not receive obs CSVs.", len(events), len(steps) - 1)
+
+    prod_tag = resolve_obs_product_tag("wet_snow", project_dir=project_dir, season_dir=season_dir, fallback=product)
 
     written = skipped_missing = skipped_existing = 0
     for i in range(n):
@@ -100,7 +96,7 @@ def generate_season_from_summary(
             date=assim_dt,
             row=row,
             value_col="wet_snow_fraction",
-            product="S1",
+            product=prod_tag,
             variable="wet_snow",
             overwrite=overwrite,
         )
@@ -132,6 +128,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Path to wet_snow_summary.csv (default: <project>/obs/<season>/wet_snow_summary.csv)",
     )
+    parser.add_argument("--product", help="Product tag to use in obs filename (default: obs.wetsnow.product_tag)")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing obs_wet_snow_*.csv files")
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
 
@@ -151,6 +148,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         generate_season_from_summary(
             season_dir=season_dir,
             summary_csv=summary_path,
+            product=str(args.product) if args.product else None,
             overwrite=args.overwrite,
         )
         return 0

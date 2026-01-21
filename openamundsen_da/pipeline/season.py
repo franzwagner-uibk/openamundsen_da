@@ -678,6 +678,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
                         aoi=roi,
                         landcover_cfg=lc_cfg,
                         obs_csv=None,
+                        product=ev.product,
                     )
                 else:
                     weights = assimilate_scf_for_date(

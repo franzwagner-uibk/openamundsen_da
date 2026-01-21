@@ -44,6 +44,7 @@ from openamundsen_da.methods.wet_snow.area import compute_model_wet_snow_fractio
 from openamundsen_da.util.stats import gaussian_logpdf, normalize_log_weights, effective_sample_size, compute_obs_sigma
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.util.landcover_mask import LandcoverMaskConfig, resolve_landcover_mask
+from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
 
 
 @dataclass
@@ -194,11 +195,12 @@ def assimilate_scf_for_date(
     aoi: Path,
     landcover_cfg: LandcoverMaskConfig | None = None,
     obs_csv: Optional[Path] = None,
-    product: str = "MOD10A1",
+    product: str | None = None,
 ) -> pd.DataFrame:
     """Backward-compatible wrapper: SCF-specific assimilation for one date."""
     method, variable, hofx_params = load_hofx_from_project(project_dir)
     lc_cfg = landcover_cfg or resolve_landcover_mask(project_dir)
+    prod_tag = resolve_obs_product_tag("scf", project_dir=project_dir, fallback=product or None)
 
     def _model_eval(results_dir: Path, aoi_path: Path, dt: datetime) -> float:
         out = compute_model_scf(
@@ -222,7 +224,7 @@ def assimilate_scf_for_date(
         obs_csv=obs_csv,
         value_col="scf",
         observable="scf",
-        obs_pattern=f"obs_scf_{str(product).upper()}_" + "{yyyymmdd}.csv",
+        obs_pattern=f"obs_scf_{prod_tag}_" + "{yyyymmdd}.csv",
         model_eval=_model_eval,
     )
     # Preserve SCF-specific column names for downstream tools.
@@ -239,9 +241,11 @@ def assimilate_wet_snow_for_date(
     aoi: Path,
     landcover_cfg: LandcoverMaskConfig | None = None,
     obs_csv: Optional[Path] = None,
+    product: str | None = None,
 ) -> pd.DataFrame:
     """Wet-snow assimilation for one date (Sentinel-1 AOI fraction)."""
     lc_cfg = landcover_cfg or resolve_landcover_mask(project_dir)
+    prod_tag = resolve_obs_product_tag("wet_snow", project_dir=project_dir, fallback=product or None)
 
     def _model_eval(results_dir: Path, aoi_path: Path, dt: datetime) -> float:
         out = compute_model_wet_snow_fraction(
@@ -262,7 +266,7 @@ def assimilate_wet_snow_for_date(
         obs_csv=obs_csv,
         value_col="wet_snow_fraction",
         observable="wet_snow",
-        obs_pattern="obs_wet_snow_S1_{yyyymmdd}.csv",
+        obs_pattern=f"obs_wet_snow_{prod_tag}_{{yyyymmdd}}.csv",
         model_eval=_model_eval,
     )
     df = df.rename(columns={"value_model": "wet_snow_model", "value_obs": "wet_snow_obs"})
@@ -289,7 +293,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     p.add_argument("--ensemble", required=True, choices=("prior", "posterior"))
     p.add_argument("--date", required=True, type=str, help="YYYY-MM-DD")
     p.add_argument("--aoi", "--roi", dest="aoi", required=True, type=Path, help="ROI vector (single feature)")
-    p.add_argument("--product", type=str, default="MOD10A1", help="Product code used in obs filename (default: MOD10A1)")
+    p.add_argument("--product", type=str, help="Product code used in obs filename (default: project obs.snowcover.product_tag)")
     p.add_argument("--obs-csv", type=Path, help="Optional path to obs_scf_*.csv; default: <step>/obs")
     p.add_argument("--output", type=Path, help="Optional output CSV path")
     p.add_argument("--log-level", default="INFO")
@@ -311,7 +315,7 @@ def cli_main(argv: list[str] | None = None) -> int:
             aoi=Path(args.aoi),
             landcover_cfg=lc_cfg,
             obs_csv=Path(args.obs_csv) if args.obs_csv else None,
-            product=str(args.product or "MOD10A1"),
+            product=str(args.product) if args.product else None,
         )
     except Exception as e:
         logger.error(f"Assimilation failed: {e}")

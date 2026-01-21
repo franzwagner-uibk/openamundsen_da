@@ -21,7 +21,12 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.core.constants import OBS_DIR_NAME
-from openamundsen_da.io.paths import read_step_config, list_steps_sorted as io_list_steps_sorted
+from openamundsen_da.core.env import _read_yaml_file
+from openamundsen_da.io.paths import (
+    find_project_yaml,
+    list_steps_sorted as io_list_steps_sorted,
+    read_step_config,
+)
 
 
 @dataclass(frozen=True)
@@ -105,3 +110,38 @@ def write_obs_from_summary_row(
     logger.info("Wrote obs {} -> {} ({})", date.strftime("%Y-%m-%d"), step_dir.name, out_csv.name)
     return out_csv
 
+
+def _project_from_season(season_dir: Path | None) -> Path | None:
+    if season_dir is None:
+        return None
+    for candidate in (season_dir.parent, season_dir.parent.parent):
+        if candidate and candidate.is_dir():
+            try:
+                return find_project_yaml(candidate).parent
+            except Exception:
+                continue
+    return None
+
+
+def resolve_obs_product_tag(
+    variable: str,
+    *,
+    project_dir: Path | None = None,
+    season_dir: Path | None = None,
+    fallback: str | None = None,
+) -> str:
+    """Resolve the product tag for obs filenames from project.yml (obs.<variable>.product_tag)."""
+
+    default = fallback or ("SNOWCOVER" if variable == "scf" else "WETSNOW")
+    proj_dir = project_dir or _project_from_season(season_dir)
+    if proj_dir:
+        try:
+            cfg = _read_yaml_file(find_project_yaml(proj_dir)) or {}
+            obs_cfg = (cfg.get("obs") or {})
+            key = "snowcover" if variable == "scf" else "wetsnow" if variable == "wet_snow" else variable
+            tag = (obs_cfg.get(key) or {}).get("product_tag")
+            if tag:
+                return str(tag).upper()
+        except Exception:
+            pass
+    return str(default).upper()

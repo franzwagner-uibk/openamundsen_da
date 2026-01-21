@@ -1,24 +1,4 @@
-"""openamundsen_da.observer.satellite_scf
-
-Season helper for SCF observations backed by ``scf_summary.csv``.
-
-Purpose
--------
-- Take the season-level ``scf_summary.csv`` produced by
-  ``openamundsen_da.observer.mod10a1_preprocess`` and write one-row
-  ``obs_scf_MOD10A1_YYYYMMDD.csv`` files into each step's ``obs/`` folder
-  for the dates that are actually assimilated by the season pipeline.
-
-Behavior
---------
-- Reads all steps under ``<season_dir>/steps/step_*`` and their YAML configs.
-- For every step i that has a following step i+1, uses this step's
-  ``end_date`` as the assimilation datetime (mirroring the season
-  orchestrator) and its calendar date as the assimilation date.
-- Looks up that date in ``scf_summary.csv`` and writes a single-row CSV
-  into ``step_i/obs/obs_scf_MOD10A1_YYYYMMDD.csv``.
-- Does not touch rasters; all SCF statistics come from the summary file.
-"""
+"""Season helper for snow-cover observations backed by ``scf_summary.csv``."""
 
 from __future__ import annotations
 
@@ -35,6 +15,7 @@ from openamundsen_da.io.paths import read_step_config
 from openamundsen_da.observer.fraction_obs import (
     list_steps_sorted,
     read_fraction_summary,
+    resolve_obs_product_tag,
     write_obs_from_summary_row,
 )
 from openamundsen_da.util.da_events import load_assimilation_events
@@ -60,7 +41,7 @@ def generate_season_from_summary(
     season_dir: Path,
     summary_csv: Path,
     *,
-    product: str = "MOD10A1",
+    product: str | None,
     overwrite: bool,
 ) -> None:
     """Extract per-step obs CSVs from a season-wide ``scf_summary.csv``."""
@@ -76,12 +57,15 @@ def generate_season_from_summary(
     if len(steps) < 2:
         raise FileNotFoundError(f"Not enough steps to derive assimilation dates under {season_dir}")
 
+    project_dir = season_dir.parent.parent if season_dir.parent.parent.is_dir() else None
     events = load_assimilation_events(season_dir)
     n = min(len(events), len(steps) - 1)
     if n < len(events):
         logger.warning("Only {} steps (excluding final) available for {} assimilation events; extra events will be ignored.", n, len(events))
     if n < len(steps) - 1:
         logger.warning("Only {} assimilation events available for {} steps; later steps will not receive obs CSVs.", len(events), len(steps) - 1)
+
+    prod_tag = resolve_obs_product_tag("scf", project_dir=project_dir, season_dir=season_dir, fallback=product)
 
     written = skipped_missing = skipped_existing = 0
     for i in range(n):
@@ -108,7 +92,6 @@ def generate_season_from_summary(
             skipped_missing += 1
             continue
 
-        prod_tag = str(product).upper()
         out_csv = steps[i] / OBS_DIR_NAME / f"obs_scf_{prod_tag}_{ev.date.strftime('%Y%m%d')}.csv"
         if out_csv.exists() and not overwrite:
             logger.info("Skipping existing obs CSV for {} (step {})", ev.date.strftime("%Y-%m-%d"), steps[i].name)
@@ -142,7 +125,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         prog="oa-da-scf",
         description=(
             "Copy SCF rows from scf_summary.csv into per-step "
-            "obs_scf_MOD10A1_YYYYMMDD.csv files for a season."
+            "obs_scf_<PRODUCT>_YYYYMMDD.csv files for a season."
         ),
     )
     parser.add_argument("--season-dir", required=True, type=Path, help="Season directory (propagation/season_YYYY-YYYY)")
@@ -151,7 +134,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Path to scf_summary.csv (default: <project>/obs/<season>/scf_summary.csv)",
     )
-    parser.add_argument("--product", default="MOD10A1", help="Product code to use in obs filename (default: MOD10A1)")
+    parser.add_argument("--product", help="Product tag to use in obs filename (default: obs.snowcover.product_tag)")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing obs_scf_*.csv files")
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
 
@@ -171,7 +154,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         generate_season_from_summary(
             season_dir=season_dir,
             summary_csv=summary_path,
-            product=str(args.product or "MOD10A1"),
+            product=str(args.product) if args.product else None,
             overwrite=args.overwrite,
         )
         return 0

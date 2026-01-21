@@ -2,7 +2,7 @@
 
 End-to-end season orchestrator with strict, opinionated behavior:
 
-- Discovers step_* under a season directory and processes them in order.
+- Discovers step_* under a season directory (preferring season_dir/steps) and processes them in order.
 - Step 00: cold start (no restart), dumps states at the end.
 - Steps >= 01: strict warm start from member-root pointer; aborts on failure.
 - For each step except the last:
@@ -16,9 +16,11 @@ Minimal CLI; defaults handle all formats/columns/behavior without user choices.
 
 from __future__ import annotations
 
+import os
 import shutil
 import threading
 import sys
+import concurrent.futures as cf
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -30,7 +32,12 @@ from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.core.launch import launch_members
 from openamundsen_da.core.prior_forcing import build_prior_ensemble
-from openamundsen_da.io.paths import read_step_config, find_project_yaml, find_season_yaml
+from openamundsen_da.io.paths import (
+    read_step_config,
+    find_project_yaml,
+    find_season_yaml,
+    list_steps_sorted,
+)
 from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.landcover_mask import (
     resolve_landcover_mask,
@@ -74,20 +81,26 @@ DA_DIAGNOSTICS = {
 }
 
 
+@dataclass(frozen=True)
+class PlotTask:
+    """Picklable plot task for process-based fan-out."""
+    name: str
+    func: object
+    args: tuple
+    kwargs: dict
+
+
+def _run_plot_task(task: PlotTask) -> tuple[str, str | None]:
+    """Execute a PlotTask in a worker process and return (name, error)."""
+    try:
+        task.func(*task.args, **task.kwargs)
+        return task.name, None
+    except Exception as exc:  # pragma: no cover
+        return task.name, str(exc)
+
+
 def _list_steps_sorted(season_dir: Path) -> List[Path]:
-    items: List[Tuple[datetime, Path]] = []
-    for p in sorted(Path(season_dir).glob("step_*")):
-        if not p.is_dir():
-            continue
-        cfg = read_step_config(p) or {}
-        try:
-            sd = cfg.get("start_date")
-            start = datetime.fromisoformat(str(sd)) if sd else None
-        except Exception:
-            start = None
-        items.append((start or datetime.min, p))
-    items.sort(key=lambda t: (t[0], t[1].name))
-    return [p for _, p in items]
+    return list_steps_sorted(season_dir)
 
 
 def _next_step_start(steps: List[Path], idx: int) -> Optional[datetime]:
@@ -176,6 +189,37 @@ def _aggregate_fraction_envelopes(season_dir: Path) -> None:
         logger.warning("Wet-snow envelope aggregation failed: {}", exc)
 
 
+def _run_plot_tasks_parallel(
+    tasks: List[PlotTask],
+    max_workers: int | None,
+    season_max_workers: int | None,
+) -> None:
+    """Execute plot tasks concurrently using process-based workers."""
+    if not tasks:
+        return
+    cpu_cap = os.cpu_count() or len(tasks)
+    candidates = [len(tasks), cpu_cap]
+    if max_workers is not None:
+        candidates.append(max_workers)
+    if season_max_workers is not None:
+        candidates.append(season_max_workers)
+    workers = max(1, min(candidates))
+    logger.info("Running {} plot task(s) with {} worker(s) ...", len(tasks), workers)
+    with cf.ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(_run_plot_task, t): t for t in tasks}
+        for fut in cf.as_completed(futures):
+            task = futures[fut]
+            try:
+                name, err = fut.result()
+            except Exception as exc:  # pragma: no cover
+                logger.warning("Plot task {} crashed: {}", task.name, exc)
+                continue
+            if err:
+                logger.warning("Plot task {} failed: {}", name, err)
+            else:
+                logger.info("Plot task {} completed", name)
+
+
 def _run_live_plots(
     cfg: OrchestratorConfig,
     step_dir: Path,
@@ -194,7 +238,7 @@ def _run_live_plots(
                 "--step-dir", str(step_dir),
                 "--ensemble", "prior",
                 "--log-level", cfg.log_level,
-            ])
+            ], configure_logger=False)
         except Exception as exc:
             logger.warning("Forcing plot failed for {}: {}", step_name, exc)
         try:
@@ -204,6 +248,7 @@ def _run_live_plots(
                 mode="members",
                 resample="D",
                 resample_agg="mean",
+                configure_logger=False,
             )
             plot_season_results(
                 season_dir=cfg.season_dir,
@@ -211,6 +256,7 @@ def _run_live_plots(
                 mode="members",
                 resample="D",
                 resample_agg="mean",
+                configure_logger=False,
             )
         except Exception as exc:
             logger.warning("Season point results plot failed after step {}: {}", step_name, exc)
@@ -220,7 +266,7 @@ def _run_live_plots(
                 "--project-dir", str(cfg.project_dir),
                 "--log-level", cfg.log_level,
                 "--mode", "band",
-            ])
+            ], configure_logger=False)
         except Exception as exc:
             logger.warning("Fraction overlay plot skipped after step {}: {}", step_name, exc)
         plot_weights_for_csv(wcsv)
@@ -242,7 +288,8 @@ class OrchestratorConfig:
     max_workers: int = 4
     overwrite: bool = False
     log_level: str = "INFO"
-    live_plots: bool = True
+    live_plots: bool = False
+    plot_workers: int | None = None
     monitor_perf: bool = False
     perf_sample_interval: float = 5.0
     perf_plot_interval: float = 30.0
@@ -678,51 +725,103 @@ def run_season(cfg: OrchestratorConfig) -> None:
             t.join()
         except Exception:
             pass
-    try:
-        for step_dir in steps:
-            assim_dir = Path(step_dir) / "assim"
-            if not assim_dir.is_dir():
-                continue
-            candidates = sorted(assim_dir.glob("weights_*_*.csv"))
-            if not candidates:
-                continue
-            plot_weights_for_csv(candidates[-1])
-        try:
-            plot_season_ess_timeline(cfg.season_dir)
-        except FileNotFoundError:
-            pass
-    except Exception as exc:
-        logger.warning("Final assimilation plotting failed: {}", exc)
-
-    # Season plots (point results + fraction overlay). Forcing plotted per step above.
-    try:
-        plot_season_results(
-            season_dir=cfg.season_dir,
-            var_col="swe",
-            mode="members",
-            resample="D",
-            resample_agg="mean",
-        )
-        plot_season_results(
-            season_dir=cfg.season_dir,
-            var_col="snow_depth",
-            mode="members",
-            resample="D",
-            resample_agg="mean",
-        )
-    except Exception as exc:
-        logger.warning("Season point results plot failed: {}", exc)
-    try:
-        logger.info("Generating fraction overlay plot (SCF + wet snow) ...")
-        plot_fractions_cli([
-            "--season-dir", str(cfg.season_dir),
-            "--project-dir", str(cfg.project_dir),
-        ])
-    except Exception as exc:
-        logger.warning("Fraction overlay plot skipped: {}", exc)
-
-    # Aggregate fraction envelopes (SCF and wet snow) for quick plotting/analysis
+    # Aggregate fraction envelopes before plotting overlays
     _aggregate_fraction_envelopes(cfg.season_dir)
+
+    # Build post-run plot tasks (per-step forcing, season results, fraction overlay, weights, ESS)
+    plot_tasks: List[PlotTask] = []
+    for step_dir in steps:
+        plot_tasks.append(
+            PlotTask(
+                name=f"forcing:{Path(step_dir).name}",
+                func=plot_forcing_cli,
+                args=(
+                    [
+                        "--step-dir",
+                        str(step_dir),
+                        "--ensemble",
+                        "prior",
+                        "--log-level",
+                        cfg.log_level,
+                    ],
+                ),
+                kwargs={"configure_logger": False},
+            )
+        )
+    plot_tasks.append(
+        PlotTask(
+            name="season_results_swe",
+            func=plot_season_results,
+            args=(),
+            kwargs={
+                "season_dir": cfg.season_dir,
+                "var_col": "swe",
+                "mode": "members",
+                "resample": "D",
+                "resample_agg": "mean",
+                "configure_logger": False,
+            },
+        )
+    )
+    plot_tasks.append(
+        PlotTask(
+            name="season_results_snow_depth",
+            func=plot_season_results,
+            args=(),
+            kwargs={
+                "season_dir": cfg.season_dir,
+                "var_col": "snow_depth",
+                "mode": "members",
+                "resample": "D",
+                "resample_agg": "mean",
+                "configure_logger": False,
+            },
+        )
+    )
+    plot_tasks.append(
+        PlotTask(
+            name="fraction_overlay",
+            func=plot_fractions_cli,
+            args=(
+                [
+                    "--season-dir",
+                    str(cfg.season_dir),
+                    "--project-dir",
+                    str(cfg.project_dir),
+                ],
+            ),
+            kwargs={"configure_logger": False},
+        )
+    )
+    weights_csvs: List[Path] = []
+    for step_dir in steps:
+        assim_dir = Path(step_dir) / "assim"
+        if not assim_dir.is_dir():
+            continue
+        candidates = sorted(assim_dir.glob("weights_*_*.csv"))
+        if candidates:
+            weights_csvs.append(candidates[-1])
+    for wcsv in weights_csvs:
+        plot_tasks.append(
+            PlotTask(
+                name=f"weights:{wcsv.parent.parent.name}",
+                func=plot_weights_for_csv,
+                args=(wcsv,),
+                kwargs={},
+            )
+        )
+    plot_tasks.append(
+        PlotTask(
+            name="season_ess_timeline",
+            func=plot_season_ess_timeline,
+            args=(cfg.season_dir,),
+            kwargs={},
+        )
+    )
+    try:
+        _run_plot_tasks_parallel(plot_tasks, cfg.plot_workers, cfg.max_workers)
+    except Exception as exc:
+        logger.warning("Post-run plotting failed: {}", exc)
 
     # Cleanup state files if configured and no member failures occurred
     try:
@@ -780,10 +879,16 @@ def cli(argv: Optional[List[str]] = None) -> int:
     )
     p.add_argument("--overwrite", action="store_true")
     p.add_argument(
+        "--live-plots",
+        dest="live_plots",
+        action="store_true",
+        help="Enable plotting during the season; default is off (plots run after completion).",
+    )
+    p.add_argument(
         "--no-live-plots",
         dest="live_plots",
         action="store_false",
-        help="Skip plotting during the season; only create final plots at the end.",
+        help="Skip plotting during the season (default).",
     )
     p.add_argument(
         "--monitor-perf",
@@ -802,7 +907,14 @@ def cli(argv: Optional[List[str]] = None) -> int:
         default=30.0,
         help="Performance monitor plot refresh interval in seconds (default: 30).",
     )
+    p.add_argument(
+        "--plot-workers",
+        type=int,
+        default=None,
+        help="Parallel plot workers for post-run plotting (default: min(CPU, tasks)).",
+    )
     p.add_argument("--log-level", default="INFO")
+    p.set_defaults(live_plots=False)
     args = p.parse_args(argv)
 
     resolved_workers = pick_max_workers(args.max_workers, fallback=4)
@@ -814,7 +926,8 @@ def cli(argv: Optional[List[str]] = None) -> int:
             max_workers=int(resolved_workers),
             overwrite=bool(args.overwrite),
             log_level=str(args.log_level or "INFO"),
-            live_plots=bool(getattr(args, "live_plots", True)),
+            live_plots=bool(getattr(args, "live_plots", False)),
+            plot_workers=(int(args.plot_workers) if args.plot_workers is not None else None),
             monitor_perf=bool(getattr(args, "monitor_perf", False)),
             perf_sample_interval=float(getattr(args, "perf_sample_interval", 5.0)),
             perf_plot_interval=float(getattr(args, "perf_plot_interval", 30.0)),

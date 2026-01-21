@@ -499,7 +499,7 @@ docker compose run --rm oa `
 
 The launcher automatically pulls the initial forcing from `$project/meteo` and builds the first prior ensemble (errors if the directory is missing), so you no longer need a separate `prior_forcing` run before `season.py` as long as the long-span station files live under `project/meteo`.
 
-Optional: `--max-workers <N>`, `--overwrite`, `--no-live-plots`, `--log-level <LEVEL>` (`--no-live-plots` skips plotting during the run; all plots are created once at the end).
+Optional: `--max-workers <N>`, `--overwrite`, `--live-plots`, `--log-level <LEVEL>` (`--live-plots` enables in-run plotting; default is off and plots are created once at the end).
 
 The pipeline drives each step in order, assimilates SCF on the _next_ step's start date, resamples the resulting weights to the posterior, and rejuvenates that posterior into the next prior before proceeding. Assimilation looks for the single-row CSV `obs_scf_MOD10A1_YYYYMMDD.csv` inside `<step>/obs/` for the date being processed; generate those files with `openamundsen_da.observer.satellite_scf` after you preprocess the MOD10A1 NDSI raster for your ROI (projection, QA/masking, and mosaicking). `season.py` never reads raw imagery, so the CSV must already reflect any filtering or thresholding you want applied.
 
@@ -573,12 +573,12 @@ This creates `step_00_init`, `step_01_*`,  with `start_date`, `end_date`, and `r
 
 The skeleton uses the `timestep` from `project.yml` (e.g. `3H`, `6H`, `1D`) to define step boundaries. For each assimilation date `D_i`, step i runs long enough that openAMUNDSEN produces a daily grid for `D_i` in the preceding step, and step boundaries satisfy `start_{i+1} = end_i + timestep` (no duplicated timesteps). The season pipeline then assimilates SCF on the calendar date of `start_{i+1}`, which matches `D_i`.
 
-### Performance monitoring (CPU / RAM / disk)
+### Performance monitoring (CPU / RAM)
 
-A minimal monitor (opt-in) samples system CPU%, RAM%, and season directory size.
+A minimal monitor (opt-in) samples system CPU% and RAM%.
 Outputs under `<season_dir>/plots/perf/`:
-- `season_perf_metrics.csv` (timestamp, cpu_total_pct, mem_used_pct, mem_used_gb, mem_total_gb, season_size_gb)
-- `season_perf.png` (CPU/RAM% on the left axis, disk GB on the right)
+- `season_perf_metrics.csv` (timestamp, cpu_total_pct, mem_used_pct, mem_used_gb, mem_total_gb)
+- `season_perf.png` (CPU/RAM%)
 
 Suggested intervals: sample every 5–10 seconds; refresh the plot every 30–60 seconds.
 

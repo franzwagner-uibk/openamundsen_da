@@ -137,11 +137,10 @@ def _step_date_label_from_path(csv_path: Path) -> str | None:
         try:
             seas_yaml = find_season_yaml(season_dir)
             cfg = _read_yaml_file(seas_yaml) or {}
-            # Prefer structured assimilation_events; fallback to legacy assimilation_dates
             da_cfg = cfg.get("data_assimilation") or {}
             events = da_cfg.get("assimilation_events") or []
+            dates = []
             if isinstance(events, list) and events:
-                dates = []
                 for entry in events:
                     if not isinstance(entry, dict):
                         continue
@@ -150,14 +149,6 @@ def _step_date_label_from_path(csv_path: Path) -> str | None:
                         continue
                     try:
                         dates.append(pd.to_datetime(str(dtxt)).date())
-                    except Exception:
-                        continue
-            else:
-                raw_dates = cfg.get("assimilation_dates") or []
-                dates = []
-                for entry in raw_dates:
-                    try:
-                        dates.append(pd.to_datetime(entry).date())
                     except Exception:
                         continue
             for idx, d in enumerate(dates, start=1):

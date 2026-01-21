@@ -138,7 +138,7 @@ def _list_steps_sorted(season_dir: Path) -> List[StepInfo]:
     return steps
 
 
-def _assimilation_dates(season_dir: Path) -> List[datetime]:
+def _assimilation_event_dates(season_dir: Path) -> List[datetime]:
     """Return assimilation datetimes (midnight) from season.yml events."""
     events = load_assimilation_events(season_dir)
     return [datetime.combine(ev.date, datetime.min.time()) for ev in events]
@@ -442,7 +442,7 @@ def plot_season_forcing(
     season_id = _season_id_from_dir(season_dir)
     stations_df = _load_stations_table_from_steps(steps)
     member_label_map = _build_member_label_map(steps)
-    assim_dates = _assimilation_dates(season_dir)
+    assim_dates = _assimilation_event_dates(season_dir)
     assim_date_set = {d.date() for d in assim_dates}
 
     for fname in station_files:
@@ -655,7 +655,7 @@ def plot_season_results(
     if mode not in {"members", "band"}:
         mode = "members"
 
-    assim_dates = _assimilation_dates(season_dir)
+    assim_dates = _assimilation_event_dates(season_dir)
 
     # Effective season window from step configs if not explicitly provided
     season_start: Optional[datetime] = None

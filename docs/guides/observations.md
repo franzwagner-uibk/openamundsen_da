@@ -101,7 +101,7 @@ docker compose run --rm oa oa-da-scf \\
 
 ### Quality Control
 
-Use `obs/<season-label>/scf_summary.csv` for quality control and to decide which dates to assimilate (set `assimilation_dates` in `propagation/<season-label>/season.yml`).
+Use `obs/<season-label>/scf_summary.csv` for quality control and to decide which dates to assimilate (set `data_assimilation.assimilation_events` in `propagation/<season-label>/season.yml`).
 
 `scf_summary.csv` contains (per date): `date`, `region_id`, `n_valid`, `n_snow`, `scf`, `cloud_fraction`, `source`. Typical filters include a minimum `n_valid` and a maximum `cloud_fraction`.
 

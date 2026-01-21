@@ -8,11 +8,8 @@ Inputs
   - Uses the ``timestep`` field (e.g. ``"3H"``) to infer the model time step.
 - propagation/season_YYYY-YYYY/season.yml
   - ``start_date`` and ``end_date`` (dates or ISO datetimes).
-  - Either a flat list of ``assimilation_dates`` (calendar dates
-    YYYY-MM-DD) or a structured
-    ``data_assimilation.assimilation_events`` block with per-date
-    variable/product metadata. In both cases, only the dates are used
-    to derive step boundaries.
+  - Structured ``data_assimilation.assimilation_events`` block with per-date
+    variable/product metadata. Only the dates are used to derive step boundaries.
 
 Behavior
 --------
@@ -53,7 +50,7 @@ from openamundsen_da.io.paths import find_project_yaml, find_season_yaml
 class SeasonConfig:
     start: datetime
     end: datetime
-    assimilation_dates: List[datetime]
+    assimilation_event_dates: List[datetime]
 
 
 def _read_yaml(path: Path) -> dict:
@@ -127,26 +124,18 @@ def _load_season_config(project_dir: Path, season_dir: Path) -> tuple[timedelta,
     start = _parse_datetime(str(cfg.get("start_date")))
     end = _parse_datetime(str(cfg.get("end_date")))
 
-    # Prefer structured assimilation_events if present; otherwise fall back
-    # to the legacy assimilation_dates list.
     assim_dates: List[datetime] = []
     da_cfg = cfg.get("data_assimilation") or {}
     events_cfg = da_cfg.get("assimilation_events") or []
-    if isinstance(events_cfg, list) and events_cfg:
-        for entry in events_cfg:
-            if not isinstance(entry, dict):
-                continue
-            date_txt = entry.get("date")
-            if not date_txt:
-                continue
-            assim_dates.append(_parse_date(str(date_txt)))
-    else:
-        raw_dates = cfg.get("assimilation_dates")
-        if not raw_dates:
-            raise ValueError(
-                f"'assimilation_dates' or 'data_assimilation.assimilation_events' missing or empty in {season_yaml}"
-            )
-        assim_dates = [_parse_date(str(d)) for d in raw_dates]
+    if not isinstance(events_cfg, list) or not events_cfg:
+        raise ValueError(f"'data_assimilation.assimilation_events' missing or empty in {season_yaml}")
+    for entry in events_cfg:
+        if not isinstance(entry, dict):
+            continue
+        date_txt = entry.get("date")
+        if not date_txt:
+            continue
+        assim_dates.append(_parse_date(str(date_txt)))
 
     assim: List[datetime] = assim_dates
     assim.sort(key=lambda d: d)
@@ -158,7 +147,7 @@ def _load_season_config(project_dir: Path, season_dir: Path) -> tuple[timedelta,
     if assim[-1] >= end:
         logger.warning("Last assimilation date {} is not before season end {}", assim[-1].date(), end.date())
 
-    return dt, SeasonConfig(start=start, end=end, assimilation_dates=assim)
+    return dt, SeasonConfig(start=start, end=end, assimilation_event_dates=assim)
 
 
 def _step_dir_name(index: int, label: str) -> str:
@@ -206,7 +195,7 @@ def create_season_skeleton(project_dir: Path, season_dir: Path, *, overwrite: bo
     """
     dt, season = _load_season_config(project_dir, season_dir)
 
-    assim = season.assimilation_dates
+    assim = season.assimilation_event_dates
     n_steps = len(assim) + 1
 
     steps_root = season_dir / "steps"

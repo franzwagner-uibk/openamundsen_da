@@ -99,6 +99,48 @@ def _run_plot_task(task: PlotTask) -> tuple[str, str | None]:
         return task.name, str(exc)
 
 
+def _validate_assimilation_prereqs(
+    project_dir: Path,
+    season_dir: Path,
+    steps: list[Path],
+    events: list[AssimilationEvent],
+) -> None:
+    """Ensure required outputs/config/obs exist before running a season."""
+    proj_cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+    grid_vars = ((proj_cfg.get("output_data") or {}).get("grids") or {}).get("variables") or []
+    names: set[str] = set()
+    vars_: set[str] = set()
+    for entry in grid_vars:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("name"):
+            names.add(str(entry["name"]))
+        if entry.get("var"):
+            vars_.add(str(entry["var"]))
+
+    errors: list[str] = []
+
+    needs_scf = any(ev.variable == "scf" for ev in events)
+    if needs_scf and not ({"snowdepth_daily"} & names or {"snow.depth"} & vars_):
+        errors.append("Configure snow depth daily output (var: snow.depth, name: snowdepth_daily) in output_data.grids for SCF assimilation.")
+
+    needs_wet = any(ev.variable == "wet_snow" for ev in events)
+    if needs_wet and not ({"liquid_water_content"} & names or {"snow.liquid_water_content"} & vars_):
+        errors.append("Configure liquid water content output (var: snow.liquid_water_content, name: liquid_water_content) in output_data.grids for wet-snow assimilation.")
+
+    max_idx = min(len(events), len(steps) - 1)
+    for idx in range(max_idx):
+        ev = events[idx]
+        step_dir = Path(steps[idx])
+        obs_name = f"obs_{ev.variable}_{ev.product}_{ev.date.strftime('%Y%m%d')}.csv"
+        obs_path = step_dir / "obs" / obs_name
+        if not obs_path.is_file():
+            errors.append(f"Missing obs CSV for {ev.variable} ({ev.product}) on {ev.date}: expected {obs_path}")
+
+    if errors:
+        raise ValueError("Config/obs validation failed:\n- " + "\n- ".join(errors))
+
+
 def _list_steps_sorted(season_dir: Path) -> List[Path]:
     return list_steps_sorted(season_dir)
 
@@ -321,6 +363,9 @@ def run_season(cfg: OrchestratorConfig) -> None:
         if not meteo_dir.is_dir():
             raise FileNotFoundError(f"Required meteo directory not found: {meteo_dir}")
         logger.info("Initializing prior ensemble for step {} …", steps[0].name)
+
+    # Validate required outputs and obs inputs before running assimilation
+    _validate_assimilation_prereqs(cfg.project_dir, cfg.season_dir, steps, events)
     build_prior_ensemble(
         input_meteo_dir=meteo_dir,
         project_dir=cfg.project_dir,

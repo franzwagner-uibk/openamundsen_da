@@ -48,7 +48,7 @@ def cli_main(argv: List[str] | None = None) -> int:
     p.add_argument("--roi", dest="roi", type=Path, help="ROI vector; defaults to <project>/env/roi.gpkg")
     p.add_argument("--season-label", required=True, help="Season folder name under obs/")
     p.add_argument("--project-dir", type=Path, help="Project directory (default: CWD)")
-    p.add_argument("--output-root", type=Path, help="Override output root (default: <project>/obs)")
+    p.add_argument("--output-root", type=Path, help="Override output root (default: <project>/obs/summaries)")
     p.add_argument("--recursive", action="store_true", help="Recurse into subdirectories for rasters")
     p.add_argument("--start-date", type=str, help="Optional ISO start date filter")
     p.add_argument("--end-date", type=str, help="Optional ISO end date filter")
@@ -60,7 +60,8 @@ def cli_main(argv: List[str] | None = None) -> int:
     logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
     project_dir = Path(args.project_dir) if args.project_dir else Path.cwd()
-    output_root = Path(args.output_root) if args.output_root else project_dir / "obs"
+    default_root = project_dir / "obs" / "summaries"
+    output_root = Path(args.output_root) if args.output_root else default_root
     lc_cfg = resolve_landcover_mask(project_dir)
 
     start = parse_datetime_opt(args.start_date) if args.start_date else None

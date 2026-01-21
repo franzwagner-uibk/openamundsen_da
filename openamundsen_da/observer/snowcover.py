@@ -216,7 +216,7 @@ def cli_main(argv: List[str] | None = None) -> int:
     p.add_argument("--roi", dest="roi", type=Path, help="Single-feature ROI vector (default: <project>/env/roi.gpkg)")
     p.add_argument("--season-label", required=True, help="Season folder name under obs/")
     p.add_argument("--project-dir", type=Path, help="Project directory (default: CWD)")
-    p.add_argument("--output-root", type=Path, help="Override output root (default: <project>/obs)")
+    p.add_argument("--output-root", type=Path, help="Override output root (default: <project>/obs/summaries)")
     p.add_argument("--roi-field", dest="roi_field", default=None, help="Field name in ROI with the region identifier (optional)")
     p.add_argument("--recursive", action="store_true", help="Recurse into subdirectories for rasters")
     p.add_argument("--start-date", type=str, help="Optional ISO start date filter")
@@ -229,7 +229,8 @@ def cli_main(argv: List[str] | None = None) -> int:
     logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
     project_dir = Path(args.project_dir) if args.project_dir else Path.cwd()
-    output_root = Path(args.output_root) if args.output_root else project_dir / OBS_DIR_NAME
+    default_root = project_dir / OBS_DIR_NAME / "summaries"
+    output_root = Path(args.output_root) if args.output_root else default_root
     lc_cfg = resolve_landcover_mask(project_dir)
     cls = _load_classes(project_dir)
     season_dates = _resolve_season_dates(project_dir, args.season_label)

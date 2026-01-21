@@ -575,17 +575,13 @@ Enable monitoring for a season run
 ```powershell
 docker compose run --rm oa `
   oa-da-season `
-  --project-dir $project `
   --season-dir $season `
-  --max-workers 20 `
-  --monitor-perf `
-  --perf-sample-interval 5 `
-  --perf-plot-interval 30
+  --monitor-perf
 ```
 
 - `--monitor-perf` turns on the background monitor thread.
-- `--perf-sample-interval` and `--perf-plot-interval` are optional; defaults are
-  5 seconds and 30 seconds respectively.
+- `--project-dir` is optional; it is auto-detected by walking up from `--season-dir` to the nearest `project.yml`.
+- `--perf-sample-interval` and `--perf-plot-interval` default to 5 seconds and 30 seconds respectively.
 
 Running the monitor manually
 

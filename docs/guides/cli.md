@@ -48,16 +48,15 @@ Runs the complete seasonal DA cycle: prior forcing → ensemble run → assimila
 
 ```bash
 oa-da-season \
-  --project-dir /data \
   --season-dir /data/propagation/season_2019-2020 \
   [OPTIONS]
 ```
 
 **Required Arguments:**
-- `--project-dir PATH` - Project root directory
-- `--season-dir PATH` - Season directory
+- `--season-dir PATH` - Season directory (project auto-detected if `project.yml` is in a parent)
 
 **Optional Arguments:**
+- `--project-dir PATH` - Override project root (auto-detects by walking up from `--season-dir`)
 - `--max-workers N` - Maximum parallel workers (default: from .env or 4)
 - `--overwrite` - Overwrite existing outputs
 - `--live-plots` - Enable plotting during run (default is off; plots are generated once after completion)
@@ -69,7 +68,6 @@ oa-da-season \
 **Example:**
 ```bash
 docker compose run --rm oa oa-da-season \
-  --project-dir /data \
   --season-dir /data/propagation/season_2019-2020 \
   --max-workers 8 \
   --monitor-perf

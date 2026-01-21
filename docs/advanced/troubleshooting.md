@@ -576,7 +576,7 @@ MPLBACKEND=Agg
    df -h  # Ensure sufficient space
    ```
 
-**Prevention**: Use `--monitor-perf` to watch disk usage during run.
+**Prevention**: Use `--monitor-perf` to watch CPU/RAM during run.
 
 ---
 

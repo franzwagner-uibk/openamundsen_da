@@ -48,14 +48,14 @@ After `scf_summary.csv` is created, generate per-step one-row observation CSVs (
 ```bash
 docker compose run --rm oa oa-da-scf \\
   --season-dir /data/propagation/season_2019-2020 \\
-  --summary-csv /data/obs/season_2019-2020/scf_summary.csv \\
+  --summary-csv /data/obs/summaries/season_2019-2020/scf_summary.csv \\
   --product SNOWCOVER \\
   --overwrite
 ```
 
 ### Quality Control
 
-Use `obs/<season-label>/scf_summary.csv` for quality control and to decide which dates to assimilate (set `data_assimilation.assimilation_events` in `propagation/<season-label>/season.yml`).
+Use `obs/summaries/<season-label>/scf_summary.csv` for quality control and to decide which dates to assimilate (set `data_assimilation.assimilation_events` in `propagation/<season-label>/season.yml`). The default output root is `obs/summaries`; override with `--output-root` if needed.
 
 `scf_summary.csv` contains (per date): `date`, `region_id`, `n_valid`, `n_snow`, `scf`, `cloud_fraction`, `source`. Typical filters include a minimum `n_valid` and a maximum `cloud_fraction`.
 
@@ -138,11 +138,11 @@ Defaults (when `--project-dir` is set):
 ```bash
 docker compose run --rm oa oa-da-wetsnow-season \\
   --season-dir /data/propagation/season_2019-2020 \\
-  --summary-csv /data/obs/season_2019-2020/wet_snow_summary.csv \\
+  --summary-csv /data/obs/summaries/season_2019-2020/wet_snow_summary.csv \\
   --overwrite
 ```
 
-This writes one-row `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` files into each step's `obs/` directory (product tag from `project.yml`, default `WETSNOW`) for configured wet-snow assimilation dates.
+This writes one-row `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` files into each step's `obs/` directory (product tag from `project.yml`, default `WETSNOW`) for configured wet-snow assimilation dates. Wet-snow summaries default to `obs/summaries/<season-label>/wet_snow_summary.csv`; override with `--output-root` if needed.
 
 ---
 

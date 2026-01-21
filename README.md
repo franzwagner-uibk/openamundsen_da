@@ -93,6 +93,10 @@ project/
       scf_summary.csv                       # season-wide SCF summary
       obs_scf_SNOWCOVER_YYYYMMDD.csv       # per-date SCF CSVs
       obs_wet_snow_WETSNOW_YYYYMMDD.csv    # optional wet-snow CSVs
+    summaries/
+      season_YYYY-YYYY/
+        scf_summary.csv                     # default location for snow-cover summaries
+        wet_snow_summary.csv                # default location for wet-snow summaries
   project.yml            # contains data_assimilation.h_of_x, resampling, etc.
 
 ```
@@ -187,7 +191,7 @@ docker compose run --rm oa oa-da-scf --season-dir $season --overwrite
 docker compose run --rm oa oa-da-wetsnow-season --season-dir $season --overwrite
 ```
 
-Both commands default to `<project>/obs/<season>/scf_summary.csv` and `wet_snow_summary.csv` and derive product tags from `project.yml` (`obs.snowcover.product_tag`, `obs.wetsnow.product_tag`, defaulting to `SNOWCOVER` / `WETSNOW`). Outputs live under `<step>/obs/obs_<variable>_<PRODUCT>_YYYYMMDD.csv`.
+Both commands default to `<project>/obs/summaries/<season>/scf_summary.csv` and `wet_snow_summary.csv` and derive product tags from `project.yml` (`obs.snowcover.product_tag`, `obs.wetsnow.product_tag`, defaulting to `SNOWCOVER` / `WETSNOW`). Outputs live under `<step>/obs/obs_<variable>_<PRODUCT>_YYYYMMDD.csv`.
 
 ### Wet Snow Classification
 
@@ -252,7 +256,7 @@ docker compose run --rm oa `
   --project-dir $project
 ```
 
-Defaults read obs from `obs/<season>/scf_summary.csv` and `obs/<season>/wet_snow_summary.csv`, envelopes from the season root, and write `plots/results/fraction_timeseries.png`. Add `--scf-model-csv` / `--wet-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` to use custom envelopes. Plot mode can be switched with `--mode band|members` (pipeline default: `band`).
+Defaults read obs from `obs/summaries/<season>/scf_summary.csv` and `obs/summaries/<season>/wet_snow_summary.csv`, envelopes from the season root, and write `plots/results/fraction_timeseries.png`. Add `--scf-model-csv` / `--wet-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` to use custom envelopes. Plot mode can be switched with `--mode band|members` (pipeline default: `band`).
 
 ## Season point results (SWE / snow depth, member mode)
 
@@ -436,7 +440,7 @@ docker compose run --rm oa `
   --station point_scf_roi.csv
 ```
 
-This uses per-member `point_scf_roi.csv` files (model SCF derived from HS/SWE grids) written under each member's `results` directory and overlays observed SCF from `obs/<season>/scf_summary.csv` when available.
+This uses per-member `point_scf_roi.csv` files (model SCF derived from HS/SWE grids) written under each member's `results` directory and overlays observed SCF from `obs/summaries/<season>/scf_summary.csv` when available.
 
 Defaults: ensemble members are hidden; plots show the ensemble mean, the 90% envelope (595% quantiles), and the open loop. Use `--show-members` to draw all members.  
 Optional: `--station`, `--max-stations`, `--start-date`, `--end-date`, `--resample`, `--rolling`, `--hydro-month`, `--hydro-day`, `--backend`, `--log-level`, `--var-label`, `--var-units`, `--band-low`, `--band-high`, `--show-members`.

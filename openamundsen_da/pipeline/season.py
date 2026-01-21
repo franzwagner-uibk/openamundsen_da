@@ -303,6 +303,20 @@ def _setup_logger(season_dir: Path, log_level: str) -> None:
     logger.add(log_file, level=log_level.upper(), colorize=False, enqueue=True, format=LOGURU_FORMAT)
 
 
+def _auto_project_dir(season_dir: Path) -> Path:
+    """Best-effort discovery of project root (looks for project.yml upward)."""
+    season_dir = Path(season_dir).resolve()
+    for base in (season_dir, *season_dir.parents):
+        for name in ("project.yml", "project.yaml"):
+            cand = base / name
+            if cand.is_file():
+                return base
+    raise FileNotFoundError(
+        f"Could not find project.yml for season_dir={season_dir}. "
+        "Pass --project-dir explicitly or ensure project.yml exists in a parent directory."
+    )
+
+
 def run_season(cfg: OrchestratorConfig) -> None:
     run_start = datetime.utcnow()
     # Console + file log under season root (e.g. season_2017-2018/season_2017-2018.log)
@@ -872,7 +886,7 @@ def cli(argv: Optional[List[str]] = None) -> int:
     import argparse
 
     p = argparse.ArgumentParser(prog="oa-da-season", description="Process a full season: run steps, assimilate, resample, rejuvenate, plot.")
-    p.add_argument("--project-dir", required=True, type=Path)
+    p.add_argument("--project-dir", type=Path, help="Project directory (auto-detected by walking up from --season-dir when omitted).")
     p.add_argument("--season-dir", required=True, type=Path)
     p.add_argument(
         "--max-workers",
@@ -896,7 +910,7 @@ def cli(argv: Optional[List[str]] = None) -> int:
     p.add_argument(
         "--monitor-perf",
         action="store_true",
-        help="Enable background performance monitor (CPU/RAM/disk) during the season run.",
+        help="Enable background performance monitor (CPU/RAM) during the season run.",
     )
     p.add_argument(
         "--perf-sample-interval",
@@ -920,12 +934,17 @@ def cli(argv: Optional[List[str]] = None) -> int:
     p.set_defaults(live_plots=False)
     args = p.parse_args(argv)
 
+    season_dir = Path(args.season_dir)
+    project_dir = Path(args.project_dir) if args.project_dir is not None else _auto_project_dir(season_dir)
+    if args.project_dir is None:
+        print(f"[oa-da-season] Auto-detected project dir: {project_dir}", file=sys.stderr)
+
     resolved_workers = pick_max_workers(args.max_workers, fallback=4)
 
     run_season(
         OrchestratorConfig(
-            project_dir=Path(args.project_dir),
-            season_dir=Path(args.season_dir),
+            project_dir=project_dir,
+            season_dir=season_dir,
             max_workers=int(resolved_workers),
             overwrite=bool(args.overwrite),
             log_level=str(args.log_level or "INFO"),

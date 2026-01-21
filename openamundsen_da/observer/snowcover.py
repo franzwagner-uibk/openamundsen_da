@@ -56,11 +56,22 @@ def _load_classes(project_dir: Path) -> SnowcoverClasses:
 
 def _extract_date(path: Path) -> datetime:
     stem = path.stem
-    for token in stem.split("_"):
-        try:
-            return datetime.strptime(token, "%Y%m%d")
-        except Exception:
-            continue
+    parts = stem.split("_")
+    # Try contiguous YYYY_MM_DD tokens
+    for i in range(len(parts) - 2):
+        y, m, d = parts[i : i + 3]
+        if all(p.isdigit() for p in (y, m, d)) and len(y) == 4 and len(m) == 2 and len(d) == 2:
+            try:
+                return datetime.strptime(f"{y}{m}{d}", "%Y%m%d")
+            except Exception:
+                pass
+    # Fallback: any 8-digit token
+    for token in parts:
+        if len(token) == 8 and token.isdigit():
+            try:
+                return datetime.strptime(token, "%Y%m%d")
+            except Exception:
+                continue
     raise ValueError(f"Could not infer date from {path.name}")
 
 

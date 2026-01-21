@@ -137,12 +137,22 @@ def _filter_candidates(
     return kept
 
 
-def _select_with_spacing(candidates: Sequence[Candidate], *, spacing_days: int, priority: Sequence[str] | None) -> list[Candidate]:
+def _select_with_spacing(
+    candidates: Sequence[Candidate],
+    *,
+    spacing_days: int,
+    priority: Sequence[str] | None,
+    secondary_every_n: int | None,
+) -> list[Candidate]:
     spacing = max(1, int(spacing_days))
     items = sorted(candidates, key=lambda c: c.date)
     selected: list[Candidate] = []
     idx = 0
     priority_list = list(priority) if priority else []
+    primary_var = priority_list[0] if priority_list else None
+    secondary_var = priority_list[1] if len(priority_list) > 1 else None
+    alt_counter = 0
+    sec_n = secondary_every_n if secondary_every_n and secondary_every_n > 0 else None
 
     def _var_rank(var: str) -> int:
         if var in priority_list:
@@ -157,8 +167,20 @@ def _select_with_spacing(candidates: Sequence[Candidate], *, spacing_days: int, 
         while j < len(items) and items[j].date <= window_end:
             window.append(items[j])
             j += 1
-        window.sort(key=lambda c: (_var_rank(c.variable), c.date))
-        selected.append(window[0])
+        window_sorted = sorted(window, key=lambda c: (_var_rank(c.variable), c.date))
+
+        choose = None
+        if sec_n and primary_var and secondary_var and secondary_var in {c.variable for c in window} and primary_var in {c.variable for c in window}:
+            alt_counter += 1
+            if alt_counter % sec_n == 0:
+                secondary_candidates = [c for c in window_sorted if c.variable == secondary_var]
+                if secondary_candidates:
+                    choose = secondary_candidates[0]
+
+        if choose is None:
+            choose = window_sorted[0]
+
+        selected.append(choose)
         idx = j
     return selected
 
@@ -310,6 +332,12 @@ def cli_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-delta", type=float, default=0.35, help="Max day-to-day jump to keep (default: 0.35)")
     parser.add_argument("--smoothing-window", type=int, default=3, help="Rolling window for median smoothing (default: 3)")
     parser.add_argument("--spacing-days", type=int, default=7, help="Minimum spacing between selected dates (default: 7)")
+    parser.add_argument(
+        "--secondary-every-n",
+        type=int,
+        default=0,
+        help="When both primary and secondary vars are present in a window, pick the secondary every Nth time (0 disables)",
+    )
     parser.add_argument("--output-plot", type=Path, help="Output PNG for obs-only plot (default: <season>/plots/results/obs_selection.png)")
     parser.add_argument("--output-season-yaml", type=Path, help="Output season.yml path (default: <season>/season.yml)")
     parser.add_argument("--overwrite", action="store_true", help="Allow overwriting an existing season.yml")
@@ -352,6 +380,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     selection_cfg = cfg.get("selection") or {}
     priority = selection_cfg.get("prefer_variables") or DEFAULT_PRIORITY
     spacing_days = int(selection_cfg.get("spacing_days", args.spacing_days))
+    secondary_every_n = int(selection_cfg.get("secondary_every_n", args.secondary_every_n))
 
     candidates: list[Candidate] = []
     if scf_df is not None and not scf_df.empty:
@@ -388,7 +417,12 @@ def cli_main(argv: list[str] | None = None) -> int:
     else:
         logger.warning("No wet-snow data available in the selected window")
 
-    selected = _select_with_spacing(candidates, spacing_days=spacing_days, priority=priority)
+    selected = _select_with_spacing(
+        candidates,
+        spacing_days=spacing_days,
+        priority=priority,
+        secondary_every_n=secondary_every_n if secondary_every_n > 0 else None,
+    )
     if not selected:
         logger.error("No observations passed the filters. Adjust thresholds and retry.")
         return 1

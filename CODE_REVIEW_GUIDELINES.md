@@ -19,6 +19,7 @@ When reviewing or developing a new module:
 - Is configuration handled consistently and defined externally where possible?
 - Is there any functionality/CLI flag/option that is unnecessary given the framework/template and workflow? Prefer sensible defaults.
 - Consider dropping inputs (e.g., paths or flags) that are already predefined by the process.
+- is there any legacy code that is not used anymore/ dates to an older version of the code and can be removed?
 
 List of helper modules (repo-relative paths):
 
@@ -82,9 +83,11 @@ logger.add(sys.stdout, level="INFO", colorize=True, enqueue=True, format=LOGURU_
   - Stats: `effective_sample_size`, `normalize_log_weights`, `sigmoid`, `envelope`, `compute_obs_sigma`
   - Viz: `draw_assimilation_vlines`, `dedupe_legend`
   - DA orchestration: `load_assimilation_events`, `compute_step_daily_series_for_all_members`, `start_perf_monitor`
+- Season layout:
+  - Steps live under `season_dir/steps/step_*` (no top-level `step_*`).
 - Assimilation configuration:
   - H(x) configuration (method/variable/params) is read from `project.yml` under `data_assimilation.h_of_x` (or top-level `h_of_x`); step YAML overrides are ignored.
-  - Assimilation events come from `season.yml` via `data_assimilation.assimilation_events` (variable/product per date), with legacy `assimilation_dates` as a fallback; use `util.da_events.load_assimilation_events`.
+  - Assimilation events come from `season.yml` via `data_assimilation.assimilation_events` (variable/product per date); use `util.da_events.load_assimilation_events`. Avoid legacy `assimilation_dates` unless cleaning up old configs.
 - Open loop handling:
   - The launcher always runs `open_loop` alongside `member_*` to produce a continuous reference; assimilation and resampling operate on members only.
 - Plotting defaults:

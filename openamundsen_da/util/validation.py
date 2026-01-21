@@ -51,33 +51,6 @@ def validate_assimilation_requirements(
     for idx in range(max_idx):
         ev = events[idx]
         step_dir = Path(steps[idx])
-        ensemble_root = step_dir / "ensembles"
-        member_dirs = list_member_dirs(step_dir, ensemble="prior")
-        open_loop_dir = ensemble_root / "prior" / "open_loop"
-        search_roots = [open_loop_dir] + member_dirs
-
-        if ev.variable == "scf":
-            if not _has_output_pattern(
-                search_roots,
-                patterns=[
-                    "results/snowdepth_daily_*.tif",
-                    "results/*snowdepth_daily*.tif",
-                    "results/*snowdepth_daily*.nc",
-                    "results/output_grids.nc",
-                ],
-            ):
-                errors.append(f"{step_dir.name}: missing snowdepth_daily outputs required for SCF assimilation.")
-        if ev.variable == "wet_snow":
-            if not _has_output_pattern(
-                search_roots,
-                patterns=[
-                    "results/liquid_water_content_*.tif",
-                    "results/*liquid_water_content*.tif",
-                    "results/*liquid_water_content*.nc",
-                    "results/output_grids.nc",
-                ],
-            ):
-                errors.append(f"{step_dir.name}: missing liquid_water_content outputs required for wet-snow assimilation.")
 
         obs_name = f"obs_{ev.variable}_{ev.product}_{ev.date.strftime('%Y%m%d')}.csv"
         obs_path = step_dir / "obs" / obs_name

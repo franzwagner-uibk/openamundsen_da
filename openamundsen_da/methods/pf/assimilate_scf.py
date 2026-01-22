@@ -22,7 +22,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Iterable, Optional
+from typing import Callable, Optional, Sequence
 
 import pandas as pd
 import numpy as np
@@ -123,7 +123,7 @@ def assimilate_fraction_for_date(
     obs_csv: Optional[Path] = None,
     value_col: str,
     observable: str,
-    obs_pattern: str,
+    obs_patterns: Sequence[str],
     model_eval: Callable[[Path, Path, datetime], float],
 ) -> pd.DataFrame:
     """Generic fraction assimilation for one observable/date.
@@ -134,15 +134,21 @@ def assimilate_fraction_for_date(
     lk = _read_likelihood_from_project(project_dir, observable)
 
     # Read observation
+    patterns = list(obs_patterns)
     if obs_csv is not None:
         obs_path = obs_csv
     else:
         obs_dir = step_dir / OBS_DIR_NAME
-        patt = obs_pattern.format(yyyymmdd=date.strftime("%Y%m%d"))
-        obs_path = obs_dir / patt
-        if not obs_path.exists():
+        candidates = [
+            obs_dir / patt.format(yyyymmdd=date.strftime("%Y%m%d"))
+            for patt in patterns
+        ]
+        obs_path = next((p for p in candidates if p.exists()), None)
+        if obs_path is None:
+            missing = ", ".join(p.name for p in candidates) or "<none>"
             raise FileNotFoundError(
-                f"Observation CSV not found for {observable} at {date.date()}: expected {obs_path.name} under {obs_dir}"
+                f"Observation CSV not found for {observable} at {date.date()}: "
+                f"expected one of [{missing}] under {obs_dir}"
             )
     obs = _read_obs(obs_path, value_col)
     y = float(obs[value_col])
@@ -201,6 +207,9 @@ def assimilate_scf_for_date(
     method, variable, hofx_params = load_hofx_from_project(project_dir)
     lc_cfg = landcover_cfg or resolve_landcover_mask(project_dir)
     prod_tag = resolve_obs_product_tag("scf", project_dir=project_dir, fallback=product or None)
+    obs_patterns = ["obs_scf_{yyyymmdd}.csv"]
+    if prod_tag:
+        obs_patterns.append(f"obs_scf_{prod_tag}_{{yyyymmdd}}.csv")
 
     def _model_eval(results_dir: Path, aoi_path: Path, dt: datetime) -> float:
         out = compute_model_scf(
@@ -224,7 +233,7 @@ def assimilate_scf_for_date(
         obs_csv=obs_csv,
         value_col="scf",
         observable="scf",
-        obs_pattern=f"obs_scf_{prod_tag}_" + "{yyyymmdd}.csv",
+        obs_patterns=obs_patterns,
         model_eval=_model_eval,
     )
     # Preserve SCF-specific column names for downstream tools.
@@ -246,6 +255,9 @@ def assimilate_wet_snow_for_date(
     """Wet-snow assimilation for one date (Sentinel-1 AOI fraction)."""
     lc_cfg = landcover_cfg or resolve_landcover_mask(project_dir)
     prod_tag = resolve_obs_product_tag("wet_snow", project_dir=project_dir, fallback=product or None)
+    obs_patterns = ["obs_wet_snow_{yyyymmdd}.csv"]
+    if prod_tag:
+        obs_patterns.append(f"obs_wet_snow_{prod_tag}_{{yyyymmdd}}.csv")
 
     def _model_eval(results_dir: Path, aoi_path: Path, dt: datetime) -> float:
         out = compute_model_wet_snow_fraction(
@@ -266,7 +278,7 @@ def assimilate_wet_snow_for_date(
         obs_csv=obs_csv,
         value_col="wet_snow_fraction",
         observable="wet_snow",
-        obs_pattern=f"obs_wet_snow_{prod_tag}_{{yyyymmdd}}.csv",
+        obs_patterns=obs_patterns,
         model_eval=_model_eval,
     )
     df = df.rename(columns={"value_model": "wet_snow_model", "value_obs": "wet_snow_obs"})

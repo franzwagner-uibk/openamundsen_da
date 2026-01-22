@@ -81,15 +81,20 @@ def write_obs_from_summary_row(
     date: datetime,
     row: Mapping[str, object],
     value_col: str,
-    product: str,
+    product: str | None,
     variable: str,
     overwrite: bool,
+    include_product_tag: bool = False,
 ) -> Path:
     """Write a one-row obs CSV for a given date and summary row."""
 
     out_dir = step_dir / OBS_DIR_NAME
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_csv = out_dir / f"obs_{variable}_{product}_{date.strftime('%Y%m%d')}.csv"
+    tag = str(product).strip() if product else ""
+    fname = f"obs_{variable}_{date.strftime('%Y%m%d')}.csv"
+    if include_product_tag and tag:
+        fname = f"obs_{variable}_{tag}_{date.strftime('%Y%m%d')}.csv"
+    out_csv = out_dir / fname
     if out_csv.exists() and not overwrite:
         logger.info("Skipping existing obs CSV for {} (step {})", date.strftime("%Y-%m-%d"), step_dir.name)
         return out_csv

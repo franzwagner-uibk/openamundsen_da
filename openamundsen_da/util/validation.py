@@ -54,10 +54,12 @@ def validate_assimilation_requirements(
         step_dir = Path(steps[idx])
 
         prod_tag = ev.product or resolve_obs_product_tag(ev.variable, project_dir=project_dir)
-        obs_name = f"obs_{ev.variable}_{prod_tag}_{ev.date.strftime('%Y%m%d')}.csv"
-        obs_path = step_dir / "obs" / obs_name
-        if not obs_path.is_file():
-            errors.append(f"{step_dir.name}: missing obs CSV for {ev.variable} ({ev.product}) on {ev.date} -> expected {obs_path}")
+        base_name = f"obs_{ev.variable}_{ev.date.strftime('%Y%m%d')}.csv"
+        prod_name = f"obs_{ev.variable}_{prod_tag}_{ev.date.strftime('%Y%m%d')}.csv"
+        candidates = [step_dir / "obs" / base_name, step_dir / "obs" / prod_name]
+        if not any(p.is_file() for p in candidates):
+            expect = " or ".join(p.name for p in candidates)
+            errors.append(f"{step_dir.name}: missing obs CSV for {ev.variable} ({ev.product}) on {ev.date} -> expected {expect}")
 
     if errors:
         raise ValueError("Config/obs/output validation failed:\n- " + "\n- ".join(errors))

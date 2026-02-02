@@ -11,6 +11,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 from loguru import logger  # noqa: E402
+import sys
 
 from openamundsen_da.batch.manifest import BatchManifest
 from openamundsen_da.core.constants import LOGURU_FORMAT
@@ -85,7 +86,8 @@ def plot_station_comparisons(
     manifest = BatchManifest.load(manifest_path)
     pts_root = points_dir or (manifest_path.parent / "merged" / "points")
     obs_root = obs_dir or (pts_root / "obs" / "stations")
-    plot_dir = pts_root / "plots"
+    # Store plots under batch_root/plots/points (sibling to perf)
+    plot_dir = manifest_path.parent / "plots" / "points"
     plot_dir.mkdir(parents=True, exist_ok=True)
 
     obs_files = list(obs_root.glob("*.csv"))

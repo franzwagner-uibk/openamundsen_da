@@ -615,6 +615,28 @@ docker compose run --rm oa \
 If you rebuilt the image with the latest code, you can replace the `python -m ...cleanup` line with the shorter `oa-da-clean-season`.
 
 
+## Batch open-loop (subregions)
+
+Use `oa-da-batch` to split a large domain into subregions, run open loops in parallel, and merge the outputs.
+
+Minimal flow:
+- Prepare setups from a regions file (non-overlapping polygons):  
+  `oa-da-batch prepare --config <domain.yml> --regions <subregions.gpkg> --id-field id`
+- Run all subregions in parallel (respects `MAX_WORKERS`):  
+  `oa-da-batch run --batch-root batch_runs/<name> --max-workers 8`
+- Merge grids/points (hard clip default; `--mode blend` available):  
+  `oa-da-batch merge --batch-root batch_runs/<name>`
+- Plot merged station results vs observations:  
+  `oa-da-batch plot --batch-root batch_runs/<name> --var snow_depth --obs-col snow_height`
+
+Defaults:
+- Outputs live under `<batch_root>/setups/<subregion>/` (inputs + results/logs) and `<batch_root>/merged`; `batch_manifest.json` tracks the batch and `batch_run.log` records run summaries.
+- Grid handling: crops each subregion to its extent (plus grid buffer), writes per-subregion ROI; optional `--clip-mode roi-symlink` keeps full grids + ROI masks.
+- Station selection: clips meteo/obs within a 10 km buffer (change via `--station-buffer-km`); ROI buffer optional (`--roi-buffer-m`).
+- Overlap tolerance: small sliver overlaps up to 100 m² are allowed by default; use `--overlap-area-tol-m2` to adjust, `--sliver-fix-m` to shrink/expand polygons before overlap checking (default 0).
+
+The manifest tracks per-subregion windows, transforms, and run status. Grids and point outputs are merged back to the original global grid; merged points + obs land in `<batch_root>/merged/points`.
+
 ## Troubleshooting
 
 - Plots on Windows: use `--backend SVG`.

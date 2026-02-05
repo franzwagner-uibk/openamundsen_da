@@ -56,7 +56,7 @@ Everything needed ships inside the image; the commands below copy the bundled Ro
    mkdir -p openamundsen-da
    ```
 
-3. Generate the season skeleton and run the season:
+3. Generate the season skeleton (step_* directories/YAMLs from `season.yml`):
    ```bash
    docker run --rm -v "$(pwd)/openamundsen-da:/data" \
      ghcr.io/franzwagner-uibk/openamundsen_da \
@@ -64,9 +64,14 @@ Everything needed ships inside the image; the commands below copy the bundled Ro
                python -m openamundsen_da.pipeline.season_skeleton \
                  --project-dir /data/rofental \
                  --season-dir /data/rofental/propagation/season_2022_2023 \
-                 --overwrite \
-                 --log-level INFO && \
-               python -m openamundsen_da.pipeline.season \
+                 --log-level INFO"
+   ```
+
+4. Run the season (propagation + SCF/WETSNOW assimilation):
+   ```bash
+   docker run --rm -v "$(pwd)/openamundsen-da:/data" \
+     ghcr.io/franzwagner-uibk/openamundsen_da \
+     bash -lc "python -m openamundsen_da.pipeline.season \
                  --project-dir /data/rofental \
                  --season-dir /data/rofental/propagation/season_2022_2023 \
                  --max-workers 8 \
@@ -78,8 +83,23 @@ Everything needed ships inside the image; the commands below copy the bundled Ro
 What this does:
 
 - Copies the bundled Rofental project (configs, sample data) to your host at `/data/rofental`.
-- Runs the full 2022/2023 season (propagation + SCF/WETSNOW assimilation) using that skeleton; `--overwrite` clears any previous run outputs in the target directories.
+- Builds the season step skeleton from `season.yml` via `season_skeleton`.
+- Runs the full 2022/2023 season (propagation + SCF/WETSNOW assimilation); `--overwrite` clears any previous run outputs in the target directories.
 - Outputs and plots land under `openamundsen-da/rofental/propagation/season_2022_2023` on your host. Logs and perf metrics stream to the terminal.
+
+Files to inspect after a run (all under `openamundsen-da/rofental/propagation/season_2022_2023`):
+- Logs: container stdout; if present, `season.log`.
+- Perf monitor: `plots/perf/season_perf.png` and `plots/perf/season_perf_metrics.csv`.
+- Assimilation diagnostics: `plots/assim/` (weights/ESS), `assim/weights.csv`.
+- Results: `plots/results/` (ensemble envelopes), `ensembles/posterior/` per step.
+
+What the bundled Rofental example contains (copied to `/data/rofental`):
+- `project.yml` — DA config (products, landcover mask, resampling, rejuvenation, etc.).
+- `propagation/season_2022_2023/season.yml` — season dates + assimilation events (used by skeleton + season).
+- `meteo/` — sample station metadata/forcing CSVs.
+- `obs/` — summarized observation CSVs for SCF/WETSNOW.
+- `grids/` — land-cover grid for masking.
+- `env/roi.gpkg` — ROI polygon used for clipping/masking.
 
 ---
 

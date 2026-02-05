@@ -33,7 +33,6 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
-.claude/
 *.swp
 *.log
 

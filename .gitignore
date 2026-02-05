@@ -43,6 +43,3 @@ docs/_build/
 openamundsen/
 /MuSA/
 CrocO_toolbox
-
-# Claude artifacts
-/.claude/

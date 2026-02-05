@@ -1,13 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" aria-hidden="true">
-  <defs>
-    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
-      <stop offset="0%" stop-color="#cfe9ff"/>
-      <stop offset="100%" stop-color="#7db5e2"/>
-    </linearGradient>
-  </defs>
-  <rect width="64" height="64" rx="12" fill="url(#sky)"/>
-  <path d="M6 48 L24 22 L34 34 L42 24 L58 48 Z" fill="#dfefff" stroke="#9fb8d3" stroke-width="1.5"/>
-  <path d="M24 22 L28 26 L26 28 Z" fill="#aac9e6"/>
-  <path d="M34 34 L38 30 L40 32 Z" fill="#aac9e6"/>
-  <path d="M6 48 H58 L54 52 H10 Z" fill="#6d94ba" opacity="0.9"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="#1e3650"/>
+  <text x="50%" y="54%" text-anchor="middle" dominant-baseline="middle"
+        font-family="Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, sans-serif"
+        font-size="40">🏔️</text>
 </svg>

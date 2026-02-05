@@ -15,7 +15,6 @@ Data Assimilation Framework for openAMUNDSEN
 
 [Get started](#getting-started){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [View on GitHub](https://github.com/franzwagner-uibk/openamundsen_da){: .btn .fs-5 .mb-4 .mb-md-0 }
-[Quickstart (Rofental)](installation.html#quickstart-rofental-example-via-docker){: .btn .fs-5 .mb-4 .mb-md-0 .ml-2 }
 
 ---
 

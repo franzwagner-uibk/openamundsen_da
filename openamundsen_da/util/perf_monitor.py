@@ -173,8 +173,14 @@ def _render_plot(
     ax1.legend(loc="upper left", fontsize=8)
     ax1.set_xlabel("Time")
 
-    elapsed_hours = (timestamps[-1] - run_start).total_seconds() / 3600.0
-    summary = f"Elapsed: {elapsed_hours:.2f} h   Peak RAM: {max(mem_used_gb or [0]):.2f} / {max(mem_total_gb or [0]):.2f} GB"
+    elapsed_sec = max(0, int((timestamps[-1] - run_start).total_seconds()))
+    hh, rem = divmod(elapsed_sec, 3600)
+    mm = rem // 60
+    elapsed_hhmm = f"{hh:02d}:{mm:02d}"
+    summary = (
+        f"Elapsed: {elapsed_hhmm}   "
+        f"Peak RAM: {max(mem_used_gb or [0]):.2f} / {max(mem_total_gb or [0]):.2f} GB"
+    )
     fig.text(0.5, 0.94, summary, ha="center", va="top", fontsize=9)
 
     fig.tight_layout(rect=(0.04, 0.06, 0.96, 0.93))

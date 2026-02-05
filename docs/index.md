@@ -13,7 +13,7 @@ permalink: /
 Data Assimilation Framework for openAMUNDSEN
 {: .fs-6 .fw-300 }
 
-[Get started](https://openamundsen-da.pages.dev/installation#quickstart-rofental-example-via-docker){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[Get started](https://openamundsen-da.pages.dev/installation#prerequisites){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [View on GitHub](https://github.com/franzwagner-uibk/openamundsen_da){: .btn .fs-5 .mb-4 .mb-md-0 }
 
 ---

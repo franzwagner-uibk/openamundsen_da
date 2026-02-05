@@ -1,5 +1,5 @@
 # Just the Docs configuration
-title: openAMUNDSEN-DA
+title: oA-DA
 description: Data Assimilation Framework for openAMUNDSEN
 remote_theme: just-the-docs/just-the-docs@v0.4.0
 url: https://openamundsen-da.pages.dev

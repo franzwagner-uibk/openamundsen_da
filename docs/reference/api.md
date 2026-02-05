@@ -1,124 +1,46 @@
 ---
 layout: default
-title: API Reference
+title: API Quick Reference
 parent: Reference
 nav_order: 2
 ---
 
-# API Reference
-{: .no_toc }
+# API Quick Reference
 
-Python entry points used by the CLI.
-{: .fs-6 .fw-300 }
+Scripting-oriented entry points. Everything else should be used via the CLI. Unlisted symbols are internal/unstable.
 
-{: .note }
-> **CLI-first project**: openamundsen_da is primarily designed to be used via the CLI. The Python API is not yet stabilized; treat the functions below as internal entry points that may change.
+## Seasonal orchestration
+- `openamundsen_da.pipeline.season.cli(argv=None)` — main season driver (same as `oa-da-season`). Args mirror the CLI flags.
+- `openamundsen_da.pipeline.season_skeleton.cli(argv=None)` — build step skeletons (same as `oa-da-season-skeleton`).
+- `openamundsen_da.pipeline.cleanup.cli(argv=None)` — remove intermediate artifacts (same as `oa-da-clean-season`).
 
-<details markdown="block">
-  <summary>
-    Table of contents
-  </summary>
-  {: .text-delta }
-1. TOC
-{:toc}
-</details>
+## Particle filter
+- `openamundsen_da.methods.pf.assimilate_scf.assimilate_scf_for_date(...)` — run SCF assimilation for a single date.
+- `openamundsen_da.methods.pf.resample.resample_from_weights(...)` — systematic resampling helper.
+- `openamundsen_da.methods.pf.rejuvenate.rejuvenate(...)` — perturb posterior to maintain ensemble spread.
 
----
+## Observation operators
+- `openamundsen_da.methods.h_of_x.model_scf.compute_model_scf(...)` — derive model SCF for a step/season.
+- `openamundsen_da.methods.wet_snow.area.compute_model_wet_snow_fraction(...)` — derive model wet-snow fraction.
 
-## Configuration Merging
+## Observation processing
+- `openamundsen_da.observer.snowcover.cli_main(argv=None)` — summarize snow-cover rasters (GeoTIFF/NetCDF).
+- `openamundsen_da.observer.wetsnow.cli_main(argv=None)` — summarize wet-snow rasters.
+- `openamundsen_da.observer.satellite_scf.cli_main(argv=None)` — create per-date SCF CSVs from summaries.
+- `openamundsen_da.observer.satellite_wet_snow_s1.cli_main(argv=None)` — create per-date wet-snow CSVs.
 
-For each ensemble member, the framework merges `project.yml`, `season.yml`, and the step YAML and then parses the result via openAMUNDSEN.
+## Batch processing
+- `openamundsen_da.batch.pipeline.run_pipeline(...)` — prepare → run → merge → plot for subregions (same as `oa-da-batch pipeline`).
+- `openamundsen_da.batch.prepare.prepare_batch(...)` — write per-subregion configs and inputs.
+- `openamundsen_da.batch.run.run_batch(...)` — launch subregion runs.
+- `openamundsen_da.batch.merge.merge_grids/merge_points(...)` — combine subregion outputs.
+- `openamundsen_da.batch.plot.plot_station_comparisons(...)` — compare merged model vs station obs.
 
-```python
-from pathlib import Path
-from openamundsen_da.core.config import load_merged_config
+## Utilities (select)
+- `openamundsen_da.util.stats` — weight normalization, ESS, likelihood helpers.
+- `openamundsen_da.util.parallel.run_tasks_with_pool(...)` — simple process pool runner.
+- `openamundsen_da.io.paths` — project/season path resolution helpers.
 
-cfg = load_merged_config(
-    project_yaml=Path('/data/project.yml'),
-    season_yaml=Path('/data/propagation/season_2019-2020/season.yml'),
-    step_yaml=Path('/data/propagation/season_2019-2020/step_00_init/00.yml'),
-    member_meteo_dir=Path('/data/propagation/season_2019-2020/step_00_init/ensembles/prior/member_001/meteo'),
-)
-```
+## Stability note
 
----
-
-## Forcing Perturbations (Prior Ensemble)
-
-To build an open-loop forcing copy plus a perturbed prior ensemble under a step directory:
-
-```python
-from pathlib import Path
-from openamundsen_da.core.prior_forcing import build_prior_ensemble
-
-build_prior_ensemble(
-    input_meteo_dir=Path('/data/meteo'),
-    project_dir=Path('/data'),
-    step_dir=Path('/data/propagation/season_2019-2020/step_00_init'),
-    overwrite=False,
-)
-```
-
----
-
-## Assimilation And Resampling
-
-Single-date weight calculation:
-
-```python
-from datetime import datetime
-from pathlib import Path
-from openamundsen_da.methods.pf.assimilate_scf import assimilate_scf_for_date, assimilate_wet_snow_for_date
-
-scf_weights = assimilate_scf_for_date(
-    project_dir=Path('/data'),
-    step_dir=Path('/data/propagation/season_2019-2020/step_01_*'),
-    ensemble='prior',
-    date=datetime(2019, 11, 22),
-    aoi=Path('/data/env/roi.gpkg'),
-)
-
-wet_weights = assimilate_wet_snow_for_date(
-    project_dir=Path('/data'),
-    step_dir=Path('/data/propagation/season_2019-2020/step_05_*'),
-    ensemble='prior',
-    date=datetime(2020, 4, 12),
-    aoi=Path('/data/env/roi.gpkg'),
-)
-```
-
-Resampling from a weights CSV to materialize a posterior ensemble:
-
-```python
-from pathlib import Path
-from openamundsen_da.methods.pf.resample import resample_from_weights
-
-resample_from_weights(
-    step_dir=Path('/data/propagation/season_2019-2020/step_01_*'),
-    source_ensemble='prior',
-    weights_csv=Path('/data/propagation/season_2019-2020/step_01_*/assim/weights_scf_20191122.csv'),
-    target_ensemble='posterior',
-    overwrite=False,
-)
-```
-
----
-
-## Performance Monitoring
-
-The season pipeline can run a background monitor; the standalone CLI uses the same implementation:
-
-```python
-from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
-
-stop_event = start_perf_monitor(PerfMonitorConfig(season_dir='/data/propagation/season_2019-2020'))
-# ... later: stop_event.set()
-```
-
----
-
-## Next Steps
-
-- [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}) - Supported command-line tools
-- [Package Structure]({{ site.baseurl }}{% link reference/package-structure.md %}) - Module overview
-- [Workflow]({{ site.baseurl }}{% link workflow.md %}) - End-to-end concepts
+These symbols are provided for power users and may change between minor versions. Prefer CLI where possible; pin versions for reproducibility.

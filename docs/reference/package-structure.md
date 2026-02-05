@@ -6,61 +6,30 @@ nav_order: 1
 ---
 
 # Package Structure
-{: .no_toc }
 
-High-level module overview of openamundsen_da.
-{: .fs-6 .fw-300 }
+High-level map of the Python package. Public entry points are linked to the CLI where possible; anything not listed is considered internal/unstable.
 
-<details markdown="block">
-  <summary>
-    Table of contents
-  </summary>
-  {: .text-delta }
-1. TOC
-{:toc}
-</details>
+## Top-level packages
 
----
+- `openamundsen_da.core` — configuration merge (`config`), environment helpers (`env`), runner/launcher (`runner`, `launch`), prior ensemble builder (`prior_forcing`), constants/logging (`constants`).
+- `openamundsen_da.pipeline` — seasonal orchestration (`season`), skeleton scaffolding (`season_skeleton`), cleanup (`cleanup`).
+- `openamundsen_da.observer` — observation prep: snow cover (`snowcover`, `satellite_scf`), wet snow (`wetsnow`, `satellite_wet_snow_s1`), plotting (`plot_fractions`, `plot_scf_summary`).
+- `openamundsen_da.methods` — assimilation components: particle filter (`pf/*`), observation operators (`h_of_x/model_scf`), wet-snow helpers (`wet_snow/*`), visualization (`viz/*`).
+- `openamundsen_da.io` — paths and file discovery (`paths`).
+- `openamundsen_da.util` — utilities: stats, time series, validation, landcover masks, ROIs, parallel helpers.
+- `openamundsen_da.batch` — subregion batch runner (prepare/run/merge/plot/pipeline). CLI: `oa-da-batch` (see Guides → CLI).
 
-## Module Hierarchy
+## CLI entry points (PyPI console scripts)
 
-```
-openamundsen_da/
-  core/        # config merging, prior forcing, member launching
-  io/          # filesystem layout helpers (YAML discovery, member paths)
-  observer/    # observation summarization + season helpers
-  methods/     # DA operators and plotting
-    h_of_x/    # SCF forward operator (model -> obs space)
-    pf/        # particle filter steps (assimilate, resample, rejuvenate, diagnostics)
-    wet_snow/  # wet-snow classification and ROI fraction summaries
-    viz/       # plotting utilities
-  pipeline/    # end-to-end season orchestration
-  util/        # ROI/land-cover masking, DA event parsing, perf monitor
-```
+Declared in `pyproject.toml` with `oa-da-*` names; see Guides → CLI for usage.
 
----
+## Imports vs. configuration
 
-## Key Entry Points
+- Most user-facing workflows go through CLI/`python -m` modules; direct imports are stable only where noted below.
+- Stable-ish helpers for scripting: `openamundsen_da.pipeline.season.cli`, `openamundsen_da.methods.pf.assimilate_scf.assimilate_scf_for_date`, `openamundsen_da.methods.h_of_x.model_scf.compute_model_scf`, `openamundsen_da.batch.pipeline.run_pipeline`.
 
-- **Season pipeline**: `openamundsen_da.pipeline.season` (`oa-da-season`)
-- **Step skeleton builder**: `openamundsen_da.pipeline.season_skeleton` (module has a CLI via `python -m ...`)
-- **Snow-cover summary**: `openamundsen_da.observer.snowcover` (`oa-da-snowcover`, supports GeoTIFF/NetCDF)
-- **Wet-snow summary**: `openamundsen_da.observer.wetsnow` (`oa-da-wetsnow`, supports GeoTIFF/NetCDF)
-- **SCF per-step obs CSVs**: `openamundsen_da.observer.satellite_scf` (`oa-da-scf`)
-- **Wet-snow per-step obs CSVs**: `openamundsen_da.observer.satellite_wet_snow_s1` (`oa-da-wetsnow-season`)
+## Internal conventions
 
-For the complete, up-to-date CLI list, see [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}).
-
----
-
-## Notes On Stability
-
-The project is **CLI-first**; internal module functions are primarily maintained to support the CLI and may change. If you need a stable integration point, prefer calling the CLI entry points.
-
----
-
-## Next Steps
-
-- [Project Structure]({{ site.baseurl }}{% link project-structure.md %}) - On-disk directory layout
-- [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}) - Commands and options
-- [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %}) - Algorithms
+- ROIs live under `project/env/roi.gpkg`; landcover grids auto-resolve from `project/grids/lc_<domain>_<res>.asc`.
+- Observations expect `obs_scf_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` under `obs/season_*`.
+- Ensemble member directories: `propagation/season_*/step_*/ensembles/{prior,posterior}/member_###`.

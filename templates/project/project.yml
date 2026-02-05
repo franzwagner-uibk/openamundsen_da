@@ -6,11 +6,6 @@ timestep: "3H"             # temporal resolution as a pandas-compatible string (
 crs: "epsg:25832"          # CRS of the input grids
 timezone: 1                # timezone of the model domain (UTC offset in hours)
 
-environment:
-  # Set GDAL/PROJ paths for your Conda env (examples only; adjust for your system).
-  GDAL_DATA: "/path/to/conda/env/share/gdal"
-  PROJ_LIB: "/path/to/conda/env/share/proj"
-
 data_assimilation:
   # Prior forcing ensemble (REQUIRED for DA runs)
   prior_forcing:

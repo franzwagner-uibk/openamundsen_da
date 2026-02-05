@@ -33,8 +33,16 @@ Complete guide to installing and setting up openAMUNDSEN-DA.
 ### Software Dependencies
 
 1. **Docker**
-   - Windows/macOS: [Docker Desktop](https://www.docker.com/products/docker-desktop)
-   - Linux: Docker Engine + Docker Compose
+   - **Windows**: Install [Docker Desktop](https://www.docker.com/products/docker-desktop); enable WSL2 backend. Reboot if prompted.
+   - **macOS**: Install [Docker Desktop](https://www.docker.com/products/docker-desktop).
+   - **Linux**: Install Docker Engine (and Compose, usually bundled). Quick steps (Ubuntu/Debian):
+     ```bash
+     sudo apt-get update
+     sudo apt-get install -y docker.io docker-compose-plugin
+     sudo usermod -aG docker $USER   # re-login to drop sudo
+     sudo systemctl enable --now docker
+     docker run hello-world          # verify
+     ```
 
 2. **Git** (for cloning the repository)
 

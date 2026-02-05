@@ -1,0 +1,5 @@
+{%- comment -%}
+Inject custom favicon (SVG). Browsers that prefer ICO will fall back to default.
+{%- endcomment -%}
+<link rel="icon" type="image/svg+xml" href="{{ '/assets/images/favicon.svg' | relative_url }}">
+<link rel="alternate icon" href="{{ '/assets/images/favicon.svg' | relative_url }}">

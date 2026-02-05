@@ -5,6 +5,7 @@ nav_order: 2
 ---
 
 # Installation
+
 {: .no_toc }
 
 Complete guide to installing and setting up openAMUNDSEN-DA.
@@ -27,7 +28,6 @@ Complete guide to installing and setting up openAMUNDSEN-DA.
 
 - **Operating System**: Windows 10/11, macOS, or Linux
 - **Memory**: 16 GB RAM minimum (32 GB recommended for large ensembles)
-- **Storage**: 50 GB free space minimum (depends on domain size and ensemble size)
 - **CPU**: Multi-core processor (parallelization scales with core count)
 
 ### Software Dependencies
@@ -42,34 +42,38 @@ Complete guide to installing and setting up openAMUNDSEN-DA.
 
 ## Quickstart (no clone): Rofental example via Docker
 
-Everything needed ships inside the image; the command copies the bundled example to your host, then runs the season.
+Everything needed ships inside the image; the commands below copy the bundled Rofental example (with a ready-made season skeleton at `examples/rofental/propagation/season_2022_2023`) to your host, then run the season. You can still generate a new skeleton yourself with `python -m openamundsen_da.pipeline.season_skeleton ...` if you want to start from scratch, but that isn’t required for the quickstart.
 
-1. Pull the image:
+1. Pull the image (optional—`docker run` will pull if missing):
+
    ```bash
-   docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest
+   docker pull ghcr.io/franzwagner-uibk/openamundsen_da
    ```
 
-2. Run and persist outputs:
+2. Prepare a host folder for outputs:
    ```bash
-   mkdir -p oa_run
-   docker run --rm -v "$(pwd)/oa_run:/data" \
-     ghcr.io/franzwagner-uibk/openamundsen_da:latest \
+   mkdir -p openamundsen-da
+   ```
+
+3. Run and persist outputs:
+   ```bash
+   docker run --rm -v "$(pwd)/openamundsen-da:/data" \
+     ghcr.io/franzwagner-uibk/openamundsen_da \
      bash -lc "cp -a /workspace/examples/rofental /data/rofental && \
                python -m openamundsen_da.pipeline.season \
                  --project-dir /data/rofental \
                  --season-dir /data/rofental/propagation/season_2022_2023 \
-                 --max-workers 4 \
+                 --max-workers 8 \
+                 --perf-monitor \
+                 --overwrite \
                  --log-level INFO"
    ```
 
 What this does:
-- `cp -a ...` copies the bundled Rofental project (configs + sample data) from the image to your mounted host path `/data/rofental`.
-- The pipeline runs the 2022/2023 season with SCF/WETSNOW assimilation events from `season.yml`.
-- Outputs are written under `oa_run/rofental/propagation/season_2022_2023` on your host.
 
-3. **Python 3.10+** (if running without Docker)
-   - Required packages listed in `pyproject.toml`
-   - GDAL and PROJ must be installed (prefer Conda)
+- Copies the bundled Rofental project (configs, sample data, season skeleton under `propagation/season_2022_2023`) to your host at `/data/rofental`.
+- Runs the full 2022/2023 season (propagation + SCF/WETSNOW assimilation) using that skeleton; `--overwrite` clears any previous run outputs in the target directories.
+- Outputs and plots land under `openamundsen-da/rofental/propagation/season_2022_2023` on your host. Logs stream to the terminal.
 
 ---
 
@@ -78,12 +82,14 @@ What this does:
 Use this when you want to modify the code or run Compose with mounted source.
 
 1. Clone the repo:
+
    ```bash
    git clone https://github.com/franzwagner-uibk/openamundsen_da.git
    cd openamundsen_da
    ```
 
 2. (Optional) Build a local image instead of pulling:
+
    ```bash
    docker build -t ghcr.io/franzwagner-uibk/openamundsen_da:local .
    ```
@@ -135,22 +141,22 @@ Edit `project/project.yml` to configure your experiment:
 
 ```yaml
 domain: "your_domain"
-resolution: 100            # spatial resolution (m)
-timestep: "3H"             # temporal resolution
-crs: "epsg:25832"          # CRS of the input grids
-timezone: 1                # UTC offset in hours
+resolution: 100 # spatial resolution (m)
+timestep: "3H" # temporal resolution
+crs: "epsg:25832" # CRS of the input grids
+timezone: 1 # UTC offset in hours
 
 data_assimilation:
   prior_forcing:
-    ensemble_size: 20       # number of ensemble members
+    ensemble_size: 20 # number of ensemble members
     random_seed: 42
-    sigma_t: 0.5            # temperature perturbation stddev (deg C)
-    mu_p: 0.0               # log-space mean for precip factor
-    sigma_p: 0.5            # log-space stddev for precip factor
+    sigma_t: 0.5 # temperature perturbation stddev (deg C)
+    mu_p: 0.0 # log-space mean for precip factor
+    sigma_p: 0.5 # log-space stddev for precip factor
 
   h_of_x:
     method: depth_threshold # or "logistic"
-    variable: hs            # or "swe"
+    variable: hs # or "swe"
     params:
       h0: 0.01
       k: 80
@@ -188,6 +194,7 @@ See the [Configuration Guide]({{ site.baseurl }}{% link guides/configuration.md 
 ### Docker Issues
 
 **Problem**: "Cannot connect to Docker daemon"
+
 ```bash
 # Start Docker Desktop (Windows/macOS)
 # Or start Docker service (Linux)
@@ -195,6 +202,7 @@ sudo systemctl start docker
 ```
 
 **Problem**: "Permission denied" on Linux
+
 ```bash
 sudo usermod -aG docker $USER
 # Log out and back in

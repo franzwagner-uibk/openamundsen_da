@@ -45,7 +45,7 @@ CODE_REVIEW_GUIDELINES.md
 *.ipynb_checkpoints
 
 # Local data & nested repos (kept out of image)
-examples/
+dev_examples
 testdata/
 context/
 openamundsen/

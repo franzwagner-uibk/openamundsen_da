@@ -37,7 +37,7 @@ docs/_build/
 *.ipynb_checkpoints
 
 # Local data & nested repos
-/examples/
+dev_examples
 /testdata/
 /context/
 openamundsen/

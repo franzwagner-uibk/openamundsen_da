@@ -21,3 +21,9 @@ context/
 openamundsen/
 /.vscode/
 MuSA/
+/.claude/
+.sync-exclude.lst
+.venv*/
+/.env
+CODE_REVIEW_GUIDELINES.md
+CrocO_toolbox

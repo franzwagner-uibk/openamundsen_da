@@ -51,24 +51,21 @@ Everything needed ships inside the image; the command copies the bundled example
 
 2. Run and persist outputs:
    ```bash
-   mkdir -p oa_run/data
-   docker run --rm -v "$(pwd)/oa_run/data:/data" \
+   mkdir -p oa_run
+   docker run --rm -v "$(pwd)/oa_run:/data" \
      ghcr.io/franzwagner-uibk/openamundsen_da:latest \
-     bash -lc "rsync -a /workspace/examples/rofental/ /data/rofental/ && \
+     bash -lc "cp -a /workspace/examples/rofental /data/rofental && \
                python -m openamundsen_da.pipeline.season \
                  --project-dir /data/rofental \
                  --season-dir /data/rofental/propagation/season_2022_2023 \
+                 --max-workers 4 \
                  --log-level INFO"
    ```
 
 What this does:
-- `rsync ...` copies the bundled Rofental project (configs + sample data) from the image to your mounted host path `/data/rofental`.
-- `python -m openamundsen_da.pipeline.season` runs propagation + assimilation for the 2022/2023 season using the `season.yml` in that project.
-- Outputs are written under `oa_run/data/rofental/propagation/season_2022_2023` on your host.
-
-### Developer workflow (with repo/compose)
-- Clone the repo, then run `docker compose run --rm oa ...`. Compose defaults mount `REPO=.` to `/workspace` and `PROJ=./examples/rofental` to `/data`. Override per-command if needed, e.g. `REPO=/my/repo PROJ=/my/project docker compose run --rm oa ...`.
-- Need a fresh project skeleton? Use `python -m openamundsen_da.pipeline.season_skeleton --project-dir <path> --season-name <name>`; the bundled Rofental example already includes its season, so you don’t need this for the quickstart.
+- `cp -a ...` copies the bundled Rofental project (configs + sample data) from the image to your mounted host path `/data/rofental`.
+- The pipeline runs the 2022/2023 season with SCF/WETSNOW assimilation events from `season.yml`.
+- Outputs are written under `oa_run/rofental/propagation/season_2022_2023` on your host.
 
 3. **Python 3.10+** (if running without Docker)
    - Required packages listed in `pyproject.toml`
@@ -96,50 +93,6 @@ Use this when you want to modify the code or run Compose with mounted source.
    REPO=/path/to/repo PROJ=/path/to/project \
    docker compose run --rm oa python -c "import openamundsen_da; print('Success!')"
    ```
-
----
-
-## Native Installation (Without Docker)
-
-{: .warning }
-> Native installation requires manual dependency management. Docker installation is recommended for most users.
-
-### 1. Install System Dependencies
-
-**Ubuntu/Debian:**
-```bash
-sudo apt-get update
-sudo apt-get install -y gdal-bin libgdal-dev python3-dev build-essential
-```
-
-**macOS (with Homebrew):**
-```bash
-brew install gdal proj
-```
-
-**Windows:**
-- Install [Miniconda](https://docs.conda.io/en/latest/miniconda.html)
-- GDAL/PROJ will be installed via Conda in the next step
-
-### 2. Create Conda Environment
-
-```bash
-conda env create -f environment.yml
-conda activate openamundsen_da
-```
-
-### 3. Install the Package
-
-```bash
-pip install -e .
-```
-
-### 4. Verify Installation
-
-```bash
-python -c "import openamundsen_da; print('Success!')"
-oa-da-season --help
-```
 
 ---
 

@@ -1,15 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" aria-hidden="true">
   <defs>
-    <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0%" stop-color="#1e3650"/>
-      <stop offset="100%" stop-color="#2f6f8f"/>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#cfe9ff"/>
+      <stop offset="100%" stop-color="#7db5e2"/>
     </linearGradient>
   </defs>
-  <rect x="4" y="4" width="56" height="56" rx="12" fill="url(#g)"/>
-  <text x="50%" y="52%" text-anchor="middle" dominant-baseline="middle"
-        font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700"
-        fill="#ffffff">oA</text>
-  <text x="50%" y="72%" text-anchor="middle" dominant-baseline="middle"
-        font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="600"
-        fill="#c7e8ff">DA</text>
+  <rect width="64" height="64" rx="12" fill="url(#sky)"/>
+  <path d="M6 48 L24 22 L34 34 L42 24 L58 48 Z" fill="#dfefff" stroke="#9fb8d3" stroke-width="1.5"/>
+  <path d="M24 22 L28 26 L26 28 Z" fill="#aac9e6"/>
+  <path d="M34 34 L38 30 L40 32 Z" fill="#aac9e6"/>
+  <path d="M6 48 H58 L54 52 H10 Z" fill="#6d94ba" opacity="0.9"/>
 </svg>

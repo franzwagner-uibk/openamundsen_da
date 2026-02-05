@@ -62,11 +62,23 @@ openAMUNDSEN is an open-source, fully distributed snow-hydrological model design
 
 > This framework is designed to work with Docker for easy deployment and reproducibility.
 
-### Quick Start
+### Quick Start (Rofental example)
 
-Follow the single-step, no-clone Rofental example in the [Installation Guide]({{ site.baseurl }}{% link installation.md %}#quickstart-no-clone-rofental-example-via-docker). It pulls the image, copies the bundled example to your host, and runs the 2022/2023 season.
+Run the bundled Rofental season without cloning:
 
-Developer (clone + compose) workflow is also covered there.
+```bash
+mkdir -p oa_run
+docker run --rm -v "$(pwd)/oa_run:/data" \
+  ghcr.io/franzwagner-uibk/openamundsen_da:latest \
+  bash -lc "cp -a /workspace/examples/rofental /data/rofental && \
+            python -m openamundsen_da.pipeline.season \
+              --project-dir /data/rofental \
+              --season-dir /data/rofental/propagation/season_2022_2023 \
+              --max-workers 4 \
+              --log-level INFO"
+```
+
+Outputs land in `oa_run/rofental/propagation/season_2022_2023` on your host.
 
 ---
 

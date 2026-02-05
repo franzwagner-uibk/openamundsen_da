@@ -7,7 +7,7 @@ SHELL ["/bin/bash", "-lc"]
 
 # Create the conda-forge environment
 COPY environment.yml /tmp/environment.yml
-RUN micromamba create -y -n openamundsen -f /tmp/environment.yml && \
+RUN micromamba create -y -n openamundsen_da -f /tmp/environment.yml && \
     micromamba clean -a -y
 
 # Work inside /workspace; mount your repo here at runtime
@@ -15,7 +15,7 @@ WORKDIR /workspace
 
 # Install openamundsen_da into the image so `oa-da-*` entrypoints are available
 COPY . /workspace
-RUN micromamba run -n openamundsen python -m pip install -e . --no-deps
+RUN micromamba run -n openamundsen_da python -m pip install -e . --no-deps
 
 # Lightweight entrypoint to clear stale mamba locks and run inside env
 COPY scripts/oa_entrypoint.sh /usr/local/bin/oa_entrypoint.sh

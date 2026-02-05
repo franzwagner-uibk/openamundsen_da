@@ -1,6 +1,6 @@
-# openamundsen_da - Data Assimilation for openAMUNDSEN
+# openAMUNDSEN-DA - Data Assimilation for openAMUNDSEN
 
-Lightweight tools to build and run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF) and wet snow signals (e.g., Sentinel-1) with a particle filter. Commands are Docker/Compose friendly and use generic variables to work across projects.
+openAMUNDSEN-DA provides lightweight tools to build and run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF) and wet snow signals (e.g., Sentinel-1) with a particle filter. Commands are Docker/Compose friendly and use generic variables to work across projects.
 
 ## Documentation
 
@@ -11,6 +11,37 @@ This replaces the old GitHub Pages site.
 
 - Seasonal snow cover prediction with an ensemble model + particle filter.
 - Includes prior forcing builder, ensemble launcher, generic snow-cover and wet-snow summarization, H(x) model SCF, assimilation, resampling, rejuvenation, and plotting utilities.
+
+## Quickstart: Rofental example (openAMUNDSEN-DA)
+
+The repository ships a runnable example project in `examples/rofental`. You only need Docker.
+
+1) Clone and prepare environment file (stays local/untracked):
+   ```bash
+   git clone https://github.com/franzwagner-uibk/openamundsen_da.git
+   cd openamundsen_da
+   cp .env.example .env
+   ```
+   Set in `.env`:
+   - `REPO` = path to this repo on your host
+   - `PROJ` = `${REPO}/examples/rofental` (contains project.yml + data)
+   - Optionally tune `CPUS` / `MEMORY` to match your machine
+
+2) Pull the prebuilt image (or build locally):
+   ```bash
+   docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest
+   # or: docker build -t ghcr.io/franzwagner-uibk/openamundsen_da:local .
+   ```
+
+3) Run the Rofental 2022/2023 season (propagation + assimilation):
+   ```bash
+   docker compose run --rm oa python -m openamundsen_da.pipeline.season \
+     --project-dir /data \
+     --season-dir /data/propagation/season_2022_2023 \
+     --log-level INFO
+   ```
+
+Expected: the log prints assimilation events from `season.yml` (SCF/WETSNOW dates) and writes results under `/data/propagation/season_2022_2023`.
 
 ## Installation
 

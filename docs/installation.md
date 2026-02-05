@@ -7,7 +7,7 @@ nav_order: 2
 # Installation
 {: .no_toc }
 
-Complete guide to installing and setting up openamundsen_da.
+Complete guide to installing and setting up openAMUNDSEN-DA.
 {: .fs-6 .fw-300 }
 
 <details markdown="block">
@@ -37,6 +37,40 @@ Complete guide to installing and setting up openamundsen_da.
    - Linux: Docker Engine + Docker Compose
 
 2. **Git** (for cloning the repository)
+
+---
+
+## Quickstart (Rofental example via Docker)
+
+If you just want to run the bundled Rofental season (2022/2023), Docker is enough.
+
+1. Clone and prepare env file (keeps your local paths untracked):
+   ```bash
+   git clone https://github.com/franzwagner-uibk/openamundsen_da.git
+   cd openamundsen_da
+   cp .env.example .env
+   ```
+   Set in `.env`:
+   - `REPO` = path to this repo on your host
+   - `PROJ` = `${REPO}/examples/rofental`
+   - Optionally tune `CPUS` / `MEMORY`
+
+2. Pull (or build) the image:
+   ```bash
+   docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest
+   # or build locally:
+   # docker build -t ghcr.io/franzwagner-uibk/openamundsen_da:local .
+   ```
+
+3. Run the season:
+   ```bash
+   docker compose run --rm oa python -m openamundsen_da.pipeline.season \
+     --project-dir /data \
+     --season-dir /data/propagation/season_2022_2023 \
+     --log-level INFO
+   ```
+
+Results will be written inside the mounted `${PROJ}` directory under `propagation/season_2022_2023`.
 
 3. **Python 3.10+** (if running without Docker)
    - Required packages listed in `pyproject.toml`

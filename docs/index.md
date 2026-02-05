@@ -2,11 +2,11 @@
 layout: default
 title: Home
 nav_order: 1
-description: "openamundsen_da - Data Assimilation Framework for openAMUNDSEN"
+description: "openAMUNDSEN-DA - Data Assimilation Framework for openAMUNDSEN"
 permalink: /
 ---
 
-# openamundsen_da
+# openAMUNDSEN-DA
 
 {: .fs-9 }
 
@@ -15,6 +15,7 @@ Data Assimilation Framework for openAMUNDSEN
 
 [Get started](#getting-started){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [View on GitHub](https://github.com/franzwagner-uibk/openamundsen_da){: .btn .fs-5 .mb-4 .mb-md-0 }
+[Quickstart (Rofental)](installation.html#quickstart-rofental-example-via-docker){: .btn .fs-5 .mb-4 .mb-md-0 .ml-2 }
 
 ---
 
@@ -23,14 +24,14 @@ Data Assimilation Framework for openAMUNDSEN
 **This documentation may contain errors and incorrect statements.**
 
 - this documentation is **work in progress** and only **internaly** available to the _Fram3S_ project team
-- there is no scientific publication for the **openamundsen_da** framwework yet
+- there is no scientific publication for the **openAMUNDSEN-DA** framwework yet
 - **do not use information from this documentation for critical work**
 - **this version of the documentation is lacking scientific references**
 - this documentation is **not complete**. More da algorithms and observation interfaces will be added later
 
 ## Overview
 
-**openamundsen_da** is a lightweight toolkit for building and running [openAMUNDSEN](http://doc.openamundsen.org/) ensembles with particle filter data assimilation. It enables seasonal snow cover prediction by assimilating satellite snow cover and wet snow observations.
+**openAMUNDSEN-DA** is a lightweight toolkit for building and running [openAMUNDSEN](http://doc.openamundsen.org/) ensembles with particle filter data assimilation. It enables seasonal snow cover prediction by assimilating satellite snow cover and wet snow observations.
 
 openAMUNDSEN is an open-source, fully distributed snow-hydrological model designed for mountain regions (Strasser et al., 2024). This framework extends openAMUNDSEN with ensemble data assimilation capabilities for improved snow cover forecasting.
 

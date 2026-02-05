@@ -17,4 +17,4 @@ if [ "${1:-}" = "micromamba" ]; then
   exec "$@"
 fi
 
-exec micromamba run -n openamundsen "$@"
+exec micromamba run -n openamundsen_da "$@"

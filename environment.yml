@@ -1,4 +1,4 @@
-name: openamundsen
+name: openamundsen_da
 channels:
   - conda-forge
 dependencies:

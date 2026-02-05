@@ -40,9 +40,9 @@ Complete guide to installing and setting up openAMUNDSEN-DA.
 
 ---
 
-## Quickstart (no clone): Rofental example via Docker
+## Quickstart: Rofental example via Docker
 
-Everything needed ships inside the image; the commands below copy the bundled Rofental example (with a ready-made season skeleton at `examples/rofental/propagation/season_2022_2023`) to your host, then run the season. You can still generate a new skeleton yourself with `python -m openamundsen_da.pipeline.season_skeleton ...` if you want to start from scratch, but that isn’t required for the quickstart.
+Everything needed ships inside the image; the commands below copy the bundled Rofental example to your host, generate the season skeleton, and then run the season.
 
 1. Pull the image (optional—`docker run` will pull if missing):
 
@@ -51,15 +51,21 @@ Everything needed ships inside the image; the commands below copy the bundled Ro
    ```
 
 2. Prepare a host folder for outputs:
+
    ```bash
    mkdir -p openamundsen-da
    ```
 
-3. Run and persist outputs:
+3. Generate the season skeleton and run the season:
    ```bash
    docker run --rm -v "$(pwd)/openamundsen-da:/data" \
      ghcr.io/franzwagner-uibk/openamundsen_da \
      bash -lc "cp -a /workspace/examples/rofental /data/rofental && \
+               python -m openamundsen_da.pipeline.season_skeleton \
+                 --project-dir /data/rofental \
+                 --season-dir /data/rofental/propagation/season_2022_2023 \
+                 --overwrite \
+                 --log-level INFO && \
                python -m openamundsen_da.pipeline.season \
                  --project-dir /data/rofental \
                  --season-dir /data/rofental/propagation/season_2022_2023 \
@@ -71,9 +77,9 @@ Everything needed ships inside the image; the commands below copy the bundled Ro
 
 What this does:
 
-- Copies the bundled Rofental project (configs, sample data, season skeleton under `propagation/season_2022_2023`) to your host at `/data/rofental`.
+- Copies the bundled Rofental project (configs, sample data) to your host at `/data/rofental`.
 - Runs the full 2022/2023 season (propagation + SCF/WETSNOW assimilation) using that skeleton; `--overwrite` clears any previous run outputs in the target directories.
-- Outputs and plots land under `openamundsen-da/rofental/propagation/season_2022_2023` on your host. Logs stream to the terminal.
+- Outputs and plots land under `openamundsen-da/rofental/propagation/season_2022_2023` on your host. Logs and perf metrics stream to the terminal.
 
 ---
 
@@ -227,3 +233,4 @@ environment:
 ```
 
 See [Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) for more issues and solutions.
+

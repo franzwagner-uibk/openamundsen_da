@@ -1,20 +1,13 @@
-/examples/
-/context/
-openamundsen/
-/testdata/
-/MuSA/
-CrocO_toolbox
+# VCS / metadata
+.sync-exclude.lst
 
-# Python packaging / env
-*.egg-info
-/.env
-/.venv
-.venv*/
-
-# Tool caches
-.ruff_cache/
-.pytest_cache/
+# Python bytecode & caches
 .mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Build artifacts
+*.egg-info
 
 # Coverage & profiling
 /.coverage*
@@ -24,17 +17,32 @@ htmlcov/
 *.pstats
 *.cprofile
 
-# Notebooks
-*.ipynb
-*.ipynb_checkpoints
+# Virtual environments & env files
+/.env
+/.venv
+.venv*/
 
-# Editor/OS cruft
+# OS / editor cruft
 .DS_Store
 /.idea/
 /.vscode/
 *.swp
 *.log
-.sync-exclude.lst
+
+# Documentation build outputs
+docs/_build/
+
+# Notebooks
+*.ipynb
+*.ipynb_checkpoints
+
+# Local data & nested repos
+/examples/
+/testdata/
+/context/
+openamundsen/
+/MuSA/
+CrocO_toolbox
 
 # Claude artifacts
 /.claude/

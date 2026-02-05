@@ -57,7 +57,7 @@ oa-da-season \
 
 **Optional Arguments:**
 - `--project-dir PATH` - Override project root (auto-detects by walking up from `--season-dir`)
-- `--max-workers N` - Maximum parallel workers (default: from .env or 4)
+- `--max-workers N` - Maximum parallel workers (default: 4)
 - `--overwrite` - Overwrite existing outputs
 - `--live-plots` - Enable plotting during run (default is off; plots are generated once after completion)
 - `--monitor-perf` - Enable performance monitoring
@@ -484,6 +484,59 @@ Use this to add model SCF time series to an already-completed season.
 **Backfill wet snow**
 
 Similar to `oa-da-model-scf-season-daily` but for wet snow classification.
+
+---
+
+## Batch
+
+### oa-da-batch
+
+Batch helper to split a large domain into subregions, run open-loop simulations per subregion, and merge/plot results.
+
+Common workflows:
+
+```bash
+# Prepare per-subregion setups
+oa-da-batch prepare \
+  --config /data/domain.yml \
+  --regions /data/regions.gpkg \
+  --id-field id \
+  --batch-root batch_runs/demo
+
+# Run all subregions (parallel)
+oa-da-batch run \
+  --manifest batch_runs/demo/batch_manifest.json \
+  --max-workers 8
+
+# Merge grids and points
+oa-da-batch merge \
+  --manifest batch_runs/demo/batch_manifest.json \
+  --mode hard_clip
+
+# Plot station comparisons
+oa-da-batch plot \
+  --manifest batch_runs/demo/batch_manifest.json \
+  --var snow_depth --obs-col snow_height
+
+# One-shot pipeline (prepare -> run -> merge -> plot)
+oa-da-batch pipeline \
+  --config /data/domain.yml \
+  --regions /data/regions.gpkg \
+  --batch-root batch_runs/demo \
+  --max-workers 8 \
+  --mode hard_clip \
+  --var snow_depth --obs-col snow_height
+```
+
+Defaults & tips:
+- If `--batch-root` is omitted, a timestamped `batch_runs/<regions>_<ts>` is created.
+- If `--manifest` is omitted in run/merge/plot, it resolves to `<batch-root>/batch_manifest.json`.
+- Use `--max-workers` to control parallelism; BLAS/OMP threads are pinned to 1 inside the image.
+- `--mode blend` (merge) softens seams; `hard_clip` keeps strict subregion boundaries.
+
+Inputs/outputs:
+- `--config` is the base openAMUNDSEN domain config; `--regions` is a polygon vector (e.g., GPKG) with an ID field.
+- Prepared subregion runs live under the batch root; merged grids/points are written under `<batch-root>/merged/`.
 
 ---
 

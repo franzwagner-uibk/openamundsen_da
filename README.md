@@ -12,48 +12,22 @@ This replaces the old GitHub Pages site.
 - Seasonal snow cover prediction with an ensemble model + particle filter.
 - Includes prior forcing builder, ensemble launcher, generic snow-cover and wet-snow summarization, H(x) model SCF, assimilation, resampling, rejuvenation, and plotting utilities.
 
-## Quickstart: Rofental example (openAMUNDSEN-DA)
+## Quickstart
 
-The repository ships a runnable example project in `examples/rofental`. You only need Docker.
+See the docs for the one-step, no-clone Rofental run:
 
-1) Clone and prepare environment file (stays local/untracked):
-   ```bash
-   git clone https://github.com/franzwagner-uibk/openamundsen_da.git
-   cd openamundsen_da
-   cp .env.example .env
-   ```
-   Set in `.env`:
-   - `REPO` = path to this repo on your host
-   - `PROJ` = `${REPO}/examples/rofental` (contains project.yml + data)
-   - Optionally tune `CPUS` / `MEMORY` to match your machine
+`https://openamundsen-da.pages.dev/installation.html#quickstart-no-clone-rofental-example-via-docker`
 
-2) Pull the prebuilt image (or build locally):
-   ```bash
-   docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest
-   # or: docker build -t ghcr.io/franzwagner-uibk/openamundsen_da:local .
-   ```
+Developer workflow (clone + compose) is also described there.
 
-3) Run the Rofental 2022/2023 season (propagation + assimilation):
-   ```bash
-   docker compose run --rm oa python -m openamundsen_da.pipeline.season \
-     --project-dir /data \
-     --season-dir /data/propagation/season_2022_2023 \
-     --log-level INFO
-   ```
-
-Expected: the log prints assimilation events from `season.yml` (SCF/WETSNOW dates) and writes results under `/data/propagation/season_2022_2023`.
-
-## Installation
+## Installation (for contributors)
 
 - Install Docker Desktop (Windows/macOS) or Docker Engine (Linux).
-- Build the image once from repo root: `docker build -t oa-da .`
-- Copy `.env.example` to `.env` (local only, ignored by Git) and edit:
-  - `REPO` = path to this repo on your machine
-  - `PROJ` = path to your project data
-  - Optional: `CPUS`, `MEMORY`, `MAX_WORKERS`, `OA_BASE_SEED`
-- Set Compose compatibility if needed: `setx COMPOSE_COMPATIBILITY 1` (Windows) or `export COMPOSE_COMPATIBILITY=1` (Linux/macOS).
-- Volumes: `${REPO}` -> `/workspace`, `${PROJ}` -> `/data`.
-- Docker permissions: ensure your user can access the Docker daemon. On Linux either run with sudo or add yourself to the docker group (sudo usermod -aG docker $USER + re-login); otherwise docker compose will fail with permission denied on /var/run/docker.sock.
+- Build locally if needed: `docker build -t ghcr.io/franzwagner-uibk/openamundsen_da:local .`  
+  (Otherwise pull `:latest`.)
+- Compose defaults now work without an `.env` file: volumes default to your current repo (`REPO=.`) and the bundled example (`PROJ=./examples/rofental`). Override per command if you need different paths, e.g.  
+  `REPO=/my/repo PROJ=/my/project docker compose run --rm oa ...`
+- Docker permissions: ensure your user can access the Docker daemon (Linux: docker group or sudo).
 
 ### Container image (GHCR) and CI
 
@@ -63,16 +37,8 @@ Expected: the log prints assimilation events from `season.yml` (SCF/WETSNOW date
 
 ### Environment notes
 
-- GDAL/PROJ are required; prefer installing via Conda. Ensure `GDAL_DATA` and `PROJ_LIB` point to your environment (see example `project.yml`).
+- GDAL/PROJ are bundled in the image; if running natively, install via Conda and ensure `GDAL_DATA` / `PROJ_LIB` are set.
 - Python 3.10+ is required; dependencies are declared in `pyproject.toml`.
-
-The `.env` file is read automatically by `docker compose` from the repo root.
-Keep `.env` machine-specific and untracked; `.env.example` is the template you
-should commit to the repo.
-- Per-user Compose settings: set `REPO`/`PROJ` (bind mounts) and, on Linux, set
-  `UID`/`GID` in your local `.env` so containers write as your host user. CPU and
-  memory limits come from `CPUS`/`MEMORY` in `.env`; adjust locally without
-  touching `compose.yml`.
 
 ## Project Variables
 

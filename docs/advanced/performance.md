@@ -55,22 +55,28 @@ workers = min(max_workers, CPU_count, N_ensemble_members)
 
 ### Docker Resource Allocation
 
-Configure Docker resources in `.env`:
+Set limits inline; no `.env` file is required:
 
 ```bash
-# .env
-CPUS=8              # Number of CPU cores
-MEMORY=16G          # RAM allocation
+docker run --rm --cpus 8 --memory 16g ghcr.io/franzwagner-uibk/openamundsen_da:latest ...
+```
+
+With Compose you can do the same per command:
+
+```bash
+REPO=/path/to/repo PROJ=/path/to/project \
+  docker compose run --rm --cpus 8 --memory 16g oa \
+  python -m openamundsen_da.pipeline.season ...
 ```
 
 **Memory estimation**:
 ```
-Memory per member ≈ 500MB - 2GB (depends on domain size)
-Total RAM needed ≈ N_workers × Memory_per_member + 2GB overhead
+Memory per member ~ 500MB - 2GB (depends on domain size)
+Total RAM needed ~ N_workers x Memory_per_member + ~2GB overhead
 ```
 
 **Example**:
-- 8 workers, 1GB/member → 8GB + 2GB = 10GB minimum
+- 8 workers, 1GB/member -> ~10GB
 
 ---
 

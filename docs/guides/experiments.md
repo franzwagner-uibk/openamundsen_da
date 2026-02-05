@@ -29,8 +29,8 @@ Minimal steps to get a season running:
 ## Prerequisites
 
 - Docker installed and running
-- Repository cloned; image built (`docker build -t oa-da .`)
-- `.env` configured with your paths
+- Repository cloned; image pulled or built (`docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest` or `docker build -t ghcr.io/franzwagner-uibk/openamundsen_da:local .`)
+- Optional: set `REPO`/`PROJ` inline when running Compose (defaults are repo root and bundled Rofental example)
 
 See the [Installation Guide]({{ site.baseurl }}{% link installation.md %}).
 

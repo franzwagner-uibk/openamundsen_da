@@ -40,37 +40,35 @@ Complete guide to installing and setting up openAMUNDSEN-DA.
 
 ---
 
-## Quickstart (Rofental example via Docker)
+## Quickstart (no clone): Rofental example via Docker
 
-If you just want to run the bundled Rofental season (2022/2023), Docker is enough.
+Everything needed ships inside the image; the command copies the bundled example to your host, then runs the season.
 
-1. Clone and prepare env file (keeps your local paths untracked):
-   ```bash
-   git clone https://github.com/franzwagner-uibk/openamundsen_da.git
-   cd openamundsen_da
-   cp .env.example .env
-   ```
-   Set in `.env`:
-   - `REPO` = path to this repo on your host
-   - `PROJ` = `${REPO}/examples/rofental`
-   - Optionally tune `CPUS` / `MEMORY`
-
-2. Pull (or build) the image:
+1. Pull the image:
    ```bash
    docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest
-   # or build locally:
-   # docker build -t ghcr.io/franzwagner-uibk/openamundsen_da:local .
    ```
 
-3. Run the season:
+2. Run and persist outputs:
    ```bash
-   docker compose run --rm oa python -m openamundsen_da.pipeline.season \
-     --project-dir /data \
-     --season-dir /data/propagation/season_2022_2023 \
-     --log-level INFO
+   mkdir -p oa_run/data
+   docker run --rm -v "$(pwd)/oa_run/data:/data" \
+     ghcr.io/franzwagner-uibk/openamundsen_da:latest \
+     bash -lc "rsync -a /workspace/examples/rofental/ /data/rofental/ && \
+               python -m openamundsen_da.pipeline.season \
+                 --project-dir /data/rofental \
+                 --season-dir /data/rofental/propagation/season_2022_2023 \
+                 --log-level INFO"
    ```
 
-Results will be written inside the mounted `${PROJ}` directory under `propagation/season_2022_2023`.
+What this does:
+- `rsync ...` copies the bundled Rofental project (configs + sample data) from the image to your mounted host path `/data/rofental`.
+- `python -m openamundsen_da.pipeline.season` runs propagation + assimilation for the 2022/2023 season using the `season.yml` in that project.
+- Outputs are written under `oa_run/data/rofental/propagation/season_2022_2023` on your host.
+
+### Developer workflow (with repo/compose)
+- Clone the repo, then run `docker compose run --rm oa ...`. Compose defaults mount `REPO=.` to `/workspace` and `PROJ=./examples/rofental` to `/data`. Override per-command if needed, e.g. `REPO=/my/repo PROJ=/my/project docker compose run --rm oa ...`.
+- Need a fresh project skeleton? Use `python -m openamundsen_da.pipeline.season_skeleton --project-dir <path> --season-name <name>`; the bundled Rofental example already includes its season, so you don’t need this for the quickstart.
 
 3. **Python 3.10+** (if running without Docker)
    - Required packages listed in `pyproject.toml`
@@ -78,58 +76,26 @@ Results will be written inside the mounted `${PROJ}` directory under `propagatio
 
 ---
 
-## Docker Installation (Recommended)
+## Developer install (clone + compose)
 
-### 1. Clone the Repository
+Use this when you want to modify the code or run Compose with mounted source.
 
-```bash
-git clone https://github.com/franzwagner-uibk/openamundsen_da.git
-cd openamundsen_da
-```
+1. Clone the repo:
+   ```bash
+   git clone https://github.com/franzwagner-uibk/openamundsen_da.git
+   cd openamundsen_da
+   ```
 
-### 2. Build the Docker Image
+2. (Optional) Build a local image instead of pulling:
+   ```bash
+   docker build -t ghcr.io/franzwagner-uibk/openamundsen_da:local .
+   ```
 
-```bash
-docker build -t oa-da .
-```
-
-This creates a containerized environment with all dependencies pre-installed.
-
-### 3. Configure Environment Variables
-
-Copy the example environment file and edit it:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your local paths:
-
-```bash
-# .env file
-REPO=/path/to/openamundsen_da        # Repository root on your machine
-PROJ=/path/to/your/project           # Your project data directory
-# Optional (Linux/macOS): map container user to host user to avoid root-owned files
-# UID=1000
-# GID=1000
-CPUS=8                               # Number of CPUs for Docker
-MEMORY=16G                           # Memory limit for Docker
-MAX_WORKERS=7                        # Default max parallel workers
-# OA_BASE_SEED=1337                  # Optional global base seed for DA stages
-```
-
-{: .note }
-> The `.env` file is machine-specific and should not be committed to Git. It's already in `.gitignore`.
-> Compose pins OMP/BLAS threads to 1 inside the container; you don't need an `OMP_THREADS` entry.
-
-### 4. Verify Installation
-
-Test the installation:
-
-```bash
-docker compose run --rm oa python --version
-docker compose run --rm oa python -c "import openamundsen_da; print('Success!')"
-```
+3. Compose with defaults (no `.env` needed): `REPO` defaults to `.` and `PROJ` to `./examples/rofental`. Override inline if needed:
+   ```bash
+   REPO=/path/to/repo PROJ=/path/to/project \
+   docker compose run --rm oa python -c "import openamundsen_da; print('Success!')"
+   ```
 
 ---
 

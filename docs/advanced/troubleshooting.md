@@ -345,11 +345,9 @@ docker compose run --rm oa oa-da-plot-weights weights.csv
 
 2. **Increase Docker memory limit**:
    ```bash
-   # .env
-   MEMORY=32G  # Increase from 16G
+   docker run --rm --memory 32g ghcr.io/franzwagner-uibk/openamundsen_da:latest ...
    ```
-
-   Then restart Docker.
+   For Compose, add `--memory 32g` to the `docker compose run` command.
 
 3. **Reduce workers**:
    ```bash
@@ -539,11 +537,10 @@ matplotlib.use('Agg')  # Non-GUI backend
 import matplotlib.pyplot as plt
 ```
 
-Or set environment variable:
+Or set environment variable inline:
 
 ```bash
-# .env or project.yml
-MPLBACKEND=Agg
+MPLBACKEND=Agg python -m openamundsen_da.methods.viz.plot_results_ensemble ...
 ```
 
 ---

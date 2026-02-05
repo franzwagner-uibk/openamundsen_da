@@ -2,11 +2,39 @@
 /context/
 openamundsen/
 /testdata/
+/MuSA/
+CrocO_toolbox
+
+# Python packaging / env
 *.egg-info
 /.env
+/.venv
 .venv*/
-.sync-exclude.lst
-/.vscode/
-/.claude/
-/MuSA/
 
+# Tool caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# Coverage & profiling
+/.coverage*
+coverage.xml
+htmlcov/
+*.prof
+*.pstats
+*.cprofile
+
+# Notebooks
+*.ipynb
+*.ipynb_checkpoints
+
+# Editor/OS cruft
+.DS_Store
+/.idea/
+/.vscode/
+*.swp
+*.log
+.sync-exclude.lst
+
+# Claude artifacts
+/.claude/

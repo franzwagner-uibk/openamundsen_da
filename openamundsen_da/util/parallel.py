@@ -10,6 +10,7 @@ stages can share the same defaults:
 from __future__ import annotations
 
 import concurrent.futures as cf
+import multiprocessing as mp
 import os
 import secrets
 from typing import Optional
@@ -96,7 +97,8 @@ def run_tasks_with_pool(
         return [func(*t) if unpack else func(t) for t in tasks]
 
     results = []
-    with cf.ProcessPoolExecutor(max_workers=workers) as ex:
+    ctx = mp.get_context("spawn")
+    with cf.ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as ex:
         future_to_task = {ex.submit(func, *t) if unpack else ex.submit(func, t): t for t in tasks}
         for fut in cf.as_completed(future_to_task):
             results.append(fut.result())

@@ -4,6 +4,7 @@ openamundsen/
 /testdata/
 *.egg-info
 /.env
+.venv*/
 .sync-exclude.lst
 /.vscode/
 /.claude/

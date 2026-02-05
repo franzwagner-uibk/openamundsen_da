@@ -1,0 +1,35 @@
+# Usage:
+# - Pass this file via --config or place it in the project root so it is auto-picked up.
+# - CLI flags remain as defaults; values here override per variable.
+# - prefer_variables controls which variable wins if multiple candidates fall within spacing_days.
+# Example:
+#   REPO=/path/to/openamundsen_da PROJ=$REPO/examples/rofental \
+#   docker compose run --rm oa python -m openamundsen_da.pipeline.prepare_season_obs \
+#     --season-dir /workspace/examples/rofental/propagation/season_2021_2022 \
+#     --project-dir /workspace/examples/rofental \
+#     --config /workspace/examples/rofental/obs_selection.config.yml \
+#     --scf-summary /workspace/examples/rofental/obs/summaries/all_data/scf_summary.csv \
+#     --wet-summary /workspace/examples/rofental/obs/summaries/all_data/wet_snow_summary.csv \
+#     --start-date 2021-10-01 --end-date 2022-09-30 --overwrite
+selection:
+  spacing_days: 7
+  # When both primary and secondary vars exist in a window, pick the secondary every Nth occurrence (0 = disable)
+  secondary_every_n: 3
+  prefer_variables:
+    - wet_snow  # prefer wet-snow if available within the spacing window
+    - scf
+
+filters:
+  scf:
+    min_fraction: 0.05   # keep values between 5% and 95%
+    max_fraction: 1
+    max_deviation: 0.25  # max abs deviation from rolling median
+    max_delta: 0.35      # max day-to-day jump
+    smoothing_window: 3  # rolling median window (days)
+  wet_snow:
+    # wet-snow fraction over snow-covered area; keep similar bounds as SCF
+    min_fraction: 0.05
+    max_fraction: 1
+    max_deviation: 0.25
+    max_delta: 0.35
+    smoothing_window: 3

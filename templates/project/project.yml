@@ -1,29 +1,24 @@
 domain: "example_domain"
 # start_date:  # defined in season.yml
 # end_date:    # defined in season.yml
-resolution: 100            # spatial resolution (m)
-timestep: "3H"             # temporal resolution as a pandas-compatible string (e.g. "3H", "1D")
-crs: "epsg:25832"          # CRS of the input grids
-timezone: 1                # timezone of the model domain (UTC offset in hours)
-
-environment:
-  # Set GDAL/PROJ paths for your Conda env (examples only; adjust for your system).
-  GDAL_DATA: "/path/to/conda/env/share/gdal"
-  PROJ_LIB: "/path/to/conda/env/share/proj"
+resolution: 100 # spatial resolution (m)
+timestep: "3H" # temporal resolution as a pandas-compatible string (e.g. "3H", "1D")
+crs: "epsg:25832" # CRS of the input grids
+timezone: 1 # timezone of the model domain (UTC offset in hours)
 
 data_assimilation:
   # Prior forcing ensemble (REQUIRED for DA runs)
   prior_forcing:
-    ensemble_size: 20       # number of ensemble members
-    random_seed: 42         # RNG seed for reproducibility
-    sigma_t: 0.5            # additive temperature stddev (deg C)
-    mu_p: 0.0               # log-space mean for precip factor
-    sigma_p: 0.5            # log-space stddev for precip factor
+    ensemble_size: 20 # number of ensemble members
+    random_seed: 42 # RNG seed for reproducibility
+    sigma_t: 0.5 # additive temperature stddev (deg C)
+    mu_p: 0.0 # log-space mean for precip factor
+    sigma_p: 0.5 # log-space stddev for precip factor
 
   # Model SCF operator H(x) (REQUIRED when assimilating SCF)
   h_of_x:
     method: depth_threshold # or "logistic"
-    variable: hs            # or "swe"
+    variable: hs # or "swe"
     params:
       h0: 0.01
       k: 80
@@ -58,20 +53,20 @@ data_assimilation:
   # Resampling (OPTIONAL; explicit settings recommended)
   resampling:
     algorithm: systematic
-    ess_threshold_ratio: 0.5   # resample if ESS < ratio * N
+    ess_threshold_ratio: 0.5 # resample if ESS < ratio * N
     # seed: 123                # optional; if omitted, uses an internal default
 
   # Rejuvenation (posterior -> prior for next step)
   rejuvenation:
-    sigma_t: 0.2            # additive temperature noise (deg C)
-    sigma_p: 0.2            # lognormal sigma for precip factor (mu=0)
+    sigma_t: 0.2 # additive temperature noise (deg C)
+    sigma_p: 0.2 # lognormal sigma for precip factor (mu=0)
     # seed: 123             # optional; falls back to prior_forcing.random_seed
 
   # Warm start (restart) settings for multi-step propagation
   restart:
-    dump_state: true            # save final state at the end of each member run
-    state_pattern: model_state.pickle.gz  # filename or glob under member results_dir
-    cleanup_after_season: true  # remove state pickle files automatically after a successful season
+    dump_state: true # save final state at the end of each member run
+    state_pattern: model_state.pickle.gz # filename or glob under member results_dir
+    cleanup_after_season: true # remove state pickle files automatically after a successful season
 
 obs:
   snowcover:

@@ -1,29 +1,54 @@
+# VCS / metadata
 .git
+.sync-exclude.lst
+
+# Python bytecode & caches
 **/__pycache__/
 **/*.pyc
 **/*.pyo
-.env
-*.env
-.DS_Store
-.idea/
-*.swp
-*.log
-.venv
 .mypy_cache
 .pytest_cache
+.ruff_cache
+
+# Build artifacts
 build
 dist
 *.egg-info
+
+# Coverage & profiling
+.coverage*
+coverage.xml
+htmlcov/
+*.prof
+*.pstats
+*.cprofile
+
+# Virtual environments & env files
+.venv
+.venv*/
+.env
+*.env
+
+# OS / editor cruft
+.DS_Store
+.idea/
+.vscode/
+.claude/
+*.swp
+*.log
+
+# Documentation build outputs
+docs/_build/
+CODE_REVIEW_GUIDELINES.md
+
+# Notebooks
+*.ipynb
 *.ipynb_checkpoints
+
+# Local data & nested repos (kept out of image)
 examples/
 testdata/
 context/
 openamundsen/
-/.vscode/
 MuSA/
-/.claude/
-.sync-exclude.lst
-.venv*/
-/.env
-CODE_REVIEW_GUIDELINES.md
 CrocO_toolbox

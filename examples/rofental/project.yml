@@ -1,7 +1,7 @@
 domain: "rofental"
 # start_date:  # defined in season.yml
 # end_date:    # defined season.yml
-resolution: 250 # spatial resolution (m)
+resolution: 100 # spatial resolution (m)
 timestep: "3H" # temporal resolution as a pandas-compatible frequency string (e.g., "h", "3h", "D")
 crs: "epsg:25832" # CRS of the input grids
 timezone: 1 # timezone of the model domain (difference to UTC in h)
@@ -14,7 +14,7 @@ data_assimilation:
   # ensemble used to drive the model. All keys are required when running
   # the particle filter; there are no internal defaults here.
   prior_forcing:
-    ensemble_size: 20 # number of ensemble members
+    ensemble_size: 30 # number of ensemble members
     random_seed: 42 # RNG seed for reproducibility
     sigma_t: 0.5 # additive temperature stddev (deg C)
     mu_p: 0.0 # log-space mean for precip factor

@@ -63,20 +63,33 @@ openAMUNDSEN is an open-source, fully distributed snow-hydrological model design
 
 ### Quick Start (Rofental example)
 
-Run the bundled Rofental season without cloning. The image already contains the season skeleton under `examples/rofental/propagation/season_2022_2023`; you can regenerate one with `python -m openamundsen_da.pipeline.season_skeleton` if needed, but it’s not required for this quickstart.
+Run the bundled Rofental season without cloning.
 
 ```bash
-mkdir -p openamundsen-da
-docker run --rm -v "$(pwd)/openamundsen-da:/data" \
-  ghcr.io/franzwagner-uibk/openamundsen_da \
-  bash -lc "cp -a /workspace/examples/rofental /data/rofental && \
-            python -m openamundsen_da.pipeline.season \
-              --project-dir /data/rofental \
-              --season-dir /data/rofental/propagation/season_2022_2023 \
-              --max-workers 8 \
-              --perf-monitor \
-              --overwrite \
-              --log-level INFO"
+mkdir -p openamundsen-da && cd openamundsen-da
+IMAGE=ghcr.io/franzwagner-uibk/openamundsen_da
+PROJECT=/data/rofental
+SEASON=/data/rofental/propagation/season_2022_2023
+
+docker run --rm -v "$(pwd):/data" \
+  "$IMAGE" \
+  bash -lc "cp -a /workspace/examples/rofental /data/rofental"
+
+docker run --rm -v "$(pwd):/data" \
+  "$IMAGE" \
+  python -m openamundsen_da.pipeline.season_skeleton \
+    --project-dir "$PROJECT" \
+    --season-dir "$SEASON"
+
+docker run --rm -v "$(pwd):/data" \
+  "$IMAGE" \
+  python -m openamundsen_da.pipeline.season \
+    --project-dir "$PROJECT" \
+    --season-dir "$SEASON" \
+    --max-workers 8 \
+    --monitor-perf \
+    --overwrite \
+    --log-level INFO
 ```
 
 Outputs land in `openamundsen-da/rofental/propagation/season_2022_2023` on your host. Logs stream to the terminal.

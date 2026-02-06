@@ -127,7 +127,7 @@ Everything needed ships inside the image; the commands below copy the bundled Ro
        --project-dir "$PROJECT" \
        --season-dir "$SEASON" \
        --max-workers 8 \
-       --perf-monitor \
+       --monitor-perf \
        --overwrite
    ```
 

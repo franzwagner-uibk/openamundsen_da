@@ -70,6 +70,8 @@ Everything needed ships inside the image; the commands below copy the bundled Ro
    IMAGE=openamundsen_da
    PROJECT=/data/rofental
    SEASON=/data/rofental/propagation/season_2022_2023
+   SCF_SUM=/data/rofental/obs/season_2022_2023/scf_summary.csv
+   WET_SUM=/data/rofental/obs/season_2022_2023/wet_snow_summary.csv
    ```
 
 3. **Copy the bundled Rofental example to your host:**
@@ -103,14 +105,14 @@ Everything needed ships inside the image; the commands below copy the bundled Ro
      "$IMAGE" \
      oa-da-scf \
        --season-dir "$SEASON" \
-       --summary-csv /data/rofental/obs/season_2022_2023/scf_summary.csv \
+       --summary-csv "$SCF_SUM" \
        --overwrite
 
    docker run --rm -v "$(pwd):/data" \
      "$IMAGE" \
      oa-da-wetsnow-season \
        --season-dir "$SEASON" \
-       --summary-csv /data/rofental/obs/season_2022_2023/wet_snow_summary.csv \
+       --summary-csv "$WET_SUM" \
        --overwrite
    ```
 

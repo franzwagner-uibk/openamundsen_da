@@ -13,8 +13,13 @@ if ! ( : > "$lock_file" ) 2>/dev/null; then
 fi
 rm -f "$lock_file"
 
+status=0
 if [ "${1:-}" = "micromamba" ]; then
-  exec "$@"
+  "$@"
+  status=$?
+else
+  micromamba run -n openamundsen_da "$@"
+  status=$?
 fi
 
-exec micromamba run -n openamundsen_da "$@"
+exit "$status"

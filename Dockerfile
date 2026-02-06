@@ -13,6 +13,9 @@ RUN micromamba create -y -n openamundsen_da -f /tmp/environment.yml && \
 # Work inside /workspace; mount your repo here at runtime
 WORKDIR /workspace
 
+# Build and run as root; entrypoint will restore /data ownership after the command
+USER root
+
 # Install openamundsen_da into the image so `oa-da-*` entrypoints are available
 COPY . /workspace
 RUN micromamba run -n openamundsen_da python -m pip install -e . --no-deps

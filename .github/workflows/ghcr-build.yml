@@ -45,3 +45,27 @@ jobs:
             ${{ env.IMAGE }}:${{ steps.vars.outputs.date_tag }}
             ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_tag }}
             ${{ env.IMAGE }}:latest
+
+      - name: Verify runtime user and bind-mount ownership
+        run: |
+          set -euo pipefail
+          IMG="${{ env.IMAGE }}:${{ steps.vars.outputs.sha_tag }}"
+
+          docker pull "$IMG"
+          IMAGE_USER="$(docker image inspect "$IMG" --format '{{.Config.User}}')"
+          if [ "$IMAGE_USER" != "root" ]; then
+            echo "Expected default image user 'root', got '$IMAGE_USER'"
+            exit 1
+          fi
+
+          TMP_DIR="$(mktemp -d)"
+          trap 'rm -rf "$TMP_DIR"' EXIT
+          EXPECTED_OWNER="$(stat -c '%u:%g' "$TMP_DIR")"
+
+          docker run --rm -v "$TMP_DIR:/data" "$IMG" bash -lc "touch /data/ownership_probe"
+          ACTUAL_OWNER="$(stat -c '%u:%g' "$TMP_DIR/ownership_probe")"
+
+          if [ "$ACTUAL_OWNER" != "$EXPECTED_OWNER" ]; then
+            echo "Expected /data ownership $EXPECTED_OWNER, got $ACTUAL_OWNER"
+            exit 1
+          fi

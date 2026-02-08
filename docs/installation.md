@@ -50,11 +50,11 @@ Complete guide to installing and setting up openAMUNDSEN-DA.
 
 ## Quickstart: Rofental example via Docker
 
-Everything needed ships inside the image; the commands below copy the bundled Rofental example to your host, generate the season skeleton, and then run the season.
+Everything needed ships inside the image.
 
 1. **Pull and alias the image (once):**
 
-   This downloads the container and assigns a short local name so the later commands are easier to read.
+   This downloads the container and assigns a short local name.
 
    ```bash
    docker pull ghcr.io/franzwagner-uibk/openamundsen_da
@@ -63,7 +63,7 @@ Everything needed ships inside the image; the commands below copy the bundled Ro
 
 2. **Prepare a host folder and set variables:**
 
-   This creates your local workspace and defines reusable paths for the image, project, and season.
+   This creates your local workspace and defines reusable paths.
 
    ```bash
    mkdir -p openamundsen-da && cd openamundsen-da
@@ -76,7 +76,7 @@ Everything needed ships inside the image; the commands below copy the bundled Ro
 
 3. **Copy the bundled Rofental example to your host:**
 
-   This puts a ready-to-run project template into your local workspace.
+   This copies a ready-to-run project template from the local image into your workspace.
 
    ```bash
    docker run --rm -v "$(pwd):/data" \
@@ -118,7 +118,7 @@ Everything needed ships inside the image; the commands below copy the bundled Ro
 
 6. **Run the season (propagation + SCF/WETSNOW assimilation):**
 
-   This runs the full 2022/2023 season and writes outputs to your local `openamundsen-da` folder.
+   This runs the full 2022/2023 season and writes outputs to your local `openamundsen-da` folder. Set the number of cores to match your computer.
 
    ```bash
    docker run --rm -v "$(pwd):/data" \
@@ -131,20 +131,20 @@ Everything needed ships inside the image; the commands below copy the bundled Ro
        --overwrite
    ```
 
-Files to inspect after a run (all under `openamundsen-da/rofental/propagation/season_2022_2023`):
+Files to inspect after and during a run (all under `openamundsen-da/rofental/propagation/season_2022_2023`):
 
-- Logs: container stdout; if present, `season.log`.
-- Perf monitor: `plots/perf/season_perf.png` and `plots/perf/season_perf_metrics.csv`.
-- Assimilation diagnostics: `plots/assim/` (weights/ESS), `assim/weights.csv`.
+- Logs: `season.log`.
+- Perf monitor: `plots/perf/season_perf.png`
 - Results: `plots/results/` (ensemble envelopes), `ensembles/posterior/` per step.
+- Assimilation diagnostics: `plots/assim/` (weights/ESS), `assim/weights.csv`.
 
-What the bundled Rofental example contains (copied to `/data/rofental`):
+The Rofental example bundle contains data covering the seasons 2019-2023 (copied to `/data/rofental`):
 
-- `project.yml` - DA config (products, landcover mask, resampling, rejuvenation, etc.).
-- `propagation/season_2022_2023/season.yml` - season dates + assimilation events (used by skeleton + season).
-- `meteo/` - sample station metadata/forcing CSVs.
-- `obs/` - summarized observation CSVs for SCF/WETSNOW.
-- `grids/` - land-cover grid for masking.
+- `project.yml` - openAMUNDSEN and DA configurations
+- `propagation/season_2022_2023/season.yml` - season dates + assimilation events
+- `meteo/` - station metadata and forcing CSVs.
+- `obs/` - summarized observation CSVs for SCF/WETSNOW, wet snow maps and snow cover maps, station observations (snow depth)
+- `grids/` - dem, landcover, srf, svf grids (spatial resolution 100-500m)
 - `env/roi.gpkg` - ROI polygon used for clipping/masking.
 
 ---

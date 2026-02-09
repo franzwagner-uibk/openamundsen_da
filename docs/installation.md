@@ -155,7 +155,7 @@ contains data covering the seasons 2019-2023 (copied to `/data/rofental`):
 
 {: .highlight }
 
-> **First possible experiments with the Rofental example**
+> ### First possible experiments with the Rofental example
 >
 > - modify `resolution` in `rofental/project.yml` (100/250/500 m).  
 >   Test scale effects and runtime/memory tradeoffs. See [Configuration Reference (basic config)](https://openamundsen-da.pages.dev/guides/configuration) and [Project Structure](https://openamundsen-da.pages.dev/project-structure).

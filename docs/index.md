@@ -63,7 +63,9 @@ openAMUNDSEN is an open-source, fully distributed snow-hydrological model design
 
 ### Quick Start (Rofental example)
 
-Run the bundled Rofental season shipped with the docker image: https://openamundsen-da.pages.dev/installation#prerequisites
+Run the bundled Rofental season shipped with the docker image:
+
+[Open Quick Start](https://openamundsen-da.pages.dev/installation#prerequisites){: .btn .btn-primary .fs-4 }
 
 ## Documentation Structure
 

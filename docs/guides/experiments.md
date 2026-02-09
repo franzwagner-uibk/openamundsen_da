@@ -38,9 +38,50 @@ See the [Installation Guide]({{ site.baseurl }}{% link installation.md %}).
 
 ## 1) Prepare Project
 
-- Copy `templates/project` to your workspace (contains `env/`, `meteo/`, `obs/`, `project.yml`).
+Copy the template project to your workspace:
+
+```bash
+cp -r templates/project /path/to/your/project
+```
+
+Expected structure (mirrors the Rofental example):
+
+```
+project/
+|-- project.yml                        # Main configuration (required)
+|-- obs_selection.config.yml           # Optional: observation selection presets
+|-- env/
+|   `-- roi.gpkg                       # Single-feature ROI polygon (required)
+|-- grids/
+|   |-- lc_<domain>_<resolution>.asc   # Land-cover classes for DA masking
+|   |-- dem_<domain>_<resolution>.asc  # DEM (if used)
+|   |-- svf_<domain>_<resolution>.asc  # Sky-view factor (if used)
+|   `-- srf_<domain>_<resolution>.asc  # Slope/relief (if used)
+|-- meteo/
+|   |-- stations.csv                   # Station metadata
+|   |-- <station_id>.csv               # Meteorological forcing data (ID/name from stations.csv)
+|   `-- ...
+|-- obs/
+|   |-- stations/                      # Station metadata exports (optional)
+|   |-- snowcover/                     # FSC inputs (Rofental naming)
+|   |-- wetsnow/                       # Wet-snow SAR inputs (Rofental naming)
+|   |-- summaries/                     # Precomputed summaries (Rofental)
+|   `-- season_YYYY_YYYY/
+|       |-- scf_summary.csv            # SCF observations (season summary)
+|       |-- wet_snow_summary.csv       # Wet-snow observations (season summary)
+|       `-- ...
+|-- propagation/
+|   `-- season_YYYY_YYYY/
+|       `-- season.yml                 # Season definition used by season_skeleton
+```
+
+Required checks:
+
 - ROI polygon at `env/roi.gpkg` (single polygon; projected CRS; field `region_id` by default).
 - Land-cover grid at `grids/lc_<domain>_<resolution>.asc`; configure excluded classes in `data_assimilation.landcover_mask`.
+- Meteorological station files must match station IDs/names listed in `meteo/stations.csv`.
+
+See [Project Structure]({{ site.baseurl }}{% link project-structure.md %}) for details.
 
 ---
 
@@ -55,16 +96,24 @@ See the [Installation Guide]({{ site.baseurl }}{% link installation.md %}).
 
 ## 3) Configure
 
-Edit `project.yml` (essentials):
+Edit `project.yml` and `season.yml`:
+
+- A complete, valid openAMUNDSEN `project.yml` is required; openAMUNDSEN-DA adds extra `data_assimilation` keys on top of that base configuration.
+- openAMUNDSEN base configuration docs: [http://doc.openamundsen.org/en/stable/configuration.html](http://doc.openamundsen.org/en/stable/configuration.html)
+- openAMUNDSEN-DA configuration docs: [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %})
+
+Essentials in `project.yml`:
 
 - Domain/CRS/resolution/timestep (`crs`, `resolution`, `timestep`).
 - `data_assimilation.prior_forcing.ensemble_size` and perturbation sigmas.
 - `data_assimilation.h_of_x` method/params for SCF.
 - Observation errors: `likelihood.scf.obs_sigma` (and `wet_snow.obs_sigma` if used).
 - Resampling threshold: `resampling.ess_threshold_ratio`.
-- Glacier mask path if enabled.
 
-Set season bounds in `propagation/<season>/season.yml` (`start_date`, `end_date`); fill `data_assimilation.assimilation_events` after observations are summarized.
+In `propagation/<season>/season.yml`:
+
+- Set `start_date` and `end_date`.
+- Fill `data_assimilation.assimilation_events` after observations are summarized.
 
 ---
 

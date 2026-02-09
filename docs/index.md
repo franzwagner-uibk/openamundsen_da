@@ -80,7 +80,7 @@ Run the bundled Rofental season shipped with the docker image:
 - [Configuration]({{ site.baseurl }}{% link guides/configuration.md %}) - YAML configuration reference
 - [Command-Line Interface]({{ site.baseurl }}{% link guides/cli.md %}) - CLI commands reference
 - [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %}) - Working with satellite data
-- [Running Experiments]({{ site.baseurl }}{% link guides/experiments.md %}) - Step-by-step experiment setup
+- [Running Experiments]({{ site.baseurl }}{% link guides/experiments.md %}) - Set up your own project and run custom seasons
 
 ### Technical Reference
 

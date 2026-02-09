@@ -346,7 +346,7 @@ data_assimilation:
 ## Next Steps
 
 - [Configuration Guide]({{ site.baseurl }}{% link guides/configuration.md %}) - Detailed configuration reference
-- [Running Experiments]({{ site.baseurl }}{% link guides/experiments.md %}) - Step-by-step experiment setup
+- [Running Experiments]({{ site.baseurl }}{% link guides/experiments/index.md %}) - Step-by-step experiment setup
 - [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}) - Command-line tools
 
 ---

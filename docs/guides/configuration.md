@@ -433,5 +433,5 @@ The resampling and rejuvenation use the prior_forcing seed as fallback if not sp
 ## Next Steps
 
 - [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}) - Command-line interface
-- [Running Experiments]({{ site.baseurl }}{% link guides/experiments.md %}) - Complete workflow example
+- [Running Experiments]({{ site.baseurl }}{% link guides/experiments/index.md %}) - Complete workflow example
 - [Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) - Common configuration issues

@@ -236,7 +236,7 @@ data_assimilation:
 ## Next Steps
 
 - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) - Configure observation errors and H(x)
-- [Running Experiments]({{ site.baseurl }}{% link guides/experiments.md %}) - End-to-end workflow
+- [Running Experiments]({{ site.baseurl }}{% link guides/experiments/index.md %}) - End-to-end workflow
 - [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}) - Observation preprocessing commands
 
 ---

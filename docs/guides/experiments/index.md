@@ -3,7 +3,6 @@ layout: default
 title: Running Experiments
 parent: Guides
 nav_order: 4
-permalink: /guides/experiments/index.html
 ---
 
 # Running Experiments

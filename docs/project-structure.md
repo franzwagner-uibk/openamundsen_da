@@ -311,4 +311,4 @@ graph TD
 
 - [Workflow Overview]({{ site.baseurl }}{% link workflow.md %}) - Understanding the DA cycle
 - [Configuration Guide]({{ site.baseurl }}{% link guides/configuration.md %}) - Detailed configuration reference
-- [Running Experiments]({{ site.baseurl }}{% link guides/experiments.md %}) - Setting up your first experiment
+- [Running Experiments]({{ site.baseurl }}{% link guides/experiments/index.md %}) - Setting up your first experiment

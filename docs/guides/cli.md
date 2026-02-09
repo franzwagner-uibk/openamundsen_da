@@ -580,5 +580,5 @@ docker compose run --rm oa oa-da-snowcover \
 ## Next Steps
 
 - [Configuration Guide]({{ site.baseurl }}{% link guides/configuration.md %}) - Configure commands via YAML
-- [Running Experiments]({{ site.baseurl }}{% link guides/experiments.md %}) - End-to-end workflow
+- [Running Experiments]({{ site.baseurl }}{% link guides/experiments/index.md %}) - End-to-end workflow
 - [Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) - Common issues

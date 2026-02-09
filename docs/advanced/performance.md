@@ -335,4 +335,4 @@ Performance optimization checklist:
 
 - [Troubleshooting Guide]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) - Common issues
 - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) - Optimize settings
-- [Running Experiments]({{ site.baseurl }}{% link guides/experiments.md %}) - Complete workflow
+- [Running Experiments]({{ site.baseurl }}{% link guides/experiments/index.md %}) - Complete workflow

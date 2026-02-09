@@ -201,7 +201,7 @@ Use this when you want to modify the code or run Compose with mounted source.
 
 ## Next Steps
 
-- [Running Experiments]({{ site.baseurl }}{% link guides/experiments.md %}) - Set up your own project and run custom seasons
+- [Running Experiments]({{ '/guides/experiments/' | relative_url }}) - Set up your own project and run custom seasons
 - [Project Structure]({{ site.baseurl }}{% link project-structure.md %}) - Understand the directory layout
 - [Workflow Overview]({{ site.baseurl }}{% link workflow.md %}) - Learn the DA workflow
 

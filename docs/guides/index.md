@@ -18,4 +18,4 @@ This section contains practical guides for using the openamundsen_da framework:
 - [**Command-Line Interface**]({{ site.baseurl }}{% link guides/cli.md %}) - Complete CLI reference for all 16 commands
 - [**Configuration Reference**]({{ site.baseurl }}{% link guides/configuration.md %}) - YAML configuration guide
 - [**Observation Processing**]({{ site.baseurl }}{% link guides/observations.md %}) - Working with satellite data
-- [**Running Experiments**]({{ site.baseurl }}{% link guides/experiments.md %}) - Set up your own project and run custom seasons
+- [**Running Experiments**]({{ '/guides/experiments/' | relative_url }}) - Set up your own project and run custom seasons

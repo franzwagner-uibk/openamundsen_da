@@ -158,15 +158,15 @@ contains data covering the seasons 2019-2023 (copied to `/data/rofental`):
 > ### First possible experiments with the Rofental example
 >
 > - modify `resolution` in `rofental/project.yml` (100/250/500 m).  
->   Test scale effects and runtime/memory tradeoffs. See [Configuration Reference (basic config)](https://openamundsen-da.pages.dev/guides/configuration) and [Project Structure](https://openamundsen-da.pages.dev/project-structure).
+>   Test scale effects and runtime/memory tradeoffs. See [Configuration Reference (basic config)](https://openamundsen-da.pages.dev/guides/configuration#basic-configuration) and [Project Structure](https://openamundsen-da.pages.dev/project-structure#project-data-structure).
 > - modify `ensemble_size` in `rofental/project.yml` (e.g. 10/20/50).  
->   Test uncertainty representation versus compute cost. See [Configuration Reference (prior forcing)](https://openamundsen-da.pages.dev/guides/configuration) and [Workflow (prior ensemble)](https://openamundsen-da.pages.dev/workflow).
+>   Test uncertainty representation versus compute cost. See [Configuration Reference (prior forcing)](https://openamundsen-da.pages.dev/guides/configuration#prior-forcing-configuration) and [Workflow (prior ensemble)](https://openamundsen-da.pages.dev/workflow#prior-ensemble-generation).
 > - modify `sigma_p` and `sigma_t` in `rofental/project.yml` (e.g. 0.2-2).  
->   Tune forcing perturbation strength. See [Configuration Reference (perturbation details)](https://openamundsen-da.pages.dev/guides/configuration) and [Workflow](https://openamundsen-da.pages.dev/workflow).
+>   Tune forcing perturbation strength. See [Configuration Reference (perturbation details)](https://openamundsen-da.pages.dev/guides/configuration#perturbation-details) and [Workflow](https://openamundsen-da.pages.dev/workflow#meteorological-forcing-perturbation).
 > - modify `resampling.ess_threshold_ratio` (e.g. 0.2-0.8).  
->   Tune ESS-triggered resampling frequency (lower = less frequent, higher = more frequent). See [Configuration Reference (resampling + ESS)](https://openamundsen-da.pages.dev/guides/configuration) and [Workflow (ESS/resampling)](https://openamundsen-da.pages.dev/workflow).
+>   Tune ESS-triggered resampling frequency (lower = less frequent, higher = more frequent). See [Configuration Reference (resampling + ESS)](https://openamundsen-da.pages.dev/guides/configuration#resampling-parameters) and [Workflow (ESS/resampling)](https://openamundsen-da.pages.dev/workflow#effective-sample-size-ess).
 > - modify assimilation dates and variables in `rofental/propagation/season_2022_2023/season.yml`.  
->   Define a new propagation sequence. Pick only dates that exist in `rofental/obs/season_2022_2023/scf_summary.csv` and `rofental/obs/season_2022_2023/wet_snow_summary.csv`, then rerun setup (`season_skeleton`, `oa-da-scf`, `oa-da-wetsnow-season`) before running the season pipeline. See [Observation Processing](https://openamundsen-da.pages.dev/guides/observations), [Running Experiments](https://openamundsen-da.pages.dev/guides/experiments), and [CLI Reference](https://openamundsen-da.pages.dev/guides/cli).
+>   Define a new propagation sequence. Pick only dates that exist in `rofental/obs/season_2022_2023/scf_summary.csv` and `rofental/obs/season_2022_2023/wet_snow_summary.csv`, then rerun setup (`season_skeleton`, `oa-da-scf`, `oa-da-wetsnow-season`) before running the season pipeline. See [Observation Processing (quality control)](https://openamundsen-da.pages.dev/guides/observations#quality-control), [Running Experiments (build season skeleton)](https://openamundsen-da.pages.dev/guides/experiments#5-build-season-skeleton), and [CLI Reference (`oa-da-scf`)](https://openamundsen-da.pages.dev/guides/cli#oa-da-scf).
 
 ## Developer install (clone + compose)
 

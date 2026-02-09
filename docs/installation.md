@@ -61,12 +61,20 @@ Everything needed ships inside the image.
    docker tag ghcr.io/franzwagner-uibk/openamundsen_da openamundsen_da
    ```
 
-2. **Prepare a host folder and set variables:**
+2. **Prepare a local folder:**
 
-   This creates your local workspace and defines reusable paths.
+   This creates your local workspace.
 
    ```bash
-   mkdir -p openamundsen-da && cd openamundsen-da
+   mkdir -p openamundsen-da
+   cd openamundsen-da
+   ```
+
+3. **Set reusable variables:**
+
+   This defines paths used in the next commands.
+
+   ```bash
    IMAGE=openamundsen_da
    PROJECT=/data/rofental
    SEASON=/data/rofental/propagation/season_2022_2023
@@ -74,7 +82,7 @@ Everything needed ships inside the image.
    WET_SUM=/data/rofental/obs/season_2022_2023/wet_snow_summary.csv
    ```
 
-3. **Copy the bundled Rofental example to your host:**
+4. **Copy the bundled Rofental example to your host:**
 
    Copy a ready-to-run project template from the local image into your workspace.
 
@@ -84,7 +92,7 @@ Everything needed ships inside the image.
      cp -a /workspace/examples/rofental /data/rofental
    ```
 
-4. **Generate the season skeleton (step\_\* directories/YAMLs from `season.yml`):**
+5. **Generate the season skeleton (step\_\* directories/YAMLs from `season.yml`):**
 
    Create the step structure for the season based on the assimilation dates.
 
@@ -96,7 +104,7 @@ Everything needed ships inside the image.
        --season-dir "$SEASON"
    ```
 
-5. **Distribute observation summaries to steps (SCF + wet snow):**
+6. **Distribute observation summaries to steps (SCF + wet snow):**
 
    Create per-step `obs_*.csv` files from the season summaries using the assimilation dates in `season.yml`.
 
@@ -116,7 +124,7 @@ Everything needed ships inside the image.
        --overwrite
    ```
 
-6. **Run the season (propagation + SCF/WETSNOW assimilation):**
+7. **Run the season (propagation + SCF/WETSNOW assimilation):**
 
    Run the full 2022/2023 season and writes outputs to your local `openamundsen-da` folder. Set the number of cores to match your computer.
 
@@ -150,8 +158,6 @@ contains data covering the seasons 2019-2023 (copied to `/data/rofental`):
 - `obs/` - summarized observation CSVs for SCF/WETSNOW, wet snow maps and snow cover maps, station observations (snow depth)
 - `grids/` - dem, landcover, srf, svf grids (spatial resolution 100-500m)
 - `env/roi.gpkg` - ROI polygon used for clipping/masking.
-
----
 
 {: .highlight }
 

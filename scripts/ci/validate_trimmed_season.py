@@ -31,6 +31,7 @@ BENIGN_WARNING_PATTERNS = [
     re.compile(r"Wet-snow obs not found .* plotting without obs points", re.IGNORECASE),
     re.compile(r"No member series found for point_wet_snow_roi\.csv", re.IGNORECASE),
     re.compile(r"No data for station point_scf_roi\.csv across season; skipping\.", re.IGNORECASE),
+    re.compile(r"Missing liquid water grids for .*", re.IGNORECASE),
 ]
 
 

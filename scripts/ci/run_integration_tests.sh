@@ -65,7 +65,7 @@ season_dir = project_dir / "propagation" / "season_ci_2022_2023"
 season_dir.mkdir(parents=True, exist_ok=True)
 season_cfg = {
     "start_date": "2023-03-12",
-    "end_date": "2023-03-28",
+    "end_date": "2023-03-27 21:00:00",
     "data_assimilation": {
         "assimilation_events": [
             {

@@ -22,11 +22,15 @@ Workflow file: `.github/workflows/ci.yml`
   - Pull requests to `main` (except docs-only changes)
   - Pushes to any branch (except docs-only changes)
   - Manual dispatch (`workflow_dispatch`)
+- Job `Ruff Lint`:
+  - Runs fast fatal lint checks before tests
+  - Script: `scripts/ci/run_lint.sh`
 - Job `Unit and Integration Tests`:
   - Runs on self-hosted runner labels: `self-hosted, linux, x64, oa-da`
   - Builds a CI Docker image from current commit
-  - Runs unit tests via `scripts/ci/run_unit_tests.sh`
+  - Runs unit tests with `pytest` via `scripts/ci/run_unit_tests.sh`
   - Runs trimmed integration test via `scripts/ci/run_integration_tests.sh`
+  - Uploads integration artifacts on failure (log + trimmed season outputs)
 - Job `Build and Push GHCR Image`:
   - Runs only on push to `main`
   - Depends on successful `tests` job
@@ -60,6 +64,9 @@ Current coverage areas include:
 
 Runner command wrapper: `scripts/ci/run_unit_tests.sh`
 
+Framework/tooling config:
+- unit test dependencies and lint tool extras: `pyproject.toml` (`[project.optional-dependencies].test`)
+
 ### Integration regression test (trimmed season)
 
 Runner script: `scripts/ci/run_integration_tests.sh`
@@ -83,6 +90,17 @@ Validation focuses on:
   - forcing plots, season result plots, assimilation plots
   - persistent openAMUNDSEN outputs (`point_*.csv`, `*.nc`)
 - minimal weight sanity (weights exist, numeric, sum to `1.0`)
+
+Failure artifacts:
+- integration log and trimmed season outputs are copied to CI artifact directory when the run fails
+- artifact upload is defined in `.github/workflows/ci.yml`
+
+### Lint gate
+
+Runner script: `scripts/ci/run_lint.sh`
+
+What it checks:
+- ruff fatal classes only (`E9`, `F63`, `F7`, `F82`) as a fast quality gate
 
 ## Self-Hosted Runner Setup (Ubuntu Test Machine)
 
@@ -111,6 +129,28 @@ Recommended for this project:
 Note on private repo + free tier:
 - ruleset enforcement and strict branch protection options may be limited
 - therefore, process discipline is the effective quality gate
+
+## Where Test Setup Is Configured
+
+Main locations:
+- CI workflow/jobs and sequencing: `.github/workflows/ci.yml`
+- unit test runner command: `scripts/ci/run_unit_tests.sh`
+- integration run recipe (trimmed season): `scripts/ci/run_integration_tests.sh`
+- integration validation logic: `scripts/ci/validate_trimmed_season.py`
+- lint command: `scripts/ci/run_lint.sh`
+- test/lint optional dependencies: `pyproject.toml`
+
+Trimmed Rofental configuration details:
+- source project copied for CI: `examples/rofental`
+- trimmed season name, dates, assimilation events, and ensemble size are currently hard-coded in `scripts/ci/run_integration_tests.sh`
+- max workers for CI integration run is set in `.github/workflows/ci.yml` via `OA_DA_TEST_MAX_WORKERS`
+
+If you want to change the CI test season:
+- edit the inline Python block in `scripts/ci/run_integration_tests.sh` for:
+  - `SEASON_NAME`
+  - `start_date` / `end_date`
+  - assimilation events (`variable`, `product`, `date`)
+  - forced ensemble size (`prior["ensemble_size"]`)
 
 ## Failure Modes and Fast Checks
 

@@ -9,4 +9,4 @@ PROJ="${ROOT_DIR}/examples/rofental" \
 IMAGE="${CI_IMAGE}" \
 env UID="$(id -u)" GID="$(id -g)" \
 docker compose run --rm oa \
-  python -m unittest discover -s /workspace/tests/unit -p "test_*.py" -v
+  pytest -q /workspace/tests/unit

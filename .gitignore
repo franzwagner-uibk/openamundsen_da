@@ -30,6 +30,7 @@ htmlcov/
 /.vscode/
 *.swp
 *.log
+.ci-artifacts/
 
 # Documentation build outputs
 docs/_build/

@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CI_IMAGE="${CI_IMAGE:-openamundsen-da-ci:local}"
 MAX_WORKERS="${OA_DA_TEST_MAX_WORKERS:-4}"
+ARTIFACT_DIR="${CI_ARTIFACT_DIR:-}"
 
 TMP_ROOT="$(mktemp -d -t oada-ci-XXXXXX)"
 PROJECT_DIR="${TMP_ROOT}/rofental_ci"
@@ -13,7 +14,20 @@ HOST_LOG_FILE="${PROJECT_DIR}/ci_integration.log"
 CONTAINER_LOG_FILE="/data/ci_integration.log"
 
 cleanup() {
+  local rc=$?
+  if [[ -n "${ARTIFACT_DIR}" ]]; then
+    mkdir -p "${ARTIFACT_DIR}"
+    if [[ -f "${HOST_LOG_FILE}" ]]; then
+      cp -f "${HOST_LOG_FILE}" "${ARTIFACT_DIR}/ci_integration.log"
+    fi
+    if [[ -d "${PROJECT_DIR}/propagation/${SEASON_NAME}" ]]; then
+      mkdir -p "${ARTIFACT_DIR}/propagation"
+      cp -a "${PROJECT_DIR}/propagation/${SEASON_NAME}" "${ARTIFACT_DIR}/propagation/"
+    fi
+  fi
   rm -rf "${TMP_ROOT}"
+  trap - EXIT
+  exit "${rc}"
 }
 trap cleanup EXIT
 

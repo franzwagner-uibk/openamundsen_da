@@ -21,6 +21,7 @@ dependencies:
   - pyyaml
   - ruamel.yaml
   - psutil
+  - pytest
   # openAMUNDSEN (model)
   - pip:
       - openamundsen>=1.1

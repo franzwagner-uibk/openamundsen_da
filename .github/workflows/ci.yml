@@ -20,12 +20,29 @@ env:
   CI_IMAGE_NAME: openamundsen-da-ci
 
 jobs:
-  tests:
-    name: Unit and Integration Tests
+  lint:
+    name: Ruff Lint
     # Never run untrusted fork code on self-hosted infrastructure.
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     runs-on: [self-hosted, linux, x64, oa-da]
     permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run ruff (fatal checks)
+        run: |
+          bash scripts/ci/run_lint.sh
+
+  tests:
+    name: Unit and Integration Tests
+    # Never run untrusted fork code on self-hosted infrastructure.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    needs: [lint]
+    runs-on: [self-hosted, linux, x64, oa-da]
+    permissions:
+      actions: write
       contents: read
     steps:
       - name: Checkout
@@ -44,7 +61,17 @@ jobs:
         run: |
           CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
           OA_DA_TEST_MAX_WORKERS=6 \
+          CI_ARTIFACT_DIR="${{ github.workspace }}/.ci-artifacts/integration" \
           bash scripts/ci/run_integration_tests.sh
+
+      - name: Upload integration artifacts (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-artifacts/integration
+          if-no-files-found: ignore
+          retention-days: 7
 
   publish:
     name: Build and Push GHCR Image

@@ -24,6 +24,15 @@ SEVERE_WARNING_PATTERNS = [
     re.compile(r"excludes entire ROI", re.IGNORECASE),
 ]
 
+# Known benign warnings for this trimmed CI setup.
+# These indicate optional observation overlays are absent, not a failed run.
+BENIGN_WARNING_PATTERNS = [
+    re.compile(r"SCF obs not found .* plotting without obs points", re.IGNORECASE),
+    re.compile(r"Wet-snow obs not found .* plotting without obs points", re.IGNORECASE),
+    re.compile(r"No member series found for point_wet_snow_roi\.csv", re.IGNORECASE),
+    re.compile(r"No data for station point_scf_roi\.csv across season; skipping\.", re.IGNORECASE),
+]
+
 
 def _read_weights(path: Path) -> list[float]:
     weights: list[float] = []
@@ -79,7 +88,9 @@ def _check_logs(log_file: Path) -> None:
             fatal_lines.append(line)
             continue
         if "WARNING" in line.upper():
-            if any(p.search(line) for p in SEVERE_WARNING_PATTERNS):
+            if any(p.search(line) for p in SEVERE_WARNING_PATTERNS) and not any(
+                p.search(line) for p in BENIGN_WARNING_PATTERNS
+            ):
                 severe_warning_lines.append(line)
 
     if fatal_lines:

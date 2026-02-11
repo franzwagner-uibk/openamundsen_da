@@ -75,8 +75,9 @@ What it does:
 - clones `examples/rofental` into a temp directory
 - trims season to a short CI window (`season_ci_2022_2023`)
 - sets small ensemble size (`4`)
+- configures one SCF and one wet-snow assimilation event
 - generates season skeleton
-- distributes SCF observations
+- distributes SCF and wet-snow observations
 - runs full season pipeline
 - validates logs and outputs with `scripts/ci/validate_trimmed_season.py`
 
@@ -85,7 +86,9 @@ Validation focuses on:
 - no severe warnings (with explicit allow-list for known benign optional-observation warnings)
 - expected outputs exist and are non-empty:
   - per-step SCF obs files
+  - per-step wet-snow obs files
   - SCF weights CSVs
+  - wet-snow weights CSVs
   - member SCF point time series
   - forcing plots, season result plots, assimilation plots
   - persistent openAMUNDSEN outputs (`point_*.csv`, `*.nc`)

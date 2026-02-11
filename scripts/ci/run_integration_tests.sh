@@ -64,15 +64,20 @@ with project_yml.open("w", encoding="utf-8") as f:
 season_dir = project_dir / "propagation" / "season_ci_2022_2023"
 season_dir.mkdir(parents=True, exist_ok=True)
 season_cfg = {
-    "start_date": "2022-10-01",
-    "end_date": "2022-10-08",
+    "start_date": "2023-03-12",
+    "end_date": "2023-03-28",
     "data_assimilation": {
         "assimilation_events": [
             {
-                "date": "2022-10-03",
+                "date": "2023-03-17",
                 "variable": "scf",
                 "product": "SNOWCOVER",
-            }
+            },
+            {
+                "date": "2023-03-24",
+                "variable": "wet_snow",
+                "product": "S1",
+            },
         ]
     },
 }
@@ -89,6 +94,12 @@ compose_run python -m openamundsen_da.pipeline.season_skeleton \
 compose_run oa-da-scf \
   --season-dir "${SEASON_DIR}" \
   --summary-csv /data/obs/season_2022_2023/scf_summary.csv \
+  --overwrite \
+  --log-level INFO
+
+compose_run oa-da-wetsnow-season \
+  --season-dir "${SEASON_DIR}" \
+  --summary-csv /data/obs/season_2022_2023/wet_snow_summary.csv \
   --overwrite \
   --log-level INFO
 

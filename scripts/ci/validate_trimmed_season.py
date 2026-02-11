@@ -179,9 +179,21 @@ def _check_required_outputs(steps_dir: Path) -> None:
     for p in point_scf_files:
         _assert_non_empty(p)
 
+    wet_obs_files = sorted(steps_dir.glob("step_*/obs/obs_wet_snow_*.csv"))
+    if not wet_obs_files:
+        raise FileNotFoundError("No per-step wet-snow obs files found (obs_wet_snow_*.csv)")
+    for p in wet_obs_files:
+        _assert_non_empty(p)
+
+    wet_weights_files = sorted(steps_dir.glob("step_*/assim/weights_wet_snow_*.csv"))
+    if not wet_weights_files:
+        raise FileNotFoundError("No wet-snow weights files found (weights_wet_snow_*.csv)")
+    for p in wet_weights_files:
+        _assert_non_empty(p)
+
 
 def _check_minimal_weight_sanity(steps_dir: Path) -> None:
-    weights_files = sorted(steps_dir.glob("step_*/assim/weights_scf_*.csv"))
+    weights_files = sorted(steps_dir.glob("step_*/assim/weights_*_*.csv"))
     for wf in weights_files:
         weights = _read_weights(wf)
         if not weights:

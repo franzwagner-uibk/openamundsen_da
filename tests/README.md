@@ -1,0 +1,142 @@
+# Testing and CI Runbook
+
+This folder documents the current regression-testing setup for `openamundsen_da`.
+
+## Recommended Workflow (Single Developer, Private Repo)
+
+1. Start from `main` and create a feature branch.
+2. Implement changes on the feature branch.
+3. Push branch to GitHub.
+4. Wait for `CI and Publish` -> `Unit and Integration Tests` to finish green.
+5. Merge branch into `main` only if green.
+6. After merge, verify `main` pipeline is green (`tests` + `publish`).
+7. Delete merged feature branch.
+
+Important: because the repository is private and you do not use paid GitHub plan features for protected rulesets, this process is enforced by discipline, not hard merge blocking.
+
+## What Is Automated
+
+Workflow file: `.github/workflows/ci.yml`
+
+- Triggered on:
+  - Pull requests to `main` (except docs-only changes)
+  - Pushes to any branch (except docs-only changes)
+  - Manual dispatch (`workflow_dispatch`)
+- Job `Unit and Integration Tests`:
+  - Runs on self-hosted runner labels: `self-hosted, linux, x64, oa-da`
+  - Builds a CI Docker image from current commit
+  - Runs unit tests via `scripts/ci/run_unit_tests.sh`
+  - Runs trimmed integration test via `scripts/ci/run_integration_tests.sh`
+- Job `Build and Push GHCR Image`:
+  - Runs only on push to `main`
+  - Depends on successful `tests` job
+  - Logs in to GHCR using `GHCR_PAT`
+  - Builds and pushes image tags:
+    - `main-YYYYMMDD`
+    - short SHA
+    - `latest`
+
+## What You Must Do Manually
+
+- Follow feature-branch workflow (do not develop directly on `main`).
+- Monitor Actions results after push/merge.
+- Keep the self-hosted runner online and healthy.
+- Keep GitHub secret `GHCR_PAT` valid.
+- Tune integration validation rules if expected output/warnings change.
+
+## Current Test Stack
+
+### Unit tests
+
+Location: `tests/unit/`
+
+Current coverage areas include:
+- config merging behavior
+- DA events parsing/handling
+- land-cover path and resolution behavior
+- season skeleton behavior
+- statistics helper functions
+- assimilation requirement validation prechecks
+
+Runner command wrapper: `scripts/ci/run_unit_tests.sh`
+
+### Integration regression test (trimmed season)
+
+Runner script: `scripts/ci/run_integration_tests.sh`
+
+What it does:
+- clones `examples/rofental` into a temp directory
+- trims season to a short CI window (`season_ci_2022_2023`)
+- sets small ensemble size (`4`)
+- generates season skeleton
+- distributes SCF observations
+- runs full season pipeline
+- validates logs and outputs with `scripts/ci/validate_trimmed_season.py`
+
+Validation focuses on:
+- no fatal log patterns (`ERROR`, `CRITICAL`, `Traceback`, `Exception`)
+- no severe warnings (with explicit allow-list for known benign optional-observation warnings)
+- expected outputs exist and are non-empty:
+  - per-step SCF obs files
+  - SCF weights CSVs
+  - member SCF point time series
+  - forcing plots, season result plots, assimilation plots
+  - persistent openAMUNDSEN outputs (`point_*.csv`, `*.nc`)
+- minimal weight sanity (weights exist, numeric, sum to `1.0`)
+
+## Self-Hosted Runner Setup (Ubuntu Test Machine)
+
+Current intended environment:
+- Ubuntu Linux
+- Docker installed and daemon running
+- Runner installed as a systemd service
+- Runner labels include `oa-da` to match CI config
+- Runner user must be able to run Docker commands
+
+Required network direction:
+- Outbound HTTPS from test machine to GitHub/GHCR endpoints
+- No inbound exposure from internet is required for standard runner operation
+
+## GitHub Repository Settings
+
+Required:
+- Actions enabled
+- Secret `GHCR_PAT` present (package write access for GHCR publish job)
+
+Recommended for this project:
+- Keep `main` as release branch
+- Use PR + green CI discipline before merge
+- Avoid direct pushes to `main` in daily work
+
+Note on private repo + free tier:
+- ruleset enforcement and strict branch protection options may be limited
+- therefore, process discipline is the effective quality gate
+
+## Failure Modes and Fast Checks
+
+If CI fails, check in this order:
+
+1. Runner availability
+- runner shown as online/idle in GitHub settings
+- systemd service active on test machine
+
+2. Docker availability
+- Docker daemon running
+- runner user has Docker permissions
+
+3. Test-stage failure class
+- unit test assertion failure
+- integration validation failure (log/output checks)
+- environment/runtime issue (paths, resources, permissions)
+
+4. Publish-stage failures (only on `main`)
+- `GHCR_PAT` missing/expired/insufficient permissions
+- GHCR login or push denied
+
+## Local Reproduction (optional)
+
+From repository root:
+- run unit test wrapper: `bash scripts/ci/run_unit_tests.sh`
+- run integration wrapper: `bash scripts/ci/run_integration_tests.sh`
+
+Use same scripts as CI to avoid drift between local and server behavior.

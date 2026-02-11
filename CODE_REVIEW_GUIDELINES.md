@@ -137,3 +137,31 @@ docker compose run `
 - Reuse libraries already present in `openamundsen` or `openamundsen_da` to minimize environment drift.
 - Centralize configuration in conf files; prefer `project.yml` for project-wide settings and keep step-specific overrides minimal.
 - Leverage existing repo helpers (`core/config.py`, `core/env.py`, `core/constants.py`, `io/paths.py`, `util/stats.py`, etc.) rather than reimplementing functionality.
+
+---
+
+## 8. Testing and Regression Maintenance
+
+- Treat test updates as part of the feature/fix, not as a later cleanup task.
+- For every behavior change, review whether unit tests and integration validation rules must be adapted.
+- Keep fast CI tests representative of real workflows while avoiding unnecessary runtime growth.
+- If a new warning pattern is expected and benign, explicitly document and whitelist it in integration validation.
+- If outputs/files/plots change, update the integration validator checks in the same PR.
+
+### Rofental CI Scenario Policy
+
+- The CI integration scenario is always based on `examples/rofental` (copied into a temp project by `scripts/ci/run_integration_tests.sh`).
+- Keep `examples/rofental` and CI setup in sync:
+  - when data-assimilation logic changes, verify the example project still reflects expected config/data layout;
+  - when output structure changes, update validator expectations accordingly;
+  - when new observables/events are added (e.g., wet snow), add corresponding test events and checks.
+- Do not maintain a separate hidden CI-only project; the example project is the canonical test baseline for regression checks.
+
+### Review Questions (Testing)
+
+- Does this change modify observable behavior, outputs, logging, or failure modes?
+- Which existing tests cover this path, and are they still valid?
+- Do we need a new unit test for core logic?
+- Does the trimmed integration scenario need changed dates/events/config?
+- Does `scripts/ci/validate_trimmed_season.py` need updated required outputs or warning handling?
+- Is `tests/README.md` still accurate after this change?

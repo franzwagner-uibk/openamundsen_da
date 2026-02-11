@@ -104,8 +104,8 @@ def _check_logs(log_file: Path) -> None:
 def _check_plot_outputs(season_dir: Path) -> None:
     plot_specs = [
         CheckSpec(
-            label="season forcing plots",
-            patterns=("plots/forcing/**/*.png", "plots/forcing/**/*.svg"),
+            label="step forcing plots",
+            patterns=("steps/step_*/plots/forcing/**/*.png", "steps/step_*/plots/forcing/**/*.svg"),
         ),
         CheckSpec(
             label="season results plots",
@@ -113,7 +113,12 @@ def _check_plot_outputs(season_dir: Path) -> None:
         ),
         CheckSpec(
             label="assimilation weights plots",
-            patterns=("plots/assim/weights/**/*.png", "plots/assim/weights/**/*.svg"),
+            patterns=(
+                "plots/assim/weights/**/*.png",
+                "plots/assim/weights/**/*.svg",
+                "steps/step_*/assim/weights_*.png",
+                "steps/step_*/assim/weights_*.svg",
+            ),
         ),
         CheckSpec(
             label="assimilation ESS plots",

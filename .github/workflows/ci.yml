@@ -1,0 +1,72 @@
+name: CI and Publish
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - "docs/**"
+      - ".github/workflows/deploy-docs.yml"
+  push:
+    branches:
+      - "**"
+    paths-ignore:
+      - "docs/**"
+      - ".github/workflows/deploy-docs.yml"
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/franzwagner-uibk/openamundsen_da
+  CI_IMAGE_NAME: openamundsen-da-ci
+
+jobs:
+  tests:
+    name: Unit and Integration Tests
+    # Never run untrusted fork code on self-hosted infrastructure.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    runs-on: [self-hosted, linux, x64, oa-da]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build CI image
+        run: |
+          docker build -t "${CI_IMAGE_NAME}:${GITHUB_SHA}" .
+
+      - name: Run unit tests
+        run: |
+          CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
+          bash scripts/ci/run_unit_tests.sh
+
+      - name: Run integration tests (trimmed Rofental)
+        run: |
+          CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
+          OA_DA_TEST_MAX_WORKERS=6 \
+          bash scripts/ci/run_integration_tests.sh
+
+  publish:
+    name: Build and Push GHCR Image
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: [tests]
+    runs-on: [self-hosted, linux, x64, oa-da]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push image tags
+        run: |
+          DATE_TAG="main-$(date +%Y%m%d)"
+          SHA_TAG="${GITHUB_SHA::7}"
+          docker build -t "${IMAGE}:${DATE_TAG}" -t "${IMAGE}:${SHA_TAG}" -t "${IMAGE}:latest" .
+          docker push "${IMAGE}:${DATE_TAG}"
+          docker push "${IMAGE}:${SHA_TAG}"
+          docker push "${IMAGE}:latest"

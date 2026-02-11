@@ -2,6 +2,8 @@
 .sync-exclude.lst
 
 # Python bytecode & caches
+__pycache__/
+*.py[cod]
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/

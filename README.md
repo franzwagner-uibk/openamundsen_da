@@ -32,7 +32,7 @@ Developer workflow (clone + compose) is also described there.
 ### Container image (GHCR) and CI
 
 - Images are built/published to GHCR at `ghcr.io/franzwagner-uibk/openamundsen_da` (tags: `main-YYYYMMDD`, short SHA, `latest`).
-- GitHub Actions workflow `.github/workflows/ghcr-build.yml` builds on pushes to `main`; requires repo secret `GHCR_PAT` with `write:packages`.
+- GitHub Actions workflow `.github/workflows/ci.yml` runs unit + integration tests and publishes to GHCR on pushes to `main` only after tests pass; requires repo secret `GHCR_PAT` with `write:packages`.
 - To pull from GHCR locally/servers: `echo "$GHCR_PAT_RO" | docker login ghcr.io -u <github-user> --password-stdin` then `docker pull ghcr.io/franzwagner-uibk/openamundsen_da:<tag>`.
 
 ### Environment notes

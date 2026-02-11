@@ -165,3 +165,38 @@ docker compose run `
 - Does the trimmed integration scenario need changed dates/events/config?
 - Does `scripts/ci/validate_trimmed_season.py` need updated required outputs or warning handling?
 - Is `tests/README.md` still accurate after this change?
+
+---
+
+## 9. Ignore Files Hygiene (`.gitignore` / `.dockerignore`)
+
+- For every PR, explicitly check whether new generated files, caches, logs, or artifacts should be ignored.
+- Keep `.gitignore` aligned with local/dev/CI by excluding files that should never be versioned (temporary outputs, caches, artifacts).
+- Keep `.dockerignore` aligned with build performance by excluding files not needed for image build context (caches, artifacts, local data, docs build output, nested repos).
+- When adding new CI artifacts or tooling caches, update both ignore files if relevant.
+- If a file should be tracked in Git but not shipped to Docker build context, update only `.dockerignore`.
+- If a file should be neither tracked nor shipped, update both `.gitignore` and `.dockerignore`.
+
+### Review Questions (Ignore Hygiene)
+
+- Does this change introduce new generated files or directories?
+- Should any new output be ignored in Git?
+- Should any new output be excluded from Docker build context?
+- Are `.gitignore` and `.dockerignore` still consistent with current CI/test tooling?
+- Could missing ignore rules cause runner permission issues, dirty worktrees, or oversized Docker contexts?
+
+---
+
+## 10. Mandatory Merge Gate (Critical)
+
+- Do not merge if CI is not green (`Ruff Lint` + `Unit and Integration Tests`).
+- Do not merge behavior changes without corresponding test updates (unit and/or integration validator).
+- Do not merge interface changes (CLI args, config keys, output file names/paths) without:
+  - updating docs (`README.md`, `tests/README.md`) and
+  - clearly noting the compatibility impact in PR/commit message.
+
+### Review Questions (Mandatory)
+
+- Are all required CI checks green on the branch to be merged?
+- Are tests and docs updated for any behavior/interface change?
+- Does this change introduce a breaking workflow/config/output change, and is that explicitly documented?

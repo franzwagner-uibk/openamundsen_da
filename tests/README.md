@@ -50,6 +50,21 @@ Workflow file: `.github/workflows/ci.yml`
 
 ## Current Test Stack
 
+### Rough CI test steps (execution order)
+
+1. `Ruff Lint` job runs (`scripts/ci/run_lint.sh`) and checks fatal lint classes.
+2. `Unit and Integration Tests` job starts only after lint is green.
+3. CI image is built from current commit.
+4. Unit tests are executed with `pytest` (`scripts/ci/run_unit_tests.sh`).
+5. Integration run creates a temporary project from `examples/rofental`.
+6. Integration run writes trimmed season config (ensemble size + SCF/wet-snow events).
+7. Season skeleton is generated.
+8. SCF and wet-snow per-step observation CSVs are prepared.
+9. Full season pipeline is executed (`oa-da-season` equivalent module call).
+10. Integration validator checks logs, outputs, plots, and weight sanity.
+11. If integration fails, log and trimmed outputs are uploaded as CI artifacts.
+12. On push to `main` only: publish job builds and pushes GHCR image.
+
 ### Unit tests
 
 Location: `tests/unit/`
@@ -66,6 +81,34 @@ Runner command wrapper: `scripts/ci/run_unit_tests.sh`
 
 Framework/tooling config:
 - unit test dependencies and lint tool extras: `pyproject.toml` (`[project.optional-dependencies].test`)
+
+### What is tested (rough checklist)
+
+- Lint gate:
+  - fatal syntax/logic lint classes (`E9`, `F63`, `F7`, `F82`)
+- Unit logic:
+  - config merge behavior
+  - assimilation event parsing
+  - land-cover path handling
+  - season skeleton basics
+  - statistics helpers
+  - assimilation requirement validation prechecks
+- Integration scenario behavior:
+  - trimmed season orchestration on Rofental example clone
+  - one SCF assimilation event
+  - one wet-snow assimilation event
+  - ensemble propagation, assimilation, resampling/rejuvenation path
+  - plot generation path
+- Integration output contracts:
+  - required per-step SCF and wet-snow obs CSVs
+  - required SCF and wet-snow weights CSVs
+  - required model result artifacts (`point_*.csv`, `*.nc`)
+  - required plot outputs (forcing, results, assimilation)
+  - weight CSV numeric sanity (valid range and sum to 1.0)
+- Integration log contracts:
+  - fail on fatal log patterns
+  - fail on severe warnings
+  - allow explicitly whitelisted benign warnings
 
 ### Integration regression test (trimmed season)
 
@@ -146,7 +189,7 @@ Main locations:
 Trimmed Rofental configuration details:
 - source project copied for CI: `examples/rofental`
 - trimmed season name, dates, assimilation events, and ensemble size are currently hard-coded in `scripts/ci/run_integration_tests.sh`
-- max workers for CI integration run is set in `.github/workflows/ci.yml` via `OA_DA_TEST_MAX_WORKERS`
+- max workers for CI integration run is set in `.github/workflows/ci.yml` via `OA_DA_TEST_MAX_WORKERS` (current value: `20`)
 
 If you want to change the CI test season:
 - edit the inline Python block in `scripts/ci/run_integration_tests.sh` for:

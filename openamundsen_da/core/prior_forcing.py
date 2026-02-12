@@ -9,7 +9,7 @@ directory, matching the discovery used by the ensemble launcher.
 Design
 - Inputs: explicit input meteo dir, project dir, and step dir
 - Dates: inclusive [start_date..end_date] read from the step YAML
-- Params: read from project.yml under data_assimilation.prior_forcing
+- Params: read from project YAML under data_assimilation.prior_forcing
 - Perturbations: temperature additive dT ~ N(0, sigma_T), precipitation factor
   f_p ~ LogNormal(mu_P, sigma_P), constant per member across stations and time
 - Schema: first column must be datetime (name is flexible); 'temp' and 'precip'
@@ -59,9 +59,11 @@ from openamundsen_da.util.stats import sample_delta_t, sample_precip_factor
 from openamundsen_da.util.parallel import pick_max_workers, resolve_base_seed
 from openamundsen_da.util.meteo import filter_and_write_meteo
 from openamundsen_da.io.paths import (
-    find_project_yaml,
+    find_setup_yaml,
     find_step_yaml,
-    find_season_yaml,
+    find_project_yaml,
+    infer_project_dir,
+    infer_setup_dir_from_project,
     meteo_dir_for_member,
     default_results_dir,
     prior_root as prior_root_dir,
@@ -72,7 +74,7 @@ from openamundsen_da.io.paths import (
 
 @dataclass
 class PriorParams:
-    """Prior configuration read from project.yml."""
+    """Prior configuration read from project YAML."""
     ensemble_size: int
     random_seed: int
     sigma_t: float
@@ -81,9 +83,9 @@ class PriorParams:
 
 
 def _read_prior_params(project_dir: Path) -> PriorParams:
-    """Load prior configuration from project.yml > data_assimilation.prior_forcing."""
-    proj_yaml = find_project_yaml(project_dir)
-    cfg = _read_yaml_file(proj_yaml) or {}
+    """Load prior configuration from project YAML > data_assimilation.prior_forcing."""
+    project_yaml = find_project_yaml(project_dir)
+    cfg = _read_yaml_file(project_yaml) or {}
     da = (cfg.get(DA_BLOCK) or {}).get(DA_PRIOR_BLOCK) or {}
     try:
         cfg_seed = int(da[DA_RANDOM_SEED])
@@ -100,18 +102,18 @@ def _read_prior_params(project_dir: Path) -> PriorParams:
     except KeyError as e:
         missing = str(e).strip("'")
         raise ValueError(
-            f"Missing prior parameter in project.yml:{' ' + missing} under "
+            f"Missing prior parameter in project YAML:{' ' + missing} under "
             f"{DA_BLOCK}.{DA_PRIOR_BLOCK}"
         ) from e
 
 
-def _read_step_start_and_season_end(step_dir: Path) -> Tuple[pd.Timestamp, pd.Timestamp]:
-    """Read step start_date and season end_date (inclusive).
+def _read_step_start_and_project_end(step_dir: Path) -> Tuple[pd.Timestamp, pd.Timestamp]:
+    """Read step start_date and project end_date (inclusive).
 
     Robustness:
     - step start_date is mandatory (from step YAML)
-    - season end_date is preferred (from season.yml in the parent directory)
-    - fallback: if season.yml is not found, use step end_date
+    - project end_date is preferred (from project YAML)
+    - fallback: if project YAML is not found, use step end_date
     """
     # Step: start (required)
     step_yaml = find_step_yaml(step_dir)
@@ -123,22 +125,22 @@ def _read_step_start_and_season_end(step_dir: Path) -> Tuple[pd.Timestamp, pd.Ti
     if pd.isna(start):
         raise ValueError(f"Invalid {START_DATE} in {step_yaml}")
 
-    # Season: end (preferred)
-    season_dir = step_dir.parent
+    # Project: end (preferred)
+    project_dir = infer_project_dir(step_dir)
     end: pd.Timestamp
     try:
-        seas_yaml = find_season_yaml(season_dir)
-        seas_cfg = _read_yaml_file(seas_yaml) or {}
-        end = pd.to_datetime(seas_cfg[END_DATE])
+        project_yaml = find_project_yaml(project_dir)
+        project_cfg = _read_yaml_file(project_yaml) or {}
+        end = pd.to_datetime(project_cfg[END_DATE])
         if pd.isna(end):
             raise ValueError
     except Exception:
-        # Fallback to step end_date if season not available
+        # Fallback to step end_date if project config is not available
         try:
             end = pd.to_datetime(step_cfg[END_DATE])
         except KeyError as e:
             raise ValueError(
-                "Could not determine season end_date (missing season.yml and step END_DATE)"
+                "Could not determine project end_date (missing project YAML and step END_DATE)"
             ) from e
         if pd.isna(end):
             raise ValueError("Invalid end_date from step YAML")
@@ -339,7 +341,7 @@ def build_prior_ensemble(
     Parameters
     - input_meteo_dir: Path to original, long-span station CSV directory
       (contains stations.csv and <station_id>.csv files)
-    - project_dir: Path to project root containing project.yml
+    - project_dir: Path to project directory under setup/projects
     - step_dir: Path to step directory containing step_XX.yml with dates
     - max_workers: Optional worker cap for member creation (defaults to
       min(CPU, ensemble_size, MAX_WORKERS env))
@@ -351,8 +353,13 @@ def build_prior_ensemble(
     step_dir = Path(step_dir)
 
     # Read configuration
+    inferred_project_dir = infer_project_dir(step_dir)
+    if inferred_project_dir != project_dir:
+        raise ValueError(
+            f"step_dir belongs to {inferred_project_dir}, but --project-dir is {project_dir}"
+        )
     params = _read_prior_params(project_dir)
-    start, end = _read_step_start_and_season_end(step_dir)
+    start, end = _read_step_start_and_project_end(step_dir)
 
     logger.info(
         "Building prior ensemble -> ensemble={ens}  N={n}  seed={seed}",
@@ -467,8 +474,9 @@ def main(argv: Iterable[str] | None = None) -> int:
 
         # Apply environment (suppress GDAL warnings by setting GDAL_DATA/PROJ_LIB where possible)
         try:
-            proj_yaml = find_project_yaml(args.project_dir)
-            apply_env_from_project(proj_yaml)
+            setup_dir = infer_setup_dir_from_project(args.project_dir)
+            setup_yaml = find_setup_yaml(setup_dir)
+            apply_env_from_project(setup_yaml)
         except Exception:
             # Best-effort: continue even if project env section is missing
             pass
@@ -492,3 +500,6 @@ def main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+

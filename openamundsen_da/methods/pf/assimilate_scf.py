@@ -1,4 +1,4 @@
-"""openamundsen_da.methods.pf.assimilate_scf
+﻿"""openamundsen_da.methods.pf.assimilate_scf
 
 Gaussian-likelihood weighting for SCF observations against model-derived SCF
 per ensemble member (particle filter step without resampling).
@@ -8,8 +8,8 @@ members, then evaluates log-likelihoods and normalized weights. Outputs a CSV
 with per-member weights and summary stats (ESS).
 
 Configuration
-- H(x) configuration is read from project.yml (data_assimilation.h_of_x) and is required.
-- Likelihood configuration is read from project.yml (likelihood block).
+- H(x) configuration is read from project YAML (data_assimilation.h_of_x) and is required.
+- Likelihood configuration is read from project YAML (likelihood block).
   Falls back to sensible defaults if missing.
 
 Logging
@@ -38,7 +38,13 @@ from openamundsen_da.core.constants import (
     LIK_MIN_SIGMA,
     OBS_DIR_NAME,
 )
-from openamundsen_da.io.paths import list_member_dirs, default_results_dir, find_project_yaml
+from openamundsen_da.io.paths import (
+    list_member_dirs,
+    default_results_dir,
+    find_project_yaml,
+    infer_project_dir,
+    infer_setup_dir_from_project,
+)
 from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf, SCFParams, load_hofx_from_project
 from openamundsen_da.methods.wet_snow.area import compute_model_wet_snow_fraction
 from openamundsen_da.util.stats import gaussian_logpdf, normalize_log_weights, effective_sample_size, compute_obs_sigma
@@ -57,15 +63,16 @@ class LikelihoodParams:
 
 
 def _read_likelihood_from_project(project_dir: Path, observable: str) -> LikelihoodParams:
-    """Read likelihood settings from project.yml for a given observable if available.
+    """Read likelihood settings from project YAML for a given observable if available.
 
     The config may either be flat under ``likelihood`` (legacy) or nested
     as ``likelihood.<observable>`` (preferred for multiple observables).
     """
     try:
-        proj = find_project_yaml(project_dir)
-        cfg = _read_yaml_file(proj) or {}
-        lk_root = cfg.get(LIKELIHOOD_BLOCK) or {}
+        project_yaml = find_project_yaml(project_dir)
+        cfg = _read_yaml_file(project_yaml) or {}
+        da_cfg = cfg.get("data_assimilation") or {}
+        lk_root = (da_cfg.get(LIKELIHOOD_BLOCK) or cfg.get(LIKELIHOOD_BLOCK) or {})
         lk = lk_root.get(observable, lk_root) if isinstance(lk_root, dict) else {}
         p = LikelihoodParams()
         if LIK_OBS_SIGMA in lk:
@@ -131,7 +138,7 @@ def assimilate_fraction_for_date(
     Returns a DataFrame with columns:
     member_id, value_model, value_obs, residual, sigma, log_weight, weight
     """
-    lk = _read_likelihood_from_project(project_dir, observable)
+    lk = _read_likelihood_from_project(infer_project_dir(step_dir), observable)
 
     # Read observation
     patterns = list(obs_patterns)
@@ -194,7 +201,7 @@ def assimilate_fraction_for_date(
 
 def assimilate_scf_for_date(
     *,
-    project_dir: Path,
+    setup_dir: Path,
     step_dir: Path,
     ensemble: str,
     date: datetime,
@@ -204,15 +211,17 @@ def assimilate_scf_for_date(
     product: str | None = None,
 ) -> pd.DataFrame:
     """Backward-compatible wrapper: SCF-specific assimilation for one date."""
+    project_dir = infer_project_dir(step_dir)
     method, variable, hofx_params = load_hofx_from_project(project_dir)
-    lc_cfg = landcover_cfg or resolve_landcover_mask(project_dir)
-    prod_tag = resolve_obs_product_tag("scf", project_dir=project_dir, fallback=product or None)
+    lc_cfg = landcover_cfg or resolve_landcover_mask(setup_dir, project_dir)
+    prod_tag = resolve_obs_product_tag("scf", setup_dir=setup_dir, project_dir=project_dir, fallback=product or None)
     obs_patterns = ["obs_scf_{yyyymmdd}.csv"]
     if prod_tag:
         obs_patterns.append(f"obs_scf_{prod_tag}_{{yyyymmdd}}.csv")
 
     def _model_eval(results_dir: Path, aoi_path: Path, dt: datetime) -> float:
         out = compute_model_scf(
+            setup_dir=setup_dir,
             project_dir=project_dir,
             results_dir=results_dir,
             aoi_path=aoi_path,
@@ -243,7 +252,7 @@ def assimilate_scf_for_date(
 
 def assimilate_wet_snow_for_date(
     *,
-    project_dir: Path,
+    setup_dir: Path,
     step_dir: Path,
     ensemble: str,
     date: datetime,
@@ -253,14 +262,16 @@ def assimilate_wet_snow_for_date(
     product: str | None = None,
 ) -> pd.DataFrame:
     """Wet-snow assimilation for one date (Sentinel-1 AOI fraction)."""
-    lc_cfg = landcover_cfg or resolve_landcover_mask(project_dir)
-    prod_tag = resolve_obs_product_tag("wet_snow", project_dir=project_dir, fallback=product or None)
+    project_dir = infer_project_dir(step_dir)
+    lc_cfg = landcover_cfg or resolve_landcover_mask(setup_dir, project_dir)
+    prod_tag = resolve_obs_product_tag("wet_snow", setup_dir=setup_dir, project_dir=project_dir, fallback=product or None)
     obs_patterns = ["obs_wet_snow_{yyyymmdd}.csv"]
     if prod_tag:
         obs_patterns.append(f"obs_wet_snow_{prod_tag}_{{yyyymmdd}}.csv")
 
     def _model_eval(results_dir: Path, aoi_path: Path, dt: datetime) -> float:
         out = compute_model_wet_snow_fraction(
+            setup_dir=setup_dir,
             project_dir=project_dir,
             results_dir=results_dir,
             aoi_path=aoi_path,
@@ -291,8 +302,8 @@ def cli_main(argv: list[str] | None = None) -> int:
     Example
     -------
     oa-da-assimilate-scf \
-      --project-dir C:/.../examples/test-project \
-      --step-dir C:/.../propagation/season_2017-2018/step_00_init \
+      --setup-dir C:/.../examples/test-project \
+      --step-dir C:/.../projects/project_2017-2018/steps/step_00_init \
       --ensemble prior \
       --date 2018-02-15 \
       --aoi C:/.../env/GMBA_Inventory_L8_15422.gpkg
@@ -300,7 +311,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     import argparse
 
     p = argparse.ArgumentParser(prog="oa-da-assimilate-scf", description="Compute Gaussian weights for SCF vs model H(x)")
-    p.add_argument("--project-dir", required=True, type=Path)
+    p.add_argument("--setup-dir", required=True, type=Path)
     p.add_argument("--step-dir", required=True, type=Path)
     p.add_argument("--ensemble", required=True, choices=("prior", "posterior"))
     p.add_argument("--date", required=True, type=str, help="YYYY-MM-DD")
@@ -317,11 +328,21 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     # Run
     try:
+        step_dir = Path(args.step_dir)
+        project_dir = infer_project_dir(step_dir)
+        setup_dir = infer_setup_dir_from_project(project_dir)
+        if setup_dir.resolve() != Path(args.setup_dir).resolve():
+            logger.warning(
+                "Step {} belongs to setup {}; overriding provided setup {}",
+                step_dir,
+                setup_dir,
+                args.setup_dir,
+            )
         dt = datetime.strptime(args.date, "%Y-%m-%d")
-        lc_cfg = resolve_landcover_mask(Path(args.project_dir))
+        lc_cfg = resolve_landcover_mask(setup_dir, project_dir)
         df = assimilate_scf_for_date(
-            project_dir=Path(args.project_dir),
-            step_dir=Path(args.step_dir),
+            setup_dir=setup_dir,
+            step_dir=step_dir,
             ensemble=str(args.ensemble),
             date=dt,
             aoi=Path(args.aoi),
@@ -348,7 +369,7 @@ def cli_main_wet_snow(argv: list[str] | None = None) -> int:
     import argparse
 
     p = argparse.ArgumentParser(prog="oa-da-assimilate-wet-snow", description="Compute Gaussian weights for wet snow vs model H(x)")
-    p.add_argument("--project-dir", required=True, type=Path)
+    p.add_argument("--setup-dir", required=True, type=Path)
     p.add_argument("--step-dir", required=True, type=Path)
     p.add_argument("--ensemble", required=True, choices=("prior", "posterior"))
     p.add_argument("--date", required=True, type=str, help="YYYY-MM-DD")
@@ -362,11 +383,21 @@ def cli_main_wet_snow(argv: list[str] | None = None) -> int:
     logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
     try:
+        step_dir = Path(args.step_dir)
+        project_dir = infer_project_dir(step_dir)
+        setup_dir = infer_setup_dir_from_project(project_dir)
+        if setup_dir.resolve() != Path(args.setup_dir).resolve():
+            logger.warning(
+                "Step {} belongs to setup {}; overriding provided setup {}",
+                step_dir,
+                setup_dir,
+                args.setup_dir,
+            )
         dt = datetime.strptime(args.date, "%Y-%m-%d")
-        lc_cfg = resolve_landcover_mask(Path(args.project_dir))
+        lc_cfg = resolve_landcover_mask(setup_dir, project_dir)
         df = assimilate_wet_snow_for_date(
-            project_dir=Path(args.project_dir),
-            step_dir=Path(args.step_dir),
+            setup_dir=setup_dir,
+            step_dir=step_dir,
             ensemble=str(args.ensemble),
             date=dt,
             aoi=Path(args.aoi),
@@ -389,3 +420,7 @@ def cli_main_wet_snow(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
+
+
+
+

@@ -1,4 +1,4 @@
-import tempfile
+﻿import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
@@ -24,9 +24,10 @@ class DaEventsTests(unittest.TestCase):
 
     def test_load_events_sorts_and_normalizes_products(self):
         with tempfile.TemporaryDirectory() as tmp:
-            season_dir = Path(tmp) / "project" / "propagation" / "season_2022_2023"
+            setup_dir = Path(tmp) / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2022_2023"
             _write_yaml(
-                season_dir / "season.yml",
+                project_dir / "project_2022_2023.yml",
                 {
                     "data_assimilation": {
                         "assimilation_events": [
@@ -44,7 +45,7 @@ class DaEventsTests(unittest.TestCase):
                 return "SNOWCOVER"
 
             with patch("openamundsen_da.util.da_events.resolve_obs_product_tag", side_effect=_default_tag):
-                events = load_assimilation_events(season_dir)
+                events = load_assimilation_events(project_dir)
 
             self.assertEqual([e.date for e in events], [date(2022, 10, 3), date(2022, 10, 4), date(2022, 10, 5)])
             self.assertEqual(events[0].variable, "wet_snow")
@@ -56,11 +57,13 @@ class DaEventsTests(unittest.TestCase):
 
     def test_no_events_raises(self):
         with tempfile.TemporaryDirectory() as tmp:
-            season_dir = Path(tmp) / "project" / "propagation" / "season_2022_2023"
-            _write_yaml(season_dir / "season.yml", {"data_assimilation": {"assimilation_events": []}})
+            setup_dir = Path(tmp) / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2022_2023"
+            _write_yaml(project_dir / "project_2022_2023.yml", {"data_assimilation": {"assimilation_events": []}})
             with self.assertRaises(ValueError):
-                load_assimilation_events(season_dir)
+                load_assimilation_events(project_dir)
 
 
 if __name__ == "__main__":
     unittest.main()
+

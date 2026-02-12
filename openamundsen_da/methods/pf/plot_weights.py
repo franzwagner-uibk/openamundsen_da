@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import find_season_yaml
+from openamundsen_da.io.paths import find_project_yaml, infer_project_dir
 from openamundsen_da.util.stats import effective_sample_size
 
 
@@ -91,19 +91,22 @@ def _plot(df: pd.DataFrame, title: str, subtitle: str | None, *, backend: str = 
 def _default_output_path(csv_path: Path) -> Path:
     """Return default output PNG path for a weights CSV.
 
-    If the CSV lives under <season>/step_XX_*/assim/, write to
-    <season>/plots/assim/weights/step_XX_weights.png. Otherwise, fall back
+    If the CSV lives under <project>/step_XX_*/assim/, write to
+    <project>/plots/assim/weights/step_XX_weights.png. Otherwise, fall back
     to csv_path.with_suffix('.png').
     """
     csv_path = csv_path.resolve()
-    # Expect .../season_YYYY-YYYY/step_XX_*/assim/weights_scf_YYYYMMDD.csv
+    # Expect .../project_YYYY-YYYY/steps/step_XX_*/assim/weights_*.csv
     if csv_path.parent.name == "assim":
         step_dir = csv_path.parent.parent
-        season_dir = step_dir.parent
-        if step_dir.name.startswith("step_") and (season_dir / "season.yml").is_file():
+        try:
+            project_dir = infer_project_dir(step_dir)
+        except Exception:
+            return csv_path.with_suffix(".png")
+        if step_dir.name.startswith("step_"):
             parts = step_dir.name.split("_")
             step_token = "_".join(parts[:2]) if len(parts) >= 2 else step_dir.name
-            out_dir = season_dir / "plots" / "assim" / "weights"
+            out_dir = project_dir / "plots" / "assim" / "weights"
             out_dir.mkdir(parents=True, exist_ok=True)
             return out_dir / f"{step_token}_weights.png"
     # Fallback: same dir as CSV
@@ -133,10 +136,10 @@ def _step_date_label_from_path(csv_path: Path) -> str | None:
 
     if csv_path.parent.name == "assim":
         step_dir = csv_path.parent.parent
-        season_dir = step_dir.parent
         try:
-            seas_yaml = find_season_yaml(season_dir)
-            cfg = _read_yaml_file(seas_yaml) or {}
+            project_dir = infer_project_dir(step_dir)
+            project_yaml = find_project_yaml(project_dir)
+            cfg = _read_yaml_file(project_yaml) or {}
             da_cfg = cfg.get("data_assimilation") or {}
             events = da_cfg.get("assimilation_events") or []
             dates = []
@@ -252,3 +255,6 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
+
+
+

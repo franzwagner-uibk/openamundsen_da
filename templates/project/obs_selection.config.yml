@@ -1,12 +1,12 @@
-# Usage:
+﻿# Usage:
 # - Pass this file via --config or place it in the project root so it is auto-picked up.
 # - CLI flags remain as defaults; values here override per variable.
 # - prefer_variables controls which variable wins if multiple candidates fall within spacing_days.
 # Example:
 #   REPO=/path/to/openamundsen_da PROJ=$REPO/examples/rofental \
-#   docker compose run --rm oa python -m openamundsen_da.pipeline.prepare_season_obs \
-#     --season-dir /workspace/examples/rofental/propagation/season_2021_2022 \
-#     --project-dir /workspace/examples/rofental \
+#   docker compose run --rm oa python -m openamundsen_da.pipeline.prepare_project_obs \
+#     --setup-dir /workspace/examples/rofental \
+#     --project-dir /workspace/examples/rofental/projects/project_2021_2022 \
 #     --config /workspace/examples/rofental/obs_selection.config.yml \
 #     --scf-summary /workspace/examples/rofental/obs/summaries/all_data/scf_summary.csv \
 #     --wet-summary /workspace/examples/rofental/obs/summaries/all_data/wet_snow_summary.csv \
@@ -33,3 +33,5 @@ filters:
     max_deviation: 0.25
     max_delta: 0.35
     smoothing_window: 3
+
+

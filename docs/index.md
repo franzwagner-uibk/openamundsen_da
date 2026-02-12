@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Home
 nav_order: 1
@@ -30,13 +30,13 @@ Data Assimilation Framework for openAMUNDSEN
 
 ## Overview
 
-**openAMUNDSEN-DA** is a lightweight toolkit for building and running [openAMUNDSEN](http://doc.openamundsen.org/) ensembles with particle filter data assimilation. It enables seasonal snow cover prediction by assimilating satellite snow cover and wet snow observations.
+**openAMUNDSEN-DA** is a lightweight toolkit for building and running [openAMUNDSEN](http://doc.openamundsen.org/) ensembles with particle filter data assimilation. It enables setup-based snow cover prediction by assimilating satellite snow cover and wet snow observations.
 
 openAMUNDSEN is an open-source, fully distributed snow-hydrological model designed for mountain regions (Strasser et al., 2024). This framework extends openAMUNDSEN with ensemble data assimilation capabilities for improved snow cover forecasting.
 
 ### Key Features
 
-- **Prior forcing builder** for meteorological perturbations (temperature ±σ<sub>T</sub>, precipitation ×σ<sub>P</sub>)
+- **Prior forcing builder** for meteorological perturbations (temperature Â±Ïƒ<sub>T</sub>, precipitation Ã—Ïƒ<sub>P</sub>)
 - **Parallel ensemble launcher** with warm-start capability
   - **Snow-cover preprocessing** (GeoTIFF/NetCDF; includes MODIS after HDF conversion with project.yml class mapping)
 - **Sentinel-2 FSC extraction** via Snowflake product (Barella et al., 2022)
@@ -51,7 +51,7 @@ openAMUNDSEN is an open-source, fully distributed snow-hydrological model design
 
 - Docker Desktop (Windows/macOS) or Docker Engine (Linux)
 - GDAL/PROJ (via Conda)
-- Python ≥3.10
+- Python â‰¥3.10
 
 ---
 
@@ -63,7 +63,7 @@ openAMUNDSEN is an open-source, fully distributed snow-hydrological model design
 
 ### Quick Start (Rofental example)
 
-Run the bundled Rofental season shipped with the docker image:
+Run the bundled Rofental setup shipped with the docker image:
 
 [Open Quick Start](https://openamundsen-da.pages.dev/installation#prerequisites){: .btn .btn-primary .fs-4 }
 
@@ -80,7 +80,7 @@ Run the bundled Rofental season shipped with the docker image:
 - [Configuration]({{ site.baseurl }}{% link guides/configuration.md %}) - YAML configuration reference
 - [Command-Line Interface]({{ site.baseurl }}{% link guides/cli.md %}) - CLI commands reference
 - [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %}) - Working with satellite data
-- [Running Experiments]({{ '/guides/experiments/' | relative_url }}) - Set up your own project and run custom seasons
+- [Running Experiments]({{ '/guides/experiments/' | relative_url }}) - Set up your own project and run custom setups
 
 ### Technical Reference
 
@@ -105,3 +105,5 @@ If you use this software in your research, please cite openAMUNDSEN and (where r
 - Strasser, U., Warscher, M., Rottler, E., and Hanzer, F. (2024). openAMUNDSEN v1.0: an open-source snow-hydrological model for mountain regions. Geoscientific Model Development, 17, 6775-6797. https://doi.org/10.5194/gmd-17-6775-2024.
 - Barella, R., Marin, C., Gianinetto, M., and Notarnicola, C. (2022). A novel approach to high resolution snow cover fraction retrieval in mountainous regions. IGARSS 2022 - IEEE International Geoscience and Remote Sensing Symposium, 3856-3859. https://doi.org/10.1109/IGARSS46834.2022.9884177.
 - Nagler, T., Rott, H., Ripper, E., Bippus, G., and Hetzenecker, M. (2016). Advancements for snowmelt monitoring by means of Sentinel-1 SAR. Remote Sensing, 8(4), 348. https://doi.org/10.3390/rs8040348.
+
+

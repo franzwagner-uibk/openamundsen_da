@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Troubleshooting
 parent: Advanced Topics
@@ -225,7 +225,7 @@ timestep: 3H  # Correct
 docker compose run --rm oa \
   python -m openamundsen_da.core.runner \
   --project-dir /data \
-  --member-dir /data/propagation/season_2019-2020/step_00_init/ensembles/prior/member_001 \
+  --member-dir /data/projects/project_2019-2020/steps/step_00_init/ensembles/prior/member_001 \
   --log-level DEBUG
 ```
 
@@ -262,7 +262,7 @@ Check logs for specific error.
 ```bash
 # Inspect weights
 docker compose run --rm oa oa-da-plot-weights \
-  /data/propagation/season_2019-2020/step_01_*/assim/weights_scf_*.csv
+  /data/projects/project_2019-2020/steps/step_01_*/assim/weights_scf_*.csv
 ```
 
 If weights are nearly uniform (all ~1/N), observations aren't constraining the ensemble.
@@ -351,7 +351,7 @@ docker compose run --rm oa oa-da-plot-weights weights.csv
 
 3. **Reduce workers**:
    ```bash
-   oa-da-season --max-workers 4  # Reduce from 8
+   oa-da-project --max-workers 4  # Reduce from 8
    ```
 
 4. **Limit output variables**:
@@ -372,13 +372,13 @@ docker compose run --rm oa oa-da-plot-weights weights.csv
 
 ### Slow Performance
 
-**Problem**: Season run takes very long
+**Problem**: Setup run takes very long
 
 **Optimization strategies**:
 
 1. **Increase workers** (if RAM allows):
    ```bash
-   oa-da-season --max-workers 12
+   oa-da-project --max-workers 12
    ```
 
 2. **Reduce domain resolution**:
@@ -413,18 +413,18 @@ See [Performance Tuning]({{ site.baseurl }}{% link advanced/performance.md %}) f
 
 1. **Check observation summary**:
    ```bash
-   grep YYYYMMDD obs/season_2019-2020/scf_summary.csv
+   grep YYYYMMDD obs/project_2019-2020/scf_summary.csv
    ```
 
 2. **Re-extract observations**:
    ```bash
    docker compose run --rm oa oa-da-scf \
-     --season-dir /data/propagation/season_2019-2020 \
-     --summary-csv /data/obs/season_2019-2020/scf_summary.csv \
+     --setup-dir /data/projects/project_2019-2020 \
+     --summary-csv /data/obs/project_2019-2020/scf_summary.csv \
      --overwrite
    ```
 
-3. **Check date in season.yml**:
+3. **Check date in setup.yml**:
    ```yaml
    data_assimilation:
      assimilation_events:
@@ -497,7 +497,7 @@ print(w['weight'].sum())  # Should be 1.0
 1. **Check if plotting is disabled** (default is off):
    ```bash
    # Manually generate plots after:
-   docker compose run --rm oa oa-da-plot-scf --season-dir /data/propagation/season_2019-2020
+   docker compose run --rm oa oa-da-plot-scf --setup-dir /data/projects/project_2019-2020
    ```
 
 2. **Check for plotting errors**:
@@ -508,12 +508,12 @@ print(w['weight'].sum())  # Should be 1.0
    ```bash
    # SCF time series
    docker compose run --rm oa oa-da-plot-scf \
-     --season-dir /data/propagation/season_2019-2020 \
+     --setup-dir /data/projects/project_2019-2020 \
      --project-dir /data
 
    # ESS timeline
    docker compose run --rm oa oa-da-plot-ess \
-     --season-dir /data/propagation/season_2019-2020
+     --setup-dir /data/projects/project_2019-2020
 
    # Weights
    docker compose run --rm oa oa-da-plot-weights \
@@ -562,9 +562,9 @@ MPLBACKEND=Agg python -m openamundsen_da.methods.viz.plot_results_ensemble ...
 
 2. **Re-run step**:
    ```bash
-   docker compose run --rm oa oa-da-season \
+   docker compose run --rm oa oa-da-project \
      --project-dir /data \
-     --season-dir /data/propagation/season_2019-2020 \
+     --setup-dir /data/projects/project_2019-2020 \
      --overwrite  # Re-run corrupted step
    ```
 
@@ -582,12 +582,12 @@ MPLBACKEND=Agg python -m openamundsen_da.methods.viz.plot_results_ensemble ...
 If your issue isn't covered here:
 
 1. **Check logs**:
-   - Season log: `propagation/season_YYYY-YYYY/season.log`
-   - Step logs: `propagation/season_YYYY-YYYY/step_XX_*/step.log`
+   - Setup log: `projects/project_YYYY-YYYY/setup.log`
+   - Step logs: `projects/project_YYYY-YYYY/steps/step_XX_*/step.log`
 
 2. **Enable debug logging**:
    ```bash
-   oa-da-season --log-level DEBUG [...]
+   oa-da-project --log-level DEBUG [...]
    ```
 
 3. **Search GitHub Issues**:
@@ -612,3 +612,7 @@ If your issue isn't covered here:
 4. **Rejuvenation**: Only supports additive perturbations (no multiplicative state updates)
 
 See GitHub Issues for full list and planned improvements.
+
+
+
+

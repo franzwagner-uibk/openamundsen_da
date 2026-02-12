@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Performance Tuning
 parent: Advanced Topics
@@ -37,9 +37,9 @@ The `--max-workers` parameter controls parallel ensemble execution:
 
 ```bash
 docker compose run --rm oa \
-  python -m openamundsen_da.pipeline.season \
+  python -m openamundsen_da.pipeline.project \
   --project-dir /data \
-  --season-dir /data/propagation/season_2019-2020 \
+  --setup-dir /data/projects/project_2019-2020 \
   --max-workers 8
 ```
 
@@ -49,7 +49,7 @@ workers = min(max_workers, CPU_count, N_ensemble_members)
 ```
 
 **Guidelines**:
-- **CPU-bound tasks**: Set workers = CPU cores (e.g., 8 cores → 8 workers)
+- **CPU-bound tasks**: Set workers = CPU cores (e.g., 8 cores â†’ 8 workers)
 - **Memory-limited**: Reduce workers to avoid swapping
 - **I/O-bound tasks**: Can exceed CPU count slightly
 
@@ -66,7 +66,7 @@ With Compose you can do the same per command:
 ```bash
 REPO=/path/to/repo PROJ=/path/to/project \
   docker compose run --rm --cpus 8 --memory 16g oa \
-  python -m openamundsen_da.pipeline.season ...
+  python -m openamundsen_da.pipeline.project ...
 ```
 
 **Memory estimation**:
@@ -86,7 +86,7 @@ Total RAM needed ~ N_workers x Memory_per_member + ~2GB overhead
 
 Higher resolution = more computation. Consider your science goals:
 
-| Resolution | Grid cells (100 km²) | Typical runtime (30 members) |
+| Resolution | Grid cells (100 kmÂ²) | Typical runtime (30 members) |
 |:-----------|:---------------------|:-----------------------------|
 | 1000m | 10,000 | Fast (minutes) |
 | 500m | 40,000 | Moderate (hours) |
@@ -126,7 +126,7 @@ dates = pd.date_range('2019-11-01', '2020-07-31', freq='7D')
 ```
 
 **Impact**:
-- Runtime reduced by ~7×
+- Runtime reduced by ~7Ã—
 - Posterior quality slightly degraded
 - Still captures weekly snow dynamics
 
@@ -140,12 +140,12 @@ Longer timesteps = faster execution:
 
 ```yaml
 # project.yml
-timestep: 3H  # vs. 1H (3× faster)
+timestep: 3H  # vs. 1H (3Ã— faster)
 ```
 
 **Caveats**:
 - Energy balance may be less accurate with long timesteps
-- Recommended: 1H for detailed studies, 3H for seasonal runs
+- Recommended: 1H for detailed studies, 3H for long setup runs
 
 ### Output Reduction
 
@@ -198,8 +198,8 @@ output_data:
 Delete intermediate results:
 
 ```bash
-# After season completes, keep only posterior results
-find propagation/season_2019-2020 -path "*/prior/*" -name "*.nc" -delete
+# After setup completes, keep only posterior results
+find projects/project_2019-2020 -path "*/prior/*" -name "*.nc" -delete
 ```
 
 **Caution**: Only delete if you don't need to rerun from checkpoints.
@@ -214,13 +214,13 @@ Enable built-in monitoring:
 
 ```bash
 docker compose run --rm oa \
-  python -m openamundsen_da.pipeline.season \
+  python -m openamundsen_da.pipeline.project \
   --project-dir /data \
-  --season-dir /data/propagation/season_2019-2020 \
+  --setup-dir /data/projects/project_2019-2020 \
   --monitor-perf
 ```
 
-**Output**: `plots/perf/season_perf.png` (updated live)
+**Output**: `plots/perf/setup_perf.png` (updated live)
 
 Shows:
 - CPU usage per core
@@ -234,9 +234,9 @@ Use Python profiling for detailed analysis:
 
 ```bash
 python -m cProfile -o profile.stats \
-  -m openamundsen_da.pipeline.season \
+  -m openamundsen_da.pipeline.project \
   --project-dir /data \
-  --season-dir /data/propagation/season_2019-2020
+  --setup-dir /data/projects/project_2019-2020
 
 # Analyze
 python -m pstats profile.stats
@@ -254,7 +254,7 @@ python -m pstats profile.stats
 - **RAM**: 8 GB
 - **Storage**: 100 GB SSD
 
-**Typical runtime** (30 members, 100 km², 10 steps): 4-8 hours
+**Typical runtime** (30 members, 100 kmÂ², 10 steps): 4-8 hours
 
 ### Recommended Configuration
 
@@ -275,10 +275,10 @@ For large-scale experiments:
 
 **Parallelization strategy**:
 ```bash
-# Run multiple seasons in parallel on different nodes
-sbatch run_season_2018.sh
-sbatch run_season_2019.sh
-sbatch run_season_2020.sh
+# Run multiple setups in parallel on different nodes
+sbatch run_setup_2018.sh
+sbatch run_setup_2019.sh
+sbatch run_setup_2020.sh
 ```
 
 ---
@@ -290,7 +290,7 @@ Performance optimization checklist:
 - [ ] Start with coarse resolution and small ensemble for testing
 - [ ] Enable `--monitor-perf` to identify bottlenecks
 - [ ] Set `--max-workers` to CPU count (or slightly less if memory-limited)
-- [ ] Use 3H timestep for seasonal runs (1H only if needed)
+- [ ] Use 3H timestep for long setup runs (1H only if needed)
 - [ ] Thin observations to every 5-10 days if runtime is critical
 - [ ] Enable NetCDF compression (level 4)
 - [ ] Remove unnecessary output variables
@@ -325,7 +325,7 @@ Performance optimization checklist:
 **Cause**: Deadlock or single member stuck
 
 **Solution**:
-- Check logs: `propagation/season_*/steps/step_*/ensembles/prior/member_*/run.log`
+- Check logs: `projects/setup_*/steps/step_*/ensembles/prior/member_*/run.log`
 - Identify failing member
 - Check openAMUNDSEN config or forcing data
 
@@ -336,3 +336,7 @@ Performance optimization checklist:
 - [Troubleshooting Guide]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) - Common issues
 - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) - Optimize settings
 - [Running Experiments]({{ site.baseurl }}{% link guides/experiments/index.md %}) - Complete workflow
+
+
+
+

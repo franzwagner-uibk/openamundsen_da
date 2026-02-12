@@ -1,4 +1,4 @@
-"""openamundsen_da.methods.h_of_x.model_scf
+﻿"""openamundsen_da.methods.h_of_x.model_scf
 
 Model-based Snow Cover Fraction (SCF) operator H(x).
 
@@ -61,7 +61,10 @@ from openamundsen_da.io.paths import (
     GridSlice,
     find_member_daily_grid_slice,
     member_id_from_results_dir,
+    find_setup_yaml,
     find_project_yaml,
+    infer_project_dir,
+    infer_setup_dir_from_project,
     read_step_config,
     list_member_dirs,
     open_loop_dir,
@@ -118,22 +121,27 @@ def _parse_hofx_block(hofx: dict[str, Any]) -> tuple[str, str, SCFParams]:
 
 
 def load_hofx_from_project(project_dir: Path) -> tuple[str, str, SCFParams]:
-    """Read required H(x) configuration from project.yml."""
-    proj = find_project_yaml(project_dir)
-    cfg = _read_yaml_file(proj) or {}
+    """Read required H(x) configuration from project YAML."""
+    project_yaml = find_project_yaml(project_dir)
+    cfg = _read_yaml_file(project_yaml) or {}
     da = cfg.get(DA_BLOCK, {}) if isinstance(cfg, dict) else {}
     hofx = da.get(HOFX_BLOCK)
     if not isinstance(hofx, dict):
         hofx = {}
     if not hofx:
-        raise ValueError(f"Missing '{DA_BLOCK}.{HOFX_BLOCK}' section in {proj}")
+        raise ValueError(f"Missing '{DA_BLOCK}.{HOFX_BLOCK}' section in {project_yaml}")
     return _parse_hofx_block(hofx)
 
 
-def _grid_format_from_project(project_dir: Path) -> str | None:
-    """Return output_data.grids.format from project.yml (lowercase) if present."""
+def load_hofx_from_setup(project_dir: Path) -> tuple[str, str, SCFParams]:
+    """Backward-compatible alias; delegated to project-level config."""
+    return load_hofx_from_project(project_dir)
+
+
+def _grid_format_from_setup(setup_dir: Path) -> str | None:
+    """Return output_data.grids.format from setup YAML (lowercase) if present."""
     try:
-        proj = find_project_yaml(project_dir)
+        proj = find_setup_yaml(setup_dir)
         cfg = _read_yaml_file(proj) or {}
         out_cfg = cfg.get("output_data", {}).get("grids", {})
         fmt = out_cfg.get("format")
@@ -315,6 +323,7 @@ def _scf_logistic(x: np.ma.MaskedArray, h0: float, k: float) -> Tuple[int, float
 
 def compute_model_scf(
     *,
+    setup_dir: Path,
     project_dir: Path,
     results_dir: Path,
     aoi_path: Path,
@@ -348,10 +357,13 @@ def compute_model_scf(
     """
     ensure_gdal_proj_from_conda()
     params = params or SCFParams()
-    lc_cfg = landcover_cfg or resolve_landcover_mask(Path(project_dir))
+    if landcover_cfg is not None:
+        lc_cfg = landcover_cfg
+    else:
+        lc_cfg = resolve_landcover_mask(Path(setup_dir), Path(project_dir))
 
     var = variable if variable in (VAR_HS, VAR_SWE) else VAR_HS
-    preferred_format = _grid_format_from_project(Path(project_dir))
+    preferred_format = _grid_format_from_setup(Path(setup_dir))
     slice_ = find_member_daily_grid_slice(
         Path(results_dir),
         var,
@@ -385,6 +397,7 @@ def compute_model_scf(
 
 def compute_member_scf_daily(
     *,
+    setup_dir: Path,
     project_dir: Path,
     results_dir: Path,
     aoi_path: Path,
@@ -402,7 +415,7 @@ def compute_member_scf_daily(
     time.
     """
     method, variable, params = load_hofx_from_project(Path(project_dir))
-    lc_cfg = landcover_cfg or resolve_landcover_mask(Path(project_dir))
+    lc_cfg = landcover_cfg or resolve_landcover_mask(Path(setup_dir), Path(project_dir))
 
     # Normalize variable name for internal use
     var = variable if variable in (VAR_HS, VAR_SWE) else VAR_HS
@@ -419,6 +432,7 @@ def compute_member_scf_daily(
     for dt in dates:
         try:
             out = compute_model_scf(
+                setup_dir=Path(setup_dir),
                 project_dir=Path(project_dir),
                 results_dir=Path(results_dir),
                 aoi_path=Path(aoi_path),
@@ -454,8 +468,11 @@ def _compute_member_scf_for_step_worker(
 ) -> bool:
     """Worker: compute SCF daily series for a single member results dir."""
     lc_cfg = _deserialize_lc_cfg(extra.get("landcover_cfg"))
+    setup_dir = Path(extra["setup_dir"])
+    project_dir = Path(extra["project_dir"])
     df = compute_member_scf_daily(
-        project_dir=Path(extra["project_dir"]),
+        setup_dir=setup_dir,
+        project_dir=project_dir,
         results_dir=results_dir,
         aoi_path=aoi_path,
         landcover_cfg=lc_cfg,
@@ -473,6 +490,7 @@ def _compute_member_scf_for_step_worker(
 
 def compute_step_scf_daily_for_all_members(
     *,
+    setup_dir: Path,
     project_dir: Path,
     step_dir: Path,
     aoi_path: Path,
@@ -488,15 +506,34 @@ def compute_step_scf_daily_for_all_members(
     - In parallel across members, computes daily AOI-mean SCF time series
       using :func:`compute_member_scf_daily`.
     - Writes the result to ``<member>/results/point_scf_roi.csv`` for each
-      member, which can then be used by the season plotting utilities via
+      member, which can then be used by the setup plotting utilities via
       ``var_col='scf'`` and ``station='point_scf_roi.csv'``.
 
     Existing CSVs are skipped unless ``overwrite=True``.
     """
     step_dir = Path(step_dir)
+    setup_dir = Path(setup_dir)
     project_dir = Path(project_dir)
     aoi_path = Path(aoi_path)
-    lc_cfg = landcover_cfg or resolve_landcover_mask(project_dir)
+    resolved_project = infer_project_dir(step_dir)
+    if resolved_project.resolve() != project_dir.resolve():
+        logger.warning(
+            "Step {} resolves to project {}; overriding provided project_dir {}",
+            step_dir,
+            resolved_project,
+            project_dir,
+        )
+        project_dir = resolved_project
+    resolved_setup = infer_setup_dir_from_project(project_dir)
+    if resolved_setup.resolve() != setup_dir.resolve():
+        logger.warning(
+            "Project {} resolves to setup {}; overriding provided setup_dir {}",
+            project_dir,
+            resolved_setup,
+            setup_dir,
+        )
+        setup_dir = resolved_setup
+    lc_cfg = landcover_cfg or resolve_landcover_mask(setup_dir, project_dir)
 
     start, end = step_start_end(step_dir)
 
@@ -512,6 +549,7 @@ def compute_step_scf_daily_for_all_members(
         max_workers=max_workers,
         overwrite=overwrite,
         worker_kwargs={
+            "setup_dir": str(setup_dir),
             "project_dir": str(project_dir),
             "landcover_cfg": _serialize_lc_cfg(lc_cfg),
         },
@@ -524,7 +562,8 @@ def cli_main(argv: list[str] | None = None) -> int:
     Examples
     --------
     oa-da-model-scf \
-      --project-dir C:/.../examples/test-project \
+      --setup-dir C:/.../examples/test-project \
+      --project-dir C:/.../examples/test-project/projects/project_2022_2023 \
       --member-results C:/.../member_001/results \
       --aoi examples/test-project/env/GMBA_Inventory_L8_15422.gpkg \
       --date 2017-12-10
@@ -539,7 +578,8 @@ def cli_main(argv: list[str] | None = None) -> int:
             "project-level H(x) configuration."
         ),
     )
-    parser.add_argument("--project-dir", type=Path, required=True, help="Project root containing project.yml with data_assimilation.h_of_x")
+    parser.add_argument("--setup-dir", type=Path, required=True, help="Setup root containing setup YAML")
+    parser.add_argument("--project-dir", type=Path, help="Project directory (auto-inferred from --member-results when omitted)")
     parser.add_argument("--member-results", type=Path, required=True, help="Path to member results directory")
     parser.add_argument("--aoi", "--roi", dest="aoi", type=Path, required=True, help="Path to single-feature ROI vector file")
     parser.add_argument("--date", type=str, required=True, help="Date in YYYY-MM-DD")
@@ -561,8 +601,18 @@ def cli_main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        method, variable, prm = load_hofx_from_project(Path(args.project_dir))
-        lc_cfg = resolve_landcover_mask(Path(args.project_dir))
+        project_dir = Path(args.project_dir) if args.project_dir is not None else infer_project_dir(Path(args.member_results))
+        resolved_setup = infer_setup_dir_from_project(project_dir)
+        if resolved_setup.resolve() != Path(args.setup_dir).resolve():
+            logger.warning(
+                "Project {} belongs to setup {}; overriding provided setup {}",
+                project_dir,
+                resolved_setup,
+                args.setup_dir,
+            )
+        setup_dir = resolved_setup
+        method, variable, prm = load_hofx_from_project(project_dir)
+        lc_cfg = resolve_landcover_mask(setup_dir, project_dir)
     except Exception as e:
         logger.error("Failed to read configuration: {}", e)
         return 2
@@ -570,7 +620,8 @@ def cli_main(argv: list[str] | None = None) -> int:
     # Compute SCF
     try:
         out = compute_model_scf(
-            project_dir=Path(args.project_dir),
+            setup_dir=setup_dir,
+            project_dir=project_dir,
             results_dir=Path(args.member_results),
             aoi_path=Path(args.aoi),
             landcover_cfg=lc_cfg,
@@ -622,28 +673,28 @@ def cli_main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def cli_season_daily(argv: list[str] | None = None) -> int:
-    """CLI: compute daily model SCF for all members and steps in a season.
+def cli_project_daily(argv: list[str] | None = None) -> int:
+    """CLI: compute daily model SCF for all members and steps in a project.
 
     Example
     -------
-    oa-da-model-scf-season-daily \\
-      --project-dir C:/.../examples/test-project \\
-      --season-dir C:/.../propagation/season_2017-2018 \\
+    oa-da-model-scf-project-daily \\
+      --setup-dir C:/.../examples/test-project \\
+      --project-dir C:/.../examples/test-project/projects/project_2022_2023 \\
       --aoi C:/.../env/GMBA_Inventory_L8_15422.gpkg \\
       --max-workers 8
     """
     import argparse
 
     parser = argparse.ArgumentParser(
-        prog="oa-da-model-scf-season-daily",
+        prog="oa-da-model-scf-project-daily",
         description=(
             "Compute daily model SCF (AOI-mean) for all prior members in each "
-            "step of a season, writing point_scf_roi.csv per member."
+            "step of a project, writing point_scf_roi.csv per member."
         ),
     )
-    parser.add_argument("--project-dir", type=Path, required=True, help="Project root containing project.yml")
-    parser.add_argument("--season-dir", type=Path, required=True, help="Season root containing steps/step_* directories")
+    parser.add_argument("--setup-dir", type=Path, required=True, help="Setup root containing setup YAML")
+    parser.add_argument("--project-dir", type=Path, required=True, help="Project directory containing steps/step_*")
     parser.add_argument("--aoi", "--roi", dest="aoi", type=Path, required=True, help="Single-feature ROI vector (same as used by assimilation)")
     parser.add_argument("--max-workers", type=int, default=4, help="Max parallel workers per step")
     parser.add_argument("--overwrite", action="store_true", help="Recompute SCF even if point_scf_roi.csv exists")
@@ -655,17 +706,28 @@ def cli_season_daily(argv: list[str] | None = None) -> int:
     logger.remove()
     logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
-    season_dir = Path(args.season_dir)
-    steps = list_step_dirs(season_dir)
+    project_dir = Path(args.project_dir)
+    setup_dir = Path(args.setup_dir)
+    resolved_setup = infer_setup_dir_from_project(project_dir)
+    if resolved_setup.resolve() != setup_dir.resolve():
+        logger.warning(
+            "Project {} belongs to setup {}; overriding provided setup {}",
+            project_dir,
+            resolved_setup,
+            setup_dir,
+        )
+        setup_dir = resolved_setup
+    steps = list_step_dirs(project_dir)
     if not steps:
-        logger.error("No step directories found under {}", season_dir)
+        logger.error("No step directories found under {}", project_dir)
         return 1
 
-    logger.info("Computing daily model SCF for season: {} ({} step(s))", season_dir.name, len(steps))
+    logger.info("Computing daily model SCF for project: {} ({} step(s))", project_dir.name, len(steps))
     for step in steps:
         try:
             compute_step_scf_daily_for_all_members(
-                project_dir=Path(args.project_dir),
+                setup_dir=setup_dir,
+                project_dir=project_dir,
                 step_dir=step,
                 aoi_path=Path(args.aoi),
                 max_workers=int(args.max_workers or 4),
@@ -674,9 +736,18 @@ def cli_season_daily(argv: list[str] | None = None) -> int:
         except Exception as exc:
             logger.error("SCF daily computation failed for step {}: {}", step.name, exc)
             return 2
-    logger.info("Season-wide model SCF daily computation complete for {}", season_dir)
+    logger.info("Project-wide model SCF daily computation complete for {}", project_dir)
     return 0
+
+
+# Backward-compatible alias for transitional references.
+cli_setup_daily = cli_project_daily
 
 
 if __name__ == "__main__":
     sys.exit(cli_main())
+
+
+
+
+

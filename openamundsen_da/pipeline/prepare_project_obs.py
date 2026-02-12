@@ -1,11 +1,11 @@
-"""
-prepare_season_obs.py
+﻿"""
+prepare_project_obs.py
 Author: Franz Wagner
 Date: 2026-02-05
 Description:
-    Screen season-wide SCF and wet-snow observation summaries, propose
+    Screen project-wide SCF and wet-snow observation summaries, propose
     assimilation dates based on simple thresholds, and emit helper
-    artifacts (season.yml + obs-only plots) for manual review.
+    artifacts (project YAML + obs-only plots) for manual review.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import _read_yaml_file
+from openamundsen_da.io.paths import find_project_yaml
 from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
 from openamundsen_da.observer.plot_fractions import (
     _default_obs_path,
@@ -55,12 +56,12 @@ def _load_config(config_path: Path | None) -> dict:
     if not config_path:
         return {}
     if not config_path.is_file():
-        logger.warning("Config not found at {} – using CLI/defaults", config_path)
+        logger.warning("Config not found at {} â€“ using CLI/defaults", config_path)
         return {}
     try:
         return _read_yaml_file(config_path) or {}
     except Exception:
-        logger.warning("Failed to read config {} – using CLI/defaults", config_path)
+        logger.warning("Failed to read config {} â€“ using CLI/defaults", config_path)
         return {}
 
 
@@ -82,16 +83,16 @@ def _var_filter_cfg(variable: str, cfg: dict, args: argparse.Namespace) -> dict:
 
 def _load_obs(
     *,
-    season_dir: Path,
+    setup_dir: Path,
     project_dir: Path,
     scf_summary: Path | None,
     wet_summary: Path | None,
     start: pd.Timestamp,
     end: pd.Timestamp,
 ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
-    season_name = season_dir.name
-    scf_path = Path(scf_summary) if scf_summary else _default_obs_path(project_dir, season_name, "scf_summary.csv")
-    wet_path = Path(wet_summary) if wet_summary else _default_obs_path(project_dir, season_name, "wet_snow_summary.csv")
+    project_name = project_dir.name
+    scf_path = Path(scf_summary) if scf_summary else _default_obs_path(setup_dir, project_name, "scf_summary.csv")
+    wet_path = Path(wet_summary) if wet_summary else _default_obs_path(setup_dir, project_name, "wet_snow_summary.csv")
 
     scf_df: pd.DataFrame | None = None
     wet_df: pd.DataFrame | None = None
@@ -185,27 +186,28 @@ def _select_with_spacing(
     return selected
 
 
-def _resolve_products(variables: Iterable[str], *, project_dir: Path, season_dir: Path) -> dict[str, str]:
+def _resolve_products(variables: Iterable[str], *, setup_dir: Path, project_dir: Path) -> dict[str, str]:
     products: dict[str, str] = {}
     for var in variables:
-        products[var] = resolve_obs_product_tag(var, project_dir=project_dir, season_dir=season_dir)
+        products[var] = resolve_obs_product_tag(var, setup_dir=setup_dir, project_dir=project_dir)
     return products
 
 
-def _write_season_yaml(
+def _write_project_yaml(
     *,
-    season_dir: Path,
+    project_yaml: Path,
     start: pd.Timestamp,
     end: pd.Timestamp,
     events: list[Candidate],
     products: dict[str, str],
     overwrite: bool,
 ) -> Path:
-    season_yaml = season_dir / "season.yml"
-    if season_yaml.exists() and not overwrite:
-        raise FileExistsError(f"Refusing to overwrite existing {season_yaml} (use --overwrite)")
+    project_yaml = Path(project_yaml)
+    project_dir = project_yaml.parent
+    if project_yaml.exists() and not overwrite:
+        raise FileExistsError(f"Refusing to overwrite existing {project_yaml} (use --overwrite)")
 
-    data = _read_yaml_file(season_yaml) if season_yaml.exists() else {}
+    data = _read_yaml_file(project_yaml) if project_yaml.exists() else {}
     data["start_date"] = start.strftime("%Y-%m-%d")
     data["end_date"] = end.strftime("%Y-%m-%d")
     da_cfg = data.get("data_assimilation") or {}
@@ -226,18 +228,18 @@ def _write_season_yaml(
 
         y = _yaml.YAML()
         y.default_flow_style = False
-        season_dir.mkdir(parents=True, exist_ok=True)
-        with season_yaml.open("w", encoding="utf-8") as f:
+        project_dir.mkdir(parents=True, exist_ok=True)
+        with project_yaml.open("w", encoding="utf-8") as f:
             y.dump(data, f)
     except Exception as exc:  # pragma: no cover - defensive
-        raise RuntimeError(f"Failed to write {season_yaml}: {exc}") from exc
+        raise RuntimeError(f"Failed to write {project_yaml}: {exc}") from exc
 
-    return season_yaml
+    return project_yaml
 
 
 def _plot_obs_only(
     *,
-    season_dir: Path,
+    project_dir: Path,
     scf_obs: pd.DataFrame | None,
     wet_obs: pd.DataFrame | None,
     selected: list[Candidate],
@@ -257,7 +259,7 @@ def _plot_obs_only(
         scf_env=None,
         wet_env=None,
         output=output,
-        title=title or f"Observation screening for {season_dir.name}",
+        title=title or f"Observation screening for {project_dir.name}",
         assim_scf=assim_scf,
         assim_wet=assim_wet,
         assim_labels=assim_labels,
@@ -265,19 +267,25 @@ def _plot_obs_only(
     )
 
 
-def _infer_season_window(
-    *, season_dir: Path, start: str | None, end: str | None, scf: pd.DataFrame | None, wet: pd.DataFrame | None
+def _infer_project_window(
+    *, project_dir: Path, start: str | None, end: str | None, scf: pd.DataFrame | None, wet: pd.DataFrame | None
 ) -> tuple[pd.Timestamp, pd.Timestamp]:
     if start:
         start_dt = _parse_date(start)
     else:
-        cfg = _read_yaml_file(season_dir / "season.yml")
+        try:
+            cfg = _read_yaml_file(find_project_yaml(project_dir))
+        except FileNotFoundError:
+            cfg = {}
         start_txt = cfg.get("start_date") if cfg else None
         start_dt = _parse_date(start_txt) if start_txt else None
     if end:
         end_dt = _parse_date(end)
     else:
-        cfg = _read_yaml_file(season_dir / "season.yml")
+        try:
+            cfg = _read_yaml_file(find_project_yaml(project_dir))
+        except FileNotFoundError:
+            cfg = {}
         end_txt = cfg.get("end_date") if cfg else None
         end_dt = _parse_date(end_txt) if end_txt else None
 
@@ -316,16 +324,16 @@ def _configure_logger(level: str) -> None:
 def cli_main(argv: list[str] | None = None) -> int:
     """CLI entry point for observation screening."""
     parser = argparse.ArgumentParser(
-        prog="oa-da-prepare-season-obs",
+        prog="oa-da-prepare-project-obs",
         description="Screen observation summaries and propose assimilation dates.",
     )
-    parser.add_argument("--season-dir", required=True, type=Path, help="Season directory (e.g., propagation/season_2020_2021)")
-    parser.add_argument("--project-dir", type=Path, help="Project directory (default: season_dir/../..)")
-    parser.add_argument("--config", type=Path, help="Config YAML for per-variable filters/priority (default: <project>/obs_selection.config.yml if present)")
+    parser.add_argument("--project-dir", required=True, type=Path, help="Project directory (e.g., setup/projects/project_2022_2023)")
+    parser.add_argument("--setup-dir", type=Path, help="Setup root directory (default: project_dir/../..)")
+    parser.add_argument("--config", type=Path, help="Config YAML for per-variable filters/priority (default: <setup>/obs_selection.config.yml if present)")
     parser.add_argument("--scf-summary", type=Path, help="Path to scf_summary.csv")
     parser.add_argument("--wet-summary", type=Path, help="Path to wet_snow_summary.csv")
-    parser.add_argument("--start-date", type=str, help="Season start date (YYYY-MM-DD). Defaults to season.yml or data min.")
-    parser.add_argument("--end-date", type=str, help="Season end date (YYYY-MM-DD). Defaults to season.yml or data max.")
+    parser.add_argument("--start-date", type=str, help="Project start date (YYYY-MM-DD). Defaults to project YAML or data min.")
+    parser.add_argument("--end-date", type=str, help="Project end date (YYYY-MM-DD). Defaults to project YAML or data max.")
     parser.add_argument("--min-fraction", type=float, default=0.20, help="Minimum fraction to keep (default: 0.20)")
     parser.add_argument("--max-fraction", type=float, default=0.80, help="Maximum fraction to keep (default: 0.80)")
     parser.add_argument("--max-deviation", type=float, default=0.25, help="Max abs deviation from rolling median (default: 0.25)")
@@ -338,25 +346,25 @@ def cli_main(argv: list[str] | None = None) -> int:
         default=0,
         help="When both primary and secondary vars are present in a window, pick the secondary every Nth time (0 disables)",
     )
-    parser.add_argument("--output-plot", type=Path, help="Output PNG for obs-only plot (default: <season>/plots/results/obs_selection.png)")
-    parser.add_argument("--output-season-yaml", type=Path, help="Output season.yml path (default: <season>/season.yml)")
-    parser.add_argument("--overwrite", action="store_true", help="Allow overwriting an existing season.yml")
+    parser.add_argument("--output-plot", type=Path, help="Output PNG for obs-only plot (default: <project>/plots/results/obs_selection.png)")
+    parser.add_argument("--output-project-yaml", type=Path, help="Output project YAML path (default: <project>/<project>.yml)")
+    parser.add_argument("--overwrite", action="store_true", help="Allow overwriting an existing project YAML")
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
     parser.add_argument("--no-plot", action="store_true", help="Skip plot generation")
-    parser.add_argument("--no-write-season", action="store_true", help="Skip writing season.yml")
+    parser.add_argument("--no-write-project", action="store_true", help="Skip writing project YAML")
     args = parser.parse_args(argv)
 
     _configure_logger(args.log_level)
 
-    season_dir = Path(args.season_dir)
-    project_dir = Path(args.project_dir) if args.project_dir else season_dir.parent.parent
+    project_dir = Path(args.project_dir)
+    setup_dir = Path(args.setup_dir) if args.setup_dir else project_dir.parent.parent
 
     default_cfg_path = project_dir / "obs_selection.config.yml"
     config_path = Path(args.config) if args.config else (default_cfg_path if default_cfg_path.is_file() else None)
     cfg = _load_config(config_path)
 
     scf_df, wet_df = _load_obs(
-        season_dir=season_dir,
+        setup_dir=setup_dir,
         project_dir=project_dir,
         scf_summary=args.scf_summary,
         wet_summary=args.wet_summary,
@@ -364,8 +372,8 @@ def cli_main(argv: list[str] | None = None) -> int:
         end=_parse_date(args.end_date) if args.end_date else pd.Timestamp("2100-01-01"),
     )
 
-    start_dt, end_dt = _infer_season_window(
-        season_dir=season_dir,
+    start_dt, end_dt = _infer_project_window(
+        project_dir=project_dir,
         start=args.start_date,
         end=args.end_date,
         scf=scf_df,
@@ -427,7 +435,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         logger.error("No observations passed the filters. Adjust thresholds and retry.")
         return 1
 
-    products = _resolve_products({c.variable for c in selected}, project_dir=project_dir, season_dir=season_dir)
+    products = _resolve_products({c.variable for c in selected}, setup_dir=setup_dir, project_dir=project_dir)
 
     for idx, cand in enumerate(sorted(selected, key=lambda c: c.date), start=1):
         logger.info(
@@ -439,27 +447,27 @@ def cli_main(argv: list[str] | None = None) -> int:
             products.get(cand.variable, "-"),
         )
 
-    if not args.no_write_season:
-        season_yaml = args.output_season_yaml if args.output_season_yaml else (season_dir / "season.yml")
-        season_path = _write_season_yaml(
-            season_dir=season_yaml.parent,
+    if not args.no_write_project:
+        project_yaml = args.output_project_yaml if args.output_project_yaml else (project_dir / f"{project_dir.name}.yml")
+        project_path = _write_project_yaml(
+            project_yaml=project_yaml,
             start=start_dt,
             end=end_dt,
             events=selected,
             products=products,
             overwrite=args.overwrite,
         )
-        logger.info("Wrote season file: {}", season_path)
+        logger.info("Wrote project file: {}", project_path)
 
     if not args.no_plot:
-        plot_path = args.output_plot if args.output_plot else (season_dir / "plots" / "results" / "obs_selection.png")
+        plot_path = args.output_plot if args.output_plot else (project_dir / "plots" / "results" / "obs_selection.png")
         try:
             _plot_obs_only(
-                season_dir=season_dir,
+                project_dir=project_dir,
                 scf_obs=scf_df,
                 wet_obs=wet_df,
                 selected=selected,
-                title=f"Obs selection for {season_dir.name}",
+                title=f"Obs selection for {project_dir.name}",
                 output=plot_path,
             )
             logger.info("Wrote obs-only plot: {}", plot_path)
@@ -473,3 +481,5 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
+
+

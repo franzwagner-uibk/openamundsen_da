@@ -44,7 +44,7 @@ def _load_stations_df(points_dir: Path) -> Optional[pd.DataFrame]:
 
 
 def _parse_time(series: pd.Series) -> pd.Series:
-    """Use shared parser to keep behavior aligned with season plotting."""
+    """Use shared parser to keep behavior aligned with setup plotting."""
     return parse_time_column(series)
 
 
@@ -130,7 +130,7 @@ def plot_station_comparisons(
         ax.set_xlabel("Time")
         ax.grid(True, linestyle=GRID_LS, linewidth=GRID_LW, alpha=GRID_ALPHA)
         ax.legend()
-        # Title with station name and altitude if available, similar to season pipeline
+        # Title with station name and altitude if available, similar to setup pipeline
         title_name, alt, _label = format_station_label(sid, stations_df, fallback=sid)
         alt_txt = f" ({int(alt)} m)" if alt is not None else ""
         fig.text(

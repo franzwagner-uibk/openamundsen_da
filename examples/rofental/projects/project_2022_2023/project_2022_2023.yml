@@ -1,6 +1,57 @@
-start_date: '2022-10-01'
+﻿start_date: '2022-10-01'
 end_date: '2023-07-31'
 data_assimilation:
+  prior_forcing:
+    ensemble_size: 30
+    random_seed: 42
+    sigma_t: 0.5
+    mu_p: 0.0
+    sigma_p: 0.5
+
+  h_of_x:
+    method: depth_threshold
+    variable: hs
+    params:
+      h0: 0.03
+      k: 80
+
+  wet_snow:
+    classification_threshold_percent: 0.5
+
+  landcover_mask:
+    enabled: true
+    classes_to_exclude: [2, 3, 8, 9, 10, 11, 12, 13]
+
+  likelihood:
+    scf:
+      obs_sigma: 0.10
+      use_binomial: true
+      sigma_floor: 0.05
+      sigma_cloud_scale: 0.10
+      min_sigma: 0.03
+    wet_snow:
+      obs_sigma: 0.10
+      use_binomial: false
+      sigma_floor: 0.05
+      sigma_cloud_scale: 0.10
+      min_sigma: 0.03
+
+  resampling:
+    algorithm: systematic
+    ess_threshold_ratio: 0.5
+    seed: 42
+
+  rejuvenation:
+    sigma_t: 0.5
+    sigma_p: 0.5
+    seed: 42
+    rebase_open_loop: false
+
+  restart:
+    use_state: true
+    dump_state: true
+    state_pattern: model_state.pickle.gz
+
   assimilation_events:
   - date: '2022-10-03'
     variable: scf
@@ -74,3 +125,4 @@ data_assimilation:
   - date: '2023-06-28'
     variable: wet_snow
     product: WETSNOW
+

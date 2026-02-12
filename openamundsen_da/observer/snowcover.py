@@ -1,4 +1,4 @@
-"""Generic snow-cover summarization with configurable classes."""
+﻿"""Generic snow-cover summarization with configurable classes."""
 
 from __future__ import annotations
 
@@ -11,14 +11,13 @@ from typing import List, Sequence
 import numpy as np
 import pandas as pd
 import rasterio
-import yaml
 from loguru import logger
 from rasterio import features
 from rasterio.mask import mask as rio_mask
 
 from openamundsen_da.core.constants import LOGURU_FORMAT, OBS_DIR_NAME
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import find_project_yaml, find_season_yaml
+from openamundsen_da.io.paths import find_setup_yaml, find_project_yaml
 from openamundsen_da.util.landcover_mask import LandcoverMaskConfig, apply_landcover_mask, resolve_landcover_mask
 from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.ts import parse_datetime_opt
@@ -42,8 +41,8 @@ def _parse_int_list(vals: Sequence[object] | None, default: Sequence[int]) -> li
     return out
 
 
-def _load_classes(project_dir: Path) -> SnowcoverClasses:
-    cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+def _load_classes(setup_dir: Path) -> SnowcoverClasses:
+    cfg = _read_yaml_file(find_setup_yaml(setup_dir)) or {}
     obs_cfg = (cfg.get("obs") or {}).get("snowcover") or {}
     classes = obs_cfg.get("classes") or {}
     return SnowcoverClasses(
@@ -126,10 +125,10 @@ def _compute_stats(raster_path: Path, aoi_path: Path, region_field: str | None, 
 
 def summarize_snowcover_directory(
     *,
-    project_dir: Path,
+    setup_dir: Path,
     input_dir: Path,
     aoi: Path,
-    season_label: str,
+    project_label: str,
     output_root: Path,
     region_field: str | None = None,
     landcover_cfg: LandcoverMaskConfig | None = None,
@@ -161,11 +160,12 @@ def summarize_snowcover_directory(
         logger.warning("No snow-cover rasters found in {}", input_dir)
         return []
 
-    lc_cfg = landcover_cfg or resolve_landcover_mask(Path(project_dir))
-    cls = classes or _load_classes(project_dir)
-    season_dir = output_root / season_label
-    season_dir.mkdir(parents=True, exist_ok=True)
-    summary_path = season_dir / "scf_summary.csv"
+    project_dir = Path(setup_dir) / "projects" / str(project_label)
+    lc_cfg = landcover_cfg or resolve_landcover_mask(Path(setup_dir), project_dir)
+    cls = classes or _load_classes(setup_dir)
+    output_dir = output_root / project_label
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = output_dir / "scf_summary.csv"
 
     rows: list[dict[str, object]] = []
     written: list[Path] = []
@@ -192,12 +192,12 @@ def summarize_snowcover_directory(
     return written
 
 
-def _resolve_season_dates(project_dir: Path, season_label: str) -> dict[str, datetime] | None:
-    season_yml = project_dir / "propagation" / season_label / "season.yml"
-    if not season_yml.exists():
+def _resolve_project_dates(setup_dir: Path, project_label: str) -> dict[str, datetime] | None:
+    project_yml = setup_dir / "projects" / project_label / f"{project_label}.yml"
+    if not project_yml.exists():
         return None
     try:
-        data = yaml.safe_load(season_yml.read_text())
+        data = _read_yaml_file(project_yml) or {}
         start = datetime.fromisoformat(str(data.get("start_date")))
         end = datetime.fromisoformat(str(data.get("end_date")))
         return {"start": start, "end": end}
@@ -214,8 +214,8 @@ def cli_main(argv: List[str] | None = None) -> int:
     )
     p.add_argument("--input-dir", required=True, type=Path, help="Directory containing snow-cover rasters (.tif/.tiff/.nc)")
     p.add_argument("--roi", dest="roi", type=Path, help="Single-feature ROI vector (default: <project>/env/roi.gpkg)")
-    p.add_argument("--season-label", required=True, help="Season folder name under obs/")
-    p.add_argument("--project-dir", type=Path, help="Project directory (default: CWD)")
+    p.add_argument("--project-label", required=True, help="Project folder name under obs/")
+    p.add_argument("--setup-dir", type=Path, help="Setup directory (default: CWD)")
     p.add_argument("--output-root", type=Path, help="Override output root (default: <project>/obs/summaries)")
     p.add_argument("--roi-field", dest="roi_field", default=None, help="Field name in ROI with the region identifier (optional)")
     p.add_argument("--recursive", action="store_true", help="Recurse into subdirectories for rasters")
@@ -228,26 +228,27 @@ def cli_main(argv: List[str] | None = None) -> int:
     logger.remove()
     logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
-    project_dir = Path(args.project_dir) if args.project_dir else Path.cwd()
-    default_root = project_dir / OBS_DIR_NAME / "summaries"
+    setup_dir = Path(args.setup_dir) if args.setup_dir else Path.cwd()
+    default_root = setup_dir / OBS_DIR_NAME / "summaries"
     output_root = Path(args.output_root) if args.output_root else default_root
-    lc_cfg = resolve_landcover_mask(project_dir)
-    cls = _load_classes(project_dir)
-    season_dates = _resolve_season_dates(project_dir, args.season_label)
+    project_cfg_dir = setup_dir / "projects" / str(args.project_label)
+    lc_cfg = resolve_landcover_mask(setup_dir, project_cfg_dir)
+    cls = _load_classes(setup_dir)
+    project_dates = _resolve_project_dates(setup_dir, args.project_label)
 
     start = parse_datetime_opt(args.start_date) if args.start_date else None
     end = parse_datetime_opt(args.end_date) if args.end_date else None
-    if season_dates:
-        start = start or season_dates.get("start")
-        end = end or season_dates.get("end")
+    if project_dates:
+        start = start or project_dates.get("start")
+        end = end or project_dates.get("end")
 
     try:
-        aoi_path = Path(args.roi) if args.roi else project_dir / "env" / "roi.gpkg"
+        aoi_path = Path(args.roi) if args.roi else setup_dir / "env" / "roi.gpkg"
         summarize_snowcover_directory(
-            project_dir=project_dir,
+            setup_dir=setup_dir,
             input_dir=Path(args.input_dir),
             aoi=aoi_path,
-            season_label=str(args.season_label),
+            project_label=str(args.project_label),
             output_root=output_root,
             region_field=str(args.roi_field) if args.roi_field else None,
             landcover_cfg=lc_cfg,
@@ -264,3 +265,5 @@ def cli_main(argv: List[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
+
+

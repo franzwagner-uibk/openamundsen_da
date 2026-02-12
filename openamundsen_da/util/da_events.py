@@ -1,4 +1,4 @@
-"""Helpers for loading assimilation events from season.yml."""
+﻿"""Helpers for loading assimilation events from project YAML."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
-from openamundsen_da.io.paths import find_season_yaml
+from openamundsen_da.io.paths import find_project_yaml
 from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
 
 
@@ -40,11 +40,11 @@ def _parse_event_date(text: str | None) -> date:
         raise ValueError(f"Invalid assimilation event date (expected YYYY-MM-DD): {text}") from exc
 
 
-def load_assimilation_events(season_dir: Path) -> list[AssimilationEvent]:
-    """Load assimilation events from season.yml (variable/product per date)."""
-    season_yaml = find_season_yaml(season_dir)
-    cfg = _read_yaml(season_yaml) or {}
-    project_dir = season_dir.parent.parent if season_dir.parent.parent.is_dir() else None
+def load_assimilation_events(project_dir: Path) -> list[AssimilationEvent]:
+    """Load assimilation events from project YAML (variable/product per date)."""
+    project_yaml = find_project_yaml(project_dir)
+    cfg = _read_yaml(project_yaml) or {}
+    setup_dir = project_dir.parent.parent if project_dir.parent.parent.is_dir() else None
 
     events: list[AssimilationEvent] = []
 
@@ -58,7 +58,7 @@ def load_assimilation_events(season_dir: Path) -> list[AssimilationEvent]:
             continue
         dval = _parse_event_date(str(dtxt))
         var = str(entry.get("variable") or "scf")
-        default_prod = resolve_obs_product_tag(var, project_dir=project_dir)
+        default_prod = resolve_obs_product_tag(var, setup_dir=setup_dir, project_dir=project_dir)
         if "product" in entry and entry["product"] is not None:
             prod = str(entry["product"])
         else:
@@ -73,7 +73,9 @@ def load_assimilation_events(season_dir: Path) -> list[AssimilationEvent]:
         events.append(AssimilationEvent(date=dval, variable=var, product=prod_upper))
 
     if not events:
-        raise ValueError(f"No assimilation_events found in {season_yaml}")
+        raise ValueError(f"No assimilation_events found in {project_yaml}")
 
     events.sort(key=lambda ev: ev.date)
     return events
+
+

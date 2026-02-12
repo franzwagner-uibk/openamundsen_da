@@ -1,4 +1,4 @@
-"""Validation helpers for DA runs."""
+﻿"""Validation helpers for DA runs."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Iterable
 from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
 from openamundsen_da.util.da_events import AssimilationEvent
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import find_project_yaml, list_member_dirs
+from openamundsen_da.io.paths import find_setup_yaml, list_member_dirs
 
 
 def _has_output_pattern(base_dirs: Iterable[Path], patterns: list[str]) -> bool:
@@ -20,13 +20,13 @@ def _has_output_pattern(base_dirs: Iterable[Path], patterns: list[str]) -> bool:
 
 
 def validate_assimilation_requirements(
+    setup_dir: Path,
     project_dir: Path,
-    season_dir: Path,
     steps: list[Path],
     events: list[AssimilationEvent],
 ) -> None:
-    """Validate required config outputs and obs files before running a season."""
-    proj_cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+    """Validate required config outputs and obs files before running a project."""
+    proj_cfg = _read_yaml_file(find_setup_yaml(setup_dir)) or {}
     grid_vars = ((proj_cfg.get("output_data") or {}).get("grids") or {}).get("variables") or []
     names: set[str] = set()
     vars_: set[str] = set()
@@ -53,7 +53,7 @@ def validate_assimilation_requirements(
         ev = events[idx]
         step_dir = Path(steps[idx])
 
-        prod_tag = ev.product or resolve_obs_product_tag(ev.variable, project_dir=project_dir)
+        prod_tag = ev.product or resolve_obs_product_tag(ev.variable, setup_dir=setup_dir, project_dir=project_dir)
         base_name = f"obs_{ev.variable}_{ev.date.strftime('%Y%m%d')}.csv"
         prod_name = f"obs_{ev.variable}_{prod_tag}_{ev.date.strftime('%Y%m%d')}.csv"
         candidates = [step_dir / "obs" / base_name, step_dir / "obs" / prod_name]
@@ -63,3 +63,4 @@ def validate_assimilation_requirements(
 
     if errors:
         raise ValueError("Config/obs/output validation failed:\n- " + "\n- ".join(errors))
+

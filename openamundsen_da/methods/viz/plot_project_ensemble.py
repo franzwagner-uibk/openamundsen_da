@@ -1,6 +1,6 @@
-"""openamundsen_da.methods.viz.plot_season_ensemble
+﻿"""openamundsen_da.methods.viz.plot_project_ensemble
 
-Season-wide ensemble plots that stitch together all step segments into a single
+Setup-wide ensemble plots that stitch together all step segments into a single
 figure per station, with vertical dashed lines marking assimilation instants.
 
 Provides two plot types in the same style as the per-step modules:
@@ -9,20 +9,20 @@ Provides two plot types in the same style as the per-step modules:
 - Results: single-panel (e.g., SWE or snow_depth)
 
 Behavior and conventions
-- Discovers steps under a season root (e.g., ``.../propagation/season_2017-2018``)
+- Discovers steps under a setup root (e.g., ``.../projects/setup_2017-2018``)
   by reading each ``step_XX.yml`` for ``start_date`` and ``end_date``.
 - Uses the prior ensemble only and optionally draws open-loop segments when
   present in steps.
 - Draws vertical dashed lines at the start of each step i >= 1 (assimilation
   times), excluding the first step (typically October 1st).
-- Output figures are written under ``<season_dir>/plots/{forcing,results}/`` and
-  include the season identifier in the filename.
+- Output figures are written under ``<setup_dir>/plots/{forcing,results}/`` and
+  include the setup identifier in the filename.
 
 CLI usage examples
 - Forcing (two panels):
-  ``python -m openamundsen_da.methods.viz.plot_season_ensemble forcing --season-dir <path/to/season> --hydro-month 10 --hydro-day 1``
+  ``python -m openamundsen_da.methods.viz.plot_project_ensemble forcing --setup-dir <path/to/setup> --hydro-month 10 --hydro-day 1``
 - Results (SWE):
-  ``python -m openamundsen_da.methods.viz.plot_season_ensemble results --season-dir <path/to/season> --var-col swe``
+  ``python -m openamundsen_da.methods.viz.plot_project_ensemble results --setup-dir <path/to/setup> --var-col swe``
 
 Notes
 - End date accepts both ``YYYY-MM-DD`` and compact forms like ``YYYY-06_01``; the
@@ -58,7 +58,7 @@ from openamundsen_da.methods.viz._style import (
     COLOR_MEAN,
     COLOR_OPEN_LOOP,
     LEGEND_NCOL,
-    LEGEND_NCOL_SEASON,
+    LEGEND_NCOL_SETUP,
     LW_MEMBER,
     LW_MEAN,
     LW_OPEN,
@@ -124,9 +124,9 @@ def _parse_date_opt(text: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def _list_steps_sorted(season_dir: Path) -> List[StepInfo]:
+def _list_steps_sorted(setup_dir: Path) -> List[StepInfo]:
     steps: List[StepInfo] = []
-    for p in list_steps_sorted(season_dir):
+    for p in list_steps_sorted(setup_dir):
         cfg = read_step_config(p)
         steps.append(
             StepInfo(
@@ -138,15 +138,15 @@ def _list_steps_sorted(season_dir: Path) -> List[StepInfo]:
     return steps
 
 
-def _assimilation_event_dates(season_dir: Path) -> List[datetime]:
-    """Return assimilation datetimes (midnight) from season.yml events."""
-    events = load_assimilation_events(season_dir)
+def _assimilation_event_dates(setup_dir: Path) -> List[datetime]:
+    """Return assimilation datetimes (midnight) from setup.yml events."""
+    events = load_assimilation_events(setup_dir)
     return [datetime.combine(ev.date, datetime.min.time()) for ev in events]
 
 
-def _season_id_from_dir(season_dir: Path) -> str:
-    # Expect name like season_2017-2018
-    name = season_dir.name
+def _setup_id_from_dir(setup_dir: Path) -> str:
+    # Expect name like setup_2017-2018
+    name = setup_dir.name
     if "_" in name:
         return name.split("_", 1)[1]
     return name
@@ -195,9 +195,9 @@ def _format_member_label(member_name: str, pert: Tuple[Optional[float], Optional
 def _build_member_label_map(steps: Sequence[StepInfo]) -> Dict[str, str]:
     """Return empty map to avoid ambiguous labels across steps.
 
-    Season plots span multiple steps; rejuvenation can change perturbations per
+    Setup plots span multiple steps; rejuvenation can change perturbations per
     step, so embedding (dT, f_p) in labels becomes misleading. We therefore use
-    plain member names in legends for season plots.
+    plain member names in legends for setup plots.
     """
     return {}
 
@@ -273,22 +273,22 @@ def _plot_stepwise_mean(
         plotted = True
 
 
-def _project_dir_from_season(season_dir: Path) -> Optional[Path]:
-    """Best-effort project directory inference from a season directory.
+def _project_dir_from_setup(setup_dir: Path) -> Optional[Path]:
+    """Best-effort project directory inference from a setup directory.
 
-    Assumes layout <project>/propagation/season_xx. Returns None if the
+    Assumes layout <project>/projects/setup_xx. Returns None if the
     expected parents are not present.
     """
-    season_dir = Path(season_dir)
+    setup_dir = Path(setup_dir)
     try:
-        return season_dir.parent.parent
+        return setup_dir.parent.parent
     except Exception:
         return None
 
 
-def _load_station_obs_for_season(
+def _load_station_obs_for_setup(
     *,
-    season_dir: Path,
+    setup_dir: Path,
     time_col: str,
     var_col: str,
     start_date: Optional[datetime],
@@ -297,20 +297,20 @@ def _load_station_obs_for_season(
     resample_agg: str,
     rolling: Optional[int],
 ) -> Dict[str, pd.Series]:
-    """Load station observations for the season window, if available.
+    """Load station observations for the setup window, if available.
 
     Expects station CSVs under ``<project>/obs/stations`` with filenames
     matching station tokens (e.g., ``latschbloder.csv``). Each file should
     contain a time column (``time_col``) and the requested variable
     (``var_col``, e.g., ``swe`` or ``snow_depth``). Data are clipped to the
-    provided start/end dates (typically the full season).
+    provided start/end dates (typically the full setup).
 
     Returns
     -------
     dict
         Mapping ``station_token.lower()`` -> non-empty pandas Series.
     """
-    project_dir = _project_dir_from_season(season_dir)
+    project_dir = _project_dir_from_setup(setup_dir)
     if project_dir is None:
         return {}
 
@@ -371,9 +371,9 @@ def _load_stations_table_from_steps(steps: Sequence["StepInfo"]) -> Optional[pd.
 # ---- Plotting: Forcing (two-panel) -----------------------------------------
 
 
-def plot_season_forcing(
+def plot_setup_forcing(
     *,
-    season_dir: Path,
+    setup_dir: Path,
     date_col: str = "date",
     temp_col: str = "temp",
     precip_col: str = "precip",
@@ -389,10 +389,10 @@ def plot_season_forcing(
     log_level: str = "INFO",
     configure_logger: bool = True,
 ) -> Path:
-    """Create season-wide forcing plots for one or more stations.
+    """Create setup-wide forcing plots for one or more stations.
 
     Parameters
-    - season_dir: Season root directory (contains ``steps/step_*`` subfolders).
+    - setup_dir: Setup root directory (contains ``steps/step_*`` subfolders).
     - date_col: Timestamp column in station CSVs (default: ``date``).
     - temp_col: Temperature column (default: ``temp``).
     - precip_col: Precipitation column (default: ``precip``).
@@ -406,7 +406,7 @@ def plot_season_forcing(
     - log_level: Loguru level string (e.g., ``INFO``).
 
     Returns
-    - Path to the output directory ``<season_dir>/plots/forcing``.
+    - Path to the output directory ``<setup_dir>/plots/forcing``.
     """
     import matplotlib
 
@@ -417,10 +417,10 @@ def plot_season_forcing(
         logger.remove()
         logger.add(sys.stdout, level=(log_level or "INFO").upper(), enqueue=False, colorize=True, format=LOGURU_FORMAT)
 
-    season_dir = Path(season_dir)
-    steps = _list_steps_sorted(season_dir)
+    setup_dir = Path(setup_dir)
+    steps = _list_steps_sorted(setup_dir)
     if not steps:
-        raise FileNotFoundError(f"No step directories found under {season_dir / 'steps'}")
+        raise FileNotFoundError(f"No step directories found under {setup_dir / 'steps'}")
 
     # Determine station files from first step with meteo
     station_files: List[str] = []
@@ -437,12 +437,12 @@ def plot_season_forcing(
     if max_stations is not None:
         station_files = station_files[: max(0, int(max_stations))]
 
-    out_root = season_dir / "plots" / "forcing"
+    out_root = setup_dir / "plots" / "forcing"
     out_root.mkdir(parents=True, exist_ok=True)
-    season_id = _season_id_from_dir(season_dir)
+    setup_id = _setup_id_from_dir(setup_dir)
     stations_df = _load_stations_table_from_steps(steps)
     member_label_map = _build_member_label_map(steps)
-    assim_dates = _assimilation_event_dates(season_dir)
+    assim_dates = _assimilation_event_dates(setup_dir)
     assim_date_set = {d.date() for d in assim_dates}
 
     for fname in station_files:
@@ -508,7 +508,7 @@ def plot_season_forcing(
                     logger.warning("Failed reading member forcing {} in {}: {}", fname, m.name, exc)
 
         if not member_series_temp and not member_series_prec:
-            logger.warning("No member data for station {} across season; skipping.", fname)
+            logger.warning("No member data for station {} across setup; skipping.", fname)
             continue
 
         # Prepare figure
@@ -556,7 +556,7 @@ def plot_season_forcing(
 
         # Titles, assimilation date line, and figure-level legend (de-duplicated)
         token = Path(fname).stem
-        title = f"Season Forcing | {season_dir.name}"
+        title = f"Setup Forcing | {setup_dir.name}"
         _base, _alt, station_label = format_station_label(token, stations_df, fallback=token)
         subtitle = station_label
         # Move title and subtitle slightly up to create more clearance
@@ -588,7 +588,7 @@ def plot_season_forcing(
                 new_l,
                 loc="upper left",
                 bbox_to_anchor=(legend_x, legend_y),
-                ncol=LEGEND_NCOL_SEASON,
+                ncol=LEGEND_NCOL_SETUP,
                 frameon=False,
                 fontsize=8,
             )
@@ -598,7 +598,7 @@ def plot_season_forcing(
         else:
             _draw_assim_summary_box(fig, axes[0], assim_dates)
 
-        out_path = out_root / f"season_forcing_{token}_{season_id}.png"
+        out_path = out_root / f"setup_forcing_{token}_{setup_id}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.08)
         plt.close(fig)
         logger.info("Wrote {}", out_path)
@@ -609,9 +609,9 @@ def plot_season_forcing(
 # ---- Plotting: Results (single-panel) --------------------------------------
 
 
-def plot_season_results(
+def plot_setup_results(
     *,
-    season_dir: Path,
+    setup_dir: Path,
     time_col: str = "time",
     var_col: str = "swe",
     var_label: str = "",
@@ -631,7 +631,7 @@ def plot_season_results(
     mode: str = "members",
     configure_logger: bool = True,
 ) -> Path:
-    """Create season-wide results plots (e.g., SWE or snow_depth) for one or more stations.
+    """Create setup-wide results plots (e.g., SWE or snow_depth) for one or more stations.
 
     mode:
       - "members": draw member traces (no band); member traces are hidden from the legend. (default)
@@ -646,29 +646,29 @@ def plot_season_results(
         logger.remove()
         logger.add(sys.stdout, level=(log_level or "INFO").upper(), enqueue=False, colorize=True, format=LOGURU_FORMAT)
 
-    season_dir = Path(season_dir)
-    steps = _list_steps_sorted(season_dir)
+    setup_dir = Path(setup_dir)
+    steps = _list_steps_sorted(setup_dir)
     if not steps:
-        raise FileNotFoundError(f"No step directories found under {season_dir / 'steps'}")
+        raise FileNotFoundError(f"No step directories found under {setup_dir / 'steps'}")
 
     mode = (mode or "members").lower()
     if mode not in {"members", "band"}:
         mode = "members"
 
-    assim_dates = _assimilation_event_dates(season_dir)
+    assim_dates = _assimilation_event_dates(setup_dir)
 
-    # Effective season window from step configs if not explicitly provided
-    season_start: Optional[datetime] = None
-    season_end: Optional[datetime] = None
+    # Effective setup window from step configs if not explicitly provided
+    setup_start: Optional[datetime] = None
+    setup_end: Optional[datetime] = None
     if steps:
         starts = [s.start for s in steps if s.start is not None]
         ends = [s.end for s in steps if s.end is not None]
         if starts:
-            season_start = min(starts)
+            setup_start = min(starts)
         if ends:
-            season_end = max(ends)
-    effective_start = start_date or season_start
-    effective_end = end_date or season_end
+            setup_end = max(ends)
+    effective_start = start_date or setup_start
+    effective_end = end_date or setup_end
 
     # Determine available stations from first step that has results
     point_files: List[str] = []
@@ -685,9 +685,9 @@ def plot_season_results(
     if max_stations is not None:
         point_files = point_files[: max(0, int(max_stations))]
 
-    out_root = season_dir / "plots" / "results"
+    out_root = setup_dir / "plots" / "results"
     out_root.mkdir(parents=True, exist_ok=True)
-    season_id = _season_id_from_dir(season_dir)
+    setup_id = _setup_id_from_dir(setup_dir)
     stations_df = _load_stations_table_from_steps(steps)
 
     vv = (var_col or "").strip().lower()
@@ -704,9 +704,9 @@ def plot_season_results(
             var_title = f"{var_title} [{var_units}]"
 
     member_label_map = _build_member_label_map(steps)
-    # Best-effort station observations (e.g., SWE/HS) over the full season window
-    station_obs = _load_station_obs_for_season(
-        season_dir=season_dir,
+    # Best-effort station observations (e.g., SWE/HS) over the full setup window
+    station_obs = _load_station_obs_for_setup(
+        setup_dir=setup_dir,
         time_col=time_col,
         var_col=var_col,
         start_date=effective_start,
@@ -766,7 +766,7 @@ def plot_season_results(
                     logger.warning("Failed reading member results {} in {}: {}", fname, m.name, exc)
 
         if not member_series and not open_loop:
-            logger.warning("No data for station {} across season; skipping.", fname)
+            logger.warning("No data for station {} across setup; skipping.", fname)
             continue
 
         # Build figure
@@ -844,7 +844,7 @@ def plot_season_results(
         _draw_assim(ax, assim_dates)
         _draw_assim_labels(ax, assim_dates)
 
-        # Always show the full season window on the x-axis when available,
+        # Always show the full setup window on the x-axis when available,
         # regardless of station/model data coverage.
         if effective_start is not None and effective_end is not None:
             try:
@@ -854,7 +854,7 @@ def plot_season_results(
 
         # Titles/legend
         _base, _alt, station_label = format_station_label(display_token, stations_df, fallback=display_token)
-        title = f"Season Results | {season_dir.name}"
+        title = f"Setup Results | {setup_dir.name}"
         subtitle = f"{station_label} - {var_title}"
         # Reduce vertical gap between title/subtitle and the plot area.
         fig.text(0.5, 0.975, title, ha="center", va="top", fontsize=FS_TITLE)
@@ -889,18 +889,18 @@ def plot_season_results(
                     handletextpad=0.4,
                 )
 
-        out_path = out_root / f"season_results_{token}_{var_col}_{season_id}.png"
+        out_path = out_root / f"setup_results_{token}_{var_col}_{setup_id}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.08)
         plt.close(fig)
         logger.info("Wrote {}", out_path)
 
-    logger.info("Finished season results plots -> {}", out_root)
+    logger.info("Finished setup results plots -> {}", out_root)
     return out_root
 
 
-def plot_season_both(
+def plot_setup_both(
     *,
-    season_dir: Path,
+    setup_dir: Path,
     stations: Optional[List[str]] = None,
     max_stations: Optional[int] = None,
     start_date: Optional[datetime] = None,
@@ -910,9 +910,9 @@ def plot_season_both(
     log_level: str = "INFO",
     configure_logger: bool = True,
 ) -> Tuple[Path, Path]:
-    """Convenience wrapper: generate both forcing and results season plots."""
-    forcing_dir = plot_season_forcing(
-        season_dir=season_dir,
+    """Convenience wrapper: generate both forcing and results setup plots."""
+    forcing_dir = plot_setup_forcing(
+        setup_dir=setup_dir,
         stations=stations,
         max_stations=max_stations,
         start_date=start_date,
@@ -921,8 +921,8 @@ def plot_season_both(
         log_level=log_level,
         configure_logger=configure_logger,
     )
-    results_dir = plot_season_results(
-        season_dir=season_dir,
+    results_dir = plot_setup_results(
+        setup_dir=setup_dir,
         stations=stations,
         max_stations=max_stations,
         start_date=start_date,
@@ -940,15 +940,15 @@ def plot_season_both(
 
 def _cli(argv: Iterable[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        prog="oa-da-plot-season",
-        description="Season-wide ensemble plots (forcing/results) with assimilation markers.",
+        prog="oa-da-plot-setup",
+        description="Setup-wide ensemble plots (forcing/results) with assimilation markers.",
     )
     # Use a separate dest name for the subcommand to avoid clashing with the
     # '--mode' option used by the results plot (band vs members).
     sub = p.add_subparsers(dest="command", required=True)
 
     def _common(sp):
-        sp.add_argument("--season-dir", required=True, type=Path)
+        sp.add_argument("--setup-dir", required=True, type=Path)
         sp.add_argument("--station", action="append", help="Specific station file name (e.g., 102376.csv or point_station_001.csv)")
         sp.add_argument("--max-stations", type=int)
         sp.add_argument("--start-date", type=str, help="YYYY-MM-DD")
@@ -956,7 +956,7 @@ def _cli(argv: Iterable[str] | None = None) -> int:
         sp.add_argument("--backend", default="Agg")
         sp.add_argument("--log-level", default="INFO")
 
-    sp_f = sub.add_parser("forcing", help="Two-panel forcing season plot")
+    sp_f = sub.add_parser("forcing", help="Two-panel forcing setup plot")
     _common(sp_f)
     sp_f.add_argument("--date-col", default="date")
     sp_f.add_argument("--temp-col", default="temp")
@@ -966,7 +966,7 @@ def _cli(argv: Iterable[str] | None = None) -> int:
     sp_f.add_argument("--hydro-month", type=int, default=10, help="Hydrological year start month (default: 10)")
     sp_f.add_argument("--hydro-day", type=int, default=1, help="Hydrological year start day (default: 1)")
 
-    sp_r = sub.add_parser("results", help="Results season plot (e.g., SWE or snow_depth)")
+    sp_r = sub.add_parser("results", help="Results setup plot (e.g., SWE or snow_depth)")
     _common(sp_r)
     sp_r.add_argument("--time-col", default="time")
     sp_r.add_argument("--var-col", default="swe")
@@ -986,8 +986,8 @@ def _cli(argv: Iterable[str] | None = None) -> int:
     end = _parse_date_opt(args.end_date)
 
     if args.command == "forcing":
-        plot_season_forcing(
-            season_dir=args.season_dir,
+        plot_setup_forcing(
+            setup_dir=args.setup_dir,
             date_col=args.date_col,
             temp_col=args.temp_col,
             precip_col=args.precip_col,
@@ -1006,8 +1006,8 @@ def _cli(argv: Iterable[str] | None = None) -> int:
         if args.band_low >= args.band_high:
             logger.error("--band-low ({}) must be smaller than --band-high ({})", args.band_low, args.band_high)
             return 2
-        plot_season_results(
-            season_dir=args.season_dir,
+        plot_setup_results(
+            setup_dir=args.setup_dir,
             time_col=args.time_col,
             var_col=args.var_col,
             var_label=args.var_label,
@@ -1031,3 +1031,5 @@ def _cli(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_cli())
+
+

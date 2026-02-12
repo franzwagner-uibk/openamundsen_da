@@ -1,4 +1,4 @@
-"""Season helper for wet-snow observations from season summaries."""
+﻿"""Project helper for wet-snow observations from project summaries."""
 
 from __future__ import annotations
 
@@ -34,35 +34,35 @@ def _parse_dt_opt(text: str | None) -> datetime | None:
         return None
 
 
-def generate_season_from_summary(
-    season_dir: Path,
+def generate_project_from_summary(
+    project_dir: Path,
     summary_csv: Path,
     *,
     product: str | None,
     overwrite: bool,
 ) -> None:
-    """Extract per-step obs CSVs from a season-wide ``wet_snow_summary.csv``."""
+    """Extract per-step obs CSVs from a project-wide ``wet_snow_summary.csv``."""
 
-    if not season_dir.is_dir():
-        raise FileNotFoundError(f"Season directory not found: {season_dir}")
+    if not project_dir.is_dir():
+        raise FileNotFoundError(f"Project directory not found: {project_dir}")
     if not summary_csv.is_file():
         raise FileNotFoundError(f"Summary CSV not found: {summary_csv}")
 
     summary = read_fraction_summary(summary_csv, date_col="date")
-    events = load_assimilation_events(season_dir)
+    events = load_assimilation_events(project_dir)
 
-    steps = list_steps_sorted(season_dir)
+    steps = list_steps_sorted(project_dir)
     if len(steps) < 2:
-        raise FileNotFoundError(f"Not enough steps to derive assimilation dates under {season_dir}")
+        raise FileNotFoundError(f"Not enough steps to derive assimilation dates under {project_dir}")
 
-    project_dir = season_dir.parent.parent if season_dir.parent.parent.is_dir() else None
+    setup_dir = project_dir.parent.parent if project_dir.parent.parent.is_dir() else None
     n = min(len(events), len(steps) - 1)
     if n < len(events):
         logger.warning("Only {} steps (excluding final) available for {} assimilation events; extra events will be ignored.", n, len(events))
     if n < len(steps) - 1:
         logger.warning("Only {} assimilation events available for {} steps; later steps will not receive obs CSVs.", len(events), len(steps) - 1)
 
-    prod_tag = resolve_obs_product_tag("wet_snow", project_dir=project_dir, season_dir=season_dir, fallback=product)
+    prod_tag = resolve_obs_product_tag("wet_snow", setup_dir=setup_dir, project_dir=project_dir, fallback=product)
 
     written = skipped_missing = skipped_existing = 0
     for i in range(n):
@@ -104,7 +104,7 @@ def generate_season_from_summary(
         logger.info("Wrote wet-snow obs {} -> {} ({})", assim_dt.strftime("%Y-%m-%d"), step.name, out_csv.name)
 
     logger.info(
-        "Wet-snow season summary prep complete: written={} skipped_missing={} skipped_existing={}",
+        "Wet-snow project summary prep complete: written={} skipped_missing={} skipped_existing={}",
         written,
         skipped_missing,
         skipped_existing,
@@ -112,21 +112,21 @@ def generate_season_from_summary(
 
 
 def cli_main(argv: list[str] | None = None) -> int:
-    """CLI: fill per-step obs CSVs from wet_snow_summary.csv for a season."""
+    """CLI: fill per-step obs CSVs from wet_snow_summary.csv for a project."""
     import argparse
 
     parser = argparse.ArgumentParser(
-        prog="oa-da-wet-snow-s1-season",
+        prog="oa-da-wet-snow-s1-setup",
         description=(
             "Copy wet-snow rows from wet_snow_summary.csv into per-step "
-            "obs_wet_snow_S1_YYYYMMDD.csv files for a season."
+            "obs_wet_snow_S1_YYYYMMDD.csv files for a project."
         ),
     )
-    parser.add_argument("--season-dir", required=True, type=Path, help="Season directory (propagation/season_YYYY-YYYY)")
+    parser.add_argument("--project-dir", required=True, type=Path, help="Project directory (setup/projects/project_YYYY_YYYY)")
     parser.add_argument(
         "--summary-csv",
         type=Path,
-        help="Path to wet_snow_summary.csv (default: <project>/obs/<season>/wet_snow_summary.csv)",
+        help="Path to wet_snow_summary.csv (default: <setup>/obs/<project>/wet_snow_summary.csv)",
     )
     parser.add_argument("--product", help="Product tag to use in obs filename (default: obs.wetsnow.product_tag)")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing obs_wet_snow_*.csv files")
@@ -137,25 +137,28 @@ def cli_main(argv: list[str] | None = None) -> int:
     logger.remove()
     logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
-    season_dir = args.season_dir
+    project_dir = args.project_dir
     if args.summary_csv is not None:
         summary_path = args.summary_csv
     else:
-        project_root = season_dir.parent.parent
-        summary_path = project_root / "obs" / season_dir.name / "wet_snow_summary.csv"
+        setup_root = project_dir.parent.parent
+        summary_path = setup_root / "obs" / project_dir.name / "wet_snow_summary.csv"
 
     try:
-        generate_season_from_summary(
-            season_dir=season_dir,
+        generate_project_from_summary(
+            project_dir=project_dir,
             summary_csv=summary_path,
             product=str(args.product) if args.product else None,
             overwrite=args.overwrite,
         )
         return 0
     except Exception as exc:
-        logger.error("Wet-snow season summary prep failed: {}", exc)
+        logger.error("Wet-snow project summary prep failed: {}", exc)
         return 1
 
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
+
+
+

@@ -4,10 +4,10 @@ from __future__ import annotations
 openamundsen_da.core.env
 
 Purpose
-- Apply project-level GDAL/PROJ/numeric-thread settings so every runner sees a consistent environment.
+- Apply setup-level GDAL/PROJ/numeric-thread settings so every runner sees a consistent environment.
 -
 Key Behaviors
-- Read the `environment` block from `project.yml` and export the constrained list of vars.
+- Read the `environment` block from setup YAML and export the constrained list of vars.
 - Fall back to active conda `CONDA_PREFIX`/`PREFIX` for GDAL/PROJ when keys are missing.
 - Enforce a single-thread limit for numeric libraries and capture snapshots for diagnostics.
 
@@ -17,7 +17,7 @@ Inputs/Outputs
 - `snapshot_env(keys)` reports the current values of the selected variables.
 
 Assumptions
-- `project.yml` is UTF-8 readable and may omit the `environment` block entirely.
+- Setup YAML is UTF-8 readable and may omit the `environment` block entirely.
 - Conda prefixes live under `CONDA_PREFIX` or `PREFIX` when present.
 """
 
@@ -42,7 +42,7 @@ def _read_yaml_file(p: Path) -> dict:
 
 
 def apply_env_from_project(project_yaml: Path) -> Dict[str, str]:
-    """Read environment section from project.yml and export selected vars.
+    """Read environment section from setup YAML and export selected vars.
 
     Returns a dict of the keys applied (subset of ENV_VARS_EXPORT) with their values.
     """

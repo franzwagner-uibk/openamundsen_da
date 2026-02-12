@@ -1,4 +1,4 @@
-"""
+﻿"""
 openamundsen_da.core.runner
 
 Purpose
@@ -7,7 +7,7 @@ Purpose
   run initialize() and run(), and persist a small manifest and logs.
 
 Key Behaviors
-- Redirects stderr to a per-member log file so child logs don’t flood the parent console.
+- Redirects stderr to a per-member log file so child logs donâ€™t flood the parent console.
 - Applies numeric thread defaults (1 thread per process) for BLAS/NumExpr.
 - Writes a manifest JSON with status, timing, and errors for post-mortem.
 """
@@ -41,8 +41,8 @@ from openamundsen.model import OpenAmundsen
 from openamundsen_da.core.config import load_merged_config
 from openamundsen_da.io.paths import (
     default_results_dir,
+    find_setup_yaml,
     find_project_yaml,
-    find_season_yaml,
     find_step_yaml,
     meteo_dir_for_member,
 )
@@ -215,7 +215,7 @@ def _is_successful_run(results_dir: Path) -> bool:
 
 def run_member(
     project_dir: Path | str,
-    season_dir: Path | str,
+    setup_dir: Path | str,
     step_dir: Path | str,
     member_dir: Path | str,
     *,
@@ -237,13 +237,13 @@ def run_member(
     # Step 3: Normalize inputs to Path objects
     member_dir = Path(member_dir)
     project_dir = Path(project_dir)
-    season_dir  = Path(season_dir)
+    setup_dir  = Path(setup_dir)
     step_dir    = Path(step_dir)
 
     member_name = member_dir.name
     # Step 4: Resolve YAMLs and member directories
-    proj_yaml = find_project_yaml(project_dir)
-    seas_yaml = find_season_yaml(season_dir)
+    setup_yaml = find_setup_yaml(setup_dir)
+    project_yaml = find_project_yaml(project_dir)
     step_yaml = find_step_yaml(step_dir)
     meteo_dir = meteo_dir_for_member(member_dir)
     results_dir = Path(results_dir) if results_dir is not None else default_results_dir(member_dir)
@@ -264,8 +264,8 @@ def run_member(
         # If Loguru reconfiguration fails, continue with default stderr
         pass
 
-    # Step 6: Change to project root (OA expects relative paths from here)
-    os.chdir(project_dir)
+    # Step 6: Change to setup root (OA expects relative paths from here)
+    os.chdir(setup_dir)
 
     # Step 7: Skip only if a previous run is clearly completed and overwrite is not requested.
     # Rationale: prior_forcing may create empty results/ dirs and manifests start as
@@ -279,8 +279,8 @@ def run_member(
     manifest: Dict[str, Any] = {
         "member": member_name,
         "status": "starting",
-        "project_yaml": str(proj_yaml),
-        "season_yaml": str(seas_yaml),
+        "setup_yaml": str(setup_yaml),
+        "project_yaml": str(project_yaml),
         "step_yaml": str(step_yaml),
         "meteo_dir": str(meteo_dir),
         "results_dir": str(results_dir),
@@ -294,8 +294,8 @@ def run_member(
         # Resolve restart behavior (opinionated and strict):
         # - step_00*: always cold start; always dump state
         # - later steps: always warm start; always dump state
-        # Project flags are ignored to avoid ambiguity.
-        cfg_yaml = _read_yaml_file(proj_yaml)
+        # Setup flags are ignored to avoid ambiguity.
+        cfg_yaml = _read_yaml_file(project_yaml)
         da_cfg = (cfg_yaml.get(DA_BLOCK) or {}) if isinstance(cfg_yaml, dict) else {}
         rs_cfg = (da_cfg.get(RESTART_BLOCK) or {}) if isinstance(da_cfg, dict) else {}
         step_name = step_dir.name
@@ -310,7 +310,7 @@ def run_member(
             patt = (state_pattern if state_pattern is not None else (rs_cfg.get(RESTART_STATE_PATTERN) or STATE_DEFAULT_NAME))
 
         cfg = load_merged_config(
-            proj_yaml, seas_yaml, step_yaml,
+            setup_yaml, project_yaml, step_yaml,
             member_meteo_dir=meteo_dir,
             results_dir=results_dir,
             log_level=log_level,
@@ -385,21 +385,24 @@ def _resolve_state_file(results_dir: Path) -> Path | None:
     Only `<member_dir>/state_pointer.json` is considered. Local files under
     results/ are ignored to avoid ambiguity.
     """
-    def _find_season_dir(p: Path) -> Path | None:
+    def _find_setup_dir(p: Path) -> Path | None:
         for parent in p.parents:
-            if parent.name.startswith("season_"):
+            try:
+                _ = find_setup_yaml(parent)
                 return parent
+            except Exception:
+                continue
         return None
 
-    def _remap_to_local_season(target: Path, season_dir: Path) -> Path | None:
+    def _remap_to_local_setup(target: Path, setup_dir: Path) -> Path | None:
         try:
             parts = list(target.parts)
         except Exception:
             return None
-        if season_dir.name in parts:
-            idx = parts.index(season_dir.name)
+        if setup_dir.name in parts:
+            idx = parts.index(setup_dir.name)
             suffix = parts[idx + 1 :]
-            cand = season_dir.joinpath(*suffix)
+            cand = setup_dir.joinpath(*suffix)
             if cand.exists() and cand.is_file():
                 return cand
         return None
@@ -419,9 +422,9 @@ def _resolve_state_file(results_dir: Path) -> Path | None:
         if q.exists() and q.is_file():
             return q
         if q.is_absolute():
-            season_dir = _find_season_dir(results_dir)
-            if season_dir is not None:
-                remapped = _remap_to_local_season(q, season_dir)
+            setup_dir = _find_setup_dir(results_dir)
+            if setup_dir is not None:
+                remapped = _remap_to_local_setup(q, setup_dir)
                 if remapped is not None:
                     return remapped
     except Exception:
@@ -456,3 +459,4 @@ def _dump_init_data(model, filename: Path) -> None:
             init_data[category][var_name] = var_data
     with gzip.open(filename, "wb") as f:
         pickle.dump(init_data, f)
+

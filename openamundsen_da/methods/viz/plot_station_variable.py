@@ -12,7 +12,7 @@ Typical usage
         --start-date 2020-03-01 \\
         --end-date 2020-07-31
 
-This is intentionally simpler than the ensemble/season plotting tools:
+This is intentionally simpler than the ensemble/setup plotting tools:
 you point it to one CSV, choose the column, and get one figure.
 """
 

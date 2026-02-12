@@ -1,15 +1,15 @@
-"""openamundsen_da.pipeline.season
+﻿"""openamundsen_da.pipeline.project
 
-End-to-end season orchestrator with strict, opinionated behavior:
+End-to-end project orchestrator with strict, opinionated behavior:
 
-- Discovers step_* under a season directory (preferring season_dir/steps) and processes them in order.
+- Discovers step_* under a project directory and processes them in order.
 - Step 00: cold start (no restart), dumps states at the end.
 - Steps >= 01: strict warm start from member-root pointer; aborts on failure.
 - For each step except the last:
   - Assimilate SCF on the next step start_date.
-  - Resample to posterior using project.yml resampling defaults.
+  - Resample to posterior using project YAML resampling defaults.
   - Rejuvenate posterior -> next-step prior (writes only member-root pointers).
-- At the end: generates season plots (forcing + fraction overlay).
+- At the end: generates project plots (forcing + fraction overlay).
 
 Minimal CLI; defaults handle all formats/columns/behavior without user choices.
 """
@@ -34,8 +34,8 @@ from openamundsen_da.core.launch import launch_members
 from openamundsen_da.core.prior_forcing import build_prior_ensemble
 from openamundsen_da.io.paths import (
     read_step_config,
+    find_setup_yaml,
     find_project_yaml,
-    find_season_yaml,
     list_steps_sorted,
 )
 from openamundsen_da.util.roi import read_single_roi
@@ -52,17 +52,17 @@ from openamundsen_da.methods.pf.assimilate_scf import (
     assimilate_scf_for_date,
     assimilate_wet_snow_for_date,
 )
-from openamundsen_da.pipeline.cleanup import cleanup_season_dir, is_cleanup_enabled, state_patterns_from_project
+from openamundsen_da.pipeline.cleanup import cleanup_setup_dir, is_cleanup_enabled, state_patterns_from_setup
 from openamundsen_da.methods.h_of_x.model_scf import compute_step_scf_daily_for_all_members
 from openamundsen_da.methods.wet_snow.classify import classify_step_wet_snow
 from openamundsen_da.methods.wet_snow.area import compute_step_wet_snow_daily_for_all_members
 from openamundsen_da.methods.pf.rejuvenate import rejuvenate
 from openamundsen_da.methods.pf.resample import resample_from_weights, _read_resampling_from_project
 from openamundsen_da.methods.pf.plot_weights import plot_weights_for_csv
-from openamundsen_da.methods.pf.plot_ess_timeline import plot_season_ess_timeline
+from openamundsen_da.methods.pf.plot_ess_timeline import plot_setup_ess_timeline
 from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_envelope
 from openamundsen_da.observer.plot_fractions import cli_main as plot_fractions_cli
-from openamundsen_da.methods.viz.plot_season_ensemble import plot_season_results
+from openamundsen_da.methods.viz.plot_project_ensemble import plot_setup_results
 from openamundsen_da.methods.viz.plot_forcing_ensemble import cli_main as plot_forcing_cli
 from openamundsen_da.util.validation import validate_assimilation_requirements
 
@@ -99,8 +99,8 @@ def _run_plot_task(task: PlotTask) -> tuple[str, str | None]:
         return task.name, str(exc)
 
 
-def _list_steps_sorted(season_dir: Path) -> List[Path]:
-    return list_steps_sorted(season_dir)
+def _list_steps_sorted(project_dir: Path) -> List[Path]:
+    return list_steps_sorted(project_dir)
 
 
 def _next_step_start(steps: List[Path], idx: int) -> Optional[datetime]:
@@ -127,10 +127,10 @@ def _find_roi(project_dir: Path) -> Path:
 
 
 def _load_wet_snow_threshold_percent(project_dir: Path) -> float:
-    """Read wet-snow classification threshold (percent) from project.yml."""
+    """Read wet-snow classification threshold (percent) from project YAML."""
     try:
-        proj_yaml = find_project_yaml(project_dir)
-        cfg = _read_yaml_file(proj_yaml) or {}
+        project_yaml = find_project_yaml(project_dir)
+        cfg = _read_yaml_file(project_yaml) or {}
         da_cfg = cfg.get("data_assimilation") or {}
         wet_cfg = da_cfg.get("wet_snow") or {}
         if "classification_threshold_percent" in wet_cfg:
@@ -143,14 +143,14 @@ def _load_wet_snow_threshold_percent(project_dir: Path) -> float:
 
 
 def _aggregate_and_copy_fraction(
-    season_dir: Path,
+    setup_dir: Path,
     filename: str,
     value_col: str,
     output_name: str,
 ) -> tuple[Path | None, Path | None]:
     """Aggregate fraction envelopes and mirror them into plots/results."""
     env_path = aggregate_fraction_envelope(
-        season_dir=season_dir,
+        setup_dir=setup_dir,
         filename=filename,
         value_col=value_col,
         output_name=output_name,
@@ -158,7 +158,7 @@ def _aggregate_and_copy_fraction(
     copy_path: Path | None = None
     if env_path is not None:
         try:
-            copy_path = Path(season_dir) / "plots" / "results" / Path(output_name).name
+            copy_path = Path(setup_dir) / "plots" / "results" / Path(output_name).name
             copy_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(env_path, copy_path)
         except Exception as exc:
@@ -167,11 +167,11 @@ def _aggregate_and_copy_fraction(
     return env_path, copy_path
 
 
-def _aggregate_fraction_envelopes(season_dir: Path) -> None:
+def _aggregate_fraction_envelopes(setup_dir: Path) -> None:
     """Aggregate SCF and wet-snow envelopes and mirror them into plots/results."""
     try:
         _aggregate_and_copy_fraction(
-            season_dir=season_dir,
+            setup_dir=setup_dir,
             filename="point_scf_roi.csv",
             value_col="scf",
             output_name="point_scf_roi_envelope.csv",
@@ -180,7 +180,7 @@ def _aggregate_fraction_envelopes(season_dir: Path) -> None:
         logger.warning("SCF envelope aggregation failed: {}", exc)
     try:
         _aggregate_and_copy_fraction(
-            season_dir=season_dir,
+            setup_dir=setup_dir,
             filename="point_wet_snow_roi.csv",
             value_col="wet_snow_fraction",
             output_name="point_wet_snow_roi_envelope.csv",
@@ -192,7 +192,7 @@ def _aggregate_fraction_envelopes(season_dir: Path) -> None:
 def _run_plot_tasks_parallel(
     tasks: List[PlotTask],
     max_workers: int | None,
-    season_max_workers: int | None,
+    setup_max_workers: int | None,
 ) -> None:
     """Execute plot tasks concurrently using process-based workers."""
     if not tasks:
@@ -201,8 +201,8 @@ def _run_plot_tasks_parallel(
     candidates = [len(tasks), cpu_cap]
     if max_workers is not None:
         candidates.append(max_workers)
-    if season_max_workers is not None:
-        candidates.append(season_max_workers)
+    if setup_max_workers is not None:
+        candidates.append(setup_max_workers)
     workers = max(1, min(candidates))
     logger.info("Running {} plot task(s) with {} worker(s) ...", len(tasks), workers)
     with cf.ProcessPoolExecutor(max_workers=workers) as executor:
@@ -231,8 +231,8 @@ def _run_live_plots(
 ) -> None:
     """Run per-step plotting suite."""
     try:
-        logger.info("Updating season plots after assimilation step {} ...", step_name)
-        _aggregate_fraction_envelopes(cfg.season_dir)
+        logger.info("Updating project plots after assimilation step {} ...", step_name)
+        _aggregate_fraction_envelopes(cfg.project_dir)
         try:
             plot_forcing_cli([
                 "--step-dir", str(step_dir),
@@ -242,16 +242,16 @@ def _run_live_plots(
         except Exception as exc:
             logger.warning("Forcing plot failed for {}: {}", step_name, exc)
         try:
-            plot_season_results(
-                season_dir=cfg.season_dir,
+            plot_setup_results(
+                setup_dir=cfg.project_dir,
                 var_col="swe",
                 mode="members",
                 resample="D",
                 resample_agg="mean",
                 configure_logger=False,
             )
-            plot_season_results(
-                season_dir=cfg.season_dir,
+            plot_setup_results(
+                setup_dir=cfg.project_dir,
                 var_col="snow_depth",
                 mode="members",
                 resample="D",
@@ -259,11 +259,11 @@ def _run_live_plots(
                 configure_logger=False,
             )
         except Exception as exc:
-            logger.warning("Season point results plot failed after step {}: {}", step_name, exc)
+            logger.warning("Setup point results plot failed after step {}: {}", step_name, exc)
         try:
             plot_fractions_cli([
-                "--season-dir", str(cfg.season_dir),
                 "--project-dir", str(cfg.project_dir),
+                "--setup-dir", str(cfg.setup_dir),
                 "--log-level", cfg.log_level,
                 "--mode", "band",
             ], configure_logger=False)
@@ -271,20 +271,20 @@ def _run_live_plots(
             logger.warning("Fraction overlay plot skipped after step {}: {}", step_name, exc)
         plot_weights_for_csv(wcsv)
         try:
-            plot_season_ess_timeline(cfg.season_dir)
+            plot_setup_ess_timeline(cfg.project_dir)
         except FileNotFoundError:
             pass
     except Exception as exc:
-        logger.warning("Season plotting failed after step {}: {}", step_name, exc)
+        logger.warning("Setup plotting failed after step {}: {}", step_name, exc)
     finally:
         if reset_logger:
-            _setup_logger(cfg.season_dir, cfg.log_level)
+            _setup_logger(cfg.project_dir, cfg.log_level)
 
 
 @dataclass
 class OrchestratorConfig:
     project_dir: Path
-    season_dir: Path
+    setup_dir: Path
     max_workers: int = 4
     overwrite: bool = False
     log_level: str = "INFO"
@@ -295,34 +295,51 @@ class OrchestratorConfig:
     perf_plot_interval: float = 30.0
 
 
-def _setup_logger(season_dir: Path, log_level: str) -> None:
-    """Configure Loguru sinks for console and season file log."""
+def _setup_logger(project_dir: Path, log_level: str) -> None:
+    """Configure Loguru sinks for console and project file log."""
     logger.remove()
     logger.add(sys.stdout, level=log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
-    log_file = _season_log_path(season_dir)
+    log_file = _setup_log_path(project_dir)
     logger.add(log_file, level=log_level.upper(), colorize=False, enqueue=True, format=LOGURU_FORMAT)
 
 
-def _auto_project_dir(season_dir: Path) -> Path:
-    """Best-effort discovery of project root (looks for project.yml upward)."""
-    season_dir = Path(season_dir).resolve()
-    for base in (season_dir, *season_dir.parents):
-        for name in ("project.yml", "project.yaml"):
-            cand = base / name
-            if cand.is_file():
-                return base
+def _auto_project_dir(setup_dir: Path) -> Path:
+    """Best-effort discovery of a single project under `<setup_dir>/projects`."""
+    setup_dir = Path(setup_dir).resolve()
+    projects_root = setup_dir / "projects"
+    if not projects_root.is_dir():
+        raise FileNotFoundError(
+            f"Could not find projects directory under setup dir {setup_dir}. "
+            "Pass --project-dir explicitly."
+        )
+    candidates = []
+    for cand in sorted(projects_root.iterdir()):
+        if not cand.is_dir():
+            continue
+        try:
+            _ = find_project_yaml(cand)
+            candidates.append(cand)
+        except FileNotFoundError:
+            continue
+    if len(candidates) == 1:
+        return candidates[0]
+    if not candidates:
+        raise FileNotFoundError(
+            f"No project directories with YAML found under {projects_root}. "
+            "Pass --project-dir explicitly."
+        )
     raise FileNotFoundError(
-        f"Could not find project.yml for season_dir={season_dir}. "
-        "Pass --project-dir explicitly or ensure project.yml exists in a parent directory."
+        f"Multiple project directories found under {projects_root}. "
+        "Pass --project-dir explicitly."
     )
 
 
-def _season_log_path(season_dir: Path) -> Path:
-    """Return a season log path named by season years when available."""
-    season_dir = Path(season_dir)
-    label = season_dir.name
+def _setup_log_path(project_dir: Path) -> Path:
+    """Return a project log path named by project years when available."""
+    project_dir = Path(project_dir)
+    label = project_dir.name
     try:
-        cfg = _read_yaml_file(find_season_yaml(season_dir)) or {}
+        cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
         start_val = cfg.get("start_date")
         end_val = cfg.get("end_date")
 
@@ -337,41 +354,41 @@ def _season_log_path(season_dir: Path) -> Path:
         sy = _year(start_val)
         ey = _year(end_val)
         if sy and ey:
-            label = f"season_{sy}_{ey}"
+            label = f"project_{sy}_{ey}"
         elif sy:
-            label = f"season_{sy}"
+            label = f"project_{sy}"
     except Exception:
         # fall back to directory name
         pass
-    return season_dir / f"{label}.log"
+    return project_dir / f"{label}.log"
 
 
-def run_season(cfg: OrchestratorConfig) -> None:
+def run_project(cfg: OrchestratorConfig) -> None:
     run_start = datetime.utcnow()
-    # Console + file log under season root (e.g. season_2017-2018/season_2017-2018.log)
-    _setup_logger(cfg.season_dir, cfg.log_level)
+    # Console + file log under project root.
+    _setup_logger(cfg.project_dir, cfg.log_level)
     live_plot_threads: list[threading.Thread] = []
 
-    steps = _list_steps_sorted(cfg.season_dir)
+    steps = _list_steps_sorted(cfg.project_dir)
     if not steps:
-        raise FileNotFoundError(f"No steps found under {cfg.season_dir}")
-    logger.info("Discovered {} step(s)", len(steps))
+        raise FileNotFoundError(f"No steps found under {cfg.project_dir}")
+    logger.info("Discovered {} step(s) for project {}", len(steps), cfg.project_dir.name)
     workers = pick_max_workers(cfg.max_workers)
 
     # Ensure first step has its prior ensemble (project/meteo is required)
     if steps:
-        meteo_dir = cfg.project_dir / "meteo"
+        meteo_dir = cfg.setup_dir / "meteo"
         if not meteo_dir.is_dir():
             raise FileNotFoundError(f"Required meteo directory not found: {meteo_dir}")
-        logger.info("Initializing prior ensemble for step {} …", steps[0].name)
+        logger.info("Initializing prior ensemble for step {} â€¦", steps[0].name)
 
     # Assimilation configuration (variable/product per date)
-    events = load_assimilation_events(cfg.season_dir)
+    events = load_assimilation_events(cfg.project_dir)
     n_expected = max(0, len(steps) - 1)
     if len(events) < n_expected:
         raise ValueError(
-            f"Configured {len(events)} assimilation event(s) but the season needs {n_expected}. "
-            "Add events in season.yml (data_assimilation.assimilation_events) or adjust steps."
+            f"Configured {len(events)} assimilation event(s) but the project needs {n_expected}. "
+            "Add events in project YAML (data_assimilation.assimilation_events) or adjust steps."
         )
     if len(events) > n_expected:
         logger.warning("More assimilation events ({}) than steps needing DA ({}); extra events will be ignored.", len(events), n_expected)
@@ -394,7 +411,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
             logger.info("SCF diagnostics disabled (scf not in assimilation_events).")
 
     # Validate required outputs and obs inputs before running assimilation
-    validate_assimilation_requirements(cfg.project_dir, cfg.season_dir, steps, events)
+    validate_assimilation_requirements(setup_dir=cfg.setup_dir, project_dir=cfg.project_dir, steps=steps, events=events)
     build_prior_ensemble(
         input_meteo_dir=meteo_dir,
         project_dir=cfg.project_dir,
@@ -403,25 +420,25 @@ def run_season(cfg: OrchestratorConfig) -> None:
         overwrite=bool(cfg.overwrite),
     )
 
-    roi = _find_roi(cfg.project_dir)
+    roi = _find_roi(cfg.setup_dir)
     logger.info("Using ROI: {}", roi)
-    lc_cfg = resolve_landcover_mask(cfg.project_dir)
+    lc_cfg = resolve_landcover_mask(cfg.setup_dir, cfg.project_dir)
     if lc_cfg.enabled:
         logger.info("Land-cover mask enabled -> {} (classes {})", lc_cfg.path, list(lc_cfg.classes))
     else:
         logger.info("Land-cover mask disabled; no land-cover exclusions applied")
 
-    # Project/season metadata for DA and performance monitoring
+    # Project/setup metadata for DA and performance monitoring
     wet_snow_threshold = _load_wet_snow_threshold_percent(cfg.project_dir)
-    logger.info("Wet-snow classification threshold set to {:.3f} % (project.yml or default)", wet_snow_threshold)
+    logger.info("Wet-snow classification threshold set to {:.3f} % (project YAML or default)", wet_snow_threshold)
 
     proj_resolution = None
     proj_timestep = None
     proj_crs = None
-    season_days = None
+    setup_days = None
     ensemble_size = None
     try:
-        proj_yaml = find_project_yaml(cfg.project_dir)
+        proj_yaml = find_setup_yaml(cfg.setup_dir)
         proj_cfg = _read_yaml_file(proj_yaml) or {}
         if "resolution" in proj_cfg:
             try:
@@ -431,7 +448,9 @@ def run_season(cfg: OrchestratorConfig) -> None:
         if "timestep" in proj_cfg:
             proj_timestep = str(proj_cfg.get("timestep"))
         proj_crs = proj_cfg.get("crs")
-        da_cfg = proj_cfg.get("data_assimilation") or {}
+        setup_yaml = find_project_yaml(cfg.project_dir)
+        setup_cfg = _read_yaml_file(setup_yaml) or {}
+        da_cfg = setup_cfg.get("data_assimilation") or {}
         pf_cfg = da_cfg.get("prior_forcing") or {}
         if "ensemble_size" in pf_cfg:
             try:
@@ -439,20 +458,20 @@ def run_season(cfg: OrchestratorConfig) -> None:
             except Exception:
                 ensemble_size = None
     except Exception as exc:
-        logger.warning("Perf monitor: failed to read project.yml metadata: {}", exc)
+        logger.warning("Perf monitor: failed to read config metadata: {}", exc)
 
-    # Season length (days) from season.yml
+    # Project length (days) from project YAML
     try:
-        seas_yaml = find_season_yaml(cfg.season_dir)
+        seas_yaml = find_project_yaml(cfg.project_dir)
         seas_cfg = _read_yaml_file(seas_yaml) or {}
         start_val = seas_cfg.get("start_date")
         end_val = seas_cfg.get("end_date")
         start_dt = parse_datetime_opt(str(start_val)) if start_val is not None else None
         end_dt = parse_datetime_opt(str(end_val)) if end_val is not None else None
         if start_dt is not None and end_dt is not None:
-            season_days = (end_dt.date() - start_dt.date()).days + 1
+            setup_days = (end_dt.date() - start_dt.date()).days + 1
     except Exception as exc:
-        logger.warning("Perf monitor: failed to read season.yml dates: {}", exc)
+        logger.warning("Perf monitor: failed to read project dates: {}", exc)
 
     # Approximate AOI area in km2 for performance summary
     roi_area_km2 = None
@@ -466,7 +485,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
     if lc_cfg.enabled:
         try:
             lc_report = summarize_landcover_mask(Path(roi), lc_cfg)
-            lc_report_path = Path(cfg.season_dir) / "plots" / "results" / "lc_mask_report.csv"
+            lc_report_path = Path(cfg.project_dir) / "plots" / "results" / "lc_mask_report.csv"
             write_landcover_mask_report(lc_report, lc_report_path)
             for cls in lc_report.classes:
                 label = cls.name
@@ -506,7 +525,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
     perf_stop_event = None
     if cfg.monitor_perf:
         pm_cfg = PerfMonitorConfig(
-            season_dir=cfg.season_dir,
+            project_dir=cfg.project_dir,
             sample_interval_sec=float(cfg.perf_sample_interval or 5.0),
             plot_interval_sec=float(cfg.perf_plot_interval or 30.0),
             run_start=run_start,
@@ -524,7 +543,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
         logger.info("Launching ensemble (prior) with max_workers={} overwrite={} ...", workers, cfg.overwrite)
         launch_summary = launch_members(
             project_dir=cfg.project_dir,
-            season_dir=cfg.season_dir,
+            setup_dir=cfg.setup_dir,
             step_dir=step_dir,
             ensemble="prior",
             max_workers=int(workers),
@@ -537,11 +556,12 @@ def run_season(cfg: OrchestratorConfig) -> None:
             member_failures = True
 
         # After propagation: compute daily model SCF for all prior members in
-        # this step so that season-level plots can use var_col='scf' via the
+        # this step so that project-level plots can use var_col='scf' via the
         # generated point_scf_roi.csv files.
         try:
             if scf_enabled:
                 compute_step_scf_daily_for_all_members(
+                    setup_dir=cfg.setup_dir,
                     project_dir=cfg.project_dir,
                     step_dir=step_dir,
                     aoi_path=roi,
@@ -570,6 +590,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
                     max_workers=int(workers),
                 )
                 compute_step_wet_snow_daily_for_all_members(
+                    setup_dir=cfg.setup_dir,
                     project_dir=cfg.project_dir,
                     step_dir=step_dir,
                     aoi_path=roi,
@@ -651,7 +672,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
         )
 
         # Reuse existing weights if present and overwrite=False so that
-        # re-running oa-da-season can skip already-assimilated steps.
+        # re-running oa-da-project can skip already-assimilated steps.
         assim_dir = Path(step_dir) / "assim"
         assim_dir.mkdir(parents=True, exist_ok=True)
         if ev.variable == "wet_snow":
@@ -671,7 +692,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
             try:
                 if ev.variable == "wet_snow":
                     weights = assimilate_wet_snow_for_date(
-                        project_dir=cfg.project_dir,
+                        setup_dir=cfg.setup_dir,
                         step_dir=step_dir,
                         ensemble="prior",
                         date=assim_dt,
@@ -682,7 +703,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
                     )
                 else:
                     weights = assimilate_scf_for_date(
-                        project_dir=cfg.project_dir,
+                        setup_dir=cfg.setup_dir,
                         step_dir=step_dir,
                         ensemble="prior",
                         date=assim_dt,
@@ -742,7 +763,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
         else:
             logger.info("Rejuvenating posterior -> {} (prior) ...", steps[i + 1].name)
             rejuvenate(
-                project_dir=cfg.project_dir,
+                setup_dir=cfg.setup_dir,
                 prev_step_dir=step_dir,
                 next_step_dir=steps[i + 1],
                 source_ensemble="posterior",
@@ -750,7 +771,7 @@ def run_season(cfg: OrchestratorConfig) -> None:
                 source_meteo_dir=None,
             )
 
-        # Update season-wide plots after each assimilation/rejuvenation cycle so
+        # Update project-wide plots after each assimilation/rejuvenation cycle so
         # users can monitor progress while the pipeline continues running. Plots
         # are written with deterministic filenames and therefore overwritten on
         # each update.
@@ -773,9 +794,9 @@ def run_season(cfg: OrchestratorConfig) -> None:
         except Exception:
             pass
     # Aggregate fraction envelopes before plotting overlays
-    _aggregate_fraction_envelopes(cfg.season_dir)
+    _aggregate_fraction_envelopes(cfg.project_dir)
 
-    # Build post-run plot tasks (per-step forcing, season results, fraction overlay, weights, ESS)
+    # Build post-run plot tasks (per-step forcing, project results, fraction overlay, weights, ESS)
     plot_tasks: List[PlotTask] = []
     for step_dir in steps:
         plot_tasks.append(
@@ -797,11 +818,11 @@ def run_season(cfg: OrchestratorConfig) -> None:
         )
     plot_tasks.append(
         PlotTask(
-            name="season_results_swe",
-            func=plot_season_results,
+            name="setup_results_swe",
+            func=plot_setup_results,
             args=(),
             kwargs={
-                "season_dir": cfg.season_dir,
+                "setup_dir": cfg.project_dir,
                 "var_col": "swe",
                 "mode": "members",
                 "resample": "D",
@@ -812,11 +833,11 @@ def run_season(cfg: OrchestratorConfig) -> None:
     )
     plot_tasks.append(
         PlotTask(
-            name="season_results_snow_depth",
-            func=plot_season_results,
+            name="setup_results_snow_depth",
+            func=plot_setup_results,
             args=(),
             kwargs={
-                "season_dir": cfg.season_dir,
+                "setup_dir": cfg.project_dir,
                 "var_col": "snow_depth",
                 "mode": "members",
                 "resample": "D",
@@ -831,10 +852,10 @@ def run_season(cfg: OrchestratorConfig) -> None:
             func=plot_fractions_cli,
             args=(
                 [
-                    "--season-dir",
-                    str(cfg.season_dir),
                     "--project-dir",
                     str(cfg.project_dir),
+                    "--setup-dir",
+                    str(cfg.setup_dir),
                 ],
             ),
             kwargs={"configure_logger": False},
@@ -859,9 +880,9 @@ def run_season(cfg: OrchestratorConfig) -> None:
         )
     plot_tasks.append(
         PlotTask(
-            name="season_ess_timeline",
-            func=plot_season_ess_timeline,
-            args=(cfg.season_dir,),
+            name="setup_ess_timeline",
+            func=plot_setup_ess_timeline,
+            args=(cfg.project_dir,),
             kwargs={},
         )
     )
@@ -874,16 +895,16 @@ def run_season(cfg: OrchestratorConfig) -> None:
     try:
         if cleanup_enabled:
             if member_failures:
-                logger.info("Skipping season cleanup because some member runs failed.")
+                logger.info("Skipping project cleanup because some member runs failed.")
             else:
-                patterns = state_patterns_from_project(cfg.project_dir)
-                summary = cleanup_season_dir(project_dir=cfg.project_dir, season_dir=cfg.season_dir, patterns=patterns)
+                patterns = state_patterns_from_setup(cfg.project_dir)
+                summary = cleanup_setup_dir(setup_dir=cfg.project_dir, patterns=patterns)
                 patt = ",".join(summary.patterns)
                 if summary.attempted == 0:
-                    logger.info("Season cleanup: no matching state files found (patterns={})", patt)
+                    logger.info("Setup cleanup: no matching state files found (patterns={})", patt)
                 elif summary.failures:
                     logger.warning(
-                        "Season cleanup completed with {} failure(s): deleted {}/{} file(s), freed {:.1f} MB (patterns={})",
+                        "Setup cleanup completed with {} failure(s): deleted {}/{} file(s), freed {:.1f} MB (patterns={})",
                         summary.failures,
                         summary.files_deleted,
                         summary.attempted,
@@ -892,21 +913,21 @@ def run_season(cfg: OrchestratorConfig) -> None:
                     )
                 else:
                     logger.info(
-                        "Season cleanup succeeded: deleted {}/{} file(s), freed {:.1f} MB (patterns={})",
+                        "Setup cleanup succeeded: deleted {}/{} file(s), freed {:.1f} MB (patterns={})",
                         summary.files_deleted,
                         summary.attempted,
                         summary.bytes_freed / 1_000_000.0,
                         patt,
                     )
         else:
-            logger.info("Season cleanup disabled via project.yml (data_assimilation.restart.cleanup_after_season=false).")
+            logger.info("Project cleanup disabled via project YAML (data_assimilation.restart.cleanup_after_setup=false).")
     except Exception as exc:
-        logger.warning("Season cleanup failed: {}", exc)
+        logger.warning("Setup cleanup failed: {}", exc)
 
-    _setup_logger(cfg.season_dir, cfg.log_level)
+    _setup_logger(cfg.project_dir, cfg.log_level)
     run_end = datetime.utcnow()
     duration = (run_end - run_start).total_seconds()
-    logger.info("Season processing complete: {} (wall-clock {:.1f} s, ~{:.2f} h)", cfg.season_dir, duration, duration / 3600.0)
+    logger.info("Project processing complete: {} (wall-clock {:.1f} s, ~{:.2f} h)", cfg.project_dir, duration, duration / 3600.0)
 
     if perf_stop_event is not None:
         perf_stop_event.set()
@@ -915,9 +936,9 @@ def run_season(cfg: OrchestratorConfig) -> None:
 def cli(argv: Optional[List[str]] = None) -> int:
     import argparse
 
-    p = argparse.ArgumentParser(prog="oa-da-season", description="Process a full season: run steps, assimilate, resample, rejuvenate, plot.")
-    p.add_argument("--project-dir", type=Path, help="Project directory (auto-detected by walking up from --season-dir when omitted).")
-    p.add_argument("--season-dir", required=True, type=Path)
+    p = argparse.ArgumentParser(prog="oa-da-project", description="Process a full project: run steps, assimilate, resample, rejuvenate, plot.")
+    p.add_argument("--project-dir", type=Path, help="Project directory (auto-detected by walking up from --setup-dir when omitted).")
+    p.add_argument("--setup-dir", required=True, type=Path)
     p.add_argument(
         "--max-workers",
         type=int,
@@ -929,18 +950,18 @@ def cli(argv: Optional[List[str]] = None) -> int:
         "--live-plots",
         dest="live_plots",
         action="store_true",
-        help="Enable plotting during the season; default is off (plots run after completion).",
+        help="Enable plotting during the project run; default is off (plots run after completion).",
     )
     p.add_argument(
         "--no-live-plots",
         dest="live_plots",
         action="store_false",
-        help="Skip plotting during the season (default).",
+        help="Skip plotting during the project run (default).",
     )
     p.add_argument(
         "--monitor-perf",
         action="store_true",
-        help="Enable background performance monitor (CPU/RAM) during the season run.",
+        help="Enable background performance monitor (CPU/RAM) during the project run.",
     )
     p.add_argument(
         "--perf-sample-interval",
@@ -964,17 +985,17 @@ def cli(argv: Optional[List[str]] = None) -> int:
     p.set_defaults(live_plots=False)
     args = p.parse_args(argv)
 
-    season_dir = Path(args.season_dir)
-    project_dir = Path(args.project_dir) if args.project_dir is not None else _auto_project_dir(season_dir)
+    setup_dir = Path(args.setup_dir)
+    project_dir = Path(args.project_dir) if args.project_dir is not None else _auto_project_dir(setup_dir)
     if args.project_dir is None:
-        print(f"[oa-da-season] Auto-detected project dir: {project_dir}", file=sys.stderr)
+        print(f"[oa-da-project] Auto-detected project dir: {project_dir}", file=sys.stderr)
 
     resolved_workers = pick_max_workers(args.max_workers, fallback=4)
 
-    run_season(
+    run_project(
         OrchestratorConfig(
             project_dir=project_dir,
-            season_dir=season_dir,
+            setup_dir=setup_dir,
             max_workers=int(resolved_workers),
             overwrite=bool(args.overwrite),
             log_level=str(args.log_level or "INFO"),
@@ -990,3 +1011,6 @@ def cli(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli())
+
+
+

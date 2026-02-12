@@ -1,12 +1,12 @@
-"""
+﻿"""
 aggregate_fractions.py
 Author: openamundsen_da
 Date: 2025-12-02
 Description:
-    Aggregate member-level fraction time series into a season-wide envelope.
+    Aggregate member-level fraction time series into a setup-wide envelope.
 
     Looks for member CSVs (e.g., point_scf_roi.csv or point_wet_snow_roi.csv)
-    under <season>/steps/step_*/ensembles/prior/*/results and writes an envelope CSV
+    under <setup>/steps/step_*/ensembles/prior/*/results and writes an envelope CSV
     with date, value_mean, value_min, value_max, n.
 """
 
@@ -23,10 +23,10 @@ from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.io.paths import list_step_dirs
 
 
-def _find_series_files(season_dir: Path, filename: str) -> list[Path]:
-    """Return all matching member result CSVs for a season."""
+def _find_series_files(setup_dir: Path, filename: str) -> list[Path]:
+    """Return all matching member result CSVs for a setup."""
     files: list[Path] = []
-    for step_dir in list_step_dirs(season_dir):
+    for step_dir in list_step_dirs(setup_dir):
         pattern = "ensembles/prior/*/results/" + filename
         files.extend(p for p in step_dir.glob(pattern) if p.is_file())
     return sorted(files)
@@ -53,33 +53,33 @@ def _load_series(path: Path, value_col: str) -> pd.DataFrame | None:
 
 def aggregate_fraction_envelope(
     *,
-    season_dir: Path,
+    setup_dir: Path,
     filename: str,
     value_col: str,
     output_name: str,
 ) -> Path | None:
     """
-    Aggregate per-member fraction CSVs into a season-level envelope CSV.
+    Aggregate per-member fraction CSVs into a setup-level envelope CSV.
 
     Parameters
     ----------
-    season_dir : Path
-        Season directory containing steps/step_* folders.
+    setup_dir : Path
+        Setup directory containing steps/step_* folders.
     filename : str
         Member CSV filename to collect (e.g., point_scf_roi.csv).
     value_col : str
         Value column to aggregate (e.g., scf or wet_snow_fraction).
     output_name : str
-        Output CSV name written into the season directory.
+        Output CSV name written into the setup directory.
 
     Returns
     -------
     Path or None
         Path to the written envelope CSV, or None if no inputs found.
     """
-    files = _find_series_files(season_dir, filename)
+    files = _find_series_files(setup_dir, filename)
     if not files:
-        logger.warning("No member series found for {} under {}", filename, season_dir)
+        logger.warning("No member series found for {} under {}", filename, setup_dir)
         return None
 
     frames: list[pd.DataFrame] = []
@@ -93,7 +93,7 @@ def aggregate_fraction_envelope(
             frames.append(df)
 
     if not frames:
-        logger.warning("No usable rows found for {} under {}", filename, season_dir)
+        logger.warning("No usable rows found for {} under {}", filename, setup_dir)
         return None
 
     all_df = pd.concat(frames, ignore_index=True)
@@ -108,7 +108,7 @@ def aggregate_fraction_envelope(
         }
     ).sort_values("date")
 
-    out_path = Path(season_dir) / output_name
+    out_path = Path(setup_dir) / output_name
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(out_path, index=False)
     logger.info("Wrote envelope CSV ({} rows) -> {}", len(out), out_path)
@@ -121,9 +121,9 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     p = argparse.ArgumentParser(
         prog="oa-da-aggregate-fractions",
-        description="Aggregate member fraction time series into a season-level envelope CSV.",
+        description="Aggregate member fraction time series into a setup-level envelope CSV.",
     )
-    p.add_argument("--season-dir", required=True, type=Path, help="Season directory (propagation/season_YYYY-YYYY)")
+    p.add_argument("--setup-dir", required=True, type=Path, help="Setup directory (projects/setup_YYYY-YYYY)")
     p.add_argument("--filename", required=True, help="Member CSV filename to collect (e.g., point_scf_roi.csv)")
     p.add_argument("--value-col", required=True, help="Value column to aggregate (e.g., scf)")
     p.add_argument("--output-name", required=True, help="Output CSV name (e.g., point_scf_roi_envelope.csv)")
@@ -135,7 +135,7 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     try:
         aggregate_fraction_envelope(
-            season_dir=Path(args.season_dir),
+            setup_dir=Path(args.setup_dir),
             filename=str(args.filename),
             value_col=str(args.value_col),
             output_name=str(args.output_name),
@@ -148,3 +148,4 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
+

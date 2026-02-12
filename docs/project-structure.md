@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Project Structure
 nav_order: 3
@@ -7,308 +7,108 @@ nav_order: 3
 # Project Structure
 {: .no_toc }
 
-Understanding the directory layout and file organization.
+Directory layout and configuration ownership.
 {: .fs-6 .fw-300 }
-
-<details markdown="block">
-  <summary>
-    Table of contents
-  </summary>
-  {: .text-delta }
-1. TOC
-{:toc}
-</details>
-
----
 
 ## Repository Structure
 
-```
+```text
 openamundsen_da/
-├── openamundsen_da/          # Main Python package
-│   ├── core/                 # Core functionality
-│   ├── observer/             # Observation processing
-│   ├── methods/              # DA methods
-│   │   ├── pf/              # Particle filter
-│   │   ├── h_of_x/          # Forward operators
-│   │   ├── wet_snow/        # Wet snow classification
-│   │   └── viz/             # Visualization
-│   ├── pipeline/             # Pipeline orchestration
-│   ├── util/                 # Utilities
-│   └── io/                   # I/O operations
-├── templates/                # Project templates
-│   └── project/             # Template structure
-├── docs/                     # Documentation (this site)
-├── Dockerfile               # Docker container definition
-├── compose.yml              # Docker Compose configuration
-├── environment.yml          # Conda environment
-├── pyproject.toml           # Package metadata
-└── README.md                # Main README
+|-- openamundsen_da/
+|   |-- core/
+|   |-- observer/
+|   |-- methods/
+|   |-- pipeline/
+|   |-- util/
+|   `-- io/
+|-- templates/project/
+|-- docs/
+|-- tests/
+|-- scripts/
+`-- README.md
 ```
-
----
-
-## Package Organization
-
-### Core Module (`core/`)
-
-**Purpose**: Fundamental ensemble and forcing operations
-
-| File | Description |
-|:-----|:------------|
-| `prior_forcing.py` | Generates perturbed meteorological forcing |
-| `launch.py` | Parallel ensemble launcher |
-| `runner.py` | Single member execution |
-| `config.py` | Configuration loading and validation |
-| `constants.py` | Package-wide constants |
-| `env.py` | Environment setup |
-
-### Observer Module (`observer/`)
-
-**Purpose**: Satellite observation processing
-
-| File | Description |
-|:-----|:------------|
-| `snowcover.py` | Snow-cover summarization (class-configurable) |
-| `wetsnow.py` | Wet-snow summarization (class-configurable) |
-| `satellite_scf.py` | SCF per-step CSV writer from summaries |
-| `satellite_wet_snow_s1.py` | Wet-snow per-step CSV writer from summaries |
-| `fraction_obs.py` | Generic fraction observation handling |
-| `plot_fractions.py` | Observation visualization |
-| `plot_scf_summary.py` | SCF summary plots |
-
-### Methods Module (`methods/`)
-
-**Purpose**: Data assimilation algorithms and analysis
-
-#### Particle Filter (`methods/pf/`)
-
-| File | Description |
-|:-----|:------------|
-| `assimilate_scf.py` | Likelihood weight calculation |
-| `resample.py` | Systematic resampling implementation |
-| `rejuvenate.py` | Ensemble perturbation after resampling |
-| `plot_weights.py` | Weight visualization |
-| `plot_ess_timeline.py` | ESS monitoring plots |
-
-#### Forward Operators (`methods/h_of_x/`)
-
-| File | Description |
-|:-----|:------------|
-| `model_scf.py` | Model state → SCF operator |
-
-#### Wet Snow (`methods/wet_snow/`)
-
-| File | Description |
-|:-----|:------------|
-| `classify.py` | LWC-based wet/dry classification |
-| `area.py` | Wet snow area calculation |
-
-#### Visualization (`methods/viz/`)
-
-| File | Description |
-|:-----|:------------|
-| `plot_forcing_ensemble.py` | Forcing time series plots |
-| `plot_results_ensemble.py` | Results time series plots |
-| `plot_season_ensemble.py` | Season-wide ensemble plots |
-| `plot_station_variable.py` | Single-station variable plots |
-| `aggregate_fractions.py` | Fraction envelope aggregation |
-| `_style.py` | Plotting style configuration |
-| `_utils.py` | Plotting utilities |
-
-### Pipeline Module (`pipeline/`)
-
-**Purpose**: Workflow orchestration
-
-| File | Description |
-|:-----|:------------|
-| `season.py` | Main season pipeline orchestrator |
-| `season_skeleton.py` | Season directory structure builder |
-
-{: .note }
-> The pipeline module has no `__init__.py` - modules are executed as scripts.
-
-### Utility Module (`util/`)
-
-**Purpose**: Helper functions and utilities
-
-| File | Description |
-|:-----|:------------|
-| `aoi.py` | Area of interest operations |
-| `roi.py` | ROI polygon handling |
-| `landcover_mask.py` | Land-cover masking utilities |
-| `da_events.py` | DA event parsing from season.yml |
-| `perf_monitor.py` | Performance monitoring |
-| `stats.py` | Statistical utilities |
-| `ts.py` | Time series utilities |
-
----
 
 ## Project Data Structure
 
-When you set up a data assimilation project, it follows this structure:
-
-```
+```text
 project/
-├── env/                      # Environment data
-│   └── roi.gpkg             # Study area polygon (required)
-│
-├── grids/
-│   └── lc_<domain>_<resolution>.asc  # Land-cover classes for DA masking
-│
-├── meteo/                    # Meteorological forcing
-│   ├── stations.csv         # Station metadata
-│   ├── station_001.csv      # Long-span forcing time series
-│   ├── station_002.csv
-│   └── ...
-│
-├── obs/                      # Observations
-│   └── season_2019-2020/
-│       ├── scf_summary.csv           # Season-wide SCF summary
-│       ├── wet_snow_summary.csv      # Season-wide wet snow summary
-│       ├── NDSI_Snow_Cover_*.tif     # Preprocessed SCF rasters
-│       └── ...
-│
-├── propagation/              # Ensemble propagation (created by framework)
-│   └── season_2019-2020/
-│       ├── season.yml               # Season configuration
-│       ├── step_00_init/
-│       │   ├── step_00_init.yml
-│       │   └── ensembles/
-│       │       ├── prior/
-│       │       │   ├── open_loop/
-│       │       │   ├── member_001/
-│       │       │   ├── member_002/
-│       │       │   └── ...
-│       │       └── posterior/       # Created after resampling
-│       │           ├── member_001/
-│       │           └── ...
-│       ├── step_01_YYYYMMDD-YYYYMMDD/
-│       │   ├── step_01.yml
-│       │   ├── ensembles/
-│       │   ├── assim/               # Assimilation outputs
-│       │   │   ├── weights_scf_YYYYMMDD.csv
-│       │   │   └── indices_YYYYMMDD.csv
-│       │   └── obs/                 # Per-step observations
-│       │       └── obs_scf_SNOWCOVER_YYYYMMDD.csv
-│       ├── step_02_.../
-│       └── plots/                   # All visualization outputs
-│           ├── forcing/
-│           ├── results/
-│           ├── assim/
-│           │   ├── weights/
-│           │   └── ess/
-│           └── perf/
-│
-└── project.yml               # Main project configuration (required)
+|-- project.yml
+|-- env/
+|   `-- roi.gpkg
+|-- grids/
+|   `-- lc_<domain>_<resolution>.asc
+|-- meteo/
+|   |-- stations.csv
+|   `-- <station>.csv
+|-- obs/
+|   |-- snowcover/
+|   |-- wetsnow/
+|   |-- project_YYYY-YYYY/
+|   |   |-- scf_summary.csv
+|   |   `-- wet_snow_summary.csv
+|   `-- summaries/project_YYYY-YYYY/
+|-- projects/
+|   `-- project_YYYY-YYYY/
+|       |-- setup.yml
+|       |-- steps/
+|       |   |-- step_00_init/
+|       |   |   |-- step_00.yml
+|       |   |   `-- ensembles/{prior,posterior}/
+|       |   |-- step_01_YYYYMMDD-YYYYMMDD/
+|       |   |   |-- step_01.yml
+|       |   |   |-- assim/
+|       |   |   |-- obs/
+|       |   |   `-- ensembles/{prior,posterior}/
+|       |   `-- ...
+|       `-- plots/
+`-- obs_selection.config.yml
 ```
-
----
 
 ## Configuration Files
 
-### project.yml (Required)
+### `project.yml`
+Project-wide and stable openAMUNDSEN configuration.
+- Domain, CRS, resolution, timestep
+- OA output variables and frequencies
+- Environment paths and base model settings
+- Observation class mappings and product tags under `obs.*`
 
-Main configuration file defining:
-- Model settings (timestep, domain)
-- Ensemble configuration (size, perturbations)
-- DA parameters (H(x), resampling, rejuvenation)
-- Paths and environment variables
+No DA orchestration keys should be placed here.
 
-See [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) for details.
+### `setup.yml`
+Setup-level DA configuration and time span.
+- `start_date`, `end_date`
+- `data_assimilation.prior_forcing`
+- `data_assimilation.h_of_x`
+- `data_assimilation.likelihood`
+- `data_assimilation.resampling`
+- `data_assimilation.rejuvenation`
+- `data_assimilation.restart`
+- `data_assimilation.landcover_mask`
+- `data_assimilation.assimilation_events`
 
-### season.yml (Required for each season)
+### `step_XX.yml`
+Auto-generated step window configuration.
+- `start_date`, `end_date`
+- `results_dir`
 
-Season-specific configuration:
-- Start and end dates
-- Assimilation dates/events
-- Season-specific overrides
+## Naming Glossary
+- `project`: global, stable OA config/data container
+- `setup`: one DA configuration unit with its own time span
+- `step`: one assimilation window inside a setup
+- `member`: one ensemble member
+- `run`: execution of a setup (event), not a config object
 
-### step_XX.yml (Auto-generated)
-
-Step-specific configuration:
-- Step boundaries (start_date, end_date)
-- Results directory
-- Warm-start pointers
-
----
-
-## Member Directory Structure
-
-Each ensemble member has this structure:
-
-```
-member_001/
-├── config.yml               # Merged openAMUNDSEN config
-├── forcing/                 # Perturbed forcing
-│   ├── station_001.csv
-│   └── ...
-├── results/                 # Model outputs (see openAMUNDSEN output docs)
-│   ├── point_station.csv    # Point time series
-│   ├── point_scf_roi.csv    # Model SCF (when enabled)
-│   └── model_state.pickle.gz  # Model state for warm start
-└── state_pointer.json       # Points to current state file
-```
-
-The `state_pointer.json` contains the path to the model state:
-```json
-{
-  "path": "/abs/or/rel/path/to/model_state.pickle.gz"
-}
-```
-
-{: .note }
-> For details on openAMUNDSEN output variables, see the [openAMUNDSEN Documentation](http://doc.openamundsen.org/).
-
----
-
-## Data Flow
-
-```mermaid
-graph TD
-    A[meteo/] --> B[Prior Forcing]
-    B --> C[member_001..N/]
-    C --> D[openAMUNDSEN Run]
-    D --> E[results/]
-    F[obs/] --> G[H(x) Forward Operator]
-    E --> G
-    G --> H[Particle Filter]
-    H --> I[Resampling]
-    I --> J[Rejuvenation]
-    J --> K[Next Step Prior]
-    K --> C
-```
-
----
-
-## File Naming Conventions
-
-### Observations
-
-- **SCF observations**: `obs_scf_{PRODUCT}_{YYYYMMDD}.csv`
-  - Example: `obs_scf_SNOWCOVER_20191122.csv`
-  - Example: `obs_scf_SNOWFLAKE_20200315.csv`
-
-- **Wet snow observations**: `obs_wet_snow_{PRODUCT}_{YYYYMMDD}.csv`
-  - Example: `obs_wet_snow_S1_20200401.csv`
-
-### Assimilation Outputs
-
-- **Weights**: `weights_{variable}_{YYYYMMDD}.csv`
-  - Example: `weights_scf_20191122.csv`
-  - Example: `weights_wet_snow_20200401.csv`
-
-- **Resampling indices**: `indices_{YYYYMMDD}.csv`
-
-### Model States
-
-- **State files**: `model_state.pickle.gz` (default pattern)
-  - Configurable via `data_assimilation.restart.state_pattern` in `project.yml`
-
----
+## File Naming
+- SCF obs CSV: `obs_scf_<PRODUCT>_YYYYMMDD.csv`
+- Wet-snow obs CSV: `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`
+- Weights CSV: `weights_<variable>_YYYYMMDD.csv`
+- Resampling indices: `indices_YYYYMMDD.csv`
+- Model state default: `model_state.pickle.gz` (configured in `setup.yml`)
 
 ## Next Steps
+- [Workflow Overview]({{ site.baseurl }}{% link workflow.md %})
+- [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %})
+- [Running Experiments]({{ site.baseurl }}{% link guides/experiments/index.md %})
 
-- [Workflow Overview]({{ site.baseurl }}{% link workflow.md %}) - Understanding the DA cycle
-- [Configuration Guide]({{ site.baseurl }}{% link guides/configuration.md %}) - Detailed configuration reference
-- [Running Experiments]({{ site.baseurl }}{% link guides/experiments/index.md %}) - Setting up your first experiment
+

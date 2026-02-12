@@ -1,4 +1,4 @@
-import tempfile
+﻿import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
@@ -20,13 +20,13 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
     def test_missing_scf_output_is_reported(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            project_dir = root / "project"
-            season_dir = project_dir / "propagation" / "season_2022_2023"
-            step0 = season_dir / "steps" / "step_00_init"
-            step1 = season_dir / "steps" / "step_01_a"
+            setup_dir = root / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2022_2023"
+            step0 = project_dir / "steps" / "step_00_init"
+            step1 = project_dir / "steps" / "step_01_a"
 
             _write_yaml(
-                project_dir / "project.yml",
+                setup_dir / "setup_root.yml",
                 {"output_data": {"grids": {"variables": []}}},
             )
             (step0 / "obs").mkdir(parents=True, exist_ok=True)
@@ -36,8 +36,8 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
             events = [AssimilationEvent(date=date(2022, 10, 3), variable="scf", product="SNOWCOVER")]
             with self.assertRaises(ValueError) as ctx:
                 validate_assimilation_requirements(
+                    setup_dir=setup_dir,
                     project_dir=project_dir,
-                    season_dir=season_dir,
                     steps=[step0, step1],
                     events=events,
                 )
@@ -46,13 +46,13 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
     def test_missing_obs_file_is_reported(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            project_dir = root / "project"
-            season_dir = project_dir / "propagation" / "season_2022_2023"
-            step0 = season_dir / "steps" / "step_00_init"
-            step1 = season_dir / "steps" / "step_01_a"
+            setup_dir = root / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2022_2023"
+            step0 = project_dir / "steps" / "step_00_init"
+            step1 = project_dir / "steps" / "step_01_a"
 
             _write_yaml(
-                project_dir / "project.yml",
+                setup_dir / "setup_root.yml",
                 {
                     "output_data": {
                         "grids": {
@@ -69,8 +69,8 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
             events = [AssimilationEvent(date=date(2022, 10, 3), variable="scf", product="SNOWCOVER")]
             with self.assertRaises(ValueError) as ctx:
                 validate_assimilation_requirements(
+                    setup_dir=setup_dir,
                     project_dir=project_dir,
-                    season_dir=season_dir,
                     steps=[step0, step1],
                     events=events,
                 )
@@ -81,14 +81,14 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
     def test_passes_when_required_outputs_and_obs_exist(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            project_dir = root / "project"
-            season_dir = project_dir / "propagation" / "season_2022_2023"
-            step0 = season_dir / "steps" / "step_00_init"
-            step1 = season_dir / "steps" / "step_01_a"
-            step2 = season_dir / "steps" / "step_02_b"
+            setup_dir = root / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2022_2023"
+            step0 = project_dir / "steps" / "step_00_init"
+            step1 = project_dir / "steps" / "step_01_a"
+            step2 = project_dir / "steps" / "step_02_b"
 
             _write_yaml(
-                project_dir / "project.yml",
+                setup_dir / "setup_root.yml",
                 {
                     "output_data": {
                         "grids": {
@@ -114,8 +114,8 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                 AssimilationEvent(date=date(2022, 10, 5), variable="wet_snow", product="WETSNOW"),
             ]
             validate_assimilation_requirements(
+                setup_dir=setup_dir,
                 project_dir=project_dir,
-                season_dir=season_dir,
                 steps=[step0, step1, step2],
                 events=events,
             )
@@ -123,3 +123,4 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

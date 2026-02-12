@@ -1,8 +1,8 @@
-"""Land-cover based masking for DA grids and observations.
+﻿"""Land-cover based masking for DA grids and observations.
 
 This module replaces the former glacier mask logic. It resolves the land-cover
-file from project.yml, reads mask settings, reprojects the mask to a target
-grid, and applies the requested exclusions.
+file from setup YAML, reads DA mask settings from project YAML, reprojects the
+mask to a target grid, and applies the requested exclusions.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from rasterio.mask import mask as rio_mask
 from rasterio.warp import Resampling, reproject
 
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import find_project_yaml
+from openamundsen_da.io.paths import find_setup_yaml, find_project_yaml
 from openamundsen_da.util.roi import read_single_roi
 
 LC_MASK_BLOCK = "landcover_mask"
@@ -79,14 +79,14 @@ def _format_resolution(resolution: object) -> str:
     return str(resolution).strip()
 
 
-def _derive_landcover_path(project_dir: Path, domain: str, resolution: object) -> Path:
+def _derive_landcover_path(setup_dir: Path, domain: str, resolution: object) -> Path:
     """Find land-cover file matching lc_<domain>_<resolution>*.asc under grids/.
 
     Prefers an exact name lc_<domain>_<resolution>.asc. If not present, falls
     back to a single unique match with a suffix (e.g., lc_domain_res_large.asc).
     Raises when zero or multiple matches are found to avoid ambiguous selection.
     """
-    grids_dir = Path(project_dir) / "grids"
+    grids_dir = Path(setup_dir) / "grids"
     base = f"lc_{domain}_{_format_resolution(resolution)}"
     exact = grids_dir / f"{base}.asc"
     if exact.is_file():
@@ -104,35 +104,37 @@ def _derive_landcover_path(project_dir: Path, domain: str, resolution: object) -
     return candidates[0]
 
 
-def resolve_landcover_mask(project_dir: Path) -> LandcoverMaskConfig:
-    """Return land-cover mask configuration from project.yml."""
-    proj_yaml = find_project_yaml(project_dir)
-    cfg = _read_yaml_file(proj_yaml) or {}
-    da_cfg = cfg.get("data_assimilation") or {}
+def resolve_landcover_mask(setup_dir: Path, project_dir: Path) -> LandcoverMaskConfig:
+    """Return land-cover mask configuration from setup YAML + project YAML."""
+    setup_yaml = find_setup_yaml(setup_dir)
+    project_yaml = find_project_yaml(project_dir)
+    setup_cfg = _read_yaml_file(setup_yaml) or {}
+    project_cfg = _read_yaml_file(project_yaml) or {}
+    da_cfg = project_cfg.get("data_assimilation") or {}
     lc_cfg = da_cfg.get(LC_MASK_BLOCK) or {}
     enabled = bool(lc_cfg.get(LC_MASK_ENABLED, False))
     classes_raw = lc_cfg.get(LC_MASK_CLASSES) or []
     classes: tuple[int, ...] = tuple(int(c) for c in classes_raw) if enabled else tuple()
 
-    crs_val = cfg.get("crs")
+    crs_val = setup_cfg.get("crs")
     if not crs_val:
-        raise ValueError(f"{proj_yaml} missing required 'crs' for land-cover masking")
+        raise ValueError(f"{setup_yaml} missing required 'crs' for land-cover masking")
     project_crs = CRS.from_user_input(crs_val)
 
     if not enabled:
         return LandcoverMaskConfig(enabled=False, path=None, classes=tuple(), project_crs=project_crs)
 
     if not classes:
-        raise ValueError(f"Land-cover mask enabled in {proj_yaml} but 'classes_to_exclude' is empty")
+        raise ValueError(f"Land-cover mask enabled in {project_yaml} but 'classes_to_exclude' is empty")
 
-    domain = cfg.get("domain")
-    resolution = cfg.get("resolution")
+    domain = setup_cfg.get("domain")
+    resolution = setup_cfg.get("resolution")
     if domain is None:
-        raise ValueError(f"{proj_yaml} missing 'domain' required for land-cover filename derivation")
+        raise ValueError(f"{setup_yaml} missing 'domain' required for land-cover filename derivation")
     if resolution is None:
-        raise ValueError(f"{proj_yaml} missing 'resolution' required for land-cover filename derivation")
+        raise ValueError(f"{setup_yaml} missing 'resolution' required for land-cover filename derivation")
 
-    lc_path = _derive_landcover_path(Path(project_dir), str(domain), resolution)
+    lc_path = _derive_landcover_path(Path(setup_dir), str(domain), resolution)
     if not lc_path.is_file():
         raise FileNotFoundError(f"Land-cover mask enabled but file not found: {lc_path}")
 
@@ -346,3 +348,4 @@ __all__ = [
     "summarize_landcover_mask",
     "write_landcover_mask_report",
 ]
+

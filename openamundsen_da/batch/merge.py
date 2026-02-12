@@ -1,4 +1,4 @@
-"""Merge per-subregion outputs back to a global mosaic."""
+"""Merge per-subregion outputs back to a global hard mosaic (no blending)."""
 
 from __future__ import annotations
 
@@ -32,21 +32,68 @@ def _window_slices(sub: SubregionMeta, data_shape: Tuple[int, int], global_shape
     )
 
 
+def _expected_coverage_mask(
+    manifest: BatchManifest,
+    selected_ids: Iterable[str],
+    global_shape: Tuple[int, int],
+) -> np.ndarray:
+    """Build a global boolean mask of pixels expected to be covered by subregions."""
+    expected = np.zeros(global_shape, dtype=bool)
+    for sid in selected_ids:
+        sub = manifest.subregions[sid]
+        roi = _load_roi(sub)
+        sl_r, sl_c = _window_slices(sub, roi.shape, global_shape)
+        if roi.shape == global_shape:
+            expected |= roi
+            continue
+        view = expected[sl_r, sl_c]
+        if view.shape != roi.shape:
+            logger.warning("Coverage ROI shape mismatch for {}: {} vs {}", sid, roi.shape, view.shape)
+            continue
+        view |= roi
+        expected[sl_r, sl_c] = view
+    return expected
+
+
+def _validate_coverage_or_raise(
+    *,
+    target_name: str,
+    expected_mask: np.ndarray,
+    data_mask: np.ndarray,
+    sliver_tol_px: int,
+) -> None:
+    """Fail if uncovered expected pixels exceed tolerance."""
+    uncovered = expected_mask & (~data_mask)
+    uncovered_count = int(np.count_nonzero(uncovered))
+    if uncovered_count <= int(sliver_tol_px):
+        if uncovered_count > 0:
+            logger.warning(
+                "Coverage check: {} has {} uncovered expected pixel(s) within tolerance {}",
+                target_name,
+                uncovered_count,
+                sliver_tol_px,
+            )
+        return
+    raise ValueError(
+        f"Coverage check failed for {target_name}: {uncovered_count} uncovered expected pixel(s) "
+        f"(tolerance {sliver_tol_px})."
+    )
+
+
 def merge_grids(
     *,
     manifest_path: Path,
-    mode: str = "hard_clip",
     subregions: Optional[Iterable[str]] = None,
     out_dir: Optional[Path] = None,
+    coverage_sliver_tol_px: int = 4,
 ) -> List[Path]:
-    """Merge gridded outputs (GeoTIFF or NetCDF) across subregions."""
-    if mode not in {"hard_clip", "blend"}:
-        raise ValueError("mode must be 'hard_clip' or 'blend'")
+    """Merge gridded outputs (GeoTIFF or NetCDF) across subregions as hard mosaic."""
 
     manifest = BatchManifest.load(manifest_path)
     selected_ids = list(subregions) if subregions else list(manifest.subregions.keys())
     global_shape = (manifest.grid_rows, manifest.grid_cols)
     global_transform = Affine(*manifest.grid_transform)
+    expected_mask = _expected_coverage_mask(manifest, selected_ids, global_shape)
 
     out_base = out_dir or (manifest_path.parent / "merged" / "grids")
     out_base.mkdir(parents=True, exist_ok=True)
@@ -68,9 +115,28 @@ def merge_grids(
 
     written: List[Path] = []
     if tif_groups:
-        written.extend(_merge_tifs(tif_groups, global_shape, global_transform, manifest.crs, mode, out_base))
+        written.extend(
+            _merge_tifs(
+                tif_groups,
+                global_shape,
+                global_transform,
+                manifest.crs,
+                out_base,
+                expected_mask,
+                int(coverage_sliver_tol_px),
+            )
+        )
     if nc_paths:
-        written.append(_merge_netcdf(nc_paths, global_shape, manifest, mode, out_base))
+        written.append(
+            _merge_netcdf(
+                nc_paths,
+                global_shape,
+                manifest,
+                out_base,
+                expected_mask,
+                int(coverage_sliver_tol_px),
+            )
+        )
     return written
 
 
@@ -79,8 +145,9 @@ def _merge_tifs(
     global_shape: Tuple[int, int],
     transform: Affine,
     crs: Optional[str],
-    mode: str,
     out_dir: Path,
+    expected_mask: np.ndarray,
+    sliver_tol_px: int,
 ) -> List[Path]:
     outputs: List[Path] = []
     for fname, entries in sorted(tif_groups.items()):
@@ -90,7 +157,6 @@ def _merge_tifs(
             nodata = ds0.nodata
 
         data_global = np.full(global_shape, np.nan, dtype=float)
-        weight_global = np.zeros(global_shape, dtype=float) if mode == "blend" else None
 
         for sub, tif_path in entries:
             roi = _load_roi(sub)
@@ -110,25 +176,17 @@ def _merge_tifs(
 
             arr = np.where(mask, arr, np.nan)
 
-            if mode == "hard_clip":
-                dest = data_global[sl_r, sl_c]
-                replace = np.isnan(dest) & ~np.isnan(arr)
-                dest[replace] = arr[replace]
-                data_global[sl_r, sl_c] = dest
-            else:
-                dest = data_global[sl_r, sl_c]
-                wdest = weight_global[sl_r, sl_c] if weight_global is not None else None
-                valid = ~np.isnan(arr)
-                dest[valid] += arr[valid]
-                if wdest is not None:
-                    wdest[valid] += 1.0
-                data_global[sl_r, sl_c] = dest
-                if weight_global is not None:
-                    weight_global[sl_r, sl_c] = wdest
+            dest = data_global[sl_r, sl_c]
+            replace = np.isnan(dest) & ~np.isnan(arr)
+            dest[replace] = arr[replace]
+            data_global[sl_r, sl_c] = dest
 
-        if mode == "blend" and weight_global is not None:
-            with np.errstate(invalid="ignore", divide="ignore"):
-                data_global = np.where(weight_global > 0, data_global / np.maximum(weight_global, 1e-6), np.nan)
+        _validate_coverage_or_raise(
+            target_name=fname,
+            expected_mask=expected_mask,
+            data_mask=~np.isnan(data_global),
+            sliver_tol_px=sliver_tol_px,
+        )
 
         out_path = out_dir / fname
         nd = nodata if nodata is not None else (-9999.0 if np.issubdtype(np.dtype(dtype), np.floating) else -9999)
@@ -161,8 +219,9 @@ def _merge_netcdf(
     nc_paths: List[Tuple[SubregionMeta, Path]],
     global_shape: Tuple[int, int],
     manifest: BatchManifest,
-    mode: str,
     out_dir: Path,
+    expected_mask: np.ndarray,
+    sliver_tol_px: int,
 ) -> Path:
     base_sub, base_nc = nc_paths[0]
     ds_template = xr.open_dataset(base_nc)
@@ -178,8 +237,6 @@ def _merge_netcdf(
     coords["y"] = ("y", ys)
 
     data_vars: Dict[str, Dict] = {}
-    weights: Dict[str, np.ndarray] = {}
-
     for name, da in ds_template.data_vars.items():
         y_idx = da.dims.index("y")
         x_idx = da.dims.index("x")
@@ -199,8 +256,6 @@ def _merge_netcdf(
             "y_idx": y_idx,
             "x_idx": x_idx,
         }
-        if mode == "blend":
-            weights[name] = np.zeros(shape, dtype=np.float32)
 
     for sub, nc_path in nc_paths:
         roi = _load_roi(sub)
@@ -241,28 +296,28 @@ def _merge_netcdf(
             target = info["array"]
             dest = target[tuple(slice_obj)]
 
-            if mode == "hard_clip":
-                replace = np.isnan(dest) & ~np.isnan(arr)
-                dest[replace] = arr[replace]
-            else:
-                valid = ~np.isnan(arr)
-                dest_valid = np.where(np.isnan(dest), 0.0, dest)
-                dest_valid[valid] += arr[valid]
-                dest = dest_valid
-                w = weights[name]
-                w_slice = w[tuple(slice_obj)]
-                w_slice[valid] += 1.0
-                w[tuple(slice_obj)] = w_slice
-                weights[name] = w
+            replace = np.isnan(dest) & ~np.isnan(arr)
+            dest[replace] = arr[replace]
 
             target[tuple(slice_obj)] = dest
             info["array"] = target
         ds.close()
 
-    if mode == "blend":
-        for name, w in weights.items():
-            arr = data_vars[name]["array"]
-            data_vars[name]["array"] = np.where(w > 0, arr / np.maximum(w, 1e-6), arr)
+    for name, info in data_vars.items():
+        arr = info["array"]
+        # Collapse non-spatial dims with any() so each expected pixel must be represented at least once.
+        valid = ~np.isnan(arr)
+        while valid.ndim > 2:
+            valid = valid.any(axis=0)
+        if valid.shape != expected_mask.shape:
+            logger.warning("Coverage check skipped for NetCDF var {} due shape mismatch {}", name, valid.shape)
+            continue
+        _validate_coverage_or_raise(
+            target_name=f"output_grids.nc:{name}",
+            expected_mask=expected_mask,
+            data_mask=valid,
+            sliver_tol_px=sliver_tol_px,
+        )
 
     out_data_vars = {}
     for name, info in data_vars.items():

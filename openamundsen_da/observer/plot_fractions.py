@@ -1,4 +1,4 @@
-"""
+﻿"""
 plot_fractions.py
 Author: openamundsen_da
 Date: 2025-12-02
@@ -6,13 +6,13 @@ Description:
     Plot SCF and wet-snow fractions (obs + model) in one figure.
 
     Sources (all optional; at least one required):
-    - SCF observations: obs/<season>/scf_summary.csv
-    - Wet-snow observations: obs/<season>/wet_snow_summary.csv
+    - SCF observations: obs/<setup>/scf_summary.csv
+    - Wet-snow observations: obs/<setup>/wet_snow_summary.csv
     - Model SCF: CSV with date/time column and scf
     - Model wet snow: CSV with date/time column and wet_snow_fraction
 
-    Defaults resolve obs paths from season/project and write
-    plots/results/fraction_timeseries.png under the season directory.
+    Defaults resolve obs paths from setup/project and write
+    plots/results/fraction_timeseries.png under the setup directory.
 """
 
 from __future__ import annotations
@@ -65,14 +65,14 @@ def _load_fraction(path: Path, value_col: str) -> Optional[pd.DataFrame]:
     return df[cols].dropna(subset=[value_col]).sort_values("date")
 
 
-def _default_obs_path(project_dir: Path, season_name: str, filename: str) -> Path:
-    """Return obs path, with basic dash/underscore fallback on season name."""
-    candidates = [project_dir / "obs" / season_name / filename]
-    if "-" in season_name:
-        alt = season_name.replace("-", "_")
+def _default_obs_path(project_dir: Path, setup_name: str, filename: str) -> Path:
+    """Return obs path, with basic dash/underscore fallback on setup name."""
+    candidates = [project_dir / "obs" / setup_name / filename]
+    if "-" in setup_name:
+        alt = setup_name.replace("-", "_")
         candidates.append(project_dir / "obs" / alt / filename)
-    elif "_" in season_name:
-        alt = season_name.replace("_", "-")
+    elif "_" in setup_name:
+        alt = setup_name.replace("_", "-")
         candidates.append(project_dir / "obs" / alt / filename)
     for cand in candidates:
         if cand.is_file():
@@ -80,18 +80,18 @@ def _default_obs_path(project_dir: Path, season_name: str, filename: str) -> Pat
     return candidates[0]
 
 
-def _default_output(season_dir: Path, output: Optional[Path]) -> Path:
+def _default_output(project_dir: Path, output: Optional[Path]) -> Path:
     if output is not None:
         return output
-    out_dir = season_dir / "plots" / "results"
+    out_dir = project_dir / "plots" / "results"
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir / "fraction_timeseries.png"
 
 
-def _load_open_loop_series(season_dir: Path, filename: str, value_col: str) -> Optional[pd.DataFrame]:
+def _load_open_loop_series(project_dir: Path, filename: str, value_col: str) -> Optional[pd.DataFrame]:
     """Stitch open_loop point series across steps into one DataFrame."""
     files: list[Path] = []
-    for step in list_step_dirs(season_dir):
+    for step in list_step_dirs(project_dir):
         f = step / "ensembles" / "prior" / "open_loop" / "results" / filename
         if f.is_file():
             files.append(f)
@@ -299,15 +299,15 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
         prog="oa-da-plot-fractions",
         description="Plot SCF and wet-snow fractions (obs and model) in one figure.",
     )
-    parser.add_argument("--season-dir", required=True, type=Path, help="Season directory (propagation/season_YYYY-YYYY)")
-    parser.add_argument("--project-dir", type=Path, help="Project directory (default: season_dir/../..)")
+    parser.add_argument("--project-dir", required=True, type=Path, help="Project directory (setup/projects/project_YYYY_YYYY)")
+    parser.add_argument("--setup-dir", type=Path, help="Setup directory (default: project_dir/../..)")
     parser.add_argument("--scf-obs-csv", type=Path, help="Path to scf_summary.csv (obs)")
     parser.add_argument("--wet-obs-csv", type=Path, help="Path to wet_snow_summary.csv (obs)")
     parser.add_argument("--scf-model-csv", type=Path, help="Model SCF CSV (date/time + scf)")
     parser.add_argument("--wet-model-csv", type=Path, help="Model wet-snow CSV (date/time + wet_snow_fraction)")
     parser.add_argument("--scf-env-csv", type=Path, help="SCF envelope CSV (value_min/value_max/value_mean)")
     parser.add_argument("--wet-env-csv", type=Path, help="Wet-snow envelope CSV (value_min/value_max/value_mean)")
-    parser.add_argument("--output", type=Path, help="Output PNG path (default: <season>/plots/results/fraction_timeseries.png)")
+    parser.add_argument("--output", type=Path, help="Output PNG path (default: <project>/plots/results/fraction_timeseries.png)")
     parser.add_argument("--title", type=str, help="Figure title")
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
     parser.add_argument("--mode", choices=["band", "members"], default="band", help="Plot mode: band (default) or members")
@@ -317,14 +317,14 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
         logger.remove()
         logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
-    season_dir = Path(args.season_dir)
-    season_name = season_dir.name
-    project_dir = Path(args.project_dir) if args.project_dir else season_dir.parent.parent
+    project_dir = Path(args.project_dir)
+    setup_dir = Path(args.setup_dir) if args.setup_dir else project_dir.parent.parent
+    project_name = project_dir.name
 
-    scf_obs_path = Path(args.scf_obs_csv) if args.scf_obs_csv else _default_obs_path(project_dir, season_name, "scf_summary.csv")
-    wet_obs_path = Path(args.wet_obs_csv) if args.wet_obs_csv else _default_obs_path(project_dir, season_name, "wet_snow_summary.csv")
-    scf_env_path = Path(args.scf_env_csv) if args.scf_env_csv else (season_dir / "point_scf_roi_envelope.csv")
-    wet_env_path = Path(args.wet_env_csv) if args.wet_env_csv else (season_dir / "point_wet_snow_roi_envelope.csv")
+    scf_obs_path = Path(args.scf_obs_csv) if args.scf_obs_csv else _default_obs_path(setup_dir, project_name, "scf_summary.csv")
+    wet_obs_path = Path(args.wet_obs_csv) if args.wet_obs_csv else _default_obs_path(setup_dir, project_name, "wet_snow_summary.csv")
+    scf_env_path = Path(args.scf_env_csv) if args.scf_env_csv else (project_dir / "point_scf_roi_envelope.csv")
+    wet_env_path = Path(args.wet_env_csv) if args.wet_env_csv else (project_dir / "point_wet_snow_roi_envelope.csv")
 
     scf_obs = None
     try:
@@ -336,9 +336,9 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     scf_model = _load_fraction(Path(args.scf_model_csv), "scf") if args.scf_model_csv else None
     wet_model = _load_fraction(Path(args.wet_model_csv), "wet_snow_fraction") if args.wet_model_csv else None
     if scf_model is None:
-        scf_model = _load_open_loop_series(season_dir, "point_scf_roi.csv", "scf")
+        scf_model = _load_open_loop_series(project_dir, "point_scf_roi.csv", "scf")
     if wet_model is None:
-        wet_model = _load_open_loop_series(season_dir, "point_wet_snow_roi.csv", "wet_snow_fraction")
+        wet_model = _load_open_loop_series(project_dir, "point_wet_snow_roi.csv", "wet_snow_fraction")
     scf_env = _load_fraction(scf_env_path, "value_mean")
     if scf_env is not None and not scf_env.empty and {"value_min", "value_max"}.issubset(scf_env.columns) is False:
         scf_env = None
@@ -347,13 +347,13 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
         wet_env = None
 
     if scf_obs is None or scf_obs.empty:
-        logger.warning("SCF obs not found at {} – plotting without obs points", scf_obs_path)
+        logger.warning("SCF obs not found at {} â€“ plotting without obs points", scf_obs_path)
     if wet_obs is None or wet_obs.empty:
-        logger.warning("Wet-snow obs not found at {} – plotting without obs points", wet_obs_path)
+        logger.warning("Wet-snow obs not found at {} â€“ plotting without obs points", wet_obs_path)
 
     assim_events = []
     try:
-        assim_events = load_assimilation_events(season_dir)
+        assim_events = load_assimilation_events(project_dir)
     except Exception:
         assim_events = []
     assim_scf = [pd.to_datetime(ev.date) for ev in assim_events if ev.variable == "scf"]
@@ -364,7 +364,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
         logger.error("No data available to plot. Provide at least one obs/model series.")
         return 1
 
-    out_path = _default_output(season_dir, args.output)
+    out_path = _default_output(project_dir, args.output)
     fig_title = str(args.title) if args.title else None
     # Build global DA labels (shared numbering across variables) for consistent
     # annotation in both SCF and wet-snow panels.
@@ -398,3 +398,4 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
+

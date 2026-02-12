@@ -73,42 +73,42 @@ def _plot(df: pd.DataFrame, normalized: bool, threshold: float | None, title: st
     return fig
 
 
-def _season_id_from_dir(season_dir: Path) -> str:
-    """Derive a compact season identifier from a season directory name.
+def _setup_id_from_dir(setup_dir: Path) -> str:
+    """Derive a compact setup identifier from a setup directory name.
 
-    Mirrors the behavior used in plot_season_ensemble: if the directory
-    name contains an underscore (e.g., 'season_2017-2018'), the portion
+    Mirrors the behavior used in plot_setup_ensemble: if the directory
+    name contains an underscore (e.g., 'setup_2017-2018'), the portion
     after the first underscore is used; otherwise the directory name is
     returned as-is.
     """
-    name = season_dir.name
+    name = setup_dir.name
     if "_" in name:
         return name.split("_", 1)[1]
     return name
 
 
-def plot_season_ess_timeline(
-    season_dir: Path,
+def plot_setup_ess_timeline(
+    setup_dir: Path,
     *,
     normalized: bool = False,
     threshold: float | None = None,
     backend: str = "Agg",
 ) -> Path:
-    """Season-wide ESS timeline across all steps.
+    """Setup-wide ESS timeline across all steps.
 
-    Scans steps/step_*/assim/weights_scf_*.csv under season_dir, computes ESS per
+    Scans steps/step_*/assim/weights_scf_*.csv under setup_dir, computes ESS per
     assimilation date, and writes a single PNG under
-    <season_dir>/plots/assim/ess/season_ess_timeline_<season_id>.png.
+    <setup_dir>/plots/assim/ess/setup_ess_timeline_<setup_id>.png.
     """
-    season_dir = Path(season_dir)
+    setup_dir = Path(setup_dir)
     files: list[tuple[datetime, Path]] = []
-    for step in list_step_dirs(season_dir):
+    for step in list_step_dirs(setup_dir):
         assim_dir = step / "assim"
         if not assim_dir.is_dir():
             continue
         files.extend(_scan_weights(assim_dir))
     if not files:
-        raise FileNotFoundError(f"No weights_scf_*.csv found under steps in {season_dir}")
+        raise FileNotFoundError(f"No weights_scf_*.csv found under steps in {setup_dir}")
 
     df = _compute_series(files)
     fig = _plot(
@@ -119,10 +119,10 @@ def plot_season_ess_timeline(
         subtitle=None,
         backend=backend,
     )
-    season_id = _season_id_from_dir(season_dir)
-    out_dir = season_dir / "plots" / "assim" / "ess"
+    setup_id = _setup_id_from_dir(setup_dir)
+    out_dir = setup_dir / "plots" / "assim" / "ess"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"season_ess_timeline_{season_id}.png"
+    out = out_dir / f"setup_ess_timeline_{setup_id}.png"
     fig.savefig(out, dpi=150, bbox_inches="tight", pad_inches=0.1)
     return out
 

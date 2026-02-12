@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Reference
 nav_order: 6
@@ -21,3 +21,4 @@ This section contains technical reference documentation:
 
 {: .note }
 > This section is intended for developers and users who want to extend or customize the framework.
+

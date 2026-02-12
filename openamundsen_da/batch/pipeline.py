@@ -19,7 +19,7 @@ def run_pipeline(
     batch_root: Path,
     id_field: str = "id",
     clip_mode: str = "window",
-    station_buffer_m: float = 10_000.0,
+    station_buffer_m: float = 50_000.0,
     roi_buffer_m: float = 0.0,
     grid_buffer_m: float | None = None,
     obs_stations_dir: Optional[Path] = None,
@@ -27,7 +27,7 @@ def run_pipeline(
     sliver_fix_m: float = 0.0,
     max_workers: Optional[int] = None,
     retries: int = 1,
-    merge_mode: str = "hard_clip",
+    coverage_sliver_tol_px: int = 4,
     plot_var: str = "snow_depth",
     plot_obs_col: str = "snow_height",
     plot_obs_scale: float = 1.0,
@@ -38,7 +38,7 @@ def run_pipeline(
     log_level: str = "INFO",
     perf_monitor: bool = True,
 ) -> None:
-    """Run prepare -> run -> merge -> plot in sequence with cohesive logging."""
+    """Run prepare -> run -> merge -> plot for sub-domain mode."""
     # Single batch-wide log sink for all stages
     batch_log = batch_root / "batch_run.log"
     batch_log.parent.mkdir(parents=True, exist_ok=True)
@@ -64,7 +64,7 @@ def run_pipeline(
     perf_stop = None
     if perf_monitor:
         perf_stop = start_perf_monitor(
-            PerfMonitorConfig(season_dir=batch_root, sample_interval_sec=5.0, plot_interval_sec=30.0)
+            PerfMonitorConfig(project_dir=batch_root, sample_interval_sec=5.0, plot_interval_sec=30.0)
         )
 
     try:
@@ -83,7 +83,10 @@ def run_pipeline(
             perf_stop.set()
 
     if not skip_merge:
-        merge_grids(manifest_path=batch_root / "batch_manifest.json", mode=merge_mode)
+        merge_grids(
+            manifest_path=batch_root / "batch_manifest.json",
+            coverage_sliver_tol_px=int(coverage_sliver_tol_px),
+        )
         merge_points(manifest_path=batch_root / "batch_manifest.json")
         logger.info("MERGE OK")
     else:

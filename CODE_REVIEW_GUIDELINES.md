@@ -10,6 +10,34 @@ When reviewing or developing a new module:
 - Compactness: simplify without sacrificing clarity or robustness.
 - Integration: ensure the module fits naturally within `openamundsen_da` and openAMUNDSEN.
 
+### Canonical Terminology And Hierarchy (Authoritative)
+
+- `setup` = top-level container with global, stable, pure openAMUNDSEN config/data.
+- `project` = one DA configuration unit with its own time span (former `season`).
+- `step` = one assimilation window inside a project.
+- `member` = one ensemble member.
+- `run` = execution of a project (event/verb), not a persisted config object.
+
+Naming rules:
+
+- Do not use `season` for config objects or directory levels.
+- Do not use `scenario` for this hierarchy (reserved for climate scenario context).
+- Use `setup` for the top level and `project` for the second level consistently in code, CLI flags, docs, templates, tests, and examples.
+
+Configuration ownership rules:
+
+- Setup YAML (named like the setup, template fallback `setup.yml`) must remain clean openAMUNDSEN configuration (global OA settings/data paths only).
+- All DA-specific keys live in project YAML (named like the project folder) under `data_assimilation`:
+  - prior forcing
+  - H(x)
+  - likelihood
+  - resampling
+  - rejuvenation
+  - restart
+  - land-cover mask
+  - assimilation events
+- `step` YAMLs store step window config and step-local OA overrides only.
+
 ### Review Questions
 
 - Can any part be refactored or simplified?
@@ -86,17 +114,18 @@ logger.add(sys.stdout, level="INFO", colorize=True, enqueue=True, format=LOGURU_
   - Viz: `draw_assimilation_vlines`, `dedupe_legend`
   - DA orchestration: `load_assimilation_events`, `compute_step_daily_series_for_all_members`, `start_perf_monitor`
 - Keep modules small and cohesive: split unrelated concerns into helper modules (e.g., io/paths, util/parallel, util/da_events) rather than growing monoliths; prefer thin orchestration that delegates to helpers.
-- Season layout:
-  - Steps live under `season_dir/steps/step_*` (no top-level `step_*`).
+- Setup layout:
+  - Projects live under `setup_dir/projects/project_*`.
+  - Steps live under `project_dir/steps/step_*` (no top-level `step_*`).
 - Assimilation configuration:
-  - H(x) configuration (method/variable/params) is read from `project.yml` under `data_assimilation.h_of_x`; step YAML overrides are ignored.
-  - Assimilation events come from `season.yml` via `data_assimilation.assimilation_events` (variable/product per date); use `util.da_events.load_assimilation_events`.
+  - H(x) configuration (method/variable/params) is read from project YAML under `data_assimilation.h_of_x`; step YAML overrides are ignored.
+  - Assimilation events come from project YAML via `data_assimilation.assimilation_events` (variable/product per date); use `util.da_events.load_assimilation_events`.
 - Open loop handling:
   - The launcher always runs `open_loop` alongside `member_*` to produce a continuous reference; assimilation and resampling operate on members only.
 - Plotting defaults:
   - Ensemble plots show members (and open loop when present); ensemble mean and bands are intentionally omitted.
 - Performance monitoring:
-  - The season pipeline can run the background monitor in `util.perf_monitor`; extend it instead of adding new ad hoc metrics.
+  - The project pipeline can run the background monitor in `util.perf_monitor`; extend it instead of adding new ad hoc metrics.
 
 ---
 
@@ -124,9 +153,9 @@ Example (PowerShell formatting):
 docker compose run `
   --rm `
   oa `
-  python -m openamundsen_da.pipeline.season `
-  --project-dir /data `
-  --season-dir /data/propagation/season_2017_2018 `
+  python -m openamundsen_da.pipeline.project `
+  --setup-dir /data `
+  --project-dir /data/projects/project_2017_2018 `
   --log-level INFO
 ```
 
@@ -136,7 +165,10 @@ docker compose run `
 
 - Prefer the Python standard library when feasible; avoid adding third-party dependencies without strong justification.
 - Reuse libraries already present in `openamundsen` or `openamundsen_da` to minimize environment drift.
-- Centralize configuration in conf files; prefer `project.yml` for project-wide settings and keep step-specific overrides minimal.
+- Centralize configuration in conf files:
+  - setup YAML: openAMUNDSEN/global setup config only.
+  - project YAML: DA configuration + project-specific time span/events.
+  - `step` YAML: step window and step-local OA overrides only.
 - Leverage existing repo helpers (`core/config.py`, `core/env.py`, `core/constants.py`, `io/paths.py`, `util/stats.py`, etc.) rather than reimplementing functionality.
 
 ---
@@ -164,7 +196,7 @@ docker compose run `
 - Which existing tests cover this path, and are they still valid?
 - Do we need a new unit test for core logic?
 - Does the trimmed integration scenario need changed dates/events/config?
-- Does `scripts/ci/validate_trimmed_season.py` need updated required outputs or warning handling?
+- Does `scripts/ci/validate_trimmed_project.py` need updated required outputs or warning handling?
 - Is `tests/README.md` still accurate after this change?
 
 ---

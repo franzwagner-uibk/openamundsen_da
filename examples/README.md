@@ -1,57 +1,46 @@
-# Examples bundle
+﻿# Examples bundle
 
-This folder contains ready-to-use example data and project layouts for `openamundsen_da`.
+This folder contains ready-to-use example data and setup layouts for `openamundsen_da`.
 
 ## What is inside
 
-Top-level layout in this bundle:
-
 ```text
 examples/rofental/
-├── project.yml
-├── env/
-├── grids/
-├── meteo/
-├── obs/
-└── propagation/
+|-- rofental.yml
+|-- env/
+|-- grids/
+|-- meteo/
+|-- obs/
+`-- projects/
 ```
 
-### `project.yml`
-
-- Main project configuration (domain setup, model options, DA settings, observation class mappings, and paths).
+### `rofental.yml`
+- Setup-level, stable openAMUNDSEN configuration.
+- Shared by all projects inside this setup.
 
 ### `env/`
-
-- `roi.gpkg`: single-feature region of interest (ROI) polygon used for masking and spatial aggregation.
+- `roi.gpkg`: single-feature region of interest polygon used for masking and aggregation.
 
 ### `grids/`
-
 - Static raster inputs at multiple resolutions.
-- `dem_rofental_*.asc`: digital elevation model grids.
-- `lc_rofental_*.asc`: land-cover grids for masking and class filtering.
+- `dem_rofental_*.asc`: elevation grids.
+- `lc_rofental_*.asc`: land-cover grids.
 - `svf_rofental_*.asc`: sky-view factor grids.
 - `srf_rofental_*.asc`: slope/relief factor grids.
 
 ### `meteo/`
-
-- Meteorological forcing input tables.
-- `stations.csv`: station metadata (IDs, coordinates, attributes).
-- `*.csv` (for example `bellavista.csv`): station forcing time series.
+- `stations.csv`: station metadata.
+- `*.csv`: station forcing time series.
 
 ### `obs/`
-
 - Observation data and prepared summaries.
-- `snowcover/`: snow-cover raster products (FSC-style inputs; 602 files).
-- `wetsnow/`: Sentinel-1 wet-snow raster products (297 files).
-- `stations/`: station-based observation exports (`latschbloder.csv`, `proviantdepot.csv`).
-- `season_2019_2020/`, `season_2020_2021/`, `season_2021_2022/`, `season_2022_2023/`: season-level summary folders with `scf_summary.csv` and `wet_snow_summary.csv`.
-- `summaries/all_data/`: merged summary tables (`scf_summary.csv`, `wet_snow_summary.csv`).
+- `snowcover/`: snow-cover raster products.
+- `wetsnow/`: Sentinel-1 wet-snow raster products.
+- `project_*/`: project-level summaries (`scf_summary.csv`, `wet_snow_summary.csv`).
 
-### `propagation/`
+### `projects/`
+- Project runtime configuration/output roots.
+- `project_*/project_*.yml`: project-level DA configuration and time span.
 
-- Season runtime configuration/output root.
-- `season_2022_2023/season.yml`: season definition and assimilation timeline.
-- `season_2022_2023/point_scf_roi_envelope.csv`: SCF envelope diagnostics.
-- `season_2022_2023/point_wet_snow_roi_envelope.csv`: wet-snow envelope diagnostics.
+This bundle mirrors the documented setup/project structure and is used by tests and examples.
 
-This bundle is intended as a compact reference dataset that mirrors the documented project structure.

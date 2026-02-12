@@ -30,7 +30,7 @@ BENIGN_WARNING_PATTERNS = [
     re.compile(r"SCF obs not found .* plotting without obs points", re.IGNORECASE),
     re.compile(r"Wet-snow obs not found .* plotting without obs points", re.IGNORECASE),
     re.compile(r"No member series found for point_wet_snow_roi\.csv", re.IGNORECASE),
-    re.compile(r"No data for station point_scf_roi\.csv across season; skipping\.", re.IGNORECASE),
+    re.compile(r"No data for station point_scf_roi\.csv across setup; skipping\.", re.IGNORECASE),
     re.compile(r"Missing liquid water grids for .*", re.IGNORECASE),
 ]
 
@@ -102,14 +102,14 @@ def _check_logs(log_file: Path) -> None:
         raise ValueError(f"Integration log contains severe warning lines:\n{sample}")
 
 
-def _check_plot_outputs(season_dir: Path) -> None:
+def _check_plot_outputs(setup_dir: Path) -> None:
     plot_specs = [
         CheckSpec(
             label="step forcing plots",
             patterns=("steps/step_*/plots/forcing/**/*.png", "steps/step_*/plots/forcing/**/*.svg"),
         ),
         CheckSpec(
-            label="season results plots",
+            label="setup results plots",
             patterns=("plots/results/**/*.png", "plots/results/**/*.svg"),
         ),
         CheckSpec(
@@ -129,7 +129,7 @@ def _check_plot_outputs(season_dir: Path) -> None:
 
     missing: list[str] = []
     for spec in plot_specs:
-        found = _collect_non_empty(season_dir, spec.patterns)
+        found = _collect_non_empty(setup_dir, spec.patterns)
         if len(found) < spec.min_count:
             missing.append(f"{spec.label}: expected >= {spec.min_count}, found {len(found)}")
 
@@ -204,25 +204,25 @@ def _check_minimal_weight_sanity(steps_dir: Path) -> None:
             raise ValueError(f"{wf} weights do not sum to 1.0 (sum={s})")
 
 
-def validate_season(season_dir: Path, log_file: Path) -> None:
-    steps_dir = season_dir / "steps"
+def validate_project(project_dir: Path, log_file: Path) -> None:
+    steps_dir = project_dir / "steps"
     if not steps_dir.is_dir():
         raise FileNotFoundError(f"Missing steps directory: {steps_dir}")
     _check_logs(log_file)
     _check_required_outputs(steps_dir)
-    _check_plot_outputs(season_dir)
+    _check_plot_outputs(project_dir)
     _check_openamundsen_outputs(steps_dir)
     _check_minimal_weight_sanity(steps_dir)
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Validate trimmed season integration outputs and logs.")
-    p.add_argument("--season-dir", type=Path, required=True)
+    p = argparse.ArgumentParser(description="Validate trimmed project integration outputs and logs.")
+    p.add_argument("--project-dir", type=Path, required=True)
     p.add_argument("--log-file", type=Path, required=True)
     args = p.parse_args()
 
-    validate_season(args.season_dir, args.log_file)
-    print(f"Integration output validation passed: {args.season_dir}")
+    validate_project(args.project_dir, args.log_file)
+    print(f"Integration output validation passed: {args.project_dir}")
     return 0
 
 

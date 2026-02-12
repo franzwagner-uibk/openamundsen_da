@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 """
 openamundsen_da.core.launch
 
@@ -33,8 +33,8 @@ from openamundsen_da.core.env import (
 )
 
 from openamundsen_da.io.paths import (
+    find_setup_yaml,
     find_project_yaml,
-    find_season_yaml,
     find_step_yaml,
     list_member_dirs,
 )
@@ -43,17 +43,17 @@ from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
 # Do NOT import anything that pulls GDAL here. runner is imported later inside the worker.
 
 
-def _apply_env(project_yaml: Path) -> None:
-    """Apply environment variables from project.yml and sane defaults.
+def _apply_env(setup_yaml: Path) -> None:
+    """Apply environment variables from setup YAML and sane defaults.
 
     - Reads the `environment` block and exports selected keys
     - Ensures GDAL/PROJ vars from the active conda env if missing
     - Sets numeric library thread defaults to 1 (can be overridden)
     """
     try:
-        apply_env_from_project(project_yaml)
+        apply_env_from_project(setup_yaml)
     except Exception as e:
-        logger.warning(f"Could not read project YAML to set environment ({project_yaml}): {e}")
+        logger.warning(f"Could not read setup YAML to set environment ({setup_yaml}): {e}")
     ensure_gdal_proj_from_conda()
     apply_numeric_thread_defaults()
     logger.debug(
@@ -65,7 +65,7 @@ def _apply_env(project_yaml: Path) -> None:
 
 
 def _discover_members(
-    project_dir: Path, season_dir: Path, step_dir: Path, ensemble: str
+    project_dir: Path, setup_dir: Path, step_dir: Path, ensemble: str
 ) -> Tuple[Path, Path, Path, List[Path]]:
     """
     Resolve YAMLs and member directories using our path helpers.
@@ -73,8 +73,8 @@ def _discover_members(
     Returns the concrete YAML files and the list of member directories under
     `<step_dir>/ensembles/<ensemble>/member_*`.
     """
-    proj_yaml = find_project_yaml(project_dir)
-    seas_yaml = find_season_yaml(season_dir)
+    setup_yaml = find_setup_yaml(setup_dir)
+    project_yaml = find_project_yaml(project_dir)
     step_yaml = find_step_yaml(step_dir)
 
     member_root = step_dir / "ensembles"
@@ -94,13 +94,13 @@ def _discover_members(
         )
 
     logger.debug(
-        "Using: project={}, season={}, step={}",
-        str(proj_yaml),
-        str(seas_yaml),
+        "Using: project={}, setup={}, step={}",
+        str(project_yaml),
+        str(setup_yaml),
         str(step_yaml),
     )
     logger.info(f"Discovered {len(members)} {ensemble} member(s)")
-    return proj_yaml, seas_yaml, step_yaml, members
+    return project_yaml, setup_yaml, step_yaml, members
 
 
 def _run_one(args: Tuple[Path, Path, Path, Path, bool, Path | None, str | None, str | None]) -> RunResult:
@@ -108,7 +108,7 @@ def _run_one(args: Tuple[Path, Path, Path, Path, bool, Path | None, str | None, 
     Small wrapper so ProcessPoolExecutor can pickle the callable easily.
     Import of runner happens inside the child worker.
     """
-    proj_yaml, seas_yaml, step_yaml, member_dir, overwrite, results_root, log_level, state_pattern = args
+    project_yaml, setup_yaml, step_yaml, member_dir, overwrite, results_root, log_level, state_pattern = args
 
     # Local import inside the worker to avoid importing GDAL users in the parent
     from openamundsen_da.core.runner import run_member
@@ -125,8 +125,8 @@ def _run_one(args: Tuple[Path, Path, Path, Path, bool, Path | None, str | None, 
     #  - inject per-member meteo dir & results dir
     #  - run OA initialize+run
     return run_member(
-        project_dir=proj_yaml.parent,
-        season_dir=seas_yaml.parent,
+        project_dir=project_yaml.parent,
+        setup_dir=setup_yaml.parent,
         step_dir=step_yaml.parent,
         member_dir=member_dir,
         results_dir=results_dir,
@@ -138,7 +138,7 @@ def _run_one(args: Tuple[Path, Path, Path, Path, bool, Path | None, str | None, 
 
 def launch_members(
     project_dir: Path,
-    season_dir: Path,
+    setup_dir: Path,
     step_dir: Path,
     ensemble: str,
     max_workers: int | None,
@@ -159,10 +159,10 @@ def launch_members(
     6) As tasks complete, log a concise finish line and count outcomes
     7) Log and return the final summary
     """
-    proj_yaml, seas_yaml, step_yaml, members = _discover_members(project_dir, season_dir, step_dir, ensemble)
+    project_yaml, setup_yaml, step_yaml, members = _discover_members(project_dir, setup_dir, step_dir, ensemble)
 
     # Make sure GDAL/PROJ & threading env are exported before workers spawn
-    _apply_env(proj_yaml)
+    _apply_env(setup_yaml)
 
     # Use spawn on Windows explicitly to be safe
     try:
@@ -173,7 +173,7 @@ def launch_members(
 
     # Fan out
     tasks = [
-        (proj_yaml, seas_yaml, step_yaml, m, overwrite, results_root, log_level, state_pattern)
+        (project_yaml, setup_yaml, step_yaml, m, overwrite, results_root, log_level, state_pattern)
         for m in members
     ]
 
@@ -225,7 +225,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments for the ensemble launcher."""
     p = argparse.ArgumentParser(description="Launch openAMUNDSEN ensemble members")
     p.add_argument("--project-dir", required=True, type=Path)
-    p.add_argument("--season-dir", required=True, type=Path)
+    p.add_argument("--setup-dir", required=True, type=Path)
     p.add_argument("--step-dir", required=True, type=Path)
     p.add_argument("--ensemble", required=True, choices=("prior", "posterior"))
     p.add_argument(
@@ -255,7 +255,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     try:
         launch_members(
             project_dir=args.project_dir,
-            season_dir=args.season_dir,
+            setup_dir=args.setup_dir,
             step_dir=args.step_dir,
             ensemble=args.ensemble,
             max_workers=args.max_workers,
@@ -272,3 +272,4 @@ def main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

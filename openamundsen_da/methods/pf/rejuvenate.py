@@ -1,10 +1,10 @@
-"""openamundsen_da.methods.pf.rejuvenate
+﻿"""openamundsen_da.methods.pf.rejuvenate
 
 Create a rejuvenated prior ensemble for the next step from a posterior ensemble
 without duplicating large state files.
 
 Behavior
-- Reads rejuvenation params from project.yml (data_assimilation.rejuvenation):
+- Reads rejuvenation params from project YAML (data_assimilation.rejuvenation):
   - sigma_t: additive temperature noise
   - sigma_p: multiplicative precipitation noise (lognormal with mu=0)
 - For each posterior member in the previous step:
@@ -56,9 +56,9 @@ from openamundsen_da.io.paths import (
     meteo_dir_for_member,
     default_results_dir,
     find_step_yaml,
-    find_season_yaml,
-    open_loop_dir,
     find_project_yaml,
+    infer_project_dir,
+    open_loop_dir,
 )
 from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
 from openamundsen_da.util.meteo import filter_and_write_meteo
@@ -71,15 +71,15 @@ class RejuvenationParams:
     seed: Optional[int]
 
 
-def _read_rejuvenation_params(project_dir: Path) -> RejuvenationParams:
+def _read_rejuvenation_params(setup_dir: Path) -> RejuvenationParams:
     """Read rejuvenation params; reuse prior_forcing sigmas by default.
 
     If rejuvenation.sigma_t/p are provided, they override; otherwise we fall
     back to data_assimilation.prior_forcing.{sigma_t,sigma_p}. Seed falls back
     to prior_forcing.random_seed if not set under rejuvenation.
     """
-    proj = find_project_yaml(project_dir)
-    cfg = _read_yaml_file(proj) or {}
+    setup_yaml = find_project_yaml(setup_dir)
+    cfg = _read_yaml_file(setup_yaml) or {}
     da = cfg.get(DA_BLOCK) or {}
     rj = da.get(REJUVENATION_BLOCK) or {}
     prior = (da.get("prior_forcing") or {})
@@ -119,16 +119,16 @@ def _read_next_step_dates(next_step_dir: Path) -> tuple[pd.Timestamp, pd.Timesta
         start = pd.to_datetime(step_cfg["start_date"])  # type: ignore[index]
     except Exception as e:
         raise ValueError(f"Missing or invalid start_date in {step_yaml}") from e
-    # Prefer season end; fallback to step end_date
+    # Prefer setup end; fallback to step end_date
     try:
-        seas_yaml = find_season_yaml(next_step_dir.parent)
+        seas_yaml = find_project_yaml(infer_project_dir(next_step_dir))
         seas_cfg = _read_yaml_file(seas_yaml) or {}
         end = pd.to_datetime(seas_cfg["end_date"])  # type: ignore[index]
     except Exception:
         try:
             end = pd.to_datetime(step_cfg["end_date"])  # type: ignore[index]
         except Exception as e:
-            raise ValueError("Could not determine end_date from season/step config") from e
+            raise ValueError("Could not determine end_date from setup/step config") from e
     return start, end
 
 
@@ -228,13 +228,14 @@ def _rejuvenate_member_task(
 
 def rejuvenate(
     *,
-    project_dir: Path,
+    setup_dir: Path,
     prev_step_dir: Path,
     next_step_dir: Path,
     source_ensemble: str = "posterior",
     target_ensemble: str = "prior",
     source_meteo_dir: Optional[Path] = None,
 ) -> dict:
+    project_dir = infer_project_dir(next_step_dir)
     params = _read_rejuvenation_params(project_dir)
     start, end = _read_next_step_dates(next_step_dir)
     rng = np.random.default_rng(params.seed if params.seed is not None else None)
@@ -251,7 +252,7 @@ def rejuvenate(
         src_member = _source_member_dir(post_member)
         dT = float(rng.normal(0.0, params.sigma_t)) if params.sigma_t else 0.0
         fP = float(rng.lognormal(mean=0.0, sigma=params.sigma_p)) if params.sigma_p else 1.0
-        tasks.append((i, post_member, src_member, tgt_root, start, end, dT, fP, Path(project_dir), source_meteo_dir))
+        tasks.append((i, post_member, src_member, tgt_root, start, end, dT, fP, Path(setup_dir), source_meteo_dir))
 
     if not tasks:
         return {"members": 0, "copied_state_pointers": 0}
@@ -278,7 +279,7 @@ def rejuvenate(
 
     # Also prepare open_loop for the next step and copy state pointer
     try:
-        _copy_open_loop_to_next(Path(project_dir), Path(prev_step_dir), Path(next_step_dir), start=start, end=end)
+        _copy_open_loop_to_next(Path(setup_dir), Path(prev_step_dir), Path(next_step_dir), start=start, end=end)
     except Exception as e:
         logger.warning("Could not prepare open_loop for next step: {}", e)
 
@@ -302,7 +303,7 @@ def rejuvenate(
 
 
 def _copy_open_loop_to_next(
-    project_dir: Path,
+    setup_dir: Path,
     prev_step_dir: Path,
     next_step_dir: Path,
     *,
@@ -322,7 +323,7 @@ def _copy_open_loop_to_next(
     end = _strip_timezone(end)
 
     # Base meteo comes from project-level meteo directory
-    met_prev = Path(project_dir) / "meteo"
+    met_prev = Path(setup_dir) / "meteo"
     met_next = next_ol / "meteo"
     met_next.mkdir(parents=True, exist_ok=True)
 
@@ -359,7 +360,7 @@ def _copy_open_loop_to_next(
 
 def cli_main(argv: Iterable[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="oa-da-rejuvenate", description="Rejuvenate posterior into prior for next step (rebase on open_loop; no state duplication)")
-    p.add_argument("--project-dir", required=True, type=Path)
+    p.add_argument("--setup-dir", required=True, type=Path)
     p.add_argument("--prev-step-dir", required=True, type=Path)
     p.add_argument("--next-step-dir", required=True, type=Path)
     p.add_argument("--source-meteo-dir", type=Path, help="Explicit meteo source directory (stations.csv + per-station CSVs). Overrides rebase/compound base selection")
@@ -371,7 +372,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
     try:
         summary = rejuvenate(
-            project_dir=Path(args.project_dir),
+            setup_dir=Path(args.setup_dir),
             prev_step_dir=Path(args.prev_step_dir),
             next_step_dir=Path(args.next_step_dir),
             source_meteo_dir=(Path(args.source_meteo_dir) if args.source_meteo_dir is not None else None),
@@ -385,3 +386,5 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
+
+

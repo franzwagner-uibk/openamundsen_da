@@ -1,4 +1,4 @@
-"""openamundsen_da.methods.pf.resample
+﻿"""openamundsen_da.methods.pf.resample
 
 Systematic resampling of a single-date weights CSV to form a posterior ensemble.
 
@@ -40,7 +40,7 @@ from openamundsen_da.core.constants import (
     MEMBER_PREFIX,
 )
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import list_member_dirs, find_project_yaml
+from openamundsen_da.io.paths import list_member_dirs, find_project_yaml, infer_project_dir
 from openamundsen_da.util.stats import effective_sample_size, systematic_resample
 
 
@@ -53,13 +53,13 @@ class ResamplingConfig:
 
 
 def _read_resampling_from_project(project_dir: Path) -> ResamplingConfig:
-    """Read resampling defaults from project.yml if present.
+    """Read resampling defaults from project YAML if present.
 
     Falls back to DA_RANDOM_SEED for seed when available.
     """
     try:
-        proj = find_project_yaml(project_dir)
-        cfg = _read_yaml_file(proj) or {}
+        project_yaml = find_project_yaml(project_dir)
+        cfg = _read_yaml_file(project_yaml) or {}
         # Prefer nested under data_assimilation.resampling; fallback to top-level resampling
         r = ((cfg.get(DA_BLOCK) or {}).get(RESAMPLING_BLOCK) or (cfg.get(RESAMPLING_BLOCK) or {}))
         seed = r.get("seed")
@@ -353,7 +353,7 @@ def resample_from_weights(
 
 def cli_main(argv: Iterable[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="oa-da-resample", description="Systematic resampling to form a posterior ensemble (no duplication; uses pointers for state)")
-    p.add_argument("--project-dir", required=True, type=Path)
+    p.add_argument("--project-dir", type=Path, help="Unused for config lookup (kept for CLI compatibility).")
     p.add_argument("--step-dir", required=True, type=Path)
     p.add_argument("--ensemble", required=True, choices=("prior", "posterior"), help="Source ensemble")
     p.add_argument("--weights", required=True, type=Path, help="Path to weights CSV (single date)")
@@ -368,8 +368,8 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     logger.remove()
     logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
-    # Defaults from project.yml
-    rs_cfg = _read_resampling_from_project(Path(args.project_dir))
+    # Defaults from project YAML inferred from --step-dir.
+    rs_cfg = _read_resampling_from_project(infer_project_dir(Path(args.step_dir)))
     seed = int(args.seed) if args.seed is not None else (rs_cfg.seed if rs_cfg.seed is not None else None)
     # Parse thresholds with precedence: CLI ratio > CLI abs > config ratio > config abs
     cli_ratio = float(args.ess_threshold_ratio) if getattr(args, "ess_threshold_ratio", None) is not None else None
@@ -410,3 +410,9 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
+
+
+# Backward-compatible alias for transitional references.
+_read_resampling_from_setup = _read_resampling_from_project
+
+

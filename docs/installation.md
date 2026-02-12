@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Installation
 nav_order: 2
@@ -77,9 +77,9 @@ Everything needed ships inside the image.
    ```bash
    IMAGE=openamundsen_da
    PROJECT=/data/rofental
-   SEASON=/data/rofental/propagation/season_2022_2023
-   SCF_SUM=/data/rofental/obs/season_2022_2023/scf_summary.csv
-   WET_SUM=/data/rofental/obs/season_2022_2023/wet_snow_summary.csv
+   SETUP=/data/rofental/projects/setup_2022_2023
+   SCF_SUM=/data/rofental/obs/setup_2022_2023/scf_summary.csv
+   WET_SUM=/data/rofental/obs/setup_2022_2023/wet_snow_summary.csv
    ```
 
 4. **Copy the bundled Rofental example to your host:**
@@ -92,48 +92,48 @@ Everything needed ships inside the image.
      cp -a /workspace/examples/rofental /data/rofental
    ```
 
-5. **Generate the season skeleton (step\_\* directories/YAMLs from `season.yml`):**
+5. **Generate the setup skeleton (step\_\* directories/YAMLs from `setup.yml`):**
 
-   Create the step structure for the season based on the assimilation dates.
+   Create the step structure for the setup based on the assimilation dates.
 
    ```bash
    docker run --rm -v "$(pwd):/data" \
      "$IMAGE" \
-     python -m openamundsen_da.pipeline.season_skeleton \
+     python -m openamundsen_da.pipeline.project_skeleton \
        --project-dir "$PROJECT" \
-       --season-dir "$SEASON"
+       --setup-dir "$SETUP"
    ```
 
 6. **Distribute observation summaries to steps (SCF + wet snow):**
 
-   Create per-step `obs_*.csv` files from the season summaries using the assimilation dates in `season.yml`.
+   Create per-step `obs_*.csv` files from the setup summaries using the assimilation dates in `setup.yml`.
 
    ```bash
    docker run --rm -v "$(pwd):/data" \
      "$IMAGE" \
      oa-da-scf \
-       --season-dir "$SEASON" \
+       --setup-dir "$SETUP" \
        --summary-csv "$SCF_SUM" \
        --overwrite
 
    docker run --rm -v "$(pwd):/data" \
      "$IMAGE" \
-     oa-da-wetsnow-season \
-       --season-dir "$SEASON" \
+     oa-da-wetsnow-project \
+       --setup-dir "$SETUP" \
        --summary-csv "$WET_SUM" \
        --overwrite
    ```
 
-7. **Run the season (propagation + SCF/WETSNOW assimilation):**
+7. **Run the setup (propagation + SCF/WETSNOW assimilation):**
 
-   Run the full 2022/2023 season and writes outputs to your local `openamundsen-da` folder. Set the number of cores to match your computer.
+   Run the full 2022/2023 setup and writes outputs to your local `openamundsen-da` folder. Set the number of cores to match your computer.
 
    ```bash
    docker run --rm -v "$(pwd):/data" \
      "$IMAGE" \
-     python -m openamundsen_da.pipeline.season \
+     python -m openamundsen_da.pipeline.project \
        --project-dir "$PROJECT" \
-       --season-dir "$SEASON" \
+       --setup-dir "$SETUP" \
        --max-workers 8 \
        --monitor-perf \
        --overwrite
@@ -141,19 +141,19 @@ Everything needed ships inside the image.
 
 **Files to inspect**
 
-after and during a run in `openamundsen-da/rofental/propagation/season_2022_2023`:
+after and during a run in `openamundsen-da/rofental/projects/setup_2022_2023`:
 
-- Logs: `season.log`.
-- Perf monitor: `plots/perf/season_perf.png`
+- Logs: `setup.log`.
+- Perf monitor: `plots/perf/setup_perf.png`
 - Results: `plots/results/` (ensemble envelopes), `ensembles/posterior/` per step.
 - Assimilation diagnostics: `plots/assim/` (weights/ESS), `assim/weights.csv`.
 
 **The Rofental example bundle**
 
-contains data covering the seasons 2019-2023 (copied to `/data/rofental`):
+contains data covering the setups 2019-2023 (copied to `/data/rofental`):
 
-- `project.yml` - openAMUNDSEN and DA configurations
-- `propagation/season_2022_2023/season.yml` - season dates + assimilation events
+- `project.yml` - openAMUNDSEN/global project configuration
+- `projects/setup_2022_2023/setup.yml` - setup dates + assimilation events
 - `meteo/` - station metadata and forcing CSVs.
 - `obs/` - summarized observation CSVs for SCF/WETSNOW, wet snow maps and snow cover maps, station observations (snow depth)
 - `grids/` - dem, landcover, srf, svf grids (spatial resolution 100-500m)
@@ -165,14 +165,14 @@ contains data covering the seasons 2019-2023 (copied to `/data/rofental`):
 >
 > - modify `resolution` in `rofental/project.yml` (100/250/500 m).  
 >   Test scale effects and runtime/memory tradeoffs. See [Configuration Reference (basic config)](https://openamundsen-da.pages.dev/guides/configuration#basic-configuration) and [Project Structure](https://openamundsen-da.pages.dev/project-structure#project-data-structure).
-> - modify `ensemble_size` in `rofental/project.yml` (e.g. 10/20/50).  
+> - modify `ensemble_size` in `rofental/projects/setup_2022_2023/setup.yml` (e.g. 10/20/50).  
 >   Test uncertainty representation versus compute cost. See [Configuration Reference (prior forcing)](https://openamundsen-da.pages.dev/guides/configuration#prior-forcing-configuration) and [Workflow (prior ensemble)](https://openamundsen-da.pages.dev/workflow#prior-ensemble-generation).
-> - modify `sigma_p` and `sigma_t` in `rofental/project.yml` (e.g. 0.2-2).  
+> - modify `sigma_p` and `sigma_t` in `rofental/projects/setup_2022_2023/setup.yml` (e.g. 0.2-2).  
 >   Tune forcing perturbation strength. See [Configuration Reference (perturbation details)](https://openamundsen-da.pages.dev/guides/configuration#perturbation-details) and [Workflow](https://openamundsen-da.pages.dev/workflow#meteorological-forcing-perturbation).
-> - modify `resampling.ess_threshold_ratio` (e.g. 0.2-0.8).  
+> - modify `resampling.ess_threshold_ratio` in `rofental/projects/setup_2022_2023/setup.yml` (e.g. 0.2-0.8).  
 >   Tune ESS-triggered resampling frequency (lower = less frequent, higher = more frequent). See [Configuration Reference (resampling + ESS)](https://openamundsen-da.pages.dev/guides/configuration#resampling-parameters) and [Workflow (ESS/resampling)](https://openamundsen-da.pages.dev/workflow#effective-sample-size-ess).
-> - modify assimilation dates and variables in `rofental/propagation/season_2022_2023/season.yml`.  
->   Define a new propagation sequence. Pick only dates that exist in `rofental/obs/season_2022_2023/scf_summary.csv` and `rofental/obs/season_2022_2023/wet_snow_summary.csv`, then rerun setup (`season_skeleton`, `oa-da-scf`, `oa-da-wetsnow-season`) before running the season pipeline. See [Observation Processing (quality control)](https://openamundsen-da.pages.dev/guides/observations#quality-control), [Running Experiments (build season skeleton)](https://openamundsen-da.pages.dev/guides/experiments#5-build-season-skeleton), and [CLI Reference (`oa-da-scf`)](https://openamundsen-da.pages.dev/guides/cli#oa-da-scf).
+> - modify assimilation dates and variables in `rofental/projects/setup_2022_2023/setup.yml`.  
+>   Define a new propagation sequence. Pick only dates that exist in `rofental/obs/setup_2022_2023/scf_summary.csv` and `rofental/obs/setup_2022_2023/wet_snow_summary.csv`, then rerun setup (`setup_skeleton`, `oa-da-scf`, `oa-da-wetsnow-project`) before running the setup pipeline. See [Observation Processing (quality control)](https://openamundsen-da.pages.dev/guides/observations#quality-control), [Running Experiments (build setup skeleton)](https://openamundsen-da.pages.dev/guides/experiments#5-build-setup-skeleton), and [CLI Reference (`oa-da-scf`)](https://openamundsen-da.pages.dev/guides/cli#oa-da-scf).
 
 ## Developer install (clone + compose)
 
@@ -201,7 +201,7 @@ Use this when you want to modify the code or run Compose with mounted source.
 
 ## Next Steps
 
-- [Running Experiments]({{ '/guides/experiments/' | relative_url }}) - Set up your own project and run custom seasons
+- [Running Experiments]({{ '/guides/experiments/' | relative_url }}) - Set up your own project and run custom setups
 - [Project Structure]({{ site.baseurl }}{% link project-structure.md %}) - Understand the directory layout
 - [Workflow Overview]({{ site.baseurl }}{% link workflow.md %}) - Learn the DA workflow
 
@@ -245,3 +245,7 @@ environment:
 ```
 
 See [Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) for more issues and solutions.
+
+
+
+

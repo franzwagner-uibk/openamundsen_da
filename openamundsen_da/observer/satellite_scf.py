@@ -1,4 +1,4 @@
-"""Season helper for snow-cover observations backed by ``scf_summary.csv``."""
+﻿"""Project helper for snow-cover observations backed by ``scf_summary.csv``."""
 
 from __future__ import annotations
 
@@ -37,35 +37,35 @@ def _parse_dt_opt(text: str | None) -> datetime | None:
         return None
 
 
-def generate_season_from_summary(
-    season_dir: Path,
+def generate_project_from_summary(
+    project_dir: Path,
     summary_csv: Path,
     *,
     product: str | None,
     overwrite: bool,
 ) -> None:
-    """Extract per-step obs CSVs from a season-wide ``scf_summary.csv``."""
+    """Extract per-step obs CSVs from a project-wide ``scf_summary.csv``."""
 
-    if not season_dir.is_dir():
-        raise FileNotFoundError(f"Season directory not found: {season_dir}")
+    if not project_dir.is_dir():
+        raise FileNotFoundError(f"Project directory not found: {project_dir}")
     if not summary_csv.is_file():
         raise FileNotFoundError(f"Summary CSV not found: {summary_csv}")
 
     summary = read_fraction_summary(summary_csv, date_col="date")
 
-    steps = list_steps_sorted(season_dir)
+    steps = list_steps_sorted(project_dir)
     if len(steps) < 2:
-        raise FileNotFoundError(f"Not enough steps to derive assimilation dates under {season_dir}")
+        raise FileNotFoundError(f"Not enough steps to derive assimilation dates under {project_dir}")
 
-    project_dir = season_dir.parent.parent if season_dir.parent.parent.is_dir() else None
-    events = load_assimilation_events(season_dir)
+    setup_dir = project_dir.parent.parent if project_dir.parent.parent.is_dir() else None
+    events = load_assimilation_events(project_dir)
     n = min(len(events), len(steps) - 1)
     if n < len(events):
         logger.warning("Only {} steps (excluding final) available for {} assimilation events; extra events will be ignored.", n, len(events))
     if n < len(steps) - 1:
         logger.warning("Only {} assimilation events available for {} steps; later steps will not receive obs CSVs.", len(events), len(steps) - 1)
 
-    prod_tag = resolve_obs_product_tag("scf", project_dir=project_dir, season_dir=season_dir, fallback=product)
+    prod_tag = resolve_obs_product_tag("scf", setup_dir=setup_dir, project_dir=project_dir, fallback=product)
 
     written = skipped_missing = skipped_existing = 0
     for i in range(n):
@@ -110,7 +110,7 @@ def generate_season_from_summary(
         written += 1
 
     logger.info(
-        "Season summary prep complete: written={} skipped_missing={} skipped_existing={}",
+        "Project summary prep complete: written={} skipped_missing={} skipped_existing={}",
         written,
         skipped_missing,
         skipped_existing,
@@ -118,21 +118,21 @@ def generate_season_from_summary(
 
 
 def cli_main(argv: list[str] | None = None) -> int:
-    """CLI: fill per-step obs CSVs from scf_summary.csv for a season."""
+    """CLI: fill per-step obs CSVs from scf_summary.csv for a project."""
     import argparse
 
     parser = argparse.ArgumentParser(
         prog="oa-da-scf",
         description=(
             "Copy SCF rows from scf_summary.csv into per-step "
-            "obs_scf_<PRODUCT>_YYYYMMDD.csv files for a season."
+            "obs_scf_<PRODUCT>_YYYYMMDD.csv files for a project."
         ),
     )
-    parser.add_argument("--season-dir", required=True, type=Path, help="Season directory (propagation/season_YYYY-YYYY)")
+    parser.add_argument("--project-dir", required=True, type=Path, help="Project directory (setup/projects/project_YYYY_YYYY)")
     parser.add_argument(
         "--summary-csv",
         type=Path,
-        help="Path to scf_summary.csv (default: <project>/obs/<season>/scf_summary.csv)",
+        help="Path to scf_summary.csv (default: <setup>/obs/<project>/scf_summary.csv)",
     )
     parser.add_argument("--product", help="Product tag to use in obs filename (default: obs.snowcover.product_tag)")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing obs_scf_*.csv files")
@@ -143,25 +143,28 @@ def cli_main(argv: list[str] | None = None) -> int:
     logger.remove()
     logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
 
-    season_dir = args.season_dir
+    project_dir = args.project_dir
     if args.summary_csv is not None:
         summary_path = args.summary_csv
     else:
-        project_root = season_dir.parent.parent
-        summary_path = project_root / "obs" / season_dir.name / "scf_summary.csv"
+        setup_root = project_dir.parent.parent
+        summary_path = setup_root / "obs" / project_dir.name / "scf_summary.csv"
 
     try:
-        generate_season_from_summary(
-            season_dir=season_dir,
+        generate_project_from_summary(
+            project_dir=project_dir,
             summary_csv=summary_path,
             product=str(args.product) if args.product else None,
             overwrite=args.overwrite,
         )
         return 0
     except Exception as exc:
-        logger.error("Season summary prep failed: {}", exc)
+        logger.error("Project summary prep failed: {}", exc)
         return 1
 
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
+
+
+

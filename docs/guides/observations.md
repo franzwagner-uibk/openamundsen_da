@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Observation Processing
 parent: Guides
@@ -43,19 +43,19 @@ Snow-cover rasters (GeoTIFF/NetCDF) encoded as 0..100% with configurable cloud/w
 
 ### Creating per-step observation CSVs (for assimilation)
 
-After `scf_summary.csv` is created, generate per-step one-row observation CSVs (the season pipeline expects these under each step's `obs/` directory):
+After `scf_summary.csv` is created, generate per-step one-row observation CSVs (the setup pipeline expects these under each step's `obs/` directory):
 
 ```bash
 docker compose run --rm oa oa-da-scf \\
-  --season-dir /data/propagation/season_2019-2020 \\
-  --summary-csv /data/obs/summaries/season_2019-2020/scf_summary.csv \\
+  --setup-dir /data/projects/project_2019-2020 \\
+  --summary-csv /data/obs/summaries/project_2019-2020/scf_summary.csv \\
   --product SNOWCOVER \\
   --overwrite
 ```
 
 ### Quality Control
 
-Use `obs/summaries/<season-label>/scf_summary.csv` for quality control and to decide which dates to assimilate (set `data_assimilation.assimilation_events` in `propagation/<season-label>/season.yml`). The default output root is `obs/summaries`; override with `--output-root` if needed.
+Use `obs/summaries/<setup-label>/scf_summary.csv` for quality control and to decide which dates to assimilate (set `data_assimilation.assimilation_events` in `projects/<setup-label>/setup.yml`). The default output root is `obs/summaries`; override with `--output-root` if needed.
 
 `scf_summary.csv` contains (per date): `date`, `region_id`, `n_valid`, `n_snow`, `scf`, `cloud_fraction`, `source`. Typical filters include a minimum `n_valid` and a maximum `cloud_fraction`.
 
@@ -72,7 +72,7 @@ Use `obs/summaries/<season-label>/scf_summary.csv` for quality control and to de
 docker compose run --rm oa \
   oa-da-snowcover \
   --input-dir /data/obs/snowcover \
-  --season-label season_2019-2020 \
+  --project-label project_2019-2020 \
   --project-dir /data
 ```
 
@@ -86,8 +86,8 @@ Notes:
 
 ```bash
 docker compose run --rm oa oa-da-scf \
-  --season-dir /data/propagation/season_2019-2020 \
-  --summary-csv /data/obs/season_2019-2020/scf_summary.csv \
+  --setup-dir /data/projects/project_2019-2020 \
+  --summary-csv /data/obs/project_2019-2020/scf_summary.csv \
   --overwrite
 ```
 
@@ -118,13 +118,13 @@ Product tags are resolved from `project.yml` (`obs.snowcover.product_tag`, defau
 
 ### Summarizing WSM to `wet_snow_summary.csv`
 
-Summarize wet-snow rasters into a season table:
+Summarize wet-snow rasters into a setup table:
 
 ```bash
 docker compose run --rm oa oa-da-wetsnow \
   --project-dir /data \
   --output-root /data/obs \
-  --season-label season_2019-2020
+  --project-label project_2019-2020
 ```
 
 Defaults (when `--project-dir` is set):
@@ -136,13 +136,13 @@ Defaults (when `--project-dir` is set):
 ### Creating per-step observation CSVs (for assimilation)
 
 ```bash
-docker compose run --rm oa oa-da-wetsnow-season \\
-  --season-dir /data/propagation/season_2019-2020 \\
-  --summary-csv /data/obs/summaries/season_2019-2020/wet_snow_summary.csv \\
+docker compose run --rm oa oa-da-wetsnow-project \\
+  --setup-dir /data/projects/project_2019-2020 \\
+  --summary-csv /data/obs/summaries/project_2019-2020/wet_snow_summary.csv \\
   --overwrite
 ```
 
-This writes one-row `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` files into each step's `obs/` directory (product tag from `project.yml`, default `WETSNOW`) for configured wet-snow assimilation dates. Wet-snow summaries default to `obs/summaries/<season-label>/wet_snow_summary.csv`; override with `--output-root` if needed.
+This writes one-row `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` files into each step's `obs/` directory (product tag from `project.yml`, default `WETSNOW`) for configured wet-snow assimilation dates. Wet-snow summaries default to `obs/summaries/<setup-label>/wet_snow_summary.csv`; override with `--output-root` if needed.
 
 ---
 
@@ -162,10 +162,10 @@ H(x) = 1  if HS > h0
 **Logistic** (recommended):
 
 ```
-H(x) = 1 / (1 + exp(-k × (HS - h0)))
+H(x) = 1 / (1 + exp(-k Ã— (HS - h0)))
 ```
 
-See [Configuration → H(x)]({{ site.baseurl }}{% link guides/configuration.md %}#hx-forward-operator-methods) for details.
+See [Configuration â†’ H(x)]({{ site.baseurl }}{% link guides/configuration.md %}#hx-forward-operator-methods) for details.
 
 ### Wet Snow Forward Operator
 
@@ -191,22 +191,22 @@ The classification threshold is a volumetric LWC fraction. A value of 0.5 means 
 
 ### Observation Error Tuning
 
-**Too small** → particle degeneracy (ESS → 1)
-**Too large** → no weight update (ESS → N)
+**Too small** â†’ particle degeneracy (ESS â†’ 1)
+**Too large** â†’ no weight update (ESS â†’ N)
 
 **Starting values**:
 
-- SNOWCOVER SCF: σ_obs = 0.10-0.15
-- Sentinel-2 FSC: σ_obs = 0.05-0.10
-- Sentinel-1 Wet Snow: σ_obs = 0.15-0.20
+- SNOWCOVER SCF: Ïƒ_obs = 0.10-0.15
+- Sentinel-2 FSC: Ïƒ_obs = 0.05-0.10
+- Sentinel-1 Wet Snow: Ïƒ_obs = 0.15-0.20
 
 **Tuning approach**:
 
 1. Run DA with default values
 2. Inspect ESS timeline
 3. Adjust:
-   - ESS consistently near N → reduce σ_obs
-   - ESS drops to 1 frequently → increase σ_obs
+   - ESS consistently near N â†’ reduce Ïƒ_obs
+   - ESS drops to 1 frequently â†’ increase Ïƒ_obs
 
 ### Land-Cover Masking
 
@@ -245,3 +245,6 @@ data_assimilation:
 
 - Barella, R., Marin, C., Gianinetto, M., and Notarnicola, C. (2022). A novel approach to high resolution snow cover fraction retrieval in mountainous regions. IGARSS 2022 - IEEE International Geoscience and Remote Sensing Symposium, 3856-3859. https://doi.org/10.1109/IGARSS46834.2022.9884177.
 - Nagler, T., Rott, H., Ripper, E., Bippus, G., and Hetzenecker, M. (2016). Advancements for snowmelt monitoring by means of Sentinel-1 SAR. Remote Sensing, 8(4), 348. https://doi.org/10.3390/rs8040348.
+
+
+

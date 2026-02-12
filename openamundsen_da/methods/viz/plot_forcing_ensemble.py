@@ -1,15 +1,15 @@
-"""openamundsen_da.methods.viz.plot_forcing_ensemble
+﻿"""openamundsen_da.methods.viz.plot_forcing_ensemble
 
 Per-station ensemble plots for forcing time series (temperature and cumulative
 precipitation) across all members. Designed to visualize prior/posterior
-forcing after propagation/rejuvenation.
+forcing after projects/rejuvenation.
 
 Behavior
 - Reads station CSVs from `<step>/ensembles/<ensemble>/{open_loop,member_XXX}/meteo`.
 - Requires explicit column names (no autodetection):
   date column (default 'date'), temperature 'temp', precipitation 'precip'.
 - Produces two-panel figures per station:
-  A) Temperature time series (members, mean, 5–95% band, open-loop)
+  A) Temperature time series (members, mean, 5â€“95% band, open-loop)
   B) Cumulative precipitation by hydrological year (members, mean, band, open-loop)
 
 Notes
@@ -349,3 +349,4 @@ def cli_main(argv: Iterable[str] | None = None, *, configure_logger: bool = True
 
 if __name__ == "__main__":
     raise SystemExit(cli_main())
+

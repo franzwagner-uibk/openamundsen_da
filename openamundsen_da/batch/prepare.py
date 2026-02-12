@@ -1,10 +1,11 @@
-"""Preparation utilities for batch subregion open-loop runs."""
+"""Preparation utilities for sub-domain open-loop runs."""
 
 from __future__ import annotations
 
 import copy
 import math
 import shutil
+import io
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -19,7 +20,6 @@ from shapely.geometry import Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
-from openamundsen.util import read_yaml_file, to_yaml
 from openamundsen_da.io.paths import abspath_relative_to
 from openamundsen_da.batch.manifest import BatchManifest, SubregionMeta, WindowSpec
 
@@ -36,15 +36,36 @@ class GridPaths:
 
 # ---- Generic helpers --------------------------------------------------------
 
+def _read_yaml(path: Path) -> dict:
+    try:
+        import ruamel.yaml as _yaml
+
+        y = _yaml.YAML(typ="safe")
+        with Path(path).open("r", encoding="utf-8") as f:
+            data = y.load(f) or {}
+        if not isinstance(data, dict):
+            raise ValueError(f"YAML root must be a mapping in {path}")
+        return data
+    except Exception as exc:
+        raise ValueError(f"Could not parse config at {path}: {exc}") from exc
+
+
+def _to_yaml_text(data: dict) -> str:
+    import ruamel.yaml as _yaml
+
+    y = _yaml.YAML()
+    y.default_flow_style = False
+    buf = io.StringIO()
+    y.dump(data, buf)
+    return buf.getvalue()
+
 def _sanitize_id(raw: str) -> str:
     clean = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(raw))
     return clean.strip("_") or "subregion"
 
 
 def _read_project_config(path: Path) -> dict:
-    cfg = read_yaml_file(path)
-    if not isinstance(cfg, dict):
-        raise ValueError(f"Could not parse config at {path}")
+    cfg = _read_yaml(path)
     required = ("domain", "resolution", "input_data")
     for key in required:
         if key not in cfg:
@@ -165,7 +186,7 @@ def prepare_batch(
     batch_root: Path,
     id_field: str = "id",
     clip_mode: str = "window",
-    station_buffer_m: float = 10_000.0,
+    station_buffer_m: float = 50_000.0,
     roi_buffer_m: float = 0.0,
     grid_buffer_m: Optional[float] = None,
     obs_stations_dir: Optional[Path] = None,
@@ -173,7 +194,7 @@ def prepare_batch(
     sliver_fix_m: float = 0.0,
     overwrite: bool = False,
 ) -> BatchManifest:
-    """Prepare per-subregion setups and return a manifest."""
+    """Prepare per-sub-domain setups and return a manifest."""
     logger.debug("Preparing batch with base_config={} regions={}", base_config, regions_path)
     if clip_mode not in {"window", "roi-symlink"}:
         raise ValueError("clip_mode must be 'window' or 'roi-symlink'")
@@ -538,4 +559,4 @@ def _write_subregion_config(
             grids_cfg["format"] = fmt.lower()
             cfg["output_data"]["grids"] = grids_cfg
 
-    dest.write_text(to_yaml(cfg), encoding="utf-8")
+    dest.write_text(_to_yaml_text(cfg), encoding="utf-8")

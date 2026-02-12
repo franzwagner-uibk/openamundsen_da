@@ -1,7 +1,7 @@
-import unittest
+﻿import unittest
 from datetime import timedelta
 
-from openamundsen_da.pipeline.season_skeleton import _parse_timestep
+from openamundsen_da.pipeline.project_skeleton import _parse_timestep
 
 
 class ParseTimestepTests(unittest.TestCase):
@@ -20,3 +20,4 @@ class ParseTimestepTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

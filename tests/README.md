@@ -1,4 +1,4 @@
-# Testing and CI Runbook
+﻿# Testing and CI Runbook
 
 This folder documents the current regression-testing setup for `openamundsen_da`.
 
@@ -30,7 +30,7 @@ Workflow file: `.github/workflows/ci.yml`
   - Builds a CI Docker image from current commit
   - Runs unit tests with `pytest` via `scripts/ci/run_unit_tests.sh`
   - Runs trimmed integration test via `scripts/ci/run_integration_tests.sh`
-  - Uploads integration artifacts on failure (log + trimmed season outputs)
+  - Uploads integration artifacts on failure (log + trimmed setup outputs)
 - Job `Build and Push GHCR Image`:
   - Runs only on push to `main`
   - Depends on successful `tests` job
@@ -57,10 +57,10 @@ Workflow file: `.github/workflows/ci.yml`
 3. CI image is built from current commit.
 4. Unit tests are executed with `pytest` (`scripts/ci/run_unit_tests.sh`).
 5. Integration run creates a temporary project from `examples/rofental`.
-6. Integration run writes trimmed season config (ensemble size + SCF/wet-snow events).
-7. Season skeleton is generated.
+6. Integration run writes trimmed setup config (ensemble size + SCF/wet-snow events).
+7. Setup skeleton is generated.
 8. SCF and wet-snow per-step observation CSVs are prepared.
-9. Full season pipeline is executed (`oa-da-season` equivalent module call).
+9. Full setup pipeline is executed (`oa-da-project` equivalent module call).
 10. Integration validator checks logs, outputs, plots, and weight sanity.
 11. If integration fails, log and trimmed outputs are uploaded as CI artifacts.
 12. On push to `main` only: publish job builds and pushes GHCR image.
@@ -73,7 +73,7 @@ Current coverage areas include:
 - config merging behavior
 - DA events parsing/handling
 - land-cover path and resolution behavior
-- season skeleton behavior
+- setup skeleton behavior
 - statistics helper functions
 - assimilation requirement validation prechecks
 
@@ -90,11 +90,11 @@ Framework/tooling config:
   - config merge behavior
   - assimilation event parsing
   - land-cover path handling
-  - season skeleton basics
+  - setup skeleton basics
   - statistics helpers
   - assimilation requirement validation prechecks
 - Integration scenario behavior:
-  - trimmed season orchestration on Rofental example clone
+  - trimmed setup orchestration on Rofental example clone
   - one SCF assimilation event
   - one wet-snow assimilation event
   - ensemble propagation, assimilation, resampling/rejuvenation path
@@ -110,19 +110,19 @@ Framework/tooling config:
   - fail on severe warnings
   - allow explicitly whitelisted benign warnings
 
-### Integration regression test (trimmed season)
+### Integration regression test (trimmed setup)
 
 Runner script: `scripts/ci/run_integration_tests.sh`
 
 What it does:
 - clones `examples/rofental` into a temp directory
-- trims season to a short CI window (`season_ci_2022_2023`)
+- trims setup to a short CI window (`setup_ci_2022_2023`)
 - sets small ensemble size (`4`)
 - configures one SCF and one wet-snow assimilation event
-- generates season skeleton
+- generates setup skeleton
 - distributes SCF and wet-snow observations
-- runs full season pipeline
-- validates logs and outputs with `scripts/ci/validate_trimmed_season.py`
+- runs full setup pipeline
+- validates logs and outputs with `scripts/ci/validate_trimmed_project.py`
 
 Validation focuses on:
 - no fatal log patterns (`ERROR`, `CRITICAL`, `Traceback`, `Exception`)
@@ -133,12 +133,12 @@ Validation focuses on:
   - SCF weights CSVs
   - wet-snow weights CSVs
   - member SCF point time series
-  - forcing plots, season result plots, assimilation plots
+  - forcing plots, setup result plots, assimilation plots
   - persistent openAMUNDSEN outputs (`point_*.csv`, `*.nc`)
 - minimal weight sanity (weights exist, numeric, sum to `1.0`)
 
 Failure artifacts:
-- integration log and trimmed season outputs are copied to CI artifact directory when the run fails
+- integration log and trimmed setup outputs are copied to CI artifact directory when the run fails
 - artifact upload is defined in `.github/workflows/ci.yml`
 
 ### Lint gate
@@ -181,19 +181,19 @@ Note on private repo + free tier:
 Main locations:
 - CI workflow/jobs and sequencing: `.github/workflows/ci.yml`
 - unit test runner command: `scripts/ci/run_unit_tests.sh`
-- integration run recipe (trimmed season): `scripts/ci/run_integration_tests.sh`
-- integration validation logic: `scripts/ci/validate_trimmed_season.py`
+- integration run recipe (trimmed setup): `scripts/ci/run_integration_tests.sh`
+- integration validation logic: `scripts/ci/validate_trimmed_project.py`
 - lint command: `scripts/ci/run_lint.sh`
 - test/lint optional dependencies: `pyproject.toml`
 
 Trimmed Rofental configuration details:
 - source project copied for CI: `examples/rofental`
-- trimmed season name, dates, assimilation events, and ensemble size are currently hard-coded in `scripts/ci/run_integration_tests.sh`
+- trimmed setup name, dates, assimilation events, and ensemble size are currently hard-coded in `scripts/ci/run_integration_tests.sh`
 - max workers for CI integration run is set in `.github/workflows/ci.yml` via `OA_DA_TEST_MAX_WORKERS` (current value: `20`)
 
-If you want to change the CI test season:
+If you want to change the CI test setup:
 - edit the inline Python block in `scripts/ci/run_integration_tests.sh` for:
-  - `SEASON_NAME`
+  - `SETUP_NAME`
   - `start_date` / `end_date`
   - assimilation events (`variable`, `product`, `date`)
   - forced ensemble size (`prior["ensemble_size"]`)
@@ -226,3 +226,6 @@ From repository root:
 - run integration wrapper: `bash scripts/ci/run_integration_tests.sh`
 
 Use same scripts as CI to avoid drift between local and server behavior.
+
+
+

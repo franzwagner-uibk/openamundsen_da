@@ -8,7 +8,7 @@ END_DATE = "end_date"
 LOG_LEVEL = "log_level"
 ENVIRONMENT = "environment"
 
-# Environment variables to export/apply from project.yml or sensible defaults
+# Environment variables to export/apply from setup YAML or sensible defaults
 ENV_VARS_EXPORT = (
     "GDAL_DATA",
     "PROJ_LIB",
@@ -35,7 +35,7 @@ DEFAULT_PRECIP_COL = "precip"
 # Station metadata filename (CSV schema used by openAMUNDSEN)
 STATIONS_CSV = "stations.csv"
 
-# Data assimilation config blocks and keys (project.yml)
+# Data assimilation config blocks and keys (project YAML)
 DA_BLOCK = "data_assimilation"
 DA_PRIOR_BLOCK = "prior_forcing"
 DA_ENSEMBLE_SIZE = "ensemble_size"
@@ -66,7 +66,7 @@ HOFX_PARAM_K = "k"
 VAR_HS = "hs"
 VAR_SWE = "swe"
 
-# Likelihood / Resampling config blocks (project.yml)
+# Likelihood / Resampling config blocks (project YAML)
 LIKELIHOOD_BLOCK = "likelihood"
 LIK_OBS_SIGMA = "obs_sigma"
 LIK_USE_BINOMIAL = "use_binomial"
@@ -87,7 +87,7 @@ REJ_SIGMA_P = "sigma_p"
 RESTART_BLOCK = "restart"
 RESTART_DUMP_STATE = "dump_state"       # bool
 RESTART_STATE_PATTERN = "state_pattern" # filename or glob (relative to member results_dir)
-RESTART_CLEANUP_AFTER_SEASON = "cleanup_after_season"  # bool; delete state files after successful season
+RESTART_CLEANUP_AFTER_SETUP = "cleanup_after_setup"  # bool; delete state files after successful setup
 STATE_DEFAULT_NAME = "model_state.pickle.gz"
 
 # Pointer files to avoid duplicating large state/outputs across steps

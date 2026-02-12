@@ -1,8 +1,8 @@
-"""Helpers for converting season-wide fraction summaries into per-step obs CSVs.
+﻿"""Helpers for converting project-wide fraction summaries into per-step obs CSVs.
 
 Both MODIS SCF and Sentinel-1 wet-snow summaries share the same pattern:
 
-- A season-level summary CSV in ``obs/<season>/`` with one row per date.
+- A project-level summary CSV in ``obs/<project>/`` with one row per date.
 - Per-step observation CSVs in ``step_XX_*/obs`` that contain one row for the
   assimilation date of that step.
 
@@ -23,7 +23,7 @@ from loguru import logger
 from openamundsen_da.core.constants import OBS_DIR_NAME
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import (
-    find_project_yaml,
+    find_setup_yaml,
     list_steps_sorted as io_list_steps_sorted,
     read_step_config,
 )
@@ -35,7 +35,7 @@ class SummaryIndex:
 
 
 def read_fraction_summary(summary_csv: Path, *, date_col: str = "date") -> SummaryIndex:
-    """Read a season-level summary CSV and index rows by date."""
+    """Read a project-level summary CSV and index rows by date."""
 
     if not summary_csv.is_file():
         raise FileNotFoundError(f"Summary CSV not found: {summary_csv}")
@@ -64,10 +64,10 @@ def _parse_dt_opt(text: str | None) -> datetime | None:
         return None
 
 
-def list_steps_sorted(season_dir: Path) -> List[Path]:
+def list_steps_sorted(project_dir: Path) -> List[Path]:
     """Return step_* directories sorted by their start_date."""
     items: List[tuple[datetime, Path]] = []
-    for p in io_list_steps_sorted(season_dir):
+    for p in io_list_steps_sorted(project_dir):
         cfg = read_step_config(p) or {}
         start = _parse_dt_opt(str(cfg.get("start_date")))
         items.append((start or datetime.min, p))
@@ -116,13 +116,13 @@ def write_obs_from_summary_row(
     return out_csv
 
 
-def _project_from_season(season_dir: Path | None) -> Path | None:
-    if season_dir is None:
+def _setup_from_project(project_dir: Path | None) -> Path | None:
+    if project_dir is None:
         return None
-    for candidate in (season_dir.parent, season_dir.parent.parent):
+    for candidate in (project_dir.parent, project_dir.parent.parent):
         if candidate and candidate.is_dir():
             try:
-                return find_project_yaml(candidate).parent
+                return find_setup_yaml(candidate).parent
             except Exception:
                 continue
     return None
@@ -132,16 +132,16 @@ def resolve_obs_product_tag(
     variable: str,
     *,
     project_dir: Path | None = None,
-    season_dir: Path | None = None,
+    setup_dir: Path | None = None,
     fallback: str | None = None,
 ) -> str:
-    """Resolve the product tag for obs filenames from project.yml (obs.<variable>.product_tag)."""
+    """Resolve the product tag for obs filenames from setup YAML (obs.<variable>.product_tag)."""
 
     default = fallback or ("SNOWCOVER" if variable == "scf" else "WETSNOW")
-    proj_dir = project_dir or _project_from_season(season_dir)
-    if proj_dir:
+    setup_root = setup_dir or _setup_from_project(project_dir)
+    if setup_root:
         try:
-            cfg = _read_yaml_file(find_project_yaml(proj_dir)) or {}
+            cfg = _read_yaml_file(find_setup_yaml(setup_root)) or {}
             obs_cfg = (cfg.get("obs") or {})
             key = "snowcover" if variable == "scf" else "wetsnow" if variable == "wet_snow" else variable
             tag = (obs_cfg.get(key) or {}).get("product_tag")
@@ -150,3 +150,5 @@ def resolve_obs_product_tag(
         except Exception:
             pass
     return str(default).upper()
+
+

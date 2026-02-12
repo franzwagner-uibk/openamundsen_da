@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Advanced Topics
 nav_order: 7
@@ -21,3 +21,4 @@ This section covers advanced topics:
 
 {: .note }
 > These guides assume familiarity with the basic workflow. Start with the [User Guides]({{ site.baseurl }}{% link guides/index.md %}) if you're new to the framework.
+

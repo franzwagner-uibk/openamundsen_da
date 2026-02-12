@@ -23,7 +23,12 @@ from loguru import logger
 
 from openamundsen_da.core.constants import ENSEMBLE_PRIOR
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import list_member_dirs
+from openamundsen_da.io.paths import (
+    list_member_dirs,
+    infer_project_dir,
+    infer_setup_dir_from_project,
+    find_setup_yaml,
+)
 from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
 
 _RHO_WATER_DEFAULT = 1000.0  # kg m-3
@@ -39,24 +44,19 @@ _LWC_RE = re.compile(
 
 def _grid_format_for_step(step_dir: Path) -> str | None:
     """
-    Read output_data.grids.format from project.yml (searching parent dirs).
+    Read output_data.grids.format from setup YAML.
 
     Returns lower-case format or None if not found/unsupported.
     """
     step_dir = Path(step_dir)
-    proj_path = None
-    for parent in [step_dir] + list(step_dir.parents):
-        for name in ("project.yml", "project.yaml"):
-            cand = parent / name
-            if cand.exists():
-                proj_path = cand
-                break
-        if proj_path:
-            break
-    if proj_path is None:
+    try:
+        project_dir = infer_project_dir(step_dir)
+        setup_dir = infer_setup_dir_from_project(project_dir)
+        setup_yaml = find_setup_yaml(setup_dir)
+    except Exception:
         return None
     try:
-        cfg = _read_yaml_file(proj_path) or {}
+        cfg = _read_yaml_file(setup_yaml) or {}
         fmt = (
             cfg.get("output_data", {})
             .get("grids", {})
@@ -351,29 +351,29 @@ def _compute_fraction(
         logger.info("Wrote LWC fraction {}", frac_path)
 
 
-def _iter_steps(season_dir: Optional[Path], step_dir: Optional[Path]) -> List[Path]:
+def _iter_steps(setup_dir: Optional[Path], step_dir: Optional[Path]) -> List[Path]:
     """
     Determine which step directories to process.
 
     Parameters
     ----------
-    season_dir : Path or None
-        Season directory containing step subfolders.
+    setup_dir : Path or None
+        Setup directory containing step subfolders.
     step_dir : Path or None
         Specific step directory if only one should be processed.
 
     Returns
     -------
     list of Path
-        Single step when ``step_dir`` is provided, otherwise all season steps.
+        Single step when ``step_dir`` is provided, otherwise all setup steps.
     """
     if step_dir is not None:
         return [step_dir]
-    if season_dir is None:
-        raise ValueError("Either --season-dir or --step-dir must be provided.")
+    if setup_dir is None:
+        raise ValueError("Either --setup-dir or --step-dir must be provided.")
     from openamundsen_da.io.paths import list_step_dirs
 
-    return list_step_dirs(season_dir)
+    return list_step_dirs(setup_dir)
 
 
 def _iter_members(
@@ -506,7 +506,7 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="oa-da-wet-snow",
         description="Classify volumetric wet snow masks from openAMUNDSEN outputs.",
     )
-    parser.add_argument("--season-dir", type=Path, help="Season root (contains steps/step_*).")
+    parser.add_argument("--setup-dir", type=Path, help="Setup root (contains steps/step_*).")
     parser.add_argument("--step-dir", type=Path, help="Single step directory to process.")
     parser.add_argument("--members", nargs="+", help="Only process listed member directories.")
     parser.add_argument(
@@ -549,7 +549,7 @@ def cli_main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        step_dirs = _iter_steps(args.season_dir, args.step_dir)
+        step_dirs = _iter_steps(args.setup_dir, args.step_dir)
     except ValueError as exc:
         parser.error(str(exc))
         return 1
@@ -594,7 +594,7 @@ def classify_step_wet_snow(
     """Classify wet-snow masks for a single step directory.
 
     This programmatic helper mirrors the CLI behavior for one step. It is
-    used by the season pipeline to ensure wet-snow masks are available
+    used by the setup pipeline to ensure wet-snow masks are available
     for assimilation when required.
     """
     step_dir = Path(step_dir)

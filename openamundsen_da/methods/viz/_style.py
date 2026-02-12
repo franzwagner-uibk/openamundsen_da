@@ -9,7 +9,7 @@ LW_MEMBER = 0.9
 LW_MEAN = 2.0
 LW_OPEN = 2.0
 LEGEND_NCOL = 4
-LEGEND_NCOL_SEASON = 6
+LEGEND_NCOL_SETUP = 6
 
 # Observation markers (e.g., SCF DA points and station obs)
 # Use a distinct color from COLOR_OPEN_LOOP ("black") so open-loop and

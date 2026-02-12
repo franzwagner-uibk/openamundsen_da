@@ -1,4 +1,4 @@
----
+﻿---
 layout: default
 title: Workflow
 nav_order: 4
@@ -33,7 +33,7 @@ The openamundsen_da framework implements a sequential particle filter for snow d
 - **Prior Generation** (orange): Perturb meteorological forcing to create ensemble input
 - **Forecast/Propagation** (purple): Run openAMUNDSEN for each ensemble member
 - **Update Cycle** (blue): Observation processing, likelihood computation, resampling, rejuvenation
-- **Configuration** (yellow): `project.yml` controls openAMUNDSEN and DA settings, `season.yml` defines assimilation dates
+- **Configuration** (yellow): `project.yml` controls openAMUNDSEN settings, `setup.yml` controls DA settings and assimilation dates
 
 ![Data Assimilation Experiment Cycle]({{ site.baseurl }}/assets/images/Particle_Filter%20_DOCS.drawio.png)
 
@@ -46,13 +46,13 @@ The openamundsen_da framework implements a sequential particle filter for snow d
 **Temperature**: Additive Gaussian noise
 
 ```
-T_perturbed = T_original + ε_T,  ε_T ~ N(0, σ_T²)
+T_perturbed = T_original + Îµ_T,  Îµ_T ~ N(0, Ïƒ_TÂ²)
 ```
 
 **Precipitation**: Multiplicative log-normal noise
 
 ```
-P_perturbed = P_original × exp(ε_P),  ε_P ~ N(μ_P, σ_P²)
+P_perturbed = P_original Ã— exp(Îµ_P),  Îµ_P ~ N(Î¼_P, Ïƒ_PÂ²)
 ```
 
 **Command**:
@@ -62,7 +62,7 @@ docker compose run --rm oa \
   python -m openamundsen_da.core.prior_forcing \
   --input-meteo-dir /data/meteo \
   --project-dir /data \
-  --step-dir /data/propagation/season_2019-2020/step_01_*
+  --step-dir /data/projects/project_2019-2020/steps/step_01_*
 ```
 
 Optional flags: `--overwrite`, `--log-level <LEVEL>`
@@ -77,8 +77,8 @@ Optional flags: `--overwrite`, `--log-level <LEVEL>`
 docker compose run --rm oa \
   python -m openamundsen_da.core.launch \
   --project-dir /data \
-  --season-dir /data/propagation/season_2019-2020 \
-  --step-dir /data/propagation/season_2019-2020/step_01_* \
+  --setup-dir /data/projects/project_2019-2020 \
+  --step-dir /data/projects/project_2019-2020/steps/step_01_* \
   --ensemble prior \
   --max-workers 8
 ```
@@ -101,44 +101,44 @@ Warm start uses the model state saved at the end of each step via `state_pointer
 
 ## Observation Processing
 
-### Snow cover (GeoTIFF/NetCDF → `scf_summary.csv`)
+### Snow cover (GeoTIFF/NetCDF â†’ `scf_summary.csv`)
 
 ```bash
 docker compose run --rm oa \
   oa-da-snowcover \
   --input-dir /data/obs/snowcover \
-  --season-label season_2019-2020 \
+  --project-label project_2019-2020 \
   --project-dir /data
 ```
 
-Classes are read from `obs.snowcover.classes` in `project.yml` (defaults: valid 0–100, cloud 205, water 210, nodata 255). The land-cover mask from `project.yml` is applied to observations automatically.
+Classes are read from `obs.snowcover.classes` in `project.yml` (defaults: valid 0â€“100, cloud 205, water 210, nodata 255). The land-cover mask from `project.yml` is applied to observations automatically.
 
-### Wet snow (categorical rasters → `wet_snow_summary.csv`)
+### Wet snow (categorical rasters â†’ `wet_snow_summary.csv`)
 
 ```bash
 docker compose run --rm oa \
   oa-da-wetsnow \
   --input-dir /data/obs/wetsnow \
-  --season-label season_2019-2020 \
+  --project-label project_2019-2020 \
   --project-dir /data
 ```
 
 Wet/valid/exclude classes come from `obs.wetsnow.classes` (defaults: wet [1,2], valid [1,2,3,4,255], exclude [5,6]). ROI and land-cover masking mirror the snow-cover workflow.
 
-By default, both summaries are written to `/data/obs/summaries/<season-label>/scf_summary.csv` and `wet_snow_summary.csv`. Override with `--output-root` if you want a different location.
+By default, both summaries are written to `/data/obs/summaries/<setup-label>/scf_summary.csv` and `wet_snow_summary.csv`. Override with `--output-root` if you want a different location.
 
 ### Per-step obs CSVs
 
 ```bash
-docker compose run --rm oa oa-da-scf --season-dir /data/propagation/season_2019-2020 --overwrite
-docker compose run --rm oa oa-da-wetsnow-season --season-dir /data/propagation/season_2019-2020 --overwrite
+docker compose run --rm oa oa-da-scf --setup-dir /data/projects/project_2019-2020 --overwrite
+docker compose run --rm oa oa-da-wetsnow-project --setup-dir /data/projects/project_2019-2020 --overwrite
 ```
 
 Outputs: `step_*/obs/obs_scf_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`, with product tags resolved from `project.yml` (`SNOWCOVER`/`WETSNOW` by default).
 
 ### Land-Cover Masking
 
-Configured in `project.yml`:
+Configured in `setup.yml`:
 
 ```yaml
 data_assimilation:
@@ -171,10 +171,10 @@ Maps model state (snow depth or SWE) to observation space (SCF).
 
 2. **Logistic** (smooth):
    ```
-   SCF = 1 / (1 + exp(-k × (HS - h0)))
+   SCF = 1 / (1 + exp(-k Ã— (HS - h0)))
    ```
 
-**Configuration** (in `project.yml`):
+**Configuration** (in `setup.yml`):
 
 ```yaml
 data_assimilation:
@@ -191,20 +191,20 @@ data_assimilation:
 Gaussian likelihood function:
 
 ```
-w_i ∝ exp(-0.5 × ((y_obs - H(x_i)) / σ_obs)²)
+w_i âˆ exp(-0.5 Ã— ((y_obs - H(x_i)) / Ïƒ_obs)Â²)
 ```
 
-Weights are normalized: `w_i = w_i / Σ(w_j)`
+Weights are normalized: `w_i = w_i / Î£(w_j)`
 
 ### Effective Sample Size (ESS)
 
 ```
-ESS = 1 / Σ(w_i²)
+ESS = 1 / Î£(w_iÂ²)
 ```
 
 - ESS = N: All weights equal (no information from obs)
 - ESS = 1: One particle dominates (particle degeneracy)
-- ESS < threshold → Trigger resampling
+- ESS < threshold â†’ Trigger resampling
 
 ---
 
@@ -218,13 +218,13 @@ ESS = 1 / Σ(w_i²)
 data_assimilation:
   resampling:
     algorithm: systematic
-    ess_threshold_ratio: 0.5 # Resample if ESS < 0.5 × N
+    ess_threshold_ratio: 0.5 # Resample if ESS < 0.5 Ã— N
     seed: 42
 ```
 
 **Behavior**:
 
-- If `ESS ≥ threshold`: Skip resampling, mirror prior → posterior
+- If `ESS â‰¥ threshold`: Skip resampling, mirror prior â†’ posterior
 - If `ESS < threshold`: Resample
 
 ### Rejuvenation
@@ -253,20 +253,20 @@ If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas.
 Copy posterior states + perturbed forcing to next step's prior:
 
 ```
-step_N/ensembles/posterior/member_i/ → step_N+1/ensembles/prior/member_j/
+step_N/ensembles/posterior/member_i/ â†’ step_N+1/ensembles/prior/member_j/
 ```
 
 ---
 
-## Season Pipeline
+## Setup Pipeline
 
-The season pipeline automates all phases:
+The setup pipeline automates all phases:
 
 ```bash
 docker compose run --rm oa \
-  python -m openamundsen_da.pipeline.season \
+  python -m openamundsen_da.pipeline.project \
   --project-dir /data \
-  --season-dir /data/propagation/season_2019-2020 \
+  --setup-dir /data/projects/project_2019-2020 \
   --max-workers 8 \
   --monitor-perf
 ```
@@ -278,9 +278,9 @@ Optional: `--overwrite`, `--live-plots`, `--log-level <LEVEL>` (`--live-plots` e
 1. Generate prior forcing
 2. Run prior ensemble
 3. Compute model H(x) (SCF/wet-snow)
-4. Assimilate observations → weights
-5. Check ESS → resample if needed
-6. Rejuvenate → next prior
+4. Assimilate observations â†’ weights
+5. Check ESS â†’ resample if needed
+6. Rejuvenate â†’ next prior
 7. Generate plots
 8. Repeat for next step
 
@@ -289,25 +289,25 @@ Optional: `--overwrite`, `--live-plots`, `--log-level <LEVEL>` (`--live-plots` e
 - Per-step runs in `<step>/ensembles/{prior,posterior}`
 - Weights and indices in `<step>/assim/`
 - Rejuvenated next-step prior with `state_pointer.json`
-- Season plots under `<season_dir>/plots/{forcing,results}`
+- Setup plots under `<setup_dir>/plots/{forcing,results}`
 
 ---
 
 ## State cleanup
 
-- Automatic: `data_assimilation.restart.cleanup_after_season: true` (default) removes member state pickle files after a successful season to save disk space.
+- Automatic: `data_assimilation.restart.cleanup_after_setup: true` (default, in `setup.yml`) removes member state pickle files after a successful setup to save disk space.
 - Manual: run the cleanup CLI to delete state files even if automatic cleanup is disabled.
 
-Clean all seasons:
+Clean all setups:
 
 ```powershell
-oa-da-clean-season --project-dir /data/your_project --all-seasons --log-level INFO
+oa-da-clean-project --project-dir /data/your_project --all-setups --log-level INFO
 ```
 
-Clean one season:
+Clean one setup:
 
 ```powershell
-oa-da-clean-season --project-dir /data/your_project --season-dir /data/your_project/propagation/season_YYYY-YYYY --log-level INFO
+oa-da-clean-project --project-dir /data/your_project --setup-dir /data/your_project/projects/project_YYYY-YYYY --log-level INFO
 ```
 
 Only state pickle files are removed; `state_pointer.json` files are left in place.
@@ -355,3 +355,7 @@ data_assimilation:
 
 - Barella, R., Marin, C., Gianinetto, M., and Notarnicola, C. (2022). A novel approach to high resolution snow cover fraction retrieval in mountainous regions. IGARSS 2022 - IEEE International Geoscience and Remote Sensing Symposium, 3856-3859. https://doi.org/10.1109/IGARSS46834.2022.9884177.
 - Nagler, T., Rott, H., Ripper, E., Bippus, G., and Hetzenecker, M. (2016). Advancements for snowmelt monitoring by means of Sentinel-1 SAR. Remote Sensing, 8(4), 348. https://doi.org/10.3390/rs8040348.
+
+
+
+

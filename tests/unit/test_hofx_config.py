@@ -1,10 +1,10 @@
-import tempfile
+﻿import tempfile
 import unittest
 from pathlib import Path
 
 from ruamel.yaml import YAML
 
-from openamundsen_da.methods.h_of_x.model_scf import load_hofx_from_project
+from openamundsen_da.methods.h_of_x.model_scf import load_hofx_from_setup
 
 
 def _write_yaml(path: Path, payload: dict) -> None:
@@ -17,9 +17,10 @@ def _write_yaml(path: Path, payload: dict) -> None:
 class HofxConfigTests(unittest.TestCase):
     def test_loads_hofx_from_data_assimilation_block(self):
         with tempfile.TemporaryDirectory() as tmp:
-            project_dir = Path(tmp)
+            setup_dir = Path(tmp)
+            project_dir = setup_dir / "projects" / "project_test"
             _write_yaml(
-                project_dir / "project.yml",
+                project_dir / "project_test.yml",
                 {
                     "data_assimilation": {
                         "h_of_x": {
@@ -31,7 +32,7 @@ class HofxConfigTests(unittest.TestCase):
                 },
             )
 
-            method, variable, params = load_hofx_from_project(project_dir)
+            method, variable, params = load_hofx_from_setup(project_dir)
 
             self.assertEqual(method, "logistic")
             self.assertEqual(variable, "hs")
@@ -40,9 +41,10 @@ class HofxConfigTests(unittest.TestCase):
 
     def test_top_level_hofx_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
-            project_dir = Path(tmp)
+            setup_dir = Path(tmp)
+            project_dir = setup_dir / "projects" / "project_test"
             _write_yaml(
-                project_dir / "project.yml",
+                project_dir / "project_test.yml",
                 {
                     "h_of_x": {
                         "method": "depth_threshold",
@@ -53,8 +55,9 @@ class HofxConfigTests(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(ValueError, "data_assimilation.h_of_x"):
-                load_hofx_from_project(project_dir)
+                load_hofx_from_setup(project_dir)
 
 
 if __name__ == "__main__":
     unittest.main()
+

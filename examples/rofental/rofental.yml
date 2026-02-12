@@ -1,135 +1,8 @@
-domain: "rofental"
-# start_date:  # defined in season.yml
-# end_date:    # defined season.yml
+﻿domain: "rofental"
 resolution: 100 # spatial resolution (m)
 timestep: "3H" # temporal resolution as a pandas-compatible frequency string (e.g., "h", "3h", "D")
 crs: "epsg:25832" # CRS of the input grids
 timezone: 1 # timezone of the model domain (difference to UTC in h)
-
-data_assimilation:
-  # ---------------------------------------------------------------------------
-  # Prior forcing ensemble (REQUIRED for DA runs)
-  # ---------------------------------------------------------------------------
-  # Controls the size and perturbation statistics of the meteorological
-  # ensemble used to drive the model. All keys are required when running
-  # the particle filter; there are no internal defaults here.
-  prior_forcing:
-    ensemble_size: 30 # number of ensemble members
-    random_seed: 42 # RNG seed for reproducibility
-    sigma_t: 0.5 # additive temperature stddev (deg C)
-    mu_p: 0.0 # log-space mean for precip factor
-    sigma_p: 0.5 # log-space stddev for precip factor
-
-  # ---------------------------------------------------------------------------
-  # Model SCF operator H(x) (REQUIRED when assimilating SCF)
-  # ---------------------------------------------------------------------------
-  # Defines how the model maps HS/SWE grids to a 0..1 snow-cover fraction
-  # for a given AOI. Used by the SCF assimilation and by SCF diagnostics.
-  # - method: "depth_threshold" (deterministic) or "logistic" (probabilistic)
-  # - variable: "hs" (snow depth) or "swe"
-  # - params.h0: threshold / midpoint in units of variable
-  # - params.k: logistic slope (ignored for depth_threshold)
-  h_of_x:
-    method: depth_threshold # or "logistic"
-    variable: hs # or "swe"
-    params:
-      h0: 0.03
-      k: 80
-
-  # ---------------------------------------------------------------------------
-  # Wet-snow classification (OPTIONAL; defaults applied if omitted)
-  # ---------------------------------------------------------------------------
-  # Threshold for the volumetric liquid water content (% of pore volume) used
-  # by the wet-snow classifier to flag wet cells. This is consumed by the
-  # season pipeline before DA so that wet-snow masks/fractions are available.
-  wet_snow:
-    classification_threshold_percent: 0.5
-
-  # ---------------------------------------------------------------------------
-  # Land-cover masking (OPTIONAL; replaces legacy glacier mask)
-  # ---------------------------------------------------------------------------
-  # Excludes selected land-cover classes from SCF/wet-snow model/obs comparisons.
-  # Land-cover file is auto-resolved from grids/lc_<domain>_<resolution>.asc.
-  landcover_mask:
-    enabled: true
-    classes_to_exclude: [2, 3, 8, 9, 10, 11, 12, 13]  # reuse testsite defaults
-
-  # ---------------------------------------------------------------------------
-  # Likelihood (OPTIONAL; sensible defaults if omitted)
-  # ---------------------------------------------------------------------------
-  # Observation error settings for each observable. If the "likelihood" block
-  # is absent, a default configuration is used (obs_sigma=0.10, use_binomial=1,
-  # sigma_floor=0.05, sigma_cloud_scale=0.10, min_sigma=0.03). Per-variable
-  # blocks override these defaults.
-  #
-  # - obs_sigma: base observation error (stddev) for Gaussian likelihood
-  # - use_binomial: when true, combine obs_sigma with a binomial term that
-  #   depends on n_valid and the observed fraction
-  # - sigma_floor: minimum sigma contribution from sampling effects
-  # - sigma_cloud_scale: additional sigma inflation term for cloud/shadow
-  # - min_sigma: absolute lower bound for sigma to avoid overconfidence
-  likelihood:
-    scf: # settings for SCF assimilation (optional)
-      obs_sigma: 0.10
-      use_binomial: true
-      sigma_floor: 0.05
-      sigma_cloud_scale: 0.10
-      min_sigma: 0.03
-    wet_snow: # settings for wet-snow assimilation (optional)
-      obs_sigma: 0.10
-      use_binomial: false
-      sigma_floor: 0.05
-      sigma_cloud_scale: 0.10
-      min_sigma: 0.03
-
-  # ---------------------------------------------------------------------------
-  # Resampling (OPTIONAL; defaults applied if omitted)
-  # ---------------------------------------------------------------------------
-  # Particle resampling after each assimilation step. If the "resampling"
-  # block is missing, a systematic resampler is still used with a default
-  # ESS threshold (no resampling unless ESS is very low). Setting the block
-  # makes the behavior explicit.
-  #
-  # - algorithm: "systematic" (currently implemented)
-  # - ess_threshold_ratio: resample if ESS < ratio * N (recommended 0.5..0.66)
-  # - seed: RNG seed for deterministic resampling (optional; "auto" uses wall-clock)
-  resampling:
-    algorithm: systematic
-    ess_threshold_ratio: 0.5 # resample when ESS < 0.5 * N
-    seed: 42
-
-  # ---------------------------------------------------------------------------
-  # Rejuvenation (OPTIONAL; defaults applied if omitted)
-  # ---------------------------------------------------------------------------
-  # Adds small perturbations to the posterior ensemble before using it as the
-  # prior of the next step. If this block is missing, rejuvenation falls back
-  # to prior_forcing sigmas or is skipped depending on the method settings.
-  #
-  # - sigma_t: additive temperature noise (deg C)
-  # - sigma_p: lognormal sigma for precip factor (mu=0)
-  # - seed: RNG seed (optional; defaults to prior_forcing.random_seed)
-  # - rebase_open_loop: false = perturb each member relative to itself,
-  #   true = perturb relative to open_loop meteo
-  rejuvenation:
-    sigma_t: 0.5 # additive temperature noise (deg C)
-    sigma_p: 0.5 # lognormal sigma for precip factor (mu=0)
-    seed: 42 # optional; defaults to prior_forcing.random_seed
-    rebase_open_loop: false
-
-  # ---------------------------------------------------------------------------
-  # Warm start / restart (OPTIONAL; defaults are no restart)
-  # ---------------------------------------------------------------------------
-  # Controls whether model state is saved and reused between steps. If this
-  # block is omitted, the pipeline behaves as a cold-start for each step
-  # (no state carry-over).
-  #
-  # - use_state: true to read state_pointer.json and restart from previous step
-  # - dump_state: true to save state at the end of each member run
-  # - state_pattern: filename or glob for the state file under results_dir
-  restart:
-    use_state: true # set true for steps after the first assimilation
-    dump_state: true # save final state at the end of each member run
-    state_pattern: model_state.pickle.gz
 
 # Input data configuration
 input_data:
@@ -175,7 +48,7 @@ meteo:
     temperature:
       trend_method: fixed # use fixed monthly temperature lapse rates
       extrapolate: true
-      lapse_rate: # (°C m-1)
+      lapse_rate: # (Ã‚Â°C m-1)
         - -0.0026 # J
         - -0.0035 # F
         - -0.0047 # M
@@ -290,7 +163,7 @@ snow:
     method: snow_age
     min: 0.55 # minimum snow albedo
     max: 0.85 # maximum snow albedo
-    cold_snow_decay_timescale: 480 # albedo decay timescale for cold (T < 0 °C) snow (h)
+    cold_snow_decay_timescale: 480 # albedo decay timescale for cold (T < 0 Ã‚Â°C) snow (h)
     melting_snow_decay_timescale: 200 # albedo decay timescale for melting snow (h)
     decay_timescale_determination_temperature: surface # use surface temperature to distinguish between cold and melting snow
     refresh_snowfall: 0.5 # snowfall amount for resetting albedo to the maximum value (kg m-2 h-1)
@@ -304,7 +177,7 @@ snow:
 
     # Parameters for method "empirical"
     timescale: 200 # snow compaction timescale (h)
-    max_cold_density: 300 # maximum density for cold (T < 0 °C) snow (kg m-3)
+    max_cold_density: 300 # maximum density for cold (T < 0 Ã‚Â°C) snow (kg m-3)
     max_melting_density: 500 # maximum density for melting snow (kg m-3)
 
   # Liquid water content
@@ -599,3 +472,4 @@ land_cover:
       max_height: 1.9
       depletion_fraction: .nan
       rooting_depth: .nan
+

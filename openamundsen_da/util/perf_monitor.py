@@ -1,12 +1,12 @@
-"""Minimal performance monitor for season runs (CPU / RAM).
+"""Minimal performance monitor for project runs (CPU / RAM).
 
 When enabled, a background thread samples:
 - System CPU percent
 - System RAM percent/GB
 
-Outputs under `<season_dir>/plots/perf/`:
-- `season_perf_metrics.csv`
-- `season_perf.png` (CPU+RAM)
+Outputs under `<project_dir>/plots/perf/`:
+- `project_perf_metrics.csv`
+- `project_perf.png` (CPU+RAM)
 
 Dependencies: psutil (required), matplotlib (optional for plotting).
 If psutil is missing, the monitor logs a warning and no files are written.
@@ -36,7 +36,7 @@ except Exception:  # pragma: no cover
 
 @dataclass(frozen=True)
 class PerfMonitorConfig:
-    season_dir: Path
+    project_dir: Path
     sample_interval_sec: float = 5.0
     plot_interval_sec: float = 30.0
     run_start: datetime | None = None
@@ -49,7 +49,7 @@ def start_perf_monitor(cfg: PerfMonitorConfig) -> Event:
         logger.warning("psutil is not available; performance monitoring is disabled.")
         return stop_event
 
-    out_dir = Path(cfg.season_dir) / "plots" / "perf"
+    out_dir = Path(cfg.project_dir) / "plots" / "perf"
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
     except Exception as exc:  # pragma: no cover
@@ -68,8 +68,8 @@ def start_perf_monitor(cfg: PerfMonitorConfig) -> Event:
 
 
 def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> None:
-    csv_path = out_dir / "season_perf_metrics.csv"
-    png_path = out_dir / "season_perf.png"
+    csv_path = out_dir / "project_perf_metrics.csv"
+    png_path = out_dir / "project_perf.png"
 
     timestamps: List[datetime] = []
     cpu_pct: List[float] = []
@@ -190,14 +190,14 @@ def _render_plot(
 
 
 def cli_main(argv: List[str] | None = None) -> int:
-    """Foreground performance monitor for a season directory."""
+    """Foreground performance monitor for a project directory."""
     import argparse
 
     p = argparse.ArgumentParser(
         prog="oa-da-perf-monitor",
-        description="Monitor CPU/RAM usage for a season directory.",
+        description="Monitor CPU/RAM usage for a project directory.",
     )
-    p.add_argument("--season-dir", required=True, type=Path, help="Season directory (contains season.yml)")
+    p.add_argument("--project-dir", required=True, type=Path, help="Project directory (contains steps/)")
     p.add_argument("--sample-interval", type=float, default=5.0, help="Sampling interval in seconds (default: 5)")
     p.add_argument("--plot-interval", type=float, default=30.0, help="Plot refresh interval in seconds (default: 30)")
     p.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
@@ -210,12 +210,12 @@ def cli_main(argv: List[str] | None = None) -> int:
         logger.error("psutil is required for performance monitoring but is not installed.")
         return 1
 
-    season_dir = Path(args.season_dir)
-    out_dir = season_dir / "plots" / "perf"
+    project_dir = Path(args.project_dir)
+    out_dir = project_dir / "plots" / "perf"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     cfg = PerfMonitorConfig(
-        season_dir=season_dir,
+        project_dir=project_dir,
         sample_interval_sec=float(args.sample_interval or 5.0),
         plot_interval_sec=float(args.plot_interval or 30.0),
         run_start=datetime.utcnow(),

@@ -1,4 +1,4 @@
-"""Parallel execution of per-subregion openAMUNDSEN runs."""
+"""Parallel execution of per-sub-domain openAMUNDSEN runs."""
 
 from __future__ import annotations
 
@@ -157,7 +157,7 @@ def _run_one(
     retries: int,
     batch_log: Path | None = None,
 ) -> RunResult:
-    """Worker: run one subregion open loop."""
+    """Worker: run one sub-domain open loop."""
     sub = manifest.subregions[sub_id]
     # Use setup root for log/manifest (no extra log subdir)
     run_dir = sub.results_dir.parent  # = setup_dir
@@ -211,7 +211,7 @@ def _run_one(
         start = time.time()
         try:
             os.chdir(sub.setup_dir)
-            # Capture stdout/stderr from upstream libraries into the run log for parity with season pipeline.
+            # Capture stdout/stderr from upstream libraries into the run log for parity with setup pipeline.
             with log_path.open("a", encoding="utf-8") as log_f, redirect_stdout(log_f), redirect_stderr(log_f):
                 model = OpenAmundsen(cfg)
                 model.initialize()
@@ -257,7 +257,7 @@ def run_batch(
     perf_monitor: bool = True,
     log_to_file: bool = True,
 ) -> List[RunResult]:
-    """Run open-loop simulations for all (or selected) subregions in parallel."""
+    """Run open-loop simulations for all (or selected) sub-domains in parallel."""
     # Make parent processes safe to fork with numeric libs that spin OpenMP threads
     # (avoids "fork() called from a process already using GNU OpenMP" crashes).
     apply_numeric_thread_defaults()
@@ -284,7 +284,7 @@ def run_batch(
     perf_stop = None
     if perf_monitor:
         perf_stop = start_perf_monitor(
-            PerfMonitorConfig(season_dir=batch_root, sample_interval_sec=5.0, plot_interval_sec=30.0)
+            PerfMonitorConfig(project_dir=batch_root, sample_interval_sec=5.0, plot_interval_sec=30.0)
         )
 
     results: List[RunResult] = []

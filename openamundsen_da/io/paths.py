@@ -7,7 +7,7 @@ Purpose
 - Centralize filesystem helpers for discovering configs, ensembles, and rasters.
 -
 Key Behaviors
-- Locate project/season/step YAMLs, member meteo/results layouts, and daily rasters.
+- Locate project/setup/step YAMLs, member meteo/results layouts, and daily rasters.
 - Normalize user paths relative to the project root.
 - Provide ensemble helpers (open_loop/member naming) used across core/methods modules.
 
@@ -15,7 +15,7 @@ Inputs/Outputs
 - Functions accept `Path`-like args and return `Path` objects or structured metadata.
 
 Assumptions
-- Repository layout matches the openAMUNDSEN convention (season/step/ensembles/member_*).
+- Repository layout matches the openAMUNDSEN convention (setup/step/ensembles/member_*).
 """
 
 from dataclasses import dataclass
@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Literal, Union
 
 import pandas as pd
+from loguru import logger
 
 from openamundsen_da.core.constants import (
     ENSEMBLE_PRIOR,
@@ -54,21 +55,116 @@ class GridSlice:
 
 # ---- YAML discovery helpers -------------------------------------------------
 
-def find_project_yaml(project_dir: str | Path) -> Path:
-    project_dir = Path(project_dir)
-    for name in ("project.yml", "project.yaml"):
-        p = project_dir / name
-        if p.is_file():
-            return p
-    raise FileNotFoundError(f"Could not find project.yml in {project_dir}")
+def _discover_named_yaml(
+    root_dir: Path,
+    *,
+    preferred_name: str,
+    fallback_name: str,
+    allow_single_candidate: bool = False,
+) -> Path:
+    """
+    Discover a YAML file in `root_dir` with deterministic precedence.
 
-def find_season_yaml(season_dir: str | Path) -> Path:
-    season_dir = Path(season_dir)
-    for name in ("season.yml", "season.yaml"):
-        p = season_dir / name
-        if p.is_file():
-            return p
-    raise FileNotFoundError(f"Could not find season.yml in {season_dir}")
+    Priority:
+    1) `<preferred_name>.yml`
+    2) `<fallback_name>.yml`
+    3) exactly one `*.yml` in directory (optional)
+
+    Always logs which file was selected.
+    """
+    preferred = root_dir / f"{preferred_name}.yml"
+    if preferred.is_file():
+        logger.info("Resolved YAML: {}", preferred)
+        return preferred
+
+    fallback = root_dir / f"{fallback_name}.yml"
+    if fallback.is_file():
+        logger.info("Resolved YAML: {}", fallback)
+        return fallback
+
+    if allow_single_candidate:
+        candidates = sorted(root_dir.glob("*.yml"))
+        if len(candidates) == 1:
+            logger.info("Resolved YAML: {}", candidates[0])
+            return candidates[0]
+
+    raise FileNotFoundError(f"Missing YAML in {root_dir}: expected {preferred.name} or {fallback.name}")
+
+
+def find_setup_yaml(setup_dir: str | Path) -> Path:
+    """
+    Return setup-level YAML from a setup root directory.
+
+    Setup YAML naming is strict-by-convention:
+    - preferred: `<setup_dir.name>.yml`
+    - template fallback: `setup.yml`
+    """
+    setup_dir = Path(setup_dir)
+    if not (setup_dir / "projects").is_dir():
+        raise FileNotFoundError(f"Not a setup root (missing projects/): {setup_dir}")
+    return _discover_named_yaml(
+        setup_dir,
+        preferred_name=setup_dir.name,
+        fallback_name="setup",
+        allow_single_candidate=True,
+    )
+
+
+def find_project_yaml(project_dir: str | Path) -> Path:
+    """
+    Return project-level YAML from a project directory.
+
+    Project YAML naming is strict-by-convention:
+    - preferred: `<project_dir.name>.yml`
+    - fallback: `project.yml`
+    """
+    project_dir = Path(project_dir)
+    if project_dir.parent.name != "projects":
+        raise FileNotFoundError(f"Not a project directory under projects/: {project_dir}")
+    return _discover_named_yaml(project_dir, preferred_name=project_dir.name, fallback_name="project")
+
+
+def infer_project_dir(path: str | Path) -> Path:
+    """Infer a project directory by walking upward until a project YAML is found."""
+    p = Path(path).resolve()
+    for base in (p, *p.parents):
+        try:
+            _ = find_project_yaml(base)
+            return base
+        except FileNotFoundError:
+            continue
+    raise FileNotFoundError(f"Could not infer project directory from {path}")
+
+
+def infer_setup_dir(path: str | Path) -> Path:
+    """Infer a setup directory by walking upward until a setup YAML is found."""
+    p = Path(path).resolve()
+    for base in (p, *p.parents):
+        try:
+            _ = find_setup_yaml(base)
+            return base
+        except FileNotFoundError:
+            continue
+    raise FileNotFoundError(f"Could not infer setup directory from {path}")
+
+
+def infer_setup_dir_from_project(project_dir: str | Path) -> Path:
+    """Return the setup directory that owns a project directory."""
+    return infer_setup_dir(Path(project_dir).resolve())
+
+
+def projects_root(setup_dir: str | Path) -> Path:
+    """Return `<setup_dir>/projects`."""
+    root = Path(setup_dir) / "projects"
+    if not root.is_dir():
+        raise FileNotFoundError(f"Projects directory not found: {root}")
+    return root
+
+
+def list_project_dirs(setup_dir: str | Path) -> list[Path]:
+    """List project directories under `<setup_dir>/projects`."""
+    root = projects_root(setup_dir)
+    return [p for p in sorted(root.iterdir()) if p.is_dir()]
 
 def find_step_yaml(step_dir: str | Path) -> Path:
     step_dir = Path(step_dir)
@@ -95,30 +191,30 @@ def read_step_config(step_dir: str | Path) -> dict[str, Any]:
     except Exception:
         return {}
 
-# ---- Season step discovery helpers -----------------------------------------
+# ---- Project step discovery helpers -----------------------------------------
 
-def steps_root(season_dir: str | Path) -> Path:
-    """Return the directory that contains step_* folders for a season.
+def steps_root(project_dir: str | Path) -> Path:
+    """Return the directory that contains step_* folders for a project.
 
-    New layout uses <season_dir>/steps and does not support top-level step_*.
+    New layout uses <project_dir>/steps and does not support top-level step_*.
     """
-    season_dir = Path(season_dir)
-    candidate = season_dir / "steps"
+    project_dir = Path(project_dir)
+    candidate = project_dir / "steps"
     if not candidate.is_dir():
         raise FileNotFoundError(f"Steps directory not found: {candidate}")
     return candidate
 
 
-def list_step_dirs(season_dir: str | Path) -> list[Path]:
-    """List step_* directories under a season, unsorted."""
-    root = steps_root(season_dir)
+def list_step_dirs(project_dir: str | Path) -> list[Path]:
+    """List step_* directories under a project, unsorted."""
+    root = steps_root(project_dir)
     return [p for p in sorted(root.glob("step_*")) if p.is_dir()]
 
 
-def list_steps_sorted(season_dir: str | Path) -> list[Path]:
+def list_steps_sorted(project_dir: str | Path) -> list[Path]:
     """List step_* directories sorted by start_date then name."""
     items: list[tuple[datetime, Path]] = []
-    for p in list_step_dirs(season_dir):
+    for p in list_step_dirs(project_dir):
         cfg = read_step_config(p) or {}
         try:
             sd = cfg.get("start_date")
@@ -353,3 +449,4 @@ def find_member_daily_grid_slice(
     raise FileNotFoundError(
         f"No GeoTIFF or NetCDF daily grid found for variable '{variable}' and date {date_str} in {results_dir}"
     )
+

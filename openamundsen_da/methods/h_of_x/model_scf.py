@@ -122,7 +122,7 @@ def load_hofx_from_project(project_dir: Path) -> tuple[str, str, SCFParams]:
     proj = find_project_yaml(project_dir)
     cfg = _read_yaml_file(proj) or {}
     da = cfg.get(DA_BLOCK, {}) if isinstance(cfg, dict) else {}
-    hofx = da.get(HOFX_BLOCK) or cfg.get(HOFX_BLOCK)
+    hofx = da.get(HOFX_BLOCK)
     if not isinstance(hofx, dict):
         hofx = {}
     if not hofx:

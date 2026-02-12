@@ -19,7 +19,7 @@ When reviewing or developing a new module:
 - Is configuration handled consistently and defined externally where possible?
 - Is there any functionality/CLI flag/option that is unnecessary given the framework/template and workflow? Prefer sensible defaults.
 - Consider dropping inputs (e.g., paths or flags) that are already predefined by the process.
-- is there any legacy code that is not used anymore/ dates to an older version of the code and can be removed?
+- Is there any legacy code that is not used anymore or dates to an older version of the code and can be removed?
 
 List of helper modules (repo-relative paths):
 
@@ -81,7 +81,7 @@ logger.add(sys.stdout, level="INFO", colorize=True, enqueue=True, format=LOGURU_
 ## 4. Repo-Specific Conventions (quick reference)
 
 - Prefer existing helpers over re-implementing:
-  - IO/paths: `list_member_dirs`, `find_member_daily_raster`, `abspath_relative_to`
+  - IO/paths: `list_member_dirs`, `find_member_daily_grid_slice`/`find_member_daily_raster`, `abspath_relative_to`
   - Stats: `effective_sample_size`, `normalize_log_weights`, `sigmoid`, `envelope`, `compute_obs_sigma`
   - Viz: `draw_assimilation_vlines`, `dedupe_legend`
   - DA orchestration: `load_assimilation_events`, `compute_step_daily_series_for_all_members`, `start_perf_monitor`
@@ -89,7 +89,7 @@ logger.add(sys.stdout, level="INFO", colorize=True, enqueue=True, format=LOGURU_
 - Season layout:
   - Steps live under `season_dir/steps/step_*` (no top-level `step_*`).
 - Assimilation configuration:
-  - H(x) configuration (method/variable/params) is read from `project.yml` under `data_assimilation.h_of_x` (or top-level `h_of_x`); step YAML overrides are ignored.
+  - H(x) configuration (method/variable/params) is read from `project.yml` under `data_assimilation.h_of_x`; step YAML overrides are ignored.
   - Assimilation events come from `season.yml` via `data_assimilation.assimilation_events` (variable/product per date); use `util.da_events.load_assimilation_events`.
 - Open loop handling:
   - The launcher always runs `open_loop` alongside `member_*` to produce a continuous reference; assimilation and resampling operate on members only.
@@ -106,6 +106,7 @@ logger.add(sys.stdout, level="INFO", colorize=True, enqueue=True, format=LOGURU_
 - Function docstrings: describe parameters (with types), return values, errors, and behavior. Prefer Google- or NumPy-style.
 - Inline comments: annotate critical steps, invariants, and non-obvious decisions; avoid narrating the obvious.
 - README updates: when adding workflows/commands, extend `README.md` at the repo root in the existing style and keep sections aligned with the repo's workflow/framework.
+- Docs site updates: when behavior, interfaces, workflows, or outputs change, update the Jekyll docs under `docs/` in the same PR and keep `docs/` consistent with `README.md` and `tests/README.md`.
 - Encoding: use ASCII-safe characters in docs and comments to avoid rendering issues across environments.
 
 ---
@@ -122,10 +123,10 @@ Example (PowerShell formatting):
 ```
 docker compose run `
   --rm `
-  app `
+  oa `
   python -m openamundsen_da.pipeline.season `
-  --project my-project `
-  --season 2017-2018 `
+  --project-dir /data `
+  --season-dir /data/propagation/season_2017_2018 `
   --log-level INFO
 ```
 
@@ -192,7 +193,7 @@ docker compose run `
 - Do not merge if CI is not green (`Ruff Lint` + `Unit and Integration Tests`).
 - Do not merge behavior changes without corresponding test updates (unit and/or integration validator).
 - Do not merge interface changes (CLI args, config keys, output file names/paths) without:
-  - updating docs (`README.md`, `tests/README.md`) and
+  - updating docs (`README.md`, `docs/`, `tests/README.md`) and
   - clearly noting the compatibility impact in PR/commit message.
 
 ### Review Questions (Mandatory)

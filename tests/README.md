@@ -29,7 +29,8 @@ Workflow file: `.github/workflows/ci.yml`
   - Runs on self-hosted runner labels: `self-hosted, linux, x64, oa-da`
   - Builds a CI Docker image from current commit
   - Runs unit tests with `pytest` via `scripts/ci/run_unit_tests.sh`
-  - Runs trimmed integration test via `scripts/ci/run_integration_tests.sh`
+  - Runs trimmed single-domain integration test via `scripts/ci/run_integration_tests.sh`
+  - Runs trimmed sub-domain integration test via `scripts/ci/run_integration_tests_subdomain.sh`
   - Uploads integration artifacts on failure (log + trimmed setup outputs)
 - Job `Build and Push GHCR Image`:
   - Runs only on push to `main`
@@ -62,8 +63,9 @@ Workflow file: `.github/workflows/ci.yml`
 8. SCF and wet-snow per-step observation CSVs are prepared.
 9. Full setup pipeline is executed (`oa-da-project` equivalent module call).
 10. Integration validator checks logs, outputs, plots, and weight sanity.
-11. If integration fails, log and trimmed outputs are uploaded as CI artifacts.
-12. On push to `main` only: publish job builds and pushes GHCR image.
+11. Sub-domain integration validator checks manifest status, merged outputs, and plots.
+12. If integration fails, log and trimmed outputs are uploaded as CI artifacts.
+13. On push to `main` only: publish job builds and pushes GHCR image.
 
 ### Unit tests
 
@@ -137,6 +139,25 @@ Validation focuses on:
   - persistent openAMUNDSEN outputs (`point_*.csv`, `*.nc`)
 - minimal weight sanity (weights exist, numeric, sum to `1.0`)
 
+### Integration regression test (trimmed sub-domain)
+
+Runner script: `scripts/ci/run_integration_tests_subdomain.sh`
+
+What it does:
+- clones `examples/rofental` and `examples/rofental_subdomains` into a temp directory
+- writes a trimmed project config (`project_ci_2022_2023`) under the sub-domain setup
+- runs full sub-domain pipeline (`oa-da-subdomain pipeline`) with:
+  - setup: `/data` (the copied `rofental_subdomains` root)
+  - regions: `/data/env/subdomains.gpkg` (3 non-overlapping subdomains)
+- validates logs and outputs with `scripts/ci/validate_trimmed_subdomain.py`
+
+Validation focuses on:
+- no fatal log patterns (`ERROR`, `CRITICAL`, `Traceback`, `Exception`)
+- manifest exists and all sub-domains report `status=success`
+- each sub-domain has non-empty openAMUNDSEN compact outputs (`*.nc`, `point_*.csv`)
+- merged outputs exist and are non-empty (`merged/grids`, `merged/points`)
+- sub-domain station comparison plots exist (`plots/points/*.png`)
+
 Failure artifacts:
 - integration log and trimmed setup outputs are copied to CI artifact directory when the run fails
 - artifact upload is defined in `.github/workflows/ci.yml`
@@ -181,18 +202,27 @@ Note on private repo + free tier:
 Main locations:
 - CI workflow/jobs and sequencing: `.github/workflows/ci.yml`
 - unit test runner command: `scripts/ci/run_unit_tests.sh`
-- integration run recipe (trimmed setup): `scripts/ci/run_integration_tests.sh`
-- integration validation logic: `scripts/ci/validate_trimmed_project.py`
+- integration run recipes:
+  - single-domain trimmed: `scripts/ci/run_integration_tests.sh`
+  - sub-domain trimmed: `scripts/ci/run_integration_tests_subdomain.sh`
+- integration validation logic:
+  - single-domain: `scripts/ci/validate_trimmed_project.py`
+  - sub-domain: `scripts/ci/validate_trimmed_subdomain.py`
 - lint command: `scripts/ci/run_lint.sh`
 - test/lint optional dependencies: `pyproject.toml`
 
 Trimmed Rofental configuration details:
 - source project copied for CI: `examples/rofental`
-- trimmed setup name, dates, assimilation events, and ensemble size are currently hard-coded in `scripts/ci/run_integration_tests.sh`
-- max workers for CI integration run is set in `.github/workflows/ci.yml` via `OA_DA_TEST_MAX_WORKERS` (current value: `20`)
+- source sub-domain setup copied for CI: `examples/rofental_subdomains`
+- trimmed dates, assimilation events, and ensemble sizes are hard-coded in:
+  - `scripts/ci/run_integration_tests.sh` (single-domain)
+  - `scripts/ci/run_integration_tests_subdomain.sh` (sub-domain)
+- max workers for CI integration runs are set in `.github/workflows/ci.yml` via:
+  - `OA_DA_TEST_MAX_WORKERS` (single-domain, current value: `20`)
+  - `OA_DA_SUBDOMAIN_TEST_MAX_WORKERS` / `OA_DA_SUBDOMAIN_TEST_INNER_WORKERS` (sub-domain)
 
 If you want to change the CI test setup:
-- edit the inline Python block in `scripts/ci/run_integration_tests.sh` for:
+- edit the inline Python block in the relevant script for:
   - `SETUP_NAME`
   - `start_date` / `end_date`
   - assimilation events (`variable`, `product`, `date`)
@@ -223,7 +253,8 @@ If CI fails, check in this order:
 
 From repository root:
 - run unit test wrapper: `bash scripts/ci/run_unit_tests.sh`
-- run integration wrapper: `bash scripts/ci/run_integration_tests.sh`
+- run single-domain integration wrapper: `bash scripts/ci/run_integration_tests.sh`
+- run sub-domain integration wrapper: `bash scripts/ci/run_integration_tests_subdomain.sh`
 
 Use same scripts as CI to avoid drift between local and server behavior.
 

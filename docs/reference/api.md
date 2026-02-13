@@ -1,4 +1,4 @@
-﻿---
+---
 layout: default
 title: API Quick Reference
 parent: Reference
@@ -30,11 +30,12 @@ Scripting-oriented entry points. Everything else should be used via the CLI.
 - `openamundsen_da.observer.satellite_wet_snow_s1.cli_main(argv=None)`
 
 ## Batch processing
-- `openamundsen_da.batch.pipeline.run_pipeline(...)`
-- `openamundsen_da.batch.prepare.prepare_batch(...)`
-- `openamundsen_da.batch.run.run_batch(...)`
-- `openamundsen_da.batch.merge.merge_grids(...)`
-- `openamundsen_da.batch.plot.plot_station_comparisons(...)`
+- `openamundsen_da.subdomain.pipeline.run_pipeline(...)`
+- `openamundsen_da.subdomain.prepare.prepare_subdomains(...)`
+- `openamundsen_da.subdomain.run.run_subdomains(...)`
+- `openamundsen_da.subdomain.merge.merge_grids(...)`
+- `openamundsen_da.subdomain.merge.merge_points(...)`
+- `openamundsen_da.subdomain.plot.plot_station_comparisons(...)`
 
 ## Utilities (selected)
 - `openamundsen_da.util.stats`
@@ -43,6 +44,7 @@ Scripting-oriented entry points. Everything else should be used via the CLI.
 
 ## Stability note
 Prefer CLI usage for stable workflows. Direct Python APIs may change between minor versions.
+
 
 
 

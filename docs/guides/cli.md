@@ -1,4 +1,4 @@
-﻿---
+---
 layout: default
 title: Command-Line Interface
 parent: Guides
@@ -44,7 +44,7 @@ All commands are available as:
 
 **Main setup pipeline orchestrator**
 
-Runs the complete setup DA cycle: prior forcing â†’ ensemble run â†’ assimilation â†’ resampling â†’ rejuvenation.
+Runs the complete setup DA cycle: prior forcing → ensemble run → assimilation → resampling → rejuvenation.
 
 ```bash
 oa-da-project \
@@ -68,7 +68,8 @@ oa-da-project \
 **Example:**
 ```bash
 docker compose run --rm oa oa-da-project \
-  --setup-dir /data/projects/project_2019-2020 \
+  --setup-dir /data \
+  --project-dir /data/projects/project_2019-2020 \
   --max-workers 8 \
   --monitor-perf
 ```
@@ -83,7 +84,7 @@ Copies SCF rows from `scf_summary.csv` into per-step `obs/obs_scf_<PRODUCT>_YYYY
 
 ```bash
 oa-da-scf \
-  --setup-dir PATH \
+  --project-dir PATH \
   [--summary-csv PATH] \
   [--product SNOWCOVER] \
   [--overwrite] \
@@ -91,16 +92,16 @@ oa-da-scf \
 ```
 
 **Arguments:**
-- `--setup-dir PATH` - Setup directory (e.g., `projects/project_2019-2020`)
-- `--summary-csv PATH` - Optional path to `scf_summary.csv` (default: `<project>/obs/summaries/<setup>/scf_summary.csv`)
+- `--project-dir PATH` - Project directory (e.g., `/data/projects/project_2019-2020`)
+- `--summary-csv PATH` - Optional path to `scf_summary.csv` (default: `<setup>/obs/<project>/scf_summary.csv`)
 - `--product CODE` - Product tag used in filenames (default: `SNOWCOVER`)
 - `--overwrite` - Overwrite existing `obs_scf_*.csv` files
 
 **Example:**
 ```bash
 oa-da-scf \
-  --setup-dir /data/projects/project_2019-2020 \
-  --summary-csv /data/obs/summaries/project_2019-2020/scf_summary.csv \
+  --project-dir /data/projects/project_2019-2020 \
+  --summary-csv /data/obs/project_2019-2020/scf_summary.csv \
   --overwrite
 ```
 
@@ -108,7 +109,7 @@ oa-da-scf \
 
 ### oa-da-snowcover
 
-Summarizes snow-cover rasters (GeoTIFF/NetCDF) into `scf_summary.csv` using class mappings from `project.yml` (`obs.snowcover.classes`) and the project land-cover mask.
+Summarizes snow-cover rasters (GeoTIFF/NetCDF) into `scf_summary.csv` using class mappings from setup YAML (`obs.snowcover.classes`) and the project DA land-cover mask.
 
 ```bash
 oa-da-snowcover \
@@ -304,7 +305,7 @@ oa-da-resample \
 - `--overwrite` - Overwrite existing posterior
 
 **Behavior:**
-- If `ESS â‰¥ threshold`: Skip resampling, mirror prior â†’ posterior
+- If `ESS ≥ threshold`: Skip resampling, mirror prior → posterior
 - If `ESS < threshold`: Perform resampling
 
 **Output:**
@@ -453,7 +454,7 @@ oa-da-perf-monitor \
   [--plot-interval SEC]
 ```
 
-Suggested intervals: sample every 5â€“10 seconds; refresh the plot every 30â€“60 seconds.
+Suggested intervals: sample every 5–10 seconds; refresh the plot every 30–60 seconds.
 
 **Output:**
 - `plots/perf/setup_perf_metrics.csv`
@@ -487,56 +488,56 @@ Similar to `oa-da-model-scf-project-daily` but for wet snow classification.
 
 ---
 
-## Batch
+## Sub-domain Mode
 
-### oa-da-batch
+### oa-da-subdomain
 
-Batch helper to split a large domain into subregions, run open-loop simulations per subregion, and merge/plot results.
+Split a setup into non-overlapping sub-domains, run one independent DA project per sub-domain, then merge compact outputs.
 
 Common workflows:
 
 ```bash
-# Prepare per-subregion setups
-oa-da-batch prepare \
-  --config /data/domain.yml \
+# Prepare per-sub-domain setups
+oa-da-subdomain prepare \
+  --setup-dir /data/rofental \
+  --project-dir /data/rofental/projects/project_2022_2023 \
   --regions /data/regions.gpkg \
-  --id-field id \
-  --batch-root batch_runs/demo
+  --id-field id
 
-# Run all subregions (parallel)
-oa-da-batch run \
-  --manifest batch_runs/demo/batch_manifest.json \
+# Run all sub-domains (parallel)
+oa-da-subdomain run \
+  --setup-dir /data/rofental \
   --max-workers 8
 
 # Merge grids and points
-oa-da-batch merge \
-  --manifest batch_runs/demo/batch_manifest.json \
-  --mode hard_clip
+oa-da-subdomain merge \
+  --setup-dir /data/rofental
 
 # Plot station comparisons
-oa-da-batch plot \
-  --manifest batch_runs/demo/batch_manifest.json \
+oa-da-subdomain plot \
+  --setup-dir /data/rofental \
   --var snow_depth --obs-col snow_height
 
 # One-shot pipeline (prepare -> run -> merge -> plot)
-oa-da-batch pipeline \
-  --config /data/domain.yml \
+oa-da-subdomain pipeline \
+  --setup-dir /data/rofental \
+  --project-dir /data/rofental/projects/project_2022_2023 \
   --regions /data/regions.gpkg \
-  --batch-root batch_runs/demo \
   --max-workers 8 \
-  --mode hard_clip \
   --var snow_depth --obs-col snow_height
 ```
 
 Defaults & tips:
-- If `--batch-root` is omitted, a timestamped `batch_runs/<regions>_<ts>` is created.
-- If `--manifest` is omitted in run/merge/plot, it resolves to `<batch-root>/batch_manifest.json`.
+- If `--subdomain-root` is omitted, `<setup>/subdomains` is used.
+- If `--manifest` is omitted in run/merge/plot, it resolves to `<subdomain_root>/subdomain_manifest.json`.
 - Use `--max-workers` to control parallelism; BLAS/OMP threads are pinned to 1 inside the image.
-- `--mode blend` (merge) softens seams; `hard_clip` keeps strict subregion boundaries.
+- Merge is hard mosaic only (no interpolation/blending).
 
 Inputs/outputs:
-- `--config` is the base openAMUNDSEN domain config; `--regions` is a polygon vector (e.g., GPKG) with an ID field.
-- Prepared subregion runs live under the batch root; merged grids/points are written under `<batch-root>/merged/`.
+- `--setup-dir` points to the setup root; `--project-dir` points to one project under `setup/projects`.
+- Prepared sub-domain runs live under `<subdomain_root>/<subdomain_id>/`.
+- Merged grids/points are written under `<subdomain_root>/merged/`.
+- Repository example: `examples/rofental_subdomains` with regions in `env/subdomains.gpkg`.
 
 ---
 
@@ -568,7 +569,7 @@ docker compose run --rm oa oa-da-project \
   --project-dir /data \
   --setup-dir /data/projects/project_2019-2020
 
-# Snow-cover summary (GeoTIFF/NetCDF; MODIS after HDFâ†’GeoTIFF with classes set in project.yml)
+# Snow-cover summary (GeoTIFF/NetCDF; MODIS after HDF→GeoTIFF with classes set in project.yml)
 docker compose run --rm oa oa-da-snowcover \
   --input-dir /data/obs/snowcover \
   --project-label project_2019-2020 \
@@ -582,6 +583,7 @@ docker compose run --rm oa oa-da-snowcover \
 - [Configuration Guide]({{ site.baseurl }}{% link guides/configuration.md %}) - Configure commands via YAML
 - [Running Experiments]({{ site.baseurl }}{% link guides/experiments/index.md %}) - End-to-end workflow
 - [Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) - Common issues
+
 
 
 

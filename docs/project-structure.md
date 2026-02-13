@@ -28,11 +28,11 @@ openamundsen_da/
 `-- README.md
 ```
 
-## Project Data Structure
+## Setup Data Structure
 
 ```text
-project/
-|-- project.yml
+setup/
+|-- <setup-name>.yml
 |-- env/
 |   `-- roi.gpkg
 |-- grids/
@@ -49,7 +49,7 @@ project/
 |   `-- summaries/project_YYYY-YYYY/
 |-- projects/
 |   `-- project_YYYY-YYYY/
-|       |-- setup.yml
+|       |-- project_YYYY-YYYY.yml
 |       |-- steps/
 |       |   |-- step_00_init/
 |       |   |   |-- step_00.yml
@@ -61,13 +61,17 @@ project/
 |       |   |   `-- ensembles/{prior,posterior}/
 |       |   `-- ...
 |       `-- plots/
+|-- subdomains/            # optional sub-domain mode workspace
+|   |-- subdomain_manifest.json
+|   |-- <subdomain_id>/
+|   `-- merged/
 `-- obs_selection.config.yml
 ```
 
 ## Configuration Files
 
-### `project.yml`
-Project-wide and stable openAMUNDSEN configuration.
+### `<setup-name>.yml` (setup YAML)
+Setup-wide and stable openAMUNDSEN configuration.
 - Domain, CRS, resolution, timestep
 - OA output variables and frequencies
 - Environment paths and base model settings
@@ -75,8 +79,8 @@ Project-wide and stable openAMUNDSEN configuration.
 
 No DA orchestration keys should be placed here.
 
-### `setup.yml`
-Setup-level DA configuration and time span.
+### `<project-name>.yml` / `project.yml` (project YAML)
+Project-level DA configuration and time span.
 - `start_date`, `end_date`
 - `data_assimilation.prior_forcing`
 - `data_assimilation.h_of_x`
@@ -93,18 +97,18 @@ Auto-generated step window configuration.
 - `results_dir`
 
 ## Naming Glossary
-- `project`: global, stable OA config/data container
-- `setup`: one DA configuration unit with its own time span
-- `step`: one assimilation window inside a setup
+- `setup`: global, stable OA config/data container
+- `project`: one DA configuration unit with its own time span
+- `step`: one assimilation window inside a project
 - `member`: one ensemble member
-- `run`: execution of a setup (event), not a config object
+- `run`: execution of a project (event), not a config object
 
 ## File Naming
 - SCF obs CSV: `obs_scf_<PRODUCT>_YYYYMMDD.csv`
 - Wet-snow obs CSV: `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`
 - Weights CSV: `weights_<variable>_YYYYMMDD.csv`
 - Resampling indices: `indices_YYYYMMDD.csv`
-- Model state default: `model_state.pickle.gz` (configured in `setup.yml`)
+- Model state default: `model_state.pickle.gz` (configured in project YAML under `data_assimilation.restart`)
 
 ## Next Steps
 - [Workflow Overview]({{ site.baseurl }}{% link workflow.md %})

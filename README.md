@@ -613,27 +613,32 @@ docker compose run --rm oa \
 If you rebuilt the image with the latest code, you can replace the `python -m ...cleanup` line with the shorter `oa-da-clean-project`.
 
 
-## Batch open-loop (subregions)
+## Sub-domain Mode
 
-Use `oa-da-batch` to split a large domain into subregions, run open loops in parallel, and merge the outputs.
+Use `oa-da-subdomain` to split a large setup into non-overlapping sub-domains, run one independent DA project per sub-domain, and merge compact outputs.
 
 Minimal flow:
-- Prepare setups from a regions file (non-overlapping polygons):  
-  `oa-da-batch prepare --config <domain.yml> --regions <subregions.gpkg> --id-field id`
-- Run all subregions in parallel (respects `MAX_WORKERS`):  
-  `oa-da-batch run --batch-root batch_runs/<name> --max-workers 8`
-- Merge grids/points (hard clip default; `--mode blend` available):  
-  `oa-da-batch merge --batch-root batch_runs/<name>`
-- Plot merged station results vs observations:  
-  `oa-da-batch plot --batch-root batch_runs/<name> --var snow_depth --obs-col snow_height`
+- Prepare sub-domain setups from a regions file:
+  `oa-da-subdomain prepare --setup-dir <setup> --project-dir <setup>/projects/<project> --regions <subdomains.gpkg> --id-field id`
+- Run all sub-domains in parallel:
+  `oa-da-subdomain run --setup-dir <setup> --max-workers 8`
+- Merge grids and points (hard mosaic, no interpolation/blending):
+  `oa-da-subdomain merge --setup-dir <setup>`
+- Plot merged station results vs observations:
+  `oa-da-subdomain plot --setup-dir <setup> --var snow_depth --obs-col snow_height`
 
 Defaults:
-- Outputs live under `<batch_root>/setups/<subregion>/` (inputs + results/logs) and `<batch_root>/merged`; `batch_manifest.json` tracks the batch and `batch_run.log` records run summaries.
-- Grid handling: crops each subregion to its extent (plus grid buffer), writes per-subregion ROI; optional `--clip-mode roi-symlink` keeps full grids + ROI masks.
-- Station selection: clips meteo/obs within a 50 km buffer (change via `--station-buffer-km`); ROI buffer optional (`--roi-buffer-m`).
-- Overlap tolerance: small sliver overlaps up to 100 mÃ‚Â² are allowed by default; use `--overlap-area-tol-m2` to adjust, `--sliver-fix-m` to shrink/expand polygons before overlap checking (default 0).
+- Sub-domain root is `<setup>/subdomains` (override with `--subdomain-root`).
+- Manifest path is `<subdomain_root>/subdomain_manifest.json` (or pass `--manifest` explicitly).
+- Each sub-domain run lives under `<subdomain_root>/<subdomain_id>/`.
+- Merged outputs are written under `<subdomain_root>/merged/{grids,points}`.
+- Station selection uses a 50 km default buffer (`--station-buffer-km`).
+- Tiny polygon overlaps are tolerated up to 100 m^2 (`--overlap-area-tol-m2`), with optional sliver correction (`--sliver-fix-m`).
 
-The manifest tracks per-subregion windows, transforms, and run status. Grids and point outputs are merged back to the original global grid; merged points + obs land in `<batch_root>/merged/points`.
+Ready-made example:
+- setup: `examples/rofental_subdomains`
+- regions file: `examples/rofental_subdomains/env/subdomains.gpkg`
+- note: this lightweight example reuses raw grids/meteo/obs from `examples/rofental` via relative paths.
 
 ## Troubleshooting
 
@@ -657,6 +662,8 @@ The manifest tracks per-subregion windows, transforms, and run status. Grids and
 - Tips
   - Keep a constant model time step across steps.
   - Verify the effective time step via the merged OA config persisted next to members (e.g., `<step>/ensembles/prior/member_001/config.yml`).
+
+
 
 
 

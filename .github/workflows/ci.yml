@@ -61,8 +61,16 @@ jobs:
         run: |
           CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
           OA_DA_TEST_MAX_WORKERS=20 \
-          CI_ARTIFACT_DIR="${{ github.workspace }}/.ci-artifacts/integration" \
+          CI_ARTIFACT_DIR="${{ github.workspace }}/.ci-artifacts/integration/single-domain" \
           bash scripts/ci/run_integration_tests.sh
+
+      - name: Run integration tests (trimmed Rofental sub-domain)
+        run: |
+          CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
+          OA_DA_SUBDOMAIN_TEST_MAX_WORKERS=3 \
+          OA_DA_SUBDOMAIN_TEST_INNER_WORKERS=2 \
+          CI_ARTIFACT_DIR="${{ github.workspace }}/.ci-artifacts/integration/sub-domain" \
+          bash scripts/ci/run_integration_tests_subdomain.sh
 
       - name: Upload integration artifacts (on failure)
         if: failure()

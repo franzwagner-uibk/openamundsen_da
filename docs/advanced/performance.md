@@ -325,7 +325,7 @@ Performance optimization checklist:
 **Cause**: Deadlock or single member stuck
 
 **Solution**:
-- Check logs: `projects/setup_*/steps/step_*/ensembles/prior/member_*/run.log`
+- Check logs: `projects/project_*/steps/step_*/ensembles/prior/member_*/run.log`
 - Identify failing member
 - Check openAMUNDSEN config or forcing data
 

@@ -33,7 +33,7 @@ The openamundsen_da framework implements a sequential particle filter for snow d
 - **Prior Generation** (orange): Perturb meteorological forcing to create ensemble input
 - **Forecast/Propagation** (purple): Run openAMUNDSEN for each ensemble member
 - **Update Cycle** (blue): Observation processing, likelihood computation, resampling, rejuvenation
-- **Configuration** (yellow): `project.yml` controls openAMUNDSEN settings, `setup.yml` controls DA settings and assimilation dates
+- **Configuration** (yellow): setup YAML controls openAMUNDSEN settings, project YAML controls DA settings and assimilation dates
 
 ![Data Assimilation Experiment Cycle]({{ site.baseurl }}/assets/images/Particle_Filter%20_DOCS.drawio.png)
 
@@ -61,7 +61,7 @@ P_perturbed = P_original Ã— exp(Îµ_P),  Îµ_P ~ N(Î¼_P, Ïƒ_PÂ²)
 docker compose run --rm oa \
   python -m openamundsen_da.core.prior_forcing \
   --input-meteo-dir /data/meteo \
-  --project-dir /data \
+  --project-dir /data/projects/project_2019-2020 \
   --step-dir /data/projects/project_2019-2020/steps/step_01_*
 ```
 
@@ -76,8 +76,8 @@ Optional flags: `--overwrite`, `--log-level <LEVEL>`
 ```bash
 docker compose run --rm oa \
   python -m openamundsen_da.core.launch \
-  --project-dir /data \
-  --setup-dir /data/projects/project_2019-2020 \
+  --project-dir /data/projects/project_2019-2020 \
+  --setup-dir /data \
   --step-dir /data/projects/project_2019-2020/steps/step_01_* \
   --ensemble prior \
   --max-workers 8
@@ -111,7 +111,7 @@ docker compose run --rm oa \
   --project-dir /data
 ```
 
-Classes are read from `obs.snowcover.classes` in `project.yml` (defaults: valid 0â€“100, cloud 205, water 210, nodata 255). The land-cover mask from `project.yml` is applied to observations automatically.
+Classes are read from `obs.snowcover.classes` in setup YAML (defaults: valid 0-100, cloud 205, water 210, nodata 255). The project-level DA land-cover mask is applied to observations automatically.
 
 ### Wet snow (categorical rasters â†’ `wet_snow_summary.csv`)
 
@@ -125,20 +125,20 @@ docker compose run --rm oa \
 
 Wet/valid/exclude classes come from `obs.wetsnow.classes` (defaults: wet [1,2], valid [1,2,3,4,255], exclude [5,6]). ROI and land-cover masking mirror the snow-cover workflow.
 
-By default, both summaries are written to `/data/obs/summaries/<setup-label>/scf_summary.csv` and `wet_snow_summary.csv`. Override with `--output-root` if you want a different location.
+By default, both summaries are written to `/data/obs/summaries/<project-label>/scf_summary.csv` and `wet_snow_summary.csv`. Override with `--output-root` if you want a different location.
 
 ### Per-step obs CSVs
 
 ```bash
-docker compose run --rm oa oa-da-scf --setup-dir /data/projects/project_2019-2020 --overwrite
-docker compose run --rm oa oa-da-wetsnow-project --setup-dir /data/projects/project_2019-2020 --overwrite
+docker compose run --rm oa oa-da-scf --project-dir /data/projects/project_2019-2020 --overwrite
+docker compose run --rm oa oa-da-wetsnow-project --project-dir /data/projects/project_2019-2020 --overwrite
 ```
 
-Outputs: `step_*/obs/obs_scf_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`, with product tags resolved from `project.yml` (`SNOWCOVER`/`WETSNOW` by default).
+Outputs: `step_*/obs/obs_scf_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`, with product tags resolved from setup YAML (`SNOWCOVER`/`WETSNOW` by default).
 
 ### Land-Cover Masking
 
-Configured in `setup.yml`:
+Configured in project YAML:
 
 ```yaml
 data_assimilation:
@@ -174,7 +174,7 @@ Maps model state (snow depth or SWE) to observation space (SCF).
    SCF = 1 / (1 + exp(-k Ã— (HS - h0)))
    ```
 
-**Configuration** (in `setup.yml`):
+**Configuration** (in project YAML):
 
 ```yaml
 data_assimilation:
@@ -295,19 +295,19 @@ Optional: `--overwrite`, `--live-plots`, `--log-level <LEVEL>` (`--live-plots` e
 
 ## State cleanup
 
-- Automatic: `data_assimilation.restart.cleanup_after_setup: true` (default, in `setup.yml`) removes member state pickle files after a successful setup to save disk space.
+- Automatic: `data_assimilation.restart.cleanup_after_setup: true` (default, in project YAML) removes member state pickle files after a successful project run to save disk space.
 - Manual: run the cleanup CLI to delete state files even if automatic cleanup is disabled.
 
-Clean all setups:
+Clean all projects under one setup:
 
 ```powershell
-oa-da-clean-project --project-dir /data/your_project --all-setups --log-level INFO
+oa-da-clean-project --setup-dir /data/your_setup --all-projects --log-level INFO
 ```
 
-Clean one setup:
+Clean one project:
 
 ```powershell
-oa-da-clean-project --project-dir /data/your_project --setup-dir /data/your_project/projects/project_YYYY-YYYY --log-level INFO
+oa-da-clean-project --setup-dir /data/your_setup --project-dir /data/your_setup/projects/project_YYYY-YYYY --log-level INFO
 ```
 
 Only state pickle files are removed; `state_pointer.json` files are left in place.

@@ -48,4 +48,5 @@ oa-da-wetsnow-project = "openamundsen_da.observer.satellite_wet_snow_s1:cli_main
 oa-da-perf-monitor = "openamundsen_da.util.perf_monitor:cli_main"
 oa-da-clean-project = "openamundsen_da.pipeline.cleanup:cli_main"
 oa-da-prepare-project-obs = "openamundsen_da.pipeline.prepare_project_obs:cli_main"
-oa-da-batch = "openamundsen_da.batch.cli:cli"
+oa-da-subdomain = "openamundsen_da.subdomain.cli:cli"
+

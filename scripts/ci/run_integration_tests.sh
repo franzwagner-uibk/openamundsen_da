@@ -11,7 +11,6 @@ PROJECT_DIR="${TMP_ROOT}/rofental_ci"
 PROJECT_NAME="project_ci_2022_2023"
 PROJECT_PATH="/data/projects/${PROJECT_NAME}"
 HOST_LOG_FILE="${PROJECT_DIR}/ci_integration.log"
-CONTAINER_LOG_FILE="/data/ci_integration.log"
 REPO_MOUNT="${ROOT_DIR}"
 PROJ_MOUNT="${PROJECT_DIR}"
 
@@ -119,6 +118,20 @@ compose_run python -m openamundsen_da.pipeline.project \
   --max-workers "${MAX_WORKERS}" \
   --overwrite \
   --log-level INFO
+
+CONTAINER_LOG_FILE="$(compose_run python - <<'PY' | tr -d '\r' | tail -n 1
+from pathlib import Path
+
+project_dir = Path("/data/projects/project_ci_2022_2023")
+candidates = sorted(project_dir.glob("project_*.log"))
+if not candidates:
+    candidates = sorted(project_dir.glob("*.log"))
+if not candidates:
+    raise SystemExit("No project log found under /data/projects/project_ci_2022_2023")
+print(candidates[-1].as_posix())
+PY
+)"
+echo "[integration] Using project log: ${CONTAINER_LOG_FILE}"
 
 compose_run python /workspace/scripts/ci/validate_trimmed_project.py \
   --project-dir "${PROJECT_PATH}" \

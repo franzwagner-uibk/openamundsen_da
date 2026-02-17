@@ -147,7 +147,8 @@ What it does:
 - clones `examples/rofental` and `examples/rofental_subdomains` into a temp directory
 - writes a trimmed project config (`project_ci_2022_2023`) under the sub-domain setup
 - runs full sub-domain pipeline (`oa-da-subdomain pipeline`) with:
-  - setup: `/data` (the copied `rofental_subdomains` root)
+  - setup: `/data/rofental_subdomains` (the copied sub-domain setup root)
+  - project: `/data/rofental_subdomains/projects/project_ci_2022_2023`
   - regions: `/data/env/subdomains.gpkg` (3 non-overlapping subdomains)
 - validates logs and outputs with `scripts/ci/validate_trimmed_subdomain.py`
 
@@ -155,8 +156,8 @@ Validation focuses on:
 - no fatal log patterns (`ERROR`, `CRITICAL`, `Traceback`, `Exception`)
 - manifest exists and all sub-domains report `status=success`
 - each sub-domain has non-empty openAMUNDSEN compact outputs (`*.nc`, `point_*.csv`)
-- merged outputs exist and are non-empty (`merged/grids`, `merged/points`)
-- sub-domain station comparison plots exist (`plots/points/*.png`)
+- merged outputs exist and are non-empty under the project (`projects/<project>/merged/{grids,points}`)
+- sub-domain station comparison plots exist under the project (`projects/<project>/plots/points/*.png`)
 
 Failure artifacts:
 - integration log and trimmed setup outputs are copied to CI artifact directory when the run fails

@@ -50,6 +50,10 @@ setup/
 |-- projects/
 |   `-- project_YYYY-YYYY/
 |       |-- project_YYYY-YYYY.yml
+|       |-- subdomains/          # optional sub-domain mode workspace
+|       |   |-- subdomain_manifest.json
+|       |   `-- <subdomain_id>/
+|       |-- merged/              # optional sub-domain merged outputs
 |       |-- steps/
 |       |   |-- step_00_init/
 |       |   |   |-- step_00.yml
@@ -61,10 +65,6 @@ setup/
 |       |   |   `-- ensembles/{prior,posterior}/
 |       |   `-- ...
 |       `-- plots/
-|-- subdomains/            # optional sub-domain mode workspace
-|   |-- subdomain_manifest.json
-|   |-- <subdomain_id>/
-|   `-- merged/
 `-- obs_selection.config.yml
 ```
 

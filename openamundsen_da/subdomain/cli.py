@@ -10,25 +10,26 @@ from typing import Iterable, Optional
 from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
+from openamundsen_da.util.run_mode import ensure_run_mode
 
 
-def _default_subdomain_root(setup_dir: Path) -> Path:
-    return Path(setup_dir) / "subdomains"
+def _default_subdomain_root(project_dir: Path) -> Path:
+    return Path(project_dir) / "subdomains"
 
 
 def _resolve_manifest(
     *,
     manifest_arg: Optional[Path],
-    setup_dir: Optional[Path],
+    project_dir: Optional[Path],
     subdomain_root: Optional[Path],
 ) -> Path:
     if manifest_arg is not None:
         return Path(manifest_arg)
     root = Path(subdomain_root) if subdomain_root is not None else None
-    if root is None and setup_dir is not None:
-        root = _default_subdomain_root(Path(setup_dir))
+    if root is None and project_dir is not None:
+        root = _default_subdomain_root(Path(project_dir))
     if root is None:
-        raise FileNotFoundError("Manifest not provided. Pass --manifest or --setup-dir (or --subdomain-root).")
+        raise FileNotFoundError("Manifest not provided. Pass --manifest or --project-dir (or --subdomain-root).")
     cand = root / "subdomain_manifest.json"
     if not cand.is_file():
         raise FileNotFoundError(f"Manifest not found at {cand}. Run 'oa-da-subdomain prepare' first.")
@@ -47,8 +48,14 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
     p_prep = sub.add_parser("prepare", help="Prepare per-sub-domain setups from a regions file")
     p_prep.add_argument("--setup-dir", required=True, type=Path, help="Setup root directory")
     p_prep.add_argument("--project-dir", required=True, type=Path, help="Project directory under setup/projects")
-    p_prep.add_argument("--regions", required=True, type=Path, help="Sub-domain polygons (e.g., GPKG)")
-    p_prep.add_argument("--subdomain-root", type=Path, help="Output root (default: <setup>/subdomains)")
+    p_prep.add_argument(
+        "--roi",
+        "--regions",
+        dest="regions",
+        type=Path,
+        help="Sub-domain polygons (default: <setup>/env/roi.gpkg)",
+    )
+    p_prep.add_argument("--subdomain-root", type=Path, help="Output root (default: <project>/subdomains)")
     p_prep.add_argument("--id-field", default="id", help="Field name containing sub-domain id (default: id)")
     p_prep.add_argument("--clip-mode", choices=("window", "roi-symlink"), default="window", help="Grid handling mode")
     p_prep.add_argument("--station-buffer-km", type=float, default=50.0, help="Station search buffer in km (default: 50)")
@@ -62,7 +69,7 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
 
     p_run = sub.add_parser("run", help="Run prepared sub-domains (DA pipeline per sub-domain)")
     p_run.add_argument("--manifest", type=Path, help="Path to subdomain_manifest.json")
-    p_run.add_argument("--setup-dir", type=Path, help="Setup root (used to resolve manifest)")
+    p_run.add_argument("--project-dir", type=Path, help="Project directory (used to resolve manifest)")
     p_run.add_argument("--subdomain-root", type=Path, help="Sub-domain root (used to resolve manifest)")
     p_run.add_argument("--subdomains", nargs="+", help="Optional list of sub-domain ids to run")
     p_run.add_argument("--max-workers", type=int, help="Parallel sub-domain workers")
@@ -74,18 +81,18 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
 
     p_merge = sub.add_parser("merge", help="Merge compact outputs across sub-domains")
     p_merge.add_argument("--manifest", type=Path, help="Path to subdomain_manifest.json")
-    p_merge.add_argument("--setup-dir", type=Path, help="Setup root (used to resolve manifest)")
+    p_merge.add_argument("--project-dir", type=Path, help="Project directory (used to resolve manifest)")
     p_merge.add_argument("--subdomain-root", type=Path, help="Sub-domain root (used to resolve manifest)")
     p_merge.add_argument("--subdomains", nargs="+", help="Optional list of sub-domain ids to merge")
     p_merge.add_argument("--coverage-sliver-tol-px", type=int, default=4, help="Allowed uncovered expected pixels (default: 4)")
-    p_merge.add_argument("--out-dir", type=Path, help="Override merged output directory (default: <subdomain_root>/merged)")
+    p_merge.add_argument("--out-dir", type=Path, help="Override merged output directory (default: <project>/merged)")
     p_merge.add_argument("--log-level", default="INFO")
 
     p_plot = sub.add_parser("plot", help="Plot station obs vs merged model point outputs")
     p_plot.add_argument("--manifest", type=Path, help="Path to subdomain_manifest.json")
-    p_plot.add_argument("--setup-dir", type=Path, help="Setup root (used to resolve manifest)")
+    p_plot.add_argument("--project-dir", type=Path, help="Project directory (used to resolve manifest)")
     p_plot.add_argument("--subdomain-root", type=Path, help="Sub-domain root (used to resolve manifest)")
-    p_plot.add_argument("--points-dir", type=Path, help="Merged points directory (default: <subdomain_root>/merged/points)")
+    p_plot.add_argument("--points-dir", type=Path, help="Merged points directory (default: <project>/merged/points)")
     p_plot.add_argument("--obs-dir", type=Path, help="Obs directory (default: <points_dir>/obs/stations)")
     p_plot.add_argument("--var", default="snow_depth", help="Model variable column to plot")
     p_plot.add_argument("--obs-col", default="snow_height", help="Observation column name")
@@ -96,8 +103,14 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
     p_pipe = sub.add_parser("pipeline", help="Run prepare -> run -> merge -> plot")
     p_pipe.add_argument("--setup-dir", required=True, type=Path, help="Setup root directory")
     p_pipe.add_argument("--project-dir", required=True, type=Path, help="Project directory under setup/projects")
-    p_pipe.add_argument("--regions", required=True, type=Path, help="Sub-domain polygons (e.g., GPKG)")
-    p_pipe.add_argument("--subdomain-root", type=Path, help="Output root (default: <setup>/subdomains)")
+    p_pipe.add_argument(
+        "--roi",
+        "--regions",
+        dest="regions",
+        type=Path,
+        help="Sub-domain polygons (default: <setup>/env/roi.gpkg)",
+    )
+    p_pipe.add_argument("--subdomain-root", type=Path, help="Output root (default: <project>/subdomains)")
     p_pipe.add_argument("--id-field", default="id", help="Field name containing sub-domain id (default: id)")
     p_pipe.add_argument("--clip-mode", choices=("window", "roi-symlink"), default="window", help="Grid handling mode")
     p_pipe.add_argument("--station-buffer-km", type=float, default=50.0, help="Station search buffer in km (default: 50)")
@@ -126,11 +139,13 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
     if args.command == "prepare":
         from openamundsen_da.subdomain.prepare import prepare_subdomains
 
+        ensure_run_mode(args.project_dir, expected="subdomain", write_if_missing=True)
+        regions_path = args.regions or (Path(args.setup_dir) / "env" / "roi.gpkg")
         prepare_subdomains(
             setup_dir=args.setup_dir,
             project_dir=args.project_dir,
-            regions_path=args.regions,
-            subdomain_root=args.subdomain_root or _default_subdomain_root(args.setup_dir),
+            regions_path=regions_path,
+            subdomain_root=args.subdomain_root or _default_subdomain_root(args.project_dir),
             id_field=args.id_field,
             clip_mode=args.clip_mode,
             station_buffer_m=float(args.station_buffer_km) * 1000.0,
@@ -148,7 +163,7 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
 
         manifest = _resolve_manifest(
             manifest_arg=args.manifest,
-            setup_dir=args.setup_dir,
+            project_dir=args.project_dir,
             subdomain_root=args.subdomain_root,
         )
         run_subdomains(
@@ -165,13 +180,14 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
 
     if args.command == "merge":
         from openamundsen_da.subdomain.merge import merge_grids, merge_points
+        from openamundsen_da.subdomain.manifest import SubdomainManifest
 
         manifest = _resolve_manifest(
             manifest_arg=args.manifest,
-            setup_dir=args.setup_dir,
+            project_dir=args.project_dir,
             subdomain_root=args.subdomain_root,
         )
-        merged_root = args.out_dir or (manifest.parent / "merged")
+        merged_root = args.out_dir or (SubdomainManifest.load(manifest).project_dir / "merged")
         merge_grids(
             manifest_path=manifest,
             subdomains=args.subdomains,
@@ -190,7 +206,7 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
 
         manifest = _resolve_manifest(
             manifest_arg=args.manifest,
-            setup_dir=args.setup_dir,
+            project_dir=args.project_dir,
             subdomain_root=args.subdomain_root,
         )
         plot_station_comparisons(
@@ -207,11 +223,13 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
     if args.command == "pipeline":
         from openamundsen_da.subdomain.pipeline import run_pipeline
 
+        ensure_run_mode(args.project_dir, expected="subdomain", write_if_missing=True)
+        regions_path = args.regions or (Path(args.setup_dir) / "env" / "roi.gpkg")
         run_pipeline(
             setup_dir=args.setup_dir,
             project_dir=args.project_dir,
-            regions_path=args.regions,
-            subdomain_root=args.subdomain_root or _default_subdomain_root(args.setup_dir),
+            regions_path=regions_path,
+            subdomain_root=args.subdomain_root or _default_subdomain_root(args.project_dir),
             id_field=args.id_field,
             clip_mode=args.clip_mode,
             station_buffer_m=float(args.station_buffer_km) * 1000.0,

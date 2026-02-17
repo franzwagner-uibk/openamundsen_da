@@ -501,42 +501,45 @@ Common workflows:
 oa-da-subdomain prepare \
   --setup-dir /data/rofental \
   --project-dir /data/rofental/projects/project_2022_2023 \
-  --regions /data/regions.gpkg \
+  --roi /data/regions.gpkg \
   --id-field id
 
 # Run all sub-domains (parallel)
 oa-da-subdomain run \
-  --setup-dir /data/rofental \
+  --project-dir /data/rofental/projects/project_2022_2023 \
   --max-workers 8
 
 # Merge grids and points
 oa-da-subdomain merge \
-  --setup-dir /data/rofental
+  --project-dir /data/rofental/projects/project_2022_2023
 
 # Plot station comparisons
 oa-da-subdomain plot \
-  --setup-dir /data/rofental \
+  --project-dir /data/rofental/projects/project_2022_2023 \
   --var snow_depth --obs-col snow_height
 
 # One-shot pipeline (prepare -> run -> merge -> plot)
 oa-da-subdomain pipeline \
   --setup-dir /data/rofental \
   --project-dir /data/rofental/projects/project_2022_2023 \
-  --regions /data/regions.gpkg \
+  --roi /data/regions.gpkg \
   --max-workers 8 \
   --var snow_depth --obs-col snow_height
 ```
 
 Defaults & tips:
-- If `--subdomain-root` is omitted, `<setup>/subdomains` is used.
+- If `--subdomain-root` is omitted, `<project>/subdomains` is used.
 - If `--manifest` is omitted in run/merge/plot, it resolves to `<subdomain_root>/subdomain_manifest.json`.
+- If `--roi` is omitted in prepare/pipeline, `<setup>/env/roi.gpkg` is used.
+- Sub-domain mode requires at least two polygons in the ROI file.
 - Use `--max-workers` to control parallelism; BLAS/OMP threads are pinned to 1 inside the image.
 - Merge is hard mosaic only (no interpolation/blending).
 
 Inputs/outputs:
 - `--setup-dir` points to the setup root; `--project-dir` points to one project under `setup/projects`.
 - Prepared sub-domain runs live under `<subdomain_root>/<subdomain_id>/`.
-- Merged grids/points are written under `<subdomain_root>/merged/`.
+- Merged grids/points are written under `<project>/merged/`.
+- Station comparison plots are written under `<project>/plots/points/`.
 - Repository example: `examples/rofental_subdomains` with regions in `env/subdomains.gpkg`.
 
 ---

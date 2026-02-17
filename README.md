@@ -50,7 +50,7 @@ $project = "$setup/projects/project_YYYY-YYYY"            # one DA project
 $step    = "$project/steps/step_XX_name"                  # current step
 $date    = "YYYY-MM-DD"                            # assimilation date
 $dateTag = ($date -replace '-', '')
-$roi     = "$setup/env/roi.gpkg"                   # single-feature ROI
+$roi     = "$setup/env/roi.gpkg"                   # ROI polygon(s); multiple are unioned in single-mode
 ```
 
 Notes
@@ -66,7 +66,7 @@ This repo expects the following setup/project hierarchy:
 setup/
   <setup-name>.yml         # setup-level openAMUNDSEN config (template fallback: setup.yml)
   env/
-    roi.gpkg                # single ROI (preferred name)
+    roi.gpkg                # ROI polygon(s) (preferred name)
   grids/
     lc_<domain>_<resolution>.asc  # land-cover classes used for masking
   meteo/
@@ -618,26 +618,28 @@ If you rebuilt the image with the latest code, you can replace the `python -m ..
 Use `oa-da-subdomain` to split a large setup into non-overlapping sub-domains, run one independent DA project per sub-domain, and merge compact outputs.
 
 Minimal flow:
-- Prepare sub-domain setups from a regions file:
-  `oa-da-subdomain prepare --setup-dir <setup> --project-dir <setup>/projects/<project> --regions <subdomains.gpkg> --id-field id`
+- Prepare sub-domain setups from ROI polygons:
+  `oa-da-subdomain prepare --setup-dir <setup> --project-dir <setup>/projects/<project> --roi <setup>/env/roi.gpkg --id-field id`
 - Run all sub-domains in parallel:
-  `oa-da-subdomain run --setup-dir <setup> --max-workers 8`
+  `oa-da-subdomain run --project-dir <setup>/projects/<project> --max-workers 8`
 - Merge grids and points (hard mosaic, no interpolation/blending):
-  `oa-da-subdomain merge --setup-dir <setup>`
+  `oa-da-subdomain merge --project-dir <setup>/projects/<project>`
 - Plot merged station results vs observations:
-  `oa-da-subdomain plot --setup-dir <setup> --var snow_depth --obs-col snow_height`
+  `oa-da-subdomain plot --project-dir <setup>/projects/<project> --var snow_depth --obs-col snow_height`
 
 Defaults:
-- Sub-domain root is `<setup>/subdomains` (override with `--subdomain-root`).
+- Sub-domain root is `<project>/subdomains` (override with `--subdomain-root`).
 - Manifest path is `<subdomain_root>/subdomain_manifest.json` (or pass `--manifest` explicitly).
 - Each sub-domain run lives under `<subdomain_root>/<subdomain_id>/`.
-- Merged outputs are written under `<subdomain_root>/merged/{grids,points}`.
+- Merged outputs are written under `<project>/merged/{grids,points}`.
+- Station plots are written under `<project>/plots/points`.
 - Station selection uses a 50 km default buffer (`--station-buffer-km`).
 - Tiny polygon overlaps are tolerated up to 100 m^2 (`--overlap-area-tol-m2`), with optional sliver correction (`--sliver-fix-m`).
+- Sub-domain mode requires at least two polygons in the ROI file.
 
 Ready-made example:
 - setup: `examples/rofental_subdomains`
-- regions file: `examples/rofental_subdomains/env/subdomains.gpkg`
+- regions file: `examples/rofental_subdomains/env/subdomains.gpkg` (pass with `--roi`)
 - note: this lightweight example reuses raw grids/meteo/obs from `examples/rofental` via relative paths.
 
 ## Troubleshooting

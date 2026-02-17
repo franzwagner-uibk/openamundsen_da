@@ -65,6 +65,7 @@ from openamundsen_da.observer.plot_fractions import cli_main as plot_fractions_c
 from openamundsen_da.methods.viz.plot_project_ensemble import plot_setup_results
 from openamundsen_da.methods.viz.plot_forcing_ensemble import cli_main as plot_forcing_cli
 from openamundsen_da.util.validation import validate_assimilation_requirements
+from openamundsen_da.util.run_mode import ensure_run_mode
 
 # Map assimilation variables to the diagnostics/plots we should run.
 # Extend this mapping when new observables are added.
@@ -989,6 +990,7 @@ def cli(argv: Optional[List[str]] = None) -> int:
     project_dir = Path(args.project_dir) if args.project_dir is not None else _auto_project_dir(setup_dir)
     if args.project_dir is None:
         print(f"[oa-da-project] Auto-detected project dir: {project_dir}", file=sys.stderr)
+    ensure_run_mode(project_dir, expected="single", write_if_missing=True)
 
     resolved_workers = pick_max_workers(args.max_workers, fallback=4)
 

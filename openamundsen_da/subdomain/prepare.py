@@ -27,6 +27,7 @@ from openamundsen_da.io.paths import (
     find_setup_yaml,
 )
 from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta, WindowSpec
+from openamundsen_da.util.run_mode import ensure_run_mode
 
 
 @dataclass
@@ -281,7 +282,7 @@ def _write_subdomain_setup_yaml(
 
 
 def _copy_project_dir(source_project_dir: Path, target_project_dir: Path) -> Path:
-    ignore_names = {"steps", "plots", "ensembles", "assim"}
+    ignore_names = {"steps", "plots", "ensembles", "assim", "subdomains", "merged"}
     if target_project_dir.exists():
         shutil.rmtree(target_project_dir)
     shutil.copytree(
@@ -468,13 +469,14 @@ def prepare_subdomains(
     sliver_fix_m: float = 0.0,
     overwrite: bool = False,
 ) -> SubdomainManifest:
-    """Prepare per-sub-domain setups under `<setup>/subdomains/<id>`."""
+    """Prepare per-sub-domain setups under `<project>/subdomains/<id>`."""
     logger.debug("Preparing sub-domains for setup={} regions={}", setup_dir, regions_path)
     if clip_mode not in {"window", "roi-symlink"}:
         raise ValueError("clip_mode must be 'window' or 'roi-symlink'")
 
     setup_dir = Path(setup_dir).resolve()
     project_dir = Path(project_dir).resolve()
+    ensure_run_mode(project_dir, expected="subdomain", write_if_missing=True)
     setup_yaml = find_setup_yaml(setup_dir)
     project_yaml = find_project_yaml(project_dir)
     setup_cfg = _read_yaml(setup_yaml)
@@ -522,15 +524,27 @@ def prepare_subdomains(
     gdf["geometry"] = gdf.geometry.buffer(0)
     if sliver_fix_m and sliver_fix_m > 0:
         gdf["geometry"] = gdf.geometry.buffer(-sliver_fix_m).buffer(sliver_fix_m)
-    if id_field not in gdf.columns:
-        raise KeyError(f"Regions file missing id field '{id_field}'")
+    effective_id_field = id_field
+    if effective_id_field not in gdf.columns:
+        if id_field == "id" and "region_id" in gdf.columns:
+            effective_id_field = "region_id"
+            logger.info("Regions file has no 'id' field; using fallback id field 'region_id'.")
+        else:
+            raise KeyError(f"Regions file missing id field '{id_field}'")
     if gdf.crs and crs_str and gdf.crs.to_string().lower() != crs_str.lower():
         raise ValueError(f"CRS mismatch between regions ({gdf.crs}) and setup ({crs_str})")
+    if len(gdf) < 2:
+        raise ValueError(
+            f"Sub-domain mode requires at least 2 polygons in {regions_path} (got {len(gdf)})."
+        )
     _check_no_overlap(gdf.geometry, area_tol=float(overlap_area_tol_m2))
 
-    subdomain_root = (Path(subdomain_root) if subdomain_root else (setup_dir / "subdomains")).resolve()
+    subdomain_root = (Path(subdomain_root) if subdomain_root else (project_dir / "subdomains")).resolve()
+    if overwrite:
+        for derived_dir in (subdomain_root, project_dir / "merged", project_dir / "plots"):
+            if derived_dir.is_dir():
+                shutil.rmtree(derived_dir)
     subdomain_root.mkdir(parents=True, exist_ok=True)
-    (subdomain_root / "merged").mkdir(parents=True, exist_ok=True)
 
     project_name = project_dir.name
     lc_path = _find_grid(grids_dir, "lc", domain, resolution)
@@ -539,6 +553,7 @@ def prepare_subdomains(
     grid_paths = GridPaths(dem=dem_path, svf=svf_path, srf=srf_path, lc=lc_path)
 
     manifest = SubdomainManifest(
+        run_mode="subdomain",
         setup_dir=setup_dir,
         project_dir=project_dir,
         project_name=project_name,
@@ -546,7 +561,7 @@ def prepare_subdomains(
         project_yaml=project_yaml,
         subdomain_root=subdomain_root,
         regions_path=regions_path.resolve(),
-        id_field=id_field,
+        id_field=effective_id_field,
         crs=crs_str,
         grid_rows=rows,
         grid_cols=cols,
@@ -562,7 +577,7 @@ def prepare_subdomains(
     )
 
     for _, row in gdf.iterrows():
-        raw_id = row[id_field]
+        raw_id = row[effective_id_field]
         geom = row.geometry
         if geom is None or geom.is_empty:
             raise ValueError(f"Region {raw_id} has empty geometry")

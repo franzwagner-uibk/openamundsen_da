@@ -1,4 +1,4 @@
-"""ROI (region of interest) helpers for single-feature region handling."""
+"""ROI (region of interest) helpers for polygon region handling."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Tuple
 
 import geopandas as gpd
+from shapely.ops import unary_union
 
 
 def read_single_roi(
@@ -14,13 +15,13 @@ def read_single_roi(
     required_field: str | None = None,
     to_crs: "object | None" = None,
 ) -> Tuple[gpd.GeoDataFrame, str]:
-    """Read a single-feature ROI and return (GeoDataFrame, region_id).
+    """Read one-or-more ROI polygons and return a single merged geometry.
 
     Parameters
     ----------
     roi_path : Path
-        Vector file (e.g., GPKG/GeoJSON) containing exactly one polygon
-        feature that represents the ROI.
+        Vector file (e.g., GPKG/GeoJSON) containing one or more polygon
+        features that represent the ROI.
     required_field : str or None, optional
         Name of the attribute field that contains the region identifier.
         Defaults to 'region_id'. When set to ``None``, no attribute is
@@ -37,18 +38,31 @@ def read_single_roi(
             gdf = gpd.read_file(roi_path, engine="fiona")
         else:
             raise
-    if len(gdf) != 1:
-        raise ValueError(f"ROI must contain exactly one feature (got {len(gdf)})")
+    if gdf.empty:
+        raise ValueError(f"ROI must contain at least one feature (got {len(gdf)})")
+    effective_field = required_field
     if required_field is not None and required_field not in gdf.columns:
-        raise KeyError(f"ROI missing field '{required_field}'")
+        if required_field == "region_id" and "id" in gdf.columns:
+            effective_field = "id"
+        else:
+            raise KeyError(f"ROI missing field '{required_field}'")
+
+    region_id = ""
+    if effective_field is not None:
+        # Keep the first feature label as region_id when multiple polygons are present.
+        region_id = str(gdf.iloc[0][effective_field])
+
+    if len(gdf) > 1:
+        merged_geom = unary_union([geom for geom in gdf.geometry if geom is not None and not geom.is_empty])
+        if merged_geom is None or merged_geom.is_empty:
+            raise ValueError("ROI geometries are empty after union.")
+        row = {effective_field: region_id} if effective_field is not None else {}
+        gdf = gpd.GeoDataFrame([row], geometry=[merged_geom], crs=gdf.crs)
+
     if to_crs is not None:
         if gdf.crs is None:
             raise ValueError("ROI has no CRS; unable to align with target CRS")
         gdf = gdf.to_crs(to_crs)
-    if required_field is None:
-        region_id = ""
-    else:
-        region_id = str(gdf.iloc[0][required_field])
     return gdf, region_id
 
 

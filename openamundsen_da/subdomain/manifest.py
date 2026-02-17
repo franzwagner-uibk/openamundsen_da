@@ -103,6 +103,7 @@ class SubdomainMeta:
 class SubdomainManifest:
     """Top-level manifest describing sub-domain preparation and execution."""
 
+    run_mode: str
     setup_dir: Path
     project_dir: Path
     project_name: str
@@ -128,6 +129,7 @@ class SubdomainManifest:
 
     def to_dict(self) -> dict:
         return {
+            "run_mode": self.run_mode,
             "setup_dir": str(self.setup_dir),
             "project_dir": str(self.project_dir),
             "project_name": self.project_name,
@@ -156,6 +158,7 @@ class SubdomainManifest:
     def from_dict(cls, data: dict) -> "SubdomainManifest":
         subs = {k: SubdomainMeta.from_dict(v) for k, v in (data.get("subdomains") or {}).items()}
         return cls(
+            run_mode=str(data.get("run_mode", "subdomain")),
             setup_dir=Path(data["setup_dir"]),
             project_dir=Path(data["project_dir"]),
             project_name=str(data["project_name"]),

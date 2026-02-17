@@ -60,6 +60,8 @@ def _check_manifest(subdomain_root: Path) -> dict:
     manifest_path = subdomain_root / "subdomain_manifest.json"
     _assert_non_empty(manifest_path)
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if str(data.get("run_mode", "")).lower() != "subdomain":
+        raise ValueError(f"Manifest run_mode is not 'subdomain': {data.get('run_mode')!r}")
 
     subdomains = data.get("subdomains") or {}
     if len(subdomains) < 3:
@@ -115,7 +117,8 @@ def _check_manifest(subdomain_root: Path) -> dict:
 
 
 def _check_merged_outputs(subdomain_root: Path) -> None:
-    merged = subdomain_root / "merged"
+    project_dir = subdomain_root.parent
+    merged = project_dir / "merged"
     grids = merged / "grids"
     points = merged / "points"
     if not grids.is_dir():
@@ -133,9 +136,10 @@ def _check_merged_outputs(subdomain_root: Path) -> None:
 
 
 def _check_plots(subdomain_root: Path) -> None:
-    obs_dir = subdomain_root / "merged" / "points" / "obs" / "stations"
+    project_dir = subdomain_root.parent
+    obs_dir = project_dir / "merged" / "points" / "obs" / "stations"
     has_obs_station_series = obs_dir.is_dir() and any(p.is_file() for p in obs_dir.glob("*.csv"))
-    plots_dir = subdomain_root / "plots" / "points"
+    plots_dir = project_dir / "plots" / "points"
     if not has_obs_station_series:
         # Plot stage depends on station observation series; trimmed example does
         # not include them, so plotting may validly skip.

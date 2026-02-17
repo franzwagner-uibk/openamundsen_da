@@ -581,7 +581,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--setup-dir", type=Path, required=True, help="Setup root containing setup YAML")
     parser.add_argument("--project-dir", type=Path, help="Project directory (auto-inferred from --member-results when omitted)")
     parser.add_argument("--member-results", type=Path, required=True, help="Path to member results directory")
-    parser.add_argument("--aoi", "--roi", dest="aoi", type=Path, required=True, help="Path to single-feature ROI vector file")
+    parser.add_argument("--aoi", "--roi", dest="aoi", type=Path, required=True, help="Path to ROI vector file")
     parser.add_argument("--date", type=str, required=True, help="Date in YYYY-MM-DD")
     parser.add_argument("--output", type=Path, default=None, help="Optional output CSV path")
     parser.add_argument("--region-id-field", type=str, default="region_id", help="AOI field name for region_id")

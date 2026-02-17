@@ -12,6 +12,7 @@ from openamundsen_da.subdomain.plot import plot_station_comparisons
 from openamundsen_da.subdomain.prepare import prepare_subdomains
 from openamundsen_da.subdomain.run import run_subdomains
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
+from openamundsen_da.util.run_mode import ensure_run_mode
 
 
 def run_pipeline(
@@ -45,12 +46,19 @@ def run_pipeline(
     """Run prepare -> run -> merge -> plot for sub-domain mode."""
     setup_dir = Path(setup_dir).resolve()
     project_dir = Path(project_dir).resolve()
+    ensure_run_mode(project_dir, expected="subdomain", write_if_missing=True)
     subdomain_root = Path(subdomain_root).resolve()
     manifest_path = subdomain_root / "subdomain_manifest.json"
-    pipeline_log = subdomain_root / "subdomain_run.log"
+    pipeline_log = project_dir / "subdomain_run.log"
 
     pipeline_log.parent.mkdir(parents=True, exist_ok=True)
-    sink_id = logger.add(pipeline_log, level=log_level.upper(), colorize=False, enqueue=True)
+    sink_id = logger.add(
+        pipeline_log,
+        level=log_level.upper(),
+        colorize=False,
+        enqueue=True,
+        mode="w" if overwrite else "a",
+    )
     logger.info(
         "PIPELINE START setup_dir={} project_dir={} regions={} subdomain_root={}",
         setup_dir,
@@ -79,7 +87,7 @@ def run_pipeline(
         perf_stop = None
         if perf_monitor:
             perf_stop = start_perf_monitor(
-                PerfMonitorConfig(project_dir=subdomain_root, sample_interval_sec=5.0, plot_interval_sec=30.0)
+                PerfMonitorConfig(project_dir=project_dir, sample_interval_sec=5.0, plot_interval_sec=30.0)
             )
         try:
             run_subdomains(
@@ -100,7 +108,7 @@ def run_pipeline(
         if skip_merge:
             logger.info("MERGE skipped")
         else:
-            merged_root = subdomain_root / "merged"
+            merged_root = project_dir / "merged"
             merge_grids(
                 manifest_path=manifest_path,
                 out_dir=merged_root / "grids",

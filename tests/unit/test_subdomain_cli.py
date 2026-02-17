@@ -5,12 +5,20 @@ from pathlib import Path
 from openamundsen_da.subdomain import cli as subdomain_cli
 
 
+def _write_project_yaml(project_dir: Path) -> None:
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / f"{project_dir.name}.yml").write_text(
+        "start_date: '2022-10-01'\nend_date: '2022-10-02'\ndata_assimilation: {}\n",
+        encoding="utf-8",
+    )
+
+
 def test_prepare_uses_setup_default_subdomain_root(monkeypatch, tmp_path: Path) -> None:
     setup_dir = tmp_path / "rofental"
     project_dir = setup_dir / "projects" / "project_2022_2023"
     regions = tmp_path / "regions.gpkg"
     setup_dir.mkdir(parents=True, exist_ok=True)
-    project_dir.mkdir(parents=True, exist_ok=True)
+    _write_project_yaml(project_dir)
     regions.write_text("", encoding="utf-8")
 
     called: dict = {}
@@ -35,12 +43,14 @@ def test_prepare_uses_setup_default_subdomain_root(monkeypatch, tmp_path: Path) 
     assert rc == 0
     assert called["setup_dir"] == setup_dir
     assert called["project_dir"] == project_dir
-    assert called["subdomain_root"] == setup_dir / "subdomains"
+    assert called["subdomain_root"] == project_dir / "subdomains"
 
 
-def test_run_resolves_manifest_from_setup_dir(monkeypatch, tmp_path: Path) -> None:
+def test_run_resolves_manifest_from_project_dir(monkeypatch, tmp_path: Path) -> None:
     setup_dir = tmp_path / "rofental"
-    manifest = setup_dir / "subdomains" / "subdomain_manifest.json"
+    project_dir = setup_dir / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir)
+    manifest = project_dir / "subdomains" / "subdomain_manifest.json"
     manifest.parent.mkdir(parents=True, exist_ok=True)
     manifest.write_text("{}", encoding="utf-8")
 
@@ -51,7 +61,7 @@ def test_run_resolves_manifest_from_setup_dir(monkeypatch, tmp_path: Path) -> No
 
     monkeypatch.setattr("openamundsen_da.subdomain.run.run_subdomains", _fake_run_subdomains)
 
-    rc = subdomain_cli.cli(["run", "--setup-dir", str(setup_dir), "--no-perf-monitor"])
+    rc = subdomain_cli.cli(["run", "--project-dir", str(project_dir), "--no-perf-monitor"])
 
     assert rc == 0
     assert called["manifest_path"] == manifest
@@ -59,9 +69,14 @@ def test_run_resolves_manifest_from_setup_dir(monkeypatch, tmp_path: Path) -> No
 
 def test_merge_uses_default_output_layout(monkeypatch, tmp_path: Path) -> None:
     setup_dir = tmp_path / "rofental"
-    manifest = setup_dir / "subdomains" / "subdomain_manifest.json"
+    project_dir = setup_dir / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir)
+    manifest = project_dir / "subdomains" / "subdomain_manifest.json"
     manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text("{}", encoding="utf-8")
+    manifest.write_text(
+        "{}",
+        encoding="utf-8",
+    )
 
     called_grids: dict = {}
     called_points: dict = {}
@@ -76,12 +91,16 @@ def test_merge_uses_default_output_layout(monkeypatch, tmp_path: Path) -> None:
 
     monkeypatch.setattr("openamundsen_da.subdomain.merge.merge_grids", _fake_merge_grids)
     monkeypatch.setattr("openamundsen_da.subdomain.merge.merge_points", _fake_merge_points)
+    monkeypatch.setattr(
+        "openamundsen_da.subdomain.manifest.SubdomainManifest.load",
+        lambda _path: type("M", (), {"project_dir": project_dir})(),
+    )
 
-    rc = subdomain_cli.cli(["merge", "--setup-dir", str(setup_dir)])
+    rc = subdomain_cli.cli(["merge", "--project-dir", str(project_dir)])
 
     assert rc == 0
-    assert called_grids["out_dir"] == setup_dir / "subdomains" / "merged" / "grids"
-    assert called_points["out_dir"] == setup_dir / "subdomains" / "merged" / "points"
+    assert called_grids["out_dir"] == project_dir / "merged" / "grids"
+    assert called_points["out_dir"] == project_dir / "merged" / "points"
 
 
 def test_resolve_manifest_from_subdomain_root(tmp_path: Path) -> None:
@@ -92,7 +111,7 @@ def test_resolve_manifest_from_subdomain_root(tmp_path: Path) -> None:
 
     resolved = subdomain_cli._resolve_manifest(
         manifest_arg=None,
-        setup_dir=None,
+        project_dir=None,
         subdomain_root=subdomain_root,
     )
     assert resolved == manifest

@@ -1,7 +1,7 @@
 """Sub-domain toolkit for setup/project workflows.
 
 This package provides:
-- Preparation of per-sub-domain setups under ``<setup>/subdomains``
+- Preparation of per-sub-domain setups under ``<project>/subdomains``
 - Parallel execution of independent DA project runs per sub-domain
 - Hard-mosaic merge of compact outputs back to the global grid
 - Plotting of merged station results against observations

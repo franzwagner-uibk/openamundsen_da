@@ -15,6 +15,7 @@ from loguru import logger
 
 from openamundsen_da.io.paths import list_steps_sorted
 from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta
+from openamundsen_da.util.run_mode import ensure_run_mode
 
 
 def _latest_step_dir(sub: SubdomainMeta) -> Path | None:
@@ -124,6 +125,9 @@ def merge_grids(
 ) -> List[Path]:
     """Merge compact grid outputs from latest-step open-loop/member results."""
     manifest = SubdomainManifest.load(manifest_path)
+    if str(getattr(manifest, "run_mode", "")).lower() != "subdomain":
+        raise ValueError(f"Manifest at {manifest_path} is not marked as run_mode='subdomain'.")
+    ensure_run_mode(manifest.project_dir, expected="subdomain", write_if_missing=False)
     selected_ids = list(subdomains) if subdomains else list(manifest.subdomains.keys())
     unknown = [sid for sid in selected_ids if sid not in manifest.subdomains]
     if unknown:
@@ -133,7 +137,7 @@ def merge_grids(
     global_transform = Affine(*manifest.grid_transform)
     expected_mask = _expected_coverage_mask(manifest, selected_ids, global_shape)
 
-    out_base = out_dir or (manifest.subdomain_root / "merged" / "grids")
+    out_base = out_dir or (manifest.project_dir / "merged" / "grids")
     out_base.mkdir(parents=True, exist_ok=True)
 
     tif_groups: Dict[str, List[Tuple[SubdomainMeta, Path]]] = {}
@@ -397,12 +401,15 @@ def merge_points(
 ) -> List[Path]:
     """Collect compact point outputs and station observations into one directory."""
     manifest = SubdomainManifest.load(manifest_path)
+    if str(getattr(manifest, "run_mode", "")).lower() != "subdomain":
+        raise ValueError(f"Manifest at {manifest_path} is not marked as run_mode='subdomain'.")
+    ensure_run_mode(manifest.project_dir, expected="subdomain", write_if_missing=False)
     selected_ids = list(subdomains) if subdomains else list(manifest.subdomains.keys())
     unknown = [sid for sid in selected_ids if sid not in manifest.subdomains]
     if unknown:
         raise ValueError(f"Sub-domains not in manifest: {', '.join(unknown)}")
 
-    out_base = out_dir or (manifest.subdomain_root / "merged" / "points")
+    out_base = out_dir or (manifest.project_dir / "merged" / "points")
     out_base.mkdir(parents=True, exist_ok=True)
     obs_out = out_base / "obs" / "stations"
     obs_out.mkdir(parents=True, exist_ok=True)

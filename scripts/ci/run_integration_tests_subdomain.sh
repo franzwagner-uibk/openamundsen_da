@@ -13,8 +13,9 @@ SETUP_DIR="${TMP_ROOT}/rofental_subdomains"
 SETUP_PATH="/data/rofental_subdomains"
 PROJECT_NAME="project_ci_2022_2023"
 PROJECT_PATH="${SETUP_PATH}/projects/${PROJECT_NAME}"
+PROJECT_HOST_DIR="${SETUP_DIR}/projects/${PROJECT_NAME}"
 HOST_LOG_FILE="${SETUP_DIR}/ci_integration_subdomain.log"
-CONTAINER_LOG_FILE="${SETUP_PATH}/subdomains/subdomain_run.log"
+CONTAINER_LOG_FILE="${PROJECT_PATH}/subdomain_run.log"
 REPO_MOUNT="${ROOT_DIR}"
 PROJ_MOUNT="${TMP_ROOT}"
 
@@ -35,8 +36,9 @@ cleanup() {
     if [[ -f "${HOST_LOG_FILE}" ]]; then
       cp -f "${HOST_LOG_FILE}" "${ARTIFACT_DIR}/ci_integration_subdomain.log"
     fi
-    if [[ -d "${SETUP_DIR}/subdomains" ]]; then
-      cp -a "${SETUP_DIR}/subdomains" "${ARTIFACT_DIR}/"
+    if [[ -d "${PROJECT_HOST_DIR}/subdomains" ]]; then
+      mkdir -p "${ARTIFACT_DIR}/projects/${PROJECT_NAME}"
+      cp -a "${PROJECT_HOST_DIR}/subdomains" "${ARTIFACT_DIR}/projects/${PROJECT_NAME}/"
     fi
     if [[ -d "${SETUP_DIR}/projects/${PROJECT_NAME}" ]]; then
       mkdir -p "${ARTIFACT_DIR}/projects"
@@ -112,7 +114,7 @@ compose_run python -m openamundsen_da.subdomain.cli pipeline \
   --log-level INFO
 
 compose_run python /workspace/scripts/ci/validate_trimmed_subdomain.py \
-  --subdomain-root "${SETUP_PATH}/subdomains" \
+  --subdomain-root "${PROJECT_PATH}/subdomains" \
   --log-file "${CONTAINER_LOG_FILE}"
 
 echo "[subdomain-integration] PASS"

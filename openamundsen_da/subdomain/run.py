@@ -28,6 +28,7 @@ from openamundsen_da.subdomain.manifest import SubdomainManifest
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.parallel import pick_max_workers
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
+from openamundsen_da.util.run_mode import ensure_run_mode
 from openamundsen_da.util.ts import parse_datetime_opt
 
 
@@ -366,12 +367,15 @@ def run_subdomains(
 ) -> List[RunResult]:
     """Run sub-domain DA workflows in parallel and stop on first failure."""
     manifest = SubdomainManifest.load(manifest_path)
+    if str(getattr(manifest, "run_mode", "")).lower() != "subdomain":
+        raise ValueError(f"Manifest at {manifest_path} is not marked as run_mode='subdomain'.")
+    ensure_run_mode(manifest.project_dir, expected="subdomain", write_if_missing=False)
     selected_ids = list(subdomains) if subdomains else list(manifest.subdomains.keys())
     unknown = [sid for sid in selected_ids if sid not in manifest.subdomains]
     if unknown:
         raise ValueError(f"Sub-domains not in manifest: {', '.join(unknown)}")
 
-    root_log = manifest.subdomain_root / "subdomain_run.log"
+    root_log = manifest.project_dir / "subdomain_run.log"
     sink_id = None
     if log_to_file:
         root_log.parent.mkdir(parents=True, exist_ok=True)
@@ -381,6 +385,7 @@ def run_subdomains(
             colorize=False,
             enqueue=True,
             format=LOGURU_FORMAT,
+            mode="w" if overwrite else "a",
         )
 
     outer_workers = pick_max_workers(max_workers, fallback=len(selected_ids), limit=len(selected_ids))
@@ -399,7 +404,7 @@ def run_subdomains(
     perf_stop = None
     if perf_monitor:
         perf_stop = start_perf_monitor(
-            PerfMonitorConfig(project_dir=manifest.subdomain_root, sample_interval_sec=5.0, plot_interval_sec=30.0)
+            PerfMonitorConfig(project_dir=manifest.project_dir, sample_interval_sec=5.0, plot_interval_sec=30.0)
         )
 
     results: List[RunResult] = []

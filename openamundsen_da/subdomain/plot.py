@@ -25,6 +25,7 @@ from openamundsen_da.methods.viz._style import (
     LW_MEMBER,
 )
 from openamundsen_da.subdomain.manifest import SubdomainManifest
+from openamundsen_da.util.run_mode import ensure_run_mode
 from openamundsen_da.util.ts import read_timeseries_csv
 
 
@@ -74,11 +75,13 @@ def plot_station_comparisons(
 ) -> list[Path]:
     """Generate plots comparing model point output to station observations."""
     manifest = SubdomainManifest.load(manifest_path)
+    if str(getattr(manifest, "run_mode", "")).lower() != "subdomain":
+        raise ValueError(f"Manifest at {manifest_path} is not marked as run_mode='subdomain'.")
+    ensure_run_mode(manifest.project_dir, expected="subdomain", write_if_missing=False)
     logger.debug("Using manifest created at {}", manifest.created_at)
-    pts_root = points_dir or (manifest.subdomain_root / "merged" / "points")
+    pts_root = points_dir or (manifest.project_dir / "merged" / "points")
     obs_root = obs_dir or (pts_root / "obs" / "stations")
-    # Store plots under subdomain_root/plots/points (sibling to perf)
-    plot_dir = manifest.subdomain_root / "plots" / "points"
+    plot_dir = manifest.project_dir / "plots" / "points"
     plot_dir.mkdir(parents=True, exist_ok=True)
 
     obs_files = list(obs_root.glob("*.csv"))

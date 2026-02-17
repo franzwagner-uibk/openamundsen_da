@@ -9,7 +9,7 @@ but works on categorical wet-snow masks:
   arbitrary categorical rasters such as the Sentinel-1 WSM product where
   110 = wet, 125 = dry, 200 = radar shadow, 210 = water.
 
-Both paths clip the raster to a single-feature AOI and report the fraction of
+Both paths clip the raster to an AOI polygon (multiple features are unioned) and report the fraction of
 wet pixels among all valid pixels (area-weighted under the equal-area pixel
 assumption). ``point_wet_snow_roi.csv`` mirrors ``point_scf_roi.csv`` and can
 be generated per member or per setup via the provided CLIs.
@@ -682,7 +682,7 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
     parser.add_argument("--setup-dir", required=True, type=Path, help="Setup root with setup YAML and grids/lc_*.asc")
     parser.add_argument("--project-dir", type=Path, help="Project directory under setup/projects (overrides --project-label lookup)")
     parser.add_argument("--raster-dir", type=Path, help="Directory with WSM_S1*_*.tif rasters (default: <project>/obs/WSM_S1_SAR)")
-    parser.add_argument("--aoi", "--roi", dest="aoi", type=Path, help="Single-feature ROI vector (default: <project>/env/roi.gpkg)")
+    parser.add_argument("--aoi", "--roi", dest="aoi", type=Path, help="ROI vector (default: <project>/env/roi.gpkg)")
     parser.add_argument("--output", required=True, type=Path, help="Output CSV (e.g., wet_snow_summary.csv)")
     parser.add_argument("--project-label", type=str, help="Project label to bound dates (default: inferred from output path parent name project_YYYY-YYYY when possible)")
     parser.add_argument("--overwrite", action="store_true")

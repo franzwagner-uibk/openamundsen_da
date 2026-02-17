@@ -81,6 +81,7 @@ Run the bundled Rofental setup shipped with the docker image:
 - [Command-Line Interface]({{ site.baseurl }}{% link guides/cli.md %}) - CLI commands reference
 - [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %}) - Working with satellite data
 - [Running Experiments]({{ '/guides/experiments/' | relative_url }}) - Set up your own project and run custom setups
+- [Tutorial]({{ site.baseurl }}{% link guides/tutorial.md %}) - Work-in-progress tutorial and callout examples
 
 ### Technical Reference
 

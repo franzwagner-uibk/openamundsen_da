@@ -74,18 +74,18 @@ def _discover_named_yaml(
     """
     preferred = root_dir / f"{preferred_name}.yml"
     if preferred.is_file():
-        logger.info("Resolved YAML: {}", preferred)
+        logger.debug("Resolved YAML: {}", preferred)
         return preferred
 
     fallback = root_dir / f"{fallback_name}.yml"
     if fallback.is_file():
-        logger.info("Resolved YAML: {}", fallback)
+        logger.debug("Resolved YAML: {}", fallback)
         return fallback
 
     if allow_single_candidate:
         candidates = sorted(root_dir.glob("*.yml"))
         if len(candidates) == 1:
-            logger.info("Resolved YAML: {}", candidates[0])
+            logger.debug("Resolved YAML: {}", candidates[0])
             return candidates[0]
 
     raise FileNotFoundError(f"Missing YAML in {root_dir}: expected {preferred.name} or {fallback.name}")

@@ -1,5 +1,13 @@
-﻿start_date: '2022-10-01'
+run_mode: subdomain # options: single | subdomain
+start_date: '2022-10-01'
 end_date: '2023-07-31'
+obs:
+  stations:
+    dir: obs/stations
+  snowcover:
+    dir: obs/snowcover
+  wetsnow:
+    dir: obs/wetsnow
 data_assimilation:
   prior_forcing:
     ensemble_size: 30
@@ -51,6 +59,9 @@ data_assimilation:
     use_state: true
     dump_state: true
     state_pattern: model_state.pickle.gz
+
+  output:
+    retention: compact
 
   assimilation_events:
   - date: '2022-10-03'

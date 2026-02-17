@@ -15,6 +15,12 @@ from loguru import logger
 
 from openamundsen_da.io.paths import list_steps_sorted
 from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta
+from openamundsen_da.util.da_output import (
+    collect_subdomain_grid_artifacts,
+    delete_files,
+    output_retention_mode,
+    write_da_output_grids,
+)
 from openamundsen_da.util.run_mode import ensure_run_mode
 
 
@@ -54,6 +60,12 @@ def _result_sources(sub: SubdomainMeta) -> list[tuple[str, Path]]:
         if res_dir.is_dir():
             out.append((member_dir.name, res_dir))
     return out
+
+
+def _compact_da_summary(sub: SubdomainMeta) -> Path | None:
+    """Return sub-domain compact DA summary if available."""
+    candidate = sub.project_dir / "merged" / "grids" / "da_output_grids.nc"
+    return candidate if candidate.is_file() else None
 
 
 def _load_roi(sub: SubdomainMeta) -> np.ndarray:
@@ -145,8 +157,12 @@ def merge_grids(
     for sid in selected_ids:
         sub = manifest.subdomains[sid]
         sources = _result_sources(sub)
+        compact_da = _compact_da_summary(sub)
+        if compact_da is not None:
+            nc_groups.setdefault("da_output_grids.nc", []).append((sub, compact_da))
         if not sources:
-            logger.warning("No compact result sources discovered for {} under {}", sid, sub.project_dir)
+            if compact_da is None:
+                logger.warning("No compact result sources discovered for {} under {}", sid, sub.project_dir)
             continue
         for source_label, res_dir in sources:
             prefix = "" if source_label == "open_loop" else f"{source_label}_"
@@ -184,6 +200,48 @@ def merge_grids(
                     expected_mask=expected_mask,
                     sliver_tol_px=int(coverage_sliver_tol_px),
                 )
+            )
+
+    da_summary_written = False
+    da_summary_path = out_base / "da_output_grids.nc"
+    open_loop_nc = out_base / "output_grids.nc"
+    member_ncs = sorted(out_base.glob("member_*_output_grids.nc"))
+    if da_summary_path.is_file() and (not open_loop_nc.is_file() or not member_ncs):
+        da_summary_written = True
+        logger.info("Using existing DA output summary {}", da_summary_path)
+    else:
+        try:
+            da_path = write_da_output_grids(
+                open_loop_nc=open_loop_nc,
+                member_ncs=member_ncs,
+                output_nc=da_summary_path,
+            )
+            da_summary_written = da_path is not None
+            if da_path is not None:
+                written.append(da_path)
+        except Exception as exc:
+            logger.warning("DA output grid summary failed: {}", exc)
+        if (not da_summary_written) and da_summary_path.is_file():
+            da_summary_written = True
+            logger.info("Using existing DA output summary {}", da_summary_path)
+
+    retention_mode = output_retention_mode(manifest.project_dir)
+    if retention_mode == "compact":
+        if not da_summary_written:
+            logger.warning("Skipping compact grid retention because da_output_grids.nc was not written.")
+        else:
+            merged_artifacts = [
+                p
+                for p in sorted(out_base.glob("member_*"))
+                if p.is_file()
+            ]
+            merged_artifacts.extend([p for p in sorted(out_base.glob("*.tif")) if p.is_file()])
+            subdomain_artifacts = collect_subdomain_grid_artifacts(manifest.project_dir)
+            deleted, bytes_freed = delete_files([*merged_artifacts, *subdomain_artifacts])
+            logger.info(
+                "Compact retention: deleted {} sub-domain grid artifact file(s), freed {:.1f} MB",
+                deleted,
+                bytes_freed / 1_000_000.0,
             )
     return written
 

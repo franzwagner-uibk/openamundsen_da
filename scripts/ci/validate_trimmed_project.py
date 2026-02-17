@@ -145,16 +145,17 @@ def _check_openamundsen_outputs(steps_dir: Path) -> None:
     if not open_loop_result_dirs:
         raise FileNotFoundError("No open_loop results directories found under steps/*/ensembles/prior/open_loop/results")
 
-    # openAMUNDSEN outputs that remain after cleanup:
+    # openAMUNDSEN outputs that remain after compact retention:
     # - station point outputs (CSV)
-    # - gridded outputs (netCDF)
     for results_dir in member_result_dirs + open_loop_result_dirs:
         point_csvs = _collect_non_empty(results_dir, ("point_*.csv",))
-        grid_ncs = _collect_non_empty(results_dir, ("*.nc",))
         if not point_csvs:
             raise FileNotFoundError(f"{results_dir}: no point_*.csv outputs found")
-        if not grid_ncs:
-            raise FileNotFoundError(f"{results_dir}: no netCDF grid outputs (*.nc) found")
+
+
+def _check_da_output_grid(project_dir: Path) -> None:
+    da_output = project_dir / "merged" / "grids" / "da_output_grids.nc"
+    _assert_non_empty(da_output)
 
 
 def _check_required_outputs(steps_dir: Path) -> None:
@@ -212,6 +213,7 @@ def validate_project(project_dir: Path, log_file: Path) -> None:
     _check_required_outputs(steps_dir)
     _check_plot_outputs(project_dir)
     _check_openamundsen_outputs(steps_dir)
+    _check_da_output_grid(project_dir)
     _check_minimal_weight_sanity(steps_dir)
 
 

@@ -54,6 +54,7 @@ setup/
 |       |   |-- subdomain_manifest.json
 |       |   `-- <subdomain_id>/
 |       |-- merged/              # optional sub-domain merged outputs
+|       |   `-- grids/da_output_grids.nc  # compact DA grid summary
 |       |-- steps/
 |       |   |-- step_00_init/
 |       |   |   |-- step_00.yml
@@ -88,6 +89,7 @@ Project-level DA configuration and time span.
 - `data_assimilation.resampling`
 - `data_assimilation.rejuvenation`
 - `data_assimilation.restart`
+- `data_assimilation.output` (retention mode; default compact)
 - `data_assimilation.landcover_mask`
 - `data_assimilation.assimilation_events`
 
@@ -102,6 +104,10 @@ Auto-generated step window configuration.
 - `step`: one assimilation window inside a project
 - `member`: one ensemble member
 - `run`: execution of a project (event), not a config object
+
+## Sub-domain merge behavior
+- Sub-domain grid merge is a hard mosaic (no interpolation or blending across sub-domain borders).
+- Visible breaks at sub-domain boundaries are expected and represent localized DA behavior by design.
 
 ## File Naming
 - SCF obs CSV: `obs_scf_<PRODUCT>_YYYYMMDD.csv`

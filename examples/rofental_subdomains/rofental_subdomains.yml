@@ -16,15 +16,6 @@ input_data:
     bounds: grid
     aggregate_when_downsampling: true
 
-# Optional paths consumed by sub-domain mode preparation.
-obs:
-  stations:
-    dir: obs/stations
-  snowcover:
-    dir: obs/snowcover
-  wetsnow:
-    dir: obs/wetsnow
-
 # Output data configuration
 output_data:
   # Time series (point) outputs configuration

@@ -136,7 +136,8 @@ Validation focuses on:
   - wet-snow weights CSVs
   - member SCF point time series
   - forcing plots, setup result plots, assimilation plots
-  - persistent openAMUNDSEN outputs (`point_*.csv`, `*.nc`)
+  - persistent point outputs (`point_*.csv`)
+  - compact DA grid output (`merged/grids/da_output_grids.nc`)
 - minimal weight sanity (weights exist, numeric, sum to `1.0`)
 
 ### Integration regression test (trimmed sub-domain)
@@ -155,7 +156,8 @@ What it does:
 Validation focuses on:
 - no fatal log patterns (`ERROR`, `CRITICAL`, `Traceback`, `Exception`)
 - manifest exists and all sub-domains report `status=success`
-- each sub-domain has non-empty openAMUNDSEN compact outputs (`*.nc`, `point_*.csv`)
+- each sub-domain keeps non-empty point outputs (`point_*.csv`) in member results
+- merged compact DA grid output exists (`projects/<project>/merged/grids/da_output_grids.nc`)
 - merged outputs exist and are non-empty under the project (`projects/<project>/merged/{grids,points}`)
 - sub-domain station comparison plots exist under the project (`projects/<project>/plots/points/*.png`)
 

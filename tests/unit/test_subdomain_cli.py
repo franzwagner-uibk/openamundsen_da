@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
+import types
 
 from openamundsen_da.subdomain import cli as subdomain_cli
 
@@ -115,3 +117,27 @@ def test_resolve_manifest_from_subdomain_root(tmp_path: Path) -> None:
         subdomain_root=subdomain_root,
     )
     assert resolved == manifest
+
+
+def test_plot_defaults_to_snow_depth_obs_column(monkeypatch, tmp_path: Path) -> None:
+    setup_dir = tmp_path / "rofental"
+    project_dir = setup_dir / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir)
+    manifest = project_dir / "subdomains" / "subdomain_manifest.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text("{}", encoding="utf-8")
+
+    called: dict = {}
+
+    def _fake_plot_station_comparisons(**kwargs):
+        called.update(kwargs)
+        return []
+
+    fake_plot_module = types.SimpleNamespace(plot_station_comparisons=_fake_plot_station_comparisons)
+    monkeypatch.setitem(sys.modules, "openamundsen_da.subdomain.plot", fake_plot_module)
+
+    rc = subdomain_cli.cli(["plot", "--project-dir", str(project_dir)])
+
+    assert rc == 0
+    assert called["manifest_path"] == manifest
+    assert called["obs_column"] == "snow_depth"

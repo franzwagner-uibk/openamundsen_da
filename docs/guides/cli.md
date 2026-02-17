@@ -60,7 +60,8 @@ oa-da-project \
 - `--max-workers N` - Maximum parallel workers (default: 4)
 - `--overwrite` - Overwrite existing outputs
 - `--live-plots` - Enable plotting during run (default is off; plots are generated once after completion)
-- `--monitor-perf` - Enable performance monitoring
+- `--monitor-perf` - Enable performance monitoring (default is enabled)
+- `--no-monitor-perf` - Disable performance monitoring
 - `--perf-sample-interval SEC` - Perf sampling interval (default: 5)
 - `--perf-plot-interval SEC` - Perf plotting interval (default: 30)
 - `--log-level LEVEL` - Logging level (DEBUG, INFO, WARNING, ERROR)
@@ -506,8 +507,7 @@ oa-da-subdomain prepare \
 
 # Run all sub-domains (parallel)
 oa-da-subdomain run \
-  --project-dir /data/rofental/projects/project_2022_2023 \
-  --max-workers 8
+  --project-dir /data/rofental/projects/project_2022_2023
 
 # Merge grids and points
 oa-da-subdomain merge \
@@ -515,16 +515,13 @@ oa-da-subdomain merge \
 
 # Plot station comparisons
 oa-da-subdomain plot \
-  --project-dir /data/rofental/projects/project_2022_2023 \
-  --var snow_depth --obs-col snow_height
+  --project-dir /data/rofental/projects/project_2022_2023
 
 # One-shot pipeline (prepare -> run -> merge -> plot)
 oa-da-subdomain pipeline \
   --setup-dir /data/rofental \
   --project-dir /data/rofental/projects/project_2022_2023 \
-  --roi /data/regions.gpkg \
-  --max-workers 8 \
-  --var snow_depth --obs-col snow_height
+  --roi /data/regions.gpkg
 ```
 
 Defaults & tips:
@@ -534,6 +531,9 @@ Defaults & tips:
 - Sub-domain mode requires at least two polygons in the ROI file.
 - Use `--max-workers` to control parallelism; BLAS/OMP threads are pinned to 1 inside the image.
 - Merge is hard mosaic only (no interpolation/blending).
+- Visible breaks at sub-domain boundaries are expected and intentional.
+- Merge writes `merged/grids/da_output_grids.nc` as the compact DA grid product.
+- Compact retention is the default (`data_assimilation.output.retention: compact`); set `full` to keep all member grid artifacts.
 
 Inputs/outputs:
 - `--setup-dir` points to the setup root; `--project-dir` points to one project under `setup/projects`.

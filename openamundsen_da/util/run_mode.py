@@ -2,8 +2,11 @@ from __future__ import annotations
 
 """Helpers for project execution mode markers.
 
-The project YAML may persist `data_assimilation.run_mode` to guard against
+The project YAML persists a top-level `run_mode` marker to guard against
 accidentally running a project with the wrong workflow entrypoint.
+
+Legacy compatibility: `data_assimilation.run_mode` is still read when the
+top-level key is missing.
 """
 
 from pathlib import Path
@@ -27,8 +30,10 @@ def read_run_mode(project_dir: Path) -> str | None:
     """Return normalized run_mode from project YAML, or None when missing."""
     project_yaml = find_project_yaml(project_dir)
     cfg = _read_yaml_file(project_yaml) or {}
-    da_cfg = cfg.get(DA_BLOCK) or {}
-    raw = da_cfg.get(_RUN_MODE_KEY)
+    raw = cfg.get(_RUN_MODE_KEY)
+    if raw is None:
+        da_cfg = cfg.get(DA_BLOCK) or {}
+        raw = da_cfg.get(_RUN_MODE_KEY)
     if raw is None:
         return None
     return _normalize_mode(str(raw))
@@ -39,9 +44,12 @@ def write_run_mode(project_dir: Path, run_mode: str) -> str:
     mode = _normalize_mode(run_mode)
     project_yaml = find_project_yaml(project_dir)
     cfg = _read_yaml_file(project_yaml) or {}
-    da_cfg = dict(cfg.get(DA_BLOCK) or {})
-    da_cfg[_RUN_MODE_KEY] = mode
-    cfg[DA_BLOCK] = da_cfg
+    cfg[_RUN_MODE_KEY] = mode
+    da_cfg = cfg.get(DA_BLOCK)
+    if isinstance(da_cfg, dict) and _RUN_MODE_KEY in da_cfg:
+        da_cfg = dict(da_cfg)
+        da_cfg.pop(_RUN_MODE_KEY, None)
+        cfg[DA_BLOCK] = da_cfg
 
     import ruamel.yaml as _yaml
 
@@ -68,7 +76,7 @@ def ensure_run_mode(
         if write_if_missing:
             return write_run_mode(project_dir, normalized_expected)
         raise ValueError(
-            f"Project {project_dir} has no '{DA_BLOCK}.{_RUN_MODE_KEY}' marker. "
+            f"Project {project_dir} has no '{_RUN_MODE_KEY}' marker. "
             f"Expected '{normalized_expected}'."
         )
     if current != normalized_expected:

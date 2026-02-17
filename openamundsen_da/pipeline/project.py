@@ -66,6 +66,12 @@ from openamundsen_da.methods.viz.plot_project_ensemble import plot_setup_results
 from openamundsen_da.methods.viz.plot_forcing_ensemble import cli_main as plot_forcing_cli
 from openamundsen_da.util.validation import validate_assimilation_requirements
 from openamundsen_da.util.run_mode import ensure_run_mode
+from openamundsen_da.util.da_output import (
+    collect_project_grid_artifacts,
+    delete_files,
+    output_retention_mode,
+    write_da_output_grids,
+)
 
 # Map assimilation variables to the diagnostics/plots we should run.
 # Extend this mapping when new observables are added.
@@ -892,6 +898,44 @@ def run_project(cfg: OrchestratorConfig) -> None:
     except Exception as exc:
         logger.warning("Post-run plotting failed: {}", exc)
 
+    da_summary_written = False
+    da_summary_path = Path(cfg.project_dir) / "merged" / "grids" / "da_output_grids.nc"
+    latest_prior_root = Path(steps[-1]) / "ensembles" / "prior"
+    latest_open_loop_nc = latest_prior_root / "open_loop" / "results" / "output_grids.nc"
+    latest_member_ncs = [
+        p / "results" / "output_grids.nc"
+        for p in sorted(latest_prior_root.glob("member_*"))
+        if p.is_dir()
+    ]
+    if (not latest_open_loop_nc.is_file()) and da_summary_path.is_file() and not cfg.overwrite:
+        da_summary_written = True
+        logger.info("Using existing DA output summary {}", da_summary_path)
+    else:
+        try:
+            da_path = write_da_output_grids(
+                open_loop_nc=latest_open_loop_nc,
+                member_ncs=latest_member_ncs,
+                output_nc=da_summary_path,
+            )
+            da_summary_written = da_path is not None
+        except Exception as exc:
+            logger.warning("DA output grid summary failed: {}", exc)
+
+    retention_mode = output_retention_mode(cfg.project_dir)
+    if retention_mode == "compact":
+        if member_failures:
+            logger.info("Skipping compact grid retention because some member runs failed.")
+        elif not da_summary_written:
+            logger.warning("Skipping compact grid retention because da_output_grids.nc was not written.")
+        else:
+            artifacts = collect_project_grid_artifacts(cfg.project_dir)
+            deleted, bytes_freed = delete_files(artifacts)
+            logger.info(
+                "Compact retention: deleted {} grid artifact file(s), freed {:.1f} MB",
+                deleted,
+                bytes_freed / 1_000_000.0,
+            )
+
     # Cleanup state files if configured and no member failures occurred
     try:
         if cleanup_enabled:
@@ -961,8 +1005,15 @@ def cli(argv: Optional[List[str]] = None) -> int:
     )
     p.add_argument(
         "--monitor-perf",
+        dest="monitor_perf",
         action="store_true",
-        help="Enable background performance monitor (CPU/RAM) during the project run.",
+        help="Enable background performance monitor (CPU/RAM) during the project run (default).",
+    )
+    p.add_argument(
+        "--no-monitor-perf",
+        dest="monitor_perf",
+        action="store_false",
+        help="Disable background performance monitor (CPU/RAM) during the project run.",
     )
     p.add_argument(
         "--perf-sample-interval",
@@ -983,7 +1034,7 @@ def cli(argv: Optional[List[str]] = None) -> int:
         help="Parallel plot workers for post-run plotting (default: min(CPU, tasks)).",
     )
     p.add_argument("--log-level", default="INFO")
-    p.set_defaults(live_plots=False)
+    p.set_defaults(live_plots=False, monitor_perf=True)
     args = p.parse_args(argv)
 
     setup_dir = Path(args.setup_dir)
@@ -1003,7 +1054,7 @@ def cli(argv: Optional[List[str]] = None) -> int:
             log_level=str(args.log_level or "INFO"),
             live_plots=bool(getattr(args, "live_plots", False)),
             plot_workers=(int(args.plot_workers) if args.plot_workers is not None else None),
-            monitor_perf=bool(getattr(args, "monitor_perf", False)),
+            monitor_perf=bool(getattr(args, "monitor_perf", True)),
             perf_sample_interval=float(getattr(args, "perf_sample_interval", 5.0)),
             perf_plot_interval=float(getattr(args, "perf_plot_interval", 30.0)),
         )

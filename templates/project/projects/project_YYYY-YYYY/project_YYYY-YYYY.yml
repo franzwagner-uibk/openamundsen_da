@@ -1,5 +1,14 @@
-﻿start_date: YYYY-MM-DD
+run_mode: single # options: single | subdomain
+start_date: YYYY-MM-DD
 end_date: YYYY-MM-DD
+
+obs:
+  stations:
+    dir: obs/stations
+  snowcover:
+    dir: obs/snowcover
+  wetsnow:
+    dir: obs/wetsnow
 
 data_assimilation:
   prior_forcing:
@@ -52,6 +61,9 @@ data_assimilation:
     use_state: true
     dump_state: true
     state_pattern: model_state.pickle.gz
+
+  output:
+    retention: compact
 
   # Example assimilation_events block (mix of SCF and wet-snow dates).
   # Adjust dates and products for your project.

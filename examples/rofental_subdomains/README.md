@@ -17,5 +17,9 @@ Current data content:
 
 For your own setup:
 1. Replace `env/subdomains.gpkg` with your real sub-domain geometry.
-2. Update paths in `rofental_subdomains.yml` to your real `grids`, `meteo`, and `obs` directories.
-3. Adapt the project YAML under `projects/` to your DA events and time span.
+2. Update paths in `rofental_subdomains.yml` to your real `grids` and `meteo` directories.
+3. Adapt the project YAML under `projects/` to your DA events, time span, and `obs` directories.
+
+Default output behavior:
+- `oa-da-subdomain merge` writes compact DA grids to `projects/<project>/merged/grids/da_output_grids.nc`.
+- `data_assimilation.output.retention: compact` prunes heavy member grid artifacts after merge.

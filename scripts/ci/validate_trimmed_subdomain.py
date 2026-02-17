@@ -96,8 +96,6 @@ def _check_manifest(subdomain_root: Path) -> dict:
         open_loop_results = prior_root / "open_loop" / "results"
         if not open_loop_results.is_dir():
             raise FileNotFoundError(f"Missing open_loop results for {sid}: {open_loop_results}")
-        if not list(open_loop_results.glob("*.nc")):
-            raise FileNotFoundError(f"No netCDF outputs in {open_loop_results}")
         if not list(open_loop_results.glob("point_*.csv")):
             raise FileNotFoundError(f"No point outputs in {open_loop_results}")
 
@@ -108,8 +106,6 @@ def _check_manifest(subdomain_root: Path) -> dict:
             member_results = member_dir / "results"
             if not member_results.is_dir():
                 raise FileNotFoundError(f"Missing member results for {sid}: {member_results}")
-            if not list(member_results.glob("*.nc")):
-                raise FileNotFoundError(f"No netCDF outputs in {member_results}")
             if not list(member_results.glob("point_*.csv")):
                 raise FileNotFoundError(f"No point outputs in {member_results}")
 
@@ -126,8 +122,8 @@ def _check_merged_outputs(subdomain_root: Path) -> None:
     if not points.is_dir():
         raise FileNotFoundError(f"Missing merged points directory: {points}")
 
-    if not list(grids.glob("*.nc")) and not list(grids.glob("*.tif")):
-        raise FileNotFoundError("No merged grid outputs (*.nc or *.tif) found")
+    da_output = grids / "da_output_grids.nc"
+    _assert_non_empty(da_output)
 
     stations_csv = points / "stations.csv"
     _assert_non_empty(stations_csv)

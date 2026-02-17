@@ -117,6 +117,7 @@ def load_merged_config(
     cfg.pop(ENVIRONMENT, None)
     cfg.pop(DA_BLOCK, None)
     cfg.pop("obs", None)
+    cfg.pop("run_mode", None)
 
     # Step 4: Inject per-member paths (meteo dir always, results optional)
     cfg.setdefault(INPUT_DATA, {}).setdefault(METEO, {})

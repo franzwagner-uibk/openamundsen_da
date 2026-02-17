@@ -383,7 +383,7 @@ def _prepare_meteo(
     geom: Polygon,
     buffer_m: float,
     crs: Optional[str],
-) -> None:
+) -> list[str]:
     stations_path = meteo_dir / "stations.csv"
     if not stations_path.is_file():
         raise FileNotFoundError(f"Missing stations.csv in {meteo_dir}")
@@ -413,6 +413,7 @@ def _prepare_meteo(
 
     if (meteo_dir / "meteo_format.txt").is_file():
         _copy_or_link(meteo_dir / "meteo_format.txt", out_dir / "meteo_format.txt")
+    return [str(sid) for sid in selected["id"].astype(str)]
 
 
 def _prepare_obs_station_subset(
@@ -422,35 +423,59 @@ def _prepare_obs_station_subset(
     geom: Polygon,
     buffer_m: float,
     crs: Optional[str],
+    station_ids: Optional[Iterable[str]] = None,
 ) -> None:
     if not obs_dir.is_dir():
         logger.info("Obs directory {} not found; skipping station subset", obs_dir)
         return
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    requested_ids = {str(sid) for sid in (station_ids or []) if str(sid)}
+    selected_ids: set[str] = set()
     stations_meta = obs_dir / "stations_snow_depth.csv"
-    if not stations_meta.is_file():
+    if stations_meta.is_file():
+        meta_df = pd.read_csv(stations_meta)
+        if {"x", "y"}.issubset(meta_df.columns):
+            gdf = gpd.GeoDataFrame(
+                meta_df,
+                geometry=gpd.points_from_xy(meta_df["x"], meta_df["y"]),
+                crs=crs,
+            )
+            buffered = geom.buffer(buffer_m) if buffer_m and buffer_m > 0 else geom
+            meta_df = meta_df.loc[gdf.geometry.within(buffered)].copy()
+        else:
+            logger.warning("stations_snow_depth.csv missing x/y columns; skipping spatial filter")
+            if requested_ids and "id" in meta_df.columns:
+                meta_df = meta_df.loc[meta_df["id"].astype(str).isin(requested_ids)].copy()
+        meta_df.to_csv(out_dir / "stations_snow_depth.csv", index=False)
+        if "id" in meta_df.columns:
+            selected_ids = {str(sid) for sid in meta_df["id"].dropna().astype(str)}
+
+    if not selected_ids and requested_ids:
+        selected_ids = set(requested_ids)
+
+    if selected_ids:
+        for sid in sorted(selected_ids):
+            copied = False
+            for ext in (".csv", ".nc"):
+                src = obs_dir / f"{sid}{ext}"
+                if src.exists():
+                    _copy_or_link(src, out_dir / src.name)
+                    copied = True
+                    break
+            if not copied:
+                logger.debug("No station obs series found for id {}", sid)
         return
 
-    meta_df = pd.read_csv(stations_meta)
-    if {"x", "y"}.issubset(meta_df.columns):
-        gdf = gpd.GeoDataFrame(
-            meta_df,
-            geometry=gpd.points_from_xy(meta_df["x"], meta_df["y"]),
-            crs=crs,
-        )
-        buffered = geom.buffer(buffer_m) if buffer_m and buffer_m > 0 else geom
-        meta_df = meta_df.loc[gdf.geometry.within(buffered)].copy()
-    else:
-        logger.warning("stations_snow_depth.csv missing x/y columns; skipping spatial filter")
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    meta_df.to_csv(out_dir / "stations_snow_depth.csv", index=False)
-    ids = set(meta_df.get("id", pd.Series(dtype=str)).astype(str))
-    for sid in ids:
-        for ext in (".csv", ".nc"):
-            src = obs_dir / f"{sid}{ext}"
-            if src.exists():
-                _copy_or_link(src, out_dir / src.name)
-                break
+    copied_any = False
+    for pattern in ("*.csv", "*.nc"):
+        for src in sorted(obs_dir.glob(pattern)):
+            if src.name == "stations_snow_depth.csv":
+                continue
+            _copy_or_link(src, out_dir / src.name)
+            copied_any = True
+    if not copied_any:
+        logger.info("No station obs files found in {}", obs_dir)
 
 
 def prepare_subdomains(
@@ -480,6 +505,7 @@ def prepare_subdomains(
     setup_yaml = find_setup_yaml(setup_dir)
     project_yaml = find_project_yaml(project_dir)
     setup_cfg = _read_yaml(setup_yaml)
+    project_cfg = _read_yaml(project_yaml)
 
     grid_buffer_m = float(grid_buffer_m if grid_buffer_m is not None else 0.0)
     station_buffer_m = float(station_buffer_m)
@@ -490,9 +516,9 @@ def prepare_subdomains(
 
     grids_rel = _nested_dir(setup_cfg, ("input_data", "grids", "dir"), "grids")
     meteo_rel = _nested_dir(setup_cfg, ("input_data", "meteo", "dir"), "meteo")
-    obs_station_rel = _nested_dir(setup_cfg, ("obs", "stations", "dir"), "obs/stations")
-    raw_snowcover_rel = _nested_dir(setup_cfg, ("obs", "snowcover", "dir"), "obs/snowcover")
-    raw_wetsnow_rel = _nested_dir(setup_cfg, ("obs", "wetsnow", "dir"), "obs/wetsnow")
+    obs_station_rel = _nested_dir(project_cfg, ("obs", "stations", "dir"), "obs/stations")
+    raw_snowcover_rel = _nested_dir(project_cfg, ("obs", "snowcover", "dir"), "obs/snowcover")
+    raw_wetsnow_rel = _nested_dir(project_cfg, ("obs", "wetsnow", "dir"), "obs/wetsnow")
 
     grids_dir = Path(abspath_relative_to(setup_dir, grids_rel))
     meteo_dir = Path(abspath_relative_to(setup_dir, meteo_rel))
@@ -500,7 +526,7 @@ def prepare_subdomains(
     raw_snowcover_dir = Path(abspath_relative_to(setup_dir, raw_snowcover_rel))
     raw_wetsnow_dir = Path(abspath_relative_to(setup_dir, raw_wetsnow_rel))
     logger.info(
-        "Resolved setup data dirs grids={} meteo={} obs_stations={} snowcover_raw={} wetsnow_raw={}",
+        "Resolved data dirs grids={} meteo={} obs_stations={} snowcover_raw={} wetsnow_raw={}",
         grids_dir,
         meteo_dir,
         obs_dir,
@@ -630,7 +656,7 @@ def prepare_subdomains(
             global_transform=transform,
         )
 
-        _prepare_meteo(
+        selected_station_ids = _prepare_meteo(
             meteo_dir=meteo_dir,
             out_dir=meteo_out,
             geom=geom,
@@ -643,6 +669,7 @@ def prepare_subdomains(
             geom=geom,
             buffer_m=station_buffer_m,
             crs=crs_str,
+            station_ids=selected_station_ids,
         )
         roi_vector_path = env_out / "roi.gpkg"
         _write_roi_vector(

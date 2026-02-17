@@ -493,10 +493,12 @@ Outputs
 - Per-step runs in `<step>/ensembles/{prior,posterior}` (open_loop + members)
 - Weights and indices in `<step>/assim/`
 - Rejuvenated next-step prior (members + open_loop with state_pointer.json)
+- Compact DA summary grids in `<project>/merged/grids/da_output_grids.nc`
 - Setup plots under `<setup_dir>/plots/{forcing,results}`
 - When model SCF is enabled, daily ROI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_roi.csv`; the combined SCF + wet-snow fraction plot (`plots/results/fraction_timeseries.png`) provides the setup-level view.
   Setup results plots now show the ensemble mean, the 90% envelope, and the open loop by default; individual members are hidden unless `--show-members` is passed to the plot CLI. Wet-snow setup plots overlay available observations from `obs/<setup>/wet_snow_summary.csv` automatically.
   At the end of the setup run, per-step weights plots (`step_XX_weights.png`) and the setup ESS timeline (`setup_ess_timeline_<setup_id>.png`) are also generated under `<setup_dir>/plots/assim/{weights,ess}`.
+  Default retention is compact (`data_assimilation.output.retention: compact`), which prunes heavy member grid artifacts after writing `da_output_grids.nc`. Set `retention: full` to keep all member grid files.
 
 ### Backfilling model SCF for an existing setup (optional)
 
@@ -546,23 +548,23 @@ The skeleton uses the `timestep` from `project.yml` (e.g. `3H`, `6H`, `1D`) to d
 
 ### Performance monitoring (CPU / RAM)
 
-A minimal monitor (opt-in) samples system CPU% and RAM%.
+A minimal monitor samples system CPU% and RAM% (enabled by default for `oa-da-project`).
 Outputs under `<setup_dir>/plots/perf/`:
 - `setup_perf_metrics.csv` (timestamp, cpu_total_pct, mem_used_pct, mem_used_gb, mem_total_gb)
 - `setup_perf.png` (CPU/RAM%)
 
 Suggested intervals: sample every 5Ã¢â‚¬â€œ10 seconds; refresh the plot every 30Ã¢â‚¬â€œ60 seconds.
 
-Enable monitoring for a setup run
+Project run with default monitoring
 
 ```powershell
 docker compose run --rm oa `
   oa-da-project `
-  --setup-dir $setup `
-  --monitor-perf
+  --setup-dir $setup
 ```
 
-- `--monitor-perf` turns on the background monitor thread.
+- `--monitor-perf` explicitly enables monitoring (default behavior).
+- `--no-monitor-perf` disables monitoring for the project run.
 - `--project-dir` is optional; it is auto-detected by walking up from `--setup-dir` to the nearest `project.yml`.
 - `--perf-sample-interval` and `--perf-plot-interval` default to 5 seconds and 30 seconds respectively.
 
@@ -621,21 +623,23 @@ Minimal flow:
 - Prepare sub-domain setups from ROI polygons:
   `oa-da-subdomain prepare --setup-dir <setup> --project-dir <setup>/projects/<project> --roi <setup>/env/roi.gpkg --id-field id`
 - Run all sub-domains in parallel:
-  `oa-da-subdomain run --project-dir <setup>/projects/<project> --max-workers 8`
+  `oa-da-subdomain run --project-dir <setup>/projects/<project>`
 - Merge grids and points (hard mosaic, no interpolation/blending):
   `oa-da-subdomain merge --project-dir <setup>/projects/<project>`
 - Plot merged station results vs observations:
-  `oa-da-subdomain plot --project-dir <setup>/projects/<project> --var snow_depth --obs-col snow_height`
+  `oa-da-subdomain plot --project-dir <setup>/projects/<project>`
 
 Defaults:
 - Sub-domain root is `<project>/subdomains` (override with `--subdomain-root`).
 - Manifest path is `<subdomain_root>/subdomain_manifest.json` (or pass `--manifest` explicitly).
 - Each sub-domain run lives under `<subdomain_root>/<subdomain_id>/`.
 - Merged outputs are written under `<project>/merged/{grids,points}`.
+- Compact DA grid output is `<project>/merged/grids/da_output_grids.nc`.
 - Station plots are written under `<project>/plots/points`.
 - Station selection uses a 50 km default buffer (`--station-buffer-km`).
 - Tiny polygon overlaps are tolerated up to 100 m^2 (`--overlap-area-tol-m2`), with optional sliver correction (`--sliver-fix-m`).
 - Sub-domain mode requires at least two polygons in the ROI file.
+- Default retention is compact (`data_assimilation.output.retention: compact`) and removes heavy member grid artifacts after merge. Set `retention: full` to keep them.
 
 Ready-made example:
 - setup: `examples/rofental_subdomains`

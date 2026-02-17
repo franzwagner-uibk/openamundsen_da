@@ -25,25 +25,24 @@ About Container
 - [ ] Kapitel aus Docs verlinken
 - [ ] Plots und Tabellen-Auszüge einfügen (im Stil von Jupyter Notebook)
 
-- `{: .note }` (Purple)
-- `{: .warning }` (Red)
-- `{: .important }` (Blue)
-- `{: .highlight }` (Yellow)
-- `{: .new }` (Green)
-
 ## Example boxes
 
 {: .note }
+
 > This is a note box example.
 
 {: .warning }
+
 > This is a warning box example.
 
 {: .important }
+
 > This is an important box example.
 
 {: .highlight }
+
 > This is a highlight box example.
 
 {: .new }
+
 > This is a new box example.

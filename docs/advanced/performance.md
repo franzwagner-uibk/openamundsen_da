@@ -1,4 +1,4 @@
-﻿---
+---
 layout: default
 title: Performance Tuning
 parent: Advanced Topics

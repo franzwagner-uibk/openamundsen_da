@@ -1,4 +1,4 @@
-﻿---
+---
 layout: default
 title: Troubleshooting
 parent: Advanced Topics

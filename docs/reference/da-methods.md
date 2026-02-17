@@ -1,4 +1,4 @@
-﻿---
+---
 layout: default
 title: Data Assimilation Methods
 parent: Reference

@@ -1,4 +1,4 @@
-﻿# openamundsen_da Documentation
+# openamundsen_da Documentation
 
 This directory contains the documentation for the openamundsen_da project, built with [Jekyll](https://jekyllrb.com/) and the [Just the Docs](https://just-the-docs.github.io/just-the-docs/) theme.
 
@@ -17,7 +17,17 @@ bundle install
 bundle exec jekyll serve
 ```
 
-Then open [http://localhost:4000/openamundsen_da/](http://localhost:4000/openamundsen_da/)
+Then open [http://127.0.0.1:4001/](http://127.0.0.1:4001/)
+
+### VS Code One-Click Preview
+
+This repository includes VS Code tasks in `.vscode/tasks.json`:
+
+- `Docs: Jekyll Serve (Docker)` - Recommended (no local Ruby/Bundler install required)
+- `Docs: Jekyll Serve (Local Ruby)` - Uses your local Ruby toolchain
+- `Docs: Open Local Preview` - Opens `http://127.0.0.1:4001/`
+
+Run them from `Terminal -> Run Task...`.
 
 ## GitHub Pages Deployment
 

@@ -63,10 +63,10 @@ callouts:
   highlight:
     color: yellow
   important:
-    title: Important
+    title: Ressources
     color: blue
   new:
-    title: New
+    title: Prerequisites
     color: green
   note:
     title: Note

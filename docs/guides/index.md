@@ -19,5 +19,5 @@ This section contains practical guides for using the openamundsen_da framework:
 - [**Configuration Reference**]({{ site.baseurl }}{% link guides/configuration.md %}) - YAML configuration guide
 - [**Observation Processing**]({{ site.baseurl }}{% link guides/observations.md %}) - Working with satellite data
 - [**Running Experiments**]({{ '/guides/experiments/' | relative_url }}) - Set up your own project and run custom setups
-- [**Tutorial**]({{ site.baseurl }}{% link guides/tutorial.md %}) - Work-in-progress tutorial and callout examples
+- [**Tutorial**]({{ '/tutorial/' | relative_url }}) - Detailed step-by-step walkthrough
 

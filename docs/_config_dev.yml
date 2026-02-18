@@ -1,0 +1,12 @@
+# Local preview overrides for faster iteration
+
+# Skip search index generation during local writing/editing.
+search_enabled: false
+
+# Incremental builds are much faster for repeated edits.
+incremental: true
+
+# Explicitly ignore generated/cache directories in local preview.
+exclude:
+  - _site
+  - .jekyll-cache

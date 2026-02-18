@@ -14,7 +14,7 @@ This directory contains the documentation for the openamundsen_da project, built
 ```bash
 cd docs
 bundle install
-bundle exec jekyll serve
+bundle exec jekyll serve --host 127.0.0.1 --port 4001 --livereload --incremental --config _config.yml,_config_dev.yml
 ```
 
 Then open [http://127.0.0.1:4001/](http://127.0.0.1:4001/)
@@ -24,7 +24,8 @@ Then open [http://127.0.0.1:4001/](http://127.0.0.1:4001/)
 This repository includes VS Code tasks in `.vscode/tasks.json`:
 
 - `Docs: Jekyll Serve (Docker)` - Recommended (no local Ruby/Bundler install required)
-- `Docs: Jekyll Serve (Local Ruby)` - Uses your local Ruby toolchain
+- `Docs: Jekyll Serve (Local Ruby)` - Fast default (incremental, no polling)
+- `Docs: Jekyll Serve (Local Ruby, Polling)` - Fallback if file changes are not detected
 - `Docs: Open Local Preview` - Opens `http://127.0.0.1:4001/`
 
 Run them from `Terminal -> Run Task...`.

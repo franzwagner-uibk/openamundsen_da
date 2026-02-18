@@ -11,7 +11,7 @@ from openamundsen_da.subdomain import merge as merge_mod
 def test_merge_grids_uses_compact_da_summary(monkeypatch, tmp_path: Path) -> None:
     project_dir = tmp_path / "projects" / "project_2022_2023"
     sub_project_dir = project_dir / "subdomains" / "sd_01" / "projects" / "project_2022_2023"
-    compact_da = sub_project_dir / "merged" / "grids" / "da_output_grids.nc"
+    compact_da = sub_project_dir / "results" / "grids" / "da_output_grids.nc"
     compact_da.parent.mkdir(parents=True, exist_ok=True)
     compact_da.write_bytes(b"compact")
 
@@ -54,7 +54,7 @@ def test_merge_grids_uses_compact_da_summary(monkeypatch, tmp_path: Path) -> Non
 
     written = merge_mod.merge_grids(manifest_path=tmp_path / "manifest.json")
 
-    merged_da = project_dir / "merged" / "grids" / "da_output_grids.nc"
+    merged_da = project_dir / "results" / "grids" / "da_output_grids.nc"
     assert merged_da.is_file()
     assert written == [merged_da]
     assert calls == [("da_output_grids.nc", [compact_da])]

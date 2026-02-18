@@ -532,14 +532,15 @@ Defaults & tips:
 - Use `--max-workers` to control parallelism; BLAS/OMP threads are pinned to 1 inside the image.
 - Merge is hard mosaic only (no interpolation/blending).
 - Visible breaks at sub-domain boundaries are expected and intentional.
-- Merge writes `merged/grids/da_output_grids.nc` as the compact DA grid product.
+- Merge writes `results/grids/da_output_grids.nc` as the compact DA grid product.
 - Compact retention is the default (`data_assimilation.output.retention: compact`); set `full` to keep all member grid artifacts.
+- Sub-domain mode keeps point outputs and point plots inside each sub-domain project (no project-root point merge).
 
 Inputs/outputs:
 - `--setup-dir` points to the setup root; `--project-dir` points to one project under `setup/projects`.
 - Prepared sub-domain runs live under `<subdomain_root>/<subdomain_id>/`.
-- Merged grids/points are written under `<project>/merged/`.
-- Station comparison plots are written under `<project>/plots/points/`.
+- Project-level outputs are written under `<project>/results/`.
+- Sub-domain point outputs and plots stay under each sub-domain project directory.
 - Repository example: `examples/rofental_subdomains` with regions in `env/subdomains.gpkg`.
 
 ---

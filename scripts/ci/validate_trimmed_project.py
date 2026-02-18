@@ -154,7 +154,7 @@ def _check_openamundsen_outputs(steps_dir: Path) -> None:
 
 
 def _check_da_output_grid(project_dir: Path) -> None:
-    da_output = project_dir / "merged" / "grids" / "da_output_grids.nc"
+    da_output = project_dir / "results" / "grids" / "da_output_grids.nc"
     _assert_non_empty(da_output)
 
 

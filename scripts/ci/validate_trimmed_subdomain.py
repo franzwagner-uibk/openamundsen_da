@@ -112,48 +112,25 @@ def _check_manifest(subdomain_root: Path) -> dict:
     return data
 
 
-def _check_merged_outputs(subdomain_root: Path) -> None:
+def _check_project_results(subdomain_root: Path) -> None:
     project_dir = subdomain_root.parent
-    merged = project_dir / "merged"
-    grids = merged / "grids"
-    points = merged / "points"
+    results = project_dir / "results"
+    grids = results / "grids"
     if not grids.is_dir():
-        raise FileNotFoundError(f"Missing merged grids directory: {grids}")
-    if not points.is_dir():
-        raise FileNotFoundError(f"Missing merged points directory: {points}")
+        raise FileNotFoundError(f"Missing project results grids directory: {grids}")
 
     da_output = grids / "da_output_grids.nc"
     _assert_non_empty(da_output)
 
-    stations_csv = points / "stations.csv"
-    _assert_non_empty(stations_csv)
-    if not list(points.glob("point_*.csv")):
-        raise FileNotFoundError("No merged point station CSV outputs found")
-
-
-def _check_plots(subdomain_root: Path) -> None:
-    project_dir = subdomain_root.parent
-    obs_dir = project_dir / "merged" / "points" / "obs" / "stations"
-    has_obs_station_series = obs_dir.is_dir() and any(p.is_file() for p in obs_dir.glob("*.csv"))
-    plots_dir = project_dir / "plots" / "points"
-    if not has_obs_station_series:
-        # Plot stage depends on station observation series; trimmed example does
-        # not include them, so plotting may validly skip.
-        return
-    if not plots_dir.is_dir():
-        raise FileNotFoundError(f"Missing sub-domain plot directory: {plots_dir}")
-    pngs = list(plots_dir.glob("*.png"))
-    if not pngs:
-        raise FileNotFoundError(f"No station comparison plots found in {plots_dir}")
-    for png in pngs:
-        _assert_non_empty(png)
+    _assert_non_empty(results / "subdomain_overview.csv")
+    _assert_non_empty(results / "subdomain_assimilation_stats.csv")
+    _assert_non_empty(results / "subdomain_assimilation_aggregate.csv")
 
 
 def validate_subdomain_root(subdomain_root: Path, log_file: Path) -> None:
     _check_logs(log_file)
     _check_manifest(subdomain_root)
-    _check_merged_outputs(subdomain_root)
-    _check_plots(subdomain_root)
+    _check_project_results(subdomain_root)
 
 
 def main() -> int:

@@ -81,18 +81,11 @@ def test_merge_uses_default_output_layout(monkeypatch, tmp_path: Path) -> None:
     )
 
     called_grids: dict = {}
-    called_points: dict = {}
-
     def _fake_merge_grids(**kwargs):
         called_grids.update(kwargs)
         return []
 
-    def _fake_merge_points(**kwargs):
-        called_points.update(kwargs)
-        return []
-
     monkeypatch.setattr("openamundsen_da.subdomain.merge.merge_grids", _fake_merge_grids)
-    monkeypatch.setattr("openamundsen_da.subdomain.merge.merge_points", _fake_merge_points)
     monkeypatch.setattr(
         "openamundsen_da.subdomain.manifest.SubdomainManifest.load",
         lambda _path: type("M", (), {"project_dir": project_dir})(),
@@ -101,8 +94,7 @@ def test_merge_uses_default_output_layout(monkeypatch, tmp_path: Path) -> None:
     rc = subdomain_cli.cli(["merge", "--project-dir", str(project_dir)])
 
     assert rc == 0
-    assert called_grids["out_dir"] == project_dir / "merged" / "grids"
-    assert called_points["out_dir"] == project_dir / "merged" / "points"
+    assert called_grids["out_dir"] == project_dir / "results" / "grids"
 
 
 def test_resolve_manifest_from_subdomain_root(tmp_path: Path) -> None:

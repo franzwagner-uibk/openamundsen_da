@@ -53,8 +53,11 @@ setup/
 |       |-- subdomains/          # optional sub-domain mode workspace
 |       |   |-- subdomain_manifest.json
 |       |   `-- <subdomain_id>/
-|       |-- merged/              # optional sub-domain merged outputs
-|       |   `-- grids/da_output_grids.nc  # compact DA grid summary
+|       |-- results/             # project-level DA outputs
+|       |   |-- grids/da_output_grids.nc  # compact DA grid summary (single + sub-domain)
+|       |   |-- subdomain_overview.csv    # sub-domain mode run summary
+|       |   |-- subdomain_assimilation_stats.csv
+|       |   `-- subdomain_assimilation_aggregate.csv
 |       |-- steps/
 |       |   |-- step_00_init/
 |       |   |   |-- step_00.yml
@@ -108,6 +111,7 @@ Auto-generated step window configuration.
 ## Sub-domain merge behavior
 - Sub-domain grid merge is a hard mosaic (no interpolation or blending across sub-domain borders).
 - Visible breaks at sub-domain boundaries are expected and represent localized DA behavior by design.
+- Sub-domain point outputs are not merged at project root; they remain inside each sub-domain project.
 
 ## File Naming
 - SCF obs CSV: `obs_scf_<PRODUCT>_YYYYMMDD.csv`

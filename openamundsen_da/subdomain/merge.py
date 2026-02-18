@@ -64,7 +64,7 @@ def _result_sources(sub: SubdomainMeta) -> list[tuple[str, Path]]:
 
 def _compact_da_summary(sub: SubdomainMeta) -> Path | None:
     """Return sub-domain compact DA summary if available."""
-    candidate = sub.project_dir / "merged" / "grids" / "da_output_grids.nc"
+    candidate = sub.project_dir / "results" / "grids" / "da_output_grids.nc"
     return candidate if candidate.is_file() else None
 
 
@@ -149,7 +149,7 @@ def merge_grids(
     global_transform = Affine(*manifest.grid_transform)
     expected_mask = _expected_coverage_mask(manifest, selected_ids, global_shape)
 
-    out_base = out_dir or (manifest.project_dir / "merged" / "grids")
+    out_base = out_dir or (manifest.project_dir / "results" / "grids")
     out_base.mkdir(parents=True, exist_ok=True)
 
     tif_groups: Dict[str, List[Tuple[SubdomainMeta, Path]]] = {}
@@ -467,7 +467,7 @@ def merge_points(
     if unknown:
         raise ValueError(f"Sub-domains not in manifest: {', '.join(unknown)}")
 
-    out_base = out_dir or (manifest.project_dir / "merged" / "points")
+    out_base = out_dir or (manifest.project_dir / "results" / "points")
     out_base.mkdir(parents=True, exist_ok=True)
     obs_out = out_base / "obs" / "stations"
     obs_out.mkdir(parents=True, exist_ok=True)

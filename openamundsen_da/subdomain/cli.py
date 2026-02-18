@@ -79,20 +79,20 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
     p_run.add_argument("--log-level", default="INFO")
     p_run.add_argument("--no-perf-monitor", action="store_true", help="Disable performance monitor")
 
-    p_merge = sub.add_parser("merge", help="Merge compact outputs across sub-domains")
+    p_merge = sub.add_parser("merge", help="Merge compact DA grids across sub-domains")
     p_merge.add_argument("--manifest", type=Path, help="Path to subdomain_manifest.json")
     p_merge.add_argument("--project-dir", type=Path, help="Project directory (used to resolve manifest)")
     p_merge.add_argument("--subdomain-root", type=Path, help="Sub-domain root (used to resolve manifest)")
     p_merge.add_argument("--subdomains", nargs="+", help="Optional list of sub-domain ids to merge")
     p_merge.add_argument("--coverage-sliver-tol-px", type=int, default=4, help="Allowed uncovered expected pixels (default: 4)")
-    p_merge.add_argument("--out-dir", type=Path, help="Override merged output directory (default: <project>/merged)")
+    p_merge.add_argument("--out-dir", type=Path, help="Override results output directory (default: <project>/results)")
     p_merge.add_argument("--log-level", default="INFO")
 
-    p_plot = sub.add_parser("plot", help="Plot station obs vs merged model point outputs")
+    p_plot = sub.add_parser("plot", help="Plot station obs vs consolidated model point outputs")
     p_plot.add_argument("--manifest", type=Path, help="Path to subdomain_manifest.json")
     p_plot.add_argument("--project-dir", type=Path, help="Project directory (used to resolve manifest)")
     p_plot.add_argument("--subdomain-root", type=Path, help="Sub-domain root (used to resolve manifest)")
-    p_plot.add_argument("--points-dir", type=Path, help="Merged points directory (default: <project>/merged/points)")
+    p_plot.add_argument("--points-dir", type=Path, help="Points directory (default: <project>/results/points)")
     p_plot.add_argument("--obs-dir", type=Path, help="Obs directory (default: <points_dir>/obs/stations)")
     p_plot.add_argument("--var", default="snow_depth", help="Model variable column to plot")
     p_plot.add_argument("--obs-col", default="snow_depth", help="Observation column name")
@@ -100,7 +100,7 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
     p_plot.add_argument("--stations", nargs="+", help="Optional list of station ids")
     p_plot.add_argument("--log-level", default="INFO")
 
-    p_pipe = sub.add_parser("pipeline", help="Run prepare -> run -> merge -> plot")
+    p_pipe = sub.add_parser("pipeline", help="Run prepare -> run -> report -> merge")
     p_pipe.add_argument("--setup-dir", required=True, type=Path, help="Setup root directory")
     p_pipe.add_argument("--project-dir", required=True, type=Path, help="Project directory under setup/projects")
     p_pipe.add_argument(
@@ -179,7 +179,7 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
         return 0
 
     if args.command == "merge":
-        from openamundsen_da.subdomain.merge import merge_grids, merge_points
+        from openamundsen_da.subdomain.merge import merge_grids
         from openamundsen_da.subdomain.manifest import SubdomainManifest
 
         manifest = _resolve_manifest(
@@ -187,17 +187,12 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
             project_dir=args.project_dir,
             subdomain_root=args.subdomain_root,
         )
-        merged_root = args.out_dir or (SubdomainManifest.load(manifest).project_dir / "merged")
+        results_root = args.out_dir or (SubdomainManifest.load(manifest).project_dir / "results")
         merge_grids(
             manifest_path=manifest,
             subdomains=args.subdomains,
-            out_dir=merged_root / "grids",
+            out_dir=results_root / "grids",
             coverage_sliver_tol_px=int(args.coverage_sliver_tol_px),
-        )
-        merge_points(
-            manifest_path=manifest,
-            subdomains=args.subdomains,
-            out_dir=merged_root / "points",
         )
         return 0
 

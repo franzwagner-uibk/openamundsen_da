@@ -282,7 +282,7 @@ def _write_subdomain_setup_yaml(
 
 
 def _copy_project_dir(source_project_dir: Path, target_project_dir: Path) -> Path:
-    ignore_names = {"steps", "plots", "ensembles", "assim", "subdomains", "merged"}
+    ignore_names = {"steps", "plots", "ensembles", "assim", "subdomains", "results"}
     if target_project_dir.exists():
         shutil.rmtree(target_project_dir)
     shutil.copytree(
@@ -567,7 +567,7 @@ def prepare_subdomains(
 
     subdomain_root = (Path(subdomain_root) if subdomain_root else (project_dir / "subdomains")).resolve()
     if overwrite:
-        for derived_dir in (subdomain_root, project_dir / "merged", project_dir / "plots"):
+        for derived_dir in (subdomain_root, project_dir / "results", project_dir / "plots"):
             if derived_dir.is_dir():
                 shutil.rmtree(derived_dir)
     subdomain_root.mkdir(parents=True, exist_ok=True)

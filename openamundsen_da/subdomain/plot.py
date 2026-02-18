@@ -1,4 +1,4 @@
-"""Plot station results versus observations for merged sub-domain outputs."""
+"""Plot station results versus observations for consolidated sub-domain point outputs."""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def plot_station_comparisons(
         raise ValueError(f"Manifest at {manifest_path} is not marked as run_mode='subdomain'.")
     ensure_run_mode(manifest.project_dir, expected="subdomain", write_if_missing=False)
     logger.debug("Using manifest created at {}", manifest.created_at)
-    pts_root = points_dir or (manifest.project_dir / "merged" / "points")
+    pts_root = points_dir or (manifest.project_dir / "results" / "points")
     obs_root = obs_dir or (pts_root / "obs" / "stations")
     plot_dir = manifest.project_dir / "plots" / "points"
     plot_dir.mkdir(parents=True, exist_ok=True)

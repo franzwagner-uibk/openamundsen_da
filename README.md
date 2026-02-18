@@ -493,7 +493,7 @@ Outputs
 - Per-step runs in `<step>/ensembles/{prior,posterior}` (open_loop + members)
 - Weights and indices in `<step>/assim/`
 - Rejuvenated next-step prior (members + open_loop with state_pointer.json)
-- Compact DA summary grids in `<project>/merged/grids/da_output_grids.nc`
+- Compact DA summary grids in `<project>/results/grids/da_output_grids.nc`
 - Setup plots under `<setup_dir>/plots/{forcing,results}`
 - When model SCF is enabled, daily ROI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_roi.csv`; the combined SCF + wet-snow fraction plot (`plots/results/fraction_timeseries.png`) provides the setup-level view.
   Setup results plots now show the ensemble mean, the 90% envelope, and the open loop by default; individual members are hidden unless `--show-members` is passed to the plot CLI. Wet-snow setup plots overlay available observations from `obs/<setup>/wet_snow_summary.csv` automatically.
@@ -617,25 +617,24 @@ If you rebuilt the image with the latest code, you can replace the `python -m ..
 
 ## Sub-domain Mode
 
-Use `oa-da-subdomain` to split a large setup into non-overlapping sub-domains, run one independent DA project per sub-domain, and merge compact outputs.
+Use `oa-da-subdomain` to split a large setup into non-overlapping sub-domains, run one independent DA project per sub-domain, write project-level reports, and merge compact DA grids.
 
 Minimal flow:
 - Prepare sub-domain setups from ROI polygons:
   `oa-da-subdomain prepare --setup-dir <setup> --project-dir <setup>/projects/<project> --roi <setup>/env/roi.gpkg --id-field id`
 - Run all sub-domains in parallel:
   `oa-da-subdomain run --project-dir <setup>/projects/<project>`
-- Merge grids and points (hard mosaic, no interpolation/blending):
+- Write project-level reports and merge DA grids (hard mosaic, no interpolation/blending):
   `oa-da-subdomain merge --project-dir <setup>/projects/<project>`
-- Plot merged station results vs observations:
-  `oa-da-subdomain plot --project-dir <setup>/projects/<project>`
 
 Defaults:
 - Sub-domain root is `<project>/subdomains` (override with `--subdomain-root`).
 - Manifest path is `<subdomain_root>/subdomain_manifest.json` (or pass `--manifest` explicitly).
 - Each sub-domain run lives under `<subdomain_root>/<subdomain_id>/`.
-- Merged outputs are written under `<project>/merged/{grids,points}`.
-- Compact DA grid output is `<project>/merged/grids/da_output_grids.nc`.
-- Station plots are written under `<project>/plots/points`.
+- Project-level outputs are written under `<project>/results/`.
+- Compact DA grid output is `<project>/results/grids/da_output_grids.nc`.
+- Sub-domain reports are written under `<project>/results/subdomain_*.csv`.
+- Point outputs and plots remain inside each sub-domain project.
 - Station selection uses a 50 km default buffer (`--station-buffer-km`).
 - Tiny polygon overlaps are tolerated up to 100 m^2 (`--overlap-area-tol-m2`), with optional sliver correction (`--sliver-fix-m`).
 - Sub-domain mode requires at least two polygons in the ROI file.

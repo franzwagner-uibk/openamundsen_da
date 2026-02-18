@@ -899,7 +899,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
         logger.warning("Post-run plotting failed: {}", exc)
 
     da_summary_written = False
-    da_summary_path = Path(cfg.project_dir) / "merged" / "grids" / "da_output_grids.nc"
+    da_summary_path = Path(cfg.project_dir) / "results" / "grids" / "da_output_grids.nc"
     latest_prior_root = Path(steps[-1]) / "ensembles" / "prior"
     latest_open_loop_nc = latest_prior_root / "open_loop" / "results" / "output_grids.nc"
     latest_member_ncs = [

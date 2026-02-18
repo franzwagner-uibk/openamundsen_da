@@ -7,9 +7,9 @@ from typing import Optional
 
 from loguru import logger
 
-from openamundsen_da.subdomain.merge import merge_grids, merge_points
-from openamundsen_da.subdomain.plot import plot_station_comparisons
+from openamundsen_da.subdomain.merge import merge_grids
 from openamundsen_da.subdomain.prepare import prepare_subdomains
+from openamundsen_da.subdomain.report import write_subdomain_reports
 from openamundsen_da.subdomain.run import run_subdomains
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.util.run_mode import ensure_run_mode
@@ -49,6 +49,7 @@ def run_pipeline(
     ensure_run_mode(project_dir, expected="subdomain", write_if_missing=True)
     subdomain_root = Path(subdomain_root).resolve()
     manifest_path = subdomain_root / "subdomain_manifest.json"
+    results_root = project_dir / "results"
     pipeline_log = project_dir / "subdomain_run.log"
 
     pipeline_log.parent.mkdir(parents=True, exist_ok=True)
@@ -105,34 +106,32 @@ def run_pipeline(
             if perf_stop is not None:
                 perf_stop.set()
 
+        write_subdomain_reports(
+            manifest_path=manifest_path,
+            out_dir=results_root,
+        )
+        logger.info("REPORT OK")
+
         if skip_merge:
             logger.info("MERGE skipped")
         else:
-            merged_root = project_dir / "merged"
             merge_grids(
                 manifest_path=manifest_path,
-                out_dir=merged_root / "grids",
+                out_dir=results_root / "grids",
                 coverage_sliver_tol_px=int(coverage_sliver_tol_px),
             )
-            merge_points(
-                manifest_path=manifest_path,
-                out_dir=merged_root / "points",
-            )
-            logger.info("MERGE OK")
+            logger.info("MERGE OK (grids)")
 
         if skip_plot:
             logger.info("PLOT skipped")
         else:
-            plot_station_comparisons(
-                manifest_path=manifest_path,
-                points_dir=None,
-                obs_dir=None,
-                variable=plot_var,
-                obs_column=plot_obs_col,
-                obs_scale=plot_obs_scale,
-                station_ids=plot_stations,
+            logger.info(
+                "PLOT skipped in subdomain pipeline: sub-domain mode keeps point outputs and plots inside each sub-domain project (variable={}, obs_col={}, obs_scale={}, stations={}).",
+                plot_var,
+                plot_obs_col,
+                plot_obs_scale,
+                plot_stations,
             )
-            logger.info("PLOT OK")
 
         logger.info("PIPELINE DONE subdomain_root={}", subdomain_root)
     finally:

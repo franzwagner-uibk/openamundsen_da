@@ -21,5 +21,6 @@ For your own setup:
 3. Adapt the project YAML under `projects/` to your DA events, time span, and `obs` directories.
 
 Default output behavior:
-- `oa-da-subdomain merge` writes compact DA grids to `projects/<project>/merged/grids/da_output_grids.nc`.
+- `oa-da-subdomain merge` writes compact DA grids to `projects/<project>/results/grids/da_output_grids.nc`.
 - `data_assimilation.output.retention: compact` prunes heavy member grid artifacts after merge.
+- Point outputs and point plots stay inside each sub-domain project directory.

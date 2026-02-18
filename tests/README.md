@@ -63,7 +63,7 @@ Workflow file: `.github/workflows/ci.yml`
 8. SCF and wet-snow per-step observation CSVs are prepared.
 9. Full setup pipeline is executed (`oa-da-project` equivalent module call).
 10. Integration validator checks logs, outputs, plots, and weight sanity.
-11. Sub-domain integration validator checks manifest status, merged outputs, and plots.
+11. Sub-domain integration validator checks manifest status and project-level results outputs.
 12. If integration fails, log and trimmed outputs are uploaded as CI artifacts.
 13. On push to `main` only: publish job builds and pushes GHCR image.
 
@@ -137,7 +137,7 @@ Validation focuses on:
   - member SCF point time series
   - forcing plots, setup result plots, assimilation plots
   - persistent point outputs (`point_*.csv`)
-  - compact DA grid output (`merged/grids/da_output_grids.nc`)
+  - compact DA grid output (`results/grids/da_output_grids.nc`)
 - minimal weight sanity (weights exist, numeric, sum to `1.0`)
 
 ### Integration regression test (trimmed sub-domain)
@@ -157,9 +157,8 @@ Validation focuses on:
 - no fatal log patterns (`ERROR`, `CRITICAL`, `Traceback`, `Exception`)
 - manifest exists and all sub-domains report `status=success`
 - each sub-domain keeps non-empty point outputs (`point_*.csv`) in member results
-- merged compact DA grid output exists (`projects/<project>/merged/grids/da_output_grids.nc`)
-- merged outputs exist and are non-empty under the project (`projects/<project>/merged/{grids,points}`)
-- sub-domain station comparison plots exist under the project (`projects/<project>/plots/points/*.png`)
+- compact DA grid output exists (`projects/<project>/results/grids/da_output_grids.nc`)
+- project-level sub-domain reports exist (`projects/<project>/results/subdomain_*.csv`)
 
 Failure artifacts:
 - integration log and trimmed setup outputs are copied to CI artifact directory when the run fails

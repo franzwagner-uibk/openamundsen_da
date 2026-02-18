@@ -27,6 +27,7 @@ from openamundsen_da.io.paths import (
     find_setup_yaml,
 )
 from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta, WindowSpec
+from openamundsen_da.util.roi_grid import ensure_setup_roi_grid, load_setup_roi_mask
 from openamundsen_da.util.run_mode import ensure_run_mode
 
 
@@ -125,6 +126,36 @@ def _window_for_geometry(
     return win.intersection(full)
 
 
+def _window_for_mask(mask: np.ndarray) -> windows.Window:
+    rows, cols = np.where(mask.astype(bool))
+    if len(rows) == 0:
+        raise ValueError("Cannot derive window from empty mask")
+    row0 = int(rows.min())
+    row1 = int(rows.max()) + 1
+    col0 = int(cols.min())
+    col1 = int(cols.max()) + 1
+    return windows.Window(col_off=col0, row_off=row0, width=col1 - col0, height=row1 - row0)
+
+
+def _union_windows(
+    a: windows.Window,
+    b: windows.Window,
+    raster_shape: Tuple[int, int],
+) -> windows.Window:
+    row0 = min(int(a.row_off), int(b.row_off))
+    col0 = min(int(a.col_off), int(b.col_off))
+    row1 = max(int(a.row_off + a.height), int(b.row_off + b.height))
+    col1 = max(int(a.col_off + a.width), int(b.col_off + b.width))
+
+    row0 = max(0, row0)
+    col0 = max(0, col0)
+    row1 = min(int(raster_shape[0]), row1)
+    col1 = min(int(raster_shape[1]), col1)
+    if row1 <= row0 or col1 <= col0:
+        raise ValueError("Union window is empty after clipping to raster extent")
+    return windows.Window(col_off=col0, row_off=row0, width=col1 - col0, height=row1 - row0)
+
+
 def _crop_grid(src: Path, dst: Path, win: windows.Window, fill_value=None) -> None:
     with rasterio.open(src) as ds:
         fv = fill_value if fill_value is not None else ds.nodata
@@ -196,19 +227,14 @@ def _crop_grid_to_template(
             out.write(data, 1)
 
 
-def _rasterize_roi(
-    geom: BaseGeometry,
+def _write_roi_mask(
+    mask: np.ndarray,
     out_path: Path,
-    shape: Tuple[int, int],
     transform: rasterio.Affine,
+    *,
+    crs: str | None,
 ) -> None:
-    mask = features.rasterize(
-        [(geom, 1)],
-        out_shape=shape,
-        transform=transform,
-        fill=0,
-        dtype="uint8",
-    ).astype(bool)
+    mask = mask.astype(bool)
     meta = {
         "driver": "AAIGrid",
         "dtype": "uint8",
@@ -216,7 +242,7 @@ def _rasterize_roi(
         "width": mask.shape[1],
         "height": mask.shape[0],
         "count": 1,
-        "crs": None,
+        "crs": crs,
         "transform": transform,
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -224,17 +250,13 @@ def _rasterize_roi(
         dst.write(mask.astype("uint8"), 1)
 
 
-def _mask_grid_outside_geometry(grid_path: Path, geom: BaseGeometry) -> None:
-    """Set pixels outside the sub-domain polygon to nodata."""
+def _mask_grid_outside_mask(grid_path: Path, mask: np.ndarray) -> None:
+    """Set pixels outside a boolean mask to nodata."""
     with rasterio.open(grid_path, "r+") as ds:
         arr = ds.read(1)
-        inside = features.rasterize(
-            [(geom, 1)],
-            out_shape=(ds.height, ds.width),
-            transform=ds.transform,
-            fill=0,
-            dtype="uint8",
-        ).astype(bool)
+        inside = mask.astype(bool)
+        if inside.shape != arr.shape:
+            raise ValueError(f"Mask shape mismatch for {grid_path}: {inside.shape} vs {arr.shape}")
 
         nodata = ds.nodata
         out = arr.copy()
@@ -309,10 +331,11 @@ def _prepare_grids(
     new_domain: str,
     resolution: str,
     window: windows.Window,
-    geom_roi: Polygon,
     transform: rasterio.Affine,
     global_shape: Tuple[int, int],
     global_transform: rasterio.Affine,
+    roi_mask: np.ndarray,
+    crs: str | None,
 ) -> Path:
     dem_src = grid_paths.dem
     if clip_mode == "roi-symlink":
@@ -325,12 +348,18 @@ def _prepare_grids(
         if grid_paths.lc:
             _copy_or_link(grid_paths.lc, grids_out / f"lc_{new_domain}_{resolution}.asc")
         roi_dst = grids_out / f"roi_{new_domain}_{resolution}.asc"
-        _rasterize_roi(geom_roi, roi_dst, (int(global_shape[0]), int(global_shape[1])), global_transform)
+        if roi_mask.shape != (int(global_shape[0]), int(global_shape[1])):
+            raise ValueError(
+                f"ROI mask shape mismatch for roi-symlink mode: {roi_mask.shape} vs {(int(global_shape[0]), int(global_shape[1]))}"
+            )
+        _write_roi_mask(roi_mask, roi_dst, global_transform, crs=crs)
         return roi_dst
 
     dem_out = grids_out / f"dem_{new_domain}_{resolution}.asc"
     _crop_grid(dem_src, dem_out, window, fill_value=-9999.0)
     target_shape = (int(window.height), int(window.width))
+    if roi_mask.shape != target_shape:
+        raise ValueError(f"ROI mask shape mismatch for window mode: {roi_mask.shape} vs {target_shape}")
     svf_out = grids_out / f"svf_{new_domain}_{resolution}.asc"
     srf_out = grids_out / f"srf_{new_domain}_{resolution}.asc"
     lc_out = grids_out / f"lc_{new_domain}_{resolution}.asc"
@@ -362,17 +391,16 @@ def _prepare_grids(
             resampling=Resampling.nearest,
         )
 
-    # Enforce polygonal clipping (not only bounding window clipping).
-    _mask_grid_outside_geometry(dem_out, geom_roi)
+    _mask_grid_outside_mask(dem_out, roi_mask)
     if grid_paths.svf:
-        _mask_grid_outside_geometry(svf_out, geom_roi)
+        _mask_grid_outside_mask(svf_out, roi_mask)
     if grid_paths.srf:
-        _mask_grid_outside_geometry(srf_out, geom_roi)
+        _mask_grid_outside_mask(srf_out, roi_mask)
     if grid_paths.lc:
-        _mask_grid_outside_geometry(lc_out, geom_roi)
+        _mask_grid_outside_mask(lc_out, roi_mask)
 
     roi_dst = grids_out / f"roi_{new_domain}_{resolution}.asc"
-    _rasterize_roi(geom_roi, roi_dst, (int(window.height), int(window.width)), transform)
+    _write_roi_mask(roi_mask, roi_dst, transform, crs=crs)
     return roi_dst
 
 
@@ -564,6 +592,15 @@ def prepare_subdomains(
             f"Sub-domain mode requires at least 2 polygons in {regions_path} (got {len(gdf)})."
         )
     _check_no_overlap(gdf.geometry, area_tol=float(overlap_area_tol_m2))
+    ensure_setup_roi_grid(setup_dir, roi_vector_path=regions_path, overwrite=True)
+    setup_roi_mask, roi_spec, setup_roi_grid_path = load_setup_roi_mask(setup_dir, ensure_grid=False)
+    if (roi_spec.rows, roi_spec.cols) != (rows, cols):
+        raise ValueError(
+            f"Setup ROI grid shape mismatch: {(roi_spec.rows, roi_spec.cols)} vs DEM {(rows, cols)}"
+        )
+    if tuple(roi_spec.transform) != tuple(transform):
+        raise ValueError("Setup ROI grid transform mismatch with DEM transform")
+    logger.info("Using setup ROI grid {}", setup_roi_grid_path)
 
     subdomain_root = (Path(subdomain_root) if subdomain_root else (project_dir / "subdomains")).resolve()
     if overwrite:
@@ -602,6 +639,8 @@ def prepare_subdomains(
         raw_wetsnow_dir=raw_wetsnow_dir,
     )
 
+    entries: list[dict[str, object]] = []
+    seen_ids: set[str] = set()
     for _, row in gdf.iterrows():
         raw_id = row[effective_id_field]
         geom = row.geometry
@@ -614,10 +653,74 @@ def prepare_subdomains(
 
         clean_id = _sanitize_id(str(raw_id))
         label = str(raw_id)
+        if clean_id in seen_ids:
+            raise ValueError(f"Duplicate sub-domain id after sanitization: {clean_id}")
+        seen_ids.add(clean_id)
         geom_roi = geom.buffer(roi_buffer_m) if roi_buffer_m else geom
         geom_extent = geom.buffer(grid_buffer_m) if grid_buffer_m else geom
+        entries.append(
+            {
+                "clean_id": clean_id,
+                "label": label,
+                "geom": geom,
+                "geom_roi": geom_roi,
+                "geom_extent": geom_extent,
+            }
+        )
 
-        win = _window_for_geometry(geom_extent, transform, (rows, cols))
+    owner_shapes: list[tuple[BaseGeometry, int]] = []
+    coverage_count = np.zeros((rows, cols), dtype=np.uint16)
+    for owner_code, entry in enumerate(entries, start=1):
+        geom_roi = entry["geom_roi"]
+        entry["owner_code"] = owner_code
+        owner_shapes.append((geom_roi, owner_code))
+        region_mask = features.rasterize(
+            [(geom_roi, 1)],
+            out_shape=(rows, cols),
+            transform=transform,
+            fill=0,
+            dtype="uint8",
+        ).astype(bool)
+        region_mask &= setup_roi_mask
+        if int(np.count_nonzero(region_mask)) == 0:
+            raise ValueError(f"Sub-domain {entry['clean_id']} has no pixels inside setup ROI grid")
+        coverage_count[region_mask] += 1
+
+    overlap_count = int(np.count_nonzero((coverage_count > 1) & setup_roi_mask))
+    if overlap_count > 0:
+        raise ValueError(
+            f"Rasterized sub-domain overlap detected: {overlap_count} overlapping pixel(s) inside setup ROI. "
+            "Adjust subdomain geometries or reduce roi_buffer_m."
+        )
+
+    owner = features.rasterize(
+        owner_shapes,
+        out_shape=(rows, cols),
+        transform=transform,
+        fill=0,
+        dtype="int32",
+    )
+    owner = np.where(setup_roi_mask, owner, 0)
+
+    unassigned = setup_roi_mask & (owner == 0)
+    unassigned_count = int(np.count_nonzero(unassigned))
+    if unassigned_count > 0:
+        raise ValueError(
+            f"Sub-domain polygons do not cover setup ROI grid: {unassigned_count} pixel(s) uncovered. "
+            "Ensure regions fully cover the setup ROI."
+        )
+
+    for entry in entries:
+        clean_id = str(entry["clean_id"])
+        label = str(entry["label"])
+        geom = entry["geom"]
+        geom_roi = entry["geom_roi"]
+        geom_extent = entry["geom_extent"]
+        owner_code = int(entry["owner_code"])
+
+        geom_window = _window_for_geometry(geom_extent, transform, (rows, cols))
+        owner_window = _window_for_mask(owner == owner_code)
+        win = _union_windows(geom_window, owner_window, (rows, cols))
         sub_transform = windows.transform(win, transform)
         sub_rows, sub_cols = int(win.height), int(win.width)
         window_spec = WindowSpec(
@@ -642,6 +745,17 @@ def prepare_subdomains(
             d.mkdir(parents=True, exist_ok=True)
 
         sub_domain = f"{domain}_{clean_id}"
+        if clip_mode == "roi-symlink":
+            roi_mask = owner == owner_code
+        else:
+            r0 = int(win.row_off)
+            r1 = int(win.row_off + win.height)
+            c0 = int(win.col_off)
+            c1 = int(win.col_off + win.width)
+            roi_mask = owner[r0:r1, c0:c1] == owner_code
+        if int(np.count_nonzero(roi_mask)) == 0:
+            raise ValueError(f"Sub-domain {clean_id} has no ROI pixels in selected window")
+
         roi_raster_path = _prepare_grids(
             grid_paths=grid_paths,
             grids_out=grids_out,
@@ -650,10 +764,11 @@ def prepare_subdomains(
             new_domain=sub_domain,
             resolution=resolution,
             window=win,
-            geom_roi=geom_roi,
             transform=sub_transform,
             global_shape=(rows, cols),
             global_transform=transform,
+            roi_mask=roi_mask,
+            crs=crs_str,
         )
 
         selected_station_ids = _prepare_meteo(

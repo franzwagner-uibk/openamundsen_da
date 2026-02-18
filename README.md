@@ -12,13 +12,13 @@ This replaces the old GitHub Pages site.
 - Setup-based snow cover prediction with an ensemble model + particle filter.
 - Includes prior forcing builder, ensemble launcher, generic snow-cover and wet-snow summarization, H(x) model SCF, assimilation, resampling, rejuvenation, and plotting utilities.
 
-## Quickstart
+## Tutorial
 
-See the docs for the one-step, no-clone Rofental run:
+See the docs tutorial for the full Rofental walkthrough:
 
-`https://openamundsen-da.pages.dev/installation.html#quickstart-no-clone-rofental-example-via-docker`
+`https://openamundsen-da.pages.dev/tutorial/`
 
-Developer workflow (clone + compose) is also described there.
+Developer workflow (clone + compose) remains documented in the installation page.
 
 ## Installation (for contributors)
 
@@ -50,7 +50,7 @@ $project = "$setup/projects/project_YYYY-YYYY"            # one DA project
 $step    = "$project/steps/step_XX_name"                  # current step
 $date    = "YYYY-MM-DD"                            # assimilation date
 $dateTag = ($date -replace '-', '')
-$roi     = "$setup/env/roi.gpkg"                   # ROI polygon(s); multiple are unioned in single-mode
+$roi     = "$setup/env/roi.gpkg"                   # optional ROI vector; DA always uses grids/roi_<domain>_<resolution>.asc
 ```
 
 Notes
@@ -66,8 +66,10 @@ This repo expects the following setup/project hierarchy:
 setup/
   <setup-name>.yml         # setup-level openAMUNDSEN config (template fallback: setup.yml)
   env/
-    roi.gpkg                # ROI polygon(s) (preferred name)
+    roi.gpkg                # optional ROI vector (preferred name)
+    subdomains.gpkg         # optional multi-feature regions file for sub-domain mode
   grids/
+    roi_<domain>_<resolution>.asc  # canonical ROI mask used by DA runs
     lc_<domain>_<resolution>.asc  # land-cover classes used for masking
   meteo/
     stations.csv
@@ -106,7 +108,7 @@ and naming conventions.
 - Project YAML (`<project-name>.yml`/`project.yml`) must define `data_assimilation` (`h_of_x`, `likelihood`, `resampling`, `rejuvenation`, `restart`, `landcover_mask`, `assimilation_events`) plus `start_date` and `end_date`.
 - `projects/project_X/steps/step_Y/ensembles/prior` is created automatically by the project pipeline (using `${setup}/meteo` forcing).
 - Observations live under `obs/project_X`; the pipeline assumes the CSVs follow `obs_scf_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`, where product tags default to `SNOWCOVER` / `WETSNOW` (configurable via setup YAML under `obs.*`).
-- ROI vector: `env/roi.gpkg` (single feature) is the default for all masking; other vectors under `env/` are ignored unless you explicitly pass a different ROI.
+- DA uses `grids/roi_<domain>_<resolution>.asc` as canonical ROI mask; if missing, it is generated silently from ROI vectors under `env/` (`roi.gpkg` preferred, `subdomains.gpkg` supported).
 - Land-cover masking (applied to obs + model SCF/wet-snow): land-cover ASCII is resolved as `grids/lc_<domain>_<resolution>.asc` from setup config; excluded classes come from project YAML `data_assimilation.landcover_mask.classes_to_exclude`.
 
 ```yaml
@@ -496,6 +498,7 @@ Outputs
 - Compact DA summary grids in `<project>/results/grids/da_output_grids.nc`
   - Per variable `<var>`: `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`
   - `increment_<var>` is defined as `ens_mean_<var> - open_loop_<var>`
+  - Time axis spans the full project timeline across all steps (not only the last step)
 - Setup plots under `<setup_dir>/plots/{forcing,results}`
 - When model SCF is enabled, daily ROI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_roi.csv`; the combined SCF + wet-snow fraction plot (`plots/results/fraction_timeseries.png`) provides the setup-level view.
   Setup results plots now show the ensemble mean, the 90% envelope, and the open loop by default; individual members are hidden unless `--show-members` is passed to the plot CLI. Wet-snow setup plots overlay available observations from `obs/<setup>/wet_snow_summary.csv` automatically.
@@ -623,7 +626,7 @@ Use `oa-da-subdomain` to split a large setup into non-overlapping sub-domains, r
 
 Minimal flow:
 - Prepare sub-domain setups from ROI polygons:
-  `oa-da-subdomain prepare --setup-dir <setup> --project-dir <setup>/projects/<project> --roi <setup>/env/roi.gpkg --id-field id`
+  `oa-da-subdomain prepare --setup-dir <setup> --project-dir <setup>/projects/<project> --roi <setup>/env/subdomains.gpkg --id-field id`
 - Run all sub-domains in parallel:
   `oa-da-subdomain run --project-dir <setup>/projects/<project>`
 - Write project-level reports and merge DA grids (hard mosaic, no interpolation/blending):
@@ -641,6 +644,7 @@ Defaults:
 - Station selection uses a 50 km default buffer (`--station-buffer-km`).
 - Tiny polygon overlaps are tolerated up to 100 m^2 (`--overlap-area-tol-m2`), with optional sliver correction (`--sliver-fix-m`).
 - Sub-domain mode requires at least two polygons in the ROI file.
+- If `--roi` is omitted in sub-domain prepare/pipeline, `<setup>/env/subdomains.gpkg` is preferred and `<setup>/env/roi.gpkg` is the fallback.
 - Default retention is compact (`data_assimilation.output.retention: compact`) and removes heavy member grid artifacts after merge. Set `retention: full` to keep them.
 
 Ready-made example:

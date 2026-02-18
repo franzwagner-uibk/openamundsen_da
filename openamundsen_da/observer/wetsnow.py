@@ -14,6 +14,7 @@ from openamundsen_da.methods.wet_snow.area import summarize_s1_directory
 from openamundsen_da.io.paths import find_setup_yaml, find_project_yaml
 from openamundsen_da.util.ts import parse_datetime_opt
 from openamundsen_da.util.landcover_mask import resolve_landcover_mask
+from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
 
 
 def _parse_ints(values: Sequence[object] | None, *, default: Sequence[int]) -> list[int]:
@@ -81,7 +82,7 @@ def cli_main(argv: List[str] | None = None) -> int:
     wet, valid, exclude = _load_wetsnow_classes(setup_dir)
 
     try:
-        roi = Path(args.roi) if args.roi else setup_dir / "env" / "roi.gpkg"
+        roi = Path(args.roi) if args.roi else ensure_setup_roi_vector(setup_dir)
         out_csv = output_root / args.project_label / "wet_snow_summary.csv"
         summarize_s1_directory(
             setup_dir=setup_dir,

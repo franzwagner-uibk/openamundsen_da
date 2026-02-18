@@ -8,7 +8,42 @@ permalink: /tutorial/pre-processing/
 
 # 5. Pre-processing
 
-jeweils 3 wet snow und snow cover maps von Copernicus herunterladen und fÃ¼r openAMUNDSEN-DA prozessieren - anstatt AlpSnow Daten
+In this tutorial, preprocessing means creating step-wise project inputs from existing Rofental summaries.
 
-https://land.copernicus.eu/en/products/snow?tab=snow_cover_extent
-"F:fram3s60-uibkfranzclms_s2_fsc_down_bgd.py"
+Build the project skeleton:
+
+```bash
+docker run --rm -v "$(pwd):/data" \
+  "$IMAGE" \
+  python -m openamundsen_da.pipeline.project_skeleton \
+    --setup-dir "$SETUP" \
+    --project-dir "$PROJECT" \
+    --overwrite \
+    --log-level INFO
+```
+
+Distribute SCF and wet-snow summaries into per-step observation CSVs:
+
+```bash
+docker run --rm -v "$(pwd):/data" \
+  "$IMAGE" \
+  oa-da-scf \
+    --project-dir "$PROJECT" \
+    --summary-csv "$SCF_SUM" \
+    --overwrite \
+    --log-level INFO
+
+docker run --rm -v "$(pwd):/data" \
+  "$IMAGE" \
+  oa-da-wetsnow-project \
+    --project-dir "$PROJECT" \
+    --summary-csv "$WET_SUM" \
+    --overwrite \
+    --log-level INFO
+```
+
+{: .note }
+> The tutorial setup already ships with observation summaries, so no external download is required.
+> If you want to build your own summaries from raw products, use:
+> - `oa-da-snowcover` for SCF
+> - `oa-da-wetsnow` for wet snow

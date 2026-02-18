@@ -34,8 +34,10 @@ openamundsen_da/
 setup/
 |-- <setup-name>.yml
 |-- env/
-|   `-- roi.gpkg
+|   |-- roi.gpkg
+|   `-- subdomains.gpkg          # optional; used by sub-domain mode
 |-- grids/
+|   |-- roi_<domain>_<resolution>.asc  # canonical ROI mask for DA runs
 |   `-- lc_<domain>_<resolution>.asc
 |-- meteo/
 |   |-- stations.csv
@@ -80,6 +82,7 @@ Setup-wide and stable openAMUNDSEN configuration.
 - OA output variables and frequencies
 - Environment paths and base model settings
 - Observation class mappings and product tags under `obs.*`
+- Canonical ROI grid naming follows openAMUNDSEN convention: `grids/roi_<domain>_<resolution>.asc` (generated from ROI vectors when missing)
 
 No DA orchestration keys should be placed here.
 
@@ -117,6 +120,7 @@ Auto-generated step window configuration.
 - `da_output_grids.nc` stores, per modeled grid variable `<var>`:
   `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`.
 - `increment_<var>` is defined as `ens_mean_<var> - open_loop_<var>`.
+- Time coordinates in `da_output_grids.nc` cover the full project period across all step windows.
 
 ## File Naming
 - SCF obs CSV: `obs_scf_<PRODUCT>_YYYYMMDD.csv`

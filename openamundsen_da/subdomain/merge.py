@@ -21,6 +21,7 @@ from openamundsen_da.util.da_output import (
     output_retention_mode,
     write_da_output_grids,
 )
+from openamundsen_da.util.roi_grid import load_setup_roi_mask
 from openamundsen_da.util.run_mode import ensure_run_mode
 
 
@@ -87,6 +88,24 @@ def _expected_coverage_mask(
     selected_ids: Iterable[str],
     global_shape: Tuple[int, int],
 ) -> np.ndarray:
+    selected_ids = list(selected_ids)
+    if set(selected_ids) == set(manifest.subdomains.keys()):
+        try:
+            roi_mask, _, roi_path = load_setup_roi_mask(manifest.setup_dir, ensure_grid=False)
+            if roi_mask.shape == global_shape:
+                logger.info("Using setup ROI grid coverage mask {}", roi_path)
+                return roi_mask
+            logger.warning(
+                "Setup ROI grid shape mismatch for coverage check: {} vs {} (falling back to sub-domain ROI union)",
+                roi_mask.shape,
+                global_shape,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Could not load setup ROI grid for coverage check (falling back to sub-domain ROI union): {}",
+                exc,
+            )
+
     expected = np.zeros(global_shape, dtype=bool)
     for sid in selected_ids:
         sub = manifest.subdomains[sid]

@@ -9,9 +9,17 @@ has_children: true
 
 {: .no_toc }
 
-Detailed tutorial to get to know openAMUNDSEN-DA.
+Step-by-step walkthrough for running the bundled Rofental example with openAMUNDSEN-DA.
 {: .fs-6 .fw-300 }
 
 ---
 
-The Tutorial takes about 4h to complete and contains:
+The tutorial sequence covers:
+
+- prerequisites and Docker runtime setup,
+- framework concepts (setup/project/step/member),
+- copying and preparing the example setup,
+- preprocessing observations for assimilation steps,
+- running the project pipeline and inspecting DA outputs.
+
+Use the chapter order from 1 to 6.

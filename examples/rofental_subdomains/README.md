@@ -6,6 +6,7 @@ Layout:
 - `rofental_subdomains.yml`: setup-level openAMUNDSEN config.
 - `projects/project_2022_2023/project_2022_2023.yml`: project-level DA config.
 - `env/subdomains.gpkg`: non-overlapping ROI split into three sub-domains (`sd_01`, `sd_02`, `sd_03`).
+- `grids/roi_<domain>_<resolution>.asc`: canonical ROI mask used by DA (generated automatically from regions vector when missing).
 
 Current data content:
 - This setup now contains the same example data as `examples/rofental`:

@@ -48,6 +48,64 @@ def test_prepare_uses_setup_default_subdomain_root(monkeypatch, tmp_path: Path) 
     assert called["subdomain_root"] == project_dir / "subdomains"
 
 
+def test_prepare_defaults_to_subdomains_regions_file(monkeypatch, tmp_path: Path) -> None:
+    setup_dir = tmp_path / "rofental"
+    project_dir = setup_dir / "projects" / "project_2022_2023"
+    env_dir = setup_dir / "env"
+    env_dir.mkdir(parents=True, exist_ok=True)
+    (env_dir / "subdomains.gpkg").write_text("", encoding="utf-8")
+    _write_project_yaml(project_dir)
+
+    called: dict = {}
+
+    def _fake_prepare_subdomains(**kwargs):
+        called.update(kwargs)
+
+    monkeypatch.setattr("openamundsen_da.subdomain.prepare.prepare_subdomains", _fake_prepare_subdomains)
+
+    rc = subdomain_cli.cli(
+        [
+            "prepare",
+            "--setup-dir",
+            str(setup_dir),
+            "--project-dir",
+            str(project_dir),
+        ]
+    )
+
+    assert rc == 0
+    assert called["regions_path"] == setup_dir / "env" / "subdomains.gpkg"
+
+
+def test_prepare_defaults_to_roi_regions_file_when_subdomains_missing(monkeypatch, tmp_path: Path) -> None:
+    setup_dir = tmp_path / "rofental"
+    project_dir = setup_dir / "projects" / "project_2022_2023"
+    env_dir = setup_dir / "env"
+    env_dir.mkdir(parents=True, exist_ok=True)
+    (env_dir / "roi.gpkg").write_text("", encoding="utf-8")
+    _write_project_yaml(project_dir)
+
+    called: dict = {}
+
+    def _fake_prepare_subdomains(**kwargs):
+        called.update(kwargs)
+
+    monkeypatch.setattr("openamundsen_da.subdomain.prepare.prepare_subdomains", _fake_prepare_subdomains)
+
+    rc = subdomain_cli.cli(
+        [
+            "prepare",
+            "--setup-dir",
+            str(setup_dir),
+            "--project-dir",
+            str(project_dir),
+        ]
+    )
+
+    assert rc == 0
+    assert called["regions_path"] == setup_dir / "env" / "roi.gpkg"
+
+
 def test_run_resolves_manifest_from_project_dir(monkeypatch, tmp_path: Path) -> None:
     setup_dir = tmp_path / "rofental"
     project_dir = setup_dir / "projects" / "project_2022_2023"

@@ -140,6 +140,7 @@ Notes:
 - `assimilation_events` defines which dates and variables are assimilated.
 - Land-cover mask uses `grids/lc_<domain>_<resolution>.asc` from setup-level paths and DA mask classes from project YAML.
 - `output.retention: compact` writes `results/grids/da_output_grids.nc` and removes heavy member grid artifacts.
+- `results/grids/da_output_grids.nc` is aggregated over all project steps (full project timeline).
 - In `da_output_grids.nc`, `increment_<var>` is `ens_mean_<var> - open_loop_<var>`.
 
 ## `step_XX.yml` (step level)

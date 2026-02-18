@@ -40,13 +40,12 @@ def _as_nan_array(da: xr.DataArray) -> np.ndarray:
     return arr
 
 
-def write_da_output_grids(
+def _build_da_output_dataset(
     *,
     open_loop_nc: Path,
     member_ncs: Sequence[Path],
-    output_nc: Path,
-) -> Path | None:
-    """Write compact DA summary grids into a single NetCDF file."""
+) -> xr.Dataset | None:
+    """Build compact DA summary grids for one step from open-loop + members."""
     if not open_loop_nc.is_file():
         logger.warning("DA output summary skipped: open_loop NetCDF not found at {}", open_loop_nc)
         return None
@@ -201,10 +200,149 @@ def write_da_output_grids(
                 "increment_definition": "increment_<var> = ens_mean_<var> - open_loop_<var>",
             },
         )
-        output_nc.parent.mkdir(parents=True, exist_ok=True)
-        out_ds.to_netcdf(output_nc, encoding=encoding)
-        logger.info("Wrote DA output summary NetCDF {}", output_nc)
-        return output_nc
+        for out_name, enc in encoding.items():
+            out_ds[out_name].encoding.update(enc)
+        return out_ds
+
+
+def _sort_and_unique_along_dim(da: xr.DataArray, dim: str) -> xr.DataArray:
+    """Sort DataArray by dim and drop duplicate coordinate labels along dim."""
+    if dim not in da.dims or dim not in da.coords:
+        return da
+    out = da.sortby(dim)
+    coord_vals = out[dim].values
+    _, first_idx = np.unique(coord_vals, return_index=True)
+    if len(first_idx) == len(coord_vals):
+        return out
+    keep = np.sort(first_idx)
+    return out.isel({dim: keep})
+
+
+def _combine_step_summaries(step_summaries: Sequence[xr.Dataset]) -> xr.Dataset:
+    """Combine per-step DA summaries into one full-project summary dataset."""
+    if not step_summaries:
+        raise ValueError("No step summaries provided")
+
+    first = step_summaries[0]
+    combined_vars: dict[str, xr.DataArray] = {}
+    var_names = sorted({name for ds in step_summaries for name in ds.data_vars})
+
+    for var_name in var_names:
+        arrays = [ds[var_name] for ds in step_summaries if var_name in ds.data_vars]
+        if not arrays:
+            continue
+        if len(arrays) == 1:
+            combined_vars[var_name] = arrays[0]
+            continue
+
+        time_dims = [dim for dim in arrays[0].dims if "time" in dim.lower()]
+        if not time_dims:
+            combined_vars[var_name] = arrays[-1]
+            continue
+
+        time_dim = time_dims[0]
+        merged = xr.concat(
+            arrays,
+            dim=time_dim,
+            join="outer",
+            compat="override",
+            coords="minimal",
+        )
+        combined_vars[var_name] = _sort_and_unique_along_dim(merged, time_dim)
+
+    merged_ds = xr.Dataset(
+        data_vars=combined_vars,
+        attrs={**(dict(first.attrs) if first.attrs is not None else {})},
+    )
+
+    # Re-attach scalar/non-time coordinates (e.g. crs) and concatenate time-dependent
+    # auxiliary coordinates (e.g. time bounds) where possible.
+    coord_names = sorted({name for ds in step_summaries for name in ds.coords})
+    for coord_name in coord_names:
+        if coord_name in merged_ds.coords:
+            continue
+        coord_arrays = [ds.coords[coord_name] for ds in step_summaries if coord_name in ds.coords]
+        if not coord_arrays:
+            continue
+        if len(coord_arrays) == 1:
+            merged_ds = merged_ds.assign_coords({coord_name: coord_arrays[0]})
+            continue
+        time_dims = [dim for dim in coord_arrays[0].dims if "time" in dim.lower()]
+        if len(time_dims) == 1:
+            time_dim = time_dims[0]
+            merged_coord = xr.concat(
+                coord_arrays,
+                dim=time_dim,
+                join="outer",
+                compat="override",
+                coords="minimal",
+            )
+            merged_ds = merged_ds.assign_coords({coord_name: _sort_and_unique_along_dim(merged_coord, time_dim)})
+        else:
+            merged_ds = merged_ds.assign_coords({coord_name: coord_arrays[0]})
+
+    return merged_ds
+
+
+def write_da_output_grids(
+    *,
+    open_loop_nc: Path,
+    member_ncs: Sequence[Path],
+    output_nc: Path,
+) -> Path | None:
+    """Write compact DA summary grids into a single NetCDF file."""
+    out_ds = _build_da_output_dataset(
+        open_loop_nc=open_loop_nc,
+        member_ncs=member_ncs,
+    )
+    if out_ds is None:
+        return None
+    output_nc.parent.mkdir(parents=True, exist_ok=True)
+    out_ds.to_netcdf(output_nc)
+    logger.info("Wrote DA output summary NetCDF {}", output_nc)
+    return output_nc
+
+
+def write_project_da_output_grids(
+    *,
+    step_dirs: Sequence[Path],
+    output_nc: Path,
+) -> Path | None:
+    """Write one compact DA summary NetCDF spanning all available project steps."""
+    step_summaries: list[xr.Dataset] = []
+    used_steps: list[str] = []
+    for step_dir in step_dirs:
+        prior_root = Path(step_dir) / "ensembles" / "prior"
+        open_loop_nc = prior_root / "open_loop" / "results" / "output_grids.nc"
+        member_ncs = [
+            p / "results" / "output_grids.nc"
+            for p in sorted(prior_root.glob("member_*"))
+            if p.is_dir()
+        ]
+        ds = _build_da_output_dataset(
+            open_loop_nc=open_loop_nc,
+            member_ncs=member_ncs,
+        )
+        if ds is None:
+            continue
+        step_summaries.append(ds)
+        used_steps.append(Path(step_dir).name)
+
+    if not step_summaries:
+        logger.warning("DA output summary skipped: no valid step summaries found")
+        return None
+
+    combined = _combine_step_summaries(step_summaries)
+    combined.attrs.update(
+        {
+            "source_step_count": str(len(step_summaries)),
+            "source_steps": ",".join(used_steps),
+        }
+    )
+    output_nc.parent.mkdir(parents=True, exist_ok=True)
+    combined.to_netcdf(output_nc)
+    logger.info("Wrote DA output summary NetCDF {} ({} step(s))", output_nc, len(step_summaries))
+    return output_nc
 
 
 def delete_files(paths: Iterable[Path]) -> tuple[int, int]:

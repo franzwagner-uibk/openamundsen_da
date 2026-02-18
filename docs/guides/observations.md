@@ -78,7 +78,7 @@ docker compose run --rm oa \
 
 Notes:
 
-- ROI defaults to `/data/env/roi.gpkg`; land-cover masking uses `grids/lc_<domain>_<resolution>.asc` and `data_assimilation.landcover_mask.classes_to_exclude`.
+- ROI defaults to a vector auto-resolved under `/data/env` (or generated from `grids/roi_<domain>_<resolution>.asc` if no vector exists); land-cover masking uses `grids/lc_<domain>_<resolution>.asc` and `data_assimilation.landcover_mask.classes_to_exclude`.
 - Acquisition date is parsed from tokens like `YYYY_MM_DD` or `YYYYMMDD`.
 - Supports `.tif/.tiff/.nc`; use `--recursive` for nested folders.
 
@@ -130,7 +130,7 @@ docker compose run --rm oa oa-da-wetsnow \
 Defaults (when `--project-dir` is set):
 
 - Rasters: `/data/obs/WSM_S1_SAR`
-- ROI: `/data/env/roi.gpkg`
+- ROI: auto-resolved under `/data/env` (or generated from `grids/roi_<domain>_<resolution>.asc`)
 - Land-cover mask: `/data/grids/lc_<domain>_<resolution>.asc`
 
 ### Creating per-step observation CSVs (for assimilation)

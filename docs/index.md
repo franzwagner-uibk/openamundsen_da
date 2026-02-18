@@ -13,7 +13,7 @@ permalink: /
 Data Assimilation Framework for openAMUNDSEN
 {: .fs-6 .fw-300 }
 
-[Get started](https://openamundsen-da.pages.dev/installation#prerequisites){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[Get started]({{ '/tutorial/' | relative_url }}){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [View on GitHub](https://github.com/franzwagner-uibk/openamundsen_da){: .btn .fs-5 .mb-4 .mb-md-0 }
 
 ---
@@ -61,11 +61,11 @@ openAMUNDSEN is an open-source, fully distributed snow-hydrological model design
 
 > This framework is designed to work with Docker for easy deployment and reproducibility.
 
-### Quick Start (Rofental example)
+### Tutorial (Rofental example)
 
-Run the bundled Rofental setup shipped with the docker image:
+Run the bundled Rofental setup with the full tutorial walkthrough:
 
-[Open Quick Start](https://openamundsen-da.pages.dev/installation#prerequisites){: .btn .btn-primary .fs-4 }
+[Open Tutorial]({{ '/tutorial/' | relative_url }}){: .btn .btn-primary .fs-4 }
 
 ## Documentation Structure
 

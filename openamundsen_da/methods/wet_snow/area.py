@@ -48,6 +48,7 @@ from openamundsen_da.util.landcover_mask import (
     resolve_landcover_mask,
 )
 from openamundsen_da.util.roi import read_single_roi
+from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
 
 
 _MODEL_WET = (1,)
@@ -704,19 +705,11 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
             return 1
         raster_dir = cand
     if aoi_path is None:
-        env_dir = setup_root / "env"
-        roi = env_dir / "roi.gpkg"
-        if roi.is_file():
-            aoi_path = roi
-        else:
-            candidates = sorted(list(env_dir.glob("*.gpkg")) + list(env_dir.glob("*.shp")))
-            if not candidates:
-                logger.error("No AOI found under {}", env_dir)
-                return 1
-            if len(candidates) > 1:
-                logger.error("Expected roi.gpkg under {}; found multiple candidates. Please pass --aoi.", env_dir)
-                return 1
-            aoi_path = candidates[0]
+        try:
+            aoi_path = ensure_setup_roi_vector(setup_root)
+        except Exception as exc:
+            logger.error("No AOI could be resolved/generated under {}: {}", setup_root / "env", exc)
+            return 1
     if project_label is None and args.output:
         parent = Path(args.output).parent.name
         if parent.startswith("project_"):

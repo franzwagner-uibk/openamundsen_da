@@ -39,6 +39,7 @@ from openamundsen_da.io.paths import (
     list_steps_sorted,
 )
 from openamundsen_da.util.roi import read_single_roi
+from openamundsen_da.util.roi_grid import ensure_setup_roi_grid, ensure_setup_roi_vector
 from openamundsen_da.util.landcover_mask import (
     resolve_landcover_mask,
     summarize_landcover_mask,
@@ -70,7 +71,7 @@ from openamundsen_da.util.da_output import (
     collect_project_grid_artifacts,
     delete_files,
     output_retention_mode,
-    write_da_output_grids,
+    write_project_da_output_grids,
 )
 
 # Map assimilation variables to the diagnostics/plots we should run.
@@ -121,16 +122,9 @@ def _next_step_start(steps: List[Path], idx: int) -> Optional[datetime]:
         return None
 
 
-def _find_roi(project_dir: Path) -> Path:
-    """Return the conventional ROI path env/roi.gpkg if present."""
-    env_dir = Path(project_dir) / "env"
-    roi = env_dir / "roi.gpkg"
-    if roi.is_file():
-        return roi
-    cands = list(env_dir.glob("*.gpkg")) + list(env_dir.glob("*.shp"))
-    if not cands:
-        raise FileNotFoundError(f"No ROI vector found under {env_dir}")
-    return sorted(cands)[0]
+def _find_roi(setup_dir: Path) -> Path:
+    """Return an ROI vector path, generating one from ROI raster if needed."""
+    return ensure_setup_roi_vector(Path(setup_dir))
 
 
 def _load_wet_snow_threshold_percent(project_dir: Path) -> float:
@@ -427,6 +421,8 @@ def run_project(cfg: OrchestratorConfig) -> None:
         overwrite=bool(cfg.overwrite),
     )
 
+    roi_grid = ensure_setup_roi_grid(cfg.setup_dir)
+    logger.info("Using ROI grid: {}", roi_grid)
     roi = _find_roi(cfg.setup_dir)
     logger.info("Using ROI: {}", roi)
     lc_cfg = resolve_landcover_mask(cfg.setup_dir, cfg.project_dir)
@@ -900,21 +896,13 @@ def run_project(cfg: OrchestratorConfig) -> None:
 
     da_summary_written = False
     da_summary_path = Path(cfg.project_dir) / "results" / "grids" / "da_output_grids.nc"
-    latest_prior_root = Path(steps[-1]) / "ensembles" / "prior"
-    latest_open_loop_nc = latest_prior_root / "open_loop" / "results" / "output_grids.nc"
-    latest_member_ncs = [
-        p / "results" / "output_grids.nc"
-        for p in sorted(latest_prior_root.glob("member_*"))
-        if p.is_dir()
-    ]
-    if (not latest_open_loop_nc.is_file()) and da_summary_path.is_file() and not cfg.overwrite:
+    if da_summary_path.is_file() and not cfg.overwrite:
         da_summary_written = True
         logger.info("Using existing DA output summary {}", da_summary_path)
     else:
         try:
-            da_path = write_da_output_grids(
-                open_loop_nc=latest_open_loop_nc,
-                member_ncs=latest_member_ncs,
+            da_path = write_project_da_output_grids(
+                step_dirs=steps,
                 output_nc=da_summary_path,
             )
             da_summary_written = da_path is not None

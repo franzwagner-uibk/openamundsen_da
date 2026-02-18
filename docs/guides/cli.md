@@ -126,7 +126,7 @@ oa-da-snowcover \
 **Optional Arguments:**
 - `--project-dir PATH` - Project root (default: current directory)
 - `--output-root PATH` - Override output root (default: `<project>/obs`)
-- `--roi PATH` - ROI vector used for clipping (default: `<project>/env/roi.gpkg`)
+- `--roi PATH` - ROI vector used for clipping (default: auto-resolved under `<setup>/env`, generated from `grids/roi_<domain>_<resolution>.asc` if needed)
 - `--roi-field FIELD` - ROI identifier field (optional)
 - `--recursive` - Recurse into subdirectories
 - `--start-date/--end-date` - Optional date bounds
@@ -157,7 +157,7 @@ oa-da-snowcover \
 
 **Optional Arguments:**
 - `--project-dir PATH` - Project root (default: current directory)
-- `--aoi PATH` - ROI vector (auto-detected from `<project>/env/roi.gpkg` if omitted)
+- `--aoi PATH` - ROI vector (auto-resolved under `<setup>/env`, generated from `grids/roi_<domain>_<resolution>.asc` if needed)
 - `--roi-field FIELD` - ROI identifier field (optional)
 - `--recursive` - Recurse into subdirectories
 - `--output-root PATH` - Override obs root (default: `<project>/obs`)
@@ -527,8 +527,9 @@ oa-da-subdomain pipeline \
 Defaults & tips:
 - If `--subdomain-root` is omitted, `<project>/subdomains` is used.
 - If `--manifest` is omitted in run/merge/plot, it resolves to `<subdomain_root>/subdomain_manifest.json`.
-- If `--roi` is omitted in prepare/pipeline, `<setup>/env/roi.gpkg` is used.
+- If `--roi` is omitted in prepare/pipeline, `<setup>/env/subdomains.gpkg` is preferred and `<setup>/env/roi.gpkg` is the fallback.
 - Sub-domain mode requires at least two polygons in the ROI file.
+- openAMUNDSEN-DA requires `grids/roi_<domain>_<resolution>.asc`; it is generated silently from ROI/regions vector input when missing.
 - Use `--max-workers` to control parallelism; BLAS/OMP threads are pinned to 1 inside the image.
 - Merge is hard mosaic only (no interpolation/blending).
 - Visible breaks at sub-domain boundaries are expected and intentional.

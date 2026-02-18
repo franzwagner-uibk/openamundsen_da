@@ -17,6 +17,15 @@ def _default_subdomain_root(project_dir: Path) -> Path:
     return Path(project_dir) / "subdomains"
 
 
+def _default_regions_path(setup_dir: Path) -> Path:
+    env_dir = Path(setup_dir) / "env"
+    preferred = [env_dir / "subdomains.gpkg", env_dir / "roi.gpkg"]
+    for cand in preferred:
+        if cand.is_file():
+            return cand
+    return preferred[0]
+
+
 def _resolve_manifest(
     *,
     manifest_arg: Optional[Path],
@@ -53,7 +62,7 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
         "--regions",
         dest="regions",
         type=Path,
-        help="Sub-domain polygons (default: <setup>/env/roi.gpkg)",
+        help="Sub-domain polygons (default: <setup>/env/subdomains.gpkg, fallback: <setup>/env/roi.gpkg)",
     )
     p_prep.add_argument("--subdomain-root", type=Path, help="Output root (default: <project>/subdomains)")
     p_prep.add_argument("--id-field", default="id", help="Field name containing sub-domain id (default: id)")
@@ -108,7 +117,7 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
         "--regions",
         dest="regions",
         type=Path,
-        help="Sub-domain polygons (default: <setup>/env/roi.gpkg)",
+        help="Sub-domain polygons (default: <setup>/env/subdomains.gpkg, fallback: <setup>/env/roi.gpkg)",
     )
     p_pipe.add_argument("--subdomain-root", type=Path, help="Output root (default: <project>/subdomains)")
     p_pipe.add_argument("--id-field", default="id", help="Field name containing sub-domain id (default: id)")
@@ -140,7 +149,7 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
         from openamundsen_da.subdomain.prepare import prepare_subdomains
 
         ensure_run_mode(args.project_dir, expected="subdomain", write_if_missing=True)
-        regions_path = args.regions or (Path(args.setup_dir) / "env" / "roi.gpkg")
+        regions_path = args.regions or _default_regions_path(Path(args.setup_dir))
         prepare_subdomains(
             setup_dir=args.setup_dir,
             project_dir=args.project_dir,
@@ -219,7 +228,7 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
         from openamundsen_da.subdomain.pipeline import run_pipeline
 
         ensure_run_mode(args.project_dir, expected="subdomain", write_if_missing=True)
-        regions_path = args.regions or (Path(args.setup_dir) / "env" / "roi.gpkg")
+        regions_path = args.regions or _default_regions_path(Path(args.setup_dir))
         run_pipeline(
             setup_dir=args.setup_dir,
             project_dir=args.project_dir,

@@ -20,6 +20,7 @@ from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_setup_yaml, find_project_yaml
 from openamundsen_da.util.landcover_mask import LandcoverMaskConfig, apply_landcover_mask, resolve_landcover_mask
 from openamundsen_da.util.roi import read_single_roi
+from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
 from openamundsen_da.util.ts import parse_datetime_opt
 
 
@@ -243,7 +244,7 @@ def cli_main(argv: List[str] | None = None) -> int:
         end = end or project_dates.get("end")
 
     try:
-        aoi_path = Path(args.roi) if args.roi else setup_dir / "env" / "roi.gpkg"
+        aoi_path = Path(args.roi) if args.roi else ensure_setup_roi_vector(setup_dir)
         summarize_snowcover_directory(
             setup_dir=setup_dir,
             input_dir=Path(args.input_dir),

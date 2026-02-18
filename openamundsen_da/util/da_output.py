@@ -107,23 +107,79 @@ def write_da_output_grids(
             arr_var = np.where(arr_var < 0, 0.0, arr_var)
             arr_std = np.sqrt(arr_var)
             arr_ol = _as_nan_array(da_ol)
+            # DA increment is posterior ensemble mean minus open-loop baseline.
             arr_inc = arr_mean - arr_ol
 
             dims = da_ol.dims
             coords = {d: ds_ol.coords[d] for d in dims if d in ds_ol.coords}
-            out_vars[f"open_loop_{var_name}"] = xr.DataArray(arr_ol.astype(np.float32), dims=dims, coords=coords)
-            out_vars[f"da_mean_{var_name}"] = xr.DataArray(arr_mean.astype(np.float32), dims=dims, coords=coords)
-            out_vars[f"da_std_{var_name}"] = xr.DataArray(arr_std.astype(np.float32), dims=dims, coords=coords)
-            out_vars[f"da_min_{var_name}"] = xr.DataArray(arr_min.astype(np.float32), dims=dims, coords=coords)
-            out_vars[f"da_max_{var_name}"] = xr.DataArray(arr_max.astype(np.float32), dims=dims, coords=coords)
-            out_vars[f"da_increment_{var_name}"] = xr.DataArray(arr_inc.astype(np.float32), dims=dims, coords=coords)
+            base_attrs = dict(da_ol.attrs) if da_ol.attrs is not None else {}
+            out_vars[f"open_loop_{var_name}"] = xr.DataArray(
+                arr_ol.astype(np.float32),
+                dims=dims,
+                coords=coords,
+                attrs={
+                    **base_attrs,
+                    "summary_metric": "open_loop",
+                    "description": "Open-loop baseline output (no assimilation)",
+                },
+            )
+            out_vars[f"ens_mean_{var_name}"] = xr.DataArray(
+                arr_mean.astype(np.float32),
+                dims=dims,
+                coords=coords,
+                attrs={
+                    **base_attrs,
+                    "summary_metric": "ens_mean",
+                    "description": "Posterior ensemble mean",
+                },
+            )
+            out_vars[f"ens_std_{var_name}"] = xr.DataArray(
+                arr_std.astype(np.float32),
+                dims=dims,
+                coords=coords,
+                attrs={
+                    **base_attrs,
+                    "summary_metric": "ens_std",
+                    "description": "Posterior ensemble standard deviation",
+                },
+            )
+            out_vars[f"ens_min_{var_name}"] = xr.DataArray(
+                arr_min.astype(np.float32),
+                dims=dims,
+                coords=coords,
+                attrs={
+                    **base_attrs,
+                    "summary_metric": "ens_min",
+                    "description": "Posterior ensemble minimum",
+                },
+            )
+            out_vars[f"ens_max_{var_name}"] = xr.DataArray(
+                arr_max.astype(np.float32),
+                dims=dims,
+                coords=coords,
+                attrs={
+                    **base_attrs,
+                    "summary_metric": "ens_max",
+                    "description": "Posterior ensemble maximum",
+                },
+            )
+            out_vars[f"increment_{var_name}"] = xr.DataArray(
+                arr_inc.astype(np.float32),
+                dims=dims,
+                coords=coords,
+                attrs={
+                    **base_attrs,
+                    "summary_metric": "increment",
+                    "description": "Posterior ensemble mean minus open-loop baseline",
+                },
+            )
             for out_name in (
                 f"open_loop_{var_name}",
-                f"da_mean_{var_name}",
-                f"da_std_{var_name}",
-                f"da_min_{var_name}",
-                f"da_max_{var_name}",
-                f"da_increment_{var_name}",
+                f"ens_mean_{var_name}",
+                f"ens_std_{var_name}",
+                f"ens_min_{var_name}",
+                f"ens_max_{var_name}",
+                f"increment_{var_name}",
             ):
                 encoding[out_name] = {"zlib": True, "complevel": 4, "shuffle": True, "_FillValue": -9999.0}
 
@@ -136,11 +192,13 @@ def write_da_output_grids(
             coords=ds_ol.coords,
             attrs={
                 **(dict(ds_ol.attrs) if ds_ol.attrs is not None else {}),
-                "da_output_version": "1",
+                "da_output_version": "2",
                 "source_open_loop_nc": str(open_loop_nc),
                 "source_member_count": str(n_members),
                 "source_member_weighting": "uniform",
                 "source_grid_variables": ",".join(grid_var_names),
+                "summary_variables": "open_loop,ens_mean,ens_std,ens_min,ens_max,increment",
+                "increment_definition": "increment_<var> = ens_mean_<var> - open_loop_<var>",
             },
         )
         output_nc.parent.mkdir(parents=True, exist_ok=True)

@@ -42,13 +42,15 @@ def test_write_da_output_grids_creates_expected_variables(tmp_path: Path) -> Non
     assert out_nc.is_file()
     with xr.open_dataset(out_nc) as ds:
         assert "open_loop_snowdepth_daily" in ds.data_vars
-        assert "da_mean_snowdepth_daily" in ds.data_vars
-        assert "da_std_snowdepth_daily" in ds.data_vars
-        assert "da_increment_snowdepth_daily" in ds.data_vars
-        mean_vals = ds["da_mean_snowdepth_daily"].values
-        inc_vals = ds["da_increment_snowdepth_daily"].values
+        assert "ens_mean_snowdepth_daily" in ds.data_vars
+        assert "ens_std_snowdepth_daily" in ds.data_vars
+        assert "increment_snowdepth_daily" in ds.data_vars
+        mean_vals = ds["ens_mean_snowdepth_daily"].values
+        inc_vals = ds["increment_snowdepth_daily"].values
         assert np.allclose(mean_vals, np.array([[[3.0, 5.0], [7.0, 9.0]]], dtype=np.float32))
         assert np.allclose(inc_vals, np.array([[[2.0, 3.0], [4.0, 5.0]]], dtype=np.float32))
+        assert ds["increment_snowdepth_daily"].attrs.get("summary_metric") == "increment"
+        assert ds.attrs.get("increment_definition") == "increment_<var> = ens_mean_<var> - open_loop_<var>"
 
 
 def test_output_retention_mode_defaults_to_compact(tmp_path: Path) -> None:

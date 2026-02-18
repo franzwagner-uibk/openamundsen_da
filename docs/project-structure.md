@@ -113,6 +113,11 @@ Auto-generated step window configuration.
 - Visible breaks at sub-domain boundaries are expected and represent localized DA behavior by design.
 - Sub-domain point outputs are not merged at project root; they remain inside each sub-domain project.
 
+## DA compact grid variables
+- `da_output_grids.nc` stores, per modeled grid variable `<var>`:
+  `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`.
+- `increment_<var>` is defined as `ens_mean_<var> - open_loop_<var>`.
+
 ## File Naming
 - SCF obs CSV: `obs_scf_<PRODUCT>_YYYYMMDD.csv`
 - Wet-snow obs CSV: `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`

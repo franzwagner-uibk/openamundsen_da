@@ -61,7 +61,26 @@ data_assimilation:
     state_pattern: model_state.pickle.gz
 
   output:
-    retention: compact
+    retention: compact # options: compact | full
+    grids:
+      format: netcdf # options: netcdf
+      compress: true
+      dims: [x, y, time] # standard dimension order in exported DA grids
+      variables:
+        # Snow depth (daily)
+        - var: snowdepth_daily
+          name: snowdepth_daily
+          metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment]
+        # SWE (daily)
+        - var: swe_daily
+          name: swe_daily
+          metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment]
+        # Liquid water content (daily mean)
+        - var: liquid_water_content
+          name: liquid_water_content
+          agg: mean
+          metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment]
+    # increment = ens_mean - open_loop
 
   assimilation_events:
   - date: '2022-10-03'

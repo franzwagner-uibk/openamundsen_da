@@ -28,8 +28,10 @@ Run the project pipeline
 
 > Grid outputs are calculated based on the DA logic. They include the following layers:
 >
-> - snow depth of the weighted ensemble mean
-> - ...
+> - `open_loop_<var>`: open-loop baseline (no assimilation)
+> - `ens_mean_<var>`: posterior ensemble mean
+> - `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`: posterior spread/range
+> - `increment_<var>`: DA increment, defined as `ens_mean_<var> - open_loop_<var>`
 
 #### Example boxes
 

@@ -8,7 +8,7 @@ ARTIFACT_DIR="${CI_ARTIFACT_DIR:-}"
 
 TMP_ROOT="$(mktemp -d -t oada-ci-XXXXXX)"
 PROJECT_DIR="${TMP_ROOT}/rofental_ci"
-PROJECT_NAME="project_ci_2022_2023"
+PROJECT_NAME="project_ci_2024_2025"
 PROJECT_PATH="/data/projects/${PROJECT_NAME}"
 HOST_LOG_FILE="${PROJECT_DIR}/ci_integration.log"
 REPO_MOUNT="${ROOT_DIR}"
@@ -61,15 +61,15 @@ from pathlib import Path
 import yaml
 
 setup_dir = Path("/data")
-source_project_yml = setup_dir / "projects" / "project_2022_2023" / "project_2022_2023.yml"
+source_project_yml = setup_dir / "projects" / "project_2024_2025" / "project_2024_2025.yml"
 with source_project_yml.open("r", encoding="utf-8") as f:
     source_project_cfg = yaml.safe_load(f) or {}
 
-project_dir = setup_dir / "projects" / "project_ci_2022_2023"
+project_dir = setup_dir / "projects" / "project_ci_2024_2025"
 project_dir.mkdir(parents=True, exist_ok=True)
 project_cfg = dict(source_project_cfg)
-project_cfg["start_date"] = "2023-03-12"
-project_cfg["end_date"] = "2023-03-27 21:00:00"
+project_cfg["start_date"] = "2025-02-10"
+project_cfg["end_date"] = "2025-03-05 21:00:00"
 
 da_cfg = dict(project_cfg.get("data_assimilation") or {})
 prior_cfg = dict(da_cfg.get("prior_forcing") or {})
@@ -77,19 +77,19 @@ prior_cfg["ensemble_size"] = 4
 da_cfg["prior_forcing"] = prior_cfg
 da_cfg["assimilation_events"] = [
     {
-        "date": "2023-03-17",
+        "date": "2025-02-19",
         "variable": "scf",
-        "product": "SNOWCOVER",
+        "product": "FSC",
     },
     {
-        "date": "2023-03-24",
+        "date": "2025-03-01",
         "variable": "wet_snow",
-        "product": "S1",
+        "product": "SWS",
     },
 ]
 project_cfg["data_assimilation"] = da_cfg
 
-with (project_dir / "project_ci_2022_2023.yml").open("w", encoding="utf-8") as f:
+with (project_dir / "project_ci_2024_2025.yml").open("w", encoding="utf-8") as f:
     yaml.safe_dump(project_cfg, f, sort_keys=False)
 PY
 
@@ -101,13 +101,13 @@ compose_run python -m openamundsen_da.pipeline.project_skeleton \
 
 compose_run oa-da-scf \
   --project-dir "${PROJECT_PATH}" \
-  --summary-csv /data/obs/project_2022_2023/scf_summary.csv \
+  --summary-csv /data/obs/summaries/project_2024_2025/scf_summary.csv \
   --overwrite \
   --log-level INFO
 
 compose_run oa-da-wetsnow-project \
   --project-dir "${PROJECT_PATH}" \
-  --summary-csv /data/obs/project_2022_2023/wet_snow_summary.csv \
+  --summary-csv /data/obs/summaries/project_2024_2025/wet_snow_summary.csv \
   --overwrite \
   --log-level INFO
 
@@ -122,12 +122,12 @@ compose_run python -m openamundsen_da.pipeline.project \
 CONTAINER_LOG_FILE="$(compose_run python - <<'PY' | tr -d '\r' | tail -n 1
 from pathlib import Path
 
-project_dir = Path("/data/projects/project_ci_2022_2023")
+project_dir = Path("/data/projects/project_ci_2024_2025")
 candidates = sorted(project_dir.glob("project_*.log"))
 if not candidates:
     candidates = sorted(project_dir.glob("*.log"))
 if not candidates:
-    raise SystemExit("No project log found under /data/projects/project_ci_2022_2023")
+    raise SystemExit("No project log found under /data/projects/project_ci_2024_2025")
 print(candidates[-1].as_posix())
 PY
 )"

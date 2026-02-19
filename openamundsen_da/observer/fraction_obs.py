@@ -23,6 +23,7 @@ from loguru import logger
 from openamundsen_da.core.constants import OBS_DIR_NAME
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import (
+    find_project_yaml,
     find_setup_yaml,
     list_steps_sorted as io_list_steps_sorted,
     read_step_config,
@@ -135,15 +136,26 @@ def resolve_obs_product_tag(
     setup_dir: Path | None = None,
     fallback: str | None = None,
 ) -> str:
-    """Resolve the product tag for obs filenames from setup YAML (obs.<variable>.product_tag)."""
+    """Resolve product tag for obs filenames from project YAML first, then setup YAML."""
 
     default = fallback or ("SNOWCOVER" if variable == "scf" else "WETSNOW")
+    key = "snowcover" if variable == "scf" else "wetsnow" if variable == "wet_snow" else variable
+
+    if project_dir:
+        try:
+            cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+            obs_cfg = (cfg.get("obs") or {})
+            tag = (obs_cfg.get(key) or {}).get("product_tag")
+            if tag:
+                return str(tag).upper()
+        except Exception:
+            pass
+
     setup_root = setup_dir or _setup_from_project(project_dir)
     if setup_root:
         try:
             cfg = _read_yaml_file(find_setup_yaml(setup_root)) or {}
             obs_cfg = (cfg.get("obs") or {})
-            key = "snowcover" if variable == "scf" else "wetsnow" if variable == "wet_snow" else variable
             tag = (obs_cfg.get(key) or {}).get("product_tag")
             if tag:
                 return str(tag).upper()

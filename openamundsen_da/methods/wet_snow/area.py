@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Sequence
+import re
 import numpy as np
 import pandas as pd
 import rasterio
@@ -33,6 +34,7 @@ from pyproj import CRS
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import (
+    find_project_yaml,
     member_id_from_results_dir,
     list_step_dirs,
     infer_project_dir,
@@ -53,9 +55,6 @@ from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
 
 _MODEL_WET = (1,)
 _MODEL_VALID = (0, 1)
-_S1_WET = (110,)
-_S1_VALID = (110, 125)
-_S1_EXCLUDE = (200, 210)
 
 
 @dataclass(frozen=True)
@@ -437,6 +436,10 @@ def summarize_s1_directory(
         lc_cfg = landcover_cfg
     else:
         lc_cfg = resolve_landcover_mask(Path(setup_dir), Path(project_dir))
+    if wet_values is None or valid_values is None or exclude_values is None:
+        raise ValueError(
+            "wet_values, valid_values, and exclude_values must be provided explicitly from setup configuration"
+        )
     if output_csv.exists() and not overwrite:
         return output_csv
 
@@ -458,9 +461,9 @@ def summarize_s1_directory(
             stats = compute_wet_snow_fraction_from_raster(
                 tif,
                 aoi_path,
-                wet_values=wet_values if wet_values is not None else _S1_WET,
-                valid_values=valid_values if valid_values is not None else _S1_VALID,
-                exclude_values=exclude_values if exclude_values is not None else _S1_EXCLUDE,
+                wet_values=wet_values,
+                valid_values=valid_values,
+                exclude_values=exclude_values,
                 landcover_cfg=lc_cfg,
             )
         except Exception as exc:
@@ -470,6 +473,7 @@ def summarize_s1_directory(
             {
                 "date": date.strftime("%Y-%m-%d"),
                 "region_id": stats.region_id,
+                "tile": _extract_tile(tif.name),
                 "wet_snow_fraction": round(stats.wet_fraction, 4),
                 "n_valid": stats.valid_pixels,
                 "n_wet": stats.wet_pixels,
@@ -480,15 +484,65 @@ def summarize_s1_directory(
     if not rows:
         raise RuntimeError(f"No valid Sentinel-1 rasters processed in {raster_dir}")
 
-    df = pd.DataFrame(rows).sort_values("date")
+    # Keep one best raster per date/tile (highest valid pixel count), then aggregate across tiles.
+    best_per_date_tile: dict[tuple[str, str], dict[str, object]] = {}
+    for row in rows:
+        key = (str(row["date"]), str(row.get("tile", "UNKNOWN")))
+        prev = best_per_date_tile.get(key)
+        if prev is None or int(row.get("n_valid", 0)) > int(prev.get("n_valid", 0)):
+            best_per_date_tile[key] = row
+
+    agg: dict[tuple[str, str], dict[str, object]] = {}
+    for row in best_per_date_tile.values():
+        key = (str(row["date"]), str(row["region_id"]))
+        slot = agg.get(key)
+        if slot is None:
+            slot = {
+                "date": row["date"],
+                "region_id": row["region_id"],
+                "n_valid": 0,
+                "n_wet": 0,
+                "source_set": set(),
+                "tile_set": set(),
+            }
+            agg[key] = slot
+        slot["n_valid"] = int(slot["n_valid"]) + int(row.get("n_valid", 0))
+        slot["n_wet"] = int(slot["n_wet"]) + int(row.get("n_wet", 0))
+        slot["source_set"].add(str(row.get("source", "")))
+        slot["tile_set"].add(str(row.get("tile", "UNKNOWN")))
+
+    out_rows: list[dict[str, object]] = []
+    for entry in agg.values():
+        n_valid = int(entry["n_valid"])
+        n_wet = int(entry["n_wet"])
+        frac = (n_wet / n_valid) if n_valid > 0 else 0.0
+        out_rows.append(
+            {
+                "date": entry["date"],
+                "region_id": entry["region_id"],
+                "wet_snow_fraction": round(frac, 4),
+                "n_valid": n_valid,
+                "n_wet": n_wet,
+                "tiles_used": ";".join(sorted(x for x in entry["tile_set"] if x)),
+                "source": ";".join(sorted(x for x in entry["source_set"] if x)),
+            }
+        )
+
+    df = pd.DataFrame(out_rows).sort_values("date")
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_csv, index=False)
     logger.info(
-        "Sentinel-1 wet-snow summary written: {} ({} day(s))",
+        "Sentinel-1 wet-snow summary written: {} ({} day(s), {} raster(s))",
         output_csv,
         len(df),
+        len(best_per_date_tile),
     )
     return output_csv
+
+
+def _extract_tile(name: str) -> str:
+    m = re.search(r"T(\d{2}[A-Z]{3})", name.upper())
+    return m.group(1) if m else "UNKNOWN"
 
 
 def _parse_s1_timestamp(name: str) -> datetime:
@@ -507,6 +561,16 @@ def _parse_s1_timestamp(name: str) -> datetime:
                 return datetime.strptime(token, "%Y%m%d")
             except Exception:
                 continue
+    # CLMS naming often embeds YYYYMMDD in longer tokens (e.g. 20250317T052706).
+    for token in parts:
+        m = re.search(r"(20\d{2})(\d{2})(\d{2})", token)
+        if not m:
+            continue
+        y, mth, d = m.groups()
+        try:
+            return datetime.strptime(f"{y}{mth}{d}", "%Y%m%d")
+        except Exception:
+            continue
     raise ValueError(f"Cannot parse date from {name}")
 
 
@@ -526,6 +590,41 @@ def _resolve_project_dates(project_dir: Optional[Path], project_label: Optional[
     except Exception as exc:
         logger.warning("Could not parse project dates from {}: {}", project_yml, exc)
         return None
+
+
+def _load_obs_wetsnow_classes(project_dir: Path) -> tuple[list[int], list[int], list[int]]:
+    cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+    if not isinstance(cfg, dict):
+        raise ValueError("Expected mapping at project")
+    obs_cfg = cfg.get("obs")
+    if not isinstance(obs_cfg, dict):
+        raise ValueError("Expected mapping at project.obs")
+    wet_cfg = obs_cfg.get("wetsnow")
+    if not isinstance(wet_cfg, dict):
+        raise ValueError("Expected mapping at project.obs.wetsnow")
+    classes = wet_cfg.get("classes")
+    if not isinstance(classes, dict):
+        raise ValueError("Expected mapping at project.obs.wetsnow.classes")
+
+    def _parse(key: str, *, allow_empty: bool = False) -> list[int]:
+        if key not in classes:
+            raise ValueError(f"Missing required configuration key: project.obs.wetsnow.classes.{key}")
+        vals = classes.get(key)
+        if not isinstance(vals, list):
+            raise ValueError(f"project.obs.wetsnow.classes.{key} must be a list of integers")
+        out: list[int] = []
+        for v in vals:
+            try:
+                out.append(int(v))
+            except Exception as exc:
+                raise ValueError(
+                    f"project.obs.wetsnow.classes.{key} contains non-integer value: {v!r}"
+                ) from exc
+        if not out and not allow_empty:
+            raise ValueError(f"project.obs.wetsnow.classes.{key} must contain at least one integer")
+        return out
+
+    return _parse("wet"), _parse("valid"), _parse("exclude", allow_empty=True)
 
 
 def cli_model(argv: list[str] | None = None) -> int:
@@ -724,6 +823,7 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
         logger.error("Cannot resolve project for land-cover config. Provide --project-dir or --project-label.")
         return 1
     lc_cfg = resolve_landcover_mask(setup_root, project_dir_for_lc)
+    wet_values, valid_values, exclude_values = _load_obs_wetsnow_classes(project_dir_for_lc)
 
     project_dates = _resolve_project_dates(setup_root, project_label) if setup_root and project_label else None
 
@@ -738,6 +838,9 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
             overwrite=bool(args.overwrite),
             start=project_dates["start"] if project_dates else None,
             end=project_dates["end"] if project_dates else None,
+            wet_values=wet_values,
+            valid_values=valid_values,
+            exclude_values=exclude_values,
         )
     except Exception as exc:
         logger.error("Sentinel-1 wet-snow summary failed: {}", exc)

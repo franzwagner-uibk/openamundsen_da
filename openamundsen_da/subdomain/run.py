@@ -17,7 +17,7 @@ from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import find_setup_yaml
+from openamundsen_da.io.paths import find_project_yaml
 from openamundsen_da.methods.wet_snow.area import summarize_s1_directory
 from openamundsen_da.observer.satellite_scf import generate_project_from_summary as scf_project_obs
 from openamundsen_da.observer.satellite_wet_snow_s1 import generate_project_from_summary as wet_project_obs
@@ -43,23 +43,41 @@ class RunResult:
     run_manifest: Optional[Path] = None
 
 
-def _load_wetsnow_classes(setup_dir: Path) -> tuple[list[int], list[int], list[int]]:
-    cfg = _read_yaml_file(find_setup_yaml(setup_dir)) or {}
-    obs_cfg = (cfg.get("obs") or {}).get("wetsnow") or {}
-    classes = obs_cfg.get("classes") or {}
+def _load_wetsnow_classes(project_dir: Path) -> tuple[list[int], list[int], list[int]]:
+    cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+    if not isinstance(cfg, dict):
+        raise ValueError("Expected mapping at project")
+    obs_cfg = cfg.get("obs")
+    if not isinstance(obs_cfg, dict):
+        raise ValueError("Expected mapping at project.obs")
+    wet_cfg = obs_cfg.get("wetsnow")
+    if not isinstance(wet_cfg, dict):
+        raise ValueError("Expected mapping at project.obs.wetsnow")
+    classes = wet_cfg.get("classes")
+    if not isinstance(classes, dict):
+        raise ValueError("Expected mapping at project.obs.wetsnow.classes")
 
-    def _ints(vals, default):
-        out = []
-        for v in vals if vals is not None else default:
+    def _ints(key: str, *, allow_empty: bool = False) -> list[int]:
+        if key not in classes:
+            raise ValueError(f"Missing required configuration key: project.obs.wetsnow.classes.{key}")
+        vals = classes.get(key)
+        if not isinstance(vals, list):
+            raise ValueError(f"project.obs.wetsnow.classes.{key} must be a list of integers")
+        out: list[int] = []
+        for v in vals:
             try:
                 out.append(int(v))
-            except Exception:
-                continue
+            except Exception as exc:
+                raise ValueError(
+                    f"project.obs.wetsnow.classes.{key} contains non-integer value: {v!r}"
+                ) from exc
+        if not out and not allow_empty:
+            raise ValueError(f"project.obs.wetsnow.classes.{key} must contain at least one integer")
         return out
 
-    wet = _ints(classes.get("wet"), [1, 2])
-    valid = _ints(classes.get("valid"), [1, 2, 3, 4, 255])
-    exclude = _ints(classes.get("exclude"), [5, 6])
+    wet = _ints("wet")
+    valid = _ints("valid")
+    exclude = _ints("exclude", allow_empty=True)
     return wet, valid, exclude
 
 
@@ -188,7 +206,7 @@ def _prepare_obs_for_subdomain(sub, manifest: SubdomainManifest, *, overwrite: b
     if "wet_snow" in variables:
         if not manifest.raw_wetsnow_dir.is_dir():
             raise FileNotFoundError(f"Raw wet-snow directory not found: {manifest.raw_wetsnow_dir}")
-        wet, valid, exclude = _load_wetsnow_classes(sub.setup_dir)
+        wet, valid, exclude = _load_wetsnow_classes(sub.project_dir)
         try:
             summarize_s1_directory(
                 setup_dir=sub.setup_dir,

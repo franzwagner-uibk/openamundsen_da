@@ -7,9 +7,7 @@ import sys
 from pathlib import Path
 from typing import Iterable, Optional
 
-from loguru import logger
-
-from openamundsen_da.core.constants import LOGURU_FORMAT
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.run_mode import ensure_run_mode
 
 
@@ -46,8 +44,7 @@ def _resolve_manifest(
 
 
 def _configure_logger(level: str) -> None:
-    logger.remove()
-    logger.add(sys.stderr, level=level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(level, stream=sys.stderr)
 
 
 def cli(argv: Optional[Iterable[str]] = None) -> int:

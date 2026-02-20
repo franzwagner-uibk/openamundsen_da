@@ -19,7 +19,6 @@ from typing import Iterable, List, Optional, Sequence
 import pandas as pd
 from loguru import logger
 
-from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml
 from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
@@ -29,6 +28,7 @@ from openamundsen_da.observer.plot_fractions import (
     plot_fractions,
 )
 from openamundsen_da.observer.plot_scf_summary import _load_summary as _load_scf_summary
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 DEFAULT_PRIORITY = ["wet_snow", "scf"]
 
@@ -311,14 +311,7 @@ def _infer_project_window(
 
 
 def _configure_logger(level: str) -> None:
-    logger.remove()
-    logger.add(
-        sink=lambda msg: print(msg, end=""),
-        level=level.upper(),
-        colorize=True,
-        format=LOGURU_FORMAT,
-        enqueue=True,
-    )
+    configure_cli_logger(level)
 
 
 def cli_main(argv: list[str] | None = None) -> int:

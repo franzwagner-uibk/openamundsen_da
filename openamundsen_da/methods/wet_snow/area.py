@@ -17,7 +17,6 @@ be generated per member or per setup via the provided CLIs.
 
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -31,7 +30,6 @@ from rasterio import features
 from rasterio.mask import mask as rio_mask
 from pyproj import CRS
 
-from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import (
     member_id_from_results_dir,
@@ -51,6 +49,7 @@ from openamundsen_da.util.landcover_mask import (
 from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
 from openamundsen_da.observer.class_config import load_wetsnow_classes
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
 _MODEL_WET = (1,)
@@ -617,8 +616,7 @@ def cli_model(argv: list[str] | None = None) -> int:
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args(argv)
 
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level)
 
     try:
         dt = datetime.strptime(args.date, "%Y-%m-%d")
@@ -700,8 +698,7 @@ def cli_model_project(argv: list[str] | None = None) -> int:
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args(argv)
 
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level)
 
     setup_dir = Path(args.setup_dir)
     project_dir = Path(args.project_dir)
@@ -759,8 +756,7 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args(argv)
 
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level)
 
     setup_root: Path = Path(args.setup_dir)
     raster_dir: Optional[Path] = Path(args.raster_dir) if args.raster_dir else None

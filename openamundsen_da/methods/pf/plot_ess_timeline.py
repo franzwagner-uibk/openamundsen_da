@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import re
-import sys
 from datetime import datetime
 
 import numpy as np
@@ -19,6 +18,7 @@ import pandas as pd
 from loguru import logger
 from openamundsen_da.util.stats import effective_sample_size
 from openamundsen_da.io.paths import list_step_dirs
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
 _RE_DATE = re.compile(r"weights_scf_(\d{8})\.csv$", re.IGNORECASE)
@@ -140,10 +140,8 @@ def cli_main(argv: list[str] | None = None) -> int:
     p.add_argument("--backend", default="Agg", help="Matplotlib backend (Agg, SVG, module://mplcairo.Agg)")
     args = p.parse_args(argv)
 
-    from openamundsen_da.core.constants import LOGURU_FORMAT
-    logger.remove()
     # Avoid enqueue for short-lived CLIs so messages flush before exit
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=False, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level, enqueue=False)
 
     assim = Path(args.assim_dir) if args.assim_dir else (Path(args.step_dir) / "assim" if args.step_dir else None)
     if assim is None:

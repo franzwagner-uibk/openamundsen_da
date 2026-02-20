@@ -18,7 +18,6 @@ Logging
 
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -29,7 +28,6 @@ import numpy as np
 from loguru import logger
 
 from openamundsen_da.core.constants import (
-    LOGURU_FORMAT,
     LIKELIHOOD_BLOCK,
     LIK_OBS_SIGMA,
     LIK_USE_BINOMIAL,

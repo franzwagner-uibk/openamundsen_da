@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,9 +15,10 @@ from loguru import logger
 from rasterio import features
 from rasterio.mask import mask as rio_mask
 
-from openamundsen_da.core.constants import LOGURU_FORMAT, OBS_DIR_NAME
+from openamundsen_da.core.constants import OBS_DIR_NAME
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.landcover_mask import LandcoverMaskConfig, apply_landcover_mask, resolve_landcover_mask
 from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
@@ -327,8 +327,7 @@ def cli_main(argv: List[str] | None = None) -> int:
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(argv)
 
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level)
 
     setup_dir = Path(args.setup_dir) if args.setup_dir else Path.cwd()
     default_root = setup_dir / OBS_DIR_NAME / "summaries"

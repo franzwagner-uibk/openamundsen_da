@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-import sys
 
 import numpy as np
 import pandas as pd
 from loguru import logger
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml, infer_project_dir
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.stats import effective_sample_size
 
 
@@ -202,10 +202,8 @@ def cli_main(argv: list[str] | None = None) -> int:
     p.add_argument("--backend", default="Agg", help="Matplotlib backend (Agg, SVG, module://mplcairo.Agg)")
     args = p.parse_args(argv)
 
-    from openamundsen_da.core.constants import LOGURU_FORMAT
-    logger.remove()
     # Avoid enqueue for short-lived CLIs so messages flush before exit
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=False, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level, enqueue=False)
 
     csv_path = Path(args.csv)
     logger.info("Reading weights CSV: {}", csv_path)

@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import csv
 import os
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from loguru import logger
 
-from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml
 from openamundsen_da.util.da_events import load_assimilation_events
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
 @dataclass(frozen=True)
@@ -278,8 +277,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     p.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
     args = p.parse_args(argv)
 
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level)
 
     try:
         download_project_event_rasters(

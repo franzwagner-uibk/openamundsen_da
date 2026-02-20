@@ -12,15 +12,14 @@ Description:
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
 from loguru import logger
 
-from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.io.paths import list_step_dirs
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
 def _find_series_files(setup_dir: Path, filename: str) -> list[Path]:
@@ -130,8 +129,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     p.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
     args = p.parse_args(argv)
 
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level)
 
     try:
         aggregate_fraction_envelope(

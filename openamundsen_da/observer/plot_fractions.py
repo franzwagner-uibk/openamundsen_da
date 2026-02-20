@@ -18,14 +18,12 @@ Description:
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 from loguru import logger
 
-from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.observer.plot_scf_summary import _load_summary as _load_scf_obs
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_envelope
@@ -37,6 +35,7 @@ from openamundsen_da.methods.viz._utils import (
 )
 from openamundsen_da.methods.viz._style import COLOR_DA_OBS, SIZE_DA_OBS, LW_DA_OBS
 from openamundsen_da.io.paths import list_step_dirs
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
 def _parse_dates(df: pd.DataFrame) -> pd.DataFrame:
@@ -314,8 +313,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     args = parser.parse_args(argv)
 
     if configure_logger:
-        logger.remove()
-        logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+        configure_cli_logger(args.log_level)
 
     project_dir = Path(args.project_dir)
     setup_dir = Path(args.setup_dir) if args.setup_dir else project_dir.parent.parent

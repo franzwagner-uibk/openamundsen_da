@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pandas as pd
 from loguru import logger
-import sys
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
 def _load_summary(csv_path: Path) -> pd.DataFrame:
@@ -138,15 +138,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     # Configure logging: green timestamp | level | message
-    from openamundsen_da.core.constants import LOGURU_FORMAT
-    logger.remove()
-    logger.add(
-        sys.stdout,
-        level=args.log_level.upper(),
-        colorize=True,
-        enqueue=True,
-        format=LOGURU_FORMAT,
-    )
+    configure_cli_logger(args.log_level)
 
     csv_path = Path(args.csv)
     # Read and validate CSV

@@ -26,7 +26,6 @@ from __future__ import annotations
 import argparse
 import concurrent.futures as cf
 import json
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
@@ -48,7 +47,6 @@ from openamundsen_da.core.constants import (
     STATE_POINTER_JSON,
     STATE_DEFAULT_NAME,
     MEMBER_SOURCE_POINTER,
-    LOGURU_FORMAT,
 )
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import (
@@ -60,6 +58,7 @@ from openamundsen_da.io.paths import (
     infer_project_dir,
     open_loop_dir,
 )
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
 from openamundsen_da.util.meteo import filter_and_write_meteo
 
@@ -367,8 +366,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(list(argv) if argv is not None else None)
 
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level)
 
     try:
         summary = rejuvenate(

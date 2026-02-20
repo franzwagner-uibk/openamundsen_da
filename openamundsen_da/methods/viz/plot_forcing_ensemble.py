@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -29,8 +28,8 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.io.paths import list_member_dirs, read_step_config, list_station_files_forcing
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.ts import (
     apply_window,
     resample_and_smooth,
@@ -229,8 +228,7 @@ def cli_main(argv: Iterable[str] | None = None, *, configure_logger: bool = True
     args = p.parse_args(list(argv) if argv is not None else None)
 
     if configure_logger:
-        logger.remove()
-        logger.add(sys.stdout, level=args.log_level.upper(), enqueue=False, colorize=True, format=LOGURU_FORMAT)
+        configure_cli_logger(args.log_level, enqueue=False)
 
     start = datetime.strptime(args.start_date, "%Y-%m-%d") if args.start_date else None
     end = datetime.strptime(args.end_date, "%Y-%m-%d") if args.end_date else None

@@ -46,7 +46,6 @@ from pyproj import CRS
 
 from openamundsen_da.core.env import ensure_gdal_proj_from_conda, _read_yaml_file
 from openamundsen_da.core.constants import (
-    LOGURU_FORMAT,
     VAR_HS,
     VAR_SWE,
     HOFX_BLOCK,
@@ -57,6 +56,7 @@ from openamundsen_da.core.constants import (
     HOFX_PARAM_K,
     DA_BLOCK,
 )
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.io.paths import (
     GridSlice,
     find_member_daily_grid_slice,
@@ -590,8 +590,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     # Configure logging
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level)
 
     # Parse date
     try:
@@ -703,8 +702,7 @@ def cli_project_daily(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     # Configure logging
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level)
 
     project_dir = Path(args.project_dir)
     setup_dir = Path(args.setup_dir)

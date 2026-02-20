@@ -18,7 +18,6 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
-import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -30,7 +29,6 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.core.constants import (
-    LOGURU_FORMAT,
     RESAMPLING_BLOCK,
     RESAMPLING_ALGORITHM,
     RESAMPLING_ESS_THRESHOLD,
@@ -41,6 +39,7 @@ from openamundsen_da.core.constants import (
 )
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import list_member_dirs, find_project_yaml, infer_project_dir
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.stats import effective_sample_size, systematic_resample
 
 
@@ -365,8 +364,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(list(argv) if argv is not None else None)
 
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level)
 
     # Defaults from project YAML inferred from --step-dir.
     rs_cfg = _read_resampling_from_project(infer_project_dir(Path(args.step_dir)))

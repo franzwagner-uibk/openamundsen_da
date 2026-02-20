@@ -25,7 +25,7 @@ from typing import Iterable, Optional
 import pandas as pd
 from loguru import logger
 
-from openamundsen_da.core.constants import LOGURU_FORMAT
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.ts import apply_window, read_timeseries_csv
 
 
@@ -138,14 +138,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
     args = parser.parse_args(list(argv) if argv is not None else None)
 
-    logger.remove()
-    logger.add(
-        lambda msg: print(msg, end=""),
-        level=args.log_level.upper(),
-        colorize=True,
-        enqueue=False,
-        format=LOGURU_FORMAT,
-    )
+    configure_cli_logger(args.log_level, enqueue=False)
 
     try:
         out = plot_station_variable(

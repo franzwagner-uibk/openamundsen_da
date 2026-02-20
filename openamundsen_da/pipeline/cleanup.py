@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import shutil
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Sequence
@@ -13,7 +12,6 @@ from loguru import logger
 
 from openamundsen_da.core.constants import (
     DA_BLOCK,
-    LOGURU_FORMAT,
     RESTART_BLOCK,
     RESTART_CLEANUP_AFTER_SETUP,
     RESTART_STATE_PATTERN,
@@ -21,6 +19,7 @@ from openamundsen_da.core.constants import (
 )
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
 def _read_restart_config(project_dir: Path) -> dict:
@@ -186,8 +185,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(list(argv) if argv is not None else None)
 
-    logger.remove()
-    logger.add(sys.stdout, level=str(args.log_level or "INFO").upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(str(args.log_level or "INFO"))
 
     if not args.all_projects and args.project_dir is None:
         p.error("Provide --project-dir or --all-projects")

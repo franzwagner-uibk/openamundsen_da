@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 import sys
 
 from loguru import logger
-from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import (
     apply_env_from_project,
     ensure_gdal_proj_from_conda,
@@ -38,6 +37,7 @@ from openamundsen_da.io.paths import (
     find_step_yaml,
     list_member_dirs,
 )
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
 
 # Do NOT import anything that pulls GDAL here. runner is imported later inside the worker.
@@ -249,8 +249,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
 def main(argv: Iterable[str] | None = None) -> int:
     """CLI entry: configure parent logger, run launcher, and map exceptions to exit codes."""
     args = parse_args(argv)
-    logger.remove()
-    logger.add(sys.stderr, level=args.log_level, enqueue=True, colorize=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level, stream=sys.stderr)
 
     try:
         launch_members(

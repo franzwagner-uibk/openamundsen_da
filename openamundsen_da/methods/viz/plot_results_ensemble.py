@@ -9,7 +9,6 @@ ensembles / <ensemble> / {open_loop, member_xxx} / results`.
 from __future__ import annotations
 
 import argparse
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -19,7 +18,6 @@ import re
 import pandas as pd
 from loguru import logger
 
-from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.io.paths import list_member_dirs, list_point_files_results
 from openamundsen_da.methods.viz._style import (
     BAND_ALPHA,
@@ -33,6 +31,7 @@ from openamundsen_da.methods.viz._style import (
 from openamundsen_da.methods.viz._utils import format_station_label
 from openamundsen_da.util.stats import envelope
 from openamundsen_da.util.ts import apply_window, resample_and_smooth, read_timeseries_csv
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
 FIGSIZE = (12.0, 5.2)
@@ -216,8 +215,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(list(argv) if argv is not None else None)
 
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), enqueue=False, colorize=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level, enqueue=False)
 
     if args.band_low >= args.band_high:
         logger.error("--band-low ({}) must be smaller than --band-high ({})", args.band_low, args.band_high)

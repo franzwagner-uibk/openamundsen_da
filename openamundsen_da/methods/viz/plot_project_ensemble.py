@@ -35,7 +35,6 @@ Notes
 from __future__ import annotations
 
 import argparse
-import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -44,7 +43,6 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import pandas as pd
 from loguru import logger
 
-from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.io.paths import (
     list_member_dirs,
     list_steps_sorted,
@@ -52,6 +50,7 @@ from openamundsen_da.io.paths import (
     list_station_files_forcing as io_list_station_files_forcing,
     list_point_files_results as io_list_point_files_results,
 )
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.methods.viz._style import (
     BAND_ALPHA,
@@ -414,8 +413,7 @@ def plot_setup_forcing(
     import matplotlib.pyplot as plt
 
     if configure_logger:
-        logger.remove()
-        logger.add(sys.stdout, level=(log_level or "INFO").upper(), enqueue=False, colorize=True, format=LOGURU_FORMAT)
+        configure_cli_logger(log_level or "INFO", enqueue=False)
 
     setup_dir = Path(setup_dir)
     steps = _list_steps_sorted(setup_dir)
@@ -643,8 +641,7 @@ def plot_setup_results(
     import matplotlib.pyplot as plt
 
     if configure_logger:
-        logger.remove()
-        logger.add(sys.stdout, level=(log_level or "INFO").upper(), enqueue=False, colorize=True, format=LOGURU_FORMAT)
+        configure_cli_logger(log_level or "INFO", enqueue=False)
 
     setup_dir = Path(setup_dir)
     steps = _list_steps_sorted(setup_dir)

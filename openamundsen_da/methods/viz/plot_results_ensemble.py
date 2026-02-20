@@ -11,9 +11,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
-
-import re
+from typing import Iterable, List, Optional
 
 import pandas as pd
 from loguru import logger
@@ -29,6 +27,11 @@ from openamundsen_da.methods.viz._style import (
     LW_OPEN,
 )
 from openamundsen_da.methods.viz._utils import format_station_label
+from openamundsen_da.methods.viz._ensemble_meta import (
+    format_member_label,
+    load_stations_table,
+    read_member_perturbations,
+)
 from openamundsen_da.util.stats import envelope
 from openamundsen_da.util.ts import apply_window, resample_and_smooth, read_timeseries_csv
 from openamundsen_da.util.loguru_utils import configure_cli_logger
@@ -64,65 +67,10 @@ def _list_point_files(step_dir: Path, ensemble: str) -> Tuple[Optional[Path], Li
     return list_point_files_results(step_dir, ensemble)
 
 
-def _load_stations_table(step_dir: Path, ensemble: str) -> Optional[pd.DataFrame]:
-    """Load stations.csv from open_loop or first member meteo dir if available."""
-    base = step_dir / "ensembles" / ensemble
-    candidates = [base / "open_loop" / "meteo" / "stations.csv"]
-    members = list_member_dirs(step_dir / "ensembles", ensemble)
-    if members:
-        candidates.append(members[0] / "meteo" / "stations.csv")
-    for path in candidates:
-        if path.is_file():
-            try:
-                return pd.read_csv(path)
-            except Exception:
-                return None
-    return None
-
-
 def _read_point_series(csv_path: Path, time_col: str, value_col: str) -> pd.DataFrame:
     # Thin wrapper around util.ts.read_timeseries_csv
     df = read_timeseries_csv(csv_path, time_col, [value_col])
     return df
-
-
-def _read_member_perturbations(step_dir: Path, ensemble: str) -> Dict[str, Tuple[Optional[float], Optional[float]]]:
-    """Return mapping member_name -> (delta_T, f_p) parsed from INFO.txt if present."""
-    out: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
-    members = list_member_dirs(step_dir / "ensembles", ensemble)
-    for member in members:
-        info = member / "INFO.txt"
-        dT: Optional[float] = None
-        fp: Optional[float] = None
-        if info.is_file():
-            try:
-                text = info.read_text(encoding="utf-8", errors="ignore")
-                for line in text.splitlines():
-                    lower = line.lower()
-                    if "delta" in lower or "dt" in lower:
-                        m = re.search(r"([-+]?\d+\.?\d*)", line)
-                        if m:
-                            dT = float(m.group(1))
-                    if "f_p" in lower or "precip factor" in lower:
-                        m = re.search(r"([-+]?\d+\.?\d*)", line)
-                        if m:
-                            fp = float(m.group(1))
-            except Exception:
-                pass
-        out[member.name] = (dT, fp)
-    return out
-
-
-def _format_member_label(member_name: str, pert: Tuple[Optional[float], Optional[float]]) -> str:
-    dT, fp = pert
-    if dT is None and fp is None:
-        return member_name
-    pieces = []
-    if dT is not None:
-        pieces.append(f"dT={dT:+.2f}")
-    if fp is not None:
-        pieces.append(f"f_p={fp:.2f}")
-    return f"{member_name} ({', '.join(pieces)})"
 
 
 def _series_has_data(series: pd.Series) -> bool:
@@ -246,8 +194,8 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
         logger.error("No member results directories found under {}/ensembles/{}", args.step_dir, args.ensemble)
         return 5
 
-    pert_map = _read_member_perturbations(step_dir, args.ensemble)
-    stations_df = _load_stations_table(step_dir, args.ensemble)
+    pert_map = read_member_perturbations(step_dir, args.ensemble)
+    stations_df = load_stations_table(step_dir, args.ensemble)
     out_root = args.output_dir if args.output_dir else (step_dir / "plots" / "results")
     step_name = step_dir.name
     effective_title = f"{args.title} | {step_name}" if args.title else step_name
@@ -286,7 +234,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
                 if series.empty:
                     continue
                 mem_series.append(series)
-                mem_labels.append(_format_member_label(member_name, pert_map.get(member_name, (None, None))))
+                mem_labels.append(format_member_label(member_name, pert_map.get(member_name, (None, None))))
             except Exception as exc:
                 logger.warning("Failed to read results for {} in {}: {}", fname, member_name, exc)
 

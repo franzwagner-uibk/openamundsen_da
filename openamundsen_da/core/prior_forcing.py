@@ -112,8 +112,7 @@ def _read_step_start_and_project_end(step_dir: Path) -> Tuple[pd.Timestamp, pd.T
 
     Robustness:
     - step start_date is mandatory (from step YAML)
-    - project end_date is preferred (from project YAML)
-    - fallback: if project YAML is not found, use step end_date
+    - project end_date is mandatory (from project YAML)
     """
     # Step: start (required)
     step_yaml = find_step_yaml(step_dir)
@@ -125,25 +124,16 @@ def _read_step_start_and_project_end(step_dir: Path) -> Tuple[pd.Timestamp, pd.T
     if pd.isna(start):
         raise ValueError(f"Invalid {START_DATE} in {step_yaml}")
 
-    # Project: end (preferred)
+    # Project: end (required)
     project_dir = infer_project_dir(step_dir)
-    end: pd.Timestamp
+    project_yaml = find_project_yaml(project_dir)
+    project_cfg = _read_yaml_file(project_yaml) or {}
     try:
-        project_yaml = find_project_yaml(project_dir)
-        project_cfg = _read_yaml_file(project_yaml) or {}
         end = pd.to_datetime(project_cfg[END_DATE])
-        if pd.isna(end):
-            raise ValueError
-    except Exception:
-        # Fallback to step end_date if project config is not available
-        try:
-            end = pd.to_datetime(step_cfg[END_DATE])
-        except KeyError as e:
-            raise ValueError(
-                "Could not determine project end_date (missing project YAML and step END_DATE)"
-            ) from e
-        if pd.isna(end):
-            raise ValueError("Invalid end_date from step YAML")
+    except KeyError as e:
+        raise ValueError(f"Missing required key '{END_DATE}' in {project_yaml}") from e
+    if pd.isna(end):
+        raise ValueError(f"Invalid {END_DATE} in {project_yaml}")
     return start, end
 
 

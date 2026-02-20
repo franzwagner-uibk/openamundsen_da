@@ -248,11 +248,12 @@ def prepare_project_obs_from_summary(
         raise ValueError("accepted_event_variables must contain at least one non-empty variable")
 
     setup_dir = project_dir.parent.parent if project_dir.parent.parent.is_dir() else None
-    n = min(len(events), len(steps) - 1)
-    if n < len(events):
-        logger.warning("Only {} steps (excluding final) available for {} assimilation events; extra events will be ignored.", n, len(events))
-    if n < len(steps) - 1:
-        logger.warning("Only {} assimilation events available for {} steps; later steps will not receive obs CSVs.", len(events), len(steps) - 1)
+    expected_events = len(steps) - 1
+    if len(events) != expected_events:
+        raise ValueError(
+            f"{log_prefix}: expected exactly {expected_events} assimilation_events for {len(steps)} steps "
+            f"(one event per step except final), found {len(events)}"
+        )
 
     prod_tag = str(product).strip().upper() if product else resolve_obs_product_tag(
         variable,
@@ -263,7 +264,7 @@ def prepare_project_obs_from_summary(
     written = 0
     skipped_missing = 0
     skipped_existing = 0
-    for i in range(n):
+    for i in range(expected_events):
         step = steps[i]
         ev = events[i]
         if str(ev.variable).strip().lower() not in allowed_vars:
@@ -273,19 +274,17 @@ def prepare_project_obs_from_summary(
         start_dt = parse_datetime_opt(str(cfg.get("start_date")))
         end_dt = parse_datetime_opt(str(cfg.get("end_date")))
         if start_dt and end_dt and not (start_dt.date() <= ev.date <= end_dt.date()):
-            logger.warning(
-                "Assimilation date {} is outside step {} window ({} .. {})",
-                ev.date,
-                step.name,
-                start_dt.date(),
-                end_dt.date(),
+            raise ValueError(
+                f"{log_prefix}: assimilation date {ev.date} is outside step {step.name} window "
+                f"({start_dt.date()} .. {end_dt.date()})"
             )
 
         row = summary.by_date.get(ev.date)
         if row is None:
-            logger.debug("No summary entry for variable {} at assimilation date {}; skipping {}", variable, ev.date, step.name)
-            skipped_missing += 1
-            continue
+            raise ValueError(
+                f"{log_prefix}: missing summary row for variable {variable} at assimilation date {ev.date} "
+                f"(step {step.name})"
+            )
 
         obs_dt = datetime.combine(
             ev.date,

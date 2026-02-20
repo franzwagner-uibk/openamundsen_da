@@ -13,8 +13,13 @@ def test_write_subdomain_reports_writes_overview_and_assimilation_stats(tmp_path
     project_dir = tmp_path / "projects" / "project_2022_2023"
     sub_setup_dir = project_dir / "subdomains" / "sd_01"
     sub_project_dir = sub_setup_dir / "projects" / "project_2022_2023"
-    assim_dir = sub_project_dir / "steps" / "step_01_20221001-20221003" / "assim"
+    step_dir = sub_project_dir / "steps" / "step_01_20221001-20221003"
+    assim_dir = step_dir / "assim"
     assim_dir.mkdir(parents=True, exist_ok=True)
+    (step_dir / "step_01_20221001-20221003.yml").write_text(
+        "start_date: 2022-10-01 00:00:00\nend_date: 2022-10-03 21:00:00\n",
+        encoding="utf-8",
+    )
 
     weights_csv = assim_dir / "weights_scf_20221003.csv"
     weights_csv.write_text(

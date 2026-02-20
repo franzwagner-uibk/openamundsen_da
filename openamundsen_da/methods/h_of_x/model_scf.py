@@ -73,7 +73,9 @@ from openamundsen_da.io.paths import (
 from openamundsen_da.util.landcover_mask import (
     LandcoverMaskConfig,
     apply_landcover_mask,
+    deserialize_landcover_mask_config,
     resolve_landcover_mask,
+    serialize_landcover_mask_config,
 )
 from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.stats import sigmoid
@@ -155,34 +157,6 @@ def _grid_format_from_setup(setup_dir: Path) -> str | None:
         return None
     except Exception:
         return None
-
-
-def _serialize_lc_cfg(lc_cfg: LandcoverMaskConfig) -> dict[str, object]:
-    """Return a dict-safe representation of the land-cover config for pickling."""
-    return {
-        "enabled": lc_cfg.enabled,
-        "path": str(lc_cfg.path) if lc_cfg.path else None,
-        "classes": tuple(lc_cfg.classes),
-        "project_crs_wkt": lc_cfg.project_crs.to_wkt(),
-    }
-
-
-def _deserialize_lc_cfg(data: Any) -> LandcoverMaskConfig | None:
-    """Reconstruct LandcoverMaskConfig from serialized form."""
-    if isinstance(data, LandcoverMaskConfig):
-        return data
-    if not isinstance(data, dict):
-        return None
-    path_val = data.get("path")
-    project_crs_wkt = data.get("project_crs_wkt")
-    if project_crs_wkt is None:
-        return None
-    return LandcoverMaskConfig(
-        enabled=bool(data.get("enabled", False)),
-        path=Path(path_val) if path_val else None,
-        classes=tuple(data.get("classes") or ()),
-        project_crs=CRS.from_wkt(str(project_crs_wkt)),
-    )
 
 
 def _read_masked_array(
@@ -284,8 +258,7 @@ def _read_masked_array(
         )
         valid = _valid_mask(arr)
         if not np.any(valid):
-            logger.warning("AOI mask empty for %s; falling back to full grid.", url)
-            arr = np.ma.array(raw, copy=False)
+            raise ValueError(f"AOI contains no valid pixels after masking for raster {url}")
     if isinstance(raster, GridSlice) and raster.kind == "netcdf":
         mem.close()
     return arr
@@ -467,7 +440,7 @@ def _compute_member_scf_for_step_worker(
     extra: Dict[str, Any],
 ) -> bool:
     """Worker: compute SCF daily series for a single member results dir."""
-    lc_cfg = _deserialize_lc_cfg(extra.get("landcover_cfg"))
+    lc_cfg = deserialize_landcover_mask_config(extra.get("landcover_cfg"))
     setup_dir = Path(extra["setup_dir"])
     project_dir = Path(extra["project_dir"])
     df = compute_member_scf_daily(
@@ -551,7 +524,7 @@ def compute_step_scf_daily_for_all_members(
         worker_kwargs={
             "setup_dir": str(setup_dir),
             "project_dir": str(project_dir),
-            "landcover_cfg": _serialize_lc_cfg(lc_cfg),
+            "landcover_cfg": serialize_landcover_mask_config(lc_cfg),
         },
     )
 

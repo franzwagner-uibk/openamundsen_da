@@ -92,6 +92,7 @@ from openamundsen_da.methods.viz._utils import (
     draw_assim_labels,
     format_station_label,
 )
+from openamundsen_da.methods.viz._ensemble_meta import load_stations_table_from_steps
 
 
 # ---- Data structures --------------------------------------------------------
@@ -149,46 +150,6 @@ def _setup_id_from_dir(setup_dir: Path) -> str:
     if "_" in name:
         return name.split("_", 1)[1]
     return name
-
-
-def _read_member_perturbations(step_dir: Path) -> Dict[str, Tuple[Optional[float], Optional[float]]]:
-    """Return mapping member_name -> (delta_T, f_p) parsed from INFO.txt if present (prior)."""
-    out: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
-    members = list_member_dirs(step_dir / "ensembles", "prior")
-    import re as _re
-    for member in members:
-        info = member / "INFO.txt"
-        dT: Optional[float] = None
-        fp: Optional[float] = None
-        if info.is_file():
-            try:
-                text = info.read_text(encoding="utf-8", errors="ignore")
-                for line in text.splitlines():
-                    lower = line.lower()
-                    if "delta" in lower or "dt" in lower:
-                        m = _re.search(r"([-+]?\d+\.?\d*)", line)
-                        if m:
-                            dT = float(m.group(1))
-                    if "f_p" in lower or "precip factor" in lower:
-                        m = _re.search(r"([-+]?\d+\.?\d*)", line)
-                        if m:
-                            fp = float(m.group(1))
-            except Exception:
-                pass
-        out[member.name] = (dT, fp)
-    return out
-
-
-def _format_member_label(member_name: str, pert: Tuple[Optional[float], Optional[float]]) -> str:
-    dT, fp = pert
-    if dT is None and fp is None:
-        return member_name
-    parts: List[str] = []
-    if dT is not None:
-        parts.append(f"dT={dT:+.2f}")
-    if fp is not None:
-        parts.append(f"f_p={fp:.2f}")
-    return f"{member_name} ({', '.join(parts)})"
 
 
 def _build_member_label_map(steps: Sequence[StepInfo]) -> Dict[str, str]:
@@ -350,23 +311,6 @@ def _load_station_obs_for_setup(
     return out
 
 
-def _load_stations_table_from_steps(steps: Sequence["StepInfo"]) -> Optional[pd.DataFrame]:
-    """Load stations.csv from the first step that provides it (open_loop or member)."""
-    for st in steps:
-        base = st.path / "ensembles" / "prior"
-        candidates = [base / "open_loop" / "meteo" / "stations.csv"]
-        members = list_member_dirs(st.path / "ensembles", "prior")
-        if members:
-            candidates.append(members[0] / "meteo" / "stations.csv")
-        for p in candidates:
-            if p.is_file():
-                try:
-                    return pd.read_csv(p)
-                except Exception:
-                    continue
-    return None
-
-
 # ---- Plotting: Forcing (two-panel) -----------------------------------------
 
 
@@ -438,7 +382,7 @@ def plot_setup_forcing(
     out_root = setup_dir / "plots" / "forcing"
     out_root.mkdir(parents=True, exist_ok=True)
     setup_id = _setup_id_from_dir(setup_dir)
-    stations_df = _load_stations_table_from_steps(steps)
+    stations_df = load_stations_table_from_steps([s.path for s in steps], "prior")
     member_label_map = _build_member_label_map(steps)
     assim_dates = _assimilation_event_dates(setup_dir)
     assim_date_set = {d.date() for d in assim_dates}
@@ -685,7 +629,7 @@ def plot_setup_results(
     out_root = setup_dir / "plots" / "results"
     out_root.mkdir(parents=True, exist_ok=True)
     setup_id = _setup_id_from_dir(setup_dir)
-    stations_df = _load_stations_table_from_steps(steps)
+    stations_df = load_stations_table_from_steps([s.path for s in steps], "prior")
 
     vv = (var_col or "").strip().lower()
     if not var_label and not var_units:

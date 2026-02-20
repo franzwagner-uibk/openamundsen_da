@@ -72,45 +72,34 @@ def _normalize_event_variable(value: object) -> str:
     return v
 
 
-def _filter_project_events_to_available_obs(project_yaml: Path, *, available_by_var: dict[str, set[date]]) -> int:
+def _validate_project_events_have_obs(project_yaml: Path, *, available_by_var: dict[str, set[date]]) -> None:
     cfg = _read_yaml_file(project_yaml) or {}
     da_cfg = cfg.get("data_assimilation") or {}
     raw_events = list(da_cfg.get("assimilation_events") or [])
-    kept: list[dict] = []
-    removed = 0
+    missing: list[str] = []
 
-    for ev in raw_events:
+    for idx, ev in enumerate(raw_events, start=1):
         if not isinstance(ev, dict):
-            kept.append(ev)
-            continue
+            raise ValueError(
+                f"Expected mapping at data_assimilation.assimilation_events[{idx}], got {type(ev).__name__}"
+            )
         var = _normalize_event_variable(ev.get("variable"))
         keep_dates = available_by_var.get(var)
         if keep_dates is None:
-            kept.append(ev)
             continue
         dt = parse_datetime_opt(str(ev.get("date")))
         if dt is None:
-            kept.append(ev)
-            continue
-        if dt.date() in keep_dates:
-            kept.append(ev)
-        else:
-            removed += 1
+            raise ValueError(
+                f"Invalid or missing date at data_assimilation.assimilation_events[{idx}].date"
+            )
+        if dt.date() not in keep_dates:
+            missing.append(f"{dt.date()} ({var})")
 
-    if removed == 0:
-        return 0
-
-    da_cfg["assimilation_events"] = kept
-    cfg["data_assimilation"] = da_cfg
-    try:
-        import ruamel.yaml as _yaml
-
-        y = _yaml.YAML()
-        with project_yaml.open("w", encoding="utf-8") as f:
-            y.dump(cfg, f)
-    except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(f"Failed to write filtered assimilation_events to {project_yaml}: {exc}") from exc
-    return removed
+    if missing:
+        joined = ", ".join(sorted(missing))
+        raise ValueError(
+            f"Configured assimilation events have no local observations in {project_yaml}: {joined}"
+        )
 
 
 def _write_run_manifest(path: Path, data: dict) -> None:
@@ -187,15 +176,13 @@ def _prepare_obs_for_subdomain(sub, manifest: SubdomainManifest, *, overwrite: b
         except RuntimeError as exc:
             logger.warning("No valid wet-snow observations for {}: {}", sub.id, exc)
 
-    removed = _filter_project_events_to_available_obs(
+    _validate_project_events_have_obs(
         sub.project_yaml,
         available_by_var={
             "scf": _read_summary_dates(scf_summary),
             "wet_snow": _read_summary_dates(wet_summary),
         },
     )
-    if removed:
-        logger.info("Filtered {} assimilation event(s) without local observations in {}", removed, sub.project_yaml)
 
     # Build step folders first, then distribute per-step obs CSVs from summaries.
     create_project_skeleton(

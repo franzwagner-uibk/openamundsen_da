@@ -567,11 +567,7 @@ def prepare_subdomains(
         gdf["geometry"] = gdf.geometry.buffer(-sliver_fix_m).buffer(sliver_fix_m)
     effective_id_field = id_field
     if effective_id_field not in gdf.columns:
-        if id_field == "id" and "region_id" in gdf.columns:
-            effective_id_field = "region_id"
-            logger.info("Regions file has no 'id' field; using fallback id field 'region_id'.")
-        else:
-            raise KeyError(f"Regions file missing id field '{id_field}'")
+        raise KeyError(f"Regions file missing id field '{id_field}'")
     if gdf.crs and crs_str and gdf.crs.to_string().lower() != crs_str.lower():
         raise ValueError(f"CRS mismatch between regions ({gdf.crs}) and setup ({crs_str})")
     if len(gdf) < 2:

@@ -28,9 +28,7 @@ import rasterio
 from loguru import logger
 from rasterio import features
 from rasterio.mask import mask as rio_mask
-from pyproj import CRS
 
-from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import (
     member_id_from_results_dir,
     list_step_dirs,
@@ -44,12 +42,15 @@ from openamundsen_da.methods.daily_aoi_series import (
 from openamundsen_da.util.landcover_mask import (
     LandcoverMaskConfig,
     apply_landcover_mask,
+    deserialize_landcover_mask_config,
     resolve_landcover_mask,
+    serialize_landcover_mask_config,
 )
 from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
 from openamundsen_da.observer.class_config import load_wetsnow_classes
 from openamundsen_da.util.loguru_utils import configure_cli_logger
+from openamundsen_da.util.project_dates import resolve_project_dates
 
 
 _MODEL_WET = (1,)
@@ -66,34 +67,6 @@ class WetSnowStats:
     wet_area_m2: float | None
     valid_area_m2: float | None
     region_id: str
-
-
-def _serialize_lc_cfg(lc_cfg: LandcoverMaskConfig) -> dict[str, object]:
-    """Return a dict-friendly form of LandcoverMaskConfig."""
-    return {
-        "enabled": lc_cfg.enabled,
-        "path": str(lc_cfg.path) if lc_cfg.path else None,
-        "classes": tuple(lc_cfg.classes),
-        "project_crs_wkt": lc_cfg.project_crs.to_wkt(),
-    }
-
-
-def _deserialize_lc_cfg(data: Any) -> LandcoverMaskConfig | None:
-    """Rehydrate LandcoverMaskConfig from serialized data."""
-    if isinstance(data, LandcoverMaskConfig):
-        return data
-    if not isinstance(data, dict):
-        return None
-    path_val = data.get("path")
-    crs_wkt = data.get("project_crs_wkt")
-    if crs_wkt is None:
-        return None
-    return LandcoverMaskConfig(
-        enabled=bool(data.get("enabled", False)),
-        path=Path(path_val) if path_val else None,
-        classes=tuple(data.get("classes") or ()),
-        project_crs=CRS.from_wkt(str(crs_wkt)),
-    )
 
 
 def _find_mask_raster(
@@ -327,7 +300,7 @@ def _compute_member_daily_worker(
     """Worker: compute wet-snow daily series for a single member results dir."""
     mask_subdir = str(extra.get("mask_subdir", "wet_snow"))
     mask_prefix = str(extra.get("mask_prefix", "wet_snow_mask"))
-    lc_cfg = _deserialize_lc_cfg(extra.get("landcover_cfg"))
+    lc_cfg = deserialize_landcover_mask_config(extra.get("landcover_cfg"))
     setup_dir = Path(extra["setup_dir"])
     project_dir = Path(extra["project_dir"])
     df = compute_member_wet_snow_daily(
@@ -406,7 +379,7 @@ def compute_step_wet_snow_daily_for_all_members(
         worker_kwargs={
             "mask_subdir": mask_subdir,
             "mask_prefix": mask_prefix,
-            "landcover_cfg": _serialize_lc_cfg(lc_cfg),
+            "landcover_cfg": serialize_landcover_mask_config(lc_cfg),
             "setup_dir": str(setup_dir),
             "project_dir": str(project_dir),
         },
@@ -571,24 +544,6 @@ def _parse_s1_timestamp(name: str) -> datetime:
         except Exception:
             continue
     raise ValueError(f"Cannot parse date from {name}")
-
-
-def _resolve_project_dates(project_dir: Optional[Path], project_label: Optional[str]) -> dict[str, datetime] | None:
-    """Load start/end dates from projects/<project_label>/<project_label>.yml if present."""
-
-    if project_dir is None or project_label is None:
-        return None
-    project_yml = project_dir / "projects" / project_label / f"{project_label}.yml"
-    if not project_yml.exists():
-        return None
-    try:
-        data = _read_yaml_file(project_yml) or {}
-        start = datetime.fromisoformat(str(data.get("start_date")))
-        end = datetime.fromisoformat(str(data.get("end_date")))
-        return {"start": start, "end": end}
-    except Exception as exc:
-        logger.warning("Could not parse project dates from {}: {}", project_yml, exc)
-        return None
 
 
 def _load_obs_wetsnow_classes(project_dir: Path) -> tuple[list[int], list[int], list[int]]:
@@ -791,7 +746,7 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
     lc_cfg = resolve_landcover_mask(setup_root, project_dir_for_lc)
     wet_values, valid_values, exclude_values = _load_obs_wetsnow_classes(project_dir_for_lc)
 
-    project_dates = _resolve_project_dates(setup_root, project_label) if setup_root and project_label else None
+    project_dates = resolve_project_dates(setup_root, project_label) if project_label else None
 
     try:
         out_csv = summarize_s1_directory(

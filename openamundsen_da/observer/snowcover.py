@@ -20,6 +20,7 @@ from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.landcover_mask import LandcoverMaskConfig, apply_landcover_mask, resolve_landcover_mask
+from openamundsen_da.util.project_dates import resolve_project_dates
 from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
 from openamundsen_da.util.ts import parse_datetime_opt
@@ -294,19 +295,6 @@ def summarize_snowcover_directory(
     return written
 
 
-def _resolve_project_dates(setup_dir: Path, project_label: str) -> dict[str, datetime] | None:
-    project_yml = setup_dir / "projects" / project_label / f"{project_label}.yml"
-    if not project_yml.exists():
-        return None
-    try:
-        data = _read_yaml_file(project_yml) or {}
-        start = datetime.fromisoformat(str(data.get("start_date")))
-        end = datetime.fromisoformat(str(data.get("end_date")))
-        return {"start": start, "end": end}
-    except Exception:
-        return None
-
-
 def cli_main(argv: List[str] | None = None) -> int:
     import argparse
 
@@ -335,7 +323,7 @@ def cli_main(argv: List[str] | None = None) -> int:
     project_cfg_dir = setup_dir / "projects" / str(args.project_label)
     lc_cfg = resolve_landcover_mask(setup_dir, project_cfg_dir)
     cls = _load_classes(project_cfg_dir)
-    project_dates = _resolve_project_dates(setup_dir, args.project_label)
+    project_dates = resolve_project_dates(setup_dir, args.project_label)
 
     start = parse_datetime_opt(args.start_date) if args.start_date else None
     end = parse_datetime_opt(args.end_date) if args.end_date else None

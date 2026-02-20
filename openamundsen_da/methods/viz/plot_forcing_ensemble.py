@@ -19,7 +19,6 @@ Notes
 from __future__ import annotations
 
 import argparse
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -49,35 +48,15 @@ from openamundsen_da.methods.viz._style import (
     LEGEND_NCOL,
 )
 from openamundsen_da.methods.viz._utils import format_station_label
+from openamundsen_da.methods.viz._ensemble_meta import (
+    load_stations_table,
+    read_member_perturbations,
+)
 
 
 def _list_station_files(step_dir: Path, ensemble: str) -> Tuple[Optional[Path], List[str]]:
     """Delegate to io.paths.list_station_files_forcing for discovery."""
     return list_station_files_forcing(step_dir, ensemble)
-
-
-def _load_stations_table(step_dir: Path, ensemble: str) -> Optional[pd.DataFrame]:
-    """Load stations.csv from open_loop or first member meteo dir if available."""
-    base = step_dir / "ensembles" / ensemble
-    cand = [base / "open_loop" / "meteo" / "stations.csv"]
-    members = list_member_dirs(step_dir / "ensembles", ensemble)
-    if members:
-        cand.append(members[0] / "meteo" / "stations.csv")
-    for p in cand:
-        if p.is_file():
-            try:
-                return pd.read_csv(p)
-            except Exception:
-                return None
-    return None
-
-
-def _parse_time_index(df: pd.DataFrame, time_col: str) -> pd.DataFrame:
-    # Kept for backward compatibility; prefer util.ts.read_timeseries_csv
-    idx = pd.to_datetime(df[time_col], errors="coerce")
-    out = df.copy()
-    out.index = idx
-    return out
 
 
 def _read_station_series(csv_path: Path, time_col: str, temp_col: str, precip_col: str) -> pd.DataFrame:
@@ -96,29 +75,6 @@ def _read_station_series(csv_path: Path, time_col: str, temp_col: str, precip_co
 
 
     # removed: use util.ts and util.stats helpers
-
-
-def _read_member_perturbations(step_dir: Path, ensemble: str) -> Dict[str, Tuple[Optional[float], Optional[float]]]:
-    """Return mapping member_name -> (delta_T, f_p) parsed from INFO.txt if present."""
-    out: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
-    members = list_member_dirs(step_dir / "ensembles", ensemble)
-    for m in members:
-        info = m / "INFO.txt"
-        dT: Optional[float] = None
-        fp: Optional[float] = None
-        if info.is_file():
-            try:
-                text = info.read_text(encoding="utf-8", errors="ignore")
-                m1 = re.search(r"delta_T\s*\(additive\)\s*:\s*([+-]?\d+\.?\d*)", text, re.IGNORECASE)
-                m2 = re.search(r"precip factor\s*f_p\s*:\s*([+-]?\d+\.?\d*)", text, re.IGNORECASE)
-                if m1:
-                    dT = float(m1.group(1))
-                if m2:
-                    fp = float(m2.group(1))
-            except Exception:
-                pass
-        out[m.name] = (dT, fp)
-    return out
 
 
 def _plot_station(
@@ -269,10 +225,10 @@ def cli_main(argv: Iterable[str] | None = None, *, configure_logger: bool = True
         return 3
 
     # Member perturbation labels for legend (if INFO.txt present)
-    pert_labels: Dict[str, Tuple[Optional[float], Optional[float]]] = _read_member_perturbations(Path(args.step_dir), args.ensemble)
+    pert_labels: Dict[str, Tuple[Optional[float], Optional[float]]] = read_member_perturbations(Path(args.step_dir), args.ensemble)
 
     out_root = args.output_dir if args.output_dir else (Path(args.step_dir) / "plots" / "forcing")
-    stations_df = _load_stations_table(Path(args.step_dir), args.ensemble)
+    stations_df = load_stations_table(Path(args.step_dir), args.ensemble)
     step_name = Path(args.step_dir).name
     effective_title = f"{args.title} | {step_name}" if args.title else step_name
 

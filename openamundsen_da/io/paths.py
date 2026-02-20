@@ -178,18 +178,19 @@ def find_step_yaml(step_dir: str | Path) -> Path:
 def read_step_config(step_dir: str | Path) -> dict[str, Any]:
     """Read and return the step YAML as a dict.
 
-    Best-effort reader using ruamel.yaml safe loader. Returns an empty dict
-    if reading fails for any reason.
+    Uses ruamel.yaml safe loader and raises on invalid/missing YAML.
     """
-    try:
-        import ruamel.yaml as _yaml
+    import ruamel.yaml as _yaml
 
-        yml = find_step_yaml(step_dir)
-        y = _yaml.YAML(typ="safe")
-        with Path(yml).open("r", encoding="utf-8") as f:
-            return y.load(f) or {}
-    except Exception:
+    yml = find_step_yaml(step_dir)
+    y = _yaml.YAML(typ="safe")
+    with Path(yml).open("r", encoding="utf-8") as f:
+        loaded = y.load(f)
+    if loaded is None:
         return {}
+    if not isinstance(loaded, dict):
+        raise ValueError(f"Step YAML root must be a mapping: {yml}")
+    return loaded
 
 # ---- Project step discovery helpers -----------------------------------------
 
@@ -215,13 +216,15 @@ def list_steps_sorted(project_dir: str | Path) -> list[Path]:
     """List step_* directories sorted by start_date then name."""
     items: list[tuple[datetime, Path]] = []
     for p in list_step_dirs(project_dir):
-        cfg = read_step_config(p) or {}
+        cfg = read_step_config(p)
+        sd = cfg.get("start_date")
+        if sd is None or str(sd).strip() == "":
+            raise ValueError(f"Missing required key 'start_date' in step YAML under {p}")
         try:
-            sd = cfg.get("start_date")
-            start = datetime.fromisoformat(str(sd)) if sd else None
-        except Exception:
-            start = None
-        items.append((start or datetime.min, p))
+            start = datetime.fromisoformat(str(sd))
+        except Exception as exc:
+            raise ValueError(f"Invalid start_date in step YAML under {p}: {sd!r}") from exc
+        items.append((start, p))
     items.sort(key=lambda t: (t[0], t[1].name))
     return [p for _, p in items]
 

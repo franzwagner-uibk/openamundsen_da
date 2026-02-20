@@ -11,7 +11,7 @@ import csv
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, Tuple
+from typing import Any, Iterable, Tuple
 
 import numpy as np
 import rasterio
@@ -70,6 +70,34 @@ class LandcoverMaskSummary:
     masked_cells: int
     masked_area_km2: float
     classes: tuple[LandcoverMaskClassSummary, ...]
+
+
+def serialize_landcover_mask_config(lc_cfg: LandcoverMaskConfig) -> dict[str, object]:
+    """Return a dict-safe representation of LandcoverMaskConfig."""
+    return {
+        "enabled": lc_cfg.enabled,
+        "path": str(lc_cfg.path) if lc_cfg.path else None,
+        "classes": tuple(lc_cfg.classes),
+        "project_crs_wkt": lc_cfg.project_crs.to_wkt(),
+    }
+
+
+def deserialize_landcover_mask_config(data: Any) -> LandcoverMaskConfig | None:
+    """Reconstruct LandcoverMaskConfig from serialized form."""
+    if isinstance(data, LandcoverMaskConfig):
+        return data
+    if not isinstance(data, dict):
+        return None
+    path_val = data.get("path")
+    project_crs_wkt = data.get("project_crs_wkt")
+    if project_crs_wkt is None:
+        return None
+    return LandcoverMaskConfig(
+        enabled=bool(data.get("enabled", False)),
+        path=Path(path_val) if path_val else None,
+        classes=tuple(data.get("classes") or ()),
+        project_crs=CRS.from_wkt(str(project_crs_wkt)),
+    )
 
 
 def _format_resolution(resolution: object) -> str:
@@ -343,6 +371,8 @@ def write_landcover_mask_report(summary: LandcoverMaskSummary, output_path: Path
 
 __all__ = [
     "LandcoverMaskConfig",
+    "serialize_landcover_mask_config",
+    "deserialize_landcover_mask_config",
     "resolve_landcover_mask",
     "apply_landcover_mask",
     "summarize_landcover_mask",

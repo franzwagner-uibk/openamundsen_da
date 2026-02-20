@@ -56,13 +56,13 @@ def _load_config(config_path: Path | None) -> dict:
     if not config_path:
         return {}
     if not config_path.is_file():
-        logger.warning("Config not found at {} â€“ using CLI/defaults", config_path)
+        raise FileNotFoundError(f"Config not found: {config_path}")
+    cfg = _read_yaml_file(config_path)
+    if cfg is None:
         return {}
-    try:
-        return _read_yaml_file(config_path) or {}
-    except Exception:
-        logger.warning("Failed to read config {} â€“ using CLI/defaults", config_path)
-        return {}
+    if not isinstance(cfg, dict):
+        raise ValueError(f"Config root must be a mapping: {config_path}")
+    return cfg
 
 
 def _var_filter_cfg(variable: str, cfg: dict, args: argparse.Namespace) -> dict:

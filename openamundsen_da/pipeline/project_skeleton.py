@@ -34,7 +34,6 @@ step folders and minimal step YAMLs (start_date, end_date, results_dir).
 from __future__ import annotations
 
 import re
-import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -42,8 +41,9 @@ from typing import List
 
 from loguru import logger
 
-from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.io.paths import find_setup_yaml, find_project_yaml
+from openamundsen_da.util.loguru_utils import configure_cli_logger
+from openamundsen_da.util.yaml_utils import read_yaml_mapping
 
 
 @dataclass(frozen=True)
@@ -51,18 +51,6 @@ class ProjectConfig:
     start: datetime
     end: datetime
     assimilation_event_dates: List[datetime]
-
-
-def _read_yaml(path: Path) -> dict:
-    try:
-        import ruamel.yaml as _yaml
-
-        y = _yaml.YAML(typ="safe")
-        with path.open("r", encoding="utf-8") as f:
-            data = y.load(f) or {}
-        return data
-    except Exception as exc:  # pragma: no cover - defensive
-        raise RuntimeError(f"Could not read YAML from {path}: {exc}") from exc
 
 
 def _parse_datetime(text: str | None) -> datetime:
@@ -115,12 +103,12 @@ def _parse_timestep(freq: str | None) -> timedelta:
 
 def _load_project_config(setup_dir: Path, project_dir: Path) -> tuple[timedelta, ProjectConfig]:
     setup_yaml = find_setup_yaml(setup_dir)
-    setup_cfg = _read_yaml(setup_yaml)
+    setup_cfg = read_yaml_mapping(setup_yaml, error_cls=RuntimeError, context="Setup YAML root")
     ts = setup_cfg.get("timestep")
     dt = _parse_timestep(ts)
 
     project_yaml = find_project_yaml(project_dir)
-    cfg = _read_yaml(project_yaml)
+    cfg = read_yaml_mapping(project_yaml, error_cls=RuntimeError, context="Project YAML root")
     start = _parse_datetime(str(cfg.get("start_date")))
     end = _parse_datetime(str(cfg.get("end_date")))
 
@@ -265,8 +253,7 @@ def cli(argv: list[str] | None = None) -> int:
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(argv)
 
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level)
 
     try:
         create_project_skeleton(

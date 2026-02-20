@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import List
 
 from loguru import logger
 
-from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.methods.wet_snow.area import summarize_s1_directory
 from openamundsen_da.io.paths import find_project_yaml
 from openamundsen_da.observer.class_config import load_wetsnow_classes
 from openamundsen_da.util.ts import parse_datetime_opt
 from openamundsen_da.util.landcover_mask import resolve_landcover_mask
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
 
 
@@ -37,8 +36,7 @@ def cli_main(argv: List[str] | None = None) -> int:
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(argv)
 
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level)
 
     setup_dir = Path(args.setup_dir) if args.setup_dir else Path.cwd()
     default_root = setup_dir / "obs" / "summaries"

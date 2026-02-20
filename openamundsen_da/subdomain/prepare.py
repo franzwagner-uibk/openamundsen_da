@@ -27,6 +27,7 @@ from openamundsen_da.io.paths import (
     find_setup_yaml,
 )
 from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta, WindowSpec
+from openamundsen_da.util.yaml_utils import read_yaml_mapping
 from openamundsen_da.util.roi_grid import ensure_setup_roi_grid, load_setup_roi_mask
 from openamundsen_da.util.run_mode import ensure_run_mode
 
@@ -37,20 +38,6 @@ class GridPaths:
     svf: Optional[Path]
     srf: Optional[Path]
     lc: Optional[Path]
-
-
-def _read_yaml(path: Path) -> dict:
-    try:
-        import ruamel.yaml as _yaml
-
-        y = _yaml.YAML(typ="safe")
-        with Path(path).open("r", encoding="utf-8") as f:
-            data = y.load(f) or {}
-        if not isinstance(data, dict):
-            raise ValueError(f"YAML root must be a mapping in {path}")
-        return data
-    except Exception as exc:
-        raise ValueError(f"Could not parse config at {path}: {exc}") from exc
 
 
 def _nested_dir(cfg: dict, keys: tuple[str, ...], default_rel: str) -> Path:
@@ -532,8 +519,8 @@ def prepare_subdomains(
     ensure_run_mode(project_dir, expected="subdomain", write_if_missing=True)
     setup_yaml = find_setup_yaml(setup_dir)
     project_yaml = find_project_yaml(project_dir)
-    setup_cfg = _read_yaml(setup_yaml)
-    project_cfg = _read_yaml(project_yaml)
+    setup_cfg = read_yaml_mapping(setup_yaml, error_cls=ValueError, context="Setup YAML root")
+    project_cfg = read_yaml_mapping(project_yaml, error_cls=ValueError, context="Project YAML root")
 
     grid_buffer_m = float(grid_buffer_m if grid_buffer_m is not None else 0.0)
     station_buffer_m = float(station_buffer_m)

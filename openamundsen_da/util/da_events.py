@@ -8,6 +8,7 @@ from pathlib import Path
 
 from openamundsen_da.io.paths import find_project_yaml
 from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
+from openamundsen_da.util.yaml_utils import read_yaml_mapping
 
 
 @dataclass(frozen=True)
@@ -15,18 +16,6 @@ class AssimilationEvent:
     date: date
     variable: str
     product: str
-
-
-def _read_yaml(path: Path) -> dict:
-    """Read a YAML file into a dict (best-effort)."""
-    try:
-        import ruamel.yaml as _yaml
-
-        y = _yaml.YAML(typ="safe")
-        with path.open("r", encoding="utf-8") as f:
-            return y.load(f) or {}
-    except Exception as exc:  # pragma: no cover - defensive
-        raise RuntimeError(f"Could not read YAML from {path}: {exc}") from exc
 
 
 def _parse_event_date(text: str | None) -> date:
@@ -56,9 +45,7 @@ def _parse_event_variable(raw: object, *, idx: int) -> str:
 def load_assimilation_events(project_dir: Path) -> list[AssimilationEvent]:
     """Load assimilation events from project YAML (variable/product per date)."""
     project_yaml = find_project_yaml(project_dir)
-    cfg = _read_yaml(project_yaml) or {}
-    if not isinstance(cfg, dict):
-        raise ValueError(f"Expected mapping at project YAML root: {project_yaml}")
+    cfg = read_yaml_mapping(project_yaml, error_cls=RuntimeError, context="Project YAML root")
     setup_dir = project_dir.parent.parent if project_dir.parent.parent.is_dir() else None
 
     events: list[AssimilationEvent] = []

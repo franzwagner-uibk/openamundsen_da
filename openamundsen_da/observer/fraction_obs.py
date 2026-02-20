@@ -86,6 +86,36 @@ def build_obs_csv_path(
     )
 
 
+def build_obs_candidate_paths(
+    *,
+    step_dir: Path,
+    variable: str,
+    date: datetime,
+    product: str | None,
+) -> list[Path]:
+    """Return default observation filename candidates (untagged first, then tagged)."""
+    candidates = [
+        build_obs_csv_path(
+            step_dir=step_dir,
+            variable=variable,
+            date=date,
+            product=None,
+            include_product_tag=False,
+        )
+    ]
+    if str(product or "").strip():
+        candidates.append(
+            build_obs_csv_path(
+                step_dir=step_dir,
+                variable=variable,
+                date=date,
+                product=product,
+                include_product_tag=True,
+            )
+        )
+    return candidates
+
+
 def write_obs_from_summary_row(
     *,
     step_dir: Path,

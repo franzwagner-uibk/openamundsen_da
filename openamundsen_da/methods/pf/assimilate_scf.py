@@ -50,7 +50,8 @@ from openamundsen_da.methods.wet_snow.area import compute_model_wet_snow_fractio
 from openamundsen_da.util.stats import gaussian_logpdf, normalize_log_weights, effective_sample_size, compute_obs_sigma
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.util.landcover_mask import LandcoverMaskConfig, resolve_landcover_mask
-from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
+from openamundsen_da.observer.fraction_obs import build_obs_candidate_paths, resolve_obs_product_tag
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
 @dataclass
@@ -130,7 +131,7 @@ def assimilate_fraction_for_date(
     obs_csv: Optional[Path] = None,
     value_col: str,
     observable: str,
-    obs_patterns: Sequence[str],
+    obs_candidates: Sequence[Path],
     model_eval: Callable[[Path, Path, datetime], float],
 ) -> pd.DataFrame:
     """Generic fraction assimilation for one observable/date.
@@ -141,21 +142,16 @@ def assimilate_fraction_for_date(
     lk = _read_likelihood_from_project(infer_project_dir(step_dir), observable)
 
     # Read observation
-    patterns = list(obs_patterns)
+    candidates = list(obs_candidates)
     if obs_csv is not None:
         obs_path = obs_csv
     else:
-        obs_dir = step_dir / OBS_DIR_NAME
-        candidates = [
-            obs_dir / patt.format(yyyymmdd=date.strftime("%Y%m%d"))
-            for patt in patterns
-        ]
         obs_path = next((p for p in candidates if p.exists()), None)
         if obs_path is None:
             missing = ", ".join(p.name for p in candidates) or "<none>"
             raise FileNotFoundError(
                 f"Observation CSV not found for {observable} at {date.date()}: "
-                f"expected one of [{missing}] under {obs_dir}"
+                f"expected one of [{missing}] under {step_dir / OBS_DIR_NAME}"
             )
     obs = _read_obs(obs_path, value_col)
     y = float(obs[value_col])
@@ -215,9 +211,12 @@ def assimilate_scf_for_date(
     method, variable, hofx_params = load_hofx_from_project(project_dir)
     lc_cfg = landcover_cfg or resolve_landcover_mask(setup_dir, project_dir)
     prod_tag = str(product).strip().upper() if product else resolve_obs_product_tag("scf", setup_dir=setup_dir, project_dir=project_dir)
-    obs_patterns = ["obs_scf_{yyyymmdd}.csv"]
-    if prod_tag:
-        obs_patterns.append(f"obs_scf_{prod_tag}_{{yyyymmdd}}.csv")
+    obs_candidates = build_obs_candidate_paths(
+        step_dir=step_dir,
+        variable="scf",
+        date=date,
+        product=prod_tag,
+    )
 
     def _model_eval(results_dir: Path, aoi_path: Path, dt: datetime) -> float:
         out = compute_model_scf(
@@ -242,7 +241,7 @@ def assimilate_scf_for_date(
         obs_csv=obs_csv,
         value_col="scf",
         observable="scf",
-        obs_patterns=obs_patterns,
+        obs_candidates=obs_candidates,
         model_eval=_model_eval,
     )
     # Preserve SCF-specific column names for downstream tools.
@@ -265,9 +264,12 @@ def assimilate_wet_snow_for_date(
     project_dir = infer_project_dir(step_dir)
     lc_cfg = landcover_cfg or resolve_landcover_mask(setup_dir, project_dir)
     prod_tag = str(product).strip().upper() if product else resolve_obs_product_tag("wet_snow", setup_dir=setup_dir, project_dir=project_dir)
-    obs_patterns = ["obs_wet_snow_{yyyymmdd}.csv"]
-    if prod_tag:
-        obs_patterns.append(f"obs_wet_snow_{prod_tag}_{{yyyymmdd}}.csv")
+    obs_candidates = build_obs_candidate_paths(
+        step_dir=step_dir,
+        variable="wet_snow",
+        date=date,
+        product=prod_tag,
+    )
 
     def _model_eval(results_dir: Path, aoi_path: Path, dt: datetime) -> float:
         out = compute_model_wet_snow_fraction(
@@ -289,7 +291,7 @@ def assimilate_wet_snow_for_date(
         obs_csv=obs_csv,
         value_col="wet_snow_fraction",
         observable="wet_snow",
-        obs_patterns=obs_patterns,
+        obs_candidates=obs_candidates,
         model_eval=_model_eval,
     )
     df = df.rename(columns={"value_model": "wet_snow_model", "value_obs": "wet_snow_obs"})
@@ -323,8 +325,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     # Logger
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level)
 
     # Run
     try:
@@ -379,8 +380,7 @@ def cli_main_wet_snow(argv: list[str] | None = None) -> int:
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(argv)
 
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level)
 
     try:
         step_dir = Path(args.step_dir)

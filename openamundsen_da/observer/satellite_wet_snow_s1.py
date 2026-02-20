@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 from loguru import logger
 
-from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.observer.fraction_obs import (
     prepare_project_obs_from_summary,
 )
+from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
 def generate_project_from_summary(
@@ -59,8 +58,7 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    logger.remove()
-    logger.add(sys.stdout, level=args.log_level.upper(), colorize=True, enqueue=True, format=LOGURU_FORMAT)
+    configure_cli_logger(args.log_level)
 
     project_dir = args.project_dir
     if args.summary_csv is not None:

@@ -91,11 +91,6 @@ da_cfg["assimilation_events"] = [
         "variable": "scf",
         "product": "SNOWCOVER",
     },
-    {
-        "date": "2023-03-24",
-        "variable": "wet_snow",
-        "product": "S1",
-    },
 ]
 project_cfg["data_assimilation"] = da_cfg
 

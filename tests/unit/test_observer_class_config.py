@@ -7,8 +7,7 @@ from pathlib import Path
 from ruamel.yaml import YAML
 
 from openamundsen_da.observer.snowcover import _load_classes as load_snowcover_classes
-from openamundsen_da.observer.wetsnow import _load_wetsnow_classes as load_wetsnow_classes
-from openamundsen_da.subdomain.run import _load_wetsnow_classes as load_subdomain_wetsnow_classes
+from openamundsen_da.observer.class_config import load_wetsnow_classes
 
 
 def _write_project_yaml(project_dir: Path, payload: dict) -> None:
@@ -60,7 +59,7 @@ class ObserverClassConfigTests(unittest.TestCase):
             self.assertEqual(classes.water, [210])
             self.assertEqual(classes.nodata, [255])
 
-    def test_wetsnow_classes_are_required_for_observer_and_subdomain(self):
+    def test_wetsnow_classes_are_required(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "setup" / "projects" / "project_ci_2022_2023"
             _write_project_yaml(
@@ -76,11 +75,7 @@ class ObserverClassConfigTests(unittest.TestCase):
                 load_wetsnow_classes(project_dir)
             self.assertIn("project.obs.wetsnow.classes", str(ctx_observer.exception))
 
-            with self.assertRaises(ValueError) as ctx_subdomain:
-                load_subdomain_wetsnow_classes(project_dir)
-            self.assertIn("project.obs.wetsnow.classes", str(ctx_subdomain.exception))
-
-    def test_wetsnow_classes_are_loaded_for_observer_and_subdomain(self):
+    def test_wetsnow_classes_are_loaded(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "setup" / "projects" / "project_ci_2022_2023"
             _write_project_yaml(
@@ -101,9 +96,6 @@ class ObserverClassConfigTests(unittest.TestCase):
 
             wet_obs = load_wetsnow_classes(project_dir)
             self.assertEqual(wet_obs, ([1, 2], [1, 2, 3, 4, 255], [5, 6]))
-
-            wet_subdomain = load_subdomain_wetsnow_classes(project_dir)
-            self.assertEqual(wet_subdomain, ([1, 2], [1, 2, 3, 4, 255], [5, 6]))
 
 
 if __name__ == "__main__":

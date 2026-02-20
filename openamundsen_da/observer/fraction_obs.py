@@ -13,7 +13,7 @@ to avoid duplicating CSV handling.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping
 
@@ -28,11 +28,12 @@ from openamundsen_da.io.paths import (
     list_steps_sorted as io_list_steps_sorted,
     read_step_config,
 )
+from openamundsen_da.util.ts import parse_datetime_opt
 
 
 @dataclass(frozen=True)
 class SummaryIndex:
-    by_date: Dict[datetime, pd.Series]
+    by_date: Dict[date, pd.Series]
 
 
 def read_fraction_summary(summary_csv: Path, *, date_col: str = "date") -> SummaryIndex:
@@ -41,7 +42,7 @@ def read_fraction_summary(summary_csv: Path, *, date_col: str = "date") -> Summa
     if not summary_csv.is_file():
         raise FileNotFoundError(f"Summary CSV not found: {summary_csv}")
     df = pd.read_csv(summary_csv, parse_dates=[date_col])
-    by_date: Dict[datetime, pd.Series] = {}
+    by_date: Dict[date, pd.Series] = {}
     for _, row in df.iterrows():
         datum = row[date_col]
         if not pd.notna(datum):
@@ -50,30 +51,39 @@ def read_fraction_summary(summary_csv: Path, *, date_col: str = "date") -> Summa
     return SummaryIndex(by_date=by_date)
 
 
-def _parse_dt_opt(text: str | None) -> datetime | None:
-    if not text:
-        return None
-    t = str(text).strip().replace("_", "-")
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(t, fmt)
-        except Exception:
-            continue
-    try:
-        return datetime.fromisoformat(t)
-    except Exception:
-        return None
-
-
 def list_steps_sorted(project_dir: Path) -> List[Path]:
     """Return step_* directories sorted by their start_date."""
-    items: List[tuple[datetime, Path]] = []
-    for p in io_list_steps_sorted(project_dir):
-        cfg = read_step_config(p) or {}
-        start = _parse_dt_opt(str(cfg.get("start_date")))
-        items.append((start or datetime.min, p))
-    items.sort(key=lambda t: (t[0], t[1].name))
-    return [p for _, p in items]
+    return io_list_steps_sorted(project_dir)
+
+
+def build_obs_filename(
+    *,
+    variable: str,
+    date: datetime,
+    product: str | None,
+    include_product_tag: bool = False,
+) -> str:
+    tag = str(product).strip() if product else ""
+    filename = f"obs_{variable}_{date.strftime('%Y%m%d')}.csv"
+    if include_product_tag and tag:
+        filename = f"obs_{variable}_{tag}_{date.strftime('%Y%m%d')}.csv"
+    return filename
+
+
+def build_obs_csv_path(
+    *,
+    step_dir: Path,
+    variable: str,
+    date: datetime,
+    product: str | None,
+    include_product_tag: bool = False,
+) -> Path:
+    return step_dir / OBS_DIR_NAME / build_obs_filename(
+        variable=variable,
+        date=date,
+        product=product,
+        include_product_tag=include_product_tag,
+    )
 
 
 def write_obs_from_summary_row(
@@ -91,11 +101,12 @@ def write_obs_from_summary_row(
 
     out_dir = step_dir / OBS_DIR_NAME
     out_dir.mkdir(parents=True, exist_ok=True)
-    tag = str(product).strip() if product else ""
-    fname = f"obs_{variable}_{date.strftime('%Y%m%d')}.csv"
-    if include_product_tag and tag:
-        fname = f"obs_{variable}_{tag}_{date.strftime('%Y%m%d')}.csv"
-    out_csv = out_dir / fname
+    out_csv = out_dir / build_obs_filename(
+        variable=variable,
+        date=date,
+        product=product,
+        include_product_tag=include_product_tag,
+    )
     if out_csv.exists() and not overwrite:
         logger.info("Skipping existing obs CSV for {} (step {})", date.strftime("%Y-%m-%d"), step_dir.name)
         return out_csv
@@ -172,5 +183,115 @@ def resolve_obs_product_tag(
         raise ValueError("Could not resolve setup directory for product tag lookup")
     cfg = _read_yaml_file(find_setup_yaml(setup_root)) or {}
     return _require_product_tag(cfg, key=key, source="setup")
+
+
+def prepare_project_obs_from_summary(
+    project_dir: Path,
+    summary_csv: Path,
+    *,
+    variable: str,
+    value_col: str,
+    accepted_event_variables: Iterable[str],
+    product: str | None,
+    overwrite: bool,
+    include_product_tag: bool = True,
+    use_step_start_time: bool = False,
+    summary_date_col: str = "date",
+    log_prefix: str = "Project summary prep",
+) -> tuple[int, int, int]:
+    """Create per-step observation CSVs from a project-level summary CSV."""
+    from openamundsen_da.util.da_events import load_assimilation_events
+
+    if not project_dir.is_dir():
+        raise FileNotFoundError(f"Project directory not found: {project_dir}")
+    if not summary_csv.is_file():
+        raise FileNotFoundError(f"Summary CSV not found: {summary_csv}")
+
+    summary = read_fraction_summary(summary_csv, date_col=summary_date_col)
+    events = load_assimilation_events(project_dir)
+    steps = list_steps_sorted(project_dir)
+    if len(steps) < 2:
+        raise FileNotFoundError(f"Not enough steps to derive assimilation dates under {project_dir}")
+
+    allowed_vars = {str(v).strip().lower() for v in accepted_event_variables if str(v).strip()}
+    if not allowed_vars:
+        raise ValueError("accepted_event_variables must contain at least one non-empty variable")
+
+    setup_dir = project_dir.parent.parent if project_dir.parent.parent.is_dir() else None
+    n = min(len(events), len(steps) - 1)
+    if n < len(events):
+        logger.warning("Only {} steps (excluding final) available for {} assimilation events; extra events will be ignored.", n, len(events))
+    if n < len(steps) - 1:
+        logger.warning("Only {} assimilation events available for {} steps; later steps will not receive obs CSVs.", len(events), len(steps) - 1)
+
+    prod_tag = str(product).strip().upper() if product else resolve_obs_product_tag(
+        variable,
+        setup_dir=setup_dir,
+        project_dir=project_dir,
+    )
+
+    written = 0
+    skipped_missing = 0
+    skipped_existing = 0
+    for i in range(n):
+        step = steps[i]
+        ev = events[i]
+        if str(ev.variable).strip().lower() not in allowed_vars:
+            continue
+
+        cfg = read_step_config(step) or {}
+        start_dt = parse_datetime_opt(str(cfg.get("start_date")))
+        end_dt = parse_datetime_opt(str(cfg.get("end_date")))
+        if start_dt and end_dt and not (start_dt.date() <= ev.date <= end_dt.date()):
+            logger.warning(
+                "Assimilation date {} is outside step {} window ({} .. {})",
+                ev.date,
+                step.name,
+                start_dt.date(),
+                end_dt.date(),
+            )
+
+        row = summary.by_date.get(ev.date)
+        if row is None:
+            logger.debug("No summary entry for variable {} at assimilation date {}; skipping {}", variable, ev.date, step.name)
+            skipped_missing += 1
+            continue
+
+        obs_dt = datetime.combine(
+            ev.date,
+            (start_dt or datetime.min).time() if use_step_start_time else datetime.min.time(),
+        )
+        out_csv = build_obs_csv_path(
+            step_dir=step,
+            variable=variable,
+            date=obs_dt,
+            product=prod_tag,
+            include_product_tag=include_product_tag,
+        )
+        if out_csv.exists() and not overwrite:
+            logger.info("Skipping existing obs CSV for {} (step {})", obs_dt.strftime("%Y-%m-%d"), step.name)
+            skipped_existing += 1
+            continue
+
+        write_obs_from_summary_row(
+            step_dir=step,
+            date=obs_dt,
+            row=row,
+            value_col=value_col,
+            product=prod_tag,
+            variable=variable,
+            overwrite=overwrite,
+            include_product_tag=include_product_tag,
+        )
+        written += 1
+
+    logger.info(
+        "{} complete: written={} skipped_missing={} skipped_existing={}",
+        log_prefix,
+        written,
+        skipped_missing,
+        skipped_existing,
+    )
+    return written, skipped_missing, skipped_existing
 
 

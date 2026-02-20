@@ -43,11 +43,6 @@ class RunResult:
     run_manifest: Optional[Path] = None
 
 
-def _load_wetsnow_classes(project_dir: Path) -> tuple[list[int], list[int], list[int]]:
-    # Kept as thin wrapper for backward-compatible imports in tests/callers.
-    return load_wetsnow_classes(project_dir)
-
-
 def _project_window(project_yaml: Path) -> tuple[datetime | None, datetime | None]:
     cfg = _read_yaml_file(project_yaml) or {}
     start = parse_datetime_opt(str(cfg.get("start_date"))) if cfg.get("start_date") is not None else None
@@ -173,7 +168,7 @@ def _prepare_obs_for_subdomain(sub, manifest: SubdomainManifest, *, overwrite: b
     if "wet_snow" in variables:
         if not manifest.raw_wetsnow_dir.is_dir():
             raise FileNotFoundError(f"Raw wet-snow directory not found: {manifest.raw_wetsnow_dir}")
-        wet, valid, exclude = _load_wetsnow_classes(sub.project_dir)
+        wet, valid, exclude = load_wetsnow_classes(sub.project_dir)
         try:
             summarize_s1_directory(
                 setup_dir=sub.setup_dir,

@@ -3,38 +3,15 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime
 from pathlib import Path
-from typing import List, Tuple
+from typing import List
 
-import pandas as pd
 from loguru import logger
 
-from openamundsen_da.core.constants import OBS_DIR_NAME, LOGURU_FORMAT
-from openamundsen_da.io.paths import read_step_config
+from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.observer.fraction_obs import (
-    list_steps_sorted,
-    read_fraction_summary,
-    resolve_obs_product_tag,
-    write_obs_from_summary_row,
+    prepare_project_obs_from_summary,
 )
-from openamundsen_da.util.da_events import load_assimilation_events
-
-
-def _parse_dt_opt(text: str | None) -> datetime | None:
-    """Best-effort datetime parser for step YAML values."""
-    if not text:
-        return None
-    t = str(text).strip().replace("_", "-")
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(t, fmt)
-        except Exception:
-            continue
-    try:
-        return datetime.fromisoformat(t)
-    except Exception:
-        return None
 
 
 def generate_project_from_summary(
@@ -45,75 +22,18 @@ def generate_project_from_summary(
     overwrite: bool,
 ) -> None:
     """Extract per-step obs CSVs from a project-wide ``scf_summary.csv``."""
-
-    if not project_dir.is_dir():
-        raise FileNotFoundError(f"Project directory not found: {project_dir}")
-    if not summary_csv.is_file():
-        raise FileNotFoundError(f"Summary CSV not found: {summary_csv}")
-
-    summary = read_fraction_summary(summary_csv, date_col="date")
-
-    steps = list_steps_sorted(project_dir)
-    if len(steps) < 2:
-        raise FileNotFoundError(f"Not enough steps to derive assimilation dates under {project_dir}")
-
-    setup_dir = project_dir.parent.parent if project_dir.parent.parent.is_dir() else None
-    events = load_assimilation_events(project_dir)
-    n = min(len(events), len(steps) - 1)
-    if n < len(events):
-        logger.warning("Only {} steps (excluding final) available for {} assimilation events; extra events will be ignored.", n, len(events))
-    if n < len(steps) - 1:
-        logger.warning("Only {} assimilation events available for {} steps; later steps will not receive obs CSVs.", len(events), len(steps) - 1)
-
-    prod_tag = str(product).strip().upper() if product else resolve_obs_product_tag("scf", setup_dir=setup_dir, project_dir=project_dir)
-
-    written = skipped_missing = skipped_existing = 0
-    for i in range(n):
-        ev = events[i]
-        # Only handle SCF assimilation events here; skip others silently.
-        if str(ev.variable).lower() != "scf":
-            continue
-        curr_cfg = read_step_config(steps[i]) or {}
-        start_dt = _parse_dt_opt(str(curr_cfg.get("start_date")))
-        end_dt = _parse_dt_opt(str(curr_cfg.get("end_date")))
-        if start_dt and end_dt:
-            if not (start_dt.date() <= ev.date <= end_dt.date()):
-                logger.warning(
-                    "Assimilation date {} is outside step {} window ({} .. {})",
-                    ev.date,
-                    steps[i].name,
-                    start_dt.date(),
-                    end_dt.date(),
-                )
-
-        row = summary.by_date.get(ev.date)
-        if row is None:
-            logger.debug("No SCF summary entry for assimilation date {}; skipping {}", ev.date, steps[i].name)
-            skipped_missing += 1
-            continue
-
-        out_csv = steps[i] / OBS_DIR_NAME / f"obs_scf_{prod_tag}_{ev.date.strftime('%Y%m%d')}.csv"
-        if out_csv.exists() and not overwrite:
-            logger.info("Skipping existing obs CSV for {} (step {})", ev.date.strftime("%Y-%m-%d"), steps[i].name)
-            skipped_existing += 1
-            continue
-
-        write_obs_from_summary_row(
-            step_dir=steps[i],
-            date=datetime.combine(ev.date, datetime.min.time()),
-            row=row,
-            value_col="scf",
-            product=prod_tag,
-            variable="scf",
-            overwrite=overwrite,
-        )
-        written += 1
-
-    logger.info(
-        "Project summary prep complete: written={} skipped_missing={} skipped_existing={}",
-        written,
-        skipped_missing,
-        skipped_existing,
+    prepare_project_obs_from_summary(
+        project_dir=project_dir,
+        summary_csv=summary_csv,
+        variable="scf",
+        value_col="scf",
+        accepted_event_variables=("scf",),
+        product=product,
+        overwrite=overwrite,
+        include_product_tag=True,
+        use_step_start_time=False,
+        summary_date_col="date",
+        log_prefix="SCF project summary prep",
     )
 
 

@@ -18,11 +18,6 @@ from openamundsen_da.util.landcover_mask import resolve_landcover_mask
 from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
 
 
-def _load_wetsnow_classes(project_dir: Path) -> tuple[list[int], list[int], list[int]]:
-    # Kept as thin wrapper for backward-compatible imports in tests/callers.
-    return load_wetsnow_classes(project_dir)
-
-
 def cli_main(argv: List[str] | None = None) -> int:
     import argparse
 
@@ -64,7 +59,7 @@ def cli_main(argv: List[str] | None = None) -> int:
         except Exception:
             pass
 
-    wet, valid, exclude = _load_wetsnow_classes(project_cfg_dir)
+    wet, valid, exclude = load_wetsnow_classes(project_cfg_dir)
 
     try:
         roi = Path(args.roi) if args.roi else ensure_setup_roi_vector(setup_dir)

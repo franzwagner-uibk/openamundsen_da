@@ -47,15 +47,15 @@ After `scf_summary.csv` is created, generate per-step one-row observation CSVs (
 
 ```bash
 docker compose run --rm oa oa-da-scf \\
-  --setup-dir /data/projects/project_2019-2020 \\
-  --summary-csv /data/obs/summaries/project_2019-2020/scf_summary.csv \\
+  --project-dir /data/projects/project_2019-2020 \\
+  --summary-csv /data/obs/project_2019-2020/scf_summary.csv \\
   --product SNOWCOVER \\
   --overwrite
 ```
 
 ### Quality Control
 
-Use `obs/summaries/<setup-label>/scf_summary.csv` for quality control and to decide which dates to assimilate (set `data_assimilation.assimilation_events` in `projects/<setup-label>/setup.yml`). The default output root is `obs/summaries`; override with `--output-root` if needed.
+Use `obs/<project-label>/scf_summary.csv` for quality control and to decide which dates to assimilate (set `data_assimilation.assimilation_events` in `projects/<project-label>/<project-label>.yml`).
 
 `scf_summary.csv` contains (per date): `date`, `region_id`, `n_valid`, `n_snow`, `scf`, `cloud_fraction`, `source`. Typical filters include a minimum `n_valid` and a maximum `cloud_fraction`.
 
@@ -86,12 +86,13 @@ Notes:
 
 ```bash
 docker compose run --rm oa oa-da-scf \
-  --setup-dir /data/projects/project_2019-2020 \
+  --project-dir /data/projects/project_2019-2020 \
   --summary-csv /data/obs/project_2019-2020/scf_summary.csv \
   --overwrite
 ```
 
-Product tags are resolved from `project.yml` (`obs.snowcover.product_tag`, default `SNOWCOVER`).
+Product tags are resolved from `project.yml` (`obs.snowcover.product_tag`) and must be configured.
+Per-step preparation is fail-fast: events and step windows must match, and each configured event date must exist in the summary CSV.
 
 ---
 
@@ -137,12 +138,13 @@ Defaults (when `--project-dir` is set):
 
 ```bash
 docker compose run --rm oa oa-da-wetsnow-project \\
-  --setup-dir /data/projects/project_2019-2020 \\
-  --summary-csv /data/obs/summaries/project_2019-2020/wet_snow_summary.csv \\
+  --project-dir /data/projects/project_2019-2020 \\
+  --summary-csv /data/obs/project_2019-2020/wet_snow_summary.csv \\
   --overwrite
 ```
 
-This writes one-row `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` files into each step's `obs/` directory (product tag from `project.yml`, default `WETSNOW`) for configured wet-snow assimilation dates. Wet-snow summaries default to `obs/summaries/<setup-label>/wet_snow_summary.csv`; override with `--output-root` if needed.
+This writes one-row `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` files into each step's `obs/` directory for configured wet-snow assimilation dates. Product tags come from `project.yml` (`obs.wetsnow.product_tag`) and must be configured.
+Per-step preparation is fail-fast: events and step windows must match, and each configured event date must exist in the summary CSV.
 
 ---
 
@@ -180,10 +182,10 @@ Wet snow = LWC > threshold (e.g., 1-3% of SWE)
 ```yaml
 data_assimilation:
   wet_snow:
-    classification_threshold_percent: 0.5 # LWC fraction threshold (0-1 scale)
+    classification_threshold_percent: 0.5 # threshold in percent (0.5 = 0.5%)
 ```
 
-The classification threshold is a volumetric LWC fraction. A value of 0.5 means snow is classified as "wet" when LWC exceeds 50% of the maximum possible LWC.
+The classification threshold is interpreted in percent and converted internally to a fraction (`percent / 100`).
 
 ---
 

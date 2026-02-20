@@ -213,7 +213,10 @@ Wet-snow observations use categorical rasters (e.g., Sentinel-1 WSM). `oa-da-wet
 ## Wet-snow assimilation workflow
 
 - Summarize observations into `wet_snow_summary.csv` (e.g., `oa-da-wetsnow`), then drive the setup helper to write per-step `obs_wet_snow_*.csv` aligned to assimilation dates.
-- The project pipeline reads `data_assimilation.assimilation_events` from project YAML; it errors if fewer events than DA steps are configured.
+- The project pipeline reads `data_assimilation.assimilation_events` from project YAML; it requires exactly one event per non-final step.
+- Per-step observation preparation (`oa-da-scf`, `oa-da-wetsnow-project`) is fail-fast:
+  - event date must lie inside the associated step window,
+  - the summary CSV must contain a row for each configured event date of that variable.
 - Wet-snow masks/fractions are computed for all members before DA using the setup wet-snow threshold; assimilation/resampling/rejuvenation then proceed like SCF.
 
 ## Per-step forcing plots
@@ -644,7 +647,9 @@ Defaults:
 - Station selection uses a 50 km default buffer (`--station-buffer-km`).
 - Tiny polygon overlaps are tolerated up to 100 m^2 (`--overlap-area-tol-m2`), with optional sliver correction (`--sliver-fix-m`).
 - Sub-domain mode requires at least two polygons in the ROI file.
+- `--id-field` must exist in the regions file; there is no automatic fallback to another field name.
 - If `--roi` is omitted in sub-domain prepare/pipeline, `<setup>/env/subdomains.gpkg` is preferred and `<setup>/env/roi.gpkg` is the fallback.
+- Sub-domain runs fail fast if configured assimilation events are not available in the local sub-domain observation summaries.
 - Default retention is compact (`data_assimilation.output.retention: compact`) and removes heavy member grid artifacts after merge. Set `retention: full` to keep them.
 
 Ready-made example:

@@ -48,7 +48,7 @@ Runs the complete setup DA cycle: prior forcing → ensemble run → assimilatio
 
 ```bash
 oa-da-project \
-  --setup-dir /data/projects/project_2019-2020 \
+  --setup-dir /data \
   [OPTIONS]
 ```
 
@@ -95,8 +95,13 @@ oa-da-scf \
 **Arguments:**
 - `--project-dir PATH` - Project directory (e.g., `/data/projects/project_2019-2020`)
 - `--summary-csv PATH` - Optional path to `scf_summary.csv` (default: `<setup>/obs/<project>/scf_summary.csv`)
-- `--product CODE` - Product tag used in filenames (default: `SNOWCOVER`)
+- `--product CODE` - Optional product tag override used in filenames (otherwise read from `project.yml` -> `obs.snowcover.product_tag`)
 - `--overwrite` - Overwrite existing `obs_scf_*.csv` files
+
+**Validation behavior (fail-fast):**
+- Exactly one assimilation event per non-final step is required.
+- The event date must lie within the associated step window.
+- A matching summary row must exist for each configured event date.
 
 **Example:**
 ```bash
@@ -528,7 +533,9 @@ Defaults & tips:
 - If `--subdomain-root` is omitted, `<project>/subdomains` is used.
 - If `--manifest` is omitted in run/merge/plot, it resolves to `<subdomain_root>/subdomain_manifest.json`.
 - If `--roi` is omitted in prepare/pipeline, `<setup>/env/subdomains.gpkg` is preferred and `<setup>/env/roi.gpkg` is the fallback.
+- `--id-field` must exist in the regions file; there is no automatic fallback to another field.
 - Sub-domain mode requires at least two polygons in the ROI file.
+- Sub-domain runs fail fast if configured assimilation events are not available in local sub-domain summaries.
 - openAMUNDSEN-DA requires `grids/roi_<domain>_<resolution>.asc`; it is generated silently from ROI/regions vector input when missing.
 - Use `--max-workers` to control parallelism; BLAS/OMP threads are pinned to 1 inside the image.
 - Merge is hard mosaic only (no interpolation/blending).
@@ -571,8 +578,8 @@ docker compose run --rm oa <COMMAND> [OPTIONS]
 ```bash
 # Setup pipeline
 docker compose run --rm oa oa-da-project \
-  --project-dir /data \
-  --setup-dir /data/projects/project_2019-2020
+  --setup-dir /data \
+  --project-dir /data/projects/project_2019-2020
 
 # Snow-cover summary (GeoTIFF/NetCDF; MODIS after HDF→GeoTIFF with classes set in project.yml)
 docker compose run --rm oa oa-da-snowcover \

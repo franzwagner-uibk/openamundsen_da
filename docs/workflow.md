@@ -134,7 +134,8 @@ docker compose run --rm oa oa-da-scf --project-dir /data/projects/project_2019-2
 docker compose run --rm oa oa-da-wetsnow-project --project-dir /data/projects/project_2019-2020 --overwrite
 ```
 
-Outputs: `step_*/obs/obs_scf_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`, with product tags resolved from setup YAML (`SNOWCOVER`/`WETSNOW` by default).
+Outputs: `step_*/obs/obs_scf_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`, with product tags resolved from project YAML (`obs.snowcover.product_tag`, `obs.wetsnow.product_tag`).
+Preparation is fail-fast: one event per non-final step is required, each event date must fall inside its step window, and each configured event date must exist in the corresponding summary CSV.
 
 ### Land-Cover Masking
 
@@ -265,8 +266,8 @@ The setup pipeline automates all phases:
 ```bash
 docker compose run --rm oa \
   python -m openamundsen_da.pipeline.project \
-  --project-dir /data \
-  --setup-dir /data/projects/project_2019-2020 \
+  --setup-dir /data \
+  --project-dir /data/projects/project_2019-2020 \
   --max-workers 8 \
   --monitor-perf
 ```

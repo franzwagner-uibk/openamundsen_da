@@ -20,8 +20,8 @@ obs:
 copernicus_download:
   endpoint_url: "https://s3.WAW3-2.cloudferro.com"
   bucket: "HRWSI"
-  access_key: "c4ae60af7b144053803c618a8860f7c9"
-  secret_key: "dcb3ba1f6eab45aaaec5802feef5e2e4"
+  access_key: "${HRWSI_ACCESS_KEY}"
+  secret_key: "${HRWSI_SECRET_KEY}"
   tiles: ["32TPS", "32TPT"]
   snowcover:
     product: "FSC"

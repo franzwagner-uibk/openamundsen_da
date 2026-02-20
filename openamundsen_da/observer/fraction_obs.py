@@ -129,38 +129,48 @@ def _setup_from_project(project_dir: Path | None) -> Path | None:
     return None
 
 
+def _product_tag_key_for_variable(variable: str) -> str:
+    if variable == "scf":
+        return "snowcover"
+    if variable == "wet_snow":
+        return "wetsnow"
+    raise ValueError(f"Unsupported assimilation variable for product tag resolution: {variable!r}")
+
+
+def _require_product_tag(cfg: object, *, key: str, source: str) -> str:
+    if not isinstance(cfg, dict):
+        raise ValueError(f"Expected mapping at {source}")
+    obs_cfg = cfg.get("obs")
+    if not isinstance(obs_cfg, dict):
+        raise ValueError(f"Expected mapping at {source}.obs")
+    section = obs_cfg.get(key)
+    if not isinstance(section, dict):
+        raise ValueError(f"Expected mapping at {source}.obs.{key}")
+    if "product_tag" not in section:
+        raise ValueError(f"Missing required configuration key: {source}.obs.{key}.product_tag")
+    tag = str(section["product_tag"]).strip()
+    if not tag:
+        raise ValueError(f"Configuration value must not be empty: {source}.obs.{key}.product_tag")
+    return tag.upper()
+
+
 def resolve_obs_product_tag(
     variable: str,
     *,
     project_dir: Path | None = None,
     setup_dir: Path | None = None,
-    fallback: str | None = None,
 ) -> str:
     """Resolve product tag for obs filenames from project YAML first, then setup YAML."""
-
-    default = fallback or ("SNOWCOVER" if variable == "scf" else "WETSNOW")
-    key = "snowcover" if variable == "scf" else "wetsnow" if variable == "wet_snow" else variable
+    key = _product_tag_key_for_variable(variable)
 
     if project_dir:
-        try:
-            cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
-            obs_cfg = (cfg.get("obs") or {})
-            tag = (obs_cfg.get(key) or {}).get("product_tag")
-            if tag:
-                return str(tag).upper()
-        except Exception:
-            pass
+        cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+        return _require_product_tag(cfg, key=key, source="project")
 
     setup_root = setup_dir or _setup_from_project(project_dir)
-    if setup_root:
-        try:
-            cfg = _read_yaml_file(find_setup_yaml(setup_root)) or {}
-            obs_cfg = (cfg.get("obs") or {})
-            tag = (obs_cfg.get(key) or {}).get("product_tag")
-            if tag:
-                return str(tag).upper()
-        except Exception:
-            pass
-    return str(default).upper()
+    if setup_root is None:
+        raise ValueError("Could not resolve setup directory for product tag lookup")
+    cfg = _read_yaml_file(find_setup_yaml(setup_root)) or {}
+    return _require_product_tag(cfg, key=key, source="setup")
 
 

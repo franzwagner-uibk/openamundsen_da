@@ -129,18 +129,33 @@ def _find_roi(setup_dir: Path) -> Path:
 
 def _load_wet_snow_threshold_percent(project_dir: Path) -> float:
     """Read wet-snow classification threshold (percent) from project YAML."""
+    project_yaml = find_project_yaml(project_dir)
+    cfg = _read_yaml_file(project_yaml) or {}
+    if not isinstance(cfg, dict):
+        raise ValueError(f"Expected mapping at project YAML root: {project_yaml}")
+    da_cfg = cfg.get("data_assimilation")
+    if not isinstance(da_cfg, dict):
+        raise ValueError(f"Missing required configuration key: {project_yaml} -> data_assimilation")
+    wet_cfg = da_cfg.get("wet_snow")
+    if not isinstance(wet_cfg, dict):
+        raise ValueError(f"Missing required configuration key: {project_yaml} -> data_assimilation.wet_snow")
+    if "classification_threshold_percent" not in wet_cfg:
+        raise ValueError(
+            f"Missing required configuration key: {project_yaml} -> "
+            "data_assimilation.wet_snow.classification_threshold_percent"
+        )
+    raw_value = wet_cfg["classification_threshold_percent"]
     try:
-        project_yaml = find_project_yaml(project_dir)
-        cfg = _read_yaml_file(project_yaml) or {}
-        da_cfg = cfg.get("data_assimilation") or {}
-        wet_cfg = da_cfg.get("wet_snow") or {}
-        if "classification_threshold_percent" in wet_cfg:
-            return float(wet_cfg["classification_threshold_percent"])
-        if "classification_threshold" in wet_cfg:
-            return float(wet_cfg["classification_threshold"])
-    except Exception:
-        pass
-    return 0.1
+        value = float(raw_value)
+    except Exception as exc:
+        raise ValueError(
+            f"Invalid data_assimilation.wet_snow.classification_threshold_percent in {project_yaml}: {raw_value!r}"
+        ) from exc
+    if value < 0:
+        raise ValueError(
+            f"data_assimilation.wet_snow.classification_threshold_percent must be >= 0 in {project_yaml}"
+        )
+    return value
 
 
 def _aggregate_and_copy_fraction(
@@ -433,7 +448,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
 
     # Project/setup metadata for DA and performance monitoring
     wet_snow_threshold = _load_wet_snow_threshold_percent(cfg.project_dir)
-    logger.info("Wet-snow classification threshold set to {:.3f} % (project YAML or default)", wet_snow_threshold)
+    logger.info("Wet-snow classification threshold set to {:.3f} % (project YAML)", wet_snow_threshold)
 
     proj_resolution = None
     proj_timestep = None

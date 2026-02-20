@@ -214,7 +214,7 @@ def assimilate_scf_for_date(
     project_dir = infer_project_dir(step_dir)
     method, variable, hofx_params = load_hofx_from_project(project_dir)
     lc_cfg = landcover_cfg or resolve_landcover_mask(setup_dir, project_dir)
-    prod_tag = resolve_obs_product_tag("scf", setup_dir=setup_dir, project_dir=project_dir, fallback=product or None)
+    prod_tag = str(product).strip().upper() if product else resolve_obs_product_tag("scf", setup_dir=setup_dir, project_dir=project_dir)
     obs_patterns = ["obs_scf_{yyyymmdd}.csv"]
     if prod_tag:
         obs_patterns.append(f"obs_scf_{prod_tag}_{{yyyymmdd}}.csv")
@@ -264,7 +264,7 @@ def assimilate_wet_snow_for_date(
     """Wet-snow assimilation for one date (Sentinel-1 AOI fraction)."""
     project_dir = infer_project_dir(step_dir)
     lc_cfg = landcover_cfg or resolve_landcover_mask(setup_dir, project_dir)
-    prod_tag = resolve_obs_product_tag("wet_snow", setup_dir=setup_dir, project_dir=project_dir, fallback=product or None)
+    prod_tag = str(product).strip().upper() if product else resolve_obs_product_tag("wet_snow", setup_dir=setup_dir, project_dir=project_dir)
     obs_patterns = ["obs_wet_snow_{yyyymmdd}.csv"]
     if prod_tag:
         obs_patterns.append(f"obs_wet_snow_{prod_tag}_{{yyyymmdd}}.csv")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,6 +50,27 @@ def _require_dict(cfg: dict, key: str, *, path: str) -> dict:
     return val
 
 
+def _resolve_secret_value(raw: object, *, path: str) -> str:
+    text = str(raw).strip()
+    if not text:
+        raise ValueError(f"{path} must not be empty")
+
+    # Support `${ENV_VAR}` and `env:ENV_VAR` forms.
+    env_name: str | None = None
+    if text.startswith("${") and text.endswith("}") and len(text) > 3:
+        env_name = text[2:-1].strip()
+    elif text.lower().startswith("env:"):
+        env_name = text[4:].strip()
+
+    if env_name:
+        env_val = os.environ.get(env_name)
+        if not env_val:
+            raise ValueError(f"{path} references environment variable '{env_name}', but it is not set")
+        return str(env_val).strip()
+
+    return text
+
+
 def _resolve_dir(setup_dir: Path, value: str) -> Path:
     p = Path(str(value).strip())
     return p if p.is_absolute() else (setup_dir / p)
@@ -79,8 +101,8 @@ def load_hrwsi_config(setup_dir: Path, project_dir: Path) -> HrwsiConfig:
 
     endpoint_url = str(_require_key(raw, "endpoint_url", path=base_path)).strip()
     bucket = str(_require_key(raw, "bucket", path=base_path)).strip()
-    access_key = str(_require_key(raw, "access_key", path=base_path)).strip()
-    secret_key = str(_require_key(raw, "secret_key", path=base_path)).strip()
+    access_key = _resolve_secret_value(_require_key(raw, "access_key", path=base_path), path=f"{base_path}.access_key")
+    secret_key = _resolve_secret_value(_require_key(raw, "secret_key", path=base_path), path=f"{base_path}.secret_key")
     tiles_raw = _require_key(raw, "tiles", path=base_path)
     if not isinstance(tiles_raw, list) or not tiles_raw:
         raise ValueError("copernicus_download.tiles must be a non-empty list")

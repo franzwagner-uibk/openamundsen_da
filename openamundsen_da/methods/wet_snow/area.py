@@ -34,7 +34,6 @@ from pyproj import CRS
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import (
-    find_project_yaml,
     member_id_from_results_dir,
     list_step_dirs,
     infer_project_dir,
@@ -51,6 +50,7 @@ from openamundsen_da.util.landcover_mask import (
 )
 from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
+from openamundsen_da.observer.class_config import load_wetsnow_classes
 
 
 _MODEL_WET = (1,)
@@ -593,38 +593,8 @@ def _resolve_project_dates(project_dir: Optional[Path], project_label: Optional[
 
 
 def _load_obs_wetsnow_classes(project_dir: Path) -> tuple[list[int], list[int], list[int]]:
-    cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
-    if not isinstance(cfg, dict):
-        raise ValueError("Expected mapping at project")
-    obs_cfg = cfg.get("obs")
-    if not isinstance(obs_cfg, dict):
-        raise ValueError("Expected mapping at project.obs")
-    wet_cfg = obs_cfg.get("wetsnow")
-    if not isinstance(wet_cfg, dict):
-        raise ValueError("Expected mapping at project.obs.wetsnow")
-    classes = wet_cfg.get("classes")
-    if not isinstance(classes, dict):
-        raise ValueError("Expected mapping at project.obs.wetsnow.classes")
-
-    def _parse(key: str, *, allow_empty: bool = False) -> list[int]:
-        if key not in classes:
-            raise ValueError(f"Missing required configuration key: project.obs.wetsnow.classes.{key}")
-        vals = classes.get(key)
-        if not isinstance(vals, list):
-            raise ValueError(f"project.obs.wetsnow.classes.{key} must be a list of integers")
-        out: list[int] = []
-        for v in vals:
-            try:
-                out.append(int(v))
-            except Exception as exc:
-                raise ValueError(
-                    f"project.obs.wetsnow.classes.{key} contains non-integer value: {v!r}"
-                ) from exc
-        if not out and not allow_empty:
-            raise ValueError(f"project.obs.wetsnow.classes.{key} must contain at least one integer")
-        return out
-
-    return _parse("wet"), _parse("valid"), _parse("exclude", allow_empty=True)
+    # Kept as thin wrapper for backward-compatible imports in tests/callers.
+    return load_wetsnow_classes(project_dir)
 
 
 def cli_model(argv: list[str] | None = None) -> int:

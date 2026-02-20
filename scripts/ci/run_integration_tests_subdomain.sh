@@ -34,15 +34,15 @@ cleanup() {
   if [[ -n "${ARTIFACT_DIR}" ]]; then
     mkdir -p "${ARTIFACT_DIR}"
     if [[ -f "${HOST_LOG_FILE}" ]]; then
-      cp -f "${HOST_LOG_FILE}" "${ARTIFACT_DIR}/ci_integration_subdomain.log"
+      cp -f "${HOST_LOG_FILE}" "${ARTIFACT_DIR}/ci_integration_subdomain.log" 2>/dev/null || true
     fi
     if [[ -d "${PROJECT_HOST_DIR}/subdomains" ]]; then
       mkdir -p "${ARTIFACT_DIR}/projects/${PROJECT_NAME}"
-      cp -a "${PROJECT_HOST_DIR}/subdomains" "${ARTIFACT_DIR}/projects/${PROJECT_NAME}/"
+      cp -aL "${PROJECT_HOST_DIR}/subdomains" "${ARTIFACT_DIR}/projects/${PROJECT_NAME}/" 2>/dev/null || true
     fi
     if [[ -d "${SETUP_DIR}/projects/${PROJECT_NAME}" ]]; then
       mkdir -p "${ARTIFACT_DIR}/projects"
-      cp -a "${SETUP_DIR}/projects/${PROJECT_NAME}" "${ARTIFACT_DIR}/projects/"
+      cp -aL "${SETUP_DIR}/projects/${PROJECT_NAME}" "${ARTIFACT_DIR}/projects/" 2>/dev/null || true
     fi
   fi
   rm -rf "${TMP_ROOT}"

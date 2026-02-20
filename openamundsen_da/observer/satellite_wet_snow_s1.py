@@ -62,7 +62,7 @@ def generate_project_from_summary(
     if n < len(steps) - 1:
         logger.warning("Only {} assimilation events available for {} steps; later steps will not receive obs CSVs.", len(events), len(steps) - 1)
 
-    prod_tag = resolve_obs_product_tag("wet_snow", setup_dir=setup_dir, project_dir=project_dir, fallback=product)
+    prod_tag = str(product).strip().upper() if product else resolve_obs_product_tag("wet_snow", setup_dir=setup_dir, project_dir=project_dir)
 
     written = skipped_missing = skipped_existing = 0
     for i in range(n):

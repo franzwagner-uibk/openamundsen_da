@@ -45,9 +45,11 @@ Configuration ownership rules:
 - Should any logic be centralized (e.g., helpers in `util`, `viz`, or `io.paths`)?
 - Does the module follow our structure and formatting conventions?
 - Is configuration handled consistently and defined externally where possible?
-- Is there any functionality/CLI flag/option that is unnecessary given the framework/template and workflow? Prefer sensible defaults.
+- Is there any functionality/CLI flag/option that is unnecessary given the framework/template and workflow?
+- Are there any unnecessary defaults/fallbacks in DA-relevant code paths? Prefer explicit required configuration and fail-fast errors over guessed behavior.
 - Consider dropping inputs (e.g., paths or flags) that are already predefined by the process.
 - Is there any legacy code that is not used anymore or dates to an older version of the code and can be removed?
+- Are all required external-data assumptions (availability/time window/coverage) validated explicitly, with clear errors when unmet?
 
 List of helper modules (repo-relative paths):
 
@@ -170,6 +172,22 @@ docker compose run `
   - project YAML: DA configuration + project-specific time span/events.
   - `step` YAML: step window and step-local OA overrides only.
 - Leverage existing repo helpers (`core/config.py`, `core/env.py`, `core/constants.py`, `io/paths.py`, `util/stats.py`, etc.) rather than reimplementing functionality.
+
+### 7.1 Fail-Fast Configuration Policy
+
+- Do not silently guess DA-relevant configuration values.
+- Do not add hidden fallback defaults for required DA settings (paths, product names, class mappings, date/event inputs, ROI sources).
+- If required config is missing, invalid, or inconsistent: raise a clear error and abort.
+- Error messages must tell users exactly which key is missing/invalid and where it is expected (setup/project/step YAML).
+- Keep fallback usage minimal and explicit; only allow it where behavior is clearly non-critical and documented.
+- During review, explicitly check for accidental fallback behavior introduced by convenience code.
+
+### 7.2 External Data Availability And Reproducibility Checks
+
+- For workflows depending on external datasets/APIs (e.g., Copernicus/HRWSI), validate data availability in the configured time window before long runs.
+- Prefer explicit checks for: required variables/products, observation dates, tile/ROI coverage, and optional quality filters (e.g., cloud constraints) when relevant.
+- Avoid relative wording in code/docs/logs for time-sensitive behavior ("latest", "current"); prefer concrete dates/time windows.
+- Keep run setup reproducible: document the exact period, products, and paths used by examples/tests.
 
 ---
 

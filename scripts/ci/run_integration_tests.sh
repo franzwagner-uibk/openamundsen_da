@@ -8,8 +8,9 @@ ARTIFACT_DIR="${CI_ARTIFACT_DIR:-}"
 
 TMP_ROOT="$(mktemp -d -t oada-ci-XXXXXX)"
 PROJECT_DIR="${TMP_ROOT}/rofental_ci"
-PROJECT_NAME="project_ci_2024_2025"
-PROJECT_PATH="/data/projects/${PROJECT_NAME}"
+PROJECT_NAME=""
+PROJECT_PATH=""
+SOURCE_PROJECT_NAME=""
 HOST_LOG_FILE="${PROJECT_DIR}/ci_integration.log"
 REPO_MOUNT="${ROOT_DIR}"
 PROJ_MOUNT="${PROJECT_DIR}"
@@ -43,6 +44,15 @@ cleanup() {
 trap cleanup EXIT
 
 cp -a "${ROOT_DIR}/examples/rofental" "${PROJECT_DIR}"
+SOURCE_PROJECT_DIR="$(find "${PROJECT_DIR}/projects" -mindepth 1 -maxdepth 1 -type d -name 'project_*' | sort | head -n 1)"
+if [[ -z "${SOURCE_PROJECT_DIR}" ]]; then
+  echo "[integration] ERROR: could not discover source project under ${PROJECT_DIR}/projects"
+  exit 1
+fi
+SOURCE_PROJECT_NAME="$(basename "${SOURCE_PROJECT_DIR}")"
+PROJECT_NAME="project_ci_${SOURCE_PROJECT_NAME#project_}"
+PROJECT_PATH="/data/projects/${PROJECT_NAME}"
+
 touch "${HOST_LOG_FILE}"
 exec > >(tee -a "${HOST_LOG_FILE}") 2>&1
 
@@ -61,11 +71,16 @@ from pathlib import Path
 import yaml
 
 setup_dir = Path("/data")
-source_project_yml = setup_dir / "projects" / "project_2024_2025" / "project_2024_2025.yml"
+source_project_dirs = sorted(p for p in (setup_dir / "projects").glob("project_*") if p.is_dir() and not p.name.startswith("project_ci_"))
+if not source_project_dirs:
+    raise SystemExit(f"No source project found under {setup_dir / 'projects'}")
+source_project_name = source_project_dirs[0].name
+project_name = f"project_ci_{source_project_name.removeprefix('project_')}"
+source_project_yml = setup_dir / "projects" / source_project_name / f"{source_project_name}.yml"
 with source_project_yml.open("r", encoding="utf-8") as f:
     source_project_cfg = yaml.safe_load(f) or {}
 
-project_dir = setup_dir / "projects" / "project_ci_2024_2025"
+project_dir = setup_dir / "projects" / project_name
 project_dir.mkdir(parents=True, exist_ok=True)
 project_cfg = dict(source_project_cfg)
 project_cfg["start_date"] = "2025-02-10"
@@ -89,7 +104,7 @@ da_cfg["assimilation_events"] = [
 ]
 project_cfg["data_assimilation"] = da_cfg
 
-with (project_dir / "project_ci_2024_2025.yml").open("w", encoding="utf-8") as f:
+with (project_dir / f"{project_name}.yml").open("w", encoding="utf-8") as f:
     yaml.safe_dump(project_cfg, f, sort_keys=False)
 PY
 
@@ -99,15 +114,52 @@ compose_run python -m openamundsen_da.pipeline.project_skeleton \
   --overwrite \
   --log-level INFO
 
+SCF_SUMMARY_CANDIDATE_NEW="${PROJECT_DIR}/obs/${SOURCE_PROJECT_NAME}/scf_summary.csv"
+SCF_SUMMARY_CANDIDATE_OLD="${PROJECT_DIR}/obs/summaries/${SOURCE_PROJECT_NAME}/scf_summary.csv"
+WET_SUMMARY_CANDIDATE_NEW="${PROJECT_DIR}/obs/${SOURCE_PROJECT_NAME}/wet_snow_summary.csv"
+WET_SUMMARY_CANDIDATE_OLD="${PROJECT_DIR}/obs/summaries/${SOURCE_PROJECT_NAME}/wet_snow_summary.csv"
+
+if [[ -f "${SCF_SUMMARY_CANDIDATE_NEW}" ]]; then
+  SCF_SUMMARY_HOST_SOURCE="${SCF_SUMMARY_CANDIDATE_NEW}"
+elif [[ -f "${SCF_SUMMARY_CANDIDATE_OLD}" ]]; then
+  SCF_SUMMARY_HOST_SOURCE="${SCF_SUMMARY_CANDIDATE_OLD}"
+else
+  echo "[integration] ERROR: SCF summary CSV not found in expected locations:"
+  echo "  - ${SCF_SUMMARY_CANDIDATE_NEW}"
+  echo "  - ${SCF_SUMMARY_CANDIDATE_OLD}"
+  exit 1
+fi
+
+if [[ -f "${WET_SUMMARY_CANDIDATE_NEW}" ]]; then
+  WET_SUMMARY_HOST_SOURCE="${WET_SUMMARY_CANDIDATE_NEW}"
+elif [[ -f "${WET_SUMMARY_CANDIDATE_OLD}" ]]; then
+  WET_SUMMARY_HOST_SOURCE="${WET_SUMMARY_CANDIDATE_OLD}"
+else
+  echo "[integration] ERROR: Wet-snow summary CSV not found in expected locations:"
+  echo "  - ${WET_SUMMARY_CANDIDATE_NEW}"
+  echo "  - ${WET_SUMMARY_CANDIDATE_OLD}"
+  exit 1
+fi
+
+# Mirror selected summaries under obs/<ci-project>/ for plotting defaults.
+CI_OBS_DIR="${PROJECT_DIR}/obs/${PROJECT_NAME}"
+mkdir -p "${CI_OBS_DIR}"
+cp -f "${SCF_SUMMARY_HOST_SOURCE}" "${CI_OBS_DIR}/scf_summary.csv"
+cp -f "${WET_SUMMARY_HOST_SOURCE}" "${CI_OBS_DIR}/wet_snow_summary.csv"
+SCF_SUMMARY_CSV="/data/obs/${PROJECT_NAME}/scf_summary.csv"
+WET_SUMMARY_CSV="/data/obs/${PROJECT_NAME}/wet_snow_summary.csv"
+echo "[integration] Using SCF summary: ${SCF_SUMMARY_CSV}"
+echo "[integration] Using wet-snow summary: ${WET_SUMMARY_CSV}"
+
 compose_run oa-da-scf \
   --project-dir "${PROJECT_PATH}" \
-  --summary-csv /data/obs/summaries/project_2024_2025/scf_summary.csv \
+  --summary-csv "${SCF_SUMMARY_CSV}" \
   --overwrite \
   --log-level INFO
 
 compose_run oa-da-wetsnow-project \
   --project-dir "${PROJECT_PATH}" \
-  --summary-csv /data/obs/summaries/project_2024_2025/wet_snow_summary.csv \
+  --summary-csv "${WET_SUMMARY_CSV}" \
   --overwrite \
   --log-level INFO
 
@@ -122,12 +174,15 @@ compose_run python -m openamundsen_da.pipeline.project \
 CONTAINER_LOG_FILE="$(compose_run python - <<'PY' | tr -d '\r' | tail -n 1
 from pathlib import Path
 
-project_dir = Path("/data/projects/project_ci_2024_2025")
+project_dirs = sorted(p for p in Path("/data/projects").glob("project_ci_*") if p.is_dir())
+if not project_dirs:
+    raise SystemExit("No CI project directory found under /data/projects")
+project_dir = project_dirs[0]
 candidates = sorted(project_dir.glob("project_*.log"))
 if not candidates:
     candidates = sorted(project_dir.glob("*.log"))
 if not candidates:
-    raise SystemExit("No project log found under /data/projects/project_ci_2024_2025")
+    raise SystemExit(f"No project log found under {project_dir}")
 print(candidates[-1].as_posix())
 PY
 )"

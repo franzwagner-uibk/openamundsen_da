@@ -40,40 +40,61 @@ def _parse_event_date(text: str | None) -> date:
         raise ValueError(f"Invalid assimilation event date (expected YYYY-MM-DD): {text}") from exc
 
 
+def _parse_event_variable(raw: object, *, idx: int) -> str:
+    value = str(raw).strip().lower()
+    if not value:
+        raise ValueError(f"Missing required configuration key: data_assimilation.assimilation_events[{idx}].variable")
+    if value == "wet_snow_fraction":
+        value = "wet_snow"
+    if value not in {"scf", "wet_snow"}:
+        raise ValueError(
+            f"Unsupported assimilation variable at data_assimilation.assimilation_events[{idx}].variable: {raw!r}"
+        )
+    return value
+
+
 def load_assimilation_events(project_dir: Path) -> list[AssimilationEvent]:
     """Load assimilation events from project YAML (variable/product per date)."""
     project_yaml = find_project_yaml(project_dir)
     cfg = _read_yaml(project_yaml) or {}
+    if not isinstance(cfg, dict):
+        raise ValueError(f"Expected mapping at project YAML root: {project_yaml}")
     setup_dir = project_dir.parent.parent if project_dir.parent.parent.is_dir() else None
 
     events: list[AssimilationEvent] = []
 
-    da_cfg = cfg.get("data_assimilation") or {}
-    raw_events = da_cfg.get("assimilation_events") or []
-    for entry in raw_events:
-        if not isinstance(entry, dict):
-            continue
-        dtxt = entry.get("date")
-        if not dtxt:
-            continue
-        dval = _parse_event_date(str(dtxt))
-        var = str(entry.get("variable") or "scf")
-        default_prod = resolve_obs_product_tag(var, setup_dir=setup_dir, project_dir=project_dir)
-        if "product" in entry and entry["product"] is not None:
-            prod = str(entry["product"])
-        else:
-            prod = default_prod
+    da_cfg = cfg.get("data_assimilation")
+    if not isinstance(da_cfg, dict):
+        raise ValueError(f"Missing required configuration key: {project_yaml} -> data_assimilation")
+    raw_events = da_cfg.get("assimilation_events")
+    if not isinstance(raw_events, list) or not raw_events:
+        raise ValueError(f"No assimilation_events found in {project_yaml}")
 
-        prod_upper = prod.upper()
-        if prod_upper in {"MOD10A1", "SNOWFLAKE", "SNOWFLAKES"} and var == "scf":
-            prod_upper = default_prod
-        if prod_upper in {"S1"} and var == "wet_snow":
-            prod_upper = default_prod
+    for idx, entry in enumerate(raw_events, start=1):
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"Expected mapping at data_assimilation.assimilation_events[{idx}], got {type(entry).__name__}"
+            )
+        if "date" not in entry:
+            raise ValueError(f"Missing required configuration key: data_assimilation.assimilation_events[{idx}].date")
+        dtxt = entry.get("date")
+        if dtxt is None or str(dtxt).strip() == "":
+            raise ValueError(
+                f"Configuration value must not be empty: data_assimilation.assimilation_events[{idx}].date"
+            )
+        dval = _parse_event_date(str(dtxt))
+        var = _parse_event_variable(entry.get("variable"), idx=idx)
+        if "product" in entry and entry["product"] is not None:
+            prod = str(entry["product"]).strip()
+            if not prod:
+                raise ValueError(
+                    f"Configuration value must not be empty: data_assimilation.assimilation_events[{idx}].product"
+                )
+            prod_upper = prod.upper()
+        else:
+            prod_upper = resolve_obs_product_tag(var, setup_dir=setup_dir, project_dir=project_dir)
 
         events.append(AssimilationEvent(date=dval, variable=var, product=prod_upper))
-
-    if not events:
-        raise ValueError(f"No assimilation_events found in {project_yaml}")
 
     events.sort(key=lambda ev: ev.date)
     return events

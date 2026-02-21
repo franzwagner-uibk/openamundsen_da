@@ -653,8 +653,8 @@ Defaults:
 - Default retention is compact (`data_assimilation.output.retention: compact`) and removes heavy member grid artifacts after merge. Set `retention: full` to keep them.
 
 Ready-made example:
-- setup: `examples/rofental_subdomains`
-- regions file: `examples/rofental_subdomains/env/subdomains.gpkg` (pass with `--roi`)
+- setup: `examples/subdomains`
+- regions file: `examples/subdomains/env/subdomains.gpkg` (pass with `--roi`)
 - note: this lightweight example reuses raw grids/meteo/obs from `examples/rofental` via relative paths.
 
 ## Troubleshooting

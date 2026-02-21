@@ -549,7 +549,7 @@ Inputs/outputs:
 - Prepared sub-domain runs live under `<subdomain_root>/<subdomain_id>/`.
 - Project-level outputs are written under `<project>/results/`.
 - Sub-domain point outputs and plots stay under each sub-domain project directory.
-- Repository example: `examples/rofental_subdomains` with regions in `env/subdomains.gpkg`.
+- Repository example: `examples/subdomains` with regions in `env/subdomains.gpkg`.
 
 ---
 

@@ -9,8 +9,8 @@ ARTIFACT_DIR="${CI_ARTIFACT_DIR:-}"
 
 TMP_ROOT="$(mktemp -d -t oada-subdomain-ci-XXXXXX)"
 BASE_SETUP_DIR="${TMP_ROOT}/rofental"
-SETUP_DIR="${TMP_ROOT}/rofental_subdomains"
-SETUP_PATH="/data/rofental_subdomains"
+SETUP_DIR="${TMP_ROOT}/subdomains"
+SETUP_PATH="/data/subdomains"
 PROJECT_NAME="project_ci_2022_2023"
 PROJECT_PATH="${SETUP_PATH}/projects/${PROJECT_NAME}"
 PROJECT_HOST_DIR="${SETUP_DIR}/projects/${PROJECT_NAME}"
@@ -52,7 +52,7 @@ cleanup() {
 trap cleanup EXIT
 
 cp -a "${ROOT_DIR}/examples/rofental" "${BASE_SETUP_DIR}"
-cp -a "${ROOT_DIR}/examples/rofental_subdomains" "${SETUP_DIR}"
+cp -a "${ROOT_DIR}/examples/subdomains" "${SETUP_DIR}"
 touch "${HOST_LOG_FILE}"
 exec > >(tee -a "${HOST_LOG_FILE}") 2>&1
 
@@ -70,7 +70,7 @@ compose_run python - <<'PY'
 from pathlib import Path
 import yaml
 
-setup_dir = Path("/data/rofental_subdomains")
+setup_dir = Path("/data/subdomains")
 source_project_yml = setup_dir / "projects" / "project_2022_2023" / "project_2022_2023.yml"
 with source_project_yml.open("r", encoding="utf-8") as f:
     source_project_cfg = yaml.safe_load(f) or {}

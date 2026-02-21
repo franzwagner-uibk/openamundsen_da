@@ -145,11 +145,11 @@ Validation focuses on:
 Runner script: `scripts/ci/run_integration_tests_subdomain.sh`
 
 What it does:
-- clones `examples/rofental` and `examples/rofental_subdomains` into a temp directory
+- clones `examples/rofental` and `examples/subdomains` into a temp directory
 - writes a trimmed project config (`project_ci_2022_2023`) under the sub-domain setup
 - runs full sub-domain pipeline (`oa-da-subdomain pipeline`) with:
-  - setup: `/data/rofental_subdomains` (the copied sub-domain setup root)
-  - project: `/data/rofental_subdomains/projects/project_ci_2022_2023`
+  - setup: `/data/subdomains` (the copied sub-domain setup root)
+  - project: `/data/subdomains/projects/project_ci_2022_2023`
   - regions: `/data/env/subdomains.gpkg` (3 non-overlapping subdomains)
 - validates logs and outputs with `scripts/ci/validate_trimmed_subdomain.py`
 
@@ -215,7 +215,7 @@ Main locations:
 
 Trimmed Rofental configuration details:
 - source project copied for CI: `examples/rofental`
-- source sub-domain setup copied for CI: `examples/rofental_subdomains`
+- source sub-domain setup copied for CI: `examples/subdomains`
 - trimmed dates, assimilation events, and ensemble sizes are hard-coded in:
   - `scripts/ci/run_integration_tests.sh` (single-domain)
   - `scripts/ci/run_integration_tests_subdomain.sh` (sub-domain)

@@ -1,4 +1,4 @@
-domain: "rofental"
+﻿domain: "rofental"
 resolution: 100 # spatial resolution (m)
 timestep: "3H" # temporal resolution as a pandas-compatible frequency string (e.g., "h", "3h", "D")
 crs: "epsg:25832" # CRS of the input grids

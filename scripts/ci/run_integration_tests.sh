@@ -67,8 +67,40 @@ compose_run() {
 echo "[integration] Preparing trimmed CI project in ${PROJECT_DIR}"
 
 compose_run python - <<'PY'
+import csv
+from datetime import datetime, timedelta
 from pathlib import Path
 import yaml
+
+
+def _parse_date(value: str) -> datetime:
+    return datetime.fromisoformat(str(value)[:10])
+
+
+def _find_summary_csv(setup_dir: Path, source_project_name: str, filename: str) -> Path:
+    candidates = [
+        setup_dir / "obs" / source_project_name / filename,
+        setup_dir / "obs" / "summaries" / source_project_name / filename,
+        setup_dir / "obs" / "summaries" / "all_data" / filename,
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    raise SystemExit(
+        f"Missing required summary CSV '{filename}' in expected locations: "
+        + ", ".join(str(p) for p in candidates)
+    )
+
+
+def _read_summary_dates(path: Path) -> set[str]:
+    dates: set[str] = set()
+    with path.open("r", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            date_val = str((row or {}).get("date", "")).strip()
+            if date_val:
+                dates.add(date_val[:10])
+    return dates
+
 
 setup_dir = Path("/data")
 source_project_dirs = sorted(p for p in (setup_dir / "projects").glob("project_*") if p.is_dir() and not p.name.startswith("project_ci_"))
@@ -83,29 +115,94 @@ with source_project_yml.open("r", encoding="utf-8") as f:
 project_dir = setup_dir / "projects" / project_name
 project_dir.mkdir(parents=True, exist_ok=True)
 project_cfg = dict(source_project_cfg)
-project_cfg["start_date"] = "2025-02-10"
-project_cfg["end_date"] = "2025-03-05 21:00:00"
 
 da_cfg = dict(project_cfg.get("data_assimilation") or {})
 prior_cfg = dict(da_cfg.get("prior_forcing") or {})
 prior_cfg["ensemble_size"] = 4
 da_cfg["prior_forcing"] = prior_cfg
+
+scf_summary = _find_summary_csv(setup_dir, source_project_name, "scf_summary.csv")
+wet_summary = _find_summary_csv(setup_dir, source_project_name, "wet_snow_summary.csv")
+scf_available = _read_summary_dates(scf_summary)
+wet_available = _read_summary_dates(wet_summary)
+if not scf_available or not wet_available:
+    raise SystemExit("SCF/Wet-snow summary CSV contains no usable dates")
+
+events = list(da_cfg.get("assimilation_events") or [])
+scf_events: list[dict] = []
+wet_events: list[dict] = []
+for event in events:
+    variable = str((event or {}).get("variable", "")).strip().lower()
+    date_raw = str((event or {}).get("date", "")).strip()
+    if not date_raw:
+        continue
+    date_key = date_raw[:10]
+    product = str((event or {}).get("product", "")).strip()
+    if variable == "scf" and date_key in scf_available:
+        scf_events.append({"date": date_key, "product": product})
+    elif variable == "wet_snow" and date_key in wet_available:
+        wet_events.append({"date": date_key, "product": product})
+
+if not scf_events or not wet_events:
+    raise SystemExit(
+        "No overlapping SCF/Wet-snow events found between project assimilation_events and summary CSV dates"
+    )
+
+best_pair = None
+best_gap_days = None
+for scf_event in scf_events:
+    scf_dt = _parse_date(scf_event["date"])
+    for wet_event in wet_events:
+        wet_dt = _parse_date(wet_event["date"])
+        gap_days = (wet_dt - scf_dt).days
+        if gap_days < 0:
+            continue
+        if best_gap_days is None or gap_days < best_gap_days:
+            best_gap_days = gap_days
+            best_pair = (scf_event, wet_event)
+
+if best_pair is None:
+    scf_event = min(scf_events, key=lambda e: e["date"])
+    wet_event = min(wet_events, key=lambda e: e["date"])
+else:
+    scf_event, wet_event = best_pair
+
+scf_dt = _parse_date(scf_event["date"])
+wet_dt = _parse_date(wet_event["date"])
+window_start = min(scf_dt, wet_dt) - timedelta(days=7)
+window_end = max(scf_dt, wet_dt) + timedelta(days=7)
+
+source_start_raw = str(source_project_cfg.get("start_date", "")).strip()
+source_end_raw = str(source_project_cfg.get("end_date", "")).strip()
+source_start = _parse_date(source_start_raw) if source_start_raw else window_start
+source_end = _parse_date(source_end_raw) if source_end_raw else window_end
+
+trim_start = max(window_start, source_start)
+trim_end = min(window_end, source_end)
+if trim_end < trim_start:
+    raise SystemExit("Computed CI trim window is invalid (end before start)")
+
+project_cfg["start_date"] = trim_start.strftime("%Y-%m-%d")
+project_cfg["end_date"] = trim_end.strftime("%Y-%m-%d 21:00:00")
 da_cfg["assimilation_events"] = [
     {
-        "date": "2025-02-19",
+        "date": scf_event["date"],
         "variable": "scf",
-        "product": "FSC",
+        "product": scf_event["product"],
     },
     {
-        "date": "2025-03-01",
+        "date": wet_event["date"],
         "variable": "wet_snow",
-        "product": "SWS",
+        "product": wet_event["product"],
     },
 ]
 project_cfg["data_assimilation"] = da_cfg
 
 with (project_dir / f"{project_name}.yml").open("w", encoding="utf-8") as f:
     yaml.safe_dump(project_cfg, f, sort_keys=False)
+
+print(f"[integration/python] selected scf={scf_event['date']} wet_snow={wet_event['date']}")
+print(f"[integration/python] trim window {project_cfg['start_date']} -> {project_cfg['end_date']}")
 PY
 
 compose_run python -m openamundsen_da.pipeline.project_skeleton \

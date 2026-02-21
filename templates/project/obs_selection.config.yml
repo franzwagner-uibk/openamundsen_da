@@ -8,8 +8,8 @@
 #     --setup-dir /workspace/examples/rofental \
 #     --project-dir /workspace/examples/rofental/projects/project_2021_2022 \
 #     --config /workspace/examples/rofental/obs_selection.config.yml \
-#     --scf-summary /workspace/examples/rofental/obs/summaries/all_data/scf_summary.csv \
-#     --wet-summary /workspace/examples/rofental/obs/summaries/all_data/wet_snow_summary.csv \
+#     --scf-summary /workspace/examples/rofental/obs/project_2021_2022/scf_summary.csv \
+#     --wet-summary /workspace/examples/rofental/obs/project_2021_2022/wet_snow_summary.csv \
 #     --start-date 2021-10-01 --end-date 2022-09-30 --overwrite
 selection:
   spacing_days: 7

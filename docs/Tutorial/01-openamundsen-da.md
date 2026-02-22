@@ -2,14 +2,8 @@
 layout: default
 title: 1. openAMUNDSEN-DA
 parent: Tutorial
-nav\_order: 1
+nav_order: 1
 permalink: /tutorial/openamundsen-da/
----
-
----
-
----
-
 ---
 
 # 1. openAMUNDSEN-DA

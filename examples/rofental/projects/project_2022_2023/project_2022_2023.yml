@@ -32,7 +32,7 @@ obs:
 data_assimilation:
   # Prior ensemble forcing perturbations.
   prior_forcing:
-    ensemble_size: 20
+    ensemble_size: 10
     random_seed: 42
     sigma_t: 0.5
     mu_p: 0.0

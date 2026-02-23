@@ -67,15 +67,17 @@ Snow-cover summary:
 docker compose run --rm oa oa-da-snowcover \
   --input-dir /data/obs/snowcover \
   --project-label project_2019-2020 \
-  --project-dir /data
+  --setup-dir /data
 ```
 
 Wet-snow summary (optional):
 
 ```bash
 docker compose run --rm oa oa-da-wetsnow \
-  --project-dir /data \
-  --output /data/obs/project_2019-2020/wet_snow_summary.csv
+  --input-dir /data/obs/wetsnow \
+  --project-label project_2019-2020 \
+  --setup-dir /data \
+  --output-root /data/obs
 ```
 
 ## 5) Build Setup Skeleton
@@ -83,22 +85,22 @@ docker compose run --rm oa oa-da-wetsnow \
 ```bash
 docker compose run --rm oa \
   python -m openamundsen_da.pipeline.project_skeleton \
-  --project-dir /data \
-  --setup-dir /data/projects/project_2019-2020
+  --setup-dir /data \
+  --project-dir /data/projects/project_2019-2020
 ```
 
 ## 6) Distribute Observations to Steps
 
 ```bash
 docker compose run --rm oa oa-da-scf \
-  --setup-dir /data/projects/project_2019-2020 \
+  --project-dir /data/projects/project_2019-2020 \
   --summary-csv /data/obs/project_2019-2020/scf_summary.csv \
   --overwrite
 ```
 
 ```bash
 docker compose run --rm oa oa-da-wetsnow-project \
-  --setup-dir /data/projects/project_2019-2020 \
+  --project-dir /data/projects/project_2019-2020 \
   --summary-csv /data/obs/project_2019-2020/wet_snow_summary.csv \
   --overwrite
 ```
@@ -108,8 +110,8 @@ docker compose run --rm oa oa-da-wetsnow-project \
 ```bash
 docker compose run --rm oa \
   python -m openamundsen_da.pipeline.project \
-  --project-dir /data \
-  --setup-dir /data/projects/project_2019-2020 \
+  --setup-dir /data \
+  --project-dir /data/projects/project_2019-2020 \
   --max-workers 8
 ```
 

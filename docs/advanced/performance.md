@@ -49,7 +49,7 @@ workers = min(max_workers, CPU_count, N_ensemble_members)
 ```
 
 **Guidelines**:
-- **CPU-bound tasks**: Set workers = CPU cores (e.g., 8 cores â†’ 8 workers)
+- **CPU-bound tasks**: Set workers = CPU cores (e.g., 8 cores -> 8 workers)
 - **Memory-limited**: Reduce workers to avoid swapping
 - **I/O-bound tasks**: Can exceed CPU count slightly
 
@@ -126,7 +126,7 @@ dates = pd.date_range('2019-11-01', '2020-07-31', freq='7D')
 ```
 
 **Impact**:
-- Runtime reduced by ~7Ã—
+- Runtime reduced by ~7x
 - Posterior quality slightly degraded
 - Still captures weekly snow dynamics
 
@@ -140,7 +140,7 @@ Longer timesteps = faster execution:
 
 ```yaml
 # project.yml
-timestep: 3H  # vs. 1H (3Ã— faster)
+timestep: 3H  # vs. 1H (3x faster)
 ```
 
 **Caveats**:
@@ -336,7 +336,6 @@ Performance optimization checklist:
 - [Troubleshooting Guide]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) - Common issues
 - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) - Optimize settings
 - [Running Experiments]({{ site.baseurl }}{% link guides/experiments/index.md %}) - Complete workflow
-
 
 
 

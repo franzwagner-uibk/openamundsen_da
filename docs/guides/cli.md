@@ -115,36 +115,6 @@ oa-da-scf \
 
 ### oa-da-snowcover
 
-Summarizes snow-cover rasters (GeoTIFF/NetCDF) into `scf_summary.csv` using class mappings from project YAML (`obs.snowcover.classes`) and the project DA land-cover mask.
-
-```bash
-oa-da-snowcover \
-  --input-dir PATH \
-  --project-label LABEL \
-  [OPTIONS]
-```
-
-**Required Arguments:**
-- `--input-dir PATH` - Directory with snow-cover rasters (`*.tif/*.tiff/*.nc`)
-- `--project-label LABEL` - Setup identifier (e.g., project_2019-2020)
-
-**Optional Arguments:**
-- `--project-dir PATH` - Project root (default: current directory)
-- `--output-root PATH` - Override output root (default: `<project>/obs`)
-- `--roi PATH` - ROI vector used for clipping (default: auto-resolved under `<setup>/env`, generated from `grids/roi_<domain>_<resolution>.asc` if needed)
-- `--roi-field FIELD` - ROI identifier field (optional)
-- `--recursive` - Recurse into subdirectories
-- `--start-date/--end-date` - Optional date bounds
-- `--overwrite` - Overwrite existing outputs
-- `--log-level LEVEL` - Default: INFO
-
-**Output:**
-- Summary CSV: `obs/{setup}/scf_summary.csv`
-
----
-
-### oa-da-snowcover
-
 **snow-cover Sentinel-2 FSC summarization**
 
 Summarizes snow-cover FSC rasters (GeoTIFF or NetCDF) to a setup-level `scf_summary.csv` with `scf`, `n_valid`, `n_snow`, and `cloud_fraction`.
@@ -158,14 +128,16 @@ oa-da-snowcover \
 
 **Required Arguments:**
 - `--input-dir PATH` - Directory with snow-cover FSC rasters (`*.tif/*.tiff/*.nc`)
-- `--project-label LABEL` - Setup identifier (e.g., project_2019-2020)
+- `--project-label LABEL` - Project label used under `obs/summaries/<project-label>/`
 
 **Optional Arguments:**
-- `--project-dir PATH` - Project root (default: current directory)
-- `--aoi PATH` - ROI vector (auto-resolved under `<setup>/env`, generated from `grids/roi_<domain>_<resolution>.asc` if needed)
+- `--setup-dir PATH` - Setup directory (default: current directory)
+- `--roi PATH` - ROI vector (auto-resolved under `<setup>/env`, generated from `grids/roi_<domain>_<resolution>.asc` if needed)
 - `--roi-field FIELD` - ROI identifier field (optional)
 - `--recursive` - Recurse into subdirectories
-- `--output-root PATH` - Override obs root (default: `<project>/obs`)
+- `--start-date/--end-date` - Optional date bounds (defaults to project YAML date window if available)
+- `--output-root PATH` - Override summary root (default: `<setup>/obs/summaries`)
+- `--overwrite` - Overwrite existing `scf_summary.csv`
 - `--log-level LEVEL` - Logging level
 
 **Class handling:** 0..100 = valid FSC (percent), 205 = clouds (excluded; counted in `cloud_fraction`), 210 = water (excluded), 255/_FillValue = nodata.
@@ -175,7 +147,7 @@ oa-da-snowcover \
 oa-da-snowcover \
   --input-dir /data/obs/snowcover \
   --project-label project_2019-2020 \
-  --project-dir /data \
+  --setup-dir /data \
   --recursive
 ```
 
@@ -370,19 +342,19 @@ Processes Sentinel-1 WSM rasters into setup summary.
 oa-da-wetsnow \
   --input-dir PATH \
   --project-label LABEL \
-  --project-dir PATH \
+  [--setup-dir PATH] \
   [OPTIONS]
 ```
 
-Similar to `oa-da-snowcover` but for Sentinel-1 wet snow masks.
+Similar to `oa-da-snowcover` but for Sentinel-1 wet snow masks (categorical classes configured via `obs.wetsnow.classes` in project YAML).
 
 ---
 
 ### oa-da-wetsnow-project
 
-**Setup-wide S1 processing**
+**Per-step wet-snow observation CSV generation**
 
-Batch processes Sentinel-1 observations for entire setup.
+Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` files based on project assimilation events.
 
 ---
 
@@ -585,7 +557,7 @@ docker compose run --rm oa oa-da-project \
 docker compose run --rm oa oa-da-snowcover \
   --input-dir /data/obs/snowcover \
   --project-label project_2019-2020 \
-  --project-dir /data
+  --setup-dir /data
 ```
 
 ---

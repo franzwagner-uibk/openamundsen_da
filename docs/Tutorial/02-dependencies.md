@@ -10,14 +10,6 @@ permalink: /tutorial/dependencies/
 
 ## Docker
 
-### Container and Images
-
-### Commands
-
-### OS Dependency
-
-### Runtime and resources
-
 Before running openAMUNDSEN-DA, make sure Docker is available and working.
 
 System requirements:

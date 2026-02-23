@@ -77,6 +77,64 @@ The focus is a reproducible, understandable workflow that users can reuse.
 
 ---
 
+## Visual overview (read this once before the hands-on chapters)
+
+This schematic combines the most important concepts of the framework in one figure:
+framework architecture, particle-filter DA cycle, run modes, and the role of different
+snow observations across the season.
+
+![openAMUNDSEN-DA framework overview and workflow scheme]({{ site.baseurl }}/assets/images/tutorial/scheme_oa_da.png)
+
+_Integrated overview of framework structure, particle-filter cycle, run modes, and snow-observation types._
+
+### How to read the schematic (`a` to `e`)
+
+{: .note }
+> This figure is a conceptual map. The next tutorial chapters show where each concept appears in the actual folder structure, YAML files, and CLI commands.
+
+1. **(a) Schematic overview**
+   Shows the central DA idea in one line:
+   an **openAMUNDSEN model ensemble** is propagated forward, compared to an **observation**, and updated from a **prior** ensemble to a **posterior** ensemble.
+   In practice, this is what happens inside each assimilation step in a project
+   ([Tutorial workflow]({{ site.baseurl }}{% link Tutorial/03-workflow.md %}),
+   [Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}),
+   [DA methods]({{ site.baseurl }}{% link reference/da-methods.md %})).
+
+2. **(b) Open-source software**
+   Shows the software relationship:
+   `openAMUNDSEN` is the snow-hydrological model, and `openAMUNDSEN-DA` wraps and extends it with ensemble handling, observation preprocessing, assimilation logic, and diagnostics.
+   This is why the setup YAML stays mostly "pure openAMUNDSEN", while DA-specific settings live in the project YAML
+   ([Configuration guide]({{ site.baseurl }}{% link guides/configuration.md %}),
+   [Project structure]({{ site.baseurl }}{% link project-structure.md %}),
+   [Package structure]({{ site.baseurl }}{% link reference/package-structure.md %})).
+
+3. **(c) Data assimilation based on a particle filter**
+   Shows the particle-filter cycle used by the framework:
+   **forcing perturbation -> prior ensemble -> importance weighting -> resampling -> rejuvenation -> next prior**.
+   This panel maps directly to the project pipeline stages and to the output diagnostics you will inspect later (weights, ESS, posterior spread)
+   ([Running the project]({{ site.baseurl }}{% link Tutorial/06-running-the-project.md %}),
+   [Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}),
+   [DA methods]({{ site.baseurl }}{% link reference/da-methods.md %})).
+
+4. **(d) Spatial domain**
+   Shows the two execution modes supported by the framework:
+   **single-domain mode** (one model domain, used in the tutorial) and
+   **sub-domain mode** (large-area decomposition into tiles/subdomains).
+   The same DA concepts apply in both modes; only orchestration and file layout differ
+   ([Workflow]({{ site.baseurl }}{% link workflow.md %}),
+   [Sub-domain mode docs]({{ site.baseurl }}{% link guides/cli.md %}#oa-da-subdomain),
+   [Project structure]({{ site.baseurl }}{% link project-structure.md %})).
+
+5. **(e) Snow data**
+   Shows why multiple observation types are useful and when they are most informative in a season:
+   **snow depth**, **snow cover**, and **wet snow** contribute information at different times (early/high/late season).
+   In the tutorial project, you will preprocess and use **snow cover (FSC)** and **wet snow** raster observations, and validate against station snow measurements
+   ([Pre-processing]({{ site.baseurl }}{% link Tutorial/05-pre-processing.md %}),
+   [Observations guide]({{ site.baseurl }}{% link guides/observations.md %}),
+   [Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %})).
+
+---
+
 ## Central case study: Rofental (tutorial baseline)
 
 The tutorial uses the bundled `examples/rofental` setup as the central case study.
@@ -150,4 +208,3 @@ important ones:
 ## Next step
 
 Continue with [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}) to prepare the runtime environment (Docker, resource expectations, and command style used in this tutorial).
-

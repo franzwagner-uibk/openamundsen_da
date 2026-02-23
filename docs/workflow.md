@@ -46,13 +46,13 @@ The openamundsen_da framework implements a sequential particle filter for snow d
 **Temperature**: Additive Gaussian noise
 
 ```
-T_perturbed = T_original + Îµ_T,  Îµ_T ~ N(0, Ïƒ_TÂ²)
+T_perturbed = T_original + epsilon_T,  epsilon_T ~ N(0, sigma_T^2)
 ```
 
 **Precipitation**: Multiplicative log-normal noise
 
 ```
-P_perturbed = P_original Ã— exp(Îµ_P),  Îµ_P ~ N(Î¼_P, Ïƒ_PÂ²)
+P_perturbed = P_original * exp(epsilon_P),  epsilon_P ~ N(mu_P, sigma_P^2)
 ```
 
 **Command**:
@@ -101,26 +101,26 @@ Warm start uses the model state saved at the end of each step via `state_pointer
 
 ## Observation Processing
 
-### Snow cover (GeoTIFF/NetCDF â†’ `scf_summary.csv`)
+### Snow cover (GeoTIFF/NetCDF -> `scf_summary.csv`)
 
 ```bash
 docker compose run --rm oa \
   oa-da-snowcover \
   --input-dir /data/obs/snowcover \
   --project-label project_2019-2020 \
-  --project-dir /data
+  --setup-dir /data
 ```
 
 Classes are read from `obs.snowcover.classes` in project YAML (defaults: valid 0-100, cloud 205, water 210, nodata 255). The project-level DA land-cover mask is applied to observations automatically.
 
-### Wet snow (categorical rasters â†’ `wet_snow_summary.csv`)
+### Wet snow (categorical rasters -> `wet_snow_summary.csv`)
 
 ```bash
 docker compose run --rm oa \
   oa-da-wetsnow \
   --input-dir /data/obs/wetsnow \
   --project-label project_2019-2020 \
-  --project-dir /data
+  --setup-dir /data
 ```
 
 Wet/valid/exclude classes come from `obs.wetsnow.classes` in the project YAML (for HRWSI WSM typically wet `110`, dry/no-snow `125`, with `200`/`210` excluded). ROI and land-cover masking mirror the snow-cover workflow.
@@ -172,7 +172,7 @@ Maps model state (snow depth or SWE) to observation space (SCF).
 
 2. **Logistic** (smooth):
    ```
-   SCF = 1 / (1 + exp(-k Ã— (HS - h0)))
+   SCF = 1 / (1 + exp(-k * (HS - h0)))
    ```
 
 **Configuration** (in project YAML):
@@ -192,20 +192,20 @@ data_assimilation:
 Gaussian likelihood function:
 
 ```
-w_i âˆ exp(-0.5 Ã— ((y_obs - H(x_i)) / Ïƒ_obs)Â²)
+w_i is proportional to exp(-0.5 * ((y_obs - H(x_i)) / sigma_obs)^2)) / Ïƒ_obs)Â²)
 ```
 
-Weights are normalized: `w_i = w_i / Î£(w_j)`
+Weights are normalized: `w_i = w_i / sum_j(w_j)`
 
 ### Effective Sample Size (ESS)
 
 ```
-ESS = 1 / Î£(w_iÂ²)
+ESS = 1 / sum_i(w_i^2)
 ```
 
 - ESS = N: All weights equal (no information from obs)
 - ESS = 1: One particle dominates (particle degeneracy)
-- ESS < threshold â†’ Trigger resampling
+- ESS < threshold -> Trigger resampling
 
 ---
 
@@ -219,13 +219,13 @@ ESS = 1 / Î£(w_iÂ²)
 data_assimilation:
   resampling:
     algorithm: systematic
-    ess_threshold_ratio: 0.5 # Resample if ESS < 0.5 Ã— N
+    ess_threshold_ratio: 0.5 # Resample if ESS < 0.5 * N
     seed: 42
 ```
 
 **Behavior**:
 
-- If `ESS â‰¥ threshold`: Skip resampling, mirror prior â†’ posterior
+- If `ESS >= threshold`: Skip resampling, mirror prior -> posterior
 - If `ESS < threshold`: Resample
 
 ### Rejuvenation
@@ -254,7 +254,7 @@ If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas.
 Copy posterior states + perturbed forcing to next step's prior:
 
 ```
-step_N/ensembles/posterior/member_i/ â†’ step_N+1/ensembles/prior/member_j/
+step_N/ensembles/posterior/member_i/ -> step_N+1/ensembles/prior/member_j/
 ```
 
 ---
@@ -279,9 +279,9 @@ Optional: `--overwrite`, `--live-plots`, `--log-level <LEVEL>` (`--live-plots` e
 1. Generate prior forcing
 2. Run prior ensemble
 3. Compute model H(x) (SCF/wet-snow)
-4. Assimilate observations â†’ weights
-5. Check ESS â†’ resample if needed
-6. Rejuvenate â†’ next prior
+4. Assimilate observations -> weights
+5. Check ESS -> resample if needed
+6. Rejuvenate -> next prior
 7. Generate plots
 8. Repeat for next step
 

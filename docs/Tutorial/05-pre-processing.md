@@ -284,7 +284,7 @@ docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagne
   oa-da-snowcover \
   --input-dir /data/rofental/obs/snowcover \
   --project-label project_2022_2023 \
-  --project-dir /data/rofental \
+  --setup-dir /data/rofental \
   --overwrite
 ```
 
@@ -298,7 +298,7 @@ docker run --rm `
   oa-da-snowcover `
   --input-dir /data/rofental/obs/snowcover `
   --project-label project_2022_2023 `
-  --project-dir /data/rofental `
+  --setup-dir /data/rofental `
   --overwrite
 ```
 
@@ -406,7 +406,7 @@ docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagne
   oa-da-wetsnow \
   --input-dir /data/rofental/obs/wetsnow \
   --project-label project_2022_2023 \
-  --project-dir /data/rofental \
+  --setup-dir /data/rofental \
   --overwrite
 ```
 <details markdown="block">

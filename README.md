@@ -165,7 +165,7 @@ docker compose run --rm oa `
   oa-da-snowcover `
   --input-dir $setup/obs/snowcover `
   --project-label project_YYYY-YYYY `
-  --project-dir $setup `
+  --setup-dir $setup `
   --overwrite
 ```
 
@@ -178,7 +178,7 @@ docker compose run --rm oa `
   oa-da-wetsnow `
   --input-dir $setup/obs/wetsnow `
   --project-label project_YYYY-YYYY `
-  --project-dir $setup `
+  --setup-dir $setup `
   --overwrite
 ```
 
@@ -561,7 +561,7 @@ Outputs under `<setup_dir>/plots/perf/`:
 - `setup_perf_metrics.csv` (timestamp, cpu_total_pct, mem_used_pct, mem_used_gb, mem_total_gb)
 - `setup_perf.png` (CPU/RAM%)
 
-Suggested intervals: sample every 5Ã¢â‚¬â€œ10 seconds; refresh the plot every 30Ã¢â‚¬â€œ60 seconds.
+Suggested intervals: sample every 5-10 seconds; refresh the plot every 30-60 seconds.
 
 Project run with default monitoring
 

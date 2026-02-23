@@ -73,7 +73,7 @@ docker compose run --rm oa \
   oa-da-snowcover \
   --input-dir /data/obs/snowcover \
   --project-label project_2019-2020 \
-  --project-dir /data
+  --setup-dir /data
 ```
 
 Notes:
@@ -123,14 +123,15 @@ Summarize wet-snow rasters into a setup table:
 
 ```bash
 docker compose run --rm oa oa-da-wetsnow \
-  --project-dir /data \
+  --input-dir /data/obs/wetsnow \
+  --setup-dir /data \
   --output-root /data/obs \
   --project-label project_2019-2020
 ```
 
-Defaults (when `--project-dir` is set):
+Notes:
 
-- Rasters: `/data/obs/WSM_S1_SAR`
+- `--input-dir` is required and should point to your wet-snow raster directory.
 - ROI: auto-resolved under `/data/env` (or generated from `grids/roi_<domain>_<resolution>.asc`)
 - Land-cover mask: `/data/grids/lc_<domain>_<resolution>.asc`
 
@@ -164,10 +165,10 @@ H(x) = 1  if HS > h0
 **Logistic** (recommended):
 
 ```
-H(x) = 1 / (1 + exp(-k Ã— (HS - h0)))
+H(x) = 1 / (1 + exp(-k * (HS - h0)))
 ```
 
-See [Configuration â†’ H(x)]({{ site.baseurl }}{% link guides/configuration.md %}#hx-forward-operator-methods) for details.
+See [Configuration -> H(x)]({{ site.baseurl }}{% link guides/configuration.md %}#hx-forward-operator-methods) for details.
 
 ### Wet Snow Forward Operator
 
@@ -193,8 +194,8 @@ The classification threshold is interpreted in percent and converted internally 
 
 ### Observation Error Tuning
 
-**Too small** â†’ particle degeneracy (ESS â†’ 1)
-**Too large** â†’ no weight update (ESS â†’ N)
+**Too small** -> particle degeneracy (ESS -> 1)
+**Too large** -> no weight update (ESS -> N)
 
 **Starting values**:
 
@@ -207,8 +208,8 @@ The classification threshold is interpreted in percent and converted internally 
 1. Run DA with default values
 2. Inspect ESS timeline
 3. Adjust:
-   - ESS consistently near N â†’ reduce Ïƒ_obs
-   - ESS drops to 1 frequently â†’ increase Ïƒ_obs
+   - ESS consistently near N -> reduce sigma_obs
+   - ESS drops to 1 frequently -> increase sigma_obs
 
 ### Land-Cover Masking
 
@@ -247,6 +248,5 @@ data_assimilation:
 
 - Barella, R., Marin, C., Gianinetto, M., and Notarnicola, C. (2022). A novel approach to high resolution snow cover fraction retrieval in mountainous regions. IGARSS 2022 - IEEE International Geoscience and Remote Sensing Symposium, 3856-3859. https://doi.org/10.1109/IGARSS46834.2022.9884177.
 - Nagler, T., Rott, H., Ripper, E., Bippus, G., and Hetzenecker, M. (2016). Advancements for snowmelt monitoring by means of Sentinel-1 SAR. Remote Sensing, 8(4), 348. https://doi.org/10.3390/rs8040348.
-
 
 

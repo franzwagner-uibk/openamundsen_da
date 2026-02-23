@@ -171,7 +171,10 @@ Why these runtime flags are used:
 
 {: .note }
 > **Project YAML keys that strongly affect runtime/results**  
-> File: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
+> Reference YAML snippet (selected runtime-relevant keys)
+>
+> File path:
+> - `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
 
 ```yaml
 data_assimilation:

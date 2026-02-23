@@ -171,7 +171,11 @@ Relevant sections in the tutorial project:
 > The preprocessors are configuration-driven and intentionally fail-fast. If required
 > class mappings or product tags are missing, preprocessing aborts instead of guessing.
 
-Reference snippet (`/data/rofental/projects/project_2022_2023/project_2022_2023.yml`, selected sections):
+Reference YAML snippet (project config driving preprocessing, selected sections)
+
+File path:
+
+- `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
 
 ```yaml
 start_date: "2022-10-01"

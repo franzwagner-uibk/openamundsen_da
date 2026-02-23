@@ -71,7 +71,11 @@ Typical setup contents:
 - `obs/` (raw observation rasters and station observations)
 - `projects/` (one or more DA projects)
 
-Reference snippet (`/data/rofental/rofental.yml`, selected setup-level keys):
+Reference YAML snippet (setup config, selected keys)
+
+File path:
+
+- `/data/rofental/rofental.yml`
 
 ```yaml
 domain: "rofental"
@@ -131,7 +135,11 @@ Key project-level sections in the tutorial example:
 - `obs.*` (observation directories, product tags, class mappings)
 - `data_assimilation.*` (ensemble forcing, H(x), likelihood, resampling, rejuvenation, events, outputs)
 
-Reference snippet (`/data/rofental/projects/project_2022_2023/project_2022_2023.yml`, selected DA keys):
+Reference YAML snippet (project DA config, selected keys)
+
+File path:
+
+- `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
 
 ```yaml
 start_date: "2022-10-01"

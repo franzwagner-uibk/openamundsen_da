@@ -20,6 +20,9 @@ The goal is not only to find files, but to understand:
 {: .highlight }
 > Review order matters: check the log first, then DA diagnostics, then interpret the plots and grids.
 
+{: .note }
+> All command blocks below are executed **inside the running tutorial container shell** started in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}).
+
 ---
 
 ## Project output structure (what to inspect first)
@@ -40,9 +43,7 @@ Key locations:
 Quick directory overview:
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest sh -lc '
-  find /data/rofental/projects/project_2022_2023 -maxdepth 3 -type d | sort
-'
+find /data/rofental/projects/project_2022_2023 -maxdepth 3 -type d | sort
 ```
 
 <details markdown="block">
@@ -64,22 +65,8 @@ It helps new users understand which outputs are:
 Before interpreting plots, confirm that the run actually completed cleanly.
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest sh -lc '
-  tail -n 120 /data/rofental/projects/project_2022_2023/project_2022_2023.log
-'
+tail -n 120 /data/rofental/projects/project_2022_2023/project_2022_2023.log
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 
 What to look for:
@@ -130,24 +117,10 @@ Files to inspect:
 Quick check:
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest sh -lc '
-  ls -lh /data/rofental/projects/project_2022_2023/plots/perf
-  echo;
-  head -10 /data/rofental/projects/project_2022_2023/plots/perf/project_perf_metrics.csv
-'
+ls -lh /data/rofental/projects/project_2022_2023/plots/perf
+echo;
+head -10 /data/rofental/projects/project_2022_2023/plots/perf/project_perf_metrics.csv
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 
 How to use this information:
@@ -214,22 +187,8 @@ What they show:
 Quick listing:
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest sh -lc '
-  find /data/rofental/projects/project_2022_2023/plots/assim -type f | sort
-'
+find /data/rofental/projects/project_2022_2023/plots/assim -type f | sort
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 
 Interpretation guidelines:
@@ -313,22 +272,8 @@ Typical files include:
 Quick check:
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest sh -lc '
-  ls -1 /data/rofental/projects/project_2022_2023/plots/results
-'
+ls -1 /data/rofental/projects/project_2022_2023/plots/results
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 
 ### Fraction time series (high-level DA behavior)
@@ -466,26 +411,12 @@ These summarize the ensemble spread over the ROI (mean/min/max and sample count)
 Inspect a snippet:
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest sh -lc '
-  echo "SCF envelope:"
-  head -5 /data/rofental/projects/project_2022_2023/point_scf_roi_envelope.csv
-  echo;
-  echo "Wet-snow envelope:"
-  head -5 /data/rofental/projects/project_2022_2023/point_wet_snow_roi_envelope.csv
-'
+echo "SCF envelope:"
+head -5 /data/rofental/projects/project_2022_2023/point_scf_roi_envelope.csv
+echo;
+echo "Wet-snow envelope:"
+head -5 /data/rofental/projects/project_2022_2023/point_wet_snow_roi_envelope.csv
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 
 How this helps:
@@ -551,28 +482,14 @@ This file is designed for:
 Quick inspection of file presence/size:
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest sh -lc '
-  ls -lh /data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc
-'
+ls -lh /data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 
 Optional variable/dimension inspection (Python in the container):
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest python - <<'PY'
+python - <<'PY'
 import xarray as xr
 ds = xr.open_dataset("/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc")
 print(ds)
@@ -581,18 +498,6 @@ for name in ds.data_vars:
     print("-", name, ds[name].dims)
 PY
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 
 What to expect conceptually:

@@ -28,6 +28,9 @@ This configuration is intended to remain feasible on a normal computer.
 {: .highlight }
 > **Command focus (important):** The only mandatory command in this chapter is the project pipeline run. The step inspection and log-tail command are optional but useful.
 
+{: .note }
+> All command blocks below are executed **inside the running tutorial container shell** started in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}). The container CPU limit and BLAS/OpenMP environment variables are configured in that startup command.
+
 ---
 
 ## What the project pipeline does (conceptual overview)
@@ -65,23 +68,9 @@ observation CSVs to already exist and match the configured event dates exactly.
 This is a useful sanity check before launching a multi-minute run.
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest sh -lc '
-  echo "Step folder: /data/rofental/projects/project_2022_2023/steps/step_00_init"
-  find /data/rofental/projects/project_2022_2023/steps/step_00_init -maxdepth 3 -type f | sort
-'
+echo "Step folder: /data/rofental/projects/project_2022_2023/steps/step_00_init"
+find /data/rofental/projects/project_2022_2023/steps/step_00_init -maxdepth 3 -type f | sort
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 
 What to expect before the first run:
@@ -123,51 +112,23 @@ This is the main tutorial command. It executes the DA project end to end.
 > Project config: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml` (DA events, obs mapping, likelihood/resampling, outputs)
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" \
-  --cpus 8 \
-  -e OMP_NUM_THREADS=1 \
-  -e OPENBLAS_NUM_THREADS=1 \
-  -e MKL_NUM_THREADS=1 \
-  -e NUMEXPR_NUM_THREADS=1 \
-  ghcr.io/franzwagner-uibk/openamundsen_da:latest \
-  python -m openamundsen_da.pipeline.project \
-    --setup-dir /data/rofental \
-    --project-dir /data/rofental/projects/project_2022_2023 \
-    --max-workers 8 \
-    --overwrite \
-    --log-level INFO
+python -m openamundsen_da.pipeline.project \
+  --setup-dir /data/rofental \
+  --project-dir /data/rofental/projects/project_2022_2023 \
+  --max-workers 8 \
+  --overwrite \
+  --log-level INFO
 ```
 
-<details markdown="block">
-  <summary>Windows PowerShell variant (main project run)</summary>
 
-```powershell
-docker run --rm `
-  -v "C:/absolute/path/to/tutorial-workdir:/data" `
-  --cpus 8 `
-  -e OMP_NUM_THREADS=1 `
-  -e OPENBLAS_NUM_THREADS=1 `
-  -e MKL_NUM_THREADS=1 `
-  -e NUMEXPR_NUM_THREADS=1 `
-  ghcr.io/franzwagner-uibk/openamundsen_da:latest `
-  python -m openamundsen_da.pipeline.project `
-    --setup-dir /data/rofental `
-    --project-dir /data/rofental/projects/project_2022_2023 `
-    --max-workers 8 `
-    --overwrite `
-    --log-level INFO
-```
+Why these runtime settings are used:
 
-</details>
-
-Why these runtime flags are used:
-
-- `--cpus 8`: caps container CPU usage (example value, adjust to your machine)
-- BLAS/OpenMP env vars: prevents nested threading and oversubscription
-- `--max-workers 8`: upper bound for parallel workers in the pipeline
+- `--cpus 8` (set in the container startup command): caps container CPU usage (example value, adjust to your machine)
+- BLAS/OpenMP env vars (set in the container startup command): prevent nested threading and oversubscription
+- `--max-workers 8` (set here): upper bound for parallel workers in the pipeline
 
 {: .note }
-> These values are examples. Adjust them to your machine and Docker CPU allocation.
+> These values are examples. Adjust them to your machine and Docker CPU allocation before starting the tutorial container shell.
 
 {: .note }
 > **Project YAML keys that strongly affect runtime/results**  
@@ -226,22 +187,8 @@ should be able to complete the run, but it is still a non-trivial workload.
 ### 1. Watch the project log
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest sh -lc '
-  tail -n 80 /data/rofental/projects/project_2022_2023/project_2022_2023.log
-'
+tail -n 80 /data/rofental/projects/project_2022_2023/project_2022_2023.log
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 
 Look for messages such as:
@@ -360,50 +307,24 @@ Examples (step-level mechanics):
 ### Prior forcing ensemble generation (step-level)
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest \
-  python -m openamundsen_da.core.prior_forcing \
-    --input-meteo-dir /data/rofental/projects/project_2022_2023/meteo \
-    --project-dir /data/rofental/projects/project_2022_2023 \
-    --step-dir /data/rofental/projects/project_2022_2023/steps/step_00_init \
-    --overwrite
+python -m openamundsen_da.core.prior_forcing \
+  --input-meteo-dir /data/rofental/projects/project_2022_2023/meteo \
+  --project-dir /data/rofental/projects/project_2022_2023 \
+  --step-dir /data/rofental/projects/project_2022_2023/steps/step_00_init \
+  --overwrite
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 ### Ensemble launch (step-level)
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest \
-  python -m openamundsen_da.core.launch \
-    --project-dir /data/rofental/projects/project_2022_2023 \
-    --setup-dir /data/rofental \
-    --step-dir /data/rofental/projects/project_2022_2023/steps/step_00_init \
-    --ensemble prior \
-    --max-workers 8 \
-    --overwrite
+python -m openamundsen_da.core.launch \
+  --project-dir /data/rofental/projects/project_2022_2023 \
+  --setup-dir /data/rofental \
+  --step-dir /data/rofental/projects/project_2022_2023/steps/step_00_init \
+  --ensemble prior \
+  --max-workers 8 \
+  --overwrite
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 </details>
 

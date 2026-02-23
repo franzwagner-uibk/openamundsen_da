@@ -48,6 +48,10 @@ For the tutorial workflow, the example should start from **raw observation raste
 default learning path. Users should generate summary tables themselves in the
 pre-processing chapter.
 
+Tutorial command style should use a **single interactive Docker container session**
+(one bind mount to `/data`, then commands inside the container shell) to minimize
+copy-paste errors and avoid repeated host-path boilerplate in later chapters.
+
 ## Core Requirements
 
 The tutorial must cover:

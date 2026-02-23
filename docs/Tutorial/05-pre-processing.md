@@ -31,10 +31,10 @@ The goal is to make the preprocessing logic transparent and reproducible:
 
 ## Before you start
 
-This chapter assumes you already copied the bundled example from the container image
-and are working in a local folder mounted into the container as `/data` (for example
-`-v "/absolute/path/to/tutorial-workdir:/data"`), so the copied example is available as
-`/data/rofental`.
+This chapter assumes you already:
+
+- started the interactive tutorial container shell from [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}),
+- copied the bundled Rofental example to your mounted workspace (`/data/rofental`).
 
 {: .note }
 > Cross-reference:
@@ -53,22 +53,8 @@ Those files do not exist until you:
 3. align summaries to assimilation events (`oa-da-scf`, `oa-da-wetsnow-project`).
 </details>
 
-<details markdown="block">
-  <summary>Windows PowerShell users (applies to all commands in this chapter)</summary>
-
-Use the same Docker command structure and container paths (`/data/...`). Only the shell
-syntax changes.
-
-Example pattern:
-
-```powershell
-docker run --rm `
-  -v "C:/absolute/path/to/tutorial-workdir:/data" `
-  ghcr.io/franzwagner-uibk/openamundsen_da:latest `
-  <command>
-```
-
-</details>
+{: .note }
+> All command blocks below are executed **inside the running tutorial container shell**. Once the shell is started in chapter 2, the commands are identical on Linux, macOS, and Windows (WSL/PowerShell users type them inside the container).
 
 {: .highlight }
 > **Command focus (important):** In this chapter, the commands you must run are the five preprocessing commands below (`oa-da-snowcover`, `oa-da-wetsnow`, `project_skeleton`, `oa-da-scf`, `oa-da-wetsnow-project`). Most file checks are shown as **paths + snippets** to reduce command noise.
@@ -127,30 +113,16 @@ Why this matters:
   <summary>Optional CLI check (list raw observation files)</summary>
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest sh -lc '
-  echo "Snow-cover rasters:";
-  ls -1 /data/rofental/obs/snowcover | head -10;
-  echo;
-  echo "Wet-snow rasters:";
-  ls -1 /data/rofental/obs/wetsnow | head -10;
-  echo;
-  echo "Station observation files:";
-  ls -1 /data/rofental/obs/stations
-'
+echo "Snow-cover rasters:";
+ls -1 /data/rofental/obs/snowcover | head -10;
+echo;
+echo "Wet-snow rasters:";
+ls -1 /data/rofental/obs/wetsnow | head -10;
+echo;
+echo "Station observation files:";
+ls -1 /data/rofental/obs/stations
 ```
 
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 </details>
 
@@ -207,28 +179,28 @@ data_assimilation:
 ```
 
 {: .warning }
+> **Required before continuing:** open `/data/rofental/projects/project_2022_2023/project_2022_2023.yml` and verify that these tutorial-baseline values are present before preprocessing.
+>
+> In particular, confirm the wet-snow class mapping:
+> - `wet: [110]`
+> - `valid: [110, 125, 200, 210]`
+> - `exclude: [200, 210]`
+>
+> If these keys differ (for example in an older local copy of the example), update the file and then continue with the preprocessing commands below.
+
+{: .note }
+> Edit the file in your preferred editor on the host machine (it is inside your mounted tutorial workspace) or from inside the container. The tutorial path inside the container is:
+> `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
+
+{: .warning }
 > If you change class mappings or product tags, regenerate summaries before creating per-step observation CSVs.
 
 <details markdown="block">
   <summary>Optional CLI check (inspect project YAML in the container)</summary>
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest sh -lc '
-  sed -n "1,220p" /data/rofental/projects/project_2022_2023/project_2022_2023.yml
-'
+sed -n "1,220p" /data/rofental/projects/project_2022_2023/project_2022_2023.yml
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 </details>
 
@@ -240,25 +212,11 @@ If you are rerunning this chapter, remove previously generated summary and per-s
 observation files first so the workflow stays reproducible.
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest sh -lc '
-  rm -f /data/rofental/obs/project_2022_2023/scf_summary.csv
-  rm -f /data/rofental/obs/project_2022_2023/wet_snow_summary.csv
-  find /data/rofental/projects/project_2022_2023/steps -type f \
-    \\( -name "obs_scf_*.csv" -o -name "obs_wet_snow_*.csv" \\) -delete 2>/dev/null || true
-'
+rm -f /data/rofental/obs/project_2022_2023/scf_summary.csv
+rm -f /data/rofental/obs/project_2022_2023/wet_snow_summary.csv
+find /data/rofental/projects/project_2022_2023/steps -type f \
+  \\( -name "obs_scf_*.csv" -o -name "obs_wet_snow_*.csv" \\) -delete 2>/dev/null || true
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 
 Expected state after cleanup (if you ran it):
@@ -280,29 +238,13 @@ This converts the raw FSC rasters into a project-level summary table used for:
 Command:
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest \
-  oa-da-snowcover \
-  --input-dir /data/rofental/obs/snowcover \
-  --project-label project_2022_2023 \
-  --setup-dir /data/rofental \
-  --overwrite
+oa-da-snowcover \
+--input-dir /data/rofental/obs/snowcover \
+--project-label project_2022_2023 \
+--setup-dir /data/rofental \
+--overwrite
 ```
 
-<details markdown="block">
-  <summary>Windows PowerShell variant (SCF summary command)</summary>
-
-```powershell
-docker run --rm `
-  -v "C:/absolute/path/to/tutorial-workdir:/data" `
-  ghcr.io/franzwagner-uibk/openamundsen_da:latest `
-  oa-da-snowcover `
-  --input-dir /data/rofental/obs/snowcover `
-  --project-label project_2022_2023 `
-  --setup-dir /data/rofental `
-  --overwrite
-```
-
-</details>
 
 {: .note }
 > **Configuration used (project YAML)**  
@@ -367,22 +309,8 @@ date,region_id,n_valid,n_snow,scf,cloud_fraction,source
   <summary>Optional CLI check (confirm SCF summary file in the container)</summary>
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest sh -lc '
-  ls -lh /data/rofental/obs/project_2022_2023/scf_summary.csv
-'
+ls -lh /data/rofental/obs/project_2022_2023/scf_summary.csv
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 </details>
 
@@ -402,25 +330,12 @@ This creates the project-level wet-snow summary from the Sentinel-1 wet-snow mas
 Command:
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest \
-  oa-da-wetsnow \
-  --input-dir /data/rofental/obs/wetsnow \
-  --project-label project_2022_2023 \
-  --setup-dir /data/rofental \
-  --overwrite
+oa-da-wetsnow \
+--input-dir /data/rofental/obs/wetsnow \
+--project-label project_2022_2023 \
+--setup-dir /data/rofental \
+--overwrite
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 {: .note }
 > **Configuration used (project YAML)**  
@@ -466,22 +381,8 @@ date,region_id,wet_snow_fraction,n_valid,n_wet,source
   <summary>Optional CLI check (confirm wet-snow summary file in the container)</summary>
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest sh -lc '
-  ls -lh /data/rofental/obs/project_2022_2023/wet_snow_summary.csv
-'
+ls -lh /data/rofental/obs/project_2022_2023/wet_snow_summary.csv
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 </details>
 
@@ -503,25 +404,12 @@ The step skeleton is generated from:
 Command:
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest \
-  python -m openamundsen_da.pipeline.project_skeleton \
-    --setup-dir /data/rofental \
-    --project-dir /data/rofental/projects/project_2022_2023 \
-    --overwrite \
-    --log-level INFO
+python -m openamundsen_da.pipeline.project_skeleton \
+  --setup-dir /data/rofental \
+  --project-dir /data/rofental/projects/project_2022_2023 \
+  --overwrite \
+  --log-level INFO
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 {: .note }
 > **Configuration used (project YAML)**  
@@ -571,25 +459,12 @@ and writes one-row observation CSVs into the corresponding `step_*/obs/` folders
 Command:
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest \
-  oa-da-scf \
-  --project-dir /data/rofental/projects/project_2022_2023 \
-  --summary-csv /data/rofental/obs/project_2022_2023/scf_summary.csv \
-  --overwrite \
-  --log-level INFO
+oa-da-scf \
+--project-dir /data/rofental/projects/project_2022_2023 \
+--summary-csv /data/rofental/obs/project_2022_2023/scf_summary.csv \
+--overwrite \
+--log-level INFO
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 {: .note }
 > **Configuration used (project YAML)**  
@@ -643,25 +518,12 @@ This performs the same alignment logic for wet-snow assimilation dates.
 Command:
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest \
-  oa-da-wetsnow-project \
-  --project-dir /data/rofental/projects/project_2022_2023 \
-  --summary-csv /data/rofental/obs/project_2022_2023/wet_snow_summary.csv \
-  --overwrite \
-  --log-level INFO
+oa-da-wetsnow-project \
+--project-dir /data/rofental/projects/project_2022_2023 \
+--summary-csv /data/rofental/obs/project_2022_2023/wet_snow_summary.csv \
+--overwrite \
+--log-level INFO
 ```
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
 {: .note }
 > **Configuration used (project YAML)**  

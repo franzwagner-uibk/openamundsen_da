@@ -214,28 +214,12 @@ These live under step ensemble folders (e.g. `ensembles/prior/`, `ensembles/post
 
 ## 2. Copy the tutorial setup (Rofental case study)
 
-Create a local tutorial workspace and copy the bundled Rofental setup from the container image.
+The tutorial setup copy is now part of [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}),
+where you start the interactive tutorial container shell and run:
 
 ```bash
-mkdir -p openamundsen-da
-cd openamundsen-da
-
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" \
-  ghcr.io/franzwagner-uibk/openamundsen_da:latest \
-  cp -a /workspace/examples/rofental /data/rofental
+cp -a /workspace/examples/rofental /data/rofental
 ```
-
-<details markdown="block">
-  <summary>Windows PowerShell variant</summary>
-
-```powershell
-docker run --rm `
-  -v "C:/absolute/path/to/tutorial-workdir:/data" `
-  ghcr.io/franzwagner-uibk/openamundsen_da:latest `
-  cp -a /workspace/examples/rofental /data/rofental
-```
-
-</details>
 
 {: .highlight }
 > The tutorial uses explicit paths in commands instead of shell variables so users always see where files are read and written.
@@ -243,20 +227,8 @@ docker run --rm `
 ### Quick structure check
 
 ```bash
-docker run --rm -v "/absolute/path/to/tutorial-workdir:/data" \
-  ghcr.io/franzwagner-uibk/openamundsen_da:latest sh -lc '
-  find /data/rofental -maxdepth 2 -type d | sort
-'
+find /data/rofental -maxdepth 2 -type d | sort
 ```
-
-<details markdown="block">
-  <summary>Windows PowerShell note</summary>
-
-You can run the same command in PowerShell. The important part is the mount path:
-
-- host path: Windows path (for example `C:/...`)
-- container path: always `/data`
-</details>
 
 What you should see (at minimum):
 

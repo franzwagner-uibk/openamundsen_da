@@ -192,7 +192,7 @@ data_assimilation:
 Gaussian likelihood function:
 
 ```
-w_i is proportional to exp(-0.5 * ((y_obs - H(x_i)) / sigma_obs)^2)) / Ïƒ_obs)Â²)
+w_i is proportional to exp(-0.5 * ((y_obs - H(x_i)) / sigma_obs)^2)
 ```
 
 Weights are normalized: `w_i = w_i / sum_j(w_j)`

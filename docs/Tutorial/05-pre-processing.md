@@ -212,8 +212,8 @@ If you are rerunning this chapter, remove previously generated summary and per-s
 observation files first so the workflow stays reproducible.
 
 ```bash
-rm -f /data/rofental/obs/project_2022_2023/scf_summary.csv
-rm -f /data/rofental/obs/project_2022_2023/wet_snow_summary.csv
+rm -f /data/rofental/obs/summaries/project_2022_2023/scf_summary.csv
+rm -f /data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv
 find /data/rofental/projects/project_2022_2023/steps -type f \
   \\( -name "obs_scf_*.csv" -o -name "obs_wet_snow_*.csv" \\) -delete 2>/dev/null || true
 ```
@@ -221,8 +221,8 @@ find /data/rofental/projects/project_2022_2023/steps -type f \
 
 Expected state after cleanup (if you ran it):
 
-- `/data/rofental/obs/project_2022_2023/scf_summary.csv` removed (or not present yet)
-- `/data/rofental/obs/project_2022_2023/wet_snow_summary.csv` removed (or not present yet)
+- `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv` removed (or not present yet)
+- `/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv` removed (or not present yet)
 - old per-step `obs_scf_*.csv` / `obs_wet_snow_*.csv` files removed from `steps/*/obs/`
 
 ---
@@ -261,7 +261,7 @@ What this does:
 
 Expected output file after running the command:
 
-- `/data/rofental/obs/project_2022_2023/scf_summary.csv`
+- `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`
 
 Expected content (columns may evolve slightly over time):
 
@@ -291,7 +291,7 @@ Reference CSV snippet (SCF summary)
 
 File path:
 
-- `/data/rofental/obs/project_2022_2023/scf_summary.csv`
+- `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`
 
 ```csv
 date,region_id,n_valid,n_snow,scf,cloud_fraction,source
@@ -309,7 +309,7 @@ date,region_id,n_valid,n_snow,scf,cloud_fraction,source
   <summary>Optional CLI check (confirm SCF summary file in the container)</summary>
 
 ```bash
-ls -lh /data/rofental/obs/project_2022_2023/scf_summary.csv
+ls -lh /data/rofental/obs/summaries/project_2022_2023/scf_summary.csv
 ```
 
 </details>
@@ -352,7 +352,7 @@ What this does:
 
 Expected output file after running the command:
 
-- `/data/rofental/obs/project_2022_2023/wet_snow_summary.csv`
+- `/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv`
 
 Why this matters:
 
@@ -363,7 +363,7 @@ Reference CSV snippet (wet-snow summary)
 
 File path:
 
-- `/data/rofental/obs/project_2022_2023/wet_snow_summary.csv`
+- `/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv`
 
 ```csv
 date,region_id,wet_snow_fraction,n_valid,n_wet,source
@@ -381,7 +381,7 @@ date,region_id,wet_snow_fraction,n_valid,n_wet,source
   <summary>Optional CLI check (confirm wet-snow summary file in the container)</summary>
 
 ```bash
-ls -lh /data/rofental/obs/project_2022_2023/wet_snow_summary.csv
+ls -lh /data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv
 ```
 
 </details>
@@ -461,7 +461,7 @@ Command:
 ```bash
 oa-da-scf \
 --project-dir /data/rofental/projects/project_2022_2023 \
---summary-csv /data/rofental/obs/project_2022_2023/scf_summary.csv \
+--summary-csv /data/rofental/obs/summaries/project_2022_2023/scf_summary.csv \
 --overwrite \
 --log-level INFO
 ```
@@ -520,7 +520,7 @@ Command:
 ```bash
 oa-da-wetsnow-project \
 --project-dir /data/rofental/projects/project_2022_2023 \
---summary-csv /data/rofental/obs/project_2022_2023/wet_snow_summary.csv \
+--summary-csv /data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv \
 --overwrite \
 --log-level INFO
 ```
@@ -639,8 +639,8 @@ Typical fix:
 Key outputs:
 
 - project summaries:
-  - `obs/project_2022_2023/scf_summary.csv`
-  - `obs/project_2022_2023/wet_snow_summary.csv`
+  - `obs/summaries/project_2022_2023/scf_summary.csv`
+  - `obs/summaries/project_2022_2023/wet_snow_summary.csv`
 - project step skeleton:
   - `projects/project_2022_2023/steps/step_*`
 - per-step assimilation inputs:

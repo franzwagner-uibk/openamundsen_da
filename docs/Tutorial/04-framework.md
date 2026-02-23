@@ -269,7 +269,7 @@ Raw raster:
   /data/rofental/obs/snowcover/s2_fsc_snowflake_rofental_2022_10_03.tif
 
 Summary row (project-level):
-  /data/rofental/obs/project_2022_2023/scf_summary.csv
+  /data/rofental/obs/summaries/project_2022_2023/scf_summary.csv
   date=2022-10-03, scf=0.5200, cloud_fraction=0.0
 
 Per-step one-row CSV:

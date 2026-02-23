@@ -78,7 +78,7 @@ if [[ ! -f "${SCF_SUMMARY_SOURCE_NEW}" && ! -f "${SCF_SUMMARY_SOURCE_OLD}" && ! 
   compose_run oa-da-snowcover \
     --input-dir /data/obs/snowcover \
     --project-label "${SOURCE_PROJECT_NAME}" \
-    --project-dir /data \
+    --setup-dir /data \
     --overwrite
 fi
 
@@ -87,7 +87,7 @@ if [[ ! -f "${WET_SUMMARY_SOURCE_NEW}" && ! -f "${WET_SUMMARY_SOURCE_OLD}" && ! 
   compose_run oa-da-wetsnow \
     --input-dir /data/obs/wetsnow \
     --project-label "${SOURCE_PROJECT_NAME}" \
-    --project-dir /data \
+    --setup-dir /data \
     --overwrite
 fi
 

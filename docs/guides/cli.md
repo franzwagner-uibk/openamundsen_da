@@ -115,7 +115,7 @@ oa-da-scf \
 
 ### oa-da-snowcover
 
-Summarizes snow-cover rasters (GeoTIFF/NetCDF) into `scf_summary.csv` using class mappings from setup YAML (`obs.snowcover.classes`) and the project DA land-cover mask.
+Summarizes snow-cover rasters (GeoTIFF/NetCDF) into `scf_summary.csv` using class mappings from project YAML (`obs.snowcover.classes`) and the project DA land-cover mask.
 
 ```bash
 oa-da-snowcover \

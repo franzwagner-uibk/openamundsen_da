@@ -23,7 +23,6 @@ Typical keys:
 - `domain`, `resolution`, `timestep`, `crs`, `timezone`
 - openAMUNDSEN model and output settings
 - environment block (`GDAL_DATA`, `PROJ_LIB`, ...)
-- observation class mappings and product tags under `obs.*`
 
 Example:
 
@@ -47,25 +46,9 @@ output_data:
       - var: snow.lwc
         name: lwc
         freq: D
-
-obs:
-  snowcover:
-    product_tag: SNOWCOVER
-    classes:
-      valid_min: 0
-      valid_max: 100
-      cloud: [205]
-      water: [210]
-      nodata: [255]
-  wetsnow:
-    product_tag: WETSNOW
-    classes:
-      wet: [1, 2]
-      valid: [1, 2, 3, 4, 255]
-      exclude: [5, 6]
 ```
 
-Do not place `data_assimilation` in setup YAML.
+Do not place `obs` or `data_assimilation` in setup YAML.
 
 ## `<project-name>.yml` / `project.yml` (project level)
 Use project YAML for DA configuration for one project.
@@ -73,6 +56,7 @@ Use project YAML for DA configuration for one project.
 Required top-level keys:
 - `start_date`
 - `end_date`
+- `obs`
 - `data_assimilation`
 
 Example:
@@ -80,6 +64,24 @@ Example:
 ```yaml
 start_date: 2022-10-01
 end_date: 2023-09-30
+
+obs:
+  snowcover:
+    dir: obs/snowcover
+    product_tag: SNOWCOVER
+    classes:
+      # Example only: use the class set required by your product
+      valid: [0, 1, 2, 3, 4, 5]
+      cloud: [205]
+      water: [210]
+      nodata: [255]
+  wetsnow:
+    dir: obs/wetsnow
+    product_tag: WETSNOW
+    classes:
+      wet: [1, 2]
+      valid: [1, 2, 3, 4, 255]
+      exclude: [5, 6]
 
 data_assimilation:
   prior_forcing:
@@ -138,6 +140,7 @@ data_assimilation:
 
 Notes:
 - `assimilation_events` defines which dates and variables are assimilated.
+- Observation class mappings and product tags are configured under project YAML `obs.*`.
 - Land-cover mask uses `grids/lc_<domain>_<resolution>.asc` from setup-level paths and DA mask classes from project YAML.
 - `output.retention: compact` writes `results/grids/da_output_grids.nc` and removes heavy member grid artifacts.
 - `results/grids/da_output_grids.nc` is aggregated over all project steps (full project timeline).
@@ -167,7 +170,7 @@ Typical early failures:
 
 ## Best Practices
 - Keep setup YAML stable and shared across projects.
-- Keep DA experimentation in project YAML.
+- Keep DA experimentation and observation mappings in project YAML.
 - Use one project per experiment/time span.
 - Keep `assimilation_events` explicit and versioned in each project.
 

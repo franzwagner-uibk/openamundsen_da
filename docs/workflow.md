@@ -111,7 +111,7 @@ docker compose run --rm oa \
   --project-dir /data
 ```
 
-Classes are read from `obs.snowcover.classes` in setup YAML (defaults: valid 0-100, cloud 205, water 210, nodata 255). The project-level DA land-cover mask is applied to observations automatically.
+Classes are read from `obs.snowcover.classes` in project YAML (defaults: valid 0-100, cloud 205, water 210, nodata 255). The project-level DA land-cover mask is applied to observations automatically.
 
 ### Wet snow (categorical rasters â†’ `wet_snow_summary.csv`)
 

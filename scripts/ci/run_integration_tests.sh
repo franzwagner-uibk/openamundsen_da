@@ -66,6 +66,31 @@ compose_run() {
 
 echo "[integration] Preparing trimmed CI project in ${PROJECT_DIR}"
 
+SCF_SUMMARY_SOURCE_NEW="${PROJECT_DIR}/obs/${SOURCE_PROJECT_NAME}/scf_summary.csv"
+SCF_SUMMARY_SOURCE_OLD="${PROJECT_DIR}/obs/summaries/${SOURCE_PROJECT_NAME}/scf_summary.csv"
+SCF_SUMMARY_SOURCE_ALL="${PROJECT_DIR}/obs/summaries/all_data/scf_summary.csv"
+WET_SUMMARY_SOURCE_NEW="${PROJECT_DIR}/obs/${SOURCE_PROJECT_NAME}/wet_snow_summary.csv"
+WET_SUMMARY_SOURCE_OLD="${PROJECT_DIR}/obs/summaries/${SOURCE_PROJECT_NAME}/wet_snow_summary.csv"
+WET_SUMMARY_SOURCE_ALL="${PROJECT_DIR}/obs/summaries/all_data/wet_snow_summary.csv"
+
+if [[ ! -f "${SCF_SUMMARY_SOURCE_NEW}" && ! -f "${SCF_SUMMARY_SOURCE_OLD}" && ! -f "${SCF_SUMMARY_SOURCE_ALL}" ]]; then
+  echo "[integration] SCF summary missing in example; generating from raw rasters"
+  compose_run oa-da-snowcover \
+    --input-dir /data/obs/snowcover \
+    --project-label "${SOURCE_PROJECT_NAME}" \
+    --project-dir /data \
+    --overwrite
+fi
+
+if [[ ! -f "${WET_SUMMARY_SOURCE_NEW}" && ! -f "${WET_SUMMARY_SOURCE_OLD}" && ! -f "${WET_SUMMARY_SOURCE_ALL}" ]]; then
+  echo "[integration] Wet-snow summary missing in example; generating from raw rasters"
+  compose_run oa-da-wetsnow \
+    --input-dir /data/obs/wetsnow \
+    --project-label "${SOURCE_PROJECT_NAME}" \
+    --project-dir /data \
+    --overwrite
+fi
+
 compose_run python - <<'PY'
 import csv
 from datetime import datetime, timedelta

@@ -37,12 +37,38 @@ Verify Docker:
 ```bash
 docker run hello-world
 ```
+<details markdown="block">
+  <summary>Windows / PowerShell note (same command)</summary>
+
+Use the same command on Windows in one of these ways:
+
+- **Recommended:** run the Bash command in **WSL** (works as shown).
+- **PowerShell:** keep the same Docker/image/container paths, adjust only:
+  - host mount path syntax (e.g. `C:/...:/data`)
+  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
+
+For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
+</details>
+
 
 Pull the openAMUNDSEN-DA image:
 
 ```bash
 docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest
 ```
+<details markdown="block">
+  <summary>Windows / PowerShell note (same command)</summary>
+
+Use the same command on Windows in one of these ways:
+
+- **Recommended:** run the Bash command in **WSL** (works as shown).
+- **PowerShell:** keep the same Docker/image/container paths, adjust only:
+  - host mount path syntax (e.g. `C:/...:/data`)
+  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
+
+For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
+</details>
+
 
 ### Commands
 
@@ -51,8 +77,36 @@ Use one-off container runs (host folder mounted to `/data`):
 ```bash
 docker run --rm -v "<host_path>:/data" ghcr.io/franzwagner-uibk/openamundsen_da:latest <command>
 ```
+<details markdown="block">
+  <summary>Windows / PowerShell note (same command)</summary>
 
-You can also define reusable shell variables (`$img`, `$setup`, `$project`) and reuse them in all tutorial steps.
+Use the same command on Windows in one of these ways:
+
+- **Recommended:** run the Bash command in **WSL** (works as shown).
+- **PowerShell:** keep the same Docker/image/container paths, adjust only:
+  - host mount path syntax (e.g. `C:/...:/data`)
+  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
+
+For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
+</details>
+
+
+For this tutorial, commands are shown with explicit image names and paths (instead of shell
+variables) to keep the workflow easier to follow.
+
+{: .highlight }
+> Tutorial command style: Bash is shown as the primary command syntax (works directly on Linux/macOS and well in WSL/Git Bash on Windows).
+
+<details markdown="block">
+  <summary>Windows / PowerShell users (recommended approach)</summary>
+
+You can still follow the same tutorial:
+
+- easiest path: run the Bash commands in **WSL**
+- alternatively: use **PowerShell** and translate only the shell syntax (line continuation / quoting)
+
+The Docker image, container paths (`/data/...`), and framework commands stay the same.
+</details>
 
 ### OS Dependency
 
@@ -63,9 +117,22 @@ Linux:
   ```bash
   sudo apt-get update
   sudo apt-get install -y docker.io docker-compose-plugin
-  sudo usermod -aG docker $USER
+  sudo usermod -aG docker <your-user>
   sudo systemctl enable --now docker
   ```
+<details markdown="block">
+  <summary>Windows / PowerShell note (same command)</summary>
+
+Use the same command on Windows in one of these ways:
+
+- **Recommended:** run the Bash command in **WSL** (works as shown).
+- **PowerShell:** keep the same Docker/image/container paths, adjust only:
+  - host mount path syntax (e.g. `C:/...:/data`)
+  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
+
+For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
+</details>
+
 
 Mac:
 
@@ -76,6 +143,9 @@ Windows (WSL):
 - Docker Desktop + WSL2 backend is required
 - Run the tutorial commands in PowerShell (or WSL shell)
 
+{: .note }
+> If you use PowerShell instead of WSL, prefer forward slashes in Docker mount paths where possible (for example `C:/path/to/workdir:/data`).
+
 ### Runtime and resources
 
 - Set `--cpus` to the number of cores available in Docker on your machine.
@@ -85,3 +155,16 @@ Windows (WSL):
 ```bash
 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 ```
+<details markdown="block">
+  <summary>Windows / PowerShell note (same command)</summary>
+
+Use the same command on Windows in one of these ways:
+
+- **Recommended:** run the Bash command in **WSL** (works as shown).
+- **PowerShell:** keep the same Docker/image/container paths, adjust only:
+  - host mount path syntax (e.g. `C:/...:/data`)
+  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
+
+For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
+</details>
+

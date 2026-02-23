@@ -107,7 +107,7 @@ and naming conventions.
 - Setup YAML (`<setup-name>.yml`/`setup.yml`) must stay pure openAMUNDSEN config (no DA block).
 - Project YAML (`<project-name>.yml`/`project.yml`) must define `data_assimilation` (`h_of_x`, `likelihood`, `resampling`, `rejuvenation`, `restart`, `landcover_mask`, `assimilation_events`) plus `start_date` and `end_date`.
 - `projects/project_X/steps/step_Y/ensembles/prior` is created automatically by the project pipeline (using `${setup}/meteo` forcing).
-- Observations live under `obs/project_X`; the pipeline assumes the CSVs follow `obs_scf_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`, where product tags default to `SNOWCOVER` / `WETSNOW` (configurable via setup YAML under `obs.*`).
+- Observations live under `obs/project_X`; the pipeline assumes the CSVs follow `obs_scf_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`. Configure product tags explicitly in project YAML under `obs.*`.
 - DA uses `grids/roi_<domain>_<resolution>.asc` as canonical ROI mask; if missing, it is generated silently from ROI vectors under `env/` (`roi.gpkg` preferred, `subdomains.gpkg` supported).
 - Land-cover masking (applied to obs + model SCF/wet-snow): land-cover ASCII is resolved as `grids/lc_<domain>_<resolution>.asc` from setup config; excluded classes come from project YAML `data_assimilation.landcover_mask.classes_to_exclude`.
 
@@ -169,7 +169,7 @@ docker compose run --rm oa `
   --overwrite
 ```
 
-Classes and product tags are read from setup YAML `obs.snowcover`; defaults match the template.
+Classes and product tags are read from project YAML `obs.snowcover`.
 
 - Wet-snow summary (categorical rasters -> `wet_snow_summary.csv`):
 
@@ -182,7 +182,7 @@ docker compose run --rm oa `
   --overwrite
 ```
 
-Classes come from setup YAML `obs.wetsnow.classes`; the project-level DA land-cover exclusions are applied automatically.
+Classes come from project YAML `obs.wetsnow.classes`; the project-level DA land-cover exclusions are applied automatically.
 
 - Per-step obs CSVs (align summaries to assimilation events):
 
@@ -217,7 +217,7 @@ Wet-snow observations use categorical rasters (e.g., Sentinel-1 WSM). `oa-da-wet
 - Per-step observation preparation (`oa-da-scf`, `oa-da-wetsnow-project`) is fail-fast:
   - event date must lie inside the associated step window,
   - the summary CSV must contain a row for each configured event date of that variable.
-- Wet-snow masks/fractions are computed for all members before DA using the setup wet-snow threshold; assimilation/resampling/rejuvenation then proceed like SCF.
+- Wet-snow masks/fractions are computed for all members before DA using the project wet-snow threshold; assimilation/resampling/rejuvenation then proceed like SCF.
 
 ## Per-step forcing plots
 

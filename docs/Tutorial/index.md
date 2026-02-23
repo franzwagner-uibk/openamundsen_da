@@ -17,9 +17,18 @@ Step-by-step walkthrough for running the bundled Rofental example with openAMUND
 The tutorial sequence covers:
 
 - prerequisites and Docker runtime setup,
-- framework concepts (setup/project/step/member),
-- copying and preparing the example setup,
-- preprocessing observations for assimilation steps,
-- running the project pipeline and inspecting DA outputs.
+- workflow and framework concepts (setup/project/step/member, DA cycle),
+- copying and preparing the Rofental example (central case study),
+- end-to-end observation preprocessing from raw raster inputs,
+- running the project (granular command context + project pipeline),
+- inspecting results, diagnostics, plots, tables, and output grids,
+- adapting the example workflow to your own project.
 
-Use the chapter order from 1 to 6.
+The central case study is the bundled `examples/rofental` setup
+using the current tutorial baseline:
+
+- 100 m setup
+- ensemble size 10
+- October-June project period
+
+Use the chapter order from 1 to 8.

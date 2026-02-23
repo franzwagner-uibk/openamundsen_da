@@ -24,9 +24,9 @@ obs:
     product_tag: WETSNOW # must match assimilation_events[*].product for variable=wet_snow
     classes:
       # Class codes used by the wet-snow preprocessor.
-      wet: [1, 2]
-      valid: [1, 2, 3, 4, 255]
-      exclude: [5, 6]
+      wet: [110]
+      valid: [110, 125, 200, 210]
+      exclude: [200, 210]
 
 # Data assimilation configuration.
 data_assimilation:

@@ -123,7 +123,7 @@ docker compose run --rm oa \
   --project-dir /data
 ```
 
-Wet/valid/exclude classes come from `obs.wetsnow.classes` (defaults: wet [1,2], valid [1,2,3,4,255], exclude [5,6]). ROI and land-cover masking mirror the snow-cover workflow.
+Wet/valid/exclude classes come from `obs.wetsnow.classes` in the project YAML (for HRWSI WSM typically wet `110`, dry/no-snow `125`, with `200`/`210` excluded). ROI and land-cover masking mirror the snow-cover workflow.
 
 By default, both summaries are written to `/data/obs/summaries/<project-label>/scf_summary.csv` and `wet_snow_summary.csv`. Override with `--output-root` if you want a different location.
 

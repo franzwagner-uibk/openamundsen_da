@@ -79,9 +79,9 @@ obs:
     dir: obs/wetsnow
     product_tag: WETSNOW
     classes:
-      wet: [1, 2]
-      valid: [1, 2, 3, 4, 255]
-      exclude: [5, 6]
+      wet: [110]
+      valid: [110, 125, 200, 210]
+      exclude: [200, 210]
 
 data_assimilation:
   prior_forcing:

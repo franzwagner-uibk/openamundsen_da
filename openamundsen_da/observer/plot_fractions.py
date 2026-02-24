@@ -64,15 +64,24 @@ def _load_fraction(path: Path, value_col: str) -> Optional[pd.DataFrame]:
     return df[cols].dropna(subset=[value_col]).sort_values("date")
 
 
-def _default_obs_path(project_dir: Path, setup_name: str, filename: str) -> Path:
-    """Return obs path, with basic dash/underscore fallback on setup name."""
-    candidates = [project_dir / "obs" / setup_name / filename]
+def _default_obs_path(setup_dir: Path, setup_name: str, filename: str) -> Path:
+    """Return obs summary path with support for legacy and current layouts.
+
+    Supported layouts:
+    - <setup>/obs/<setup_name>/<file>                (legacy/simple)
+    - <setup>/obs/summaries/<project_name>/<file>    (current tutorial/example)
+    """
+    project_name = setup_name
+    candidates = [
+        setup_dir / "obs" / setup_name / filename,
+        setup_dir / "obs" / "summaries" / project_name / filename,
+    ]
     if "-" in setup_name:
         alt = setup_name.replace("-", "_")
-        candidates.append(project_dir / "obs" / alt / filename)
+        candidates.append(setup_dir / "obs" / alt / filename)
     elif "_" in setup_name:
         alt = setup_name.replace("_", "-")
-        candidates.append(project_dir / "obs" / alt / filename)
+        candidates.append(setup_dir / "obs" / alt / filename)
     for cand in candidates:
         if cand.is_file():
             return cand
@@ -396,4 +405,3 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-

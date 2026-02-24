@@ -251,6 +251,10 @@ oa-da-snowcover \
 > File: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
 > Relevant keys: `obs.snowcover.dir`, `obs.snowcover.product_tag`, `obs.snowcover.classes.*`, `data_assimilation.landcover_mask.*`
 
+{: .note }
+> **Where this command writes by default**  
+> `oa-da-snowcover` writes to `obs/summaries/<project_label>/scf_summary.csv` unless you override the output root. In this tutorial: `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`.
+
 What this does:
 
 - reads rasters from `obs/snowcover/`,
@@ -341,6 +345,10 @@ oa-da-wetsnow \
 > **Configuration used (project YAML)**  
 > File: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
 > Relevant keys: `obs.wetsnow.dir`, `obs.wetsnow.product_tag`, `obs.wetsnow.classes.*`, `data_assimilation.landcover_mask.*`
+
+{: .note }
+> **Where this command writes by default**  
+> `oa-da-wetsnow` writes to `obs/summaries/<project_label>/wet_snow_summary.csv` unless you override the output root. In this tutorial: `/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv`.
 
 
 What this does:

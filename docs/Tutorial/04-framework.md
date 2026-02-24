@@ -22,6 +22,9 @@ It answers questions like:
 {: .highlight }
 > Goal of this chapter: make the framework behavior predictable before you run commands.
 
+{: .note }
+> Any command blocks shown in this chapter are executed **inside the running tutorial container shell** started in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}).
+
 ## Visual overview (recommended before reading details)
 
 The integrated conceptual overview graphic is introduced in
@@ -287,6 +290,9 @@ Purpose:
 - apply land-cover exclusions
 - compute availability/quality metrics
 - create a stable project-level observation table
+
+{: .note }
+> Default output location for these summary commands is `obs/summaries/<project_label>/` (tutorial example: `obs/summaries/project_2022_2023/`). Later preprocessing commands read from those summary CSVs.
 
 #### Stage B: Per-step obs generation (`oa-da-scf`, `oa-da-wetsnow-project`)
 

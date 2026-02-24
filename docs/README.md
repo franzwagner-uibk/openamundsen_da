@@ -9,7 +9,21 @@ This directory contains the documentation for the openamundsen_da project, built
 - Ruby 2.7+ ([installation guide](https://www.ruby-lang.org/en/documentation/installation/))
 - Bundler (`gem install bundler`)
 
-### Build and Serve (Recommended: WSL Reliable, Single Repo)
+### Build and Serve (Recommended: WSL Live Sync)
+
+If your repo is on Windows storage (for example `/mnt/c/...`) and you want the preview to
+stay in live sync with edits to `docs/*.md`, use the live-sync wrapper from the repo root:
+
+```bash
+./scripts/docs/jekyll_serve_wsl_live_sync.sh
+```
+
+This mirrors `docs/` into `/tmp` (fast WSL filesystem) and runs Jekyll from that mirror,
+while continuously syncing changes from your repo `docs/` folder.
+
+Then open [http://127.0.0.1:4001/](http://127.0.0.1:4001/)
+
+### Build and Serve (Direct Jekyll, WSL Reliable / Single Repo)
 
 ```bash
 cd docs
@@ -25,6 +39,7 @@ Then open [http://127.0.0.1:4001/](http://127.0.0.1:4001/)
 
 This repository includes VS Code tasks in `.vscode/tasks.json`:
 
+- `Docs: Jekyll Serve (WSL Live Sync, Recommended)` - Mirrors `docs/` into `/tmp` and keeps preview live-synced with repo markdown edits
 - `Docs: Jekyll Serve (Local Ruby, WSL Reliable)` - Single-repo reliable mode for WSL + `/mnt/c` (polling, no incremental, cache/output in `/tmp`)
 - `Docs: Open Local Preview` - Opens `http://127.0.0.1:4001/`
 
@@ -37,6 +52,9 @@ you preview from WSL, prefer `Docs: Jekyll Serve (Local Ruby, WSL Reliable)`.
 
 This mode keeps your source files in the current repo but moves Jekyll's generated output and
 cache to `/tmp` inside WSL, which reduces lag and stale preview issues without using a second clone.
+
+If you still see stale pages while editing under `/mnt/c`, switch to the **WSL Live Sync**
+task/script above. It is designed specifically to keep the preview in sync with markdown edits.
 
 ## GitHub Pages Deployment
 

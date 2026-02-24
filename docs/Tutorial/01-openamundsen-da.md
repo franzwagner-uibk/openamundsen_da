@@ -1,11 +1,10 @@
 ---
-
 layout: default
 title: 1. openAMUNDSEN-DA
 parent: Tutorial
-nav\_order: 1
+nav_order: 1
 permalink: /tutorial/openamundsen-da/
--------------------------------------
+---
 
 # 1. openAMUNDSEN-DA
 
@@ -47,11 +46,11 @@ modelling and particle-filter data assimilation built around **openAMUNDSEN**.
 
 It combines:
 
-- the distributed snow-hydrological model **openAMUNDSEN**,
+- the distributed snow-hydrological model **openAMUNDSEN** ,
 - ensemble forcing perturbations,
 - observation preprocessing,
 - particle-filter assimilation (e.g. SCF and wet snow),
-- diagnostics, plotting, and compact DA output products.
+- diagnostics, plotting, and DA output products.
 
 In practice, many users run openAMUNDSEN-DA via the provided Docker image.
 
@@ -75,7 +74,7 @@ You will cover:
 - observation preprocessing from **raw satellite rasters**,
 - project execution using the DA pipeline,
 - DA diagnostics (weights, ESS, plots),
-- result inspection (tables, plots, compact DA grids),
+- result inspection (tables, plots, DA grids),
 - and adaptation of the workflow to a new project.
 
 The tutorial is intentionally not just a command list. It explains why each step exists and what to check before moving on.
@@ -116,7 +115,7 @@ This figure is a conceptual map. The next tutorial chapters show where each conc
    Shows the central DA idea in one line:
    an **openAMUNDSEN model ensemble** is propagated forward, compared to an **observation**, and updated from a **prior** ensemble to a **posterior** ensemble.
    In practice, this is what happens inside each assimilation step in a project
-   (\[Tutorial workflow]\({{ site.baseurl }}{% link Tutorial/03-workflow\.md %}),
+   (\[Tutorial workflow]\({{ site.baseurl }}{% link Tutorial/03-workflow.md %}),
    \[Results and diagnostics]\({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}),
    \[DA methods]\({{ site.baseurl }}{% link reference/da-methods.md %})).
 2. **(b) Open-source software**
@@ -137,7 +136,7 @@ This figure is a conceptual map. The next tutorial chapters show where each conc
    **single-domain mode** (one model domain, used in the tutorial) and
    **sub-domain mode** (large-area decomposition into tiles/subdomains).
    The same DA concepts apply in both modes; only orchestration and file layout differ
-   (\[Workflow]\({{ site.baseurl }}{% link workflow\.md %}),
+   (\[Workflow]\({{ site.baseurl }}{% link workflow.md %}),
    \[Sub-domain mode docs]\({{ site.baseurl }}{% link guides/cli.md %}#oa-da-subdomain),
    \[Project structure]\({{ site.baseurl }}{% link project-structure.md %})).
 5. **(e) Snow data**
@@ -214,7 +213,7 @@ important ones:
 - \[CLI Reference]\({{ site.baseurl }}{% link guides/cli.md %})
 - \[Configuration Reference]\({{ site.baseurl }}{% link guides/configuration.md %})
 - \[Observation Processing Guide]\({{ site.baseurl }}{% link guides/observations.md %})
-- \[Workflow Guide]\({{ site.baseurl }}{% link workflow\.md %})
+- \[Workflow Guide]\({{ site.baseurl }}{% link workflow.md %})
 - \[Advanced Troubleshooting]\({{ site.baseurl }}{% link advanced/troubleshooting.md %})
 - \[Advanced Performance]\({{ site.baseurl }}{% link advanced/performance.md %})
 

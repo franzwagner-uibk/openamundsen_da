@@ -2,7 +2,13 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Docs: Jekyll Serve (Local Ruby, WSL Reliable)",
+      "label": "Docs: Jekyll Serve (WSL Live Sync, Recommended)",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/docs/jekyll_serve_wsl_live_sync.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "Docs: Jekyll Serve (Local Ruby, WSL Reliable, Legacy No Sync)",
       "type": "shell",
       "command": "TMPDIR=/tmp TMP=/tmp TEMP=/tmp bundle exec jekyll serve --host 127.0.0.1 --port 4001 --livereload --force_polling --config _config.yml,_config_dev.yml,_config_wsl_reliable.yml",
       "options": {

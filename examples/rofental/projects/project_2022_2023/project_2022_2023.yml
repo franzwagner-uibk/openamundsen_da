@@ -91,7 +91,7 @@ data_assimilation:
 
   # Output controls for DA products.
   output:
-    retention: compact # options: compact | full
+    retention: full # options: compact | full
     grids:
       format: netcdf # options: netcdf
       compress: true
@@ -114,54 +114,18 @@ data_assimilation:
 
   # Assimilation dates and products (must exist in summary CSVs).
   assimilation_events:
-    - date: "2022-10-03"
-      variable: scf
-      product: SNOWCOVER
-    - date: "2022-10-25"
-      variable: scf
-      product: SNOWCOVER
-    - date: "2022-11-19"
-      variable: scf
-      product: SNOWCOVER
     - date: "2023-01-01"
       variable: scf
       product: SNOWCOVER
     - date: "2023-03-09"
       variable: scf
       product: SNOWCOVER
-    - date: "2023-03-28"
-      variable: wet_snow
-      product: WETSNOW
-    - date: "2023-04-05"
-      variable: wet_snow
-      product: WETSNOW
-    - date: "2023-04-16"
-      variable: scf
-      product: SNOWCOVER
-    - date: "2023-04-26"
-      variable: scf
-      product: SNOWCOVER
     - date: "2023-05-11"
-      variable: wet_snow
-      product: WETSNOW
-    - date: "2023-05-15"
-      variable: wet_snow
-      product: WETSNOW
-    - date: "2023-05-23"
       variable: wet_snow
       product: WETSNOW
     - date: "2023-05-26"
       variable: scf
       product: SNOWCOVER
-    - date: "2023-05-27"
-      variable: wet_snow
-      product: WETSNOW
-    - date: "2023-06-04"
-      variable: wet_snow
-      product: WETSNOW
     - date: "2023-06-16"
-      variable: wet_snow
-      product: WETSNOW
-    - date: "2023-06-28"
       variable: wet_snow
       product: WETSNOW

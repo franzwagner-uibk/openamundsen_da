@@ -35,7 +35,7 @@ Use this page as a review routine after a completed run:
 3. inspect DA diagnostics (`plots/assim`)
 4. inspect result plots (`plots/results`)
 5. inspect summary CSVs / ROI envelopes
-6. inspect compact grid output (`da_output_grids.nc`)
+6. inspect the DA summary NetCDF (`da_output_grids.nc`)
 
 Do not start with plots alone. Always check the log first, because incomplete runs can still leave partial plots/files behind.
 
@@ -55,7 +55,7 @@ Key locations:
 - `plots/perf/` - runtime/performance plots and metrics
 - `plots/assim/` - DA diagnostics (weights, ESS)
 - `plots/results/` - result plots (fractions, station plots, envelopes)
-- `results/grids/da_output_grids.nc` - compact DA grid product
+- `results/grids/da_output_grids.nc` - DA output summary NetCDF
 - `point_scf_roi_envelope.csv`, `point_wet_snow_roi_envelope.csv` - ROI time-series envelopes
 
 Quick directory overview (optional helper):
@@ -74,7 +74,7 @@ It helps new users understand which outputs are:
 - run logs,
 - diagnostics,
 - plotting products,
-- compact results,
+- project-level grid/result exports,
 - and step/member internals.
 </details>
 
@@ -97,8 +97,8 @@ tail -n 120 /data/rofental/projects/project_2022_2023/project_2022_2023.log
 > - `Project processing complete`
 > - DA variable processing messages (`scf`, `wet_snow`)
 > - plot tasks completed
-> - compact DA output writing (`da_output_grids.nc`)
-> - cleanup/retention messages (expected in compact mode)
+> - DA output summary NetCDF writing (`da_output_grids.nc`)
+> - cleanup messages (`Setup cleanup succeeded`; compact-retention deletion appears only in compact mode)
 
 Reference snippet (successful log tail excerpt):
 
@@ -106,10 +106,9 @@ Reference snippet (successful log tail excerpt):
 2026-02-21 ... Plot task setup_ess_timeline completed
 2026-02-21 ... Plot task setup_results_swe completed
 2026-02-21 ... Plot task setup_results_snow_depth completed
-2026-02-21 ... Wrote DA output summary NetCDF /data/projects/project_2022_2023/results/grids/da_output_grids.nc (18 step(s))
-2026-02-21 ... Compact retention: deleted 3190 grid artifact file(s), freed 305.1 MB
-2026-02-21 ... Setup cleanup succeeded: deleted 198/198 file(s), freed 1045.7 MB (patterns=model_state.pickle.gz)
-2026-02-21 ... Project processing complete: /data/projects/project_2022_2023 (wall-clock 866.7 s, ~0.24 h)
+2026-02-24 ... Wrote DA output summary NetCDF /data/projects/project_2022_2023/results/grids/da_output_grids.nc (6 step(s))
+2026-02-24 ... Setup cleanup succeeded: deleted 66/66 file(s), freed 345.9 MB (patterns=model_state.pickle.gz)
+2026-02-24 ... Project processing complete: /data/projects/project_2022_2023 (wall-clock 670.9 s, ~0.19 h)
 ```
 
 {: .warning }
@@ -224,20 +223,20 @@ ESS is a diagnostic, not a simple "good/bad" score. Interpret it together with w
 
 Reference CSV snippet (weights for one wet-snow event)
 
-File path: `/data/rofental/projects/project_2022_2023/steps/step_05_20230309-20230328/assim/weights_wet_snow_20230328.csv`
+File path: `/data/rofental/projects/project_2022_2023/steps/step_02_20230309-20230511/assim/weights_wet_snow_20230511.csv`
 
 | member_id | wet_snow_model | wet_snow_obs | residual | sigma | log_weight | weight |
 | --- | --- | --- | --- | --- | --- | --- |
-| member_001 | 0.06530984204131227 | 0.2661 | 0.20079015795868774 | 0.1 | -0.6321878168643655 | 0.09226043764559255 |
-| member_002 | 0.05407047387606318 | 0.2661 | 0.21202952612393683 | 0.1 | -0.8641794376276875 | 0.07315816937269848 |
-| member_003 | 0.030528554070473876 | 0.2661 | 0.2355714459295261 | 0.1 | -1.3910487470770088 | 0.043196284798504535 |
-| member_008 | 0.106318347509113 | 0.2661 | 0.159781652490887 | 0.1 | 0.10713773615344424 | 0.1932415527015183 |
-| member_010 | 0.024756986634264885 | 0.2661 | 0.2413430133657351 | 0.1 | -1.5286759452332963 | 0.03764225766385648 |
+| member_001 | 0.7141555285540705 | 0.8905 | 0.17634447144592946 | 0.1 | -0.17122207068783846 | 0.04216141343059246 |
+| member_002 | 0.8575334143377886 | 0.8905 | 0.032966585662211334 | 0.1 | 1.329306771278177 | 0.18905429917704136 |
+| member_003 | 0.6435297691373025 | 0.8905 | 0.24697023086269743 | 0.1 | -1.66606818682933 | 0.009456093163424472 |
+| member_004 | 0.7536452004860267 | 0.8905 | 0.13685479951397328 | 0.1 | 0.447184752288882 | 0.07825026782056413 |
+| member_005 | 0.7021567436208992 | 0.8905 | 0.18834325637910077 | 0.1 | -0.39001255138481095 | 0.03387627606709547 |
 
 Plot files to open:
 
 - `/data/rofental/projects/project_2022_2023/plots/assim/ess/setup_ess_timeline_2022_2023.png`
-- `/data/rofental/projects/project_2022_2023/plots/assim/weights/step_05_weights.png`
+- `/data/rofental/projects/project_2022_2023/plots/assim/weights/step_02_weights.png`
 
 Reference ESS plot (tutorial baseline):
 
@@ -253,9 +252,9 @@ What to read in the ESS plot:
 
 Reference weights plot (example step):
 
-![Weights plot for one assimilation step (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/step_05_weights.png)
+![Weights plot for one assimilation step (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/step_02_weights.png)
 
-_Weights plot for `step_05` (wet-snow event around `2023-03-28`)._
+_Weights plot for `step_02` (wet-snow event around `2023-05-11`)._
 
 What to read in the weights plot:
 
@@ -452,7 +451,7 @@ File path: `/data/rofental/projects/project_2022_2023/point_scf_roi_envelope.csv
 | 2022-10-01 | 0.0 | 0.0 | 0.0 | 11 |
 | 2022-10-02 | 0.12143250688705232 | 0.0 | 0.5036363636363637 | 11 |
 | 2022-10-03 | 0.08418732782369143 | 0.0001515151515151 | 0.4 | 11 |
-| 2022-10-04 | 0.38706611570247934 | 0.0827272727272727 | 0.4175757575757576 | 11 |
+| 2022-10-04 | 0.0898760330578512 | 0.0 | 0.4174242424242424 | 11 |
 
 Reference CSV snippet (wet-snow ROI envelope)
 
@@ -463,7 +462,7 @@ File path: `/data/rofental/projects/project_2022_2023/point_wet_snow_roi_envelop
 | 2022-10-01 | 0.0 | 0.0 | 0.0 | 11 |
 | 2022-10-02 | 0.5881613829669722 | 0.4532199270959903 | 0.7702004860267315 | 11 |
 | 2022-10-03 | 0.035554512316359164 | 0.0034933171324422 | 0.1376063183475091 | 11 |
-| 2022-10-04 | 0.3391969512868662 | 0.12773390036452 | 0.3789489671931956 | 11 |
+| 2022-10-04 | 0.10134761957362196 | 0.0034933171324422 | 0.3573815309842041 | 11 |
 
 Interpretation:
 
@@ -473,9 +472,9 @@ Interpretation:
 
 ---
 
-## 6. Compact DA grid output (`da_output_grids.nc`)
+## 6. DA output summary NetCDF (`da_output_grids.nc`)
 
-The tutorial setup writes a compact NetCDF summary of the DA outputs:
+The tutorial setup writes a DA output summary NetCDF:
 
 - `results/grids/da_output_grids.nc`
 
@@ -488,9 +487,11 @@ This file is designed for:
 - post-processing,
 - visualization,
 - comparison between runs,
-- exporting selected variables without keeping all raw member grids.
+- exporting selected variables in one merged file.
 
-Quick file presence/size check for the compact NetCDF output.
+In the current tutorial configuration, `data_assimilation.output.retention: full` is enabled, so this summary NetCDF is written and the heavier member-grid artifacts are retained as well.
+
+Quick file presence/size check for the DA summary NetCDF output.
 
 ```bash
 ls -lh /data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc
@@ -512,7 +513,7 @@ PY
 
 
 {: .checks }
-> What to expect conceptually in the compact NetCDF:
+> What to expect conceptually in the summary NetCDF:
 >
 > - open-loop baseline fields
 > - ensemble mean / spread fields

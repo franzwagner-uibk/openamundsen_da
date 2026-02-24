@@ -171,10 +171,10 @@ data_assimilation:
   wet_snow:
     classification_threshold_percent: 0.5
   assimilation_events:
-    - date: "2022-10-03"
+    - date: "2023-01-01"
       variable: scf
       product: SNOWCOVER
-    - date: "2023-03-28"
+    - date: "2023-05-11"
       variable: wet_snow
       product: WETSNOW
 ```
@@ -204,12 +204,11 @@ Reference snippet (first generated step names):
 
 ```text
 step_00_init
-step_01_20221003-20221025
-step_02_20221025-20221119
-step_03_20221119-20230101
-step_04_20230101-20230309
-step_05_20230309-20230328
-...
+step_01_20230101-20230309
+step_02_20230309-20230511
+step_03_20230511-20230526
+step_04_20230526-20230616
+step_05_20230616-20230630
 ```
 
 This naming pattern is the concrete result of your configured `assimilation_events`: change the event dates, and the generated step windows change as well.
@@ -278,14 +277,14 @@ Concrete example (SCF):
 
 ```text
 Raw raster:
-  /data/rofental/obs/snowcover/s2_fsc_snowflake_rofental_2022_10_03.tif
+  /data/rofental/obs/snowcover/s2_fsc_snowflake_rofental_2023_01_01.tif
 
 Summary row (project-level):
   /data/rofental/obs/summaries/project_2022_2023/scf_summary.csv
-  date=2022-10-03, scf=0.5200, cloud_fraction=0.0
+  date=2023-01-01, scf=1.0000, cloud_fraction=0.0
 
 Per-step one-row CSV:
-  /data/rofental/projects/project_2022_2023/steps/step_00_init/obs/obs_scf_SNOWCOVER_20221003.csv
+  /data/rofental/projects/project_2022_2023/steps/step_00_init/obs/obs_scf_SNOWCOVER_20230101.csv
 ```
 
 ### Why two preprocessing stages?
@@ -425,13 +424,13 @@ These are useful for debugging but can become large.
 - `plots/results/` (fractions, station plots, envelopes)
 - `point_*_envelope.csv` (ROI envelopes)
 
-### Compact DA summary output
+### DA summary NetCDF output
 
 - `results/grids/da_output_grids.nc`
 
-This provides a compact, analysis-friendly output for selected variables/metrics.
+This provides an analysis-friendly summary output for selected variables/metrics.
 
-The tutorial example uses compact retention to keep the example manageable on normal hardware.
+The tutorial example in this tutorial revision uses `retention: full`, so the summary NetCDF is written and member grid artifacts are retained as well.
 
 {: .references }
 > - [Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}) for concrete examples of these outputs

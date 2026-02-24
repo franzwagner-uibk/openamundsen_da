@@ -43,7 +43,7 @@ We run a **reproducible Rofental data assimilation project** where:
 - openAMUNDSEN simulates snow states for an ensemble,
 - satellite observations (SCF and wet snow) are preprocessed into DA-ready inputs,
 - the framework assimilates these observations step by step,
-- and we inspect diagnostics, plots, and compact DA outputs.
+- and we inspect diagnostics, plots, and DA outputs.
 
 ---
 

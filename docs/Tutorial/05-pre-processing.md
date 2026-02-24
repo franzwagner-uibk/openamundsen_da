@@ -429,14 +429,11 @@ Reference snippet (first step folders in the tutorial project):
 
 ```text
 step_00_init
-step_01_20221003-20221025
-step_02_20221025-20221119
-step_03_20221119-20230101
-step_04_20230101-20230309
-step_05_20230309-20230328
-step_06_20230328-20230405
-step_07_20230405-20230416
-...
+step_01_20230101-20230309
+step_02_20230309-20230511
+step_03_20230511-20230526
+step_04_20230526-20230616
+step_05_20230616-20230630
 ```
 
 Read this step-list snippet as a direct translation of the configured project period plus `assimilation_events`; it is the structure that later receives the per-step observation CSVs and DA outputs.
@@ -498,11 +495,11 @@ This is an important quality gate in the workflow.
 
 Reference CSV snippet (generated per-step SCF observation)
 
-File path: `/data/rofental/projects/project_2022_2023/steps/step_00_init/obs/obs_scf_SNOWCOVER_20221003.csv`
+File path: `/data/rofental/projects/project_2022_2023/steps/step_00_init/obs/obs_scf_SNOWCOVER_20230101.csv`
 
 | date | n_valid | n_snow | scf | cloud_fraction | source |
 | --- | --- | --- | --- | --- | --- |
-| 2022-10-03 | 88455 | 46001 | 0.5200462382002148 | 0.0 | s2_fsc_snowflake_rofental_2022_10_03.tif |
+| 2023-01-01 | 106750 | 106750 | 1.0 | 0.0 | s2_fsc_snowflake_rofental_2023_01_01.tif |
 
 This one-row file is what the DA step consumes directly for the SCF event, so it is the key place to verify date, product tag alignment (via filename), and the summary values passed into the run.
 
@@ -550,11 +547,11 @@ _Flow from raw SCF/wet-snow rasters to project summary CSVs, then to per-step ob
 
 Reference CSV snippet (generated per-step wet-snow observation)
 
-File path: `/data/rofental/projects/project_2022_2023/steps/step_05_20230309-20230328/obs/obs_wet_snow_WETSNOW_20230328.csv`
+File path: `/data/rofental/projects/project_2022_2023/steps/step_02_20230309-20230511/obs/obs_wet_snow_WETSNOW_20230511.csv`
 
 | date | wet_snow_fraction | n_valid | n_wet | source |
 | --- | --- | --- | --- | --- |
-| 2023-03-28 | 0.2661 | 158953 | 42301 | WSM_S1A_SAR_track168_2023_03_28_05_27_38.tif |
+| 2023-05-11 | 0.8905 | 156982 | 139793 | WSM_S1A_SAR_track117_2023_05_11_17_07_26.tif |
 
 This wet-snow per-step file plays the same role as the SCF per-step CSV: it is the explicit DA input artifact for that event date and should match the selected summary row.
 

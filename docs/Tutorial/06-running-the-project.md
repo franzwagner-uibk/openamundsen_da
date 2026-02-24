@@ -62,7 +62,7 @@ For each step it typically runs:
 5. resample if needed,
 6. rejuvenate posterior particles into the next prior,
 7. create plots and aggregate project-level diagnostics,
-8. write compact DA outputs (e.g. `da_output_grids.nc`).
+8. write the DA output summary NetCDF (e.g. `da_output_grids.nc`) and finalize project outputs.
 
 This is why the preprocessing chapter is critical: the pipeline expects the per-step
 observation CSVs to already exist and match the configured event dates exactly.
@@ -96,11 +96,11 @@ What to expect before the first run:
 Reference snippet (`step_00_init/obs/` before the run):
 
 ```text
-obs_scf_SNOWCOVER_20221003.csv
+obs_scf_SNOWCOVER_20230101.csv
 ```
 
 The first full run creates the ensemble folders, member outputs, diagnostics, plots,
-and compact DA grid summaries.
+and the DA output summary NetCDF.
 
 <details markdown="block">
   <summary>What is created during the run (overview)</summary>
@@ -109,7 +109,8 @@ and compact DA grid summaries.
 - DA diagnostics (weights, ESS)
 - setup-level result plots
 - ROI envelope CSVs
-- compact DA NetCDF output
+- DA output summary NetCDF (`da_output_grids.nc`)
+- retained member/grid artifacts (the tutorial example uses `retention: full`)
 - project log with step-by-step execution messages
 </details>
 
@@ -154,15 +155,24 @@ data_assimilation:
     ensemble_size: 10
 
   assimilation_events:
-    - date: "2022-10-03"
+    - date: "2023-01-01"
       variable: scf
       product: SNOWCOVER
-    - date: "2023-03-28"
+    - date: "2023-03-09"
+      variable: scf
+      product: SNOWCOVER
+    - date: "2023-05-11"
+      variable: wet_snow
+      product: WETSNOW
+    - date: "2023-05-26"
+      variable: scf
+      product: SNOWCOVER
+    - date: "2023-06-16"
       variable: wet_snow
       product: WETSNOW
 
   output:
-    retention: compact
+    retention: full
     grids:
       format: netcdf
       variables:
@@ -172,7 +182,7 @@ data_assimilation:
           metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment]
 ```
 
-This snippet shows the three project settings that most visibly change runtime and outputs in the tutorial: ensemble size, number/timing of events, and which compact-grid variables/metrics are exported.
+This snippet shows the three project settings that most visibly change runtime and outputs in the tutorial: ensemble size, number/timing of events, and which grid-summary variables/metrics are exported.
 
 ### Runtime expectations (what affects runtime)
 
@@ -189,7 +199,7 @@ should be able to complete the run, but it is still a non-trivial workload.
 
 First runs are often slower than reruns because of cold caches and filesystem effects.
 
-Reference run (tutorial baseline, `ens=10`) completed in about `866.7 s` on one local test machine. Treat this only as a rough order of magnitude, not a target.
+Reference run (current tutorial 5-event configuration, `ens=10`, `--max-workers 21`) completed in about `670.9 s` on one local test machine. Treat this only as a rough order of magnitude, not a target.
 
 ---
 
@@ -219,10 +229,9 @@ Reference snippet (successful log tail, condensed):
 ... Plot task setup_ess_timeline completed
 ... Plot task setup_results_swe completed
 ... Plot task setup_results_snow_depth completed
-... Wrote DA output summary NetCDF /data/projects/project_2022_2023/results/grids/da_output_grids.nc (18 step(s))
-... Compact retention: deleted ... grid artifact file(s), freed ... MB
-... Setup cleanup succeeded: deleted ... file(s), freed ... MB
-... Project processing complete: /data/projects/project_2022_2023 (wall-clock 866.7 s, ~0.24 h)
+... Wrote DA output summary NetCDF /data/projects/project_2022_2023/results/grids/da_output_grids.nc (6 step(s))
+... Setup cleanup succeeded: deleted 66/66 file(s), freed 345.9 MB (patterns=model_state.pickle.gz)
+... Project processing complete: /data/projects/project_2022_2023 (wall-clock 670.9 s, ~0.19 h)
 ```
 
 ### 2. Check that plots and outputs are being created (path-based check)
@@ -276,7 +285,7 @@ For this quick check, confirm:
 
 Detailed interpretation of these plots is covered in [7. Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}).
 
-### 3. Check the compact DA grid output (path-based check)
+### 3. Check the DA summary NetCDF output (path-based check)
 
 Expected output file:
 
@@ -388,7 +397,7 @@ Before continuing, verify:
 - `plots/results/fraction_timeseries.png` exists,
 - `results/grids/da_output_grids.nc` exists.
 
-These indicate that preprocessing, the DA run, plotting, and compact output export all
+These indicate that preprocessing, the DA run, plotting, and DA output export all
 completed successfully.
 
 ---
@@ -404,4 +413,4 @@ to inspect:
 - DA weights and ESS behavior,
 - performance plots and metrics,
 - result time series,
-- CSV summaries and compact DA grid outputs.
+- CSV summaries and DA grid outputs.

@@ -16,5 +16,8 @@
   "logViewer.showStatusBarItemOnChange": true,
   "files.associations": {
     "*.log-viewer": "log"
+  },
+  "[markdown]": {
+    "editor.formatOnSave": false
   }
 }

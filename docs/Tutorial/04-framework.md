@@ -25,6 +25,20 @@ It answers questions like:
 {: .note }
 > Any command blocks shown in this chapter are executed **inside the running tutorial container shell** started in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}).
 
+---
+
+## Step-by-step flow on this page
+
+Recommended reading order on this page:
+
+1. read the visual overview note (how this chapter relates to chapter 1)
+2. read sections `1`, `3`, `4`, and `5` first (core framework behavior)
+3. use sections `2`, `6`, and `7` as file/path-oriented reference while running the tutorial
+4. treat command blocks on this page as optional orientation checks (not mandatory steps)
+
+{: .note }
+> This chapter is primarily for understanding and navigation. The mandatory execution sequence starts in [5. Pre-processing]({{ site.baseurl }}{% link Tutorial/05-pre-processing.md %}).
+
 ## Visual overview (recommended before reading details)
 
 The integrated conceptual overview graphic is introduced in

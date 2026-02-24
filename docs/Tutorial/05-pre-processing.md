@@ -29,6 +29,23 @@ The goal is to make the preprocessing logic transparent and reproducible:
 
 ---
 
+## Step-by-step flow on this page
+
+Run the chapter in this order:
+
+1. check raw inputs and preprocessing-relevant project YAML keys (orientation)
+2. run the **five required preprocessing commands** (mandatory)
+3. compare generated files with the shown snippets/paths (recommended)
+4. use optional CLI checks only if something looks wrong
+
+{: .highlight }
+> **Mandatory commands only (copy-paste path):** `oa-da-snowcover` -> `oa-da-wetsnow` -> `project_skeleton` -> `oa-da-scf` -> `oa-da-wetsnow-project`
+
+{: .note }
+> Most command blocks after the five preprocessing commands are optional diagnostics. If you are following the tutorial for the first time, focus on the mandatory commands and compare the generated files with the provided snippets.
+
+---
+
 ## Before you start
 
 This chapter assumes you already:

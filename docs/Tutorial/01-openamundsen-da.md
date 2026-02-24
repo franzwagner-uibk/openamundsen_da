@@ -10,7 +10,7 @@ permalink: /tutorial/openamundsen-da/
 
 This chapter introduces the framework and defines what this tutorial is trying to teach.
 
-The tutorial is intentionally long-form and practical:
+The tutorial is intentionally detailed and practical:
 
 - you will preprocess observations,
 - build DA-ready project inputs,
@@ -18,7 +18,23 @@ The tutorial is intentionally long-form and practical:
 - and inspect diagnostics and outputs in detail.
 
 {: .highlight }
+
 > Goal: after this tutorial, you should be able to run the bundled example and adapt the workflow to your own project.
+
+---
+
+## Step-by-step flow on this page
+
+Use this page as the tutorial entry point:
+
+1. understand what openAMUNDSEN-DA is (and how it relates to openAMUNDSEN)
+2. understand what the tutorial covers and what it does not cover
+3. review the Rofental case-study baseline used throughout the tutorial
+4. use the overview figure (`a)`-`e)`) as a roadmap for later chapters
+5. continue with [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %})
+
+{: .note }
+> This page is orientation-first. You do not need to run commands yet.
 
 ---
 
@@ -38,12 +54,13 @@ It combines:
 In practice, many users run openAMUNDSEN-DA via the provided Docker image.
 
 {: .note }
+
 > openAMUNDSEN-DA is designed to be operationally practical (Docker-friendly) while still keeping intermediate products and diagnostics transparent for debugging and research workflows.
 
 For more information about **openAMUNDSEN**:
 
-- Documentation: [https://doc.openamundsen.org/](https://doc.openamundsen.org/)
-- GitHub: [https://github.com/openamundsen/openamundsen](https://github.com/openamundsen/openamundsen)
+- Documentation: <https://doc.openamundsen.org/>
+- GitHub: <https://github.com/openamundsen/openamundsen>
 
 ---
 
@@ -62,6 +79,7 @@ You will cover:
 - and adaptation of the workflow to a new project.
 
 {: .note }
+
 > The tutorial is intentionally not just a command list. It explains why each step exists and what to check before moving on.
 
 <details markdown="block">
@@ -73,6 +91,7 @@ You will cover:
 - It does not replace the full configuration reference.
 
 The focus is a reproducible, understandable workflow that users can reuse.
+
 </details>
 
 ---
@@ -90,6 +109,7 @@ _Integrated overview of framework structure, particle-filter cycle, run modes, a
 ### How to read the schematic (`a` to `e`)
 
 {: .note }
+
 > This figure is a conceptual map. The next tutorial chapters show where each concept appears in the actual folder structure, YAML files, and CLI commands.
 
 1. **(a) Schematic overview**
@@ -99,15 +119,12 @@ _Integrated overview of framework structure, particle-filter cycle, run modes, a
    ([Tutorial workflow]({{ site.baseurl }}{% link Tutorial/03-workflow.md %}),
    [Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}),
    [DA methods]({{ site.baseurl }}{% link reference/da-methods.md %})).
-
 2. **(b) Open-source software**
    Shows the software relationship:
-   `openAMUNDSEN` is the snow-hydrological model, and `openAMUNDSEN-DA` wraps and extends it with ensemble handling, observation preprocessing, assimilation logic, and diagnostics.
-   This is why the setup YAML stays mostly "pure openAMUNDSEN", while DA-specific settings live in the project YAML
+   `openAMUNDSEN` is the fully distributed snow-hydrological model, and `openAMUNDSEN-DA` wraps and extends it with ensemble handling, observation preprocessing, assimilation logic, and diagnostics.
    ([Configuration guide]({{ site.baseurl }}{% link guides/configuration.md %}),
    [Project structure]({{ site.baseurl }}{% link project-structure.md %}),
    [Package structure]({{ site.baseurl }}{% link reference/package-structure.md %})).
-
 3. **(c) Data assimilation based on a particle filter**
    Shows the particle-filter cycle used by the framework:
    **forcing perturbation -> prior ensemble -> importance weighting -> resampling -> rejuvenation -> next prior**.
@@ -115,7 +132,6 @@ _Integrated overview of framework structure, particle-filter cycle, run modes, a
    ([Running the project]({{ site.baseurl }}{% link Tutorial/06-running-the-project.md %}),
    [Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}),
    [DA methods]({{ site.baseurl }}{% link reference/da-methods.md %})).
-
 4. **(d) Spatial domain**
    Shows the two execution modes supported by the framework:
    **single-domain mode** (one model domain, used in the tutorial) and
@@ -124,7 +140,6 @@ _Integrated overview of framework structure, particle-filter cycle, run modes, a
    ([Workflow]({{ site.baseurl }}{% link workflow.md %}),
    [Sub-domain mode docs]({{ site.baseurl }}{% link guides/cli.md %}#oa-da-subdomain),
    [Project structure]({{ site.baseurl }}{% link project-structure.md %})).
-
 5. **(e) Snow data**
    Shows why multiple observation types are useful and when they are most informative in a season:
    **snow depth**, **snow cover**, and **wet snow** contribute information at different times (early/high/late season).
@@ -149,6 +164,7 @@ This baseline is intended to stay feasible on a normal computer while still show
 full preprocessing + DA + diagnostics workflow.
 
 {: .highlight }
+
 > Tutorial screenshots, snippets, and expected outputs should be based on this baseline to keep the documentation consistent.
 
 ---
@@ -170,6 +186,7 @@ openAMUNDSEN-DA supports two general execution modes.
 - useful for scaling and large-domain strategies
 
 {: .note }
+
 > This tutorial uses **single-domain mode** so the learning path stays focused on the core framework concepts and preprocessing workflow.
 
 ---
@@ -184,6 +201,7 @@ Recommended approach:
 4. Use the diagnostics chapter to validate your run before changing configuration
 
 {: .warning }
+
 > Skipping preprocessing or changing `assimilation_events` without regenerating dependent files is a common source of confusing errors later in the workflow.
 
 ---
@@ -201,6 +219,7 @@ important ones:
 - [Advanced Performance]({{ site.baseurl }}{% link advanced/performance.md %})
 
 {: .highlight }
+
 > Tutorial pages explain the workflow. Reference pages explain the full option/configuration details.
 
 ---

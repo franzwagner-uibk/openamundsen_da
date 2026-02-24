@@ -33,6 +33,24 @@ This configuration is intended to remain feasible on a normal computer.
 
 ---
 
+## Step-by-step flow on this page
+
+Use this page in the following order:
+
+1. read the pipeline overview (what the main run command will do)
+2. optionally inspect one step folder (quick sanity check before a longer run)
+3. run the **project pipeline command** (mandatory)
+4. perform a small set of run-progress checks (recommended)
+5. use the lower-level commands only to understand/debug internals (optional)
+
+{: .highlight }
+> **Mandatory command on this page:** the project pipeline run in `Run the full project pipeline (recommended workflow)`.
+
+{: .note }
+> If you are short on time, skip the optional step inspection and lower-level command section. Keep the pipeline run and the basic run-progress checks.
+
+---
+
 ## What the project pipeline does (conceptual overview)
 
 The project pipeline (`openamundsen_da.pipeline.project`) orchestrates the DA cycle

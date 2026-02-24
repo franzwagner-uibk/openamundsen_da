@@ -1,9 +1,12 @@
 ---
+
 layout: default
 title: 2. Dependencies
 parent: Tutorial
-nav_order: 2
+nav\_order: 2
 permalink: /tutorial/dependencies/
+----------------------------------
+
 ---
 
 # 2. Dependencies
@@ -20,10 +23,8 @@ This tutorial uses a **Docker image** and a **single interactive container sessi
 - **Working directory** = we start the shell in `/data`, so tutorial commands can be copied directly
 
 {: .note }
+
 > Docker background (recommended if you are new to Docker):
-> - [Docker overview](https://docs.docker.com/get-started/docker-overview/)
-> - [Install Docker](https://docs.docker.com/get-docker/)
-> - [Bind mounts](https://docs.docker.com/engine/storage/bind-mounts/)
 
 System requirements:
 
@@ -42,8 +43,12 @@ Verify Docker:
 ```bash
 docker run hello-world
 ```
+
+```html
 <details markdown="block">
   <summary>Windows / PowerShell note (same command)</summary>
+</details>
+```
 
 Use the same command on Windows in one of these ways:
 
@@ -53,16 +58,22 @@ Use the same command on Windows in one of these ways:
   - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
 
 For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-</details>
 
+```html
+</details>
+```
 
 Pull the openAMUNDSEN-DA image:
 
 ```bash
 docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest
 ```
+
+```html
 <details markdown="block">
   <summary>Windows / PowerShell note (same command)</summary>
+</details>
+```
 
 Use the same command on Windows in one of these ways:
 
@@ -72,7 +83,10 @@ Use the same command on Windows in one of these ways:
   - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
 
 For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
+
+```html
 </details>
+```
 
 ### Tutorial command model (important)
 
@@ -95,8 +109,15 @@ docker run --rm -it \
   bash
 ```
 
+```html
 <details markdown="block">
-  <summary>Windows PowerShell variant (start the tutorial container shell)</summary>
+  <summary>
+    Windows PowerShell variant (start the tutorial container shell)
+  </summary>
+</details>
+```
+
+> **Adjust CPU cores to your machine (important)**&#x54;he tutorial uses `--cpus 8` only as an example. Set this value to the number of CPU cores/threads you want to make available to Docker and openAMUNDSEN-DA on your system.Also keep `--max-workers` in later project commands consistent with your available Docker CPUs (for example, do not set `--max-workers` much higher than the CPU capacity you assigned to the container).
 
 ```powershell
 docker run --rm -it `
@@ -111,7 +132,9 @@ docker run --rm -it `
   bash
 ```
 
+```html
 </details>
+```
 
 What this command does:
 
@@ -122,9 +145,13 @@ What this command does:
 - keeps tutorial results persistent on your machine because `/data` is a bind mount
 
 {: .note }
+
+{: .note }
+
 > Files written under `/data/...` are stored in your local tutorial folder (host machine). Files written elsewhere in the container are typically ephemeral and disappear when the container exits.
 
 {: .note }
+
 > Use the command as shown (`bash`, not `bash -l`). A login shell can override the activated environment in this image and make `python` / `oa-da-*` commands unavailable.
 
 After the shell starts, later tutorial commands look like:
@@ -140,6 +167,7 @@ exit
 ```
 
 {: .highlight }
+
 > All command blocks in the next tutorial chapters are shown as commands **inside this running container shell**.
 
 ### Initialize the tutorial workspace (copy the bundled example)
@@ -152,13 +180,18 @@ cp -a /workspace/examples/rofental /data/rofental
 ```
 
 {: .note }
+
 > This copies the example from the image (`/workspace/examples/rofental`) into your local tutorial workdir (mounted as `/data`), where you can inspect and rerun everything.
 
 {: .highlight }
+
 > Tutorial command style: Bash is shown as the primary command syntax (works directly on Linux/macOS and well in WSL/Git Bash on Windows).
 
+```html
 <details markdown="block">
   <summary>Windows / PowerShell users (recommended approach)</summary>
+</details>
+```
 
 You can still follow the same tutorial:
 
@@ -166,7 +199,10 @@ You can still follow the same tutorial:
 - alternatively: start the container from **PowerShell** (using the variant above); once inside the container shell, the tutorial commands are identical
 
 The Docker image, container paths (`/data/...`), and framework commands stay the same.
+
+```html
 </details>
+```
 
 ### Operating system notes
 
@@ -174,14 +210,19 @@ Linux:
 
 - Ensure your user can access Docker (`docker` group or `sudo`)
 - Typical install:
-  ```bash
-  sudo apt-get update
-  sudo apt-get install -y docker.io docker-compose-plugin
-  sudo usermod -aG docker <your-user>
-  sudo systemctl enable --now docker
-  ```
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose-plugin
+sudo usermod -aG docker <your-user>
+sudo systemctl enable --now docker
+```
+
+```html
 <details markdown="block">
   <summary>Windows / PowerShell note (same command)</summary>
+</details>
+```
 
 Use the same command on Windows in one of these ways:
 
@@ -191,10 +232,12 @@ Use the same command on Windows in one of these ways:
   - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
 
 For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
+
+```html
 </details>
+```
 
-
-Mac:
+macOS:
 
 - Docker Desktop is the recommended runtime
 
@@ -204,6 +247,7 @@ Windows (WSL):
 - Run the tutorial commands in PowerShell (or WSL shell)
 
 {: .note }
+
 > If you use PowerShell instead of WSL, prefer forward slashes in Docker mount paths where possible (for example `C:/path/to/workdir:/data`).
 
 ### Runtime and resources
@@ -213,5 +257,5 @@ Windows (WSL):
 - For stable CPU usage in numerical libraries, use these environment variables in the container start command: `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, `NUMEXPR_NUM_THREADS` (already included in the tutorial command above).
 
 {: .note }
-> In this tutorial, these variables are already set in the recommended container startup command above.
 
+> In this tutorial, these variables are already set in the recommended container startup command above.

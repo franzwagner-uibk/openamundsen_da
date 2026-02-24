@@ -25,6 +25,25 @@ The goal is not only to find files, but to understand:
 
 ---
 
+## Step-by-step flow on this page
+
+Use this page as a review routine after a completed run:
+
+1. confirm completion in the project log
+2. inspect performance diagnostics (`plots/perf`)
+3. inspect DA diagnostics (`plots/assim`)
+4. inspect result plots (`plots/results`)
+5. inspect summary CSVs / ROI envelopes
+6. inspect compact grid output (`da_output_grids.nc`)
+
+{: .highlight }
+> Do not start with plots alone. Always check the log first, because incomplete runs can still leave partial plots/files behind.
+
+{: .note }
+> Many commands in this chapter are optional inspection helpers. The primary guidance is the **review order + file paths + reference snippets**.
+
+---
+
 ## Project output structure (what to inspect first)
 
 Most tutorial outputs live under:
@@ -40,7 +59,7 @@ Key locations:
 - `results/grids/da_output_grids.nc` - compact DA grid product
 - `point_scf_roi_envelope.csv`, `point_wet_snow_roi_envelope.csv` - ROI time-series envelopes
 
-Quick directory overview:
+Quick directory overview (optional helper):
 
 ```bash
 find /data/rofental/projects/project_2022_2023 -maxdepth 3 -type d | sort

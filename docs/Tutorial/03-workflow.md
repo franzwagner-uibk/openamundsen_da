@@ -19,6 +19,22 @@ If you skip this mental model, the later commands can feel like a black box.
 
 ---
 
+## Step-by-step flow on this page
+
+This is a **conceptual chapter** (no commands to run).
+
+Recommended reading order on this page:
+
+1. workflow phases (what happens when)
+2. core objects (setup/project/step/member)
+3. manual vs pipeline view
+4. common ordering mistakes
+
+{: .note }
+> If you want the shortest path: read `Workflow phases`, then `Manual commands vs project pipeline`, then continue with [4. Framework]({{ site.baseurl }}{% link Tutorial/04-framework.md %}).
+
+---
+
 ## What this tutorial is doing (in one sentence)
 
 We run a **reproducible Rofental data assimilation project** where:
@@ -62,10 +78,6 @@ These terms appear throughout the tutorial and in logs/files:
 - **Member**: one ensemble realization (plus `open_loop`)
 - **Observation summary**: project-level table (`scf_summary.csv`, `wet_snow_summary.csv`) derived from raw rasters
 - **Per-step observation CSV**: one-row input consumed by the DA step at a configured event date
-
-{: .note }
-> Cross-reference:
-> - [Framework chapter]({{ site.baseurl }}{% link Tutorial/04-framework.md %})
 
 {: .highlight }
 > Key idea: the DA step consumes **prepared per-step CSV observations**, not raw raster imagery directly.

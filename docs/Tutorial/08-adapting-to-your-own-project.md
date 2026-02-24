@@ -23,6 +23,22 @@ The recommended strategy is:
 
 ---
 
+## Step-by-step flow on this page
+
+This chapter is a **migration guide**, not a command-by-command execution page.
+
+Recommended use:
+
+1. read `What you must adapt first`
+2. follow `Recommended migration workflow`
+3. use `Common adaptation mistakes` as a review checklist before running
+4. use the final checklist when creating a new project baseline
+
+{: .note }
+> Keep the tutorial Rofental setup as a known-good reference while adapting your own domain. Compare structure and outputs frequently instead of changing everything at once.
+
+---
+
 ## What to copy from the tutorial workflow (unchanged at first)
 
 Keep these concepts and steps unchanged initially:

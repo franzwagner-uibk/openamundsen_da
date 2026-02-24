@@ -3,3 +3,27 @@ Inject custom favicon (SVG). Browsers that prefer ICO will fall back to default.
 {%- endcomment -%}
 <link rel="icon" type="image/svg+xml" href="{{ '/assets/images/favicon.svg' | relative_url }}">
 <link rel="alternate icon" href="{{ '/assets/images/favicon.svg' | relative_url }}">
+
+<style>
+  /* Keep the global docs search field clearly visible in the header. */
+  .main-header .search {
+    flex: 1 1 auto;
+    min-width: 16rem;
+  }
+
+  @media (min-width: 50rem) {
+    .main-header .search {
+      min-width: 24rem;
+    }
+
+    .main-header .search-input-wrap {
+      position: relative !important;
+      width: 100% !important;
+      max-width: 38rem !important;
+    }
+  }
+
+  .main-header .search-input {
+    border: 1px solid rgba(0, 0, 0, 0.08);
+  }
+</style>

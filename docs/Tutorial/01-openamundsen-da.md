@@ -25,6 +25,9 @@ The tutorial is intentionally detailed and practical:
 
 ## Step-by-step flow on this page
 
+{: .step }
+> Read this page top-to-bottom once to build the mental model before starting hands-on commands.
+
 Use this page as the tutorial entry point:
 
 1. understand what openAMUNDSEN-DA is (and how it relates to openAMUNDSEN)
@@ -208,6 +211,9 @@ Recommended approach:
 
 ## Links to deeper documentation (use throughout the tutorial)
 
+{: .references }
+> Use these links as background/reference material while working through later chapters.
+
 You will see cross-references to the detailed documentation pages. These are the most
 important ones:
 
@@ -225,5 +231,8 @@ important ones:
 ---
 
 ## Next step
+
+{: .references }
+> Continue directly to the dependencies/setup chapter after this overview.
 
 Continue with [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}) to prepare the runtime environment (Docker, resource expectations, and command style used in this tutorial).

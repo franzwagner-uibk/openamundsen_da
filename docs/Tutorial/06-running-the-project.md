@@ -35,6 +35,9 @@ This configuration is intended to remain feasible on a normal computer.
 
 ## Step-by-step flow on this page
 
+{: .step }
+> Follow this chapter in order: start the run, validate progress, then inspect outputs and rerun patterns.
+
 Use this page in the following order:
 
 1. read the pipeline overview (what the main run command will do)
@@ -53,10 +56,9 @@ Use this page in the following order:
 
 ## What the project pipeline does (conceptual overview)
 
-The project pipeline (`openamundsen_da.pipeline.project`) orchestrates the DA cycle
-step by step.
+The project pipeline (`openamundsen_da.pipeline.project`) orchestrates the DA cycle step by step.
 
-For each step it performs the relevant operations in sequence:
+For each step it typically runs:
 
 1. run the prior ensemble (open loop + ensemble members),
 2. compute model-side diagnostics (e.g. SCF / wet-snow fractions),
@@ -73,8 +75,7 @@ observation CSVs to already exist and match the configured event dates exactly.
 {: .warning }
 > The project pipeline does not replace observation preprocessing. Missing or inconsistent per-step observation CSVs will cause the run to fail.
 
-{: .note }
-> Cross-reference:
+{: .references }
 > - [Framework]({{ site.baseurl }}{% link Tutorial/04-framework.md %}) for setup/project/step/member concepts
 > - [Workflow Guide]({{ site.baseurl }}{% link workflow.md %}) for the broader DA process
 > - [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}) for pipeline and lower-level commands
@@ -122,7 +123,9 @@ obs_scf_SNOWCOVER_20221003.csv
 
 ## Run the full project pipeline (recommended workflow)
 
-This is the main tutorial command. It executes the DA project end to end.
+Run this inside the tutorial container shell. `--setup-dir` points to the openAMUNDSEN setup, `--project-dir` selects the DA project, `--max-workers` caps pipeline parallelism, `--overwrite` allows reruns, and `--log-level INFO` keeps progress visible in the project log.
+
+This is the main tutorial command for the full DA run.
 
 {: .note }
 > **Configuration files used by this run**  
@@ -139,7 +142,7 @@ python -m openamundsen_da.pipeline.project \
 ```
 
 
-Why these runtime settings are used:
+Runtime coordination for stable performance:
 
 - `--cpus 8` (set in the container startup command): caps container CPU usage (example value, adjust to your machine)
 - BLAS/OpenMP env vars (set in the container startup command): prevent nested threading and oversubscription
@@ -152,8 +155,7 @@ Why these runtime settings are used:
 > **Project YAML keys that strongly affect runtime/results**  
 > Reference YAML snippet (selected runtime-relevant keys)
 >
-> File path:
-> - `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
+> File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
 
 ```yaml
 data_assimilation:
@@ -179,7 +181,7 @@ data_assimilation:
           metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment]
 ```
 
-### Runtime expectations
+### Runtime expectations (what affects runtime)
 
 Runtime depends on:
 
@@ -201,6 +203,9 @@ should be able to complete the run, but it is still a non-trivial workload.
 ---
 
 ## Validate that the run is progressing correctly
+
+{: .checks }
+> Use these checks while the run is active to catch problems early.
 
 ### 1. Watch the project log
 
@@ -258,21 +263,21 @@ plots/results/
   setup_results_point_proviantdepot_swe_2022_2023.png
 ```
 
-Visual run-success teaser (performance):
+Visual run-success teaser (performance plot):
 
 ![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/project_perf.png)
 
-What to check here at this stage:
+For this quick check, confirm:
 
 - the file exists and opens,
 - the plot is populated (not empty/corrupt),
 - runtime/resource traces are present (detailed interpretation comes later).
 
-Visual run-success teaser (main results overview):
+Visual run-success teaser (main results overview plot):
 
 ![Fraction time series (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/fraction_timeseries.png)
 
-What to check here at this stage:
+For this quick check, confirm:
 
 - observation markers are present,
 - the plot spans the configured tutorial season,
@@ -296,8 +301,7 @@ Expected output file:
 > Do not treat the existence of files alone as proof of a healthy run. Always check the
 > log for errors and warnings and inspect DA diagnostics in the next chapter.
 
-{: .note }
-> Cross-reference:
+{: .references }
 > - [Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}) for plot/diagnostic interpretation
 > - [Advanced Performance]({{ site.baseurl }}{% link advanced/performance.md %}) for performance tuning after the baseline tutorial run
 
@@ -314,8 +318,7 @@ Expected output file:
 
 ## Lower-level commands (how the pipeline relates to manual execution)
 
-The tutorial recommends the project pipeline for normal operation, but it is important to
-understand the main lower-level building blocks it wraps.
+The tutorial recommends the project pipeline for normal operation, but it is still useful to understand the main lower-level building blocks it wraps.
 
 Examples (step-level mechanics):
 
@@ -346,7 +349,7 @@ python -m openamundsen_da.core.launch \
 
 </details>
 
-Why this matters:
+Why this section is useful:
 
 - it helps you debug specific steps,
 - it explains what the pipeline is automating,
@@ -360,8 +363,7 @@ Why this matters:
 {: .highlight }
 > Treat lower-level commands as learning/debugging tools; treat the project pipeline as the normal production workflow.
 
-{: .note }
-> Cross-reference:
+{: .references }
 > - [Command-Line Interface]({{ site.baseurl }}{% link guides/cli.md %}) for the full command catalog
 > - [Package Structure]({{ site.baseurl }}{% link reference/package-structure.md %}) if you want to map CLI commands to internal modules
 
@@ -389,6 +391,9 @@ If you only change plotting or documentation, a full rerun is usually unnecessar
 
 ## What to check before moving on
 
+{: .checks }
+> Confirm these outputs and diagnostics before opening the results chapter.
+
 Before continuing, verify:
 
 - `project_2022_2023.log` ends with a completion message,
@@ -402,6 +407,9 @@ completed successfully.
 ---
 
 ## Next step
+
+{: .references }
+> Continue to the results and diagnostics chapter after the project run completed successfully.
 
 Continue with [7. Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %})
 to inspect:

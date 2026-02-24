@@ -25,6 +25,9 @@ The recommended strategy is:
 
 ## Step-by-step flow on this page
 
+{: .step }
+> Treat this chapter as a migration checklist: adapt a few things first, then expand gradually.
+
 This chapter is a **migration guide**, not a command-by-command execution page.
 
 Recommended use:
@@ -82,8 +85,7 @@ Typical changes:
 - forcing station metadata and paths
 - model physics settings
 
-{: .note }
-> Cross-reference:
+{: .references }
 > - openAMUNDSEN documentation (external): [https://doc.openamundsen.org/](https://doc.openamundsen.org/)
 
 ### 2. Project-level DA configuration (`project_YYYY_YYYY.yml`)
@@ -99,8 +101,7 @@ Typical changes:
 - resampling / rejuvenation settings
 - output retention/grid export settings
 
-{: .note }
-> Cross-reference:
+{: .references }
 > - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %})
 
 ### 3. Observation data and class mappings
@@ -201,13 +202,15 @@ Recommended tutorial-like strategy:
 - a few wet-snow dates during melt onset and progression
 - keep the initial event count small enough to debug quickly
 
-{: .note }
-> Cross-reference:
+{: .references }
 > - [Observation Processing Guide]({{ site.baseurl }}{% link guides/observations.md %})
 
 ---
 
 ## Common adaptation mistakes (and how to avoid them)
+
+{: .warning }
+> Check this section whenever a new project behaves unexpectedly after configuration changes.
 
 ### 1. Mixing setup-level and project-level configuration
 
@@ -264,6 +267,9 @@ Fix:
 
 ## Minimal checklist for a new project (copy/paste audit list)
 
+{: .checks }
+> Use this as the final pre-run audit before starting a new project experiment.
+
 Before your first real DA run, confirm:
 
 - setup YAML is valid openAMUNDSEN config (no DA block)
@@ -296,6 +302,9 @@ Document each change and compare outputs against the same validation plots.
 ---
 
 ## Where to go deeper
+
+{: .references }
+> Use these links after the tutorial to expand beyond the baseline workflow.
 
 - [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %})
 - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %})

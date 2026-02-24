@@ -29,6 +29,9 @@ It answers questions like:
 
 ## Step-by-step flow on this page
 
+{: .step }
+> Use this chapter as the framework reference map for the rest of the tutorial.
+
 Recommended reading order on this page:
 
 1. read the visual overview note (how this chapter relates to chapter 1)
@@ -45,8 +48,7 @@ The integrated conceptual overview graphic is introduced in
 [1. openAMUNDSEN-DA]({{ site.baseurl }}{% link Tutorial/01-openamundsen-da.md %}).
 Use it there as a roadmap, then come back to this chapter for the concrete setup/project/step/member structure and file-level details.
 
-{: .note }
-> Cross-reference:
+{: .references }
 > - [Workflow]({{ site.baseurl }}{% link workflow.md %}) for the end-to-end process view
 > - [Project Structure]({{ site.baseurl }}{% link project-structure.md %}) for folder layout details
 > - [Package Structure]({{ site.baseurl }}{% link reference/package-structure.md %}) for module-level code orientation
@@ -85,9 +87,7 @@ Typical setup contents:
 
 Reference YAML snippet (setup config, selected keys)
 
-File path:
-
-- `/data/rofental/rofental.yml`
+File path: `/data/rofental/rofental.yml`
 
 ```yaml
 domain: "rofental"
@@ -113,12 +113,11 @@ output_data:
 
 Reference snippet (`/data/rofental/meteo/stations.csv`):
 
-```csv
-id,name,x,y,alt
-bellavista,Bella Vista,636823,5182569,2805
-proviantdepot,Proviantdepot,639377,5187724,2659
-latschbloder,Latschbloder,637854,5184641,2919
-```
+| id | name | x | y | alt |
+| --- | --- | --- | --- | --- |
+| bellavista | Bella Vista | 636823 | 5182569 | 2805 |
+| proviantdepot | Proviantdepot | 639377 | 5187724 | 2659 |
+| latschbloder | Latschbloder | 637854 | 5184641 | 2919 |
 
 {: .note }
 > In this tutorial, the setup is the bundled `examples/rofental` case copied from the container image.
@@ -149,9 +148,7 @@ Key project-level sections in the tutorial example:
 
 Reference YAML snippet (project DA config, selected keys)
 
-File path:
-
-- `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
+File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
 
 ```yaml
 start_date: "2022-10-01"
@@ -264,20 +261,9 @@ What you should see (at minimum):
 
 This is the most important conceptual workflow for understanding preprocessing and DA.
 
-```text
-Raw observation rasters (SCF / wet snow)
-        |
-        v
-Project-level summary CSVs
-  - scf_summary.csv
-  - wet_snow_summary.csv
-        |
-        v
-Per-step one-row observation CSVs in step_*/obs/
-        |
-        v
-DA step reads the matching observation CSV for the configured event date
-```
+![Observation preprocessing-to-DA flow diagram]({{ site.baseurl }}/assets/images/tutorial/diagrams/preprocessing-observation-flow.svg)
+
+_Flow from raw SCF/wet-snow rasters to project summary CSVs, then to per-step observation CSVs consumed by each DA step._
 
 Concrete example (SCF):
 
@@ -370,8 +356,7 @@ This posterior then seeds the next step (via rejuvenation) to form the next prio
 {: .highlight }
 > Think of each step as a loop: prior -> observe -> weight -> resample -> posterior -> rejuvenate -> next prior.
 
-{: .note }
-> Cross-reference:
+{: .references }
 > - [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %}) for method terminology and theory context
 > - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) for how likelihood/resampling settings control this cycle
 
@@ -444,8 +429,7 @@ This provides a compact, analysis-friendly output for selected variables/metrics
 {: .note }
 > The tutorial example uses compact retention to keep the example manageable on normal hardware.
 
-{: .note }
-> Cross-reference:
+{: .references }
 > - [Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}) for concrete examples of these outputs
 > - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) for DA output variable/metric selection
 
@@ -474,6 +458,9 @@ openAMUNDSEN-DA supports different execution modes:
 
 ## 8. Framework checklist before you continue
 
+{: .checks }
+> Confirm these points before starting preprocessing and project execution.
+
 Before moving to preprocessing, you should be able to explain:
 
 1. the difference between setup, project, step, and member
@@ -497,6 +484,9 @@ Expected answer (conceptually):
 ---
 
 ## Next step
+
+{: .references }
+> Continue to preprocessing after the setup/project/step/member hierarchy is clear.
 
 Continue with [5. Pre-processing]({{ site.baseurl }}{% link Tutorial/05-pre-processing.md %}) to generate:
 

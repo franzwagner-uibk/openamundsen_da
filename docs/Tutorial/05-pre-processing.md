@@ -31,6 +31,9 @@ The goal is to make the preprocessing logic transparent and reproducible:
 
 ## Step-by-step flow on this page
 
+{: .step }
+> Follow this chapter in order; each preprocessing step creates inputs needed by the next one.
+
 Run the chapter in this order:
 
 1. check raw inputs and preprocessing-relevant project YAML keys (orientation)
@@ -41,9 +44,6 @@ Run the chapter in this order:
 {: .highlight }
 > **Mandatory commands only (copy-paste path):** `oa-da-snowcover` -> `oa-da-wetsnow` -> `project_skeleton` -> `oa-da-scf` -> `oa-da-wetsnow-project`
 
-{: .note }
-> Most command blocks after the five preprocessing commands are optional diagnostics. If you are following the tutorial for the first time, focus on the mandatory commands and compare the generated files with the provided snippets.
-
 ---
 
 ## Before you start
@@ -53,8 +53,7 @@ This chapter assumes you already:
 - started the interactive tutorial container shell from [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}),
 - copied the bundled Rofental example to your mounted workspace (`/data/rofental`).
 
-{: .note }
-> Cross-reference:
+{: .references }
 > - [Framework]({{ site.baseurl }}{% link Tutorial/04-framework.md %}) for setup/project/step concepts
 > - [Observation Processing Guide]({{ site.baseurl }}{% link guides/observations.md %}) for product details and CLI options
 > - [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}) for all preprocessing commands
@@ -74,7 +73,7 @@ Those files do not exist until you:
 > All command blocks below are executed **inside the running tutorial container shell**. Once the shell is started in chapter 2, the commands are identical on Linux, macOS, and Windows (WSL/PowerShell users type them inside the container).
 
 {: .highlight }
-> **Command focus (important):** In this chapter, the commands you must run are the five preprocessing commands below (`oa-da-snowcover`, `oa-da-wetsnow`, `project_skeleton`, `oa-da-scf`, `oa-da-wetsnow-project`). Most file checks are shown as **paths + snippets** to reduce command noise.
+> Most file checks are shown as **paths + snippets** to reduce command noise. If you are following the tutorial for the first time, focus on the five preprocessing commands and compare your generated files with the shown references.
 
 ---
 
@@ -110,16 +109,13 @@ Reference snippet (Rofental example filenames):
 
 Reference CSV snippet (station snow observations)
 
-File path:
+File path: `/data/rofental/obs/stations/proviantdepot.csv`
 
-- `/data/rofental/obs/stations/proviantdepot.csv`
-
-```csv
-time,snow_depth,swe
-2022-10-01 00:00:00,0.09849999999999999,15.116667
-2022-10-01 01:00:00,0.09883333333333333,14.783333
-2022-10-01 02:00:00,0.09949999999999999,14.783333
-```
+| time | snow_depth | swe |
+| --- | --- | --- |
+| 2022-10-01 00:00:00 | 0.09849999999999999 | 15.116667 |
+| 2022-10-01 01:00:00 | 0.09883333333333333 | 14.783333 |
+| 2022-10-01 02:00:00 | 0.09949999999999999 | 14.783333 |
 
 Why this matters:
 
@@ -162,9 +158,7 @@ Relevant sections in the tutorial project:
 
 Reference YAML snippet (project config driving preprocessing, selected sections)
 
-File path:
-
-- `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
+File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
 
 ```yaml
 start_date: "2022-10-01"
@@ -246,13 +240,13 @@ Expected state after cleanup (if you ran it):
 
 ## Step 1: Summarize snow-cover rasters to `scf_summary.csv`
 
-This converts the raw FSC rasters into a project-level summary table used for:
+`oa-da-snowcover` reads raw FSC rasters from `--input-dir`, applies ROI/masking and class mapping from `--setup-dir` + project YAML, writes the project summary under `obs/summaries/<project_label>/`, and `--overwrite` replaces an existing summary file.
+
+Purpose in this tutorial:
 
 - quality control / date selection,
 - per-step observation file generation (`oa-da-scf`),
 - reproducible assimilation date matching.
-
-Command:
 
 ```bash
 oa-da-snowcover \
@@ -310,18 +304,15 @@ Typical checks:
 
 Reference CSV snippet (SCF summary)
 
-File path:
+File path: `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`
 
-- `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`
-
-```csv
-date,region_id,n_valid,n_snow,scf,cloud_fraction,source
-2022-10-03,,88455,46001,0.5200462382002148,0.0,s2_fsc_snowflake_rofental_2022_10_03.tif
-2022-10-05,,78631,23973,0.30487988198038946,0.0,s2_fsc_snowflake_rofental_2022_10_05.tif
-2022-10-08,,33976,1078,0.03173769719802213,0.0,s2_fsc_snowflake_rofental_2022_10_08.tif
-2022-10-13,,12530,306,0.024387869114126097,0.0,s2_fsc_snowflake_rofental_2022_10_13.tif
-2022-10-18,,72228,2255,0.031222656033671154,0.0,s2_fsc_snowflake_rofental_2022_10_18.tif
-```
+| date | region_id | n_valid | n_snow | scf | cloud_fraction | source |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2022-10-03 |  | 88455 | 46001 | 0.5200462382002148 | 0.0 | s2_fsc_snowflake_rofental_2022_10_03.tif |
+| 2022-10-05 |  | 78631 | 23973 | 0.30487988198038946 | 0.0 | s2_fsc_snowflake_rofental_2022_10_05.tif |
+| 2022-10-08 |  | 33976 | 1078 | 0.03173769719802213 | 0.0 | s2_fsc_snowflake_rofental_2022_10_08.tif |
+| 2022-10-13 |  | 12530 | 306 | 0.024387869114126097 | 0.0 | s2_fsc_snowflake_rofental_2022_10_13.tif |
+| 2022-10-18 |  | 72228 | 2255 | 0.031222656033671154 | 0.0 | s2_fsc_snowflake_rofental_2022_10_18.tif |
 
 {: .note }
 > Exact values depend on ROI, masking, and class mapping. The column structure and value ranges should look similar.
@@ -346,9 +337,13 @@ How to read this SCF summary snippet:
 
 ## Step 2: Summarize wet-snow rasters to `wet_snow_summary.csv`
 
-This creates the project-level wet-snow summary from the Sentinel-1 wet-snow masks.
+`oa-da-wetsnow` reads raw wet-snow rasters from `--input-dir`, uses wet/valid/exclude class mappings from the project config (`--setup-dir`), writes `wet_snow_summary.csv` under `obs/summaries/<project_label>/`, and `--overwrite` replaces an existing file.
 
-Command:
+Purpose in this tutorial:
+
+- quality control of wet-snow date coverage
+- per-step wet-snow observation file generation (`oa-da-wetsnow-project`)
+- reproducible wet-snow event/date matching
 
 ```bash
 oa-da-wetsnow \
@@ -386,18 +381,15 @@ Why this matters:
 
 Reference CSV snippet (wet-snow summary)
 
-File path:
+File path: `/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv`
 
-- `/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv`
-
-```csv
-date,region_id,wet_snow_fraction,n_valid,n_wet,source
-2023-03-12,,0.022,156982,3453,WSM_S1A_SAR_track117_2023_03_12_17_07_24.tif
-2023-03-16,,0.0294,158953,4667,WSM_S1A_SAR_track168_2023_03_16_05_27_37.tif
-2023-03-24,,0.4664,156982,73218,WSM_S1A_SAR_track117_2023_03_24_17_07_24.tif
-2023-03-28,,0.2661,158953,42301,WSM_S1A_SAR_track168_2023_03_28_05_27_38.tif
-2023-04-05,,0.0621,156982,9750,WSM_S1A_SAR_track117_2023_04_05_17_07_24.tif
-```
+| date | region_id | wet_snow_fraction | n_valid | n_wet | source |
+| --- | --- | --- | --- | --- | --- |
+| 2023-03-12 |  | 0.022 | 156982 | 3453 | WSM_S1A_SAR_track117_2023_03_12_17_07_24.tif |
+| 2023-03-16 |  | 0.0294 | 158953 | 4667 | WSM_S1A_SAR_track168_2023_03_16_05_27_37.tif |
+| 2023-03-24 |  | 0.4664 | 156982 | 73218 | WSM_S1A_SAR_track117_2023_03_24_17_07_24.tif |
+| 2023-03-28 |  | 0.2661 | 158953 | 42301 | WSM_S1A_SAR_track168_2023_03_28_05_27_38.tif |
+| 2023-04-05 |  | 0.0621 | 156982 | 9750 | WSM_S1A_SAR_track117_2023_04_05_17_07_24.tif |
 
 {: .highlight }
 > Wet-snow coverage is typically sparser than SCF. Sparse wet-snow dates are expected and should not be treated as a preprocessing error by default.
@@ -421,12 +413,12 @@ How to read this wet-snow summary snippet:
 
 ## Step 3: Build the project step skeleton (`step_*` folders)
 
-The step skeleton is generated from:
+`project_skeleton` reads `start_date`, `end_date`, and `assimilation_events` from the project YAML, generates `step_*` folders under `--project-dir`, uses `--setup-dir` for context, and `--overwrite` rebuilds the step structure after event edits.
+
+This step builds the project step structure from:
 
 - `start_date`, `end_date`
 - `data_assimilation.assimilation_events`
-
-Command:
 
 ```bash
 python -m openamundsen_da.pipeline.project_skeleton \
@@ -469,8 +461,7 @@ step_07_20230405-20230416
 {: .note }
 > This fail-fast behavior prevents silent mismatches between event dates and step windows.
 
-{: .note }
-> Cross-reference:
+{: .references }
 > - [Framework]({{ site.baseurl }}{% link Tutorial/04-framework.md %}) for why `assimilation_events` define the step structure
 > - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) for editing `assimilation_events`
 
@@ -478,10 +469,9 @@ step_07_20230405-20230416
 
 ## Step 4: Create per-step SCF observation CSVs (`oa-da-scf`)
 
-This command maps rows from `scf_summary.csv` to the configured SCF assimilation dates
-and writes one-row observation CSVs into the corresponding `step_*/obs/` folders.
+`oa-da-scf` matches SCF rows from `--summary-csv` to SCF `assimilation_events` in `--project-dir`, writes one-row `obs_scf_*.csv` files into `steps/*/obs/`, and `--overwrite` regenerates them after configuration or date changes.
 
-Command:
+This step maps rows from `scf_summary.csv` to the configured SCF assimilation dates and writes one-row observation CSVs into the corresponding `step_*/obs/` folders.
 
 ```bash
 oa-da-scf \
@@ -523,24 +513,19 @@ This is an important quality gate in the workflow.
 
 Reference CSV snippet (generated per-step SCF observation)
 
-File path:
+File path: `/data/rofental/projects/project_2022_2023/steps/step_00_init/obs/obs_scf_SNOWCOVER_20221003.csv`
 
-- `/data/rofental/projects/project_2022_2023/steps/step_00_init/obs/obs_scf_SNOWCOVER_20221003.csv`
-
-CSV snippet:
-
-```csv
-date,n_valid,n_snow,scf,cloud_fraction,source
-2022-10-03,88455,46001,0.5200462382002148,0.0,s2_fsc_snowflake_rofental_2022_10_03.tif
-```
+| date | n_valid | n_snow | scf | cloud_fraction | source |
+| --- | --- | --- | --- | --- | --- |
+| 2022-10-03 | 88455 | 46001 | 0.5200462382002148 | 0.0 | s2_fsc_snowflake_rofental_2022_10_03.tif |
 
 ---
 
 ## Step 5: Create per-step wet-snow observation CSVs (`oa-da-wetsnow-project`)
 
-This performs the same alignment logic for wet-snow assimilation dates.
+`oa-da-wetsnow-project` applies the same alignment logic for wet-snow events: it reads `--summary-csv`, matches rows to wet-snow `assimilation_events` in `--project-dir`, writes `obs_wet_snow_*.csv` into `steps/*/obs/`, and `--overwrite` refreshes existing files.
 
-Command:
+This step applies the same alignment logic for wet-snow assimilation dates.
 
 ```bash
 oa-da-wetsnow-project \
@@ -571,18 +556,20 @@ At this point, the project is ready for execution:
 {: .highlight }
 > At this point the DA run becomes reproducible: the observation inputs consumed by each step are explicit and inspectable.
 
+{: .step }
+> Preprocessing observation flow (conceptual)
+
+![Preprocessing observation flow diagram]({{ site.baseurl }}/assets/images/tutorial/diagrams/preprocessing-observation-flow.svg)
+
+_Flow from raw SCF/wet-snow rasters to project summary CSVs, then to per-step observation CSVs consumed by each DA step._
+
 Reference CSV snippet (generated per-step wet-snow observation)
 
-File path:
+File path: `/data/rofental/projects/project_2022_2023/steps/step_05_20230309-20230328/obs/obs_wet_snow_WETSNOW_20230328.csv`
 
-- `/data/rofental/projects/project_2022_2023/steps/step_05_20230309-20230328/obs/obs_wet_snow_WETSNOW_20230328.csv`
-
-CSV snippet:
-
-```csv
-date,wet_snow_fraction,n_valid,n_wet,source
-2023-03-28,0.2661,158953,42301,WSM_S1A_SAR_track168_2023_03_28_05_27_38.tif
-```
+| date | wet_snow_fraction | n_valid | n_wet | source |
+| --- | --- | --- | --- | --- |
+| 2023-03-28 | 0.2661 | 158953 | 42301 | WSM_S1A_SAR_track168_2023_03_28_05_27_38.tif |
 
 ## Visual sanity teaser (what this preprocessing enables)
 
@@ -602,6 +589,9 @@ What this preview confirms conceptually:
 ---
 
 ## Common preprocessing failure modes (and what they mean)
+
+{: .warning }
+> Use these diagnostics when preprocessing outputs are missing or inconsistent.
 
 <details markdown="block">
   <summary>Expand troubleshooting list</summary>
@@ -652,14 +642,16 @@ Typical fix:
 
 </details>
 
-{: .note }
-> Cross-reference:
+{: .references }
 > - [Observation Processing Guide]({{ site.baseurl }}{% link guides/observations.md %}) for product-specific preprocessing details
 > - [Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) for debugging failed preprocessing runs
 
 ---
 
 ## What we created in this chapter
+
+{: .checks }
+> Verify these outputs before starting the project run in the next chapter.
 
 Key outputs:
 
@@ -677,6 +669,9 @@ These are the direct observation inputs consumed by the DA project run.
 ---
 
 ## Next step
+
+{: .references }
+> Continue to the project execution chapter after the preprocessing outputs look correct.
 
 Continue with [6. Running the project]({{ site.baseurl }}{% link Tutorial/06-running-the-project.md %}) to:
 

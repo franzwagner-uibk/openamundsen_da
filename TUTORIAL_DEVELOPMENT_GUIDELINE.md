@@ -238,6 +238,221 @@ Use the following elements consistently:
 
 Prefer concise, high-value explanations over long generic prose.
 
+## Final Authoring Pattern (Current Tutorial Standard)
+
+The tutorial now uses a **repeatable callout-based structure** in the docs. Apply this
+pattern consistently across all `docs/Tutorial/*.md` pages where it adds clarity.
+
+There are two valid page patterns:
+
+- **Strict step template** (for command-heavy pages, e.g. dependencies, preprocessing, running)
+- **Hybrid template** (for interpretation-heavy pages, e.g. workflow, framework, results)
+
+### 1. Strict Step Template (command-heavy pages)
+
+Use this sequence for each step:
+
+1. Step title (numbered)
+2. `Goal` callout (`{: .step }`) with one concise objective sentence
+3. `Commands` section with command block(s)
+4. Short command explanation in normal prose directly after the command block (paths/flags/results)
+5. `Checks` callout (`{: .checks }`) with bullet points for verification
+6. `References` callout (`{: .references }`) with short linked bullets
+
+Notes:
+
+- Do not split `Goal` and `Description` if they say the same thing.
+- Avoid low-value callouts that only repeat "run this command here".
+- Prefer normal prose for command explanations so the page keeps a healthy text-to-callout ratio.
+
+### 2. Hybrid Template (concept / interpretation-heavy pages)
+
+Use normal prose for conceptual explanation and interpretation, then add callouts only
+where they improve scanning:
+
+- `{: .checks }` for “what to inspect”, “what to look for”, sanity checks
+- `{: .references }` for follow-up docs and cross-links
+- `{: .warning }` for failure modes or misleading outputs
+
+Do not force the full strict step template onto narrative sections.
+
+## Tutorial Callout Usage (Just-the-Docs)
+
+Use the tutorial-specific callouts configured in `docs/_config.yml`:
+
+- `{: .step }` -> **Goal**
+- `{: .checks }` -> **Checks**
+- `{: .references }` -> **References**
+- `{: .tip }`, `{: .note }`, `{: .warning }`, `{: .highlight }` as needed
+
+### Callout Anti-Duplication Rules
+
+Avoid duplicated labels such as a heading immediately followed by a callout with the same title.
+
+Examples to avoid:
+
+- `### References` followed by `{: .references }`
+- `### Checks` followed by `{: .checks }`
+
+Preferred:
+
+- Use the callout header only, and place the content directly inside the callout block.
+
+## Formatting Conventions for Snippets and Paths
+
+### Snippet / Plot Placement Rule (Important)
+
+Every table, snippet, and plot in the tutorial must have a **local teaching purpose** at
+the point where it appears.
+
+Do not include snippets/plots only because the file exists. Each one should help answer
+the reader's question in that section.
+
+Required pattern (around the snippet/plot):
+
+- **Context before**: why this file/plot is shown here (what concept/check it supports)
+- **Artifact**: the snippet/table/plot itself
+- **Interpretation after**: what to look at, what is normal/suspicious, and what it means for the next step
+
+If a snippet/plot does not support the local section goal, move it to a more relevant
+section or remove it.
+
+### File paths (single path)
+
+Do **not** use a bullet list for a single path under `File path`.
+
+Use:
+
+```md
+File path: `/data/.../file.csv`
+```
+
+Avoid:
+
+```md
+File path:
+
+- `/data/.../file.csv`
+```
+
+### CSV snippets
+
+Render reference CSV snippets as **Markdown tables**, not fenced `csv` code blocks.
+
+Reasons:
+
+- easier to scan in docs
+- visually consistent with “reference snippet” style
+- aligns with the tutorial’s interpretation-first approach
+
+Use fenced code blocks for CSV only when the exact raw formatting itself is important (rare).
+
+## Links and References Style
+
+In `References` callout boxes:
+
+- use bullet points
+- use short link text + a short phrase (what the link is for)
+- avoid prefixes like `External:` / `Internal:`
+
+Preferred:
+
+- [Docker run reference](...) (CLI flags and bind-mount syntax)
+
+Avoid:
+
+- External: docker run reference
+
+## Flowcharts and Workflow Graphics
+
+For tutorial workflow diagrams (e.g. preprocessing flow), use **SVG assets** committed to:
+
+- `docs/assets/images/tutorial/diagrams/`
+
+Embed them as normal images in Markdown.
+
+Reasons:
+
+- works reliably in the current Jekyll/Just-the-Docs setup (no Mermaid dependency)
+- version-controlled and reviewable
+- reusable across pages
+
+### Standard for Tall Process Flows (Tutorial Default)
+
+For longer stepwise processes that are easier to read vertically (for example:
+raw inputs -> preprocessing -> step-aligned files -> DA execution -> outputs), the
+default tutorial visualization should be a **tall vertical SVG flowchart**.
+
+Use this as the standard pattern for tutorial process diagrams unless there is a clear
+reason to use another layout.
+
+Current reference example:
+
+- `docs/assets/images/tutorial/diagrams/preprocessing-observation-flow.svg`
+
+When a page currently uses an ASCII flow diagram and the process is central to the
+learning path, prefer replacing it with an SVG diagram following this standard.
+
+### SVG style guidelines (current preference)
+
+- monochrome (black outlines/text on white background)
+- rounded rectangles
+- consistent box widths/alignment in a given diagram
+- simple arrows (small arrowheads)
+- concise labels (move long explanation to surrounding text/caption)
+
+### Tall Flowchart Content Guidelines
+
+- Use short labels inside boxes (noun phrase + short qualifier)
+- Keep long explanations in normal prose before/after the figure
+- Use top-to-bottom sequencing for dependency chains
+- Keep one process per figure (avoid mixing multiple unrelated flows)
+- Add a short caption that explains what moves from one stage to the next
+
+## Tutorial Visual Overrides (Migration Reminder)
+
+The tutorial currently uses a small shared CSS override for code-block backgrounds:
+
+- `docs/assets/css/tutorial-code-blocks.css`
+
+It is loaded from:
+
+- `docs/_includes/head_custom.html`
+
+This is intentionally a **low-impact docs-layer customization** (not a template rewrite).
+If the tutorial is migrated to another documentation system, remember to migrate or
+recreate this CSS so YAML and command blocks keep their visual distinction.
+
+## Local Preview and Authoring Environment (Current Recommended Setup)
+
+To avoid stale output and slow rebuilds during tutorial editing:
+
+- use **local Ruby in WSL** (not Docker) for authoring preview
+- keep the repo where it is (single-repo workflow is fine)
+- use polling and disable incremental builds for reliability
+- write Jekyll caches/output to WSL `/tmp`
+
+Practical implications:
+
+- no second clone is required
+- no manual sync workflow is required
+- `_config.yml` changes require a Jekyll restart
+- content-only Markdown changes should hot-reload
+
+Docker preview can remain as an occasional fallback / verification mode, but should not
+be the default authoring loop.
+
+## VS Code Safety for Markdown Editing
+
+Protect tutorial Markdown from accidental formatting changes:
+
+- disable Markdown format-on-save in workspace settings
+- disable save-time auto-fixes for Markdown
+- disable Prettier for Markdown in this workspace
+
+This is especially important for mixed Markdown + HTML blocks (`<details>`, callouts,
+embedded images), where auto-formatters can break rendering.
+
 ## Quality Criteria (Acceptance Checklist)
 
 The tutorial is "ready" when:

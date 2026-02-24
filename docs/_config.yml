@@ -62,14 +62,11 @@ nav_external_links:
 callouts_level: loud
 callouts:
   step:
-    title: Step
+    title: Goal
     color: blue
-  commands:
-    title: Commands
-    color: green
   checks:
     title: Checks
-    color: yellow
+    color: blue
   references:
     title: References
     color: purple

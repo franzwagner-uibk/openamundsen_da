@@ -27,6 +27,9 @@ The goal is not only to find files, but to understand:
 
 ## Step-by-step flow on this page
 
+{: .step }
+> Inspect outputs in this order so you go from logs and diagnostics to plots and final products.
+
 Use this page as a review routine after a completed run:
 
 1. confirm completion in the project log
@@ -61,6 +64,8 @@ Key locations:
 
 Quick directory overview (optional helper):
 
+Inspect the project output folder structure (optional helper for orientation).
+
 ```bash
 find /data/rofental/projects/project_2022_2023 -maxdepth 3 -type d | sort
 ```
@@ -83,18 +88,21 @@ It helps new users understand which outputs are:
 
 Before interpreting plots, confirm that the run actually completed cleanly.
 
+Inspect the end of the project log before interpreting plots and tables.
+
 ```bash
 tail -n 120 /data/rofental/projects/project_2022_2023/project_2022_2023.log
 ```
 
 
-What to look for:
-
-- `Project processing complete`
-- DA variable processing messages (`scf`, `wet_snow`)
-- plot tasks completed
-- compact DA output writing (`da_output_grids.nc`)
-- cleanup/retention messages (expected in compact mode)
+{: .checks }
+> What to look for in a successful log tail:
+>
+> - `Project processing complete`
+> - DA variable processing messages (`scf`, `wet_snow`)
+> - plot tasks completed
+> - compact DA output writing (`da_output_grids.nc`)
+> - cleanup/retention messages (expected in compact mode)
 
 Reference snippet (successful log tail excerpt):
 
@@ -108,19 +116,18 @@ Reference snippet (successful log tail excerpt):
 2026-02-21 ... Project processing complete: /data/projects/project_2022_2023 (wall-clock 866.7 s, ~0.24 h)
 ```
 
-Potential warning signs:
-
-- repeated missing observation messages
-- failures in a specific step
-- plot task errors
-- no DA output export message
-
 {: .warning }
 > If the log is not clean, treat downstream plots and tables as potentially incomplete or misleading.
+>
+> Warning signs:
+>
+> - repeated missing observation messages
+> - failures in a specific step
+> - plot task errors
+> - no DA output export message
 
-{: .note }
-> Cross-reference:
-> - [Advanced Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %})
+{: .references }
+> - [Advanced Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) (follow-up when the log shows errors)
 
 ---
 
@@ -133,7 +140,7 @@ Files to inspect:
 - `plots/perf/project_perf.png`
 - `plots/perf/project_perf_metrics.csv`
 
-Quick check:
+Quick file presence check for performance diagnostics.
 
 ```bash
 ls -lh /data/rofental/projects/project_2022_2023/plots/perf
@@ -142,30 +149,28 @@ head -10 /data/rofental/projects/project_2022_2023/plots/perf/project_perf_metri
 ```
 
 
-How to use this information:
-
-- compare runtime across tutorial reruns,
-- estimate cost of increasing `ensemble_size`,
-- estimate cost of changing resolution (`100 m` vs coarser),
-- identify unexpectedly slow stages (I/O, plotting, step-level hotspots).
+{: .checks }
+> How to use these outputs:
+>
+> - compare runtime across tutorial reruns
+> - estimate cost of increasing `ensemble_size`
+> - estimate cost of changing resolution (`100 m` vs coarser)
+> - identify unexpectedly slow stages (I/O, plotting, step-level hotspots)
 
 {: .note }
 > Performance outputs are especially useful when comparing tutorial runs with different ensemble sizes or resolutions.
 
 Reference CSV snippet (performance metrics)
 
-File path:
+File path: `/data/rofental/projects/project_2022_2023/plots/perf/project_perf_metrics.csv`
 
-- `/data/rofental/projects/project_2022_2023/plots/perf/project_perf_metrics.csv`
-
-```csv
-timestamp,cpu_total_pct,mem_used_pct,mem_used_gb,mem_total_gb
-2026-02-21T21:28:14,0.000,4.100,1.013,24.452
-2026-02-21T21:28:19,40.900,14.100,3.442,24.452
-2026-02-21T21:28:24,53.300,16.000,3.906,24.452
-2026-02-21T21:28:29,52.500,17.700,4.316,24.452
-2026-02-21T21:28:34,61.900,19.400,4.738,24.452
-```
+| timestamp | cpu_total_pct | mem_used_pct | mem_used_gb | mem_total_gb |
+| --- | --- | --- | --- | --- |
+| 2026-02-21T21:28:14 | 0.000 | 4.100 | 1.013 | 24.452 |
+| 2026-02-21T21:28:19 | 40.900 | 14.100 | 3.442 | 24.452 |
+| 2026-02-21T21:28:24 | 53.300 | 16.000 | 3.906 | 24.452 |
+| 2026-02-21T21:28:29 | 52.500 | 17.700 | 4.316 | 24.452 |
+| 2026-02-21T21:28:34 | 61.900 | 19.400 | 4.738 | 24.452 |
 
 Plot file to open:
 
@@ -183,9 +188,8 @@ What to read in the plot:
 - **Memory usage panel/curve**: check whether memory stays within a stable range and does not continuously climb (which can indicate a leak or runaway buffering).
 - **Timing structure**: repeated patterns often correspond to repeated step execution.
 
-{: .note }
-> Cross-reference:
-> - [Advanced Performance]({{ site.baseurl }}{% link advanced/performance.md %})
+{: .references }
+> - [Advanced Performance]({{ site.baseurl }}{% link advanced/performance.md %}) (deeper interpretation of runtime behavior)
 
 ---
 
@@ -203,40 +207,38 @@ What they show:
 - **weights**: how strongly observations favor some particles over others
 - **ESS (effective sample size)**: particle degeneracy indicator
 
-Quick listing:
+Quick listing of assimilation diagnostics files.
 
 ```bash
 find /data/rofental/projects/project_2022_2023/plots/assim -type f | sort
 ```
 
 
-Interpretation guidelines:
-
-- ESS near ensemble size for many events:
-  - observations have weak discrimination or high observation error
-- ESS very low (near 1) frequently:
-  - strong degeneracy, aggressive resampling likely
-  - possibly too-small observation error (`obs_sigma`) or too-strong mismatch
-- abrupt differences between SCF and wet-snow events:
-  - normal and expected (different variables, coverage, and information content)
+{: .checks }
+> Interpretation guidelines:
+>
+> - ESS near ensemble size for many events:
+>   - observations have weak discrimination or high observation error
+> - ESS very low (near 1) frequently:
+>   - strong degeneracy, aggressive resampling likely
+>   - possibly too-small observation error (`obs_sigma`) or too-strong mismatch
+> - abrupt differences between SCF and wet-snow events:
+>   - normal and expected (different variables, coverage, and information content)
 
 {: .highlight }
 > ESS is a diagnostic, not a simple "good/bad" score. Interpret it together with weights, variable type, and observation coverage.
 
 Reference CSV snippet (weights for one wet-snow event)
 
-File path:
+File path: `/data/rofental/projects/project_2022_2023/steps/step_05_20230309-20230328/assim/weights_wet_snow_20230328.csv`
 
-- `/data/rofental/projects/project_2022_2023/steps/step_05_20230309-20230328/assim/weights_wet_snow_20230328.csv`
-
-```csv
-member_id,wet_snow_model,wet_snow_obs,residual,sigma,log_weight,weight
-member_001,0.06530984204131227,0.2661,0.20079015795868774,0.1,-0.6321878168643655,0.09226043764559255
-member_002,0.05407047387606318,0.2661,0.21202952612393683,0.1,-0.8641794376276875,0.07315816937269848
-member_003,0.030528554070473876,0.2661,0.2355714459295261,0.1,-1.3910487470770088,0.043196284798504535
-member_008,0.106318347509113,0.2661,0.159781652490887,0.1,0.10713773615344424,0.1932415527015183
-member_010,0.024756986634264885,0.2661,0.2413430133657351,0.1,-1.5286759452332963,0.03764225766385648
-```
+| member_id | wet_snow_model | wet_snow_obs | residual | sigma | log_weight | weight |
+| --- | --- | --- | --- | --- | --- | --- |
+| member_001 | 0.06530984204131227 | 0.2661 | 0.20079015795868774 | 0.1 | -0.6321878168643655 | 0.09226043764559255 |
+| member_002 | 0.05407047387606318 | 0.2661 | 0.21202952612393683 | 0.1 | -0.8641794376276875 | 0.07315816937269848 |
+| member_003 | 0.030528554070473876 | 0.2661 | 0.2355714459295261 | 0.1 | -1.3910487470770088 | 0.043196284798504535 |
+| member_008 | 0.106318347509113 | 0.2661 | 0.159781652490887 | 0.1 | 0.10713773615344424 | 0.1932415527015183 |
+| member_010 | 0.024756986634264885 | 0.2661 | 0.2413430133657351 | 0.1 | -1.5286759452332963 | 0.03764225766385648 |
 
 Plot files to open:
 
@@ -270,8 +272,7 @@ What to read in the weights plot:
 {: .note }
 > Exact weights differ between runs because the ensemble is stochastic. Focus on the structure (spread/concentration), not exact numeric values.
 
-{: .note }
-> Cross-reference:
+{: .references }
 > - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) (likelihood, resampling, rejuvenation)
 > - [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %}) (theory and terminology)
 
@@ -288,7 +289,7 @@ Typical files include:
 - station SWE plots
 - ROI envelope exports and land-cover masking report
 
-Quick check:
+Quick listing of result plot files.
 
 ```bash
 ls -1 /data/rofental/projects/project_2022_2023/plots/results
@@ -324,20 +325,27 @@ What to inspect:
 > In this tutorial setup, station SWE observations are expected in **mm** (see project config comment).
 > If a curve appears near zero against model SWE, check units first.
 
+Land-cover masking affects how much of the ROI contributes to SCF/wet-snow summaries and
+fractions. This report is useful here because it explains the masking context behind the
+result plots and ROI envelope values shown in this chapter.
+
 Reference CSV snippet (land-cover masking report)
 
-File path:
+File path: `/data/rofental/projects/project_2022_2023/plots/results/lc_mask_report.csv`
 
-- `/data/rofental/projects/project_2022_2023/plots/results/lc_mask_report.csv`
+| class_code | class_name | cells | area_km2 | percent_of_roi |
+| --- | --- | --- | --- | --- |
+| 2 | ice | 3257 | 32.570000 | 32.8210 |
+| 3 | water | 15 | 0.150000 | 0.1512 |
+| 10 | mixed forest | 48 | 0.480000 | 0.4837 |
+| 8,9,10,11,12 | forest | 69 | 0.690000 | 0.6953 |
+| total | total | 3346 | 33.460000 | 33.7179 |
 
-```csv
-class_code,class_name,cells,area_km2,percent_of_roi
-2,ice,3257,32.570000,32.8210
-3,water,15,0.150000,0.1512
-10,mixed forest,48,0.480000,0.4837
-"8,9,10,11,12",forest,69,0.690000,0.6953
-total,total,3346,33.460000,33.7179
-```
+How to use this table:
+
+- confirm that excluded/retained classes look plausible for the tutorial ROI
+- check whether `percent_of_roi` suggests over-masking (unexpectedly little usable area)
+- use it as context when SCF/wet-snow fractions look unexpectedly low/high
 
 Recommended plot files to inspect (Rofental tutorial run):
 
@@ -408,10 +416,9 @@ What to read in this plot:
 
 </details>
 
-{: .note }
-> Cross-reference:
-> - [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %}) for SCF / wet-snow preprocessing context
-> - [Workflow]({{ site.baseurl }}{% link workflow.md %}) for how these plots fit into the broader DA workflow
+{: .references }
+> - [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %}) (SCF / wet-snow preprocessing context)
+> - [Workflow]({{ site.baseurl }}{% link workflow.md %}) (where these plots fit in the DA workflow)
 
 ---
 
@@ -427,7 +434,7 @@ These summarize the ensemble spread over the ROI (mean/min/max and sample count)
 {: .highlight }
 > These CSVs are lightweight outputs that are ideal for quick comparisons between runs without loading NetCDF files.
 
-Inspect a snippet:
+Quick CSV inspection for ROI envelope outputs.
 
 ```bash
 echo "SCF envelope:"
@@ -438,39 +445,34 @@ head -5 /data/rofental/projects/project_2022_2023/point_wet_snow_roi_envelope.cs
 ```
 
 
-How this helps:
-
-- quick numeric QA without opening plots,
-- useful for external plotting notebooks or reports,
-- easy comparison across experimental runs.
+{: .checks }
+> Why these CSVs are useful:
+>
+> - quick numeric QA without opening plots
+> - useful for external plotting notebooks or reports
+> - easy comparison across experimental runs
 
 Reference CSV snippet (SCF ROI envelope)
 
-File path:
+File path: `/data/rofental/projects/project_2022_2023/point_scf_roi_envelope.csv`
 
-- `/data/rofental/projects/project_2022_2023/point_scf_roi_envelope.csv`
-
-```csv
-date,value_mean,value_min,value_max,n
-2022-10-01,0.0,0.0,0.0,11
-2022-10-02,0.12143250688705232,0.0,0.5036363636363637,11
-2022-10-03,0.08418732782369143,0.0001515151515151,0.4,11
-2022-10-04,0.38706611570247934,0.0827272727272727,0.4175757575757576,11
-```
+| date | value_mean | value_min | value_max | n |
+| --- | --- | --- | --- | --- |
+| 2022-10-01 | 0.0 | 0.0 | 0.0 | 11 |
+| 2022-10-02 | 0.12143250688705232 | 0.0 | 0.5036363636363637 | 11 |
+| 2022-10-03 | 0.08418732782369143 | 0.0001515151515151 | 0.4 | 11 |
+| 2022-10-04 | 0.38706611570247934 | 0.0827272727272727 | 0.4175757575757576 | 11 |
 
 Reference CSV snippet (wet-snow ROI envelope)
 
-File path:
+File path: `/data/rofental/projects/project_2022_2023/point_wet_snow_roi_envelope.csv`
 
-- `/data/rofental/projects/project_2022_2023/point_wet_snow_roi_envelope.csv`
-
-```csv
-date,value_mean,value_min,value_max,n
-2022-10-01,0.0,0.0,0.0,11
-2022-10-02,0.5881613829669722,0.4532199270959903,0.7702004860267315,11
-2022-10-03,0.035554512316359164,0.0034933171324422,0.1376063183475091,11
-2022-10-04,0.3391969512868662,0.12773390036452,0.3789489671931956,11
-```
+| date | value_mean | value_min | value_max | n |
+| --- | --- | --- | --- | --- |
+| 2022-10-01 | 0.0 | 0.0 | 0.0 | 11 |
+| 2022-10-02 | 0.5881613829669722 | 0.4532199270959903 | 0.7702004860267315 | 11 |
+| 2022-10-03 | 0.035554512316359164 | 0.0034933171324422 | 0.1376063183475091 | 11 |
+| 2022-10-04 | 0.3391969512868662 | 0.12773390036452 | 0.3789489671931956 | 11 |
 
 Interpretation:
 
@@ -498,14 +500,14 @@ This file is designed for:
 - comparison between runs,
 - exporting selected variables without keeping all raw member grids.
 
-Quick inspection of file presence/size:
+Quick file presence/size check for the compact NetCDF output.
 
 ```bash
 ls -lh /data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc
 ```
 
 
-Optional variable/dimension inspection (Python in the container):
+Optional variable/dimension inspection (Python in the container).
 
 ```bash
 python - <<'PY'
@@ -519,11 +521,12 @@ PY
 ```
 
 
-What to expect conceptually:
-
-- open-loop baseline fields,
-- ensemble mean / spread fields,
-- increments (`ens_mean - open_loop`) for configured variables/aggregations.
+{: .checks }
+> What to expect conceptually in the compact NetCDF:
+>
+> - open-loop baseline fields
+> - ensemble mean / spread fields
+> - increments (`ens_mean - open_loop`) for configured variables/aggregations
 
 Reference snippet (NetCDF inspection, tutorial reference run):
 
@@ -585,8 +588,7 @@ with a **consistent color scale** for direct comparison.
 >  
 > Highlight where DA adds/removes snow relative to the open loop.
 
-{: .note }
-> Cross-reference:
+{: .references }
 > - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) (DA output variable selection and metrics)
 > - [Project Structure]({{ site.baseurl }}{% link project-structure.md %}) (where project outputs live)
 > - [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %}) (how to interpret increments conceptually)
@@ -595,21 +597,26 @@ with a **consistent color scale** for direct comparison.
 
 ## 7. Quick DA sanity checklist (practical review routine)
 
-Use this checklist after each tutorial run:
-
-1. Log ends with `Project processing complete`
-2. `plots/perf/project_perf.png` exists
-3. `plots/assim/` contains ESS and weight plots
-4. `plots/results/fraction_timeseries.png` exists
-5. Station plots exist (snow depth and SWE)
-6. `point_scf_roi_envelope.csv` and `point_wet_snow_roi_envelope.csv` exist
-7. `results/grids/da_output_grids.nc` exists and opens
-
-If one of these fails, check the log before changing configuration.
+{: .checks }
+> Use this checklist as a quick review before trusting or comparing results.
+>
+> Use this checklist after each tutorial run:
+>
+> 1. Log ends with `Project processing complete`
+> 2. `plots/perf/project_perf.png` exists
+> 3. `plots/assim/` contains ESS and weight plots
+> 4. `plots/results/fraction_timeseries.png` exists
+> 5. Station plots exist (snow depth and SWE)
+> 6. `point_scf_roi_envelope.csv` and `point_wet_snow_roi_envelope.csv` exist
+> 7. `results/grids/da_output_grids.nc` exists and opens
+>
+> If one of these fails, check the log before changing configuration.
 
 ---
 
 ## Next step
 
-Continue with [8. Adapting the example to your own project]({{ site.baseurl }}{% link Tutorial/08-adapting-to-your-own-project.md %})
-to learn how to transfer this workflow from the Rofental tutorial setup to a new domain.
+{: .references }
+> Continue to the adaptation chapter after you can navigate and interpret the tutorial outputs:
+>
+> - [8. Adapting the example to your own project]({{ site.baseurl }}{% link Tutorial/08-adapting-to-your-own-project.md %}) (transfer the workflow from the Rofental tutorial setup to a new domain)

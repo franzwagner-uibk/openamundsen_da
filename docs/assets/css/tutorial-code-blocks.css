@@ -1,0 +1,32 @@
+/* Tutorial docs code-block backgrounds (low-impact visual override).
+ * Migration note: if tutorial pages are moved to another docs system, copy this file and
+ * the <link> include from docs/_includes/head_custom.html (or reimplement equivalent CSS).
+ */
+
+/* Command blocks (bash/sh/shell): subtle neutral background */
+div.language-bash.highlighter-rouge,
+div.language-sh.highlighter-rouge,
+div.language-shell.highlighter-rouge,
+div.language-bash.highlighter-rouge .highlight,
+div.language-sh.highlighter-rouge .highlight,
+div.language-shell.highlighter-rouge .highlight,
+div.language-bash.highlighter-rouge pre.highlight,
+div.language-sh.highlighter-rouge pre.highlight,
+div.language-shell.highlighter-rouge pre.highlight {
+  background-color: #ebebeb !important;
+}
+
+/* YAML blocks: slightly tinted background to visually separate config from commands */
+div.language-yaml.highlighter-rouge,
+div.language-yaml.highlighter-rouge .highlight,
+div.language-yaml.highlighter-rouge pre.highlight {
+  background-color: #f3f3f3 !important;
+}
+
+/* Common subtle frame so code blocks stand out from body content */
+div.language-bash.highlighter-rouge,
+div.language-sh.highlighter-rouge,
+div.language-shell.highlighter-rouge,
+div.language-yaml.highlighter-rouge {
+  border: 1px solid #dddddd;
+}

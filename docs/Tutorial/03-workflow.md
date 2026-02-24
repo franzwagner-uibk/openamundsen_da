@@ -21,6 +21,9 @@ If you skip this mental model, the later commands can feel like a black box.
 
 ## Step-by-step flow on this page
 
+{: .step }
+> Read this page in order once; it is the workflow map for the execution chapters.
+
 This is a **conceptual chapter** (no commands to run).
 
 Recommended reading order on this page:
@@ -164,6 +167,9 @@ its building blocks.
 
 ## What can go wrong if the workflow order is wrong?
 
+{: .warning }
+> If results or files look wrong later, check this section first before rerunning everything.
+
 Typical mistakes (and why this chapter exists):
 
 ### Running the project before preprocessing
@@ -213,6 +219,9 @@ This setup is intended to be:
 
 ## What you should understand before moving on
 
+{: .checks }
+> Use this as a readiness checklist before continuing to the framework chapter.
+
 Before continuing to the framework chapter, make sure these points are clear:
 
 1. Raw rasters are **not** used directly by the DA step; they are summarized first.
@@ -232,6 +241,9 @@ If you can explain these two points in your own words, you are ready for the nex
 ---
 
 ## Next step
+
+{: .references }
+> Continue to the framework chapter once the workflow phases and object roles are clear.
 
 Continue with [4. Framework]({{ site.baseurl }}{% link Tutorial/04-framework.md %}) for a deeper
 look at:

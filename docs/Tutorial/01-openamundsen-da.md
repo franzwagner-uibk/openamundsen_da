@@ -1,10 +1,11 @@
 ---
+
 layout: default
 title: 1. openAMUNDSEN-DA
 parent: Tutorial
-nav_order: 1
+nav\_order: 1
 permalink: /tutorial/openamundsen-da/
----
+-------------------------------------
 
 # 1. openAMUNDSEN-DA
 
@@ -24,6 +25,7 @@ Goal: after this tutorial, you should be able to run the bundled example and ada
 ## Step-by-step flow on this page
 
 {: .step }
+
 > Read this page top-to-bottom once to build the mental model before starting hands-on commands.
 
 Use this page as the tutorial entry point:
@@ -32,7 +34,7 @@ Use this page as the tutorial entry point:
 2. understand what the tutorial covers and what it does not cover
 3. review the Rofental case-study baseline used throughout the tutorial
 4. use the overview figure (`a)`-`e)`) as a roadmap for later chapters
-5. continue with [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %})
+5. continue with \[2. Dependencies]\({{ site.baseurl }}{% link Tutorial/02-dependencies.md %})
 
 This page is orientation-first. You do not need to run commands yet.
 
@@ -45,7 +47,7 @@ modelling and particle-filter data assimilation built around **openAMUNDSEN**.
 
 It combines:
 
-- the distributed snow-hydrological model **openAMUNDSEN** (core simulation),
+- the distributed snow-hydrological model **openAMUNDSEN**,
 - ensemble forcing perturbations,
 - observation preprocessing,
 - particle-filter assimilation (e.g. SCF and wet snow),
@@ -78,8 +80,10 @@ You will cover:
 
 The tutorial is intentionally not just a command list. It explains why each step exists and what to check before moving on.
 
+```html
 <details markdown="block">
   <summary>What this tutorial does not try to do (on purpose)</summary>
+```
 
 - It is not a full DA theory textbook.
 - It does not document every CLI option inline (reference pages cover that).
@@ -88,7 +92,9 @@ The tutorial is intentionally not just a command list. It explains why each step
 
 The focus is a reproducible, understandable workflow that users can reuse.
 
+```html
 </details>
+```
 
 ---
 
@@ -98,9 +104,9 @@ This schematic combines the most important concepts of the framework in one figu
 framework architecture, particle-filter DA cycle, run modes, and the role of different
 snow observations across the season.
 
-![openAMUNDSEN-DA framework overview and workflow scheme]({{ site.baseurl }}/assets/images/tutorial/scheme_oa_da.png)
+!\[openAMUNDSEN-DA framework overview and workflow scheme]\({{ site.baseurl }}/assets/images/tutorial/scheme\_oa\_da.png)
 
-_Integrated overview of framework structure, particle-filter cycle, run modes, and snow-observation types._
+*Integrated overview of framework structure, particle-filter cycle, run modes, and snow-observation types.*
 
 ### How to read the schematic (`a` to `e`)
 
@@ -110,37 +116,37 @@ This figure is a conceptual map. The next tutorial chapters show where each conc
    Shows the central DA idea in one line:
    an **openAMUNDSEN model ensemble** is propagated forward, compared to an **observation**, and updated from a **prior** ensemble to a **posterior** ensemble.
    In practice, this is what happens inside each assimilation step in a project
-   ([Tutorial workflow]({{ site.baseurl }}{% link Tutorial/03-workflow.md %}),
-   [Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}),
-   [DA methods]({{ site.baseurl }}{% link reference/da-methods.md %})).
+   (\[Tutorial workflow]\({{ site.baseurl }}{% link Tutorial/03-workflow\.md %}),
+   \[Results and diagnostics]\({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}),
+   \[DA methods]\({{ site.baseurl }}{% link reference/da-methods.md %})).
 2. **(b) Open-source software**
    Shows the software relationship:
    `openAMUNDSEN` is the fully distributed snow-hydrological model, and `openAMUNDSEN-DA` wraps and extends it with ensemble handling, observation preprocessing, assimilation logic, and diagnostics.
-   ([Configuration guide]({{ site.baseurl }}{% link guides/configuration.md %}),
-   [Project structure]({{ site.baseurl }}{% link project-structure.md %}),
-   [Package structure]({{ site.baseurl }}{% link reference/package-structure.md %})).
+   (\[Configuration guide]\({{ site.baseurl }}{% link guides/configuration.md %}),
+   \[Project structure]\({{ site.baseurl }}{% link project-structure.md %}),
+   \[Package structure]\({{ site.baseurl }}{% link reference/package-structure.md %})).
 3. **(c) Data assimilation based on a particle filter**
    Shows the particle-filter cycle used by the framework:
    **forcing perturbation -> prior ensemble -> importance weighting -> resampling -> rejuvenation -> next prior**.
    This panel maps directly to the project pipeline stages and to the output diagnostics you will inspect later (weights, ESS, posterior spread)
-   ([Running the project]({{ site.baseurl }}{% link Tutorial/06-running-the-project.md %}),
-   [Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}),
-   [DA methods]({{ site.baseurl }}{% link reference/da-methods.md %})).
+   (\[Running the project]\({{ site.baseurl }}{% link Tutorial/06-running-the-project.md %}),
+   \[Results and diagnostics]\({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}),
+   \[DA methods]\({{ site.baseurl }}{% link reference/da-methods.md %})).
 4. **(d) Spatial domain**
    Shows the two execution modes supported by the framework:
    **single-domain mode** (one model domain, used in the tutorial) and
    **sub-domain mode** (large-area decomposition into tiles/subdomains).
    The same DA concepts apply in both modes; only orchestration and file layout differ
-   ([Workflow]({{ site.baseurl }}{% link workflow.md %}),
-   [Sub-domain mode docs]({{ site.baseurl }}{% link guides/cli.md %}#oa-da-subdomain),
-   [Project structure]({{ site.baseurl }}{% link project-structure.md %})).
+   (\[Workflow]\({{ site.baseurl }}{% link workflow\.md %}),
+   \[Sub-domain mode docs]\({{ site.baseurl }}{% link guides/cli.md %}#oa-da-subdomain),
+   \[Project structure]\({{ site.baseurl }}{% link project-structure.md %})).
 5. **(e) Snow data**
    Shows why multiple observation types are useful and when they are most informative in a season:
    **snow depth**, **snow cover**, and **wet snow** contribute information at different times (early/high/late season).
    In the tutorial project, you will preprocess and use **snow cover (FSC)** and **wet snow** raster observations, and validate against station snow measurements
-   ([Pre-processing]({{ site.baseurl }}{% link Tutorial/05-pre-processing.md %}),
-   [Observations guide]({{ site.baseurl }}{% link guides/observations.md %}),
-   [Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %})).
+   (\[Pre-processing]\({{ site.baseurl }}{% link Tutorial/05-pre-processing.md %}),
+   \[Observations guide]\({{ site.baseurl }}{% link guides/observations.md %}),
+   \[Results and diagnostics]\({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %})).
 
 ---
 
@@ -199,17 +205,18 @@ Recommended approach:
 ## Links to deeper documentation (use throughout the tutorial)
 
 {: .references }
+
 > Use these links as background/reference material while working through later chapters.
 
 You will see cross-references to the detailed documentation pages. These are the most
 important ones:
 
-- [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %})
-- [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %})
-- [Observation Processing Guide]({{ site.baseurl }}{% link guides/observations.md %})
-- [Workflow Guide]({{ site.baseurl }}{% link workflow.md %})
-- [Advanced Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %})
-- [Advanced Performance]({{ site.baseurl }}{% link advanced/performance.md %})
+- \[CLI Reference]\({{ site.baseurl }}{% link guides/cli.md %})
+- \[Configuration Reference]\({{ site.baseurl }}{% link guides/configuration.md %})
+- \[Observation Processing Guide]\({{ site.baseurl }}{% link guides/observations.md %})
+- \[Workflow Guide]\({{ site.baseurl }}{% link workflow\.md %})
+- \[Advanced Troubleshooting]\({{ site.baseurl }}{% link advanced/troubleshooting.md %})
+- \[Advanced Performance]\({{ site.baseurl }}{% link advanced/performance.md %})
 
 Tutorial pages explain the workflow. Reference pages explain the full option/configuration details.
 
@@ -218,6 +225,7 @@ Tutorial pages explain the workflow. Reference pages explain the full option/con
 ## Next step
 
 {: .references }
+
 > Continue directly to the dependencies/setup chapter after this overview.
 
-Continue with [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}) to prepare the runtime environment (Docker, resource expectations, and command style used in this tutorial).
+Continue with \[2. Dependencies]\({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}) to prepare the runtime environment (Docker, resource expectations, and command style used in this tutorial).

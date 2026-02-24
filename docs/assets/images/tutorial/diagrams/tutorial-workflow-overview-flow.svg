@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="940" viewBox="0 0 860 940" role="img" aria-labelledby="title desc">
+  <title id="title">Tutorial workflow overview flow</title>
+  <desc id="desc">Vertical flowchart from raw observation rasters to summaries, per-step CSVs, DA pipeline execution, and outputs.</desc>
+  <defs>
+    <style>
+      .box { fill: #ffffff; stroke: #1f1f1f; stroke-width: 2; }
+      .label { fill: #111111; font-family: Arial, sans-serif; font-size: 22px; }
+      .small { fill: #222222; font-family: Arial, sans-serif; font-size: 18px; }
+      .arrow { stroke: #1f1f1f; stroke-width: 2; fill: none; stroke-linecap: round; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 1 1 L 9 5 L 1 9 z" fill="#1f1f1f"/>
+    </marker>
+  </defs>
+
+  <rect class="box" x="110" y="40" rx="14" ry="14" width="640" height="92"/>
+  <text class="label" x="430" y="78" text-anchor="middle">Raw observation rasters</text>
+  <text class="small" x="430" y="108" text-anchor="middle">SCF / wet snow GeoTIFF inputs</text>
+
+  <path class="arrow" d="M430 138 L430 176" marker-end="url(#arrowhead)"/>
+
+  <rect class="box" x="110" y="186" rx="14" ry="14" width="640" height="106"/>
+  <text class="label" x="430" y="225" text-anchor="middle">Project summary CSVs</text>
+  <text class="small" x="430" y="255" text-anchor="middle">`scf_summary.csv` / `wet_snow_summary.csv`</text>
+
+  <path class="arrow" d="M430 298 L430 336" marker-end="url(#arrowhead)"/>
+
+  <rect class="box" x="110" y="346" rx="14" ry="14" width="640" height="112"/>
+  <text class="label" x="430" y="385" text-anchor="middle">Per-step observation CSVs</text>
+  <text class="small" x="430" y="415" text-anchor="middle">Aligned to `assimilation_events` and step windows</text>
+
+  <path class="arrow" d="M430 464 L430 502" marker-end="url(#arrowhead)"/>
+
+  <rect class="box" x="110" y="512" rx="14" ry="14" width="640" height="208"/>
+  <text class="label" x="430" y="552" text-anchor="middle">Step-wise DA project pipeline</text>
+  <text class="small" x="430" y="588" text-anchor="middle">Prior ensemble run</text>
+  <text class="small" x="430" y="618" text-anchor="middle">Diagnostics / H(x)</text>
+  <text class="small" x="430" y="648" text-anchor="middle">Assimilation (weights)</text>
+  <text class="small" x="430" y="678" text-anchor="middle">Resampling and rejuvenation</text>
+  <text class="small" x="430" y="708" text-anchor="middle">Advance to next step</text>
+
+  <path class="arrow" d="M430 726 L430 764" marker-end="url(#arrowhead)"/>
+
+  <rect class="box" x="110" y="774" rx="14" ry="14" width="640" height="118"/>
+  <text class="label" x="430" y="815" text-anchor="middle">Tutorial outputs</text>
+  <text class="small" x="430" y="845" text-anchor="middle">Plots, CSV summaries, diagnostics, compact DA NetCDF</text>
+</svg>

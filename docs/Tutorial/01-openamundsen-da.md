@@ -17,9 +17,7 @@ The tutorial is intentionally detailed and practical:
 - run a full DA project,
 - and inspect diagnostics and outputs in detail.
 
-{: .highlight }
-
-> Goal: after this tutorial, you should be able to run the bundled example and adapt the workflow to your own project.
+Goal: after this tutorial, you should be able to run the bundled example and adapt the workflow to your own project.
 
 ---
 
@@ -36,8 +34,7 @@ Use this page as the tutorial entry point:
 4. use the overview figure (`a)`-`e)`) as a roadmap for later chapters
 5. continue with [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %})
 
-{: .note }
-> This page is orientation-first. You do not need to run commands yet.
+This page is orientation-first. You do not need to run commands yet.
 
 ---
 
@@ -56,9 +53,7 @@ It combines:
 
 In practice, many users run openAMUNDSEN-DA via the provided Docker image.
 
-{: .note }
-
-> openAMUNDSEN-DA is designed to be operationally practical (Docker-friendly) while still keeping intermediate products and diagnostics transparent for debugging and research workflows.
+openAMUNDSEN-DA is designed to be operationally practical (Docker-friendly) while still keeping intermediate products and diagnostics transparent for debugging and research workflows.
 
 For more information about **openAMUNDSEN**:
 
@@ -81,9 +76,7 @@ You will cover:
 - result inspection (tables, plots, compact DA grids),
 - and adaptation of the workflow to a new project.
 
-{: .note }
-
-> The tutorial is intentionally not just a command list. It explains why each step exists and what to check before moving on.
+The tutorial is intentionally not just a command list. It explains why each step exists and what to check before moving on.
 
 <details markdown="block">
   <summary>What this tutorial does not try to do (on purpose)</summary>
@@ -111,9 +104,7 @@ _Integrated overview of framework structure, particle-filter cycle, run modes, a
 
 ### How to read the schematic (`a` to `e`)
 
-{: .note }
-
-> This figure is a conceptual map. The next tutorial chapters show where each concept appears in the actual folder structure, YAML files, and CLI commands.
+This figure is a conceptual map. The next tutorial chapters show where each concept appears in the actual folder structure, YAML files, and CLI commands.
 
 1. **(a) Schematic overview**
    Shows the central DA idea in one line:
@@ -166,9 +157,7 @@ Current tutorial baseline:
 This baseline is intended to stay feasible on a normal computer while still showing the
 full preprocessing + DA + diagnostics workflow.
 
-{: .highlight }
-
-> Tutorial screenshots, snippets, and expected outputs should be based on this baseline to keep the documentation consistent.
+Tutorial screenshots, snippets, and expected outputs should be based on this baseline to keep the documentation consistent.
 
 ---
 
@@ -188,9 +177,7 @@ openAMUNDSEN-DA supports two general execution modes.
 - subdomain preparation and orchestration are added on top of the core workflow
 - useful for scaling and large-domain strategies
 
-{: .note }
-
-> This tutorial uses **single-domain mode** so the learning path stays focused on the core framework concepts and preprocessing workflow.
+This tutorial uses **single-domain mode** so the learning path stays focused on the core framework concepts and preprocessing workflow.
 
 ---
 
@@ -224,9 +211,7 @@ important ones:
 - [Advanced Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %})
 - [Advanced Performance]({{ site.baseurl }}{% link advanced/performance.md %})
 
-{: .highlight }
-
-> Tutorial pages explain the workflow. Reference pages explain the full option/configuration details.
+Tutorial pages explain the workflow. Reference pages explain the full option/configuration details.
 
 ---
 

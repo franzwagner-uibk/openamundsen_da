@@ -14,8 +14,7 @@ structured in this order.
 
 If you skip this mental model, the later commands can feel like a black box.
 
-{: .highlight }
-> Read this chapter as the workflow map. The later chapters are the executable path through this map.
+Read this chapter as the workflow map. The later chapters are the executable path through this map.
 
 ---
 
@@ -33,8 +32,7 @@ Recommended reading order on this page:
 3. manual vs pipeline view
 4. common ordering mistakes
 
-{: .note }
-> If you want the shortest path: read `Workflow phases`, then `Manual commands vs project pipeline`, then continue with [4. Framework]({{ site.baseurl }}{% link Tutorial/04-framework.md %}).
+If you want the shortest path: read `Workflow phases`, then `Manual commands vs project pipeline`, then continue with [4. Framework]({{ site.baseurl }}{% link Tutorial/04-framework.md %}).
 
 ---
 
@@ -66,8 +64,7 @@ This sequence is intentional:
 - the project run depends on preprocessing outputs,
 - diagnostics only make sense after a validated run.
 
-{: .note }
-> The tutorial order follows a dependency chain. Skipping steps usually causes downstream errors that look unrelated at first.
+The tutorial order follows a dependency chain. Skipping steps usually causes downstream errors that look unrelated at first.
 
 ---
 
@@ -82,8 +79,7 @@ These terms appear throughout the tutorial and in logs/files:
 - **Observation summary**: project-level table (`scf_summary.csv`, `wet_snow_summary.csv`) derived from raw rasters
 - **Per-step observation CSV**: one-row input consumed by the DA step at a configured event date
 
-{: .highlight }
-> Key idea: the DA step consumes **prepared per-step CSV observations**, not raw raster imagery directly.
+Key idea: the DA step consumes **prepared per-step CSV observations**, not raw raster imagery directly.
 
 ---
 
@@ -91,27 +87,9 @@ These terms appear throughout the tutorial and in logs/files:
 
 The operational workflow looks like this:
 
-```text
-Raw observation rasters (SCF / wet snow)
-        |
-        v
-Project-level summaries (scf_summary.csv / wet_snow_summary.csv)
-        |
-        v
-Per-step observation CSVs (aligned to assimilation_events)
-        |
-        v
-Step-wise DA project pipeline
-  - prior ensemble run
-  - diagnostics / H(x)
-  - assimilation (weights)
-  - resampling
-  - rejuvenation
-  - next step
-        |
-        v
-Plots, CSV summaries, diagnostics, compact DA NetCDF
-```
+![Tutorial workflow overview flow diagram]({{ site.baseurl }}/assets/images/tutorial/diagrams/tutorial-workflow-overview-flow.svg)
+
+_Workflow from raw observation rasters to project summaries, per-step observation CSVs, DA pipeline execution, and tutorial outputs._
 
 This separation is one of the key design strengths of the framework:
 
@@ -212,8 +190,7 @@ This setup is intended to be:
 - realistic enough to show the full framework behavior,
 - but still feasible to run on a normal computer.
 
-{: .note }
-> This baseline should also be the reference for tutorial screenshots/snippets to keep all pages consistent.
+This baseline should also be the reference for tutorial screenshots/snippets to keep all pages consistent.
 
 ---
 

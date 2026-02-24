@@ -19,13 +19,11 @@ The goal is to make the preprocessing logic transparent and reproducible:
 3. build the project step skeleton from `assimilation_events`,
 4. create per-step one-row observation CSVs used by the DA pipeline.
 
-{: .note }
-> The tutorial workflow starts from the shipped **raw observation rasters**. Summary CSVs
-> and per-step observation CSVs are generated in this chapter so users learn the full
-> preprocessing workflow end to end.
+The tutorial workflow starts from the shipped **raw observation rasters**. Summary CSVs
+and per-step observation CSVs are generated in this chapter so users learn the full
+preprocessing workflow end to end.
 
-{: .highlight }
-> This is the key bridge between satellite products and the DA framework: raw rasters are transformed into validated, step-aligned CSV inputs.
+This is the key bridge between satellite products and the DA framework: raw rasters are transformed into validated, step-aligned CSV inputs.
 
 ---
 
@@ -41,8 +39,7 @@ Run the chapter in this order:
 3. compare generated files with the shown snippets/paths (recommended)
 4. use optional CLI checks only if something looks wrong
 
-{: .highlight }
-> **Mandatory commands only (copy-paste path):** `oa-da-snowcover` -> `oa-da-wetsnow` -> `project_skeleton` -> `oa-da-scf` -> `oa-da-wetsnow-project`
+**Mandatory commands only (copy-paste path):** `oa-da-snowcover` -> `oa-da-wetsnow` -> `project_skeleton` -> `oa-da-scf` -> `oa-da-wetsnow-project`
 
 ---
 
@@ -69,11 +66,9 @@ Those files do not exist until you:
 3. align summaries to assimilation events (`oa-da-scf`, `oa-da-wetsnow-project`).
 </details>
 
-{: .note }
-> All command blocks below are executed **inside the running tutorial container shell**. Once the shell is started in chapter 2, the commands are identical on Linux, macOS, and Windows (WSL/PowerShell users type them inside the container).
+All command blocks below are executed **inside the running tutorial container shell**. Once the shell is started in chapter 2, the commands are identical on Linux, macOS, and Windows (WSL/PowerShell users type them inside the container).
 
-{: .highlight }
-> Most file checks are shown as **paths + snippets** to reduce command noise. If you are following the tutorial for the first time, focus on the five preprocessing commands and compare your generated files with the shown references.
+Most file checks are shown as **paths + snippets** to reduce command noise. If you are following the tutorial for the first time, focus on the five preprocessing commands and compare your generated files with the shown references.
 
 ---
 
@@ -152,9 +147,8 @@ Relevant sections in the tutorial project:
 - `data_assimilation.landcover_mask`,
 - `data_assimilation.assimilation_events`.
 
-{: .note }
-> The preprocessors are configuration-driven and intentionally fail-fast. If required
-> class mappings or product tags are missing, preprocessing aborts instead of guessing.
+The preprocessors are configuration-driven and intentionally fail-fast. If required
+class mappings or product tags are missing, preprocessing aborts instead of guessing.
 
 Reference YAML snippet (project config driving preprocessing, selected sections)
 
@@ -199,9 +193,8 @@ data_assimilation:
 >
 > If these keys differ (for example in an older local copy of the example), update the file and then continue with the preprocessing commands below.
 
-{: .note }
-> Edit the file in your preferred editor on the host machine (it is inside your mounted tutorial workspace) or from inside the container. The tutorial path inside the container is:
-> `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
+Edit the file in your preferred editor on the host machine (it is inside your mounted tutorial workspace) or from inside the container. The tutorial path inside the container is:
+`/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
 
 {: .warning }
 > If you change class mappings or product tags, regenerate summaries before creating per-step observation CSVs.
@@ -257,14 +250,12 @@ oa-da-snowcover \
 ```
 
 
-{: .note }
-> **Configuration used (project YAML)**  
-> File: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
-> Relevant keys: `obs.snowcover.dir`, `obs.snowcover.product_tag`, `obs.snowcover.classes.*`, `data_assimilation.landcover_mask.*`
+**Configuration used (project YAML)**  
+File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
+Relevant keys: `obs.snowcover.dir`, `obs.snowcover.product_tag`, `obs.snowcover.classes.*`, `data_assimilation.landcover_mask.*`
 
-{: .note }
-> **Where this command writes by default**  
-> `oa-da-snowcover` writes to `obs/summaries/<project_label>/scf_summary.csv` unless you override the output root. In this tutorial: `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`.
+**Where this command writes by default**  
+`oa-da-snowcover` writes to `obs/summaries/<project_label>/scf_summary.csv` unless you override the output root. In this tutorial: `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`.
 
 What this does:
 
@@ -287,9 +278,8 @@ Expected content (columns may evolve slightly over time):
 - cloud fraction
 - source/product metadata
 
-{: .note }
-> Use this summary table to inspect availability and quality before choosing or changing
-> assimilation dates in `assimilation_events`.
+Use this summary table to inspect availability and quality before choosing or changing
+assimilation dates in `assimilation_events`.
 
 <details markdown="block">
   <summary>What to review in <code>scf_summary.csv</code> before trusting your event dates</summary>
@@ -314,8 +304,7 @@ File path: `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`
 | 2022-10-13 |  | 12530 | 306 | 0.024387869114126097 | 0.0 | s2_fsc_snowflake_rofental_2022_10_13.tif |
 | 2022-10-18 |  | 72228 | 2255 | 0.031222656033671154 | 0.0 | s2_fsc_snowflake_rofental_2022_10_18.tif |
 
-{: .note }
-> Exact values depend on ROI, masking, and class mapping. The column structure and value ranges should look similar.
+Exact values depend on ROI, masking, and class mapping. The column structure and value ranges should look similar.
 
 <details markdown="block">
   <summary>Optional CLI check (confirm SCF summary file in the container)</summary>
@@ -353,14 +342,12 @@ oa-da-wetsnow \
 --overwrite
 ```
 
-{: .note }
-> **Configuration used (project YAML)**  
-> File: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
-> Relevant keys: `obs.wetsnow.dir`, `obs.wetsnow.product_tag`, `obs.wetsnow.classes.*`, `data_assimilation.landcover_mask.*`
+**Configuration used (project YAML)**  
+File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
+Relevant keys: `obs.wetsnow.dir`, `obs.wetsnow.product_tag`, `obs.wetsnow.classes.*`, `data_assimilation.landcover_mask.*`
 
-{: .note }
-> **Where this command writes by default**  
-> `oa-da-wetsnow` writes to `obs/summaries/<project_label>/wet_snow_summary.csv` unless you override the output root. In this tutorial: `/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv`.
+**Where this command writes by default**  
+`oa-da-wetsnow` writes to `obs/summaries/<project_label>/wet_snow_summary.csv` unless you override the output root. In this tutorial: `/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv`.
 
 
 What this does:
@@ -391,8 +378,7 @@ File path: `/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv`
 | 2023-03-28 |  | 0.2661 | 158953 | 42301 | WSM_S1A_SAR_track168_2023_03_28_05_27_38.tif |
 | 2023-04-05 |  | 0.0621 | 156982 | 9750 | WSM_S1A_SAR_track117_2023_04_05_17_07_24.tif |
 
-{: .highlight }
-> Wet-snow coverage is typically sparser than SCF. Sparse wet-snow dates are expected and should not be treated as a preprocessing error by default.
+Wet-snow coverage is typically sparser than SCF. Sparse wet-snow dates are expected and should not be treated as a preprocessing error by default.
 
 <details markdown="block">
   <summary>Optional CLI check (confirm wet-snow summary file in the container)</summary>
@@ -428,10 +414,9 @@ python -m openamundsen_da.pipeline.project_skeleton \
   --log-level INFO
 ```
 
-{: .note }
-> **Configuration used (project YAML)**  
-> File: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
-> Relevant keys: `start_date`, `end_date`, `data_assimilation.assimilation_events[*].date|variable|product`
+**Configuration used (project YAML)**  
+File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
+Relevant keys: `start_date`, `end_date`, `data_assimilation.assimilation_events[*].date|variable|product`
 
 
 What to expect:
@@ -454,12 +439,13 @@ step_07_20230405-20230416
 ...
 ```
 
+Read this step-list snippet as a direct translation of the configured project period plus `assimilation_events`; it is the structure that later receives the per-step observation CSVs and DA outputs.
+
 {: .warning }
 > If you edit `assimilation_events`, rerun `project_skeleton` before regenerating per-step
 > observation CSVs. Step windows and event dates must match exactly.
 
-{: .note }
-> This fail-fast behavior prevents silent mismatches between event dates and step windows.
+This fail-fast behavior prevents silent mismatches between event dates and step windows.
 
 {: .references }
 > - [Framework]({{ site.baseurl }}{% link Tutorial/04-framework.md %}) for why `assimilation_events` define the step structure
@@ -481,10 +467,9 @@ oa-da-scf \
 --log-level INFO
 ```
 
-{: .note }
-> **Configuration used (project YAML)**  
-> File: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
-> Relevant keys: `data_assimilation.assimilation_events[*]` (SCF events), `obs.snowcover.product_tag`
+**Configuration used (project YAML)**  
+File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
+Relevant keys: `data_assimilation.assimilation_events[*]` (SCF events), `obs.snowcover.product_tag`
 
 
 Expected outputs after running the command:
@@ -519,6 +504,8 @@ File path: `/data/rofental/projects/project_2022_2023/steps/step_00_init/obs/obs
 | --- | --- | --- | --- | --- | --- |
 | 2022-10-03 | 88455 | 46001 | 0.5200462382002148 | 0.0 | s2_fsc_snowflake_rofental_2022_10_03.tif |
 
+This one-row file is what the DA step consumes directly for the SCF event, so it is the key place to verify date, product tag alignment (via filename), and the summary values passed into the run.
+
 ---
 
 ## Step 5: Create per-step wet-snow observation CSVs (`oa-da-wetsnow-project`)
@@ -535,10 +522,9 @@ oa-da-wetsnow-project \
 --log-level INFO
 ```
 
-{: .note }
-> **Configuration used (project YAML)**  
-> File: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
-> Relevant keys: `data_assimilation.assimilation_events[*]` (wet-snow events), `obs.wetsnow.product_tag`
+**Configuration used (project YAML)**  
+File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
+Relevant keys: `data_assimilation.assimilation_events[*]` (wet-snow events), `obs.wetsnow.product_tag`
 
 
 Expected outputs after running the command:
@@ -553,8 +539,7 @@ At this point, the project is ready for execution:
 - per-step observation CSVs exist,
 - project config and setup config are aligned.
 
-{: .highlight }
-> At this point the DA run becomes reproducible: the observation inputs consumed by each step are explicit and inspectable.
+At this point the DA run becomes reproducible: the observation inputs consumed by each step are explicit and inspectable.
 
 {: .step }
 > Preprocessing observation flow (conceptual)
@@ -570,6 +555,8 @@ File path: `/data/rofental/projects/project_2022_2023/steps/step_05_20230309-202
 | date | wet_snow_fraction | n_valid | n_wet | source |
 | --- | --- | --- | --- | --- |
 | 2023-03-28 | 0.2661 | 158953 | 42301 | WSM_S1A_SAR_track168_2023_03_28_05_27_38.tif |
+
+This wet-snow per-step file plays the same role as the SCF per-step CSV: it is the explicit DA input artifact for that event date and should match the selected summary row.
 
 ## Visual sanity teaser (what this preprocessing enables)
 

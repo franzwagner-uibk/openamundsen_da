@@ -11,11 +11,10 @@ has_toc: false
 
 ## Overview
 
-Step-by-step walkthrough to learn about openAMUNDSEN-DA. This turorial guides you through the core capabilities this data assimilation framework. openAMUNDSEN-DA is applied in a case study that will be processed step by step.
+Step-by-step walkthrough to learn about openAMUNDSEN-DA. This tutorial guides you through the core capabilities of this data assimilation framework. openAMUNDSEN-DA is applied in a case study that will be processed step by step.
 {: .fs-6 .fw-300 }
 
-{: .note }
-> Use the docs search field (top navigation / sidebar area) to find information across the **entire documentation**, not only inside the tutorial. This is especially useful for jumping quickly to CLI options, configuration keys, and theory/reference pages while following the tutorial.
+Use the docs search field (top navigation / sidebar area) to find information across the **entire documentation**, not only inside the tutorial. This is especially useful for jumping quickly to CLI options, configuration keys, and theory/reference pages while following the tutorial.
 
 ---
 

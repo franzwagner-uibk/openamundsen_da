@@ -22,14 +22,11 @@ The tutorial baseline uses:
 
 This configuration is intended to remain feasible on a normal computer.
 
-{: .highlight }
-> The main run uses the project pipeline, but you already prepared the inputs manually in the previous chapter. This is intentional: understand first, automate second.
+The main run uses the project pipeline, but you already prepared the inputs manually in the previous chapter. This is intentional: understand first, automate second.
 
-{: .highlight }
-> **Command focus (important):** The only mandatory command in this chapter is the project pipeline run. The step inspection and log-tail command are optional but useful.
+**Command focus (important):** The only mandatory command in this chapter is the project pipeline run. The step inspection and log-tail command are optional but useful.
 
-{: .note }
-> All command blocks below are executed **inside the running tutorial container shell** started in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}). The container CPU limit and BLAS/OpenMP environment variables are configured in that startup command.
+All command blocks below are executed **inside the running tutorial container shell** started in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}). The container CPU limit and BLAS/OpenMP environment variables are configured in that startup command.
 
 ---
 
@@ -46,11 +43,9 @@ Use this page in the following order:
 4. perform a small set of run-progress checks (recommended)
 5. use the lower-level commands only to understand/debug internals (optional)
 
-{: .highlight }
-> **Mandatory command on this page:** the project pipeline run in `Run the full project pipeline (recommended workflow)`.
+**Mandatory command on this page:** the project pipeline run in `Run the full project pipeline (recommended workflow)`.
 
-{: .note }
-> If you are short on time, skip the optional step inspection and lower-level command section. Keep the pipeline run and the basic run-progress checks.
+If you are short on time, skip the optional step inspection and lower-level command section. Keep the pipeline run and the basic run-progress checks.
 
 ---
 
@@ -104,9 +99,8 @@ Reference snippet (`step_00_init/obs/` before the run):
 obs_scf_SNOWCOVER_20221003.csv
 ```
 
-{: .note }
-> The first full run creates the ensemble folders, member outputs, diagnostics, plots,
-> and compact DA grid summaries.
+The first full run creates the ensemble folders, member outputs, diagnostics, plots,
+and compact DA grid summaries.
 
 <details markdown="block">
   <summary>What is created during the run (overview)</summary>
@@ -127,10 +121,9 @@ Run this inside the tutorial container shell. `--setup-dir` points to the openAM
 
 This is the main tutorial command for the full DA run.
 
-{: .note }
-> **Configuration files used by this run**  
-> Setup config: `/data/rofental/rofental.yml` (openAMUNDSEN domain/model configuration)  
-> Project config: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml` (DA events, obs mapping, likelihood/resampling, outputs)
+**Configuration files used by this run**  
+Setup config: `/data/rofental/rofental.yml` (openAMUNDSEN domain/model configuration)  
+Project config: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml` (DA events, obs mapping, likelihood/resampling, outputs)
 
 ```bash
 python -m openamundsen_da.pipeline.project \
@@ -148,14 +141,12 @@ Runtime coordination for stable performance:
 - BLAS/OpenMP env vars (set in the container startup command): prevent nested threading and oversubscription
 - `--max-workers 8` (set here): upper bound for parallel workers in the pipeline
 
-{: .note }
-> These values are examples. Adjust them to your machine and Docker CPU allocation before starting the tutorial container shell.
+These values are examples. Adjust them to your machine and Docker CPU allocation before starting the tutorial container shell.
 
-{: .note }
-> **Project YAML keys that strongly affect runtime/results**  
-> Reference YAML snippet (selected runtime-relevant keys)
->
-> File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
+**Project YAML keys that strongly affect runtime/results**  
+Reference YAML snippet (selected runtime-relevant keys)
+
+File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
 
 ```yaml
 data_assimilation:
@@ -181,6 +172,8 @@ data_assimilation:
           metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment]
 ```
 
+This snippet shows the three project settings that most visibly change runtime and outputs in the tutorial: ensemble size, number/timing of events, and which compact-grid variables/metrics are exported.
+
 ### Runtime expectations (what affects runtime)
 
 Runtime depends on:
@@ -194,11 +187,9 @@ Runtime depends on:
 For the tutorial baseline (`100 m`, `ens=10`, `Oct-Jun`), a normal desktop/laptop
 should be able to complete the run, but it is still a non-trivial workload.
 
-{: .highlight }
-> First runs are often slower than reruns because of cold caches and filesystem effects.
+First runs are often slower than reruns because of cold caches and filesystem effects.
 
-{: .note }
-> Reference run (tutorial baseline, `ens=10`) completed in about `866.7 s` on one local test machine. Treat this only as a rough order of magnitude, not a target.
+Reference run (tutorial baseline, `ens=10`) completed in about `866.7 s` on one local test machine. Treat this only as a rough order of magnitude, not a target.
 
 ---
 
@@ -283,8 +274,7 @@ For this quick check, confirm:
 - the plot spans the configured tutorial season,
 - the plot renders correctly (axes/legend visible).
 
-{: .note }
-> Detailed interpretation of these plots is covered in [7. Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}).
+Detailed interpretation of these plots is covered in [7. Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}).
 
 ### 3. Check the compact DA grid output (path-based check)
 
@@ -292,10 +282,9 @@ Expected output file:
 
 - `/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc`
 
-{: .note }
-> **Output export configuration (project YAML)**  
-> File: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
-> Relevant keys: `data_assimilation.output.retention`, `data_assimilation.output.grids.*`, `data_assimilation.output.grids.variables[*]`
+**Output export configuration (project YAML)**  
+File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
+Relevant keys: `data_assimilation.output.retention`, `data_assimilation.output.grids.*`, `data_assimilation.output.grids.variables[*]`
 
 {: .warning }
 > Do not treat the existence of files alone as proof of a healthy run. Always check the
@@ -355,13 +344,11 @@ Why this section is useful:
 - it explains what the pipeline is automating,
 - it makes the framework behavior less "black box".
 
-{: .note }
-> A full manual DA cycle (including all diagnostics, assimilation, resampling, and
-> rejuvenation internals) is possible but intentionally not the primary tutorial path.
-> The project pipeline is the recommended operational workflow.
+A full manual DA cycle (including all diagnostics, assimilation, resampling, and
+rejuvenation internals) is possible but intentionally not the primary tutorial path.
+The project pipeline is the recommended operational workflow.
 
-{: .highlight }
-> Treat lower-level commands as learning/debugging tools; treat the project pipeline as the normal production workflow.
+Treat lower-level commands as learning/debugging tools; treat the project pipeline as the normal production workflow.
 
 {: .references }
 > - [Command-Line Interface]({{ site.baseurl }}{% link guides/cli.md %}) for the full command catalog

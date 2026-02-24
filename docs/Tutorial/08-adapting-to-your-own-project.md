@@ -18,8 +18,7 @@ The recommended strategy is:
 - keep the preprocessing and validation loop tight,
 - avoid changing many configuration dimensions simultaneously.
 
-{: .highlight }
-> The safest path is to preserve the workflow structure from the tutorial and only replace data/configuration step by step.
+The safest path is to preserve the workflow structure from the tutorial and only replace data/configuration step by step.
 
 ---
 
@@ -37,8 +36,7 @@ Recommended use:
 3. use `Common adaptation mistakes` as a review checklist before running
 4. use the final checklist when creating a new project baseline
 
-{: .note }
-> Keep the tutorial Rofental setup as a known-good reference while adapting your own domain. Compare structure and outputs frequently instead of changing everything at once.
+Keep the tutorial Rofental setup as a known-good reference while adapting your own domain. Compare structure and outputs frequently instead of changing everything at once.
 
 ---
 
@@ -119,8 +117,7 @@ You must ensure:
 > Do not rely on guessed defaults. The framework is designed to fail fast when required
 > observation configuration is missing. This is intentional and helps prevent silent mistakes.
 
-{: .note }
-> This is especially important for class mappings and product tags. Explicit configuration is safer than fallback behavior.
+This is especially important for class mappings and product tags. Explicit configuration is safer than fallback behavior.
 
 ---
 
@@ -136,8 +133,7 @@ Why:
 
 - you want the framework behavior to stay familiar while changing data sources
 
-{: .highlight }
-> Clone first, then trim. Do not redesign the whole setup structure during the first migration step.
+Clone first, then trim. Do not redesign the whole setup structure during the first migration step.
 
 ### Phase B: Validate observations before DA
 
@@ -169,8 +165,7 @@ Then inspect:
 
 Only after this works reliably should you increase complexity/cost.
 
-{: .note }
-> A cheap debugging run is for validating wiring and workflow correctness, not for final scientific conclusions.
+A cheap debugging run is for validating wiring and workflow correctness, not for final scientific conclusions.
 
 ---
 
@@ -282,8 +277,7 @@ Before your first real DA run, confirm:
 - per-step obs CSVs were generated successfully
 - a short test run completes and produces diagnostics/plots/NetCDF outputs
 
-{: .highlight }
-> This checklist is the minimum quality gate before spending time on parameter tuning.
+This checklist is the minimum quality gate before spending time on parameter tuning.
 
 ---
 

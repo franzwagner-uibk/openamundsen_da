@@ -17,11 +17,9 @@ The goal is not only to find files, but to understand:
 - what the plots and tables represent,
 - and where to look first when something seems wrong.
 
-{: .highlight }
-> Review order matters: check the log first, then DA diagnostics, then interpret the plots and grids.
+Review order matters: check the log first, then DA diagnostics, then interpret the plots and grids.
 
-{: .note }
-> All command blocks below are executed **inside the running tutorial container shell** started in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}).
+All command blocks below are executed **inside the running tutorial container shell** started in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}).
 
 ---
 
@@ -39,11 +37,9 @@ Use this page as a review routine after a completed run:
 5. inspect summary CSVs / ROI envelopes
 6. inspect compact grid output (`da_output_grids.nc`)
 
-{: .highlight }
-> Do not start with plots alone. Always check the log first, because incomplete runs can still leave partial plots/files behind.
+Do not start with plots alone. Always check the log first, because incomplete runs can still leave partial plots/files behind.
 
-{: .note }
-> Many commands in this chapter are optional inspection helpers. The primary guidance is the **review order + file paths + reference snippets**.
+Many commands in this chapter are optional inspection helpers. The primary guidance is the **review order + file paths + reference snippets**.
 
 ---
 
@@ -157,8 +153,7 @@ head -10 /data/rofental/projects/project_2022_2023/plots/perf/project_perf_metri
 > - estimate cost of changing resolution (`100 m` vs coarser)
 > - identify unexpectedly slow stages (I/O, plotting, step-level hotspots)
 
-{: .note }
-> Performance outputs are especially useful when comparing tutorial runs with different ensemble sizes or resolutions.
+Performance outputs are especially useful when comparing tutorial runs with different ensemble sizes or resolutions.
 
 Reference CSV snippet (performance metrics)
 
@@ -225,8 +220,7 @@ find /data/rofental/projects/project_2022_2023/plots/assim -type f | sort
 > - abrupt differences between SCF and wet-snow events:
 >   - normal and expected (different variables, coverage, and information content)
 
-{: .highlight }
-> ESS is a diagnostic, not a simple "good/bad" score. Interpret it together with weights, variable type, and observation coverage.
+ESS is a diagnostic, not a simple "good/bad" score. Interpret it together with weights, variable type, and observation coverage.
 
 Reference CSV snippet (weights for one wet-snow event)
 
@@ -269,8 +263,7 @@ What to read in the weights plot:
 - a **peaked** distribution means a few particles explain the observation much better,
 - very strong peaks often coincide with low ESS and potential resampling pressure.
 
-{: .note }
-> Exact weights differ between runs because the ensemble is stochastic. Focus on the structure (spread/concentration), not exact numeric values.
+Exact weights differ between runs because the ensemble is stochastic. Focus on the structure (spread/concentration), not exact numeric values.
 
 {: .references }
 > - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) (likelihood, resampling, rejuvenation)
@@ -321,9 +314,8 @@ What to inspect:
 - whether DA shifts the ensemble envelope relative to the open loop,
 - consistency across stations (important for tutorial interpretation).
 
-{: .note }
-> In this tutorial setup, station SWE observations are expected in **mm** (see project config comment).
-> If a curve appears near zero against model SWE, check units first.
+In this tutorial setup, station SWE observations are expected in **mm** (see project config comment).
+If a curve appears near zero against model SWE, check units first.
 
 Land-cover masking affects how much of the ROI contributes to SCF/wet-snow summaries and
 fractions. This report is useful here because it explains the masking context behind the
@@ -431,8 +423,7 @@ The project root contains setup-level envelope time series:
 
 These summarize the ensemble spread over the ROI (mean/min/max and sample count).
 
-{: .highlight }
-> These CSVs are lightweight outputs that are ideal for quick comparisons between runs without loading NetCDF files.
+These CSVs are lightweight outputs that are ideal for quick comparisons between runs without loading NetCDF files.
 
 Quick CSV inspection for ROI envelope outputs.
 
@@ -488,10 +479,9 @@ The tutorial setup writes a compact NetCDF summary of the DA outputs:
 
 - `results/grids/da_output_grids.nc`
 
-{: .note }
-> **Output configuration (project YAML)**  
-> File: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
-> Relevant keys: `data_assimilation.output.retention`, `data_assimilation.output.grids.format`, `data_assimilation.output.grids.variables[*]`
+**Output configuration (project YAML)**  
+File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
+Relevant keys: `data_assimilation.output.retention`, `data_assimilation.output.grids.format`, `data_assimilation.output.grids.variables[*]`
 
 This file is designed for:
 
@@ -553,16 +543,16 @@ vars:
   open_loop_swe_daily
 ```
 
-{: .note }
-> For the tutorial, GIS screenshots of selected NetCDF layers can be more intuitive than raw terminal dumps.
+Use this terminal snippet to verify two things before deeper analysis: the grid dimensions are plausible for the tutorial setup, and the expected open-loop/ensemble/increment variables were actually exported.
+
+For the tutorial, GIS screenshots of selected NetCDF layers can be more intuitive than raw terminal dumps.
 
 ### Map placeholders (recommended tutorial additions)
 
 Use `results/grids/da_output_grids.nc` in GIS software (or Python) and create screenshots
 with a **consistent color scale** for direct comparison.
 
-{: .note }
-> Recommended map date(s): choose one date with active snow cover and one date near melt season. Use the same date across `open_loop`, `ens_mean`, and `increment` maps.
+Recommended map date(s): choose one date with active snow cover and one date near melt season. Use the same date across `open_loop`, `ens_mean`, and `increment` maps.
 
 ### Placeholder (map pair: snow depth, open loop vs ensemble mean)
 

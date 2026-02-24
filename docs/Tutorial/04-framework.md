@@ -19,11 +19,9 @@ It answers questions like:
 - How do observations enter the DA cycle?
 - Which outputs are generated where?
 
-{: .highlight }
-> Goal of this chapter: make the framework behavior predictable before you run commands.
+Goal of this chapter: make the framework behavior predictable before you run commands.
 
-{: .note }
-> Any command blocks shown in this chapter are executed **inside the running tutorial container shell** started in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}).
+Any command blocks shown in this chapter are executed **inside the running tutorial container shell** started in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}).
 
 ---
 
@@ -39,8 +37,7 @@ Recommended reading order on this page:
 3. use sections `2`, `6`, and `7` as file/path-oriented reference while running the tutorial
 4. treat command blocks on this page as optional orientation checks (not mandatory steps)
 
-{: .note }
-> This chapter is primarily for understanding and navigation. The mandatory execution sequence starts in [5. Pre-processing]({{ site.baseurl }}{% link Tutorial/05-pre-processing.md %}).
+This chapter is primarily for understanding and navigation. The mandatory execution sequence starts in [5. Pre-processing]({{ site.baseurl }}{% link Tutorial/05-pre-processing.md %}).
 
 ## Visual overview (recommended before reading details)
 
@@ -111,6 +108,12 @@ output_data:
     compress: true
 ```
 
+What to notice in this setup snippet:
+
+- the setup YAML defines the model domain and generic openAMUNDSEN I/O behavior,
+- it does not include DA-specific sections (`obs`, `data_assimilation`),
+- those DA settings are added in the project YAML shown next.
+
 Reference snippet (`/data/rofental/meteo/stations.csv`):
 
 | id | name | x | y | alt |
@@ -119,11 +122,11 @@ Reference snippet (`/data/rofental/meteo/stations.csv`):
 | proviantdepot | Proviantdepot | 639377 | 5187724 | 2659 |
 | latschbloder | Latschbloder | 637854 | 5184641 | 2919 |
 
-{: .note }
-> In this tutorial, the setup is the bundled `examples/rofental` case copied from the container image.
+This station table is shown here to anchor the setup concept to a real shared input file (`meteo/`) that exists before any DA project is generated.
 
-{: .highlight }
-> The setup YAML (`rofental.yml`) should remain pure openAMUNDSEN configuration. DA-specific configuration belongs to the project YAML.
+In this tutorial, the setup is the bundled `examples/rofental` case copied from the container image.
+
+The setup YAML (`rofental.yml`) should remain pure openAMUNDSEN configuration. DA-specific configuration belongs to the project YAML.
 
 ### Project (DA experiment configuration)
 
@@ -176,6 +179,12 @@ data_assimilation:
       product: WETSNOW
 ```
 
+What to notice in this project snippet:
+
+- the project YAML adds DA-specific observation mappings and assimilation events,
+- `assimilation_events` define the dates that later become step boundaries,
+- this separation is why one setup can host multiple DA projects.
+
 ### Step (one assimilation window)
 
 A step is a time segment between assimilation events (plus the initialization step).
@@ -202,6 +211,8 @@ step_04_20230101-20230309
 step_05_20230309-20230328
 ...
 ```
+
+This naming pattern is the concrete result of your configured `assimilation_events`: change the event dates, and the generated step windows change as well.
 
 {: .warning }
 > If you change `assimilation_events`, the step structure changes. Regenerate the step skeleton and per-step observation CSVs before running the project again.
@@ -235,8 +246,7 @@ where you start the interactive tutorial container shell and run:
 cp -a /workspace/examples/rofental /data/rofental
 ```
 
-{: .highlight }
-> The tutorial uses explicit paths in commands instead of shell variables so users always see where files are read and written.
+The tutorial uses explicit paths in commands instead of shell variables so users always see where files are read and written.
 
 ### Quick structure check
 
@@ -252,8 +262,7 @@ What you should see (at minimum):
 - `/data/rofental/obs`
 - `/data/rofental/projects`
 
-{: .note }
-> The example starts with raw SCF and wet-snow rasters. Summary CSVs are generated later in the preprocessing chapter.
+The example starts with raw SCF and wet-snow rasters. Summary CSVs are generated later in the preprocessing chapter.
 
 ---
 
@@ -291,8 +300,7 @@ Purpose:
 - compute availability/quality metrics
 - create a stable project-level observation table
 
-{: .note }
-> Default output location for these summary commands is `obs/summaries/<project_label>/` (tutorial example: `obs/summaries/project_2022_2023/`). Later preprocessing commands read from those summary CSVs.
+Default output location for these summary commands is `obs/summaries/<project_label>/` (tutorial example: `obs/summaries/project_2022_2023/`). Later preprocessing commands read from those summary CSVs.
 
 #### Stage B: Per-step obs generation (`oa-da-scf`, `oa-da-wetsnow-project`)
 
@@ -302,8 +310,7 @@ Purpose:
 - validate dates and step windows
 - generate the exact one-row CSVs consumed during DA execution
 
-{: .highlight }
-> The DA run becomes reproducible once the per-step observation CSVs exist. These are the actual observation inputs used by the pipeline.
+The DA run becomes reproducible once the per-step observation CSVs exist. These are the actual observation inputs used by the pipeline.
 
 <details markdown="block">
   <summary>Why the framework does not read raw rasters directly during DA</summary>
@@ -353,8 +360,7 @@ The **posterior** is the ensemble state **after** assimilating the observation a
 
 This posterior then seeds the next step (via rejuvenation) to form the next prior.
 
-{: .highlight }
-> Think of each step as a loop: prior -> observe -> weight -> resample -> posterior -> rejuvenate -> next prior.
+Think of each step as a loop: prior -> observe -> weight -> resample -> posterior -> rejuvenate -> next prior.
 
 {: .references }
 > - [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %}) for method terminology and theory context
@@ -384,8 +390,7 @@ The final step is special:
 - there is no next DA event after it,
 - so the pipeline does not perform the full assimilation->next-step handover cycle.
 
-{: .note }
-> You will see this in the log as a final-step message indicating that assimilation/resample/rejuvenate is skipped.
+You will see this in the log as a final-step message indicating that assimilation/resample/rejuvenate is skipped.
 
 <details markdown="block">
   <summary>What ESS means in practice (brief intuition)</summary>
@@ -426,8 +431,7 @@ These are useful for debugging but can become large.
 
 This provides a compact, analysis-friendly output for selected variables/metrics.
 
-{: .note }
-> The tutorial example uses compact retention to keep the example manageable on normal hardware.
+The tutorial example uses compact retention to keep the example manageable on normal hardware.
 
 {: .references }
 > - [Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}) for concrete examples of these outputs
@@ -451,8 +455,7 @@ openAMUNDSEN-DA supports different execution modes:
 - subdomain runs can be orchestrated separately/collectively
 - useful for scaling and domain decomposition workflows
 
-{: .highlight }
-> The tutorial uses **single-domain mode** to keep the learning path focused. Subdomain workflows build on the same concepts but add orchestration complexity.
+The tutorial uses **single-domain mode** to keep the learning path focused. Subdomain workflows build on the same concepts but add orchestration complexity.
 
 ---
 

@@ -1,0 +1,22 @@
+# Reliable local preview overrides for single-repo workflows on WSL + /mnt/c.
+#
+# Goal:
+# - Keep the source repo where it is (e.g. Nextcloud on C:)
+# - Move generated output/cache off the repo to the fast WSL filesystem (/tmp)
+# - Prefer correctness over incremental speed to avoid stale pages
+
+# Match production UI by keeping search enabled locally.
+search_enabled: true
+
+# Disable incremental builds to reduce stale-render issues.
+incremental: false
+
+# Put generated files on the WSL filesystem instead of the synced repo.
+destination: /tmp/oa-da-docs-site
+cache_dir: /tmp/oa-da-docs-jekyll-cache
+metadata_file: /tmp/oa-da-docs-jekyll-metadata
+
+# Local preview should still ignore generated/cache directories in the repo.
+exclude:
+  - _site
+  - .jekyll-cache

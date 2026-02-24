@@ -1,12 +1,9 @@
 ---
-
 layout: default
 title: 2. Dependencies
 parent: Tutorial
-nav\_order: 2
+nav_order: 2
 permalink: /tutorial/dependencies/
-----------------------------------
-
 ---
 
 # 2. Dependencies
@@ -22,9 +19,14 @@ This tutorial uses a **Docker image** and a **single interactive container sessi
 - **Bind mount** = your local tutorial folder is mounted into the container as `/data`
 - **Working directory** = we start the shell in `/data`, so tutorial commands can be copied directly
 
-{: .note }
+## Step 1. Install and Verify Docker
 
-> Docker background (recommended if you are new to Docker):
+{: .step }
+> Goal: install Docker on your host, verify the runtime, and pull the tutorial image.
+
+### Description
+
+Install Docker on your system, confirm it works, and pull the tutorial image.
 
 System requirements:
 
@@ -32,35 +34,40 @@ System requirements:
 - Memory: 16 GB RAM minimum (32 GB recommended for larger ensembles)
 - CPU: Multi-core processor (parallel runs scale with available cores)
 
-Install Docker:
+{: .note }
 
-- Windows: install Docker Desktop and use the WSL2 backend
-- macOS: install Docker Desktop
-- Linux: install Docker Engine + Compose plugin
+> Docker background (recommended if you are new to Docker):
+>
+> - [Docker overview](https://docs.docker.com/get-started/docker-overview/)
+> - [Get Docker (installation)](https://docs.docker.com/get-docker/)
+> - [Bind mounts](https://docs.docker.com/engine/storage/bind-mounts/)
+> - [`docker run` reference](https://docs.docker.com/reference/cli/docker/container/run/)
+> - [Docker Desktop + WSL 2 (Windows)](https://docs.docker.com/desktop/features/wsl/)
+
+### Commands
+
+{: .commands }
+> Run these commands on your **host machine** (not inside a container).
+
+Install Docker (host machine):
+
+- Windows: install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) and use the WSL2 backend
+- macOS: install [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/)
+- Linux: install [Docker Engine](https://docs.docker.com/engine/install/) + [Compose plugin](https://docs.docker.com/compose/install/linux/)
+
+Optional Linux post-install (host machine):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose-plugin
+sudo usermod -aG docker <your-user>
+sudo systemctl enable --now docker
+```
 
 Verify Docker:
 
 ```bash
 docker run hello-world
-```
-
-```html
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-</details>
-```
-
-Use the same command on Windows in one of these ways:
-
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-
-```html
-</details>
 ```
 
 Pull the openAMUNDSEN-DA image:
@@ -69,30 +76,51 @@ Pull the openAMUNDSEN-DA image:
 docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest
 ```
 
-```html
 <details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
+  <summary>Windows / PowerShell note (same commands)</summary>
+
+Use the same Docker commands on Windows. Recommended: run them in **WSL**. In **PowerShell**, adjust only host path syntax (for example `C:/...:/data`) and line continuation (PowerShell uses `` ` `` instead of `\`).
+
 </details>
-```
 
-Use the same command on Windows in one of these ways:
+### Checks
 
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
+{: .checks }
+> Confirm Docker is working and the tutorial image is available locally.
 
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
+- `docker run hello-world` prints a success message from Docker.
+- `docker pull ...openamundsen_da:latest` completes without errors.
+- Optional: `docker image ls | grep openamundsen_da` shows the image locally.
 
-```html
-</details>
-```
+### References
 
-### Tutorial command model (important)
+{: .references }
+> Background reading for the Docker concepts used in this tutorial.
+
+- External: Docker docs links listed in the note above.
+
+## Step 2. Start the Tutorial Container Shell
+
+{: .step }
+> Goal: start one interactive tutorial container and run later commands inside it.
+
+### Description
 
 For this tutorial, you start **one interactive container** and run the tutorial commands
 **inside that container shell**. This avoids repeating the host path mount on every command
 and makes later chapters copy-paste friendly across operating systems.
+
+{: .note }
+
+> openAMUNDSEN-DA is designed for multi-core processing. In the container start command below, set `--cpus` to the number of CPU cores/threads you want to make available to Docker/openAMUNDSEN-DA on your machine (for example `--cpus 8` is only an example). Also replace `"/absolute/path/to/tutorial-workdir"` with your own local tutorial folder path.
+
+{: .tip }
+> Keep `--max-workers` in later project commands consistent with the CPU capacity you assign here (do not set it much higher than `--cpus`).
+
+### Commands
+
+{: .commands }
+> Start the container once, then run the next tutorial chapters inside this shell.
 
 Recommended tutorial shell start (run once):
 
@@ -109,15 +137,8 @@ docker run --rm -it \
   bash
 ```
 
-```html
 <details markdown="block">
-  <summary>
-    Windows PowerShell variant (start the tutorial container shell)
-  </summary>
-</details>
-```
-
-> **Adjust CPU cores to your machine (important)**&#x54;he tutorial uses `--cpus 8` only as an example. Set this value to the number of CPU cores/threads you want to make available to Docker and openAMUNDSEN-DA on your system.Also keep `--max-workers` in later project commands consistent with your available Docker CPUs (for example, do not set `--max-workers` much higher than the CPU capacity you assigned to the container).
+  <summary>Windows PowerShell variant (same container start command)</summary>
 
 ```powershell
 docker run --rm -it `
@@ -132,19 +153,24 @@ docker run --rm -it `
   bash
 ```
 
-```html
 </details>
+
+Leave the tutorial container when you are done:
+
+```bash
+exit
 ```
 
-What this command does:
+### Command Explanation
 
-- mounts your local tutorial folder into the container as `/data`
-- starts a Bash shell in `/data` (`-w /data`)
-- limits CPU usage (`--cpus 8`, example value)
-- disables nested BLAS/OpenMP threading (important for stable parallel runs)
-- keeps tutorial results persistent on your machine because `/data` is a bind mount
+{: .commands }
+> Why these options matter for reproducible and stable tutorial runs.
 
-{: .note }
+- `-v "...:/data"` mounts your local tutorial folder into the container.
+- `-w /data` starts the shell in the mounted folder.
+- `--cpus` limits CPU capacity available to Docker/openAMUNDSEN-DA.
+- `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, `NUMEXPR_NUM_THREADS` disable nested BLAS/OpenMP threading (important for stable parallel runs).
+- `bash` starts an interactive shell inside the image.
 
 {: .note }
 
@@ -154,30 +180,67 @@ What this command does:
 
 > Use the command as shown (`bash`, not `bash -l`). A login shell can override the activated environment in this image and make `python` / `oa-da-*` commands unavailable.
 
-After the shell starts, later tutorial commands look like:
+### Checks
+
+{: .checks }
+> Verify that you are inside the container and working in `/data`.
+
+- Container shell opens and your prompt changes to the container environment.
+- Running `pwd` inside the container returns `/data`.
+- Later tutorial commands should be run inside this shell (not on the host).
+
+```bash
+pwd
+```
+
+Example of a later tutorial command (do not run yet unless you already prepared inputs):
 
 ```bash
 oa-da-snowcover --input-dir /data/rofental/obs/snowcover --project-label project_2022_2023 --setup-dir /data/rofental --overwrite
 ```
 
-Leave the tutorial container when you are done:
+### References
 
-```bash
-exit
-```
+{: .references }
+> External references for the command options used above.
 
-{: .highlight }
+- External: [`docker run` reference](https://docs.docker.com/reference/cli/docker/container/run/)
+- External: [Bind mounts](https://docs.docker.com/engine/storage/bind-mounts/)
 
-> All command blocks in the next tutorial chapters are shown as commands **inside this running container shell**.
+## Step 3. Initialize the Tutorial Workspace
 
-### Initialize the tutorial workspace (copy the bundled example)
+{: .step }
+> Goal: copy the bundled Rofental example from the image into your local tutorial workdir.
+
+### Description
 
 Inside the tutorial container shell, copy the bundled Rofental example to your mounted
-workspace (run once):
+workspace (run once).
+
+### Commands
+
+{: .commands }
+> Run this command **inside the tutorial container shell**.
 
 ```bash
 cp -a /workspace/examples/rofental /data/rofental
 ```
+
+<details markdown="block">
+  <summary>Windows / PowerShell users (recommended approach)</summary>
+
+Start the tutorial container from **WSL** if possible. If you start it from **PowerShell** (using the variant above), the commands inside the container shell are still identical.
+
+</details>
+
+### Command Explanation
+
+{: .commands }
+> Source path is inside the image; target path is your mounted local workspace.
+
+- `/workspace/examples/rofental` is the example bundled in the Docker image.
+- `/data/rofental` is your local tutorial workdir (via bind mount).
+- `cp -a` copies the example recursively and preserves file metadata.
 
 {: .note }
 
@@ -187,75 +250,21 @@ cp -a /workspace/examples/rofental /data/rofental
 
 > Tutorial command style: Bash is shown as the primary command syntax (works directly on Linux/macOS and well in WSL/Git Bash on Windows).
 
-```html
-<details markdown="block">
-  <summary>Windows / PowerShell users (recommended approach)</summary>
-</details>
-```
+### Checks
 
-You can still follow the same tutorial:
+{: .checks }
+> Confirm the example was copied to your mounted workspace.
 
-- easiest path: start the tutorial container from **WSL** and run the chapter commands as shown
-- alternatively: start the container from **PowerShell** (using the variant above); once inside the container shell, the tutorial commands are identical
-
-The Docker image, container paths (`/data/...`), and framework commands stay the same.
-
-```html
-</details>
-```
-
-### Operating system notes
-
-Linux:
-
-- Ensure your user can access Docker (`docker` group or `sudo`)
-- Typical install:
+- `ls /data/rofental` shows the copied example folder contents inside the container.
+- On the host, the same folder appears in your local tutorial workdir.
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y docker.io docker-compose-plugin
-sudo usermod -aG docker <your-user>
-sudo systemctl enable --now docker
+ls /data/rofental
 ```
 
-```html
-<details markdown="block">
-  <summary>Windows / PowerShell note (same command)</summary>
-</details>
-```
+### References
 
-Use the same command on Windows in one of these ways:
+{: .references }
+> Continue with the next chapter after the workspace copy succeeded.
 
-- **Recommended:** run the Bash command in **WSL** (works as shown).
-- **PowerShell:** keep the same Docker/image/container paths, adjust only:
-  - host mount path syntax (e.g. `C:/...:/data`)
-  - line continuation (PowerShell uses the backtick `` ` `` instead of `\`)
-
-For Bash-specific host-shell constructs (for example heredocs), prefer WSL/Git Bash or use a PowerShell here-string equivalent.
-
-```html
-</details>
-```
-
-macOS:
-
-- Docker Desktop is the recommended runtime
-
-Windows (WSL):
-
-- Docker Desktop + WSL2 backend is required
-- Run the tutorial commands in PowerShell (or WSL shell)
-
-{: .note }
-
-> If you use PowerShell instead of WSL, prefer forward slashes in Docker mount paths where possible (for example `C:/path/to/workdir:/data`).
-
-### Runtime and resources
-
-- Set `--cpus` (in the tutorial shell start command above) to the number of cores available in Docker on your machine.
-- Use `--max-workers` in project/subdomain runs to control parallelism.
-- For stable CPU usage in numerical libraries, use these environment variables in the container start command: `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, `NUMEXPR_NUM_THREADS` (already included in the tutorial command above).
-
-{: .note }
-
-> In this tutorial, these variables are already set in the recommended container startup command above.
+- Internal: continue with the next chapter, [`3. Workflow`](/tutorial/workflow/).

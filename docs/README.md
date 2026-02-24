@@ -9,12 +9,14 @@ This directory contains the documentation for the openamundsen_da project, built
 - Ruby 2.7+ ([installation guide](https://www.ruby-lang.org/en/documentation/installation/))
 - Bundler (`gem install bundler`)
 
-### Build and Serve
+### Build and Serve (Recommended: WSL Reliable, Single Repo)
 
 ```bash
 cd docs
 bundle install
-bundle exec jekyll serve --host 127.0.0.1 --port 4001 --livereload --incremental --config _config.yml,_config_dev.yml
+TMPDIR=/tmp TMP=/tmp TEMP=/tmp \
+bundle exec jekyll serve --host 127.0.0.1 --port 4001 --livereload --force_polling \
+  --config _config.yml,_config_dev.yml,_config_wsl_reliable.yml
 ```
 
 Then open [http://127.0.0.1:4001/](http://127.0.0.1:4001/)
@@ -23,12 +25,18 @@ Then open [http://127.0.0.1:4001/](http://127.0.0.1:4001/)
 
 This repository includes VS Code tasks in `.vscode/tasks.json`:
 
-- `Docs: Jekyll Serve (Docker)` - Recommended (no local Ruby/Bundler install required)
-- `Docs: Jekyll Serve (Local Ruby)` - Fast default (incremental, no polling)
-- `Docs: Jekyll Serve (Local Ruby, Polling)` - Fallback if file changes are not detected
+- `Docs: Jekyll Serve (Local Ruby, WSL Reliable)` - Single-repo reliable mode for WSL + `/mnt/c` (polling, no incremental, cache/output in `/tmp`)
 - `Docs: Open Local Preview` - Opens `http://127.0.0.1:4001/`
 
 Run them from `Terminal -> Run Task...`.
+
+### Recommended Single-Repo WSL Workflow (No Sync)
+
+If your repository lives on Windows storage (for example under `C:\...` / `/mnt/c/...`) and
+you preview from WSL, prefer `Docs: Jekyll Serve (Local Ruby, WSL Reliable)`.
+
+This mode keeps your source files in the current repo but moves Jekyll's generated output and
+cache to `/tmp` inside WSL, which reduces lag and stale preview issues without using a second clone.
 
 ## GitHub Pages Deployment
 
@@ -174,4 +182,3 @@ Edit `_config.yml` to customize:
 - Reference section is stubbed for future technical API docs
 - The site is fully functional for GitHub Pages deployment
 - Consider integrating Sphinx for automated API docs from docstrings
-

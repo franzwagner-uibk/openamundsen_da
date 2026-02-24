@@ -61,10 +61,25 @@ nav_external_links:
 # Callouts
 callouts_level: loud
 callouts:
+  step:
+    title: Step
+    color: blue
+  commands:
+    title: Commands
+    color: green
+  checks:
+    title: Checks
+    color: yellow
+  references:
+    title: References
+    color: purple
+  tip:
+    title: Tip
+    color: blue
   highlight:
     color: yellow
   important:
-    title: Ressources
+    title: Resources
     color: blue
   new:
     title: Prerequisites

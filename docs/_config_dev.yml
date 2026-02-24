@@ -1,7 +1,7 @@
 # Local preview overrides for faster iteration
 
-# Skip search index generation during local writing/editing.
-search_enabled: false
+# Keep search enabled in local preview so the UI matches production.
+search_enabled: true
 
 # Incremental builds are much faster for repeated edits.
 incremental: true

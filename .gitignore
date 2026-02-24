@@ -35,7 +35,10 @@ htmlcov/
 # Documentation build outputs
 docs/_build/
 docs/_site/
+docs/.jekyll-cache/
+docs/.jekyll-metadata
 docs/Gemfile.lock
+/.bundle-cache/
 
 # Notebooks
 *.ipynb

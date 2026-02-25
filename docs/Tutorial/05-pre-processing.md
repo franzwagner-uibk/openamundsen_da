@@ -39,7 +39,9 @@ Run the chapter in this order:
 3. compare generated files with the shown snippets/paths (recommended)
 4. use optional CLI checks only if something looks wrong
 
-**Mandatory commands only (copy-paste path):** `oa-da-snowcover` -> `oa-da-wetsnow` -> `project_skeleton` -> `oa-da-scf` -> `oa-da-wetsnow-project`
+**Mandatory commands only (copy-paste path):**
+
+`oa-da-snowcover` -> `oa-da-wetsnow` -> `project_skeleton` -> `oa-da-scf` -> `oa-da-wetsnow-project`
 
 ---
 
@@ -70,6 +72,33 @@ All command blocks below are executed **inside the running tutorial container sh
 
 Most file checks are shown as **paths + snippets** to reduce command noise. If you are following the tutorial for the first time, focus on the five preprocessing commands and compare your generated files with the shown references.
 
+## Continuing Later (Restart the Tutorial Container Shell)
+
+If you continue this tutorial on another day, restart the tutorial container shell before
+running the preprocessing commands below.
+
+Important:
+
+- the tutorial container is started with `--rm` (temporary container),
+- your tutorial files persist in your local workspace because it is bind-mounted as `/data`.
+
+Restart the container from the **host terminal** (not from inside a container shell), using
+the same host path you used in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}):
+
+```bash
+docker run --rm -it \
+  -v "/absolute/path/to/tutorial-workdir:/data" \
+  -w /data \
+  --cpus 8 \
+  -e OMP_NUM_THREADS=1 \
+  -e OPENBLAS_NUM_THREADS=1 \
+  -e MKL_NUM_THREADS=1 \
+  -e NUMEXPR_NUM_THREADS=1 \
+  ghcr.io/franzwagner-uibk/openamundsen_da:latest \
+  bash --noprofile --norc
+```
+
+
 ---
 
 ## Inspect the raw observation inputs (Rofental example)
@@ -84,7 +113,7 @@ What to expect:
 
 - many FSC rasters across the season (more than the final assimilation dates),
 - wet-snow rasters from Sentinel-1 tracks,
-- at least the two tutorial validation stations (`latschbloder`, `proviantdepot`).
+- the two tutorial validation stations (`latschbloder`, `proviantdepot`).
 
 Reference snippet (Rofental example filenames):
 
@@ -108,9 +137,9 @@ File path: `/data/rofental/obs/stations/proviantdepot.csv`
 
 | time | snow_depth | swe |
 | --- | --- | --- |
-| 2022-10-01 00:00:00 | 0.09849999999999999 | 15.116667 |
-| 2022-10-01 01:00:00 | 0.09883333333333333 | 14.783333 |
-| 2022-10-01 02:00:00 | 0.09949999999999999 | 14.783333 |
+| 2022-10-01 00:00:00 | 0.10 | 15.12 |
+| 2022-10-01 01:00:00 | 0.10 | 14.78 |
+| 2022-10-01 02:00:00 | 0.10 | 14.78 |
 
 Why this matters:
 
@@ -140,7 +169,7 @@ ls -1 /data/rofental/obs/stations
 
 The preprocessing commands read product tags, classes, and paths from the project YAML.
 
-Relevant sections in the tutorial project:
+Relevant keys in the tutorial project:
 
 - `obs.snowcover` (SCF classes + product tag),
 - `obs.wetsnow` (wet-snow classes + product tag),
@@ -148,7 +177,7 @@ Relevant sections in the tutorial project:
 - `data_assimilation.assimilation_events`.
 
 The preprocessors are configuration-driven and intentionally fail-fast. If required
-class mappings or product tags are missing, preprocessing aborts instead of guessing.
+class mappings or product tags are missing, preprocessing aborts instead falling back to defaults.
 
 Reference YAML snippet (project config driving preprocessing, selected sections)
 
@@ -182,53 +211,6 @@ data_assimilation:
   wet_snow:
     classification_threshold_percent: 0.5
 ```
-
-{: .warning }
-> **Required before continuing:** open `/data/rofental/projects/project_2022_2023/project_2022_2023.yml` and verify that these tutorial-baseline values are present before preprocessing.
->
-> In particular, confirm the wet-snow class mapping:
-> - `wet: [110]`
-> - `valid: [110, 125, 200, 210]`
-> - `exclude: [200, 210]`
->
-> If these keys differ (for example in an older local copy of the example), update the file and then continue with the preprocessing commands below.
-
-Edit the file in your preferred editor on the host machine (it is inside your mounted tutorial workspace) or from inside the container. The tutorial path inside the container is:
-`/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
-
-{: .warning }
-> If you change class mappings or product tags, regenerate summaries before creating per-step observation CSVs.
-
-<details markdown="block">
-  <summary>Optional CLI check (inspect project YAML in the container)</summary>
-
-```bash
-sed -n "1,220p" /data/rofental/projects/project_2022_2023/project_2022_2023.yml
-```
-
-</details>
-
----
-
-## (Optional but recommended) Clean previously generated preprocessing outputs
-
-If you are rerunning this chapter, remove previously generated summary and per-step
-observation files first so the workflow stays reproducible.
-
-```bash
-rm -f /data/rofental/obs/summaries/project_2022_2023/scf_summary.csv
-rm -f /data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv
-find /data/rofental/projects/project_2022_2023/steps -type f \
-  \\( -name "obs_scf_*.csv" -o -name "obs_wet_snow_*.csv" \\) -delete 2>/dev/null || true
-```
-
-
-Expected state after cleanup (if you ran it):
-
-- `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv` removed (or not present yet)
-- `/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv` removed (or not present yet)
-- old per-step `obs_scf_*.csv` / `obs_wet_snow_*.csv` files removed from `steps/*/obs/`
-
 ---
 
 ## Step 1: Summarize snow-cover rasters to `scf_summary.csv`
@@ -240,6 +222,8 @@ Purpose in this tutorial:
 - quality control / date selection,
 - per-step observation file generation (`oa-da-scf`),
 - reproducible assimilation date matching.
+
+**🟢 Run this command:**
 
 ```bash
 oa-da-snowcover \
@@ -298,11 +282,11 @@ File path: `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`
 
 | date | region_id | n_valid | n_snow | scf | cloud_fraction | source |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2022-10-03 |  | 88455 | 46001 | 0.5200462382002148 | 0.0 | s2_fsc_snowflake_rofental_2022_10_03.tif |
-| 2022-10-05 |  | 78631 | 23973 | 0.30487988198038946 | 0.0 | s2_fsc_snowflake_rofental_2022_10_05.tif |
-| 2022-10-08 |  | 33976 | 1078 | 0.03173769719802213 | 0.0 | s2_fsc_snowflake_rofental_2022_10_08.tif |
-| 2022-10-13 |  | 12530 | 306 | 0.024387869114126097 | 0.0 | s2_fsc_snowflake_rofental_2022_10_13.tif |
-| 2022-10-18 |  | 72228 | 2255 | 0.031222656033671154 | 0.0 | s2_fsc_snowflake_rofental_2022_10_18.tif |
+| 2022-10-03 |  | 88455 | 46001 | 0.52 | 0.00 | s2_fsc_snowflake_rofental_2022_10_03.tif |
+| 2022-10-05 |  | 78631 | 23973 | 0.30 | 0.00 | s2_fsc_snowflake_rofental_2022_10_05.tif |
+| 2022-10-08 |  | 33976 | 1078 | 0.03 | 0.00 | s2_fsc_snowflake_rofental_2022_10_08.tif |
+| 2022-10-13 |  | 12530 | 306 | 0.02 | 0.00 | s2_fsc_snowflake_rofental_2022_10_13.tif |
+| 2022-10-18 |  | 72228 | 2255 | 0.03 | 0.00 | s2_fsc_snowflake_rofental_2022_10_18.tif |
 
 Exact values depend on ROI, masking, and class mapping. The column structure and value ranges should look similar.
 
@@ -333,6 +317,8 @@ Purpose in this tutorial:
 - quality control of wet-snow date coverage
 - per-step wet-snow observation file generation (`oa-da-wetsnow-project`)
 - reproducible wet-snow event/date matching
+
+**🟢 Run this command:**
 
 ```bash
 oa-da-wetsnow \
@@ -372,13 +358,12 @@ File path: `/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv`
 
 | date | region_id | wet_snow_fraction | n_valid | n_wet | source |
 | --- | --- | --- | --- | --- | --- |
-| 2023-03-12 |  | 0.022 | 156982 | 3453 | WSM_S1A_SAR_track117_2023_03_12_17_07_24.tif |
-| 2023-03-16 |  | 0.0294 | 158953 | 4667 | WSM_S1A_SAR_track168_2023_03_16_05_27_37.tif |
-| 2023-03-24 |  | 0.4664 | 156982 | 73218 | WSM_S1A_SAR_track117_2023_03_24_17_07_24.tif |
-| 2023-03-28 |  | 0.2661 | 158953 | 42301 | WSM_S1A_SAR_track168_2023_03_28_05_27_38.tif |
-| 2023-04-05 |  | 0.0621 | 156982 | 9750 | WSM_S1A_SAR_track117_2023_04_05_17_07_24.tif |
+| 2023-03-12 |  | 0.02 | 156982 | 3453 | WSM_S1A_SAR_track117_2023_03_12_17_07_24.tif |
+| 2023-03-16 |  | 0.03 | 158953 | 4667 | WSM_S1A_SAR_track168_2023_03_16_05_27_37.tif |
+| 2023-03-24 |  | 0.47 | 156982 | 73218 | WSM_S1A_SAR_track117_2023_03_24_17_07_24.tif |
+| 2023-03-28 |  | 0.27 | 158953 | 42301 | WSM_S1A_SAR_track168_2023_03_28_05_27_38.tif |
+| 2023-04-05 |  | 0.06 | 156982 | 9750 | WSM_S1A_SAR_track117_2023_04_05_17_07_24.tif |
 
-Wet-snow coverage is typically sparser than SCF. Sparse wet-snow dates are expected and should not be treated as a preprocessing error by default.
 
 <details markdown="block">
   <summary>Optional CLI check (confirm wet-snow summary file in the container)</summary>
@@ -405,6 +390,8 @@ This step builds the project step structure from:
 
 - `start_date`, `end_date`
 - `data_assimilation.assimilation_events`
+
+**🟢 Run this command:**
 
 ```bash
 python -m openamundsen_da.pipeline.project_skeleton \
@@ -456,6 +443,8 @@ This fail-fast behavior prevents silent mismatches between event dates and step 
 
 This step maps rows from `scf_summary.csv` to the configured SCF assimilation dates and writes one-row observation CSVs into the corresponding `step_*/obs/` folders.
 
+**🟢 Run this command:**
+
 ```bash
 oa-da-scf \
 --project-dir /data/rofental/projects/project_2022_2023 \
@@ -499,7 +488,7 @@ File path: `/data/rofental/projects/project_2022_2023/steps/step_00_init/obs/obs
 
 | date | n_valid | n_snow | scf | cloud_fraction | source |
 | --- | --- | --- | --- | --- | --- |
-| 2023-01-01 | 106750 | 106750 | 1.0 | 0.0 | s2_fsc_snowflake_rofental_2023_01_01.tif |
+| 2023-01-01 | 106750 | 106750 | 1.00 | 0.00 | s2_fsc_snowflake_rofental_2023_01_01.tif |
 
 This one-row file is what the DA step consumes directly for the SCF event, so it is the key place to verify date, product tag alignment (via filename), and the summary values passed into the run.
 
@@ -510,6 +499,8 @@ This one-row file is what the DA step consumes directly for the SCF event, so it
 `oa-da-wetsnow-project` applies the same alignment logic for wet-snow events: it reads `--summary-csv`, matches rows to wet-snow `assimilation_events` in `--project-dir`, writes `obs_wet_snow_*.csv` into `steps/*/obs/`, and `--overwrite` refreshes existing files.
 
 This step applies the same alignment logic for wet-snow assimilation dates.
+
+**🟢 Run this command:**
 
 ```bash
 oa-da-wetsnow-project \
@@ -551,24 +542,9 @@ File path: `/data/rofental/projects/project_2022_2023/steps/step_02_20230309-202
 
 | date | wet_snow_fraction | n_valid | n_wet | source |
 | --- | --- | --- | --- | --- |
-| 2023-05-11 | 0.8905 | 156982 | 139793 | WSM_S1A_SAR_track117_2023_05_11_17_07_26.tif |
+| 2023-05-11 | 0.89 | 156982 | 139793 | WSM_S1A_SAR_track117_2023_05_11_17_07_26.tif |
 
 This wet-snow per-step file plays the same role as the SCF per-step CSV: it is the explicit DA input artifact for that event date and should match the selected summary row.
-
-## Visual sanity teaser (what this preprocessing enables)
-
-If preprocessing succeeded, the later results plot `fraction_timeseries.png` can show the
-expected SCF and wet-snow observation markers at the configured event dates.
-
-![Fraction time series (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/fraction_timeseries.png)
-
-_Preview only: detailed interpretation of this plot comes in [7. Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %})._
-
-What this preview confirms conceptually:
-
-- SCF and wet-snow observations exist in the project timeline,
-- multiple DA events are visible across the season,
-- the preprocessing outputs are not just intermediate files: they directly shape the DA workflow.
 
 ---
 

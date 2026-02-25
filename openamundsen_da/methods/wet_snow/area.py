@@ -441,6 +441,13 @@ def summarize_s1_directory(
         except Exception as exc:
             logger.warning("Skipping {}: {}", tif.name, exc)
             continue
+        logger.info(
+            "Wet-snow {} -> wet_fraction={:.3f} n_valid={} n_wet={}",
+            tif.name,
+            stats.wet_fraction,
+            stats.valid_pixels,
+            stats.wet_pixels,
+        )
         rows.append(
             {
                 "date": date.strftime("%Y-%m-%d"),
@@ -790,7 +797,6 @@ cli_model_setup = cli_model_project
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_s1_summary())
-
 
 
 

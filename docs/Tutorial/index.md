@@ -10,11 +10,12 @@ has_toc: false
 {: .no_toc }
 
 ## Overview
-
-Step-by-step walkthrough to learn about openAMUNDSEN-DA. This tutorial guides you through the core capabilities of this data assimilation framework. openAMUNDSEN-DA is applied in a case study that will be processed step by step.
 {: .fs-6 .fw-300 }
 
-Use the docs search field (top navigation / sidebar area) to find information across the **entire documentation**, not only inside the tutorial. This is especially useful for jumping quickly to CLI options, configuration keys, and theory/reference pages while following the tutorial.
+Step-by-step walkthrough to learn about openAMUNDSEN-DA. This tutorial guides you through the core capabilities of this data assimilation framework. openAMUNDSEN-DA is applied in a case study that will be processed step by step.
+
+{: .tip }
+> Use the docs **search field** (top navigation / sidebar area) to find information across the entire documentation, not only inside the tutorial. This is especially useful for jumping quickly to CLI options, configuration keys, and theory/reference pages while following the tutorial.
 
 ---
 
@@ -23,7 +24,7 @@ Use the docs search field (top navigation / sidebar area) to find information ac
 The tutorial sequence covers:
 
 - prerequisites and Docker runtime setup,
-- workflow and framework concepts (setup/project/step/member, DA cycle),
+- openAMUNDSEN framework concepts,
 - preparing the Rofental example (central case study),
 - end-to-end observation preprocessing from raw raster inputs,
 - running the project (granular command context + project pipeline),

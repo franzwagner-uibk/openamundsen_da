@@ -75,6 +75,32 @@ observation CSVs to already exist and match the configured event dates exactly.
 > - [Workflow Guide]({{ site.baseurl }}{% link workflow.md %}) for the broader DA process
 > - [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}) for pipeline and lower-level commands
 
+## Continuing Later (Restart the Tutorial Container Shell)
+
+If you continue the tutorial on another day, restart the tutorial container shell before
+running the project pipeline command.
+
+Important:
+
+- the tutorial container is temporary (`--rm`),
+- your prepared project files persist in your local workspace because it is bind-mounted as `/data`.
+
+Restart the container from the **host terminal** (use the same host path as in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %})):
+
+```bash
+docker run --rm -it \
+  -v "/absolute/path/to/tutorial-workdir:/data" \
+  -w /data \
+  --cpus 8 \
+  -e OMP_NUM_THREADS=1 \
+  -e OPENBLAS_NUM_THREADS=1 \
+  -e MKL_NUM_THREADS=1 \
+  -e NUMEXPR_NUM_THREADS=1 \
+  ghcr.io/franzwagner-uibk/openamundsen_da:latest \
+  bash --noprofile --norc
+```
+
+
 ---
 
 ## (Optional) Inspect one step folder before the run
@@ -125,6 +151,8 @@ This is the main tutorial command for the full DA run.
 **Configuration files used by this run**  
 Setup config: `/data/rofental/rofental.yml` (openAMUNDSEN domain/model configuration)  
 Project config: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml` (DA events, obs mapping, likelihood/resampling, outputs)
+
+**🟢 Run this command:**
 
 ```bash
 python -m openamundsen_da.pipeline.project \
@@ -194,12 +222,8 @@ Runtime depends on:
 - whether this is the first run (cold caches) or a rerun,
 - current project configuration (ensemble size, resolution, number of steps).
 
-For the tutorial baseline (`100 m`, `ens=10`, `Oct-Jun`), a normal desktop/laptop
+For the tutorial baseline, a normal desktop/laptop
 should be able to complete the run, but it is still a non-trivial workload.
-
-First runs are often slower than reruns because of cold caches and filesystem effects.
-
-Reference run (current tutorial 5-event configuration, `ens=10`, `--max-workers 21`) completed in about `670.9 s` on one local test machine. Treat this only as a rough order of magnitude, not a target.
 
 ---
 
@@ -311,77 +335,6 @@ Relevant keys: `data_assimilation.output.retention`, `data_assimilation.output.g
 3. Check whether plots start appearing under `plots/`
 4. Check the final `Project processing complete` message
 </details>
-
----
-
-## Lower-level commands (how the pipeline relates to manual execution)
-
-The tutorial recommends the project pipeline for normal operation, but it is still useful to understand the main lower-level building blocks it wraps.
-
-Examples (step-level mechanics):
-
-<details markdown="block">
-  <summary>Optional low-level command examples (for learning/debugging)</summary>
-
-### Prior forcing ensemble generation (step-level)
-
-```bash
-python -m openamundsen_da.core.prior_forcing \
-  --input-meteo-dir /data/rofental/projects/project_2022_2023/meteo \
-  --project-dir /data/rofental/projects/project_2022_2023 \
-  --step-dir /data/rofental/projects/project_2022_2023/steps/step_00_init \
-  --overwrite
-```
-
-### Ensemble launch (step-level)
-
-```bash
-python -m openamundsen_da.core.launch \
-  --project-dir /data/rofental/projects/project_2022_2023 \
-  --setup-dir /data/rofental \
-  --step-dir /data/rofental/projects/project_2022_2023/steps/step_00_init \
-  --ensemble prior \
-  --max-workers 8 \
-  --overwrite
-```
-
-</details>
-
-Why this section is useful:
-
-- it helps you debug specific steps,
-- it explains what the pipeline is automating,
-- it makes the framework behavior less "black box".
-
-A full manual DA cycle (including all diagnostics, assimilation, resampling, and
-rejuvenation internals) is possible but intentionally not the primary tutorial path.
-The project pipeline is the recommended operational workflow.
-
-Treat lower-level commands as learning/debugging tools; treat the project pipeline as the normal production workflow.
-
-{: .references }
-> - [Command-Line Interface]({{ site.baseurl }}{% link guides/cli.md %}) for the full command catalog
-> - [Package Structure]({{ site.baseurl }}{% link reference/package-structure.md %}) if you want to map CLI commands to internal modules
-
----
-
-## Rerun patterns during tutorial work (important)
-
-You will often iterate while learning:
-
-- edit `assimilation_events`,
-- change observation mappings/classes,
-- rerun preprocessing,
-- rerun the project.
-
-Recommended rerun sequence after changes:
-
-1. `project_skeleton --overwrite`
-2. `oa-da-scf --overwrite`
-3. `oa-da-wetsnow-project --overwrite`
-4. `openamundsen_da.pipeline.project --overwrite`
-
-If you only change plotting or documentation, a full rerun is usually unnecessary.
 
 ---
 

@@ -10,7 +10,7 @@ permalink: /tutorial/dependencies/
 
 ## Docker
 
-Before running openAMUNDSEN-DA, make sure Docker is available and working.
+Before running openAMUNDSEN-DA, make sure [Docker](https://docs.docker.com)  is available and working.
 
 This tutorial uses a **Docker image** and a **single interactive container session**:
 
@@ -30,38 +30,71 @@ System requirements:
 - Memory: 16 GB RAM minimum (32 GB recommended for larger ensembles)
 - CPU: Multi-core processor (parallel runs scale with available cores)
 
-If you are new to Docker, these official docs pages are the most relevant for this tutorial:
+{: .references }
+> If you are new to Docker, these official docs pages are the most relevant for this tutorial:
+>
+> - [Docker overview](https://docs.docker.com/get-started/docker-overview/)
+> - [Get Docker (installation)](https://docs.docker.com/get-docker/)
+> - [Bind mounts](https://docs.docker.com/engine/storage/bind-mounts/)
+> - [`docker run` reference](https://docs.docker.com/reference/cli/docker/container/run/)
+> - [Docker Desktop + WSL 2 (Windows)](https://docs.docker.com/desktop/features/wsl/)
 
-- [Docker overview](https://docs.docker.com/get-started/docker-overview/)
-- [Get Docker (installation)](https://docs.docker.com/get-docker/)
-- [Bind mounts](https://docs.docker.com/engine/storage/bind-mounts/)
-- [`docker run` reference](https://docs.docker.com/reference/cli/docker/container/run/)
-- [Docker Desktop + WSL 2 (Windows)](https://docs.docker.com/desktop/features/wsl/)
+### Docker Installation
 
-### Commands
+Install Docker on the **host machine** (choose exactly one path):
 
-Install Docker (host machine):
+1. **Windows (Docker Desktop + WSL2)**:
+   install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/), enable the WSL2 backend, and enable WSL integration for your distro.
+2. **macOS (Docker Desktop)**:
+   install [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/).
+3. **Linux (native host)**:
+   install [Docker Engine](https://docs.docker.com/engine/install/) and the [Compose plugin](https://docs.docker.com/compose/install/linux/) by following the official Docker documentation.
 
-- Windows: install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) and use the WSL2 backend
-- macOS: install [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/)
-- Linux: install [Docker Engine](https://docs.docker.com/engine/install/) + [Compose plugin](https://docs.docker.com/compose/install/linux/)
+{: .note }
+> On Linux, if `docker` requires `sudo` after installation, follow the Docker post-install steps in the official Docker documentation.
 
-Optional Linux post-install (host machine):
+{: .warning }
+> Do **not** install Docker Engine inside WSL if you are using Docker Desktop on Windows.
+> Docker Desktop provides Docker to WSL through the WSL integration.
+
+## Continuing Later (Restart the Tutorial Container Shell)
+
+If you continue the tutorial on another day (for example after shutting down your computer),
+your previous tutorial container will no longer be running. That is expected.
+
+Important:
+
+- the tutorial uses `--rm`, so the container itself is temporary,
+- your files are **not** lost because they live in your local tutorial workspace (bind-mounted as `/data`).
+
+If Docker is already installed and the image is already pulled, you can restart the
+tutorial shell directly with the same command from Step 2 (use the same host path you used before):
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y docker.io docker-compose-plugin
-sudo usermod -aG docker <your-user>
-sudo systemctl enable --now docker
+docker run --rm -it \
+  -v "/absolute/path/to/tutorial-workdir:/data" \
+  -w /data \
+  --cpus 8 \
+  -e OMP_NUM_THREADS=1 \
+  -e OPENBLAS_NUM_THREADS=1 \
+  -e MKL_NUM_THREADS=1 \
+  -e NUMEXPR_NUM_THREADS=1 \
+  ghcr.io/franzwagner-uibk/openamundsen_da:latest \
+  bash --noprofile --norc
 ```
 
+
 Verify Docker:
+
+**🟢 Run this command:**
 
 ```bash
 docker run hello-world
 ```
 
 Pull the openAMUNDSEN-DA image:
+
+**🟢 Run this command:**
 
 ```bash
 docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest
@@ -70,7 +103,7 @@ docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest
 <details markdown="block">
   <summary>Windows / PowerShell note (same commands)</summary>
 
-Use the same Docker commands on Windows. Recommended: run them in **WSL**. In **PowerShell**, adjust only host path syntax (for example `C:/...:/data`) and line continuation (PowerShell uses `` ` `` instead of `\`).
+Use the same Docker commands on Windows. Recommended: run them in **WSL** after Docker Desktop + WSL integration is enabled. In **PowerShell**, adjust only host path syntax (for example `C:/...:/data`) and line continuation (PowerShell uses `` ` `` instead of `\`).
 
 </details>
 
@@ -101,6 +134,8 @@ assign here (do not set it much higher than `--cpus`).
 
 Recommended tutorial shell start (run once):
 
+**🟢 Run this command:**
+
 ```bash
 docker run --rm -it \
   -v "/absolute/path/to/tutorial-workdir:/data" \
@@ -111,11 +146,13 @@ docker run --rm -it \
   -e MKL_NUM_THREADS=1 \
   -e NUMEXPR_NUM_THREADS=1 \
   ghcr.io/franzwagner-uibk/openamundsen_da:latest \
-  bash
+  bash --noprofile --norc
 ```
 
 <details markdown="block">
   <summary>Windows PowerShell variant (same container start command)</summary>
+
+**🟢 Run this command:**
 
 ```powershell
 docker run --rm -it `
@@ -127,7 +164,7 @@ docker run --rm -it `
   -e MKL_NUM_THREADS=1 `
   -e NUMEXPR_NUM_THREADS=1 `
   ghcr.io/franzwagner-uibk/openamundsen_da:latest `
-  bash
+  bash --noprofile --norc
 ```
 
 </details>
@@ -150,8 +187,8 @@ Files written under `/data/...` are stored in your local tutorial folder (host
 machine). Files written elsewhere in the container are typically ephemeral and
 disappear when the container exits.
 
-Use the command as shown (`bash`, not `bash -l`). A login shell can override the
-activated environment in this image and make `python` / `oa-da-*` commands unavailable.
+Use the command as shown (`bash --noprofile --norc`). Shell startup files can override the
+activated environment in this image (for example by activating a `base` conda env) and make `python` / `oa-da-*` commands unavailable.
 
 {: .checks }
 > Verify that you are inside the container and working in `/data`.
@@ -164,7 +201,7 @@ activated environment in this image and make `python` / `oa-da-*` commands unava
 pwd
 ```
 
-Example of a later tutorial command (do not run yet unless you already prepared inputs):
+Example of a later tutorial command (do not run yet):
 
 ```bash
 oa-da-snowcover --input-dir /data/rofental/obs/snowcover --project-label project_2022_2023 --setup-dir /data/rofental --overwrite
@@ -181,7 +218,9 @@ oa-da-snowcover --input-dir /data/rofental/obs/snowcover --project-label project
 {: .step }
 > Copy the bundled Rofental example from the image into your mounted local tutorial workspace (run once, inside the container shell).
 
-### Commands
+### Command
+
+**🟢 Run this command:**
 
 ```bash
 cp -a /workspace/examples/rofental /data/rofental
@@ -216,6 +255,63 @@ Linux/macOS and well in WSL/Git Bash on Windows).
 ```bash
 ls /data/rofental
 ```
+
+### Quick peek into the bundled setup data (optional, recommended)
+
+At this point, the example is now in your local workspace and you can inspect the shared
+setup inputs before any preprocessing or DA project execution.
+
+```bash
+ls /data/rofental/meteo
+```
+
+Rofental station file (`/data/rofental/meteo/stations.csv`):
+
+| id | name | x | y | alt |
+| --- | --- | --- | --- | --- |
+| bellavista | Bella Vista | 636823 | 5182569 | 2805 |
+| proviantdepot | Proviantdepot | 639377 | 5187724 | 2659 |
+| latschbloder | Latschbloder | 637854 | 5184641 | 2919 |
+
+This station table provides the metadata (station ID, coordinates, elevation) for the
+meteorological forcing station CSV files in `meteo/`.
+
+Rofental bellavista forcing file snippet (`/data/rofental/meteo/bellavista.csv`):
+
+| date | temp | precip | sw_in | rel_hum | wind_speed | wind_dir |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2023-05-24 17:00:00 | 273.78 | 1.20 | 127.00 | 99.60 | 1.08 | 192.34 |
+| 2023-05-24 18:00:00 | 273.25 | 1.00 | 74.50 | 99.60 | 2.20 | 191.87 |
+| 2023-05-24 19:00:00 | 272.47 | 1.20 | 31.83 | 99.60 | 1.68 | 194.09 |
+| 2023-05-24 20:00:00 | 272.35 | 1.70 | 8.00 | 99.60 | 1.40 | 192.78 |
+| 2023-05-24 21:00:00 | 272.30 | 1.20 | 0.17 | 99.60 | 0.80 | 203.38 |
+
+This gives a concrete example of the forcing time-series format used by the setup before
+the tutorial moves on to preprocessing and DA-specific inputs.
+
+Quick look at the observation folders bundled with the setup:
+
+```bash
+ls /data/rofental/obs
+```
+
+Example raw DA observation raster files:
+
+- FSC / snow cover raster: `/data/rofental/obs/snowcover/s2_fsc_snowflake_rofental_2023_01_01.tif`
+- Wet-snow raster: `/data/rofental/obs/wetsnow/WSM_S1A_SAR_track117_2023_05_11_17_07_26.tif`
+
+Rofental Proviantdepot snow observation file snippet (`/data/rofental/obs/stations/proviantdepot.csv`):
+
+| time | snow_depth | swe |
+| --- | ---: | ---: |
+| 2022-10-01 00:00:00 | 0.10 | 15.12 |
+| 2022-10-01 01:00:00 | 0.10 | 14.78 |
+| 2022-10-01 02:00:00 | 0.10 | 14.78 |
+| 2022-10-01 03:00:00 | 0.10 | 14.80 |
+| 2022-10-01 04:00:00 | 0.10 | 15.20 |
+
+This station observation file is used later for evaluation/diagnostics (not as the raster
+DA input itself), which helps distinguish the different observation roles in the tutorial.
 
 {: .references }
 > Continue after the workspace copy succeeds:

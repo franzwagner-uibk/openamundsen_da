@@ -8,8 +8,7 @@ permalink: /tutorial/framework/
 
 # 4. Framework
 
-This chapter explains the **internal structure** of openAMUNDSEN-DA at the level that is
-most useful for running and debugging projects.
+This chapter explains the **internal structure** of openAMUNDSEN-DA.
 
 It answers questions like:
 
@@ -21,35 +20,8 @@ It answers questions like:
 
 Goal of this chapter: make the framework behavior predictable before you run commands.
 
-Any command blocks shown in this chapter are executed **inside the running tutorial container shell** started in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}).
-
----
-
-## Step-by-step flow on this page
-
-{: .step }
-> Use this chapter as the framework reference map for the rest of the tutorial.
-
-Recommended reading order on this page:
-
-1. read the visual overview note (how this chapter relates to chapter 1)
-2. read sections `1`, `3`, `4`, and `5` first (core framework behavior)
-3. use sections `2`, `6`, and `7` as file/path-oriented reference while running the tutorial
-4. treat command blocks on this page as optional orientation checks (not mandatory steps)
-
-This chapter is primarily for understanding and navigation. The mandatory execution sequence starts in [5. Pre-processing]({{ site.baseurl }}{% link Tutorial/05-pre-processing.md %}).
-
-## Visual overview (recommended before reading details)
-
-The integrated conceptual overview graphic is introduced in
-[1. openAMUNDSEN-DA]({{ site.baseurl }}{% link Tutorial/01-openamundsen-da.md %}).
-Use it there as a roadmap, then come back to this chapter for the concrete setup/project/step/member structure and file-level details.
-
-{: .references }
-> - [Workflow]({{ site.baseurl }}{% link workflow.md %}) for the end-to-end process view
-> - [Project Structure]({{ site.baseurl }}{% link project-structure.md %}) for folder layout details
-> - [Package Structure]({{ site.baseurl }}{% link reference/package-structure.md %}) for module-level code orientation
-> - [DA Methods Reference]({{ site.baseurl }}{% link reference/da-methods.md %}) for the mathematical background of weighting/resampling/rejuvenation
+{: .note }
+>Any command blocks shown in this chapter are executed **inside the running tutorial container shell** started in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}). Treat command blocks on this page as optional orientation checks (not mandatory steps). This chapter is primarily for understanding and navigation. The mandatory execution sequence starts in [5. Pre-processing]({{ site.baseurl }}{% link Tutorial/05-pre-processing.md %}).
 
 ---
 
@@ -60,9 +32,11 @@ openAMUNDSEN-DA uses a layered structure:
 1. **Setup** (top level)
 2. **Project** (one DA experiment inside a setup)
 3. **Step** (one assimilation window inside a project)
-4. **Member** (one ensemble realization inside a step)
+4. **Member** (one ensemble member inside a step)
 
 This hierarchy is reflected directly in the folder structure.
+
+---
 
 ### Setup (top-level folder)
 
@@ -114,19 +88,11 @@ What to notice in this setup snippet:
 - it does not include DA-specific sections (`obs`, `data_assimilation`),
 - those DA settings are added in the project YAML shown next.
 
-Reference snippet (`/data/rofental/meteo/stations.csv`):
-
-| id | name | x | y | alt |
-| --- | --- | --- | --- | --- |
-| bellavista | Bella Vista | 636823 | 5182569 | 2805 |
-| proviantdepot | Proviantdepot | 639377 | 5187724 | 2659 |
-| latschbloder | Latschbloder | 637854 | 5184641 | 2919 |
-
-This station table is shown here to anchor the setup concept to a real shared input file (`meteo/`) that exists before any DA project is generated.
-
 In this tutorial, the setup is the bundled `examples/rofental` case copied from the container image.
 
 The setup YAML (`rofental.yml`) should remain pure openAMUNDSEN configuration. DA-specific configuration belongs to the project YAML.
+
+---
 
 ### Project (DA experiment configuration)
 
@@ -185,7 +151,9 @@ What to notice in this project snippet:
 - `assimilation_events` define the dates that later become step boundaries,
 - this separation is why one setup can host multiple DA projects.
 
-### Step (one assimilation window)
+---
+
+### Step
 
 A step is a time segment between assimilation events (plus the initialization step).
 
@@ -236,24 +204,22 @@ These live under step ensemble folders (e.g. `ensembles/prior/`, `ensembles/post
 
 ---
 
-## 2. Copy the tutorial setup (Rofental case study)
+## 2. Local copy the tutorial setup (Rofental case study)
 
-The tutorial setup copy is now part of [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}),
-where you start the interactive tutorial container shell and run:
+The tutorial setup copy was already part of [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}),
+where you started the interactive tutorial container shell and ran the following commands (**do not re-run the command**)
 
 ```bash
 cp -a /workspace/examples/rofental /data/rofental
 ```
 
-The tutorial uses explicit paths in commands instead of shell variables so users always see where files are read and written.
-
 ### Quick structure check
 
 ```bash
-find /data/rofental -maxdepth 2 -type d | sort
+find /data/rofental -maxdepth 1 -type d | sort
 ```
 
-What you should see (at minimum):
+What you should see:
 
 - `/data/rofental/env`
 - `/data/rofental/grids`
@@ -281,7 +247,7 @@ Raw raster:
 
 Summary row (project-level):
   /data/rofental/obs/summaries/project_2022_2023/scf_summary.csv
-  date=2023-01-01, scf=1.0000, cloud_fraction=0.0
+  date=2023-01-01, scf=1.00, cloud_fraction=0.00
 
 Per-step one-row CSV:
   /data/rofental/projects/project_2022_2023/steps/step_00_init/obs/obs_scf_SNOWCOVER_20230101.csv
@@ -289,7 +255,7 @@ Per-step one-row CSV:
 
 ### Why two preprocessing stages?
 
-#### Stage A: Summary generation (`oa-da-snowcover`, `oa-da-wetsnow`)
+### Stage A: Summary generation (`oa-da-snowcover`, `oa-da-wetsnow`)
 
 Purpose:
 
@@ -301,7 +267,7 @@ Purpose:
 
 Default output location for these summary commands is `obs/summaries/<project_label>/` (tutorial example: `obs/summaries/project_2022_2023/`). Later preprocessing commands read from those summary CSVs.
 
-#### Stage B: Per-step obs generation (`oa-da-scf`, `oa-da-wetsnow-project`)
+### Stage B: Per-step obs generation (`oa-da-scf`, `oa-da-wetsnow-project`)
 
 Purpose:
 
@@ -326,13 +292,13 @@ debug, and easier to validate.
 
 ---
 
-## 4. Prior, posterior, and `open_loop`
+## 4. Prior, posterior, and open_loop
 
 These terms are central to understanding the step-wise DA cycle.
 
-### `open_loop`
+### open_loop
 
-`open_loop` is the unperturbed baseline simulation:
+**open_loop** is the unperturbed baseline simulation:
 
 - no ensemble perturbation resampling logic applied as a particle member,
 - no DA updates,
@@ -340,7 +306,7 @@ These terms are central to understanding the step-wise DA cycle.
 
 Why it matters:
 
-- baseline for interpretation (`increment = ens_mean - open_loop`)
+- baseline for interpretation
 - helps quantify what DA changed
 - useful even when DA performs poorly (it is the comparison anchor)
 
@@ -357,9 +323,15 @@ It is generated from:
 
 The **posterior** is the ensemble state **after** assimilating the observation and applying resampling.
 
+In practice, the posterior consists of **resampled prior model states** (weighted by the observation likelihood). No  new model states are created at this moment; some prior members may be duplicated, and others may disappear.
+
 This posterior then seeds the next step (via rejuvenation) to form the next prior.
 
-Think of each step as a loop: prior -> observe -> weight -> resample -> posterior -> rejuvenate -> next prior.
+For the next step, these resampled states are propagated forward again with **new forcing perturbations** (and rejuvenation noise/settings), which creates the next prior ensemble.
+
+Think of each step as a loop:
+
+**prior -> observe -> weight -> resample -> posterior -> rejuvenate -> next prior**
 
 {: .references }
 > - [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %}) for method terminology and theory context
@@ -401,7 +373,12 @@ ESS measures how concentrated the particle weights are:
 
 Low ESS often triggers resampling, but ESS alone is not a complete quality score. It must
 be interpreted together with the variable, observation coverage, and model/obs mismatch.
+
 </details>
+
+
+{: .references }
+> [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %}) for ESS context, resampling logic, and method details
 
 ---
 
@@ -469,19 +446,6 @@ Before moving to preprocessing, you should be able to explain:
 2. why observations are preprocessed into summaries and per-step CSVs
 3. the roles of `open_loop`, prior, and posterior
 4. how `assimilation_events` shape the step structure
-
-<details markdown="block">
-  <summary>Quick self-check (optional)</summary>
-
-If you edit a wet-snow assimilation date in `assimilation_events`, which components need
-to be regenerated before rerunning the project?
-
-Expected answer (conceptually):
-
-- step skeleton
-- per-step observation CSVs (at least the affected variable, usually rerun both preprocessors for consistency)
-- then the project run
-</details>
 
 ---
 

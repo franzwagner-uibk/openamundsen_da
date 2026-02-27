@@ -54,6 +54,19 @@ Install Docker on the **host machine** (choose exactly one path):
 > On Linux, if `docker` requires `sudo` after installation, follow the Docker post-install steps in the official Docker documentation.
 
 {: .warning }
+> **Ubuntu/Linux first-time Docker install:** a common issue is `permission denied` on `/var/run/docker.sock`.
+> This usually means your user is not yet active in the `docker` group.
+>
+> Run:
+> `sudo usermod -aG docker $USER`
+>
+> Then start/enable Docker and open a new login session:
+> `sudo systemctl enable --now docker`
+> `logout/login` (or reboot; `newgrp docker` can also work).
+>
+> Until that session refresh happens, `docker ...` may still require `sudo`.
+
+{: .warning }
 > Do **not** install Docker Engine inside WSL if you are using Docker Desktop on Windows.
 > Docker Desktop provides Docker to WSL through the WSL integration.
 

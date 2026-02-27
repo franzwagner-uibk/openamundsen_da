@@ -106,8 +106,14 @@ sudo systemctl start docker
 
 ```bash
 sudo usermod -aG docker $USER
-# Log out and back in
+sudo systemctl enable --now docker
+# Then refresh your login session:
+# - log out and back in, or
+# - reboot, or
+# - run: newgrp docker
 ```
+
+Until your session is refreshed, running Docker commands with `sudo` can be necessary.
 
 ### GDAL Issues
 
@@ -128,7 +134,6 @@ environment:
 ```
 
 See [Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) for more issues and solutions.
-
 
 
 

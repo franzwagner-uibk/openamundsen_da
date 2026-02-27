@@ -619,6 +619,42 @@ Interpretation:
 
 ---
 
+## 8. Season cleanup (optional)
+
+openAMUDNSEN-DA contains a module that cleans up heavy files that are used within the DA workflow and not needed anymore after running a project. The cleanup is wired into the project pipeline and activated by default.
+
+{: .checks }
+> Automatic cleanup is enabled by default via `data_assimilation.restart.cleanup_after_setup: true`.
+> Use manual cleanup if you disabled automatic cleanup or if older seasons still contain state files.
+
+Clean one season (`project_2022_2023`):
+
+```bash
+oa-da-clean-project \
+  --setup-dir /data/rofental \
+  --project-dir /data/rofental/projects/project_2022_2023 \
+  --log-level INFO
+```
+
+Clean all seasons under the same setup:
+
+```bash
+oa-da-clean-project \
+  --setup-dir /data/rofental \
+  --all-projects \
+  --log-level INFO
+```
+
+What is removed:
+
+- restart state pickle files under member `results/` directories,
+- sub-domain workspace artifacts (if present).
+
+{: .references }
+> - [Workflow]({{ site.baseurl }}{% link workflow.md %}) (state cleanup behavior and project lifecycle)
+
+---
+
 ## Next step
 
 {: .references }

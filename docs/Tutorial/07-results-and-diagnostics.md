@@ -34,12 +34,9 @@ Use this page as a review routine after a completed run:
 2. inspect performance diagnostics (`plots/perf`)
 3. inspect DA diagnostics (`plots/assim`)
 4. inspect result plots (`plots/results`)
-5. inspect summary CSVs / ROI envelopes
-6. inspect the DA summary NetCDF (`da_output_grids.nc`)
-
-Do not start with plots alone. Always check the log first, because incomplete runs can still leave partial plots/files behind.
-
-Many commands in this chapter are optional inspection helpers. The primary guidance is the **review order + file paths + reference snippets**.
+5. inspect the DA summary NetCDF (`da_output_grids.nc`)
+6. inspect raster snow-depth maps (`open_loop_snowdepth_daily` vs `ens_mean_snowdepth_daily`)
+7. inspect summary CSVs / ROI envelopes
 
 ---
 
@@ -58,12 +55,23 @@ Key locations:
 - `results/grids/da_output_grids.nc` - DA output summary NetCDF
 - `point_scf_roi_envelope.csv`, `point_wet_snow_roi_envelope.csv` - ROI time-series envelopes
 
-Quick directory overview (optional helper):
+Reference structure snippet (project outputs, condensed)
 
-Inspect the project output folder structure (optional helper for orientation).
-
-```bash
-find /data/rofental/projects/project_2022_2023 -maxdepth 3 -type d | sort
+```text
+/data/rofental/projects/project_2022_2023/
+  project_2022_2023.log
+  plots/
+    perf/
+    assim/
+    results/
+  results/
+    grids/
+      da_output_grids.nc
+  point_scf_roi_envelope.csv
+  point_wet_snow_roi_envelope.csv
+  steps/
+    step_00_init/
+    ...
 ```
 
 <details markdown="block">
@@ -80,7 +88,7 @@ It helps new users understand which outputs are:
 
 ---
 
-## 1. Read the log first (always)
+## 1. Read the log first
 
 Before interpreting plots, confirm that the run actually completed cleanly.
 
@@ -111,18 +119,21 @@ Reference snippet (successful log tail excerpt):
 2026-02-24 ... Project processing complete: /data/projects/project_2022_2023 (wall-clock 670.9 s, ~0.19 h)
 ```
 
-{: .warning }
-> If the log is not clean, treat downstream plots and tables as potentially incomplete or misleading.
->
-> Warning signs:
->
-> - repeated missing observation messages
-> - failures in a specific step
-> - plot task errors
-> - no DA output export message
+<details markdown="block">
+  <summary>If the log is not clean (important troubleshooting note)</summary>
 
-{: .references }
-> - [Advanced Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) (follow-up when the log shows errors)
+If the log is not clean, treat downstream plots and tables as potentially incomplete or misleading.
+
+Warning signs:
+
+- repeated missing observation messages
+- failures in a specific step
+- plot task errors
+- no DA output export message
+
+[Advanced Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) (follow-up when the log shows errors)
+
+</details>
 
 ---
 
@@ -135,12 +146,12 @@ Files to inspect:
 - `plots/perf/project_perf.png`
 - `plots/perf/project_perf_metrics.csv`
 
-Quick file presence check for performance diagnostics.
+Reference structure snippet (`plots/perf`)
 
-```bash
-ls -lh /data/rofental/projects/project_2022_2023/plots/perf
-echo;
-head -10 /data/rofental/projects/project_2022_2023/plots/perf/project_perf_metrics.csv
+```text
+/data/rofental/projects/project_2022_2023/plots/perf/
+  project_perf.png
+  project_perf_metrics.csv
 ```
 
 
@@ -152,7 +163,6 @@ head -10 /data/rofental/projects/project_2022_2023/plots/perf/project_perf_metri
 > - estimate cost of changing resolution (`100 m` vs coarser)
 > - identify unexpectedly slow stages (I/O, plotting, step-level hotspots)
 
-Performance outputs are especially useful when comparing tutorial runs with different ensemble sizes or resolutions.
 
 Reference CSV snippet (performance metrics)
 
@@ -201,10 +211,16 @@ What they show:
 - **weights**: how strongly observations favor some particles over others
 - **ESS (effective sample size)**: particle degeneracy indicator
 
-Quick listing of assimilation diagnostics files.
+Reference structure snippet (`plots/assim`, typical files)
 
-```bash
-find /data/rofental/projects/project_2022_2023/plots/assim -type f | sort
+```text
+/data/rofental/projects/project_2022_2023/plots/assim/
+  ess/
+    setup_ess_timeline_2022_2023.png
+  weights/
+    step_02_weights.png
+    step_03_weights.png
+    ...
 ```
 
 
@@ -281,10 +297,16 @@ Typical files include:
 - station SWE plots
 - ROI envelope exports and land-cover masking report
 
-Quick listing of result plot files.
+Reference structure snippet (`plots/results`, typical files)
 
-```bash
-ls -1 /data/rofental/projects/project_2022_2023/plots/results
+```text
+/data/rofental/projects/project_2022_2023/plots/results/
+  fraction_timeseries.png
+  lc_mask_report.csv
+  setup_results_point_latschbloder_snow_depth_2022_2023.png
+  setup_results_point_latschbloder_swe_2022_2023.png
+  setup_results_point_proviantdepot_snow_depth_2022_2023.png
+  setup_results_point_proviantdepot_swe_2022_2023.png
 ```
 
 
@@ -411,9 +433,120 @@ What to read in this plot:
 > - [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %}) (SCF / wet-snow preprocessing context)
 > - [Workflow]({{ site.baseurl }}{% link workflow.md %}) (where these plots fit in the DA workflow)
 
+<a id="da-output-summary-netcdf"></a>
+## 5. DA output summary NetCDF (`da_output_grids.nc`)
+
+The tutorial setup writes a DA output summary NetCDF:
+
+- `results/grids/da_output_grids.nc`
+
+**Output configuration (project YAML)**  
+File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
+Relevant keys: `data_assimilation.output.retention`, `data_assimilation.output.grids.format`, `data_assimilation.output.grids.variables[*]`
+
+This file is designed for:
+
+- post-processing,
+- visualization,
+- comparison between runs,
+- exporting selected variables in one merged file.
+
+In the current tutorial configuration, `data_assimilation.output.retention: full` is enabled, so this summary NetCDF is written and the heavier member-grid artifacts are retained as well.
+
+Reference output file path (DA summary NetCDF):
+
+- `/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc`
+
+
+Optional variable/dimension inspection (Python in the container).
+
+```bash
+python - <<'PY'
+import xarray as xr
+ds = xr.open_dataset("/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc")
+print(ds)
+print("\nVariables:")
+for name in ds.data_vars:
+    print("-", name, ds[name].dims)
+PY
+```
+
+
+{: .checks }
+> What to expect conceptually in the summary NetCDF:
+>
+> - open-loop baseline fields
+> - ensemble mean / spread fields
+> - increments (`ens_mean - open_loop`) for configured variables/aggregations
+
+Dimension names in the inspected NetCDF (for example `time1`, `time2`, `snow_layer`, `nbnd`) are typically inherited from the underlying model outputs. Configure **which variables/metrics** are exported in the project YAML under `data_assimilation.output.grids.variables[*]`; see [6. Running the Project]({{ site.baseurl }}{% link Tutorial/06-running-the-project.md %}) for the output-grid configuration note.
+
+### Raster output
+
+{: .checks }
+> Key raster comparison from `results/grids/da_output_grids.nc`:
+> - `open_loop_snowdepth_daily`
+> - `ens_mean_snowdepth_daily`
+>
+> Date shown in the reference map: **2023-06-02**
+
+![Snow depth map pair for 2023-06-02 (open loop vs ensemble mean)]({{ site.baseurl }}/assets/images/tutorial/rofental_tutorial_snow_depth_2023_06_02.png)
+
+_`open_loop_snowdepth_daily` (left) vs `ens_mean_snowdepth_daily` (middle) on **2023-06-02**. Use the same color classes for both maps for direct interpretation._
+
+![Snow depth increment map for 2023-06-02 (ensemble mean minus open loop)]({{ site.baseurl }}/assets/images/tutorial/rofental_tutorial_snow_depth_increment_2023_06_02.png)
+
+_`increment_snowdepth_daily` on **2023-06-02** (`ens_mean_snowdepth_daily - open_loop_snowdepth_daily`)._
+
+{: .checks }
+> Note on raster workflow:
+> - all output grids are stored in one NetCDF file: `results/grids/da_output_grids.nc` (see [5. DA output summary NetCDF (`da_output_grids.nc`)](#da-output-summary-netcdf))
+> - extract the layers/time slices you need in the GIS tool of your choice before styling or export
+
+Reference snippet (NetCDF inspection, tutorial reference run):
+
+```text
+dims: {'time2': 272, 'snow_layer': 3, 'y': 150, 'x': 160, 'time1': 273, 'nbnd': 2}
+vars:
+  ens_max_liquid_water_content
+  ens_max_snowdepth_daily
+  ens_max_swe_daily
+  ens_mean_liquid_water_content
+  ens_mean_snowdepth_daily
+  ens_mean_swe_daily
+  ens_min_liquid_water_content
+  ens_min_snowdepth_daily
+  ens_min_swe_daily
+  ens_std_liquid_water_content
+  ens_std_snowdepth_daily
+  ens_std_swe_daily
+  increment_liquid_water_content
+  increment_snowdepth_daily
+  increment_swe_daily
+  open_loop_liquid_water_content
+  open_loop_snowdepth_daily
+  open_loop_swe_daily
+```
+
+Use `results/grids/da_output_grids.nc` in a GIS software of your choice and visualize raster output.
+
+Recommended map date(s): choose one date with active snow cover and one date near melt season.
+Use the same date across `open_loop`, `ens_mean`, and `increment` maps.
+
+### DA increment map
+
+The tutorial also includes a reference increment map above (`increment_snowdepth_daily`, date
+**2023-06-02**). For additional diagnostics, export one or two extra increment dates from
+`da_output_grids.nc` and compare against the same-date open-loop/ensemble-mean maps.
+
+{: .references }
+> - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) (DA output variable selection and metrics)
+> - [Project Structure]({{ site.baseurl }}{% link project-structure.md %}) (where project outputs live)
+> - [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %}) (how to interpret increments conceptually)
+
 ---
 
-## 5. ROI envelopes and summary CSVs
+## 6. ROI envelopes and summary CSVs
 
 The project root contains setup-level envelope time series:
 
@@ -424,15 +557,10 @@ These summarize the ensemble spread over the ROI (mean/min/max and sample count)
 
 These CSVs are lightweight outputs that are ideal for quick comparisons between runs without loading NetCDF files.
 
-Quick CSV inspection for ROI envelope outputs.
+Reference file paths for ROI envelope outputs:
 
-```bash
-echo "SCF envelope:"
-head -5 /data/rofental/projects/project_2022_2023/point_scf_roi_envelope.csv
-echo;
-echo "Wet-snow envelope:"
-head -5 /data/rofental/projects/project_2022_2023/point_wet_snow_roi_envelope.csv
-```
+- `/data/rofental/projects/project_2022_2023/point_scf_roi_envelope.csv`
+- `/data/rofental/projects/project_2022_2023/point_wet_snow_roi_envelope.csv`
 
 
 {: .checks }
@@ -469,120 +597,6 @@ Interpretation:
 - `value_mean`: ensemble mean over `open_loop + ensemble members`
 - `value_min` / `value_max`: spread envelope
 - `n`: number of contributing trajectories (for tutorial baseline: `10` members + `1` open loop = `11`)
-
----
-
-## 6. DA output summary NetCDF (`da_output_grids.nc`)
-
-The tutorial setup writes a DA output summary NetCDF:
-
-- `results/grids/da_output_grids.nc`
-
-**Output configuration (project YAML)**  
-File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
-Relevant keys: `data_assimilation.output.retention`, `data_assimilation.output.grids.format`, `data_assimilation.output.grids.variables[*]`
-
-This file is designed for:
-
-- post-processing,
-- visualization,
-- comparison between runs,
-- exporting selected variables in one merged file.
-
-In the current tutorial configuration, `data_assimilation.output.retention: full` is enabled, so this summary NetCDF is written and the heavier member-grid artifacts are retained as well.
-
-Quick file presence/size check for the DA summary NetCDF output.
-
-```bash
-ls -lh /data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc
-```
-
-
-Optional variable/dimension inspection (Python in the container).
-
-```bash
-python - <<'PY'
-import xarray as xr
-ds = xr.open_dataset("/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc")
-print(ds)
-print("\nVariables:")
-for name in ds.data_vars:
-    print("-", name, ds[name].dims)
-PY
-```
-
-
-{: .checks }
-> What to expect conceptually in the summary NetCDF:
->
-> - open-loop baseline fields
-> - ensemble mean / spread fields
-> - increments (`ens_mean - open_loop`) for configured variables/aggregations
-
-Reference snippet (NetCDF inspection, tutorial reference run):
-
-```text
-dims: {'time2': 272, 'snow_layer': 3, 'y': 150, 'x': 160, 'time1': 273, 'nbnd': 2}
-vars:
-  ens_max_liquid_water_content
-  ens_max_snowdepth_daily
-  ens_max_swe_daily
-  ens_mean_liquid_water_content
-  ens_mean_snowdepth_daily
-  ens_mean_swe_daily
-  ens_min_liquid_water_content
-  ens_min_snowdepth_daily
-  ens_min_swe_daily
-  ens_std_liquid_water_content
-  ens_std_snowdepth_daily
-  ens_std_swe_daily
-  increment_liquid_water_content
-  increment_snowdepth_daily
-  increment_swe_daily
-  open_loop_liquid_water_content
-  open_loop_snowdepth_daily
-  open_loop_swe_daily
-```
-
-Use this terminal snippet to verify two things before deeper analysis: the grid dimensions are plausible for the tutorial setup, and the expected open-loop/ensemble/increment variables were actually exported.
-
-For the tutorial, GIS screenshots of selected NetCDF layers can be more intuitive than raw terminal dumps.
-
-### Map placeholders (recommended tutorial additions)
-
-Use `results/grids/da_output_grids.nc` in GIS software (or Python) and create screenshots
-with a **consistent color scale** for direct comparison.
-
-Recommended map date(s): choose one date with active snow cover and one date near melt season. Use the same date across `open_loop`, `ens_mean`, and `increment` maps.
-
-### Placeholder (map pair: snow depth, open loop vs ensemble mean)
-
-> Insert two maps for the same date from `da_output_grids.nc`:
-> - `open_loop_snowdepth_daily`
-> - `ens_mean_snowdepth_daily`
->  
-> Use the same color scale and include the date in the caption.
-
-### Placeholder (map pair: SWE, open loop vs ensemble mean)
-
-> Insert two maps for the same date from `da_output_grids.nc`:
-> - `open_loop_swe_daily`
-> - `ens_mean_swe_daily`
->  
-> Use the same color scale and include the date in the caption.
-
-### Placeholder (map: DA increments)
-
-> Insert one or two increment maps (same date) from `da_output_grids.nc`:
-> - `increment_snowdepth_daily`
-> - `increment_swe_daily`
->  
-> Highlight where DA adds/removes snow relative to the open loop.
-
-{: .references }
-> - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) (DA output variable selection and metrics)
-> - [Project Structure]({{ site.baseurl }}{% link project-structure.md %}) (where project outputs live)
-> - [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %}) (how to interpret increments conceptually)
 
 ---
 

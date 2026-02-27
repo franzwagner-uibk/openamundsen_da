@@ -212,6 +212,29 @@ data_assimilation:
 
 This snippet shows the three project settings that most visibly change runtime and outputs in the tutorial: ensemble size, number/timing of events, and which grid-summary variables/metrics are exported.
 
+### How to configure DA grid output content and dimensions (important)
+
+The DA output summary NetCDF (`results/grids/da_output_grids.nc`) is configured in the same
+`data_assimilation.output.grids` block.
+
+What you can configure directly here:
+
+- `variables[*].var` / `name`: which model grid variables are exported into the DA summary
+- `variables[*].metrics`: which summary metrics are written for each variable (`open_loop`, `ens_mean`, `ens_std`, `ens_min`, `ens_max`, `increment`)
+- `format`, `compress`, `retention`
+
+How to interpret the `dims` in the NetCDF inspection output:
+
+- `x`, `y` sizes come from the setup domain + resolution (for the tutorial: the Rofental `100 m` grid)
+- `time*` dimensions come from the underlying model NetCDF outputs and the project period
+- `snow_layer` appears for layer-resolved variables (e.g. liquid water content by snow layer)
+- `nbnd=2` is the usual time-bounds dimension (start/end bounds)
+
+Note on `grids.dims: [x, y, time]`:
+
+- this is the intended standard dimension order for exported DA grids in the config
+- the current DA summary writer still preserves source variable dimensions from the underlying model NetCDF files, so the inspected dataset may contain `time1`/`time2`, `snow_layer`, and `nbnd`
+
 ### Runtime expectations (what affects runtime)
 
 Runtime depends on:

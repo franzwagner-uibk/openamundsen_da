@@ -210,6 +210,25 @@ data_assimilation:
     ensemble_size: 10
   wet_snow:
     classification_threshold_percent: 0.5
+  uncertainty:
+    scf:
+      enabled: true
+      input_dir: obs/snowcover
+      u_min: 10.0
+      u_max: 20.0
+      nodata_value: 255.0
+      penalties:
+        - name: forest
+          source: landcover
+          enabled: true
+          classes: [8, 9, 10, 11, 12]
+          penalty: 20.0
+        - name: shadow
+          source: shadow
+          enabled: false
+          input_dir: obs/shadow
+          classes: [1]
+          penalty: 20.0
 ```
 ---
 
@@ -305,6 +324,35 @@ How to read this SCF summary snippet:
 - `n_snow` is the snow-class support used to compute `scf`,
 - `scf` is the fraction used later for SCF DA events,
 - `cloud_fraction` helps you judge whether a date is suitable for assimilation.
+
+---
+
+## Step 1b (Optional): Generate SCF uncertainty companion rasters
+
+Use this when you want per-raster uncertainty layers for feature development,
+tests, or tutorial visuals.
+
+```bash
+oa-da-scf-uncertainty \
+--setup-dir /data/rofental \
+--project-label project_2022_2023 \
+--overwrite
+```
+
+Configuration used (project YAML):
+- `obs.snowcover.classes.cloud|water|nodata`
+- `data_assimilation.uncertainty.scf.u_min|u_max|nodata_value`
+- `data_assimilation.uncertainty.scf.penalties[*]` (generic class-based penalties)
+- `data_assimilation.landcover_mask.*` (for land-cover grid resolution/alignment)
+
+Output location (default in this tutorial):
+- Uncertainty rasters are written next to source SCF rasters in `/data/rofental/obs/snowcover/`
+- Summary file is `/data/rofental/obs/snowcover/uncertainty_summary.csv`
+
+Best-practice guidance:
+- Keep `data_assimilation.landcover_mask.classes_to_exclude` for truly unusable classes (for example ice/water/urban).
+- Use uncertainty penalties for usable-but-uncertain classes (for example forest/shadow).
+- Do not duplicate cloud/water as uncertainty penalties when they are already handled through class exclusion/masking.
 
 ---
 

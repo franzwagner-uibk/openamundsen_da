@@ -70,6 +70,28 @@ data_assimilation:
       sigma_cloud_scale: 0.10
       min_sigma: 0.03
 
+  # Optional generation of SCF uncertainty companion rasters for
+  # development/testing/tutorial workflows.
+  uncertainty:
+    scf:
+      enabled: false
+      input_dir: obs/snowcover
+      u_min: 10.0
+      u_max: 20.0
+      nodata_value: 255.0
+      penalties:
+        - name: forest
+          source: landcover
+          enabled: true
+          classes: [8, 9, 10, 11, 12]
+          penalty: 20.0
+        - name: shadow
+          source: shadow
+          enabled: false
+          input_dir: obs/shadow
+          classes: [1]
+          penalty: 20.0
+
   # Particle resampling settings.
   resampling:
     algorithm: systematic
@@ -127,4 +149,3 @@ data_assimilation:
     - date: YYYY-MM-DD
       variable: wet_snow
       product: WETSNOW
-

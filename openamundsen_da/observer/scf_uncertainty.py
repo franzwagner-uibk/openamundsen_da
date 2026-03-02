@@ -1,0 +1,513 @@
+"""Generate SCF uncertainty companion rasters from project configuration.
+
+This utility is intended for development/tutorial workflows where an explicit
+uncertainty layer is needed per SCF observation raster.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Sequence
+
+import numpy as np
+import rasterio
+from loguru import logger
+from rasterio.warp import Resampling, reproject
+
+from openamundsen_da.core.env import _read_yaml_file
+from openamundsen_da.io.paths import find_project_yaml
+from openamundsen_da.util.landcover_mask import resolve_landcover_mask
+from openamundsen_da.util.loguru_utils import configure_cli_logger
+
+
+@dataclass(frozen=True)
+class SnowcoverClasses:
+    cloud: tuple[int, ...]
+    water: tuple[int, ...]
+    nodata: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class PenaltyRule:
+    name: str
+    source: str  # fsc | landcover | shadow
+    classes: tuple[int, ...]
+    penalty: float
+    enabled: bool
+    input_dir: Path | None  # required for source=shadow
+
+
+@dataclass(frozen=True)
+class ScfUncertaintyConfig:
+    enabled: bool
+    input_dir: Path
+    u_min: float
+    u_max: float
+    nodata_value: float
+    penalties: tuple[PenaltyRule, ...]
+
+
+def _require_mapping(raw: object, *, path: str) -> dict[str, object]:
+    if not isinstance(raw, dict):
+        raise ValueError(f"Expected mapping at {path}")
+    return raw
+
+
+def _to_int_tuple(raw: object, *, path: str, allow_empty: bool = True) -> tuple[int, ...]:
+    if raw is None:
+        return tuple()
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
+        raise ValueError(f"{path} must be a list of integers")
+    out: list[int] = []
+    for v in raw:
+        try:
+            out.append(int(v))
+        except Exception as exc:
+            raise ValueError(f"{path} contains non-integer value: {v!r}") from exc
+    if not out and not allow_empty:
+        raise ValueError(f"{path} must contain at least one integer")
+    return tuple(out)
+
+
+def _resolve_path(raw: str | Path, *, base_dir: Path) -> Path:
+    p = Path(raw)
+    return p if p.is_absolute() else (base_dir / p)
+
+
+def _slugify_name(raw: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9_]+", "_", raw.strip().lower()).strip("_")
+    return slug or "rule"
+
+
+def _normalize_rule_name(raw_name: str | None, index: int, used: set[str]) -> str:
+    base = _slugify_name(raw_name) if raw_name else f"rule_{index + 1}"
+    name = base
+    suffix = 2
+    while name in used:
+        name = f"{base}_{suffix}"
+        suffix += 1
+    used.add(name)
+    return name
+
+
+def _extract_date_keys(name_or_stem: str) -> tuple[str, ...]:
+    keys: set[str] = set()
+    for match in re.finditer(r"(20\d{2})[_-]?(\d{2})[_-]?(\d{2})", name_or_stem):
+        y, m, d = match.groups()
+        keys.add(f"{y}_{m}_{d}")
+        keys.add(f"{y}{m}{d}")
+    return tuple(sorted(keys))
+
+
+def _resolve_shadow_path(
+    *,
+    src_path: Path,
+    shadow_by_name: dict[str, Path],
+    shadow_by_date: dict[str, list[Path]],
+) -> Path | None:
+    stem = src_path.stem.lower()
+    direct = shadow_by_name.get(stem)
+    if direct is not None:
+        return direct
+
+    for repl in ("fsc", "snowcover", "snowflake"):
+        repl_stem = stem.replace(repl, "shadow")
+        cand = shadow_by_name.get(repl_stem)
+        if cand is not None:
+            return cand
+
+    for key in _extract_date_keys(src_path.stem):
+        matches = shadow_by_date.get(key, [])
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            return sorted(matches)[0]
+    return None
+
+
+def _load_project_config(project_dir: Path) -> tuple[ScfUncertaintyConfig, SnowcoverClasses]:
+    cfg = _require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
+    obs_cfg = _require_mapping(cfg.get("obs"), path="project.obs")
+    snow_cfg = _require_mapping(obs_cfg.get("snowcover"), path="project.obs.snowcover")
+    classes_cfg = _require_mapping(snow_cfg.get("classes"), path="project.obs.snowcover.classes")
+
+    snow_classes = SnowcoverClasses(
+        cloud=_to_int_tuple(classes_cfg.get("cloud"), path="project.obs.snowcover.classes.cloud"),
+        water=_to_int_tuple(classes_cfg.get("water"), path="project.obs.snowcover.classes.water"),
+        nodata=_to_int_tuple(classes_cfg.get("nodata"), path="project.obs.snowcover.classes.nodata"),
+    )
+
+    da_cfg = _require_mapping(cfg.get("data_assimilation"), path="project.data_assimilation")
+    unc_cfg_raw = da_cfg.get("uncertainty")
+    unc_cfg = _require_mapping(unc_cfg_raw, path="project.data_assimilation.uncertainty") if unc_cfg_raw else {}
+    scf_unc_raw = unc_cfg.get("scf")
+    scf_unc = _require_mapping(scf_unc_raw, path="project.data_assimilation.uncertainty.scf") if scf_unc_raw else {}
+
+    setup_dir = project_dir.parent.parent
+    default_input = _resolve_path(str(snow_cfg.get("dir", "obs/snowcover")), base_dir=setup_dir)
+
+    penalties: list[PenaltyRule] = []
+    used_names: set[str] = set()
+    if "penalties" not in scf_unc:
+        raise ValueError(
+            "Missing required configuration key: "
+            "project.data_assimilation.uncertainty.scf.penalties"
+        )
+    penalties_raw = scf_unc.get("penalties")
+    if not isinstance(penalties_raw, Sequence) or isinstance(penalties_raw, (str, bytes)):
+        raise ValueError("project.data_assimilation.uncertainty.scf.penalties must be a list")
+    for i, raw in enumerate(penalties_raw):
+        rule = _require_mapping(raw, path=f"project.data_assimilation.uncertainty.scf.penalties[{i}]")
+        source = str(rule.get("source", "")).strip().lower()
+        if source not in {"fsc", "landcover", "shadow"}:
+            raise ValueError(
+                f"project.data_assimilation.uncertainty.scf.penalties[{i}].source must be one of: "
+                "fsc, landcover, shadow"
+            )
+        name = _normalize_rule_name(rule.get("name"), i, used_names)
+        classes = _to_int_tuple(
+            rule.get("classes"),
+            path=f"project.data_assimilation.uncertainty.scf.penalties[{i}].classes",
+            allow_empty=False,
+        )
+        input_dir: Path | None = None
+        if source == "shadow":
+            default_shadow_input = setup_dir / "obs" / "shadow"
+            input_dir = _resolve_path(
+                str(rule.get("input_dir", default_shadow_input)),
+                base_dir=setup_dir,
+            )
+        penalties.append(
+            PenaltyRule(
+                name=name,
+                source=source,
+                classes=classes,
+                penalty=float(rule.get("penalty", 0.0)),
+                enabled=bool(rule.get("enabled", True)),
+                input_dir=input_dir,
+            )
+        )
+
+    config = ScfUncertaintyConfig(
+        enabled=bool(scf_unc.get("enabled", True)),
+        input_dir=_resolve_path(str(scf_unc.get("input_dir", default_input)), base_dir=setup_dir),
+        u_min=float(scf_unc.get("u_min", 10.0)),
+        u_max=float(scf_unc.get("u_max", 20.0)),
+        nodata_value=float(scf_unc.get("nodata_value", 255.0)),
+        penalties=tuple(penalties),
+    )
+    return config, snow_classes
+
+
+def _triangular_uncertainty(scf: np.ndarray, u_min: float, u_max: float) -> np.ndarray:
+    delta = u_max - u_min
+    left = u_min + (scf / 50.0) * delta
+    right = u_max - ((scf - 50.0) / 50.0) * delta
+    return np.where(scf <= 50.0, left, right)
+
+
+def _resample_to_template(
+    src_path: Path,
+    template: rasterio.DatasetReader,
+    *,
+    dst_nodata: float,
+) -> np.ndarray:
+    with rasterio.open(src_path) as src:
+        dst = np.full(template.shape, dst_nodata, dtype=np.float32)
+        src_crs = src.crs if src.crs is not None else template.crs
+        reproject(
+            source=rasterio.band(src, 1),
+            destination=dst,
+            src_transform=src.transform,
+            src_crs=src_crs,
+            dst_transform=template.transform,
+            dst_crs=template.crs,
+            resampling=Resampling.nearest,
+            src_nodata=src.nodata,
+            dst_nodata=dst_nodata,
+        )
+    return dst
+
+
+def _apply_penalty_rules(
+    *,
+    unc_valid: np.ndarray,
+    valid: np.ndarray,
+    fsc: np.ndarray,
+    landcover_resampled: np.ndarray | None,
+    shadow_by_rule: dict[str, np.ndarray],
+    rules: Sequence[PenaltyRule],
+) -> dict[str, float]:
+    fractions: dict[str, float] = {}
+
+    for rule in rules:
+        if not rule.enabled:
+            fractions[rule.name] = np.nan
+            continue
+        if rule.penalty == 0.0:
+            fractions[rule.name] = 0.0
+            continue
+
+        mask_valid = np.zeros(unc_valid.shape, dtype=bool)
+
+        if rule.source == "fsc":
+            vals = fsc[valid]
+            finite_vals = np.isfinite(vals)
+            if np.any(finite_vals):
+                mask_valid[finite_vals] = np.isin(vals[finite_vals].astype(np.int32), rule.classes)
+        elif rule.source == "landcover":
+            if landcover_resampled is None:
+                fractions[rule.name] = np.nan
+                continue
+            vals = landcover_resampled[valid]
+            finite_vals = np.isfinite(vals)
+            if np.any(finite_vals):
+                mask_valid[finite_vals] = np.isin(vals[finite_vals].astype(np.int32), rule.classes)
+        elif rule.source == "shadow":
+            shadow = shadow_by_rule.get(rule.name)
+            if shadow is None:
+                fractions[rule.name] = np.nan
+                continue
+            vals = shadow[valid]
+            finite_vals = np.isfinite(vals)
+            if np.any(finite_vals):
+                mask_valid[finite_vals] = np.isin(vals[finite_vals].astype(np.int32), rule.classes)
+        else:
+            fractions[rule.name] = np.nan
+            continue
+
+        frac = float(np.mean(mask_valid)) if mask_valid.size else np.nan
+        fractions[rule.name] = frac
+        if np.any(mask_valid):
+            unc_valid[mask_valid] = unc_valid[mask_valid] + rule.penalty
+
+    return fractions
+
+
+def _build_uncertainty(
+    fsc: np.ndarray,
+    *,
+    landcover_resampled: np.ndarray | None,
+    shadow_by_rule: dict[str, np.ndarray],
+    cfg: ScfUncertaintyConfig,
+    classes: SnowcoverClasses,
+) -> tuple[np.ndarray, dict[str, float]]:
+    out = np.full(fsc.shape, cfg.nodata_value, dtype=np.float32)
+    finite = np.isfinite(fsc)
+
+    valid = finite & (fsc >= 0.0) & (fsc <= 100.0)
+    fractions: dict[str, float] = {r.name: np.nan for r in cfg.penalties}
+
+    if np.any(valid):
+        unc_valid = _triangular_uncertainty(fsc[valid], cfg.u_min, cfg.u_max).astype(np.float32)
+        fractions = _apply_penalty_rules(
+            unc_valid=unc_valid,
+            valid=valid,
+            fsc=fsc,
+            landcover_resampled=landcover_resampled,
+            shadow_by_rule=shadow_by_rule,
+            rules=cfg.penalties,
+        )
+        out[valid] = np.clip(unc_valid, 0.0, 100.0)
+
+    nodata_cls = np.zeros(fsc.shape, dtype=bool)
+    if np.any(finite) and classes.nodata:
+        vals = fsc[finite].astype(np.int32)
+        nodata_cls[finite] = np.isin(vals, classes.nodata)
+    out[nodata_cls] = cfg.nodata_value
+
+    return out, fractions
+
+
+def _date_token_from_name(name: str) -> str:
+    stem = Path(name).stem
+    parts = stem.split("_")
+    if len(parts) >= 4:
+        return "_".join(parts[-3:])
+    return stem
+
+
+def generate_uncertainty_layers(*, setup_dir: Path, project_label: str, overwrite: bool = False) -> Path:
+    project_dir = setup_dir / "projects" / project_label
+    cfg, snow_classes = _load_project_config(project_dir)
+
+    if not cfg.enabled:
+        logger.info("SCF uncertainty generation disabled in project YAML; nothing to do.")
+        return cfg.input_dir
+
+    files_all = sorted(cfg.input_dir.glob("*.tif")) + sorted(cfg.input_dir.glob("*.tiff"))
+    files = [p for p in files_all if not p.stem.lower().endswith("_uncertainty")]
+    if not files:
+        raise FileNotFoundError(f"No SCF GeoTIFF files found in {cfg.input_dir}")
+
+    lc_cfg = resolve_landcover_mask(setup_dir, project_dir)
+    if lc_cfg.path is None:
+        logger.warning(
+            "Land-cover mask path not resolved from project configuration; "
+            "landcover penalties will be skipped."
+        )
+        landcover_resampled = None
+    else:
+        with rasterio.open(files[0]) as template:
+            landcover_resampled = _resample_to_template(lc_cfg.path, template, dst_nodata=np.nan)
+
+    shadow_indexes: dict[Path, tuple[dict[str, Path], dict[str, list[Path]]]] = {}
+    for rule in cfg.penalties:
+        if rule.enabled and rule.source == "shadow" and rule.input_dir is not None:
+            rule_dir = rule.input_dir
+            if rule_dir in shadow_indexes:
+                continue
+            shadow_files = sorted(rule_dir.glob("*.tif")) + sorted(rule_dir.glob("*.tiff"))
+            by_name: dict[str, Path] = {}
+            by_date: dict[str, list[Path]] = {}
+            if not shadow_files:
+                logger.warning(
+                    "Shadow penalty rule '{}' enabled but no files found in {}",
+                    rule.name,
+                    rule_dir,
+                )
+            for sh in shadow_files:
+                by_name[sh.stem.lower()] = sh
+                for key in _extract_date_keys(sh.stem):
+                    by_date.setdefault(key, []).append(sh)
+            shadow_indexes[rule_dir] = (by_name, by_date)
+
+    fraction_cols = [f"frac_{rule.name}" for rule in cfg.penalties]
+    rows: list[str] = [
+        "date,source,output,shadow_sources,n_valid,mean_unc,min_unc,max_unc," + ",".join(fraction_cols)
+    ]
+
+    generated = 0
+    skipped = 0
+    shadow_matched = 0
+    shadow_missing = 0
+
+    for src_path in files:
+        out_name = f"{src_path.stem}_uncertainty.tif"
+        out_path = src_path.parent / out_name
+
+        if out_path.exists() and not overwrite:
+            skipped += 1
+            continue
+
+        with rasterio.open(src_path) as src:
+            fsc = src.read(1)
+            shadow_by_rule: dict[str, np.ndarray] = {}
+            shadow_sources: list[str] = []
+
+            for rule in cfg.penalties:
+                if not (rule.enabled and rule.source == "shadow" and rule.input_dir is not None):
+                    continue
+                by_name, by_date = shadow_indexes.get(rule.input_dir, ({}, {}))
+                shadow_path = _resolve_shadow_path(
+                    src_path=src_path,
+                    shadow_by_name=by_name,
+                    shadow_by_date=by_date,
+                )
+                if shadow_path is None:
+                    shadow_missing += 1
+                    continue
+                shadow_arr = _resample_to_template(shadow_path, src, dst_nodata=np.nan)
+                shadow_by_rule[rule.name] = shadow_arr
+                shadow_sources.append(shadow_path.name)
+                shadow_matched += 1
+
+            unc, fractions = _build_uncertainty(
+                fsc=fsc,
+                landcover_resampled=landcover_resampled,
+                shadow_by_rule=shadow_by_rule,
+                cfg=cfg,
+                classes=snow_classes,
+            )
+
+            profile = src.profile.copy()
+            profile.update(
+                dtype="float32",
+                nodata=cfg.nodata_value,
+                compress="deflate",
+                predictor=3,
+                tiled=True,
+                blockxsize=256,
+                blockysize=256,
+            )
+
+            with rasterio.open(out_path, "w", **profile) as dst:
+                dst.write(unc.astype(np.float32), 1)
+                dst.set_band_description(1, "uncertainty_percent")
+                dst.update_tags(
+                    1,
+                    units="percent",
+                    long_name="SCF uncertainty (tutorial synthetic v1)",
+                    method="triangular_scf_plus_penalty_rules",
+                    u_min=str(cfg.u_min),
+                    u_max=str(cfg.u_max),
+                )
+
+        valid = unc != cfg.nodata_value
+        valid_count = int(np.count_nonzero(valid))
+        if valid_count > 0:
+            vals = unc[valid]
+            mean_unc = float(np.mean(vals))
+            min_unc = float(np.min(vals))
+            max_unc = float(np.max(vals))
+        else:
+            mean_unc = float("nan")
+            min_unc = float("nan")
+            max_unc = float("nan")
+
+        frac_vals: list[str] = []
+        for rule in cfg.penalties:
+            v = fractions.get(rule.name, np.nan)
+            frac_vals.append("nan" if not np.isfinite(v) else f"{float(v):.4f}")
+
+        shadow_sources_joined = "|".join(sorted(set(shadow_sources)))
+        rows.append(
+            f"{_date_token_from_name(src_path.name)},{src_path.name},{out_name},{shadow_sources_joined},"
+            f"{valid_count},{mean_unc:.4f},{min_unc:.4f},{max_unc:.4f}," + ",".join(frac_vals)
+        )
+        generated += 1
+
+    (cfg.input_dir / "uncertainty_summary.csv").write_text("\n".join(rows) + "\n", encoding="ascii")
+
+    logger.info(
+        "SCF uncertainty generation completed: generated={} skipped={} output={}",
+        generated,
+        skipped,
+        cfg.input_dir,
+    )
+    return cfg.input_dir
+
+
+def cli_main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="oa-da-scf-uncertainty",
+        description="Generate SCF uncertainty companion rasters from project YAML.",
+    )
+    parser.add_argument("--setup-dir", required=True, type=Path, help="Path to setup root")
+    parser.add_argument(
+        "--project-label",
+        required=True,
+        help="Project folder name under <setup-dir>/projects",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing uncertainty rasters",
+    )
+    args = parser.parse_args(argv)
+
+    configure_cli_logger("INFO")
+    setup_dir = args.setup_dir.expanduser().resolve()
+    generate_uncertainty_layers(
+        setup_dir=setup_dir,
+        project_label=str(args.project_label),
+        overwrite=bool(args.overwrite),
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(cli_main())

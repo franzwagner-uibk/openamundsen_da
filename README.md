@@ -122,6 +122,7 @@ Why land-cover masking matters
 
 - Dense forest and built-up surfaces often hide snow in satellite products while the model may still simulate snow below canopy or within cities. Ice/glacier classes are also excluded by default via the land-cover grid.
 - Masking keeps model vs obs consistent by removing pixels where observation/model support diverges.
+- Best-practice split: use `landcover_mask.classes_to_exclude` for truly unusable classes (for example ice/water/urban), and handle usable-but-uncertain classes (for example forest/shadow) with uncertainty penalties rather than hard exclusion.
 
 ## Workflow/Commands
 
@@ -679,7 +680,6 @@ Ready-made example:
 - Tips
   - Keep a constant model time step across steps.
   - Verify the effective time step via the merged OA config persisted next to members (e.g., `<step>/ensembles/prior/member_001/config.yml`).
-
 
 
 

@@ -1,6 +1,6 @@
 ﻿# openAMUNDSEN-DA - Data Assimilation for openAMUNDSEN
 
-openAMUNDSEN-DA provides lightweight tools to build and run openAMUNDSEN ensembles and assimilate satellite snow cover fraction (SCF) and wet snow signals (e.g., Sentinel-1) with a particle filter. Commands are Docker/Compose friendly and use generic variables to work across projects.
+openAMUNDSEN-DA is an open-source data assimilation framework designed to be executable on standard workstation hardware. The framework provides documented, reproducible command-line workflows and supports parallel execution on local CPU cores; for computationally demanding applications (e.g., larger domains, finer resolutions, or larger ensembles), the same workflow can be scaled to HPC environments. openAMUNDSEN-DA is coupled to the open-source openAMUNDSEN model, and both codebases are publicly available on GitHub. For end users, openAMUNDSEN-DA is distributed as a Docker image that includes the openAMUNDSEN coupling and example data, while developers who want to contribute to this open-source project can work directly with the corresponding GitHub repositories.
 
 ## Documentation
 
@@ -679,7 +679,6 @@ Ready-made example:
 - Tips
   - Keep a constant model time step across steps.
   - Verify the effective time step via the merged OA config persisted next to members (e.g., `<step>/ensembles/prior/member_001/config.yml`).
-
 
 
 

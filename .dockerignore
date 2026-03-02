@@ -45,10 +45,7 @@ CODE_REVIEW_GUIDELINES.md
 *.ipynb
 *.ipynb_checkpoints
 
-# Local data & nested repos (kept out of image)
+# Local data (kept out of image)
 dev_examples
 testdata/
 context/
-openamundsen/
-MuSA/
-CrocO_toolbox

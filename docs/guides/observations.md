@@ -58,6 +58,7 @@ docker compose run --rm oa oa-da-scf \\
 Use `obs/<project-label>/scf_summary.csv` for quality control and to decide which dates to assimilate (set `data_assimilation.assimilation_events` in `projects/<project-label>/<project-label>.yml`).
 
 `scf_summary.csv` contains (per date): `date`, `region_id`, `n_valid`, `n_snow`, `scf`, `cloud_fraction`, `source`. Typical filters include a minimum `n_valid` and a maximum `cloud_fraction`.
+When SCF uncertainty is enabled, additional columns are included: `unc_mean`, `unc_min`, `unc_max`, `unc_n_valid`.
 
 ## Snow-cover rasters
 
@@ -134,6 +135,18 @@ Notes:
 - `--input-dir` is required and should point to your wet-snow raster directory.
 - ROI: auto-resolved under `/data/env` (or generated from `grids/roi_<domain>_<resolution>.asc`)
 - Land-cover mask: `/data/grids/lc_<domain>_<resolution>.asc`
+- When wet-snow uncertainty is enabled, `wet_snow_summary.csv` additionally contains `unc_mean`, `unc_min`, `unc_max`, `unc_n_valid`.
+
+### Optional wet-snow uncertainty generation (`generated_layer`)
+
+```bash
+docker compose run --rm oa oa-da-wetsnow-uncertainty \
+  --setup-dir /data \
+  --project-label project_2019-2020 \
+  --overwrite
+```
+
+This creates `*_uncertainty.tif` companions next to each source wet-snow raster.
 
 ### Creating per-step observation CSVs (for assimilation)
 
@@ -231,6 +244,8 @@ data_assimilation:
 
 - Land-cover grid is resolved as `grids/lc_<domain>_<resolution>.asc`.
 - Excluded classes are removed from both obs-side summaries and model H(x); a warning is logged if >50% of the ROI would be excluded, and masking fails if 100% would be removed.
+- Best-practice split: keep exclusion for truly unusable classes (for example ice/water/urban), and represent usable-but-uncertain classes (for example forest/shadow) via uncertainty penalties.
+- For DA consistency, treat clouds as data gaps (masked) rather than 100%-penalty uncertainty pixels.
 
 ---
 
@@ -248,5 +263,3 @@ data_assimilation:
 
 - Barella, R., Marin, C., Gianinetto, M., and Notarnicola, C. (2022). A novel approach to high resolution snow cover fraction retrieval in mountainous regions. IGARSS 2022 - IEEE International Geoscience and Remote Sensing Symposium, 3856-3859. https://doi.org/10.1109/IGARSS46834.2022.9884177.
 - Nagler, T., Rott, H., Ripper, E., Bippus, G., and Hetzenecker, M. (2016). Advancements for snowmelt monitoring by means of Sentinel-1 SAR. Remote Sensing, 8(4), 348. https://doi.org/10.3390/rs8040348.
-
-

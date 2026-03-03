@@ -33,7 +33,9 @@ where = ["."]
 [project.scripts]
 oa-da-scf = "openamundsen_da.observer.satellite_scf:cli_main"
 oa-da-snowcover = "openamundsen_da.observer.snowcover:cli_main"
+oa-da-scf-uncertainty = "openamundsen_da.observer.scf_uncertainty:cli_main"
 oa-da-wetsnow = "openamundsen_da.observer.wetsnow:cli_main"
+oa-da-wetsnow-uncertainty = "openamundsen_da.observer.wetsnow_uncertainty:cli_main"
 oa-da-hrwsi-download = "openamundsen_da.observer.hrwsi_download:cli_main"
 oa-da-plot-scf = "openamundsen_da.observer.plot_scf_summary:cli_main"
 oa-da-project = "openamundsen_da.pipeline.project:cli"
@@ -51,4 +53,3 @@ oa-da-perf-monitor = "openamundsen_da.util.perf_monitor:cli_main"
 oa-da-clean-project = "openamundsen_da.pipeline.cleanup:cli_main"
 oa-da-prepare-project-obs = "openamundsen_da.pipeline.prepare_project_obs:cli_main"
 oa-da-subdomain = "openamundsen_da.subdomain.cli:cli"
-

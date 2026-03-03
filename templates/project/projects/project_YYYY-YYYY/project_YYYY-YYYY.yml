@@ -70,6 +70,73 @@ data_assimilation:
       sigma_cloud_scale: 0.10
       min_sigma: 0.03
 
+  # Optional generation of SCF uncertainty companion rasters for
+  # development/testing/tutorial workflows.
+  uncertainty:
+    scf:
+      enabled: false
+      ingest:
+        # product_layer: read SCF + uncertainty from same NetCDF file
+        # companion_layer: read <stem>_uncertainty.tif next to each SCF TIFF
+        # generated_layer: same as companion_layer, with layers created by oa-da-scf-uncertainty
+        mode: generated_layer # options: product_layer | companion_layer | generated_layer
+        # Required when mode=product_layer (no defaults/fallbacks):
+        scf_variable: fsc
+        uncertainty_variable: uncertainty
+        time_variable: time
+      assimilation:
+        # formula: sigma from n_valid/cloud_fraction (likelihood settings)
+        # uncertainty_layer: sigma from unc_mean/100 with min_sigma floor
+        sigma_mode: formula # options: formula | uncertainty_layer
+        aggregate_metric: unc_mean
+      input_dir: obs/snowcover
+      u_min: 10.0
+      u_max: 20.0
+      nodata_value: 255.0
+      penalties:
+        - name: forest
+          source: landcover
+          enabled: true
+          classes: [8, 9, 10, 11, 12]
+          penalty: 20.0
+        - name: shadow
+          source: shadow
+          enabled: false
+          input_dir: obs/shadow
+          classes: [1]
+          penalty: 20.0
+    wet_snow:
+      enabled: false
+      ingest:
+        # product_layer: read wet-snow + uncertainty from same NetCDF file
+        # companion_layer: read <stem>_uncertainty.tif next to each wet-snow TIFF
+        # generated_layer: same as companion_layer, with layers created by oa-da-wetsnow-uncertainty
+        mode: generated_layer # options: product_layer | companion_layer | generated_layer
+        # Required when mode=product_layer (no defaults/fallbacks):
+        wet_snow_variable: wet_snow
+        uncertainty_variable: uncertainty
+        time_variable: time
+      assimilation:
+        # formula: sigma from n_valid/cloud_fraction (likelihood settings)
+        # uncertainty_layer: sigma from unc_mean/100 with min_sigma floor
+        sigma_mode: formula # options: formula | uncertainty_layer
+        aggregate_metric: unc_mean
+      input_dir: obs/wetsnow
+      base_uncertainty: 15.0
+      nodata_value: 255.0
+      penalties:
+        - name: forest
+          source: landcover
+          enabled: true
+          classes: [8, 9, 10, 11, 12]
+          penalty: 20.0
+        - name: shadow
+          source: shadow
+          enabled: false
+          input_dir: obs/shadow
+          classes: [1]
+          penalty: 20.0
+
   # Particle resampling settings.
   resampling:
     algorithm: systematic
@@ -127,4 +194,3 @@ data_assimilation:
     - date: YYYY-MM-DD
       variable: wet_snow
       product: WETSNOW
-

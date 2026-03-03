@@ -18,12 +18,18 @@ from rasterio.mask import mask as rio_mask
 from openamundsen_da.core.constants import OBS_DIR_NAME
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml
+from openamundsen_da.util.config_validators import require_mapping, require_nonempty_str
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.landcover_mask import LandcoverMaskConfig, apply_landcover_mask, resolve_landcover_mask
 from openamundsen_da.util.project_dates import resolve_project_dates
 from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
 from openamundsen_da.util.ts import parse_datetime_opt
+from openamundsen_da.util.uncertainty_common import (
+    assert_same_grid as assert_same_grid_shared,
+    normalize_netcdf_times as normalize_netcdf_times_shared,
+    parse_ingest_block,
+)
 
 
 @dataclass(frozen=True)
@@ -34,10 +40,13 @@ class SnowcoverClasses:
     nodata: list[int]
 
 
-def _require_mapping(raw: object, *, path: str) -> dict[str, object]:
-    if not isinstance(raw, dict):
-        raise ValueError(f"Expected mapping at {path}")
-    return raw
+@dataclass(frozen=True)
+class ScfUncertaintyIngestConfig:
+    enabled: bool
+    mode: str | None  # product_layer | companion_layer | generated_layer
+    scf_variable: str | None
+    uncertainty_variable: str | None
+    time_variable: str | None
 
 
 def _require_int_list(
@@ -64,15 +73,77 @@ def _require_int_list(
 
 
 def _load_classes(project_dir: Path) -> SnowcoverClasses:
-    cfg = _require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
-    obs_cfg = _require_mapping(cfg.get("obs"), path="project.obs")
-    snow_cfg = _require_mapping(obs_cfg.get("snowcover"), path="project.obs.snowcover")
-    classes = _require_mapping(snow_cfg.get("classes"), path="project.obs.snowcover.classes")
+    cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
+    obs_cfg = require_mapping(cfg.get("obs"), path="project.obs")
+    snow_cfg = require_mapping(obs_cfg.get("snowcover"), path="project.obs.snowcover")
+    classes = require_mapping(snow_cfg.get("classes"), path="project.obs.snowcover.classes")
     return SnowcoverClasses(
         valid=_require_int_list(classes, "valid", path="project.obs.snowcover.classes"),
         cloud=_require_int_list(classes, "cloud", path="project.obs.snowcover.classes", allow_empty=True),
         water=_require_int_list(classes, "water", path="project.obs.snowcover.classes", allow_empty=True),
         nodata=_require_int_list(classes, "nodata", path="project.obs.snowcover.classes", allow_empty=True),
+    )
+
+
+def _load_uncertainty_ingest_config(project_dir: Path) -> ScfUncertaintyIngestConfig:
+    cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
+    da_cfg = require_mapping(cfg.get("data_assimilation"), path="project.data_assimilation")
+    unc_root = da_cfg.get("uncertainty")
+    if unc_root is None:
+        return ScfUncertaintyIngestConfig(
+            enabled=False,
+            mode=None,
+            scf_variable=None,
+            uncertainty_variable=None,
+            time_variable=None,
+        )
+    unc_cfg = require_mapping(unc_root, path="project.data_assimilation.uncertainty")
+    scf_unc_raw = unc_cfg.get("scf")
+    if scf_unc_raw is None:
+        return ScfUncertaintyIngestConfig(
+            enabled=False,
+            mode=None,
+            scf_variable=None,
+            uncertainty_variable=None,
+            time_variable=None,
+        )
+    scf_unc = require_mapping(scf_unc_raw, path="project.data_assimilation.uncertainty.scf")
+    enabled = bool(scf_unc.get("enabled", False))
+    if not enabled:
+        return ScfUncertaintyIngestConfig(
+            enabled=False,
+            mode=None,
+            scf_variable=None,
+            uncertainty_variable=None,
+            time_variable=None,
+        )
+
+    ingest = require_mapping(
+        scf_unc.get("ingest"),
+        path="project.data_assimilation.uncertainty.scf.ingest",
+    )
+    mode, scf_variable, uncertainty_variable, time_variable = parse_ingest_block(
+        ingest,
+        path="project.data_assimilation.uncertainty.scf.ingest",
+        value_variable_key="scf_variable",
+    )
+
+    return ScfUncertaintyIngestConfig(
+        enabled=True,
+        mode=mode,
+        scf_variable=scf_variable,
+        uncertainty_variable=uncertainty_variable,
+        time_variable=time_variable,
+    )
+
+
+def _disabled_uncertainty_ingest_config() -> ScfUncertaintyIngestConfig:
+    return ScfUncertaintyIngestConfig(
+        enabled=False,
+        mode=None,
+        scf_variable=None,
+        uncertainty_variable=None,
+        time_variable=None,
     )
 
 
@@ -112,19 +183,64 @@ def _extract_tile(path: Path) -> str:
     return m.group(1) if m else "UNKNOWN"
 
 
-def _compute_stats(raster_path: Path, aoi_path: Path, region_field: str | None, lc_cfg: LandcoverMaskConfig, classes: SnowcoverClasses):
-    with rasterio.open(raster_path) as src:
-        if src.crs is None:
-            raise ValueError(f"Raster {raster_path} has no CRS; cannot align AOI/land cover")
-        gdf, region_id = read_single_roi(aoi_path, required_field=region_field, to_crs=src.crs)
-        data, transform = rio_mask(src, gdf.geometry, crop=True, nodata=src.nodata, filled=False)
-        roi_mask = features.geometry_mask(gdf.geometry, out_shape=data.shape[1:], transform=transform, invert=True)
-        arr = np.ma.array(data[0], copy=False)
-        arr, _ = apply_landcover_mask(arr, transform=transform, target_crs=src.crs, roi_mask=roi_mask, lc_cfg=lc_cfg)
-        nodata = src.nodata
+def _mask_band(
+    src: rasterio.DatasetReader,
+    *,
+    band_index: int,
+    gdf,
+    lc_cfg: LandcoverMaskConfig,
+) -> tuple[np.ndarray, np.ndarray, float | int | None]:
+    data, transform = rio_mask(
+        src,
+        gdf.geometry,
+        crop=True,
+        nodata=src.nodata,
+        filled=False,
+        indexes=band_index,
+    )
+    if data.ndim == 2:
+        band = data
+        out_shape = data.shape
+    elif data.ndim == 3:
+        band = data[0]
+        out_shape = data.shape[1:]
+    else:
+        raise ValueError(f"Unexpected masked raster dimensions: {data.ndim}")
 
-    data = np.ma.getdata(arr)
-    mask = np.ma.getmaskarray(arr)
+    roi_mask = features.geometry_mask(
+        gdf.geometry,
+        out_shape=out_shape,
+        transform=transform,
+        invert=True,
+    )
+    arr = np.ma.array(band, copy=False)
+    arr, _ = apply_landcover_mask(arr, transform=transform, target_crs=src.crs, roi_mask=roi_mask, lc_cfg=lc_cfg)
+    return np.ma.getdata(arr), np.ma.getmaskarray(arr), src.nodata
+
+
+def _assert_same_grid(src: rasterio.DatasetReader, other: rasterio.DatasetReader, *, left: Path, right: Path) -> None:
+    assert_same_grid_shared(src, other, left=left, right=right)
+
+
+def _normalize_netcdf_times(time_values: object, *, source_name: str) -> pd.DatetimeIndex:
+    return normalize_netcdf_times_shared(time_values, source_name=source_name)
+
+
+def _build_stats_row(
+    *,
+    date_key: str,
+    region_id: str,
+    tile: str,
+    source_name: str,
+    data: np.ndarray,
+    mask: np.ndarray,
+    nodata: float | int | None,
+    classes: SnowcoverClasses,
+    unc_data: np.ndarray | None = None,
+    unc_mask: np.ndarray | None = None,
+    unc_nodata: float | int | None = None,
+    require_uncertainty: bool = False,
+) -> dict[str, object] | None:
     valid = (~mask) & np.isfinite(data)
     if nodata is not None:
         valid &= data != nodata
@@ -150,17 +266,166 @@ def _compute_stats(raster_path: Path, aoi_path: Path, region_field: str | None, 
     denom = n_valid + n_cloud
     cloud_fraction = (n_cloud / denom) if denom > 0 else 0.0
 
-    return {
-        "date": _extract_date(raster_path).strftime("%Y-%m-%d"),
+    row: dict[str, object] = {
+        "date": date_key,
         "region_id": region_id,
-        "tile": _extract_tile(raster_path),
+        "tile": tile,
         "n_valid": n_valid,
         "n_snow": n_snow,
         "n_cloud": n_cloud,
         "scf": scf,
         "cloud_fraction": cloud_fraction,
-        "source": raster_path.name,
+        "source": source_name,
     }
+    if require_uncertainty:
+        if unc_data is None or unc_mask is None:
+            raise ValueError(f"Missing uncertainty values for source {source_name}")
+        if unc_data.shape != data.shape:
+            raise ValueError(f"Uncertainty shape mismatch for source {source_name}")
+        unc_roi = (~unc_mask) & np.isfinite(unc_data)
+        if unc_nodata is not None:
+            unc_roi &= unc_data != unc_nodata
+        if np.any(unc_roi):
+            unc_vals_roi = unc_data[unc_roi]
+            if np.any(unc_vals_roi < 0.0) or np.any(unc_vals_roi > 100.0):
+                raise ValueError(f"Uncertainty values out of [0,100] range in {source_name}")
+        unc_valid = valid & unc_roi
+        unc_n_valid = int(np.count_nonzero(unc_valid))
+        if unc_n_valid <= 0:
+            raise ValueError(f"No valid uncertainty support for source {source_name}")
+        unc_vals = unc_data[unc_valid].astype(float)
+        row["unc_mean"] = float(np.mean(unc_vals))
+        row["unc_min"] = float(np.min(unc_vals))
+        row["unc_max"] = float(np.max(unc_vals))
+        row["unc_n_valid"] = unc_n_valid
+    return row
+
+
+def _compute_tif_stats(
+    *,
+    raster_path: Path,
+    aoi_path: Path,
+    region_field: str | None,
+    lc_cfg: LandcoverMaskConfig,
+    classes: SnowcoverClasses,
+    uncertainty_cfg: ScfUncertaintyIngestConfig,
+) -> dict[str, object] | None:
+    with rasterio.open(raster_path) as src:
+        if src.crs is None:
+            raise ValueError(f"Raster {raster_path} has no CRS; cannot align AOI/land cover")
+        gdf, region_id = read_single_roi(aoi_path, required_field=region_field, to_crs=src.crs)
+        data, mask, nodata = _mask_band(src, band_index=1, gdf=gdf, lc_cfg=lc_cfg)
+
+        unc_data: np.ndarray | None = None
+        unc_mask: np.ndarray | None = None
+        unc_nodata: float | int | None = None
+        require_uncertainty = bool(uncertainty_cfg.enabled)
+        if uncertainty_cfg.enabled:
+            if uncertainty_cfg.mode not in {"companion_layer", "generated_layer"}:
+                raise ValueError(
+                    f"Uncertainty ingest mode {uncertainty_cfg.mode!r} is incompatible with GeoTIFF source {raster_path.name}"
+                )
+            unc_path = raster_path.parent / f"{raster_path.stem}_uncertainty.tif"
+            if not unc_path.is_file():
+                raise FileNotFoundError(f"Missing required uncertainty companion raster: {unc_path}")
+            with rasterio.open(unc_path) as src_unc:
+                _assert_same_grid(src, src_unc, left=raster_path, right=unc_path)
+                unc_data, unc_mask, unc_nodata = _mask_band(src_unc, band_index=1, gdf=gdf, lc_cfg=lc_cfg)
+
+    return _build_stats_row(
+        date_key=_extract_date(raster_path).strftime("%Y-%m-%d"),
+        region_id=region_id,
+        tile=_extract_tile(raster_path),
+        source_name=raster_path.name,
+        data=data,
+        mask=mask,
+        nodata=nodata,
+        classes=classes,
+        unc_data=unc_data,
+        unc_mask=unc_mask,
+        unc_nodata=unc_nodata,
+        require_uncertainty=require_uncertainty,
+    )
+
+
+def _compute_netcdf_product_stats(
+    *,
+    raster_path: Path,
+    aoi_path: Path,
+    region_field: str | None,
+    lc_cfg: LandcoverMaskConfig,
+    classes: SnowcoverClasses,
+    uncertainty_cfg: ScfUncertaintyIngestConfig,
+) -> list[dict[str, object]]:
+    if uncertainty_cfg.mode != "product_layer":
+        raise ValueError(
+            f"Uncertainty ingest mode {uncertainty_cfg.mode!r} is incompatible with NetCDF source {raster_path.name}"
+        )
+    if uncertainty_cfg.scf_variable is None or uncertainty_cfg.uncertainty_variable is None or uncertainty_cfg.time_variable is None:
+        raise ValueError("Missing required NetCDF ingest variable names for product-layer uncertainty")
+
+    try:
+        import xarray as xr  # lazy dependency
+    except Exception as exc:  # pragma: no cover - dependency guard
+        raise RuntimeError("xarray is required to process NetCDF uncertainty product_layer mode") from exc
+
+    with xr.open_dataset(raster_path) as ds:
+        if uncertainty_cfg.scf_variable not in ds:
+            raise ValueError(
+                f"Variable '{uncertainty_cfg.scf_variable}' not found in {raster_path.name}"
+            )
+        if uncertainty_cfg.uncertainty_variable not in ds:
+            raise ValueError(
+                f"Variable '{uncertainty_cfg.uncertainty_variable}' not found in {raster_path.name}"
+            )
+        if uncertainty_cfg.time_variable not in ds:
+            raise ValueError(
+                f"Time variable '{uncertainty_cfg.time_variable}' not found in {raster_path.name}"
+            )
+        times = _normalize_netcdf_times(
+            ds[uncertainty_cfg.time_variable].values,
+            source_name=raster_path.name,
+        )
+
+    scf_uri = f"NETCDF:{raster_path}:{uncertainty_cfg.scf_variable}"
+    unc_uri = f"NETCDF:{raster_path}:{uncertainty_cfg.uncertainty_variable}"
+    rows: list[dict[str, object]] = []
+    with rasterio.open(scf_uri) as src, rasterio.open(unc_uri) as src_unc:
+        _assert_same_grid(src, src_unc, left=raster_path, right=raster_path)
+        if src.count != len(times):
+            raise ValueError(
+                f"Band/time mismatch in {raster_path.name}: SCF bands={src.count} but time steps={len(times)}"
+            )
+        if src_unc.count != len(times):
+            raise ValueError(
+                f"Band/time mismatch in {raster_path.name}: uncertainty bands={src_unc.count} but time steps={len(times)}"
+            )
+        if src.crs is None:
+            raise ValueError(f"Raster {raster_path} has no CRS; cannot align AOI/land cover")
+        gdf, region_id = read_single_roi(aoi_path, required_field=region_field, to_crs=src.crs)
+        tile = _extract_tile(raster_path)
+
+        for i, ts in enumerate(times, start=1):
+            data, mask, nodata = _mask_band(src, band_index=i, gdf=gdf, lc_cfg=lc_cfg)
+            unc_data, unc_mask, unc_nodata = _mask_band(src_unc, band_index=i, gdf=gdf, lc_cfg=lc_cfg)
+            source_name = f"{raster_path.name}@{ts.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+            row = _build_stats_row(
+                date_key=ts.date().isoformat(),
+                region_id=region_id,
+                tile=tile,
+                source_name=source_name,
+                data=data,
+                mask=mask,
+                nodata=nodata,
+                classes=classes,
+                unc_data=unc_data,
+                unc_mask=unc_mask,
+                unc_nodata=unc_nodata,
+                require_uncertainty=True,
+            )
+            if row is not None:
+                rows.append(row)
+    return rows
 
 
 def summarize_snowcover_directory(
@@ -179,22 +444,10 @@ def summarize_snowcover_directory(
 ) -> list[Path]:
     """Summarize snow-cover rasters into scf_summary.csv."""
     patterns = ["*.tif", "*.tiff", "*.nc"]
-    rasters: list[Path] = []
+    rasters_all: list[Path] = []
     for patt in patterns:
-        rasters.extend(sorted(input_dir.rglob(patt) if recursive else input_dir.glob(patt)))
-    if start or end:
-        filtered: list[Path] = []
-        for rast in rasters:
-            try:
-                d = _extract_date(rast)
-            except Exception:
-                continue
-            if start and d < start:
-                continue
-            if end and d > end:
-                continue
-            filtered.append(rast)
-        rasters = filtered
+        rasters_all.extend(sorted(input_dir.rglob(patt) if recursive else input_dir.glob(patt)))
+    rasters = [p for p in rasters_all if not p.stem.lower().endswith("_uncertainty")]
 
     if not rasters:
         logger.warning("No snow-cover rasters found in {}", input_dir)
@@ -203,24 +456,94 @@ def summarize_snowcover_directory(
     project_dir = Path(setup_dir) / "projects" / str(project_label)
     lc_cfg = landcover_cfg or resolve_landcover_mask(Path(setup_dir), project_dir)
     cls = classes or _load_classes(project_dir)
+    uncertainty_cfg = _load_uncertainty_ingest_config(project_dir)
     output_dir = output_root / project_label
     output_dir.mkdir(parents=True, exist_ok=True)
     summary_path = output_dir / "scf_summary.csv"
 
     rows: list[dict[str, object]] = []
     written: list[Path] = []
+    disabled_uncertainty_cfg = _disabled_uncertainty_ingest_config()
     for rast in rasters:
         try:
-            stats = _compute_stats(rast, aoi, region_field, lc_cfg, cls)
+            suffix = rast.suffix.lower()
+            if not uncertainty_cfg.enabled:
+                if suffix not in {".tif", ".tiff", ".nc"}:
+                    continue
+                stats = _compute_tif_stats(
+                    raster_path=rast,
+                    aoi_path=aoi,
+                    region_field=region_field,
+                    lc_cfg=lc_cfg,
+                    classes=cls,
+                    uncertainty_cfg=disabled_uncertainty_cfg,
+                )
+                stats_rows = [stats] if stats is not None else []
+            else:
+                if uncertainty_cfg.mode == "product_layer":
+                    if suffix != ".nc":
+                        raise ValueError(
+                            f"Uncertainty ingest mode 'product_layer' requires NetCDF inputs, got {rast.name}"
+                        )
+                    stats_rows = _compute_netcdf_product_stats(
+                        raster_path=rast,
+                        aoi_path=aoi,
+                        region_field=region_field,
+                        lc_cfg=lc_cfg,
+                        classes=cls,
+                        uncertainty_cfg=uncertainty_cfg,
+                    )
+                else:
+                    if suffix not in {".tif", ".tiff"}:
+                        raise ValueError(
+                            f"Uncertainty ingest mode '{uncertainty_cfg.mode}' requires GeoTIFF inputs, got {rast.name}"
+                        )
+                    stats = _compute_tif_stats(
+                        raster_path=rast,
+                        aoi_path=aoi,
+                        region_field=region_field,
+                        lc_cfg=lc_cfg,
+                        classes=cls,
+                        uncertainty_cfg=uncertainty_cfg,
+                    )
+                    stats_rows = [stats] if stats is not None else []
         except Exception as exc:
+            if uncertainty_cfg.enabled:
+                raise RuntimeError(
+                    f"Snow-cover preprocessing failed for {rast.name} with uncertainty enabled: {exc}"
+                ) from exc
             logger.error("Skipping {}: {}", rast.name, exc)
             continue
-        if stats is None:
+        accepted = 0
+        for stats in stats_rows:
+            if stats is None:
+                continue
+            stats_date = parse_datetime_opt(str(stats["date"]))
+            if stats_date is None:
+                if uncertainty_cfg.enabled:
+                    raise ValueError(
+                        f"Could not parse derived observation date '{stats['date']}' for source {stats.get('source', rast.name)}"
+                    )
+                continue
+            if start and stats_date < start:
+                continue
+            if end and stats_date > end:
+                continue
+            rows.append(stats)
+            accepted += 1
+            logger.info(
+                "Snowcover {} -> scf={:.3f} n_valid={} n_snow={}",
+                str(stats.get("source", rast.name)),
+                float(stats["scf"]),
+                int(stats["n_valid"]),
+                int(stats["n_snow"]),
+            )
+        if accepted > 0:
+            written.append(rast)
+        elif stats_rows:
+            logger.warning("Discarded {} because date filter removed all matching records", rast.name)
+        else:
             logger.warning("Discarded {} because AOI contained no valid pixels", rast.name)
-            continue
-        rows.append(stats)
-        written.append(rast)
-        logger.info("Snowcover {} -> scf={:.3f} n_valid={} n_snow={}", rast.name, stats["scf"], stats["n_valid"], stats["n_snow"])
 
     if not rows:
         logger.warning("No valid snow-cover rasters processed.")
@@ -260,12 +583,25 @@ def summarize_snowcover_directory(
                 "source_set": set(),
                 "tile_set": set(),
             }
+            if uncertainty_cfg.enabled:
+                slot["unc_mean_num"] = 0.0
+                slot["unc_n_valid"] = 0
+                slot["unc_min"] = float("inf")
+                slot["unc_max"] = float("-inf")
             agg[key] = slot
         slot["n_valid"] = int(slot["n_valid"]) + int(row.get("n_valid", 0))
         slot["n_snow"] = int(slot["n_snow"]) + int(row.get("n_snow", 0))
         slot["n_cloud"] = int(slot["n_cloud"]) + int(row.get("n_cloud", 0))
         slot["source_set"].add(str(row.get("source", "")))
         slot["tile_set"].add(str(row.get("tile", "UNKNOWN")))
+        if uncertainty_cfg.enabled:
+            unc_n_valid = int(row.get("unc_n_valid", 0))
+            if unc_n_valid > 0:
+                unc_mean = float(row["unc_mean"])
+                slot["unc_mean_num"] = float(slot["unc_mean_num"]) + (unc_mean * unc_n_valid)
+                slot["unc_n_valid"] = int(slot["unc_n_valid"]) + unc_n_valid
+                slot["unc_min"] = min(float(slot["unc_min"]), float(row["unc_min"]))
+                slot["unc_max"] = max(float(slot["unc_max"]), float(row["unc_max"]))
 
     out_rows: list[dict[str, object]] = []
     for entry in agg.values():
@@ -275,19 +611,30 @@ def summarize_snowcover_directory(
         scf = (n_snow / n_valid) if n_valid > 0 else 0.0
         denom = n_valid + n_cloud
         cloud_fraction = (n_cloud / denom) if denom > 0 else 0.0
-        out_rows.append(
-            {
-                "date": entry["date"],
-                "region_id": entry["region_id"],
-                "n_valid": n_valid,
-                "n_snow": n_snow,
-                "n_cloud": n_cloud,
-                "scf": scf,
-                "cloud_fraction": cloud_fraction,
-                "tiles_used": ";".join(sorted(x for x in entry["tile_set"] if x)),
-                "source": ";".join(sorted(x for x in entry["source_set"] if x)),
-            }
-        )
+        row = {
+            "date": entry["date"],
+            "region_id": entry["region_id"],
+            "n_valid": n_valid,
+            "n_snow": n_snow,
+            "n_cloud": n_cloud,
+            "scf": scf,
+            "cloud_fraction": cloud_fraction,
+            "tiles_used": ";".join(sorted(x for x in entry["tile_set"] if x)),
+            "source": ";".join(sorted(x for x in entry["source_set"] if x)),
+        }
+        if uncertainty_cfg.enabled:
+            # Weighted by contributing uncertainty-valid pixels.
+            row_unc_mean_num = float(entry.get("unc_mean_num", 0.0))
+            row_unc_n_valid = int(entry.get("unc_n_valid", 0))
+            if row_unc_n_valid <= 0:
+                raise ValueError(
+                    f"Uncertainty is enabled but no uncertainty-valid support exists for date {entry['date']}"
+                )
+            row["unc_mean"] = row_unc_mean_num / row_unc_n_valid
+            row["unc_n_valid"] = row_unc_n_valid
+            row["unc_min"] = float(entry["unc_min"])
+            row["unc_max"] = float(entry["unc_max"])
+        out_rows.append(row)
 
     df = pd.DataFrame(out_rows).sort_values("date")
     df.to_csv(summary_path, index=False)
@@ -354,5 +701,3 @@ def cli_main(argv: List[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-
-

@@ -101,6 +101,25 @@ Warm start uses the model state saved at the end of each step via `state_pointer
 
 ## Observation Processing
 
+### Optional uncertainty companion generation
+
+Run these when `data_assimilation.uncertainty.<variable>.enabled: true` and
+`ingest.mode: generated_layer`:
+
+```bash
+docker compose run --rm oa oa-da-scf-uncertainty \
+  --setup-dir /data \
+  --project-label project_2019-2020 \
+  --overwrite
+
+docker compose run --rm oa oa-da-wetsnow-uncertainty \
+  --setup-dir /data \
+  --project-label project_2019-2020 \
+  --overwrite
+```
+
+This writes `*_uncertainty.tif` next to source SCF/wet-snow GeoTIFFs.
+
 ### Snow cover (GeoTIFF/NetCDF -> `scf_summary.csv`)
 
 ```bash
@@ -152,6 +171,11 @@ data_assimilation:
 ```
 
 Excluded land-cover classes are removed from both observations and model-derived fractions. A warning is logged if >50% of the ROI would be excluded; 100% exclusion fails.
+
+Best-practice guidance:
+- Use exclusions for classes that are structurally unusable for DA comparisons (for example ice/water/urban).
+- Use uncertainty penalties for classes that are still usable but less reliable (for example forest/shadow).
+- Treat cloud pixels as gaps (masked), not as uncertainty-penalty contributors.
 
 ---
 
@@ -356,7 +380,4 @@ data_assimilation:
 
 - Barella, R., Marin, C., Gianinetto, M., and Notarnicola, C. (2022). A novel approach to high resolution snow cover fraction retrieval in mountainous regions. IGARSS 2022 - IEEE International Geoscience and Remote Sensing Symposium, 3856-3859. https://doi.org/10.1109/IGARSS46834.2022.9884177.
 - Nagler, T., Rott, H., Ripper, E., Bippus, G., and Hetzenecker, M. (2016). Advancements for snowmelt monitoring by means of Sentinel-1 SAR. Remote Sensing, 8(4), 348. https://doi.org/10.3390/rs8040348.
-
-
-
 

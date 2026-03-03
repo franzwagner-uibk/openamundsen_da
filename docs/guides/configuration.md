@@ -129,6 +129,30 @@ data_assimilation:
     enabled: true
     classes_to_exclude: [2, 8, 9, 10, 11, 12, 13]
 
+  uncertainty:
+    scf:
+      enabled: false
+      ingest:
+        mode: generated_layer # product_layer | companion_layer | generated_layer
+        # Required only for mode=product_layer:
+        scf_variable: fsc
+        uncertainty_variable: uncertainty
+        time_variable: time
+      assimilation:
+        sigma_mode: formula # formula | uncertainty_layer
+        aggregate_metric: unc_mean
+    wet_snow:
+      enabled: false
+      ingest:
+        mode: generated_layer # product_layer | companion_layer | generated_layer
+        # Required only for mode=product_layer:
+        wet_snow_variable: wet_snow
+        uncertainty_variable: uncertainty
+        time_variable: time
+      assimilation:
+        sigma_mode: formula # formula | uncertainty_layer
+        aggregate_metric: unc_mean
+
   assimilation_events:
     - date: 2023-03-17
       variable: scf
@@ -142,6 +166,11 @@ Notes:
 - `assimilation_events` defines which dates and variables are assimilated.
 - Observation class mappings and product tags are configured under project YAML `obs.*`.
 - Land-cover mask uses `grids/lc_<domain>_<resolution>.asc` from setup-level paths and DA mask classes from project YAML.
+- For SCF uncertainty:
+  - `enabled: true` activates strict uncertainty checks (fail-fast on missing/invalid config or layers).
+  - `sigma_mode: uncertainty_layer` uses `aggregate_metric / 100` (for example `unc_mean`) with `min_sigma` floor.
+  - Cloud pixels should be handled as data gaps (masked), not as uncertainty-penalty pixels.
+- Wet-snow uncertainty uses the same pattern (`ingest` + `assimilation`) and supports `product_layer`, `companion_layer`, and `generated_layer`.
 - `output.retention: compact` writes `results/grids/da_output_grids.nc` and removes heavy member grid artifacts.
 - `results/grids/da_output_grids.nc` is aggregated over all project steps (full project timeline).
 - In `da_output_grids.nc`, `increment_<var>` is `ens_mean_<var> - open_loop_<var>`.
@@ -173,6 +202,4 @@ Typical early failures:
 - Keep DA experimentation and observation mappings in project YAML.
 - Use one project per experiment/time span.
 - Keep `assimilation_events` explicit and versioned in each project.
-
-
 

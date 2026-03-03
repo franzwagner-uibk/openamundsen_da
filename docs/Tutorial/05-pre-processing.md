@@ -35,13 +35,13 @@ This is the key bridge between satellite products and the DA framework: raw rast
 Run the chapter in this order:
 
 1. check raw inputs and preprocessing-relevant project YAML keys (orientation)
-2. run the **five required preprocessing commands** (mandatory)
+2. run the required preprocessing commands (mandatory)
 3. compare generated files with the shown snippets/paths (recommended)
 4. use optional CLI checks only if something looks wrong
 
 **Mandatory commands only (copy-paste path):**
 
-`oa-da-snowcover` -> `oa-da-wetsnow` -> `project_skeleton` -> `oa-da-scf` -> `oa-da-wetsnow-project`
+`oa-da-scf-uncertainty` -> `oa-da-wetsnow-uncertainty` -> `oa-da-snowcover` -> `oa-da-wetsnow` -> `project_skeleton` -> `oa-da-scf` -> `oa-da-wetsnow-project`
 
 ---
 
@@ -70,7 +70,7 @@ Those files do not exist until you:
 
 All command blocks below are executed **inside the running tutorial container shell**. Once the shell is started in chapter 2, the commands are identical on Linux, macOS, and Windows (WSL/PowerShell users type them inside the container).
 
-Most file checks are shown as **paths + snippets** to reduce command noise. If you are following the tutorial for the first time, focus on the five preprocessing commands and compare your generated files with the shown references.
+Most file checks are shown as **paths + snippets** to reduce command noise. If you are following the tutorial for the first time, focus on the required preprocessing commands and compare your generated files with the shown references.
 
 ## Continuing Later (Restart the Tutorial Container Shell)
 
@@ -212,7 +212,16 @@ data_assimilation:
     classification_threshold_percent: 0.5
   uncertainty:
     scf:
-      enabled: true
+      enabled: false
+      ingest:
+        mode: generated_layer # product_layer | companion_layer | generated_layer
+        # Required for mode=product_layer:
+        scf_variable: fsc
+        uncertainty_variable: uncertainty
+        time_variable: time
+      assimilation:
+        sigma_mode: formula # formula | uncertainty_layer
+        aggregate_metric: unc_mean
       input_dir: obs/snowcover
       u_min: 10.0
       u_max: 20.0
@@ -229,8 +238,69 @@ data_assimilation:
           input_dir: obs/shadow
           classes: [1]
           penalty: 20.0
+    wet_snow:
+      enabled: false
+      ingest:
+        mode: generated_layer # product_layer | companion_layer | generated_layer
+        # Required for mode=product_layer:
+        wet_snow_variable: wet_snow
+        uncertainty_variable: uncertainty
+        time_variable: time
+      assimilation:
+        sigma_mode: formula # formula | uncertainty_layer
+        aggregate_metric: unc_mean
+      input_dir: obs/wetsnow
+      base_uncertainty: 15.0
+      nodata_value: 255.0
+      penalties:
+        - name: forest
+          source: landcover
+          enabled: true
+          classes: [8, 9, 10, 11, 12]
+          penalty: 20.0
+        - name: shadow
+          source: shadow
+          enabled: false
+          input_dir: obs/shadow
+          classes: [1]
+          penalty: 20.0
 ```
 ---
+
+## Step 0 (Required for this tutorial): Prepare uncertainty layers (SCF + wet snow)
+
+The current Rofental project config in this repository enables SCF and wet-snow uncertainty ingestion and
+`sigma_mode: uncertainty_layer`. Therefore, generate companion uncertainty rasters before running
+`oa-da-snowcover` and `oa-da-wetsnow`.
+
+First, clean previously generated uncertainty artifacts so users always start from raw FSC inputs:
+
+```bash
+find /data/rofental/obs/snowcover -maxdepth 1 -type f \
+\( -name "*_uncertainty.tif" -o -name "uncertainty_summary.csv" \) -delete
+find /data/rofental/obs/wetsnow -maxdepth 1 -type f \
+\( -name "*_uncertainty.tif" -o -name "uncertainty_summary.csv" \) -delete
+```
+
+Then generate uncertainty companions next to source rasters:
+
+```bash
+oa-da-scf-uncertainty \
+--setup-dir /data/rofental \
+--project-label project_2022_2023 \
+--overwrite
+
+oa-da-wetsnow-uncertainty \
+--setup-dir /data/rofental \
+--project-label project_2022_2023 \
+--overwrite
+```
+
+Expected outputs:
+- `/data/rofental/obs/snowcover/*_uncertainty.tif`
+- `/data/rofental/obs/wetsnow/*_uncertainty.tif`
+- `/data/rofental/obs/snowcover/uncertainty_summary.csv`
+- `/data/rofental/obs/wetsnow/uncertainty_summary.csv`
 
 ## Step 1: Summarize snow-cover rasters to `scf_summary.csv`
 
@@ -281,6 +351,12 @@ Expected content (columns may evolve slightly over time):
 - cloud fraction
 - source/product metadata
 
+When uncertainty is enabled, additional columns are expected:
+- `unc_mean`
+- `unc_min`
+- `unc_max`
+- `unc_n_valid`
+
 Use this summary table to inspect availability and quality before choosing or changing
 assimilation dates in `assimilation_events`.
 
@@ -327,32 +403,28 @@ How to read this SCF summary snippet:
 
 ---
 
-## Step 1b (Optional): Generate SCF uncertainty companion rasters
+## Step 1b: Enable per-step SCF obs files with uncertainty columns
 
-Use this when you want per-raster uncertainty layers for feature development,
-tests, or tutorial visuals.
+Use the SCF summary (with `unc_*` columns) to generate per-step observation files for the
+existing DA dates in the Rofental example.
 
 ```bash
-oa-da-scf-uncertainty \
+python -m openamundsen_da.pipeline.project_skeleton \
 --setup-dir /data/rofental \
---project-label project_2022_2023 \
+--project-dir /data/rofental/projects/project_2022_2023 \
+--overwrite
+
+python -m openamundsen_da.observer.satellite_scf \
+--project-dir /data/rofental/projects/project_2022_2023 \
+--summary-csv /data/rofental/obs/summaries/project_2022_2023/scf_summary.csv \
 --overwrite
 ```
 
-Configuration used (project YAML):
-- `obs.snowcover.classes.cloud|water|nodata`
-- `data_assimilation.uncertainty.scf.u_min|u_max|nodata_value`
-- `data_assimilation.uncertainty.scf.penalties[*]` (generic class-based penalties)
-- `data_assimilation.landcover_mask.*` (for land-cover grid resolution/alignment)
+This writes product-tagged per-step files like:
+- `/data/rofental/projects/project_2022_2023/steps/step_00_init/obs/obs_scf_SNOWCOVER_20230101.csv`
 
-Output location (default in this tutorial):
-- Uncertainty rasters are written next to source SCF rasters in `/data/rofental/obs/snowcover/`
-- Summary file is `/data/rofental/obs/snowcover/uncertainty_summary.csv`
-
-Best-practice guidance:
-- Keep `data_assimilation.landcover_mask.classes_to_exclude` for truly unusable classes (for example ice/water/urban).
-- Use uncertainty penalties for usable-but-uncertain classes (for example forest/shadow).
-- Do not duplicate cloud/water as uncertainty penalties when they are already handled through class exclusion/masking.
+The generated CSV includes uncertainty columns (`unc_mean`, `unc_min`, `unc_max`, `unc_n_valid`),
+which are used by SCF assimilation when `sigma_mode: uncertainty_layer`.
 
 ---
 
@@ -399,6 +471,12 @@ Why this matters:
 
 - wet-snow acquisitions are sparser and track-dependent,
 - the summary makes date coverage explicit and drives the per-step wet-snow obs files.
+
+When uncertainty is enabled, additional columns are expected:
+- `unc_mean`
+- `unc_min`
+- `unc_max`
+- `unc_n_valid`
 
 Reference CSV snippet (wet-snow summary)
 

@@ -29,7 +29,9 @@ from loguru import logger
 from rasterio import features
 from rasterio.mask import mask as rio_mask
 
+from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import (
+    find_project_yaml,
     member_id_from_results_dir,
     list_step_dirs,
     infer_project_dir,
@@ -39,6 +41,7 @@ from openamundsen_da.methods.daily_aoi_series import (
     compute_step_daily_series_for_all_members,
     step_start_end,
 )
+from openamundsen_da.util.config_validators import require_mapping
 from openamundsen_da.util.landcover_mask import (
     LandcoverMaskConfig,
     apply_landcover_mask,
@@ -51,6 +54,11 @@ from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
 from openamundsen_da.observer.class_config import load_wetsnow_classes
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.project_dates import resolve_project_dates
+from openamundsen_da.util.uncertainty_common import (
+    assert_same_grid as assert_same_grid_shared,
+    normalize_netcdf_times as normalize_netcdf_times_shared,
+    parse_ingest_block,
+)
 
 
 _MODEL_WET = (1,)
@@ -67,6 +75,84 @@ class WetSnowStats:
     wet_area_m2: float | None
     valid_area_m2: float | None
     region_id: str
+
+
+@dataclass(frozen=True)
+class WetSnowUncertaintyIngestConfig:
+    enabled: bool
+    mode: str | None  # product_layer | companion_layer | generated_layer
+    wet_snow_variable: str | None
+    uncertainty_variable: str | None
+    time_variable: str | None
+
+
+def _load_wet_snow_uncertainty_ingest_config(project_dir: Path) -> WetSnowUncertaintyIngestConfig:
+    cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
+    da_cfg = require_mapping(cfg.get("data_assimilation"), path="project.data_assimilation")
+    unc_root = da_cfg.get("uncertainty")
+    if unc_root is None:
+        return WetSnowUncertaintyIngestConfig(
+            enabled=False,
+            mode=None,
+            wet_snow_variable=None,
+            uncertainty_variable=None,
+            time_variable=None,
+        )
+    unc_cfg = require_mapping(unc_root, path="project.data_assimilation.uncertainty")
+    wet_unc_raw = unc_cfg.get("wet_snow")
+    if wet_unc_raw is None:
+        return WetSnowUncertaintyIngestConfig(
+            enabled=False,
+            mode=None,
+            wet_snow_variable=None,
+            uncertainty_variable=None,
+            time_variable=None,
+        )
+    wet_unc = require_mapping(wet_unc_raw, path="project.data_assimilation.uncertainty.wet_snow")
+    enabled = bool(wet_unc.get("enabled", False))
+    if not enabled:
+        return WetSnowUncertaintyIngestConfig(
+            enabled=False,
+            mode=None,
+            wet_snow_variable=None,
+            uncertainty_variable=None,
+            time_variable=None,
+        )
+
+    ingest = require_mapping(
+        wet_unc.get("ingest"),
+        path="project.data_assimilation.uncertainty.wet_snow.ingest",
+    )
+    mode, wet_snow_variable, uncertainty_variable, time_variable = parse_ingest_block(
+        ingest,
+        path="project.data_assimilation.uncertainty.wet_snow.ingest",
+        value_variable_key="wet_snow_variable",
+    )
+    return WetSnowUncertaintyIngestConfig(
+        enabled=True,
+        mode=mode,
+        wet_snow_variable=wet_snow_variable,
+        uncertainty_variable=uncertainty_variable,
+        time_variable=time_variable,
+    )
+
+
+def _disabled_wet_snow_uncertainty_ingest_config() -> WetSnowUncertaintyIngestConfig:
+    return WetSnowUncertaintyIngestConfig(
+        enabled=False,
+        mode=None,
+        wet_snow_variable=None,
+        uncertainty_variable=None,
+        time_variable=None,
+    )
+
+
+def _assert_same_grid(src: rasterio.DatasetReader, other: rasterio.DatasetReader, *, left: Path, right: Path) -> None:
+    assert_same_grid_shared(src, other, left=left, right=right)
+
+
+def _normalize_netcdf_times(time_values: object, *, source_name: str) -> pd.DatetimeIndex:
+    return normalize_netcdf_times_shared(time_values, source_name=source_name)
 
 
 def _find_mask_raster(
@@ -88,20 +174,23 @@ def _find_mask_raster(
 
 
 def _read_mask_by_aoi(
-    raster_path: Path,
+    raster_path: Path | str,
     aoi_path: Path,
     *,
     lc_cfg: LandcoverMaskConfig,
-) -> tuple[np.ma.MaskedArray, np.ndarray, rasterio.Affine, float | None, str, object]:
+    band_index: int = 1,
+) -> tuple[np.ma.MaskedArray, np.ndarray, rasterio.Affine, float | None, str, object, float | int | None]:
     """Read raster values cropped to the AOI; return masked array, ROI mask, and metadata."""
 
-    with rasterio.open(raster_path) as src:
-        if src.crs is None:
+    with rasterio.open(str(raster_path)) as src:
+        src_crs = src.crs
+        src_nodata = src.nodata
+        if src_crs is None:
             raise ValueError(f"Raster {raster_path} lacks a CRS")
         gdf, region_id = read_single_roi(
             aoi_path,
             required_field=None,
-            to_crs=src.crs,
+            to_crs=src_crs,
         )
         data, transform = rio_mask(
             src,
@@ -109,14 +198,21 @@ def _read_mask_by_aoi(
             crop=True,
             nodata=src.nodata,
             filled=False,
+            indexes=band_index,
         )
         roi_mask = features.geometry_mask(
             gdf.geometry,
-            out_shape=data.shape[1:],
+            out_shape=(data.shape if data.ndim == 2 else data.shape[1:]),
             transform=transform,
             invert=True,
         )
-    arr = np.ma.array(data[0], copy=False)
+    if data.ndim == 2:
+        band = data
+    elif data.ndim == 3:
+        band = data[0]
+    else:
+        raise ValueError(f"Unexpected masked raster dimensions: {data.ndim}")
+    arr = np.ma.array(band, copy=False)
     pixel_area = None
     if transform is not None:
         try:
@@ -126,11 +222,29 @@ def _read_mask_by_aoi(
     arr, _ = apply_landcover_mask(
         arr,
         transform=transform,
-        target_crs=src.crs,
+        target_crs=src_crs,
         roi_mask=roi_mask,
         lc_cfg=lc_cfg,
     )
-    return arr, roi_mask, transform, pixel_area, region_id, src.crs
+    return arr, roi_mask, transform, pixel_area, region_id, src_crs, src_nodata
+
+
+def _compute_valid_and_wet_masks(
+    arr: np.ma.MaskedArray,
+    *,
+    wet_values: Sequence[int],
+    valid_values: Sequence[int] | None = None,
+    exclude_values: Sequence[int] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    data = np.ma.getdata(arr)
+    mask = np.ma.getmaskarray(arr)
+    valid = (~mask) & np.isfinite(data)
+    if valid_values:
+        valid &= np.isin(data, valid_values)
+    if exclude_values:
+        valid &= ~np.isin(data, exclude_values)
+    wet = valid & np.isin(data, wet_values)
+    return valid, wet
 
 
 def _compute_fraction(
@@ -143,15 +257,12 @@ def _compute_fraction(
 ) -> WetSnowStats:
     """Return wet/valid counts and their ratio for the provided array."""
 
-    data = np.ma.getdata(arr)
-    mask = np.ma.getmaskarray(arr)
-    valid = (~mask) & np.isfinite(data)
-    if valid_values:
-        valid &= np.isin(data, valid_values)
-    if exclude_values:
-        valid &= ~np.isin(data, exclude_values)
-
-    wet = valid & np.isin(data, wet_values)
+    valid, wet = _compute_valid_and_wet_masks(
+        arr,
+        wet_values=wet_values,
+        valid_values=valid_values,
+        exclude_values=exclude_values,
+    )
     valid_pixels = int(valid.sum())
     if valid_pixels == 0:
         raise ValueError("AOI contains no valid wet-snow classification pixels")
@@ -187,7 +298,7 @@ def compute_wet_snow_fraction_from_raster(
 ) -> WetSnowStats:
     """Compute wet-snow coverage from an arbitrary categorical raster."""
 
-    arr, roi_mask, transform, pixel_area, region_id, crs = _read_mask_by_aoi(
+    arr, _, _, pixel_area, region_id, _, _ = _read_mask_by_aoi(
         Path(raster_path),
         Path(aoi_path),
         lc_cfg=landcover_cfg,
@@ -200,6 +311,66 @@ def compute_wet_snow_fraction_from_raster(
         pixel_area=pixel_area,
         region_id=region_id,
     )
+
+
+def _build_wetsnow_summary_row(
+    *,
+    date_key: str,
+    region_id: str,
+    tile: str,
+    source_name: str,
+    arr: np.ma.MaskedArray,
+    wet_values: Sequence[int],
+    valid_values: Sequence[int] | None = None,
+    exclude_values: Sequence[int] | None = None,
+    unc_arr: np.ma.MaskedArray | None = None,
+    unc_nodata: float | int | None = None,
+    require_uncertainty: bool = False,
+) -> dict[str, object] | None:
+    valid, wet = _compute_valid_and_wet_masks(
+        arr,
+        wet_values=wet_values,
+        valid_values=valid_values,
+        exclude_values=exclude_values,
+    )
+    n_valid = int(np.count_nonzero(valid))
+    if n_valid <= 0:
+        return None
+    n_wet = int(np.count_nonzero(wet))
+    frac = float(n_wet / n_valid)
+    row: dict[str, object] = {
+        "date": date_key,
+        "region_id": region_id,
+        "tile": tile,
+        "wet_snow_fraction": round(frac, 4),
+        "n_valid": n_valid,
+        "n_wet": n_wet,
+        "source": source_name,
+    }
+    if require_uncertainty:
+        if unc_arr is None:
+            raise ValueError(f"Missing uncertainty values for source {source_name}")
+        unc_data = np.ma.getdata(unc_arr)
+        unc_mask = np.ma.getmaskarray(unc_arr)
+        if unc_data.shape != valid.shape:
+            raise ValueError(f"Uncertainty shape mismatch for source {source_name}")
+        unc_roi = (~unc_mask) & np.isfinite(unc_data)
+        if unc_nodata is not None:
+            unc_roi &= unc_data != unc_nodata
+        if np.any(unc_roi):
+            unc_vals_roi = unc_data[unc_roi]
+            if np.any(unc_vals_roi < 0.0) or np.any(unc_vals_roi > 100.0):
+                raise ValueError(f"Uncertainty values out of [0,100] range in {source_name}")
+        unc_valid = valid & unc_roi
+        unc_n_valid = int(np.count_nonzero(unc_valid))
+        if unc_n_valid <= 0:
+            raise ValueError(f"No valid uncertainty support for source {source_name}")
+        unc_vals = unc_data[unc_valid].astype(float)
+        row["unc_mean"] = float(np.mean(unc_vals))
+        row["unc_min"] = float(np.min(unc_vals))
+        row["unc_max"] = float(np.max(unc_vals))
+        row["unc_n_valid"] = unc_n_valid
+    return row
 
 
 def compute_model_wet_snow_fraction(
@@ -419,46 +590,169 @@ def summarize_s1_directory(
     for patt in ("*.tif", "*.tiff", "*.nc"):
         globber = Path(raster_dir).rglob if recursive else Path(raster_dir).glob
         files.extend(sorted(globber(patt)))
+    files = [p for p in files if not p.stem.lower().endswith("_uncertainty")]
+    uncertainty_cfg = _load_wet_snow_uncertainty_ingest_config(Path(project_dir))
+    disabled_uncertainty_cfg = _disabled_wet_snow_uncertainty_ingest_config()
     rows: list[dict[str, object]] = []
     for tif in files:
+        suffix = tif.suffix.lower()
         try:
-            date = _parse_s1_timestamp(tif.name)
-        except ValueError:
-            continue
-        if start and date < start:
-            continue
-        if end and date > end:
-            continue
-        try:
-            stats = compute_wet_snow_fraction_from_raster(
-                tif,
-                aoi_path,
-                wet_values=wet_values,
-                valid_values=valid_values,
-                exclude_values=exclude_values,
-                landcover_cfg=lc_cfg,
-            )
+            stats_rows: list[dict[str, object]] = []
+            effective_unc_cfg = uncertainty_cfg if uncertainty_cfg.enabled else disabled_uncertainty_cfg
+            if effective_unc_cfg.enabled and effective_unc_cfg.mode == "product_layer":
+                if suffix != ".nc":
+                    raise ValueError(
+                        f"Uncertainty ingest mode 'product_layer' requires NetCDF inputs, got {tif.name}"
+                    )
+                if (
+                    effective_unc_cfg.wet_snow_variable is None
+                    or effective_unc_cfg.uncertainty_variable is None
+                    or effective_unc_cfg.time_variable is None
+                ):
+                    raise ValueError("Missing required NetCDF ingest variable names for wet-snow product-layer uncertainty")
+                try:
+                    import xarray as xr  # lazy dependency
+                except Exception as exc:  # pragma: no cover
+                    raise RuntimeError("xarray is required to process NetCDF wet-snow uncertainty product_layer mode") from exc
+
+                with xr.open_dataset(tif) as ds:
+                    if effective_unc_cfg.wet_snow_variable not in ds:
+                        raise ValueError(f"Variable '{effective_unc_cfg.wet_snow_variable}' not found in {tif.name}")
+                    if effective_unc_cfg.uncertainty_variable not in ds:
+                        raise ValueError(f"Variable '{effective_unc_cfg.uncertainty_variable}' not found in {tif.name}")
+                    if effective_unc_cfg.time_variable not in ds:
+                        raise ValueError(f"Time variable '{effective_unc_cfg.time_variable}' not found in {tif.name}")
+                    times = _normalize_netcdf_times(ds[effective_unc_cfg.time_variable].values, source_name=tif.name)
+
+                ws_uri = f"NETCDF:{tif}:{effective_unc_cfg.wet_snow_variable}"
+                unc_uri = f"NETCDF:{tif}:{effective_unc_cfg.uncertainty_variable}"
+                with rasterio.open(ws_uri) as src, rasterio.open(unc_uri) as src_unc:
+                    _assert_same_grid(src, src_unc, left=tif, right=tif)
+                    if src.count != len(times):
+                        raise ValueError(
+                            f"Band/time mismatch in {tif.name}: wet-snow bands={src.count} but time steps={len(times)}"
+                        )
+                    if src_unc.count != len(times):
+                        raise ValueError(
+                            f"Band/time mismatch in {tif.name}: uncertainty bands={src_unc.count} but time steps={len(times)}"
+                        )
+                for i, ts in enumerate(times, start=1):
+                    arr, _, _, _, region_id, _, _ = _read_mask_by_aoi(
+                        ws_uri,
+                        aoi_path,
+                        lc_cfg=lc_cfg,
+                        band_index=i,
+                    )
+                    unc_arr, _, _, _, _, _, unc_nodata = _read_mask_by_aoi(
+                        unc_uri,
+                        aoi_path,
+                        lc_cfg=lc_cfg,
+                        band_index=i,
+                    )
+                    row = _build_wetsnow_summary_row(
+                        date_key=ts.date().isoformat(),
+                        region_id=region_id,
+                        tile=_extract_tile(tif.name),
+                        source_name=f"{tif.name}@{ts.strftime('%Y-%m-%dT%H:%M:%SZ')}",
+                        arr=arr,
+                        wet_values=wet_values,
+                        valid_values=valid_values,
+                        exclude_values=exclude_values,
+                        unc_arr=unc_arr,
+                        unc_nodata=unc_nodata,
+                        require_uncertainty=True,
+                    )
+                    if row is not None:
+                        stats_rows.append(row)
+            else:
+                if suffix not in {".tif", ".tiff", ".nc"}:
+                    continue
+                try:
+                    date = _parse_s1_timestamp(tif.name)
+                except ValueError:
+                    continue
+                if start and date < start:
+                    continue
+                if end and date > end:
+                    continue
+
+                arr, _, _, _, region_id, _, _ = _read_mask_by_aoi(
+                    tif,
+                    aoi_path,
+                    lc_cfg=lc_cfg,
+                    band_index=1,
+                )
+                unc_arr: np.ma.MaskedArray | None = None
+                unc_nodata: float | int | None = None
+                if effective_unc_cfg.enabled:
+                    if effective_unc_cfg.mode not in {"companion_layer", "generated_layer"}:
+                        raise ValueError(
+                            f"Uncertainty ingest mode {effective_unc_cfg.mode!r} is incompatible with GeoTIFF source {tif.name}"
+                        )
+                    if suffix not in {".tif", ".tiff"}:
+                        raise ValueError(
+                            f"Uncertainty ingest mode '{effective_unc_cfg.mode}' requires GeoTIFF inputs, got {tif.name}"
+                        )
+                    unc_path = tif.parent / f"{tif.stem}_uncertainty.tif"
+                    if not unc_path.is_file():
+                        raise FileNotFoundError(f"Missing required uncertainty companion raster: {unc_path}")
+                    with rasterio.open(tif) as src, rasterio.open(unc_path) as src_unc:
+                        _assert_same_grid(src, src_unc, left=tif, right=unc_path)
+                    unc_arr, _, _, _, _, _, unc_nodata = _read_mask_by_aoi(
+                        unc_path,
+                        aoi_path,
+                        lc_cfg=lc_cfg,
+                        band_index=1,
+                    )
+                row = _build_wetsnow_summary_row(
+                    date_key=date.strftime("%Y-%m-%d"),
+                    region_id=region_id,
+                    tile=_extract_tile(tif.name),
+                    source_name=tif.name,
+                    arr=arr,
+                    wet_values=wet_values,
+                    valid_values=valid_values,
+                    exclude_values=exclude_values,
+                    unc_arr=unc_arr,
+                    unc_nodata=unc_nodata,
+                    require_uncertainty=bool(effective_unc_cfg.enabled),
+                )
+                if row is not None:
+                    stats_rows.append(row)
+
+            accepted = 0
+            for row in stats_rows:
+                stats_date = pd.to_datetime(str(row["date"]), errors="coerce")
+                if pd.isna(stats_date):
+                    if effective_unc_cfg.enabled:
+                        raise ValueError(
+                            f"Could not parse derived observation date '{row['date']}' for source {row.get('source', tif.name)}"
+                        )
+                    continue
+                if start and stats_date.to_pydatetime() < start:
+                    continue
+                if end and stats_date.to_pydatetime() > end:
+                    continue
+                rows.append(row)
+                accepted += 1
+                logger.info(
+                    "Wet-snow {} -> wet_fraction={:.3f} n_valid={} n_wet={}",
+                    str(row.get("source", tif.name)),
+                    float(row["wet_snow_fraction"]),
+                    int(row["n_valid"]),
+                    int(row["n_wet"]),
+                )
+            if accepted == 0 and stats_rows:
+                logger.warning("Discarded {} because date filter removed all matching records", tif.name)
+            elif accepted == 0:
+                logger.warning("Discarded {} because AOI contained no valid pixels", tif.name)
         except Exception as exc:
+            if uncertainty_cfg.enabled:
+                raise RuntimeError(
+                    f"Wet-snow preprocessing failed for {tif.name} with uncertainty enabled: {exc}"
+                ) from exc
             logger.warning("Skipping {}: {}", tif.name, exc)
             continue
-        logger.info(
-            "Wet-snow {} -> wet_fraction={:.3f} n_valid={} n_wet={}",
-            tif.name,
-            stats.wet_fraction,
-            stats.valid_pixels,
-            stats.wet_pixels,
-        )
-        rows.append(
-            {
-                "date": date.strftime("%Y-%m-%d"),
-                "region_id": stats.region_id,
-                "tile": _extract_tile(tif.name),
-                "wet_snow_fraction": round(stats.wet_fraction, 4),
-                "n_valid": stats.valid_pixels,
-                "n_wet": stats.wet_pixels,
-                "source": tif.name,
-            }
-        )
 
     if not rows:
         raise RuntimeError(f"No valid Sentinel-1 rasters processed in {raster_dir}")
@@ -484,11 +778,24 @@ def summarize_s1_directory(
                 "source_set": set(),
                 "tile_set": set(),
             }
+            if uncertainty_cfg.enabled:
+                slot["unc_mean_num"] = 0.0
+                slot["unc_n_valid"] = 0
+                slot["unc_min"] = float("inf")
+                slot["unc_max"] = float("-inf")
             agg[key] = slot
         slot["n_valid"] = int(slot["n_valid"]) + int(row.get("n_valid", 0))
         slot["n_wet"] = int(slot["n_wet"]) + int(row.get("n_wet", 0))
         slot["source_set"].add(str(row.get("source", "")))
         slot["tile_set"].add(str(row.get("tile", "UNKNOWN")))
+        if uncertainty_cfg.enabled:
+            unc_n_valid = int(row.get("unc_n_valid", 0))
+            if unc_n_valid > 0:
+                unc_mean = float(row["unc_mean"])
+                slot["unc_mean_num"] = float(slot["unc_mean_num"]) + (unc_mean * unc_n_valid)
+                slot["unc_n_valid"] = int(slot["unc_n_valid"]) + unc_n_valid
+                slot["unc_min"] = min(float(slot["unc_min"]), float(row["unc_min"]))
+                slot["unc_max"] = max(float(slot["unc_max"]), float(row["unc_max"]))
 
     out_rows: list[dict[str, object]] = []
     for entry in agg.values():
@@ -506,6 +813,18 @@ def summarize_s1_directory(
                 "source": ";".join(sorted(x for x in entry["source_set"] if x)),
             }
         )
+        if uncertainty_cfg.enabled:
+            row_ref = out_rows[-1]
+            row_unc_mean_num = float(entry.get("unc_mean_num", 0.0))
+            row_unc_n_valid = int(entry.get("unc_n_valid", 0))
+            if row_unc_n_valid <= 0:
+                raise ValueError(
+                    f"Uncertainty is enabled but no uncertainty-valid support exists for date {entry['date']}"
+                )
+            row_ref["unc_mean"] = row_unc_mean_num / row_unc_n_valid
+            row_ref["unc_n_valid"] = row_unc_n_valid
+            row_ref["unc_min"] = float(entry["unc_min"])
+            row_ref["unc_max"] = float(entry["unc_max"])
 
     df = pd.DataFrame(out_rows).sort_values("date")
     output_csv.parent.mkdir(parents=True, exist_ok=True)
@@ -797,6 +1116,3 @@ cli_model_setup = cli_model_project
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_s1_summary())
-
-
-

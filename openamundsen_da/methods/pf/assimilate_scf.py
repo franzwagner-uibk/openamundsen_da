@@ -23,8 +23,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 from loguru import logger
 
 from openamundsen_da.core.constants import (
@@ -47,9 +47,15 @@ from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf, SCFParam
 from openamundsen_da.methods.wet_snow.area import compute_model_wet_snow_fraction
 from openamundsen_da.util.stats import gaussian_logpdf, normalize_log_weights, effective_sample_size, compute_obs_sigma
 from openamundsen_da.core.env import _read_yaml_file
+from openamundsen_da.util.config_validators import require_mapping
 from openamundsen_da.util.landcover_mask import LandcoverMaskConfig, resolve_landcover_mask
-from openamundsen_da.observer.fraction_obs import build_obs_candidate_paths, resolve_obs_product_tag
+from openamundsen_da.observer.fraction_obs import (
+    build_obs_candidate_paths,
+    build_obs_csv_path,
+    resolve_obs_product_tag,
+)
 from openamundsen_da.util.loguru_utils import configure_cli_logger
+from openamundsen_da.util.uncertainty_common import parse_assimilation_block
 
 
 @dataclass
@@ -59,6 +65,78 @@ class LikelihoodParams:
     sigma_floor: float = 0.05
     sigma_cloud_scale: float = 0.10
     min_sigma: float = 0.03
+
+
+@dataclass(frozen=True)
+class ScfUncertaintyAssimilationConfig:
+    enabled: bool
+    sigma_mode: str
+    aggregate_metric: str | None
+
+
+@dataclass(frozen=True)
+class WetSnowUncertaintyAssimilationConfig:
+    enabled: bool
+    sigma_mode: str
+    aggregate_metric: str | None
+
+
+def _read_scf_uncertainty_assimilation_config(project_dir: Path) -> ScfUncertaintyAssimilationConfig:
+    cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
+    da_cfg = require_mapping(cfg.get("data_assimilation"), path="project.data_assimilation")
+    unc_root = da_cfg.get("uncertainty")
+    if unc_root is None:
+        return ScfUncertaintyAssimilationConfig(enabled=False, sigma_mode="formula", aggregate_metric=None)
+    unc_cfg = require_mapping(unc_root, path="project.data_assimilation.uncertainty")
+    scf_unc_raw = unc_cfg.get("scf")
+    if scf_unc_raw is None:
+        return ScfUncertaintyAssimilationConfig(enabled=False, sigma_mode="formula", aggregate_metric=None)
+    scf_unc = require_mapping(scf_unc_raw, path="project.data_assimilation.uncertainty.scf")
+    if not bool(scf_unc.get("enabled", False)):
+        return ScfUncertaintyAssimilationConfig(enabled=False, sigma_mode="formula", aggregate_metric=None)
+
+    assim = require_mapping(
+        scf_unc.get("assimilation"),
+        path="project.data_assimilation.uncertainty.scf.assimilation",
+    )
+    sigma_mode, aggregate_metric = parse_assimilation_block(
+        assim,
+        path="project.data_assimilation.uncertainty.scf.assimilation",
+    )
+    return ScfUncertaintyAssimilationConfig(
+        enabled=True,
+        sigma_mode=sigma_mode,
+        aggregate_metric=aggregate_metric,
+    )
+
+
+def _read_wet_snow_uncertainty_assimilation_config(project_dir: Path) -> WetSnowUncertaintyAssimilationConfig:
+    cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
+    da_cfg = require_mapping(cfg.get("data_assimilation"), path="project.data_assimilation")
+    unc_root = da_cfg.get("uncertainty")
+    if unc_root is None:
+        return WetSnowUncertaintyAssimilationConfig(enabled=False, sigma_mode="formula", aggregate_metric=None)
+    unc_cfg = require_mapping(unc_root, path="project.data_assimilation.uncertainty")
+    wet_unc_raw = unc_cfg.get("wet_snow")
+    if wet_unc_raw is None:
+        return WetSnowUncertaintyAssimilationConfig(enabled=False, sigma_mode="formula", aggregate_metric=None)
+    wet_unc = require_mapping(wet_unc_raw, path="project.data_assimilation.uncertainty.wet_snow")
+    if not bool(wet_unc.get("enabled", False)):
+        return WetSnowUncertaintyAssimilationConfig(enabled=False, sigma_mode="formula", aggregate_metric=None)
+
+    assim = require_mapping(
+        wet_unc.get("assimilation"),
+        path="project.data_assimilation.uncertainty.wet_snow.assimilation",
+    )
+    sigma_mode, aggregate_metric = parse_assimilation_block(
+        assim,
+        path="project.data_assimilation.uncertainty.wet_snow.assimilation",
+    )
+    return WetSnowUncertaintyAssimilationConfig(
+        enabled=True,
+        sigma_mode=sigma_mode,
+        aggregate_metric=aggregate_metric,
+    )
 
 
 def _read_likelihood_from_project(project_dir: Path, observable: str) -> LikelihoodParams:
@@ -89,7 +167,7 @@ def _read_likelihood_from_project(project_dir: Path, observable: str) -> Likelih
         return LikelihoodParams()
 
 
-def _read_obs(csv_path: Path, value_col: str) -> dict:
+def _read_obs(csv_path: Path, value_col: str, *, uncertainty_metric: str | None = None) -> dict:
     """Read observation CSV; expect at least the given value column.
 
     Optional columns: 'n_valid', 'cloud_fraction'.
@@ -103,20 +181,52 @@ def _read_obs(csv_path: Path, value_col: str) -> dict:
         raise ValueError(f"Observation CSV missing '{value_col}' column: {csv_path}")
     out["n_valid"] = int(row["n_valid"]) if "n_valid" in row and not pd.isna(row["n_valid"]) else None
     out["cloud_fraction"] = float(row["cloud_fraction"]) if "cloud_fraction" in row and not pd.isna(row["cloud_fraction"]) else 0.0
+    if uncertainty_metric is not None:
+        if uncertainty_metric not in row or pd.isna(row[uncertainty_metric]):
+            raise ValueError(
+                f"Observation CSV missing required uncertainty metric '{uncertainty_metric}': {csv_path}"
+            )
+        out[uncertainty_metric] = float(row[uncertainty_metric])
     return out
 
 
-def _compute_sigma(y: float, n_valid: Optional[int], cloud_fraction: float, prm: LikelihoodParams) -> float:
-    return compute_obs_sigma(
-        y,
-        n_valid,
-        cloud_fraction,
-        use_binomial=prm.use_binomial,
-        sigma_floor=prm.sigma_floor,
-        sigma_cloud_scale=prm.sigma_cloud_scale,
-        min_sigma=prm.min_sigma,
-        obs_sigma=prm.obs_sigma,
-    )
+def _compute_sigma(
+    *,
+    obs: dict,
+    y: float,
+    prm: LikelihoodParams,
+    sigma_mode: str,
+    uncertainty_metric: str | None,
+    obs_path: Path,
+) -> float:
+    if sigma_mode == "formula":
+        return compute_obs_sigma(
+            y,
+            obs.get("n_valid"),
+            float(obs.get("cloud_fraction", 0.0)),
+            use_binomial=prm.use_binomial,
+            sigma_floor=prm.sigma_floor,
+            sigma_cloud_scale=prm.sigma_cloud_scale,
+            min_sigma=prm.min_sigma,
+            obs_sigma=prm.obs_sigma,
+        )
+    if sigma_mode != "uncertainty_layer":
+        raise ValueError(f"Unsupported sigma_mode: {sigma_mode!r}")
+    if uncertainty_metric is None:
+        raise ValueError("uncertainty_metric must be configured for sigma_mode='uncertainty_layer'")
+    unc_raw = obs.get(uncertainty_metric)
+    if unc_raw is None:
+        raise ValueError(
+            f"Missing uncertainty metric '{uncertainty_metric}' required by sigma_mode='uncertainty_layer' in {obs_path}"
+        )
+    unc = float(unc_raw)
+    if not np.isfinite(unc):
+        raise ValueError(f"Uncertainty metric '{uncertainty_metric}' is not finite in {obs_path}")
+    if unc < 0.0 or unc > 100.0:
+        raise ValueError(
+            f"Uncertainty metric '{uncertainty_metric}' out of [0,100] in {obs_path}: {unc}"
+        )
+    return max(float(prm.min_sigma), unc / 100.0)
 
 
 def assimilate_fraction_for_date(
@@ -131,13 +241,15 @@ def assimilate_fraction_for_date(
     observable: str,
     obs_candidates: Sequence[Path],
     model_eval: Callable[[Path, Path, datetime], float],
+    sigma_mode: str = "formula",
+    uncertainty_metric: str | None = None,
 ) -> pd.DataFrame:
     """Generic fraction assimilation for one observable/date.
 
     Returns a DataFrame with columns:
     member_id, value_model, value_obs, residual, sigma, log_weight, weight
     """
-    lk = _read_likelihood_from_project(infer_project_dir(step_dir), observable)
+    lk = _read_likelihood_from_project(project_dir, observable)
 
     # Read observation
     candidates = list(obs_candidates)
@@ -151,9 +263,20 @@ def assimilate_fraction_for_date(
                 f"Observation CSV not found for {observable} at {date.date()}: "
                 f"expected one of [{missing}] under {step_dir / OBS_DIR_NAME}"
             )
-    obs = _read_obs(obs_path, value_col)
+    obs = _read_obs(
+        obs_path,
+        value_col,
+        uncertainty_metric=(uncertainty_metric if sigma_mode == "uncertainty_layer" else None),
+    )
     y = float(obs[value_col])
-    sigma = _compute_sigma(y, obs.get("n_valid"), float(obs.get("cloud_fraction", 0.0)), lk)
+    sigma = _compute_sigma(
+        obs=obs,
+        y=y,
+        prm=lk,
+        sigma_mode=sigma_mode,
+        uncertainty_metric=uncertainty_metric,
+        obs_path=obs_path,
+    )
 
     # Gather member result dirs
     members = list_member_dirs(step_dir / "ensembles", ensemble)
@@ -208,13 +331,26 @@ def assimilate_scf_for_date(
     project_dir = infer_project_dir(step_dir)
     method, variable, hofx_params = load_hofx_from_project(project_dir)
     lc_cfg = landcover_cfg or resolve_landcover_mask(setup_dir, project_dir)
+    unc_cfg = _read_scf_uncertainty_assimilation_config(project_dir)
     prod_tag = str(product).strip().upper() if product else resolve_obs_product_tag("scf", setup_dir=setup_dir, project_dir=project_dir)
-    obs_candidates = build_obs_candidate_paths(
-        step_dir=step_dir,
-        variable="scf",
-        date=date,
-        product=prod_tag,
-    )
+    if unc_cfg.enabled:
+        # Deterministic tagged-path selection avoids accidental fallback to stale untagged files.
+        obs_candidates = [
+            build_obs_csv_path(
+                step_dir=step_dir,
+                variable="scf",
+                date=date,
+                product=prod_tag,
+                include_product_tag=True,
+            )
+        ]
+    else:
+        obs_candidates = build_obs_candidate_paths(
+            step_dir=step_dir,
+            variable="scf",
+            date=date,
+            product=prod_tag,
+        )
 
     def _model_eval(results_dir: Path, aoi_path: Path, dt: datetime) -> float:
         out = compute_model_scf(
@@ -241,6 +377,8 @@ def assimilate_scf_for_date(
         observable="scf",
         obs_candidates=obs_candidates,
         model_eval=_model_eval,
+        sigma_mode=(unc_cfg.sigma_mode if unc_cfg.enabled else "formula"),
+        uncertainty_metric=(unc_cfg.aggregate_metric if unc_cfg.sigma_mode == "uncertainty_layer" else None),
     )
     # Preserve SCF-specific column names for downstream tools.
     df = df.rename(columns={"value_model": "scf_model", "value_obs": "scf_obs"})
@@ -261,13 +399,25 @@ def assimilate_wet_snow_for_date(
     """Wet-snow assimilation for one date (Sentinel-1 AOI fraction)."""
     project_dir = infer_project_dir(step_dir)
     lc_cfg = landcover_cfg or resolve_landcover_mask(setup_dir, project_dir)
+    unc_cfg = _read_wet_snow_uncertainty_assimilation_config(project_dir)
     prod_tag = str(product).strip().upper() if product else resolve_obs_product_tag("wet_snow", setup_dir=setup_dir, project_dir=project_dir)
-    obs_candidates = build_obs_candidate_paths(
-        step_dir=step_dir,
-        variable="wet_snow",
-        date=date,
-        product=prod_tag,
-    )
+    if unc_cfg.enabled:
+        obs_candidates = [
+            build_obs_csv_path(
+                step_dir=step_dir,
+                variable="wet_snow",
+                date=date,
+                product=prod_tag,
+                include_product_tag=True,
+            )
+        ]
+    else:
+        obs_candidates = build_obs_candidate_paths(
+            step_dir=step_dir,
+            variable="wet_snow",
+            date=date,
+            product=prod_tag,
+        )
 
     def _model_eval(results_dir: Path, aoi_path: Path, dt: datetime) -> float:
         out = compute_model_wet_snow_fraction(
@@ -291,6 +441,8 @@ def assimilate_wet_snow_for_date(
         observable="wet_snow",
         obs_candidates=obs_candidates,
         model_eval=_model_eval,
+        sigma_mode=(unc_cfg.sigma_mode if unc_cfg.enabled else "formula"),
+        uncertainty_metric=(unc_cfg.aggregate_metric if unc_cfg.sigma_mode == "uncertainty_layer" else None),
     )
     df = df.rename(columns={"value_model": "wet_snow_model", "value_obs": "wet_snow_obs"})
     return df
@@ -418,7 +570,3 @@ def cli_main_wet_snow(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-
-
-
-

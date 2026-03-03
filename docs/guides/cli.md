@@ -117,7 +117,7 @@ oa-da-scf \
 
 **snow-cover Sentinel-2 FSC summarization**
 
-Summarizes snow-cover FSC rasters (GeoTIFF or NetCDF) to a setup-level `scf_summary.csv` with `scf`, `n_valid`, `n_snow`, and `cloud_fraction`.
+Summarizes snow-cover FSC rasters (GeoTIFF or NetCDF) to a setup-level `scf_summary.csv` with `scf`, `n_valid`, `n_snow`, and `cloud_fraction`. If SCF uncertainty is enabled in project YAML, summary also includes `unc_mean`, `unc_min`, `unc_max`, and `unc_n_valid`.
 
 ```bash
 oa-da-snowcover \
@@ -141,6 +141,11 @@ oa-da-snowcover \
 - `--log-level LEVEL` - Logging level
 
 **Class handling:** 0..100 = valid FSC (percent), 205 = clouds (excluded; counted in `cloud_fraction`), 210 = water (excluded), 255/_FillValue = nodata.
+
+**Uncertainty ingest modes (project YAML):**
+- `product_layer`: NetCDF must contain both SCF and uncertainty variables and configured time variable.
+- `companion_layer` / `generated_layer`: each SCF TIFF must have `<stem>_uncertainty.tif` in the same directory.
+- When uncertainty is enabled, preprocessing is strict fail-fast on missing/invalid uncertainty inputs.
 
 **Example:**
 ```bash
@@ -347,6 +352,25 @@ oa-da-wetsnow \
 ```
 
 Similar to `oa-da-snowcover` but for Sentinel-1 wet snow masks (categorical classes configured via `obs.wetsnow.classes` in project YAML).
+
+---
+
+### oa-da-wetsnow-uncertainty
+
+**Generate wet-snow uncertainty companion rasters**
+
+Creates `*_uncertainty.tif` files next to source wet-snow GeoTIFFs using the
+project YAML block `data_assimilation.uncertainty.wet_snow`.
+
+```bash
+oa-da-wetsnow-uncertainty \
+  --setup-dir PATH \
+  --project-label LABEL \
+  [--overwrite]
+```
+
+Output is written next to the wet-snow source rasters (same filename stem plus
+`_uncertainty.tif` suffix).
 
 ---
 
@@ -567,8 +591,6 @@ docker compose run --rm oa oa-da-snowcover \
 - [Configuration Guide]({{ site.baseurl }}{% link guides/configuration.md %}) - Configure commands via YAML
 - [Running Experiments]({{ site.baseurl }}{% link guides/experiments/index.md %}) - End-to-end workflow
 - [Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) - Common issues
-
-
 
 
 

@@ -1,7 +1,7 @@
-"""Generate SCF uncertainty companion rasters from project configuration.
+"""Generate wet-snow uncertainty companion rasters from project configuration.
 
 This utility is intended for development/tutorial workflows where an explicit
-uncertainty layer is needed per SCF observation raster.
+uncertainty layer is needed per wet-snow observation raster.
 """
 
 from __future__ import annotations
@@ -26,12 +26,12 @@ from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
 @dataclass(frozen=True)
-class SnowcoverClasses:
+class WetSnowClasses:
     groups: dict[str, tuple[int, ...]]
 
 
 @dataclass(frozen=True)
-class ScfClassMapping:
+class WetSnowClassMapping:
     base_classes: tuple[int, ...]
     max_uncertainty_classes: tuple[int, ...]
     nodata_classes: tuple[int, ...]
@@ -40,7 +40,7 @@ class ScfClassMapping:
 @dataclass(frozen=True)
 class PenaltyRule:
     name: str
-    source: str  # fsc | landcover | shadow
+    source: str  # wet_snow | landcover | shadow
     classes: tuple[int, ...]
     penalty: float
     enabled: bool
@@ -48,13 +48,12 @@ class PenaltyRule:
 
 
 @dataclass(frozen=True)
-class ScfUncertaintyConfig:
+class WetSnowUncertaintyConfig:
     enabled: bool
     input_dir: Path
-    u_min: float
-    u_max: float
+    base_uncertainty: float
     nodata_value: float
-    class_mapping: ScfClassMapping
+    class_mapping: WetSnowClassMapping
     penalties: tuple[PenaltyRule, ...]
 
 
@@ -99,7 +98,7 @@ def _resolve_shadow_path(
     if direct is not None:
         return direct
 
-    for repl in ("fsc", "snowcover", "snowflake"):
+    for repl in ("wsm", "wet", "wetsnow"):
         repl_stem = stem.replace(repl, "shadow")
         cand = shadow_by_name.get(repl_stem)
         if cand is not None:
@@ -114,18 +113,20 @@ def _resolve_shadow_path(
     return None
 
 
-def _resolve_scf_class_mapping(
+def _resolve_wetsnow_class_mapping(
     *,
-    scf_unc: dict[str, object],
+    wet_unc: dict[str, object],
     class_groups: dict[str, tuple[int, ...]],
-) -> ScfClassMapping:
-    path = "project.data_assimilation.uncertainty.scf.class_mapping"
-    class_mapping_raw = scf_unc.get("class_mapping")
+) -> WetSnowClassMapping:
+    path = "project.data_assimilation.uncertainty.wet_snow.class_mapping"
+    class_mapping_raw = wet_unc.get("class_mapping")
     class_mapping = require_mapping(class_mapping_raw, path=path) if class_mapping_raw else {}
 
-    default_base = tuple(class_groups.get("valid", tuple()))
-    default_max = tuple(sorted(set(class_groups.get("cloud", tuple()) + class_groups.get("water", tuple()))))
-    default_nodata = tuple(class_groups.get("nodata", tuple()))
+    default_valid = set(class_groups.get("valid", tuple()))
+    default_exclude = set(class_groups.get("exclude", tuple()))
+    default_base = tuple(sorted(default_valid - default_exclude))
+    default_max = tuple()
+    default_nodata = tuple(sorted(default_exclude))
 
     if "base_classes" in class_mapping or "base_groups" in class_mapping:
         base = resolve_class_values(
@@ -138,7 +139,7 @@ def _resolve_scf_class_mapping(
     else:
         if not default_base:
             raise ValueError(
-                f"{path}: no base class mapping configured and no default group 'valid' found in project.obs.snowcover.classes"
+                f"{path}: no base class mapping configured and default valid\\exclude mapping is empty"
             )
         base = tuple(sorted(set(default_base)))
 
@@ -151,7 +152,7 @@ def _resolve_scf_class_mapping(
             allow_empty=True,
         )
     else:
-        max_unc = tuple(sorted(set(default_max)))
+        max_unc = default_max
 
     if "nodata_classes" in class_mapping or "nodata_groups" in class_mapping:
         nodata = resolve_class_values(
@@ -162,7 +163,7 @@ def _resolve_scf_class_mapping(
             allow_empty=True,
         )
     else:
-        nodata = tuple(sorted(set(default_nodata)))
+        nodata = default_nodata
 
     overlap_base_nodata = sorted(set(base).intersection(nodata))
     if overlap_base_nodata:
@@ -182,60 +183,60 @@ def _resolve_scf_class_mapping(
     if not base and not max_unc:
         raise ValueError(f"{path}: at least one class must be mapped to base or max_uncertainty")
 
-    return ScfClassMapping(
+    return WetSnowClassMapping(
         base_classes=base,
         max_uncertainty_classes=max_unc,
         nodata_classes=nodata,
     )
 
 
-def _load_project_config(project_dir: Path) -> tuple[ScfUncertaintyConfig, SnowcoverClasses]:
+def _load_project_config(project_dir: Path) -> tuple[WetSnowUncertaintyConfig, WetSnowClasses]:
     cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
     obs_cfg = require_mapping(cfg.get("obs"), path="project.obs")
-    snow_cfg = require_mapping(obs_cfg.get("snowcover"), path="project.obs.snowcover")
-    snow_classes = SnowcoverClasses(groups=load_observation_class_groups(project_dir, obs_key="snowcover"))
+    wet_cfg = require_mapping(obs_cfg.get("wetsnow"), path="project.obs.wetsnow")
+    wet_classes = WetSnowClasses(groups=load_observation_class_groups(project_dir, obs_key="wetsnow"))
 
     da_cfg = require_mapping(cfg.get("data_assimilation"), path="project.data_assimilation")
     unc_cfg_raw = da_cfg.get("uncertainty")
     unc_cfg = require_mapping(unc_cfg_raw, path="project.data_assimilation.uncertainty") if unc_cfg_raw else {}
-    scf_unc_raw = unc_cfg.get("scf")
-    scf_unc = require_mapping(scf_unc_raw, path="project.data_assimilation.uncertainty.scf") if scf_unc_raw else {}
-    scf_class_mapping = _resolve_scf_class_mapping(scf_unc=scf_unc, class_groups=snow_classes.groups)
+    wet_unc_raw = unc_cfg.get("wet_snow")
+    wet_unc = require_mapping(wet_unc_raw, path="project.data_assimilation.uncertainty.wet_snow") if wet_unc_raw else {}
+    wet_class_mapping = _resolve_wetsnow_class_mapping(wet_unc=wet_unc, class_groups=wet_classes.groups)
 
     setup_dir = project_dir.parent.parent
-    default_input = _resolve_path(str(snow_cfg.get("dir", "obs/snowcover")), base_dir=setup_dir)
+    default_input = _resolve_path(str(wet_cfg.get("dir", "obs/wetsnow")), base_dir=setup_dir)
 
     penalties: list[PenaltyRule] = []
     used_names: set[str] = set()
-    if "penalties" not in scf_unc:
+    if "penalties" not in wet_unc:
         raise ValueError(
             "Missing required configuration key: "
-            "project.data_assimilation.uncertainty.scf.penalties"
+            "project.data_assimilation.uncertainty.wet_snow.penalties"
         )
-    penalties_raw = scf_unc.get("penalties")
+    penalties_raw = wet_unc.get("penalties")
     if not isinstance(penalties_raw, Sequence) or isinstance(penalties_raw, (str, bytes)):
-        raise ValueError("project.data_assimilation.uncertainty.scf.penalties must be a list")
+        raise ValueError("project.data_assimilation.uncertainty.wet_snow.penalties must be a list")
     for i, raw in enumerate(penalties_raw):
-        rule_path = f"project.data_assimilation.uncertainty.scf.penalties[{i}]"
+        rule_path = f"project.data_assimilation.uncertainty.wet_snow.penalties[{i}]"
         rule = require_mapping(raw, path=rule_path)
         source = str(rule.get("source", "")).strip().lower()
-        if source not in {"fsc", "landcover", "shadow"}:
+        if source not in {"wet_snow", "landcover", "shadow"}:
             raise ValueError(
                 f"{rule_path}.source must be one of: "
-                "fsc, landcover, shadow"
+                "wet_snow, landcover, shadow"
             )
         name = _normalize_rule_name(rule.get("name"), i, used_names)
-        if source == "fsc":
+        if source == "wet_snow":
             classes = resolve_class_values(
                 path=rule_path,
-                class_groups=snow_classes.groups,
+                class_groups=wet_classes.groups,
                 raw_classes=rule.get("classes"),
                 groups=rule.get("groups"),
                 allow_empty=False,
             )
         else:
             if rule.get("groups") is not None:
-                raise ValueError(f"{rule_path}.groups is only supported for source='fsc'")
+                raise ValueError(f"{rule_path}.groups is only supported for source='wet_snow'")
             classes = resolve_class_values(
                 path=rule_path,
                 class_groups=None,
@@ -261,23 +262,15 @@ def _load_project_config(project_dir: Path) -> tuple[ScfUncertaintyConfig, Snowc
             )
         )
 
-    config = ScfUncertaintyConfig(
-        enabled=bool(scf_unc.get("enabled", True)),
-        input_dir=_resolve_path(str(scf_unc.get("input_dir", default_input)), base_dir=setup_dir),
-        u_min=float(scf_unc.get("u_min", 10.0)),
-        u_max=float(scf_unc.get("u_max", 20.0)),
-        nodata_value=float(scf_unc.get("nodata_value", 255.0)),
-        class_mapping=scf_class_mapping,
+    config = WetSnowUncertaintyConfig(
+        enabled=bool(wet_unc.get("enabled", True)),
+        input_dir=_resolve_path(str(wet_unc.get("input_dir", default_input)), base_dir=setup_dir),
+        base_uncertainty=float(wet_unc.get("base_uncertainty", 15.0)),
+        nodata_value=float(wet_unc.get("nodata_value", 255.0)),
+        class_mapping=wet_class_mapping,
         penalties=tuple(penalties),
     )
-    return config, snow_classes
-
-
-def _triangular_uncertainty(scf: np.ndarray, u_min: float, u_max: float) -> np.ndarray:
-    delta = u_max - u_min
-    left = u_min + (scf / 50.0) * delta
-    right = u_max - ((scf - 50.0) / 50.0) * delta
-    return np.where(scf <= 50.0, left, right)
+    return config, wet_classes
 
 
 def _resample_to_template(
@@ -307,7 +300,7 @@ def _apply_penalty_rules(
     *,
     unc_active: np.ndarray,
     active: np.ndarray,
-    fsc: np.ndarray,
+    wet_data: np.ndarray,
     landcover_resampled: np.ndarray | None,
     shadow_by_rule: dict[str, np.ndarray],
     rules: Sequence[PenaltyRule],
@@ -324,8 +317,8 @@ def _apply_penalty_rules(
 
         mask_active = np.zeros(unc_active.shape, dtype=bool)
 
-        if rule.source == "fsc":
-            vals = fsc[active]
+        if rule.source == "wet_snow":
+            vals = wet_data[active]
             finite_vals = np.isfinite(vals)
             if np.any(finite_vals):
                 mask_active[finite_vals] = np.isin(vals[finite_vals].astype(np.int32), rule.classes)
@@ -359,51 +352,57 @@ def _apply_penalty_rules(
 
 
 def _build_uncertainty(
-    fsc: np.ndarray,
+    wet_data: np.ndarray,
     *,
     landcover_resampled: np.ndarray | None,
     shadow_by_rule: dict[str, np.ndarray],
-    cfg: ScfUncertaintyConfig,
+    cfg: WetSnowUncertaintyConfig,
 ) -> tuple[np.ndarray, dict[str, float]]:
-    out = np.full(fsc.shape, cfg.nodata_value, dtype=np.float32)
-    finite = np.isfinite(fsc)
-    fsc_int = np.zeros(fsc.shape, dtype=np.int32)
+    out = np.full(wet_data.shape, cfg.nodata_value, dtype=np.float32)
+    finite = np.isfinite(wet_data)
+    wet_int = np.zeros(wet_data.shape, dtype=np.int32)
     if np.any(finite):
-        fsc_int[finite] = fsc[finite].astype(np.int32)
+        wet_int[finite] = wet_data[finite].astype(np.int32)
 
-    nodata_mask = finite & np.isin(fsc_int, cfg.class_mapping.nodata_classes)
-    base_mask = finite & np.isin(fsc_int, cfg.class_mapping.base_classes) & ~nodata_mask
-    max_mask = finite & np.isin(fsc_int, cfg.class_mapping.max_uncertainty_classes) & ~nodata_mask
+    nodata_mask = finite & np.isin(wet_int, cfg.class_mapping.nodata_classes)
+    base_mask = finite & np.isin(wet_int, cfg.class_mapping.base_classes) & ~nodata_mask
+    max_mask = finite & np.isin(wet_int, cfg.class_mapping.max_uncertainty_classes) & ~nodata_mask
     active = base_mask | max_mask
-    fractions: dict[str, float] = {r.name: np.nan for r in cfg.penalties}
 
+    fractions: dict[str, float] = {r.name: np.nan for r in cfg.penalties}
     if np.any(active):
         unc_active = np.zeros(int(np.count_nonzero(active)), dtype=np.float32)
-        active_vals = fsc[active]
-        active_int = fsc_int[active]
+        active_int = wet_int[active]
         base_active = np.isin(active_int, cfg.class_mapping.base_classes)
         max_active = np.isin(active_int, cfg.class_mapping.max_uncertainty_classes)
         if np.any(base_active):
-            unc_active[base_active] = _triangular_uncertainty(active_vals[base_active], cfg.u_min, cfg.u_max).astype(np.float32)
+            unc_active[base_active] = cfg.base_uncertainty
         if np.any(max_active):
             unc_active[max_active] = 100.0
 
         fractions = _apply_penalty_rules(
             unc_active=unc_active,
             active=active,
-            fsc=fsc,
+            wet_data=wet_data,
             landcover_resampled=landcover_resampled,
             shadow_by_rule=shadow_by_rule,
             rules=cfg.penalties,
         )
         out[active] = np.clip(unc_active, 0.0, 100.0)
     out[nodata_mask] = cfg.nodata_value
-
     return out, fractions
 
 
 def _date_token_from_name(name: str) -> str:
     stem = Path(name).stem
+    m = re.search(r"(20\d{2})[_-](\d{2})[_-](\d{2})", stem)
+    if m:
+        y, mon, day = m.groups()
+        return f"{y}_{mon}_{day}"
+    m2 = re.search(r"(20\d{2})(\d{2})(\d{2})", stem)
+    if m2:
+        y, mon, day = m2.groups()
+        return f"{y}_{mon}_{day}"
     parts = stem.split("_")
     if len(parts) >= 4:
         return "_".join(parts[-3:])
@@ -415,13 +414,13 @@ def generate_uncertainty_layers(*, setup_dir: Path, project_label: str, overwrit
     cfg, _ = _load_project_config(project_dir)
 
     if not cfg.enabled:
-        logger.info("SCF uncertainty generation disabled in project YAML; nothing to do.")
+        logger.info("Wet-snow uncertainty generation disabled in project YAML; nothing to do.")
         return cfg.input_dir
 
     files_all = sorted(cfg.input_dir.glob("*.tif")) + sorted(cfg.input_dir.glob("*.tiff"))
     files = [p for p in files_all if not p.stem.lower().endswith("_uncertainty")]
     if not files:
-        raise FileNotFoundError(f"No SCF GeoTIFF files found in {cfg.input_dir}")
+        raise FileNotFoundError(f"No wet-snow GeoTIFF files found in {cfg.input_dir}")
 
     lc_cfg = resolve_landcover_mask(setup_dir, project_dir)
     if lc_cfg.path is None:
@@ -462,22 +461,17 @@ def generate_uncertainty_layers(*, setup_dir: Path, project_label: str, overwrit
 
     generated = 0
     skipped = 0
-    shadow_matched = 0
-    shadow_missing = 0
-
     for src_path in files:
         out_name = f"{src_path.stem}_uncertainty.tif"
         out_path = src_path.parent / out_name
-
         if out_path.exists() and not overwrite:
             skipped += 1
             continue
 
         with rasterio.open(src_path) as src:
-            fsc = src.read(1)
+            wet_data = src.read(1)
             shadow_by_rule: dict[str, np.ndarray] = {}
             shadow_sources: list[str] = []
-
             for rule in cfg.penalties:
                 if not (rule.enabled and rule.source == "shadow" and rule.input_dir is not None):
                     continue
@@ -488,15 +482,13 @@ def generate_uncertainty_layers(*, setup_dir: Path, project_label: str, overwrit
                     shadow_by_date=by_date,
                 )
                 if shadow_path is None:
-                    shadow_missing += 1
                     continue
                 shadow_arr = _resample_to_template(shadow_path, src, dst_nodata=np.nan)
                 shadow_by_rule[rule.name] = shadow_arr
                 shadow_sources.append(shadow_path.name)
-                shadow_matched += 1
 
             unc, fractions = _build_uncertainty(
-                fsc=fsc,
+                wet_data=wet_data,
                 landcover_resampled=landcover_resampled,
                 shadow_by_rule=shadow_by_rule,
                 cfg=cfg,
@@ -512,17 +504,15 @@ def generate_uncertainty_layers(*, setup_dir: Path, project_label: str, overwrit
                 blockxsize=256,
                 blockysize=256,
             )
-
             with rasterio.open(out_path, "w", **profile) as dst:
                 dst.write(unc.astype(np.float32), 1)
                 dst.set_band_description(1, "uncertainty_percent")
                 dst.update_tags(
                     1,
                     units="percent",
-                    long_name="SCF uncertainty (tutorial synthetic v1)",
-                    method="triangular_scf_plus_penalty_rules",
-                    u_min=str(cfg.u_min),
-                    u_max=str(cfg.u_max),
+                    long_name="Wet-snow uncertainty (tutorial synthetic v1)",
+                    method="constant_base_plus_penalty_rules",
+                    base_uncertainty=str(cfg.base_uncertainty),
                 )
 
         valid = unc != cfg.nodata_value
@@ -550,9 +540,8 @@ def generate_uncertainty_layers(*, setup_dir: Path, project_label: str, overwrit
         generated += 1
 
     (cfg.input_dir / "uncertainty_summary.csv").write_text("\n".join(rows) + "\n", encoding="ascii")
-
     logger.info(
-        "SCF uncertainty generation completed: generated={} skipped={} output={}",
+        "Wet-snow uncertainty generation completed: generated={} skipped={} output={}",
         generated,
         skipped,
         cfg.input_dir,
@@ -562,8 +551,8 @@ def generate_uncertainty_layers(*, setup_dir: Path, project_label: str, overwrit
 
 def cli_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="oa-da-scf-uncertainty",
-        description="Generate SCF uncertainty companion rasters from project YAML.",
+        prog="oa-da-wetsnow-uncertainty",
+        description="Generate wet-snow uncertainty companion rasters from project YAML.",
     )
     parser.add_argument("--setup-dir", required=True, type=Path, help="Path to setup root")
     parser.add_argument(

@@ -273,16 +273,10 @@ The current Rofental project config in this repository enables SCF and wet-snow 
 `sigma_mode: uncertainty_layer`. Therefore, generate companion uncertainty rasters before running
 `oa-da-snowcover` and `oa-da-wetsnow`.
 
-First, clean previously generated uncertainty artifacts so users always start from raw FSC inputs:
+Conceptual background and best-practice rules are summarized in
+[Workflow: Observation Uncertainty]({{ site.baseurl }}{% link workflow.md %}#observation-uncertainty).
 
-```bash
-find /data/rofental/obs/snowcover -maxdepth 1 -type f \
-\( -name "*_uncertainty.tif" -o -name "uncertainty_summary.csv" \) -delete
-find /data/rofental/obs/wetsnow -maxdepth 1 -type f \
-\( -name "*_uncertainty.tif" -o -name "uncertainty_summary.csv" \) -delete
-```
-
-Then generate uncertainty companions next to source rasters:
+Generate uncertainty companions next to source rasters:
 
 ```bash
 oa-da-scf-uncertainty \

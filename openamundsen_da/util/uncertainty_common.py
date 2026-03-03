@@ -11,32 +11,7 @@ import rasterio
 from openamundsen_da.util.config_validators import require_nonempty_str
 
 
-INGEST_MODES = {"product_layer", "companion_layer", "generated_layer"}
 SIGMA_MODES = {"formula", "uncertainty_layer"}
-
-
-def parse_ingest_block(
-    ingest: dict[str, object],
-    *,
-    path: str,
-    value_variable_key: str,
-) -> tuple[str, str | None, str | None, str | None]:
-    """Parse generic uncertainty ingest config block."""
-    mode = require_nonempty_str(ingest, "mode", path=path).lower()
-    if mode not in INGEST_MODES:
-        raise ValueError(
-            f"{path}.mode must be one of: product_layer, companion_layer, generated_layer"
-        )
-
-    value_variable = None
-    uncertainty_variable = None
-    time_variable = None
-    if mode == "product_layer":
-        value_variable = require_nonempty_str(ingest, value_variable_key, path=path)
-        uncertainty_variable = require_nonempty_str(ingest, "uncertainty_variable", path=path)
-        time_variable = require_nonempty_str(ingest, "time_variable", path=path)
-
-    return mode, value_variable, uncertainty_variable, time_variable
 
 
 def parse_assimilation_block(assim: dict[str, object], *, path: str) -> tuple[str, str]:

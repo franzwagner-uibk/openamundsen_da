@@ -76,11 +76,9 @@ data_assimilation:
     scf:
       enabled: true
       ingest:
-        # product_layer: read SCF + uncertainty from same NetCDF file
-        # companion_layer: read <stem>_uncertainty.tif next to each SCF TIFF
-        # generated_layer: same as companion_layer, with layers created by oa-da-scf-uncertainty
-        mode: generated_layer # options: product_layer | companion_layer | generated_layer
-        # Required when mode=product_layer (no defaults/fallbacks):
+        # Required when uncertainty is enabled (no defaults/fallbacks):
+        # For NetCDF input, these variables are read from the same file.
+        # For GeoTIFF input, uncertainty is read from <stem>_uncertainty.tif.
         scf_variable: fsc
         uncertainty_variable: uncertainty
         time_variable: time
@@ -93,10 +91,6 @@ data_assimilation:
       u_min: 10.0
       u_max: 20.0
       nodata_value: 255.0
-      class_mapping:
-        base_groups: [valid]
-        max_uncertainty_groups: [cloud, water]
-        nodata_groups: [nodata]
       penalties:
         - name: forest
           source: landcover
@@ -112,11 +106,9 @@ data_assimilation:
     wet_snow:
       enabled: true
       ingest:
-        # product_layer: read wet-snow + uncertainty from same NetCDF file
-        # companion_layer: read <stem>_uncertainty.tif next to each wet-snow TIFF
-        # generated_layer: same as companion_layer, with layers created by oa-da-wetsnow-uncertainty
-        mode: generated_layer # options: product_layer | companion_layer | generated_layer
-        # Required when mode=product_layer (no defaults/fallbacks):
+        # Required when uncertainty is enabled (no defaults/fallbacks):
+        # For NetCDF input, these variables are read from the same file.
+        # For GeoTIFF input, uncertainty is read from <stem>_uncertainty.tif.
         wet_snow_variable: wet_snow
         uncertainty_variable: uncertainty
         time_variable: time
@@ -128,9 +120,6 @@ data_assimilation:
       input_dir: obs/wetsnow
       base_uncertainty: 15.0
       nodata_value: 255.0
-      class_mapping:
-        base_classes: [110, 125]
-        nodata_groups: [exclude]
       penalties:
         - name: forest
           source: landcover

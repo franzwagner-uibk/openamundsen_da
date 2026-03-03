@@ -41,7 +41,7 @@ from openamundsen_da.methods.daily_aoi_series import (
     compute_step_daily_series_for_all_members,
     step_start_end,
 )
-from openamundsen_da.util.config_validators import require_mapping
+from openamundsen_da.util.config_validators import require_mapping, require_nonempty_str
 from openamundsen_da.util.landcover_mask import (
     LandcoverMaskConfig,
     apply_landcover_mask,
@@ -57,7 +57,6 @@ from openamundsen_da.util.project_dates import resolve_project_dates
 from openamundsen_da.util.uncertainty_common import (
     assert_same_grid as assert_same_grid_shared,
     normalize_netcdf_times as normalize_netcdf_times_shared,
-    parse_ingest_block,
 )
 
 
@@ -80,7 +79,6 @@ class WetSnowStats:
 @dataclass(frozen=True)
 class WetSnowUncertaintyIngestConfig:
     enabled: bool
-    mode: str | None  # product_layer | companion_layer | generated_layer
     wet_snow_variable: str | None
     uncertainty_variable: str | None
     time_variable: str | None
@@ -93,7 +91,6 @@ def _load_wet_snow_uncertainty_ingest_config(project_dir: Path) -> WetSnowUncert
     if unc_root is None:
         return WetSnowUncertaintyIngestConfig(
             enabled=False,
-            mode=None,
             wet_snow_variable=None,
             uncertainty_variable=None,
             time_variable=None,
@@ -103,7 +100,6 @@ def _load_wet_snow_uncertainty_ingest_config(project_dir: Path) -> WetSnowUncert
     if wet_unc_raw is None:
         return WetSnowUncertaintyIngestConfig(
             enabled=False,
-            mode=None,
             wet_snow_variable=None,
             uncertainty_variable=None,
             time_variable=None,
@@ -113,7 +109,6 @@ def _load_wet_snow_uncertainty_ingest_config(project_dir: Path) -> WetSnowUncert
     if not enabled:
         return WetSnowUncertaintyIngestConfig(
             enabled=False,
-            mode=None,
             wet_snow_variable=None,
             uncertainty_variable=None,
             time_variable=None,
@@ -123,14 +118,12 @@ def _load_wet_snow_uncertainty_ingest_config(project_dir: Path) -> WetSnowUncert
         wet_unc.get("ingest"),
         path="project.data_assimilation.uncertainty.wet_snow.ingest",
     )
-    mode, wet_snow_variable, uncertainty_variable, time_variable = parse_ingest_block(
-        ingest,
-        path="project.data_assimilation.uncertainty.wet_snow.ingest",
-        value_variable_key="wet_snow_variable",
-    )
+    ingest_path = "project.data_assimilation.uncertainty.wet_snow.ingest"
+    wet_snow_variable = require_nonempty_str(ingest, "wet_snow_variable", path=ingest_path)
+    uncertainty_variable = require_nonempty_str(ingest, "uncertainty_variable", path=ingest_path)
+    time_variable = require_nonempty_str(ingest, "time_variable", path=ingest_path)
     return WetSnowUncertaintyIngestConfig(
         enabled=True,
-        mode=mode,
         wet_snow_variable=wet_snow_variable,
         uncertainty_variable=uncertainty_variable,
         time_variable=time_variable,
@@ -140,7 +133,6 @@ def _load_wet_snow_uncertainty_ingest_config(project_dir: Path) -> WetSnowUncert
 def _disabled_wet_snow_uncertainty_ingest_config() -> WetSnowUncertaintyIngestConfig:
     return WetSnowUncertaintyIngestConfig(
         enabled=False,
-        mode=None,
         wet_snow_variable=None,
         uncertainty_variable=None,
         time_variable=None,
@@ -153,6 +145,16 @@ def _assert_same_grid(src: rasterio.DatasetReader, other: rasterio.DatasetReader
 
 def _normalize_netcdf_times(time_values: object, *, source_name: str) -> pd.DatetimeIndex:
     return normalize_netcdf_times_shared(time_values, source_name=source_name)
+
+
+def _missing_uncertainty_companion_error(raster_path: Path) -> FileNotFoundError:
+    unc_path = raster_path.parent / f"{raster_path.stem}_uncertainty.tif"
+    return FileNotFoundError(
+        "Missing required uncertainty companion raster: "
+        f"{unc_path}. Generate it first with "
+        "'python -m openamundsen_da.observer.wetsnow_uncertainty --setup-dir <SETUP_DIR> "
+        "--project-label <PROJECT_LABEL> --overwrite' or provide uncertainty in NetCDF."
+    )
 
 
 def _find_mask_raster(
@@ -599,21 +601,17 @@ def summarize_s1_directory(
         try:
             stats_rows: list[dict[str, object]] = []
             effective_unc_cfg = uncertainty_cfg if uncertainty_cfg.enabled else disabled_uncertainty_cfg
-            if effective_unc_cfg.enabled and effective_unc_cfg.mode == "product_layer":
-                if suffix != ".nc":
-                    raise ValueError(
-                        f"Uncertainty ingest mode 'product_layer' requires NetCDF inputs, got {tif.name}"
-                    )
+            if effective_unc_cfg.enabled and suffix == ".nc":
                 if (
                     effective_unc_cfg.wet_snow_variable is None
                     or effective_unc_cfg.uncertainty_variable is None
                     or effective_unc_cfg.time_variable is None
                 ):
-                    raise ValueError("Missing required NetCDF ingest variable names for wet-snow product-layer uncertainty")
+                    raise ValueError("Missing required NetCDF ingest variable names for wet-snow uncertainty")
                 try:
                     import xarray as xr  # lazy dependency
                 except Exception as exc:  # pragma: no cover
-                    raise RuntimeError("xarray is required to process NetCDF wet-snow uncertainty product_layer mode") from exc
+                    raise RuntimeError("xarray is required to process NetCDF wet-snow uncertainty ingestion") from exc
 
                 with xr.open_dataset(tif) as ds:
                     if effective_unc_cfg.wet_snow_variable not in ds:
@@ -685,17 +683,14 @@ def summarize_s1_directory(
                 unc_arr: np.ma.MaskedArray | None = None
                 unc_nodata: float | int | None = None
                 if effective_unc_cfg.enabled:
-                    if effective_unc_cfg.mode not in {"companion_layer", "generated_layer"}:
-                        raise ValueError(
-                            f"Uncertainty ingest mode {effective_unc_cfg.mode!r} is incompatible with GeoTIFF source {tif.name}"
-                        )
                     if suffix not in {".tif", ".tiff"}:
                         raise ValueError(
-                            f"Uncertainty ingest mode '{effective_unc_cfg.mode}' requires GeoTIFF inputs, got {tif.name}"
+                            f"Uncertainty-enabled wet-snow ingestion expects either NetCDF with uncertainty "
+                            f"or GeoTIFF with sidecar uncertainty raster, got {tif.name}"
                         )
                     unc_path = tif.parent / f"{tif.stem}_uncertainty.tif"
                     if not unc_path.is_file():
-                        raise FileNotFoundError(f"Missing required uncertainty companion raster: {unc_path}")
+                        raise _missing_uncertainty_companion_error(tif)
                     with rasterio.open(tif) as src, rasterio.open(unc_path) as src_unc:
                         _assert_same_grid(src, src_unc, left=tif, right=unc_path)
                     unc_arr, _, _, _, _, _, unc_nodata = _read_mask_by_aoi(

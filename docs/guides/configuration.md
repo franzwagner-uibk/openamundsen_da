@@ -133,8 +133,7 @@ data_assimilation:
     scf:
       enabled: false
       ingest:
-        mode: generated_layer # product_layer | companion_layer | generated_layer
-        # Required only for mode=product_layer:
+        # Required when uncertainty is enabled:
         scf_variable: fsc
         uncertainty_variable: uncertainty
         time_variable: time
@@ -144,8 +143,7 @@ data_assimilation:
     wet_snow:
       enabled: false
       ingest:
-        mode: generated_layer # product_layer | companion_layer | generated_layer
-        # Required only for mode=product_layer:
+        # Required when uncertainty is enabled:
         wet_snow_variable: wet_snow
         uncertainty_variable: uncertainty
         time_variable: time
@@ -169,8 +167,9 @@ Notes:
 - For SCF uncertainty:
   - `enabled: true` activates strict uncertainty checks (fail-fast on missing/invalid config or layers).
   - `sigma_mode: uncertainty_layer` uses `aggregate_metric / 100` (for example `unc_mean`) with `min_sigma` floor.
+  - NetCDF uses configured in-file variables; GeoTIFF requires `<stem>_uncertainty.tif`.
   - Cloud pixels should be handled as data gaps (masked), not as uncertainty-penalty pixels.
-- Wet-snow uncertainty uses the same pattern (`ingest` + `assimilation`) and supports `product_layer`, `companion_layer`, and `generated_layer`.
+- Wet-snow uncertainty uses the same pattern (`ingest` + `assimilation`) and the same file-type behavior.
 - `output.retention: compact` writes `results/grids/da_output_grids.nc` and removes heavy member grid artifacts.
 - `results/grids/da_output_grids.nc` is aggregated over all project steps (full project timeline).
 - In `da_output_grids.nc`, `increment_<var>` is `ens_mean_<var> - open_loop_<var>`.
@@ -202,4 +201,3 @@ Typical early failures:
 - Keep DA experimentation and observation mappings in project YAML.
 - Use one project per experiment/time span.
 - Keep `assimilation_events` explicit and versioned in each project.
-

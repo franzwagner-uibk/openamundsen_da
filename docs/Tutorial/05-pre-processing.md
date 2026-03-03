@@ -214,8 +214,7 @@ data_assimilation:
     scf:
       enabled: false
       ingest:
-        mode: generated_layer # product_layer | companion_layer | generated_layer
-        # Required for mode=product_layer:
+        # Required when uncertainty is enabled:
         scf_variable: fsc
         uncertainty_variable: uncertainty
         time_variable: time
@@ -241,8 +240,7 @@ data_assimilation:
     wet_snow:
       enabled: false
       ingest:
-        mode: generated_layer # product_layer | companion_layer | generated_layer
-        # Required for mode=product_layer:
+        # Required when uncertainty is enabled:
         wet_snow_variable: wet_snow
         uncertainty_variable: uncertainty
         time_variable: time

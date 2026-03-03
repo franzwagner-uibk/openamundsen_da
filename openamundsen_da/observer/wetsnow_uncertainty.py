@@ -19,7 +19,6 @@ from rasterio.warp import Resampling, reproject
 
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml
-from openamundsen_da.observer.class_config import load_observation_class_groups, resolve_class_values
 from openamundsen_da.util.config_validators import require_mapping
 from openamundsen_da.util.landcover_mask import resolve_landcover_mask
 from openamundsen_da.util.loguru_utils import configure_cli_logger
@@ -27,7 +26,9 @@ from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 @dataclass(frozen=True)
 class WetSnowClasses:
-    groups: dict[str, tuple[int, ...]]
+    wet: tuple[int, ...]
+    valid: tuple[int, ...]
+    exclude: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,21 @@ class WetSnowUncertaintyConfig:
     nodata_value: float
     class_mapping: WetSnowClassMapping
     penalties: tuple[PenaltyRule, ...]
+
+
+def _require_int_tuple(values: object, *, path: str, allow_empty: bool = False) -> tuple[int, ...]:
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+        raise ValueError(f"{path} must be a list of integers")
+    out: list[int] = []
+    for value in values:
+        try:
+            out.append(int(value))
+        except Exception as exc:
+            raise ValueError(f"{path} contains non-integer value: {value!r}") from exc
+    uniq = tuple(sorted(set(out)))
+    if not uniq and not allow_empty:
+        raise ValueError(f"{path} must contain at least one integer")
+    return uniq
 
 
 def _resolve_path(raw: str | Path, *, base_dir: Path) -> Path:
@@ -116,50 +132,46 @@ def _resolve_shadow_path(
 def _resolve_wetsnow_class_mapping(
     *,
     wet_unc: dict[str, object],
-    class_groups: dict[str, tuple[int, ...]],
+    obs_classes: WetSnowClasses,
 ) -> WetSnowClassMapping:
     path = "project.data_assimilation.uncertainty.wet_snow.class_mapping"
     class_mapping_raw = wet_unc.get("class_mapping")
     class_mapping = require_mapping(class_mapping_raw, path=path) if class_mapping_raw else {}
 
-    default_valid = set(class_groups.get("valid", tuple()))
-    default_exclude = set(class_groups.get("exclude", tuple()))
+    for old_key in ("base_groups", "max_uncertainty_groups", "nodata_groups"):
+        if old_key in class_mapping:
+            raise ValueError(
+                f"{path}.{old_key} is no longer supported; use '*_classes' with raw class IDs."
+            )
+
+    default_valid = set(obs_classes.valid)
+    default_exclude = set(obs_classes.exclude)
     default_base = tuple(sorted(default_valid - default_exclude))
     default_max = tuple()
     default_nodata = tuple(sorted(default_exclude))
 
-    if "base_classes" in class_mapping or "base_groups" in class_mapping:
-        base = resolve_class_values(
-            path=f"{path}.base",
-            class_groups=class_groups,
-            raw_classes=class_mapping.get("base_classes"),
-            groups=class_mapping.get("base_groups"),
-            allow_empty=False,
-        )
+    if "base_classes" in class_mapping:
+        base = _require_int_tuple(class_mapping.get("base_classes"), path=f"{path}.base_classes")
     else:
         if not default_base:
             raise ValueError(
                 f"{path}: no base class mapping configured and default valid\\exclude mapping is empty"
             )
-        base = tuple(sorted(set(default_base)))
+        base = default_base
 
-    if "max_uncertainty_classes" in class_mapping or "max_uncertainty_groups" in class_mapping:
-        max_unc = resolve_class_values(
-            path=f"{path}.max_uncertainty",
-            class_groups=class_groups,
-            raw_classes=class_mapping.get("max_uncertainty_classes"),
-            groups=class_mapping.get("max_uncertainty_groups"),
+    if "max_uncertainty_classes" in class_mapping:
+        max_unc = _require_int_tuple(
+            class_mapping.get("max_uncertainty_classes"),
+            path=f"{path}.max_uncertainty_classes",
             allow_empty=True,
         )
     else:
         max_unc = default_max
 
-    if "nodata_classes" in class_mapping or "nodata_groups" in class_mapping:
-        nodata = resolve_class_values(
-            path=f"{path}.nodata",
-            class_groups=class_groups,
-            raw_classes=class_mapping.get("nodata_classes"),
-            groups=class_mapping.get("nodata_groups"),
+    if "nodata_classes" in class_mapping:
+        nodata = _require_int_tuple(
+            class_mapping.get("nodata_classes"),
+            path=f"{path}.nodata_classes",
             allow_empty=True,
         )
     else:
@@ -194,14 +206,19 @@ def _load_project_config(project_dir: Path) -> tuple[WetSnowUncertaintyConfig, W
     cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
     obs_cfg = require_mapping(cfg.get("obs"), path="project.obs")
     wet_cfg = require_mapping(obs_cfg.get("wetsnow"), path="project.obs.wetsnow")
-    wet_classes = WetSnowClasses(groups=load_observation_class_groups(project_dir, obs_key="wetsnow"))
+    obs_classes_raw = require_mapping(wet_cfg.get("classes"), path="project.obs.wetsnow.classes")
+    wet_classes = WetSnowClasses(
+        wet=_require_int_tuple(obs_classes_raw.get("wet"), path="project.obs.wetsnow.classes.wet"),
+        valid=_require_int_tuple(obs_classes_raw.get("valid"), path="project.obs.wetsnow.classes.valid"),
+        exclude=_require_int_tuple(obs_classes_raw.get("exclude"), path="project.obs.wetsnow.classes.exclude"),
+    )
 
     da_cfg = require_mapping(cfg.get("data_assimilation"), path="project.data_assimilation")
     unc_cfg_raw = da_cfg.get("uncertainty")
     unc_cfg = require_mapping(unc_cfg_raw, path="project.data_assimilation.uncertainty") if unc_cfg_raw else {}
     wet_unc_raw = unc_cfg.get("wet_snow")
     wet_unc = require_mapping(wet_unc_raw, path="project.data_assimilation.uncertainty.wet_snow") if wet_unc_raw else {}
-    wet_class_mapping = _resolve_wetsnow_class_mapping(wet_unc=wet_unc, class_groups=wet_classes.groups)
+    wet_class_mapping = _resolve_wetsnow_class_mapping(wet_unc=wet_unc, obs_classes=wet_classes)
 
     setup_dir = project_dir.parent.parent
     default_input = _resolve_path(str(wet_cfg.get("dir", "obs/wetsnow")), base_dir=setup_dir)
@@ -226,24 +243,9 @@ def _load_project_config(project_dir: Path) -> tuple[WetSnowUncertaintyConfig, W
                 "wet_snow, landcover, shadow"
             )
         name = _normalize_rule_name(rule.get("name"), i, used_names)
-        if source == "wet_snow":
-            classes = resolve_class_values(
-                path=rule_path,
-                class_groups=wet_classes.groups,
-                raw_classes=rule.get("classes"),
-                groups=rule.get("groups"),
-                allow_empty=False,
-            )
-        else:
-            if rule.get("groups") is not None:
-                raise ValueError(f"{rule_path}.groups is only supported for source='wet_snow'")
-            classes = resolve_class_values(
-                path=rule_path,
-                class_groups=None,
-                raw_classes=rule.get("classes"),
-                groups=None,
-                allow_empty=False,
-            )
+        if "groups" in rule:
+            raise ValueError(f"{rule_path}.groups is no longer supported; use .classes with raw class IDs.")
+        classes = _require_int_tuple(rule.get("classes"), path=f"{rule_path}.classes")
         input_dir: Path | None = None
         if source == "shadow":
             default_shadow_input = setup_dir / "obs" / "shadow"

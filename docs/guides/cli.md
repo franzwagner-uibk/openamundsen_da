@@ -142,9 +142,9 @@ oa-da-snowcover \
 
 **Class handling:** 0..100 = valid FSC (percent), 205 = clouds (excluded; counted in `cloud_fraction`), 210 = water (excluded), 255/_FillValue = nodata.
 
-**Uncertainty ingest modes (project YAML):**
-- `product_layer`: NetCDF must contain both SCF and uncertainty variables and configured time variable.
-- `companion_layer` / `generated_layer`: each SCF TIFF must have `<stem>_uncertainty.tif` in the same directory.
+**Uncertainty ingest (project YAML):**
+- NetCDF must contain both value and uncertainty variables plus configured `time_variable`.
+- Each SCF GeoTIFF must have `<stem>_uncertainty.tif` in the same directory.
 - When uncertainty is enabled, preprocessing is strict fail-fast on missing/invalid uncertainty inputs.
 
 **Example:**
@@ -591,6 +591,5 @@ docker compose run --rm oa oa-da-snowcover \
 - [Configuration Guide]({{ site.baseurl }}{% link guides/configuration.md %}) - Configure commands via YAML
 - [Running Experiments]({{ site.baseurl }}{% link guides/experiments/index.md %}) - End-to-end workflow
 - [Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) - Common issues
-
 
 

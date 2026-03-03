@@ -64,7 +64,7 @@ compose_run() {
   docker compose run --rm oa "$@"
 }
 
-uncertainty_companion_mode_enabled() {
+uncertainty_companions_missing() {
   local obs_key="$1"
   local source_project_name="$2"
   compose_run python - "${obs_key}" "${source_project_name}" <<'PY'
@@ -81,15 +81,30 @@ with project_yml.open("r", encoding="utf-8") as f:
 unc_root = ((cfg.get("data_assimilation") or {}).get("uncertainty") or {})
 if obs_key == "scf":
     block = (unc_root.get("scf") or {})
+    obs_dir = (((cfg.get("obs") or {}).get("snowcover") or {}).get("dir") or "obs/snowcover")
 elif obs_key == "wet_snow":
     block = (unc_root.get("wet_snow") or {})
+    obs_dir = (((cfg.get("obs") or {}).get("wetsnow") or {}).get("dir") or "obs/wetsnow")
 else:
     raise SystemExit(2)
 
 enabled = bool(block.get("enabled", False))
-mode = str((((block.get("ingest") or {}).get("mode")) or "")).strip().lower()
-if enabled and mode in {"generated_layer", "companion_layer"}:
-    raise SystemExit(0)
+if not enabled:
+    raise SystemExit(1)
+
+obs_path = Path("/data") / str(obs_dir)
+if not obs_path.exists():
+    raise SystemExit(1)
+
+tifs = sorted(obs_path.glob("*.tif")) + sorted(obs_path.glob("*.tiff"))
+tifs = [p for p in tifs if not p.stem.lower().endswith("_uncertainty")]
+if not tifs:
+    raise SystemExit(1)
+
+for src in tifs:
+    unc = src.parent / f"{src.stem}_uncertainty.tif"
+    if not unc.exists():
+        raise SystemExit(0)
 raise SystemExit(1)
 PY
 }
@@ -105,8 +120,8 @@ WET_SUMMARY_SOURCE_ALL="${PROJECT_DIR}/obs/summaries/all_data/wet_snow_summary.c
 
 if [[ ! -f "${SCF_SUMMARY_SOURCE_NEW}" && ! -f "${SCF_SUMMARY_SOURCE_OLD}" && ! -f "${SCF_SUMMARY_SOURCE_ALL}" ]]; then
   echo "[integration] SCF summary missing in example; generating from raw rasters"
-  if uncertainty_companion_mode_enabled "scf" "${SOURCE_PROJECT_NAME}"; then
-    echo "[integration] SCF uncertainty ingest uses companion/generated layers; generating companions first"
+  if uncertainty_companions_missing "scf" "${SOURCE_PROJECT_NAME}"; then
+    echo "[integration] SCF uncertainty enabled and companion rasters missing; generating companions first"
     compose_run python -m openamundsen_da.observer.scf_uncertainty \
       --setup-dir /data \
       --project-label "${SOURCE_PROJECT_NAME}" \
@@ -121,8 +136,8 @@ fi
 
 if [[ ! -f "${WET_SUMMARY_SOURCE_NEW}" && ! -f "${WET_SUMMARY_SOURCE_OLD}" && ! -f "${WET_SUMMARY_SOURCE_ALL}" ]]; then
   echo "[integration] Wet-snow summary missing in example; generating from raw rasters"
-  if uncertainty_companion_mode_enabled "wet_snow" "${SOURCE_PROJECT_NAME}"; then
-    echo "[integration] Wet-snow uncertainty ingest uses companion/generated layers; generating companions first"
+  if uncertainty_companions_missing "wet_snow" "${SOURCE_PROJECT_NAME}"; then
+    echo "[integration] Wet-snow uncertainty enabled and companion rasters missing; generating companions first"
     compose_run python -m openamundsen_da.observer.wetsnow_uncertainty \
       --setup-dir /data \
       --project-label "${SOURCE_PROJECT_NAME}" \

@@ -63,7 +63,41 @@ class UncertaintyPreprocessorConfigTests(unittest.TestCase):
             self.assertEqual(cfg.class_mapping.nodata_classes, (255,))
             self.assertEqual(cfg.penalties[0].classes, (50,))
 
-    def test_scf_penalty_groups_are_resolved_from_obs_classes(self):
+    def test_scf_class_mapping_groups_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            setup_dir = Path(tmp) / "setup"
+            project_dir = setup_dir / "projects" / "project_2024_2025"
+            _write_project_yaml(
+                project_dir,
+                {
+                    "obs": {
+                        "snowcover": {
+                            "dir": "obs/snowcover",
+                            "classes": {
+                                "valid": [0, 50, 100],
+                                "cloud": [205],
+                                "water": [210],
+                                "nodata": [255],
+                            },
+                        }
+                    },
+                    "data_assimilation": {
+                        "uncertainty": {
+                            "scf": {
+                                "class_mapping": {"base_groups": ["valid"]},
+                                "penalties": [
+                                    {"source": "fsc", "classes": [50], "penalty": 20.0},
+                                ],
+                            }
+                        }
+                    },
+                },
+            )
+            with self.assertRaises(ValueError) as ctx:
+                load_scf_uncertainty_config(project_dir)
+            self.assertIn("no longer supported", str(ctx.exception))
+
+    def test_scf_penalty_groups_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             setup_dir = Path(tmp) / "setup"
             project_dir = setup_dir / "projects" / "project_2024_2025"
@@ -92,8 +126,9 @@ class UncertaintyPreprocessorConfigTests(unittest.TestCase):
                     },
                 },
             )
-            cfg, _ = load_scf_uncertainty_config(project_dir)
-            self.assertEqual(cfg.penalties[0].classes, (205, 210))
+            with self.assertRaises(ValueError) as ctx:
+                load_scf_uncertainty_config(project_dir)
+            self.assertIn(".groups is no longer supported", str(ctx.exception))
 
     def test_wetsnow_defaults_keep_exclude_as_nodata(self):
         with tempfile.TemporaryDirectory() as tmp:

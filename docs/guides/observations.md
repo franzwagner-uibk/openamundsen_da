@@ -137,7 +137,7 @@ Notes:
 - Land-cover mask: `/data/grids/lc_<domain>_<resolution>.asc`
 - When wet-snow uncertainty is enabled, `wet_snow_summary.csv` additionally contains `unc_mean`, `unc_min`, `unc_max`, `unc_n_valid`.
 
-### Optional wet-snow uncertainty generation (`generated_layer`)
+### Optional wet-snow uncertainty generation
 
 ```bash
 docker compose run --rm oa oa-da-wetsnow-uncertainty \

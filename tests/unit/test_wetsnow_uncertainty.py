@@ -22,7 +22,7 @@ def _write_project_yaml(project_dir: Path, payload: dict) -> None:
 
 
 class WetSnowUncertaintyTests(unittest.TestCase):
-    def test_ingest_config_requires_product_layer_variables(self):
+    def test_ingest_config_requires_netcdf_variables(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
             _write_project_yaml(
@@ -32,7 +32,7 @@ class WetSnowUncertaintyTests(unittest.TestCase):
                         "uncertainty": {
                             "wet_snow": {
                                 "enabled": True,
-                                "ingest": {"mode": "product_layer"},
+                                "ingest": {"uncertainty_variable": "uncertainty", "time_variable": "time"},
                             }
                         }
                     }
@@ -42,7 +42,7 @@ class WetSnowUncertaintyTests(unittest.TestCase):
                 _load_wet_snow_uncertainty_ingest_config(project_dir)
             self.assertIn("wet_snow_variable", str(ctx.exception))
 
-    def test_ingest_config_reads_companion_mode(self):
+    def test_ingest_config_reads_variable_names(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
             _write_project_yaml(
@@ -52,7 +52,11 @@ class WetSnowUncertaintyTests(unittest.TestCase):
                         "uncertainty": {
                             "wet_snow": {
                                 "enabled": True,
-                                "ingest": {"mode": "companion_layer"},
+                                "ingest": {
+                                    "wet_snow_variable": "wet_snow",
+                                    "uncertainty_variable": "uncertainty",
+                                    "time_variable": "time",
+                                },
                             }
                         }
                     }
@@ -60,8 +64,9 @@ class WetSnowUncertaintyTests(unittest.TestCase):
             )
             cfg = _load_wet_snow_uncertainty_ingest_config(project_dir)
             self.assertTrue(cfg.enabled)
-            self.assertEqual(cfg.mode, "companion_layer")
-            self.assertIsNone(cfg.wet_snow_variable)
+            self.assertEqual(cfg.wet_snow_variable, "wet_snow")
+            self.assertEqual(cfg.uncertainty_variable, "uncertainty")
+            self.assertEqual(cfg.time_variable, "time")
 
     def test_uncertainty_aggregation_uses_valid_non_excluded_pixels(self):
         arr = np.ma.array(

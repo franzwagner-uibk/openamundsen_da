@@ -64,6 +64,36 @@ compose_run() {
   docker compose run --rm oa "$@"
 }
 
+uncertainty_companion_mode_enabled() {
+  local obs_key="$1"
+  local source_project_name="$2"
+  compose_run python - "${obs_key}" "${source_project_name}" <<'PY'
+from pathlib import Path
+import sys
+import yaml
+
+obs_key = str(sys.argv[1]).strip()
+source_project = str(sys.argv[2]).strip()
+project_yml = Path("/data/projects") / source_project / f"{source_project}.yml"
+with project_yml.open("r", encoding="utf-8") as f:
+    cfg = yaml.safe_load(f) or {}
+
+unc_root = ((cfg.get("data_assimilation") or {}).get("uncertainty") or {})
+if obs_key == "scf":
+    block = (unc_root.get("scf") or {})
+elif obs_key == "wet_snow":
+    block = (unc_root.get("wet_snow") or {})
+else:
+    raise SystemExit(2)
+
+enabled = bool(block.get("enabled", False))
+mode = str((((block.get("ingest") or {}).get("mode")) or "")).strip().lower()
+if enabled and mode in {"generated_layer", "companion_layer"}:
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
 echo "[integration] Preparing trimmed CI project in ${PROJECT_DIR}"
 
 SCF_SUMMARY_SOURCE_NEW="${PROJECT_DIR}/obs/${SOURCE_PROJECT_NAME}/scf_summary.csv"
@@ -75,6 +105,13 @@ WET_SUMMARY_SOURCE_ALL="${PROJECT_DIR}/obs/summaries/all_data/wet_snow_summary.c
 
 if [[ ! -f "${SCF_SUMMARY_SOURCE_NEW}" && ! -f "${SCF_SUMMARY_SOURCE_OLD}" && ! -f "${SCF_SUMMARY_SOURCE_ALL}" ]]; then
   echo "[integration] SCF summary missing in example; generating from raw rasters"
+  if uncertainty_companion_mode_enabled "scf" "${SOURCE_PROJECT_NAME}"; then
+    echo "[integration] SCF uncertainty ingest uses companion/generated layers; generating companions first"
+    compose_run python -m openamundsen_da.observer.scf_uncertainty \
+      --setup-dir /data \
+      --project-label "${SOURCE_PROJECT_NAME}" \
+      --overwrite
+  fi
   compose_run oa-da-snowcover \
     --input-dir /data/obs/snowcover \
     --project-label "${SOURCE_PROJECT_NAME}" \
@@ -84,6 +121,13 @@ fi
 
 if [[ ! -f "${WET_SUMMARY_SOURCE_NEW}" && ! -f "${WET_SUMMARY_SOURCE_OLD}" && ! -f "${WET_SUMMARY_SOURCE_ALL}" ]]; then
   echo "[integration] Wet-snow summary missing in example; generating from raw rasters"
+  if uncertainty_companion_mode_enabled "wet_snow" "${SOURCE_PROJECT_NAME}"; then
+    echo "[integration] Wet-snow uncertainty ingest uses companion/generated layers; generating companions first"
+    compose_run python -m openamundsen_da.observer.wetsnow_uncertainty \
+      --setup-dir /data \
+      --project-label "${SOURCE_PROJECT_NAME}" \
+      --overwrite
+  fi
   compose_run oa-da-wetsnow \
     --input-dir /data/obs/wetsnow \
     --project-label "${SOURCE_PROJECT_NAME}" \
@@ -315,5 +359,3 @@ compose_run python /workspace/scripts/ci/validate_trimmed_project.py \
   --log-file "${CONTAINER_LOG_FILE}"
 
 echo "[integration] PASS"
-
-

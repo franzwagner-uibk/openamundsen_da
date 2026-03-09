@@ -58,7 +58,7 @@ The tutorial is organized as a straight workflow:
 
 1. install and start the Docker-based runtime environment
 2. inspect the bundled Rofental example data
-3. preprocess observation rasters and optional uncertainty layers
+3. preprocess observation rasters and ingest provided uncertainty layers where available
 4. run the project pipeline
 5. inspect diagnostics and outputs
 6. adapt the example workflow to another project

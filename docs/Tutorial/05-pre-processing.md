@@ -13,10 +13,9 @@ project pipeline actually consumes.
 
 The preprocessing sequence is:
 
-1. generate optional uncertainty companion rasters when uncertainty is enabled
-2. summarize snow-cover and wet-snow observation rasters to project-level CSVs
-3. build the project step skeleton from `assimilation_events`
-4. generate one-row per-step observation CSVs under `steps/*/obs/`
+1. summarize snow-cover and wet-snow observation rasters to project-level CSVs
+2. build the project step skeleton from `assimilation_events`
+3. generate one-row per-step observation CSVs under `steps/*/obs/`
 
 From this point on, the tutorial assumes you are inside the running tutorial container
 shell at `/data/rofental`.
@@ -76,16 +75,16 @@ data_assimilation:
     classification_threshold_percent: 0.5
   uncertainty:
     scf:
-      enabled: false # enable uncertainty-aware SCF preprocessing + assimilation
+      enabled: true # ingest bundled SCF uncertainty layers during preprocessing + assimilation
       ingest:
         # Required when uncertainty is enabled:
         scf_variable: fsc
         uncertainty_variable: uncertainty
         time_variable: time
       assimilation:
-        sigma_mode: formula # formula | uncertainty_layer
+        sigma_mode: uncertainty_layer # formula | uncertainty_layer
         aggregate_metric: unc_mean # used when sigma_mode=uncertainty_layer
-      input_dir: obs/snowcover # used by oa-da-scf-uncertainty generator
+      input_dir: obs/snowcover # source directory if uncertainty layers are created upstream
       u_min: 10.0
       u_max: 20.0
       nodata_value: 255.0
@@ -102,16 +101,16 @@ data_assimilation:
           classes: [1]
           penalty: 20.0
     wet_snow:
-      enabled: false # enable uncertainty-aware wet-snow preprocessing + assimilation
+      enabled: true # ingest bundled wet-snow uncertainty layers during preprocessing + assimilation
       ingest:
         # Required when uncertainty is enabled:
         wet_snow_variable: wet_snow
         uncertainty_variable: uncertainty
         time_variable: time
       assimilation:
-        sigma_mode: formula # formula | uncertainty_layer
+        sigma_mode: uncertainty_layer # formula | uncertainty_layer
         aggregate_metric: unc_mean # used when sigma_mode=uncertainty_layer
-      input_dir: obs/wetsnow # used by oa-da-wetsnow-uncertainty generator
+      input_dir: obs/wetsnow # source directory if uncertainty layers are created upstream
       base_uncertainty: 15.0
       nodata_value: 255.0
       penalties:
@@ -127,11 +126,16 @@ data_assimilation:
           classes: [1]
           penalty: 20.0
 ```
-In this tutorial, openAMUNDSEN-DA supports three practical uncertainty paths:
+In this tutorial, uncertainty is handled as provided input data:
 
 - uncertainty disabled (`enabled: false`): assimilation uses the legacy formula sigma mode,
-- uncertainty provided by data producer (`enabled: true`): ingest from NetCDF same-file variables or GeoTIFF sidecars (`<stem>_uncertainty.tif`),
-- uncertainty generated in openAMUNDSEN-DA (`enabled: true`): create sidecars first with `oa-da-scf-uncertainty` / `oa-da-wetsnow-uncertainty`, then ingest them normally.
+- uncertainty enabled (`enabled: true`): ingest from NetCDF same-file variables or GeoTIFF sidecars (`<stem>_uncertainty.tif`).
+
+Those uncertainty layers can come from different sources outside the tutorial workflow:
+they may be delivered with the remote-sensing product itself or generated in a separate
+preprocessing workflow before the files are handed to openAMUNDSEN-DA. In the tutorial,
+the important point is not how the layers were created, but what they contain and how
+openAMUNDSEN-DA reads them.
 
 All uncertainty values are expected in `0..100`, and uncertainty-enabled preprocessing is fail-fast if required uncertainty inputs are missing or invalid.
 
@@ -141,51 +145,44 @@ Uncertainty key reference used in this tutorial:
 - `ingest.*_variable`, `ingest.uncertainty_variable`, `ingest.time_variable`: strict NetCDF variable names (no defaults).
 - `assimilation.sigma_mode`: `formula` (legacy likelihood sigma) or `uncertainty_layer` (sigma from uncertainty metric).
 - `assimilation.aggregate_metric`: summary column used in `uncertainty_layer` mode (typically `unc_mean`).
-- `input_dir`: input directory used by openAMUNDSEN-DA uncertainty generators.
+- `input_dir`: input directory used by uncertainty preprocessing workflows when companion rasters are created outside the tutorial.
 - `u_min`, `u_max` (SCF): triangular baseline uncertainty bounds.
 - `base_uncertainty` (wet snow): baseline uncertainty value for wet-snow base classes.
-- `nodata_value`: nodata written to generated uncertainty rasters.
-- `penalties[]`: optional additive rules used by `oa-da-scf-uncertainty` / `oa-da-wetsnow-uncertainty`.
+- `nodata_value`: nodata value used in uncertainty rasters.
+- `penalties[]`: optional additive rules describing how uncertainty layers can be built in preprocessing workflows.
 - `penalties[].name`: free label (also used in `uncertainty_summary.csv`).
 - `penalties[].source`: class source (`fsc`/`wet_snow`, `landcover`, `shadow`).
 - `penalties[].enabled`: toggle rule on/off without deleting it.
 - `penalties[].classes`: raw class IDs for the selected source.
 - `penalties[].penalty`: added in percentage points.
 - `penalties[].input_dir`: required only for `source: shadow`.
----
 
-## Step 0 (Required for this tutorial): Prepare uncertainty layers (SCF + wet snow)
+## Provided uncertainty layers in the example data
 
-The current Rofental project config in this repository enables SCF and wet-snow uncertainty ingestion and
-`sigma_mode: uncertainty_layer`. Therefore, generate companion uncertainty rasters before running
-`oa-da-snowcover` and `oa-da-wetsnow`.
+The current Rofental project config in this repository enables SCF and wet-snow
+uncertainty ingestion and `sigma_mode: uncertainty_layer`. The required uncertainty
+rasters are already bundled next to the example GeoTIFF observations, so you do not
+generate them during this tutorial.
 
 Conceptual background and best-practice rules are summarized in
 [Workflow: Observation Uncertainty]({{ site.baseurl }}{% link workflow.md %}#observation-uncertainty).
 
-The figure below shows the intended result for a snow-cover scene in the Rofental tutorial domain: a continuous uncertainty layer over valid FSC pixels, shaped by the FSC baseline and land-cover penalties. The lower zoom panels make the structure easier to inspect. Cloud gaps are not represented as penalty-driven uncertainty; they remain missing observations and therefore stay outside the uncertainty field.
+The figure below shows what the tutorial uncertainty layer is meant to represent for one
+snow-cover scene in the Rofental domain: a continuous uncertainty field over valid FSC
+pixels, shaped by the FSC baseline and land-cover penalties. The lower zoom panels make
+the structure easier to inspect. Cloud gaps are not represented as penalty-driven
+uncertainty; they remain missing observations and therefore stay outside the uncertainty
+field.
 
 ![Rofental SCF uncertainty example with land-cover component and local zoom]({{ site.baseurl }}/assets/images/tutorial/rofental_uncertainty.png)
 
-Generate uncertainty companions next to source rasters:
+For the tutorial, read this figure as a guide to layer content:
 
-```bash
-oa-da-scf-uncertainty \
---setup-dir /data/rofental \
---project-label project_2022_2023 \
---overwrite
-
-oa-da-wetsnow-uncertainty \
---setup-dir /data/rofental \
---project-label project_2022_2023 \
---overwrite
-```
-
-Expected outputs:
-- `/data/rofental/obs/snowcover/*_uncertainty.tif`
-- `/data/rofental/obs/wetsnow/*_uncertainty.tif`
-- `/data/rofental/obs/snowcover/uncertainty_summary.csv`
-- `/data/rofental/obs/wetsnow/uncertainty_summary.csv`
+- valid observation pixels carry uncertainty values on a `0..100` scale,
+- forest or other configured penalty drivers can raise uncertainty locally,
+- clouds stay gaps rather than turning into high-uncertainty observations,
+- openAMUNDSEN-DA later aggregates valid-pixel uncertainty metrics such as `unc_mean`
+  from these layers into the summary tables.
 
 ## Step 1: Summarize snow-cover rasters to `scf_summary.csv`
 

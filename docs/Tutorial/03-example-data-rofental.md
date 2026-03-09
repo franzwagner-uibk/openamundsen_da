@@ -77,8 +77,12 @@ Three observation groups are bundled:
 - `obs/wetsnow/`: wet-snow mask rasters
 - `obs/stations/`: station snow observations for result plots and validation
 
+For the snow-cover and wet-snow GeoTIFF inputs, the example also ships matching
+uncertainty sidecars named `<stem>_uncertainty.tif` next to the source rasters.
+
 These observation raster products are the starting point for the preprocessing chapter.
-They are not yet in the form consumed by the step-wise project pipeline.
+They are not yet in the tabular form consumed by the step-wise project pipeline, but the
+uncertainty layers they need for uncertainty-aware preprocessing are already included.
 
 ## Project Configuration Used In The Tutorial
 

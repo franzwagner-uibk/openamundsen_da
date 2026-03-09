@@ -10,97 +10,78 @@ permalink: /
 
 {: .fs-9 }
 
-Data Assimilation Framework for openAMUNDSEN
+Data assimilation for snow observations in openAMUNDSEN
 {: .fs-6 .fw-300 }
 
-[Get started]({{ '/tutorial/' | relative_url }}){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[How to Use]({{ '/tutorial/' | relative_url }}){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[Installation]({{ site.baseurl }}{% link installation.md %}){: .btn .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [View on GitHub](https://github.com/franzwagner-uibk/openamundsen_da){: .btn .fs-5 .mb-4 .mb-md-0 }
 
 ---
 
-## DISCLAIMER
+## What It Is
 
-**This documentation may contain errors and incorrect statements.**
+openAMUNDSEN-DA is an open-source framework for ensemble-based snow data assimilation with
+[openAMUNDSEN](http://doc.openamundsen.org/). It combines model forcing perturbation,
+observation preprocessing, particle-filter assimilation, diagnostics, and result export into
+one reproducible workflow that runs on a normal workstation or in larger computing
+environments.
 
-- this documentation is **work in progress** and only **internaly** available to the _Fram3S_ project team
-- there is no scientific publication for the **openAMUNDSEN-DA** framwework yet
-- **do not use information from this documentation for critical work**
-- **this version of the documentation is lacking scientific references**
-- this documentation is **not complete**. More da algorithms and observation interfaces will be added later
+The framework works with gridded snow-observation products such as snow-cover fraction and
+wet-snow masks, and it can also use station observations for evaluation plots and diagnostics.
 
-## Overview
+![openAMUNDSEN-DA framework overview and workflow scheme]({{ site.baseurl }}/assets/images/tutorial/scheme_oa_da.png)
 
-openAMUNDSEN-DA is an open-source data assimilation framework designed to be executable on standard workstation hardware. The framework provides documented, reproducible command-line workflows and supports parallel execution on local CPU cores; for computationally demanding applications (e.g., larger domains, finer resolutions, or larger ensembles), the same workflow can be scaled to HPC environments. openAMUNDSEN-DA is coupled to the open-source [openAMUNDSEN](http://doc.openamundsen.org/) model, and both codebases are publicly available on GitHub. For end users, openAMUNDSEN-DA is distributed as a Docker image that includes the openAMUNDSEN coupling and example data, while developers who want to contribute to this open-source project can work directly with the corresponding GitHub repositories.
+*High-level overview of the framework: openAMUNDSEN provides the snow model, openAMUNDSEN-DA adds observation preprocessing, step-wise ensemble assimilation, and result diagnostics.*
 
-### Key Features
+## How It Works
 
-- **Prior forcing builder** for meteorological perturbations (temperature +/- sigma_T, precipitation x sigma_P)
-- **Parallel ensemble launcher** with warm-start capability
-  - **Snow-cover preprocessing** (GeoTIFF/NetCDF; includes MODIS after HDF conversion with project.yml class mapping)
-- **Sentinel-2 FSC extraction** via Snowflake product (Barella et al., 2022)
-- **Sentinel-1 wet snow classification** (Nagler et al., 2016)
-- **H(x) forward operators** for model-to-observation space mapping
-- **Particle filter implementation** (systematic resampling, ESS monitoring)
-- **Rejuvenation and state propagation** between assimilation cycles
-- **Comprehensive visualization suite** for forcing, results, and diagnostics
-- **Performance monitoring** (CPU, RAM, disk usage, ETA estimation)
+In practical terms, the workflow has four stages:
 
-### Requirements
+1. prepare a setup with model grids, forcing, observation products, and one project YAML
+2. preprocess observation rasters into project summaries and per-step observation CSVs
+3. run the step-wise data assimilation pipeline
+4. inspect diagnostics, plots, and compact NetCDF result products
 
-- Docker Desktop (Windows/macOS) or Docker Engine (Linux)
-- GDAL/PROJ (via Conda)
-- Python >=3.10
+If you only read one page before starting, this is the key idea:
+openAMUNDSEN-DA does not assimilate raster products directly inside the model loop.
+It first turns them into validated project summaries and per-step observation CSVs.
+That separation keeps the workflow reproducible and easier to debug.
 
----
+## What You Can Do With It
 
-## Getting Started
+- run ensemble snow simulations with particle-filter data assimilation
+- preprocess snow-cover and wet-snow observation products for assimilation
+- generate or ingest observation uncertainty layers on a `0..100` scale
+- inspect weights, ESS, performance metrics, plots, and compact output grids
+- scale from a tutorial-sized single domain to larger sub-domain workflows
 
-{: .note }
+## Where To Start
 
-> This framework is designed to work with Docker for easy deployment and reproducibility.
+Choose one path:
 
-### Tutorial (Rofental example)
-
-Run the bundled Rofental setup with the full tutorial walkthrough:
-
-[Open Tutorial]({{ '/tutorial/' | relative_url }}){: .btn .btn-primary .fs-4 }
+- [How to Use]({{ '/tutorial/' | relative_url }}): full guided walkthrough with the bundled Rofental example
+- [Installation]({{ site.baseurl }}{% link installation.md %}): Docker-based setup and runtime basics
+- [Workflow]({{ site.baseurl }}{% link workflow.md %}): conceptual overview of the data assimilation workflow
+- [Configuration]({{ site.baseurl }}{% link guides/configuration.md %}): project and setup YAML reference
+- [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %}): product preprocessing and uncertainty handling
 
 ## Documentation Structure
 
-### Core Documentation
+- [How to Use]({{ '/tutorial/' | relative_url }})
+- [Installation]({{ site.baseurl }}{% link installation.md %})
+- [Project Structure]({{ site.baseurl }}{% link project-structure.md %})
+- [Workflow]({{ site.baseurl }}{% link workflow.md %})
+- [Configuration]({{ site.baseurl }}{% link guides/configuration.md %})
+- [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %})
+- [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %})
+- [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %})
 
-- [Installation]({{ site.baseurl }}{% link installation.md %}) - Setup and configuration
-- [Project Structure]({{ site.baseurl }}{% link project-structure.md %}) - Understanding the directory layout
-- [Workflow]({{ site.baseurl }}{% link workflow.md %}) - Data assimilation workflow overview
+## Current Status
 
-### User Guides
-
-- [Configuration]({{ site.baseurl }}{% link guides/configuration.md %}) - YAML configuration reference
-- [Command-Line Interface]({{ site.baseurl }}{% link guides/cli.md %}) - CLI commands reference
-- [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %}) - Working with satellite data
-- [Running Experiments]({{ '/guides/experiments/' | relative_url }}) - Set up your own project and run custom setups
-- [Tutorial]({{ '/tutorial/' | relative_url }}) - Step-by-step walkthrough
-
-### Technical Reference
-
-- [Package Structure]({{ site.baseurl }}{% link reference/package-structure.md %}) - Module organization
-- [API Reference]({{ site.baseurl }}{% link reference/api.md %}) - Python API documentation
-- [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %}) - Particle filter implementation
-
-## License
-
-**TODO** _License information_
-
----
-
-## Citation
-
-If you use this software in your research, please cite openAMUNDSEN and (where relevant) the satellite observation products used in your experiment (see References).
-
----
+This documentation is still under active development. Treat it as working technical
+documentation for a moving code base, not as a frozen scientific reference.
 
 ## References
 
 - Strasser, U., Warscher, M., Rottler, E., and Hanzer, F. (2024). openAMUNDSEN v1.0: an open-source snow-hydrological model for mountain regions. Geoscientific Model Development, 17, 6775-6797. https://doi.org/10.5194/gmd-17-6775-2024.
-- Barella, R., Marin, C., Gianinetto, M., and Notarnicola, C. (2022). A novel approach to high resolution snow cover fraction retrieval in mountainous regions. IGARSS 2022 - IEEE International Geoscience and Remote Sensing Symposium, 3856-3859. https://doi.org/10.1109/IGARSS46834.2022.9884177.
-- Nagler, T., Rott, H., Ripper, E., Bippus, G., and Hetzenecker, M. (2016). Advancements for snowmelt monitoring by means of Sentinel-1 SAR. Remote Sensing, 8(4), 348. https://doi.org/10.3390/rs8040348.

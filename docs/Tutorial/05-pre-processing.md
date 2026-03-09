@@ -1,153 +1,35 @@
 ---
 layout: default
-title: 5. Pre-processing
-parent: Tutorial
-nav_order: 5
+title: 4. Preprocessing
+parent: How to Use
+nav_order: 4
 permalink: /tutorial/pre-processing/
 ---
 
-# 5. Pre-processing
+# 4. Preprocessing
 
-This chapter covers the **full observation preprocessing workflow** for the tutorial
-case study (`Rofental`) starting from the shipped raster observations in the example
-setup.
+This chapter turns the bundled observation raster products into the files that the
+project pipeline actually consumes.
 
-The goal is to make the preprocessing logic transparent and reproducible:
+The preprocessing sequence is:
 
-1. summarize raw SCF rasters to `scf_summary.csv`,
-2. summarize raw wet-snow rasters to `wet_snow_summary.csv`,
-3. build the project step skeleton from `assimilation_events`,
-4. create per-step one-row observation CSVs used by the DA pipeline.
+1. generate optional uncertainty companion rasters when uncertainty is enabled
+2. summarize snow-cover and wet-snow observation rasters to project-level CSVs
+3. build the project step skeleton from `assimilation_events`
+4. generate one-row per-step observation CSVs under `steps/*/obs/`
 
-The tutorial workflow starts from the shipped **raw observation rasters**. Summary CSVs
-and per-step observation CSVs are generated in this chapter so users learn the full
-preprocessing workflow end to end.
+From this point on, the tutorial assumes you are inside the running tutorial container
+shell at `/data/rofental`.
 
-This is the key bridge between satellite products and the DA framework: raw rasters are transformed into validated, step-aligned CSV inputs.
+## Inspect The Observation Raster Inputs
 
----
+The Rofental example provides three observation groups:
 
-## Step-by-step flow on this page
+- `obs/snowcover/` for snow-cover fraction rasters
+- `obs/wetsnow/` for wet-snow mask rasters
+- `obs/stations/` for station snow observations used in result plots
 
-{: .step }
-> Follow this chapter in order; each preprocessing step creates inputs needed by the next one.
-
-Run the chapter in this order:
-
-1. check raw inputs and preprocessing-relevant project YAML keys (orientation)
-2. run the required preprocessing commands (mandatory)
-3. compare generated files with the shown snippets/paths (recommended)
-4. use optional CLI checks only if something looks wrong
-
-**Mandatory commands only (copy-paste path):**
-
-`oa-da-scf-uncertainty` -> `oa-da-wetsnow-uncertainty` -> `oa-da-snowcover` -> `oa-da-wetsnow` -> `project_skeleton` -> `oa-da-scf` -> `oa-da-wetsnow-project`
-
----
-
-## Before you start
-
-This chapter assumes you already:
-
-- started the interactive tutorial container shell from [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}),
-- copied the bundled Rofental example to your mounted workspace (`/data/rofental`).
-
-{: .references }
-> - [Framework]({{ site.baseurl }}{% link Tutorial/04-framework.md %}) for setup/project/step concepts
-> - [Observation Processing Guide]({{ site.baseurl }}{% link guides/observations.md %}) for product details and CLI options
-> - [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}) for all preprocessing commands
-
-<details markdown="block">
-  <summary>Why this chapter comes before the project run</summary>
-
-The project pipeline expects per-step observation CSVs in each `step_*/obs/` folder.
-Those files do not exist until you:
-
-1. summarize raw rasters (`oa-da-snowcover`, `oa-da-wetsnow`),
-2. generate the step skeleton (`project_skeleton`),
-3. align summaries to assimilation events (`oa-da-scf`, `oa-da-wetsnow-project`).
-</details>
-
-All command blocks below are executed **inside the running tutorial container shell**. Once the shell is started in chapter 2, the commands are identical on Linux, macOS, and Windows (WSL/PowerShell users type them inside the container).
-
-Most file checks are shown as **paths + snippets** to reduce command noise. If you are following the tutorial for the first time, focus on the required preprocessing commands and compare your generated files with the shown references.
-
-## Continuing Later (Restart the Tutorial Container Shell)
-
-If you continue this tutorial on another day, restart the tutorial container shell before
-running the preprocessing commands below.
-
-Important:
-
-- the tutorial container is started with `--rm` (temporary container),
-- your tutorial files persist in your local workspace because it is bind-mounted as `/data`.
-
-Restart the container from the **host terminal** (not from inside a container shell), using
-the same host path you used in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}):
-
-```bash
-docker run --rm -it \
-  -v "/absolute/path/to/tutorial-workdir:/data" \
-  -w /data \
-  --cpus 8 \
-  -e OMP_NUM_THREADS=1 \
-  -e OPENBLAS_NUM_THREADS=1 \
-  -e MKL_NUM_THREADS=1 \
-  -e NUMEXPR_NUM_THREADS=1 \
-  ghcr.io/franzwagner-uibk/openamundsen_da:latest \
-  bash --noprofile --norc
-```
-
-
----
-
-## Inspect the raw observation inputs (Rofental example)
-
-The Rofental example contains:
-
-- `obs/snowcover/` - Sentinel-2 FSC rasters (GeoTIFF)
-- `obs/wetsnow/` - Sentinel-1 wet-snow mask rasters (GeoTIFF)
-- `obs/stations/` - station snow observations for validation plots
-
-What to expect:
-
-- many FSC rasters across the season (more than the final assimilation dates),
-- wet-snow rasters from Sentinel-1 tracks,
-- the two tutorial validation stations (`latschbloder`, `proviantdepot`).
-
-Reference snippet (Rofental example filenames):
-
-```text
-/data/rofental/obs/snowcover/
-  s2_fsc_snowflake_rofental_2022_10_03.tif
-  s2_fsc_snowflake_rofental_2022_10_05.tif
-  s2_fsc_snowflake_rofental_2022_10_08.tif
-  ...
-
-/data/rofental/obs/wetsnow/
-  WSM_S1A_SAR_track117_2023_03_12_17_07_24.tif
-  WSM_S1A_SAR_track117_2023_03_24_17_07_24.tif
-  WSM_S1A_SAR_track168_2023_03_28_05_27_38.tif
-  ...
-```
-
-Reference CSV snippet (station snow observations)
-
-File path: `/data/rofental/obs/stations/proviantdepot.csv`
-
-| time | snow_depth | swe |
-| --- | --- | --- |
-| 2022-10-01 00:00:00 | 0.10 | 15.12 |
-| 2022-10-01 01:00:00 | 0.10 | 14.78 |
-| 2022-10-01 02:00:00 | 0.10 | 14.78 |
-
-Why this matters:
-
-- the tutorial project assimilates only a subset of dates,
-- but date selection is driven by the **summary tables** derived from these raw rasters.
-
-<details markdown="block">
-  <summary>Optional CLI check (list raw observation files)</summary>
+Optional quick check:
 
 ```bash
 echo "Snow-cover rasters:";
@@ -160,12 +42,7 @@ echo "Station observation files:";
 ls -1 /data/rofental/obs/stations
 ```
 
-
-</details>
-
----
-
-## Inspect the project configuration that drives preprocessing
+## Inspect The Project Configuration That Drives Preprocessing
 
 The preprocessing commands read product tags, classes, and paths from the project YAML.
 
@@ -212,7 +89,7 @@ data_assimilation:
     classification_threshold_percent: 0.5
   uncertainty:
     scf:
-      enabled: false
+      enabled: false # enable uncertainty-aware SCF preprocessing + assimilation
       ingest:
         # Required when uncertainty is enabled:
         scf_variable: fsc
@@ -220,14 +97,14 @@ data_assimilation:
         time_variable: time
       assimilation:
         sigma_mode: formula # formula | uncertainty_layer
-        aggregate_metric: unc_mean
-      input_dir: obs/snowcover
+        aggregate_metric: unc_mean # used when sigma_mode=uncertainty_layer
+      input_dir: obs/snowcover # used by oa-da-scf-uncertainty generator
       u_min: 10.0
       u_max: 20.0
       nodata_value: 255.0
       penalties:
         - name: forest
-          source: landcover
+          source: landcover # one of: fsc | landcover | shadow
           enabled: true
           classes: [8, 9, 10, 11, 12]
           penalty: 20.0
@@ -238,7 +115,7 @@ data_assimilation:
           classes: [1]
           penalty: 20.0
     wet_snow:
-      enabled: false
+      enabled: false # enable uncertainty-aware wet-snow preprocessing + assimilation
       ingest:
         # Required when uncertainty is enabled:
         wet_snow_variable: wet_snow
@@ -246,13 +123,13 @@ data_assimilation:
         time_variable: time
       assimilation:
         sigma_mode: formula # formula | uncertainty_layer
-        aggregate_metric: unc_mean
-      input_dir: obs/wetsnow
+        aggregate_metric: unc_mean # used when sigma_mode=uncertainty_layer
+      input_dir: obs/wetsnow # used by oa-da-wetsnow-uncertainty generator
       base_uncertainty: 15.0
       nodata_value: 255.0
       penalties:
         - name: forest
-          source: landcover
+          source: landcover # one of: wet_snow | landcover | shadow
           enabled: true
           classes: [8, 9, 10, 11, 12]
           penalty: 20.0
@@ -263,6 +140,31 @@ data_assimilation:
           classes: [1]
           penalty: 20.0
 ```
+In this tutorial, openAMUNDSEN-DA supports three practical uncertainty paths:
+
+- uncertainty disabled (`enabled: false`): assimilation uses the legacy formula sigma mode,
+- uncertainty provided by data producer (`enabled: true`): ingest from NetCDF same-file variables or GeoTIFF sidecars (`<stem>_uncertainty.tif`),
+- uncertainty generated in openAMUNDSEN-DA (`enabled: true`): create sidecars first with `oa-da-scf-uncertainty` / `oa-da-wetsnow-uncertainty`, then ingest them normally.
+
+All uncertainty values are expected in `0..100`, and uncertainty-enabled preprocessing is fail-fast if required uncertainty inputs are missing or invalid.
+
+Uncertainty key reference used in this tutorial:
+
+- `enabled`: activates uncertainty-aware preprocessing and data assimilation for that product.
+- `ingest.*_variable`, `ingest.uncertainty_variable`, `ingest.time_variable`: strict NetCDF variable names (no defaults).
+- `assimilation.sigma_mode`: `formula` (legacy likelihood sigma) or `uncertainty_layer` (sigma from uncertainty metric).
+- `assimilation.aggregate_metric`: summary column used in `uncertainty_layer` mode (typically `unc_mean`).
+- `input_dir`: input directory used by openAMUNDSEN-DA uncertainty generators.
+- `u_min`, `u_max` (SCF): triangular baseline uncertainty bounds.
+- `base_uncertainty` (wet snow): baseline uncertainty value for wet-snow base classes.
+- `nodata_value`: nodata written to generated uncertainty rasters.
+- `penalties[]`: optional additive rules used by `oa-da-scf-uncertainty` / `oa-da-wetsnow-uncertainty`.
+- `penalties[].name`: free label (also used in `uncertainty_summary.csv`).
+- `penalties[].source`: class source (`fsc`/`wet_snow`, `landcover`, `shadow`).
+- `penalties[].enabled`: toggle rule on/off without deleting it.
+- `penalties[].classes`: raw class IDs for the selected source.
+- `penalties[].penalty`: added in percentage points.
+- `penalties[].input_dir`: required only for `source: shadow`.
 ---
 
 ## Step 0 (Required for this tutorial): Prepare uncertainty layers (SCF + wet snow)
@@ -273,6 +175,10 @@ The current Rofental project config in this repository enables SCF and wet-snow 
 
 Conceptual background and best-practice rules are summarized in
 [Workflow: Observation Uncertainty]({{ site.baseurl }}{% link workflow.md %}#observation-uncertainty).
+
+The figure below shows the intended result for a snow-cover scene in the Rofental tutorial domain: a continuous uncertainty layer over valid FSC pixels, shaped by the FSC baseline and land-cover penalties. The lower zoom panels make the structure easier to inspect. Cloud gaps are not represented as penalty-driven uncertainty; they remain missing observations and therefore stay outside the uncertainty field.
+
+![Rofental SCF uncertainty example with land-cover component and local zoom]({{ site.baseurl }}/assets/images/tutorial/rofental_uncertainty.png)
 
 Generate uncertainty companions next to source rasters:
 
@@ -296,7 +202,7 @@ Expected outputs:
 
 ## Step 1: Summarize snow-cover rasters to `scf_summary.csv`
 
-`oa-da-snowcover` reads raw FSC rasters from `--input-dir`, applies ROI/masking and class mapping from `--setup-dir` + project YAML, writes the project summary under `obs/summaries/<project_label>/`, and `--overwrite` replaces an existing summary file.
+`oa-da-snowcover` reads input FSC rasters from `--input-dir`, applies ROI/masking and class mapping from `--setup-dir` + project YAML, writes the project summary under `obs/summaries/<project_label>/`, and `--overwrite` replaces an existing summary file.
 
 Purpose in this tutorial:
 
@@ -390,7 +296,7 @@ How to read this SCF summary snippet:
 
 - `n_valid` is the ROI support after masking/class filtering,
 - `n_snow` is the snow-class support used to compute `scf`,
-- `scf` is the fraction used later for SCF DA events,
+- `scf` is the fraction used later for SCF data assimilation events,
 - `cloud_fraction` helps you judge whether a date is suitable for assimilation.
 
 ---
@@ -398,7 +304,7 @@ How to read this SCF summary snippet:
 ## Step 1b: Enable per-step SCF obs files with uncertainty columns
 
 Use the SCF summary (with `unc_*` columns) to generate per-step observation files for the
-existing DA dates in the Rofental example.
+existing data assimilation dates in the Rofental example.
 
 ```bash
 python -m openamundsen_da.pipeline.project_skeleton \
@@ -422,7 +328,7 @@ which are used by SCF assimilation when `sigma_mode: uncertainty_layer`.
 
 ## Step 2: Summarize wet-snow rasters to `wet_snow_summary.csv`
 
-`oa-da-wetsnow` reads raw wet-snow rasters from `--input-dir`, uses wet/valid/exclude class mappings from the project config (`--setup-dir`), writes `wet_snow_summary.csv` under `obs/summaries/<project_label>/`, and `--overwrite` replaces an existing file.
+`oa-da-wetsnow` reads input wet-snow rasters from `--input-dir`, uses wet/valid/exclude class mappings from the project config (`--setup-dir`), writes `wet_snow_summary.csv` under `obs/summaries/<project_label>/`, and `--overwrite` replaces an existing file.
 
 Purpose in this tutorial:
 
@@ -528,7 +434,7 @@ What to expect:
 
 - `step_00_init`
 - one step per assimilation window boundary
-- the final step (after the last DA event) has no assimilation
+- the final step (after the last data assimilation event) has no assimilation
 
 Reference snippet (first step folders in the tutorial project):
 
@@ -541,17 +447,13 @@ step_04_20230526-20230616
 step_05_20230616-20230630
 ```
 
-Read this step-list snippet as a direct translation of the configured project period plus `assimilation_events`; it is the structure that later receives the per-step observation CSVs and DA outputs.
+Read this step-list snippet as a direct translation of the configured project period plus `assimilation_events`; it is the structure that later receives the per-step observation CSVs and data assimilation outputs.
 
 {: .warning }
 > If you edit `assimilation_events`, rerun `project_skeleton` before regenerating per-step
 > observation CSVs. Step windows and event dates must match exactly.
 
 This fail-fast behavior prevents silent mismatches between event dates and step windows.
-
-{: .references }
-> - [Framework]({{ site.baseurl }}{% link Tutorial/04-framework.md %}) for why `assimilation_events` define the step structure
-> - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) for editing `assimilation_events`
 
 ---
 
@@ -578,7 +480,7 @@ Relevant keys: `data_assimilation.assimilation_events[*]` (SCF events), `obs.sno
 
 Expected outputs after running the command:
 
-- one SCF observation CSV per configured SCF DA event
+- one SCF observation CSV per configured SCF data assimilation event
 - files written under: `/data/rofental/projects/project_2022_2023/steps/*/obs/obs_scf_*.csv`
 
 What this command validates (fail-fast):
@@ -608,7 +510,7 @@ File path: `/data/rofental/projects/project_2022_2023/steps/step_00_init/obs/obs
 | --- | --- | --- | --- | --- | --- |
 | 2023-01-01 | 106750 | 106750 | 1.00 | 0.00 | s2_fsc_snowflake_rofental_2023_01_01.tif |
 
-This one-row file is what the DA step consumes directly for the SCF event, so it is the key place to verify date, product tag alignment (via filename), and the summary values passed into the run.
+This one-row file is what the data assimilation step consumes directly for the SCF event, so it is the key place to verify date, product tag alignment (via filename), and the summary values passed into the run.
 
 ---
 
@@ -635,7 +537,7 @@ Relevant keys: `data_assimilation.assimilation_events[*]` (wet-snow events), `ob
 
 Expected outputs after running the command:
 
-- one wet-snow observation CSV per configured wet-snow DA event
+- one wet-snow observation CSV per configured wet-snow data assimilation event
 - files written under: `/data/rofental/projects/project_2022_2023/steps/*/obs/obs_wet_snow_*.csv`
 
 At this point, the project is ready for execution:
@@ -645,14 +547,11 @@ At this point, the project is ready for execution:
 - per-step observation CSVs exist,
 - project config and setup config are aligned.
 
-At this point the DA run becomes reproducible: the observation inputs consumed by each step are explicit and inspectable.
-
-{: .step }
-> Preprocessing observation flow (conceptual)
+At this point the data assimilation run becomes reproducible: the observation inputs consumed by each step are explicit and inspectable.
 
 ![Preprocessing observation flow diagram]({{ site.baseurl }}/assets/images/tutorial/diagrams/preprocessing-observation-flow.svg)
 
-_Flow from raw SCF/wet-snow rasters to project summary CSVs, then to per-step observation CSVs consumed by each DA step._
+_Flow from input SCF/wet-snow rasters to project summary CSVs, then to per-step observation CSVs consumed by each data assimilation step._
 
 Reference CSV snippet (generated per-step wet-snow observation)
 
@@ -662,7 +561,7 @@ File path: `/data/rofental/projects/project_2022_2023/steps/step_02_20230309-202
 | --- | --- | --- | --- | --- |
 | 2023-05-11 | 0.89 | 156982 | 139793 | WSM_S1A_SAR_track117_2023_05_11_17_07_26.tif |
 
-This wet-snow per-step file plays the same role as the SCF per-step CSV: it is the explicit DA input artifact for that event date and should match the selected summary row.
+This wet-snow per-step file plays the same role as the SCF per-step CSV: it is the explicit data assimilation input artifact for that event date and should match the selected summary row.
 
 ---
 
@@ -683,7 +582,7 @@ Meaning:
 Typical fix:
 
 - update `assimilation_events`, or
-- regenerate the summary from the correct raw data.
+- regenerate the summary from the correct input data.
 
 ### 2. Product tag mismatch
 
@@ -742,17 +641,4 @@ Key outputs:
   - `steps/.../obs/obs_scf_<PRODUCT>_YYYYMMDD.csv`
   - `steps/.../obs/obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`
 
-These are the direct observation inputs consumed by the DA project run.
-
----
-
-## Next step
-
-{: .references }
-> Continue to the project execution chapter after the preprocessing outputs look correct.
-
-Continue with [6. Running the project]({{ site.baseurl }}{% link Tutorial/06-running-the-project.md %}) to:
-
-- run a full DA project with the project pipeline,
-- understand the relationship between granular commands and the pipeline,
-- and validate that the run completed successfully.
+These are the direct observation inputs consumed by the data assimilation project run.

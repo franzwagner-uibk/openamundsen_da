@@ -12,9 +12,9 @@ This replaces the old GitHub Pages site.
 - Setup-based snow cover prediction with an ensemble model + particle filter.
 - Includes prior forcing builder, ensemble launcher, generic snow-cover and wet-snow summarization, H(x) model SCF, assimilation, resampling, rejuvenation, and plotting utilities.
 
-## Tutorial
+## How to Use
 
-See the docs tutorial for the full Rofental walkthrough:
+See the docs How to Use section for the full Rofental walkthrough:
 
 `https://openamundsen-da.pages.dev/tutorial/`
 
@@ -46,11 +46,11 @@ Define once per shell and reuse in all commands:
 
 ```powershell
 $setup   = "/data"                                        # setup root (top level)
-$project = "$setup/projects/project_YYYY-YYYY"            # one DA project
+$project = "$setup/projects/project_YYYY-YYYY"            # one data assimilation project
 $step    = "$project/steps/step_XX_name"                  # current step
 $date    = "YYYY-MM-DD"                            # assimilation date
 $dateTag = ($date -replace '-', '')
-$roi     = "$setup/env/roi.gpkg"                   # optional ROI vector; DA always uses grids/roi_<domain>_<resolution>.asc
+$roi     = "$setup/env/roi.gpkg"                   # optional ROI vector; data assimilation always uses grids/roi_<domain>_<resolution>.asc
 ```
 
 Notes
@@ -69,14 +69,14 @@ setup/
     roi.gpkg                # optional ROI vector (preferred name)
     subdomains.gpkg         # optional multi-feature regions file for sub-domain mode
   grids/
-    roi_<domain>_<resolution>.asc  # canonical ROI mask used by DA runs
+    roi_<domain>_<resolution>.asc  # canonical ROI mask used by data assimilation runs
     lc_<domain>_<resolution>.asc  # land-cover classes used for masking
   meteo/
     stations.csv
     <station>.csv           # long-span forcing inputs
   projects/
     project_YYYY-YYYY/
-      project_YYYY-YYYY.yml # project-level DA config + start/end + assimilation_events
+      project_YYYY-YYYY.yml # project-level data assimilation config + start/end + assimilation_events
       steps/
         step_00_init/
           step_00.yml         # initial spin-up step
@@ -104,11 +104,11 @@ You can use the scaffold under `templates/project` as a starting point.
 Each directory in that template contains a small `readme.txt` describing the expected files
 and naming conventions.
 
-- Setup YAML (`<setup-name>.yml`/`setup.yml`) must stay pure openAMUNDSEN config (no DA block).
+- Setup YAML (`<setup-name>.yml`/`setup.yml`) must stay pure openAMUNDSEN config (no data assimilation block).
 - Project YAML (`<project-name>.yml`/`project.yml`) must define `data_assimilation` (`h_of_x`, `likelihood`, `resampling`, `rejuvenation`, `restart`, `landcover_mask`, `assimilation_events`) plus `start_date` and `end_date`.
 - `projects/project_X/steps/step_Y/ensembles/prior` is created automatically by the project pipeline (using `${setup}/meteo` forcing).
 - Observations live under `obs/project_X`; the pipeline assumes the CSVs follow `obs_scf_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`. Configure product tags explicitly in project YAML under `obs.*`.
-- DA uses `grids/roi_<domain>_<resolution>.asc` as canonical ROI mask; if missing, it is generated silently from ROI vectors under `env/` (`roi.gpkg` preferred, `subdomains.gpkg` supported).
+- data assimilation uses `grids/roi_<domain>_<resolution>.asc` as canonical ROI mask; if missing, it is generated silently from ROI vectors under `env/` (`roi.gpkg` preferred, `subdomains.gpkg` supported).
 - Land-cover masking (applied to obs + model SCF/wet-snow): land-cover ASCII is resolved as `grids/lc_<domain>_<resolution>.asc` from setup config; excluded classes come from project YAML `data_assimilation.landcover_mask.classes_to_exclude`.
 
 ```yaml
@@ -183,7 +183,7 @@ docker compose run --rm oa `
   --overwrite
 ```
 
-Classes come from project YAML `obs.wetsnow.classes`; the project-level DA land-cover exclusions are applied automatically.
+Classes come from project YAML `obs.wetsnow.classes`; the project-level data assimilation land-cover exclusions are applied automatically.
 
 - Per-step obs CSVs (align summaries to assimilation events):
 
@@ -218,7 +218,7 @@ Wet-snow observations use categorical rasters (e.g., Sentinel-1 WSM). `oa-da-wet
 - Per-step observation preparation (`oa-da-scf`, `oa-da-wetsnow-project`) is fail-fast:
   - event date must lie inside the associated step window,
   - the summary CSV must contain a row for each configured event date of that variable.
-- Wet-snow masks/fractions are computed for all members before DA using the project wet-snow threshold; assimilation/resampling/rejuvenation then proceed like SCF.
+- Wet-snow masks/fractions are computed for all members before data assimilation using the project wet-snow threshold; assimilation/resampling/rejuvenation then proceed like SCF.
 
 ## Per-step forcing plots
 
@@ -492,14 +492,14 @@ Optional: `--max-workers <N>`, `--overwrite`, `--live-plots`, `--log-level <LEVE
 
 At startup the launcher validates assimilation prerequisites: required grid outputs configured in `project.yml` (snow depth for SCF, liquid water content for wet-snow), matching model outputs in prior/open_loop results, and the expected obs CSV in each step directory. Missing items are listed and the run aborts early.
 
-The pipeline drives each step in order, assimilates SCF on the _next_ step's start date, resamples the resulting weights to the posterior, and rejuvenates that posterior into the next prior before proceeding. Assimilation looks for the single-row CSV `obs_scf_SNOWCOVER_YYYYMMDD.csv` inside `<step>/obs/` for the date being processed; generate those files with `openamundsen_da.observer.satellite_scf` after you summarize your snow-cover rasters into `scf_summary.csv`. `setup.py` never reads raw imagery, so the CSV must already reflect any filtering or thresholding you want applied.
+The pipeline drives each step in order, assimilates SCF on the _next_ step's start date, resamples the resulting weights to the posterior, and rejuvenates that posterior into the next prior before proceeding. Assimilation looks for the single-row CSV `obs_scf_SNOWCOVER_YYYYMMDD.csv` inside `<step>/obs/` for the date being processed; generate those files with `openamundsen_da.observer.satellite_scf` after you summarize your snow-cover rasters into `scf_summary.csv`. `setup.py` never reads source observation rasters directly, so the CSV must already reflect any filtering or thresholding you want applied.
 
 Outputs
 
 - Per-step runs in `<step>/ensembles/{prior,posterior}` (open_loop + members)
 - Weights and indices in `<step>/assim/`
 - Rejuvenated next-step prior (members + open_loop with state_pointer.json)
-- Compact DA summary grids in `<project>/results/grids/da_output_grids.nc`
+- Compact data assimilation summary grids in `<project>/results/grids/da_output_grids.nc`
   - Per variable `<var>`: `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`
   - `increment_<var>` is defined as `ens_mean_<var> - open_loop_<var>`
   - Time axis spans the full project timeline across all steps (not only the last step)
@@ -526,7 +526,7 @@ This writes per-member SCF time series to `<step>/ensembles/prior/<member>/resul
 
 ### Setup Skeleton (optional helper)
 
-To create an empty setup layout with `steps/step_*` folders and minimal step YAMLs, use the structured DA block:
+To create an empty setup layout with `steps/step_*` folders and minimal step YAMLs, use the structured data assimilation block:
 
 ```yaml
 start_date: 2017-10-01
@@ -626,14 +626,14 @@ If you rebuilt the image with the latest code, you can replace the `python -m ..
 
 ## Sub-domain Mode
 
-Use `oa-da-subdomain` to split a large setup into non-overlapping sub-domains, run one independent DA project per sub-domain, write project-level reports, and merge compact DA grids.
+Use `oa-da-subdomain` to split a large setup into non-overlapping sub-domains, run one independent data assimilation project per sub-domain, write project-level reports, and merge compact data assimilation grids.
 
 Minimal flow:
 - Prepare sub-domain setups from ROI polygons:
   `oa-da-subdomain prepare --setup-dir <setup> --project-dir <setup>/projects/<project> --roi <setup>/env/subdomains.gpkg --id-field id`
 - Run all sub-domains in parallel:
   `oa-da-subdomain run --project-dir <setup>/projects/<project>`
-- Write project-level reports and merge DA grids (hard mosaic, no interpolation/blending):
+- Write project-level reports and merge data assimilation grids (hard mosaic, no interpolation/blending):
   `oa-da-subdomain merge --project-dir <setup>/projects/<project>`
 
 Defaults:
@@ -641,7 +641,7 @@ Defaults:
 - Manifest path is `<subdomain_root>/subdomain_manifest.json` (or pass `--manifest` explicitly).
 - Each sub-domain run lives under `<subdomain_root>/<subdomain_id>/`.
 - Project-level outputs are written under `<project>/results/`.
-- Compact DA grid output is `<project>/results/grids/da_output_grids.nc`.
+- Compact data assimilation grid output is `<project>/results/grids/da_output_grids.nc`.
   - Variables in `da_output_grids.nc`: `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`.
 - Sub-domain reports are written under `<project>/results/subdomain_*.csv`.
 - Point outputs and plots remain inside each sub-domain project.
@@ -656,7 +656,7 @@ Defaults:
 Ready-made example:
 - setup: `examples/subdomains`
 - regions file: `examples/subdomains/env/subdomains.gpkg` (pass with `--roi`)
-- note: this lightweight example reuses raw grids/meteo/obs from `examples/rofental` via relative paths.
+- note: this lightweight example reuses existing grids/meteo/obs from `examples/rofental` via relative paths.
 
 ## Troubleshooting
 
@@ -680,7 +680,5 @@ Ready-made example:
 - Tips
   - Keep a constant model time step across steps.
   - Verify the effective time step via the merged OA config persisted next to members (e.g., `<step>/ensembles/prior/member_001/config.yml`).
-
-
 
 

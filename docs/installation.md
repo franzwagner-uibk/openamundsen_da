@@ -48,14 +48,15 @@ Complete guide to installing and setting up openAMUNDSEN-DA.
 
 ---
 
-## Tutorial first
+## How to Use First
 
-The full Rofental walkthrough has been moved to the Tutorial section:
+The full Rofental walkthrough lives in the How to Use section:
 
-- [Tutorial overview]({{ '/tutorial/' | relative_url }})
-- [4. Framework]({{ '/tutorial/framework/' | relative_url }})
-- [5. Pre-processing]({{ '/tutorial/pre-processing/' | relative_url }})
-- [6. Running the project]({{ '/tutorial/running-the-project/' | relative_url }})
+- [How to Use overview]({{ '/tutorial/' | relative_url }})
+- [1. Overview]({{ '/tutorial/openamundsen-da/' | relative_url }})
+- [3. Example Data: Rofental]({{ '/tutorial/example-data-rofental/' | relative_url }})
+- [4. Preprocessing]({{ '/tutorial/pre-processing/' | relative_url }})
+- [5. Running the Model]({{ '/tutorial/running-the-project/' | relative_url }})
 
 ## Developer install (clone + compose)
 
@@ -86,7 +87,7 @@ Use this when you want to modify the code or run Compose with mounted source.
 
 - [Running Experiments]({{ '/guides/experiments/' | relative_url }}) - Set up your own project and run custom setups
 - [Project Structure]({{ site.baseurl }}{% link project-structure.md %}) - Understand the directory layout
-- [Workflow Overview]({{ site.baseurl }}{% link workflow.md %}) - Learn the DA workflow
+- [Workflow Overview]({{ site.baseurl }}{% link workflow.md %}) - Learn the data assimilation workflow
 
 ---
 
@@ -134,6 +135,3 @@ environment:
 ```
 
 See [Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) for more issues and solutions.
-
-
-

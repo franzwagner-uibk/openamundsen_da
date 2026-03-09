@@ -30,11 +30,15 @@ Install Docker on the host machine:
 
 Verify that Docker works:
 
+**🟢 Run this command:**
+
 ```bash
 docker run hello-world
 ```
 
 Pull the tutorial image:
+
+**🟢 Run this command:**
 
 ```bash
 docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest
@@ -47,6 +51,8 @@ only then start an interactive container that mounts that local copy.
 
 Choose a local host folder that will hold the tutorial files. The command below copies the
 bundled example from the image into that folder.
+
+**🟢 Run this command:**
 
 ```bash
 docker run --rm \
@@ -62,6 +68,8 @@ After this command, your local host folder contains a full editable copy of the 
 
 Now start one interactive container and mount the same local tutorial folder as `/data`.
 The tutorial commands in later chapters are executed inside this shell.
+
+**🟢 Run this command:**
 
 ```bash
 docker run --rm -it \
@@ -82,18 +90,6 @@ Why these options are used:
 - `-w /data/rofental` starts you inside the copied setup
 - `--cpus 8` is an example CPU limit for the container
 - the BLAS/OpenMP variables prevent nested threading and unstable oversubscription
-
-Check that the shell is in the expected place:
-
-```bash
-pwd
-```
-
-Expected result:
-
-```text
-/data/rofental
-```
 
 ## 4. Editing Files During The Tutorial
 

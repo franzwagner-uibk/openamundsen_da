@@ -31,7 +31,7 @@ Project config: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml
 **🟢 Run this command:**
 
 ```bash
-python -m openamundsen_da.pipeline.project \
+oa-da-project \
   --setup-dir /data/rofental \
   --project-dir /data/rofental/projects/project_2022_2023 \
   --max-workers 8 \

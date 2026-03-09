@@ -546,7 +546,7 @@ Meaning:
 
 Typical fix:
 
-- rerun `project_skeleton --overwrite`,
+- rerun `oa-da-project-skeleton --overwrite`,
 - rerun `oa-da-scf` and `oa-da-wetsnow-project`.
 
 ### 4. Too many masked pixels / empty ROI support

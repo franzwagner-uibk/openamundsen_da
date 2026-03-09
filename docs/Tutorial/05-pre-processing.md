@@ -337,15 +337,6 @@ File path: `/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv`
 | 2023-04-05 |  | 0.06 | 156982 | 9750 | WSM_S1A_SAR_track117_2023_04_05_17_07_24.tif |
 
 
-<details markdown="block">
-  <summary>Optional CLI check (confirm wet-snow summary file in the container)</summary>
-
-```bash
-ls -lh /data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv
-```
-
-</details>
-
 How to read this wet-snow summary snippet:
 
 - `wet_snow_fraction` is the ROI fraction interpreted as wet snow,
@@ -356,7 +347,7 @@ How to read this wet-snow summary snippet:
 
 ## Step 3: Build the project step skeleton (`step_*` folders)
 
-`project_skeleton` reads `start_date`, `end_date`, and `assimilation_events` from the project YAML, generates `step_*` folders under `--project-dir`, uses `--setup-dir` for context, and `--overwrite` rebuilds the step structure after event edits.
+`oa-da-project-skeleton` reads `start_date`, `end_date`, and `assimilation_events` from the project YAML, generates `step_*` folders under `--project-dir`, uses `--setup-dir` for context, and `--overwrite` rebuilds the step structure after event edits.
 
 This step builds the project step structure from:
 
@@ -366,7 +357,7 @@ This step builds the project step structure from:
 **🟢 Run this command:**
 
 ```bash
-python -m openamundsen_da.pipeline.project_skeleton \
+oa-da-project-skeleton \
   --setup-dir /data/rofental \
   --project-dir /data/rofental/projects/project_2022_2023 \
   --overwrite \
@@ -398,7 +389,7 @@ step_05_20230616-20230630
 Read this step-list snippet as a direct translation of the configured project period plus `assimilation_events`; it is the structure that later receives the per-step observation CSVs and data assimilation outputs.
 
 {: .warning }
-> If you edit `assimilation_events`, rerun `project_skeleton` before regenerating per-step
+> If you edit `assimilation_events`, rerun `oa-da-project-skeleton` before regenerating per-step
 > observation CSVs. Step windows and event dates must match exactly.
 
 This fail-fast behavior prevents silent mismatches between event dates and step windows.

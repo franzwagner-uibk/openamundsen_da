@@ -267,48 +267,12 @@ File path: `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`
 
 Exact values depend on ROI, masking, and class mapping. The column structure and value ranges should look similar.
 
-<details markdown="block">
-  <summary>Optional CLI check (confirm SCF summary file in the container)</summary>
-
-```bash
-ls -lh /data/rofental/obs/summaries/project_2022_2023/scf_summary.csv
-```
-
-</details>
-
 How to read this SCF summary snippet:
 
 - `n_valid` is the ROI support after masking/class filtering,
 - `n_snow` is the snow-class support used to compute `scf`,
 - `scf` is the fraction used later for SCF data assimilation events,
 - `cloud_fraction` helps you judge whether a date is suitable for assimilation.
-
----
-
-## Step 1b: Enable per-step SCF obs files with uncertainty columns
-
-Use the SCF summary (with `unc_*` columns) to generate per-step observation files for the
-existing data assimilation dates in the Rofental example.
-
-```bash
-python -m openamundsen_da.pipeline.project_skeleton \
---setup-dir /data/rofental \
---project-dir /data/rofental/projects/project_2022_2023 \
---overwrite
-
-python -m openamundsen_da.observer.satellite_scf \
---project-dir /data/rofental/projects/project_2022_2023 \
---summary-csv /data/rofental/obs/summaries/project_2022_2023/scf_summary.csv \
---overwrite
-```
-
-This writes product-tagged per-step files like:
-- `/data/rofental/projects/project_2022_2023/steps/step_00_init/obs/obs_scf_SNOWCOVER_20230101.csv`
-
-The generated CSV includes uncertainty columns (`unc_mean`, `unc_min`, `unc_max`, `unc_n_valid`),
-which are used by SCF assimilation when `sigma_mode: uncertainty_layer`.
-
----
 
 ## Step 2: Summarize wet-snow rasters to `wet_snow_summary.csv`
 
@@ -495,6 +459,10 @@ File path: `/data/rofental/projects/project_2022_2023/steps/step_00_init/obs/obs
 | 2023-01-01 | 106750 | 106750 | 1.00 | 0.00 | s2_fsc_snowflake_rofental_2023_01_01.tif |
 
 This one-row file is what the data assimilation step consumes directly for the SCF event, so it is the key place to verify date, product tag alignment (via filename), and the summary values passed into the run.
+
+When uncertainty is enabled and matching uncertainty layers are available, this per-step
+SCF CSV also includes `unc_mean`, `unc_min`, `unc_max`, and `unc_n_valid`. These
+columns are what later support `sigma_mode: uncertainty_layer` during assimilation.
 
 ---
 

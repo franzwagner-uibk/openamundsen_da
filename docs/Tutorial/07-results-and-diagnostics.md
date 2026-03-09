@@ -26,34 +26,16 @@ The most important locations are:
 
 ## 1. Read the log first
 
-Before interpreting plots, confirm that the run actually completed cleanly.
+Before interpreting plots, confirm that the run actually completed cleanly by checking the
+end of `project_2022_2023.log`.
 
-Inspect the end of the project log before interpreting plots and tables.
+What to look for:
 
-```bash
-tail -n 120 /data/rofental/projects/project_2022_2023/project_2022_2023.log
-```
-
-
-{: .checks }
-> What to look for in a successful log tail:
->
-> - `Project processing complete`
-> - data assimilation variable processing messages (`scf`, `wet_snow`)
-> - plot tasks completed
-> - data assimilation output summary NetCDF writing (`da_output_grids.nc`)
-> - cleanup messages (`Setup cleanup succeeded`; compact-retention deletion appears only in compact mode)
-
-Reference snippet (successful log tail excerpt):
-
-```text
-2026-02-21 ... Plot task setup_ess_timeline completed
-2026-02-21 ... Plot task setup_results_swe completed
-2026-02-21 ... Plot task setup_results_snow_depth completed
-2026-02-24 ... Wrote data assimilation output summary NetCDF /data/projects/project_2022_2023/results/grids/da_output_grids.nc (6 step(s))
-2026-02-24 ... Setup cleanup succeeded: deleted 66/66 file(s), freed 345.9 MB (patterns=model_state.pickle.gz)
-2026-02-24 ... Project processing complete: /data/projects/project_2022_2023 (wall-clock 670.9 s, ~0.19 h)
-```
+- `Project processing complete`
+- data assimilation variable processing messages (`scf`, `wet_snow`)
+- plot tasks completed
+- data assimilation output summary NetCDF writing (`da_output_grids.nc`)
+- cleanup messages (`Setup cleanup succeeded`; compact-retention deletion appears only in compact mode)
 
 <details markdown="block">
   <summary>If the log is not clean (important troubleshooting note)</summary>

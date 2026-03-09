@@ -21,7 +21,7 @@ The preprocessing sequence is:
 From this point on, the tutorial assumes you are inside the running tutorial container
 shell at `/data/rofental`.
 
-## Inspect The Observation Raster Inputs
+## Observation Raster Inputs
 
 The Rofental example provides three observation groups:
 
@@ -29,20 +29,7 @@ The Rofental example provides three observation groups:
 - `obs/wetsnow/` for wet-snow mask rasters
 - `obs/stations/` for station snow observations used in result plots
 
-Optional quick check:
-
-```bash
-echo "Snow-cover rasters:";
-ls -1 /data/rofental/obs/snowcover | head -10;
-echo;
-echo "Wet-snow rasters:";
-ls -1 /data/rofental/obs/wetsnow | head -10;
-echo;
-echo "Station observation files:";
-ls -1 /data/rofental/obs/stations
-```
-
-## Inspect The Project Configuration That Drives Preprocessing
+## Project Configuration That Drives Preprocessing
 
 The preprocessing commands read product tags, classes, and paths from the project YAML.
 

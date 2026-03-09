@@ -113,38 +113,7 @@ Note on `grids.dims: [x, y, time]`:
 
 ---
 
-## Validate that the run is progressing correctly
-
-{: .checks }
-> Use these checks while the run is active to catch problems early.
-
-### 1. Watch the project log
-
-```bash
-tail -n 80 /data/rofental/projects/project_2022_2023/project_2022_2023.log
-```
-
-
-Look for messages such as:
-
-- step discovery (`Discovered ... step(s)`)
-- prior ensemble launch (`Launching ensemble (prior) ...`)
-- assimilation actions (`Assimilating scf`, `Assimilating wet_snow`)
-- plot tasks completed
-- final success (`Project processing complete`)
-
-Reference snippet (successful log tail, condensed):
-
-```text
-... Plot task setup_ess_timeline completed
-... Plot task setup_results_swe completed
-... Plot task setup_results_snow_depth completed
-... Wrote data assimilation output summary NetCDF /data/projects/project_2022_2023/results/grids/da_output_grids.nc (6 step(s))
-... Setup cleanup succeeded: deleted 66/66 file(s), freed 345.9 MB (patterns=model_state.pickle.gz)
-... Project processing complete: /data/projects/project_2022_2023 (wall-clock 670.9 s, ~0.19 h)
-```
-
-### 2. Check that plots and outputs are being created (path-based check)
+## Expected outputs after the run
 
 After a successful run, these paths should exist:
 
@@ -155,7 +124,7 @@ After a successful run, these paths should exist:
 - `/data/rofental/projects/project_2022_2023/point_scf_roi_envelope.csv`
 - `/data/rofental/projects/project_2022_2023/point_wet_snow_roi_envelope.csv`
 
-Reference snippet (typical result files visible after a successful run):
+Typical result files after a successful run:
 
 ```text
 plots/perf/
@@ -173,40 +142,10 @@ plots/results/
   setup_results_point_proviantdepot_swe_2022_2023.png
 ```
 
-Visual run-success teaser (performance plot):
-
 ![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/project_perf.png)
-
-For this quick check, confirm:
-
-- the file exists and opens,
-- the plot is populated (not empty/corrupt),
-- runtime/resource traces are present (detailed interpretation comes later).
-
-Visual run-success teaser (main results overview plot):
 
 ![Fraction time series (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/fraction_timeseries.png)
 
-For this quick check, confirm:
-
-- observation markers are present,
-- the plot spans the configured tutorial season,
-- the plot renders correctly (axes/legend visible).
-
 Detailed interpretation of these plots is covered in [7. Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}).
-
-### 3. Check the data assimilation summary NetCDF output (path-based check)
-
-Expected output file:
-
-- `/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc`
-
-**Output export configuration (project YAML)**  
-File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
-Relevant keys: `data_assimilation.output.retention`, `data_assimilation.output.grids.*`, `data_assimilation.output.grids.variables[*]`
-
-{: .warning }
-> Do not treat the existence of files alone as proof of a healthy run. Always check the
-> log for errors and warnings and inspect data assimilation diagnostics in the next chapter.
 
 Before continuing, verify that the project log ends with a completion message and that `plots/perf/project_perf.png`, `plots/results/fraction_timeseries.png`, and `results/grids/da_output_grids.nc` exist.

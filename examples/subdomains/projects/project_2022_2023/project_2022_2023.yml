@@ -76,7 +76,7 @@ data_assimilation:
     grids:
       format: netcdf # options: netcdf
       compress: true
-      dims: [x, y, time] # standard dimension order in exported DA grids
+      dims: [x, y, time] # standard dimension order in exported data assimilation grids
       variables:
         # Snow depth (daily)
         - var: snowdepth_daily

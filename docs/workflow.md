@@ -33,7 +33,7 @@ The openamundsen_da framework implements a sequential particle filter for snow d
 - **Prior Generation** (orange): Perturb meteorological forcing to create ensemble input
 - **Forecast/Propagation** (purple): Run openAMUNDSEN for each ensemble member
 - **Update Cycle** (blue): Observation processing, likelihood computation, resampling, rejuvenation
-- **Configuration** (yellow): setup YAML controls openAMUNDSEN settings, project YAML controls DA settings and assimilation dates
+- **Configuration** (yellow): setup YAML controls openAMUNDSEN settings, project YAML controls data assimilation settings and assimilation dates
 
 ![Data Assimilation Experiment Cycle]({{ site.baseurl }}/assets/images/Particle_Filter%20_DOCS.drawio.png)
 
@@ -103,6 +103,19 @@ Warm start uses the model state saved at the end of each step via `state_pointer
 
 ### Observation Uncertainty
 
+openAMUNDSEN-DA supports three uncertainty handling patterns, selected per product:
+
+- `enabled: false`: no uncertainty layer is used; data assimilation uses `sigma_mode: formula`.
+- `enabled: true` with externally provided uncertainty: ingest uncertainty from NetCDF (same file) or GeoTIFF sidecar (`<stem>_uncertainty.tif`).
+- `enabled: true` with openAMUNDSEN-DA generation: create sidecar layers first via `oa-da-scf-uncertainty` / `oa-da-wetsnow-uncertainty`, then ingest them like any other sidecar.
+
+All uncertainty values are expected on a `0..100` scale, and uncertainty-enabled preprocessing is strict fail-fast on missing/invalid inputs.
+In openAMUNDSEN-DA generation mode, per-pixel uncertainty is built from a baseline plus additive penalties from multiple configured class sources (for example forest land cover and shadow masks).
+
+The example below shows this logic for a Rofental SCF scene. The left panel is the observed snow-cover fraction, the middle panel is the resulting uncertainty field, and the right panel shows the land-cover driver. The zoomed row makes the penalty structure visible: uncertainty remains spatially continuous on valid observation pixels and increases where configured covariates such as forest classes apply. Gaps such as cloud-covered pixels are not turned into "high-uncertainty observations"; they remain missing data.
+
+![Example SCF uncertainty decomposition for the Rofental ROI]({{ site.baseurl }}/assets/images/tutorial/rofental_uncertainty.png)
+
 Observation uncertainty is configured per product under `data_assimilation.uncertainty`.
 Ingestion is file-type based:
 
@@ -116,7 +129,7 @@ Example YAML:
 data_assimilation:
   uncertainty:
     scf:
-      enabled: true
+      enabled: true # enable uncertainty-aware SCF preprocessing + assimilation
       ingest:
         # Required when uncertainty is enabled:
         scf_variable: fsc
@@ -124,17 +137,25 @@ data_assimilation:
         time_variable: time
       assimilation:
         sigma_mode: uncertainty_layer # formula | uncertainty_layer
-        aggregate_metric: unc_mean
+        aggregate_metric: unc_mean # used when sigma_mode=uncertainty_layer
+      input_dir: obs/snowcover # used by oa-da-scf-uncertainty
       u_min: 10.0
       u_max: 20.0
       nodata_value: 255.0
       penalties:
         - name: forest
-          source: landcover
+          source: landcover # one of: fsc | landcover | shadow
+          enabled: true
           classes: [8, 9, 10, 11, 12]
           penalty: 20.0
+        - name: shadow
+          source: shadow
+          enabled: false # set true when shadow rasters are available
+          input_dir: obs/shadow # directory of shadow rasters
+          classes: [1]
+          penalty: 20.0
     wet_snow:
-      enabled: true
+      enabled: true # enable uncertainty-aware wet-snow preprocessing + assimilation
       ingest:
         # Required when uncertainty is enabled:
         wet_snow_variable: wet_snow
@@ -142,14 +163,44 @@ data_assimilation:
         time_variable: time
       assimilation:
         sigma_mode: uncertainty_layer # formula | uncertainty_layer
-        aggregate_metric: unc_mean
+        aggregate_metric: unc_mean # used when sigma_mode=uncertainty_layer
+      input_dir: obs/wetsnow # used by oa-da-wetsnow-uncertainty
       base_uncertainty: 15.0
       nodata_value: 255.0
+      penalties:
+        - name: forest
+          source: landcover # one of: wet_snow | landcover | shadow
+          enabled: true
+          classes: [8, 9, 10, 11, 12]
+          penalty: 20.0
+        - name: shadow
+          source: shadow
+          enabled: false # set true when shadow rasters are available
+          input_dir: obs/shadow # directory of shadow rasters
+          classes: [1]
+          penalty: 20.0
 ```
+
+Uncertainty key reference:
+
+- `enabled`: turns uncertainty-aware preprocessing and assimilation on/off for that product.
+- `ingest.*_variable` / `ingest.uncertainty_variable` / `ingest.time_variable`: strict NetCDF variable names; no defaults.
+- `assimilation.sigma_mode`: `formula` uses legacy likelihood sigma, `uncertainty_layer` uses configured uncertainty metric.
+- `assimilation.aggregate_metric`: summary column name consumed in `uncertainty_layer` mode (typically `unc_mean`).
+- `input_dir`: source directory for openAMUNDSEN-DA uncertainty generation tools (`oa-da-scf-uncertainty`, `oa-da-wetsnow-uncertainty`).
+- `u_min`, `u_max` (SCF): triangular baseline uncertainty bounds.
+- `base_uncertainty` (wet snow): baseline uncertainty for base wet-snow classes.
+- `nodata_value`: nodata marker written by uncertainty generation tools.
+- `penalties[].name`: free label used in generator summary diagnostics.
+- `penalties[].source`: class source for matching (`fsc`/`wet_snow`, `landcover`, `shadow`).
+- `penalties[].enabled`: activate/deactivate that rule while keeping it in config.
+- `penalties[].input_dir`: required for `source: shadow`.
+- `penalties[].classes`: raw class IDs to match.
+- `penalties[].penalty`: additive uncertainty penalty in percentage points.
 
 For uncertainty-aware assimilation (`sigma_mode: uncertainty_layer`), observation sigma is derived from summary metrics (for example `unc_mean`) instead of the likelihood formula mode.
 
-To generate GeoTIFF uncertainty companions with OA-DA:
+To generate GeoTIFF uncertainty companions with openAMUNDSEN-DA:
 
 1. generate uncertainty companion rasters,
 2. then run observation summarizers (`oa-da-snowcover`, `oa-da-wetsnow`),
@@ -164,7 +215,7 @@ Best-practice split:
 ### Optional uncertainty companion generation
 
 Run these when `data_assimilation.uncertainty.<variable>.enabled: true` and
-you want OA-DA to create `*_uncertainty.tif` files:
+you want openAMUNDSEN-DA to create `*_uncertainty.tif` files:
 
 ```bash
 docker compose run --rm oa oa-da-scf-uncertainty \
@@ -190,7 +241,7 @@ docker compose run --rm oa \
   --setup-dir /data
 ```
 
-Classes are read from `obs.snowcover.classes` in project YAML (defaults: valid 0-100, cloud 205, water 210, nodata 255). The project-level DA land-cover mask is applied to observations automatically.
+Classes are read from `obs.snowcover.classes` in project YAML (defaults: valid 0-100, cloud 205, water 210, nodata 255). The project-level data assimilation land-cover mask is applied to observations automatically.
 
 ### Wet snow (categorical rasters -> `wet_snow_summary.csv`)
 

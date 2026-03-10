@@ -74,7 +74,7 @@ data_assimilation:
   # development/testing/tutorial workflows.
   uncertainty:
     scf:
-      enabled: true
+      enabled: true # enable uncertainty-aware SCF preprocessing + assimilation
       ingest:
         # Required when uncertainty is enabled (no defaults/fallbacks):
         # For NetCDF input, these variables are read from the same file.
@@ -86,25 +86,25 @@ data_assimilation:
         # formula: sigma from n_valid/cloud_fraction (likelihood settings)
         # uncertainty_layer: sigma from unc_mean/100 with min_sigma floor
         sigma_mode: uncertainty_layer # options: formula | uncertainty_layer
-        aggregate_metric: unc_mean
-      input_dir: obs/snowcover
+        aggregate_metric: unc_mean # used when sigma_mode=uncertainty_layer
+      input_dir: obs/snowcover # used by oa-da-scf-uncertainty
       u_min: 10.0
       u_max: 20.0
       nodata_value: 255.0
       penalties:
         - name: forest
-          source: landcover
+          source: landcover # one of: fsc | landcover | shadow
           enabled: true
           classes: [8, 9, 10, 11, 12]
           penalty: 20.0
         - name: shadow
           source: shadow
-          enabled: false
-          input_dir: obs/shadow
+          enabled: false # optional; set true only when shadow rasters are available
+          input_dir: obs/shadow # directory of shadow rasters for source=shadow
           classes: [1]
           penalty: 20.0
     wet_snow:
-      enabled: true
+      enabled: true # enable uncertainty-aware wet-snow preprocessing + assimilation
       ingest:
         # Required when uncertainty is enabled (no defaults/fallbacks):
         # For NetCDF input, these variables are read from the same file.
@@ -116,20 +116,20 @@ data_assimilation:
         # formula: sigma from n_valid/cloud_fraction (likelihood settings)
         # uncertainty_layer: sigma from unc_mean/100 with min_sigma floor
         sigma_mode: uncertainty_layer # options: formula | uncertainty_layer
-        aggregate_metric: unc_mean
-      input_dir: obs/wetsnow
+        aggregate_metric: unc_mean # used when sigma_mode=uncertainty_layer
+      input_dir: obs/wetsnow # used by oa-da-wetsnow-uncertainty
       base_uncertainty: 15.0
       nodata_value: 255.0
       penalties:
         - name: forest
-          source: landcover
+          source: landcover # one of: wet_snow | landcover | shadow
           enabled: true
           classes: [8, 9, 10, 11, 12]
           penalty: 20.0
         - name: shadow
           source: shadow
-          enabled: false
-          input_dir: obs/shadow
+          enabled: false # optional; set true only when shadow rasters are available
+          input_dir: obs/shadow # directory of shadow rasters for source=shadow
           classes: [1]
           penalty: 20.0
 
@@ -152,13 +152,13 @@ data_assimilation:
     dump_state: true
     state_pattern: model_state.pickle.gz
 
-  # Output controls for DA products.
+  # Output controls for data assimilation products.
   output:
     retention: full # options: compact | full
     grids:
       format: netcdf # options: netcdf
       compress: true
-      dims: [x, y, time] # standard dimension order in exported DA grids
+      dims: [x, y, time] # standard dimension order in exported data assimilation grids
       variables:
         # Snow depth (daily)
         - var: snowdepth_daily

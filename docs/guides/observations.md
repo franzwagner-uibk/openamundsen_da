@@ -33,6 +33,14 @@ openamundsen_da supports three types of satellite snow observations:
 
 This guide covers downloading, preprocessing, and quality control for each product.
 
+Uncertainty handling overview:
+
+- You can run without uncertainty layers (`data_assimilation.uncertainty.<product>.enabled: false`) and keep sigma from the formula mode.
+- You can ingest externally provided uncertainty layers (`enabled: true`) from NetCDF same-file variables or GeoTIFF sidecars (`<stem>_uncertainty.tif`).
+- You can generate sidecar uncertainty rasters with openAMUNDSEN-DA preprocessors and then ingest them in the same way.
+
+In all uncertainty-enabled paths, values are expected in `0..100`, and preprocessing is fail-fast on missing/invalid uncertainty inputs.
+
 ---
 
 ## Snow-cover Snow Cover
@@ -218,7 +226,7 @@ The classification threshold is interpreted in percent and converted internally 
 
 **Tuning approach**:
 
-1. Run DA with default values
+1. Run data assimilation with default values
 2. Inspect ESS timeline
 3. Adjust:
    - ESS consistently near N -> reduce sigma_obs
@@ -245,7 +253,7 @@ data_assimilation:
 - Land-cover grid is resolved as `grids/lc_<domain>_<resolution>.asc`.
 - Excluded classes are removed from both obs-side summaries and model H(x); a warning is logged if >50% of the ROI would be excluded, and masking fails if 100% would be removed.
 - Best-practice split: keep exclusion for truly unusable classes (for example ice/water/urban), and represent usable-but-uncertain classes (for example forest/shadow) via uncertainty penalties.
-- For DA consistency, treat clouds as data gaps (masked) rather than 100%-penalty uncertainty pixels.
+- For data assimilation consistency, treat clouds as data gaps (masked) rather than 100%-penalty uncertainty pixels.
 
 ---
 

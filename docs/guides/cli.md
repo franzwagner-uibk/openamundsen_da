@@ -27,7 +27,7 @@ Complete reference for all CLI commands.
 The package provides **16 CLI entry points** for workflow automation, organized into 5 categories:
 
 1. **Core Workflow** - Main pipeline commands
-2. **Data Assimilation** - DA-specific operations
+2. **Data Assimilation** - data assimilation-specific operations
 3. **Wet Snow Analysis** - Wet snow processing
 4. **Visualization** - Plotting commands
 5. **Utilities** - Helper tools
@@ -44,7 +44,7 @@ All commands are available as:
 
 **Main setup pipeline orchestrator**
 
-Runs the complete setup DA cycle: prior forcing → ensemble run → assimilation → resampling → rejuvenation.
+Runs the complete setup data assimilation cycle: prior forcing → ensemble run → assimilation → resampling → rejuvenation.
 
 ```bash
 oa-da-project \
@@ -494,7 +494,7 @@ Similar to `oa-da-model-scf-project-daily` but for wet snow classification.
 
 ### oa-da-subdomain
 
-Split a setup into non-overlapping sub-domains, run one independent DA project per sub-domain, then merge compact outputs.
+Split a setup into non-overlapping sub-domains, run one independent data assimilation project per sub-domain, then merge compact outputs.
 
 Common workflows:
 
@@ -536,7 +536,7 @@ Defaults & tips:
 - Use `--max-workers` to control parallelism; BLAS/OMP threads are pinned to 1 inside the image.
 - Merge is hard mosaic only (no interpolation/blending).
 - Visible breaks at sub-domain boundaries are expected and intentional.
-- Merge writes `results/grids/da_output_grids.nc` as the compact DA grid product.
+- Merge writes `results/grids/da_output_grids.nc` as the compact data assimilation grid product.
 - Compact retention is the default (`data_assimilation.output.retention: compact`); set `full` to keep all member grid artifacts.
 - Sub-domain mode keeps point outputs and point plots inside each sub-domain project (no project-root point merge).
 

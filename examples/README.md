@@ -40,7 +40,7 @@ examples/rofental/
 
 ### `projects/`
 - Project runtime configuration/output roots.
-- `project_*/project_*.yml`: project-level DA configuration and time span.
+- `project_*/project_*.yml`: project-level data assimilation configuration and time span.
 
 This bundle mirrors the documented setup/project structure and is used by tests and examples.
 

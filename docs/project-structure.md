@@ -37,7 +37,7 @@ setup/
 |   |-- roi.gpkg
 |   `-- subdomains.gpkg          # optional; used by sub-domain mode
 |-- grids/
-|   |-- roi_<domain>_<resolution>.asc  # canonical ROI mask for DA runs
+|   |-- roi_<domain>_<resolution>.asc  # canonical ROI mask for data assimilation runs
 |   `-- lc_<domain>_<resolution>.asc
 |-- meteo/
 |   |-- stations.csv
@@ -55,8 +55,8 @@ setup/
 |       |-- subdomains/          # optional sub-domain mode workspace
 |       |   |-- subdomain_manifest.json
 |       |   `-- <subdomain_id>/
-|       |-- results/             # project-level DA outputs
-|       |   |-- grids/da_output_grids.nc  # compact DA grid summary (single + sub-domain)
+|       |-- results/             # project-level data assimilation outputs
+|       |   |-- grids/da_output_grids.nc  # compact data assimilation grid summary (single + sub-domain)
 |       |   |-- subdomain_overview.csv    # sub-domain mode run summary
 |       |   |-- subdomain_assimilation_stats.csv
 |       |   `-- subdomain_assimilation_aggregate.csv
@@ -84,10 +84,10 @@ Setup-wide and stable openAMUNDSEN configuration.
 - Observation class mappings and product tags under `obs.*`
 - Canonical ROI grid naming follows openAMUNDSEN convention: `grids/roi_<domain>_<resolution>.asc` (generated from ROI vectors when missing)
 
-No DA orchestration keys should be placed here.
+No data assimilation orchestration keys should be placed here.
 
 ### `<project-name>.yml` / `project.yml` (project YAML)
-Project-level DA configuration and time span.
+Project-level data assimilation configuration and time span.
 - `start_date`, `end_date`
 - `data_assimilation.prior_forcing`
 - `data_assimilation.h_of_x`
@@ -106,17 +106,17 @@ Auto-generated step window configuration.
 
 ## Naming Glossary
 - `setup`: global, stable OA config/data container
-- `project`: one DA configuration unit with its own time span
+- `project`: one data assimilation configuration unit with its own time span
 - `step`: one assimilation window inside a project
 - `member`: one ensemble member
 - `run`: execution of a project (event), not a config object
 
 ## Sub-domain merge behavior
 - Sub-domain grid merge is a hard mosaic (no interpolation or blending across sub-domain borders).
-- Visible breaks at sub-domain boundaries are expected and represent localized DA behavior by design.
+- Visible breaks at sub-domain boundaries are expected and represent localized data assimilation behavior by design.
 - Sub-domain point outputs are not merged at project root; they remain inside each sub-domain project.
 
-## DA compact grid variables
+## data assimilation compact grid variables
 - `da_output_grids.nc` stores, per modeled grid variable `<var>`:
   `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`.
 - `increment_<var>` is defined as `ens_mean_<var> - open_loop_<var>`.

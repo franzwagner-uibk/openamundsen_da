@@ -13,7 +13,7 @@ When reviewing or developing a new module:
 ### Canonical Terminology And Hierarchy (Authoritative)
 
 - `setup` = top-level container with global, stable, pure openAMUNDSEN config/data.
-- `project` = one DA configuration unit with its own time span (former `season`).
+- `project` = one data assimilation configuration unit with its own time span (former `season`).
 - `step` = one assimilation window inside a project.
 - `member` = one ensemble member.
 - `run` = execution of a project (event/verb), not a persisted config object.
@@ -27,7 +27,7 @@ Naming rules:
 Configuration ownership rules:
 
 - Setup YAML (named like the setup, template fallback `setup.yml`) must remain clean openAMUNDSEN configuration (global OA settings/data paths only).
-- All DA-specific keys live in project YAML (named like the project folder) under `data_assimilation`:
+- All data assimilation-specific keys live in project YAML (named like the project folder) under `data_assimilation`:
   - prior forcing
   - H(x)
   - likelihood
@@ -46,7 +46,7 @@ Configuration ownership rules:
 - Does the module follow our structure and formatting conventions?
 - Is configuration handled consistently and defined externally where possible?
 - Is there any functionality/CLI flag/option that is unnecessary given the framework/template and workflow?
-- Are there any unnecessary defaults/fallbacks in DA-relevant code paths? Prefer explicit required configuration and fail-fast errors over guessed behavior.
+- Are there any unnecessary defaults/fallbacks in data assimilation-relevant code paths? Prefer explicit required configuration and fail-fast errors over guessed behavior.
 - Consider dropping inputs (e.g., paths or flags) that are already predefined by the process.
 - Is there any legacy code that is not used anymore or dates to an older version of the code and can be removed?
 - Are all required external-data assumptions (availability/time window/coverage) validated explicitly, with clear errors when unmet?
@@ -114,7 +114,7 @@ logger.add(sys.stdout, level="INFO", colorize=True, enqueue=True, format=LOGURU_
   - IO/paths: `list_member_dirs`, `find_member_daily_grid_slice`/`find_member_daily_raster`, `abspath_relative_to`
   - Stats: `effective_sample_size`, `normalize_log_weights`, `sigmoid`, `envelope`, `compute_obs_sigma`
   - Viz: `draw_assimilation_vlines`, `dedupe_legend`
-  - DA orchestration: `load_assimilation_events`, `compute_step_daily_series_for_all_members`, `start_perf_monitor`
+  - data assimilation orchestration: `load_assimilation_events`, `compute_step_daily_series_for_all_members`, `start_perf_monitor`
 - Keep modules small and cohesive: split unrelated concerns into helper modules (e.g., io/paths, util/parallel, util/da_events) rather than growing monoliths; prefer thin orchestration that delegates to helpers.
 - Setup layout:
   - Projects live under `setup_dir/projects/project_*`.
@@ -169,14 +169,14 @@ docker compose run `
 - Reuse libraries already present in `openamundsen` or `openamundsen_da` to minimize environment drift.
 - Centralize configuration in conf files:
   - setup YAML: openAMUNDSEN/global setup config only.
-  - project YAML: DA configuration + project-specific time span/events.
+  - project YAML: data assimilation configuration + project-specific time span/events.
   - `step` YAML: step window and step-local OA overrides only.
 - Leverage existing repo helpers (`core/config.py`, `core/env.py`, `core/constants.py`, `io/paths.py`, `util/stats.py`, etc.) rather than reimplementing functionality.
 
 ### 7.1 Fail-Fast Configuration Policy
 
-- Do not silently guess DA-relevant configuration values.
-- Do not add hidden fallback defaults for required DA settings (paths, product names, class mappings, date/event inputs, ROI sources).
+- Do not silently guess data assimilation-relevant configuration values.
+- Do not add hidden fallback defaults for required data assimilation settings (paths, product names, class mappings, date/event inputs, ROI sources).
 - If required config is missing, invalid, or inconsistent: raise a clear error and abort.
 - Error messages must tell users exactly which key is missing/invalid and where it is expected (setup/project/step YAML).
 - Keep fallback usage minimal and explicit; only allow it where behavior is clearly non-critical and documented.

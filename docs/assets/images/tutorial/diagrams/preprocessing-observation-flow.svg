@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="980" height="520" viewBox="0 0 980 520" role="img" aria-labelledby="title desc">
   <title id="title">Preprocessing observation flow</title>
-  <desc id="desc">Flow from raw observation rasters to project summary CSVs to per-step observation CSVs to DA step execution.</desc>
+  <desc id="desc">Flow from input observation rasters to project summary CSVs to per-step observation CSVs to DA step execution.</desc>
   <defs>
     <style>
       .bg { fill: #ffffff; }
@@ -18,7 +18,7 @@
   <rect class="bg" x="0" y="0" width="980" height="520"/>
 
   <rect class="box" x="150" y="24" width="680" height="78" rx="20" ry="20"/>
-  <text class="t" x="490" y="57" text-anchor="middle">Raw observation rasters</text>
+  <text class="t" x="490" y="57" text-anchor="middle">Input observation rasters</text>
   <text class="ts" x="490" y="83" text-anchor="middle">SCF / wet snow</text>
 
   <path class="arrow" d="M490 102 L490 138"/>

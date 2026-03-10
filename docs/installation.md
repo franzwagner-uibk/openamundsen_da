@@ -116,6 +116,27 @@ sudo systemctl enable --now docker
 
 Until your session is refreshed, running Docker commands with `sudo` can be necessary.
 
+**Problem**: Tutorial or example files copied from a container are owned by `root`
+
+This usually happens on Linux when a bind-mounted copy command was run with `sudo docker ...`.
+The container process writes into the mounted host directory as `root`, so later edits to
+`rofental.yml`, project YAMLs, or generated files may ask for `sudo`.
+
+Preferred fix:
+
+```bash
+sudo usermod -aG docker $USER
+# Then log out/in, reboot, or run: newgrp docker
+```
+
+If the files are already root-owned, repair ownership on the host:
+
+```bash
+cd /path/to/tutorial-workdir
+sudo chown -R "$USER":"$USER" rofental
+chmod -R u+rwX rofental
+```
+
 ### GDAL Issues
 
 **Problem**: "GDAL not found" or import errors

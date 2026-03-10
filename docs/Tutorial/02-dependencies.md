@@ -64,6 +64,19 @@ docker run --rm \
 After this command, your local host folder contains a full editable copy of the example at
 `rofental/`.
 
+Linux file-ownership note:
+
+- If you run the `docker run ... cp -a ...` command with `sudo`, the copied files on the host can end up owned by `root`.
+- In that case, editing `rofental.yml` or `project_2022_2023.yml` from your normal user account may prompt for `sudo`.
+- Prefer configuring Docker so your normal user can run it directly before starting the tutorial.
+
+If the copy already produced root-owned files, fix the host-side ownership once:
+
+```bash
+sudo chown -R "$USER":"$USER" /absolute/path/to/tutorial-workdir/rofental
+chmod -R u+rwX /absolute/path/to/tutorial-workdir/rofental
+```
+
 ## 3. Start The Tutorial Container Shell
 
 Now start one interactive container and mount the same local tutorial folder as `/data`.
@@ -96,6 +109,10 @@ Why these options are used:
 You do not need a text editor inside the container. Edit files in your local tutorial
 folder on the host machine. Because that folder is mounted into the container as `/data`,
 changes made locally are immediately visible inside the running container shell.
+
+On Linux, if these files are unexpectedly root-owned, go back to the ownership fix above
+before continuing. The tutorial assumes your local `rofental/` copy is writable by your
+normal user account.
 
 The two files you will inspect most often are:
 

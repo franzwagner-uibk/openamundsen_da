@@ -47,11 +47,11 @@ project/
 ## 3) Configure
 Use the split explicitly:
 - `project.yml`: project-wide, pure openAMUNDSEN config.
-- `setup.yml`: DA config under `data_assimilation` plus `start_date`/`end_date`.
+- `setup.yml`: data assimilation config under `data_assimilation` plus `start_date`/`end_date`.
 
 Essentials in `project.yml`:
 - Domain/CRS/resolution/timestep.
-- Required output variables for DA (`swe`, `hs`, `lwc` daily grids).
+- Required output variables for data assimilation (`swe`, `hs`, `lwc` daily grids).
 - Observation class mappings and product tags under `obs.*`.
 
 Essentials in `setup.yml`:

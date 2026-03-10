@@ -79,7 +79,7 @@ docs/
 |-- index.md                 # Home page
 |-- installation.md          # Installation guide
 |-- project-structure.md     # Project layout
-|-- workflow.md              # DA workflow
+|-- workflow.md              # data assimilation workflow
 |-- guides/                  # User guides
 |   |-- index.md             # Guides section index
 |   |-- cli.md               # CLI reference (16 commands) [done]

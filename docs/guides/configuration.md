@@ -13,7 +13,7 @@ Configuration model for openAMUNDSEN-DA.
 
 ## Hierarchy
 1. `<setup-name>.yml` (fallback `setup.yml`) - setup-wide openAMUNDSEN config.
-2. `<project-name>.yml` (fallback `project.yml`) - project-specific DA config and time span.
+2. `<project-name>.yml` (fallback `project.yml`) - project-specific data assimilation config and time span.
 3. `step_XX.yml` - auto-generated step windows.
 
 ## `<setup-name>.yml` / `setup.yml` (setup level)
@@ -51,7 +51,7 @@ output_data:
 Do not place `obs` or `data_assimilation` in setup YAML.
 
 ## `<project-name>.yml` / `project.yml` (project level)
-Use project YAML for DA configuration for one project.
+Use project YAML for data assimilation configuration for one project.
 
 Required top-level keys:
 - `start_date`
@@ -131,27 +131,56 @@ data_assimilation:
 
   uncertainty:
     scf:
-      enabled: false
+      enabled: false # enable uncertainty-aware SCF preprocessing + assimilation
       ingest:
-        mode: generated_layer # product_layer | companion_layer | generated_layer
-        # Required only for mode=product_layer:
+        # Required when uncertainty is enabled:
         scf_variable: fsc
         uncertainty_variable: uncertainty
         time_variable: time
       assimilation:
         sigma_mode: formula # formula | uncertainty_layer
-        aggregate_metric: unc_mean
+        aggregate_metric: unc_mean # used when sigma_mode=uncertainty_layer
+      input_dir: obs/snowcover # used by oa-da-scf-uncertainty generator
+      u_min: 10.0
+      u_max: 20.0
+      nodata_value: 255.0
+      penalties:
+        - name: forest
+          source: landcover # one of: fsc | landcover | shadow
+          enabled: true
+          classes: [8, 9, 10, 11, 12]
+          penalty: 20.0
+        - name: shadow
+          source: shadow
+          enabled: false
+          input_dir: obs/shadow
+          classes: [1]
+          penalty: 20.0
     wet_snow:
-      enabled: false
+      enabled: false # enable uncertainty-aware wet-snow preprocessing + assimilation
       ingest:
-        mode: generated_layer # product_layer | companion_layer | generated_layer
-        # Required only for mode=product_layer:
+        # Required when uncertainty is enabled:
         wet_snow_variable: wet_snow
         uncertainty_variable: uncertainty
         time_variable: time
       assimilation:
         sigma_mode: formula # formula | uncertainty_layer
-        aggregate_metric: unc_mean
+        aggregate_metric: unc_mean # used when sigma_mode=uncertainty_layer
+      input_dir: obs/wetsnow # used by oa-da-wetsnow-uncertainty generator
+      base_uncertainty: 15.0
+      nodata_value: 255.0
+      penalties:
+        - name: forest
+          source: landcover # one of: wet_snow | landcover | shadow
+          enabled: true
+          classes: [8, 9, 10, 11, 12]
+          penalty: 20.0
+        - name: shadow
+          source: shadow
+          enabled: false
+          input_dir: obs/shadow
+          classes: [1]
+          penalty: 20.0
 
   assimilation_events:
     - date: 2023-03-17
@@ -165,12 +194,16 @@ data_assimilation:
 Notes:
 - `assimilation_events` defines which dates and variables are assimilated.
 - Observation class mappings and product tags are configured under project YAML `obs.*`.
-- Land-cover mask uses `grids/lc_<domain>_<resolution>.asc` from setup-level paths and DA mask classes from project YAML.
+- Land-cover mask uses `grids/lc_<domain>_<resolution>.asc` from setup-level paths and data assimilation mask classes from project YAML.
 - For SCF uncertainty:
   - `enabled: true` activates strict uncertainty checks (fail-fast on missing/invalid config or layers).
   - `sigma_mode: uncertainty_layer` uses `aggregate_metric / 100` (for example `unc_mean`) with `min_sigma` floor.
+  - NetCDF uses configured in-file variables; GeoTIFF requires `<stem>_uncertainty.tif`.
   - Cloud pixels should be handled as data gaps (masked), not as uncertainty-penalty pixels.
-- Wet-snow uncertainty uses the same pattern (`ingest` + `assimilation`) and supports `product_layer`, `companion_layer`, and `generated_layer`.
+- Wet-snow uncertainty uses the same pattern (`ingest` + `assimilation`) and the same file-type behavior.
+- Uncertainty generator keys:
+  - `input_dir`, `u_min`, `u_max`, `base_uncertainty`, `nodata_value`, and `penalties[]` are used by `oa-da-scf-uncertainty` / `oa-da-wetsnow-uncertainty`.
+  - `penalties[].input_dir` is required only for `source: shadow`.
 - `output.retention: compact` writes `results/grids/da_output_grids.nc` and removes heavy member grid artifacts.
 - `results/grids/da_output_grids.nc` is aggregated over all project steps (full project timeline).
 - In `da_output_grids.nc`, `increment_<var>` is `ens_mean_<var> - open_loop_<var>`.
@@ -192,14 +225,13 @@ Configuration is validated when running CLI commands such as:
 - `oa-da-assimilate-scf`
 
 Typical early failures:
-- missing project YAML DA keys
+- missing project YAML data assimilation keys
 - missing ROI or land-cover grid
 - missing required output variables for assimilation
 - invalid dates/timestep alignment
 
 ## Best Practices
 - Keep setup YAML stable and shared across projects.
-- Keep DA experimentation and observation mappings in project YAML.
+- Keep data assimilation experimentation and observation mappings in project YAML.
 - Use one project per experiment/time span.
 - Keep `assimilation_events` explicit and versioned in each project.
-

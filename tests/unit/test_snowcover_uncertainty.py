@@ -24,7 +24,7 @@ def _write_project_yaml(project_dir: Path, payload: dict) -> None:
 
 
 class SnowcoverUncertaintyTests(unittest.TestCase):
-    def test_ingest_config_requires_product_layer_variables(self):
+    def test_ingest_config_requires_netcdf_variables(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
             _write_project_yaml(
@@ -34,7 +34,7 @@ class SnowcoverUncertaintyTests(unittest.TestCase):
                         "uncertainty": {
                             "scf": {
                                 "enabled": True,
-                                "ingest": {"mode": "product_layer"},
+                                "ingest": {"uncertainty_variable": "uncertainty", "time_variable": "time"},
                             }
                         }
                     }
@@ -44,7 +44,7 @@ class SnowcoverUncertaintyTests(unittest.TestCase):
                 _load_uncertainty_ingest_config(project_dir)
             self.assertIn("scf_variable", str(ctx.exception))
 
-    def test_ingest_config_reads_companion_mode(self):
+    def test_ingest_config_reads_variable_names(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
             _write_project_yaml(
@@ -54,7 +54,11 @@ class SnowcoverUncertaintyTests(unittest.TestCase):
                         "uncertainty": {
                             "scf": {
                                 "enabled": True,
-                                "ingest": {"mode": "companion_layer"},
+                                "ingest": {
+                                    "scf_variable": "fsc",
+                                    "uncertainty_variable": "uncertainty",
+                                    "time_variable": "time",
+                                },
                             }
                         }
                     }
@@ -62,8 +66,9 @@ class SnowcoverUncertaintyTests(unittest.TestCase):
             )
             cfg = _load_uncertainty_ingest_config(project_dir)
             self.assertTrue(cfg.enabled)
-            self.assertEqual(cfg.mode, "companion_layer")
-            self.assertIsNone(cfg.scf_variable)
+            self.assertEqual(cfg.scf_variable, "fsc")
+            self.assertEqual(cfg.uncertainty_variable, "uncertainty")
+            self.assertEqual(cfg.time_variable, "time")
 
     def test_duplicate_netcdf_days_raise(self):
         with self.assertRaises(ValueError) as ctx:
@@ -138,4 +143,3 @@ class SnowcoverUncertaintyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

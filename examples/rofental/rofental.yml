@@ -7,7 +7,7 @@ timezone: 1 # timezone of the model domain (difference to UTC in h)
 # Input data configuration
 input_data:
   grids:
-    dir: grids # location of input grids; DA uses roi_<domain>_<resolution>.asc (auto-generated from env ROI vector if missing)
+    dir: grids # location of input grids; data assimilation uses roi_<domain>_<resolution>.asc (auto-generated from env ROI vector if missing)
 
   meteo:
     # dir: set for each member by runner

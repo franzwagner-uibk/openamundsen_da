@@ -23,7 +23,7 @@ Declared in `pyproject.toml` as `oa-da-*` scripts.
 
 ## Conventions
 - Setup YAML (`<setup-name>.yml`, template fallback `setup.yml`) contains setup-wide openAMUNDSEN settings.
-- Project YAML (`<project-name>.yml`, fallback `project.yml`) contains DA settings and project time span.
+- Project YAML (`<project-name>.yml`, fallback `project.yml`) contains data assimilation settings and project time span.
 - Steps live under `projects/project_*/steps/step_*`.
 - Members live under `.../ensembles/{prior,posterior}/member_*`.
 

@@ -19,7 +19,6 @@ from rasterio.warp import Resampling, reproject
 
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml
-from openamundsen_da.observer.class_config import load_observation_class_groups, resolve_class_values
 from openamundsen_da.util.config_validators import require_mapping
 from openamundsen_da.util.landcover_mask import resolve_landcover_mask
 from openamundsen_da.util.loguru_utils import configure_cli_logger
@@ -27,7 +26,10 @@ from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 @dataclass(frozen=True)
 class SnowcoverClasses:
-    groups: dict[str, tuple[int, ...]]
+    valid: tuple[int, ...]
+    cloud: tuple[int, ...]
+    water: tuple[int, ...]
+    nodata: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,21 @@ class ScfUncertaintyConfig:
     nodata_value: float
     class_mapping: ScfClassMapping
     penalties: tuple[PenaltyRule, ...]
+
+
+def _require_int_tuple(values: object, *, path: str, allow_empty: bool = False) -> tuple[int, ...]:
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+        raise ValueError(f"{path} must be a list of integers")
+    out: list[int] = []
+    for value in values:
+        try:
+            out.append(int(value))
+        except Exception as exc:
+            raise ValueError(f"{path} contains non-integer value: {value!r}") from exc
+    uniq = tuple(sorted(set(out)))
+    if not uniq and not allow_empty:
+        raise ValueError(f"{path} must contain at least one integer")
+    return uniq
 
 
 def _resolve_path(raw: str | Path, *, base_dir: Path) -> Path:
@@ -117,52 +134,48 @@ def _resolve_shadow_path(
 def _resolve_scf_class_mapping(
     *,
     scf_unc: dict[str, object],
-    class_groups: dict[str, tuple[int, ...]],
+    obs_classes: SnowcoverClasses,
 ) -> ScfClassMapping:
     path = "project.data_assimilation.uncertainty.scf.class_mapping"
     class_mapping_raw = scf_unc.get("class_mapping")
     class_mapping = require_mapping(class_mapping_raw, path=path) if class_mapping_raw else {}
 
-    default_base = tuple(class_groups.get("valid", tuple()))
-    default_max = tuple(sorted(set(class_groups.get("cloud", tuple()) + class_groups.get("water", tuple()))))
-    default_nodata = tuple(class_groups.get("nodata", tuple()))
+    for old_key in ("base_groups", "max_uncertainty_groups", "nodata_groups"):
+        if old_key in class_mapping:
+            raise ValueError(
+                f"{path}.{old_key} is no longer supported; use '*_classes' with raw class IDs."
+            )
 
-    if "base_classes" in class_mapping or "base_groups" in class_mapping:
-        base = resolve_class_values(
-            path=f"{path}.base",
-            class_groups=class_groups,
-            raw_classes=class_mapping.get("base_classes"),
-            groups=class_mapping.get("base_groups"),
-            allow_empty=False,
-        )
+    default_base = obs_classes.valid
+    default_max = tuple(sorted(set(obs_classes.cloud + obs_classes.water)))
+    default_nodata = obs_classes.nodata
+
+    if "base_classes" in class_mapping:
+        base = _require_int_tuple(class_mapping.get("base_classes"), path=f"{path}.base_classes")
     else:
         if not default_base:
             raise ValueError(
-                f"{path}: no base class mapping configured and no default group 'valid' found in project.obs.snowcover.classes"
+                f"{path}: no base class mapping configured and no default 'valid' classes found in project.obs.snowcover.classes"
             )
-        base = tuple(sorted(set(default_base)))
+        base = default_base
 
-    if "max_uncertainty_classes" in class_mapping or "max_uncertainty_groups" in class_mapping:
-        max_unc = resolve_class_values(
-            path=f"{path}.max_uncertainty",
-            class_groups=class_groups,
-            raw_classes=class_mapping.get("max_uncertainty_classes"),
-            groups=class_mapping.get("max_uncertainty_groups"),
+    if "max_uncertainty_classes" in class_mapping:
+        max_unc = _require_int_tuple(
+            class_mapping.get("max_uncertainty_classes"),
+            path=f"{path}.max_uncertainty_classes",
             allow_empty=True,
         )
     else:
-        max_unc = tuple(sorted(set(default_max)))
+        max_unc = default_max
 
-    if "nodata_classes" in class_mapping or "nodata_groups" in class_mapping:
-        nodata = resolve_class_values(
-            path=f"{path}.nodata",
-            class_groups=class_groups,
-            raw_classes=class_mapping.get("nodata_classes"),
-            groups=class_mapping.get("nodata_groups"),
+    if "nodata_classes" in class_mapping:
+        nodata = _require_int_tuple(
+            class_mapping.get("nodata_classes"),
+            path=f"{path}.nodata_classes",
             allow_empty=True,
         )
     else:
-        nodata = tuple(sorted(set(default_nodata)))
+        nodata = default_nodata
 
     overlap_base_nodata = sorted(set(base).intersection(nodata))
     if overlap_base_nodata:
@@ -193,14 +206,20 @@ def _load_project_config(project_dir: Path) -> tuple[ScfUncertaintyConfig, Snowc
     cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
     obs_cfg = require_mapping(cfg.get("obs"), path="project.obs")
     snow_cfg = require_mapping(obs_cfg.get("snowcover"), path="project.obs.snowcover")
-    snow_classes = SnowcoverClasses(groups=load_observation_class_groups(project_dir, obs_key="snowcover"))
+    obs_classes_raw = require_mapping(snow_cfg.get("classes"), path="project.obs.snowcover.classes")
+    snow_classes = SnowcoverClasses(
+        valid=_require_int_tuple(obs_classes_raw.get("valid"), path="project.obs.snowcover.classes.valid"),
+        cloud=_require_int_tuple(obs_classes_raw.get("cloud", []), path="project.obs.snowcover.classes.cloud", allow_empty=True),
+        water=_require_int_tuple(obs_classes_raw.get("water", []), path="project.obs.snowcover.classes.water", allow_empty=True),
+        nodata=_require_int_tuple(obs_classes_raw.get("nodata", []), path="project.obs.snowcover.classes.nodata", allow_empty=True),
+    )
 
     da_cfg = require_mapping(cfg.get("data_assimilation"), path="project.data_assimilation")
     unc_cfg_raw = da_cfg.get("uncertainty")
     unc_cfg = require_mapping(unc_cfg_raw, path="project.data_assimilation.uncertainty") if unc_cfg_raw else {}
     scf_unc_raw = unc_cfg.get("scf")
     scf_unc = require_mapping(scf_unc_raw, path="project.data_assimilation.uncertainty.scf") if scf_unc_raw else {}
-    scf_class_mapping = _resolve_scf_class_mapping(scf_unc=scf_unc, class_groups=snow_classes.groups)
+    scf_class_mapping = _resolve_scf_class_mapping(scf_unc=scf_unc, obs_classes=snow_classes)
 
     setup_dir = project_dir.parent.parent
     default_input = _resolve_path(str(snow_cfg.get("dir", "obs/snowcover")), base_dir=setup_dir)
@@ -225,24 +244,9 @@ def _load_project_config(project_dir: Path) -> tuple[ScfUncertaintyConfig, Snowc
                 "fsc, landcover, shadow"
             )
         name = _normalize_rule_name(rule.get("name"), i, used_names)
-        if source == "fsc":
-            classes = resolve_class_values(
-                path=rule_path,
-                class_groups=snow_classes.groups,
-                raw_classes=rule.get("classes"),
-                groups=rule.get("groups"),
-                allow_empty=False,
-            )
-        else:
-            if rule.get("groups") is not None:
-                raise ValueError(f"{rule_path}.groups is only supported for source='fsc'")
-            classes = resolve_class_values(
-                path=rule_path,
-                class_groups=None,
-                raw_classes=rule.get("classes"),
-                groups=None,
-                allow_empty=False,
-            )
+        if "groups" in rule:
+            raise ValueError(f"{rule_path}.groups is no longer supported; use .classes with raw class IDs.")
+        classes = _require_int_tuple(rule.get("classes"), path=f"{rule_path}.classes")
         input_dir: Path | None = None
         if source == "shadow":
             default_shadow_input = setup_dir / "obs" / "shadow"

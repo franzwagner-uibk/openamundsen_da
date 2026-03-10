@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="860" height="940" viewBox="0 0 860 940" role="img" aria-labelledby="title desc">
   <title id="title">Tutorial workflow overview flow</title>
-  <desc id="desc">Vertical flowchart from raw observation rasters to summaries, per-step CSVs, DA pipeline execution, and outputs.</desc>
+  <desc id="desc">Vertical flowchart from input observation rasters to summaries, per-step CSVs, DA pipeline execution, and outputs.</desc>
   <defs>
     <style>
       .box { fill: #ffffff; stroke: #1f1f1f; stroke-width: 2; }
@@ -14,7 +14,7 @@
   </defs>
 
   <rect class="box" x="110" y="40" rx="14" ry="14" width="640" height="92"/>
-  <text class="label" x="430" y="78" text-anchor="middle">Raw observation rasters</text>
+  <text class="label" x="430" y="78" text-anchor="middle">Input observation rasters</text>
   <text class="small" x="430" y="108" text-anchor="middle">SCF / wet snow GeoTIFF inputs</text>
 
   <path class="arrow" d="M430 138 L430 176" marker-end="url(#arrowhead)"/>

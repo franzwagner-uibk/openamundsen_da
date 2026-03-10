@@ -27,7 +27,7 @@ openAMUNDSEN-DA implements a bootstrap particle filter (SIR) for snow data assim
 
 ## Configuration hooks
 - `project.yml`: openAMUNDSEN base config and observation product/class mappings (for example `obs.snowcover.*`, `obs.wetsnow.*`).
-- `setup.yml`: DA config under `data_assimilation`.
+- `setup.yml`: data assimilation config under `data_assimilation`.
   - `prior_forcing`
   - `h_of_x`
   - `likelihood`

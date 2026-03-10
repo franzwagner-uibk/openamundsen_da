@@ -73,7 +73,7 @@ Location: `tests/unit/`
 
 Current coverage areas include:
 - config merging behavior
-- DA events parsing/handling
+- data assimilation events parsing/handling
 - land-cover path and resolution behavior
 - setup skeleton behavior
 - statistics helper functions
@@ -137,7 +137,7 @@ Validation focuses on:
   - member SCF point time series
   - forcing plots, setup result plots, assimilation plots
   - persistent point outputs (`point_*.csv`)
-  - compact DA grid output (`results/grids/da_output_grids.nc`)
+  - compact data assimilation grid output (`results/grids/da_output_grids.nc`)
 - minimal weight sanity (weights exist, numeric, sum to `1.0`)
 
 ### Integration regression test (trimmed sub-domain)
@@ -157,7 +157,7 @@ Validation focuses on:
 - no fatal log patterns (`ERROR`, `CRITICAL`, `Traceback`, `Exception`)
 - manifest exists and all sub-domains report `status=success`
 - each sub-domain keeps non-empty point outputs (`point_*.csv`) in member results
-- compact DA grid output exists (`projects/<project>/results/grids/da_output_grids.nc`)
+- compact data assimilation grid output exists (`projects/<project>/results/grids/da_output_grids.nc`)
 - project-level sub-domain reports exist (`projects/<project>/results/subdomain_*.csv`)
 
 Failure artifacts:

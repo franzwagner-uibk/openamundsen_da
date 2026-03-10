@@ -1,79 +1,30 @@
 ---
 layout: default
-title: 8. Adapting the example to your own project
-parent: Tutorial
-nav_order: 8
+title: 7. Adapting to Your Own Project
+parent: How to Use
+nav_order: 7
 permalink: /tutorial/adapting-to-your-own-project/
 ---
 
-# 8. Adapting the example to your own project
+# 7. Adapting to Your Own Project
 
-This chapter explains how to use the Rofental tutorial workflow as a template for a new
-domain and project.
+Use the Rofental tutorial workflow as a working reference, not as a template to copy
+blindly. The safe strategy is to start from a known-good run, replace one layer at a time,
+and keep the preprocessing and validation loop tight.
 
-The recommended strategy is:
+The order should stay the same as in the tutorial:
 
-- start from a **working example**,
-- change one layer at a time,
-- keep the preprocessing and validation loop tight,
-- avoid changing many configuration dimensions simultaneously.
-
-The safest path is to preserve the workflow structure from the tutorial and only replace data/configuration step by step.
-
----
-
-## Step-by-step flow on this page
-
-{: .step }
-> Treat this chapter as a migration checklist: adapt a few things first, then expand gradually.
-
-This chapter is a **migration guide**, not a command-by-command execution page.
-
-Recommended use:
-
-1. read `What you must adapt first`
-2. follow `Recommended migration workflow`
-3. use `Common adaptation mistakes` as a review checklist before running
-4. use the final checklist when creating a new project baseline
-
-Keep the tutorial Rofental setup as a known-good reference while adapting your own domain. Compare structure and outputs frequently instead of changing everything at once.
-
----
-
-## What to copy from the tutorial workflow (unchanged at first)
-
-Keep these concepts and steps unchanged initially:
-
-1. setup/project/step directory structure
-2. project skeleton generation
-3. observation preprocessing sequence:
-   - summary generation (`oa-da-snowcover`, `oa-da-wetsnow`)
-   - per-step obs creation (`oa-da-scf`, `oa-da-wetsnow-project`)
-4. project pipeline execution
-5. output inspection workflow (logs -> DA diagnostics -> plots -> NetCDF)
-
-This gives you a stable debugging baseline.
-
-<details markdown="block">
-  <summary>Why a stable reference run is so important</summary>
-
-When a new project fails, you need a known-good baseline to compare:
-
-- file structure
-- preprocessing outputs
-- DA diagnostics
-- runtime behavior
-
-The tutorial Rofental run provides that baseline.
-</details>
-
----
+1. prepare the setup and project YAMLs
+2. validate observation rasters and class mappings
+3. generate summaries and per-step observation CSVs
+4. run a small and cheap data assimilation test first
+5. inspect diagnostics before increasing complexity
 
 ## What you must adapt first (minimum required changes)
 
 ### 1. Setup-level model configuration (`<setup>.yml`)
 
-This remains **pure openAMUNDSEN config** (no DA blocks).
+This remains **pure openAMUNDSEN config** (no data assimilation blocks).
 
 Typical changes:
 
@@ -86,9 +37,9 @@ Typical changes:
 {: .references }
 > - openAMUNDSEN documentation (external): [https://doc.openamundsen.org/](https://doc.openamundsen.org/)
 
-### 2. Project-level DA configuration (`project_YYYY_YYYY.yml`)
+### 2. Project-level data assimilation configuration (`project_YYYY_YYYY.yml`)
 
-This is where DA-specific behavior is configured.
+This is where data assimilation-specific behavior is configured.
 
 Typical changes:
 
@@ -108,7 +59,7 @@ This is one of the most important parts when switching projects/products.
 
 You must ensure:
 
-- the raw raster product class codes are known,
+- the raster product class codes are known,
 - class mapping in project YAML matches the actual product,
 - product tags in `assimilation_events` match the configured tags exactly,
 - selected assimilation dates exist in the generated summary CSVs.
@@ -127,7 +78,7 @@ This is especially important for class mappings and product tags. Explicit confi
 
 1. Copy the Rofental example to a new setup directory
 2. Replace/prepare the setup-level openAMUNDSEN inputs
-3. Keep the project YAML simple at first (few DA events)
+3. Keep the project YAML simple at first (few data assimilation events)
 
 Why:
 
@@ -135,7 +86,7 @@ Why:
 
 Clone first, then trim. Do not redesign the whole setup structure during the first migration step.
 
-### Phase B: Validate observations before DA
+### Phase B: Validate observations before data assimilation
 
 1. Run `oa-da-snowcover` and/or `oa-da-wetsnow`
 2. Inspect summary CSVs (`scf_summary.csv`, `wet_snow_summary.csv`)
@@ -145,9 +96,9 @@ Clone first, then trim. Do not redesign the whole setup structure during the fir
 
 Why:
 
-- DA debugging is much easier when observation coverage and quality are already verified
+- data assimilation debugging is much easier when observation coverage and quality are already verified
 
-### Phase C: Run a small/cheap DA test first
+### Phase C: Run a small/cheap data assimilation test first
 
 Start with a cheaper configuration:
 
@@ -183,7 +134,7 @@ Selection criteria typically include:
 <details markdown="block">
   <summary>Practical date-selection workflow</summary>
 
-1. Generate summaries from raw observations
+1. Generate summaries from observation rasters
 2. Inspect cloud fraction / valid pixel count (SCF)
 3. Inspect wet-snow coverage dates
 4. Choose a small set of events across the season
@@ -211,7 +162,7 @@ Recommended tutorial-like strategy:
 
 Problem:
 
-- DA settings are accidentally placed in the setup YAML.
+- data assimilation settings are accidentally placed in the setup YAML.
 
 Rule:
 
@@ -222,7 +173,7 @@ Rule:
 
 Problem:
 
-- impossible to tell whether failures come from observations, forcing, geometry, or DA tuning.
+- impossible to tell whether failures come from observations, forcing, geometry, or data assimilation tuning.
 
 Fix:
 
@@ -265,9 +216,9 @@ Fix:
 {: .checks }
 > Use this as the final pre-run audit before starting a new project experiment.
 
-Before your first real DA run, confirm:
+Before your first real data assimilation run, confirm:
 
-- setup YAML is valid openAMUNDSEN config (no DA block)
+- setup YAML is valid openAMUNDSEN config (no data assimilation block)
 - project YAML contains `start_date`, `end_date`, `obs`, and `data_assimilation`
 - observation class mappings are explicitly configured
 - product tags are explicitly configured and match `assimilation_events`
@@ -310,10 +261,10 @@ Document each change and compare outputs against the same validation plots.
 
 ---
 
-## Tutorial status after this chapter
+## What You Should Be Able To Do After This Chapter
 
 You should now be able to:
 
 - run the bundled Rofental tutorial end to end,
-- interpret the main DA outputs,
+- interpret the main data assimilation outputs,
 - and adapt the workflow structure to a new project with controlled changes.

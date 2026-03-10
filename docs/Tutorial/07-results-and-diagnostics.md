@@ -1,123 +1,41 @@
 ---
 layout: default
-title: 7. Results and diagnostics
-parent: Tutorial
-nav_order: 7
+title: 6. Results and Diagnostics
+parent: How to Use
+nav_order: 6
 permalink: /tutorial/results-and-diagnostics/
 ---
 
-# 7. Results and diagnostics
+# 6. Results and Diagnostics
 
-This chapter explains how to inspect and interpret the outputs of the tutorial DA run.
-
-The goal is not only to find files, but to understand:
-
-- whether the run completed correctly,
-- how the DA behaved (weights, ESS, resampling pressure),
-- what the plots and tables represent,
-- and where to look first when something seems wrong.
-
-Review order matters: check the log first, then DA diagnostics, then interpret the plots and grids.
-
-All command blocks below are executed **inside the running tutorial container shell** started in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}).
-
----
-
-## Step-by-step flow on this page
-
-{: .step }
-> Inspect outputs in this order so you go from logs and diagnostics to plots and final products.
-
-Use this page as a review routine after a completed run:
-
-1. confirm completion in the project log
-2. inspect performance diagnostics (`plots/perf`)
-3. inspect DA diagnostics (`plots/assim`)
-4. inspect result plots (`plots/results`)
-5. inspect the DA summary NetCDF (`da_output_grids.nc`)
-6. inspect raster snow-depth maps (`open_loop_snowdepth_daily` vs `ens_mean_snowdepth_daily`)
-7. inspect summary CSVs / ROI envelopes
-
----
-
-## Project output structure (what to inspect first)
+This chapter is the review pass after a completed project run. The recommended order is
+simple: confirm that the run finished cleanly, inspect the assimilation diagnostics, and
+only then interpret plots and compact output grids.
 
 Most tutorial outputs live under:
 
-- `rofental/projects/project_2022_2023/`
+- `/data/rofental/projects/project_2022_2023/`
 
-Key locations:
+The most important locations are:
 
-- `project_2022_2023.log` - full run log
-- `plots/perf/` - runtime/performance plots and metrics
-- `plots/assim/` - DA diagnostics (weights, ESS)
-- `plots/results/` - result plots (fractions, station plots, envelopes)
-- `results/grids/da_output_grids.nc` - DA output summary NetCDF
-- `point_scf_roi_envelope.csv`, `point_wet_snow_roi_envelope.csv` - ROI time-series envelopes
-
-Reference structure snippet (project outputs, condensed)
-
-```text
-/data/rofental/projects/project_2022_2023/
-  project_2022_2023.log
-  plots/
-    perf/
-    assim/
-    results/
-  results/
-    grids/
-      da_output_grids.nc
-  point_scf_roi_envelope.csv
-  point_wet_snow_roi_envelope.csv
-  steps/
-    step_00_init/
-    ...
-```
-
-<details markdown="block">
-  <summary>Why this directory overview is useful</summary>
-
-It helps new users understand which outputs are:
-
-- run logs,
-- diagnostics,
-- plotting products,
-- project-level grid/result exports,
-- and step/member internals.
-</details>
-
----
+- `project_2022_2023.log`
+- `plots/perf/`
+- `plots/assim/`
+- `plots/results/`
+- `results/grids/da_output_grids.nc`
 
 ## 1. Read the log first
 
-Before interpreting plots, confirm that the run actually completed cleanly.
+Before interpreting plots, confirm that the run actually completed cleanly by checking the
+end of `project_2022_2023.log`.
 
-Inspect the end of the project log before interpreting plots and tables.
+What to look for:
 
-```bash
-tail -n 120 /data/rofental/projects/project_2022_2023/project_2022_2023.log
-```
-
-
-{: .checks }
-> What to look for in a successful log tail:
->
-> - `Project processing complete`
-> - DA variable processing messages (`scf`, `wet_snow`)
-> - plot tasks completed
-> - DA output summary NetCDF writing (`da_output_grids.nc`)
-> - cleanup messages (`Setup cleanup succeeded`; compact-retention deletion appears only in compact mode)
-
-Reference snippet (successful log tail excerpt):
-
-```text
-2026-02-21 ... Plot task setup_ess_timeline completed
-2026-02-21 ... Plot task setup_results_swe completed
-2026-02-21 ... Plot task setup_results_snow_depth completed
-2026-02-24 ... Wrote DA output summary NetCDF /data/projects/project_2022_2023/results/grids/da_output_grids.nc (6 step(s))
-2026-02-24 ... Setup cleanup succeeded: deleted 66/66 file(s), freed 345.9 MB (patterns=model_state.pickle.gz)
-2026-02-24 ... Project processing complete: /data/projects/project_2022_2023 (wall-clock 670.9 s, ~0.19 h)
-```
+- `Project processing complete`
+- data assimilation variable processing messages (`scf`, `wet_snow`)
+- plot tasks completed
+- data assimilation output summary NetCDF writing (`da_output_grids.nc`)
+- cleanup messages (`Setup cleanup succeeded`; compact-retention deletion appears only in compact mode)
 
 <details markdown="block">
   <summary>If the log is not clean (important troubleshooting note)</summary>
@@ -129,7 +47,7 @@ Warning signs:
 - repeated missing observation messages
 - failures in a specific step
 - plot task errors
-- no DA output export message
+- no data assimilation output export message
 
 [Advanced Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) (follow-up when the log shows errors)
 
@@ -199,7 +117,7 @@ What to read in the plot:
 
 ## 3. Assimilation diagnostics (`plots/assim`)
 
-These plots are the core DA diagnostics.
+These plots are the core data assimilation diagnostics.
 
 Typical outputs:
 
@@ -288,7 +206,7 @@ Exact weights differ between runs because the ensemble is stochastic. Focus on t
 
 ## 4. Result plots (`plots/results`)
 
-This directory contains the main user-facing validation and DA-result figures for the setup.
+This directory contains the main user-facing validation and data assimilation result figures for the setup.
 
 Typical files include:
 
@@ -310,7 +228,7 @@ Reference structure snippet (`plots/results`, typical files)
 ```
 
 
-### Fraction time series (high-level DA behavior)
+### Fraction time series (high-level data assimilation behavior)
 
 `fraction_timeseries.png` is often the fastest way to inspect:
 
@@ -320,7 +238,7 @@ Reference structure snippet (`plots/results`, typical files)
 
 What to inspect:
 
-- are observation markers present at the configured DA dates?
+- are observation markers present at the configured data assimilation dates?
 - do SCF and wet-snow events appear in the expected seasonal phases?
 - are there obvious missing events or suspicious gaps?
 
@@ -332,7 +250,7 @@ What to inspect:
 
 - overall seasonal timing (accumulation / melt timing),
 - amplitude differences (too much / too little snow),
-- whether DA shifts the ensemble envelope relative to the open loop,
+- whether data assimilation shifts the ensemble envelope relative to the open loop,
 - consistency across stations (important for tutorial interpretation).
 
 In this tutorial setup, station SWE observations are expected in **mm** (see project config comment).
@@ -372,7 +290,7 @@ Recommended plot files to inspect (Rofental tutorial run):
   <summary>Suggested plot review order (practical)</summary>
 
 1. `fraction_timeseries.png` (observation timing and availability)
-2. ESS / weights plots (DA behavior)
+2. ESS / weights plots (data assimilation behavior)
 3. Station snow depth plots
 4. Station SWE plots
 5. NetCDF/grid outputs for spatial interpretation
@@ -388,9 +306,9 @@ _`fraction_timeseries.png`: check observation dates, SCF/wet-snow event timing, 
 
 What to read in this plot:
 
-- whether observation markers exist at the configured DA dates,
+- whether observation markers exist at the configured data assimilation dates,
 - whether SCF events cluster in snow-cover relevant periods and wet-snow events in melt-season periods,
-- whether DA moves the ensemble envelope in the expected direction relative to the open loop.
+- whether data assimilation moves the ensemble envelope in the expected direction relative to the open loop.
 
 Station snow depth example (`latschbloder`):
 
@@ -402,7 +320,7 @@ What to read in this plot:
 
 - timing of snow accumulation and melt,
 - whether observed values stay within (or near) the ensemble envelope,
-- whether DA visibly shifts the ensemble relative to the open loop around observation periods.
+- whether data assimilation visibly shifts the ensemble relative to the open loop around observation periods.
 
 Station SWE example (`proviantdepot`):
 
@@ -414,7 +332,7 @@ What to read in this plot:
 
 - unit consistency first (obs in **mm** in this tutorial setup),
 - amplitude mismatch (systematic bias) vs timing mismatch (phase error),
-- whether DA corrections remain small/local or systematically shift the trajectory.
+- whether data assimilation corrections remain small/local or systematically shift the trajectory.
 
 <details markdown="block">
   <summary>More station reference plots (tutorial baseline)</summary>
@@ -431,12 +349,12 @@ What to read in this plot:
 
 {: .references }
 > - [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %}) (SCF / wet-snow preprocessing context)
-> - [Workflow]({{ site.baseurl }}{% link workflow.md %}) (where these plots fit in the DA workflow)
+> - [Workflow]({{ site.baseurl }}{% link workflow.md %}) (where these plots fit in the data assimilation workflow)
 
 <a id="da-output-summary-netcdf"></a>
-## 5. DA output summary NetCDF (`da_output_grids.nc`)
+## 5. data assimilation output summary NetCDF (`da_output_grids.nc`)
 
-The tutorial setup writes a DA output summary NetCDF:
+The tutorial setup writes a data assimilation output summary NetCDF:
 
 - `results/grids/da_output_grids.nc`
 
@@ -453,7 +371,7 @@ This file is designed for:
 
 In the current tutorial configuration, `data_assimilation.output.retention: full` is enabled, so this summary NetCDF is written and the heavier member-grid artifacts are retained as well.
 
-Reference output file path (DA summary NetCDF):
+Reference output file path (data assimilation summary NetCDF):
 
 - `/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc`
 
@@ -479,7 +397,7 @@ PY
 > - ensemble mean / spread fields
 > - increments (`ens_mean - open_loop`) for configured variables/aggregations
 
-Dimension names in the inspected NetCDF (for example `time1`, `time2`, `snow_layer`, `nbnd`) are typically inherited from the underlying model outputs. Configure **which variables/metrics** are exported in the project YAML under `data_assimilation.output.grids.variables[*]`; see [6. Running the Project]({{ site.baseurl }}{% link Tutorial/06-running-the-project.md %}) for the output-grid configuration note.
+Dimension names in the inspected NetCDF (for example `time1`, `time2`, `snow_layer`, `nbnd`) are typically inherited from the underlying model outputs. Configure **which variables/metrics** are exported in the project YAML under `data_assimilation.output.grids.variables[*]`; see [5. Running the Model]({{ site.baseurl }}{% link Tutorial/06-running-the-project.md %}) for the output-grid configuration note.
 
 ### Raster output
 
@@ -500,7 +418,7 @@ _`increment_snowdepth_daily` on **2023-06-02** (`ens_mean_snowdepth_daily - open
 
 {: .checks }
 > Note on raster workflow:
-> - all output grids are stored in one NetCDF file: `results/grids/da_output_grids.nc` (see [5. DA output summary NetCDF (`da_output_grids.nc`)](#da-output-summary-netcdf))
+> - all output grids are stored in one NetCDF file: `results/grids/da_output_grids.nc` (see [5. data assimilation output summary NetCDF (`da_output_grids.nc`)](#da-output-summary-netcdf))
 > - extract the layers/time slices you need in the GIS tool of your choice before styling or export
 
 Reference snippet (NetCDF inspection, tutorial reference run):
@@ -533,14 +451,14 @@ Use `results/grids/da_output_grids.nc` in a GIS software of your choice and visu
 Recommended map date(s): choose one date with active snow cover and one date near melt season.
 Use the same date across `open_loop`, `ens_mean`, and `increment` maps.
 
-### DA increment map
+### data assimilation increment map
 
 The tutorial also includes a reference increment map above (`increment_snowdepth_daily`, date
 **2023-06-02**). For additional diagnostics, export one or two extra increment dates from
 `da_output_grids.nc` and compare against the same-date open-loop/ensemble-mean maps.
 
 {: .references }
-> - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) (DA output variable selection and metrics)
+> - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) (data assimilation output variable selection and metrics)
 > - [Project Structure]({{ site.baseurl }}{% link project-structure.md %}) (where project outputs live)
 > - [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %}) (how to interpret increments conceptually)
 
@@ -600,7 +518,7 @@ Interpretation:
 
 ---
 
-## 7. Quick DA sanity checklist (practical review routine)
+## 7. Quick data assimilation sanity checklist (practical review routine)
 
 {: .checks }
 > Use this checklist as a quick review before trusting or comparing results.
@@ -621,7 +539,7 @@ Interpretation:
 
 ## 8. Season cleanup (optional)
 
-openAMUDNSEN-DA contains a module that cleans up heavy files that are used within the DA workflow and not needed anymore after running a project. The cleanup is wired into the project pipeline and activated by default.
+openAMUDNSEN-DA contains a module that cleans up heavy files that are used within the data assimilation workflow and not needed anymore after running a project. The cleanup is wired into the project pipeline and activated by default.
 
 {: .checks }
 > Automatic cleanup is enabled by default via `data_assimilation.restart.cleanup_after_setup: true`.
@@ -652,12 +570,3 @@ What is removed:
 
 {: .references }
 > - [Workflow]({{ site.baseurl }}{% link workflow.md %}) (state cleanup behavior and project lifecycle)
-
----
-
-## Next step
-
-{: .references }
-> Continue to the adaptation chapter after you can navigate and interpret the tutorial outputs:
->
-> - [8. Adapting the example to your own project]({{ site.baseurl }}{% link Tutorial/08-adapting-to-your-own-project.md %}) (transfer the workflow from the Rofental tutorial setup to a new domain)

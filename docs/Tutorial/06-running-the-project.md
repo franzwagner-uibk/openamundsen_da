@@ -1,161 +1,37 @@
 ---
 layout: default
-title: 6. Running the project
-parent: Tutorial
-nav_order: 6
+title: 5. Running the Model
+parent: How to Use
+nav_order: 5
 permalink: /tutorial/running-the-project/
 ---
 
-# 6. Running the project
+# 5. Running the Model
 
-This chapter shows how to execute the tutorial project:
+At this point the observation preprocessing is complete. The remaining task is to run the
+project pipeline on the prepared setup and project configuration.
 
-- first conceptually with the main building blocks (what the pipeline does),
-- then practically with the recommended **project pipeline** command.
+The pipeline executes the step-wise ensemble workflow, reads the matching per-step
+observation CSVs, performs the configured assimilation updates, and writes diagnostics and
+result products.
 
-The tutorial baseline uses:
-
-- **Rofental** (`examples/rofental`)
-- **100 m** setup
-- **ensemble size = 10**
-- **October-June** season window
-
-This configuration is intended to remain feasible on a normal computer.
-
-The main run uses the project pipeline, but you already prepared the inputs manually in the previous chapter. This is intentional: understand first, automate second.
-
-**Command focus (important):** The only mandatory command in this chapter is the project pipeline run. The step inspection and log-tail command are optional but useful.
-
-All command blocks below are executed **inside the running tutorial container shell** started in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %}). The container CPU limit and BLAS/OpenMP environment variables are configured in that startup command.
-
----
-
-## Step-by-step flow on this page
-
-{: .step }
-> Follow this chapter in order: start the run, validate progress, then inspect outputs and rerun patterns.
-
-Use this page in the following order:
-
-1. read the pipeline overview (what the main run command will do)
-2. optionally inspect one step folder (quick sanity check before a longer run)
-3. run the **project pipeline command** (mandatory)
-4. perform a small set of run-progress checks (recommended)
-5. use the lower-level commands only to understand/debug internals (optional)
-
-**Mandatory command on this page:** the project pipeline run in `Run the full project pipeline (recommended workflow)`.
-
-If you are short on time, skip the optional step inspection and lower-level command section. Keep the pipeline run and the basic run-progress checks.
-
----
-
-## What the project pipeline does (conceptual overview)
-
-The project pipeline (`openamundsen_da.pipeline.project`) orchestrates the DA cycle step by step.
-
-For each step it typically runs:
-
-1. run the prior ensemble (open loop + ensemble members),
-2. compute model-side diagnostics (e.g. SCF / wet-snow fractions),
-3. read the per-step observation CSV from `steps/<step>/obs/`,
-4. compute likelihood / weights,
-5. resample if needed,
-6. rejuvenate posterior particles into the next prior,
-7. create plots and aggregate project-level diagnostics,
-8. write the DA output summary NetCDF (e.g. `da_output_grids.nc`) and finalize project outputs.
-
-This is why the preprocessing chapter is critical: the pipeline expects the per-step
-observation CSVs to already exist and match the configured event dates exactly.
-
-{: .warning }
-> The project pipeline does not replace observation preprocessing. Missing or inconsistent per-step observation CSVs will cause the run to fail.
-
-{: .references }
-> - [Framework]({{ site.baseurl }}{% link Tutorial/04-framework.md %}) for setup/project/step/member concepts
-> - [Workflow Guide]({{ site.baseurl }}{% link workflow.md %}) for the broader DA process
-> - [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}) for pipeline and lower-level commands
-
-## Continuing Later (Restart the Tutorial Container Shell)
-
-If you continue the tutorial on another day, restart the tutorial container shell before
-running the project pipeline command.
-
-Important:
-
-- the tutorial container is temporary (`--rm`),
-- your prepared project files persist in your local workspace because it is bind-mounted as `/data`.
-
-Restart the container from the **host terminal** (use the same host path as in [2. Dependencies]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %})):
-
-```bash
-docker run --rm -it \
-  -v "/absolute/path/to/tutorial-workdir:/data" \
-  -w /data \
-  --cpus 8 \
-  -e OMP_NUM_THREADS=1 \
-  -e OPENBLAS_NUM_THREADS=1 \
-  -e MKL_NUM_THREADS=1 \
-  -e NUMEXPR_NUM_THREADS=1 \
-  ghcr.io/franzwagner-uibk/openamundsen_da:latest \
-  bash --noprofile --norc
-```
-
-
----
-
-## (Optional) Inspect one step folder before the run
-
-This is a useful sanity check before launching a multi-minute run.
-
-```bash
-echo "Step folder: /data/rofental/projects/project_2022_2023/steps/step_00_init"
-find /data/rofental/projects/project_2022_2023/steps/step_00_init -maxdepth 3 -type f | sort
-```
-
-
-What to expect before the first run:
-
-- `step_00.yml`
-- `obs/obs_scf_...csv` (for the first assimilation date)
-- no model results yet
-
-Reference snippet (`step_00_init/obs/` before the run):
-
-```text
-obs_scf_SNOWCOVER_20230101.csv
-```
-
-The first full run creates the ensemble folders, member outputs, diagnostics, plots,
-and the DA output summary NetCDF.
-
-<details markdown="block">
-  <summary>What is created during the run (overview)</summary>
-
-- step/member result folders
-- DA diagnostics (weights, ESS)
-- setup-level result plots
-- ROI envelope CSVs
-- DA output summary NetCDF (`da_output_grids.nc`)
-- retained member/grid artifacts (the tutorial example uses `retention: full`)
-- project log with step-by-step execution messages
-</details>
-
----
+From this point on, the tutorial assumes you are inside the running tutorial container
+shell at `/data/rofental`.
 
 ## Run the full project pipeline (recommended workflow)
 
-Run this inside the tutorial container shell. `--setup-dir` points to the openAMUNDSEN setup, `--project-dir` selects the DA project, `--max-workers` caps pipeline parallelism, `--overwrite` allows reruns, and `--log-level INFO` keeps progress visible in the project log.
+Run this inside the tutorial container shell. `--setup-dir` points to the openAMUNDSEN setup, `--project-dir` selects the data assimilation project, `--max-workers` caps pipeline parallelism, `--overwrite` allows reruns, and `--log-level INFO` keeps progress visible in the project log.
 
-This is the main tutorial command for the full DA run.
+This is the main tutorial command for the full data assimilation run.
 
 **Configuration files used by this run**  
 Setup config: `/data/rofental/rofental.yml` (openAMUNDSEN domain/model configuration)  
-Project config: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml` (DA events, obs mapping, likelihood/resampling, outputs)
+Project config: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml` (data assimilation events, obs mapping, likelihood/resampling, outputs)
 
 **🟢 Run this command:**
 
 ```bash
-python -m openamundsen_da.pipeline.project \
+oa-da-project \
   --setup-dir /data/rofental \
   --project-dir /data/rofental/projects/project_2022_2023 \
   --max-workers 8 \
@@ -212,14 +88,14 @@ data_assimilation:
 
 This snippet shows the three project settings that most visibly change runtime and outputs in the tutorial: ensemble size, number/timing of events, and which grid-summary variables/metrics are exported.
 
-### How to configure DA grid output content and dimensions (important)
+### How to configure data assimilation grid output content and dimensions (important)
 
-The DA output summary NetCDF (`results/grids/da_output_grids.nc`) is configured in the same
+The data assimilation output summary NetCDF (`results/grids/da_output_grids.nc`) is configured in the same
 `data_assimilation.output.grids` block.
 
 What you can configure directly here:
 
-- `variables[*].var` / `name`: which model grid variables are exported into the DA summary
+- `variables[*].var` / `name`: which model grid variables are exported into the data assimilation summary
 - `variables[*].metrics`: which summary metrics are written for each variable (`open_loop`, `ens_mean`, `ens_std`, `ens_min`, `ens_max`, `increment`)
 - `format`, `compress`, `retention`
 
@@ -232,56 +108,12 @@ How to interpret the `dims` in the NetCDF inspection output:
 
 Note on `grids.dims: [x, y, time]`:
 
-- this is the intended standard dimension order for exported DA grids in the config
-- the current DA summary writer still preserves source variable dimensions from the underlying model NetCDF files, so the inspected dataset may contain `time1`/`time2`, `snow_layer`, and `nbnd`
-
-### Runtime expectations (what affects runtime)
-
-Runtime depends on:
-
-- CPU count / clock speed,
-- storage speed,
-- Docker Desktop overhead (Windows/macOS),
-- whether this is the first run (cold caches) or a rerun,
-- current project configuration (ensemble size, resolution, number of steps).
-
-For the tutorial baseline, a normal desktop/laptop
-should be able to complete the run, but it is still a non-trivial workload.
+- this is the intended standard dimension order for exported data assimilation grids in the config
+- the current data assimilation summary writer still preserves source variable dimensions from the underlying model NetCDF files, so the inspected dataset may contain `time1`/`time2`, `snow_layer`, and `nbnd`
 
 ---
 
-## Validate that the run is progressing correctly
-
-{: .checks }
-> Use these checks while the run is active to catch problems early.
-
-### 1. Watch the project log
-
-```bash
-tail -n 80 /data/rofental/projects/project_2022_2023/project_2022_2023.log
-```
-
-
-Look for messages such as:
-
-- step discovery (`Discovered ... step(s)`)
-- prior ensemble launch (`Launching ensemble (prior) ...`)
-- assimilation actions (`Assimilating scf`, `Assimilating wet_snow`)
-- plot tasks completed
-- final success (`Project processing complete`)
-
-Reference snippet (successful log tail, condensed):
-
-```text
-... Plot task setup_ess_timeline completed
-... Plot task setup_results_swe completed
-... Plot task setup_results_snow_depth completed
-... Wrote DA output summary NetCDF /data/projects/project_2022_2023/results/grids/da_output_grids.nc (6 step(s))
-... Setup cleanup succeeded: deleted 66/66 file(s), freed 345.9 MB (patterns=model_state.pickle.gz)
-... Project processing complete: /data/projects/project_2022_2023 (wall-clock 670.9 s, ~0.19 h)
-```
-
-### 2. Check that plots and outputs are being created (path-based check)
+## Expected outputs after the run
 
 After a successful run, these paths should exist:
 
@@ -292,7 +124,7 @@ After a successful run, these paths should exist:
 - `/data/rofental/projects/project_2022_2023/point_scf_roi_envelope.csv`
 - `/data/rofental/projects/project_2022_2023/point_wet_snow_roi_envelope.csv`
 
-Reference snippet (typical result files visible after a successful run):
+Typical result files after a successful run:
 
 ```text
 plots/perf/
@@ -310,83 +142,10 @@ plots/results/
   setup_results_point_proviantdepot_swe_2022_2023.png
 ```
 
-Visual run-success teaser (performance plot):
-
 ![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/project_perf.png)
-
-For this quick check, confirm:
-
-- the file exists and opens,
-- the plot is populated (not empty/corrupt),
-- runtime/resource traces are present (detailed interpretation comes later).
-
-Visual run-success teaser (main results overview plot):
 
 ![Fraction time series (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/fraction_timeseries.png)
 
-For this quick check, confirm:
-
-- observation markers are present,
-- the plot spans the configured tutorial season,
-- the plot renders correctly (axes/legend visible).
-
 Detailed interpretation of these plots is covered in [7. Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}).
 
-### 3. Check the DA summary NetCDF output (path-based check)
-
-Expected output file:
-
-- `/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc`
-
-**Output export configuration (project YAML)**  
-File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
-Relevant keys: `data_assimilation.output.retention`, `data_assimilation.output.grids.*`, `data_assimilation.output.grids.variables[*]`
-
-{: .warning }
-> Do not treat the existence of files alone as proof of a healthy run. Always check the
-> log for errors and warnings and inspect DA diagnostics in the next chapter.
-
-{: .references }
-> - [Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}) for plot/diagnostic interpretation
-> - [Advanced Performance]({{ site.baseurl }}{% link advanced/performance.md %}) for performance tuning after the baseline tutorial run
-
-<details markdown="block">
-  <summary>Suggested quick-check sequence during a run</summary>
-
-1. Tail the project log
-2. Confirm step progression and assimilation messages
-3. Check whether plots start appearing under `plots/`
-4. Check the final `Project processing complete` message
-</details>
-
----
-
-## What to check before moving on
-
-{: .checks }
-> Confirm these outputs and diagnostics before opening the results chapter.
-
-Before continuing, verify:
-
-- `project_2022_2023.log` ends with a completion message,
-- `plots/perf/project_perf.png` exists,
-- `plots/results/fraction_timeseries.png` exists,
-- `results/grids/da_output_grids.nc` exists.
-
-These indicate that preprocessing, the DA run, plotting, and DA output export all
-completed successfully.
-
----
-
-## Next step
-
-{: .references }
-> Continue to the results and diagnostics chapter after the project run completed successfully.
-
-Continue with [7. Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %})
-to inspect:
-
-- DA weights and ESS behavior,
-- performance plots and metrics,
-- result time series,
-- CSV summaries and DA grid outputs.
+Before continuing, verify that the project log ends with a completion message and that `plots/perf/project_perf.png`, `plots/results/fraction_timeseries.png`, and `results/grids/da_output_grids.nc` exist.

@@ -28,7 +28,6 @@ from openamundsen_da.util.ts import parse_datetime_opt
 from openamundsen_da.util.uncertainty_common import (
     assert_same_grid as assert_same_grid_shared,
     normalize_netcdf_times as normalize_netcdf_times_shared,
-    parse_ingest_block,
 )
 
 
@@ -43,7 +42,6 @@ class SnowcoverClasses:
 @dataclass(frozen=True)
 class ScfUncertaintyIngestConfig:
     enabled: bool
-    mode: str | None  # product_layer | companion_layer | generated_layer
     scf_variable: str | None
     uncertainty_variable: str | None
     time_variable: str | None
@@ -92,7 +90,6 @@ def _load_uncertainty_ingest_config(project_dir: Path) -> ScfUncertaintyIngestCo
     if unc_root is None:
         return ScfUncertaintyIngestConfig(
             enabled=False,
-            mode=None,
             scf_variable=None,
             uncertainty_variable=None,
             time_variable=None,
@@ -102,7 +99,6 @@ def _load_uncertainty_ingest_config(project_dir: Path) -> ScfUncertaintyIngestCo
     if scf_unc_raw is None:
         return ScfUncertaintyIngestConfig(
             enabled=False,
-            mode=None,
             scf_variable=None,
             uncertainty_variable=None,
             time_variable=None,
@@ -112,7 +108,6 @@ def _load_uncertainty_ingest_config(project_dir: Path) -> ScfUncertaintyIngestCo
     if not enabled:
         return ScfUncertaintyIngestConfig(
             enabled=False,
-            mode=None,
             scf_variable=None,
             uncertainty_variable=None,
             time_variable=None,
@@ -122,15 +117,13 @@ def _load_uncertainty_ingest_config(project_dir: Path) -> ScfUncertaintyIngestCo
         scf_unc.get("ingest"),
         path="project.data_assimilation.uncertainty.scf.ingest",
     )
-    mode, scf_variable, uncertainty_variable, time_variable = parse_ingest_block(
-        ingest,
-        path="project.data_assimilation.uncertainty.scf.ingest",
-        value_variable_key="scf_variable",
-    )
+    ingest_path = "project.data_assimilation.uncertainty.scf.ingest"
+    scf_variable = require_nonempty_str(ingest, "scf_variable", path=ingest_path)
+    uncertainty_variable = require_nonempty_str(ingest, "uncertainty_variable", path=ingest_path)
+    time_variable = require_nonempty_str(ingest, "time_variable", path=ingest_path)
 
     return ScfUncertaintyIngestConfig(
         enabled=True,
-        mode=mode,
         scf_variable=scf_variable,
         uncertainty_variable=uncertainty_variable,
         time_variable=time_variable,
@@ -140,7 +133,6 @@ def _load_uncertainty_ingest_config(project_dir: Path) -> ScfUncertaintyIngestCo
 def _disabled_uncertainty_ingest_config() -> ScfUncertaintyIngestConfig:
     return ScfUncertaintyIngestConfig(
         enabled=False,
-        mode=None,
         scf_variable=None,
         uncertainty_variable=None,
         time_variable=None,
@@ -224,6 +216,16 @@ def _assert_same_grid(src: rasterio.DatasetReader, other: rasterio.DatasetReader
 
 def _normalize_netcdf_times(time_values: object, *, source_name: str) -> pd.DatetimeIndex:
     return normalize_netcdf_times_shared(time_values, source_name=source_name)
+
+
+def _missing_uncertainty_companion_error(raster_path: Path) -> FileNotFoundError:
+    unc_path = raster_path.parent / f"{raster_path.stem}_uncertainty.tif"
+    return FileNotFoundError(
+        "Missing required uncertainty companion raster: "
+        f"{unc_path}. Generate it first with "
+        "'python -m openamundsen_da.observer.scf_uncertainty --setup-dir <SETUP_DIR> "
+        "--project-label <PROJECT_LABEL> --overwrite' or provide uncertainty in NetCDF."
+    )
 
 
 def _build_stats_row(
@@ -321,13 +323,9 @@ def _compute_tif_stats(
         unc_nodata: float | int | None = None
         require_uncertainty = bool(uncertainty_cfg.enabled)
         if uncertainty_cfg.enabled:
-            if uncertainty_cfg.mode not in {"companion_layer", "generated_layer"}:
-                raise ValueError(
-                    f"Uncertainty ingest mode {uncertainty_cfg.mode!r} is incompatible with GeoTIFF source {raster_path.name}"
-                )
             unc_path = raster_path.parent / f"{raster_path.stem}_uncertainty.tif"
             if not unc_path.is_file():
-                raise FileNotFoundError(f"Missing required uncertainty companion raster: {unc_path}")
+                raise _missing_uncertainty_companion_error(raster_path)
             with rasterio.open(unc_path) as src_unc:
                 _assert_same_grid(src, src_unc, left=raster_path, right=unc_path)
                 unc_data, unc_mask, unc_nodata = _mask_band(src_unc, band_index=1, gdf=gdf, lc_cfg=lc_cfg)
@@ -357,17 +355,13 @@ def _compute_netcdf_product_stats(
     classes: SnowcoverClasses,
     uncertainty_cfg: ScfUncertaintyIngestConfig,
 ) -> list[dict[str, object]]:
-    if uncertainty_cfg.mode != "product_layer":
-        raise ValueError(
-            f"Uncertainty ingest mode {uncertainty_cfg.mode!r} is incompatible with NetCDF source {raster_path.name}"
-        )
     if uncertainty_cfg.scf_variable is None or uncertainty_cfg.uncertainty_variable is None or uncertainty_cfg.time_variable is None:
-        raise ValueError("Missing required NetCDF ingest variable names for product-layer uncertainty")
+        raise ValueError("Missing required NetCDF ingest variable names for snow-cover uncertainty")
 
     try:
         import xarray as xr  # lazy dependency
     except Exception as exc:  # pragma: no cover - dependency guard
-        raise RuntimeError("xarray is required to process NetCDF uncertainty product_layer mode") from exc
+        raise RuntimeError("xarray is required to process NetCDF snow-cover uncertainty ingestion") from exc
 
     with xr.open_dataset(raster_path) as ds:
         if uncertainty_cfg.scf_variable not in ds:
@@ -480,11 +474,7 @@ def summarize_snowcover_directory(
                 )
                 stats_rows = [stats] if stats is not None else []
             else:
-                if uncertainty_cfg.mode == "product_layer":
-                    if suffix != ".nc":
-                        raise ValueError(
-                            f"Uncertainty ingest mode 'product_layer' requires NetCDF inputs, got {rast.name}"
-                        )
+                if suffix == ".nc":
                     stats_rows = _compute_netcdf_product_stats(
                         raster_path=rast,
                         aoi_path=aoi,
@@ -493,11 +483,7 @@ def summarize_snowcover_directory(
                         classes=cls,
                         uncertainty_cfg=uncertainty_cfg,
                     )
-                else:
-                    if suffix not in {".tif", ".tiff"}:
-                        raise ValueError(
-                            f"Uncertainty ingest mode '{uncertainty_cfg.mode}' requires GeoTIFF inputs, got {rast.name}"
-                        )
+                elif suffix in {".tif", ".tiff"}:
                     stats = _compute_tif_stats(
                         raster_path=rast,
                         aoi_path=aoi,
@@ -507,6 +493,8 @@ def summarize_snowcover_directory(
                         uncertainty_cfg=uncertainty_cfg,
                     )
                     stats_rows = [stats] if stats is not None else []
+                else:
+                    continue
         except Exception as exc:
             if uncertainty_cfg.enabled:
                 raise RuntimeError(

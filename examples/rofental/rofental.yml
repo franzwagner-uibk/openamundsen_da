@@ -115,8 +115,8 @@ meteo:
   precipitation_correction:
     #- method: constant_scf
     #  scf: 1.25
-    #- method: kochendorfer # use the Kochendorfer et al. (2017) transfer functions
-    #  gauge: us_un # gauge-specific transfer function to use according to Kochendorfer et al. (2017, Table 3)
+    - method: kochendorfer # use the Kochendorfer et al. (2017) transfer functions
+      gauge: us_un # gauge-specific transfer function to use according to Kochendorfer et al. (2017, Table 3)
     #- method: wmo
     #  gauge: hellmann
     - method: srf # apply an additional precalculated spatially distributed snow redistribution factor (SRF)

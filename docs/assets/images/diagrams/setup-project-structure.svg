@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="760" viewBox="0 0 1180 760" role="img" aria-labelledby="title desc">
+  <title id="title">Setup and project layout</title>
+  <desc id="desc">Schematic of one setup directory and one project workspace, showing where setup-level inputs, observation summaries, step files, project configuration, results, and plots live.</desc>
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .panel { fill: #fafafa; stroke: #1f1f1f; stroke-width: 2; }
+      .box { fill: #ffffff; stroke: #1f1f1f; stroke-width: 1.8; }
+      .title { fill: #111111; font-family: Arial, sans-serif; font-size: 24px; font-weight: 700; }
+      .label { fill: #111111; font-family: Arial, sans-serif; font-size: 21px; font-weight: 700; }
+      .body { fill: #222222; font-family: Arial, sans-serif; font-size: 17px; }
+      .small { fill: #444444; font-family: Arial, sans-serif; font-size: 15px; }
+      .mono { fill: #111111; font-family: Menlo, Consolas, monospace; font-size: 15px; }
+      .mono-sm { fill: #111111; font-family: Menlo, Consolas, monospace; font-size: 14px; }
+      .arrow { stroke: #1f1f1f; stroke-width: 2; fill: none; stroke-linecap: round; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 1 1 L 9 5 L 1 9 z" fill="#1f1f1f"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1180" height="760"/>
+
+  <text class="title" x="590" y="38" text-anchor="middle">Setup and project layout</text>
+
+  <rect class="panel" x="30" y="56" width="1120" height="674" rx="18" ry="18"/>
+  <text class="mono" x="58" y="88">setup/</text>
+  <text class="small" x="1122" y="88" text-anchor="end">optional sub-domain folders omitted for clarity</text>
+
+  <rect class="panel" x="58" y="112" width="448" height="584" rx="16" ry="16"/>
+  <text class="label" x="84" y="146">Setup-level inputs</text>
+  <text class="small" x="84" y="170">Files shared across one or more projects inside the setup</text>
+
+  <rect class="box" x="84" y="194" width="396" height="70" rx="12" ry="12"/>
+  <text class="mono" x="108" y="224">&lt;setup&gt;.yml</text>
+  <text class="body" x="108" y="248">openAMUNDSEN setup configuration</text>
+
+  <rect class="box" x="84" y="280" width="396" height="76" rx="12" ry="12"/>
+  <text class="mono" x="108" y="310">env/</text>
+  <text class="body" x="108" y="334">ROI vectors and related environment inputs</text>
+
+  <rect class="box" x="84" y="372" width="396" height="76" rx="12" ry="12"/>
+  <text class="mono" x="108" y="402">grids/</text>
+  <text class="body" x="108" y="426">ROI masks, land-cover grids, and other raster inputs</text>
+
+  <rect class="box" x="84" y="464" width="396" height="76" rx="12" ry="12"/>
+  <text class="mono" x="108" y="494">meteo/</text>
+  <text class="body" x="108" y="518">forcing station metadata and time-series files</text>
+
+  <rect class="box" x="84" y="556" width="396" height="116" rx="12" ry="12"/>
+  <text class="mono" x="108" y="586">obs/</text>
+  <text class="mono-sm" x="130" y="612">snowcover/</text>
+  <text class="mono-sm" x="130" y="634">wetsnow/</text>
+  <text class="mono-sm" x="130" y="656">stations/</text>
+  <text class="mono-sm" x="286" y="612">summaries/</text>
+  <text class="mono-sm" x="286" y="632">project_2022_2023/</text>
+  <text class="body" x="286" y="652">scf_summary.csv</text>
+  <text class="body" x="286" y="666">wet_snow_summary.csv</text>
+
+  <rect class="panel" x="536" y="112" width="586" height="584" rx="16" ry="16"/>
+  <text class="label" x="562" y="146">Project-level workspace</text>
+  <text class="mono" x="562" y="172">projects/project_2022_2023/</text>
+
+  <rect class="box" x="562" y="196" width="534" height="70" rx="12" ry="12"/>
+  <text class="mono" x="586" y="226">project_2022_2023.yml</text>
+  <text class="body" x="586" y="250">project dates, obs mapping, assimilation events, DA settings</text>
+
+  <rect class="box" x="562" y="284" width="534" height="170" rx="12" ry="12"/>
+  <text class="mono" x="586" y="314">steps/</text>
+  <text class="mono-sm" x="608" y="340">step_00_init/</text>
+  <text class="mono-sm" x="608" y="364">step_01_YYYYMMDD-YYYYMMDD/</text>
+  <text class="mono-sm" x="630" y="390">obs/obs_scf_*.csv</text>
+  <text class="mono-sm" x="630" y="414">obs/obs_wet_snow_*.csv</text>
+  <text class="mono-sm" x="630" y="438">assim/</text>
+
+  <rect class="box" x="562" y="472" width="258" height="108" rx="12" ry="12"/>
+  <text class="mono" x="586" y="502">results/grids/</text>
+  <text class="mono-sm" x="586" y="528">da_output_grids.nc</text>
+  <text class="body" x="586" y="552">merged DA grid summary</text>
+
+  <rect class="box" x="838" y="472" width="258" height="108" rx="12" ry="12"/>
+  <text class="mono" x="862" y="502">plots/</text>
+  <text class="body" x="862" y="528">diagnostics and result figures</text>
+
+  <rect class="box" x="562" y="598" width="534" height="74" rx="12" ry="12"/>
+  <text class="body" x="586" y="628">Each project lives inside one setup and reuses the setup-level inputs.</text>
+  <text class="body" x="586" y="652">Preprocessing writes event-ready observation CSVs into the matching step folders.</text>
+
+  <path class="arrow" d="M480 614 C520 614, 520 368, 562 368" marker-end="url(#arrowhead)"/>
+  <text class="small" x="520" y="476" text-anchor="middle">preprocessing aligns summary rows</text>
+  <text class="small" x="520" y="496" text-anchor="middle">to per-step observation inputs</text>
+</svg>

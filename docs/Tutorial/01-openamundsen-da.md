@@ -25,6 +25,17 @@ Observation rasters are first preprocessed into project summaries and per-step
 observation CSVs. The project pipeline then runs the ensemble step by step,
 assimilates the prepared observations, and writes diagnostics and result products.
 
+## Setup And Project Layout
+
+The schematic below shows where the main files live inside one setup and one
+project workspace. It separates setup-level inputs from the project-specific
+configuration, step folders, and outputs.
+
+![Setup and project layout showing setup-level inputs, project configuration, step folders, member folders, results, and plots]({{ site.baseurl }}/assets/images/diagrams/setup-project-structure-annotated.svg)
+
+_Shared layout of a setup root and one project workspace. Optional sub-domain
+folders are omitted for clarity._
+
 ## The Core Terms
 
 These four terms are the important ones for the tutorial:

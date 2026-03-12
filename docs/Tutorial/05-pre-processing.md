@@ -8,43 +8,27 @@ permalink: /tutorial/pre-processing/
 
 # 4. Preprocessing
 
-This chapter turns the bundled observation raster products into the files that the
-project pipeline actually consumes.
+This chapter turns the bundled observation raster products into the explicit files
+that the project pipeline consumes. In the tutorial, preprocessing has three
+stages: summarize snow-cover and wet-snow rasters to project-level CSVs, build the
+project step skeleton from `assimilation_events`, and then generate one-row
+per-step observation CSVs under `steps/*/obs/`.
 
-The preprocessing sequence is:
+From this point on, the tutorial assumes you are inside the running tutorial
+container shell at `/data/rofental`.
 
-1. summarize snow-cover and wet-snow observation rasters to project-level CSVs
-2. build the project step skeleton from `assimilation_events`
-3. generate one-row per-step observation CSVs under `steps/*/obs/`
+## Inputs and configuration
 
-From this point on, the tutorial assumes you are inside the running tutorial container
-shell at `/data/rofental`.
+The Rofental example provides three observation groups: `obs/snowcover/` for
+snow-cover fraction rasters, `obs/wetsnow/` for wet-snow masks, and
+`obs/stations/` for the station observations used later in validation plots. All
+preprocessing commands are driven by the project YAML. The most important parts
+are `obs.snowcover`, `obs.wetsnow`, `data_assimilation.landcover_mask`, and
+`data_assimilation.assimilation_events`. If class mappings or product tags are
+missing, preprocessing fails instead of guessing.
 
-## Observation Raster Inputs
-
-The Rofental example provides three observation groups:
-
-- `obs/snowcover/` for snow-cover fraction rasters
-- `obs/wetsnow/` for wet-snow mask rasters
-- `obs/stations/` for station snow observations used in result plots
-
-## Project Configuration That Drives Preprocessing
-
-The preprocessing commands read product tags, classes, and paths from the project YAML.
-
-Relevant keys in the tutorial project:
-
-- `obs.snowcover` (SCF classes + product tag),
-- `obs.wetsnow` (wet-snow classes + product tag),
-- `data_assimilation.landcover_mask`,
-- `data_assimilation.assimilation_events`.
-
-The preprocessors are configuration-driven and intentionally fail-fast. If required
-class mappings or product tags are missing, preprocessing aborts instead falling back to defaults.
-
-Reference YAML snippet (project config driving preprocessing, selected sections)
-
-File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
+Selected sections from
+`/data/rofental/projects/project_2022_2023/project_2022_2023.yml`:
 
 ```yaml
 start_date: "2022-10-01"
@@ -52,7 +36,7 @@ end_date: "2023-06-30"
 
 obs:
   stations:
-    dir: obs/stations # station CSVs used for validation plots (SWE obs expected in mm)
+    dir: obs/stations
   snowcover:
     dir: obs/snowcover
     product_tag: SNOWCOVER
@@ -69,193 +53,79 @@ obs:
       exclude: [200, 210]
 
 data_assimilation:
-  prior_forcing:
-    ensemble_size: 10
-  wet_snow:
-    classification_threshold_percent: 0.5
+  assimilation_events:
+    - date: "2023-01-01"
+      variable: scf
+      product: SNOWCOVER
+    - date: "2023-05-11"
+      variable: wet_snow
+      product: WETSNOW
+  landcover_mask:
+    classes_to_exclude: [...]
   uncertainty:
     scf:
-      enabled: true # ingest bundled SCF uncertainty layers during preprocessing + assimilation
-      ingest:
-        # Required when uncertainty is enabled:
-        scf_variable: fsc
-        uncertainty_variable: uncertainty
-        time_variable: time
+      enabled: true
       assimilation:
-        sigma_mode: uncertainty_layer # formula | uncertainty_layer
-        aggregate_metric: unc_mean # used when sigma_mode=uncertainty_layer
-      input_dir: obs/snowcover # source directory if uncertainty layers are created upstream
-      u_min: 10.0
-      u_max: 20.0
-      nodata_value: 255.0
-      penalties:
-        - name: forest
-          source: landcover # one of: fsc | landcover | shadow
-          enabled: true
-          classes: [8, 9, 10, 11, 12]
-          penalty: 20.0
-        - name: shadow
-          source: shadow
-          enabled: false
-          input_dir: obs/shadow
-          classes: [1]
-          penalty: 20.0
+        sigma_mode: uncertainty_layer
+        aggregate_metric: unc_mean
     wet_snow:
-      enabled: true # ingest bundled wet-snow uncertainty layers during preprocessing + assimilation
-      ingest:
-        # Required when uncertainty is enabled:
-        wet_snow_variable: wet_snow
-        uncertainty_variable: uncertainty
-        time_variable: time
+      enabled: true
       assimilation:
-        sigma_mode: uncertainty_layer # formula | uncertainty_layer
-        aggregate_metric: unc_mean # used when sigma_mode=uncertainty_layer
-      input_dir: obs/wetsnow # source directory if uncertainty layers are created upstream
-      base_uncertainty: 15.0
-      nodata_value: 255.0
-      penalties:
-        - name: forest
-          source: landcover # one of: wet_snow | landcover | shadow
-          enabled: true
-          classes: [8, 9, 10, 11, 12]
-          penalty: 20.0
-        - name: shadow
-          source: shadow
-          enabled: false
-          input_dir: obs/shadow
-          classes: [1]
-          penalty: 20.0
+        sigma_mode: uncertainty_layer
+        aggregate_metric: unc_mean
 ```
-In this tutorial, uncertainty is handled as provided input data:
 
-- uncertainty disabled (`enabled: false`): assimilation uses the legacy formula sigma mode,
-- uncertainty enabled (`enabled: true`): ingest from NetCDF same-file variables or GeoTIFF sidecars (`<stem>_uncertainty.tif`).
-
-Those uncertainty layers can come from different sources outside the tutorial workflow:
-they may be delivered with the remote-sensing product itself or generated in a separate
-preprocessing workflow before the files are handed to openAMUNDSEN-DA. In the tutorial,
-the important point is not how the layers were created, but what they contain and how
-openAMUNDSEN-DA reads them.
-
-All uncertainty values are expected in `0..100`, and uncertainty-enabled preprocessing is fail-fast if required uncertainty inputs are missing or invalid.
-
-Uncertainty key reference used in this tutorial:
-
-- `enabled`: activates uncertainty-aware preprocessing and data assimilation for that product.
-- `ingest.*_variable`, `ingest.uncertainty_variable`, `ingest.time_variable`: strict NetCDF variable names (no defaults).
-- `assimilation.sigma_mode`: `formula` (legacy likelihood sigma) or `uncertainty_layer` (sigma from uncertainty metric).
-- `assimilation.aggregate_metric`: summary column used in `uncertainty_layer` mode (typically `unc_mean`).
-- `input_dir`: input directory used by uncertainty preprocessing workflows when companion rasters are created outside the tutorial.
-- `u_min`, `u_max` (SCF): triangular baseline uncertainty bounds.
-- `base_uncertainty` (wet snow): baseline uncertainty value for wet-snow base classes.
-- `nodata_value`: nodata value used in uncertainty rasters.
-- `penalties[]`: optional additive rules describing how uncertainty layers can be built in preprocessing workflows.
-- `penalties[].name`: free label (also used in `uncertainty_summary.csv`).
-- `penalties[].source`: class source (`fsc`/`wet_snow`, `landcover`, `shadow`).
-- `penalties[].enabled`: toggle rule on/off without deleting it.
-- `penalties[].classes`: raw class IDs for the selected source.
-- `penalties[].penalty`: added in percentage points.
-- `penalties[].input_dir`: required only for `source: shadow`.
-
-## Provided uncertainty layers in the example data
-
-The current Rofental project config in this repository enables SCF and wet-snow
-uncertainty ingestion and `sigma_mode: uncertainty_layer`. The required uncertainty
-rasters are already bundled next to the example GeoTIFF observations, so you do not
-generate them during this tutorial.
+This tutorial uses uncertainty as provided input data rather than generating it
+from scratch. The bundled example already contains the required uncertainty
+rasters next to the GeoTIFF observations, and the current project config enables
+`sigma_mode: uncertainty_layer` for both SCF and wet snow. openAMUNDSEN-DA expects
+uncertainty values on a `0..100` scale and treats missing or invalid uncertainty
+inputs as an error when uncertainty-aware preprocessing is enabled.
 
 Conceptual background and best-practice rules are summarized in
 [Workflow: Observation Uncertainty]({{ site.baseurl }}{% link workflow.md %}#observation-uncertainty).
 
-The figure below shows what the tutorial uncertainty layer is meant to represent for one
-snow-cover scene in the Rofental domain: a continuous uncertainty field over valid FSC
-pixels, shaped by the FSC baseline and land-cover penalties. The lower zoom panels make
-the structure easier to inspect. Cloud gaps are not represented as penalty-driven
-uncertainty; they remain missing observations and therefore stay outside the uncertainty
-field.
+The figure below shows what one tutorial uncertainty layer is meant to represent:
+a continuous field over valid FSC pixels, shaped by the baseline FSC uncertainty
+and local penalties such as land cover. Clouds remain missing observations rather
+than turning into high-uncertainty pixels, and later preprocessing aggregates
+valid-pixel metrics such as `unc_mean` into the summary tables.
 
 ![Rofental SCF uncertainty example with land-cover component and local zoom]({{ site.baseurl }}/assets/images/tutorial/rofental_uncertainty.png)
 
-For the tutorial, read this figure as a guide to layer content:
-
-- valid observation pixels carry uncertainty values on a `0..100` scale,
-- forest or other configured penalty drivers can raise uncertainty locally,
-- clouds stay gaps rather than turning into high-uncertainty observations,
-- openAMUNDSEN-DA later aggregates valid-pixel uncertainty metrics such as `unc_mean`
-  from these layers into the summary tables.
-
 ## Step 1: Summarize snow-cover rasters to `scf_summary.csv`
 
-`oa-da-snowcover` reads input FSC rasters from `--input-dir`, applies ROI/masking and class mapping from `--setup-dir` + project YAML, writes the project summary under `obs/summaries/<project_label>/`, and `--overwrite` replaces an existing summary file.
+Run `oa-da-snowcover` to summarize the FSC rasters in `obs/snowcover/` into a
+project-level table. This command reads ROI masking, land-cover exclusions,
+product tags, and class mappings from the project YAML and writes
+`/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`. In practice,
+this file is your quality-control table for SCF date selection and the later input
+to `oa-da-scf`.
 
-Purpose in this tutorial:
-
-- quality control / date selection,
-- per-step observation file generation (`oa-da-scf`),
-- reproducible assimilation date matching.
+This command depends mainly on `obs.snowcover.dir`,
+`obs.snowcover.product_tag`, `obs.snowcover.classes.*`, and
+`data_assimilation.landcover_mask.*` in
+`/data/rofental/projects/project_2022_2023/project_2022_2023.yml`.
 
 **🟢 Run this command:**
 
 ```bash
 oa-da-snowcover \
---input-dir /data/rofental/obs/snowcover \
---project-label project_2022_2023 \
---setup-dir /data/rofental \
---overwrite
+  --input-dir /data/rofental/obs/snowcover \
+  --project-label project_2022_2023 \
+  --setup-dir /data/rofental \
+  --overwrite
 ```
 
+Before you trust the resulting summary, confirm that the expected acquisition dates
+are present, cloud fraction is acceptable for your use case, valid support is
+large enough, and the `scf` values look plausible for the season. Expect columns
+for date, spatial support, `scf`, `cloud_fraction`, and `source`. When
+uncertainty is enabled, the summary also contains `unc_mean`, `unc_min`,
+`unc_max`, and `unc_n_valid`.
 
-**Configuration used (project YAML)**  
-File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
-Relevant keys: `obs.snowcover.dir`, `obs.snowcover.product_tag`, `obs.snowcover.classes.*`, `data_assimilation.landcover_mask.*`
-
-**Where this command writes by default**  
-`oa-da-snowcover` writes to `obs/summaries/<project_label>/scf_summary.csv` unless you override the output root. In this tutorial: `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`.
-
-What this does:
-
-- reads rasters from `obs/snowcover/`,
-- clips to the tutorial ROI,
-- applies land-cover exclusions (from project config),
-- interprets FSC/cloud/water/nodata classes from `obs.snowcover.classes`,
-- writes `scf_summary.csv`.
-
-Expected output file after running the command:
-
-- `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`
-
-Expected content (columns may evolve slightly over time):
-
-- date
-- ROI or region identifier
-- valid pixel count / snow pixel count
-- SCF fraction
-- cloud fraction
-- source/product metadata
-
-When uncertainty is enabled, additional columns are expected:
-- `unc_mean`
-- `unc_min`
-- `unc_max`
-- `unc_n_valid`
-
-Use this summary table to inspect availability and quality before choosing or changing
-assimilation dates in `assimilation_events`.
-
-<details markdown="block">
-  <summary>What to review in <code>scf_summary.csv</code> before trusting your event dates</summary>
-
-Typical checks:
-
-- the date exists and matches the expected acquisition day,
-- cloud fraction is acceptable for your use case,
-- valid pixel count is large enough to support assimilation,
-- the SCF value is plausible for the season and ROI.
-</details>
-
-Reference CSV snippet (SCF summary)
-
-File path: `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`
+Reference snippet from
+`/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`:
 
 | date | region_id | n_valid | n_snow | scf | cloud_fraction | source |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -265,68 +135,31 @@ File path: `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`
 | 2022-10-13 |  | 12530 | 306 | 0.02 | 0.00 | s2_fsc_snowflake_rofental_2022_10_13.tif |
 | 2022-10-18 |  | 72228 | 2255 | 0.03 | 0.00 | s2_fsc_snowflake_rofental_2022_10_18.tif |
 
-Exact values depend on ROI, masking, and class mapping. The column structure and value ranges should look similar.
-
-How to read this SCF summary snippet:
-
-- `n_valid` is the ROI support after masking/class filtering,
-- `n_snow` is the snow-class support used to compute `scf`,
-- `scf` is the fraction used later for SCF data assimilation events,
-- `cloud_fraction` helps you judge whether a date is suitable for assimilation.
-
 ## Step 2: Summarize wet-snow rasters to `wet_snow_summary.csv`
 
-`oa-da-wetsnow` reads input wet-snow rasters from `--input-dir`, uses wet/valid/exclude class mappings from the project config (`--setup-dir`), writes `wet_snow_summary.csv` under `obs/summaries/<project_label>/`, and `--overwrite` replaces an existing file.
-
-Purpose in this tutorial:
-
-- quality control of wet-snow date coverage
-- per-step wet-snow observation file generation (`oa-da-wetsnow-project`)
-- reproducible wet-snow event/date matching
+Run `oa-da-wetsnow` to build the wet-snow equivalent summary table under
+`/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv`. This step
+uses `obs.wetsnow.dir`, `obs.wetsnow.product_tag`, `obs.wetsnow.classes.*`, and
+the same land-cover exclusions from the project YAML. The output makes wet-snow
+date coverage explicit and later feeds `oa-da-wetsnow-project`.
 
 **🟢 Run this command:**
 
 ```bash
 oa-da-wetsnow \
---input-dir /data/rofental/obs/wetsnow \
---project-label project_2022_2023 \
---setup-dir /data/rofental \
---overwrite
+  --input-dir /data/rofental/obs/wetsnow \
+  --project-label project_2022_2023 \
+  --setup-dir /data/rofental \
+  --overwrite
 ```
 
-**Configuration used (project YAML)**  
-File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
-Relevant keys: `obs.wetsnow.dir`, `obs.wetsnow.product_tag`, `obs.wetsnow.classes.*`, `data_assimilation.landcover_mask.*`
+Use the summary to confirm that the dates and fractions make sense before adding or
+editing wet-snow events in `assimilation_events`. Expect `wet_snow_fraction`,
+support counts, and `source`; with uncertainty enabled, expect the same `unc_*`
+columns that appear in the SCF summary.
 
-**Where this command writes by default**  
-`oa-da-wetsnow` writes to `obs/summaries/<project_label>/wet_snow_summary.csv` unless you override the output root. In this tutorial: `/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv`.
-
-
-What this does:
-
-- reads wet-snow rasters from `obs/wetsnow/`,
-- applies wet/valid/exclude class mapping from `obs.wetsnow.classes`,
-- clips to the ROI and applies land-cover exclusions,
-- writes `wet_snow_summary.csv`.
-
-Expected output file after running the command:
-
-- `/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv`
-
-Why this matters:
-
-- wet-snow acquisitions are sparser and track-dependent,
-- the summary makes date coverage explicit and drives the per-step wet-snow obs files.
-
-When uncertainty is enabled, additional columns are expected:
-- `unc_mean`
-- `unc_min`
-- `unc_max`
-- `unc_n_valid`
-
-Reference CSV snippet (wet-snow summary)
-
-File path: `/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv`
+Reference snippet from
+`/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv`:
 
 | date | region_id | wet_snow_fraction | n_valid | n_wet | source |
 | --- | --- | --- | --- | --- | --- |
@@ -336,23 +169,12 @@ File path: `/data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv`
 | 2023-03-28 |  | 0.27 | 158953 | 42301 | WSM_S1A_SAR_track168_2023_03_28_05_27_38.tif |
 | 2023-04-05 |  | 0.06 | 156982 | 9750 | WSM_S1A_SAR_track117_2023_04_05_17_07_24.tif |
 
+## Step 3: Build the project step skeleton
 
-How to read this wet-snow summary snippet:
-
-- `wet_snow_fraction` is the ROI fraction interpreted as wet snow,
-- `n_valid` and `n_wet` show the spatial support behind the fraction,
-- `source` often encodes the Sentinel-1 track and acquisition timestamp (useful when comparing dates/tracks).
-
----
-
-## Step 3: Build the project step skeleton (`step_*` folders)
-
-`oa-da-project-skeleton` reads `start_date`, `end_date`, and `assimilation_events` from the project YAML, generates `step_*` folders under `--project-dir`, uses `--setup-dir` for context, and `--overwrite` rebuilds the step structure after event edits.
-
-This step builds the project step structure from:
-
-- `start_date`, `end_date`
-- `data_assimilation.assimilation_events`
+`oa-da-project-skeleton` translates `start_date`, `end_date`, and
+`data_assimilation.assimilation_events` into the `step_*` folder structure under
+the project directory. Those folders define the time windows that later receive the
+per-step observation CSVs and the data assimilation outputs.
 
 **🟢 Run this command:**
 
@@ -364,18 +186,7 @@ oa-da-project-skeleton \
   --log-level INFO
 ```
 
-**Configuration used (project YAML)**  
-File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
-Relevant keys: `start_date`, `end_date`, `data_assimilation.assimilation_events[*].date|variable|product`
-
-
-What to expect:
-
-- `step_00_init`
-- one step per assimilation window boundary
-- the final step (after the last data assimilation event) has no assimilation
-
-Reference snippet (first step folders in the tutorial project):
+The first folders in the tutorial project look like this:
 
 ```text
 step_00_init
@@ -386,202 +197,104 @@ step_04_20230526-20230616
 step_05_20230616-20230630
 ```
 
-Read this step-list snippet as a direct translation of the configured project period plus `assimilation_events`; it is the structure that later receives the per-step observation CSVs and data assimilation outputs.
+Read that structure as a direct translation of the project period plus the
+configured assimilation dates. If you edit `assimilation_events`, rebuild the
+step skeleton before regenerating per-step observation CSVs.
 
 {: .warning }
-> If you edit `assimilation_events`, rerun `oa-da-project-skeleton` before regenerating per-step
-> observation CSVs. Step windows and event dates must match exactly.
+> Rerun `oa-da-project-skeleton --overwrite` every time you change
+> `assimilation_events`. Step windows and observation dates must stay aligned.
 
-This fail-fast behavior prevents silent mismatches between event dates and step windows.
+## Step 4: Create per-step SCF observation CSVs
 
----
-
-## Step 4: Create per-step SCF observation CSVs (`oa-da-scf`)
-
-`oa-da-scf` matches SCF rows from `--summary-csv` to SCF `assimilation_events` in `--project-dir`, writes one-row `obs_scf_*.csv` files into `steps/*/obs/`, and `--overwrite` regenerates them after configuration or date changes.
-
-This step maps rows from `scf_summary.csv` to the configured SCF assimilation dates and writes one-row observation CSVs into the corresponding `step_*/obs/` folders.
+`oa-da-scf` matches rows from `scf_summary.csv` to the configured SCF events and
+writes one-row `obs_scf_*.csv` files into the matching `steps/*/obs/` folders.
+This is more than a file copy: it validates that the event date exists in the
+summary, belongs to the expected step window, and matches the configured SCF
+product tag.
 
 **🟢 Run this command:**
 
 ```bash
 oa-da-scf \
---project-dir /data/rofental/projects/project_2022_2023 \
---summary-csv /data/rofental/obs/summaries/project_2022_2023/scf_summary.csv \
---overwrite \
---log-level INFO
+  --project-dir /data/rofental/projects/project_2022_2023 \
+  --summary-csv /data/rofental/obs/summaries/project_2022_2023/scf_summary.csv \
+  --overwrite \
+  --log-level INFO
 ```
 
-**Configuration used (project YAML)**  
-File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
-Relevant keys: `data_assimilation.assimilation_events[*]` (SCF events), `obs.snowcover.product_tag`
+After the command, expect one SCF observation CSV per configured SCF event under
+`/data/rofental/projects/project_2022_2023/steps/*/obs/`. A typical file is
+`/data/rofental/projects/project_2022_2023/steps/step_00_init/obs/obs_scf_SNOWCOVER_20230101.csv`.
+This one-row file is the actual SCF input consumed later during data assimilation.
+When uncertainty is enabled and matching layers exist, the generated file also
+contains `unc_mean`, `unc_min`, `unc_max`, and `unc_n_valid`.
 
-
-Expected outputs after running the command:
-
-- one SCF observation CSV per configured SCF data assimilation event
-- files written under: `/data/rofental/projects/project_2022_2023/steps/*/obs/obs_scf_*.csv`
-
-What this command validates (fail-fast):
-
-- SCF events exist in `assimilation_events`
-- each SCF event date exists in `scf_summary.csv`
-- each SCF event date belongs to the associated step window
-- product tag mapping is configured correctly
-
-<details markdown="block">
-  <summary>Why <code>oa-da-scf</code> is more than a file copy</summary>
-
-`oa-da-scf` verifies consistency between:
-
-- project configuration (`assimilation_events`, product tags),
-- summary table dates,
-- and the generated step windows.
-
-This is an important quality gate in the workflow.
-</details>
-
-Reference CSV snippet (generated per-step SCF observation)
-
-File path: `/data/rofental/projects/project_2022_2023/steps/step_00_init/obs/obs_scf_SNOWCOVER_20230101.csv`
+Reference snippet from a generated SCF observation file:
 
 | date | n_valid | n_snow | scf | cloud_fraction | source |
 | --- | --- | --- | --- | --- | --- |
 | 2023-01-01 | 106750 | 106750 | 1.00 | 0.00 | s2_fsc_snowflake_rofental_2023_01_01.tif |
 
-This one-row file is what the data assimilation step consumes directly for the SCF event, so it is the key place to verify date, product tag alignment (via filename), and the summary values passed into the run.
+## Step 5: Create per-step wet-snow observation CSVs
 
-When uncertainty is enabled and matching uncertainty layers are available, this per-step
-SCF CSV also includes `unc_mean`, `unc_min`, `unc_max`, and `unc_n_valid`. These
-columns are what later support `sigma_mode: uncertainty_layer` during assimilation.
-
----
-
-## Step 5: Create per-step wet-snow observation CSVs (`oa-da-wetsnow-project`)
-
-`oa-da-wetsnow-project` applies the same alignment logic for wet-snow events: it reads `--summary-csv`, matches rows to wet-snow `assimilation_events` in `--project-dir`, writes `obs_wet_snow_*.csv` into `steps/*/obs/`, and `--overwrite` refreshes existing files.
-
-This step applies the same alignment logic for wet-snow assimilation dates.
+`oa-da-wetsnow-project` applies the same alignment logic to wet-snow events. It
+matches rows from `wet_snow_summary.csv` to the configured wet-snow
+`assimilation_events` and writes one-row `obs_wet_snow_*.csv` files into the
+corresponding `steps/*/obs/` folders.
 
 **🟢 Run this command:**
 
 ```bash
 oa-da-wetsnow-project \
---project-dir /data/rofental/projects/project_2022_2023 \
---summary-csv /data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv \
---overwrite \
---log-level INFO
+  --project-dir /data/rofental/projects/project_2022_2023 \
+  --summary-csv /data/rofental/obs/summaries/project_2022_2023/wet_snow_summary.csv \
+  --overwrite \
+  --log-level INFO
 ```
 
-**Configuration used (project YAML)**  
-File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`  
-Relevant keys: `data_assimilation.assimilation_events[*]` (wet-snow events), `obs.wetsnow.product_tag`
-
-
-Expected outputs after running the command:
-
-- one wet-snow observation CSV per configured wet-snow data assimilation event
-- files written under: `/data/rofental/projects/project_2022_2023/steps/*/obs/obs_wet_snow_*.csv`
-
-At this point, the project is ready for execution:
-
-- step structure exists,
-- SCF and wet-snow summaries exist,
-- per-step observation CSVs exist,
-- project config and setup config are aligned.
-
-At this point the data assimilation run becomes reproducible: the observation inputs consumed by each step are explicit and inspectable.
+After this step, the project has an explicit step structure, project-level SCF and
+wet-snow summaries, and per-step observation inputs for every configured
+assimilation event. At that point the data assimilation run becomes reproducible:
+the exact observation artifact consumed by each step is visible on disk and easy to
+inspect.
 
 ![Preprocessing observation flow diagram]({{ site.baseurl }}/assets/images/tutorial/diagrams/preprocessing-observation-flow.svg)
 
-_Flow from input SCF/wet-snow rasters to project summary CSVs, then to per-step observation CSVs consumed by each data assimilation step._
+_Flow from input SCF and wet-snow rasters to project summary CSVs, then to the
+per-step observation CSVs consumed by each data assimilation step._
 
-Reference CSV snippet (generated per-step wet-snow observation)
-
-File path: `/data/rofental/projects/project_2022_2023/steps/step_02_20230309-20230511/obs/obs_wet_snow_WETSNOW_20230511.csv`
+Reference snippet from a generated wet-snow observation file:
 
 | date | wet_snow_fraction | n_valid | n_wet | source |
 | --- | --- | --- | --- | --- |
 | 2023-05-11 | 0.89 | 156982 | 139793 | WSM_S1A_SAR_track117_2023_05_11_17_07_26.tif |
 
-This wet-snow per-step file plays the same role as the SCF per-step CSV: it is the explicit data assimilation input artifact for that event date and should match the selected summary row.
+## When preprocessing fails
 
----
+Most preprocessing failures come from four causes. A selected assimilation date may
+be missing from `scf_summary.csv` or `wet_snow_summary.csv`, which means the event
+list and the available observation dates do not match. The event `product` can
+also disagree with `obs.snowcover.product_tag` or `obs.wetsnow.product_tag`. If
+step windows were built from an older event list, rerun
+`oa-da-project-skeleton --overwrite` and then regenerate the per-step observation
+CSVs. Finally, if support is unexpectedly low or empty, inspect the land-cover
+grid and the classes excluded by `data_assimilation.landcover_mask`.
 
-## Common preprocessing failure modes (and what they mean)
+For product-specific preprocessing details, see the
+[Observation Processing Guide]({{ site.baseurl }}{% link guides/observations.md %}).
+For debugging failed runs, see
+[Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}).
 
-{: .warning }
-> Use these diagnostics when preprocessing outputs are missing or inconsistent.
-
-<details markdown="block">
-  <summary>Expand troubleshooting list</summary>
-
-### 1. Missing summary row for an assimilation date
-
-Meaning:
-
-- `assimilation_events` contains a date that is not present in `scf_summary.csv` or `wet_snow_summary.csv`.
-
-Typical fix:
-
-- update `assimilation_events`, or
-- regenerate the summary from the correct input data.
-
-### 2. Product tag mismatch
-
-Meaning:
-
-- event `product` does not match the configured product tag in project YAML (`obs.snowcover.product_tag` / `obs.wetsnow.product_tag`).
-
-Typical fix:
-
-- correct the project YAML (preferred),
-- avoid hardcoded fallbacks in code.
-
-### 3. Step/date mismatch after editing events
-
-Meaning:
-
-- step windows were created from an older `assimilation_events` list.
-
-Typical fix:
-
-- rerun `oa-da-project-skeleton --overwrite`,
-- rerun `oa-da-scf` and `oa-da-wetsnow-project`.
-
-### 4. Too many masked pixels / empty ROI support
-
-Meaning:
-
-- land-cover exclusions remove too much of the ROI (or all of it).
-
-Typical fix:
-
-- check the land-cover grid,
-- review `data_assimilation.landcover_mask.classes_to_exclude`.
-
-</details>
-
-{: .references }
-> - [Observation Processing Guide]({{ site.baseurl }}{% link guides/observations.md %}) for product-specific preprocessing details
-> - [Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) for debugging failed preprocessing runs
-
----
-
-## What we created in this chapter
+## What you should have before the project run
 
 {: .checks }
-> Verify these outputs before starting the project run in the next chapter.
+> Before moving on to the project run, verify that these outputs exist:
+> - `obs/summaries/project_2022_2023/scf_summary.csv`
+> - `obs/summaries/project_2022_2023/wet_snow_summary.csv`
+> - `projects/project_2022_2023/steps/step_*`
+> - `steps/.../obs/obs_scf_<PRODUCT>_YYYYMMDD.csv`
+> - `steps/.../obs/obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`
 
-Key outputs:
-
-- project summaries:
-  - `obs/summaries/project_2022_2023/scf_summary.csv`
-  - `obs/summaries/project_2022_2023/wet_snow_summary.csv`
-- project step skeleton:
-  - `projects/project_2022_2023/steps/step_*`
-- per-step assimilation inputs:
-  - `steps/.../obs/obs_scf_<PRODUCT>_YYYYMMDD.csv`
-  - `steps/.../obs/obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`
-
-These are the direct observation inputs consumed by the data assimilation project run.
+These are the direct observation inputs consumed by the data assimilation project
+run in the next chapter.

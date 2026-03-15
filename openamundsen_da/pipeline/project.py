@@ -42,6 +42,7 @@ from openamundsen_da.io.paths import (
 from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.roi_grid import ensure_setup_roi_grid, ensure_setup_roi_vector
 from openamundsen_da.util.landcover_mask import (
+    LandcoverMaskConfig,
     resolve_landcover_mask,
     summarize_landcover_mask,
     write_landcover_mask_report,
@@ -230,7 +231,7 @@ def _write_station_diagnostics(
 
 def _run_assimilation_for_event(
     *,
-    cfg: "RunConfig",
+    cfg: "OrchestratorConfig",
     step_dir: Path,
     roi: Path,
     lc_cfg: LandcoverMaskConfig,

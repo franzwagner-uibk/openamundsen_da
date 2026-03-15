@@ -259,7 +259,7 @@ Use the combined plot helper to overlay observations, optional single-model seri
 
 ```powershell
 docker compose run --rm oa `
-  python -m openamundsen_da.observer.plot_fractions `
+  python -m openamundsen_da.methods.viz.plot_fraction_timeseries `
   --setup-dir $setup `
   --project-dir $project
 ```
@@ -296,7 +296,7 @@ Optional: `--variable hs|swe`, `--method depth_threshold|logistic`, `--log-level
 
 ```powershell
 docker compose run --rm oa `
-  python -m openamundsen_da.methods.pf.assimilate_scf `
+  python -m openamundsen_da.methods.pf.assimilate_fraction `
   --project-dir $project `
   --step-dir $step `
   --ensemble prior `
@@ -684,4 +684,3 @@ Ready-made example:
 - Tips
   - Keep a constant model time step across steps.
   - Verify the effective time step via the merged OA config persisted next to members (e.g., `<step>/ensembles/prior/member_001/config.yml`).
-

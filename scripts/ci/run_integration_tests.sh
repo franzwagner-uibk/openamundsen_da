@@ -186,6 +186,42 @@ def _read_summary_dates(path: Path) -> set[str]:
     return dates
 
 
+def _read_station_hs_counts(stations_dir: Path) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    if not stations_dir.is_dir():
+        raise SystemExit(f"Missing station obs directory: {stations_dir}")
+    station_files = sorted(
+        p for p in stations_dir.glob("*.csv")
+        if p.is_file() and p.name != "stations_da_metadata.csv"
+    )
+    if not station_files:
+        raise SystemExit(f"No station observation CSVs found under {stations_dir}")
+    for path in station_files:
+        with path.open("r", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                ts_raw = str((row or {}).get("time", "")).strip()
+                hs_raw = str((row or {}).get("snow_depth", "")).strip()
+                if not ts_raw or not hs_raw:
+                    continue
+                try:
+                    hs_value = float(hs_raw)
+                except ValueError:
+                    continue
+                if hs_value < 0.0:
+                    continue
+                date_key = ts_raw[:10]
+                counts[date_key] = counts.get(date_key, 0) + 1
+    return counts
+
+
+def _station_ids(stations_dir: Path) -> list[str]:
+    station_files = sorted(
+        p for p in stations_dir.glob("*.csv")
+        if p.is_file() and p.name != "stations_da_metadata.csv"
+    )
+    return [p.stem for p in station_files]
+
+
 setup_dir = Path("/data")
 source_project_dirs = sorted(p for p in (setup_dir / "projects").glob("project_*") if p.is_dir() and not p.name.startswith("project_ci_"))
 if not source_project_dirs:
@@ -204,13 +240,37 @@ da_cfg = dict(project_cfg.get("data_assimilation") or {})
 prior_cfg = dict(da_cfg.get("prior_forcing") or {})
 prior_cfg["ensemble_size"] = 4
 da_cfg["prior_forcing"] = prior_cfg
+station_cfg = dict(da_cfg.get("station") or {})
+station_cfg.setdefault("default_station_uncertainty_pct", 25)
+station_cfg.setdefault("min_station_uncertainty_pct", 10)
+station_cfg.setdefault("hs_sigma_abs_min", 0.10)
+station_cfg.setdefault("swe_sigma_abs_min", 20.0)
+station_cfg.setdefault("single_station_factor", 2.0)
+da_cfg["station"] = station_cfg
+
+stations_dir = setup_dir / "obs" / "stations"
+metadata_path = stations_dir / "stations_da_metadata.csv"
+if not metadata_path.exists():
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    with metadata_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["station_id", "station_uncertainty_pct"])
+        writer.writeheader()
+        for station_id in _station_ids(stations_dir):
+            writer.writerow({
+                "station_id": station_id,
+                "station_uncertainty_pct": 25,
+            })
 
 scf_summary = _find_summary_csv(setup_dir, source_project_name, "scf_summary.csv")
 wet_summary = _find_summary_csv(setup_dir, source_project_name, "wet_snow_summary.csv")
 scf_available = _read_summary_dates(scf_summary)
 wet_available = _read_summary_dates(wet_summary)
+station_hs_counts = _read_station_hs_counts(setup_dir / "obs" / "stations")
+station_hs_available = sorted(date for date, count in station_hs_counts.items() if count >= 2)
 if not scf_available or not wet_available:
     raise SystemExit("SCF/Wet-snow summary CSV contains no usable dates")
+if not station_hs_available:
+    raise SystemExit("No station HS dates found with at least two active stations")
 
 events = list(da_cfg.get("assimilation_events") or [])
 scf_events: list[dict] = []
@@ -253,8 +313,20 @@ else:
 
 scf_dt = _parse_date(scf_event["date"])
 wet_dt = _parse_date(wet_event["date"])
-window_start = min(scf_dt, wet_dt) - timedelta(days=7)
-window_end = max(scf_dt, wet_dt) + timedelta(days=7)
+midpoint = min(scf_dt, wet_dt) + (max(scf_dt, wet_dt) - min(scf_dt, wet_dt)) / 2
+station_candidates = [_parse_date(d) for d in station_hs_available]
+station_between = [d for d in station_candidates if min(scf_dt, wet_dt) <= d <= max(scf_dt, wet_dt)]
+station_dt = min(
+    station_between or station_candidates,
+    key=lambda d: abs((d - midpoint).total_seconds()),
+)
+station_event = {
+    "date": station_dt.strftime("%Y-%m-%d"),
+    "variable": "station_hs",
+}
+
+window_start = min(scf_dt, wet_dt, station_dt) - timedelta(days=7)
+window_end = max(scf_dt, wet_dt, station_dt) + timedelta(days=7)
 
 source_start_raw = str(source_project_cfg.get("start_date", "")).strip()
 source_end_raw = str(source_project_cfg.get("end_date", "")).strip()
@@ -269,6 +341,7 @@ if trim_end < trim_start:
 project_cfg["start_date"] = trim_start.strftime("%Y-%m-%d")
 project_cfg["end_date"] = trim_end.strftime("%Y-%m-%d 21:00:00")
 da_cfg["assimilation_events"] = [
+    station_event,
     {
         "date": scf_event["date"],
         "variable": "scf",
@@ -280,12 +353,18 @@ da_cfg["assimilation_events"] = [
         "product": wet_event["product"],
     },
 ]
+da_cfg["assimilation_events"] = sorted(da_cfg["assimilation_events"], key=lambda event: event["date"])
 project_cfg["data_assimilation"] = da_cfg
 
 with (project_dir / f"{project_name}.yml").open("w", encoding="utf-8") as f:
     yaml.safe_dump(project_cfg, f, sort_keys=False)
 
-print(f"[integration/python] selected scf={scf_event['date']} wet_snow={wet_event['date']}")
+print(
+    "[integration/python] selected "
+    f"station_hs={station_event['date']} "
+    f"scf={scf_event['date']} "
+    f"wet_snow={wet_event['date']}"
+)
 print(f"[integration/python] trim window {project_cfg['start_date']} -> {project_cfg['end_date']}")
 PY
 

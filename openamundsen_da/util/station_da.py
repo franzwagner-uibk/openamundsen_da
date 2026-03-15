@@ -21,7 +21,6 @@ class StationVariableSpec:
     obs_column: str
     model_column: str
     sigma_floor_key: str
-    weight_prefix: str
     label: str
 
 
@@ -48,7 +47,6 @@ _SPECS = {
         obs_column="snow_depth",
         model_column="snow_depth",
         sigma_floor_key="hs_sigma_abs_min",
-        weight_prefix="weights_station_hs",
         label="Station HS",
     ),
     "station_swe": StationVariableSpec(
@@ -56,7 +54,6 @@ _SPECS = {
         obs_column="swe",
         model_column="swe",
         sigma_floor_key="swe_sigma_abs_min",
-        weight_prefix="weights_station_swe",
         label="Station SWE",
     ),
 }
@@ -75,6 +72,20 @@ def is_station_variable(variable: str | None) -> bool:
     if variable is None:
         return False
     return str(variable).strip().lower() in _SPECS
+
+
+def is_station_metadata_file(path: str | Path) -> bool:
+    """Return True when a path points to the station DA metadata CSV."""
+    return Path(path).name == STATION_DA_METADATA_FILENAME
+
+
+def station_observation_csvs(obs_dir: Path) -> list[Path]:
+    """Return sorted station observation CSVs, excluding station metadata."""
+    return [
+        csv_path
+        for csv_path in sorted(Path(obs_dir).glob("*.csv"))
+        if csv_path.is_file() and not is_station_metadata_file(csv_path)
+    ]
 
 
 def load_station_assimilation_config(setup_dir: Path, project_dir: Path) -> StationAssimilationConfig:

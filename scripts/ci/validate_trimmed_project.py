@@ -5,6 +5,13 @@ import csv
 import re
 from dataclasses import dataclass
 from pathlib import Path
+import yaml
+
+from openamundsen_da.util.da_observables import (
+    station_diagnostics_glob_pattern,
+    weights_glob_pattern,
+)
+from openamundsen_da.util.station_da import station_observation_csvs
 
 
 ERROR_PATTERNS = [
@@ -158,40 +165,126 @@ def _check_da_output_grid(project_dir: Path) -> None:
     _assert_non_empty(da_output)
 
 
-def _check_required_outputs(steps_dir: Path) -> None:
+def _find_project_yaml(project_dir: Path) -> Path:
+    direct = project_dir / f"{project_dir.name}.yml"
+    if direct.is_file():
+        return direct
+    matches = sorted(project_dir.glob("*.yml"))
+    if matches:
+        return matches[0]
+    raise FileNotFoundError(f"Missing project YAML under {project_dir}")
+
+
+def _assimilation_event_counts(project_dir: Path) -> dict[str, int]:
+    project_yaml = _find_project_yaml(project_dir)
+    with project_yaml.open("r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+    da_cfg = cfg.get("data_assimilation") or {}
+    events = da_cfg.get("assimilation_events") or []
+    counts: dict[str, int] = {}
+    for event in events:
+        variable = str((event or {}).get("variable", "")).strip().lower()
+        if not variable:
+            continue
+        counts[variable] = counts.get(variable, 0) + 1
+    return counts
+
+
+def _require_files(root: Path, *, label: str, patterns: tuple[str, ...], min_count: int) -> None:
+    found = _collect_non_empty(root, patterns)
+    if len(found) < min_count:
+        raise FileNotFoundError(f"{label}: expected >= {min_count}, found {len(found)}")
+
+
+def _check_station_obs_inputs(project_dir: Path) -> None:
+    stations_dir = project_dir.parent.parent / "obs" / "stations"
+    if not stations_dir.is_dir():
+        raise FileNotFoundError(f"Missing station obs directory: {stations_dir}")
+    station_csvs = station_observation_csvs(stations_dir)
+    if not station_csvs:
+        raise FileNotFoundError(f"No station observation CSVs found under {stations_dir}")
+    for path in station_csvs:
+        _assert_non_empty(path)
+
+
+def _check_required_outputs(project_dir: Path, steps_dir: Path) -> None:
     step_dirs = sorted(steps_dir.glob("step_*"))
     if not step_dirs:
         raise FileNotFoundError(f"No step directories found under {steps_dir}")
 
-    obs_files = sorted(steps_dir.glob("step_*/obs/obs_scf_*.csv"))
-    if not obs_files:
-        raise FileNotFoundError("No per-step SCF obs files found (obs_scf_*.csv)")
-    for p in obs_files:
-        _assert_non_empty(p)
+    event_counts = _assimilation_event_counts(project_dir)
+    if not event_counts:
+        raise ValueError("Project YAML defines no assimilation_events for trimmed CI validation")
 
-    weights_files = sorted(steps_dir.glob("step_*/assim/weights_scf_*.csv"))
-    if not weights_files:
-        raise FileNotFoundError("No SCF weights files found (weights_scf_*.csv)")
-    for p in weights_files:
-        _assert_non_empty(p)
+    if event_counts.get("scf", 0) > 0:
+        _require_files(
+            steps_dir,
+            label="SCF obs files (obs_scf_*.csv)",
+            patterns=("step_*/obs/obs_scf_*.csv",),
+            min_count=event_counts["scf"],
+        )
+        _require_files(
+            steps_dir,
+            label="SCF weights files (weights_scf_*.csv)",
+            patterns=(f"step_*/assim/{weights_glob_pattern('scf')}",),
+            min_count=event_counts["scf"],
+        )
+        _require_files(
+            steps_dir,
+            label="SCF model time series (point_scf_roi.csv)",
+            patterns=("step_*/ensembles/prior/member_*/results/point_scf_roi.csv",),
+            min_count=1,
+        )
 
-    point_scf_files = sorted(steps_dir.glob("step_*/ensembles/prior/member_*/results/point_scf_roi.csv"))
-    if not point_scf_files:
-        raise FileNotFoundError("No model SCF time series found (point_scf_roi.csv)")
-    for p in point_scf_files:
-        _assert_non_empty(p)
+    if event_counts.get("wet_snow", 0) > 0:
+        _require_files(
+            steps_dir,
+            label="Wet-snow obs files (obs_wet_snow_*.csv)",
+            patterns=("step_*/obs/obs_wet_snow_*.csv",),
+            min_count=event_counts["wet_snow"],
+        )
+        _require_files(
+            steps_dir,
+            label="Wet-snow weights files (weights_wet_snow_*.csv)",
+            patterns=(f"step_*/assim/{weights_glob_pattern('wet_snow')}",),
+            min_count=event_counts["wet_snow"],
+        )
+        _require_files(
+            steps_dir,
+            label="Wet-snow model time series (point_wet_snow_roi.csv)",
+            patterns=("step_*/ensembles/prior/member_*/results/point_wet_snow_roi.csv",),
+            min_count=1,
+        )
 
-    wet_obs_files = sorted(steps_dir.glob("step_*/obs/obs_wet_snow_*.csv"))
-    if not wet_obs_files:
-        raise FileNotFoundError("No per-step wet-snow obs files found (obs_wet_snow_*.csv)")
-    for p in wet_obs_files:
-        _assert_non_empty(p)
+    if event_counts.get("station_hs", 0) > 0:
+        _check_station_obs_inputs(project_dir)
+        _require_files(
+            steps_dir,
+            label="Station HS weights files (weights_station_hs_*.csv)",
+            patterns=(f"step_*/assim/{weights_glob_pattern('station_hs')}",),
+            min_count=event_counts["station_hs"],
+        )
+        _require_files(
+            steps_dir,
+            label="Station HS diagnostics (station_diagnostics_station_hs_*.csv)",
+            patterns=(f"step_*/assim/{station_diagnostics_glob_pattern('station_hs')}",),
+            min_count=event_counts["station_hs"],
+        )
 
-    wet_weights_files = sorted(steps_dir.glob("step_*/assim/weights_wet_snow_*.csv"))
-    if not wet_weights_files:
-        raise FileNotFoundError("No wet-snow weights files found (weights_wet_snow_*.csv)")
-    for p in wet_weights_files:
-        _assert_non_empty(p)
+    if event_counts.get("station_swe", 0) > 0:
+        _check_station_obs_inputs(project_dir)
+        _require_files(
+            steps_dir,
+            label="Station SWE weights files (weights_station_swe_*.csv)",
+            patterns=(f"step_*/assim/{weights_glob_pattern('station_swe')}",),
+            min_count=event_counts["station_swe"],
+        )
+        _require_files(
+            steps_dir,
+            label="Station SWE diagnostics (station_diagnostics_station_swe_*.csv)",
+            patterns=(f"step_*/assim/{station_diagnostics_glob_pattern('station_swe')}",),
+            min_count=event_counts["station_swe"],
+        )
 
 
 def _check_minimal_weight_sanity(steps_dir: Path) -> None:
@@ -210,7 +303,7 @@ def validate_project(project_dir: Path, log_file: Path) -> None:
     if not steps_dir.is_dir():
         raise FileNotFoundError(f"Missing steps directory: {steps_dir}")
     _check_logs(log_file)
-    _check_required_outputs(steps_dir)
+    _check_required_outputs(project_dir, steps_dir)
     _check_plot_outputs(project_dir)
     _check_openamundsen_outputs(steps_dir)
     _check_da_output_grid(project_dir)

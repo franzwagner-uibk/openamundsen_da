@@ -21,12 +21,12 @@ from loguru import logger
 
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml
-from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
-from openamundsen_da.observer.plot_fractions import (
-    _default_obs_path,
-    _load_fraction,
-    plot_fractions,
+from openamundsen_da.methods.viz.fraction_series import (
+    default_fraction_obs_path,
+    load_fraction_series,
 )
+from openamundsen_da.methods.viz.plot_fraction_timeseries import plot_fraction_timeseries
+from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
 from openamundsen_da.observer.plot_scf_summary import _load_summary as _load_scf_summary
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 
@@ -91,8 +91,8 @@ def _load_obs(
     end: pd.Timestamp,
 ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
     project_name = project_dir.name
-    scf_path = Path(scf_summary) if scf_summary else _default_obs_path(setup_dir, project_name, "scf_summary.csv")
-    wet_path = Path(wet_summary) if wet_summary else _default_obs_path(setup_dir, project_name, "wet_snow_summary.csv")
+    scf_path = Path(scf_summary) if scf_summary else default_fraction_obs_path(setup_dir, project_name, "scf_summary.csv")
+    wet_path = Path(wet_summary) if wet_summary else default_fraction_obs_path(setup_dir, project_name, "wet_snow_summary.csv")
 
     scf_df: pd.DataFrame | None = None
     wet_df: pd.DataFrame | None = None
@@ -104,7 +104,7 @@ def _load_obs(
         logger.warning("SCF summary not found at {}", scf_path)
 
     if wet_path.is_file():
-        wet_df = _load_fraction(wet_path, "wet_snow_fraction")
+        wet_df = load_fraction_series(wet_path, "wet_snow_fraction")
         if wet_df is not None:
             wet_df = _date_range(wet_df, start, end)
     else:
@@ -251,7 +251,7 @@ def _plot_obs_only(
     assim_scf = [cand.date for cand in selected if cand.variable == "scf"]
     assim_wet = [cand.date for cand in selected if cand.variable == "wet_snow"]
 
-    plot_fractions(
+    plot_fraction_timeseries(
         scf_obs=scf_obs,
         scf_model=None,
         wet_obs=wet_obs,
@@ -474,5 +474,4 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-
 

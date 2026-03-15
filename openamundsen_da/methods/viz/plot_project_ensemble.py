@@ -93,6 +93,7 @@ from openamundsen_da.methods.viz._utils import (
     format_station_label,
 )
 from openamundsen_da.methods.viz._ensemble_meta import load_stations_table_from_steps
+from openamundsen_da.util.station_da import station_observation_csvs
 
 
 # ---- Data structures --------------------------------------------------------
@@ -260,10 +261,11 @@ def _load_station_obs_for_setup(
     """Load station observations for the setup window, if available.
 
     Expects station CSVs under ``<project>/obs/stations`` with filenames
-    matching station tokens (e.g., ``latschbloder.csv``). Each file should
-    contain a time column (``time_col``) and the requested variable
-    (``var_col``, e.g., ``swe`` or ``snow_depth``). Data are clipped to the
-    provided start/end dates (typically the full setup).
+    matching station tokens (e.g., ``latschbloder.csv``). Station DA metadata
+    files are ignored automatically. Each file should contain a time column
+    (``time_col``) and the requested variable (``var_col``, e.g., ``swe`` or
+    ``snow_depth``). Data are clipped to the provided start/end dates
+    (typically the full setup).
 
     Returns
     -------
@@ -279,7 +281,7 @@ def _load_station_obs_for_setup(
         return {}
 
     out: Dict[str, pd.Series] = {}
-    for csv_path in sorted(obs_dir.glob("*.csv")):
+    for csv_path in station_observation_csvs(obs_dir):
         token = csv_path.stem.strip()
         if not token:
             continue
@@ -972,5 +974,4 @@ def _cli(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_cli())
-
 

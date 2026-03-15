@@ -6,7 +6,7 @@ End-to-end project orchestrator with strict, opinionated behavior:
 - Step 00: cold start (no restart), dumps states at the end.
 - Steps >= 01: strict warm start from member-root pointer; aborts on failure.
 - For each step except the last:
-  - Assimilate SCF on the next step start_date.
+  - Assimilate the configured observable on the next step start_date.
   - Resample to posterior using project YAML resampling defaults.
   - Rejuvenate posterior -> next-step prior (writes only member-root pointers).
 - At the end: generates project plots (forcing + fraction overlay).
@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from loguru import logger
+import pandas as pd
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import _read_yaml_file
@@ -49,7 +50,7 @@ from openamundsen_da.util.parallel import pick_max_workers
 from openamundsen_da.util.da_events import load_assimilation_events, AssimilationEvent
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.util.ts import parse_datetime_opt
-from openamundsen_da.methods.pf.assimilate_scf import (
+from openamundsen_da.methods.pf.assimilate_fraction import (
     assimilate_scf_for_date,
     assimilate_wet_snow_for_date,
 )
@@ -67,7 +68,7 @@ from openamundsen_da.methods.pf.plot_weights import plot_weights_for_csv
 from openamundsen_da.methods.pf.plot_station_diagnostics import plot_station_diagnostics_for_csv
 from openamundsen_da.methods.pf.plot_ess_timeline import plot_setup_ess_timeline
 from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_envelope
-from openamundsen_da.observer.plot_fractions import cli_main as plot_fractions_cli
+from openamundsen_da.methods.viz.plot_fraction_timeseries import cli_main as plot_fraction_timeseries_cli
 from openamundsen_da.methods.viz.plot_project_ensemble import plot_setup_results
 from openamundsen_da.methods.viz.plot_forcing_ensemble import cli_main as plot_forcing_cli
 from openamundsen_da.util.validation import validate_assimilation_requirements
@@ -78,6 +79,10 @@ from openamundsen_da.util.da_output import (
     delete_files,
     output_retention_mode,
     write_project_da_output_grids,
+)
+from openamundsen_da.util.da_observables import (
+    station_diagnostics_csv_name,
+    weights_csv_name,
 )
 
 # Map assimilation variables to the diagnostics/plots we should run.
@@ -210,22 +215,80 @@ def _aggregate_fraction_envelopes(setup_dir: Path) -> None:
     except Exception as exc:
         logger.warning("Wet-snow envelope aggregation failed: {}", exc)
 
+def _write_station_diagnostics(
+    *,
+    assim_dir: Path,
+    variable: str,
+    dt: datetime,
+    diagnostics: pd.DataFrame,
+) -> Path:
+    out = assim_dir / station_diagnostics_csv_name(variable, dt)
+    diagnostics.to_csv(out, index=False)
+    logger.info("Wrote station diagnostics -> {}", out)
+    return out
 
-def _weights_csv_name(variable: str, dt: datetime) -> str:
-    variable_key = str(variable).strip().lower()
-    if variable_key == "scf":
-        prefix = "weights_scf"
-    elif variable_key == "wet_snow":
-        prefix = "weights_wet_snow"
-    elif is_station_variable(variable_key):
-        prefix = f"weights_{variable_key}"
-    else:
-        prefix = f"weights_{variable_key}"
-    return f"{prefix}_{dt.strftime('%Y%m%d')}.csv"
 
-
-def _station_diagnostics_csv_name(variable: str, dt: datetime) -> str:
-    return f"station_diagnostics_{str(variable).strip().lower()}_{dt.strftime('%Y%m%d')}.csv"
+def _run_assimilation_for_event(
+    *,
+    cfg: "RunConfig",
+    step_dir: Path,
+    roi: Path,
+    lc_cfg: LandcoverMaskConfig,
+    assim_dir: Path,
+    ev: AssimilationEvent,
+    assim_dt: datetime,
+) -> tuple[pd.DataFrame, Path | None]:
+    if ev.variable == "wet_snow":
+        weights = assimilate_wet_snow_for_date(
+            setup_dir=cfg.setup_dir,
+            step_dir=step_dir,
+            ensemble="prior",
+            date=assim_dt,
+            aoi=roi,
+            landcover_cfg=lc_cfg,
+            obs_csv=None,
+            product=ev.product,
+        )
+        return weights, None
+    if ev.variable == "station_hs":
+        station_result = assimilate_station_hs_for_date(
+            setup_dir=cfg.setup_dir,
+            step_dir=step_dir,
+            ensemble="prior",
+            date=assim_dt,
+        )
+        diag_csv = _write_station_diagnostics(
+            assim_dir=assim_dir,
+            variable=ev.variable,
+            dt=assim_dt,
+            diagnostics=station_result.diagnostics,
+        )
+        return station_result.weights, diag_csv
+    if ev.variable == "station_swe":
+        station_result = assimilate_station_swe_for_date(
+            setup_dir=cfg.setup_dir,
+            step_dir=step_dir,
+            ensemble="prior",
+            date=assim_dt,
+        )
+        diag_csv = _write_station_diagnostics(
+            assim_dir=assim_dir,
+            variable=ev.variable,
+            dt=assim_dt,
+            diagnostics=station_result.diagnostics,
+        )
+        return station_result.weights, diag_csv
+    weights = assimilate_scf_for_date(
+        setup_dir=cfg.setup_dir,
+        step_dir=step_dir,
+        ensemble="prior",
+        date=assim_dt,
+        aoi=roi,
+        landcover_cfg=lc_cfg,
+        obs_csv=None,
+        product=ev.product,
+    )
+    return weights, None
 
 
 def _run_plot_tasks_parallel(
@@ -302,7 +365,7 @@ def _run_live_plots(
         except Exception as exc:
             logger.warning("Setup point results plot failed after step {}: {}", step_name, exc)
         try:
-            plot_fractions_cli([
+            plot_fraction_timeseries_cli([
                 "--project-dir", str(cfg.project_dir),
                 "--setup-dir", str(cfg.setup_dir),
                 "--log-level", cfg.log_level,
@@ -723,11 +786,11 @@ def run_project(cfg: OrchestratorConfig) -> None:
         # re-running oa-da-project can skip already-assimilated steps.
         assim_dir = Path(step_dir) / "assim"
         assim_dir.mkdir(parents=True, exist_ok=True)
-        weights_name = _weights_csv_name(ev.variable, assim_dt)
+        weights_name = weights_csv_name(ev.variable, assim_dt)
         wcsv = assim_dir / weights_name
         station_diag_csv: Path | None = None
         if is_station_variable(ev.variable):
-            station_diag_csv = assim_dir / _station_diagnostics_csv_name(ev.variable, assim_dt)
+            station_diag_csv = assim_dir / station_diagnostics_csv_name(ev.variable, assim_dt)
         if wcsv.is_file() and not cfg.overwrite:
             logger.info(
                 "Weights CSV already exists for {}; overwrite=False -> reusing existing weights: {}",
@@ -738,50 +801,15 @@ def run_project(cfg: OrchestratorConfig) -> None:
             # to recompute or touch assimilation for this step.
         else:
             try:
-                if ev.variable == "wet_snow":
-                    weights = assimilate_wet_snow_for_date(
-                        setup_dir=cfg.setup_dir,
-                        step_dir=step_dir,
-                        ensemble="prior",
-                        date=assim_dt,
-                        aoi=roi,
-                        landcover_cfg=lc_cfg,
-                        obs_csv=None,
-                        product=ev.product,
-                    )
-                elif ev.variable == "station_hs":
-                    station_result = assimilate_station_hs_for_date(
-                        setup_dir=cfg.setup_dir,
-                        step_dir=step_dir,
-                        ensemble="prior",
-                        date=assim_dt,
-                    )
-                    weights = station_result.weights
-                    station_diag_csv = assim_dir / _station_diagnostics_csv_name(ev.variable, assim_dt)
-                    station_result.diagnostics.to_csv(station_diag_csv, index=False)
-                    logger.info("Wrote station diagnostics -> {}", station_diag_csv)
-                elif ev.variable == "station_swe":
-                    station_result = assimilate_station_swe_for_date(
-                        setup_dir=cfg.setup_dir,
-                        step_dir=step_dir,
-                        ensemble="prior",
-                        date=assim_dt,
-                    )
-                    weights = station_result.weights
-                    station_diag_csv = assim_dir / _station_diagnostics_csv_name(ev.variable, assim_dt)
-                    station_result.diagnostics.to_csv(station_diag_csv, index=False)
-                    logger.info("Wrote station diagnostics -> {}", station_diag_csv)
-                else:
-                    weights = assimilate_scf_for_date(
-                        setup_dir=cfg.setup_dir,
-                        step_dir=step_dir,
-                        ensemble="prior",
-                        date=assim_dt,
-                        aoi=roi,
-                        landcover_cfg=lc_cfg,
-                        obs_csv=None,
-                        product=ev.product,
-                    )
+                weights, station_diag_csv = _run_assimilation_for_event(
+                    cfg=cfg,
+                    step_dir=step_dir,
+                    roi=roi,
+                    lc_cfg=lc_cfg,
+                    assim_dir=assim_dir,
+                    ev=ev,
+                    assim_dt=assim_dt,
+                )
             except FileNotFoundError as exc:
                 logger.error(
                     "Assimilation failed for step {} at date {}: {}. "
@@ -924,7 +952,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
     plot_tasks.append(
         PlotTask(
             name="fraction_overlay",
-            func=plot_fractions_cli,
+            func=plot_fraction_timeseries_cli,
             args=(
                 [
                     "--project-dir",
@@ -1137,4 +1165,3 @@ def cli(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli())
-

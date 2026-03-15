@@ -15,7 +15,10 @@ Scripting-oriented entry points. Everything else should be used via the CLI.
 - `openamundsen_da.pipeline.cleanup.cli(argv=None)` -> remove intermediate artifacts.
 
 ## Particle filter
-- `openamundsen_da.methods.pf.assimilate_scf.assimilate_scf_for_date(...)`
+- `openamundsen_da.methods.pf.assimilate_fraction.assimilate_scf_for_date(...)`
+- `openamundsen_da.methods.pf.assimilate_fraction.assimilate_wet_snow_for_date(...)`
+- `openamundsen_da.methods.pf.assimilate_station.assimilate_station_hs_for_date(...)`
+- `openamundsen_da.methods.pf.assimilate_station.assimilate_station_swe_for_date(...)`
 - `openamundsen_da.methods.pf.resample.resample_from_weights(...)`
 - `openamundsen_da.methods.pf.rejuvenate.rejuvenate(...)`
 
@@ -44,7 +47,6 @@ Scripting-oriented entry points. Everything else should be used via the CLI.
 
 ## Stability note
 Prefer CLI usage for stable workflows. Direct Python APIs may change between minor versions.
-
 
 
 

@@ -12,9 +12,9 @@ from loguru import logger
 
 from openamundsen_da.io.paths import default_results_dir, infer_project_dir, list_member_dirs
 from openamundsen_da.util.station_da import (
-    STATION_DA_METADATA_FILENAME,
     StationAssimilationConfig,
     load_station_assimilation_config,
+    station_observation_csvs,
     station_variable_spec,
 )
 from openamundsen_da.util.stats import effective_sample_size, gaussian_logpdf, normalize_log_weights
@@ -113,8 +113,7 @@ def _candidate_station_ids(obs_dir: Path, members: list[Path]) -> list[str]:
     """Return station IDs present both in obs/stations and member point outputs."""
     obs_ids = {
         csv_path.stem.strip().lower()
-        for csv_path in sorted(obs_dir.glob("*.csv"))
-        if csv_path.is_file() and csv_path.name != STATION_DA_METADATA_FILENAME
+        for csv_path in station_observation_csvs(obs_dir)
     }
     if not obs_ids:
         raise FileNotFoundError(f"No station observation CSVs found in {obs_dir}")

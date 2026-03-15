@@ -1,11 +1,7 @@
-﻿"""openamundsen_da.methods.pf.assimilate_scf
+﻿"""Gaussian-likelihood weighting for fraction-based ROI observations.
 
-Gaussian-likelihood weighting for SCF observations against model-derived SCF
-per ensemble member (particle filter step without resampling).
-
-Reads one observation for a date/region and computes model SCF H(x) for all
-members, then evaluates log-likelihoods and normalized weights. Outputs a CSV
-with per-member weights and summary stats (ESS).
+Supports ROI snow-cover fraction and ROI wet-snow fraction observations
+against model-derived H(x) values per ensemble member.
 
 Configuration
 - H(x) configuration is read from project YAML (data_assimilation.h_of_x) and is required.
@@ -43,7 +39,7 @@ from openamundsen_da.io.paths import (
     infer_project_dir,
     infer_setup_dir_from_project,
 )
-from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf, SCFParams, load_hofx_from_project
+from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf, load_hofx_from_project
 from openamundsen_da.methods.wet_snow.area import compute_model_wet_snow_fraction
 from openamundsen_da.util.stats import gaussian_logpdf, normalize_log_weights, effective_sample_size, compute_obs_sigma
 from openamundsen_da.core.env import _read_yaml_file
@@ -55,6 +51,7 @@ from openamundsen_da.observer.fraction_obs import (
     resolve_obs_product_tag,
 )
 from openamundsen_da.util.loguru_utils import configure_cli_logger
+from openamundsen_da.util.da_observables import weights_csv_name
 from openamundsen_da.util.uncertainty_common import parse_assimilation_block
 
 
@@ -68,75 +65,77 @@ class LikelihoodParams:
 
 
 @dataclass(frozen=True)
-class ScfUncertaintyAssimilationConfig:
+class FractionUncertaintyAssimilationConfig:
     enabled: bool
     sigma_mode: str
     aggregate_metric: str | None
 
 
-@dataclass(frozen=True)
-class WetSnowUncertaintyAssimilationConfig:
-    enabled: bool
-    sigma_mode: str
-    aggregate_metric: str | None
+ScfUncertaintyAssimilationConfig = FractionUncertaintyAssimilationConfig
+WetSnowUncertaintyAssimilationConfig = FractionUncertaintyAssimilationConfig
+
+
+def _disabled_uncertainty_config() -> FractionUncertaintyAssimilationConfig:
+    return FractionUncertaintyAssimilationConfig(enabled=False, sigma_mode="formula", aggregate_metric=None)
+
+
+def _read_fraction_uncertainty_assimilation_config(
+    project_dir: Path,
+    observable: str,
+) -> FractionUncertaintyAssimilationConfig:
+    cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
+    da_cfg = require_mapping(cfg.get("data_assimilation"), path="project.data_assimilation")
+    unc_root = da_cfg.get("uncertainty")
+    if unc_root is None:
+        return _disabled_uncertainty_config()
+    unc_cfg = require_mapping(unc_root, path="project.data_assimilation.uncertainty")
+    unc_raw = unc_cfg.get(observable)
+    if unc_raw is None:
+        return _disabled_uncertainty_config()
+    unc = require_mapping(unc_raw, path=f"project.data_assimilation.uncertainty.{observable}")
+    if not bool(unc.get("enabled", False)):
+        return _disabled_uncertainty_config()
+
+    assim_path = f"project.data_assimilation.uncertainty.{observable}.assimilation"
+    assim = require_mapping(unc.get("assimilation"), path=assim_path)
+    sigma_mode, aggregate_metric = parse_assimilation_block(
+        assim,
+        path=assim_path,
+    )
+    return FractionUncertaintyAssimilationConfig(
+        enabled=True,
+        sigma_mode=sigma_mode,
+        aggregate_metric=aggregate_metric,
+    )
 
 
 def _read_scf_uncertainty_assimilation_config(project_dir: Path) -> ScfUncertaintyAssimilationConfig:
-    cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
-    da_cfg = require_mapping(cfg.get("data_assimilation"), path="project.data_assimilation")
-    unc_root = da_cfg.get("uncertainty")
-    if unc_root is None:
-        return ScfUncertaintyAssimilationConfig(enabled=False, sigma_mode="formula", aggregate_metric=None)
-    unc_cfg = require_mapping(unc_root, path="project.data_assimilation.uncertainty")
-    scf_unc_raw = unc_cfg.get("scf")
-    if scf_unc_raw is None:
-        return ScfUncertaintyAssimilationConfig(enabled=False, sigma_mode="formula", aggregate_metric=None)
-    scf_unc = require_mapping(scf_unc_raw, path="project.data_assimilation.uncertainty.scf")
-    if not bool(scf_unc.get("enabled", False)):
-        return ScfUncertaintyAssimilationConfig(enabled=False, sigma_mode="formula", aggregate_metric=None)
-
-    assim = require_mapping(
-        scf_unc.get("assimilation"),
-        path="project.data_assimilation.uncertainty.scf.assimilation",
-    )
-    sigma_mode, aggregate_metric = parse_assimilation_block(
-        assim,
-        path="project.data_assimilation.uncertainty.scf.assimilation",
-    )
-    return ScfUncertaintyAssimilationConfig(
-        enabled=True,
-        sigma_mode=sigma_mode,
-        aggregate_metric=aggregate_metric,
-    )
+    return _read_fraction_uncertainty_assimilation_config(project_dir, "scf")
 
 
 def _read_wet_snow_uncertainty_assimilation_config(project_dir: Path) -> WetSnowUncertaintyAssimilationConfig:
-    cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
-    da_cfg = require_mapping(cfg.get("data_assimilation"), path="project.data_assimilation")
-    unc_root = da_cfg.get("uncertainty")
-    if unc_root is None:
-        return WetSnowUncertaintyAssimilationConfig(enabled=False, sigma_mode="formula", aggregate_metric=None)
-    unc_cfg = require_mapping(unc_root, path="project.data_assimilation.uncertainty")
-    wet_unc_raw = unc_cfg.get("wet_snow")
-    if wet_unc_raw is None:
-        return WetSnowUncertaintyAssimilationConfig(enabled=False, sigma_mode="formula", aggregate_metric=None)
-    wet_unc = require_mapping(wet_unc_raw, path="project.data_assimilation.uncertainty.wet_snow")
-    if not bool(wet_unc.get("enabled", False)):
-        return WetSnowUncertaintyAssimilationConfig(enabled=False, sigma_mode="formula", aggregate_metric=None)
+    return _read_fraction_uncertainty_assimilation_config(project_dir, "wet_snow")
 
-    assim = require_mapping(
-        wet_unc.get("assimilation"),
-        path="project.data_assimilation.uncertainty.wet_snow.assimilation",
-    )
-    sigma_mode, aggregate_metric = parse_assimilation_block(
-        assim,
-        path="project.data_assimilation.uncertainty.wet_snow.assimilation",
-    )
-    return WetSnowUncertaintyAssimilationConfig(
-        enabled=True,
-        sigma_mode=sigma_mode,
-        aggregate_metric=aggregate_metric,
-    )
+
+def _coerce_float(raw: object, *, path: str) -> float:
+    try:
+        return float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid float value at {path}: {raw!r}") from exc
+
+
+def _coerce_bool(raw: object, *, path: str) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        normalized = raw.strip().lower()
+        if normalized in {"true", "yes", "1", "on"}:
+            return True
+        if normalized in {"false", "no", "0", "off"}:
+            return False
+    if isinstance(raw, (int, float)) and raw in {0, 1}:
+        return bool(raw)
+    raise ValueError(f"Invalid boolean value at {path}: {raw!r}")
 
 
 def _read_likelihood_from_project(project_dir: Path, observable: str) -> LikelihoodParams:
@@ -145,26 +144,42 @@ def _read_likelihood_from_project(project_dir: Path, observable: str) -> Likelih
     The config may either be flat under ``likelihood`` (legacy) or nested
     as ``likelihood.<observable>`` (preferred for multiple observables).
     """
-    try:
-        project_yaml = find_project_yaml(project_dir)
-        cfg = _read_yaml_file(project_yaml) or {}
-        da_cfg = cfg.get("data_assimilation") or {}
-        lk_root = (da_cfg.get(LIKELIHOOD_BLOCK) or cfg.get(LIKELIHOOD_BLOCK) or {})
-        lk = lk_root.get(observable, lk_root) if isinstance(lk_root, dict) else {}
-        p = LikelihoodParams()
-        if LIK_OBS_SIGMA in lk:
-            p.obs_sigma = float(lk[LIK_OBS_SIGMA])
-        if LIK_USE_BINOMIAL in lk:
-            p.use_binomial = bool(lk[LIK_USE_BINOMIAL])
-        if LIK_SIGMA_FLOOR in lk:
-            p.sigma_floor = float(lk[LIK_SIGMA_FLOOR])
-        if LIK_SIGMA_CLOUD_SCALE in lk:
-            p.sigma_cloud_scale = float(lk[LIK_SIGMA_CLOUD_SCALE])
-        if LIK_MIN_SIGMA in lk:
-            p.min_sigma = float(lk[LIK_MIN_SIGMA])
-        return p
-    except Exception:
+    cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
+    da_cfg_raw = cfg.get("data_assimilation")
+    da_cfg = {} if da_cfg_raw is None else require_mapping(da_cfg_raw, path="project.data_assimilation")
+
+    lk_root_raw = da_cfg.get(LIKELIHOOD_BLOCK)
+    lk_root_path = f"project.data_assimilation.{LIKELIHOOD_BLOCK}"
+    if lk_root_raw is None:
+        lk_root_raw = cfg.get(LIKELIHOOD_BLOCK)
+        lk_root_path = f"project.{LIKELIHOOD_BLOCK}"
+    if lk_root_raw is None:
         return LikelihoodParams()
+
+    lk_root = require_mapping(lk_root_raw, path=lk_root_path)
+    lk_raw = lk_root.get(observable)
+    if lk_raw is None:
+        lk = lk_root
+        lk_path = lk_root_path
+    else:
+        lk_path = f"{lk_root_path}.{observable}"
+        lk = require_mapping(lk_raw, path=lk_path)
+
+    params = LikelihoodParams()
+    if LIK_OBS_SIGMA in lk:
+        params.obs_sigma = _coerce_float(lk[LIK_OBS_SIGMA], path=f"{lk_path}.{LIK_OBS_SIGMA}")
+    if LIK_USE_BINOMIAL in lk:
+        params.use_binomial = _coerce_bool(lk[LIK_USE_BINOMIAL], path=f"{lk_path}.{LIK_USE_BINOMIAL}")
+    if LIK_SIGMA_FLOOR in lk:
+        params.sigma_floor = _coerce_float(lk[LIK_SIGMA_FLOOR], path=f"{lk_path}.{LIK_SIGMA_FLOOR}")
+    if LIK_SIGMA_CLOUD_SCALE in lk:
+        params.sigma_cloud_scale = _coerce_float(
+            lk[LIK_SIGMA_CLOUD_SCALE],
+            path=f"{lk_path}.{LIK_SIGMA_CLOUD_SCALE}",
+        )
+    if LIK_MIN_SIGMA in lk:
+        params.min_sigma = _coerce_float(lk[LIK_MIN_SIGMA], path=f"{lk_path}.{LIK_MIN_SIGMA}")
+    return params
 
 
 def _read_obs(csv_path: Path, value_col: str, *, uncertainty_metric: str | None = None) -> dict:
@@ -509,7 +524,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     if out is None:
         out_dir = Path(args.step_dir) / "assim"
         out_dir.mkdir(parents=True, exist_ok=True)
-        out = out_dir / f"weights_scf_{dt.strftime('%Y%m%d')}.csv"
+        out = out_dir / weights_csv_name("scf", dt)
     df.to_csv(out, index=False)
     logger.info("Wrote weights: {}", out)
     return 0
@@ -562,7 +577,7 @@ def cli_main_wet_snow(argv: list[str] | None = None) -> int:
     if out is None:
         out_dir = Path(args.step_dir) / "assim"
         out_dir.mkdir(parents=True, exist_ok=True)
-        out = out_dir / f"weights_wet_snow_{dt.strftime('%Y%m%d')}.csv"
+        out = out_dir / weights_csv_name("wet_snow", dt)
     df.to_csv(out, index=False)
     logger.info("Wrote wet-snow weights: {}", out)
     return 0

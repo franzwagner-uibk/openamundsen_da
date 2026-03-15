@@ -26,6 +26,7 @@ from openamundsen_da.methods.viz._style import (
 )
 from openamundsen_da.subdomain.manifest import SubdomainManifest
 from openamundsen_da.util.run_mode import ensure_run_mode
+from openamundsen_da.util.station_da import station_observation_csvs
 from openamundsen_da.util.ts import read_timeseries_csv
 
 
@@ -84,7 +85,7 @@ def plot_station_comparisons(
     plot_dir = manifest.project_dir / "plots" / "points"
     plot_dir.mkdir(parents=True, exist_ok=True)
 
-    obs_files = list(obs_root.glob("*.csv"))
+    obs_files = station_observation_csvs(obs_root)
     if station_ids:
         obs_files = [f for f in obs_files if f.stem in station_ids]
 
@@ -148,4 +149,3 @@ def plot_station_comparisons(
     else:
         logger.info("Finished station plots: wrote {} of {} candidates", len(written), len(obs_files))
     return written
-

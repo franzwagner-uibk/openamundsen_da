@@ -24,6 +24,7 @@ import pandas as pd
 from loguru import logger
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml, infer_project_dir
+from openamundsen_da.util.da_observables import weight_plot_title_from_csv_path
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.stats import effective_sample_size
 
@@ -173,16 +174,7 @@ def _step_date_label_from_path(csv_path: Path) -> str | None:
 
 
 def _title_from_path(csv_path: Path) -> str:
-    stem = Path(csv_path).stem.lower()
-    if stem.startswith("weights_station_hs_"):
-        return "Station HS Assimilation Weights"
-    if stem.startswith("weights_station_swe_"):
-        return "Station SWE Assimilation Weights"
-    if stem.startswith("weights_wet_snow_"):
-        return "Wet-Snow Assimilation Weights"
-    if stem.startswith("weights_scf_"):
-        return "SCF Assimilation Weights"
-    return "Assimilation Weights"
+    return weight_plot_title_from_csv_path(csv_path)
 
 
 def plot_weights_for_csv(
@@ -211,7 +203,7 @@ def plot_weights_for_csv(
 
 def cli_main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="oa-da-plot-weights", description="Plot assimilation weights and residuals")
-    p.add_argument("csv", type=Path, help="Path to weights_scf_YYYYMMDD.csv")
+    p.add_argument("csv", type=Path, help="Path to weights_<observable>_YYYYMMDD.csv")
     p.add_argument("--output", type=Path, help="Output PNG path (default: same dir as CSV)")
     p.add_argument("--title", default="Assimilation Weights", help="Plot title")
     p.add_argument("--subtitle", default="", help="Plot subtitle")
@@ -273,5 +265,3 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-
-

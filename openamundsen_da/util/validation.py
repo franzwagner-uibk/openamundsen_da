@@ -7,9 +7,9 @@ from typing import Iterable
 
 from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
 from openamundsen_da.util.station_da import (
-    STATION_DA_METADATA_FILENAME,
     is_station_variable,
     load_station_assimilation_config,
+    station_observation_csvs,
 )
 from openamundsen_da.util.da_events import AssimilationEvent
 from openamundsen_da.core.env import _read_yaml_file
@@ -62,9 +62,7 @@ def validate_assimilation_requirements(
                     "but it does not exist."
                 )
             else:
-                station_obs_csvs = [
-                    p for p in sorted(station_cfg.obs_dir.glob("*.csv")) if p.name != STATION_DA_METADATA_FILENAME
-                ]
+                station_obs_csvs = station_observation_csvs(station_cfg.obs_dir)
                 if not station_obs_csvs:
                     errors.append(
                         f"Station assimilation requires at least one station observation CSV in {station_cfg.obs_dir}"

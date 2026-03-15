@@ -19,7 +19,8 @@ openAMUNDSEN-DA implements a bootstrap particle filter (SIR) for snow data assim
 7. Propagate: use posterior as next prior and continue within the setup.
 
 ## Key modules
-- `openamundsen_da.methods.pf.assimilate_scf`
+- `openamundsen_da.methods.pf.assimilate_fraction`
+- `openamundsen_da.methods.pf.assimilate_station`
 - `openamundsen_da.methods.pf.resample`
 - `openamundsen_da.methods.pf.rejuvenate`
 - `openamundsen_da.methods.h_of_x.model_scf`
@@ -41,4 +42,3 @@ openAMUNDSEN-DA implements a bootstrap particle filter (SIR) for snow data assim
 - Per-step weights and indices: `<setup>/steps/step_*/assim/`
 - ESS timeline and assimilation plots: `<setup>/plots/assim/`
 - Posterior members: `<setup>/steps/step_*/ensembles/posterior/`
-

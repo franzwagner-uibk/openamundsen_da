@@ -3,7 +3,7 @@
 Systematic resampling of a single-date weights CSV to form a posterior ensemble.
 
 Features
-- Reads a weights CSV (from oa-da-assimilate-scf) with normalized weights.
+- Reads a weights CSV produced by an assimilation step with normalized weights.
 - Computes ESS and, if below a threshold, draws N indices via systematic resampling.
 - Materializes `<step>/ensembles/posterior/member_XXX` by copying (symlink if possible)
   from the selected source members under `<step>/ensembles/<source>/member_*`.
@@ -413,4 +413,3 @@ if __name__ == "__main__":  # pragma: no cover
 
 # Backward-compatible alias for transitional references.
 _read_resampling_from_setup = _read_resampling_from_project
-

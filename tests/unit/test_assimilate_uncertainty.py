@@ -9,11 +9,12 @@ from unittest.mock import patch
 import pandas as pd
 from ruamel.yaml import YAML
 
-from openamundsen_da.methods.pf.assimilate_scf import (
+from openamundsen_da.methods.pf.assimilate_fraction import (
     LikelihoodParams,
     ScfUncertaintyAssimilationConfig,
     WetSnowUncertaintyAssimilationConfig,
     _compute_sigma,
+    _read_likelihood_from_project,
     _read_obs,
     _read_scf_uncertainty_assimilation_config,
     _read_wet_snow_uncertainty_assimilation_config,
@@ -31,6 +32,35 @@ def _write_project_yaml(project_dir: Path, payload: dict) -> None:
 
 
 class AssimilateUncertaintyTests(unittest.TestCase):
+    def test_likelihood_config_missing_block_uses_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
+            _write_project_yaml(project_dir, {"data_assimilation": {}})
+
+            params = _read_likelihood_from_project(project_dir, "scf")
+
+            self.assertEqual(params, LikelihoodParams())
+
+    def test_likelihood_config_invalid_value_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
+            _write_project_yaml(
+                project_dir,
+                {
+                    "data_assimilation": {
+                        "likelihood": {
+                            "scf": {
+                                "obs_sigma": "not-a-number",
+                            }
+                        }
+                    }
+                },
+            )
+
+            with self.assertRaises(ValueError) as ctx:
+                _read_likelihood_from_project(project_dir, "scf")
+            self.assertIn("obs_sigma", str(ctx.exception))
+
     def test_uncertainty_assimilation_config_missing_block_raises_when_enabled(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
@@ -136,19 +166,19 @@ class AssimilateUncertaintyTests(unittest.TestCase):
                 )
 
             with (
-                patch("openamundsen_da.methods.pf.assimilate_scf.infer_project_dir", return_value=project_dir),
-                patch("openamundsen_da.methods.pf.assimilate_scf.load_hofx_from_project", return_value=("depth_threshold", "hs", None)),
+                patch("openamundsen_da.methods.pf.assimilate_fraction.infer_project_dir", return_value=project_dir),
+                patch("openamundsen_da.methods.pf.assimilate_fraction.load_hofx_from_project", return_value=("depth_threshold", "hs", None)),
                 patch(
-                    "openamundsen_da.methods.pf.assimilate_scf._read_scf_uncertainty_assimilation_config",
+                    "openamundsen_da.methods.pf.assimilate_fraction._read_scf_uncertainty_assimilation_config",
                     return_value=ScfUncertaintyAssimilationConfig(
                         enabled=True,
                         sigma_mode="formula",
                         aggregate_metric="unc_mean",
                     ),
                 ),
-                patch("openamundsen_da.methods.pf.assimilate_scf.resolve_obs_product_tag", return_value="SNOWCOVER"),
+                patch("openamundsen_da.methods.pf.assimilate_fraction.resolve_obs_product_tag", return_value="SNOWCOVER"),
                 patch(
-                    "openamundsen_da.methods.pf.assimilate_scf.assimilate_fraction_for_date",
+                    "openamundsen_da.methods.pf.assimilate_fraction.assimilate_fraction_for_date",
                     side_effect=_fake_assimilate_fraction,
                 ),
             ):
@@ -193,18 +223,18 @@ class AssimilateUncertaintyTests(unittest.TestCase):
                 )
 
             with (
-                patch("openamundsen_da.methods.pf.assimilate_scf.infer_project_dir", return_value=project_dir),
+                patch("openamundsen_da.methods.pf.assimilate_fraction.infer_project_dir", return_value=project_dir),
                 patch(
-                    "openamundsen_da.methods.pf.assimilate_scf._read_wet_snow_uncertainty_assimilation_config",
+                    "openamundsen_da.methods.pf.assimilate_fraction._read_wet_snow_uncertainty_assimilation_config",
                     return_value=WetSnowUncertaintyAssimilationConfig(
                         enabled=True,
                         sigma_mode="formula",
                         aggregate_metric="unc_mean",
                     ),
                 ),
-                patch("openamundsen_da.methods.pf.assimilate_scf.resolve_obs_product_tag", return_value="WETSNOW"),
+                patch("openamundsen_da.methods.pf.assimilate_fraction.resolve_obs_product_tag", return_value="WETSNOW"),
                 patch(
-                    "openamundsen_da.methods.pf.assimilate_scf.assimilate_fraction_for_date",
+                    "openamundsen_da.methods.pf.assimilate_fraction.assimilate_fraction_for_date",
                     side_effect=_fake_assimilate_fraction,
                 ),
             ):

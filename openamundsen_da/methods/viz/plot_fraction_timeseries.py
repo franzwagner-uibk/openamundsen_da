@@ -1,19 +1,4 @@
-﻿"""
-plot_fractions.py
-Author: openamundsen_da
-Date: 2025-12-02
-Description:
-    Plot SCF and wet-snow fractions (obs + model) in one figure.
-
-    Sources (all optional; at least one required):
-    - SCF observations: obs/<setup>/scf_summary.csv
-    - Wet-snow observations: obs/<setup>/wet_snow_summary.csv
-    - Model SCF: CSV with date/time column and scf
-    - Model wet snow: CSV with date/time column and wet_snow_fraction
-
-    Defaults resolve obs paths from setup/project and write
-    plots/results/fraction_timeseries.png under the setup directory.
-"""
+﻿"""Plot SCF and wet-snow fraction time series for one project."""
 
 from __future__ import annotations
 
@@ -24,9 +9,14 @@ from typing import Optional
 import pandas as pd
 from loguru import logger
 
+from openamundsen_da.methods.viz.fraction_series import (
+    default_fraction_obs_path,
+    default_fraction_plot_output,
+    load_fraction_series,
+    load_open_loop_fraction_series,
+)
 from openamundsen_da.observer.plot_scf_summary import _load_summary as _load_scf_obs
 from openamundsen_da.util.da_events import load_assimilation_events
-from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_envelope
 from openamundsen_da.methods.viz._utils import (
     draw_assimilation_markers,
     draw_assimilation_vlines,
@@ -44,89 +34,19 @@ from openamundsen_da.methods.viz._style import (
     LS_DA_STATION_SWE,
     LW_DA_STATION,
 )
-from openamundsen_da.io.paths import list_step_dirs
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
-def _parse_dates(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize date/time column to 'date'."""
-    for col in ("date", "time", "datetime"):
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col])
-            return df.rename(columns={col: "date"})
-    raise KeyError("No date/time column found")
-
-
-def _load_fraction(path: Path, value_col: str) -> Optional[pd.DataFrame]:
-    if path is None or not path.is_file():
-        return None
-    df = pd.read_csv(path)
-    if df.empty or value_col not in df.columns:
-        return None
+def _load_scf_obs_series(path: Path) -> pd.DataFrame | None:
+    """Load SCF summary data, falling back to a generic fraction-series reader."""
     try:
-        df = _parse_dates(df)
-    except Exception:
-        return None
-    cols = ["date", value_col]
-    for extra in ("value_min", "value_max", "n"):
-        if extra in df.columns:
-            cols.append(extra)
-    return df[cols].dropna(subset=[value_col]).sort_values("date")
+        return _load_scf_obs(path)
+    except (FileNotFoundError, KeyError, ValueError) as exc:
+        logger.debug("Falling back to generic SCF summary reader for {}: {}", path, exc)
+        return load_fraction_series(path, "scf")
 
 
-def _default_obs_path(setup_dir: Path, setup_name: str, filename: str) -> Path:
-    """Return obs summary path with support for legacy and current layouts.
-
-    Supported layouts:
-    - <setup>/obs/<setup_name>/<file>                (legacy/simple)
-    - <setup>/obs/summaries/<project_name>/<file>    (current tutorial/example)
-    """
-    project_name = setup_name
-    candidates = [
-        setup_dir / "obs" / setup_name / filename,
-        setup_dir / "obs" / "summaries" / project_name / filename,
-    ]
-    if "-" in setup_name:
-        alt = setup_name.replace("-", "_")
-        candidates.append(setup_dir / "obs" / alt / filename)
-    elif "_" in setup_name:
-        alt = setup_name.replace("_", "-")
-        candidates.append(setup_dir / "obs" / alt / filename)
-    for cand in candidates:
-        if cand.is_file():
-            return cand
-    return candidates[0]
-
-
-def _default_output(project_dir: Path, output: Optional[Path]) -> Path:
-    if output is not None:
-        return output
-    out_dir = project_dir / "plots" / "results"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    return out_dir / "fraction_timeseries.png"
-
-
-def _load_open_loop_series(project_dir: Path, filename: str, value_col: str) -> Optional[pd.DataFrame]:
-    """Stitch open_loop point series across steps into one DataFrame."""
-    files: list[Path] = []
-    for step in list_step_dirs(project_dir):
-        f = step / "ensembles" / "prior" / "open_loop" / "results" / filename
-        if f.is_file():
-            files.append(f)
-    frames: list[pd.DataFrame] = []
-    for f in files:
-        df = _load_fraction(f, value_col)
-        if df is not None and not df.empty:
-            frames.append(df)
-    if not frames:
-        return None
-    out = pd.concat(frames, ignore_index=True).dropna(subset=[value_col])
-    if out.empty:
-        return None
-    return out.sort_values("date")
-
-
-def plot_fractions(
+def plot_fraction_timeseries(
     *,
     scf_obs: Optional[pd.DataFrame],
     scf_model: Optional[pd.DataFrame],
@@ -424,40 +344,34 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     setup_dir = Path(args.setup_dir) if args.setup_dir else project_dir.parent.parent
     project_name = project_dir.name
 
-    scf_obs_path = Path(args.scf_obs_csv) if args.scf_obs_csv else _default_obs_path(setup_dir, project_name, "scf_summary.csv")
-    wet_obs_path = Path(args.wet_obs_csv) if args.wet_obs_csv else _default_obs_path(setup_dir, project_name, "wet_snow_summary.csv")
+    scf_obs_path = Path(args.scf_obs_csv) if args.scf_obs_csv else default_fraction_obs_path(setup_dir, project_name, "scf_summary.csv")
+    wet_obs_path = Path(args.wet_obs_csv) if args.wet_obs_csv else default_fraction_obs_path(setup_dir, project_name, "wet_snow_summary.csv")
     scf_env_path = Path(args.scf_env_csv) if args.scf_env_csv else (project_dir / "point_scf_roi_envelope.csv")
     wet_env_path = Path(args.wet_env_csv) if args.wet_env_csv else (project_dir / "point_wet_snow_roi_envelope.csv")
 
-    scf_obs = None
-    try:
-        scf_obs = _load_scf_obs(scf_obs_path)
-    except Exception:
-        scf_obs = _load_fraction(scf_obs_path, "scf")
-
-    wet_obs = _load_fraction(wet_obs_path, "wet_snow_fraction")
-    scf_model = _load_fraction(Path(args.scf_model_csv), "scf") if args.scf_model_csv else None
-    wet_model = _load_fraction(Path(args.wet_model_csv), "wet_snow_fraction") if args.wet_model_csv else None
+    scf_obs = _load_scf_obs_series(scf_obs_path)
+    wet_obs = load_fraction_series(wet_obs_path, "wet_snow_fraction")
+    scf_model = load_fraction_series(Path(args.scf_model_csv), "scf") if args.scf_model_csv else None
+    wet_model = load_fraction_series(Path(args.wet_model_csv), "wet_snow_fraction") if args.wet_model_csv else None
     if scf_model is None:
-        scf_model = _load_open_loop_series(project_dir, "point_scf_roi.csv", "scf")
+        scf_model = load_open_loop_fraction_series(project_dir, "point_scf_roi.csv", "scf")
     if wet_model is None:
-        wet_model = _load_open_loop_series(project_dir, "point_wet_snow_roi.csv", "wet_snow_fraction")
-    scf_env = _load_fraction(scf_env_path, "value_mean")
+        wet_model = load_open_loop_fraction_series(project_dir, "point_wet_snow_roi.csv", "wet_snow_fraction")
+    scf_env = load_fraction_series(scf_env_path, "value_mean")
     if scf_env is not None and not scf_env.empty and {"value_min", "value_max"}.issubset(scf_env.columns) is False:
         scf_env = None
-    wet_env = _load_fraction(wet_env_path, "value_mean")
+    wet_env = load_fraction_series(wet_env_path, "value_mean")
     if wet_env is not None and not wet_env.empty and {"value_min", "value_max"}.issubset(wet_env.columns) is False:
         wet_env = None
 
     if scf_obs is None or scf_obs.empty:
-        logger.warning("SCF obs not found at {} â€“ plotting without obs points", scf_obs_path)
+        logger.warning("SCF obs not found at {} - plotting without obs points", scf_obs_path)
     if wet_obs is None or wet_obs.empty:
-        logger.warning("Wet-snow obs not found at {} â€“ plotting without obs points", wet_obs_path)
+        logger.warning("Wet-snow obs not found at {} - plotting without obs points", wet_obs_path)
 
-    assim_events = []
     try:
         assim_events = load_assimilation_events(project_dir)
-    except Exception:
+    except FileNotFoundError:
         assim_events = []
     assim_scf = [pd.to_datetime(ev.date) for ev in assim_events if ev.variable == "scf"]
     assim_wet = [pd.to_datetime(ev.date) for ev in assim_events if ev.variable == "wet_snow"]
@@ -468,14 +382,14 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
         logger.error("No data available to plot. Provide at least one obs/model series.")
         return 1
 
-    out_path = _default_output(project_dir, args.output)
+    out_path = default_fraction_plot_output(project_dir, args.output)
     fig_title = str(args.title) if args.title else None
     # Build global DA labels (shared numbering across variables) for consistent
     # annotation in both SCF and wet-snow panels.
     assim_labels = {pd.to_datetime(ev.date): str(i) for i, ev in enumerate(assim_events, start=1)}
 
     try:
-        plot_fractions(
+        plot_fraction_timeseries(
             scf_obs=scf_obs,
             scf_model=scf_model,
             wet_obs=wet_obs,

@@ -1,7 +1,7 @@
 """openamundsen_da.methods.pf.plot_ess_timeline
 
 Plot ESS (and optionally normalized ESS/N) vs time by scanning a step's
-assim directory for weights_scf_YYYYMMDD.csv files.
+assim directory for weights_*_YYYYMMDD.csv files.
 
 Outputs a PNG line plot, saved next to the inputs unless --output is given.
 """
@@ -21,12 +21,12 @@ from openamundsen_da.io.paths import list_step_dirs
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
-_RE_DATE = re.compile(r"weights_scf_(\d{8})\.csv$", re.IGNORECASE)
+_RE_DATE = re.compile(r"weights_.+_(\d{8})\.csv$", re.IGNORECASE)
 
 
 def _scan_weights(assim_dir: Path) -> list[tuple[datetime, Path]]:
     files: list[tuple[datetime, Path]] = []
-    for p in sorted(assim_dir.glob("weights_scf_*.csv")):
+    for p in sorted(assim_dir.glob("weights_*_*.csv")):
         m = _RE_DATE.search(p.name)
         if not m:
             continue
@@ -96,7 +96,7 @@ def plot_setup_ess_timeline(
 ) -> Path:
     """Setup-wide ESS timeline across all steps.
 
-    Scans steps/step_*/assim/weights_scf_*.csv under setup_dir, computes ESS per
+    Scans steps/step_*/assim/weights_*_*.csv under setup_dir, computes ESS per
     assimilation date, and writes a single PNG under
     <setup_dir>/plots/assim/ess/setup_ess_timeline_<setup_id>.png.
     """
@@ -108,7 +108,7 @@ def plot_setup_ess_timeline(
             continue
         files.extend(_scan_weights(assim_dir))
     if not files:
-        raise FileNotFoundError(f"No weights_scf_*.csv found under steps in {setup_dir}")
+        raise FileNotFoundError(f"No weights_*_*.csv found under steps in {setup_dir}")
 
     df = _compute_series(files)
     fig = _plot(
@@ -128,7 +128,7 @@ def plot_setup_ess_timeline(
 
 
 def cli_main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="oa-da-plot-ess", description="Plot ESS over time from weights_scf_*.csv files")
+    p = argparse.ArgumentParser(prog="oa-da-plot-ess", description="Plot ESS over time from weights_*_*.csv files")
     p.add_argument("--step-dir", type=Path, help="Step directory containing 'assim' folder")
     p.add_argument("--assim-dir", type=Path, help="Assimilation directory (default: <step-dir>/assim)")
     p.add_argument("--normalized", action="store_true", help="Plot ESS/N instead of ESS")
@@ -151,7 +151,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     files = _scan_weights(assim)
     logger.info("Found {} file(s)", len(files))
     if not files:
-        logger.error("No weights_scf_*.csv found under {}", assim)
+        logger.error("No weights_*_*.csv found under {}", assim)
         return 1
 
     df = _compute_series(files)

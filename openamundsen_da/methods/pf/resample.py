@@ -200,11 +200,12 @@ def _write_manifest(
 ) -> tuple[Path, Path]:
     """Write resampling indices CSV and a small JSON manifest."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    # Derive label from weights filename if it matches weights_scf_YYYYMMDD.csv
+    # Derive label from weights filename if it ends with weights_*_YYYYMMDD.csv
     label = ""
     stem = weights_csv.stem
-    if stem.startswith("weights_scf_") and len(stem) >= len("weights_scf_YYYYMMDD"):
-        label = stem.split("weights_scf_")[-1]
+    parts = stem.split("_")
+    if len(parts) >= 3 and parts[0] == "weights" and len(parts[-1]) == 8 and parts[-1].isdigit():
+        label = parts[-1]
     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     idx_csv = out_dir / (f"resample_indices_{label}.csv" if label else f"resample_indices_{ts}.csv")
     man_json = out_dir / (f"resample_manifest_{label}.json" if label else f"resample_manifest_{ts}.json")
@@ -412,5 +413,4 @@ if __name__ == "__main__":  # pragma: no cover
 
 # Backward-compatible alias for transitional references.
 _read_resampling_from_setup = _read_resampling_from_project
-
 

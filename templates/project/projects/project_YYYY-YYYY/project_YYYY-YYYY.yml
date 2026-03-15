@@ -50,6 +50,14 @@ data_assimilation:
   wet_snow:
     classification_threshold_percent: 0.5
 
+  # Station observation assimilation (ROI-level weighting from point HS/SWE).
+  station:
+    default_station_uncertainty_pct: 25
+    min_station_uncertainty_pct: 10
+    hs_sigma_abs_min: 0.10   # meters
+    swe_sigma_abs_min: 20.0  # mm
+    single_station_factor: 2.0
+
   # Optional land-cover masking before likelihood evaluation.
   landcover_mask:
     enabled: true
@@ -175,18 +183,22 @@ data_assimilation:
           metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment]
     # increment = ens_mean - open_loop
 
-  # Example assimilation_events block (mix of SCF and wet-snow dates).
+  # Example assimilation_events block (mix of SCF, wet-snow, and station dates).
   # Adjust dates/products for your project and ensure dates exist in summary CSVs.
   assimilation_events:
     - date: YYYY-MM-DD
       variable: scf
       product: SNOWCOVER
     - date: YYYY-MM-DD
+      variable: station_hs
+    - date: YYYY-MM-DD
       variable: scf
       product: SNOWCOVER
     - date: YYYY-MM-DD
       variable: wet_snow
       product: WETSNOW
+    - date: YYYY-MM-DD
+      variable: station_swe
     - date: YYYY-MM-DD
       variable: wet_snow
       product: WETSNOW

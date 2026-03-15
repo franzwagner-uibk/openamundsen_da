@@ -65,6 +65,30 @@ class DaEventsTests(unittest.TestCase):
             self.assertEqual(events[2].variable, "scf")
             self.assertEqual(events[2].product, "SNOWCOVER")
 
+    def test_station_events_default_to_station_product(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            setup_dir = Path(tmp) / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2022_2023"
+            _write_setup_with_product_tags(setup_dir)
+            _write_yaml(
+                project_dir / "project_2022_2023.yml",
+                {
+                    "data_assimilation": {
+                        "assimilation_events": [
+                            {"date": "2022-10-03", "variable": "station_hs"},
+                            {"date": "2022-10-04", "variable": "station_swe"},
+                        ]
+                    }
+                },
+            )
+
+            events = load_assimilation_events(project_dir)
+
+            self.assertEqual(events[0].variable, "station_hs")
+            self.assertEqual(events[0].product, "STATION")
+            self.assertEqual(events[1].variable, "station_swe")
+            self.assertEqual(events[1].product, "STATION")
+
     def test_missing_variable_raises(self):
         with tempfile.TemporaryDirectory() as tmp:
             setup_dir = Path(tmp) / "setup_root"

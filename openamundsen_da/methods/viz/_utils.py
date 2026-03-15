@@ -67,9 +67,19 @@ def format_station_label(token: str, st_df: Optional[pd.DataFrame], *, fallback:
     return display, alt, label
 
 
-def draw_assimilation_vlines(ax, dates: Iterable) -> None:
+def draw_assimilation_vlines(
+    ax,
+    dates: Iterable,
+    *,
+    color: str = "#777777",
+    ls: str = "--",
+    lw: float = 1.0,
+    alpha: float = 0.9,
+    label: str = "assimilation",
+    zorder: int = 20,
+) -> None:
     for d in dates:
-        ax.axvline(d, color="#777777", ls="--", lw=1.0, alpha=0.9, label="assimilation")
+        ax.axvline(d, color=color, ls=ls, lw=lw, alpha=alpha, label=label, zorder=zorder)
 
 
 def dedupe_legend(handles: List, labels: List) -> Tuple[List, List]:

@@ -90,6 +90,9 @@ setup/
             posterior/
         ... additional steps ...
   obs/
+    stations/
+      <station>.csv                      # setup-level station observations (time,snow_depth,swe)
+      stations_da_metadata.csv          # optional station DA metadata (station_id,station_uncertainty_pct)
     project_YYYY-YYYY/
       scf_summary.csv                       # project-wide SCF summary
       obs_scf_SNOWCOVER_YYYYMMDD.csv       # per-date SCF CSVs
@@ -105,9 +108,10 @@ Each directory in that template contains a small `readme.txt` describing the exp
 and naming conventions.
 
 - Setup YAML (`<setup-name>.yml`/`setup.yml`) must stay pure openAMUNDSEN config (no data assimilation block).
-- Project YAML (`<project-name>.yml`/`project.yml`) must define `data_assimilation` (`h_of_x`, `likelihood`, `resampling`, `rejuvenation`, `restart`, `landcover_mask`, `assimilation_events`) plus `start_date` and `end_date`.
+- Project YAML (`<project-name>.yml`/`project.yml`) must define `data_assimilation` (`h_of_x`, `likelihood`, `resampling`, `rejuvenation`, `restart`, `landcover_mask`, `assimilation_events`; add `station` when using station HS/SWE assimilation) plus `start_date` and `end_date`.
 - `projects/project_X/steps/step_Y/ensembles/prior` is created automatically by the project pipeline (using `${setup}/meteo` forcing).
 - Observations live under `obs/project_X`; the pipeline assumes the CSVs follow `obs_scf_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`. Configure product tags explicitly in project YAML under `obs.*`.
+- Station observations live under `obs/stations`; ROI-based station assimilation uses `assimilation_events` variables `station_hs` and `station_swe` and reads optional per-station uncertainty metadata from `obs/stations/stations_da_metadata.csv`.
 - data assimilation uses `grids/roi_<domain>_<resolution>.asc` as canonical ROI mask; if missing, it is generated silently from ROI vectors under `env/` (`roi.gpkg` preferred, `subdomains.gpkg` supported).
 - Land-cover masking (applied to obs + model SCF/wet-snow): land-cover ASCII is resolved as `grids/lc_<domain>_<resolution>.asc` from setup config; excluded classes come from project YAML `data_assimilation.landcover_mask.classes_to_exclude`.
 
@@ -680,5 +684,4 @@ Ready-made example:
 - Tips
   - Keep a constant model time step across steps.
   - Verify the effective time step via the merged OA config persisted next to members (e.g., `<step>/ensembles/prior/member_001/config.yml`).
-
 

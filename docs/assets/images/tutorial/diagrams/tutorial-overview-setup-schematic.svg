@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="300" viewBox="0 0 980 300" role="img" aria-labelledby="title desc">
+  <title id="title">Host directory and Docker container mapping</title>
+  <desc id="desc">Schematic showing the local tutorial directory on the host machine, the mounted path inside the Docker container, and the bind mount that connects them.</desc>
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .panel { fill: #fafafa; stroke: #1f1f1f; stroke-width: 2; }
+      .title { fill: #111111; font-family: Arial, sans-serif; font-size: 24px; font-weight: 700; }
+      .label { fill: #111111; font-family: Arial, sans-serif; font-size: 22px; font-weight: 700; }
+      .body { fill: #222222; font-family: Arial, sans-serif; font-size: 18px; }
+      .small { fill: #333333; font-family: Arial, sans-serif; font-size: 16px; }
+      .mono { fill: #111111; font-family: Menlo, Consolas, monospace; font-size: 18px; }
+      .mono-sm { fill: #111111; font-family: Menlo, Consolas, monospace; font-size: 15px; }
+      .arrow { stroke: #1f1f1f; stroke-width: 2.2; fill: none; stroke-linecap: round; }
+      .dash { stroke-dasharray: 8 7; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 1 1 L 9 5 L 1 9 z" fill="#1f1f1f"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="980" height="300"/>
+
+  <text class="title" x="490" y="38" text-anchor="middle">Host directory and container mapping</text>
+
+  <rect class="panel" x="40" y="78" width="300" height="182" rx="18" ry="18"/>
+  <text class="label" x="70" y="116">Host machine</text>
+  <text class="body" x="70" y="148">Local tutorial directory</text>
+  <text class="mono-sm" x="70" y="184">
+    <tspan x="70" dy="0">/.../tutorial-workdir</tspan>
+    <tspan x="70" dy="24">/rofental</tspan>
+  </text>
+  <text class="small" x="70" y="232">Edit files here with your normal tools.</text>
+
+  <rect class="panel" x="640" y="78" width="300" height="182" rx="18" ry="18"/>
+  <text class="label" x="670" y="116">Docker container</text>
+  <text class="body" x="670" y="148">Mounted tutorial path</text>
+  <text class="mono" x="670" y="186">/data/rofental</text>
+  <text class="small" x="670" y="232">Run tutorial commands here.</text>
+
+  <path class="arrow dash" d="M340 164 L640 164" marker-end="url(#arrowhead)"/>
+  <text class="label" x="490" y="118" text-anchor="middle">Bind mount</text>
+  <text class="mono-sm" x="490" y="148" text-anchor="middle">
+    <tspan x="490" dy="0">-v ".../tutorial-workdir:/data"</tspan>
+  </text>
+  <text class="body" x="490" y="202" text-anchor="middle">same files, different path prefix</text>
+</svg>

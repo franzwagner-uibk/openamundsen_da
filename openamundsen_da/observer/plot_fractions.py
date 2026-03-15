@@ -29,11 +29,21 @@ from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_envelope
 from openamundsen_da.methods.viz._utils import (
     draw_assimilation_markers,
+    draw_assimilation_vlines,
     dedupe_legend,
     apply_fraction_grid,
     draw_assim_labels,
 )
-from openamundsen_da.methods.viz._style import COLOR_DA_OBS, SIZE_DA_OBS, LW_DA_OBS
+from openamundsen_da.methods.viz._style import (
+    COLOR_DA_OBS,
+    SIZE_DA_OBS,
+    LW_DA_OBS,
+    COLOR_DA_STATION_HS,
+    COLOR_DA_STATION_SWE,
+    LS_DA_STATION_HS,
+    LS_DA_STATION_SWE,
+    LW_DA_STATION,
+)
 from openamundsen_da.io.paths import list_step_dirs
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 
@@ -128,6 +138,8 @@ def plot_fractions(
     title: str | None = None,
     assim_scf: Optional[list[pd.Timestamp]] = None,
     assim_wet: Optional[list[pd.Timestamp]] = None,
+    assim_station_hs: Optional[list[pd.Timestamp]] = None,
+    assim_station_swe: Optional[list[pd.Timestamp]] = None,
     assim_labels: Optional[dict[pd.Timestamp, str]] = None,
     mode: str = "band",
 ) -> None:
@@ -171,9 +183,48 @@ def plot_fractions(
 
     scf_labels = _label_tuples(assim_scf)
     wet_labels = _label_tuples(assim_wet)
+    station_hs_dates = sorted(set(pd.to_datetime(assim_station_hs or [])))
+    station_swe_dates = sorted(set(pd.to_datetime(assim_station_swe or [])))
     mode = (mode or "band").lower()
     if mode not in {"band", "members"}:
         mode = "band"
+
+    def _date_bounds(*frames: Optional[pd.DataFrame]) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+        mins: list[pd.Timestamp] = []
+        maxs: list[pd.Timestamp] = []
+        for frame in frames:
+            if frame is None or frame.empty or "date" not in frame.columns:
+                continue
+            dates = pd.to_datetime(frame["date"]).dropna()
+            if dates.empty:
+                continue
+            mins.append(dates.min())
+            maxs.append(dates.max())
+        if not mins:
+            return None
+        return min(mins), max(maxs)
+
+    def _draw_station_da(ax) -> None:
+        if station_hs_dates:
+            draw_assimilation_vlines(
+                ax,
+                station_hs_dates,
+                color=COLOR_DA_STATION_HS,
+                ls=LS_DA_STATION_HS,
+                lw=LW_DA_STATION,
+                alpha=0.95,
+                label="_nolegend_",
+            )
+        if station_swe_dates:
+            draw_assimilation_vlines(
+                ax,
+                station_swe_dates,
+                color=COLOR_DA_STATION_SWE,
+                ls=LS_DA_STATION_SWE,
+                lw=LW_DA_STATION,
+                alpha=0.95,
+                label="_nolegend_",
+            )
 
     if has_scf:
         ax = axes[idx]
@@ -197,6 +248,7 @@ def plot_fractions(
             )
         if scf_obs is not None and not scf_obs.empty:
             ax.plot(scf_obs["date"], scf_obs["scf"], "o", ms=5, color="tab:orange", label="SCF obs")
+        _draw_station_da(ax)
         if assim_scf:
             draw_assimilation_markers(
                 ax,
@@ -218,6 +270,24 @@ def plot_fractions(
             fontsize=8.0,
             color="black",
         )
+        draw_assim_labels(
+            ax,
+            station_hs_dates,
+            labels=["HS"] * len(station_hs_dates) if station_hs_dates else None,
+            max_labels=12,
+            y_offset_pts=12.0,
+            fontsize=8.0,
+            color=COLOR_DA_STATION_HS,
+        )
+        draw_assim_labels(
+            ax,
+            station_swe_dates,
+            labels=["SWE"] * len(station_swe_dates) if station_swe_dates else None,
+            max_labels=12,
+            y_offset_pts=12.0,
+            fontsize=8.0,
+            color=COLOR_DA_STATION_SWE,
+        )
         ax.set_ylabel("Snow cover fraction")
         ax.set_ylim(0, 1)
         h, l = ax.get_legend_handles_labels()
@@ -225,7 +295,7 @@ def plot_fractions(
         ax.legend(
             h,
             l,
-            loc="upper right",
+            loc="upper left",
             fontsize=8.5,
             labelspacing=0.3,
             borderpad=0.3,
@@ -257,6 +327,7 @@ def plot_fractions(
             )
         if wet_obs is not None and not wet_obs.empty:
             ax.plot(wet_obs["date"], wet_obs["wet_snow_fraction"], "o", ms=5, color="tab:red", label="Wet-snow obs")
+        _draw_station_da(ax)
         if assim_wet:
             draw_assimilation_markers(
                 ax,
@@ -278,6 +349,24 @@ def plot_fractions(
             fontsize=8.0,
             color="black",
         )
+        draw_assim_labels(
+            ax,
+            station_hs_dates,
+            labels=["HS"] * len(station_hs_dates) if station_hs_dates else None,
+            max_labels=12,
+            y_offset_pts=12.0,
+            fontsize=8.0,
+            color=COLOR_DA_STATION_HS,
+        )
+        draw_assim_labels(
+            ax,
+            station_swe_dates,
+            labels=["SWE"] * len(station_swe_dates) if station_swe_dates else None,
+            max_labels=12,
+            y_offset_pts=12.0,
+            fontsize=8.0,
+            color=COLOR_DA_STATION_SWE,
+        )
         ax.set_ylabel("Wet snow fraction")
         ax.set_ylim(0, 1)
         h, l = ax.get_legend_handles_labels()
@@ -285,7 +374,7 @@ def plot_fractions(
         ax.legend(
             h,
             l,
-            loc="upper right",
+            loc="upper left",
             fontsize=8.5,
             labelspacing=0.3,
             borderpad=0.3,
@@ -293,6 +382,13 @@ def plot_fractions(
             handletextpad=0.4,
         )
         apply_fraction_grid(ax, y_step=0.1)
+
+    x_bounds = _date_bounds(scf_model, wet_model, scf_env, wet_env)
+    if x_bounds is None:
+        x_bounds = _date_bounds(scf_obs, wet_obs)
+    if x_bounds is not None:
+        for ax in axes:
+            ax.set_xlim(*x_bounds)
 
     axes[-1].set_xlabel("")
     fig.autofmt_xdate()
@@ -365,7 +461,8 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
         assim_events = []
     assim_scf = [pd.to_datetime(ev.date) for ev in assim_events if ev.variable == "scf"]
     assim_wet = [pd.to_datetime(ev.date) for ev in assim_events if ev.variable == "wet_snow"]
-    assim_vars = sorted({ev.variable for ev in assim_events}) if assim_events else []
+    assim_station_hs = [pd.to_datetime(ev.date) for ev in assim_events if ev.variable == "station_hs"]
+    assim_station_swe = [pd.to_datetime(ev.date) for ev in assim_events if ev.variable == "station_swe"]
 
     if all(x is None or x.empty for x in (scf_obs, wet_obs, scf_model, wet_model, scf_env, wet_env)):
         logger.error("No data available to plot. Provide at least one obs/model series.")
@@ -389,6 +486,8 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
             title=fig_title or "openAMUNDSEN ensemble vs observations",
             assim_scf=assim_scf,
             assim_wet=assim_wet,
+            assim_station_hs=assim_station_hs,
+            assim_station_swe=assim_station_swe,
             assim_labels=assim_labels,
             mode=str(args.mode or "band"),
         )

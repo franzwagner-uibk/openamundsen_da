@@ -1,10 +1,10 @@
 ﻿"""openamundsen_da.methods.pf.plot_weights
 
-Plot per-date SCF assimilation weights and residuals.
+Plot per-date assimilation weights and residual summaries.
 
 Inputs
-- weights CSV produced by oa-da-assimilate-scf with columns:
-  member_id, scf_model, scf_obs, residual, sigma, log_weight, weight
+- weights CSV produced by one assimilation workflow with columns:
+  member_id, residual, sigma, log_weight, weight
 
 Outputs
 - A PNG saved next to the CSV (or --output) with two panels:
@@ -70,7 +70,7 @@ def _plot(df: pd.DataFrame, title: str, subtitle: str | None, *, backend: str = 
         counts, edges = np.histogram(resid_finite, bins=bins)
         centers = 0.5 * (edges[:-1] + edges[1:])
         ax1.plot(centers, counts, color="#ff7f0e", lw=1.8, marker="o", alpha=0.85)
-    ax1.set_xlabel("residual = scf_obs - scf_model")
+    ax1.set_xlabel("residual")
     ax1.set_ylabel("count")
     if np.isfinite(sigma):
         ax1.axvline(0.0, color="k", lw=1.0)
@@ -170,10 +170,25 @@ def _step_date_label_from_path(csv_path: Path) -> str | None:
                 label = name
             return f"{label} - {date_str}"
     return None
+
+
+def _title_from_path(csv_path: Path) -> str:
+    stem = Path(csv_path).stem.lower()
+    if stem.startswith("weights_station_hs_"):
+        return "Station HS Assimilation Weights"
+    if stem.startswith("weights_station_swe_"):
+        return "Station SWE Assimilation Weights"
+    if stem.startswith("weights_wet_snow_"):
+        return "Wet-Snow Assimilation Weights"
+    if stem.startswith("weights_scf_"):
+        return "SCF Assimilation Weights"
+    return "Assimilation Weights"
+
+
 def plot_weights_for_csv(
     csv_path: Path,
     *,
-    title: str = "SCF Assimilation Weights",
+    title: str = "Assimilation Weights",
     subtitle: str | None = None,
     backend: str = "Agg",
 ) -> Path:
@@ -181,7 +196,9 @@ def plot_weights_for_csv(
     df = _load_weights(csv_path)
     # If caller uses the default title and no subtitle, derive a compact
     # label from the path: "Step <number> - <YYYY-MM-DD>".
-    if title == "SCF Assimilation Weights" and subtitle is None:
+    if title == "Assimilation Weights":
+        title = _title_from_path(csv_path)
+    if subtitle is None:
         label = _step_date_label_from_path(csv_path)
         if label:
             subtitle = label
@@ -193,10 +210,10 @@ def plot_weights_for_csv(
 
 
 def cli_main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="oa-da-plot-weights", description="Plot SCF assimilation weights and residuals")
+    p = argparse.ArgumentParser(prog="oa-da-plot-weights", description="Plot assimilation weights and residuals")
     p.add_argument("csv", type=Path, help="Path to weights_scf_YYYYMMDD.csv")
     p.add_argument("--output", type=Path, help="Output PNG path (default: same dir as CSV)")
-    p.add_argument("--title", default="SCF Assimilation Weights", help="Plot title")
+    p.add_argument("--title", default="Assimilation Weights", help="Plot title")
     p.add_argument("--subtitle", default="", help="Plot subtitle")
     p.add_argument("--log-level", default="INFO")
     p.add_argument("--backend", default="Agg", help="Matplotlib backend (Agg, SVG, module://mplcairo.Agg)")
@@ -227,11 +244,14 @@ def cli_main(argv: list[str] | None = None) -> int:
         # Automatically derive a compact "Step <number> - <YYYY-MM-DD>" label
         # when the caller uses the default title and no explicit subtitle.
         subtitle = (args.subtitle or None)
-        if args.title == "SCF Assimilation Weights" and not subtitle:
+        title = args.title
+        if title == "Assimilation Weights":
+            title = _title_from_path(csv_path)
+        if not subtitle:
             label = _step_date_label_from_path(csv_path)
             if label:
                 subtitle = label
-        fig = _plot(df, title=args.title, subtitle=subtitle, backend=args.backend)
+        fig = _plot(df, title=title, subtitle=subtitle, backend=args.backend)
     except ModuleNotFoundError:
         logger.error("matplotlib is required to plot. Install it in your environment.")
         return 2
@@ -253,6 +273,5 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-
 
 

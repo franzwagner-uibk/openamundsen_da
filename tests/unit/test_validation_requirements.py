@@ -120,7 +120,89 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                 events=events,
             )
 
+    def test_station_assimilation_requires_station_obs_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            setup_dir = root / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2022_2023"
+            step0 = project_dir / "steps" / "step_00_init"
+            step1 = project_dir / "steps" / "step_01_a"
+
+            _write_yaml(
+                setup_dir / "setup_root.yml",
+                {"output_data": {"grids": {"variables": []}}},
+            )
+            _write_yaml(
+                project_dir / "project_2022_2023.yml",
+                {
+                    "obs": {"stations": {"dir": "obs/stations"}},
+                    "data_assimilation": {
+                        "station": {
+                            "default_station_uncertainty_pct": 25,
+                            "min_station_uncertainty_pct": 10,
+                            "hs_sigma_abs_min": 0.1,
+                            "swe_sigma_abs_min": 20,
+                            "single_station_factor": 2.0,
+                        }
+                    },
+                },
+            )
+            step0.mkdir(parents=True, exist_ok=True)
+            step1.mkdir(parents=True, exist_ok=True)
+
+            events = [AssimilationEvent(date=date(2022, 10, 3), variable="station_hs", product="STATION")]
+            with self.assertRaises(ValueError) as ctx:
+                validate_assimilation_requirements(
+                    setup_dir=setup_dir,
+                    project_dir=project_dir,
+                    steps=[step0, step1],
+                    events=events,
+                )
+            self.assertIn("Station assimilation requires observation directory", str(ctx.exception))
+
+    def test_station_assimilation_passes_with_station_obs_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            setup_dir = root / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2022_2023"
+            step0 = project_dir / "steps" / "step_00_init"
+            step1 = project_dir / "steps" / "step_01_a"
+
+            _write_yaml(
+                setup_dir / "setup_root.yml",
+                {"output_data": {"grids": {"variables": []}}},
+            )
+            _write_yaml(
+                project_dir / "project_2022_2023.yml",
+                {
+                    "obs": {"stations": {"dir": "obs/stations"}},
+                    "data_assimilation": {
+                        "station": {
+                            "default_station_uncertainty_pct": 25,
+                            "min_station_uncertainty_pct": 10,
+                            "hs_sigma_abs_min": 0.1,
+                            "swe_sigma_abs_min": 20,
+                            "single_station_factor": 2.0,
+                        }
+                    },
+                },
+            )
+            (setup_dir / "obs" / "stations").mkdir(parents=True, exist_ok=True)
+            (setup_dir / "obs" / "stations" / "station_1.csv").write_text(
+                "time,snow_depth\n2022-10-03 00:00:00,0.4\n",
+                encoding="ascii",
+            )
+            step0.mkdir(parents=True, exist_ok=True)
+            step1.mkdir(parents=True, exist_ok=True)
+
+            events = [AssimilationEvent(date=date(2022, 10, 3), variable="station_hs", product="STATION")]
+            validate_assimilation_requirements(
+                setup_dir=setup_dir,
+                project_dir=project_dir,
+                steps=[step0, step1],
+                events=events,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
-

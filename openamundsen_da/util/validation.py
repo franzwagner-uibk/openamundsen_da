@@ -6,6 +6,11 @@ from pathlib import Path
 from typing import Iterable
 
 from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
+from openamundsen_da.util.station_da import (
+    STATION_DA_METADATA_FILENAME,
+    is_station_variable,
+    load_station_assimilation_config,
+)
 from openamundsen_da.util.da_events import AssimilationEvent
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_setup_yaml, list_member_dirs
@@ -48,10 +53,32 @@ def validate_assimilation_requirements(
     if needs_wet and not ({"liquid_water_content"} & names or {"snow.liquid_water_content"} & vars_):
         errors.append("Configure liquid water content output (var: snow.liquid_water_content, name: liquid_water_content) in output_data.grids for wet-snow assimilation.")
 
+    if any(is_station_variable(ev.variable) for ev in events):
+        try:
+            station_cfg = load_station_assimilation_config(setup_dir=setup_dir, project_dir=project_dir)
+            if not station_cfg.obs_dir.is_dir():
+                errors.append(
+                    f"Station assimilation requires observation directory {station_cfg.obs_dir}, "
+                    "but it does not exist."
+                )
+            else:
+                station_obs_csvs = [
+                    p for p in sorted(station_cfg.obs_dir.glob("*.csv")) if p.name != STATION_DA_METADATA_FILENAME
+                ]
+                if not station_obs_csvs:
+                    errors.append(
+                        f"Station assimilation requires at least one station observation CSV in {station_cfg.obs_dir}"
+                    )
+        except Exception as exc:
+            errors.append(str(exc))
+
     max_idx = min(len(events), len(steps) - 1)
     for idx in range(max_idx):
         ev = events[idx]
         step_dir = Path(steps[idx])
+
+        if is_station_variable(ev.variable):
+            continue
 
         prod_tag = ev.product or resolve_obs_product_tag(ev.variable, setup_dir=setup_dir, project_dir=project_dir)
         base_name = f"obs_{ev.variable}_{ev.date.strftime('%Y%m%d')}.csv"
@@ -63,4 +90,3 @@ def validate_assimilation_requirements(
 
     if errors:
         raise ValueError("Config/obs/output validation failed:\n- " + "\n- ".join(errors))
-

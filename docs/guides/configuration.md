@@ -66,6 +66,8 @@ start_date: 2022-10-01
 end_date: 2023-09-30
 
 obs:
+  stations:
+    dir: obs/stations
   snowcover:
     dir: obs/snowcover
     product_tag: SNOWCOVER
@@ -97,6 +99,13 @@ data_assimilation:
     params:
       h0: 0.01
       k: 80
+
+  station:
+    default_station_uncertainty_pct: 25
+    min_station_uncertainty_pct: 10
+    hs_sigma_abs_min: 0.10
+    swe_sigma_abs_min: 20.0
+    single_station_factor: 2.0
 
   likelihood:
     scf:
@@ -187,12 +196,19 @@ data_assimilation:
       variable: scf
       product: SNOWCOVER
     - date: 2023-03-24
+      variable: station_hs
+    - date: 2023-04-03
       variable: wet_snow
       product: S1
+    - date: 2023-04-21
+      variable: station_swe
 ```
 
 Notes:
 - `assimilation_events` defines which dates and variables are assimilated.
+- Station observation assimilation uses `variable: station_hs` or `variable: station_swe` and does not require a product tag.
+- Station observations live in `obs/stations/<station_id>.csv`; optional station DA metadata live in `obs/stations/stations_da_metadata.csv`.
+- `data_assimilation.station` defines project-level defaults and sigma floors for ROI-based station assimilation.
 - Observation class mappings and product tags are configured under project YAML `obs.*`.
 - Land-cover mask uses `grids/lc_<domain>_<resolution>.asc` from setup-level paths and data assimilation mask classes from project YAML.
 - For SCF uncertainty:

@@ -378,6 +378,8 @@ Reference output file path (data assimilation summary NetCDF):
 
 Optional variable/dimension inspection (Python in the container).
 
+**🟢 Run this command:**
+
 ```bash
 python - <<'PY'
 import xarray as xr
@@ -547,6 +549,8 @@ openAMUDNSEN-DA contains a module that cleans up heavy files that are used withi
 
 Clean one season (`project_2022_2023`):
 
+**🟢 Run this command:**
+
 ```bash
 oa-da-clean-project \
   --setup-dir /data/rofental \
@@ -555,6 +559,8 @@ oa-da-clean-project \
 ```
 
 Clean all seasons under the same setup:
+
+**🟢 Run this command:**
 
 ```bash
 oa-da-clean-project \

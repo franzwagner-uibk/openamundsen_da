@@ -52,6 +52,15 @@ only then start an interactive container that mounts that local copy.
 Choose a local host folder that will hold the tutorial files. The command below copies the
 bundled example from the image into that folder.
 
+This command uses a bind mount so the host directory `tutorial-workdir/` appears
+inside the container as `/data`. The copied example therefore ends up on the host
+as `tutorial-workdir/rofental` and inside the container as `/data/rofental`.
+
+![Tutorial setup schematic showing the local host directory and the mounted Docker container path]({{ site.baseurl }}/assets/images/tutorial/diagrams/tutorial-overview-setup-schematic.svg)
+
+_Host directory used in the `-v "...:/data"` mount and the corresponding path
+inside the Docker container._
+
 **🟢 Run this command:**
 
 ```bash
@@ -71,6 +80,8 @@ Linux file-ownership note:
 - Prefer configuring Docker so your normal user can run it directly before starting the tutorial.
 
 If the copy already produced root-owned files, fix the host-side ownership once:
+
+**🟢 Run this command:**
 
 ```bash
 sudo chown -R "$USER":"$USER" /absolute/path/to/tutorial-workdir/rofental

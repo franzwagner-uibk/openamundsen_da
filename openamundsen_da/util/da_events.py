@@ -8,6 +8,7 @@ from pathlib import Path
 
 from openamundsen_da.io.paths import find_project_yaml
 from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
+from openamundsen_da.util.station_da import is_station_variable
 from openamundsen_da.util.yaml_utils import read_yaml_mapping
 
 
@@ -35,7 +36,7 @@ def _parse_event_variable(raw: object, *, idx: int) -> str:
         raise ValueError(f"Missing required configuration key: data_assimilation.assimilation_events[{idx}].variable")
     if value == "wet_snow_fraction":
         value = "wet_snow"
-    if value not in {"scf", "wet_snow"}:
+    if value not in {"scf", "wet_snow"} and not is_station_variable(value):
         raise ValueError(
             f"Unsupported assimilation variable at data_assimilation.assimilation_events[{idx}].variable: {raw!r}"
         )
@@ -78,6 +79,8 @@ def load_assimilation_events(project_dir: Path) -> list[AssimilationEvent]:
                     f"Configuration value must not be empty: data_assimilation.assimilation_events[{idx}].product"
                 )
             prod_upper = prod.upper()
+        elif is_station_variable(var):
+            prod_upper = "STATION"
         else:
             prod_upper = resolve_obs_product_tag(var, setup_dir=setup_dir, project_dir=project_dir)
 
@@ -85,5 +88,4 @@ def load_assimilation_events(project_dir: Path) -> list[AssimilationEvent]:
 
     events.sort(key=lambda ev: ev.date)
     return events
-
 

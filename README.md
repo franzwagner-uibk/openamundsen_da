@@ -7,6 +7,12 @@ openAMUNDSEN-DA is an open-source data assimilation framework designed to be exe
 Live docs: https://openamundsen-da.pages.dev/ (Cloudflare Pages).
 This replaces the old GitHub Pages site.
 
+Useful entry points:
+
+- Configuration: `https://openamundsen-da.pages.dev/guides/configuration/`
+- Station assimilation: `https://openamundsen-da.pages.dev/guides/station-assimilation/`
+- Tutorial: `https://openamundsen-da.pages.dev/tutorial/`
+
 ## Overview
 
 - Setup-based snow cover prediction with an ensemble model + particle filter.
@@ -112,6 +118,7 @@ and naming conventions.
 - `projects/project_X/steps/step_Y/ensembles/prior` is created automatically by the project pipeline (using `${setup}/meteo` forcing).
 - Observations live under `obs/project_X`; the pipeline assumes the CSVs follow `obs_scf_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`. Configure product tags explicitly in project YAML under `obs.*`.
 - Station observations live under `obs/stations`; ROI-based station assimilation uses `assimilation_events` variables `station_hs` and `station_swe` and reads optional per-station uncertainty metadata from `obs/stations/stations_da_metadata.csv`.
+- The station assimilation method itself is documented in the docs guide: `guides/station-assimilation`.
 - data assimilation uses `grids/roi_<domain>_<resolution>.asc` as canonical ROI mask; if missing, it is generated silently from ROI vectors under `env/` (`roi.gpkg` preferred, `subdomains.gpkg` supported).
 - Land-cover masking (applied to obs + model SCF/wet-snow): land-cover ASCII is resolved as `grids/lc_<domain>_<resolution>.asc` from setup config; excluded classes come from project YAML `data_assimilation.landcover_mask.classes_to_exclude`.
 

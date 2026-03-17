@@ -209,6 +209,7 @@ Notes:
 - Station observation assimilation uses `variable: station_hs` or `variable: station_swe` and does not require a product tag.
 - Station observations live in `obs/stations/<station_id>.csv`; optional station DA metadata live in `obs/stations/stations_da_metadata.csv`.
 - `data_assimilation.station` defines project-level defaults and sigma floors for ROI-based station assimilation.
+- See [Station Assimilation]({{ site.baseurl }}{% link guides/station-assimilation.md %}) for the method logic, effective sigma definition, single-station handling, and diagnostics.
 - Observation class mappings and product tags are configured under project YAML `obs.*`.
 - Land-cover mask uses `grids/lc_<domain>_<resolution>.asc` from setup-level paths and data assimilation mask classes from project YAML.
 - For SCF uncertainty:

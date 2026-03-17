@@ -40,5 +40,13 @@ openAMUNDSEN-DA implements a bootstrap particle filter (SIR) for snow data assim
 
 ## Outputs
 - Per-step weights and indices: `<setup>/steps/step_*/assim/`
+- Station DA diagnostics: `station_diagnostics_station_hs_*.csv` / `station_diagnostics_station_swe_*.csv`
 - ESS timeline and assimilation plots: `<setup>/plots/assim/`
 - Posterior members: `<setup>/steps/step_*/ensembles/posterior/`
+
+## Observation families
+
+- `scf` and `wet_snow` use ROI fraction observations against ROI-scale `H(x)` values.
+- `station_hs` and `station_swe` use station point observations against model point outputs at station locations.
+
+For the station method, see the dedicated [Station Assimilation]({{ site.baseurl }}{% link guides/station-assimilation.md %}) guide.

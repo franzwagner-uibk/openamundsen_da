@@ -101,6 +101,17 @@ Warm start uses the model state saved at the end of each step via `state_pointer
 
 ## Observation Processing
 
+Besides satellite SCF and wet-snow observations, the workflow also supports
+ROI-based station assimilation for:
+
+- `station_hs`
+- `station_swe`
+
+These station observations are not spatialized over the grid. They are used to
+reweight whole-ROI ensemble members from station point comparisons. See
+[Station Assimilation]({{ site.baseurl }}{% link guides/station-assimilation.md %})
+for the full method description.
+
 ### Observation Uncertainty
 
 openAMUNDSEN-DA supports three uncertainty handling patterns, selected per product:

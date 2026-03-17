@@ -28,32 +28,10 @@ openAMUNDSEN-DA supports ROI-based assimilation of in situ station snow observat
 
 - `station_hs` for snow depth
 - `station_swe` for snow water equivalent
-
-The implementation is intentionally **ROI-based**, not pixel-wise. Station observations are used to rank whole-ROI ensemble members, not to reconstruct a distributed snow field from one point measurement.
-
-This is the key idea:
-
 - each active station contributes one likelihood term,
 - stations with lower uncertainty influence the weights more strongly,
 - stations with higher uncertainty influence the weights more weakly,
 - all active stations on one assimilation date are combined into one ROI-level member weighting.
-
-## Philosophy
-
-The station method follows the main openAMUNDSEN-DA design:
-
-- one ROI is the assimilation unit,
-- one weight is computed per ensemble member for that ROI,
-- point observations are treated as evidence for the plausibility of an ROI-scale trajectory,
-- no pixel-wise localization or point-to-grid spreading is performed in Version 1.
-
-This means the method should be read as:
-
-> station observations help choose the most plausible watershed-scale ensemble members
-
-not as:
-
-> one station directly corrects the full distributed snow field
 
 ## Supported Variables
 
@@ -68,7 +46,6 @@ data_assimilation:
       variable: station_swe
 ```
 
-Station events do **not** require a product tag.
 
 ## Required Inputs
 
@@ -159,33 +136,12 @@ It can absorb:
 - flat-field or sheltered-location concerns
 - broad point-to-ROI representativeness concerns
 
-For one active station, the base sigma is computed as:
-
-```text
-sigma_base = max(
-    sigma_abs_min,
-    max(station_uncertainty_pct, min_station_uncertainty_pct) / 100 * obs_value
-)
-```
-
 Interpretation:
 
 - lower station uncertainty -> narrower likelihood -> stronger update
 - higher station uncertainty -> wider likelihood -> weaker update
 
 Because percentage-only scaling can become unrealistically strict near zero snow, the implementation always uses the configured absolute sigma floor.
-
-## Time Matching
-
-Station assimilation uses the **nearest available timestamp** in the station CSV for the assimilation date.
-
-Version 1 behavior:
-
-- nearest timestamp matching is hard-coded
-- ambiguous nearest matches are rejected
-- invalid or missing station rows are skipped
-
-This keeps the implementation simple and fail-fast.
 
 ## Likelihood
 
@@ -282,22 +238,6 @@ That means:
 - if no ensemble member is close to the station observation, the DA can only move toward the best available members
 
 This is standard particle-filter behavior and is especially important for strong, low-uncertainty station updates.
-
-## Current Scope and Limits
-
-Version 1 intentionally does **not** do the following:
-
-- no pixel-wise localization
-- no point-to-grid spatial propagation
-- no explicit spatial representativeness model
-- no same-date joint multivariate update across `scf`, `wet_snow`, `station_hs`, and `station_swe`
-- no explicit bias-correction model for individual stations
-
-The current method is best described as:
-
-```text
-ROI-level particle-filter weighting using station-specific effective uncertainty
-```
 
 ## Related Documentation
 

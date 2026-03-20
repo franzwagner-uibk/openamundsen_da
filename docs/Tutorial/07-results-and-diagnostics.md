@@ -210,7 +210,7 @@ This directory contains the main user-facing validation and data assimilation re
 
 Typical files include:
 
-- `fraction_timeseries.png` (SCF / wet-snow fractions over time)
+- `fraction_timeseries.png` (SCF, wet-snow, ROI mean SWE, and ROI mean snow depth over time)
 - station snow depth plots
 - station SWE plots
 - ROI envelope exports and land-cover masking report
@@ -234,7 +234,10 @@ Reference structure snippet (`plots/results`, typical files)
 
 - observation dates actually used,
 - model-vs-observation fraction behavior,
+- ROI mean SWE and snow-depth evolution relative to the open loop,
 - whether SCF and wet-snow observations are present where expected.
+
+The ROI SWE and snow-depth panels use the full ROI footprint rather than the land-cover-masked ROI used for SCF and wet-snow summaries.
 
 What to inspect:
 
@@ -302,12 +305,13 @@ Fraction time series:
 
 ![Fraction time series (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/fraction_timeseries.png)
 
-_`fraction_timeseries.png`: check observation dates, SCF/wet-snow event timing, and gross model-vs-observation behavior._
+_`fraction_timeseries.png`: check observation dates, SCF/wet-snow event timing, ROI mean SWE / snow-depth behavior, and gross model-vs-observation behavior._
 
 What to read in this plot:
 
 - whether observation markers exist at the configured data assimilation dates,
 - whether SCF events cluster in snow-cover relevant periods and wet-snow events in melt-season periods,
+- whether ROI mean SWE and snow depth shift away from or back toward the open loop during the season,
 - whether data assimilation moves the ensemble envelope in the expected direction relative to the open loop.
 
 Station snow depth example (`latschbloder`):

@@ -271,7 +271,7 @@ docker compose run --rm oa `
   --project-dir $project
 ```
 
-Defaults read obs from `obs/summaries/<setup>/scf_summary.csv` and `obs/summaries/<setup>/wet_snow_summary.csv`, envelopes from the setup root, and write `plots/results/fraction_timeseries.png`. Add `--scf-model-csv` / `--wet-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` to use custom envelopes. Plot mode can be switched with `--mode band|members` (pipeline default: `band`).
+Defaults read obs from `obs/summaries/<setup>/scf_summary.csv` and `obs/summaries/<setup>/wet_snow_summary.csv`, envelopes from the setup root, and write `plots/results/fraction_timeseries.png`. The output now expands to a 4-panel setup overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE / snow-depth panels are built from per-member `point_swe_roi.csv` / `point_snow_depth_roi.csv` files, use the full ROI footprint (no land-cover masking), and show ensemble-only 5-95% bands plus ensemble mean against a separate `open_loop` line. Add `--scf-model-csv` / `--wet-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` to use custom envelopes. Plot mode can be switched with `--mode band|members` (pipeline default: `band`).
 
 ## Setup point results (SWE / snow depth, member mode)
 
@@ -515,7 +515,9 @@ Outputs
   - `increment_<var>` is defined as `ens_mean_<var> - open_loop_<var>`
   - Time axis spans the full project timeline across all steps (not only the last step)
 - Setup plots under `<setup_dir>/plots/{forcing,results}`
-- When model SCF is enabled, daily ROI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_roi.csv`; the combined SCF + wet-snow fraction plot (`plots/results/fraction_timeseries.png`) provides the setup-level view.
+- When model SCF is enabled, daily ROI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_roi.csv`.
+- Full-ROI daily mean SWE and snow depth are written to `<step>/ensembles/prior/<member>/results/point_swe_roi.csv` and `<step>/ensembles/prior/<member>/results/point_snow_depth_roi.csv`.
+- The combined setup overview plot (`plots/results/fraction_timeseries.png`) now shows SCF, wet-snow, ROI mean SWE, and ROI mean snow depth together.
   Setup results plots now show the ensemble mean, the 90% envelope, and the open loop by default; individual members are hidden unless `--show-members` is passed to the plot CLI. Wet-snow setup plots overlay available observations from `obs/<setup>/wet_snow_summary.csv` automatically.
   At the end of the setup run, per-step weights plots (`step_XX_weights.png`) and the setup ESS timeline (`setup_ess_timeline_<setup_id>.png`) are also generated under `<setup_dir>/plots/assim/{weights,ess}`.
   Default retention is compact (`data_assimilation.output.retention: compact`), which prunes heavy member grid artifacts after writing `da_output_grids.nc`. Set `retention: full` to keep all member grid files.

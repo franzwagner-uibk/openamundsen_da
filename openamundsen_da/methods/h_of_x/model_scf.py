@@ -29,20 +29,13 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Literal, Tuple
+from typing import Any, Dict, Literal, Tuple
 import concurrent.futures as cf
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import rasterio
-import xarray as xr
 from loguru import logger
-from rasterio import features
-from rasterio.mask import mask as rio_mask
-from rasterio.io import MemoryFile
-from rasterio.transform import from_bounds
-from pyproj import CRS
 
 from openamundsen_da.core.env import ensure_gdal_proj_from_conda, _read_yaml_file
 from openamundsen_da.core.constants import (
@@ -58,7 +51,6 @@ from openamundsen_da.core.constants import (
 )
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.io.paths import (
-    GridSlice,
     find_member_daily_grid_slice,
     member_id_from_results_dir,
     find_setup_yaml,
@@ -72,12 +64,11 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.util.landcover_mask import (
     LandcoverMaskConfig,
-    apply_landcover_mask,
     deserialize_landcover_mask_config,
     resolve_landcover_mask,
     serialize_landcover_mask_config,
 )
-from openamundsen_da.util.roi import read_single_roi
+from openamundsen_da.util.grid_roi import read_grid_slice_roi_masked_array, valid_mask
 from openamundsen_da.util.stats import sigmoid
 from openamundsen_da.methods.daily_aoi_series import (
     compute_step_daily_series_for_all_members,
@@ -159,115 +150,9 @@ def _grid_format_from_setup(setup_dir: Path) -> str | None:
         return None
 
 
-def _read_masked_array(
-    raster: Path | GridSlice,
-    aoi_path: Path,
-    lc_cfg: LandcoverMaskConfig,
-) -> np.ma.MaskedArray:
-    """Read raster and mask by AOI geometry, applying land-cover exclusions."""
-    def _open_netcdf_slice(gs: GridSlice):
-        if not gs.nc_var:
-            raise ValueError("NetCDF grid slice is missing nc_var")
-        with xr.open_dataset(gs.path) as ds:
-            if gs.nc_var not in ds:
-                raise FileNotFoundError(f"Variable {gs.nc_var} not found in {gs.path}")
-            da = ds[gs.nc_var]
-            time_dims = [d for d in da.dims if d.startswith("time")]
-            if time_dims:
-                da = da.isel({time_dims[0]: gs.band - 1})
-            data = np.asarray(da.values, dtype=np.float32)
-            if data.ndim > 2:
-                data = data.reshape(data.shape[-2], data.shape[-1])
-            x = np.asarray(ds["x"].values)
-            y = np.asarray(ds["y"].values)
-            if x.size < 2 or y.size < 2:
-                raise ValueError("Insufficient coordinate metadata in NetCDF grid")
-            dx = float(np.mean(np.diff(x)))
-            dy = float(np.mean(np.diff(y)))
-            transform = from_bounds(
-                float(x.min() - dx / 2),
-                float(y.min() - dy / 2),
-                float(x.max() + dx / 2),
-                float(y.max() + dy / 2),
-                data.shape[1],
-                data.shape[0],
-            )
-            crs = None
-            try:
-                crs = CRS.from_cf(ds["crs"].attrs)
-            except Exception:
-                pass
-            nodata = da.encoding.get("_FillValue")
-        profile = {
-            "driver": "GTiff",
-            "height": data.shape[0],
-            "width": data.shape[1],
-            "count": 1,
-            "dtype": "float32",
-            "transform": transform,
-            "crs": crs,
-            "nodata": nodata,
-        }
-        memfile = MemoryFile()
-        with memfile.open(**profile) as dst:
-            dst.write(data.astype(np.float32), 1)
-        return memfile
-
-    if isinstance(raster, GridSlice):
-        if raster.kind == "netcdf":
-            mem = _open_netcdf_slice(raster)
-            src_ctx = mem.open()
-            url = None
-            indexes = 1
-        else:
-            url = str(raster.path)
-            indexes = 1
-    else:
-        url = str(raster)
-        indexes = 1
-
-    src_mgr = rasterio.open(url) if url is not None else src_ctx  # type: ignore[arg-type]
-    with src_mgr as src:
-        if src.crs is None:
-            raise ValueError("Raster has no CRS; unable to align with AOI")
-        gdf, _ = read_single_roi(
-            aoi_path,
-            required_field=None,
-            to_crs=src.crs,
-        )
-        shapes: Iterable = gdf.geometry
-        geom_mask = features.geometry_mask(
-            shapes,
-            out_shape=(src.height, src.width),
-            transform=src.transform,
-            invert=True,
-        )
-        raw = src.read(indexes, masked=False)
-        if raw.ndim == 3:
-            raw = raw[0]
-        mask = ~geom_mask
-        if src.nodata is not None:
-            mask = mask | (raw == src.nodata)
-        arr = np.ma.array(raw, mask=mask, copy=False)
-        arr, _ = apply_landcover_mask(
-            arr,
-            transform=src.transform,
-            target_crs=src.crs,
-            roi_mask=geom_mask,
-            lc_cfg=lc_cfg,
-        )
-        valid = _valid_mask(arr)
-        if not np.any(valid):
-            raise ValueError(f"AOI contains no valid pixels after masking for raster {url}")
-    if isinstance(raster, GridSlice) and raster.kind == "netcdf":
-        mem.close()
-    return arr
-
-
 def _valid_mask(x: np.ma.MaskedArray) -> np.ndarray:
     """Return boolean mask of valid (non-masked, finite) pixels."""
-    data = np.ma.array(x, copy=False)
-    return (~data.mask) & np.isfinite(data)
+    return valid_mask(x)
 
 
 def _scf_depth_threshold(x: np.ma.MaskedArray, h0: float) -> Tuple[int, int, float]:
@@ -343,7 +228,11 @@ def compute_model_scf(
         date.strftime("%Y-%m-%d"),
         preferred_format=preferred_format,
     )
-    arr = _read_masked_array(slice_, Path(aoi_path), lc_cfg=lc_cfg)
+    arr = read_grid_slice_roi_masked_array(
+        slice_,
+        Path(aoi_path),
+        landcover_cfg=lc_cfg,
+    )
 
     if method == "depth_threshold":
         n_valid, n_snow, scf = _scf_depth_threshold(arr, float(params.h0))
@@ -717,8 +606,6 @@ cli_setup_daily = cli_project_daily
 
 if __name__ == "__main__":
     sys.exit(cli_main())
-
-
 
 
 

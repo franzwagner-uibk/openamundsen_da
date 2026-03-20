@@ -286,6 +286,19 @@ def _check_required_outputs(project_dir: Path, steps_dir: Path) -> None:
             min_count=event_counts["station_swe"],
         )
 
+    _require_files(
+        steps_dir,
+        label="ROI SWE model time series (point_swe_roi.csv)",
+        patterns=("step_*/ensembles/prior/member_*/results/point_swe_roi.csv",),
+        min_count=1,
+    )
+    _require_files(
+        steps_dir,
+        label="ROI snow-depth model time series (point_snow_depth_roi.csv)",
+        patterns=("step_*/ensembles/prior/member_*/results/point_snow_depth_roi.csv",),
+        min_count=1,
+    )
+
 
 def _check_minimal_weight_sanity(steps_dir: Path) -> None:
     weights_files = sorted(steps_dir.glob("step_*/assim/weights_*_*.csv"))

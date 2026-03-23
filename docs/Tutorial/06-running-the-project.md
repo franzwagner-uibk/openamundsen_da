@@ -118,7 +118,7 @@ Note on `grids.dims: [x, y, time]`:
 After a successful run, these paths should exist:
 
 - `/data/rofental/projects/project_2022_2023/plots/perf/project_perf.png`
-- `/data/rofental/projects/project_2022_2023/plots/results/fraction_timeseries.png`
+- `/data/rofental/projects/project_2022_2023/plots/results/result_overview.png`
 - `/data/rofental/projects/project_2022_2023/plots/results/setup_results_point_latschbloder_snow_depth_2022_2023.png`
 - `/data/rofental/projects/project_2022_2023/plots/results/setup_results_point_proviantdepot_swe_2022_2023.png`
 - `/data/rofental/projects/project_2022_2023/point_scf_roi_envelope.csv`
@@ -132,7 +132,7 @@ plots/perf/
   project_perf_metrics.csv
 
 plots/results/
-  fraction_timeseries.png
+  result_overview.png
   lc_mask_report.csv
   point_scf_roi_envelope.csv
   point_wet_snow_roi_envelope.csv
@@ -144,8 +144,8 @@ plots/results/
 
 ![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/project_perf.png)
 
-![Fraction time series (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/fraction_timeseries.png)
+![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/result_overview.png)
 
 Detailed interpretation of these plots is covered in [7. Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}).
 
-Before continuing, verify that the project log ends with a completion message and that `plots/perf/project_perf.png`, `plots/results/fraction_timeseries.png`, and `results/grids/da_output_grids.nc` exist.
+Before continuing, verify that the project log ends with a completion message and that `plots/perf/project_perf.png`, `plots/results/result_overview.png`, and `results/grids/da_output_grids.nc` exist.

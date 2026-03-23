@@ -70,7 +70,7 @@ from openamundsen_da.methods.pf.plot_weights import plot_weights_for_csv
 from openamundsen_da.methods.pf.plot_station_diagnostics import plot_station_diagnostics_for_csv
 from openamundsen_da.methods.pf.plot_ess_timeline import plot_setup_ess_timeline
 from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_envelope
-from openamundsen_da.methods.viz.plot_fraction_timeseries import cli_main as plot_fraction_timeseries_cli
+from openamundsen_da.methods.viz.plot_result_overview import cli_main as plot_result_overview_cli
 from openamundsen_da.methods.viz.plot_project_ensemble import plot_setup_results
 from openamundsen_da.methods.viz.plot_forcing_ensemble import cli_main as plot_forcing_cli
 from openamundsen_da.util.validation import validate_assimilation_requirements
@@ -114,7 +114,9 @@ class PlotTask:
 def _run_plot_task(task: PlotTask) -> tuple[str, str | None]:
     """Execute a PlotTask in a worker process and return (name, error)."""
     try:
-        task.func(*task.args, **task.kwargs)
+        result = task.func(*task.args, **task.kwargs)
+        if isinstance(result, int) and result != 0:
+            return task.name, f"exit code {result}"
         return task.name, None
     except Exception as exc:  # pragma: no cover
         return task.name, str(exc)
@@ -409,11 +411,13 @@ def _run_live_plots(
         logger.info("Updating project plots after assimilation step {} ...", step_name)
         _aggregate_fraction_envelopes(cfg.project_dir)
         try:
-            plot_forcing_cli([
+            rc = plot_forcing_cli([
                 "--step-dir", str(step_dir),
                 "--ensemble", "prior",
                 "--log-level", cfg.log_level,
             ], configure_logger=False)
+            if isinstance(rc, int) and rc != 0:
+                raise RuntimeError(f"plot_forcing_cli returned {rc}")
         except Exception as exc:
             logger.warning("Forcing plot failed for {}: {}", step_name, exc)
         try:
@@ -436,14 +440,16 @@ def _run_live_plots(
         except Exception as exc:
             logger.warning("Setup point results plot failed after step {}: {}", step_name, exc)
         try:
-            plot_fraction_timeseries_cli([
+            rc = plot_result_overview_cli([
                 "--project-dir", str(cfg.project_dir),
                 "--setup-dir", str(cfg.setup_dir),
                 "--log-level", cfg.log_level,
                 "--mode", "band",
             ], configure_logger=False)
+            if isinstance(rc, int) and rc != 0:
+                raise RuntimeError(f"plot_result_overview_cli returned {rc}")
         except Exception as exc:
-            logger.warning("Fraction overlay plot skipped after step {}: {}", step_name, exc)
+            logger.warning("Result overview plot skipped after step {}: {}", step_name, exc)
         plot_weights_for_csv(wcsv)
         if station_diagnostics_csv is not None and station_diagnostics_csv.is_file():
             try:
@@ -986,7 +992,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
     plot_tasks.append(
         PlotTask(
             name="fraction_overlay",
-            func=plot_fraction_timeseries_cli,
+            func=plot_result_overview_cli,
             args=(
                 [
                     "--project-dir",

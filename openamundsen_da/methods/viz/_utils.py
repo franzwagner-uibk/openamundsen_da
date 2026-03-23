@@ -98,34 +98,79 @@ def draw_assim_labels(
     dates: Iterable,
     *,
     labels: Iterable[str] | None = None,
+    colors: Iterable[str] | None = None,
     max_labels: int = 12,
     y_offset_pts: float = 3.0,
     fontsize: float = 8.0,
     color: str = "black",
+    rotation: float = 0.0,
+    va: str = "bottom",
+    row_y_offsets_pts: Iterable[float] | None = None,
+    min_row_spacing_days: float | None = None,
+    axes_y: float = 1.0,
+    ha: str = "center",
+    x_offset_pts: float = 0.0,
 ) -> None:
-    """Draw decimated, upright assimilation labels near the top of the axes."""
-    dates = list(dates)
+    """Draw decimated assimilation labels aligned to dates near the top of the axes."""
+    dates = list(pd.to_datetime(dates))
     label_list = list(labels) if labels is not None else None
     if label_list is not None and len(label_list) != len(dates):
         label_list = None
+    color_list = list(colors) if colors is not None else None
+    if color_list is not None and len(color_list) != len(dates):
+        color_list = None
     if not dates:
         return
     step = max(1, math.ceil(len(dates) / max(1, int(max_labels))))
+    display_items: list[tuple[pd.Timestamp, str, str]] = []
     for i, d in enumerate(dates, start=1):
         if (i - 1) % step != 0:
             continue
         text = label_list[i - 1] if label_list is not None else f"{i}"
+        text_color = color_list[i - 1] if color_list is not None else color
+        display_items.append((d, text, text_color))
+
+    row_offsets = list(row_y_offsets_pts) if row_y_offsets_pts is not None else [y_offset_pts]
+    if not row_offsets:
+        row_offsets = [y_offset_pts]
+
+    if len(display_items) >= 2 and min_row_spacing_days is None:
+        span_days = max(1.0, float((display_items[-1][0] - display_items[0][0]).days))
+        min_row_spacing_days = max(5.0, span_days / 18.0)
+    elif min_row_spacing_days is None:
+        min_row_spacing_days = 5.0
+
+    row_last_dates: list[pd.Timestamp | None] = [None] * len(row_offsets)
+    for d, text, text_color in display_items:
+        row_idx = 0
+        if len(row_offsets) > 1:
+            chosen_idx = None
+            for idx, last_dt in enumerate(row_last_dates):
+                if last_dt is None:
+                    chosen_idx = idx
+                    break
+                delta_days = (d - last_dt).total_seconds() / 86400.0
+                if delta_days >= float(min_row_spacing_days):
+                    chosen_idx = idx
+                    break
+            if chosen_idx is None:
+                chosen_idx = min(
+                    range(len(row_last_dates)),
+                    key=lambda idx: row_last_dates[idx] or pd.Timestamp.min,
+                )
+            row_idx = chosen_idx
+        row_last_dates[row_idx] = d
         ax.annotate(
             text,
-            xy=(d, 1.0),
+            xy=(d, axes_y),
             xycoords=("data", "axes fraction"),
-            xytext=(0, y_offset_pts),
+            xytext=(x_offset_pts, row_offsets[row_idx]),
             textcoords="offset points",
-            ha="center",
-            va="bottom",
+            ha=ha,
+            va=va,
             fontsize=fontsize,
-            color=color,
-            rotation=0,
+            color=text_color,
+            rotation=rotation,
             rotation_mode="anchor",
             clip_on=False,
         )
@@ -170,11 +215,48 @@ def draw_assimilation_markers(
         )
 
 
-def apply_fraction_grid(ax, *, y_step: float = 0.1) -> None:
-    """Apply consistent grid styling for fraction plots."""
+def plot_haloed_line(
+    ax,
+    x,
+    y,
+    *,
+    color: str,
+    lw: float,
+    label: str = "_nolegend_",
+    zorder: int = 10,
+    halo_color: str = "white",
+    halo_lw_add: float = 1.6,
+) -> None:
+    """Draw a line with a thin white underlay to keep it readable over dense traces."""
+    ax.plot(
+        x,
+        y,
+        "-",
+        color=halo_color,
+        lw=lw + halo_lw_add,
+        label="_nolegend_",
+        zorder=max(0, zorder - 1),
+        solid_capstyle="round",
+    )
+    ax.plot(
+        x,
+        y,
+        "-",
+        color=color,
+        lw=lw,
+        label=label,
+        zorder=zorder,
+        solid_capstyle="round",
+    )
+
+
+def apply_fraction_grid(ax, *, y_step: float | None = 0.1) -> None:
+    """Apply consistent grid styling for result overview plots."""
     from matplotlib.ticker import MultipleLocator
     import matplotlib.dates as mdates
 
     ax.xaxis.set_major_locator(mdates.MonthLocator())
-    ax.yaxis.set_major_locator(MultipleLocator(y_step))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
+    if y_step is not None:
+        ax.yaxis.set_major_locator(MultipleLocator(y_step))
     ax.grid(True, axis="both", alpha=0.5, linestyle="--", linewidth=0.8)

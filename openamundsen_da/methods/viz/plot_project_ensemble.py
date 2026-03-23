@@ -54,6 +54,7 @@ from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.methods.viz._style import (
     BAND_ALPHA,
+    COLOR_MEMBER,
     COLOR_MEAN,
     COLOR_OPEN_LOOP,
     LEGEND_NCOL,
@@ -195,6 +196,39 @@ def _draw_assim(ax, dates: Sequence[datetime]) -> None:
 def _draw_assim_labels(ax, dates: Sequence[datetime]) -> None:
     """Draw per-assimilation labels centered on each vline above the axes."""
     draw_assim_labels(ax, dates, labels=None, max_labels=12, y_offset_pts=3.0, fontsize=FS_ASSIM_LABEL, color="black")
+
+
+def _station_obs_color(var_col: str) -> str:
+    return COLOR_DA_OBS
+
+
+def _station_model_color(var_col: str) -> str:
+    key = str(var_col or "").strip().lower()
+    if key in {"snow_depth", "hs"}:
+        return "#cf7a20"
+    if key == "swe":
+        return "#7a58b5"
+    return COLOR_MEAN
+
+
+def _apply_result_axis_ticks(ax, var_col: str) -> None:
+    import math
+    from matplotlib.ticker import MultipleLocator
+
+    key = str(var_col or "").strip().lower()
+    data_max = max(0.0, float(getattr(ax.dataLim, "ymax", 0.0) or 0.0))
+    if key == "swe":
+        step_options = [50.0, 100.0]
+    elif key in {"snow_depth", "hs"}:
+        step_options = [0.25, 0.5, 1.0]
+    else:
+        return
+
+    step = next((candidate for candidate in step_options if data_max <= candidate * 4.0), step_options[-1])
+    upper = step * 4.0 if data_max <= step * 4.0 else math.ceil(data_max / step) * step
+    ax.set_ylim(0.0, upper)
+    ax.yaxis.set_major_locator(MultipleLocator(step))
+    ax.yaxis.set_minor_locator(MultipleLocator(step / 2.0))
 
 
 def _format_assim_summary(dates: Sequence[datetime]) -> str:
@@ -725,63 +759,49 @@ def plot_setup_results(
             obs_series = station_obs.get(display_token.lower())
 
         # Members or band + ensemble mean (stepwise, to avoid jumps after resampling)
-        if mode == "members":
-            for s in member_series:
-                ax.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.9, label="_nolegend_")
-            mean, _, _ = envelope(member_series, q_low=band_low, q_high=band_high)
-            if not mean.empty:
-                _plot_stepwise_mean(
-                    ax,
-                    mean,
-                    steps,
-                    label="ensemble mean",
-                    lw=LW_MEAN,
-                    color=COLOR_MEAN,
-                    zorder=4,
-                )
-        else:
-            mem_for_env: List[pd.Series] = []
-            for s in member_series:
-                mem_for_env.append(s)
-            mean, lo, hi = envelope(mem_for_env, q_low=band_low, q_high=band_high)
-            if not mean.empty:
-                label_band = f"{int(band_low*100)}-{int(band_high*100)}% band"
-                ax.fill_between(
-                    mean.index,
-                    lo,
-                    hi,
-                    color=COLOR_MEAN,
-                    alpha=BAND_ALPHA,
-                    label=label_band,
-                    zorder=2,
-                )
-                _plot_stepwise_mean(
-                    ax,
-                    mean,
-                    steps,
-                    label="ensemble mean",
-                    lw=LW_MEAN,
-                    color=COLOR_MEAN,
-                    zorder=4,
-                )
-        # Station observations (line) on top of ensemble/open loop
+        station_obs_color = _station_obs_color(var_col)
+        station_model_color = _station_model_color(var_col)
+        mean, lo, hi = envelope(member_series, q_low=0.0, q_high=1.0)
+        if not mean.empty:
+            ax.fill_between(
+                mean.index,
+                lo,
+                hi,
+                color=station_model_color,
+                alpha=BAND_ALPHA,
+                label="_nolegend_",
+                zorder=2,
+            )
+            _plot_stepwise_mean(
+                ax,
+                mean,
+                steps,
+                label="ensemble mean (variable color)",
+                lw=LW_MEAN,
+                color=station_model_color,
+                zorder=4,
+            )
+        if open_loop:
+            ol = concat_series(open_loop)
+            if not ol.empty:
+                ax.plot(ol.index, ol.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open loop (model)", zorder=5)
+
+        # Station observations stay visually dominant over all model traces.
         if obs_series is not None and not obs_series.empty:
             ax.plot(
                 obs_series.index,
                 obs_series.values,
-                color=COLOR_DA_OBS,
+                "-",
+                color=station_obs_color,
                 lw=LW_DA_OBS,
-                label="station obs",
+                label="station observation",
                 zorder=6,
             )
 
-        if open_loop:
-            ol = concat_series(open_loop)
-            if not ol.empty:
-                ax.plot(ol.index, ol.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open loop", zorder=5)
-
         ax.set_ylabel(var_title)
         ax.grid(True, ls=GRID_LS, lw=GRID_LW, alpha=GRID_ALPHA)
+        _apply_result_axis_ticks(ax, var_col)
+        ax.grid(True, which="minor", axis="y", alpha=0.28, linestyle="--", linewidth=0.5)
 
         # Assimilation markers and labels
         _draw_assim(ax, assim_dates)
@@ -808,19 +828,10 @@ def plot_setup_results(
 
         handles, labels = ax.get_legend_handles_labels()
         if handles:
-            # Keep a compact legend with key elements only:
-            # ensemble mean, open loop, assimilation markers, and station observations.
-            want = {"ensemble mean", "open loop", "assimilation", "station obs"}
-            filtered = []
-            seen = set()
-            for h, l in zip(handles, labels):
-                if l == "_nolegend_":
-                    continue
-                if l in want and l not in seen:
-                    filtered.append((h, l))
-                    seen.add(l)
+            filtered = [(h, l) for h, l in zip(handles, labels) if l != "_nolegend_"]
             if filtered:
                 handles, labels = zip(*filtered)
+                handles, labels = dedupe_legend(list(handles), list(labels))
                 ax.legend(
                     handles,
                     labels,
@@ -974,4 +985,3 @@ def _cli(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_cli())
-

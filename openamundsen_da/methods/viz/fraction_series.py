@@ -1,4 +1,4 @@
-"""Helpers for loading setup-level time series and fraction plot defaults."""
+"""Helpers for loading setup-level time series and result overview defaults."""
 
 from __future__ import annotations
 
@@ -63,13 +63,13 @@ def default_fraction_obs_path(setup_dir: Path, setup_name: str, filename: str) -
     return candidates[0]
 
 
-def default_fraction_plot_output(project_dir: Path, output: Path | None) -> Path:
-    """Return the output path for the combined fraction time-series plot."""
+def default_result_overview_output(project_dir: Path, output: Path | None) -> Path:
+    """Return the output path for the default setup-level result overview plot."""
     if output is not None:
         return output
     out_dir = project_dir / "plots" / "results"
     out_dir.mkdir(parents=True, exist_ok=True)
-    return out_dir / "fraction_timeseries.png"
+    return out_dir / "result_overview.png"
 
 
 def load_open_loop_fraction_series(project_dir: Path, filename: str, value_col: str) -> pd.DataFrame | None:

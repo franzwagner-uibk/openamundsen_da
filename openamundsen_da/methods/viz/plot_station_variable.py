@@ -102,7 +102,7 @@ def plot_station_variable(
 
     var_title = _pretty_var_title(var_col, var_label, var_units)
 
-    fig, ax = plt.subplots(figsize=(10.0, 4.2))
+    fig, ax = plt.subplots(figsize=(8.5, 4.2))
     ax.plot(series.index, series.values, color="#1f77b4", lw=1.8)
     ax.set_xlabel("Time")
     ax.set_ylabel(var_title)
@@ -160,4 +160,3 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-

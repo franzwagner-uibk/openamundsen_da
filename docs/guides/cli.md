@@ -24,7 +24,7 @@ Complete reference for all CLI commands.
 
 ## Overview
 
-The package provides **16 CLI entry points** for workflow automation, organized into 5 categories:
+The package provides **17 CLI entry points** for workflow automation, organized into 5 categories:
 
 1. **Core Workflow** - Main pipeline commands
 2. **Data Assimilation** - data assimilation-specific operations
@@ -384,21 +384,22 @@ Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PR
 
 ## Visualization
 
-### oa-da-plot-scf
+### oa-da-plot-result-overview
 
-**SCF time series plots**
+**Setup result overview**
 
-Plots the combined setup time-series overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only.
+Plots the combined setup result overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. If `<project-dir>/result_overview_custom.yml` exists, the pipeline additionally writes `result_overview_custom.png` with the configured panel list.
 
 ```bash
-oa-da-plot-scf \
-  --setup-dir PATH \
+oa-da-plot-result-overview \
   --project-dir PATH \
+  [--setup-dir PATH] \
   [OPTIONS]
 ```
 
 **Output:**
-- `plots/results/fraction_timeseries.png`
+- `plots/results/result_overview.png`
+- `plots/results/result_overview_custom.png` when `<project-dir>/result_overview_custom.yml` is present
 
 ---
 

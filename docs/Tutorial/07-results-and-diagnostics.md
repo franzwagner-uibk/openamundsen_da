@@ -210,7 +210,7 @@ This directory contains the main user-facing validation and data assimilation re
 
 Typical files include:
 
-- `fraction_timeseries.png` (SCF, wet-snow, ROI mean SWE, and ROI mean snow depth over time)
+- `result_overview.png` (SCF, wet-snow, ROI mean SWE, and ROI mean snow depth over time)
 - station snow depth plots
 - station SWE plots
 - ROI envelope exports and land-cover masking report
@@ -219,7 +219,7 @@ Reference structure snippet (`plots/results`, typical files)
 
 ```text
 /data/rofental/projects/project_2022_2023/plots/results/
-  fraction_timeseries.png
+  result_overview.png
   lc_mask_report.csv
   setup_results_point_latschbloder_snow_depth_2022_2023.png
   setup_results_point_latschbloder_swe_2022_2023.png
@@ -228,9 +228,9 @@ Reference structure snippet (`plots/results`, typical files)
 ```
 
 
-### Fraction time series (high-level data assimilation behavior)
+### Result overview (high-level data assimilation behavior)
 
-`fraction_timeseries.png` is often the fastest way to inspect:
+`result_overview.png` is often the fastest way to inspect:
 
 - observation dates actually used,
 - model-vs-observation fraction behavior,
@@ -283,7 +283,7 @@ How to use this table:
 
 Recommended plot files to inspect (Rofental tutorial run):
 
-- `/data/rofental/projects/project_2022_2023/plots/results/fraction_timeseries.png`
+- `/data/rofental/projects/project_2022_2023/plots/results/result_overview.png`
 - `/data/rofental/projects/project_2022_2023/plots/results/setup_results_point_latschbloder_snow_depth_2022_2023.png`
 - `/data/rofental/projects/project_2022_2023/plots/results/setup_results_point_proviantdepot_snow_depth_2022_2023.png`
 - `/data/rofental/projects/project_2022_2023/plots/results/setup_results_point_latschbloder_swe_2022_2023.png`
@@ -292,7 +292,7 @@ Recommended plot files to inspect (Rofental tutorial run):
 <details markdown="block">
   <summary>Suggested plot review order (practical)</summary>
 
-1. `fraction_timeseries.png` (observation timing and availability)
+1. `result_overview.png` (observation timing and availability)
 2. ESS / weights plots (data assimilation behavior)
 3. Station snow depth plots
 4. Station SWE plots
@@ -301,11 +301,11 @@ Recommended plot files to inspect (Rofental tutorial run):
 
 ### Reference plots (tutorial baseline)
 
-Fraction time series:
+Result overview:
 
-![Fraction time series (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/fraction_timeseries.png)
+![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/result_overview.png)
 
-_`fraction_timeseries.png`: check observation dates, SCF/wet-snow event timing, ROI mean SWE / snow-depth behavior, and gross model-vs-observation behavior._
+_`result_overview.png`: check observation dates, SCF/wet-snow event timing, ROI mean SWE / snow-depth behavior, and gross model-vs-observation behavior._
 
 What to read in this plot:
 
@@ -534,7 +534,7 @@ Interpretation:
 > 1. Log ends with `Project processing complete`
 > 2. `plots/perf/project_perf.png` exists
 > 3. `plots/assim/` contains ESS and weight plots
-> 4. `plots/results/fraction_timeseries.png` exists
+> 4. `plots/results/result_overview.png` exists
 > 5. Station plots exist (snow depth and SWE)
 > 6. `point_scf_roi_envelope.csv` and `point_wet_snow_roi_envelope.csv` exist
 > 7. `results/grids/da_output_grids.nc` exists and opens

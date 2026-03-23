@@ -61,6 +61,7 @@ from openamundsen_da.methods.pf.assimilate_station import (
 )
 from openamundsen_da.pipeline.cleanup import cleanup_setup_dir, is_cleanup_enabled, state_patterns_from_setup
 from openamundsen_da.methods.h_of_x.model_scf import compute_step_scf_daily_for_all_members
+from openamundsen_da.methods.roi_mean import compute_step_roi_mean_daily_for_all_members
 from openamundsen_da.methods.wet_snow.classify import classify_step_wet_snow
 from openamundsen_da.methods.wet_snow.area import compute_step_wet_snow_daily_for_all_members
 from openamundsen_da.methods.pf.rejuvenate import rejuvenate
@@ -215,6 +216,75 @@ def _aggregate_fraction_envelopes(setup_dir: Path) -> None:
         )
     except Exception as exc:
         logger.warning("Wet-snow envelope aggregation failed: {}", exc)
+
+
+def _compute_prior_step_diagnostics(
+    *,
+    cfg: "OrchestratorConfig",
+    step_dir: Path,
+    roi: Path,
+    lc_cfg: LandcoverMaskConfig,
+    workers: int,
+    scf_enabled: bool,
+    wet_snow_enabled: bool,
+    wet_snow_threshold: float,
+) -> None:
+    """Compute setup-level prior diagnostics that depend on propagated member outputs."""
+    step_name = Path(step_dir).name
+
+    try:
+        if scf_enabled:
+            compute_step_scf_daily_for_all_members(
+                setup_dir=cfg.setup_dir,
+                project_dir=cfg.project_dir,
+                step_dir=step_dir,
+                aoi_path=roi,
+                landcover_cfg=lc_cfg,
+                max_workers=int(workers),
+                overwrite=bool(cfg.overwrite),
+            )
+    except Exception as exc:
+        logger.warning("Model SCF daily computation failed for {}: {}", step_name, exc)
+
+    for variable in ("swe", "hs"):
+        try:
+            compute_step_roi_mean_daily_for_all_members(
+                step_dir=step_dir,
+                aoi_path=roi,
+                variable=variable,
+                max_workers=int(workers),
+                overwrite=bool(cfg.overwrite),
+            )
+        except Exception as exc:
+            logger.warning("ROI mean {} daily computation failed for {}: {}", variable, step_name, exc)
+
+    try:
+        if wet_snow_enabled:
+            classify_step_wet_snow(
+                step_dir=step_dir,
+                members=None,
+                threshold_percent=wet_snow_threshold,
+                output_subdir="wet_snow",
+                mask_prefix="wet_snow_mask",
+                fraction_prefix="lwc_fraction",
+                write_fraction=False,
+                overwrite=bool(cfg.overwrite),
+                max_workers=int(workers),
+            )
+            compute_step_wet_snow_daily_for_all_members(
+                setup_dir=cfg.setup_dir,
+                project_dir=cfg.project_dir,
+                step_dir=step_dir,
+                aoi_path=roi,
+                landcover_cfg=lc_cfg,
+                max_workers=int(workers),
+                overwrite=bool(cfg.overwrite),
+                mask_subdir="wet_snow",
+                mask_prefix="wet_snow_mask",
+            )
+    except Exception as exc:
+        logger.warning("Model wet-snow diagnostics failed for {}: {}", step_name, exc)
+
 
 def _write_station_diagnostics(
     *,
@@ -667,53 +737,16 @@ def run_project(cfg: OrchestratorConfig) -> None:
         if launch_summary.get("summary", {}).get("failed", 0) > 0:
             member_failures = True
 
-        # After propagation: compute daily model SCF for all prior members in
-        # this step so that project-level plots can use var_col='scf' via the
-        # generated point_scf_roi.csv files.
-        try:
-            if scf_enabled:
-                compute_step_scf_daily_for_all_members(
-                    setup_dir=cfg.setup_dir,
-                    project_dir=cfg.project_dir,
-                    step_dir=step_dir,
-                    aoi_path=roi,
-                    landcover_cfg=lc_cfg,
-                    max_workers=int(workers),
-                    overwrite=bool(cfg.overwrite),
-                )
-        except Exception as exc:
-            logger.warning("Model SCF daily computation failed for {}: {}", step_name, exc)
-
-        # After propagation: also compute model wet-snow diagnostics (masks +
-        # daily AOI fractions) for all prior members in this step so that
-        # wet-snow plots are always available regardless of which observable
-        # is assimilated.
-        try:
-            if wet_snow_enabled:
-                classify_step_wet_snow(
-                    step_dir=step_dir,
-                    members=None,
-                    threshold_percent=wet_snow_threshold,
-                    output_subdir="wet_snow",
-                    mask_prefix="wet_snow_mask",
-                    fraction_prefix="lwc_fraction",
-                    write_fraction=False,
-                    overwrite=bool(cfg.overwrite),
-                    max_workers=int(workers),
-                )
-                compute_step_wet_snow_daily_for_all_members(
-                    setup_dir=cfg.setup_dir,
-                    project_dir=cfg.project_dir,
-                    step_dir=step_dir,
-                    aoi_path=roi,
-                    landcover_cfg=lc_cfg,
-                    max_workers=int(workers),
-                    overwrite=bool(cfg.overwrite),
-                    mask_subdir="wet_snow",
-                    mask_prefix="wet_snow_mask",
-                )
-        except Exception as exc:
-            logger.warning("Model wet-snow diagnostics failed for {}: {}", step_name, exc)
+        _compute_prior_step_diagnostics(
+            cfg=cfg,
+            step_dir=step_dir,
+            roi=roi,
+            lc_cfg=lc_cfg,
+            workers=int(workers),
+            scf_enabled=scf_enabled,
+            wet_snow_enabled=wet_snow_enabled,
+            wet_snow_threshold=wet_snow_threshold,
+        )
 
         # If not the last step: Assimilation -> Resample -> Rejuvenate
         next_start = _next_step_start(steps, i)

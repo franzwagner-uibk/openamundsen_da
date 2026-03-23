@@ -388,7 +388,7 @@ Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PR
 
 **SCF time series plots**
 
-Plots observed and modeled SCF time series.
+Plots the combined setup time-series overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only.
 
 ```bash
 oa-da-plot-scf \
@@ -591,5 +591,3 @@ docker compose run --rm oa oa-da-snowcover \
 - [Configuration Guide]({{ site.baseurl }}{% link guides/configuration.md %}) - Configure commands via YAML
 - [Running Experiments]({{ site.baseurl }}{% link guides/experiments/index.md %}) - End-to-end workflow
 - [Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) - Common issues
-
-

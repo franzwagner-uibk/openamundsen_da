@@ -105,6 +105,7 @@ Framework/tooling config:
   - required per-step SCF and wet-snow obs CSVs
   - required SCF and wet-snow weights CSVs
   - required model result artifacts (`point_*.csv`, `*.nc`)
+  - required ROI mean SWE / snow-depth member CSVs
   - required plot outputs (forcing, results, assimilation)
   - weight CSV numeric sanity (valid range and sum to 1.0)
 - Integration log contracts:
@@ -259,6 +260,5 @@ From repository root:
 - run sub-domain integration wrapper: `bash scripts/ci/run_integration_tests_subdomain.sh`
 
 Use same scripts as CI to avoid drift between local and server behavior.
-
 
 

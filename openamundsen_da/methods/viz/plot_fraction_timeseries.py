@@ -1,4 +1,4 @@
-﻿"""Plot SCF and wet-snow fraction time series for one project."""
+﻿"""Plot project-level SCF, wet-snow, and ROI SWE/snow-depth time series."""
 
 from __future__ import annotations
 
@@ -13,10 +13,12 @@ from openamundsen_da.methods.viz.fraction_series import (
     default_fraction_obs_path,
     default_fraction_plot_output,
     load_fraction_series,
+    load_member_series,
     load_open_loop_fraction_series,
 )
 from openamundsen_da.observer.plot_scf_summary import _load_summary as _load_scf_obs
 from openamundsen_da.util.da_events import load_assimilation_events
+from openamundsen_da.util.stats import envelope
 from openamundsen_da.methods.viz._utils import (
     draw_assimilation_markers,
     draw_assimilation_vlines,
@@ -62,8 +64,12 @@ def plot_fraction_timeseries(
     assim_station_swe: Optional[list[pd.Timestamp]] = None,
     assim_labels: Optional[dict[pd.Timestamp, str]] = None,
     mode: str = "band",
+    roi_swe_model: Optional[pd.DataFrame] = None,
+    roi_swe_members: Optional[list[pd.Series]] = None,
+    roi_snow_depth_model: Optional[pd.DataFrame] = None,
+    roi_snow_depth_members: Optional[list[pd.Series]] = None,
 ) -> None:
-    """Render SCF and wet-snow series into one PNG (obs + ensemble bands)."""
+    """Render setup-wide fraction and ROI mean series into one PNG."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -71,11 +77,13 @@ def plot_fraction_timeseries(
 
     has_scf = scf_obs is not None or scf_model is not None
     has_wet = wet_obs is not None or wet_model is not None
+    has_roi_swe = roi_swe_model is not None or bool(roi_swe_members)
+    has_roi_snow_depth = roi_snow_depth_model is not None or bool(roi_snow_depth_members)
     if scf_env is not None:
         has_scf = True
     if wet_env is not None:
         has_wet = True
-    n_axes = int(has_scf) + int(has_wet)
+    n_axes = int(has_scf) + int(has_wet) + int(has_roi_swe) + int(has_roi_snow_depth)
     if n_axes == 0:
         raise ValueError("No data available to plot.")
 
@@ -105,6 +113,8 @@ def plot_fraction_timeseries(
     wet_labels = _label_tuples(assim_wet)
     station_hs_dates = sorted(set(pd.to_datetime(assim_station_hs or [])))
     station_swe_dates = sorted(set(pd.to_datetime(assim_station_swe or [])))
+    station_hs_labels = _label_tuples(assim_station_hs)
+    station_swe_labels = _label_tuples(assim_station_swe)
     mode = (mode or "band").lower()
     if mode not in {"band", "members"}:
         mode = "band"
@@ -124,27 +134,52 @@ def plot_fraction_timeseries(
             return None
         return min(mins), max(maxs)
 
-    def _draw_station_da(ax) -> None:
-        if station_hs_dates:
+    def _draw_panel_vlines(
+        ax,
+        dates: list[pd.Timestamp],
+        *,
+        color: str,
+        ls: str,
+    ) -> None:
+        if dates:
             draw_assimilation_vlines(
                 ax,
-                station_hs_dates,
-                color=COLOR_DA_STATION_HS,
-                ls=LS_DA_STATION_HS,
+                dates,
+                color=color,
+                ls=ls,
                 lw=LW_DA_STATION,
                 alpha=0.95,
                 label="_nolegend_",
             )
-        if station_swe_dates:
-            draw_assimilation_vlines(
-                ax,
-                station_swe_dates,
-                color=COLOR_DA_STATION_SWE,
-                ls=LS_DA_STATION_SWE,
-                lw=LW_DA_STATION,
-                alpha=0.95,
-                label="_nolegend_",
-            )
+
+    def _roi_band_frame(member_series: Optional[list[pd.Series]]) -> pd.DataFrame | None:
+        if not member_series:
+            return None
+        mean, lo, hi = envelope(member_series, q_low=0.05, q_high=0.95)
+        if mean.empty:
+            return None
+        return pd.DataFrame(
+            {
+                "date": mean.index,
+                "value_mean": mean.values,
+                "value_min": lo.values,
+                "value_max": hi.values,
+            }
+        )
+
+    def _draw_panel_assim_labels(ax, labels: list[tuple[pd.Timestamp, str]]) -> None:
+        draw_assim_labels(
+            ax,
+            [d for d, _ in labels],
+            labels=[lbl for _, lbl in labels] if labels else None,
+            max_labels=12,
+            y_offset_pts=3.0,
+            fontsize=8.0,
+            color="black",
+        )
+
+    roi_swe_env = _roi_band_frame(roi_swe_members)
+    roi_snow_depth_env = _roi_band_frame(roi_snow_depth_members)
 
     if has_scf:
         ax = axes[idx]
@@ -168,7 +203,6 @@ def plot_fraction_timeseries(
             )
         if scf_obs is not None and not scf_obs.empty:
             ax.plot(scf_obs["date"], scf_obs["scf"], "o", ms=5, color="tab:orange", label="SCF obs")
-        _draw_station_da(ax)
         if assim_scf:
             draw_assimilation_markers(
                 ax,
@@ -181,33 +215,7 @@ def plot_fraction_timeseries(
                 linewidth=LW_DA_OBS,
             )
         # Draw SCF DA labels on the SCF panel.
-        draw_assim_labels(
-            ax,
-            [d for d, _ in scf_labels],
-            labels=[lbl for _, lbl in scf_labels] if scf_labels else None,
-            max_labels=12,
-            y_offset_pts=3.0,
-            fontsize=8.0,
-            color="black",
-        )
-        draw_assim_labels(
-            ax,
-            station_hs_dates,
-            labels=["HS"] * len(station_hs_dates) if station_hs_dates else None,
-            max_labels=12,
-            y_offset_pts=12.0,
-            fontsize=8.0,
-            color=COLOR_DA_STATION_HS,
-        )
-        draw_assim_labels(
-            ax,
-            station_swe_dates,
-            labels=["SWE"] * len(station_swe_dates) if station_swe_dates else None,
-            max_labels=12,
-            y_offset_pts=12.0,
-            fontsize=8.0,
-            color=COLOR_DA_STATION_SWE,
-        )
+        _draw_panel_assim_labels(ax, scf_labels)
         ax.set_ylabel("Snow cover fraction")
         ax.set_ylim(0, 1)
         h, l = ax.get_legend_handles_labels()
@@ -247,7 +255,6 @@ def plot_fraction_timeseries(
             )
         if wet_obs is not None and not wet_obs.empty:
             ax.plot(wet_obs["date"], wet_obs["wet_snow_fraction"], "o", ms=5, color="tab:red", label="Wet-snow obs")
-        _draw_station_da(ax)
         if assim_wet:
             draw_assimilation_markers(
                 ax,
@@ -260,33 +267,7 @@ def plot_fraction_timeseries(
                 linewidth=LW_DA_OBS,
             )
         # Always draw wet-snow DA labels on the wet-snow panel.
-        draw_assim_labels(
-            ax,
-            [d for d, _ in wet_labels],
-            labels=[lbl for _, lbl in wet_labels] if wet_labels else None,
-            max_labels=12,
-            y_offset_pts=3.0,
-            fontsize=8.0,
-            color="black",
-        )
-        draw_assim_labels(
-            ax,
-            station_hs_dates,
-            labels=["HS"] * len(station_hs_dates) if station_hs_dates else None,
-            max_labels=12,
-            y_offset_pts=12.0,
-            fontsize=8.0,
-            color=COLOR_DA_STATION_HS,
-        )
-        draw_assim_labels(
-            ax,
-            station_swe_dates,
-            labels=["SWE"] * len(station_swe_dates) if station_swe_dates else None,
-            max_labels=12,
-            y_offset_pts=12.0,
-            fontsize=8.0,
-            color=COLOR_DA_STATION_SWE,
-        )
+        _draw_panel_assim_labels(ax, wet_labels)
         ax.set_ylabel("Wet snow fraction")
         ax.set_ylim(0, 1)
         h, l = ax.get_legend_handles_labels()
@@ -302,10 +283,116 @@ def plot_fraction_timeseries(
             handletextpad=0.4,
         )
         apply_fraction_grid(ax, y_step=0.1)
+        idx += 1
+
+    if has_roi_swe:
+        ax = axes[idx]
+        if roi_swe_env is not None and not roi_swe_env.empty:
+            ax.fill_between(
+                roi_swe_env["date"],
+                roi_swe_env["value_min"],
+                roi_swe_env["value_max"],
+                color="#77b5d9",
+                alpha=0.35,
+                label="5-95% band",
+            )
+            ax.plot(
+                roi_swe_env["date"],
+                roi_swe_env["value_mean"],
+                "-",
+                color="#2b6f9e",
+                alpha=0.95,
+                label="ensemble mean",
+            )
+        if roi_swe_model is not None and not roi_swe_model.empty:
+            ax.plot(
+                roi_swe_model["date"],
+                roi_swe_model["swe"],
+                "-",
+                color="black",
+                label="open loop",
+            )
+        _draw_panel_vlines(
+            ax,
+            station_swe_dates,
+            color=COLOR_DA_STATION_SWE,
+            ls=LS_DA_STATION_SWE,
+        )
+        _draw_panel_assim_labels(ax, station_swe_labels)
+        ax.set_ylabel("ROI mean SWE [mm]")
+        h, l = ax.get_legend_handles_labels()
+        h, l = dedupe_legend(h, l)
+        if h:
+            ax.legend(
+                h,
+                l,
+                loc="upper left",
+                fontsize=8.5,
+                labelspacing=0.3,
+                borderpad=0.3,
+                handlelength=1.2,
+                handletextpad=0.4,
+            )
+        ax.grid(True, ls=":", lw=0.6, alpha=0.5)
+        idx += 1
+
+    if has_roi_snow_depth:
+        ax = axes[idx]
+        if roi_snow_depth_env is not None and not roi_snow_depth_env.empty:
+            ax.fill_between(
+                roi_snow_depth_env["date"],
+                roi_snow_depth_env["value_min"],
+                roi_snow_depth_env["value_max"],
+                color="#8ec07c",
+                alpha=0.35,
+                label="5-95% band",
+            )
+            ax.plot(
+                roi_snow_depth_env["date"],
+                roi_snow_depth_env["value_mean"],
+                "-",
+                color="#4c8a3f",
+                alpha=0.95,
+                label="ensemble mean",
+            )
+        if roi_snow_depth_model is not None and not roi_snow_depth_model.empty:
+            ax.plot(
+                roi_snow_depth_model["date"],
+                roi_snow_depth_model["snow_depth"],
+                "-",
+                color="black",
+                label="open loop",
+            )
+        _draw_panel_vlines(
+            ax,
+            station_hs_dates,
+            color=COLOR_DA_STATION_HS,
+            ls=LS_DA_STATION_HS,
+        )
+        _draw_panel_assim_labels(ax, station_hs_labels)
+        ax.set_ylabel("ROI mean snow depth [m]")
+        h, l = ax.get_legend_handles_labels()
+        h, l = dedupe_legend(h, l)
+        if h:
+            ax.legend(
+                h,
+                l,
+                loc="upper left",
+                fontsize=8.5,
+                labelspacing=0.3,
+                borderpad=0.3,
+                handlelength=1.2,
+                handletextpad=0.4,
+            )
+        ax.grid(True, ls=":", lw=0.6, alpha=0.5)
 
     x_bounds = _date_bounds(scf_model, wet_model, scf_env, wet_env)
     if x_bounds is None:
-        x_bounds = _date_bounds(scf_obs, wet_obs)
+        x_bounds = _date_bounds(scf_obs, wet_obs, roi_swe_model, roi_snow_depth_model, roi_swe_env, roi_snow_depth_env)
+    else:
+        more_bounds = _date_bounds(roi_swe_model, roi_snow_depth_model, roi_swe_env, roi_snow_depth_env)
+        if more_bounds is not None:
+            x_bounds = (min(x_bounds[0], more_bounds[0]), max(x_bounds[1], more_bounds[1]))
     if x_bounds is not None:
         for ax in axes:
             ax.set_xlim(*x_bounds)
@@ -321,7 +408,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     """CLI entry point."""
     parser = argparse.ArgumentParser(
         prog="oa-da-plot-fractions",
-        description="Plot SCF and wet-snow fractions (obs and model) in one figure.",
+        description="Plot SCF, wet-snow, and ROI mean SWE/snow depth diagnostics in one figure.",
     )
     parser.add_argument("--project-dir", required=True, type=Path, help="Project directory (setup/projects/project_YYYY_YYYY)")
     parser.add_argument("--setup-dir", type=Path, help="Setup directory (default: project_dir/../..)")
@@ -357,6 +444,10 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
         scf_model = load_open_loop_fraction_series(project_dir, "point_scf_roi.csv", "scf")
     if wet_model is None:
         wet_model = load_open_loop_fraction_series(project_dir, "point_wet_snow_roi.csv", "wet_snow_fraction")
+    roi_swe_model = load_open_loop_fraction_series(project_dir, "point_swe_roi.csv", "swe")
+    roi_swe_members = load_member_series(project_dir, "point_swe_roi.csv", "swe")
+    roi_snow_depth_model = load_open_loop_fraction_series(project_dir, "point_snow_depth_roi.csv", "snow_depth")
+    roi_snow_depth_members = load_member_series(project_dir, "point_snow_depth_roi.csv", "snow_depth")
     scf_env = load_fraction_series(scf_env_path, "value_mean")
     if scf_env is not None and not scf_env.empty and {"value_min", "value_max"}.issubset(scf_env.columns) is False:
         scf_env = None
@@ -378,7 +469,10 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     assim_station_hs = [pd.to_datetime(ev.date) for ev in assim_events if ev.variable == "station_hs"]
     assim_station_swe = [pd.to_datetime(ev.date) for ev in assim_events if ev.variable == "station_swe"]
 
-    if all(x is None or x.empty for x in (scf_obs, wet_obs, scf_model, wet_model, scf_env, wet_env)):
+    if all(
+        x is None or x.empty
+        for x in (scf_obs, wet_obs, scf_model, wet_model, scf_env, wet_env, roi_swe_model, roi_snow_depth_model)
+    ) and not roi_swe_members and not roi_snow_depth_members:
         logger.error("No data available to plot. Provide at least one obs/model series.")
         return 1
 
@@ -404,6 +498,10 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
             assim_station_swe=assim_station_swe,
             assim_labels=assim_labels,
             mode=str(args.mode or "band"),
+            roi_swe_model=roi_swe_model,
+            roi_swe_members=roi_swe_members,
+            roi_snow_depth_model=roi_snow_depth_model,
+            roi_snow_depth_members=roi_snow_depth_members,
         )
     except ModuleNotFoundError as exc:
         logger.error("matplotlib is required to plot: {}", exc)

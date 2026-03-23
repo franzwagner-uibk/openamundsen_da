@@ -1,12 +1,14 @@
-"""Helpers for loading fraction time series and default fraction plot paths."""
+"""Helpers for loading setup-level time series and fraction plot defaults."""
 
 from __future__ import annotations
 
+from collections import defaultdict
 from pathlib import Path
 
 import pandas as pd
 
-from openamundsen_da.io.paths import list_step_dirs
+from openamundsen_da.io.paths import list_member_dirs, list_step_dirs
+from openamundsen_da.util.ts import concat_series
 
 
 def parse_fraction_dates(df: pd.DataFrame) -> pd.DataFrame:
@@ -32,6 +34,17 @@ def load_fraction_series(path: Path | None, value_col: str) -> pd.DataFrame | No
         if extra in df.columns:
             cols.append(extra)
     return df[cols].dropna(subset=[value_col]).sort_values("date")
+
+
+def _load_fraction_value_series(path: Path, value_col: str) -> pd.Series | None:
+    """Load one stitched value column as a datetime-indexed series."""
+    df = load_fraction_series(path, value_col)
+    if df is None or df.empty:
+        return None
+    series = df.set_index("date")[value_col].dropna().sort_index()
+    if series.empty:
+        return None
+    return series
 
 
 def default_fraction_obs_path(setup_dir: Path, setup_name: str, filename: str) -> Path:
@@ -61,14 +74,34 @@ def default_fraction_plot_output(project_dir: Path, output: Path | None) -> Path
 
 def load_open_loop_fraction_series(project_dir: Path, filename: str, value_col: str) -> pd.DataFrame | None:
     """Stitch open-loop point series across project steps into one DataFrame."""
-    frames: list[pd.DataFrame] = []
+    segments: list[pd.Series] = []
     for step in list_step_dirs(project_dir):
-        df = load_fraction_series(step / "ensembles" / "prior" / "open_loop" / "results" / filename, value_col)
-        if df is not None and not df.empty:
-            frames.append(df)
-    if not frames:
+        series = _load_fraction_value_series(
+            step / "ensembles" / "prior" / "open_loop" / "results" / filename,
+            value_col,
+        )
+        if series is not None:
+            segments.append(series)
+    if not segments:
         return None
-    out = pd.concat(frames, ignore_index=True).dropna(subset=[value_col])
-    if out.empty:
+    stitched = concat_series(segments).dropna().sort_index()
+    if stitched.empty:
         return None
-    return out.sort_values("date")
+    return pd.DataFrame({"date": stitched.index, value_col: stitched.values})
+
+
+def load_member_series(project_dir: Path, filename: str, value_col: str) -> list[pd.Series]:
+    """Return per-member setup-wide series stitched across all project steps."""
+    member_segments: dict[str, list[pd.Series]] = defaultdict(list)
+    for step in list_step_dirs(project_dir):
+        for member_dir in list_member_dirs(step / "ensembles", "prior"):
+            series = _load_fraction_value_series(member_dir / "results" / filename, value_col)
+            if series is not None:
+                member_segments[member_dir.name].append(series)
+
+    stitched_members: list[pd.Series] = []
+    for member_name in sorted(member_segments):
+        stitched = concat_series(member_segments[member_name]).dropna().sort_index()
+        if not stitched.empty:
+            stitched_members.append(stitched)
+    return stitched_members

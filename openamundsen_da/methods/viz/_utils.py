@@ -4,8 +4,64 @@ from __future__ import annotations
 
 from typing import Iterable, List, Optional, Tuple
 import math
+from pathlib import Path
 
 import pandas as pd
+
+from openamundsen_da.methods.viz._style import EXPORT_DPI
+
+
+def set_matplotlib_text_black(matplotlib) -> None:
+    """Force matplotlib text/ticks/legend defaults to pure black."""
+    matplotlib.rcParams["text.color"] = "#000000"
+    matplotlib.rcParams["axes.labelcolor"] = "#000000"
+    matplotlib.rcParams["axes.titlecolor"] = "#000000"
+    matplotlib.rcParams["xtick.color"] = "#000000"
+    matplotlib.rcParams["ytick.color"] = "#000000"
+    matplotlib.rcParams["legend.labelcolor"] = "#000000"
+
+
+def force_figure_text_black(fig, axes: Iterable | None = None) -> None:
+    """Force existing figure/axes text artists to pure black before save."""
+    axes_list = [] if axes is None else list(axes)
+    for text in getattr(fig, "texts", []):
+        text.set_color("#000000")
+    for legend in getattr(fig, "legends", []):
+        for text in legend.get_texts():
+            text.set_color("#000000")
+        title = legend.get_title()
+        if title is not None:
+            title.set_color("#000000")
+    for ax in axes_list:
+        ax.title.set_color("#000000")
+        ax.xaxis.label.set_color("#000000")
+        ax.yaxis.label.set_color("#000000")
+        ax.tick_params(axis="both", colors="#000000", labelcolor="#000000")
+        legend = ax.get_legend()
+        if legend is not None:
+            for text in legend.get_texts():
+                text.set_color("#000000")
+            title = legend.get_title()
+            if title is not None:
+                title.set_color("#000000")
+
+
+def save_figure_png(
+    fig,
+    output_png: Path,
+    *,
+    dpi: int = EXPORT_DPI,
+    bbox_inches=None,
+    pad_inches=None,
+) -> None:
+    """Save a figure as PNG using the shared export DPI."""
+    output_png = Path(output_png)
+    save_kwargs = {}
+    if bbox_inches is not None:
+        save_kwargs["bbox_inches"] = bbox_inches
+    if pad_inches is not None:
+        save_kwargs["pad_inches"] = pad_inches
+    fig.savefig(output_png, dpi=dpi, **save_kwargs)
 
 
 def find_station_meta(st_df: Optional[pd.DataFrame], token: str) -> Tuple[Optional[str], Optional[float]]:

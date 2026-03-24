@@ -92,7 +92,10 @@ from openamundsen_da.methods.viz._utils import (
     dedupe_legend,
     draw_assimilation_markers,
     draw_assim_labels,
+    force_figure_text_black,
     format_station_label,
+    save_figure_png,
+    set_matplotlib_text_black,
 )
 from openamundsen_da.methods.viz._ensemble_meta import load_stations_table_from_steps
 from openamundsen_da.util.station_da import station_observation_csvs
@@ -391,6 +394,7 @@ def plot_setup_forcing(
     import matplotlib
 
     matplotlib.use(backend or "Agg")
+    set_matplotlib_text_black(matplotlib)
     import matplotlib.pyplot as plt
 
     if configure_logger:
@@ -578,7 +582,8 @@ def plot_setup_forcing(
             _draw_assim_summary_box(fig, axes[0], assim_dates)
 
         out_path = out_root / f"setup_forcing_{token}_{setup_id}.png"
-        fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.08)
+        force_figure_text_black(fig, axes)
+        save_figure_png(fig, out_path, bbox_inches="tight", pad_inches=0.08)
         plt.close(fig)
         logger.info("Wrote {}", out_path)
 
@@ -619,6 +624,7 @@ def plot_setup_results(
     import matplotlib
 
     matplotlib.use(backend or "Agg")
+    set_matplotlib_text_black(matplotlib)
     import matplotlib.pyplot as plt
 
     if configure_logger:
@@ -844,7 +850,8 @@ def plot_setup_results(
                 )
 
         out_path = out_root / f"setup_results_{token}_{var_col}_{setup_id}.png"
-        fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.08)
+        force_figure_text_black(fig, [ax])
+        save_figure_png(fig, out_path, bbox_inches="tight", pad_inches=0.08)
         plt.close(fig)
         logger.info("Wrote {}", out_path)
 

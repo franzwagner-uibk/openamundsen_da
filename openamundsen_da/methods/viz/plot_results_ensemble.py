@@ -26,7 +26,12 @@ from openamundsen_da.methods.viz._style import (
     LW_MEAN,
     LW_OPEN,
 )
-from openamundsen_da.methods.viz._utils import format_station_label
+from openamundsen_da.methods.viz._utils import (
+    force_figure_text_black,
+    format_station_label,
+    save_figure_png,
+    set_matplotlib_text_black,
+)
 from openamundsen_da.methods.viz._ensemble_meta import (
     format_member_label,
     load_stations_table,
@@ -96,6 +101,7 @@ def _plot_point_station(
     import matplotlib
 
     matplotlib.use(backend or "Agg")
+    set_matplotlib_text_black(matplotlib)
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
@@ -129,10 +135,11 @@ def _plot_point_station(
         fig.subplots_adjust(bottom=0.34)
 
     fig.text(0.5, 0.97, title, ha="center", va="top", fontsize=12)
-    fig.text(0.5, 0.92, long_subtitle, ha="center", va="top", fontsize=10, color="#555555")
+    fig.text(0.5, 0.92, long_subtitle, ha="center", va="top", fontsize=10)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.08)
+    force_figure_text_black(fig, [ax])
+    save_figure_png(fig, out_path, bbox_inches="tight", pad_inches=0.08)
     plt.close(fig)
 
 

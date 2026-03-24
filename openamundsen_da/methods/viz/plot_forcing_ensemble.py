@@ -47,7 +47,7 @@ from openamundsen_da.methods.viz._style import (
     LW_OPEN,
     LEGEND_NCOL,
 )
-from openamundsen_da.methods.viz._utils import format_station_label
+from openamundsen_da.methods.viz._utils import force_figure_text_black, format_station_label, save_figure_png, set_matplotlib_text_black
 from openamundsen_da.methods.viz._ensemble_meta import (
     load_stations_table,
     read_member_perturbations,
@@ -94,6 +94,7 @@ def _plot_station(
 ) -> None:
     import matplotlib
     matplotlib.use(backend or "Agg")
+    set_matplotlib_text_black(matplotlib)
     import matplotlib.pyplot as plt
 
     has_precip = bool(
@@ -151,13 +152,14 @@ def _plot_station(
         # Position subtitle slightly lower (closer to axes); use different offsets
         # for temp-only vs two-panel layouts.
         sub_y = 0.920 if not has_precip else 0.910
-        fig.text(0.5, sub_y, subtitle, ha="center", va="top", fontsize=10, color="#555555")
+        fig.text(0.5, sub_y, subtitle, ha="center", va="top", fontsize=10)
 
     # Compose a shared legend from ax0 handles (they include member labels if provided)
     # No legend needed
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.1)
+    force_figure_text_black(fig, [ax0] if not has_precip else [ax0, ax1])
+    save_figure_png(fig, out_path, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
 
@@ -303,4 +305,3 @@ def cli_main(argv: Iterable[str] | None = None, *, configure_logger: bool = True
 
 if __name__ == "__main__":
     raise SystemExit(cli_main())
-

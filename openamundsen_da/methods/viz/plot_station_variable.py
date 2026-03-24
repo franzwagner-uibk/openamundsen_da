@@ -26,6 +26,11 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.util.loguru_utils import configure_cli_logger
+from openamundsen_da.methods.viz._utils import (
+    force_figure_text_black,
+    save_figure_png,
+    set_matplotlib_text_black,
+)
 from openamundsen_da.util.ts import apply_window, read_timeseries_csv
 
 
@@ -86,6 +91,7 @@ def plot_station_variable(
     import matplotlib
 
     matplotlib.use(backend or "Agg")
+    set_matplotlib_text_black(matplotlib)
     import matplotlib.pyplot as plt
 
     csv_path = Path(csv_path)
@@ -112,11 +118,12 @@ def plot_station_variable(
     title = f"Station variable | {token}"
     subtitle = f"{var_title}"
     fig.text(0.5, 0.97, title, ha="center", va="top", fontsize=12)
-    fig.text(0.5, 0.93, subtitle, ha="center", va="top", fontsize=10, color="#555555")
+    fig.text(0.5, 0.93, subtitle, ha="center", va="top", fontsize=10)
     fig.tight_layout(rect=[0.02, 0.02, 0.98, 0.90])
 
     out_path = csv_path.with_suffix(f".{var_col}.png")
-    fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.08)
+    force_figure_text_black(fig, [ax])
+    save_figure_png(fig, out_path, bbox_inches="tight", pad_inches=0.08)
     plt.close(fig)
     return out_path
 

@@ -30,7 +30,10 @@ from openamundsen_da.methods.viz._utils import (
     draw_assim_labels,
     draw_assimilation_markers,
     draw_assimilation_vlines,
+    force_figure_text_black,
     format_station_label,
+    save_figure_png,
+    set_matplotlib_text_black,
 )
 from openamundsen_da.methods.viz.fraction_series import (
     default_fraction_obs_path,
@@ -797,6 +800,7 @@ def plot_result_overview(
     import matplotlib
 
     matplotlib.use("Agg")
+    set_matplotlib_text_black(matplotlib)
     import matplotlib.pyplot as plt
 
     specs = panel_specs or list(_DEFAULT_PANELS)
@@ -1115,7 +1119,8 @@ def plot_result_overview(
         x_axes = ax.transAxes.inverted().transform((left_disp, ax.bbox.y1))[0]
         title_artist.set_x(x_axes)
     _build_result_overview_legend(fig, show_station_observation=show_station_observation)
-    fig.savefig(output, dpi=150)
+    force_figure_text_black(fig, axes)
+    save_figure_png(fig, output)
     plt.close(fig)
 
 

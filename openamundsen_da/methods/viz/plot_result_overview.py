@@ -506,7 +506,7 @@ def _add_assim_label_axis(ax, events: list[AssimilationEvent], idx: int):
     return label_axis
 
 
-def _build_result_overview_legend(fig) -> None:
+def _build_result_overview_legend(fig, *, show_station_observation: bool) -> None:
     from matplotlib.lines import Line2D
 
     handles = [
@@ -531,9 +531,10 @@ def _build_result_overview_legend(fig) -> None:
         ),
         Line2D([0], [0], color="black", lw=1.8, label="open loop"),
         Line2D([0], [0], color="#666666", lw=LW_MEAN, label="ensemble mean"),
-        Line2D([0], [0], color=COLOR_DA_OBS, lw=LW_DA_OBS, label="station observation"),
         Line2D([0], [0], color="#666666", lw=1.2, ls="--", label="DA event"),
     ]
+    if show_station_observation:
+        handles.insert(4, Line2D([0], [0], color=COLOR_DA_OBS, lw=LW_DA_OBS, label="station observation"))
     legend = fig.legend(
         handles=handles,
         loc="lower left",
@@ -564,6 +565,105 @@ def _apply_result_y_ticks(ax, panel: str) -> None:
 
     step = next((candidate for candidate in step_options if data_max <= candidate * 4.0), step_options[-1])
     upper = step * 4.0 if data_max <= step * 4.0 else math.ceil(data_max / step) * step
+    ax.set_ylim(0.0, upper)
+    ax.yaxis.set_major_locator(MultipleLocator(step))
+    ax.yaxis.set_minor_locator(MultipleLocator(step / 2.0))
+
+
+def _result_axis_scale_from_max(panel: str, data_max: float) -> tuple[float, float] | None:
+    import math
+
+    data_max = max(0.0, float(data_max or 0.0))
+    if panel in {"roi-swe", "station-swe"}:
+        step_options = [50.0, 100.0]
+    elif panel in {"roi-sd", "station-sd"}:
+        step_options = [0.25, 0.5, 1.0]
+    else:
+        return None
+
+    step = next((candidate for candidate in step_options if data_max <= candidate * 4.0), step_options[-1])
+    substep = step / 2.0
+    upper = substep if data_max <= 0.0 else math.ceil(data_max / substep) * substep
+    return step, upper
+
+
+def _max_abs_value_frame(frame: pd.DataFrame | None, *cols: str) -> float:
+    if frame is None or frame.empty:
+        return 0.0
+    maxima = []
+    for col in cols:
+        if col in frame.columns:
+            maxima.append(pd.to_numeric(frame[col], errors="coerce").max())
+    maxima = [float(val) for val in maxima if pd.notna(val)]
+    return max(maxima) if maxima else 0.0
+
+
+def _max_abs_value_series(*series_list: pd.Series | None) -> float:
+    maxima: list[float] = []
+    for series in series_list:
+        if series is None or series.empty:
+            continue
+        value = pd.to_numeric(series, errors="coerce").max()
+        if pd.notna(value):
+            maxima.append(float(value))
+    return max(maxima) if maxima else 0.0
+
+
+def _shared_result_scales(
+    specs: list[PanelSpec],
+    *,
+    roi_swe_model: pd.DataFrame | None,
+    roi_swe_env: pd.DataFrame | None,
+    roi_snow_depth_model: pd.DataFrame | None,
+    roi_snow_depth_env: pd.DataFrame | None,
+    station_panels: dict[tuple[str, str], StationPanelData],
+) -> dict[str, tuple[float, float]]:
+    swe_max = 0.0
+    sd_max = 0.0
+
+    for spec in specs:
+        if spec.panel == "roi-swe":
+            swe_max = max(swe_max, _max_abs_value_frame(roi_swe_model, "swe"))
+            swe_max = max(swe_max, _max_abs_value_frame(roi_swe_env, "value_min", "value_max", "value_mean"))
+        elif spec.panel == "roi-sd":
+            sd_max = max(sd_max, _max_abs_value_frame(roi_snow_depth_model, "snow_depth"))
+            sd_max = max(sd_max, _max_abs_value_frame(roi_snow_depth_env, "value_min", "value_max", "value_mean"))
+        elif spec.panel.startswith("station-") and spec.station_id is not None:
+            value_col = _STATION_PANEL_META[spec.panel]["value_col"]
+            bundle = station_panels.get((spec.station_id.lower(), value_col))
+            if bundle is None:
+                continue
+            bundle_max = _max_abs_value_series(bundle.open_loop, bundle.obs, *(bundle.members or []))
+            if spec.panel == "station-swe":
+                swe_max = max(swe_max, bundle_max)
+            elif spec.panel == "station-sd":
+                sd_max = max(sd_max, bundle_max)
+
+    scales: dict[str, tuple[float, float]] = {}
+    swe_scale = _result_axis_scale_from_max("roi-swe", swe_max)
+    if swe_scale is not None:
+        scales["SWE"] = swe_scale
+    sd_scale = _result_axis_scale_from_max("roi-sd", sd_max)
+    if sd_scale is not None:
+        scales["SD"] = sd_scale
+    return scales
+
+
+def _apply_shared_result_scale(ax, panel: str, shared_scales: dict[str, tuple[float, float]]) -> None:
+    from matplotlib.ticker import MultipleLocator
+
+    if panel in {"roi-swe", "station-swe"}:
+        scale = shared_scales.get("SWE")
+    elif panel in {"roi-sd", "station-sd"}:
+        scale = shared_scales.get("SD")
+    else:
+        scale = None
+
+    if scale is None:
+        _apply_result_y_ticks(ax, panel)
+        return
+
+    step, upper = scale
     ax.set_ylim(0.0, upper)
     ax.yaxis.set_major_locator(MultipleLocator(step))
     ax.yaxis.set_minor_locator(MultipleLocator(step / 2.0))
@@ -731,8 +831,17 @@ def plot_result_overview(
     events = list(assim_events or [])
     roi_swe_env = _band_frame(roi_swe_members)
     roi_snow_depth_env = _band_frame(roi_snow_depth_members)
+    shared_scales = _shared_result_scales(
+        specs,
+        roi_swe_model=roi_swe_model,
+        roi_swe_env=roi_swe_env,
+        roi_snow_depth_model=roi_snow_depth_model,
+        roi_snow_depth_env=roi_snow_depth_env,
+        station_panels=station_panels,
+    )
     data_x_bounds: tuple[pd.Timestamp, pd.Timestamp] | None = None
     label_axes: list[tuple[object, object]] = []
+    show_station_observation = False
 
     for idx, (ax, spec) in enumerate(zip(axes, specs)):
         letter = ascii_lowercase[idx] if idx < len(ascii_lowercase) else str(idx + 1)
@@ -886,7 +995,7 @@ def plot_result_overview(
                 )
             ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
             apply_fraction_grid(ax, y_step=None)
-            _apply_result_y_ticks(ax, spec.panel)
+            _apply_shared_result_scale(ax, spec.panel, shared_scales)
             bounds = _date_bounds_frames(roi_swe_model, roi_swe_env)
         elif spec.panel == "roi-sd":
             if roi_snow_depth_env is not None and not roi_snow_depth_env.empty:
@@ -918,7 +1027,7 @@ def plot_result_overview(
                 )
             ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
             apply_fraction_grid(ax, y_step=None)
-            _apply_result_y_ticks(ax, spec.panel)
+            _apply_shared_result_scale(ax, spec.panel, shared_scales)
             bounds = _date_bounds_frames(roi_snow_depth_model, roi_snow_depth_env)
         else:
             if station_data is None:
@@ -964,9 +1073,10 @@ def plot_result_overview(
                     label="_nolegend_",
                     zorder=6,
                 )
+                show_station_observation = True
             ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
             apply_fraction_grid(ax, y_step=None)
-            _apply_result_y_ticks(ax, spec.panel)
+            _apply_shared_result_scale(ax, spec.panel, shared_scales)
             bounds = _date_bounds_series(
                 station_data.open_loop,
                 station_data.obs,
@@ -1004,7 +1114,7 @@ def plot_result_overview(
         left_disp = min(label.get_window_extent(renderer).x0 for label in tick_labels) - 6.0
         x_axes = ax.transAxes.inverted().transform((left_disp, ax.bbox.y1))[0]
         title_artist.set_x(x_axes)
-    _build_result_overview_legend(fig)
+    _build_result_overview_legend(fig, show_station_observation=show_station_observation)
     fig.savefig(output, dpi=150)
     plt.close(fig)
 

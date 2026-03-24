@@ -357,10 +357,100 @@ def test_plot_result_overview_uses_single_figure_legend_labels(tmp_path: Path) -
             "satellite observation",
             "open loop",
             "ensemble mean",
-            "station observation",
             "DA event",
         ]
         assert all(ax.get_legend() is None for ax in _panel_axes(plt.gcf()))
+        assert out_path.is_file()
+    finally:
+        plt.close = original_close
+
+
+def test_plot_result_overview_custom_legend_includes_station_observation_when_drawn(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        out_path = tmp_path / "result_overview_custom.png"
+        plot_result_overview(
+            scf_obs=None,
+            scf_model=_frame("scf", [0.2, 0.4]),
+            wet_obs=None,
+            wet_model=None,
+            scf_env=None,
+            wet_env=None,
+            output=out_path,
+            panel_specs=[
+                PanelSpec(panel="fSC"),
+                PanelSpec(panel="station-sd", station_id="latschbloder"),
+            ],
+            station_panels={
+                ("latschbloder", "snow_depth"): StationPanelData(
+                    station_id="latschbloder",
+                    display_name="Latschbloder",
+                    altitude_m=2919.0,
+                    open_loop=_series([0.4, 0.5]),
+                    members=[_series([0.3, 0.45]), _series([0.35, 0.55])],
+                    obs=_series([0.32, 0.53]),
+                )
+            },
+            strict_panels=True,
+        )
+
+        legend_labels = [text.get_text() for text in plt.gcf().legends[0].get_texts()]
+        assert legend_labels == [
+            "satellite observation used in DA",
+            "satellite observation",
+            "open loop",
+            "ensemble mean",
+            "station observation",
+            "DA event",
+        ]
+        assert out_path.is_file()
+    finally:
+        plt.close = original_close
+
+
+def test_plot_result_overview_custom_legend_omits_station_observation_when_hidden(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        out_path = tmp_path / "result_overview_custom.png"
+        plot_result_overview(
+            scf_obs=None,
+            scf_model=_frame("scf", [0.2, 0.4]),
+            wet_obs=None,
+            wet_model=None,
+            scf_env=None,
+            wet_env=None,
+            output=out_path,
+            panel_specs=[
+                PanelSpec(panel="fSC"),
+                PanelSpec(panel="station-sd", station_id="latschbloder", show_obs=False),
+            ],
+            station_panels={
+                ("latschbloder", "snow_depth"): StationPanelData(
+                    station_id="latschbloder",
+                    display_name="Latschbloder",
+                    altitude_m=2919.0,
+                    open_loop=_series([0.4, 0.5]),
+                    members=[_series([0.3, 0.45]), _series([0.35, 0.55])],
+                    obs=_series([0.32, 0.53]),
+                )
+            },
+            strict_panels=True,
+        )
+
+        legend_labels = [text.get_text() for text in plt.gcf().legends[0].get_texts()]
+        assert legend_labels == [
+            "satellite observation used in DA",
+            "satellite observation",
+            "open loop",
+            "ensemble mean",
+            "DA event",
+        ]
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -485,6 +575,68 @@ def test_plot_result_overview_supports_custom_station_panel(tmp_path: Path) -> N
         assert "black" in line_colors
         assert plot_mod.COLOR_DA_OBS in line_colors
         assert axes[1].collections
+        assert out_path.is_file()
+    finally:
+        plt.close = original_close
+
+
+def test_plot_result_overview_shares_absolute_y_scale_between_roi_and_station_panels(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        dates = pd.to_datetime(["2023-01-01", "2023-01-02"])
+        out_path = tmp_path / "result_overview_custom.png"
+        plot_result_overview(
+            scf_obs=None,
+            scf_model=None,
+            wet_obs=None,
+            wet_model=None,
+            scf_env=None,
+            wet_env=None,
+            output=out_path,
+            panel_specs=[
+                PanelSpec(panel="roi-swe"),
+                PanelSpec(panel="station-swe", station_id="latschbloder"),
+                PanelSpec(panel="roi-sd"),
+                PanelSpec(panel="station-sd", station_id="latschbloder"),
+            ],
+            roi_swe_model=pd.DataFrame({"date": dates, "swe": [120.0, 180.0]}),
+            roi_swe_members=[
+                pd.Series([100.0, 160.0], index=dates),
+                pd.Series([110.0, 170.0], index=dates),
+            ],
+            roi_snow_depth_model=pd.DataFrame({"date": dates, "snow_depth": [0.6, 1.0]}),
+            roi_snow_depth_members=[
+                pd.Series([0.5, 1.49], index=dates),
+                pd.Series([0.55, 1.51], index=dates),
+            ],
+            station_panels={
+                ("latschbloder", "swe"): StationPanelData(
+                    station_id="latschbloder",
+                    display_name="Latschbloder",
+                    altitude_m=2919.0,
+                    open_loop=pd.Series([40.0, 70.0], index=dates),
+                    members=[pd.Series([45.0, 80.0], index=dates)],
+                    obs=pd.Series([42.0, 72.0], index=dates),
+                ),
+                ("latschbloder", "snow_depth"): StationPanelData(
+                    station_id="latschbloder",
+                    display_name="Latschbloder",
+                    altitude_m=2919.0,
+                    open_loop=pd.Series([0.2, 0.3], index=dates),
+                    members=[pd.Series([0.25, 0.35], index=dates)],
+                    obs=pd.Series([0.22, 0.32], index=dates),
+                ),
+            },
+            strict_panels=True,
+        )
+
+        axes = _panel_axes(plt.gcf())
+        assert axes[0].get_ylim() == axes[1].get_ylim()
+        assert axes[2].get_ylim() == axes[3].get_ylim()
+        assert axes[2].get_ylim() == (0.0, 1.75)
         assert out_path.is_file()
     finally:
         plt.close = original_close

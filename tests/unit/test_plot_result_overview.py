@@ -251,10 +251,18 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
 
     assert marker_calls == [[scf_date], [wet_date]]
     assert len(vline_calls) == 16
-    assert sum(1 for dates, color in vline_calls if dates == [scf_date] and color == plot_mod._VARIABLE_STYLES["fSC"]["line"]) == 4
-    assert sum(1 for dates, color in vline_calls if dates == [wet_date] and color == plot_mod._VARIABLE_STYLES["fWS"]["line"]) == 4
-    assert sum(1 for dates, color in vline_calls if dates == [hs_date] and color == plot_mod._VARIABLE_STYLES["SD"]["line"]) == 4
-    assert sum(1 for dates, color in vline_calls if dates == [swe_date] and color == plot_mod._VARIABLE_STYLES["SWE"]["line"]) == 4
+    scf_midday = scf_date + pd.Timedelta(hours=12)
+    wet_midday = wet_date + pd.Timedelta(hours=12)
+    hs_midday = hs_date + pd.Timedelta(hours=12)
+    swe_midday = swe_date + pd.Timedelta(hours=12)
+    assert sum(1 for dates, color in vline_calls if dates == [scf_date] and color == plot_mod._VARIABLE_STYLES["fSC"]["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [scf_midday] and color == plot_mod._VARIABLE_STYLES["fSC"]["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [wet_date] and color == plot_mod._VARIABLE_STYLES["fWS"]["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [wet_midday] and color == plot_mod._VARIABLE_STYLES["fWS"]["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [hs_date] and color == plot_mod._VARIABLE_STYLES["SD"]["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [hs_midday] and color == plot_mod._VARIABLE_STYLES["SD"]["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [swe_date] and color == plot_mod._VARIABLE_STYLES["SWE"]["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [swe_midday] and color == plot_mod._VARIABLE_STYLES["SWE"]["line"]) == 2
     assert label_calls == [
         (
             "assimilation_label_axis_0",
@@ -280,8 +288,8 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
         ),
         (
             "assimilation_label_axis_2",
-            [scf_date, wet_date, hs_date, swe_date],
-            ["1", "2", "3", "4"],
+            [scf_midday, wet_midday, hs_midday],
+            ["1", "2", "3"],
             None,
             0.0,
             [2.0, 8.0],
@@ -291,8 +299,8 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
         ),
         (
             "assimilation_label_axis_3",
-            [scf_date, wet_date, hs_date, swe_date],
-            ["1", "2", "3", "4"],
+            [scf_midday, wet_midday, hs_midday],
+            ["1", "2", "3"],
             None,
             0.0,
             [2.0, 8.0],
@@ -353,11 +361,11 @@ def test_plot_result_overview_uses_single_figure_legend_labels(tmp_path: Path) -
         assert len(plt.gcf().legends) == 1
         legend_labels = [text.get_text() for text in plt.gcf().legends[0].get_texts()]
         assert legend_labels == [
-            "satellite observation used in DA",
+            "observation used for data assimilation",
             "satellite observation",
             "open loop",
             "ensemble mean",
-            "DA event",
+            "data assimilation event",
         ]
         assert all(ax.get_legend() is None for ax in _panel_axes(plt.gcf()))
         assert out_path.is_file()
@@ -399,12 +407,12 @@ def test_plot_result_overview_custom_legend_includes_station_observation_when_dr
 
         legend_labels = [text.get_text() for text in plt.gcf().legends[0].get_texts()]
         assert legend_labels == [
-            "satellite observation used in DA",
+            "observation used for data assimilation",
             "satellite observation",
             "open loop",
             "ensemble mean",
             "station observation",
-            "DA event",
+            "data assimilation event",
         ]
         assert out_path.is_file()
     finally:
@@ -445,11 +453,11 @@ def test_plot_result_overview_custom_legend_omits_station_observation_when_hidde
 
         legend_labels = [text.get_text() for text in plt.gcf().legends[0].get_texts()]
         assert legend_labels == [
-            "satellite observation used in DA",
+            "observation used for data assimilation",
             "satellite observation",
             "open loop",
             "ensemble mean",
-            "DA event",
+            "data assimilation event",
         ]
         assert out_path.is_file()
     finally:

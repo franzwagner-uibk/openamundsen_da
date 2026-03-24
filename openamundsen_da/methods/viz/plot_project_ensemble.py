@@ -113,6 +113,10 @@ class StepInfo:
 
 # ---- Utilities --------------------------------------------------------------
 
+_RESULT_PANEL_FIGSIZE = (7.2876875, 2.28)
+_RESULT_ASSIM_LABEL_ROW_OFFSETS_PTS = [2.0, 8.0]
+_RESULT_ASSIM_LABEL_MIN_SPACING_DAYS = 18.0
+
 
 def _parse_date_opt(text: Optional[str]) -> Optional[datetime]:
     if not text:
@@ -148,6 +152,23 @@ def _assimilation_event_dates(setup_dir: Path) -> List[datetime]:
     """Return assimilation datetimes (midnight) from setup.yml events."""
     events = load_assimilation_events(setup_dir)
     return [datetime.combine(ev.date, datetime.min.time()) for ev in events]
+
+
+def _station_assimilation_dates(setup_dir: Path, var_col: str) -> List[datetime]:
+    """Return DA dates matching the station variable shown in the plot."""
+    key = str(var_col or "").strip().lower()
+    if key == "swe":
+        event_variable = "station_swe"
+    elif key in {"snow_depth", "snowdepth", "hs"}:
+        event_variable = "station_hs"
+    else:
+        return []
+    events = load_assimilation_events(setup_dir)
+    return [
+        datetime.combine(ev.date, datetime.min.time())
+        for ev in events
+        if str(ev.variable).strip().lower() == event_variable
+    ]
 
 
 def _setup_id_from_dir(setup_dir: Path) -> str:
@@ -200,6 +221,133 @@ def _draw_assim(ax, dates: Sequence[datetime]) -> None:
 def _draw_assim_labels(ax, dates: Sequence[datetime]) -> None:
     """Draw per-assimilation labels centered on each vline above the axes."""
     draw_assim_labels(ax, dates, labels=None, max_labels=12, y_offset_pts=3.0, fontsize=FS_ASSIM_LABEL, color="black")
+
+
+def _center_daily_dates(dates: Sequence[datetime]) -> list[datetime]:
+    """Shift day-based assimilation markers to midday for daily plots."""
+    return [d + timedelta(hours=12) for d in dates]
+
+
+def _standalone_assimilation_dates(steps: Sequence[StepInfo], fallback: Sequence[datetime]) -> list[datetime]:
+    """Use actual step end timestamps for standalone result plots when available."""
+    dates = [st.end for st in steps if st.end is not None]
+    return dates or list(fallback)
+
+
+def _add_result_label_axis(ax, dates: Sequence[datetime], idx: int = 0):
+    import matplotlib.dates as mdates
+
+    centered_dates = list(pd.to_datetime(dates))
+    if not centered_dates:
+        return None
+
+    x_min, x_max = sorted(ax.get_xlim())
+    visible_start = pd.Timestamp(mdates.num2date(x_min)).tz_localize(None)
+    visible_end = pd.Timestamp(mdates.num2date(x_max)).tz_localize(None)
+    visible_items = [
+        (date, str(i))
+        for i, date in enumerate(centered_dates, start=1)
+        if visible_start <= date <= visible_end
+    ]
+    if not visible_items:
+        return None
+
+    label_axis = ax.twiny()
+    label_axis.set_label(f"setup_result_assimilation_label_axis_{idx}")
+    label_axis.patch.set_alpha(0.0)
+    if hasattr(label_axis, "set_in_layout"):
+        label_axis.set_in_layout(False)
+    label_axis.set_xlim(ax.get_xlim())
+    label_axis.set_xticks([])
+    label_axis.set_xlabel("")
+    label_axis.yaxis.set_visible(False)
+    label_axis.xaxis.set_visible(False)
+    for spine in label_axis.spines.values():
+        spine.set_visible(False)
+
+    draw_assim_labels(
+        label_axis,
+        [item[0] for item in visible_items],
+        labels=[item[1] for item in visible_items],
+        max_labels=max(1, len(visible_items)),
+        y_offset_pts=_RESULT_ASSIM_LABEL_ROW_OFFSETS_PTS[0],
+        fontsize=6.0,
+        color="#000000",
+        rotation=0.0,
+        va="bottom",
+        row_y_offsets_pts=_RESULT_ASSIM_LABEL_ROW_OFFSETS_PTS,
+        min_row_spacing_days=_RESULT_ASSIM_LABEL_MIN_SPACING_DAYS,
+        axes_y=1.0,
+        ha="center",
+        x_offset_pts=0.0,
+    )
+    return label_axis
+
+
+def _apply_result_time_axis_labels(ax) -> None:
+    import matplotlib.dates as mdates
+
+    locator = mdates.MonthLocator()
+    formatter = mdates.DateFormatter("%b")
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(formatter)
+
+    x_min, x_max = sorted(ax.get_xlim())
+    tick_values = locator.tick_values(mdates.num2date(x_min), mdates.num2date(x_max))
+    tick_dates = [pd.Timestamp(mdates.num2date(val)).tz_localize(None) for val in tick_values]
+    if not tick_dates:
+        return
+
+    labels: list[str] = []
+    prev_year: int | None = None
+    for idx, tick_dt in enumerate(tick_dates):
+        if idx == 0 or tick_dt.year != prev_year:
+            labels.append(tick_dt.strftime("%b\n%Y"))
+        else:
+            labels.append(tick_dt.strftime("%b"))
+        prev_year = tick_dt.year
+    ax.set_xticks(tick_values)
+    ax.set_xticklabels(labels)
+    ax.tick_params(axis="x", labelsize=8.4)
+
+
+def _build_station_result_legend(fig, *, show_station_observation: bool, mean_color: str) -> None:
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+
+    handles = [Line2D([0], [0], color="black", lw=LW_OPEN, label="open loop")]
+    if show_station_observation:
+        handles.append(Line2D([0], [0], color=COLOR_DA_OBS, lw=LW_DA_OBS, label="station observation"))
+    handles.extend(
+        [
+            Line2D([0], [0], color=mean_color, lw=LW_MEAN, label="ensemble mean"),
+            Patch(facecolor=mean_color, edgecolor=mean_color, linewidth=1.2, alpha=BAND_ALPHA, label="ensemble"),
+            Line2D([0], [0], color="#666666", lw=1.2, ls="--", label="data assimilation event"),
+        ]
+    )
+    fig.legend(
+        handles=handles,
+        loc="lower left",
+        bbox_to_anchor=(0.055, 0.042, 0.865, 0.07),
+        bbox_transform=fig.transFigure,
+        mode="expand",
+        ncol=len(handles),
+        frameon=False,
+        fontsize=8.0,
+        handlelength=1.6,
+        columnspacing=1.1,
+        handletextpad=0.45,
+        borderaxespad=0.0,
+    )
+
+
+def _standalone_result_title(token: str, *, var_key: str, station_label: str) -> str:
+    if token == "point_swe_roi":
+        return "mean SWE (roi) - openAMUNDSEN ensemble and open loop"
+    if token == "point_snow_depth_roi":
+        return "mean snow depth (roi) - openAMUNDSEN ensemble and open loop"
+    metric = "SWE" if var_key == "swe" else ("snow depth" if var_key in {"snow_depth", "snowdepth", "hs"} else var_key.replace("_", " "))
+    return f"{metric} {station_label} - openAMUNDSEN ensemble and station observation"
 
 
 def _station_obs_color(var_col: str) -> str:
@@ -338,6 +486,10 @@ def _load_station_obs_for_setup(
                 {var_col: resample_agg} if resample else None,
                 rolling,
             )
+            # Keep standalone station-result plots consistent with the overview
+            # station panels: observation series are shown as daily means.
+            if var_col in df.columns:
+                df = df[[var_col]].resample("D").mean()
             df = apply_window(df, start_date, end_date)
         except Exception as exc:
             logger.debug("Failed to resample/window station obs {}: {}", csv_path.name, exc)
@@ -640,6 +792,8 @@ def plot_setup_results(
         mode = "members"
 
     assim_dates = _assimilation_event_dates(setup_dir)
+    station_assim_dates = _station_assimilation_dates(setup_dir, var_col)
+    standalone_assim_dates = _standalone_assimilation_dates(steps, assim_dates)
 
     # Effective setup window from step configs if not explicitly provided
     setup_start: Optional[datetime] = None
@@ -754,7 +908,7 @@ def plot_setup_results(
             continue
 
         # Build figure
-        fig, ax = plt.subplots(figsize=FIGSIZE_RESULTS)
+        fig, ax = plt.subplots(figsize=_RESULT_PANEL_FIGSIZE)
 
         # Station token (e.g., point_latschbloder -> latschbloder)
         token = Path(fname).stem
@@ -804,14 +958,33 @@ def plot_setup_results(
                 label="station observation",
                 zorder=6,
             )
+            draw_assimilation_markers(
+                ax,
+                dates=station_assim_dates,
+                obs=obs_series.rename(var_col).reset_index().rename(columns={obs_series.index.name or "index": "date"}),
+                value_col=var_col,
+                color=station_obs_color,
+                label="_nolegend_",
+                size=SIZE_DA_OBS * 0.8,
+                linewidth=LW_DA_OBS,
+                zorder=7,
+                draw_vlines=False,
+            )
 
-        ax.set_ylabel(var_title)
+        centered_assim_dates = standalone_assim_dates
+        _base, _alt, station_label = format_station_label(display_token, stations_df, fallback=display_token)
+        ax.set_title(
+            _standalone_result_title(token, var_key=vv, station_label=station_label),
+            loc="left",
+            fontsize=9.4,
+            pad=16.0 if centered_assim_dates else 9.0,
+        )
+        ax.set_ylabel(var_title, fontsize=8.6)
         apply_fraction_grid(ax, y_step=None)
         _apply_result_axis_ticks(ax, var_col)
 
         # Assimilation markers and labels
-        _draw_assim(ax, assim_dates)
-        _draw_assim_labels(ax, assim_dates)
+        _draw_assim(ax, centered_assim_dates)
 
         # Always show the full setup window on the x-axis when available,
         # regardless of station/model data coverage.
@@ -820,34 +993,17 @@ def plot_setup_results(
                 ax.set_xlim(effective_start, effective_end)
             except Exception:
                 pass
+        _apply_result_time_axis_labels(ax)
+        _add_result_label_axis(ax, centered_assim_dates, idx=0)
 
-        # Titles/legend
-        _base, _alt, station_label = format_station_label(display_token, stations_df, fallback=display_token)
-        title = f"Setup Results | {setup_dir.name}"
-        subtitle = f"{station_label} - {var_title}"
-        # Reduce vertical gap between title/subtitle and the plot area.
-        fig.text(0.5, 0.975, title, ha="center", va="top", fontsize=FS_TITLE)
-        fig.text(0.5, 0.94, subtitle, ha="center", va="top", fontsize=FS_SUBTITLE, color=COLOR_SUBTITLE)
-        top_margin = 0.90 if len(assim_dates) <= 4 else (0.88 if len(assim_dates) <= 8 else 0.86)
+        top_margin = 0.86
         bottom_margin = 0.30
-        fig.subplots_adjust(top=top_margin, bottom=bottom_margin)
-
-        handles, labels = ax.get_legend_handles_labels()
-        if handles:
-            filtered = [(h, l) for h, l in zip(handles, labels) if l != "_nolegend_"]
-            if filtered:
-                handles, labels = zip(*filtered)
-                handles, labels = dedupe_legend(list(handles), list(labels))
-                ax.legend(
-                    handles,
-                    labels,
-                    loc="upper right",
-                    fontsize=8.5,
-                    labelspacing=0.3,
-                    borderpad=0.3,
-                    handlelength=1.2,
-                    handletextpad=0.4,
-                )
+        fig.subplots_adjust(left=0.11, right=0.965, top=top_margin, bottom=bottom_margin)
+        _build_station_result_legend(
+            fig,
+            show_station_observation=obs_series is not None and not obs_series.empty,
+            mean_color=station_model_color,
+        )
 
         out_path = out_root / f"setup_results_{token}_{var_col}_{setup_id}.png"
         force_figure_text_black(fig, [ax])

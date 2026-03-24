@@ -139,6 +139,11 @@ _ASSIM_STYLES = {
     "station_swe": {"variable_key": "SWE", "ls": "--"},
 }
 
+_STATION_PANEL_EVENT_VARIABLE = {
+    "station-sd": "station_hs",
+    "station-swe": "station_swe",
+}
+
 _ASSIM_LABEL_ROW_OFFSETS_PTS = [2.0, 8.0]
 _ASSIM_LABEL_MIN_SPACING_DAYS = 18.0
 def _load_scf_obs_series(path: Path) -> pd.DataFrame | None:
@@ -345,6 +350,23 @@ def _load_station_panel_data(
     )
 
 
+def _station_obs_frame(series: pd.Series | None, *, value_col: str) -> pd.DataFrame | None:
+    if series is None or series.empty:
+        return None
+    return pd.DataFrame({"date": pd.to_datetime(series.index), value_col: series.values})
+
+
+def _station_assimilation_dates(events: list[AssimilationEvent], panel: str) -> list[pd.Timestamp]:
+    event_variable = _STATION_PANEL_EVENT_VARIABLE.get(panel)
+    if event_variable is None:
+        return []
+    return [
+        pd.Timestamp.combine(ev.date, pd.Timestamp.min.time())
+        for ev in events
+        if str(ev.variable).strip().lower() == event_variable
+    ]
+
+
 def _station_title(spec: PanelSpec, station_data: StationPanelData) -> str:
     if spec.title:
         return spec.title
@@ -444,12 +466,18 @@ def _assim_labels(events: list[AssimilationEvent]) -> tuple[list[pd.Timestamp], 
     return dates, labels
 
 
-def _draw_all_assim(ax, events: list[AssimilationEvent]) -> None:
-    for event in events:
+def _center_assim_event_times(events: list[AssimilationEvent]) -> list[pd.Timestamp]:
+    """Place day-based result-plot DA markers at midday for visual alignment."""
+    return [pd.to_datetime(event.date) + pd.Timedelta(hours=12) for event in events]
+
+
+def _draw_all_assim(ax, events: list[AssimilationEvent], *, center_of_day: bool = False) -> None:
+    draw_dates = _center_assim_event_times(events) if center_of_day else [pd.to_datetime(event.date) for event in events]
+    for event, draw_date in zip(events, draw_dates):
         meta = _assim_style(event.variable)
         draw_assimilation_vlines(
             ax,
-            [pd.to_datetime(event.date)],
+            [draw_date],
             color=str(meta["color"]),
             ls=str(meta["ls"]),
             lw=1.2,
@@ -458,7 +486,7 @@ def _draw_all_assim(ax, events: list[AssimilationEvent]) -> None:
         )
 
 
-def _add_assim_label_axis(ax, events: list[AssimilationEvent], idx: int):
+def _add_assim_label_axis(ax, events: list[AssimilationEvent], idx: int, *, center_of_day: bool = False):
     import matplotlib.dates as mdates
 
     if not events:
@@ -467,7 +495,11 @@ def _add_assim_label_axis(ax, events: list[AssimilationEvent], idx: int):
     x_min, x_max = sorted(ax.get_xlim())
     visible_start = pd.Timestamp(mdates.num2date(x_min)).tz_localize(None)
     visible_end = pd.Timestamp(mdates.num2date(x_max)).tz_localize(None)
-    dates, labels = _assim_labels(events)
+    if center_of_day:
+        dates = _center_assim_event_times(events)
+        labels = [str(i) for i in range(1, len(events) + 1)]
+    else:
+        dates, labels = _assim_labels(events)
     visible_items = [
         (date, label)
         for date, label in zip(dates, labels)
@@ -521,7 +553,7 @@ def _build_result_overview_legend(fig, *, show_station_observation: bool) -> Non
             linestyle="none",
             markersize=6.2,
             markeredgewidth=1.6,
-            label="satellite observation used in DA",
+            label="observation used for data assimilation",
         ),
         Line2D(
             [0],
@@ -534,10 +566,19 @@ def _build_result_overview_legend(fig, *, show_station_observation: bool) -> Non
         ),
         Line2D([0], [0], color="black", lw=1.8, label="open loop"),
         Line2D([0], [0], color="#666666", lw=LW_MEAN, label="ensemble mean"),
-        Line2D([0], [0], color="#666666", lw=1.2, ls="--", label="DA event"),
+        Line2D([0], [0], color="#666666", lw=1.2, ls="--", label="data assimilation event"),
     ]
     if show_station_observation:
-        handles.insert(4, Line2D([0], [0], color=COLOR_DA_OBS, lw=LW_DA_OBS, label="station observation"))
+        handles.insert(
+            4,
+            Line2D(
+                [0],
+                [0],
+                color=COLOR_DA_OBS,
+                lw=LW_DA_OBS,
+                label="station observation",
+            ),
+        )
     legend = fig.legend(
         handles=handles,
         loc="lower left",
@@ -862,7 +903,8 @@ def plot_result_overview(
             pad=16.0 if events else 9.0,
         )
         title_artists.append((ax, title_artist))
-        _draw_all_assim(ax, events)
+        center_assim = spec.panel in {"roi-swe", "roi-sd", "station-swe", "station-sd"}
+        _draw_all_assim(ax, events, center_of_day=center_assim)
 
         if spec.panel == "fSC":
             if mode == "band" and scf_env is not None and not scf_env.empty:
@@ -1068,6 +1110,7 @@ def plot_result_overview(
                     zorder=5,
                 )
             if spec.show_obs and station_data.obs is not None and not station_data.obs.empty:
+                value_col = _STATION_PANEL_META[spec.panel]["value_col"]
                 ax.plot(
                     station_data.obs.index,
                     station_data.obs.values,
@@ -1076,6 +1119,18 @@ def plot_result_overview(
                     lw=LW_DA_OBS,
                     label="_nolegend_",
                     zorder=6,
+                )
+                draw_assimilation_markers(
+                    ax,
+                    dates=_station_assimilation_dates(events, spec.panel),
+                    obs=_station_obs_frame(station_data.obs, value_col=value_col),
+                    value_col=value_col,
+                    color=COLOR_DA_OBS,
+                    label="_nolegend_",
+                    size=SIZE_DA_OBS * 0.8,
+                    linewidth=LW_DA_OBS,
+                    zorder=7,
+                    draw_vlines=False,
                 )
                 show_station_observation = True
             ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
@@ -1099,7 +1154,8 @@ def plot_result_overview(
             ax.set_xlim(*effective_x_bounds)
     if events:
         for idx, ax in enumerate(axes):
-            label_axis = _add_assim_label_axis(ax, events, idx)
+            center_assim = specs[idx].panel in {"roi-swe", "roi-sd", "station-swe", "station-sd"}
+            label_axis = _add_assim_label_axis(ax, events, idx, center_of_day=center_assim)
             if label_axis is not None:
                 label_axes.append((ax, label_axis))
     _apply_time_axis_labels(axes, effective_x_bounds)

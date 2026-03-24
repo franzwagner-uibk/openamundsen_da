@@ -87,6 +87,7 @@ from openamundsen_da.util.ts import (
     concat_series,
 )
 from openamundsen_da.methods.viz._utils import (
+    apply_fraction_grid,
     draw_assimilation_vlines,
     dedupe_legend,
     draw_assimilation_markers,
@@ -799,9 +800,8 @@ def plot_setup_results(
             )
 
         ax.set_ylabel(var_title)
-        ax.grid(True, ls=GRID_LS, lw=GRID_LW, alpha=GRID_ALPHA)
+        apply_fraction_grid(ax, y_step=None)
         _apply_result_axis_ticks(ax, var_col)
-        ax.grid(True, which="minor", axis="y", alpha=0.28, linestyle="--", linewidth=0.5)
 
         # Assimilation markers and labels
         _draw_assim(ax, assim_dates)

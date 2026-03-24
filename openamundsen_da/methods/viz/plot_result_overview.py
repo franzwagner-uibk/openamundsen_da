@@ -887,8 +887,6 @@ def plot_result_overview(
             ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
             apply_fraction_grid(ax, y_step=None)
             _apply_result_y_ticks(ax, spec.panel)
-            ax.grid(True, which="major", axis="y", alpha=0.7, linestyle=":", linewidth=0.6)
-            ax.grid(True, which="minor", axis="y", alpha=0.28, linestyle="--", linewidth=0.5)
             bounds = _date_bounds_frames(roi_swe_model, roi_swe_env)
         elif spec.panel == "roi-sd":
             if roi_snow_depth_env is not None and not roi_snow_depth_env.empty:
@@ -921,8 +919,6 @@ def plot_result_overview(
             ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
             apply_fraction_grid(ax, y_step=None)
             _apply_result_y_ticks(ax, spec.panel)
-            ax.grid(True, which="major", axis="y", alpha=0.7, linestyle=":", linewidth=0.6)
-            ax.grid(True, which="minor", axis="y", alpha=0.28, linestyle="--", linewidth=0.5)
             bounds = _date_bounds_frames(roi_snow_depth_model, roi_snow_depth_env)
         else:
             if station_data is None:
@@ -971,8 +967,6 @@ def plot_result_overview(
             ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
             apply_fraction_grid(ax, y_step=None)
             _apply_result_y_ticks(ax, spec.panel)
-            ax.grid(True, which="major", axis="y", alpha=0.7, linestyle=":", linewidth=0.6)
-            ax.grid(True, which="minor", axis="y", alpha=0.28, linestyle="--", linewidth=0.5)
             bounds = _date_bounds_series(
                 station_data.open_loop,
                 station_data.obs,

@@ -42,7 +42,12 @@ from openamundsen_da.methods.viz.fraction_series import (
     load_member_series,
     load_open_loop_fraction_series,
 )
-from openamundsen_da.methods.pf.plot_ess_timeline import ess_title, load_setup_ess_series
+from openamundsen_da.methods.pf.plot_ess_timeline import (
+    ess_axis_ticks,
+    ess_title,
+    load_setup_ess_series,
+    load_setup_ess_threshold,
+)
 from openamundsen_da.observer.plot_scf_summary import _load_summary as _load_scf_obs
 from openamundsen_da.util.da_events import AssimilationEvent, load_assimilation_events
 from openamundsen_da.util.loguru_utils import configure_cli_logger
@@ -78,6 +83,7 @@ class StationPanelData:
 class EssPanelData:
     series: pd.DataFrame | None
     ensemble_size: int | None
+    threshold: float | None = None
 
     @property
     def has_data(self) -> bool:
@@ -741,6 +747,12 @@ def _apply_fraction_ticks(ax) -> None:
     ax.set_yticks([0.25, 0.5, 0.75, 1.0])
 
 
+def _apply_ess_ticks(ax, ensemble_size: int | None) -> None:
+    ticks = ess_axis_ticks(ensemble_size)
+    if ticks:
+        ax.set_yticks(ticks)
+
+
 def _apply_time_axis_labels(axes, x_bounds: tuple[pd.Timestamp, pd.Timestamp] | None) -> None:
     import matplotlib.dates as mdates
 
@@ -1116,6 +1128,8 @@ def plot_result_overview(
             _apply_shared_result_scale(ax, spec.panel, shared_scales)
             bounds = _date_bounds_frames(roi_snow_depth_model, roi_snow_depth_env)
         elif spec.panel == "ess":
+            from matplotlib.lines import Line2D
+
             if current_ess_panel is None or current_ess_panel.series is None or current_ess_panel.series.empty:
                 raise ValueError("Missing ESS panel data")
             ess_series = current_ess_panel.series
@@ -1124,13 +1138,27 @@ def plot_result_overview(
                 ess_series["ess"],
                 marker="o",
                 ms=3.2,
-                lw=1.8,
+                lw=0.0,
+                ls="none",
                 color="#1f77b4",
-                zorder=5,
+                zorder=25,
             )
             ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
             if current_ess_panel.ensemble_size is not None and current_ess_panel.ensemble_size > 0:
                 ax.set_ylim(0.0, float(current_ess_panel.ensemble_size))
+                _apply_ess_ticks(ax, current_ess_panel.ensemble_size)
+            if current_ess_panel.threshold is not None:
+                ax.axhline(current_ess_panel.threshold, color="#d62728", lw=0.9, ls="--", zorder=10)
+                ax.legend(
+                    [Line2D([0], [0], color="#d62728", lw=0.9, ls="--")],
+                    ["ESS threshold"],
+                    loc="lower right",
+                    bbox_to_anchor=(1.0, 1.28),
+                    frameon=False,
+                    fontsize=7.0,
+                    handlelength=1.8,
+                    borderaxespad=0.0,
+                )
             apply_fraction_grid(ax, y_step=None)
             bounds = _date_bounds_frames(ess_series)
         else:
@@ -1307,12 +1335,14 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
 
     try:
         ess_df = load_setup_ess_series(project_dir)
+        ess_ensemble_size = int(ess_df["n"].iloc[0]) if "n" in ess_df.columns and not ess_df.empty else None
         ess_panel = EssPanelData(
             series=ess_df,
-            ensemble_size=(int(ess_df["n"].iloc[0]) if "n" in ess_df.columns and not ess_df.empty else None),
+            ensemble_size=ess_ensemble_size,
+            threshold=load_setup_ess_threshold(project_dir, ensemble_size=ess_ensemble_size),
         )
     except FileNotFoundError:
-        ess_panel = EssPanelData(series=None, ensemble_size=None)
+        ess_panel = EssPanelData(series=None, ensemble_size=None, threshold=None)
 
     stations_df = _load_setup_stations_df(project_dir, setup_dir)
     project_time_bounds = _project_time_bounds(project_dir)

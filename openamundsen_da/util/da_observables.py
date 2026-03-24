@@ -21,23 +21,23 @@ _SPECS = {
     "scf": AssimilationObservableSpec(
         variable="scf",
         weight_prefix="weights_scf",
-        weight_title="SCF Assimilation Weights",
+        weight_title="snow cover data assimilation weights",
     ),
     "wet_snow": AssimilationObservableSpec(
         variable="wet_snow",
         weight_prefix="weights_wet_snow",
-        weight_title="Wet-Snow Assimilation Weights",
+        weight_title="wet snow data assimilation weights",
     ),
     "station_hs": AssimilationObservableSpec(
         variable="station_hs",
         weight_prefix="weights_station_hs",
-        weight_title="Station HS Assimilation Weights",
+        weight_title="station snow depth data assimilation weights",
         station_diagnostics_prefix="station_diagnostics_station_hs",
     ),
     "station_swe": AssimilationObservableSpec(
         variable="station_swe",
         weight_prefix="weights_station_swe",
-        weight_title="Station SWE Assimilation Weights",
+        weight_title="station swe data assimilation weights",
         station_diagnostics_prefix="station_diagnostics_station_swe",
     ),
 }
@@ -87,4 +87,4 @@ def weight_plot_title_from_csv_path(csv_path: Path) -> str:
     for spec in _SPECS.values():
         if stem.startswith(f"{spec.weight_prefix}_"):
             return spec.weight_title
-    return "Assimilation Weights"
+    return "Data Assimilation Weights"

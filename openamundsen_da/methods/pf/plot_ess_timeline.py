@@ -17,9 +17,10 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 from openamundsen_da.util.stats import effective_sample_size
-from openamundsen_da.io.paths import list_step_dirs, list_steps_sorted, read_step_config
+from openamundsen_da.io.paths import find_project_yaml, list_step_dirs, list_steps_sorted, read_step_config
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.da_events import load_assimilation_events
+from openamundsen_da.util.yaml_utils import read_yaml_mapping
 from openamundsen_da.methods.viz._utils import (
     apply_fraction_grid,
     draw_assim_labels,
@@ -43,6 +44,46 @@ def ess_title(*, ensemble_size: int | None, normalized: bool = False) -> str:
     if ensemble_size is None or ensemble_size <= 0:
         return base
     return f"{base} (ensemble size = {ensemble_size})"
+
+
+def ess_axis_ticks(ensemble_size: int | None) -> list[float]:
+    if ensemble_size is None or ensemble_size <= 0:
+        return []
+    n = int(ensemble_size)
+    if n <= 4:
+        return [float(v) for v in range(1, n + 1)]
+
+    target_levels = 3
+    divisor_steps = [step for step in range(1, n + 1) if n % step == 0]
+    exact_candidates = [
+        step
+        for step in divisor_steps
+        if (n // step) in {target_levels, target_levels + 1}
+    ]
+    if exact_candidates:
+        preferred = sorted(
+            exact_candidates,
+            key=lambda step: (
+                abs((n // step) - target_levels),
+                -(n // step),
+                step,
+            ),
+        )[0]
+        return [float(v) for v in range(preferred, n + 1, preferred)]
+
+    target_step = n / target_levels
+    magnitude = 1
+    while magnitude * 10 <= max(1.0, target_step):
+        magnitude *= 10
+    nice_steps = [
+        base * magnitude
+        for base in (1, 2, 5, 10)
+        if base * magnitude > 0
+    ]
+    step = min(nice_steps, key=lambda candidate: abs(candidate - target_step))
+    ticks = [float(v) for v in range(int(step), n, int(step)) if v > 0]
+    ticks.append(float(n))
+    return sorted(set(ticks))
 
 
 def _scan_weights(assim_dir: Path) -> list[tuple[datetime, Path]]:
@@ -187,6 +228,46 @@ def _apply_result_like_time_axis_labels(ax) -> None:
     ax.tick_params(axis="x", labelsize=8.4)
 
 
+def _apply_ess_ticks(ax, ensemble_size: int | None) -> None:
+    ticks = ess_axis_ticks(ensemble_size)
+    if ticks:
+        ax.set_yticks(ticks)
+
+
+def load_setup_ess_threshold(setup_dir: Path, *, ensemble_size: int | None) -> float | None:
+    if ensemble_size is None or ensemble_size <= 0:
+        return None
+    try:
+        cfg = read_yaml_mapping(find_project_yaml(setup_dir), error_cls=RuntimeError, context="Project YAML root")
+    except Exception:
+        return None
+
+    da_cfg = cfg.get("data_assimilation") or {}
+    resampling_cfg = da_cfg.get("resampling") or cfg.get("resampling") or {}
+    ratio_raw = resampling_cfg.get("ess_threshold_ratio")
+    abs_raw = resampling_cfg.get("ess_threshold")
+
+    if ratio_raw is not None:
+        try:
+            ratio = float(ratio_raw)
+        except (TypeError, ValueError):
+            ratio = None
+        if ratio is not None and ratio > 0:
+            return ratio * float(ensemble_size)
+
+    if abs_raw is None:
+        return None
+    try:
+        absolute = float(abs_raw)
+    except (TypeError, ValueError):
+        return None
+    if absolute <= 0:
+        return None
+    if absolute <= 1.0:
+        return absolute * float(ensemble_size)
+    return absolute
+
+
 def _plot(
     df: pd.DataFrame,
     normalized: bool,
@@ -204,10 +285,11 @@ def _plot(
     matplotlib.use(backend or "Agg")
     set_matplotlib_text_black(matplotlib)
     import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
 
     ycol = "ess_norm" if normalized else "ess"
     fig, ax = plt.subplots(figsize=_ESS_PANEL_FIGSIZE)
-    ax.plot(df["date"], df[ycol], marker="o", lw=1.8, color="#1f77b4")
+    ax.plot(df["date"], df[ycol], marker="o", ms=4.0, lw=0.0, ls="none", color="#1f77b4", zorder=25)
     ax.set_ylabel("ESS/N" if normalized else "ESS", fontsize=8.6)
     ax.set_xlabel("")
     ax.set_title(title, loc="left", fontsize=9.4, pad=16.0 if assim_dates else 9.0)
@@ -216,12 +298,23 @@ def _plot(
         x_start, x_end = x_bounds
         if x_start is not None and x_end is not None:
             ax.set_xlim(x_start, x_end)
-    if ensemble_size is not None and ensemble_size > 0:
+    if ensemble_size is not None and ensemble_size > 0 and not normalized:
         ax.set_ylim(0.0, float(ensemble_size))
+        _apply_ess_ticks(ax, ensemble_size)
     _apply_result_like_time_axis_labels(ax)
     ax.tick_params(axis="y", labelsize=8.4)
     if threshold is not None:
-        ax.axhline(threshold, color="#d62728", lw=1.2, ls="--")
+        ax.axhline(threshold, color="#d62728", lw=0.9, ls="--")
+        ax.legend(
+            [Line2D([0], [0], color="#d62728", lw=0.9, ls="--")],
+            ["ESS threshold" if not normalized else "ESS/N threshold"],
+            loc="lower right",
+            bbox_to_anchor=(1.0, 1.24),
+            frameon=False,
+            fontsize=7.4,
+            handlelength=1.9,
+            borderaxespad=0.0,
+        )
     if assim_dates:
         draw_assimilation_vlines(ax, assim_dates, color="#777777", ls="--", lw=1.0, alpha=0.9, label="_nolegend_", zorder=20)
         _add_assim_label_axis(ax, assim_dates)
@@ -263,6 +356,7 @@ def plot_setup_ess_timeline(
     x_bounds = _setup_time_bounds(setup_dir)
     assim_dates = _assimilation_event_dates(setup_dir)
     ensemble_size = int(df["n"].iloc[0]) if "n" in df.columns and not df.empty else None
+    threshold = load_setup_ess_threshold(setup_dir, ensemble_size=ensemble_size) if threshold is None else threshold
     fig = _plot(
         df,
         normalized=normalized,

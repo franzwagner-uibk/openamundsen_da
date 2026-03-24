@@ -42,6 +42,7 @@ from openamundsen_da.methods.viz.fraction_series import (
     load_member_series,
     load_open_loop_fraction_series,
 )
+from openamundsen_da.methods.pf.plot_ess_timeline import ess_title, load_setup_ess_series
 from openamundsen_da.observer.plot_scf_summary import _load_summary as _load_scf_obs
 from openamundsen_da.util.da_events import AssimilationEvent, load_assimilation_events
 from openamundsen_da.util.loguru_utils import configure_cli_logger
@@ -73,6 +74,16 @@ class StationPanelData:
         return bool(self.members) or self.open_loop is not None or self.obs is not None
 
 
+@dataclass
+class EssPanelData:
+    series: pd.DataFrame | None
+    ensemble_size: int | None
+
+    @property
+    def has_data(self) -> bool:
+        return self.series is not None and not self.series.empty
+
+
 _PANEL_ALIASES = {
     "fsc": "fSC",
     "fws": "fWS",
@@ -80,6 +91,7 @@ _PANEL_ALIASES = {
     "roi-sd": "roi-sd",
     "station-sd": "station-sd",
     "station-swe": "station-swe",
+    "ess": "ess",
 }
 
 _DEFAULT_PANELS = [
@@ -96,6 +108,7 @@ _PANEL_YLABELS = {
     "roi-sd": "snow depth [m]",
     "station-sd": "snow depth [m]",
     "station-swe": "swe [mm]",
+    "ess": "ESS",
 }
 
 _DEFAULT_TITLES = {
@@ -103,6 +116,7 @@ _DEFAULT_TITLES = {
     "fWS": "wet snow fraction (roi) - openAMUNDSEN ensemble and satellite observations",
     "roi-swe": "mean swe (roi) - openAMUNDSEN ensemble and open loop",
     "roi-sd": "mean snow depth (roi) - openAMUNDSEN ensemble and open loop",
+    "ess": "effective sample size",
 }
 
 _STATION_PANEL_META = {
@@ -130,6 +144,7 @@ _PANEL_VARIABLE_KEYS = {
     "roi-sd": "SD",
     "station-swe": "SWE",
     "station-sd": "SD",
+    "ess": "fSC",
 }
 
 _ASSIM_STYLES = {
@@ -381,11 +396,20 @@ def _station_title(spec: PanelSpec, station_data: StationPanelData) -> str:
 def _panel_title(spec: PanelSpec, station_data: StationPanelData | None = None) -> str:
     if spec.title:
         return spec.title
+    if spec.panel == "ess":
+        return _DEFAULT_TITLES["ess"]
     if spec.panel in _DEFAULT_TITLES:
         return _DEFAULT_TITLES[spec.panel]
     if station_data is None:
         raise ValueError(f"Missing station metadata for panel {spec.panel}")
     return _station_title(spec, station_data)
+
+
+def _ess_panel_title(spec: PanelSpec, ess_data: EssPanelData | None) -> str:
+    if spec.title:
+        return spec.title
+    ensemble_size = ess_data.ensemble_size if ess_data is not None else None
+    return ess_title(ensemble_size=ensemble_size)
 
 
 def _date_bounds_frames(*frames: pd.DataFrame | None) -> tuple[pd.Timestamp, pd.Timestamp] | None:
@@ -760,6 +784,7 @@ def _panel_has_data(
     roi_snow_depth_model: pd.DataFrame | None,
     roi_snow_depth_members: list[pd.Series] | None,
     station_panels: dict[tuple[str, str], StationPanelData],
+    ess_panel: EssPanelData | None,
 ) -> bool:
     if spec.panel == "fSC":
         return any(frame is not None and not frame.empty for frame in (scf_obs, scf_model, scf_env))
@@ -769,6 +794,8 @@ def _panel_has_data(
         return (roi_swe_model is not None and not roi_swe_model.empty) or bool(roi_swe_members)
     if spec.panel == "roi-sd":
         return (roi_snow_depth_model is not None and not roi_snow_depth_model.empty) or bool(roi_snow_depth_members)
+    if spec.panel == "ess":
+        return bool(ess_panel and ess_panel.has_data)
     if spec.station_id is None:
         return False
     value_col = _STATION_PANEL_META[spec.panel]["value_col"]
@@ -791,6 +818,7 @@ def _filter_panel_specs(
     roi_snow_depth_model: pd.DataFrame | None,
     roi_snow_depth_members: list[pd.Series] | None,
     station_panels: dict[tuple[str, str], StationPanelData],
+    ess_panel: EssPanelData | None,
 ) -> list[PanelSpec]:
     out: list[PanelSpec] = []
     for spec in specs:
@@ -807,6 +835,7 @@ def _filter_panel_specs(
             roi_snow_depth_model=roi_snow_depth_model,
             roi_snow_depth_members=roi_snow_depth_members,
             station_panels=station_panels,
+            ess_panel=ess_panel,
         ):
             out.append(spec)
             continue
@@ -834,6 +863,7 @@ def plot_result_overview(
     roi_snow_depth_members: list[pd.Series] | None = None,
     panel_specs: list[PanelSpec] | None = None,
     station_panels: dict[tuple[str, str], StationPanelData] | None = None,
+    ess_panel: EssPanelData | None = None,
     strict_panels: bool = False,
     x_bounds: tuple[pd.Timestamp, pd.Timestamp] | None = None,
 ) -> None:
@@ -864,11 +894,20 @@ def plot_result_overview(
         roi_snow_depth_model=roi_snow_depth_model,
         roi_snow_depth_members=roi_snow_depth_members,
         station_panels=station_panels,
+        ess_panel=ess_panel,
     )
     if not specs:
         raise ValueError("No data available to plot.")
 
-    fig, axes = plt.subplots(len(specs), 1, figsize=(7.2876875, 1.71236835 * len(specs)), sharex=True)
+    height_ratios = [0.5 if spec.panel == "ess" else 1.0 for spec in specs]
+    total_height_units = sum(height_ratios)
+    fig, axes = plt.subplots(
+        len(specs),
+        1,
+        figsize=(7.2876875, 1.71236835 * total_height_units),
+        sharex=True,
+        gridspec_kw={"height_ratios": height_ratios},
+    )
     if len(specs) == 1:
         axes = [axes]
     title_artists: list[tuple[object, object]] = []
@@ -891,13 +930,14 @@ def plot_result_overview(
     for idx, (ax, spec) in enumerate(zip(axes, specs)):
         letter = ascii_lowercase[idx] if idx < len(ascii_lowercase) else str(idx + 1)
         station_data: StationPanelData | None = None
+        current_ess_panel = ess_panel if spec.panel == "ess" else None
         if spec.panel.startswith("station-") and spec.station_id is not None:
             value_col = _STATION_PANEL_META[spec.panel]["value_col"]
             station_data = station_panels[(spec.station_id.lower(), value_col)]
         panel_style = _panel_style(spec.panel)
 
         title_artist = ax.set_title(
-            f"({letter}) {_panel_title(spec, station_data)}",
+            f"({letter}) {(_ess_panel_title(spec, current_ess_panel) if spec.panel == 'ess' else _panel_title(spec, station_data))}",
             loc="left",
             fontsize=9.4,
             pad=16.0 if events else 9.0,
@@ -1075,6 +1115,24 @@ def plot_result_overview(
             apply_fraction_grid(ax, y_step=None)
             _apply_shared_result_scale(ax, spec.panel, shared_scales)
             bounds = _date_bounds_frames(roi_snow_depth_model, roi_snow_depth_env)
+        elif spec.panel == "ess":
+            if current_ess_panel is None or current_ess_panel.series is None or current_ess_panel.series.empty:
+                raise ValueError("Missing ESS panel data")
+            ess_series = current_ess_panel.series
+            ax.plot(
+                ess_series["date"],
+                ess_series["ess"],
+                marker="o",
+                ms=3.2,
+                lw=1.8,
+                color="#1f77b4",
+                zorder=5,
+            )
+            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
+            if current_ess_panel.ensemble_size is not None and current_ess_panel.ensemble_size > 0:
+                ax.set_ylim(0.0, float(current_ess_panel.ensemble_size))
+            apply_fraction_grid(ax, y_step=None)
+            bounds = _date_bounds_frames(ess_series)
         else:
             if station_data is None:
                 raise ValueError(f"Missing station panel data for {spec.panel}")
@@ -1167,12 +1225,18 @@ def plot_result_overview(
     fig.align_ylabels(axes)
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
-    for ax, title_artist in title_artists:
+    global_left_disp: float | None = None
+    for ax, _title_artist in title_artists:
         tick_labels = [label for label in ax.get_yticklabels() if label.get_text()]
         if not tick_labels:
             continue
         left_disp = min(label.get_window_extent(renderer).x0 for label in tick_labels) - 6.0
-        x_axes = ax.transAxes.inverted().transform((left_disp, ax.bbox.y1))[0]
+        if global_left_disp is None or left_disp < global_left_disp:
+            global_left_disp = left_disp
+    if global_left_disp is None:
+        global_left_disp = min(ax.bbox.x0 for ax in axes)
+    for ax, title_artist in title_artists:
+        x_axes = ax.transAxes.inverted().transform((global_left_disp, ax.bbox.y1))[0]
         title_artist.set_x(x_axes)
     _build_result_overview_legend(fig, show_station_observation=show_station_observation)
     force_figure_text_black(fig, axes)
@@ -1241,12 +1305,21 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     except (FileNotFoundError, ValueError):
         assim_events = []
 
+    try:
+        ess_df = load_setup_ess_series(project_dir)
+        ess_panel = EssPanelData(
+            series=ess_df,
+            ensemble_size=(int(ess_df["n"].iloc[0]) if "n" in ess_df.columns and not ess_df.empty else None),
+        )
+    except FileNotFoundError:
+        ess_panel = EssPanelData(series=None, ensemble_size=None)
+
     stations_df = _load_setup_stations_df(project_dir, setup_dir)
     project_time_bounds = _project_time_bounds(project_dir)
 
     if all(
         x is None or x.empty
-        for x in (scf_obs, wet_obs, scf_model, wet_model, scf_env, wet_env, roi_swe_model, roi_snow_depth_model)
+        for x in (scf_obs, wet_obs, scf_model, wet_model, scf_env, wet_env, roi_swe_model, roi_snow_depth_model, ess_panel.series)
     ) and not roi_swe_members and not roi_snow_depth_members:
         logger.error("No data available to plot. Provide at least one obs/model series.")
         return 1
@@ -1296,6 +1369,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                 roi_snow_depth_members=roi_snow_depth_members,
                 panel_specs=custom_specs,
                 station_panels=custom_station_panels,
+                ess_panel=ess_panel,
                 strict_panels=True,
                 x_bounds=project_time_bounds,
             )
@@ -1316,6 +1390,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                 roi_swe_members=roi_swe_members,
                 roi_snow_depth_model=roi_snow_depth_model,
                 roi_snow_depth_members=roi_snow_depth_members,
+                ess_panel=ess_panel,
                 x_bounds=project_time_bounds,
             )
             logger.info("Wrote plot: {}", default_output)
@@ -1338,6 +1413,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                     roi_snow_depth_members=roi_snow_depth_members,
                     panel_specs=custom_specs,
                     station_panels=custom_station_panels,
+                    ess_panel=ess_panel,
                     strict_panels=True,
                     x_bounds=project_time_bounds,
                 )

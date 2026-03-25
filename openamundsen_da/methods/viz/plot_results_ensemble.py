@@ -29,6 +29,7 @@ from openamundsen_da.methods.viz._style import (
 from openamundsen_da.methods.viz._utils import (
     force_figure_text_black,
     format_station_label,
+    pretty_var_title,
     save_figure_png,
     set_matplotlib_text_black,
 )
@@ -45,26 +46,6 @@ from openamundsen_da.util.loguru_utils import configure_cli_logger
 FIGSIZE = (12.0, 5.2)
 DEFAULT_BAND_LOW = 0.05
 DEFAULT_BAND_HIGH = 0.95
-
-
-def _pretty_var_title(var_col: str, var_label: str = "", var_units: str = "") -> str:
-    """Return a friendly variable title with units for subtitles and y-labels.
-
-    Defaults when no explicit label/units given:
-    - swe -> "snow water equivalent [mm]"
-    - snow_depth|snowdepth|hs -> "snow depth [m]"
-    Otherwise: use provided label/units or prettified var_col.
-    """
-    v = (var_col or "").strip().lower()
-    if not var_label and not var_units:
-        if v == "swe":
-            return "snow water equivalent [mm]"
-        if v in ("snow_depth", "snowdepth", "hs"):
-            return "snow depth [m]"
-    base = (var_label.strip() if var_label else v.replace("_", " "))
-    if var_units:
-        return f"{base} [{var_units}]"
-    return base
 
 
 def _list_point_files(step_dir: Path, ensemble: str) -> Tuple[Optional[Path], List[str]]:
@@ -97,19 +78,36 @@ def _plot_point_station(
     out_path: Path,
     band_low: float,
     band_high: float,
+    mode: str = "members",
 ) -> None:
     import matplotlib
 
     matplotlib.use(backend or "Agg")
     set_matplotlib_text_black(matplotlib)
     import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
+    plot_mode = str(mode or "members").strip().lower()
+    if plot_mode not in {"members", "band"}:
+        plot_mode = "members"
 
-    for series, label in zip(mem_series, mem_labels):
-        ax.plot(series.index, series.values, lw=LW_MEMBER, alpha=0.9, label=label)
-
-    # Removed ensemble mean line
+    if plot_mode == "members":
+        for series, label in zip(mem_series, mem_labels):
+            ax.plot(series.index, series.values, lw=LW_MEMBER, alpha=0.9, label=label)
+    else:
+        mean, lo, hi = envelope(mem_series, q_low=band_low, q_high=band_high)
+        if not mean.empty:
+            ax.fill_between(
+                mean.index,
+                lo,
+                hi,
+                color=COLOR_MEAN,
+                alpha=BAND_ALPHA,
+                label="ensemble",
+                zorder=2,
+            )
+            ax.plot(mean.index, mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean", zorder=4)
 
     if open_loop is not None and _series_has_data(open_loop):
         ax.plot(open_loop.index, open_loop.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open loop", zorder=5)
@@ -122,6 +120,14 @@ def _plot_point_station(
     ax.grid(True, ls=":", lw=0.6, alpha=0.7)
 
     handles, labels = ax.get_legend_handles_labels()
+    if plot_mode == "band" and handles:
+        normalized_handles = []
+        for handle, label in zip(handles, labels):
+            if label == "ensemble":
+                normalized_handles.append(Patch(facecolor=COLOR_MEAN, edgecolor=COLOR_MEAN, alpha=BAND_ALPHA, label=label))
+            else:
+                normalized_handles.append(handle)
+        handles = normalized_handles
     if handles:
         fig.legend(
             handles,
@@ -163,6 +169,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     p.add_argument("--rolling", type=int, help="Rolling window length (samples) applied after resampling")
     p.add_argument("--band-low", type=float, default=DEFAULT_BAND_LOW)
     p.add_argument("--band-high", type=float, default=DEFAULT_BAND_HIGH)
+    p.add_argument("--mode", choices=("members", "band"), default="members")
     p.add_argument("--title", default="Model Results Ensemble")
     p.add_argument("--subtitle", default="")
     p.add_argument("--output-dir", type=Path, help="Output directory (default: <step>/plots/results)")
@@ -207,7 +214,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     step_name = step_dir.name
     effective_title = f"{args.title} | {step_name}" if args.title else step_name
     var_label = args.var_label or args.var_col
-    var_title = _pretty_var_title(args.var_col, args.var_label, args.var_units)
+    var_title = pretty_var_title(args.var_col, args.var_label, args.var_units)
 
     for fname in point_files:
         ol_series: Optional[pd.Series] = None
@@ -269,6 +276,7 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
             out_path=out_path,
             band_low=float(args.band_low),
             band_high=float(args.band_high),
+            mode=args.mode,
         )
         logger.info("Wrote {}", out_path)
 

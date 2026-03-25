@@ -94,6 +94,7 @@ from openamundsen_da.methods.viz._utils import (
     draw_assim_labels,
     force_figure_text_black,
     format_station_label,
+    pretty_var_title,
     save_figure_png,
     set_matplotlib_text_black,
 )
@@ -311,20 +312,27 @@ def _apply_result_time_axis_labels(ax) -> None:
     ax.tick_params(axis="x", labelsize=8.4)
 
 
-def _build_station_result_legend(fig, *, show_station_observation: bool, mean_color: str) -> None:
+def _build_station_result_legend(
+    fig,
+    *,
+    show_station_observation: bool,
+    mean_color: str,
+    show_ensemble_summary: bool = True,
+) -> None:
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
 
     handles = [Line2D([0], [0], color="black", lw=LW_OPEN, label="open loop")]
     if show_station_observation:
         handles.append(Line2D([0], [0], color=COLOR_DA_OBS, lw=LW_DA_OBS, label="station observation"))
-    handles.extend(
-        [
-            Line2D([0], [0], color=mean_color, lw=LW_MEAN, label="ensemble mean"),
-            Patch(facecolor=mean_color, edgecolor=mean_color, linewidth=1.2, alpha=BAND_ALPHA, label="ensemble"),
-            Line2D([0], [0], color="#666666", lw=1.2, ls="--", label="data assimilation event"),
-        ]
-    )
+    if show_ensemble_summary:
+        handles.extend(
+            [
+                Line2D([0], [0], color=mean_color, lw=LW_MEAN, label="ensemble mean"),
+                Patch(facecolor=mean_color, edgecolor=mean_color, linewidth=1.2, alpha=BAND_ALPHA, label="ensemble"),
+            ]
+        )
+    handles.append(Line2D([0], [0], color="#666666", lw=1.2, ls="--", label="data assimilation event"))
     fig.legend(
         handles=handles,
         loc="lower left",
@@ -829,19 +837,8 @@ def plot_setup_results(
     stations_df = load_stations_table_from_steps([s.path for s in steps], "prior")
 
     vv = (var_col or "").strip().lower()
-    if not var_label and not var_units:
-        if vv == "swe":
-            var_title = "snow water equivalent [mm]"
-        elif vv in ("snow_depth", "snowdepth", "hs"):
-            var_title = "snow depth [m]"
-        else:
-            var_title = vv.replace("_", " ")
-    else:
-        var_title = var_label or var_col
-        if var_units:
-            var_title = f"{var_title} [{var_units}]"
+    var_title = pretty_var_title(var_col, var_label, var_units)
 
-    member_label_map = _build_member_label_map(steps)
     # Best-effort station observations (e.g., SWE/HS) over the full setup window
     station_obs = _load_station_obs_for_setup(
         setup_dir=setup_dir,
@@ -856,7 +853,6 @@ def plot_setup_results(
 
     for fname in point_files:
         member_series: List[pd.Series] = []
-        member_labels: List[str] = []
         open_loop: List[pd.Series] = []
 
         for st in steps:
@@ -897,7 +893,6 @@ def plot_setup_results(
                     if s.empty:
                         continue
                     member_series.append(s)
-                    member_labels.append(member_label_map.get(m.name, m.name))
                 except Exception as exc:
                     if isinstance(exc, ValueError) and f"Missing column '{var_col}'" in str(exc):
                         continue
@@ -922,26 +917,39 @@ def plot_setup_results(
         # Members or band + ensemble mean (stepwise, to avoid jumps after resampling)
         station_obs_color = _station_obs_color(var_col)
         station_model_color = _station_model_color(var_col)
-        mean, lo, hi = envelope(member_series, q_low=0.0, q_high=1.0)
-        if not mean.empty:
-            ax.fill_between(
-                mean.index,
-                lo,
-                hi,
-                color=station_model_color,
-                alpha=BAND_ALPHA,
-                label="_nolegend_",
-                zorder=2,
-            )
-            _plot_stepwise_mean(
-                ax,
-                mean,
-                steps,
-                label="ensemble mean (variable color)",
-                lw=LW_MEAN,
-                color=station_model_color,
-                zorder=4,
-            )
+        effective_mode = "members" if show_members else mode
+        if effective_mode == "members":
+            for series in member_series:
+                ax.plot(
+                    series.index,
+                    series.values,
+                    color=station_model_color,
+                    lw=LW_MEMBER,
+                    alpha=0.85,
+                    label="_nolegend_",
+                    zorder=3,
+                )
+        else:
+            mean, lo, hi = envelope(member_series, q_low=band_low, q_high=band_high)
+            if not mean.empty:
+                ax.fill_between(
+                    mean.index,
+                    lo,
+                    hi,
+                    color=station_model_color,
+                    alpha=BAND_ALPHA,
+                    label="_nolegend_",
+                    zorder=2,
+                )
+                _plot_stepwise_mean(
+                    ax,
+                    mean,
+                    steps,
+                    label="ensemble mean (variable color)",
+                    lw=LW_MEAN,
+                    color=station_model_color,
+                    zorder=4,
+                )
         if open_loop:
             ol = concat_series(open_loop)
             if not ol.empty:
@@ -1003,6 +1011,7 @@ def plot_setup_results(
             fig,
             show_station_observation=obs_series is not None and not obs_series.empty,
             mean_color=station_model_color,
+            show_ensemble_summary=effective_mode == "band",
         )
 
         out_path = out_root / f"setup_results_{token}_{var_col}_{setup_id}.png"

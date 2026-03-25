@@ -9,7 +9,7 @@ Inputs
 Outputs
 - A PNG saved next to the CSV (or --output) with two panels:
   A) sorted normalized weights with ESS annotation
-  B) one-point-per-member normalized mismatch view
+  B) one-point-per-member residual view
 
 Logging uses LOGURU_FORMAT from core.constants.
 """
@@ -21,6 +21,7 @@ from datetime import datetime
 import json
 import math
 from pathlib import Path
+import re
 
 import numpy as np
 import pandas as pd
@@ -32,16 +33,23 @@ from openamundsen_da.util.da_observables import station_diagnostics_csv_name, we
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.stats import effective_sample_size
 
-_WEIGHTS_FIGSIZE = (7.2876875, 2.62)
+_WEIGHTS_FIGSIZE = (7.2876875, 3.013)
 _FRACTION_MISMATCH_COLORS = {
     "scf": "#2f6fb5",
     "wet_snow": "#2c8a64",
 }
+_FRACTION_DISPLAY_LABELS = {
+    "scf": "SCF",
+    "wet_snow": "wet snow",
+}
+# Keep station colors distinct from the fixed DA-variable colors:
+# SCF = blue, wet snow = green.
+_STATION_COLORS = ["#ff7f0e", "#9467bd", "#8c564b", "#e377c2", "#bcbd22", "#17becf"]
 _FS_TITLE = 9.4
 _FS_AXIS = 8.6
 _FS_TICK = 8.4
 _FS_NOTE = 7.4
-_COMPOSITE_ROW_HEIGHT = 1.548
+_COMPOSITE_ROW_HEIGHT = 1.7802
 
 
 def _load_weights(csv_path: Path) -> pd.DataFrame:
@@ -55,7 +63,6 @@ def _load_weights(csv_path: Path) -> pd.DataFrame:
 
 def _apply_grid(ax) -> None:
     ax.grid(True, axis="both", which="major", alpha=0.5, linestyle="--", linewidth=0.8)
-    ax.grid(True, axis="both", which="minor", alpha=0.38, linestyle="--", linewidth=0.65)
 
 
 def _member_ticks(n: int) -> list[int]:
@@ -98,18 +105,18 @@ def _weights_date_from_csv_path(csv_path: Path) -> datetime | None:
 
 def _fraction_axis_label(observable: str | None) -> str:
     if observable == "scf":
-        return "snow cover fraction mismatch"
+        return "snow cover fraction residual"
     if observable == "wet_snow":
-        return "wet-snow fraction mismatch"
-    return "mismatch"
+        return "wet-snow fraction residual"
+    return "residual"
 
 
 def _station_axis_label(observable: str | None) -> str:
     if observable == "station_hs":
-        return "snow depth mismatch [m]"
+        return "snow depth residual [m]"
     if observable == "station_swe":
-        return "SWE mismatch [mm]"
-    return "station mismatch"
+        return "SWE residual [mm]"
+    return "station residual"
 
 
 def _station_diagnostics_path(csv_path: Path, observable: str | None) -> Path | None:
@@ -236,6 +243,126 @@ def _station_display_names(csv_path: Path, station_ids: list[str]) -> dict[str, 
     return {station_id: mapping.get(station_id, station_id) for station_id in station_ids}
 
 
+def _station_metadata_uncertainty_pct(csv_path: Path, station_ids: list[str]) -> dict[str, float]:
+    if not station_ids:
+        return {}
+    try:
+        project_dir = infer_project_dir(csv_path.parent.parent)
+        meta_path = project_dir / "obs" / "stations" / "stations_da_metadata.csv"
+        if not meta_path.is_file():
+            return {}
+        meta = pd.read_csv(meta_path)
+    except Exception:
+        return {}
+
+    cols_lower = {str(c).lower(): c for c in meta.columns}
+    id_col = next((cols_lower[c] for c in ("station_id", "id", "station", "code") if c in cols_lower), None)
+    pct_col = cols_lower.get("station_uncertainty_pct")
+    if id_col is None or pct_col is None:
+        return {}
+
+    selected = {station_id.strip().lower() for station_id in station_ids}
+    mapping: dict[str, float] = {}
+    for _, row in meta.iterrows():
+        station_id = str(row[id_col]).strip().lower()
+        if not station_id or station_id not in selected:
+            continue
+        try:
+            pct = float(row[pct_col])
+        except Exception:
+            continue
+        if np.isfinite(pct):
+            mapping[station_id] = pct
+    return mapping
+
+
+def _station_color_map(station_ids: list[str]) -> dict[str, str]:
+    return {
+        station_id: _STATION_COLORS[idx % len(_STATION_COLORS)]
+        for idx, station_id in enumerate(station_ids)
+    }
+
+
+def _marker_handle(
+    color: str | None,
+    *,
+    size: float = 6.0,
+    markeredgewidth: float = 0.9,
+    edgecolor: str | None = None,
+):
+    from matplotlib.lines import Line2D
+
+    facecolor = "none" if color is None else color
+    markeredgecolor = edgecolor if edgecolor is not None else (color if color is not None else "#000000")
+    return Line2D(
+        [0],
+        [0],
+        marker="o",
+        linestyle="None",
+        markerfacecolor=facecolor,
+        markeredgecolor=markeredgecolor,
+        markeredgewidth=markeredgewidth,
+        markersize=size,
+    )
+
+
+def _marker_legend_entries_for_csv(csv_path: Path, observable: str | None) -> list[tuple[str, str]]:
+    if observable in {"station_hs", "station_swe"}:
+        diag_path = _station_diagnostics_path(csv_path, observable)
+        diag = pd.read_csv(diag_path) if diag_path is not None and diag_path.is_file() else pd.DataFrame()
+        if diag.empty or "station_id" not in diag.columns:
+            return []
+        station_ids = sorted(diag["station_id"].dropna().astype(str).unique())
+        station_display_names = _station_display_names(csv_path, station_ids)
+        station_sigma_meta = _station_metadata_uncertainty_pct(csv_path, station_ids)
+        station_color_map = _station_color_map(station_ids)
+        entries: list[tuple[str, str]] = []
+        for station_id in station_ids:
+            display_name = station_display_names.get(station_id, station_id)
+            sigma_meta = station_sigma_meta.get(station_id.strip().lower())
+            if sigma_meta is not None:
+                label = f"{display_name} (\u03c3={sigma_meta:.0f}%)"
+            else:
+                label = display_name
+            entries.append((label, station_color_map[station_id]))
+        return entries
+
+    if observable in _FRACTION_DISPLAY_LABELS:
+        return [(_FRACTION_DISPLAY_LABELS[observable], _FRACTION_MISMATCH_COLORS[observable])]
+
+    return []
+
+
+def _collect_marker_legend_entries(csv_paths: list[Path]) -> list[tuple[str, str]]:
+    entries: dict[str, str] = {}
+    for csv_path in csv_paths:
+        observable = _observable_from_csv_path(csv_path)
+        for label, color in _marker_legend_entries_for_csv(csv_path, observable):
+            entries.setdefault(label, color)
+    return list(entries.items())
+
+
+def _draw_sigma_strip(ax, entries: list[tuple[str, str]], *, fontsize: float) -> None:
+    if not entries:
+        return
+    handles = [_marker_handle(color, size=4.8, markeredgewidth=0.8) for color, _label in entries]
+    labels = [label for _color, label in entries]
+    legend = ax.legend(
+        handles,
+        labels,
+        loc="lower right",
+        bbox_to_anchor=(1.0, 1.05),
+        ncol=len(labels),
+        frameon=False,
+        fontsize=fontsize,
+        handlelength=0.8,
+        handletextpad=0.25,
+        columnspacing=0.8,
+        borderaxespad=0.0,
+    )
+    legend._legend_box.align = "right"
+
+
 def _shared_station_sigma_groups(diag: pd.DataFrame) -> list[tuple[float, list[str]]]:
     if diag.empty or "station_id" not in diag.columns or "sigma" not in diag.columns:
         return []
@@ -305,56 +432,59 @@ def _draw_alternating_sigma_line(
 
 def _resample_legend_artists():
     from matplotlib.legend_handler import HandlerTuple
-    from matplotlib.lines import Line2D
 
     legend_fill = "#bdbdbd"
-    skipped_handle = Line2D(
-        [0],
-        [0],
-        marker="o",
-        linestyle="None",
-        markerfacecolor=legend_fill,
-        markeredgecolor="#000000",
-        markeredgewidth=0.9,
-        markersize=5.8,
-    )
     redraw_handle = (
-        Line2D(
-            [0],
-            [0],
-            marker="o",
-            linestyle="None",
-            markerfacecolor=legend_fill,
-            markeredgecolor="#000000",
-            markeredgewidth=0.9,
-            markersize=5.2,
-        ),
-        Line2D(
-            [0],
-            [0],
-            marker="o",
-            linestyle="None",
-            markerfacecolor="none",
-            markeredgecolor="#000000",
-            markeredgewidth=0.8,
-            markersize=7.6,
-        ),
-        Line2D(
-            [0],
-            [0],
-            marker="o",
-            linestyle="None",
-            markerfacecolor="none",
-            markeredgecolor="#000000",
-            markeredgewidth=0.7,
-            markersize=10.0,
-        ),
+        _marker_handle(legend_fill, size=5.2, markeredgewidth=0.9, edgecolor="#000000"),
+        _marker_handle(None, size=7.6, markeredgewidth=0.8, edgecolor="#000000"),
+        _marker_handle(None, size=10.0, markeredgewidth=0.7, edgecolor="#000000"),
     )
-    labels = [
-        "resampling skipped (unchanged ensemble)",
-        "redrawn source member (extra rings = repeated draws)",
-    ]
-    return [skipped_handle, redraw_handle], labels, {tuple: HandlerTuple(ndivide=1)}
+    labels = ["redrawn source member (extra rings = repeated draws)"]
+    return [redraw_handle], labels, {tuple: HandlerTuple(ndivide=1)}
+
+
+def _figure_legend_spec(csv_paths: list[Path]):
+    handles = []
+    labels = []
+    for label, color in _collect_marker_legend_entries(csv_paths):
+        handles.append(_marker_handle(color, size=5.8, markeredgewidth=0.9))
+        labels.append(label)
+    resample_handles, resample_labels, handler_map = _resample_legend_artists()
+    handles.extend(resample_handles)
+    labels.extend(resample_labels)
+    return handles, labels, handler_map
+
+
+def _best_figure_legend_ncol(
+    fig,
+    handles: list[object],
+    labels: list[str],
+    *,
+    handler_map: dict | None = None,
+    max_width_frac: float = 0.96,
+    **legend_kwargs,
+) -> int:
+    """Prefer a single legend row and wrap only when it would overflow the figure."""
+    if not labels:
+        return 1
+
+    for ncol in range(len(labels), 0, -1):
+        legend = fig.legend(
+            handles,
+            labels,
+            handler_map=handler_map,
+            ncol=ncol,
+            **legend_kwargs,
+        )
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        fig_bbox = fig.get_window_extent(renderer=renderer)
+        legend_bbox = legend.get_window_extent(renderer=renderer)
+        legend.remove()
+        if legend_bbox.width <= fig_bbox.width * max_width_frac:
+            return ncol
+
+    return 1
 
 
 def _ordered_weights_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -379,13 +509,14 @@ def _draw_weights_event(
     title_mode: str = "figure",
     font_scale: float = 1.0,
     show_metrics_label: bool = True,
+    show_metrics_threshold: bool = True,
     show_left_ylabel: bool = True,
     show_right_ylabel: bool = True,
     ring_step_scale: float = 1.0,
     ring_line_scale: float = 1.0,
     marker_scale: float = 1.0,
     font_size_bump: float = 0.0,
-    axes_title_y: float = 1.22,
+    axes_title_y: float = 1.18,
 ) -> None:
     from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 
@@ -443,23 +574,22 @@ def _draw_weights_event(
     ax0.yaxis.set_minor_locator(MultipleLocator(1.0))
     ax0.tick_params(axis="both", labelsize=fs_tick)
     threshold = resample_manifest.get("ess_threshold")
-    metrics_label = f"ESS={ess:.1f}, N={n}"
-    if threshold is not None:
-        metrics_label = f"{metrics_label}, ESS threshold={float(threshold):.1f}"
+    metrics_label = f"ESS = {ess:.1f}"
+    if show_metrics_threshold and threshold is not None:
+        metrics_label = f"{metrics_label} (threshold={float(threshold):.1f})"
     if show_metrics_label:
         ax0.text(
-            0.5,
+            0.0,
             1.02,
             metrics_label,
             transform=ax0.transAxes,
-            ha="center",
+            ha="left",
             va="bottom",
             fontsize=fs_note,
             color="#000000",
         )
 
-    sigma_note: str | None = None
-    sigma_label_above: str | None = None
+    sigma_strip_entries: list[tuple[str, str]] = []
     ax1.axvline(0.0, color="black", lw=1.0, zorder=3)
     ax1.set_ylabel("sorted member" if show_right_ylabel else "", fontsize=fs_axis)
     ax1.set_yticks(_member_ticks(n))
@@ -479,12 +609,7 @@ def _draw_weights_event(
             if not diag.empty and "station_id" in diag.columns
             else []
         )
-        station_display_names = _station_display_names(csv_path, station_ids)
-        station_colors = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#8c564b"]
-        station_color_map = {
-            station_id: station_colors[idx % len(station_colors)]
-            for idx, station_id in enumerate(station_ids)
-        }
+        station_color_map = _station_color_map(station_ids)
         for station_id in station_ids:
             station_mask = diag["station_id"].astype(str) == station_id
             sdf = diag.loc[station_mask].copy()
@@ -500,11 +625,7 @@ def _draw_weights_event(
             color = station_color_map[station_id]
             y = sdf["member_rank"].to_numpy(dtype=float)
             station_draw_counts = sdf["member_id"].astype(str).map(lambda member_id: int(resample_counts.get(member_id, 0))).to_numpy(dtype=int)
-            legend_label = station_display_names.get(station_id, station_id)
             sigma_series = pd.to_numeric(sdf.get("sigma"), errors="coerce").dropna()
-            if not sigma_series.empty:
-                sigma_val = float(sigma_series.iloc[0])
-                legend_label = f"{legend_label} (\u03c3={sigma_val:.2f})"
             ax1.scatter(
                 sdf["residual_num"].to_numpy(dtype=float),
                 y,
@@ -513,7 +634,6 @@ def _draw_weights_event(
                 linewidths=0.9,
                 s=mismatch_marker_size,
                 zorder=4,
-                label=legend_label,
             )
             _draw_resample_rings(
                 ax1,
@@ -524,21 +644,13 @@ def _draw_weights_event(
                 ring_step=11.0 * ring_step_scale,
                 line_scale=ring_line_scale,
             )
+            sigma_val: float | None = None
+            if not sigma_series.empty:
+                sigma_val = float(sigma_series.iloc[0])
+                sigma_strip_entries.append((color, f"\u03c3={sigma_val:.2f}"))
             if not sigma_series.empty and station_id not in shared_sigma_station_ids:
                 ax1.axvline(-sigma_val, color=color, lw=1.0, ls="-", alpha=0.9, zorder=2)
                 ax1.axvline(sigma_val, color=color, lw=1.0, ls="-", alpha=0.9, zorder=2)
-        if station_ids:
-            ax1.legend(
-                loc="lower center",
-                bbox_to_anchor=(0.50, 1.02),
-                ncol=min(2, len(station_ids)),
-                frameon=False,
-                fontsize=fs_note,
-                handlelength=1.0,
-                handletextpad=0.3,
-                columnspacing=0.8,
-                borderaxespad=0.0,
-            )
         y_min = 0.5
         y_max = n + 0.5
         for sigma_val, sigma_station_ids in shared_sigma_groups:
@@ -547,7 +659,6 @@ def _draw_weights_event(
             _draw_alternating_sigma_line(ax1, sigma_val, y_min, y_max, colors, lw=1.0, alpha=0.9, zorder=2)
         ax1.set_xlabel(_station_axis_label(observable), fontsize=fs_axis)
         ax1.xaxis.set_minor_locator(AutoMinorLocator(4))
-        sigma_note = None
     else:
         residual = pd.to_numeric(ordered_df.get("residual"), errors="coerce")
         frac_color = _FRACTION_MISMATCH_COLORS.get(observable, "#ff7f0e")
@@ -579,37 +690,10 @@ def _draw_weights_event(
             sigma_val = float(sigma.iloc[0])
             ax1.axvline(-sigma_val, color=frac_color, lw=1.0, ls="-", alpha=0.9, zorder=2)
             ax1.axvline(sigma_val, color=frac_color, lw=1.0, ls="-", alpha=0.9, zorder=2)
-            sigma_label_above = f"\u03c3={sigma_val:.2f}"
+            sigma_strip_entries.append((frac_color, f"\u03c3={sigma_val:.2f}"))
         ax1.set_xlabel(_fraction_axis_label(observable), fontsize=fs_axis)
         ax1.xaxis.set_minor_locator(AutoMinorLocator(4))
-    if sigma_label_above:
-        ax1.text(
-            0.5,
-            1.02,
-            sigma_label_above,
-            transform=ax1.transAxes,
-            ha="center",
-            va="bottom",
-            fontsize=fs_note,
-            color="#000000",
-        )
-    elif sigma_note:
-        ax1.text(
-            0.02,
-            0.95,
-            sigma_note,
-            transform=ax1.transAxes,
-            ha="left",
-            va="top",
-            fontsize=fs_note,
-            color="#000000",
-            bbox={
-                "boxstyle": "round,pad=0.18",
-                "facecolor": "white",
-                "edgecolor": "none",
-                "alpha": 0.75,
-            },
-        )
+    _draw_sigma_strip(ax1, sigma_strip_entries, fontsize=fs_note)
     _apply_grid(ax1)
     ax1.tick_params(axis="both", labelsize=fs_tick)
 
@@ -619,9 +703,11 @@ def _draw_weights_event(
             header = f"{title}\n{subtitle}" if title else subtitle
         else:
             header = f"{title} - {subtitle}" if title else subtitle
+    if title_mode == "axes":
+        header = _format_axes_subplot_title(header)
     if header:
         if title_mode == "figure":
-            fig.text(0.11, 0.985, header, ha="left", va="top", fontsize=fs_title, color="#000000")
+            fig.text(0.11, 0.972, header, ha="left", va="top", fontsize=fs_title, color="#000000")
         else:
             ax0.text(
                 0.0,
@@ -649,12 +735,9 @@ def _plot(
     matplotlib.use(backend or "Agg")
     set_matplotlib_text_black(matplotlib)
     import matplotlib.pyplot as plt
-    from matplotlib.legend_handler import HandlerTuple
-    from matplotlib.lines import Line2D
-    from matplotlib.ticker import AutoMinorLocator, MultipleLocator
-
+    from matplotlib.ticker import NullLocator
     fig = plt.figure(figsize=_WEIGHTS_FIGSIZE)
-    gs = fig.add_gridspec(1, 2, width_ratios=[2.25, 2.75])
+    gs = fig.add_gridspec(1, 2, width_ratios=[1.575, 3.425])
 
     ax0 = fig.add_subplot(gs[0, 0])
     ax1 = fig.add_subplot(gs[0, 1])
@@ -670,19 +753,22 @@ def _plot(
         title_mode="figure",
         font_scale=1.0,
     )
+    ax0.set_xticks([0.2, 0.3, 0.6, 0.8, 1.0])
+    ax0.set_xticklabels(["0.2", "0.3", "0.6", "0.8", "1"])
+    ax0.xaxis.set_minor_locator(NullLocator())
 
-    bottom_margin = 0.295
+    bottom_margin = 0.30
     right_margin = 0.965
-    top_margin = 0.79 if observable in {"station_hs", "station_swe"} else 0.845
+    top_margin = 0.78
     fig.subplots_adjust(left=0.095, right=right_margin, top=top_margin, bottom=bottom_margin, wspace=0.30)
-    legend_handles, legend_labels, handler_map = _resample_legend_artists()
+    legend_handles, legend_labels, handler_map = _figure_legend_spec([csv_path])
     fig.legend(
         legend_handles,
         legend_labels,
         handler_map=handler_map,
         loc="lower center",
-        bbox_to_anchor=(0.5, 0.085),
-        ncol=2,
+        bbox_to_anchor=(0.5, 0.105),
+        ncol=min(3, len(legend_labels)),
         frameon=False,
         fontsize=6.8,
         handletextpad=0.4,
@@ -735,7 +821,7 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
     n_cols = 2
     n_rows = int(math.ceil(n_events / n_cols))
     fig = plt.figure(figsize=(7.2876875, _COMPOSITE_ROW_HEIGHT * n_rows))
-    outer = fig.add_gridspec(n_rows, n_cols, left=0.06, right=0.99, top=0.92, bottom=0.095, wspace=0.0, hspace=0.78)
+    outer = fig.add_gridspec(n_rows, n_cols, left=0.06, right=0.99, top=0.91, bottom=0.12, wspace=0.0, hspace=0.95)
 
     axes_for_black: list[object] = []
     font_scale = 0.68
@@ -748,12 +834,16 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
         col = idx % n_cols
         left_ratio = 1.15 * 0.8 * 0.8 * 0.6 * 0.8
         right_ratio = 2.16 * 0.75 * 0.7 * 0.6 * 0.8
-        spacer_ratio = 0.06 * (left_ratio + right_ratio)
+        left_plot_ratio = left_ratio * 0.7
+        right_plot_ratio = right_ratio * 0.7
+        new_left_plot_ratio = left_plot_ratio * 0.7
+        new_right_plot_ratio = right_plot_ratio + (left_plot_ratio - new_left_plot_ratio)
+        spacer_ratio = 0.06 * (new_left_plot_ratio + new_right_plot_ratio)
         sub = outer[row, col].subgridspec(
             2,
             3,
             height_ratios=[1.0, 0.045],
-            width_ratios=[left_ratio * 0.7, right_ratio * 0.7, spacer_ratio],
+            width_ratios=[new_left_plot_ratio, new_right_plot_ratio, spacer_ratio],
             wspace=0.06,
             hspace=0.0,
         )
@@ -778,7 +868,8 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
             observable=_observable_from_csv_path(csv_path),
             title_mode="axes",
             font_scale=font_scale,
-            show_metrics_label=False,
+            show_metrics_label=True,
+            show_metrics_threshold=False,
             show_left_ylabel=(col == 0),
             show_right_ylabel=False,
             ring_step_scale=0.72,
@@ -797,26 +888,35 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
         summary = f"{summary}, ESS threshold = {float(ess_threshold):.1f}"
     fig.text(
         0.06,
-        0.985,
+        0.974,
         f"data assimilation weights ({summary})",
         va="top",
         ha="left",
         fontsize=8.6,
         color="#000000",
     )
-    legend_handles, legend_labels, handler_map = _resample_legend_artists()
-    fig.legend(
-        legend_handles,
-        legend_labels,
-        handler_map=handler_map,
+    legend_handles, legend_labels, handler_map = _figure_legend_spec(csv_paths)
+    legend_kwargs = dict(
         loc="lower center",
-        bbox_to_anchor=(0.5, 0.028),
-        ncol=2,
+        bbox_to_anchor=(0.5, 0.052),
         frameon=False,
         fontsize=6.2,
         handletextpad=0.35,
         columnspacing=0.9,
         borderaxespad=0.0,
+    )
+    fig.legend(
+        legend_handles,
+        legend_labels,
+        handler_map=handler_map,
+        ncol=_best_figure_legend_ncol(
+            fig,
+            legend_handles,
+            legend_labels,
+            handler_map=handler_map,
+            **legend_kwargs,
+        ),
+        **legend_kwargs,
     )
     force_figure_text_black(fig, axes_for_black)
     out = _default_setup_weights_overview_output(setup_dir)
@@ -937,6 +1037,18 @@ def _compact_subplot_title(title: str) -> str:
         if compact.lower().endswith(suffix):
             return compact[: -len(suffix)].rstrip()
     return compact
+
+
+def _format_axes_subplot_title(title: str) -> str:
+    compact = str(title or "").strip()
+    if not compact:
+        return compact
+    match = re.match(r"^(DA \d+)(.*)$", compact)
+    if not match:
+        return compact
+    prefix, suffix = match.groups()
+    prefix_math = prefix.replace(" ", r"\ ")
+    return rf"$\mathbf{{{prefix_math}}}$" + suffix
 
 
 def plot_weights_for_csv(

@@ -64,6 +64,21 @@ def save_figure_png(
     fig.savefig(output_png, dpi=dpi, **save_kwargs)
 
 
+def pretty_var_title(var_col: str, var_label: str = "", var_units: str = "") -> str:
+    """Return a friendly variable title with optional units."""
+    v = (var_col or "").strip()
+    if not var_label and not var_units:
+        lv = v.lower()
+        if lv == "swe":
+            return "snow water equivalent [mm]"
+        if lv in {"snow_depth", "snowdepth", "hs"}:
+            return "snow depth [m]"
+    base = var_label.strip() if var_label else v.replace("_", " ")
+    if var_units:
+        return f"{base} [{var_units}]"
+    return base
+
+
 def find_station_meta(st_df: Optional[pd.DataFrame], token: str) -> Tuple[Optional[str], Optional[float]]:
     """Return (name, altitude_m) for a station token using a stations table."""
     if st_df is None or st_df.empty:

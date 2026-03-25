@@ -289,7 +289,7 @@ def _plot(
 
     ycol = "ess_norm" if normalized else "ess"
     fig, ax = plt.subplots(figsize=_ESS_PANEL_FIGSIZE)
-    ax.plot(df["date"], df[ycol], marker="o", ms=4.0, lw=0.0, ls="none", color="#1f77b4", zorder=25)
+    ax.plot(df["date"], df[ycol], marker="o", ms=4.0, lw=0.0, ls="none", color="#000000", zorder=25)
     ax.set_ylabel("ESS/N" if normalized else "ESS", fontsize=8.6)
     ax.set_xlabel("")
     ax.set_title(title, loc="left", fontsize=9.4, pad=16.0 if assim_dates else 9.0)
@@ -319,7 +319,12 @@ def _plot(
         draw_assimilation_vlines(ax, assim_dates, color="#777777", ls="--", lw=1.0, alpha=0.9, label="_nolegend_", zorder=20)
         _add_assim_label_axis(ax, assim_dates)
 
-    fig.subplots_adjust(left=0.11, right=0.965, top=0.82 if assim_dates else 0.86, bottom=0.30)
+    if subtitle:
+        fig.text(0.5, 0.965, subtitle, ha="center", va="top", fontsize=8.8, color="#000000")
+    top_margin = 0.82 if assim_dates else 0.86
+    if subtitle:
+        top_margin -= 0.06
+    fig.subplots_adjust(left=0.11, right=0.965, top=top_margin, bottom=0.30)
     force_figure_text_black(fig, [ax])
     return fig
 

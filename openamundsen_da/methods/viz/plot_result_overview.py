@@ -878,11 +878,12 @@ def plot_result_overview(
     ess_panel: EssPanelData | None = None,
     strict_panels: bool = False,
     x_bounds: tuple[pd.Timestamp, pd.Timestamp] | None = None,
+    backend: str = "Agg",
 ) -> None:
     """Render the result overview into one PNG."""
     import matplotlib
 
-    matplotlib.use("Agg")
+    matplotlib.use(backend or "Agg")
     set_matplotlib_text_black(matplotlib)
     import matplotlib.pyplot as plt
 
@@ -1140,7 +1141,7 @@ def plot_result_overview(
                 ms=3.2,
                 lw=0.0,
                 ls="none",
-                color="#1f77b4",
+                color="#000000",
                 zorder=25,
             )
             ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
@@ -1290,6 +1291,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     parser.add_argument("--custom-config", type=Path, help="Custom panel YAML (default: <project-dir>/result_overview_custom.yml)")
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
     parser.add_argument("--mode", choices=["band", "members"], default="band", help="Plot mode: band (default) or members")
+    parser.add_argument("--backend", default="Agg", help="Matplotlib backend (default: Agg)")
     args = parser.parse_args(argv)
 
     if configure_logger:
@@ -1402,6 +1404,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                 ess_panel=ess_panel,
                 strict_panels=True,
                 x_bounds=project_time_bounds,
+                backend=args.backend,
             )
             logger.info("Wrote custom plot: {}", custom_output)
         else:
@@ -1422,6 +1425,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                 roi_snow_depth_members=roi_snow_depth_members,
                 ess_panel=ess_panel,
                 x_bounds=project_time_bounds,
+                backend=args.backend,
             )
             logger.info("Wrote plot: {}", default_output)
 
@@ -1446,6 +1450,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                     ess_panel=ess_panel,
                     strict_panels=True,
                     x_bounds=project_time_bounds,
+                    backend=args.backend,
                 )
                 logger.info("Wrote custom plot: {}", custom_output)
     except ModuleNotFoundError as exc:

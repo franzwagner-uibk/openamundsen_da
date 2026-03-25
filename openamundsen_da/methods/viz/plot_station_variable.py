@@ -28,26 +28,11 @@ from loguru import logger
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.methods.viz._utils import (
     force_figure_text_black,
+    pretty_var_title,
     save_figure_png,
     set_matplotlib_text_black,
 )
 from openamundsen_da.util.ts import apply_window, read_timeseries_csv
-
-
-def _pretty_var_title(var: str, label: str = "", units: str = "") -> str:
-    """Return a friendly variable title with units for subtitles and y-labels."""
-    v = (var or "").strip()
-    if not label and not units:
-        # A few common shortcuts
-        lv = v.lower()
-        if lv == "swe":
-            return "snow water equivalent [mm]"
-        if lv in ("snow_depth", "snowdepth", "hs"):
-            return "snow depth [m]"
-    base = label.strip() if label else v.replace("_", " ")
-    if units:
-        return f"{base} [{units}]"
-    return base
 
 
 def _load_series(csv_path: Path, time_col: str, var_col: str) -> pd.Series:
@@ -106,7 +91,7 @@ def plot_station_variable(
     if series.empty:
         raise ValueError(f"No data for '{var_col}' in selected time window.")
 
-    var_title = _pretty_var_title(var_col, var_label, var_units)
+    var_title = pretty_var_title(var_col, var_label, var_units)
 
     fig, ax = plt.subplots(figsize=(8.5, 4.2))
     ax.plot(series.index, series.values, color="#1f77b4", lw=1.8)

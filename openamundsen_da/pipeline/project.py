@@ -424,7 +424,7 @@ def _run_live_plots(
             plot_setup_results(
                 setup_dir=cfg.project_dir,
                 var_col="swe",
-                mode="members",
+                mode="band",
                 resample="D",
                 resample_agg="mean",
                 configure_logger=False,
@@ -432,7 +432,7 @@ def _run_live_plots(
             plot_setup_results(
                 setup_dir=cfg.project_dir,
                 var_col="snow_depth",
-                mode="members",
+                mode="band",
                 resample="D",
                 resample_agg="mean",
                 configure_logger=False,
@@ -967,7 +967,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
             kwargs={
                 "setup_dir": cfg.project_dir,
                 "var_col": "swe",
-                "mode": "members",
+                "mode": "band",
                 "resample": "D",
                 "resample_agg": "mean",
                 "configure_logger": False,
@@ -982,7 +982,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
             kwargs={
                 "setup_dir": cfg.project_dir,
                 "var_col": "snow_depth",
-                "mode": "members",
+                "mode": "band",
                 "resample": "D",
                 "resample_agg": "mean",
                 "configure_logger": False,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import tempfile
 import unittest
 from datetime import datetime
@@ -158,8 +159,59 @@ class AssimilateStationTests(unittest.TestCase):
             self.assertTrue(diag["single_station_inflated"].all())
             sigma_base = float(diag["sigma_base"].iloc[0])
             sigma = float(diag["sigma"].iloc[0])
-            self.assertAlmostEqual(sigma_base, 0.10, places=6)
-            self.assertAlmostEqual(sigma, 0.20, places=6)
+            self.assertAlmostEqual(sigma_base, math.hypot(0.10, 0.10), places=6)
+            self.assertAlmostEqual(sigma, math.hypot(0.10, 0.10) * 2.0, places=6)
+
+    def test_station_hs_sigma_uses_smooth_floor_combination(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            setup_dir = root / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2024_2025"
+            step_dir = project_dir / "steps" / "step_00_init"
+            obs_dir = setup_dir / "obs" / "stations"
+            prior_root = step_dir / "ensembles" / "prior"
+
+            _write_project_config(project_dir)
+            _write_series(
+                obs_dir / "stations_da_metadata.csv",
+                [
+                    {"station_id": "tiny_snow", "station_uncertainty_pct": 500},
+                    {"station_id": "deep_snow", "station_uncertainty_pct": 10},
+                ],
+            )
+            _write_series(
+                obs_dir / "tiny_snow.csv",
+                [{"time": "2024-02-21 00:00:00", "snow_depth": 0.003, "swe": 1.0}],
+            )
+            _write_series(
+                obs_dir / "deep_snow.csv",
+                [{"time": "2024-02-21 00:00:00", "snow_depth": 0.431166, "swe": 10.0}],
+            )
+
+            _write_series(
+                prior_root / "member_001" / "results" / "point_tiny_snow.csv",
+                [{"time": "2024-02-21 00:00:00", "snow_depth": 0.003, "swe": 1.0}],
+            )
+            _write_series(
+                prior_root / "member_001" / "results" / "point_deep_snow.csv",
+                [{"time": "2024-02-21 00:00:00", "snow_depth": 0.431166, "swe": 10.0}],
+            )
+
+            result = assimilate_station_hs_for_date(
+                setup_dir=setup_dir,
+                step_dir=step_dir,
+                ensemble="prior",
+                date=datetime(2024, 2, 21),
+            )
+
+            diag = result.diagnostics.set_index("station_id")
+            tiny_sigma = float(diag.loc["tiny_snow", "sigma_base"])
+            deep_sigma = float(diag.loc["deep_snow", "sigma_base"])
+
+            self.assertAlmostEqual(tiny_sigma, math.hypot(0.003 * 5.0, 0.10), places=6)
+            self.assertAlmostEqual(deep_sigma, math.hypot(0.431166 * 0.10, 0.10), places=6)
+            self.assertGreater(deep_sigma, tiny_sigma)
+            self.assertGreater(tiny_sigma, 0.10)
 
     def test_station_swe_uses_absolute_sigma_floor(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -196,7 +248,7 @@ class AssimilateStationTests(unittest.TestCase):
             )
 
             sigma_base = float(result.diagnostics["sigma_base"].iloc[0])
-            self.assertAlmostEqual(sigma_base, 20.0, places=6)
+            self.assertAlmostEqual(sigma_base, math.hypot(5.0 * 0.10, 20.0), places=6)
 
 
 if __name__ == "__main__":

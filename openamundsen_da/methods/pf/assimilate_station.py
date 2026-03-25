@@ -230,7 +230,8 @@ def _build_active_stations(
             )
             continue
         pct, source = _resolve_station_uncertainty_pct(station_id, metadata_df, config)
-        sigma_base = max(sigma_floor, (pct / 100.0) * float(obs_value))
+        sigma_rel = (pct / 100.0) * float(obs_value)
+        sigma_base = float(np.hypot(sigma_rel, sigma_floor))
         active.append(
             ActiveStation(
                 station_id=station_id,

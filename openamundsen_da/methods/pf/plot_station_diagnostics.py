@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from openamundsen_da.methods.viz._style import EXPORT_DPI
 
 
 def _load_diagnostics(csv_path: Path) -> pd.DataFrame:
@@ -90,6 +91,6 @@ def plot_station_diagnostics_for_csv(
 
     out = _default_output_path(csv_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out, dpi=150, bbox_inches="tight", pad_inches=0.08)
+    fig.savefig(out, dpi=EXPORT_DPI, bbox_inches="tight", pad_inches=0.08)
     plt.close(fig)
     return out

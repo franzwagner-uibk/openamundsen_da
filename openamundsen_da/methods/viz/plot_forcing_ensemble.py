@@ -1,4 +1,4 @@
-﻿"""openamundsen_da.methods.viz.plot_forcing_ensemble
+"""openamundsen_da.methods.viz.plot_forcing_ensemble
 
 Per-station ensemble plots for forcing time series (temperature and cumulative
 precipitation) across all members. Designed to visualize prior/posterior
@@ -9,8 +9,8 @@ Behavior
 - Requires explicit column names (no autodetection):
   date column (default 'date'), temperature 'temp', precipitation 'precip'.
 - Produces two-panel figures per station:
-  A) Temperature time series (members, mean, 5â€“95% band, open-loop)
-  B) Cumulative precipitation by hydrological year (members, mean, band, open-loop)
+  A) Temperature time series (members and open-loop when available)
+  B) Cumulative precipitation by hydrological year (members and open-loop when available)
 
 Notes
 - If open_loop is unavailable (e.g., posterior ensemble), the plot omits it.
@@ -21,9 +21,8 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Iterable, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 from loguru import logger
 
@@ -37,21 +36,13 @@ from openamundsen_da.util.ts import (
     parse_time_column,
     collapse_duplicates,
 )
-from openamundsen_da.util.stats import envelope
 from openamundsen_da.methods.viz._style import (
-    COLOR_MEAN,
     COLOR_OPEN_LOOP,
-    BAND_ALPHA,
     LW_MEMBER,
-    LW_MEAN,
     LW_OPEN,
-    LEGEND_NCOL,
 )
-from openamundsen_da.methods.viz._utils import format_station_label
-from openamundsen_da.methods.viz._ensemble_meta import (
-    load_stations_table,
-    read_member_perturbations,
-)
+from openamundsen_da.methods.viz._utils import force_figure_text_black, format_station_label, save_figure_png, set_matplotlib_text_black
+from openamundsen_da.methods.viz._ensemble_meta import load_stations_table
 
 
 def _list_station_files(step_dir: Path, ensemble: str) -> Tuple[Optional[Path], List[str]]:
@@ -90,10 +81,10 @@ def _plot_station(
     subtitle: Optional[str],
     backend: str,
     out_path: Path,
-    member_labels: Optional[List[str]] = None,
 ) -> None:
     import matplotlib
     matplotlib.use(backend or "Agg")
+    set_matplotlib_text_black(matplotlib)
     import matplotlib.pyplot as plt
 
     has_precip = bool(
@@ -107,13 +98,8 @@ def _plot_station(
 
     # Temperature panel
     temp_series = [d[temp_col].copy() for d in mem_dfs if temp_col in d.columns]
-    t_mean, t_lo, t_hi = envelope(temp_series)
     for s in temp_series:
         ax0.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.85, label="_nolegend_")
-    if not t_mean.empty:
-        # Removed ensemble band fill and explicit mean line;
-        # keep per-member lines only for now.
-        pass
     if ol_df is not None and temp_col in ol_df.columns:
         ax0.plot(ol_df.index, ol_df[temp_col], color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="_nolegend_")
     ax0.set_ylabel("Temperature (K)")
@@ -125,15 +111,10 @@ def _plot_station(
         for d in mem_dfs:
             if precip_col in d.columns:
                 mem_prec_cum.append(cumulative_hydro(d[precip_col], hydro_m, hydro_d))
-        p_mean, p_lo, p_hi = envelope(mem_prec_cum)
         for d in mem_dfs:
             if precip_col in d.columns:
                 s = cumulative_hydro(d[precip_col], hydro_m, hydro_d)
                 ax1.plot(s.index, s.values, lw=LW_MEMBER, alpha=0.85, label="_nolegend_")
-        if not p_mean.empty:
-            # Removed ensemble band fill and explicit mean line;
-            # keep per-member lines only for now.
-            pass
         if ol_df is not None and precip_col in ol_df.columns:
             s = cumulative_hydro(ol_df[precip_col], hydro_m, hydro_d)
             ax1.plot(s.index, s.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="_nolegend_")
@@ -151,13 +132,11 @@ def _plot_station(
         # Position subtitle slightly lower (closer to axes); use different offsets
         # for temp-only vs two-panel layouts.
         sub_y = 0.920 if not has_precip else 0.910
-        fig.text(0.5, sub_y, subtitle, ha="center", va="top", fontsize=10, color="#555555")
-
-    # Compose a shared legend from ax0 handles (they include member labels if provided)
-    # No legend needed
+        fig.text(0.5, sub_y, subtitle, ha="center", va="top", fontsize=10)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.1)
+    force_figure_text_black(fig, [ax0] if not has_precip else [ax0, ax1])
+    save_figure_png(fig, out_path, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
 
@@ -224,9 +203,6 @@ def cli_main(argv: Iterable[str] | None = None, *, configure_logger: bool = True
         logger.error("No member directories found for ensemble={}", args.ensemble)
         return 3
 
-    # Member perturbation labels for legend (if INFO.txt present)
-    pert_labels: Dict[str, Tuple[Optional[float], Optional[float]]] = read_member_perturbations(Path(args.step_dir), args.ensemble)
-
     out_root = args.output_dir if args.output_dir else (Path(args.step_dir) / "plots" / "forcing")
     stations_df = load_stations_table(Path(args.step_dir), args.ensemble)
     step_name = Path(args.step_dir).name
@@ -251,7 +227,6 @@ def cli_main(argv: Iterable[str] | None = None, *, configure_logger: bool = True
 
         # Read members
         mem_dfs: List[pd.DataFrame] = []
-        mem_labels: List[str] = []
         for m in member_dirs:
             p = m / "meteo" / fname
             if not p.is_file():
@@ -266,11 +241,6 @@ def cli_main(argv: Iterable[str] | None = None, *, configure_logger: bool = True
                 d = resample_and_smooth(d, args.resample, agg_map if agg_map else None, args.rolling)
                 d = apply_window(d, start, end)
                 mem_dfs.append(d)
-                dt, fp = pert_labels.get(m.name, (None, None))
-                if dt is not None or fp is not None:
-                    mem_labels.append(f"{m.name} (dT={dt:+.2f} fp={fp:.2f})" if dt is not None and fp is not None else m.name)
-                else:
-                    mem_labels.append(m.name)
             except Exception as e:
                 logger.warning("member read failed for {} in {}: {}", fname, m.name, e)
 
@@ -294,7 +264,6 @@ def cli_main(argv: Iterable[str] | None = None, *, configure_logger: bool = True
             subtitle=subtitle,
             backend=args.backend,
             out_path=out_path,
-            member_labels=mem_labels,
         )
 
     logger.info("Finished forcing plots -> {}", out_root)
@@ -303,4 +272,3 @@ def cli_main(argv: Iterable[str] | None = None, *, configure_logger: bool = True
 
 if __name__ == "__main__":
     raise SystemExit(cli_main())
-

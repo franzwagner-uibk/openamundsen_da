@@ -1,0 +1,48 @@
+# Custom result overview configuration.
+#
+# Discovery:
+# - Keep this file in the project root directory.
+# - When present, the pipeline writes plots/results/result_overview_custom.png.
+# - When absent, no custom overview is written.
+#
+# Structure:
+# - panels: ordered list from top to bottom
+#
+# Supported panel values:
+# - fSC
+# - fWS
+# - roi-swe
+# - roi-sd
+# - station-swe
+# - station-sd
+#
+# Supported keys per panel entry:
+# - panel: required
+# - station_id: required only for station-swe / station-sd
+# - title: optional custom panel title override
+# - show_obs: optional, default true
+#
+# Example configuration:
+panels:
+  - panel: fSC
+    show_obs: true
+
+  - panel: fWS
+    show_obs: true
+
+  - panel: roi-sd
+
+  - panel: roi-swe
+
+  - panel: station-sd
+    station_id: proviantdepot
+    title: custom station subtitle
+    show_obs: true
+
+# Additional examples:
+#  - panel: station-swe
+#    station_id: latschbloder
+#
+#  - panel: station-sd
+#    station_id: proviantdepot
+#    show_obs: false

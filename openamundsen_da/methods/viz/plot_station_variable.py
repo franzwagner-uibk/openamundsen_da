@@ -26,23 +26,13 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.util.loguru_utils import configure_cli_logger
+from openamundsen_da.methods.viz._utils import (
+    force_figure_text_black,
+    pretty_var_title,
+    save_figure_png,
+    set_matplotlib_text_black,
+)
 from openamundsen_da.util.ts import apply_window, read_timeseries_csv
-
-
-def _pretty_var_title(var: str, label: str = "", units: str = "") -> str:
-    """Return a friendly variable title with units for subtitles and y-labels."""
-    v = (var or "").strip()
-    if not label and not units:
-        # A few common shortcuts
-        lv = v.lower()
-        if lv == "swe":
-            return "snow water equivalent [mm]"
-        if lv in ("snow_depth", "snowdepth", "hs"):
-            return "snow depth [m]"
-    base = label.strip() if label else v.replace("_", " ")
-    if units:
-        return f"{base} [{units}]"
-    return base
 
 
 def _load_series(csv_path: Path, time_col: str, var_col: str) -> pd.Series:
@@ -86,6 +76,7 @@ def plot_station_variable(
     import matplotlib
 
     matplotlib.use(backend or "Agg")
+    set_matplotlib_text_black(matplotlib)
     import matplotlib.pyplot as plt
 
     csv_path = Path(csv_path)
@@ -100,9 +91,9 @@ def plot_station_variable(
     if series.empty:
         raise ValueError(f"No data for '{var_col}' in selected time window.")
 
-    var_title = _pretty_var_title(var_col, var_label, var_units)
+    var_title = pretty_var_title(var_col, var_label, var_units)
 
-    fig, ax = plt.subplots(figsize=(10.0, 4.2))
+    fig, ax = plt.subplots(figsize=(8.5, 4.2))
     ax.plot(series.index, series.values, color="#1f77b4", lw=1.8)
     ax.set_xlabel("Time")
     ax.set_ylabel(var_title)
@@ -112,11 +103,12 @@ def plot_station_variable(
     title = f"Station variable | {token}"
     subtitle = f"{var_title}"
     fig.text(0.5, 0.97, title, ha="center", va="top", fontsize=12)
-    fig.text(0.5, 0.93, subtitle, ha="center", va="top", fontsize=10, color="#555555")
+    fig.text(0.5, 0.93, subtitle, ha="center", va="top", fontsize=10)
     fig.tight_layout(rect=[0.02, 0.02, 0.98, 0.90])
 
     out_path = csv_path.with_suffix(f".{var_col}.png")
-    fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.08)
+    force_figure_text_black(fig, [ax])
+    save_figure_png(fig, out_path, bbox_inches="tight", pad_inches=0.08)
     plt.close(fig)
     return out_path
 
@@ -160,4 +152,3 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-

@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pandas as pd
 from loguru import logger
+from openamundsen_da.methods.viz._style import EXPORT_DPI
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
@@ -162,7 +163,7 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     out = Path(args.output) if args.output else csv_path.parent / "scf_summary.png"
     # Save image
-    fig.savefig(out, dpi=150, bbox_inches="tight", pad_inches=0.1)
+    fig.savefig(out, dpi=EXPORT_DPI, bbox_inches="tight", pad_inches=0.1)
     logger.info("Wrote plot: {}", out)
     return 0
 

@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from openamundsen_da.methods.viz.fraction_series import (
+    default_result_overview_output,
     load_member_series,
     load_open_loop_fraction_series,
 )
@@ -70,3 +71,11 @@ def test_load_open_loop_fraction_series_collapses_step_overlap(tmp_path: Path) -
     assert series is not None
     assert list(series["date"]) == list(pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-03"]))
     assert list(series["swe"]) == [100.0, 120.0, 140.0]
+
+
+def test_default_result_overview_output_uses_new_filename(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+
+    out_path = default_result_overview_output(project_dir, None)
+
+    assert out_path == project_dir / "plots" / "results" / "result_overview.png"

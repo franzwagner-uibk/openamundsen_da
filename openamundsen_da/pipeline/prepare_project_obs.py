@@ -25,9 +25,10 @@ from openamundsen_da.methods.viz.fraction_series import (
     default_fraction_obs_path,
     load_fraction_series,
 )
-from openamundsen_da.methods.viz.plot_fraction_timeseries import plot_fraction_timeseries
+from openamundsen_da.methods.viz.plot_result_overview import plot_result_overview
 from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
 from openamundsen_da.observer.plot_scf_summary import _load_summary as _load_scf_summary
+from openamundsen_da.util.da_events import AssimilationEvent
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 DEFAULT_PRIORITY = ["wet_snow", "scf"]
@@ -239,19 +240,18 @@ def _write_project_yaml(
 
 def _plot_obs_only(
     *,
-    project_dir: Path,
     scf_obs: pd.DataFrame | None,
     wet_obs: pd.DataFrame | None,
     selected: list[Candidate],
-    title: str | None,
     output: Path,
 ) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
-    assim_labels = {cand.date: str(idx) for idx, cand in enumerate(sorted(selected, key=lambda c: c.date), start=1)}
-    assim_scf = [cand.date for cand in selected if cand.variable == "scf"]
-    assim_wet = [cand.date for cand in selected if cand.variable == "wet_snow"]
+    assim_events = [
+        AssimilationEvent(date=cand.date.date(), variable=cand.variable, product="OBS")
+        for cand in sorted(selected, key=lambda c: c.date)
+    ]
 
-    plot_fraction_timeseries(
+    plot_result_overview(
         scf_obs=scf_obs,
         scf_model=None,
         wet_obs=wet_obs,
@@ -259,10 +259,7 @@ def _plot_obs_only(
         scf_env=None,
         wet_env=None,
         output=output,
-        title=title or f"Observation screening for {project_dir.name}",
-        assim_scf=assim_scf,
-        assim_wet=assim_wet,
-        assim_labels=assim_labels,
+        assim_events=assim_events,
         mode="band",
     )
 
@@ -456,11 +453,9 @@ def cli_main(argv: list[str] | None = None) -> int:
         plot_path = args.output_plot if args.output_plot else (project_dir / "plots" / "results" / "obs_selection.png")
         try:
             _plot_obs_only(
-                project_dir=project_dir,
                 scf_obs=scf_df,
                 wet_obs=wet_df,
                 selected=selected,
-                title=f"Obs selection for {project_dir.name}",
                 output=plot_path,
             )
             logger.info("Wrote obs-only plot: {}", plot_path)
@@ -474,4 +469,3 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-

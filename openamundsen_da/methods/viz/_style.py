@@ -2,12 +2,12 @@
 
 COLOR_MEAN = "#120fb6"
 COLOR_OPEN_LOOP = "black"
+COLOR_MEMBER = "#9a9a9a"
 BAND_ALPHA = 0.18
-LW_MEMBER = 0.9
-# Use a common, clearly visible linewidth for key summary lines
-# (ensemble mean, open loop, and station observations).
-LW_MEAN = 2.0
-LW_OPEN = 2.0
+# Use one shared linewidth across all plotted data lines.
+LW_MEMBER = 1.8
+LW_MEAN = 1.8
+LW_OPEN = 1.8
 LEGEND_NCOL = 4
 LEGEND_NCOL_SETUP = 6
 
@@ -16,7 +16,7 @@ LEGEND_NCOL_SETUP = 6
 # observations are clearly distinguishable in results plots.
 COLOR_DA_OBS = "#d62728"
 SIZE_DA_OBS = 100
-LW_DA_OBS = 2.0
+LW_DA_OBS = 1.8
 COLOR_OBS_SCF = "#d62728"
 SIZE_OBS_SCF = 10
 COLOR_DA_STATION_HS = "#2b6cb0"
@@ -31,12 +31,16 @@ GRID_LW = 0.6
 GRID_ALPHA = 0.7
 
 # Titles / text
+COLOR_TEXT = "#000000"
 FS_TITLE = 12
 FS_SUBTITLE = 10
-COLOR_SUBTITLE = "#555555"
+COLOR_SUBTITLE = COLOR_TEXT
 FS_ASSIM_LABEL = 9
 ASSIM_LABEL_ROT = 45
 
 # Figure sizes
 FIGSIZE_FORCING = (12.0, 6.0)
-FIGSIZE_RESULTS = (12.0, 5.2)
+FIGSIZE_RESULTS = (10.2, 5.2)
+
+# Export
+EXPORT_DPI = 600

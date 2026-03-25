@@ -5,14 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable, Optional
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import pandas as pd  # noqa: E402
-from loguru import logger  # noqa: E402
-from openamundsen_da.methods.viz._utils import format_station_label
-from openamundsen_da.methods.viz.plot_results_ensemble import _pretty_var_title
+import pandas as pd
+from loguru import logger
+from openamundsen_da.methods.viz._utils import format_station_label, pretty_var_title, save_figure_png, set_matplotlib_text_black
 from openamundsen_da.methods.viz._style import (
     COLOR_DA_OBS,
     COLOR_OPEN_LOOP,
@@ -30,16 +25,21 @@ from openamundsen_da.util.station_da import station_observation_csvs
 from openamundsen_da.util.ts import read_timeseries_csv
 
 
-def _load_stations_df(points_dir: Path) -> Optional[pd.DataFrame]:
+def _load_stations_df(points_dir: Path, obs_root: Path) -> Optional[pd.DataFrame]:
     """Load station metadata table if present."""
-    meta_path = points_dir / "obs" / "stations" / "stations_snow_depth.csv"
-    if not meta_path.is_file():
-        return None
-    try:
-        return pd.read_csv(meta_path)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not read station metadata {}: {}", meta_path.name, exc)
-        return None
+    candidates = [
+        obs_root / "stations.csv",
+        points_dir / "obs" / "stations" / "stations.csv",
+        points_dir / "obs" / "stations" / "stations_snow_depth.csv",
+    ]
+    for meta_path in candidates:
+        if not meta_path.is_file():
+            continue
+        try:
+            return pd.read_csv(meta_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not read station metadata {}: {}", meta_path.name, exc)
+    return None
 
 
 def _read_obs(path: Path, obs_column: str) -> Optional[pd.DataFrame]:
@@ -73,8 +73,17 @@ def plot_station_comparisons(
     obs_column: str = "snow_height",
     obs_scale: float = 1.0,
     station_ids: Optional[Iterable[str]] = None,
+    resample_rule: str = "D",
+    resample_agg: str = "mean",
+    backend: str = "Agg",
 ) -> list[Path]:
     """Generate plots comparing model point output to station observations."""
+    import matplotlib
+
+    matplotlib.use(backend or "Agg")
+    set_matplotlib_text_black(matplotlib)
+    import matplotlib.pyplot as plt
+
     manifest = SubdomainManifest.load(manifest_path)
     if str(getattr(manifest, "run_mode", "")).lower() != "subdomain":
         raise ValueError(f"Manifest at {manifest_path} is not marked as run_mode='subdomain'.")
@@ -89,7 +98,7 @@ def plot_station_comparisons(
     if station_ids:
         obs_files = [f for f in obs_files if f.stem in station_ids]
 
-    stations_df = _load_stations_df(pts_root)
+    stations_df = _load_stations_df(pts_root, obs_root)
 
     written: list[Path] = []
     for obs_path in obs_files:
@@ -110,8 +119,12 @@ def plot_station_comparisons(
         obs_series = obs_df[obs_column] * obs_scale
 
         # Daily aggregation to harmonize timestep differences and avoid time parsing quirks
-        model_daily = series.resample("D").mean()
-        obs_daily = obs_series.resample("D").mean()
+        if resample_rule:
+            model_daily = series.resample(resample_rule).agg(resample_agg)
+            obs_daily = obs_series.resample(resample_rule).agg(resample_agg)
+        else:
+            model_daily = series
+            obs_daily = obs_series
 
         merged = pd.DataFrame({"model": model_daily, "obs": obs_daily}).dropna()
         if merged.empty:
@@ -121,7 +134,7 @@ def plot_station_comparisons(
         fig, ax = plt.subplots(figsize=FIGSIZE_RESULTS)
         ax.plot(merged.index, merged["model"], label="model", color=COLOR_OPEN_LOOP, lw=LW_OPEN)
         ax.plot(merged.index, merged["obs"], label="obs", color=COLOR_DA_OBS, lw=LW_MEMBER, linestyle="--")
-        ax.set_ylabel(_pretty_var_title(variable))
+        ax.set_ylabel(pretty_var_title(variable))
         ax.set_xlabel("Time")
         ax.grid(True, linestyle=GRID_LS, linewidth=GRID_LW, alpha=GRID_ALPHA)
         ax.legend()
@@ -131,7 +144,7 @@ def plot_station_comparisons(
         fig.text(
             0.5,
             0.95,
-            f"{title_name}{alt_txt} | {_pretty_var_title(variable)}",
+            f"{title_name}{alt_txt} | {pretty_var_title(variable)}",
             ha="center",
             va="top",
             fontsize=FS_TITLE,
@@ -139,7 +152,7 @@ def plot_station_comparisons(
         fig.tight_layout(rect=(0.02, 0.04, 0.98, 0.92))
 
         out_path = plot_dir / f"{sid}_{variable}.png"
-        fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.08)
+        save_figure_png(fig, out_path, bbox_inches="tight", pad_inches=0.08)
         plt.close(fig)
         written.append(out_path)
         logger.info("Wrote {}", out_path)

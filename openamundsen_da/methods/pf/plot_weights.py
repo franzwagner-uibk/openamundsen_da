@@ -50,6 +50,15 @@ _FS_AXIS = 8.6
 _FS_TICK = 8.4
 _FS_NOTE = 7.4
 _COMPOSITE_ROW_HEIGHT = 1.7802
+_STANDALONE_PLOT_WIDTH_SCALE = 0.80
+_STANDALONE_PLOT_HEIGHT_SCALE = 0.70
+_STANDALONE_PLOT_TOP = 0.80
+_STANDALONE_TITLE_Y = 0.958
+_STANDALONE_LEGEND_Y = 0.21
+_STANDALONE_SAVE_PAD_INCHES = 0.02
+_OVERVIEW_PAIR_WSPACE = 0.08
+_OVERVIEW_SHARED_RESIDUAL_PERCENTILE = 90.0
+_AXIS_EDGE_PAD_FRACTION = 0.05
 
 
 def _load_weights(csv_path: Path) -> pd.DataFrame:
@@ -487,6 +496,50 @@ def _best_figure_legend_ncol(
     return 1
 
 
+def _scale_axes_group(
+    axes: list[object],
+    *,
+    width_scale: float,
+    height_scale: float,
+    top_anchor: float | None = None,
+) -> None:
+    """Scale a group of axes while preserving their relative layout."""
+    if not axes:
+        return
+
+    positions = [ax.get_position().frozen() for ax in axes]
+    left = min(pos.x0 for pos in positions)
+    right = max(pos.x1 for pos in positions)
+    bottom = min(pos.y0 for pos in positions)
+    top = max(pos.y1 for pos in positions)
+    group_width = right - left
+    group_height = top - bottom
+    if group_width <= 0.0 or group_height <= 0.0:
+        return
+
+    scaled_group_width = group_width * width_scale
+    scaled_group_height = group_height * height_scale
+    new_left = left + 0.5 * (group_width - scaled_group_width)
+    if top_anchor is None:
+        new_bottom = bottom + 0.5 * (group_height - scaled_group_height)
+    else:
+        new_bottom = top_anchor - scaled_group_height
+
+    for ax, pos in zip(axes, positions):
+        rel_x0 = (pos.x0 - left) / group_width
+        rel_y0 = (pos.y0 - bottom) / group_height
+        new_x0 = new_left + rel_x0 * scaled_group_width
+        new_y0 = new_bottom + rel_y0 * scaled_group_height
+        ax.set_position(
+            [
+                new_x0,
+                new_y0,
+                pos.width * width_scale,
+                pos.height * height_scale,
+            ]
+        )
+
+
 def _ordered_weights_df(df: pd.DataFrame) -> pd.DataFrame:
     if "member_id" in df.columns:
         ordered_df = df.copy()
@@ -494,6 +547,121 @@ def _ordered_weights_df(df: pd.DataFrame) -> pd.DataFrame:
         ordered_df = ordered_df.sort_values(["weight", "_member_sort"], ascending=[False, True]).reset_index(drop=True)
         return ordered_df.drop(columns="_member_sort")
     return df.sort_values("weight", ascending=False).reset_index(drop=True)
+
+
+def _finite_abs_values(values) -> list[float]:
+    series = pd.to_numeric(values, errors="coerce")
+    if isinstance(series, pd.Series):
+        data = series.to_numpy(dtype=float)
+    else:
+        data = np.asarray(series, dtype=float)
+    return [float(abs(v)) for v in data if np.isfinite(v)]
+
+
+def _expand_xlim(xlim: tuple[float, float], *, pad_fraction: float = _AXIS_EDGE_PAD_FRACTION) -> tuple[float, float]:
+    left, right = xlim
+    if not np.isfinite(left) or not np.isfinite(right):
+        return xlim
+    span = right - left
+    if span <= 0.0:
+        scale = max(abs(left), abs(right), 1.0)
+        pad = scale * pad_fraction
+    else:
+        pad = span * pad_fraction
+    return left - pad, right + pad
+
+
+def _residual_extent_components_for_event(
+    csv_path: Path,
+    df: pd.DataFrame,
+    observable: str | None,
+) -> tuple[list[float], list[float]]:
+    residual_extents: list[float] = []
+    sigma_extents: list[float] = []
+    if observable in {"station_hs", "station_swe"}:
+        diag_path = _station_diagnostics_path(csv_path, observable)
+        diag = pd.read_csv(diag_path) if diag_path is not None and diag_path.is_file() else pd.DataFrame()
+        if not diag.empty:
+            if "residual" in diag.columns:
+                residual_extents.extend(_finite_abs_values(diag["residual"]))
+            if "sigma" in diag.columns:
+                sigma_extents.extend(_finite_abs_values(diag["sigma"]))
+    else:
+        if "residual" in df.columns:
+            residual_extents.extend(_finite_abs_values(df["residual"]))
+        if "sigma" in df.columns:
+            sigma_extents.extend(_finite_abs_values(df["sigma"]))
+    return residual_extents, sigma_extents
+
+
+def _nice_axis_extent(extent: float) -> float:
+    if extent <= 0.0:
+        return extent
+    if extent < 0.5:
+        step = 0.05
+    elif extent < 1.0:
+        step = 0.1
+    elif extent < 2.0:
+        step = 0.25
+    elif extent < 5.0:
+        step = 0.5
+    elif extent < 10.0:
+        step = 1.0
+    elif extent < 50.0:
+        step = 5.0
+    else:
+        order = 10 ** math.floor(math.log10(extent))
+        step = order / 2.0
+    return math.ceil(extent / step) * step
+
+
+def _robust_shared_extent(
+    residual_extents: list[float],
+    sigma_extents: list[float],
+    *,
+    percentile: float = _OVERVIEW_SHARED_RESIDUAL_PERCENTILE,
+) -> float | None:
+    if residual_extents:
+        combined = np.asarray(residual_extents + sigma_extents, dtype=float)
+        extent = max(float(np.percentile(combined, percentile)), max(residual_extents))
+    elif sigma_extents:
+        extent = max(sigma_extents)
+    else:
+        return None
+
+    if sigma_extents and not residual_extents:
+        extent = max(extent, max(sigma_extents))
+    if extent <= 0.0:
+        return None
+    return _nice_axis_extent(extent)
+
+
+def _overview_residual_xlims(event_specs: list[dict[str, object]]) -> dict[str | None, tuple[float, float]]:
+    residual_by_observable: dict[str | None, list[float]] = {}
+    sigma_by_observable: dict[str | None, list[float]] = {}
+    for spec in event_specs:
+        observable = spec["observable"]  # type: ignore[index]
+        residual_extents, sigma_extents = _residual_extent_components_for_event(
+            spec["csv_path"],  # type: ignore[arg-type]
+            spec["df"],  # type: ignore[arg-type]
+            observable,  # type: ignore[arg-type]
+        )
+        if residual_extents:
+            residual_by_observable.setdefault(observable, []).extend(residual_extents)
+        if sigma_extents:
+            sigma_by_observable.setdefault(observable, []).extend(sigma_extents)
+
+    return {
+        observable: (-extent, extent)
+        for observable in sorted(set(residual_by_observable) | set(sigma_by_observable), key=str)
+        if (
+            extent := _robust_shared_extent(
+                residual_by_observable.get(observable, []),
+                sigma_by_observable.get(observable, []),
+            )
+        )
+        is not None
+    }
 
 
 def _draw_weights_event(
@@ -517,6 +685,8 @@ def _draw_weights_event(
     marker_scale: float = 1.0,
     font_size_bump: float = 0.0,
     axes_title_y: float = 1.18,
+    figure_title_y: float = 0.972,
+    residual_xlim: tuple[float, float] | None = None,
 ) -> None:
     from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 
@@ -566,7 +736,7 @@ def _draw_weights_event(
     ax0.set_xlabel("weight", fontsize=fs_axis)
     ax0.set_ylabel("sorted member" if show_left_ylabel else "", fontsize=fs_axis)
     _apply_grid(ax0)
-    ax0.set_xlim(0.0, 1.0)
+    ax0.set_xlim(*_expand_xlim((0.0, 1.0)))
     ax0.set_yticks(_member_ticks(n))
     ax0.set_ylim(n + 0.5, 0.5)
     ax0.xaxis.set_major_locator(MultipleLocator(0.1))
@@ -590,6 +760,7 @@ def _draw_weights_event(
         )
 
     sigma_strip_entries: list[tuple[str, str]] = []
+    residual_axis_values: list[float] = [0.0]
     ax1.axvline(0.0, color="black", lw=1.0, zorder=3)
     ax1.set_ylabel("sorted member" if show_right_ylabel else "", fontsize=fs_axis)
     ax1.set_yticks(_member_ticks(n))
@@ -635,6 +806,7 @@ def _draw_weights_event(
                 s=mismatch_marker_size,
                 zorder=4,
             )
+            residual_axis_values.extend(sdf["residual_num"].to_numpy(dtype=float).tolist())
             _draw_resample_rings(
                 ax1,
                 sdf["residual_num"].to_numpy(dtype=float),
@@ -648,6 +820,7 @@ def _draw_weights_event(
             if not sigma_series.empty:
                 sigma_val = float(sigma_series.iloc[0])
                 sigma_strip_entries.append((color, f"\u03c3={sigma_val:.2f}"))
+                residual_axis_values.extend([-sigma_val, sigma_val])
             if not sigma_series.empty and station_id not in shared_sigma_station_ids:
                 ax1.axvline(-sigma_val, color=color, lw=1.0, ls="-", alpha=0.9, zorder=2)
                 ax1.axvline(sigma_val, color=color, lw=1.0, ls="-", alpha=0.9, zorder=2)
@@ -676,6 +849,7 @@ def _draw_weights_event(
                 s=mismatch_marker_size,
                 zorder=4,
             )
+            residual_axis_values.extend(resid_valid.to_numpy(dtype=float).tolist())
             _draw_resample_rings(
                 ax1,
                 resid_valid.to_numpy(dtype=float),
@@ -691,9 +865,14 @@ def _draw_weights_event(
             ax1.axvline(-sigma_val, color=frac_color, lw=1.0, ls="-", alpha=0.9, zorder=2)
             ax1.axvline(sigma_val, color=frac_color, lw=1.0, ls="-", alpha=0.9, zorder=2)
             sigma_strip_entries.append((frac_color, f"\u03c3={sigma_val:.2f}"))
+            residual_axis_values.extend([-sigma_val, sigma_val])
         ax1.set_xlabel(_fraction_axis_label(observable), fontsize=fs_axis)
         ax1.xaxis.set_minor_locator(AutoMinorLocator(4))
     _draw_sigma_strip(ax1, sigma_strip_entries, fontsize=fs_note)
+    if residual_xlim is not None:
+        ax1.set_xlim(*_expand_xlim(residual_xlim))
+    elif residual_axis_values:
+        ax1.set_xlim(*_expand_xlim((min(residual_axis_values), max(residual_axis_values))))
     _apply_grid(ax1)
     ax1.tick_params(axis="both", labelsize=fs_tick)
 
@@ -707,7 +886,7 @@ def _draw_weights_event(
         header = _format_axes_subplot_title(header)
     if header:
         if title_mode == "figure":
-            fig.text(0.11, 0.972, header, ha="left", va="top", fontsize=fs_title, color="#000000")
+            fig.text(0.11, figure_title_y, header, ha="left", va="top", fontsize=fs_title, color="#000000")
         else:
             ax0.text(
                 0.0,
@@ -752,22 +931,29 @@ def _plot(
         observable=observable,
         title_mode="figure",
         font_scale=1.0,
+        figure_title_y=_STANDALONE_TITLE_Y,
     )
-    ax0.set_xticks([0.2, 0.3, 0.6, 0.8, 1.0])
-    ax0.set_xticklabels(["0.2", "0.3", "0.6", "0.8", "1"])
+    ax0.set_xticks([0.2, 0.4, 0.6, 0.8, 1.0])
+    ax0.set_xticklabels(["0.2", "0.4", "0.6", "0.8", "1"])
     ax0.xaxis.set_minor_locator(NullLocator())
 
     bottom_margin = 0.30
     right_margin = 0.965
     top_margin = 0.78
     fig.subplots_adjust(left=0.095, right=right_margin, top=top_margin, bottom=bottom_margin, wspace=0.30)
+    _scale_axes_group(
+        [ax0, ax1],
+        width_scale=_STANDALONE_PLOT_WIDTH_SCALE,
+        height_scale=_STANDALONE_PLOT_HEIGHT_SCALE,
+        top_anchor=_STANDALONE_PLOT_TOP,
+    )
     legend_handles, legend_labels, handler_map = _figure_legend_spec([csv_path])
     fig.legend(
         legend_handles,
         legend_labels,
         handler_map=handler_map,
         loc="lower center",
-        bbox_to_anchor=(0.5, 0.105),
+        bbox_to_anchor=(0.5, _STANDALONE_LEGEND_Y),
         ncol=min(3, len(legend_labels)),
         frameon=False,
         fontsize=6.8,
@@ -817,6 +1003,16 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
     if not csv_paths:
         raise FileNotFoundError(f"No weights_*_*.csv found under steps in {setup_dir}")
 
+    event_specs = [
+        {
+            "csv_path": csv_path,
+            "observable": _observable_from_csv_path(csv_path),
+            "df": _load_weights(csv_path),
+        }
+        for csv_path in csv_paths
+    ]
+    residual_xlims = _overview_residual_xlims(event_specs)
+
     n_events = len(csv_paths)
     n_cols = 2
     n_rows = int(math.ceil(n_events / n_cols))
@@ -825,11 +1021,14 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
 
     axes_for_black: list[object] = []
     font_scale = 0.68
-    first_df = _load_weights(csv_paths[0])
+    first_df = event_specs[0]["df"]
     ensemble_size = len(first_df)
     first_manifest = _read_resample_manifest(csv_paths[0])
     ess_threshold = first_manifest.get("ess_threshold")
-    for idx, csv_path in enumerate(csv_paths):
+    for idx, spec in enumerate(event_specs):
+        csv_path = spec["csv_path"]
+        observable = spec["observable"]
+        df = spec["df"]
         row = idx // n_cols
         col = idx % n_cols
         left_ratio = 1.15 * 0.8 * 0.8 * 0.6 * 0.8
@@ -844,13 +1043,12 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
             3,
             height_ratios=[1.0, 0.045],
             width_ratios=[new_left_plot_ratio, new_right_plot_ratio, spacer_ratio],
-            wspace=0.06,
+            wspace=_OVERVIEW_PAIR_WSPACE,
             hspace=0.0,
         )
         ax0 = fig.add_subplot(sub[0, 0])
         ax1 = fig.add_subplot(sub[0, 1])
         axes_for_black.extend([ax0, ax1])
-        df = _load_weights(csv_path)
         subtitle = _step_date_label_from_path(csv_path)
         base_title = _compact_subplot_title(_title_from_path(csv_path))
         if subtitle:
@@ -865,7 +1063,7 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
             df=df,
             title=title,
             subtitle=None,
-            observable=_observable_from_csv_path(csv_path),
+            observable=observable,
             title_mode="axes",
             font_scale=font_scale,
             show_metrics_label=True,
@@ -877,6 +1075,7 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
             marker_scale=0.8,
             font_size_bump=1.0,
             axes_title_y=1.18,
+            residual_xlim=residual_xlims.get(observable),
         )
         ax0.set_xticks([0.2, 0.4, 0.6, 0.8, 1.0])
         ax0.set_xticklabels(["0.2", "0.4", "0.6", "0.8", "1"])
@@ -1078,7 +1277,7 @@ def plot_weights_for_csv(
     )
     out = _default_output_path(csv_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    save_figure_png(fig, out, bbox_inches="tight", pad_inches=0.08)
+    save_figure_png(fig, out, bbox_inches="tight", pad_inches=_STANDALONE_SAVE_PAD_INCHES)
     return out
 
 
@@ -1143,7 +1342,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     logger.info("Saving plot to: {}", out)
     try:
-        save_figure_png(fig, out, bbox_inches="tight", pad_inches=0.08)
+        save_figure_png(fig, out, bbox_inches="tight", pad_inches=_STANDALONE_SAVE_PAD_INCHES)
     except Exception as e:
         logger.error(f"Saving PNG failed: {e}")
         return 4

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from openamundsen_da.methods.pf import plot_weights as plot_mod
 
@@ -24,7 +25,68 @@ def _build_project_tree(tmp_path: Path) -> tuple[Path, Path, Path]:
     _write_text(setup_dir / "setup_case.yml", "name: setup_case\n")
     _write_text(project_dir / "project_2022_2023.yml", "name: project_2022_2023\n")
     (step_dir / "assim").mkdir(parents=True, exist_ok=True)
+    _write_text(
+        step_dir / "00.yml",
+        "start_date: '2022-11-01 00:00:00'\nend_date: '2022-11-01 21:00:00'\nresults_dir: results\n",
+    )
     return setup_dir, project_dir, step_dir
+
+
+def _add_weights_event(
+    project_dir: Path,
+    *,
+    step_idx: int,
+    observable: str,
+    date_str: str,
+    weights_rows: list[dict[str, object]],
+    diag_rows: list[dict[str, object]] | None = None,
+) -> Path:
+    weight_prefix = {
+        "station_hs": "weights_station_hs",
+        "station_swe": "weights_station_swe",
+        "scf": "weights_scf",
+        "wet_snow": "weights_wet_snow",
+    }[observable]
+    diag_prefix = {
+        "station_hs": "station_diagnostics_station_hs",
+        "station_swe": "station_diagnostics_station_swe",
+    }
+    step_dir = project_dir / "steps" / f"step_{step_idx:02d}_event"
+    assim_dir = step_dir / "assim"
+    dt = pd.to_datetime(date_str, format="%Y%m%d")
+    _write_text(
+        step_dir / f"{step_idx:02d}.yml",
+        (
+            f"start_date: '{dt.strftime('%Y-%m-%d 00:00:00')}'\n"
+            f"end_date: '{dt.strftime('%Y-%m-%d 21:00:00')}'\n"
+            "results_dir: results\n"
+        ),
+    )
+    csv_path = assim_dir / f"{weight_prefix}_{date_str}.csv"
+    _write_csv(csv_path, weights_rows)
+    if diag_rows is not None:
+        _write_csv(assim_dir / f"{diag_prefix[observable]}_{date_str}.csv", diag_rows)
+    return csv_path
+
+
+def _render_setup_weights_overview_figure(project_dir: Path, monkeypatch) -> object:
+    import matplotlib.pyplot as plt
+
+    saved: dict[str, object] = {}
+
+    def _fake_save(fig, out, **kwargs) -> None:
+        saved["fig"] = fig
+        saved["out"] = out
+
+    monkeypatch.setattr(plot_mod, "save_figure_png", _fake_save)
+    plot_mod.plot_setup_weights_overview(project_dir, backend="Agg")
+    fig = saved["fig"]
+    fig.canvas.draw()
+    return fig
+
+
+def _axes_with_xlabel(fig, label: str) -> list[object]:
+    return [ax for ax in fig.axes if ax.get_xlabel() == label]
 
 
 def test_axis_labels_use_residual_terminology() -> None:
@@ -32,6 +94,10 @@ def test_axis_labels_use_residual_terminology() -> None:
     assert plot_mod._fraction_axis_label("wet_snow") == "wet-snow fraction residual"
     assert plot_mod._station_axis_label("station_hs") == "snow depth residual [m]"
     assert plot_mod._station_axis_label("station_swe") == "SWE residual [mm]"
+
+
+def test_nice_axis_extent_uses_quarter_steps_just_above_one() -> None:
+    assert plot_mod._nice_axis_extent(1.0894838) == pytest.approx(1.25)
 
 
 def test_collect_marker_legend_entries_combines_station_and_fraction_labels(tmp_path: Path) -> None:
@@ -337,6 +403,141 @@ def test_standalone_metrics_label_includes_threshold(tmp_path: Path) -> None:
     plt.close(fig)
 
 
+def test_scale_axes_group_shrinks_standalone_axes_and_keeps_them_high() -> None:
+    import matplotlib.pyplot as plt
+
+    fig = plt.figure(figsize=(7.2876875, 3.013))
+    gs = fig.add_gridspec(1, 2, width_ratios=[1.575, 3.425])
+    ax0 = fig.add_subplot(gs[0, 0])
+    ax1 = fig.add_subplot(gs[0, 1])
+    fig.subplots_adjust(left=0.095, right=0.965, top=0.78, bottom=0.30, wspace=0.30)
+
+    original_positions = [ax.get_position().frozen() for ax in (ax0, ax1)]
+    original_left = min(pos.x0 for pos in original_positions)
+    original_right = max(pos.x1 for pos in original_positions)
+    original_bottom = min(pos.y0 for pos in original_positions)
+    original_top = max(pos.y1 for pos in original_positions)
+
+    plot_mod._scale_axes_group(
+        [ax0, ax1],
+        width_scale=plot_mod._STANDALONE_PLOT_WIDTH_SCALE,
+        height_scale=plot_mod._STANDALONE_PLOT_HEIGHT_SCALE,
+        top_anchor=plot_mod._STANDALONE_PLOT_TOP,
+    )
+
+    scaled_positions = [ax.get_position().frozen() for ax in (ax0, ax1)]
+    scaled_left = min(pos.x0 for pos in scaled_positions)
+    scaled_right = max(pos.x1 for pos in scaled_positions)
+    scaled_bottom = min(pos.y0 for pos in scaled_positions)
+    scaled_top = max(pos.y1 for pos in scaled_positions)
+
+    assert scaled_right - scaled_left == pytest.approx(
+        (original_right - original_left) * plot_mod._STANDALONE_PLOT_WIDTH_SCALE
+    )
+    assert scaled_top - scaled_bottom == pytest.approx(
+        (original_top - original_bottom) * plot_mod._STANDALONE_PLOT_HEIGHT_SCALE
+    )
+    assert scaled_top == pytest.approx(plot_mod._STANDALONE_PLOT_TOP)
+    plt.close(fig)
+
+
+def test_standalone_plot_uses_lower_title_anchor(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
+    csv_path = step_dir / "assim" / "weights_scf_20230518.csv"
+    _write_csv(
+        csv_path,
+        [
+            {"member_id": "member_001", "residual": 0.1, "sigma": 0.10, "log_weight": -1.0, "weight": 0.6},
+            {"member_id": "member_002", "residual": -0.2, "sigma": 0.10, "log_weight": -1.5, "weight": 0.4},
+        ],
+    )
+
+    fig = plot_mod._plot(
+        csv_path,
+        plot_mod._load_weights(csv_path),
+        title="snow cover data assimilation weights",
+        subtitle="DA 8 - 2023-05-18",
+        observable="scf",
+        backend="Agg",
+    )
+
+    title_text = next(text for text in fig.texts if text.get_text().startswith("snow cover data assimilation weights"))
+    legend = fig.legends[0]
+    legend_anchor = legend.get_bbox_to_anchor().transformed(fig.transFigure.inverted())
+    ax0 = fig.axes[0]
+    assert title_text.get_position() == (0.11, plot_mod._STANDALONE_TITLE_Y)
+    assert legend_anchor.y0 == pytest.approx(plot_mod._STANDALONE_LEGEND_Y)
+    assert list(ax0.get_xticks()) == [0.2, 0.4, 0.6, 0.8, 1.0]
+    assert [tick.get_text() for tick in ax0.get_xticklabels()] == ["0.2", "0.4", "0.6", "0.8", "1"]
+    xlim = ax0.get_xlim()
+    assert xlim[0] < 0.0
+    assert xlim[1] > 1.0
+    plt.close(fig)
+
+
+def test_explicit_residual_xlim_gets_small_buffer(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
+    csv_path = step_dir / "assim" / "weights_scf_20230518.csv"
+    _write_csv(
+        csv_path,
+        [
+            {"member_id": "member_001", "residual": -0.2, "sigma": 0.10, "log_weight": -1.0, "weight": 0.6},
+            {"member_id": "member_002", "residual": 0.2, "sigma": 0.10, "log_weight": -1.5, "weight": 0.4},
+        ],
+    )
+
+    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(6, 3))
+    plot_mod._draw_weights_event(
+        fig,
+        ax0,
+        ax1,
+        csv_path=csv_path,
+        df=plot_mod._load_weights(csv_path),
+        title="snow cover",
+        subtitle=None,
+        observable="scf",
+        residual_xlim=(-0.2, 0.2),
+    )
+
+    xlim = ax1.get_xlim()
+    assert xlim[0] < -0.2
+    assert xlim[1] > 0.2
+    plt.close(fig)
+
+
+def test_autoscaled_residual_xlim_gets_small_buffer(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
+    csv_path = step_dir / "assim" / "weights_scf_20230518.csv"
+    _write_csv(
+        csv_path,
+        [
+            {"member_id": "member_001", "residual": -0.2, "sigma": 0.10, "log_weight": -1.0, "weight": 0.6},
+            {"member_id": "member_002", "residual": 0.15, "sigma": 0.10, "log_weight": -1.5, "weight": 0.4},
+        ],
+    )
+
+    fig = plot_mod._plot(
+        csv_path,
+        plot_mod._load_weights(csv_path),
+        title="snow cover data assimilation weights",
+        subtitle="DA 8 - 2023-05-18",
+        observable="scf",
+        backend="Agg",
+    )
+
+    ax1 = fig.axes[1]
+    xlim = ax1.get_xlim()
+    assert xlim[0] < -0.2
+    assert xlim[1] > 0.15
+    plt.close(fig)
+
+
 def test_setup_weights_overview_legend_prefers_single_row_until_wrap_is_needed() -> None:
     import matplotlib.pyplot as plt
 
@@ -384,3 +585,267 @@ def test_setup_weights_overview_legend_prefers_single_row_until_wrap_is_needed()
     assert 1 <= narrow_ncol < len(labels)
     plt.close(wide_fig)
     plt.close(narrow_fig)
+
+
+def test_setup_overview_shares_residual_xlim_within_same_observable(tmp_path: Path, monkeypatch) -> None:
+    import matplotlib.pyplot as plt
+
+    setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
+    _write_csv(setup_dir / "meteo" / "stations.csv", [{"id": "station_a", "name": "Station A"}])
+    _add_weights_event(
+        project_dir,
+        step_idx=0,
+        observable="station_hs",
+        date_str="20221122",
+        weights_rows=[
+            {"member_id": "member_001", "residual": -0.1, "sigma": 0.2, "log_weight": -1.0, "weight": 0.6},
+            {"member_id": "member_002", "residual": 0.2, "sigma": 0.2, "log_weight": -1.2, "weight": 0.4},
+        ],
+        diag_rows=[
+            {"station_id": "station_a", "member_id": "member_001", "residual": -0.10, "sigma": 0.20},
+            {"station_id": "station_a", "member_id": "member_002", "residual": 0.15, "sigma": 0.20},
+        ],
+    )
+    _add_weights_event(
+        project_dir,
+        step_idx=1,
+        observable="station_hs",
+        date_str="20221222",
+        weights_rows=[
+            {"member_id": "member_001", "residual": -0.2, "sigma": 0.25, "log_weight": -1.0, "weight": 0.7},
+            {"member_id": "member_002", "residual": 0.5, "sigma": 0.25, "log_weight": -1.2, "weight": 0.3},
+        ],
+        diag_rows=[
+            {"station_id": "station_a", "member_id": "member_001", "residual": -0.45, "sigma": 0.25},
+            {"station_id": "station_a", "member_id": "member_002", "residual": 0.50, "sigma": 0.25},
+        ],
+    )
+
+    fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
+    residual_axes = _axes_with_xlabel(fig, "snow depth residual [m]")
+    expected_xlim = plot_mod._expand_xlim((-0.5, 0.5))
+
+    assert residual_axes[0].get_xlim() == pytest.approx(expected_xlim)
+    assert residual_axes[1].get_xlim() == pytest.approx(expected_xlim)
+    plt.close(fig)
+
+
+def test_setup_overview_uses_separate_residual_xlims_per_observable(tmp_path: Path, monkeypatch) -> None:
+    import matplotlib.pyplot as plt
+
+    setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
+    _write_csv(
+        setup_dir / "meteo" / "stations.csv",
+        [
+            {"id": "station_a", "name": "Station A"},
+            {"id": "station_b", "name": "Station B"},
+        ],
+    )
+    _add_weights_event(
+        project_dir,
+        step_idx=0,
+        observable="station_hs",
+        date_str="20221122",
+        weights_rows=[
+            {"member_id": "member_001", "residual": -0.4, "sigma": 0.3, "log_weight": -1.0, "weight": 0.6},
+            {"member_id": "member_002", "residual": 0.8, "sigma": 0.3, "log_weight": -1.2, "weight": 0.4},
+        ],
+        diag_rows=[
+            {"station_id": "station_a", "member_id": "member_001", "residual": -0.80, "sigma": 0.30},
+            {"station_id": "station_a", "member_id": "member_002", "residual": 0.60, "sigma": 0.30},
+        ],
+    )
+    _add_weights_event(
+        project_dir,
+        step_idx=1,
+        observable="station_swe",
+        date_str="20221222",
+        weights_rows=[
+            {"member_id": "member_001", "residual": -10.0, "sigma": 8.0, "log_weight": -1.0, "weight": 0.6},
+            {"member_id": "member_002", "residual": 12.0, "sigma": 8.0, "log_weight": -1.2, "weight": 0.4},
+        ],
+        diag_rows=[
+            {"station_id": "station_b", "member_id": "member_001", "residual": -12.0, "sigma": 8.0},
+            {"station_id": "station_b", "member_id": "member_002", "residual": 15.0, "sigma": 8.0},
+        ],
+    )
+    _add_weights_event(
+        project_dir,
+        step_idx=2,
+        observable="scf",
+        date_str="20230122",
+        weights_rows=[
+            {"member_id": "member_001", "residual": -0.35, "sigma": 0.10, "log_weight": -1.0, "weight": 0.6},
+            {"member_id": "member_002", "residual": 0.20, "sigma": 0.10, "log_weight": -1.2, "weight": 0.4},
+        ],
+    )
+    _add_weights_event(
+        project_dir,
+        step_idx=3,
+        observable="wet_snow",
+        date_str="20230221",
+        weights_rows=[
+            {"member_id": "member_001", "residual": -0.10, "sigma": 0.55, "log_weight": -1.0, "weight": 0.6},
+            {"member_id": "member_002", "residual": 0.25, "sigma": 0.55, "log_weight": -1.2, "weight": 0.4},
+        ],
+    )
+
+    fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
+    hs_axes = _axes_with_xlabel(fig, "snow depth residual [m]")
+    swe_axes = _axes_with_xlabel(fig, "SWE residual [mm]")
+    scf_axes = _axes_with_xlabel(fig, "snow cover fraction residual")
+    wet_axes = _axes_with_xlabel(fig, "wet-snow fraction residual")
+
+    assert len(hs_axes) == 1
+    assert len(swe_axes) == 1
+    assert len(scf_axes) == 1
+    assert len(wet_axes) == 1
+    assert hs_axes[0].get_xlim() == pytest.approx(plot_mod._expand_xlim((-0.8, 0.8)))
+    assert swe_axes[0].get_xlim() == pytest.approx(plot_mod._expand_xlim((-15.0, 15.0)))
+    assert scf_axes[0].get_xlim() == pytest.approx(plot_mod._expand_xlim((-0.35, 0.35)))
+    assert wet_axes[0].get_xlim() == pytest.approx(plot_mod._expand_xlim((-0.6, 0.6)))
+    plt.close(fig)
+
+
+def test_setup_overview_residual_xlim_respects_sigma_when_residuals_are_narrow(tmp_path: Path, monkeypatch) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
+    _add_weights_event(
+        project_dir,
+        step_idx=0,
+        observable="scf",
+        date_str="20230518",
+        weights_rows=[
+            {"member_id": "member_001", "residual": -0.08, "sigma": 0.40, "log_weight": -1.0, "weight": 0.6},
+            {"member_id": "member_002", "residual": 0.10, "sigma": 0.40, "log_weight": -1.2, "weight": 0.4},
+        ],
+    )
+    _add_weights_event(
+        project_dir,
+        step_idx=1,
+        observable="scf",
+        date_str="20230526",
+        weights_rows=[
+            {"member_id": "member_001", "residual": -0.12, "sigma": 0.30, "log_weight": -1.0, "weight": 0.7},
+            {"member_id": "member_002", "residual": 0.09, "sigma": 0.30, "log_weight": -1.2, "weight": 0.3},
+        ],
+    )
+
+    fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
+    residual_axes = _axes_with_xlabel(fig, "snow cover fraction residual")
+    expected_xlim = plot_mod._expand_xlim((-0.4, 0.4))
+
+    assert residual_axes[0].get_xlim() == pytest.approx(expected_xlim)
+    assert residual_axes[1].get_xlim() == pytest.approx(expected_xlim)
+    plt.close(fig)
+
+
+def test_setup_overview_robust_shared_xlim_keeps_extreme_residual_visible(tmp_path: Path, monkeypatch) -> None:
+    import matplotlib.pyplot as plt
+
+    setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
+    _write_csv(setup_dir / "meteo" / "stations.csv", [{"id": "station_a", "name": "Station A"}])
+
+    weights_rows_0 = []
+    diag_rows_0 = []
+    for idx in range(1, 11):
+        member_id = f"member_{idx:03d}"
+        residual = 0.18 + 0.004 * idx
+        weights_rows_0.append(
+            {"member_id": member_id, "residual": residual, "sigma": 0.1, "log_weight": -1.0 - idx * 0.01, "weight": 0.1}
+        )
+        diag_rows_0.append({"station_id": "station_a", "member_id": member_id, "residual": residual, "sigma": 0.1})
+    _add_weights_event(
+        project_dir,
+        step_idx=0,
+        observable="station_hs",
+        date_str="20221122",
+        weights_rows=weights_rows_0,
+        diag_rows=diag_rows_0,
+    )
+
+    weights_rows_1 = []
+    diag_rows_1 = []
+    for idx in range(1, 11):
+        member_id = f"member_{idx:03d}"
+        residual = 0.19 + 0.003 * idx
+        if idx == 10:
+            residual = 2.0
+        weights_rows_1.append(
+            {"member_id": member_id, "residual": residual, "sigma": 0.1, "log_weight": -1.1 - idx * 0.01, "weight": 0.1}
+        )
+        diag_rows_1.append({"station_id": "station_a", "member_id": member_id, "residual": residual, "sigma": 0.1})
+    _add_weights_event(
+        project_dir,
+        step_idx=1,
+        observable="station_hs",
+        date_str="20221222",
+        weights_rows=weights_rows_1,
+        diag_rows=diag_rows_1,
+    )
+
+    fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
+    residual_axes = _axes_with_xlabel(fig, "snow depth residual [m]")
+    expected_xlim = plot_mod._expand_xlim((-2.0, 2.0))
+
+    assert len(residual_axes) == 2
+    assert residual_axes[0].get_xlim() == pytest.approx(expected_xlim)
+    assert residual_axes[1].get_xlim() == pytest.approx(expected_xlim)
+    plt.close(fig)
+
+
+def test_setup_overview_robust_shared_xlim_ignores_single_sigma_outlier(tmp_path: Path, monkeypatch) -> None:
+    import matplotlib.pyplot as plt
+
+    setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
+    _write_csv(setup_dir / "meteo" / "stations.csv", [{"id": "station_a", "name": "Station A"}])
+
+    weights_rows_0 = []
+    diag_rows_0 = []
+    for idx in range(1, 11):
+        member_id = f"member_{idx:03d}"
+        residual = 0.18 + 0.004 * idx
+        sigma = 0.1
+        weights_rows_0.append(
+            {"member_id": member_id, "residual": residual, "sigma": sigma, "log_weight": -1.0 - idx * 0.01, "weight": 0.1}
+        )
+        diag_rows_0.append({"station_id": "station_a", "member_id": member_id, "residual": residual, "sigma": sigma})
+    _add_weights_event(
+        project_dir,
+        step_idx=0,
+        observable="station_hs",
+        date_str="20221122",
+        weights_rows=weights_rows_0,
+        diag_rows=diag_rows_0,
+    )
+
+    weights_rows_1 = []
+    diag_rows_1 = []
+    for idx in range(1, 11):
+        member_id = f"member_{idx:03d}"
+        residual = 0.19 + 0.003 * idx
+        sigma = 0.1
+        if idx == 10:
+            sigma = 2.0
+        weights_rows_1.append(
+            {"member_id": member_id, "residual": residual, "sigma": sigma, "log_weight": -1.1 - idx * 0.01, "weight": 0.1}
+        )
+        diag_rows_1.append({"station_id": "station_a", "member_id": member_id, "residual": residual, "sigma": sigma})
+    _add_weights_event(
+        project_dir,
+        step_idx=1,
+        observable="station_hs",
+        date_str="20221222",
+        weights_rows=weights_rows_1,
+        diag_rows=diag_rows_1,
+    )
+
+    fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
+    residual_axes = _axes_with_xlabel(fig, "snow depth residual [m]")
+    expected_xlim = plot_mod._expand_xlim((-0.25, 0.25))
+
+    assert len(residual_axes) == 2
+    assert residual_axes[0].get_xlim() == pytest.approx(expected_xlim)
+    assert residual_axes[1].get_xlim() == pytest.approx(expected_xlim)
+    plt.close(fig)

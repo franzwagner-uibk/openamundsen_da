@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 
 import openamundsen_da.methods.pf.plot_ess_timeline as ess_mod

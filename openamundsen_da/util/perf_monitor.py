@@ -22,6 +22,7 @@ from threading import Event, Thread
 from typing import List
 
 from loguru import logger
+from openamundsen_da.methods.viz._style import EXPORT_DPI
 
 try:
     import psutil  # type: ignore[import]
@@ -185,7 +186,7 @@ def _render_plot(
 
     fig.tight_layout(rect=(0.04, 0.06, 0.96, 0.93))
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=120)
+    fig.savefig(out_path, dpi=EXPORT_DPI)
     plt.close(fig)
 
 

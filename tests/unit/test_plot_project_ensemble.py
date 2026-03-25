@@ -110,7 +110,7 @@ def test_plot_setup_results_band_mode_uses_quantile_band(tmp_path: Path) -> None
         fig = plt.gcf()
         ax = fig.axes[0]
         assert len(ax.collections) == 1
-        assert len(ax.lines) == 2
+        assert len(ax.lines) == 3
         legend_labels = [text.get_text() for text in fig.legends[0].get_texts()]
         assert legend_labels == ["open loop", "ensemble mean", "ensemble", "data assimilation event"]
     finally:

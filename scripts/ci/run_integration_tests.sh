@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CI_IMAGE="${CI_IMAGE:-openamundsen-da-ci:local}"
 MAX_WORKERS="${OA_DA_TEST_MAX_WORKERS:-4}"
 ARTIFACT_DIR="${CI_ARTIFACT_DIR:-}"
+SETUP_RESOLUTION_OVERRIDE="${OA_DA_TEST_SETUP_RESOLUTION:-}"
+ENSEMBLE_SIZE_OVERRIDE="${OA_DA_TEST_ENSEMBLE_SIZE:-}"
 
 TMP_ROOT="$(mktemp -d -t oada-ci-XXXXXX)"
 PROJECT_DIR="${TMP_ROOT}/rofental_ci"
@@ -55,6 +57,54 @@ PROJECT_PATH="/data/projects/${PROJECT_NAME}"
 
 touch "${HOST_LOG_FILE}"
 exec > >(tee -a "${HOST_LOG_FILE}") 2>&1
+
+if [[ -n "${SETUP_RESOLUTION_OVERRIDE}" || -n "${ENSEMBLE_SIZE_OVERRIDE}" ]]; then
+  echo "[integration] Applying derived CI copy overrides"
+  echo "[integration]   setup resolution: ${SETUP_RESOLUTION_OVERRIDE:-unchanged}"
+  echo "[integration]   ensemble size: ${ENSEMBLE_SIZE_OVERRIDE:-unchanged}"
+  python3 - "${PROJECT_DIR}" "${SOURCE_PROJECT_NAME}" "${SETUP_RESOLUTION_OVERRIDE}" "${ENSEMBLE_SIZE_OVERRIDE}" <<'PY'
+from pathlib import Path
+import sys
+import yaml
+
+setup_dir = Path(sys.argv[1])
+project_name = str(sys.argv[2]).strip()
+resolution_raw = str(sys.argv[3]).strip()
+ensemble_raw = str(sys.argv[4]).strip()
+
+setup_yaml_candidates = [
+    path
+    for path in sorted(setup_dir.glob("*.yml"))
+    if path.is_file() and path.parent == setup_dir
+]
+if not setup_yaml_candidates:
+    raise FileNotFoundError(f"No setup YAML found under {setup_dir}")
+setup_yaml = setup_yaml_candidates[0]
+project_yaml = setup_dir / "projects" / project_name / f"{project_name}.yml"
+
+with setup_yaml.open("r", encoding="utf-8") as f:
+    setup_cfg = yaml.safe_load(f) or {}
+with project_yaml.open("r", encoding="utf-8") as f:
+    project_cfg = yaml.safe_load(f) or {}
+
+if resolution_raw:
+    resolution = int(float(resolution_raw))
+    setup_cfg["resolution"] = resolution
+
+if ensemble_raw:
+    ensemble_size = int(float(ensemble_raw))
+    da_cfg = project_cfg.setdefault("data_assimilation", {})
+    prior_cfg = da_cfg.setdefault("prior_forcing", {})
+    prior_cfg["ensemble_size"] = ensemble_size
+
+with setup_yaml.open("w", encoding="utf-8") as f:
+    yaml.safe_dump(setup_cfg, f, sort_keys=False)
+with project_yaml.open("w", encoding="utf-8") as f:
+    yaml.safe_dump(project_cfg, f, sort_keys=False)
+PY
+else
+  echo "[integration] Using shipped Rofental example config without CI overrides"
+fi
 
 compose_run() {
   REPO="${REPO_MOUNT}" \

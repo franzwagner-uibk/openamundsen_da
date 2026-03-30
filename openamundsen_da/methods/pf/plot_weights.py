@@ -77,16 +77,6 @@ def _apply_grid(ax) -> None:
 def _member_ticks(n: int) -> list[int]:
     if n <= 0:
         return []
-    ticks = [1]
-    ticks.extend(range(5, n + 1, 5))
-    if ticks[-1] != n:
-        ticks.append(n)
-    return sorted(set(ticks))
-
-
-def _overview_member_ticks(n: int) -> list[int]:
-    if n <= 0:
-        return []
     if n <= 12:
         return list(range(1, n + 1))
 
@@ -102,6 +92,10 @@ def _overview_member_ticks(n: int) -> list[int]:
     ticks = [1]
     ticks.extend(range(step, n + 1, step))
     return sorted(set(ticks))
+
+
+def _overview_member_ticks(n: int) -> list[int]:
+    return _member_ticks(n)
 
 
 def _observable_from_csv_path(csv_path: Path) -> str | None:
@@ -709,7 +703,7 @@ def _draw_weights_event(
     residual_xlim: tuple[float, float] | None = None,
     y_ticks: list[int] | None = None,
 ) -> None:
-    from matplotlib.ticker import AutoMinorLocator, MultipleLocator
+    from matplotlib.ticker import AutoMinorLocator, MultipleLocator, NullLocator
 
     fs_title = _FS_TITLE * font_scale + font_size_bump
     fs_axis = _FS_AXIS * font_scale + font_size_bump
@@ -763,7 +757,7 @@ def _draw_weights_event(
     ax0.set_ylim(n + 0.5, 0.5)
     ax0.xaxis.set_major_locator(MultipleLocator(0.1))
     ax0.xaxis.set_minor_locator(MultipleLocator(0.05))
-    ax0.yaxis.set_minor_locator(MultipleLocator(1.0))
+    ax0.yaxis.set_minor_locator(NullLocator())
     ax0.tick_params(axis="both", labelsize=fs_tick)
     threshold = resample_manifest.get("ess_threshold")
     metrics_label = f"ESS = {ess:.1f}"
@@ -787,7 +781,7 @@ def _draw_weights_event(
     ax1.set_ylabel("sorted member" if show_right_ylabel else "", fontsize=fs_axis)
     ax1.set_yticks(member_ticks)
     ax1.set_ylim(n + 0.5, 0.5)
-    ax1.yaxis.set_minor_locator(MultipleLocator(1.0))
+    ax1.yaxis.set_minor_locator(NullLocator())
     if observable in {"station_hs", "station_swe"}:
         diag_path = _station_diagnostics_path(csv_path, observable)
         diag = pd.read_csv(diag_path) if diag_path is not None and diag_path.is_file() else pd.DataFrame()

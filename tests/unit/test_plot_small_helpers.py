@@ -50,3 +50,32 @@ def test_plot_ess_timeline_renders_subtitle() -> None:
     texts = [text.get_text() for text in fig.texts]
     assert "Subtitle text" in texts
     plt.close(fig)
+
+
+def test_ess_axis_ticks_only_show_threshold_and_ensemble_size() -> None:
+    assert ess_mod.ess_axis_ticks(47, threshold=23.5) == [23.5, 47.0]
+
+
+def test_plot_ess_timeline_uses_sparse_threshold_and_top_y_ticks() -> None:
+    import matplotlib.pyplot as plt
+
+    df = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2023-01-01", "2023-02-01"]),
+            "ess": [22.0, 31.0],
+            "ess_norm": [22.0 / 47.0, 31.0 / 47.0],
+            "n": [47, 47],
+        }
+    )
+    fig = ess_mod._plot(
+        df,
+        normalized=False,
+        threshold=23.5,
+        title="ESS title",
+        subtitle=None,
+        ensemble_size=47,
+        backend="Agg",
+    )
+
+    assert list(fig.axes[0].get_yticks()) == [23.5, 47.0]
+    plt.close(fig)

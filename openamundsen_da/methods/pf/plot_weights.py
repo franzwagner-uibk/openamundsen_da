@@ -84,6 +84,26 @@ def _member_ticks(n: int) -> list[int]:
     return sorted(set(ticks))
 
 
+def _overview_member_ticks(n: int) -> list[int]:
+    if n <= 0:
+        return []
+    if n <= 12:
+        return list(range(1, n + 1))
+
+    target_tick_count = 5
+    candidate_steps = [2, 5, 10, 20, 25, 50, 100]
+    step = min(
+        candidate_steps,
+        key=lambda candidate: (
+            abs((1 + math.floor((n - 1) / candidate)) - target_tick_count),
+            candidate,
+        ),
+    )
+    ticks = [1]
+    ticks.extend(range(step, n + 1, step))
+    return sorted(set(ticks))
+
+
 def _observable_from_csv_path(csv_path: Path) -> str | None:
     stem = Path(csv_path).stem.lower()
     prefixes = {
@@ -687,6 +707,7 @@ def _draw_weights_event(
     axes_title_y: float = 1.18,
     figure_title_y: float = 0.972,
     residual_xlim: tuple[float, float] | None = None,
+    y_ticks: list[int] | None = None,
 ) -> None:
     from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 
@@ -715,6 +736,7 @@ def _draw_weights_event(
     weight_marker_size = 13.0 * marker_scale
     mismatch_marker_size = 20.0 * marker_scale
     weight_marker_color = "#b8bec7"
+    member_ticks = y_ticks if y_ticks is not None else _member_ticks(n)
     ax0.scatter(
         w,
         y_rank,
@@ -737,7 +759,7 @@ def _draw_weights_event(
     ax0.set_ylabel("sorted member" if show_left_ylabel else "", fontsize=fs_axis)
     _apply_grid(ax0)
     ax0.set_xlim(*_expand_xlim((0.0, 1.0)))
-    ax0.set_yticks(_member_ticks(n))
+    ax0.set_yticks(member_ticks)
     ax0.set_ylim(n + 0.5, 0.5)
     ax0.xaxis.set_major_locator(MultipleLocator(0.1))
     ax0.xaxis.set_minor_locator(MultipleLocator(0.05))
@@ -763,7 +785,7 @@ def _draw_weights_event(
     residual_axis_values: list[float] = [0.0]
     ax1.axvline(0.0, color="black", lw=1.0, zorder=3)
     ax1.set_ylabel("sorted member" if show_right_ylabel else "", fontsize=fs_axis)
-    ax1.set_yticks(_member_ticks(n))
+    ax1.set_yticks(member_ticks)
     ax1.set_ylim(n + 0.5, 0.5)
     ax1.yaxis.set_minor_locator(MultipleLocator(1.0))
     if observable in {"station_hs", "station_swe"}:
@@ -1076,6 +1098,7 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
             font_size_bump=1.0,
             axes_title_y=1.18,
             residual_xlim=residual_xlims.get(observable),
+            y_ticks=_overview_member_ticks(len(df.index)),
         )
         ax0.set_xticks([0.2, 0.4, 0.6, 0.8, 1.0])
         ax0.set_xticklabels(["0.2", "0.4", "0.6", "0.8", "1"])

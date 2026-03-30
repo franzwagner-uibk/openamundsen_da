@@ -100,6 +100,11 @@ def test_nice_axis_extent_uses_quarter_steps_just_above_one() -> None:
     assert plot_mod._nice_axis_extent(1.0894838) == pytest.approx(1.25)
 
 
+def test_overview_member_ticks_use_sparse_readable_labels_for_high_ensemble_sizes() -> None:
+    assert plot_mod._overview_member_ticks(47) == [1, 10, 20, 30, 40]
+    assert plot_mod._overview_member_ticks(8) == [1, 2, 3, 4, 5, 6, 7, 8]
+
+
 def test_setup_weights_overview_default_output_path_uses_project_weights_dir(tmp_path: Path) -> None:
     _, project_dir, _ = _build_project_tree(tmp_path)
 
@@ -856,4 +861,34 @@ def test_setup_overview_robust_shared_xlim_ignores_single_sigma_outlier(tmp_path
     assert len(residual_axes) == 2
     assert residual_axes[0].get_xlim() == pytest.approx(expected_xlim)
     assert residual_axes[1].get_xlim() == pytest.approx(expected_xlim)
+    plt.close(fig)
+
+
+def test_setup_overview_uses_sparse_member_ticks_for_high_ensemble_sizes(tmp_path: Path, monkeypatch) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
+    weights_rows = [
+        {
+            "member_id": f"member_{idx:03d}",
+            "residual": (idx - 24) / 100.0,
+            "sigma": 0.1,
+            "log_weight": -1.0 - idx * 0.01,
+            "weight": 1.0 / 47.0,
+        }
+        for idx in range(1, 48)
+    ]
+    _add_weights_event(
+        project_dir,
+        step_idx=0,
+        observable="scf",
+        date_str="20230518",
+        weights_rows=weights_rows,
+    )
+
+    fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
+    weight_axes = _axes_with_xlabel(fig, "weight")
+
+    assert len(weight_axes) == 1
+    assert [int(tick) for tick in weight_axes[0].get_yticks()] == [1, 10, 20, 30, 40]
     plt.close(fig)

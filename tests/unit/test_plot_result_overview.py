@@ -588,6 +588,42 @@ def test_plot_result_overview_supports_custom_station_panel(tmp_path: Path) -> N
         plt.close = original_close
 
 
+def test_plot_result_overview_custom_ess_panel_uses_threshold_and_top_tick_only(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        out_path = tmp_path / "result_overview_custom.png"
+        plot_result_overview(
+            scf_obs=None,
+            scf_model=None,
+            wet_obs=None,
+            wet_model=None,
+            scf_env=None,
+            wet_env=None,
+            output=out_path,
+            panel_specs=[PanelSpec(panel="ess")],
+            ess_panel=plot_mod.EssPanelData(
+                series=pd.DataFrame(
+                    {
+                        "date": pd.to_datetime(["2023-01-01", "2023-02-01"]),
+                        "ess": [22.0, 31.0],
+                    }
+                ),
+                ensemble_size=47,
+                threshold=23.5,
+            ),
+            strict_panels=True,
+        )
+
+        axes = _panel_axes(plt.gcf())
+        assert list(axes[0].get_yticks()) == [23.5, 47.0]
+        assert out_path.is_file()
+    finally:
+        plt.close = original_close
+
+
 def test_plot_result_overview_shares_absolute_y_scale_between_roi_and_station_panels(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 

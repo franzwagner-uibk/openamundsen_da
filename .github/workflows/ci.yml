@@ -57,10 +57,10 @@ jobs:
           CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
           bash scripts/ci/run_unit_tests.sh
 
-      - name: Run integration tests (trimmed Rofental)
+      - name: Run integration tests (full Rofental example)
         run: |
           CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
-          OA_DA_TEST_MAX_WORKERS=20 \
+          OA_DA_TEST_MAX_WORKERS=48 \
           CI_ARTIFACT_DIR="${{ github.workspace }}/.ci-artifacts/integration/single-domain" \
           bash scripts/ci/run_integration_tests.sh
 

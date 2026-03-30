@@ -747,8 +747,8 @@ def _apply_fraction_ticks(ax) -> None:
     ax.set_yticks([0.25, 0.5, 0.75, 1.0])
 
 
-def _apply_ess_ticks(ax, ensemble_size: int | None) -> None:
-    ticks = ess_axis_ticks(ensemble_size)
+def _apply_ess_ticks(ax, ensemble_size: int | None, *, threshold: float | None = None) -> None:
+    ticks = ess_axis_ticks(ensemble_size, threshold=threshold)
     if ticks:
         ax.set_yticks(ticks)
 
@@ -1147,7 +1147,11 @@ def plot_result_overview(
             ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
             if current_ess_panel.ensemble_size is not None and current_ess_panel.ensemble_size > 0:
                 ax.set_ylim(0.0, float(current_ess_panel.ensemble_size))
-                _apply_ess_ticks(ax, current_ess_panel.ensemble_size)
+                _apply_ess_ticks(
+                    ax,
+                    current_ess_panel.ensemble_size,
+                    threshold=current_ess_panel.threshold,
+                )
             if current_ess_panel.threshold is not None:
                 ax.axhline(current_ess_panel.threshold, color="#d62728", lw=0.9, ls="--", zorder=10)
                 ax.legend(

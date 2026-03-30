@@ -46,43 +46,17 @@ def ess_title(*, ensemble_size: int | None, normalized: bool = False) -> str:
     return f"{base} (ensemble size = {ensemble_size})"
 
 
-def ess_axis_ticks(ensemble_size: int | None) -> list[float]:
+def ess_axis_ticks(ensemble_size: int | None, *, threshold: float | None = None) -> list[float]:
     if ensemble_size is None or ensemble_size <= 0:
         return []
-    n = int(ensemble_size)
-    if n <= 4:
-        return [float(v) for v in range(1, n + 1)]
-
-    target_levels = 3
-    divisor_steps = [step for step in range(1, n + 1) if n % step == 0]
-    exact_candidates = [
-        step
-        for step in divisor_steps
-        if (n // step) in {target_levels, target_levels + 1}
-    ]
-    if exact_candidates:
-        preferred = sorted(
-            exact_candidates,
-            key=lambda step: (
-                abs((n // step) - target_levels),
-                -(n // step),
-                step,
-            ),
-        )[0]
-        return [float(v) for v in range(preferred, n + 1, preferred)]
-
-    target_step = n / target_levels
-    magnitude = 1
-    while magnitude * 10 <= max(1.0, target_step):
-        magnitude *= 10
-    nice_steps = [
-        base * magnitude
-        for base in (1, 2, 5, 10)
-        if base * magnitude > 0
-    ]
-    step = min(nice_steps, key=lambda candidate: abs(candidate - target_step))
-    ticks = [float(v) for v in range(int(step), n, int(step)) if v > 0]
-    ticks.append(float(n))
+    ticks = [float(int(ensemble_size))]
+    if threshold is not None:
+        try:
+            threshold_value = float(threshold)
+        except (TypeError, ValueError):
+            threshold_value = None
+        if threshold_value is not None and 0.0 < threshold_value < float(ensemble_size):
+            ticks.insert(0, threshold_value)
     return sorted(set(ticks))
 
 
@@ -228,8 +202,8 @@ def _apply_result_like_time_axis_labels(ax) -> None:
     ax.tick_params(axis="x", labelsize=8.4)
 
 
-def _apply_ess_ticks(ax, ensemble_size: int | None) -> None:
-    ticks = ess_axis_ticks(ensemble_size)
+def _apply_ess_ticks(ax, ensemble_size: int | None, *, threshold: float | None = None) -> None:
+    ticks = ess_axis_ticks(ensemble_size, threshold=threshold)
     if ticks:
         ax.set_yticks(ticks)
 
@@ -300,7 +274,7 @@ def _plot(
             ax.set_xlim(x_start, x_end)
     if ensemble_size is not None and ensemble_size > 0 and not normalized:
         ax.set_ylim(0.0, float(ensemble_size))
-        _apply_ess_ticks(ax, ensemble_size)
+        _apply_ess_ticks(ax, ensemble_size, threshold=threshold)
     _apply_result_like_time_axis_labels(ax)
     ax.tick_params(axis="y", labelsize=8.4)
     if threshold is not None:

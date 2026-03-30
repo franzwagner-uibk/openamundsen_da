@@ -44,6 +44,16 @@ from openamundsen_da.methods.viz._style import (
 from openamundsen_da.methods.viz._utils import force_figure_text_black, format_station_label, save_figure_png, set_matplotlib_text_black
 from openamundsen_da.methods.viz._ensemble_meta import load_stations_table
 
+_FORCING_FIGSIZE_FULL = (11.5, 7.2)
+_FORCING_FIGSIZE_TEMP_ONLY = (11.5, 4.2)
+_FORCING_TITLE_Y = 0.965
+_FORCING_TOP_RECT_FULL = 0.90
+_FORCING_TOP_RECT_TEMP_ONLY = 0.88
+_FORCING_TOP_RECT_NO_HEADER = 0.94
+_FORCING_SUBTITLE_Y_FULL = 0.910
+_FORCING_SUBTITLE_Y_TEMP_ONLY = 0.920
+# These stay local because the forcing plot uses a unique stacked layout.
+
 
 def _list_station_files(step_dir: Path, ensemble: str) -> Tuple[Optional[Path], List[str]]:
     """Delegate to io.paths.list_station_files_forcing for discovery."""
@@ -65,12 +75,8 @@ def _read_station_series(csv_path: Path, time_col: str, temp_col: str, precip_co
     return collapse_duplicates(df)
 
 
-    # removed: use util.ts and util.stats helpers
-
-
 def _plot_station(
     *,
-    station_name: str,
     ol_df: Optional[pd.DataFrame],
     mem_dfs: List[pd.DataFrame],
     temp_col: str,
@@ -92,9 +98,9 @@ def _plot_station(
         or any(precip_col in d.columns for d in mem_dfs)
     )
     if has_precip:
-        fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(11.5, 7.2), sharex=True)
+        fig, (ax0, ax1) = plt.subplots(2, 1, figsize=_FORCING_FIGSIZE_FULL, sharex=True)
     else:
-        fig, ax0 = plt.subplots(1, 1, figsize=(11.5, 4.2))
+        fig, ax0 = plt.subplots(1, 1, figsize=_FORCING_FIGSIZE_TEMP_ONLY)
 
     # Temperature panel
     temp_series = [d[temp_col].copy() for d in mem_dfs if temp_col in d.columns]
@@ -107,10 +113,6 @@ def _plot_station(
 
     # Precip cumulative panel
     if has_precip:
-        mem_prec_cum = []
-        for d in mem_dfs:
-            if precip_col in d.columns:
-                mem_prec_cum.append(cumulative_hydro(d[precip_col], hydro_m, hydro_d))
         for d in mem_dfs:
             if precip_col in d.columns:
                 s = cumulative_hydro(d[precip_col], hydro_m, hydro_d)
@@ -124,14 +126,15 @@ def _plot_station(
 
     # Layout and legend below
     # Provide headroom above axes; temp-only plots keep extra space at top
-    top_rect = (0.88 if (title or subtitle) else 0.94) if not has_precip else (0.90 if (title or subtitle) else 0.94)
+    if title or subtitle:
+        top_rect = _FORCING_TOP_RECT_FULL if has_precip else _FORCING_TOP_RECT_TEMP_ONLY
+    else:
+        top_rect = _FORCING_TOP_RECT_NO_HEADER
     fig.tight_layout(rect=[0.02, 0.08, 0.98, top_rect])
     if title:
-        fig.text(0.5, 0.965, title, ha="center", va="top", fontsize=12)
+        fig.text(0.5, _FORCING_TITLE_Y, title, ha="center", va="top", fontsize=12)
     if subtitle:
-        # Position subtitle slightly lower (closer to axes); use different offsets
-        # for temp-only vs two-panel layouts.
-        sub_y = 0.920 if not has_precip else 0.910
+        sub_y = _FORCING_SUBTITLE_Y_FULL if has_precip else _FORCING_SUBTITLE_Y_TEMP_ONLY
         fig.text(0.5, sub_y, subtitle, ha="center", va="top", fontsize=10)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -253,7 +256,6 @@ def cli_main(argv: Iterable[str] | None = None, *, configure_logger: bool = True
         subtitle = args.subtitle or station_label
         out_path = out_root / f"{token}.png"
         _plot_station(
-            station_name=token,
             ol_df=ol_df,
             mem_dfs=mem_dfs,
             temp_col=args.temp_col,

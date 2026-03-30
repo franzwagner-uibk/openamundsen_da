@@ -25,13 +25,19 @@ from openamundsen_da.util.station_da import station_observation_csvs
 from openamundsen_da.util.ts import read_timeseries_csv
 
 
-def _load_stations_df(points_dir: Path, obs_root: Path) -> Optional[pd.DataFrame]:
+def _load_stations_df(
+    points_dir: Path,
+    obs_root: Path,
+    *,
+    legacy_metadata_name: str | None = None,
+) -> Optional[pd.DataFrame]:
     """Load station metadata table if present."""
     candidates = [
         obs_root / "stations.csv",
         points_dir / "obs" / "stations" / "stations.csv",
-        points_dir / "obs" / "stations" / "stations_snow_depth.csv",
     ]
+    if legacy_metadata_name:
+        candidates.append(points_dir / "obs" / "stations" / legacy_metadata_name)
     for meta_path in candidates:
         if not meta_path.is_file():
             continue
@@ -98,7 +104,10 @@ def plot_station_comparisons(
     if station_ids:
         obs_files = [f for f in obs_files if f.stem in station_ids]
 
-    stations_df = _load_stations_df(pts_root, obs_root)
+    legacy_metadata_name = None
+    if variable in {"snow_depth", "hs"} and obs_column in {"snow_depth", "snow_height"}:
+        legacy_metadata_name = "stations_snow_depth.csv"
+    stations_df = _load_stations_df(pts_root, obs_root, legacy_metadata_name=legacy_metadata_name)
 
     written: list[Path] = []
     for obs_path in obs_files:

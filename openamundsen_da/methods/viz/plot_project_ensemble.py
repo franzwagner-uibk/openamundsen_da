@@ -95,6 +95,7 @@ from openamundsen_da.methods.viz._utils import (
     force_figure_text_black,
     format_station_label,
     pretty_var_title,
+    result_axis_scale,
     save_figure_png,
     set_matplotlib_text_black,
 )
@@ -372,20 +373,12 @@ def _station_model_color(var_col: str) -> str:
 
 
 def _apply_result_axis_ticks(ax, var_col: str) -> None:
-    import math
     from matplotlib.ticker import MultipleLocator
 
-    key = str(var_col or "").strip().lower()
-    data_max = max(0.0, float(getattr(ax.dataLim, "ymax", 0.0) or 0.0))
-    if key == "swe":
-        step_options = [50.0, 100.0]
-    elif key in {"snow_depth", "hs"}:
-        step_options = [0.25, 0.5, 1.0]
-    else:
+    scale = result_axis_scale(str(var_col or "").strip().lower(), float(getattr(ax.dataLim, "ymax", 0.0) or 0.0))
+    if scale is None:
         return
-
-    step = next((candidate for candidate in step_options if data_max <= candidate * 4.0), step_options[-1])
-    upper = step * 4.0 if data_max <= step * 4.0 else math.ceil(data_max / step) * step
+    step, upper = scale
     ax.set_ylim(0.0, upper)
     ax.yaxis.set_major_locator(MultipleLocator(step))
     ax.yaxis.set_minor_locator(MultipleLocator(step / 2.0))

@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 import openamundsen_da.methods.pf.plot_ess_timeline as ess_mod
+from openamundsen_da.methods.viz._utils import result_axis_scale
 from openamundsen_da.methods.viz.plot_result_overview import plot_result_overview
 
 
@@ -25,6 +26,12 @@ def test_plot_result_overview_accepts_backend_argument(tmp_path: Path) -> None:
         backend="Agg",
     )
     assert out_path.is_file()
+
+
+def test_result_axis_scale_reuses_shared_swe_and_snow_depth_rules() -> None:
+    assert result_axis_scale("swe", 12.0) == (50.0, 200.0)
+    assert result_axis_scale("roi-sd", 0.44) == (0.25, 1.0)
+    assert result_axis_scale("station-swe", 90.0, shared=True) == (50.0, 100.0)
 
 
 def test_plot_ess_timeline_renders_subtitle() -> None:

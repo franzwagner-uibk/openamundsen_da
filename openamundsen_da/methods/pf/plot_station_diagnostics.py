@@ -6,7 +6,11 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from openamundsen_da.methods.viz._style import EXPORT_DPI
+from openamundsen_da.methods.viz._utils import (
+    force_figure_text_black,
+    save_figure_png,
+    set_matplotlib_text_black,
+)
 
 
 def _load_diagnostics(csv_path: Path) -> pd.DataFrame:
@@ -32,6 +36,7 @@ def plot_station_diagnostics_for_csv(
     import matplotlib
 
     matplotlib.use(backend or "Agg")
+    set_matplotlib_text_black(matplotlib)
     import matplotlib.pyplot as plt
 
     df = _load_diagnostics(csv_path)
@@ -91,6 +96,7 @@ def plot_station_diagnostics_for_csv(
 
     out = _default_output_path(csv_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out, dpi=EXPORT_DPI, bbox_inches="tight", pad_inches=0.08)
+    force_figure_text_black(fig, axes)
+    save_figure_png(fig, out, bbox_inches="tight", pad_inches=0.08)
     plt.close(fig)
     return out

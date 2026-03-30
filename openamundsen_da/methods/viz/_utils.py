@@ -64,6 +64,32 @@ def save_figure_png(
     fig.savefig(output_png, dpi=dpi, **save_kwargs)
 
 
+def result_axis_scale(
+    token: str,
+    data_max: float,
+    *,
+    shared: bool = False,
+) -> Tuple[float, float] | None:
+    """Return (major_step, upper_ylim) for SWE / snow-depth style result axes."""
+    value = max(0.0, float(data_max or 0.0))
+    key = str(token or "").strip().lower()
+    if key in {"swe", "roi-swe", "station-swe"}:
+        step_options = [50.0, 100.0]
+    elif key in {"snow_depth", "snowdepth", "hs", "roi-sd", "station-sd"}:
+        step_options = [0.25, 0.5, 1.0]
+    else:
+        return None
+
+    step = next((candidate for candidate in step_options if value <= candidate * 4.0), step_options[-1])
+    if shared:
+        substep = step / 2.0
+        upper = substep if value <= 0.0 else math.ceil(value / substep) * substep
+        return step, upper
+
+    upper = step * 4.0 if value <= step * 4.0 else math.ceil(value / step) * step
+    return step, upper
+
+
 def pretty_var_title(var_col: str, var_label: str = "", var_units: str = "") -> str:
     """Return a friendly variable title with optional units."""
     v = (var_col or "").strip()

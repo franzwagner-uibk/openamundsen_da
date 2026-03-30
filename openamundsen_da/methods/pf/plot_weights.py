@@ -94,10 +94,6 @@ def _member_ticks(n: int) -> list[int]:
     return sorted(set(ticks))
 
 
-def _overview_member_ticks(n: int) -> list[int]:
-    return _member_ticks(n)
-
-
 def _observable_from_csv_path(csv_path: Path) -> str | None:
     stem = Path(csv_path).stem.lower()
     prefixes = {
@@ -1092,7 +1088,7 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
             font_size_bump=1.0,
             axes_title_y=1.18,
             residual_xlim=residual_xlims.get(observable),
-            y_ticks=_overview_member_ticks(len(df.index)),
+            y_ticks=_member_ticks(len(df.index)),
         )
         ax0.set_xticks([0.2, 0.4, 0.6, 0.8, 1.0])
         ax0.set_xticklabels(["0.2", "0.4", "0.6", "0.8", "1"])

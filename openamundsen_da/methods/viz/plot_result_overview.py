@@ -32,6 +32,7 @@ from openamundsen_da.methods.viz._utils import (
     draw_assimilation_vlines,
     force_figure_text_black,
     format_station_label,
+    result_axis_scale,
     save_figure_png,
     set_matplotlib_text_black,
 )
@@ -626,39 +627,19 @@ def _build_result_overview_legend(fig, *, show_station_observation: bool) -> Non
 
 
 def _apply_result_y_ticks(ax, panel: str) -> None:
-    import math
     from matplotlib.ticker import MultipleLocator
 
-    data_max = max(0.0, float(getattr(ax.dataLim, "ymax", 0.0) or 0.0))
-    if panel in {"roi-swe", "station-swe"}:
-        step_options = [50.0, 100.0]
-    elif panel in {"roi-sd", "station-sd"}:
-        step_options = [0.25, 0.5, 1.0]
-    else:
+    scale = result_axis_scale(panel, float(getattr(ax.dataLim, "ymax", 0.0) or 0.0))
+    if scale is None:
         return
-
-    step = next((candidate for candidate in step_options if data_max <= candidate * 4.0), step_options[-1])
-    upper = step * 4.0 if data_max <= step * 4.0 else math.ceil(data_max / step) * step
+    step, upper = scale
     ax.set_ylim(0.0, upper)
     ax.yaxis.set_major_locator(MultipleLocator(step))
     ax.yaxis.set_minor_locator(MultipleLocator(step / 2.0))
 
 
 def _result_axis_scale_from_max(panel: str, data_max: float) -> tuple[float, float] | None:
-    import math
-
-    data_max = max(0.0, float(data_max or 0.0))
-    if panel in {"roi-swe", "station-swe"}:
-        step_options = [50.0, 100.0]
-    elif panel in {"roi-sd", "station-sd"}:
-        step_options = [0.25, 0.5, 1.0]
-    else:
-        return None
-
-    step = next((candidate for candidate in step_options if data_max <= candidate * 4.0), step_options[-1])
-    substep = step / 2.0
-    upper = substep if data_max <= 0.0 else math.ceil(data_max / substep) * substep
-    return step, upper
+    return result_axis_scale(panel, data_max, shared=True)
 
 
 def _max_abs_value_frame(frame: pd.DataFrame | None, *cols: str) -> float:

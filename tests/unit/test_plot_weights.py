@@ -103,8 +103,6 @@ def test_nice_axis_extent_uses_quarter_steps_just_above_one() -> None:
 def test_overview_member_ticks_use_sparse_readable_labels_for_high_ensemble_sizes() -> None:
     assert plot_mod._member_ticks(47) == [1, 10, 20, 30, 40]
     assert plot_mod._member_ticks(8) == [1, 2, 3, 4, 5, 6, 7, 8]
-    assert plot_mod._overview_member_ticks(47) == [1, 10, 20, 30, 40]
-    assert plot_mod._overview_member_ticks(8) == [1, 2, 3, 4, 5, 6, 7, 8]
 
 
 def test_setup_weights_overview_default_output_path_uses_project_weights_dir(tmp_path: Path) -> None:

@@ -24,7 +24,11 @@ from pathlib import Path
 
 import pandas as pd
 from loguru import logger
-from openamundsen_da.methods.viz._style import EXPORT_DPI
+from openamundsen_da.methods.viz._utils import (
+    force_figure_text_black,
+    save_figure_png,
+    set_matplotlib_text_black,
+)
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
@@ -71,6 +75,7 @@ def _plot(df: pd.DataFrame, title: str | None = None, subtitle: str | None = Non
     """
     import matplotlib
     matplotlib.use(backend or "Agg")  # headless or user-provided
+    set_matplotlib_text_black(matplotlib)
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
 
@@ -163,7 +168,8 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     out = Path(args.output) if args.output else csv_path.parent / "scf_summary.png"
     # Save image
-    fig.savefig(out, dpi=EXPORT_DPI, bbox_inches="tight", pad_inches=0.1)
+    force_figure_text_black(fig, fig.axes)
+    save_figure_png(fig, out, bbox_inches="tight", pad_inches=0.1)
     logger.info("Wrote plot: {}", out)
     return 0
 

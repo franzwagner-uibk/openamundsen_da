@@ -66,7 +66,7 @@ from openamundsen_da.methods.wet_snow.classify import classify_step_wet_snow
 from openamundsen_da.methods.wet_snow.area import compute_step_wet_snow_daily_for_all_members
 from openamundsen_da.methods.pf.rejuvenate import rejuvenate
 from openamundsen_da.methods.pf.resample import resample_from_weights, _read_resampling_from_project
-from openamundsen_da.methods.pf.plot_weights import plot_weights_for_csv
+from openamundsen_da.methods.pf.plot_weights import plot_setup_weights_overview, plot_weights_for_csv
 from openamundsen_da.methods.pf.plot_station_diagnostics import plot_station_diagnostics_for_csv
 from openamundsen_da.methods.pf.plot_ess_timeline import plot_setup_ess_timeline
 from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_envelope
@@ -465,6 +465,121 @@ def _run_live_plots(
     finally:
         if reset_logger:
             _setup_logger(cfg.project_dir, cfg.log_level)
+
+
+def _build_post_run_plot_tasks(cfg: "OrchestratorConfig", steps: List[Path]) -> List[PlotTask]:
+    """Build final project-level plot tasks executed after the run completes."""
+    plot_tasks: List[PlotTask] = []
+    for step_dir in steps:
+        plot_tasks.append(
+            PlotTask(
+                name=f"forcing:{Path(step_dir).name}",
+                func=plot_forcing_cli,
+                args=(
+                    [
+                        "--step-dir",
+                        str(step_dir),
+                        "--ensemble",
+                        "prior",
+                        "--log-level",
+                        cfg.log_level,
+                    ],
+                ),
+                kwargs={"configure_logger": False},
+            )
+        )
+    plot_tasks.append(
+        PlotTask(
+            name="setup_results_swe",
+            func=plot_setup_results,
+            args=(),
+            kwargs={
+                "setup_dir": cfg.project_dir,
+                "var_col": "swe",
+                "mode": "band",
+                "resample": "D",
+                "resample_agg": "mean",
+                "configure_logger": False,
+            },
+        )
+    )
+    plot_tasks.append(
+        PlotTask(
+            name="setup_results_snow_depth",
+            func=plot_setup_results,
+            args=(),
+            kwargs={
+                "setup_dir": cfg.project_dir,
+                "var_col": "snow_depth",
+                "mode": "band",
+                "resample": "D",
+                "resample_agg": "mean",
+                "configure_logger": False,
+            },
+        )
+    )
+    plot_tasks.append(
+        PlotTask(
+            name="fraction_overlay",
+            func=plot_result_overview_cli,
+            args=(
+                [
+                    "--project-dir",
+                    str(cfg.project_dir),
+                    "--setup-dir",
+                    str(cfg.setup_dir),
+                ],
+            ),
+            kwargs={"configure_logger": False},
+        )
+    )
+    weights_csvs: List[Path] = []
+    for step_dir in steps:
+        assim_dir = Path(step_dir) / "assim"
+        if not assim_dir.is_dir():
+            continue
+        candidates = sorted(assim_dir.glob("weights_*_*.csv"))
+        if candidates:
+            weights_csvs.append(candidates[-1])
+    for wcsv in weights_csvs:
+        plot_tasks.append(
+            PlotTask(
+                name=f"weights:{wcsv.parent.parent.name}",
+                func=plot_weights_for_csv,
+                args=(wcsv,),
+                kwargs={},
+            )
+        )
+    for step_dir in steps:
+        assim_dir = Path(step_dir) / "assim"
+        if not assim_dir.is_dir():
+            continue
+        for diag_csv in sorted(assim_dir.glob("station_diagnostics_*_*.csv")):
+            plot_tasks.append(
+                PlotTask(
+                    name=f"station_diag:{diag_csv.parent.parent.name}:{diag_csv.stem}",
+                    func=plot_station_diagnostics_for_csv,
+                    args=(diag_csv,),
+                    kwargs={},
+                )
+            )
+    plot_tasks.append(
+        PlotTask(
+            name="setup_ess_timeline",
+            func=plot_setup_ess_timeline,
+            args=(cfg.project_dir,),
+            kwargs={},
+        )
+    )
+    plot_tasks.append(
+        PlotTask(
+            name="setup_weights_overview",
+            func=plot_setup_weights_overview,
+            args=(cfg.project_dir,),
+            kwargs={},
+        )
+    )
+    return plot_tasks
 
 
 @dataclass
@@ -940,108 +1055,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
     _aggregate_fraction_envelopes(cfg.project_dir)
 
     # Build post-run plot tasks (per-step forcing, project results, fraction overlay, weights, ESS)
-    plot_tasks: List[PlotTask] = []
-    for step_dir in steps:
-        plot_tasks.append(
-            PlotTask(
-                name=f"forcing:{Path(step_dir).name}",
-                func=plot_forcing_cli,
-                args=(
-                    [
-                        "--step-dir",
-                        str(step_dir),
-                        "--ensemble",
-                        "prior",
-                        "--log-level",
-                        cfg.log_level,
-                    ],
-                ),
-                kwargs={"configure_logger": False},
-            )
-        )
-    plot_tasks.append(
-        PlotTask(
-            name="setup_results_swe",
-            func=plot_setup_results,
-            args=(),
-            kwargs={
-                "setup_dir": cfg.project_dir,
-                "var_col": "swe",
-                "mode": "band",
-                "resample": "D",
-                "resample_agg": "mean",
-                "configure_logger": False,
-            },
-        )
-    )
-    plot_tasks.append(
-        PlotTask(
-            name="setup_results_snow_depth",
-            func=plot_setup_results,
-            args=(),
-            kwargs={
-                "setup_dir": cfg.project_dir,
-                "var_col": "snow_depth",
-                "mode": "band",
-                "resample": "D",
-                "resample_agg": "mean",
-                "configure_logger": False,
-            },
-        )
-    )
-    plot_tasks.append(
-        PlotTask(
-            name="fraction_overlay",
-            func=plot_result_overview_cli,
-            args=(
-                [
-                    "--project-dir",
-                    str(cfg.project_dir),
-                    "--setup-dir",
-                    str(cfg.setup_dir),
-                ],
-            ),
-            kwargs={"configure_logger": False},
-        )
-    )
-    weights_csvs: List[Path] = []
-    for step_dir in steps:
-        assim_dir = Path(step_dir) / "assim"
-        if not assim_dir.is_dir():
-            continue
-        candidates = sorted(assim_dir.glob("weights_*_*.csv"))
-        if candidates:
-            weights_csvs.append(candidates[-1])
-    for wcsv in weights_csvs:
-        plot_tasks.append(
-            PlotTask(
-                name=f"weights:{wcsv.parent.parent.name}",
-                func=plot_weights_for_csv,
-                args=(wcsv,),
-                kwargs={},
-            )
-        )
-    for step_dir in steps:
-        assim_dir = Path(step_dir) / "assim"
-        if not assim_dir.is_dir():
-            continue
-        for diag_csv in sorted(assim_dir.glob("station_diagnostics_*_*.csv")):
-            plot_tasks.append(
-                PlotTask(
-                    name=f"station_diag:{diag_csv.parent.parent.name}:{diag_csv.stem}",
-                    func=plot_station_diagnostics_for_csv,
-                    args=(diag_csv,),
-                    kwargs={},
-                )
-            )
-    plot_tasks.append(
-        PlotTask(
-            name="setup_ess_timeline",
-            func=plot_setup_ess_timeline,
-            args=(cfg.project_dir,),
-            kwargs={},
-        )
-    )
+    plot_tasks = _build_post_run_plot_tasks(cfg, steps)
     try:
         _run_plot_tasks_parallel(plot_tasks, cfg.plot_workers, cfg.max_workers)
     except Exception as exc:

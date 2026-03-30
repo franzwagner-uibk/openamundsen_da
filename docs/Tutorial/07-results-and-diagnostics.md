@@ -98,11 +98,11 @@ Plot file to open:
 
 - `/data/rofental/projects/project_2022_2023/plots/perf/project_perf.png`
 
-Reference plot (tutorial baseline, `ens=10`):
+Reference plot (tutorial baseline, `ens=15`):
 
-![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/project_perf.png)
+![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/project_perf.png)
 
-_`project_perf.png` from the Rofental tutorial reference run (`100 m`, `ensemble_size=10`)._
+_`project_perf.png` from the Rofental tutorial reference run (`100 m`, `ensemble_size=15`)._
 
 What to read in the plot:
 
@@ -121,7 +121,8 @@ These plots are the core data assimilation diagnostics.
 
 Typical outputs:
 
-- `plots/assim/weights/step_*_weights.png`
+- `plots/assim/weights/DA_XX_weights.png`
+- `plots/assim/weights/setup_weights_overview_*.png`
 - `plots/assim/ess/setup_ess_timeline_*.png`
 
 What they show:
@@ -136,8 +137,10 @@ Reference structure snippet (`plots/assim`, typical files)
   ess/
     setup_ess_timeline_2022_2023.png
   weights/
-    step_02_weights.png
-    step_03_weights.png
+    DA_01_weights.png
+    ...
+    DA_10_weights.png
+    setup_weights_overview_2022_2023.png
     ...
 ```
 
@@ -150,31 +153,32 @@ Reference structure snippet (`plots/assim`, typical files)
 > - ESS very low (near 1) frequently:
 >   - strong degeneracy, aggressive resampling likely
 >   - possibly too-small observation error (`obs_sigma`) or too-strong mismatch
-> - abrupt differences between SCF and wet-snow events:
->   - normal and expected (different variables, coverage, and information content)
+> - abrupt differences between station HS, SCF, and wet-snow events:
+>   - also normal and expected (different variables, support, and information content)
 
 ESS is a diagnostic, not a simple "good/bad" score. Interpret it together with weights, variable type, and observation coverage.
 
-Reference CSV snippet (weights for one wet-snow event)
+Reference CSV snippet (weights for one station HS event)
 
-File path: `/data/rofental/projects/project_2022_2023/steps/step_02_20230309-20230511/assim/weights_wet_snow_20230511.csv`
+File path: `/data/rofental/projects/project_2022_2023/steps/step_03_20230122-20230221/assim/weights_station_hs_20230221.csv`
 
-| member_id | wet_snow_model | wet_snow_obs | residual | sigma | log_weight | weight |
+| member_id | station_id | snow_depth_model | snow_depth_obs | residual | sigma | weight |
 | --- | --- | --- | --- | --- | --- | --- |
-| member_001 | 0.71 | 0.89 | 0.18 | 0.10 | -0.17 | 0.04 |
-| member_002 | 0.86 | 0.89 | 0.03 | 0.10 | 1.33 | 0.19 |
-| member_003 | 0.64 | 0.89 | 0.25 | 0.10 | -1.67 | 0.01 |
-| member_004 | 0.75 | 0.89 | 0.14 | 0.10 | 0.45 | 0.08 |
-| member_005 | 0.70 | 0.89 | 0.19 | 0.10 | -0.39 | 0.03 |
+| member_001 | latschbloder | 0.90 | 1.99 | -1.09 | 0.33 | 0.00 |
+| member_002 | latschbloder | 1.15 | 1.99 | -0.84 | 0.33 | 0.00 |
+| member_003 | latschbloder | 1.38 | 1.99 | -0.61 | 0.33 | 0.01 |
+| member_004 | latschbloder | 1.63 | 1.99 | -0.36 | 0.33 | 0.05 |
+| member_005 | latschbloder | 1.80 | 1.99 | -0.19 | 0.33 | 0.09 |
 
 Plot files to open:
 
 - `/data/rofental/projects/project_2022_2023/plots/assim/ess/setup_ess_timeline_2022_2023.png`
-- `/data/rofental/projects/project_2022_2023/plots/assim/weights/step_02_weights.png`
+- `/data/rofental/projects/project_2022_2023/plots/assim/weights/setup_weights_overview_2022_2023.png`
+- `/data/rofental/projects/project_2022_2023/plots/assim/weights/DA_04_weights.png`
 
 Reference ESS plot (tutorial baseline):
 
-![ESS timeline plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/setup_ess_timeline_2022_2023.png)
+![ESS timeline plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/setup_ess_timeline_2022_2023.png)
 
 _ESS timeline (`setup_ess_timeline_2022_2023.png`) from the tutorial reference run._
 
@@ -182,13 +186,19 @@ What to read in the ESS plot:
 
 - each point corresponds to one assimilation event,
 - lower ESS means stronger weight concentration (more degeneracy),
-- differences between SCF and wet-snow events are expected because the observation types have different information content and spatial support.
+- differences between station HS, SCF, and wet-snow events are expected because the observation types have different information content and spatial support.
 
-Reference weights plot (example step):
+Reference setup weights overview:
 
-![Weights plot for one assimilation step (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/step_02_weights.png)
+![Setup weights overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/setup_weights_overview_2022_2023.png)
 
-_Weights plot for `step_02` (wet-snow event around `2023-05-11`)._
+_Setup-wide comparison of all ten assimilation events, grouped by observable family._
+
+Reference weights plot (example event):
+
+![Weights plot for one assimilation event (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/DA_04_weights.png)
+
+_Weights plot for `DA_04` (`station_hs` on `2023-02-21`)._
 
 What to read in the weights plot:
 
@@ -303,7 +313,7 @@ Recommended plot files to inspect (Rofental tutorial run):
 
 Result overview:
 
-![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/result_overview.png)
+![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/result_overview.png)
 
 _`result_overview.png`: check observation dates, SCF/wet-snow event timing, ROI mean SWE / snow-depth behavior, and gross model-vs-observation behavior._
 
@@ -316,7 +326,7 @@ What to read in this plot:
 
 Station snow depth example (`latschbloder`):
 
-![Latschbloder snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/setup_results_point_latschbloder_snow_depth_2022_2023.png)
+![Latschbloder snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/setup_results_point_latschbloder_snow_depth_2022_2023.png)
 
 _Snow depth comparison at `latschbloder` (open loop + ensemble + observations)._
 
@@ -328,7 +338,7 @@ What to read in this plot:
 
 Station SWE example (`proviantdepot`):
 
-![Proviantdepot SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/setup_results_point_proviantdepot_swe_2022_2023.png)
+![Proviantdepot SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/setup_results_point_proviantdepot_swe_2022_2023.png)
 
 _SWE comparison at `proviantdepot` (remember: station SWE observations are expected in **mm** in this tutorial setup)._
 
@@ -343,11 +353,11 @@ What to read in this plot:
 
 `proviantdepot` snow depth:
 
-![Proviantdepot snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/setup_results_point_proviantdepot_snow_depth_2022_2023.png)
+![Proviantdepot snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/setup_results_point_proviantdepot_snow_depth_2022_2023.png)
 
 `latschbloder` SWE:
 
-![Latschbloder SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/setup_results_point_latschbloder_swe_2022_2023.png)
+![Latschbloder SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/setup_results_point_latschbloder_swe_2022_2023.png)
 
 </details>
 

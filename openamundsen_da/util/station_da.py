@@ -20,7 +20,7 @@ class StationVariableSpec:
     event_variable: str
     obs_column: str
     model_column: str
-    sigma_floor_key: str
+    metadata_sigma_column: str
     label: str
 
 
@@ -32,13 +32,7 @@ class StationAssimilationConfig:
     metadata_path: Path
     default_station_uncertainty_pct: float
     min_station_uncertainty_pct: float
-    hs_sigma_abs_min: float
-    swe_sigma_abs_min: float
     single_station_factor: float
-
-    def sigma_floor_for(self, variable: str) -> float:
-        spec = station_variable_spec(variable)
-        return float(getattr(self, spec.sigma_floor_key))
 
 
 _SPECS = {
@@ -46,14 +40,14 @@ _SPECS = {
         event_variable="station_hs",
         obs_column="snow_depth",
         model_column="snow_depth",
-        sigma_floor_key="hs_sigma_abs_min",
+        metadata_sigma_column="hs_sigma_abs_min",
         label="Station HS",
     ),
     "station_swe": StationVariableSpec(
         event_variable="station_swe",
         obs_column="swe",
         model_column="swe",
-        sigma_floor_key="swe_sigma_abs_min",
+        metadata_sigma_column="swe_sigma_abs_min",
         label="Station SWE",
     ),
 }
@@ -118,8 +112,6 @@ def load_station_assimilation_config(setup_dir: Path, project_dir: Path) -> Stat
 
     default_pct = _read_required_float("default_station_uncertainty_pct")
     min_pct = _read_required_float("min_station_uncertainty_pct")
-    hs_sigma_abs_min = _read_required_float("hs_sigma_abs_min")
-    swe_sigma_abs_min = _read_required_float("swe_sigma_abs_min")
     single_station_factor = _read_required_float("single_station_factor")
 
     if default_pct < min_pct:
@@ -133,7 +125,5 @@ def load_station_assimilation_config(setup_dir: Path, project_dir: Path) -> Stat
         metadata_path=obs_dir / STATION_DA_METADATA_FILENAME,
         default_station_uncertainty_pct=default_pct,
         min_station_uncertainty_pct=min_pct,
-        hs_sigma_abs_min=hs_sigma_abs_min,
-        swe_sigma_abs_min=swe_sigma_abs_min,
         single_station_factor=single_station_factor,
     )

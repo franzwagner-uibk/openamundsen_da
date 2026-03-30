@@ -2,7 +2,8 @@
 
 Both MODIS SCF and Sentinel-1 wet-snow summaries share the same pattern:
 
-- A project-level summary CSV in ``obs/<project>/`` with one row per date.
+- A project-level summary CSV, preferably in ``obs/summaries/<project>/``.
+  Legacy ``obs/<project>/`` paths are still supported when explicitly used.
 - Per-step observation CSVs in ``step_XX_*/obs`` that contain one row for the
   assimilation date of that step.
 
@@ -322,5 +323,4 @@ def prepare_project_obs_from_summary(
         skipped_existing,
     )
     return written, skipped_missing, skipped_existing
-
 

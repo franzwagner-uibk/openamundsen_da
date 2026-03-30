@@ -103,8 +103,6 @@ data_assimilation:
   station:
     default_station_uncertainty_pct: 25
     min_station_uncertainty_pct: 10
-    hs_sigma_abs_min: 0.10
-    swe_sigma_abs_min: 20.0
     single_station_factor: 2.0
 
   likelihood:
@@ -207,8 +205,9 @@ data_assimilation:
 Notes:
 - `assimilation_events` defines which dates and variables are assimilated.
 - Station observation assimilation uses `variable: station_hs` or `variable: station_swe` and does not require a product tag.
-- Station observations live in `obs/stations/<station_id>.csv`; optional station DA metadata live in `obs/stations/stations_da_metadata.csv`.
-- `data_assimilation.station` defines project-level defaults and sigma floors for ROI-based station assimilation.
+- Station observations live in `obs/stations/<station_id>.csv`; station DA metadata live in `obs/stations/stations_da_metadata.csv`.
+- `data_assimilation.station` defines project-level percentage defaults and single-station inflation for ROI-based station assimilation.
+- Station absolute sigma floors are configured per station in `stations_da_metadata.csv` via `hs_sigma_abs_min` and `swe_sigma_abs_min`.
 - See [Station Assimilation]({{ site.baseurl }}{% link guides/station-assimilation.md %}) for the method logic, effective sigma definition, single-station handling, and diagnostics.
 - Observation class mappings and product tags are configured under project YAML `obs.*`.
 - Land-cover mask uses `grids/lc_<domain>_<resolution>.asc` from setup-level paths and data assimilation mask classes from project YAML.

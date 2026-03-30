@@ -140,8 +140,6 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                         "station": {
                             "default_station_uncertainty_pct": 25,
                             "min_station_uncertainty_pct": 10,
-                            "hs_sigma_abs_min": 0.1,
-                            "swe_sigma_abs_min": 20,
                             "single_station_factor": 2.0,
                         }
                     },
@@ -180,8 +178,6 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                         "station": {
                             "default_station_uncertainty_pct": 25,
                             "min_station_uncertainty_pct": 10,
-                            "hs_sigma_abs_min": 0.1,
-                            "swe_sigma_abs_min": 20,
                             "single_station_factor": 2.0,
                         }
                     },

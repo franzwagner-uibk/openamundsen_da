@@ -13,17 +13,20 @@ without scattering the same explanations across later pages.
 
 openAMUNDSEN-DA is built around a simple idea: use snow-observation products to update an
 ensemble of openAMUNDSEN model realizations in a step-wise data assimilation workflow.
-The tutorial uses the single-domain Rofental example and focuses on snow-cover fraction
-and wet-snow observations.
+The tutorial uses the single-domain Rofental example and focuses on a mixed workflow with
+station snow-depth, snow-cover fraction, and wet-snow observations.
 
 ## The Workflow In One Paragraph
 
 A setup contains the openAMUNDSEN model configuration, input grids, forcing, and
 observation files. Inside that setup, a project YAML defines the time period,
 observation mappings, data assimilation events, and data assimilation settings.
-Observation rasters are first preprocessed into project summaries and per-step
-observation CSVs. The project pipeline then runs the ensemble step by step,
-assimilates the prepared observations, and writes diagnostics and result products.
+The shipped Rofental example already includes baseline SCF and wet-snow summary
+tables under `obs/summaries/`, while station observations and station DA metadata
+live under `obs/stations/`. Observation rasters can still be reprocessed into
+project summaries and per-step observation CSVs. The project pipeline then runs
+the ensemble step by step, assimilates the prepared observations, and writes
+diagnostics and result products.
 
 ## Setup And Project Layout
 
@@ -69,7 +72,7 @@ The tutorial is organized as a straight workflow:
 
 1. install and start the Docker-based runtime environment
 2. inspect the bundled Rofental example data
-3. preprocess observation rasters and ingest provided uncertainty layers where available
+3. inspect or regenerate the shipped observation summaries and uncertainty inputs
 4. run the project pipeline
 5. inspect diagnostics and outputs
 6. adapt the example workflow to another project

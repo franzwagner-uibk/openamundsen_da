@@ -31,7 +31,7 @@ SEVERE_WARNING_PATTERNS = [
     re.compile(r"excludes entire ROI", re.IGNORECASE),
 ]
 
-# Known benign warnings for this trimmed CI setup.
+# Known benign warnings for the example-project CI setup.
 # These indicate optional observation overlays are absent, not a failed run.
 BENIGN_WARNING_PATTERNS = [
     re.compile(r"SCF obs not found .* plotting without obs points", re.IGNORECASE),
@@ -214,7 +214,7 @@ def _check_required_outputs(project_dir: Path, steps_dir: Path) -> None:
 
     event_counts = _assimilation_event_counts(project_dir)
     if not event_counts:
-        raise ValueError("Project YAML defines no assimilation_events for trimmed CI validation")
+        raise ValueError("Project YAML defines no assimilation_events for example-project CI validation")
 
     if event_counts.get("scf", 0) > 0:
         _require_files(
@@ -324,7 +324,7 @@ def validate_project(project_dir: Path, log_file: Path) -> None:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Validate trimmed project integration outputs and logs.")
+    p = argparse.ArgumentParser(description="Validate example-project integration outputs and logs.")
     p.add_argument("--project-dir", type=Path, required=True)
     p.add_argument("--log-file", type=Path, required=True)
     args = p.parse_args()

@@ -9,10 +9,13 @@ permalink: /tutorial/pre-processing/
 # 4. Preprocessing
 
 This chapter turns the bundled observation raster products into the explicit files
-that the project pipeline consumes. In the tutorial, preprocessing has three
-stages: summarize snow-cover and wet-snow rasters to project-level CSVs, build the
-project step skeleton from `assimilation_events`, and then generate one-row
-per-step observation CSVs under `steps/*/obs/`.
+that the project pipeline consumes. The shipped Rofental example already includes
+baseline `scf_summary.csv` and `wet_snow_summary.csv` files so users can start
+running the pipeline immediately. In the tutorial, we still walk through the
+preprocessing steps so you can reproduce or modify those summaries yourself.
+Preprocessing has three stages: summarize snow-cover and wet-snow rasters to
+project-level CSVs, build the project step skeleton from `assimilation_events`,
+and then generate one-row per-step observation CSVs under `steps/*/obs/`.
 
 From this point on, the tutorial assumes you are inside the running tutorial
 container shell at `/data/rofental`.
@@ -21,11 +24,14 @@ container shell at `/data/rofental`.
 
 The Rofental example provides three observation groups: `obs/snowcover/` for
 snow-cover fraction rasters, `obs/wetsnow/` for wet-snow masks, and
-`obs/stations/` for the station observations used later in validation plots. All
-preprocessing commands are driven by the project YAML. The most important parts
-are `obs.snowcover`, `obs.wetsnow`, `data_assimilation.landcover_mask`, and
-`data_assimilation.assimilation_events`. If class mappings or product tags are
-missing, preprocessing fails instead of guessing.
+`obs/stations/` for station observations plus station-specific DA metadata in
+`stations_da_metadata.csv`. Baseline SCF and wet-snow summaries are shipped under
+`obs/summaries/project_2022_2023/`. All preprocessing commands are driven by the
+project YAML. The most important parts are `obs.snowcover`, `obs.wetsnow`,
+`data_assimilation.station`, `data_assimilation.landcover_mask`, and
+`data_assimilation.assimilation_events`. If class mappings, product tags, or
+required station metadata are missing, preprocessing or the later project run
+fails instead of guessing.
 
 Selected sections from
 `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`:
@@ -53,13 +59,35 @@ obs:
       exclude: [200, 210]
 
 data_assimilation:
+  station:
+    default_station_uncertainty_pct: 25
+    min_station_uncertainty_pct: 10
+    single_station_factor: 2.0
   assimilation_events:
-    - date: "2023-01-01"
-      variable: scf
-      product: SNOWCOVER
-    - date: "2023-05-11"
+    - date: "2022-11-22"
+      variable: station_hs
+    - date: "2022-12-22"
+      variable: station_hs
+    - date: "2023-01-22"
+      variable: station_hs
+    - date: "2023-02-21"
+      variable: station_hs
+    - date: "2023-03-22"
+      variable: station_hs
+    - date: "2023-04-26"
+      variable: station_hs
+    - date: "2023-05-03"
       variable: wet_snow
       product: WETSNOW
+    - date: "2023-05-18"
+      variable: scf
+      product: SNOWCOVER
+    - date: "2023-05-23"
+      variable: wet_snow
+      product: WETSNOW
+    - date: "2023-05-26"
+      variable: scf
+      product: SNOWCOVER
   landcover_mask:
     classes_to_exclude: [...]
   uncertainty:
@@ -71,16 +99,18 @@ data_assimilation:
     wet_snow:
       enabled: true
       assimilation:
-        sigma_mode: uncertainty_layer
+        sigma_mode: formula
         aggregate_metric: unc_mean
 ```
 
 This tutorial uses uncertainty as provided input data rather than generating it
 from scratch. The bundled example already contains the required uncertainty
-rasters next to the GeoTIFF observations, and the current project config enables
-`sigma_mode: uncertainty_layer` for both SCF and wet snow. openAMUNDSEN-DA expects
-uncertainty values on a `0..100` scale and treats missing or invalid uncertainty
-inputs as an error when uncertainty-aware preprocessing is enabled.
+rasters next to the GeoTIFF observations. In the current project config, SCF uses
+`sigma_mode: uncertainty_layer`, while wet snow uses `sigma_mode: formula` with
+the uncertainty rasters still available for inspection and experimentation.
+openAMUNDSEN-DA expects uncertainty values on a `0..100` scale and treats missing
+or invalid uncertainty inputs as an error when uncertainty-aware preprocessing is
+enabled.
 
 Conceptual background and best-practice rules are summarized in
 [Workflow: Observation Uncertainty]({{ site.baseurl }}{% link workflow.md %}#observation-uncertainty).
@@ -190,11 +220,16 @@ The first folders in the tutorial project look like this:
 
 ```text
 step_00_init
-step_01_20230101-20230309
-step_02_20230309-20230511
-step_03_20230511-20230526
-step_04_20230526-20230616
-step_05_20230616-20230630
+step_01_20221122-20221222
+step_02_20221222-20230122
+step_03_20230122-20230221
+step_04_20230221-20230322
+step_05_20230322-20230426
+step_06_20230426-20230503
+step_07_20230503-20230518
+step_08_20230518-20230523
+step_09_20230523-20230526
+step_10_20230526-20230630
 ```
 
 Read that structure as a direct translation of the project period plus the
@@ -253,11 +288,17 @@ oa-da-wetsnow-project \
   --log-level INFO
 ```
 
+Station snow-depth assimilation needs no separate preprocessing command. It reads
+`obs/stations/*.csv` together with `obs/stations/stations_da_metadata.csv`
+directly during the project run, so once the step skeleton exists the station HS
+events are ready.
+
 After this step, the project has an explicit step structure, project-level SCF and
 wet-snow summaries, and per-step observation inputs for every configured
-assimilation event. At that point the data assimilation run becomes reproducible:
-the exact observation artifact consumed by each step is visible on disk and easy to
-inspect.
+fraction assimilation event. At that point the data assimilation run becomes
+reproducible: the exact observation artifact consumed by each SCF or wet-snow step
+is visible on disk and easy to inspect, while station HS uses the setup-level
+station files and metadata you already reviewed above.
 
 ![Preprocessing observation flow diagram]({{ site.baseurl }}/assets/images/tutorial/diagrams/preprocessing-observation-flow.svg)
 

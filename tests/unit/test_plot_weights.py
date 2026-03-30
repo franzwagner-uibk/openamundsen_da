@@ -101,6 +101,8 @@ def test_nice_axis_extent_uses_quarter_steps_just_above_one() -> None:
 
 
 def test_overview_member_ticks_use_sparse_readable_labels_for_high_ensemble_sizes() -> None:
+    assert plot_mod._member_ticks(47) == [1, 10, 20, 30, 40]
+    assert plot_mod._member_ticks(8) == [1, 2, 3, 4, 5, 6, 7, 8]
     assert plot_mod._overview_member_ticks(47) == [1, 10, 20, 30, 40]
     assert plot_mod._overview_member_ticks(8) == [1, 2, 3, 4, 5, 6, 7, 8]
 
@@ -487,6 +489,43 @@ def test_standalone_plot_uses_lower_title_anchor(tmp_path: Path) -> None:
     xlim = ax0.get_xlim()
     assert xlim[0] < 0.0
     assert xlim[1] > 1.0
+    plt.close(fig)
+
+
+def test_standalone_plot_uses_sparse_member_ticks_for_high_ensemble_sizes(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
+    csv_path = step_dir / "assim" / "weights_scf_20230518.csv"
+    _write_csv(
+        csv_path,
+        [
+            {
+                "member_id": f"member_{idx:03d}",
+                "residual": (idx - 24) / 100.0,
+                "sigma": 0.1,
+                "log_weight": -1.0 - idx * 0.01,
+                "weight": 1.0 / 47.0,
+            }
+            for idx in range(1, 48)
+        ],
+    )
+
+    fig = plot_mod._plot(
+        csv_path,
+        plot_mod._load_weights(csv_path),
+        title="snow cover data assimilation weights",
+        subtitle="DA 8 - 2023-05-18",
+        observable="scf",
+        backend="Agg",
+    )
+
+    ax0 = fig.axes[0]
+    ax1 = fig.axes[1]
+    expected_ticks = [1, 10, 20, 30, 40]
+
+    assert [int(tick) for tick in ax0.get_yticks()] == expected_ticks
+    assert [int(tick) for tick in ax1.get_yticks()] == expected_ticks
     plt.close(fig)
 
 

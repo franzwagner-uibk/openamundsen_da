@@ -77,16 +77,6 @@ def _apply_grid(ax) -> None:
 def _member_ticks(n: int) -> list[int]:
     if n <= 0:
         return []
-    ticks = [1]
-    ticks.extend(range(5, n + 1, 5))
-    if ticks[-1] != n:
-        ticks.append(n)
-    return sorted(set(ticks))
-
-
-def _overview_member_ticks(n: int) -> list[int]:
-    if n <= 0:
-        return []
     if n <= 12:
         return list(range(1, n + 1))
 
@@ -102,6 +92,10 @@ def _overview_member_ticks(n: int) -> list[int]:
     ticks = [1]
     ticks.extend(range(step, n + 1, step))
     return sorted(set(ticks))
+
+
+def _overview_member_ticks(n: int) -> list[int]:
+    return _member_ticks(n)
 
 
 def _observable_from_csv_path(csv_path: Path) -> str | None:

@@ -526,6 +526,8 @@ def test_standalone_plot_uses_sparse_member_ticks_for_high_ensemble_sizes(tmp_pa
 
     assert [int(tick) for tick in ax0.get_yticks()] == expected_ticks
     assert [int(tick) for tick in ax1.get_yticks()] == expected_ticks
+    assert len(ax0.yaxis.get_minorticklocs()) == 0
+    assert len(ax1.yaxis.get_minorticklocs()) == 0
     plt.close(fig)
 
 
@@ -927,7 +929,11 @@ def test_setup_overview_uses_sparse_member_ticks_for_high_ensemble_sizes(tmp_pat
 
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
     weight_axes = _axes_with_xlabel(fig, "weight")
+    residual_axes = _axes_with_xlabel(fig, "snow cover fraction residual")
 
     assert len(weight_axes) == 1
     assert [int(tick) for tick in weight_axes[0].get_yticks()] == [1, 10, 20, 30, 40]
+    assert len(weight_axes[0].yaxis.get_minorticklocs()) == 0
+    assert len(residual_axes) == 1
+    assert len(residual_axes[0].yaxis.get_minorticklocs()) == 0
     plt.close(fig)

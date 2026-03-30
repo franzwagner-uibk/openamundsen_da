@@ -56,24 +56,33 @@ File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
 ```yaml
 data_assimilation:
   prior_forcing:
-    ensemble_size: 10
+    ensemble_size: 15
 
   assimilation_events:
-    - date: "2023-01-01"
+    - date: "2022-11-22"
+      variable: station_hs
+    - date: "2022-12-22"
+      variable: station_hs
+    - date: "2023-01-22"
+      variable: station_hs
+    - date: "2023-02-21"
+      variable: station_hs
+    - date: "2023-03-22"
+      variable: station_hs
+    - date: "2023-04-26"
+      variable: station_hs
+    - date: "2023-05-03"
+      variable: wet_snow
+      product: WETSNOW
+    - date: "2023-05-18"
       variable: scf
       product: SNOWCOVER
-    - date: "2023-03-09"
-      variable: scf
-      product: SNOWCOVER
-    - date: "2023-05-11"
+    - date: "2023-05-23"
       variable: wet_snow
       product: WETSNOW
     - date: "2023-05-26"
       variable: scf
       product: SNOWCOVER
-    - date: "2023-06-16"
-      variable: wet_snow
-      product: WETSNOW
 
   output:
     retention: full
@@ -118,15 +127,28 @@ Note on `grids.dims: [x, y, time]`:
 After a successful run, these paths should exist:
 
 - `/data/rofental/projects/project_2022_2023/plots/perf/project_perf.png`
+- `/data/rofental/projects/project_2022_2023/plots/assim/ess/setup_ess_timeline_2022_2023.png`
+- `/data/rofental/projects/project_2022_2023/plots/assim/weights/setup_weights_overview_2022_2023.png`
+- `/data/rofental/projects/project_2022_2023/plots/assim/weights/DA_04_weights.png`
 - `/data/rofental/projects/project_2022_2023/plots/results/result_overview.png`
 - `/data/rofental/projects/project_2022_2023/plots/results/setup_results_point_latschbloder_snow_depth_2022_2023.png`
 - `/data/rofental/projects/project_2022_2023/plots/results/setup_results_point_proviantdepot_swe_2022_2023.png`
 - `/data/rofental/projects/project_2022_2023/point_scf_roi_envelope.csv`
 - `/data/rofental/projects/project_2022_2023/point_wet_snow_roi_envelope.csv`
+- `/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc`
 
 Typical result files after a successful run:
 
 ```text
+plots/assim/ess/
+  setup_ess_timeline_2022_2023.png
+
+plots/assim/weights/
+  DA_01_weights.png
+  ...
+  DA_10_weights.png
+  setup_weights_overview_2022_2023.png
+
 plots/perf/
   project_perf.png
   project_perf_metrics.csv
@@ -134,18 +156,16 @@ plots/perf/
 plots/results/
   result_overview.png
   lc_mask_report.csv
-  point_scf_roi_envelope.csv
-  point_wet_snow_roi_envelope.csv
   setup_results_point_latschbloder_snow_depth_2022_2023.png
   setup_results_point_latschbloder_swe_2022_2023.png
   setup_results_point_proviantdepot_snow_depth_2022_2023.png
   setup_results_point_proviantdepot_swe_2022_2023.png
 ```
 
-![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/project_perf.png)
+![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/project_perf.png)
 
-![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens10/result_overview.png)
+![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/result_overview.png)
 
 Detailed interpretation of these plots is covered in [7. Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}).
 
-Before continuing, verify that the project log ends with a completion message and that `plots/perf/project_perf.png`, `plots/results/result_overview.png`, and `results/grids/da_output_grids.nc` exist.
+Before continuing, verify that the project log ends with a completion message and that `plots/perf/project_perf.png`, `plots/assim/weights/setup_weights_overview_2022_2023.png`, `plots/results/result_overview.png`, and `results/grids/da_output_grids.nc` exist.

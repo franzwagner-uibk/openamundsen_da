@@ -15,6 +15,7 @@
 # - roi-sd
 # - station-swe
 # - station-sd
+# - ess
 #
 # Supported keys per panel entry:
 # - panel: required
@@ -22,27 +23,37 @@
 # - title: optional custom panel title override
 # - show_obs: optional, default true
 #
-# Example configuration:
+# Notes:
+# - YAML order is preserved in the plot.
+# - Station ids must match the station metadata table for the project setup.
+# - Observation markers/lines are only shown when show_obs is true.
+#
+# Current active example:
 panels:
   - panel: fSC
     show_obs: true
+    title: snow cover fraction Rofental catchment - openAMUNDSEN ensemble and satellite data
 
   - panel: fWS
     show_obs: true
-
-  - panel: roi-sd
-
-  - panel: roi-swe
+    title: wet snow fraction Rofental catchment - openAMUNDSEN ensemble and satellite data
 
   - panel: station-sd
     station_id: proviantdepot
-    title: custom station subtitle
+    title: snow depth Proviantdepot 2659 m - openAMUNDSEN ensemble and station observation
     show_obs: true
 
-# Additional examples:
+  - panel: ess
+
+# Additional examples for all supported panel types:
+#  - panel: roi-swe
+#
 #  - panel: station-swe
-#    station_id: latschbloder
+#    station_id: proviantdepot
+#
+#  - panel: ess
 #
 #  - panel: station-sd
-#    station_id: proviantdepot
+#    station_id: latschbloder
+#    title: custom station subtitle
 #    show_obs: false

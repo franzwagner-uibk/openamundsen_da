@@ -64,3 +64,36 @@ def test_cli_disables_perf_monitor_with_flag(monkeypatch, tmp_path: Path) -> Non
 
     assert rc == 0
     assert called["cfg"].monitor_perf is False
+
+
+def test_post_run_plot_tasks_include_setup_weights_overview(tmp_path: Path) -> None:
+    setup_dir = tmp_path / "setup"
+    project_dir = setup_dir / "projects" / "project_2022_2023"
+    step_dir = project_dir / "steps" / "step_01_event"
+    assim_dir = step_dir / "assim"
+    assim_dir.mkdir(parents=True, exist_ok=True)
+    _write_project_yaml(project_dir)
+    (setup_dir / "setup.yml").write_text("name: setup\n", encoding="utf-8")
+    (assim_dir / "weights_station_hs_20230221.csv").write_text(
+        "member_id,residual,sigma,log_weight,weight\nmember_001,0.1,0.2,-1.0,1.0\n",
+        encoding="utf-8",
+    )
+    (assim_dir / "station_diagnostics_station_hs_20230221.csv").write_text(
+        "station_id,member_id,residual,sigma\nstation_a,member_001,0.1,0.2\n",
+        encoding="utf-8",
+    )
+
+    cfg = project_cli.OrchestratorConfig(
+        project_dir=project_dir,
+        setup_dir=setup_dir,
+    )
+
+    tasks = project_cli._build_post_run_plot_tasks(cfg, [step_dir])
+
+    names = [task.name for task in tasks]
+    assert "setup_weights_overview" in names
+
+    overview_task = next(task for task in tasks if task.name == "setup_weights_overview")
+    assert overview_task.func is project_cli.plot_setup_weights_overview
+    assert overview_task.args == (project_dir,)
+    assert overview_task.kwargs == {}

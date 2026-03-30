@@ -29,9 +29,9 @@ Workflow file: `.github/workflows/ci.yml`
   - Runs on self-hosted runner labels: `self-hosted, linux, x64, oa-da`
   - Builds a CI Docker image from current commit
   - Runs unit tests with `pytest` via `scripts/ci/run_unit_tests.sh`
-  - Runs trimmed single-domain integration test via `scripts/ci/run_integration_tests.sh`
+  - Runs full single-domain example integration test via `scripts/ci/run_integration_tests.sh`
   - Runs trimmed sub-domain integration test via `scripts/ci/run_integration_tests_subdomain.sh`
-  - Uploads integration artifacts on failure (log + trimmed setup outputs)
+  - Uploads integration artifacts on failure (log + example setup outputs)
 - Job `Build and Push GHCR Image`:
   - Runs only on push to `main`
   - Depends on successful `tests` job
@@ -57,14 +57,14 @@ Workflow file: `.github/workflows/ci.yml`
 2. `Unit and Integration Tests` job starts only after lint is green.
 3. CI image is built from current commit.
 4. Unit tests are executed with `pytest` (`scripts/ci/run_unit_tests.sh`).
-5. Integration run creates a temporary project from `examples/rofental`.
-6. Integration run writes trimmed setup config (ensemble size + SCF/wet-snow events).
-7. Setup skeleton is generated.
-8. SCF and wet-snow per-step observation CSVs are prepared.
-9. Full setup pipeline is executed (`oa-da-project` equivalent module call).
-10. Integration validator checks logs, outputs, plots, and weight sanity.
+5. Integration run clones `examples/rofental` into a temporary workspace.
+6. Setup skeleton is generated for the shipped `project_2022_2023`.
+7. SCF and wet-snow per-step observation CSVs are prepared.
+8. Full example pipeline is executed (`oa-da-project` equivalent module call).
+9. Integration validator checks logs, outputs, plots, and weight sanity.
+10. Example-specific diagnostics such as station HS weights and setup weights overview are checked.
 11. Sub-domain integration validator checks manifest status and project-level results outputs.
-12. If integration fails, log and trimmed outputs are uploaded as CI artifacts.
+12. If integration fails, log and example outputs are uploaded as CI artifacts.
 13. On push to `main` only: publish job builds and pushes GHCR image.
 
 ### Unit tests
@@ -96,32 +96,30 @@ Framework/tooling config:
   - statistics helpers
   - assimilation requirement validation prechecks
 - Integration scenario behavior:
-  - trimmed setup orchestration on Rofental example clone
-  - one SCF assimilation event
-  - one wet-snow assimilation event
+  - full `examples/rofental` orchestration on a temp clone
+  - station HS, SCF, and wet-snow assimilation events from the shipped example
   - ensemble propagation, assimilation, resampling/rejuvenation path
   - plot generation path
 - Integration output contracts:
   - required per-step SCF and wet-snow obs CSVs
+  - required station HS diagnostics and weights
   - required SCF and wet-snow weights CSVs
   - required model result artifacts (`point_*.csv`, `*.nc`)
   - required ROI mean SWE / snow-depth member CSVs
-  - required plot outputs (forcing, results, assimilation)
+  - required plot outputs (forcing, results, assimilation, setup ESS timeline, setup weights overview)
   - weight CSV numeric sanity (valid range and sum to 1.0)
 - Integration log contracts:
   - fail on fatal log patterns
   - fail on severe warnings
   - allow explicitly whitelisted benign warnings
 
-### Integration regression test (trimmed setup)
+### Integration regression test (full example setup)
 
 Runner script: `scripts/ci/run_integration_tests.sh`
 
 What it does:
 - clones `examples/rofental` into a temp directory
-- trims setup to a short CI window (`setup_ci_2022_2023`)
-- sets small ensemble size (`4`)
-- configures one SCF and one wet-snow assimilation event
+- uses the shipped `project_2022_2023` configuration directly
 - generates setup skeleton
 - distributes SCF and wet-snow observations
 - runs full setup pipeline
@@ -133,10 +131,11 @@ Validation focuses on:
 - expected outputs exist and are non-empty:
   - per-step SCF obs files
   - per-step wet-snow obs files
+  - station HS diagnostics and weights
   - SCF weights CSVs
   - wet-snow weights CSVs
   - member SCF point time series
-  - forcing plots, setup result plots, assimilation plots
+  - forcing plots, setup result plots, setup ESS timeline, setup weights overview, and assimilation plots
   - persistent point outputs (`point_*.csv`)
   - compact data assimilation grid output (`results/grids/da_output_grids.nc`)
 - minimal weight sanity (weights exist, numeric, sum to `1.0`)
@@ -162,7 +161,7 @@ Validation focuses on:
 - project-level sub-domain reports exist (`projects/<project>/results/subdomain_*.csv`)
 
 Failure artifacts:
-- integration log and trimmed setup outputs are copied to CI artifact directory when the run fails
+- integration log and example setup outputs are copied to CI artifact directory when the run fails
 - artifact upload is defined in `.github/workflows/ci.yml`
 
 ### Lint gate
@@ -206,7 +205,7 @@ Main locations:
 - CI workflow/jobs and sequencing: `.github/workflows/ci.yml`
 - unit test runner command: `scripts/ci/run_unit_tests.sh`
 - integration run recipes:
-  - single-domain trimmed: `scripts/ci/run_integration_tests.sh`
+  - single-domain full example: `scripts/ci/run_integration_tests.sh`
   - sub-domain trimmed: `scripts/ci/run_integration_tests_subdomain.sh`
 - integration validation logic:
   - single-domain: `scripts/ci/validate_trimmed_project.py`
@@ -214,22 +213,22 @@ Main locations:
 - lint command: `scripts/ci/run_lint.sh`
 - test/lint optional dependencies: `pyproject.toml`
 
-Trimmed Rofental configuration details:
+Single-domain example configuration details:
 - source project copied for CI: `examples/rofental`
 - source sub-domain setup copied for CI: `examples/subdomains`
-- trimmed dates, assimilation events, and ensemble sizes are hard-coded in:
+- the full shipped example project is exercised in:
   - `scripts/ci/run_integration_tests.sh` (single-domain)
+- trimmed dates, assimilation events, and ensemble sizes are still hard-coded in:
   - `scripts/ci/run_integration_tests_subdomain.sh` (sub-domain)
 - max workers for CI integration runs are set in `.github/workflows/ci.yml` via:
   - `OA_DA_TEST_MAX_WORKERS` (single-domain, current value: `20`)
   - `OA_DA_SUBDOMAIN_TEST_MAX_WORKERS` / `OA_DA_SUBDOMAIN_TEST_INNER_WORKERS` (sub-domain)
 
 If you want to change the CI test setup:
-- edit the inline Python block in the relevant script for:
-  - `SETUP_NAME`
-  - `start_date` / `end_date`
-  - assimilation events (`variable`, `product`, `date`)
-  - forced ensemble size (`prior["ensemble_size"]`)
+- edit the shipped example project or the relevant script directly:
+  - `examples/rofental/projects/project_2022_2023/project_2022_2023.yml`
+  - `scripts/ci/run_integration_tests.sh`
+  - `scripts/ci/run_integration_tests_subdomain.sh`
 
 ## Failure Modes and Fast Checks
 
@@ -260,5 +259,4 @@ From repository root:
 - run sub-domain integration wrapper: `bash scripts/ci/run_integration_tests_subdomain.sh`
 
 Use same scripts as CI to avoid drift between local and server behavior.
-
 

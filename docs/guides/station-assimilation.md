@@ -79,28 +79,35 @@ Notes:
 - a station file may exist even if only one variable is later assimilated
 - missing values are allowed, but the requested variable must exist for the station/date to become active
 
-### Optional station DA metadata
+### Station DA metadata
 
-Optional metadata live in:
+Station DA metadata live in:
 
 ```text
 obs/stations/stations_da_metadata.csv
 ```
 
-Expected columns in Version 1:
+Expected columns:
 
 - `station_id`
 - `station_uncertainty_pct`
+- `hs_sigma_abs_min`
+- `swe_sigma_abs_min`
 
 Example:
 
 ```text
-station_id,station_uncertainty_pct
-proviantdepot,20
-latschbloder,80
+station_id,station_uncertainty_pct,hs_sigma_abs_min,swe_sigma_abs_min
+proviantdepot,20,0.05,15
+latschbloder,80,0.20,
 ```
 
-If metadata are missing for a station, the project-level default uncertainty is used and a warning is written.
+Notes:
+
+- `station_uncertainty_pct` still falls back to the project-level default when the metadata value is empty.
+- `hs_sigma_abs_min` is required for every active `station_hs` station.
+- `swe_sigma_abs_min` is required for every active `station_swe` station.
+- Missing required absolute sigma metadata is a hard configuration error.
 
 ## Configuration
 
@@ -111,18 +118,19 @@ data_assimilation:
   station:
     default_station_uncertainty_pct: 25
     min_station_uncertainty_pct: 10
-    hs_sigma_abs_min: 0.10
-    swe_sigma_abs_min: 20.0
     single_station_factor: 2.0
 ```
 
 Meaning of the keys:
 
-- `default_station_uncertainty_pct`: fallback when no station-specific metadata are given
+- `default_station_uncertainty_pct`: fallback when `station_uncertainty_pct` is empty in metadata
 - `min_station_uncertainty_pct`: lower bound to avoid overconfident station influence
-- `hs_sigma_abs_min`: minimum allowed HS sigma in `m`
-- `swe_sigma_abs_min`: minimum allowed SWE sigma in `mm`
 - `single_station_factor`: extra sigma inflation when only one active station is available for a date
+
+The absolute sigma floor is configured per station in `stations_da_metadata.csv`:
+
+- `hs_sigma_abs_min` in `m` for `station_hs`
+- `swe_sigma_abs_min` in `mm` for `station_swe`
 
 ## Effective Station Uncertainty
 
@@ -141,7 +149,7 @@ Interpretation:
 - lower station uncertainty -> narrower likelihood -> stronger update
 - higher station uncertainty -> wider likelihood -> weaker update
 
-Because percentage-only scaling can become unrealistically strict near zero snow, the implementation always uses the configured absolute sigma floor.
+Because percentage-only scaling can become unrealistically strict near zero snow, the implementation always combines the relative term with the station-wise absolute sigma floor from metadata.
 
 ## Likelihood
 

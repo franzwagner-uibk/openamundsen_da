@@ -9,6 +9,7 @@ from loguru import logger
 from openamundsen_da.observer.fraction_obs import (
     prepare_project_obs_from_summary,
 )
+from openamundsen_da.methods.viz.fraction_series import default_fraction_obs_path
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
@@ -50,7 +51,11 @@ def cli_main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--summary-csv",
         type=Path,
-        help="Path to wet_snow_summary.csv (default: <setup>/obs/<project>/wet_snow_summary.csv)",
+        help=(
+            "Path to wet_snow_summary.csv "
+            "(default: <setup>/obs/summaries/<project>/wet_snow_summary.csv; "
+            "legacy <setup>/obs/<project>/wet_snow_summary.csv is also supported)"
+        ),
     )
     parser.add_argument("--product", help="Product tag to use in obs filename (default: obs.wetsnow.product_tag)")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing obs_wet_snow_*.csv files")
@@ -65,7 +70,11 @@ def cli_main(argv: list[str] | None = None) -> int:
         summary_path = args.summary_csv
     else:
         setup_root = project_dir.parent.parent
-        summary_path = setup_root / "obs" / project_dir.name / "wet_snow_summary.csv"
+        summary_path = default_fraction_obs_path(
+            setup_root,
+            project_dir.name,
+            "wet_snow_summary.csv",
+        )
 
     try:
         generate_project_from_summary(
@@ -82,6 +91,5 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-
 
 

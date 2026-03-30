@@ -32,7 +32,7 @@ cleanup() {
     if [[ -f "${HOST_LOG_FILE}" ]]; then
       cp -f "${HOST_LOG_FILE}" "${ARTIFACT_DIR}/ci_integration.log"
     fi
-    if [[ -d "${PROJECT_DIR}/projects/${PROJECT_NAME}" ]]; then
+    if [[ -n "${PROJECT_NAME}" && -d "${PROJECT_DIR}/projects/${PROJECT_NAME}" ]]; then
       mkdir -p "${ARTIFACT_DIR}/projects"
       cp -a "${PROJECT_DIR}/projects/${PROJECT_NAME}" "${ARTIFACT_DIR}/projects/"
     fi
@@ -50,7 +50,7 @@ if [[ -z "${SOURCE_PROJECT_DIR}" ]]; then
   exit 1
 fi
 SOURCE_PROJECT_NAME="$(basename "${SOURCE_PROJECT_DIR}")"
-PROJECT_NAME="project_ci_${SOURCE_PROJECT_NAME#project_}"
+PROJECT_NAME="${SOURCE_PROJECT_NAME}"
 PROJECT_PATH="/data/projects/${PROJECT_NAME}"
 
 touch "${HOST_LOG_FILE}"
@@ -62,6 +62,28 @@ compose_run() {
   IMAGE="${CI_IMAGE}" \
   env UID="$(id -u)" GID="$(id -g)" \
   docker compose run --rm oa "$@"
+}
+
+summary_host_source() {
+  local filename="$1"
+  local candidates=(
+    "${PROJECT_DIR}/obs/summaries/${SOURCE_PROJECT_NAME}/${filename}"
+    "${PROJECT_DIR}/obs/${SOURCE_PROJECT_NAME}/${filename}"
+    "${PROJECT_DIR}/obs/summaries/all_data/${filename}"
+  )
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+container_path_for_host() {
+  local host_path="$1"
+  printf '/data/%s\n' "${host_path#"${PROJECT_DIR}/"}"
 }
 
 uncertainty_companions_missing() {
@@ -109,16 +131,9 @@ raise SystemExit(1)
 PY
 }
 
-echo "[integration] Preparing trimmed CI project in ${PROJECT_DIR}"
+echo "[integration] Preparing full example project in ${PROJECT_DIR}"
 
-SCF_SUMMARY_SOURCE_NEW="${PROJECT_DIR}/obs/${SOURCE_PROJECT_NAME}/scf_summary.csv"
-SCF_SUMMARY_SOURCE_OLD="${PROJECT_DIR}/obs/summaries/${SOURCE_PROJECT_NAME}/scf_summary.csv"
-SCF_SUMMARY_SOURCE_ALL="${PROJECT_DIR}/obs/summaries/all_data/scf_summary.csv"
-WET_SUMMARY_SOURCE_NEW="${PROJECT_DIR}/obs/${SOURCE_PROJECT_NAME}/wet_snow_summary.csv"
-WET_SUMMARY_SOURCE_OLD="${PROJECT_DIR}/obs/summaries/${SOURCE_PROJECT_NAME}/wet_snow_summary.csv"
-WET_SUMMARY_SOURCE_ALL="${PROJECT_DIR}/obs/summaries/all_data/wet_snow_summary.csv"
-
-if [[ ! -f "${SCF_SUMMARY_SOURCE_NEW}" && ! -f "${SCF_SUMMARY_SOURCE_OLD}" && ! -f "${SCF_SUMMARY_SOURCE_ALL}" ]]; then
+if ! summary_host_source "scf_summary.csv" >/dev/null; then
   echo "[integration] SCF summary missing in example; generating from raw rasters"
   if uncertainty_companions_missing "scf" "${SOURCE_PROJECT_NAME}"; then
     echo "[integration] SCF uncertainty enabled and companion rasters missing; generating companions first"
@@ -134,7 +149,7 @@ if [[ ! -f "${SCF_SUMMARY_SOURCE_NEW}" && ! -f "${SCF_SUMMARY_SOURCE_OLD}" && ! 
     --overwrite
 fi
 
-if [[ ! -f "${WET_SUMMARY_SOURCE_NEW}" && ! -f "${WET_SUMMARY_SOURCE_OLD}" && ! -f "${WET_SUMMARY_SOURCE_ALL}" ]]; then
+if ! summary_host_source "wet_snow_summary.csv" >/dev/null; then
   echo "[integration] Wet-snow summary missing in example; generating from raw rasters"
   if uncertainty_companions_missing "wet_snow" "${SOURCE_PROJECT_NAME}"; then
     echo "[integration] Wet-snow uncertainty enabled and companion rasters missing; generating companions first"
@@ -150,266 +165,30 @@ if [[ ! -f "${WET_SUMMARY_SOURCE_NEW}" && ! -f "${WET_SUMMARY_SOURCE_OLD}" && ! 
     --overwrite
 fi
 
-compose_run python - <<'PY'
-import csv
-from datetime import datetime, timedelta
-from pathlib import Path
-import yaml
+STATION_METADATA_HOST="${PROJECT_DIR}/obs/stations/stations_da_metadata.csv"
+if [[ ! -f "${STATION_METADATA_HOST}" ]]; then
+  echo "[integration] ERROR: station metadata CSV is required for the promoted example:"
+  echo "  - ${STATION_METADATA_HOST}"
+  exit 1
+fi
 
+SCF_SUMMARY_HOST_SOURCE="$(summary_host_source "scf_summary.csv" || true)"
+WET_SUMMARY_HOST_SOURCE="$(summary_host_source "wet_snow_summary.csv" || true)"
+if [[ -z "${SCF_SUMMARY_HOST_SOURCE}" || -z "${WET_SUMMARY_HOST_SOURCE}" ]]; then
+  echo "[integration] ERROR: expected summary CSVs were not found after preprocessing fallback"
+  exit 1
+fi
 
-def _parse_date(value: str) -> datetime:
-    return datetime.fromisoformat(str(value)[:10])
-
-
-def _find_summary_csv(setup_dir: Path, source_project_name: str, filename: str) -> Path:
-    candidates = [
-        setup_dir / "obs" / source_project_name / filename,
-        setup_dir / "obs" / "summaries" / source_project_name / filename,
-        setup_dir / "obs" / "summaries" / "all_data" / filename,
-    ]
-    for path in candidates:
-        if path.exists():
-            return path
-    raise SystemExit(
-        f"Missing required summary CSV '{filename}' in expected locations: "
-        + ", ".join(str(p) for p in candidates)
-    )
-
-
-def _read_summary_dates(path: Path) -> set[str]:
-    dates: set[str] = set()
-    with path.open("r", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            date_val = str((row or {}).get("date", "")).strip()
-            if date_val:
-                dates.add(date_val[:10])
-    return dates
-
-
-def _read_station_hs_counts(stations_dir: Path) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    if not stations_dir.is_dir():
-        raise SystemExit(f"Missing station obs directory: {stations_dir}")
-    station_files = sorted(
-        p for p in stations_dir.glob("*.csv")
-        if p.is_file() and p.name != "stations_da_metadata.csv"
-    )
-    if not station_files:
-        raise SystemExit(f"No station observation CSVs found under {stations_dir}")
-    for path in station_files:
-        with path.open("r", encoding="utf-8") as f:
-            for row in csv.DictReader(f):
-                ts_raw = str((row or {}).get("time", "")).strip()
-                hs_raw = str((row or {}).get("snow_depth", "")).strip()
-                if not ts_raw or not hs_raw:
-                    continue
-                try:
-                    hs_value = float(hs_raw)
-                except ValueError:
-                    continue
-                if hs_value < 0.0:
-                    continue
-                date_key = ts_raw[:10]
-                counts[date_key] = counts.get(date_key, 0) + 1
-    return counts
-
-
-def _station_ids(stations_dir: Path) -> list[str]:
-    station_files = sorted(
-        p for p in stations_dir.glob("*.csv")
-        if p.is_file() and p.name != "stations_da_metadata.csv"
-    )
-    return [p.stem for p in station_files]
-
-
-setup_dir = Path("/data")
-source_project_dirs = sorted(p for p in (setup_dir / "projects").glob("project_*") if p.is_dir() and not p.name.startswith("project_ci_"))
-if not source_project_dirs:
-    raise SystemExit(f"No source project found under {setup_dir / 'projects'}")
-source_project_name = source_project_dirs[0].name
-project_name = f"project_ci_{source_project_name.removeprefix('project_')}"
-source_project_yml = setup_dir / "projects" / source_project_name / f"{source_project_name}.yml"
-with source_project_yml.open("r", encoding="utf-8") as f:
-    source_project_cfg = yaml.safe_load(f) or {}
-
-project_dir = setup_dir / "projects" / project_name
-project_dir.mkdir(parents=True, exist_ok=True)
-project_cfg = dict(source_project_cfg)
-
-da_cfg = dict(project_cfg.get("data_assimilation") or {})
-prior_cfg = dict(da_cfg.get("prior_forcing") or {})
-prior_cfg["ensemble_size"] = 4
-da_cfg["prior_forcing"] = prior_cfg
-station_cfg = dict(da_cfg.get("station") or {})
-station_cfg.setdefault("default_station_uncertainty_pct", 25)
-station_cfg.setdefault("min_station_uncertainty_pct", 10)
-station_cfg.setdefault("hs_sigma_abs_min", 0.10)
-station_cfg.setdefault("swe_sigma_abs_min", 20.0)
-station_cfg.setdefault("single_station_factor", 2.0)
-da_cfg["station"] = station_cfg
-
-stations_dir = setup_dir / "obs" / "stations"
-metadata_path = stations_dir / "stations_da_metadata.csv"
-if not metadata_path.exists():
-    metadata_path.parent.mkdir(parents=True, exist_ok=True)
-    with metadata_path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["station_id", "station_uncertainty_pct"])
-        writer.writeheader()
-        for station_id in _station_ids(stations_dir):
-            writer.writerow({
-                "station_id": station_id,
-                "station_uncertainty_pct": 25,
-            })
-
-scf_summary = _find_summary_csv(setup_dir, source_project_name, "scf_summary.csv")
-wet_summary = _find_summary_csv(setup_dir, source_project_name, "wet_snow_summary.csv")
-scf_available = _read_summary_dates(scf_summary)
-wet_available = _read_summary_dates(wet_summary)
-station_hs_counts = _read_station_hs_counts(setup_dir / "obs" / "stations")
-station_hs_available = sorted(date for date, count in station_hs_counts.items() if count >= 2)
-if not scf_available or not wet_available:
-    raise SystemExit("SCF/Wet-snow summary CSV contains no usable dates")
-if not station_hs_available:
-    raise SystemExit("No station HS dates found with at least two active stations")
-
-events = list(da_cfg.get("assimilation_events") or [])
-scf_events: list[dict] = []
-wet_events: list[dict] = []
-for event in events:
-    variable = str((event or {}).get("variable", "")).strip().lower()
-    date_raw = str((event or {}).get("date", "")).strip()
-    if not date_raw:
-        continue
-    date_key = date_raw[:10]
-    product = str((event or {}).get("product", "")).strip()
-    if variable == "scf" and date_key in scf_available:
-        scf_events.append({"date": date_key, "product": product})
-    elif variable == "wet_snow" and date_key in wet_available:
-        wet_events.append({"date": date_key, "product": product})
-
-if not scf_events or not wet_events:
-    raise SystemExit(
-        "No overlapping SCF/Wet-snow events found between project assimilation_events and summary CSV dates"
-    )
-
-best_pair = None
-best_gap_days = None
-for scf_event in scf_events:
-    scf_dt = _parse_date(scf_event["date"])
-    for wet_event in wet_events:
-        wet_dt = _parse_date(wet_event["date"])
-        gap_days = (wet_dt - scf_dt).days
-        if gap_days < 0:
-            continue
-        if best_gap_days is None or gap_days < best_gap_days:
-            best_gap_days = gap_days
-            best_pair = (scf_event, wet_event)
-
-if best_pair is None:
-    scf_event = min(scf_events, key=lambda e: e["date"])
-    wet_event = min(wet_events, key=lambda e: e["date"])
-else:
-    scf_event, wet_event = best_pair
-
-scf_dt = _parse_date(scf_event["date"])
-wet_dt = _parse_date(wet_event["date"])
-midpoint = min(scf_dt, wet_dt) + (max(scf_dt, wet_dt) - min(scf_dt, wet_dt)) / 2
-station_candidates = [_parse_date(d) for d in station_hs_available]
-station_between = [d for d in station_candidates if min(scf_dt, wet_dt) <= d <= max(scf_dt, wet_dt)]
-station_dt = min(
-    station_between or station_candidates,
-    key=lambda d: abs((d - midpoint).total_seconds()),
-)
-station_event = {
-    "date": station_dt.strftime("%Y-%m-%d"),
-    "variable": "station_hs",
-}
-
-window_start = min(scf_dt, wet_dt, station_dt) - timedelta(days=7)
-window_end = max(scf_dt, wet_dt, station_dt) + timedelta(days=7)
-
-source_start_raw = str(source_project_cfg.get("start_date", "")).strip()
-source_end_raw = str(source_project_cfg.get("end_date", "")).strip()
-source_start = _parse_date(source_start_raw) if source_start_raw else window_start
-source_end = _parse_date(source_end_raw) if source_end_raw else window_end
-
-trim_start = max(window_start, source_start)
-trim_end = min(window_end, source_end)
-if trim_end < trim_start:
-    raise SystemExit("Computed CI trim window is invalid (end before start)")
-
-project_cfg["start_date"] = trim_start.strftime("%Y-%m-%d")
-project_cfg["end_date"] = trim_end.strftime("%Y-%m-%d 21:00:00")
-da_cfg["assimilation_events"] = [
-    station_event,
-    {
-        "date": scf_event["date"],
-        "variable": "scf",
-        "product": scf_event["product"],
-    },
-    {
-        "date": wet_event["date"],
-        "variable": "wet_snow",
-        "product": wet_event["product"],
-    },
-]
-da_cfg["assimilation_events"] = sorted(da_cfg["assimilation_events"], key=lambda event: event["date"])
-project_cfg["data_assimilation"] = da_cfg
-
-with (project_dir / f"{project_name}.yml").open("w", encoding="utf-8") as f:
-    yaml.safe_dump(project_cfg, f, sort_keys=False)
-
-print(
-    "[integration/python] selected "
-    f"station_hs={station_event['date']} "
-    f"scf={scf_event['date']} "
-    f"wet_snow={wet_event['date']}"
-)
-print(f"[integration/python] trim window {project_cfg['start_date']} -> {project_cfg['end_date']}")
-PY
+SCF_SUMMARY_CSV="$(container_path_for_host "${SCF_SUMMARY_HOST_SOURCE}")"
+WET_SUMMARY_CSV="$(container_path_for_host "${WET_SUMMARY_HOST_SOURCE}")"
+echo "[integration] Using SCF summary: ${SCF_SUMMARY_CSV}"
+echo "[integration] Using wet-snow summary: ${WET_SUMMARY_CSV}"
 
 compose_run python -m openamundsen_da.pipeline.project_skeleton \
   --setup-dir /data \
   --project-dir "${PROJECT_PATH}" \
   --overwrite \
   --log-level INFO
-
-SCF_SUMMARY_CANDIDATE_NEW="${PROJECT_DIR}/obs/${SOURCE_PROJECT_NAME}/scf_summary.csv"
-SCF_SUMMARY_CANDIDATE_OLD="${PROJECT_DIR}/obs/summaries/${SOURCE_PROJECT_NAME}/scf_summary.csv"
-WET_SUMMARY_CANDIDATE_NEW="${PROJECT_DIR}/obs/${SOURCE_PROJECT_NAME}/wet_snow_summary.csv"
-WET_SUMMARY_CANDIDATE_OLD="${PROJECT_DIR}/obs/summaries/${SOURCE_PROJECT_NAME}/wet_snow_summary.csv"
-
-if [[ -f "${SCF_SUMMARY_CANDIDATE_NEW}" ]]; then
-  SCF_SUMMARY_HOST_SOURCE="${SCF_SUMMARY_CANDIDATE_NEW}"
-elif [[ -f "${SCF_SUMMARY_CANDIDATE_OLD}" ]]; then
-  SCF_SUMMARY_HOST_SOURCE="${SCF_SUMMARY_CANDIDATE_OLD}"
-else
-  echo "[integration] ERROR: SCF summary CSV not found in expected locations:"
-  echo "  - ${SCF_SUMMARY_CANDIDATE_NEW}"
-  echo "  - ${SCF_SUMMARY_CANDIDATE_OLD}"
-  exit 1
-fi
-
-if [[ -f "${WET_SUMMARY_CANDIDATE_NEW}" ]]; then
-  WET_SUMMARY_HOST_SOURCE="${WET_SUMMARY_CANDIDATE_NEW}"
-elif [[ -f "${WET_SUMMARY_CANDIDATE_OLD}" ]]; then
-  WET_SUMMARY_HOST_SOURCE="${WET_SUMMARY_CANDIDATE_OLD}"
-else
-  echo "[integration] ERROR: Wet-snow summary CSV not found in expected locations:"
-  echo "  - ${WET_SUMMARY_CANDIDATE_NEW}"
-  echo "  - ${WET_SUMMARY_CANDIDATE_OLD}"
-  exit 1
-fi
-
-# Mirror selected summaries under obs/<ci-project>/ for plotting defaults.
-CI_OBS_DIR="${PROJECT_DIR}/obs/${PROJECT_NAME}"
-mkdir -p "${CI_OBS_DIR}"
-cp -f "${SCF_SUMMARY_HOST_SOURCE}" "${CI_OBS_DIR}/scf_summary.csv"
-cp -f "${WET_SUMMARY_HOST_SOURCE}" "${CI_OBS_DIR}/wet_snow_summary.csv"
-SCF_SUMMARY_CSV="/data/obs/${PROJECT_NAME}/scf_summary.csv"
-WET_SUMMARY_CSV="/data/obs/${PROJECT_NAME}/wet_snow_summary.csv"
-echo "[integration] Using SCF summary: ${SCF_SUMMARY_CSV}"
-echo "[integration] Using wet-snow summary: ${WET_SUMMARY_CSV}"
 
 compose_run oa-da-scf \
   --project-dir "${PROJECT_PATH}" \
@@ -431,14 +210,17 @@ compose_run python -m openamundsen_da.pipeline.project \
   --overwrite \
   --log-level INFO
 
-CONTAINER_LOG_FILE="$(compose_run python - <<'PY' | tr -d '\r' | tail -n 1
+CONTAINER_LOG_FILE="$(compose_run python - "${PROJECT_NAME}" <<'PY' | tr -d '\r' | tail -n 1
 from pathlib import Path
+import sys
 
-project_dirs = sorted(p for p in Path("/data/projects").glob("project_ci_*") if p.is_dir())
-if not project_dirs:
-    raise SystemExit("No CI project directory found under /data/projects")
-project_dir = project_dirs[0]
-candidates = sorted(project_dir.glob("project_*.log"))
+project_name = str(sys.argv[1]).strip()
+project_dir = Path("/data/projects") / project_name
+if not project_dir.is_dir():
+    raise SystemExit(f"Missing project directory: {project_dir}")
+candidates = sorted(project_dir.glob(f"{project_name}.log"))
+if not candidates:
+    candidates = sorted(project_dir.glob("project_*.log"))
 if not candidates:
     candidates = sorted(project_dir.glob("*.log"))
 if not candidates:

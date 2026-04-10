@@ -39,6 +39,7 @@ oa-da-wetsnow-uncertainty = "openamundsen_da.observer.wetsnow_uncertainty:cli_ma
 oa-da-hrwsi-download = "openamundsen_da.observer.hrwsi_download:cli_main"
 oa-da-plot-scf = "openamundsen_da.observer.plot_scf_summary:cli_main"
 oa-da-project = "openamundsen_da.pipeline.project:cli"
+oa-da-benchmark = "openamundsen_da.benchmark.pipeline:cli"
 oa-da-model-scf = "openamundsen_da.methods.h_of_x.model_scf:cli_main"
 oa-da-model-scf-project-daily = "openamundsen_da.methods.h_of_x.model_scf:cli_project_daily"
 oa-da-assimilate-scf = "openamundsen_da.methods.pf.assimilate_fraction:cli_main"

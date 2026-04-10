@@ -33,6 +33,7 @@ from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.core.launch import launch_members
 from openamundsen_da.core.prior_forcing import build_prior_ensemble
+from openamundsen_da.benchmark.pipeline import run_project_benchmark
 from openamundsen_da.io.paths import (
     read_step_config,
     find_setup_yaml,
@@ -1075,6 +1076,22 @@ def run_project(cfg: OrchestratorConfig) -> None:
             da_summary_written = da_path is not None
         except Exception as exc:
             logger.warning("DA output grid summary failed: {}", exc)
+
+    try:
+        benchmark_outputs = run_project_benchmark(
+            project_dir=cfg.project_dir,
+            setup_dir=cfg.setup_dir,
+            max_workers=cfg.max_workers,
+            overwrite=cfg.overwrite,
+            reuse_existing_prerequisites=True,
+        )
+        logger.info(
+            "Benchmark stage complete -> {}",
+            benchmark_outputs.get("manifest", cfg.project_dir / "results" / "benchmark" / "manifest.json"),
+        )
+    except Exception:
+        logger.exception("Project benchmarking failed")
+        raise
 
     retention_mode = output_retention_mode(cfg.project_dir)
     if retention_mode == "compact":

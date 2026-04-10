@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from openamundsen_da.io.paths import list_member_dirs, list_step_dirs
-from openamundsen_da.util.ts import concat_series
+from openamundsen_da.util.ts import concat_series, parse_time_column
 
 
 def parse_fraction_dates(df: pd.DataFrame) -> pd.DataFrame:
@@ -16,7 +16,7 @@ def parse_fraction_dates(df: pd.DataFrame) -> pd.DataFrame:
     for col in ("date", "time", "datetime"):
         if col in df.columns:
             df = df.copy()
-            df[col] = pd.to_datetime(df[col])
+            df[col] = parse_time_column(df[col])
             return df.rename(columns={col: "date"})
     raise KeyError("No date/time column found")
 
@@ -104,4 +104,21 @@ def load_member_series(project_dir: Path, filename: str, value_col: str) -> list
         stitched = concat_series(member_segments[member_name]).dropna().sort_index()
         if not stitched.empty:
             stitched_members.append(stitched)
+    return stitched_members
+
+
+def load_named_member_series(project_dir: Path, filename: str, value_col: str) -> dict[str, pd.Series]:
+    """Return per-member setup-wide series stitched across all project steps."""
+    member_segments: dict[str, list[pd.Series]] = defaultdict(list)
+    for step in list_step_dirs(project_dir):
+        for member_dir in list_member_dirs(step / "ensembles", "prior"):
+            series = _load_fraction_value_series(member_dir / "results" / filename, value_col)
+            if series is not None:
+                member_segments[member_dir.name].append(series)
+
+    stitched_members: dict[str, pd.Series] = {}
+    for member_name in sorted(member_segments):
+        stitched = concat_series(member_segments[member_name]).dropna().sort_index()
+        if not stitched.empty:
+            stitched_members[member_name] = stitched
     return stitched_members

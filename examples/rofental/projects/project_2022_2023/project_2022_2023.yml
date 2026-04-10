@@ -243,6 +243,11 @@ data_assimilation:
     use_state: true
     dump_state: true
     state_pattern: model_state.pickle.gz
+  benchmark:
+    independent_variables:
+    - station_swe
+    plots: true
+    output_dir: results/benchmark
   output:
     retention: full
     grids:

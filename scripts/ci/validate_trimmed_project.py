@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -132,6 +133,11 @@ def _check_plot_outputs(setup_dir: Path) -> None:
             label="assimilation ESS plots",
             patterns=("plots/assim/ess/**/*.png", "plots/assim/ess/**/*.svg"),
         ),
+        CheckSpec(
+            label="benchmark plots",
+            patterns=("plots/assim/scores/performance_scores.png", "plots/assim/scores/performance_scores.svg"),
+            min_count=1,
+        ),
     ]
 
     missing: list[str] = []
@@ -163,6 +169,12 @@ def _check_openamundsen_outputs(steps_dir: Path) -> None:
 def _check_da_output_grid(project_dir: Path) -> None:
     da_output = project_dir / "results" / "grids" / "da_output_grids.nc"
     _assert_non_empty(da_output)
+
+
+def _read_csv_rows(path: Path) -> list[dict[str, str]]:
+    _assert_non_empty(path)
+    with path.open("r", encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f))
 
 
 def _find_project_yaml(project_dir: Path) -> Path:
@@ -311,6 +323,95 @@ def _check_minimal_weight_sanity(steps_dir: Path) -> None:
             raise ValueError(f"{wf} weights do not sum to 1.0 (sum={s})")
 
 
+def _check_benchmark_outputs(project_dir: Path) -> None:
+    results_dir = project_dir / "results" / "benchmark"
+    manifest_path = results_dir / "manifest.json"
+    summary_path = results_dir / "summary.md"
+    continuous_path = results_dir / "cases" / "continuous_case_scores.csv"
+    analysis_path = results_dir / "cases" / "analysis_case_scores.csv"
+    event_path = results_dir / "scores" / "event_scores.csv"
+    project_path = results_dir / "scores" / "project_scores.csv"
+    reliability_path = results_dir / "scores" / "project_reliability.csv"
+    project_summary_path = results_dir / "tables" / "project_summary.csv"
+    update_summary_path = results_dir / "tables" / "update_summary.csv"
+    stale_md_paths = (
+        results_dir / "tables" / "project_summary.md",
+        results_dir / "tables" / "update_summary.md",
+        results_dir / "tables" / "project_summary_wide.md",
+        results_dir / "tables" / "event_summary_wide.md",
+        results_dir / "tables" / "reliability_summary_wide.md",
+        results_dir / "tables" / "improvement_summary.md",
+    )
+    stale_csv_paths = (
+        results_dir / "tables" / "project_summary_wide.csv",
+        results_dir / "tables" / "event_summary_wide.csv",
+        results_dir / "tables" / "reliability_summary_wide.csv",
+        results_dir / "tables" / "improvement_summary.csv",
+    )
+    stale_plot_dirs = (
+        project_dir / "plots" / "benchmark" / "core",
+        project_dir / "plots" / "benchmark" / "extended",
+        project_dir / "plots" / "benchmark",
+    )
+
+    for path in (
+        manifest_path,
+        summary_path,
+        continuous_path,
+        analysis_path,
+        event_path,
+        project_path,
+        reliability_path,
+        project_summary_path,
+        update_summary_path,
+    ):
+        _assert_non_empty(path)
+
+    with manifest_path.open("r", encoding="utf-8") as f:
+        manifest = json.load(f)
+    if int(manifest.get("case_rows", 0)) <= 0:
+        raise ValueError(f"Benchmark manifest reports no case rows: {manifest_path}")
+    if int(manifest.get("project_rows", 0)) <= 0:
+        raise ValueError(f"Benchmark manifest reports no project rows: {manifest_path}")
+    headline_plot_outputs = [
+        value
+        for value in manifest.get("outputs", {}).values()
+        if str(value).replace("\\", "/").endswith("/plots/assim/scores/performance_scores.png")
+    ]
+    if len(headline_plot_outputs) != 1:
+        raise ValueError(f"Benchmark manifest is missing the shipped performance_scores plot: {manifest_path}")
+
+    continuous_rows = _read_csv_rows(continuous_path)
+    analysis_rows = _read_csv_rows(analysis_path)
+    project_rows = _read_csv_rows(project_path)
+    update_rows = _read_csv_rows(update_summary_path)
+
+    if not any(row.get("score_set") == "continuous" for row in continuous_rows):
+        raise ValueError(f"Benchmark continuous case table contains no continuous rows: {continuous_path}")
+    if not any(row.get("score_set") == "analysis" for row in analysis_rows):
+        raise ValueError(f"Benchmark analysis case table contains no analysis rows: {analysis_path}")
+    if not project_rows:
+        raise ValueError(f"Benchmark project scores CSV has no rows: {project_path}")
+    if not any(
+        row.get("variable") == "station_swe" and row.get("stream") == "semi_independent"
+        for row in project_rows
+    ):
+        raise ValueError(
+            "Benchmark project scores are missing the shipped semi_independent station_swe benchmark view"
+        )
+    if update_rows and "stream" not in update_rows[0]:
+        raise ValueError(f"Benchmark update summary is missing the required stream column: {update_summary_path}")
+    for path in stale_csv_paths:
+        if path.exists():
+            raise ValueError(f"Stale benchmark CSV should not be written anymore: {path}")
+    for path in stale_md_paths:
+        if path.exists():
+            raise ValueError(f"Stale benchmark markdown table should not be written anymore: {path}")
+    for path in stale_plot_dirs:
+        if path.exists():
+            raise ValueError(f"Stale benchmark plot directory should not be written anymore: {path}")
+
+
 def validate_project(project_dir: Path, log_file: Path) -> None:
     steps_dir = project_dir / "steps"
     if not steps_dir.is_dir():
@@ -320,6 +421,7 @@ def validate_project(project_dir: Path, log_file: Path) -> None:
     _check_plot_outputs(project_dir)
     _check_openamundsen_outputs(steps_dir)
     _check_da_output_grid(project_dir)
+    _check_benchmark_outputs(project_dir)
     _check_minimal_weight_sanity(steps_dir)
 
 

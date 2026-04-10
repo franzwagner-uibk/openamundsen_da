@@ -1,0 +1,576 @@
+from __future__ import annotations
+
+import textwrap
+from pathlib import Path
+
+import matplotlib.colors as mcolors
+import numpy as np
+import pandas as pd
+import pytest
+
+from openamundsen_da.benchmark.aggregate import aggregate_scores, build_case_scores, enrich_case_scores, reliability_rows
+from openamundsen_da.benchmark.cases import RawBenchmarkCase
+from openamundsen_da.benchmark.pipeline import load_benchmark_config
+from openamundsen_da.benchmark.render.plots import core as plots_core
+from openamundsen_da.benchmark.render.plots.core import build_event_skill_plot_data, compute_event_skill_plot_positions
+from openamundsen_da.benchmark.render.plots import write_plots
+from openamundsen_da.benchmark.render.tables import write_summary_tables
+
+
+def _write_yaml(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(textwrap.dedent(text).strip() + "\n", encoding="utf-8")
+
+
+def _setup_render_project(tmp_path: Path) -> tuple[Path, Path]:
+    setup_dir = tmp_path / "setup"
+    project_dir = setup_dir / "projects" / "project_2022_2023"
+    _write_yaml(
+        setup_dir / "setup.yml",
+        """
+        resolution: 100
+        """,
+    )
+    _write_yaml(
+        project_dir / "project_2022_2023.yml",
+        """
+        start_date: '2023-01-01'
+        end_date: '2023-01-05'
+        data_assimilation:
+          assimilation_events:
+            - date: '2023-01-02'
+              variable: scf
+              product: SNOWCOVER
+            - date: '2023-01-03'
+              variable: station_hs
+              product: station_hs
+          benchmark:
+            independent_variables:
+              - station_swe
+            figure_tier: extended
+        """,
+    )
+    return setup_dir, project_dir
+
+
+def test_load_benchmark_config_ignores_obsolete_figure_tier(tmp_path: Path) -> None:
+    _, project_dir = _setup_render_project(tmp_path)
+    cfg = load_benchmark_config(project_dir)
+
+    assert cfg.plots is True
+    assert cfg.independent_variables == ("station_swe",)
+    assert cfg.output_dir == project_dir / "results" / "benchmark"
+
+
+def test_build_event_skill_plot_data_reduces_station_same_day_rows(tmp_path: Path) -> None:
+    _, project_dir = _setup_render_project(tmp_path)
+    event_scores = pd.DataFrame(
+        [
+            {
+                "score_set": "analysis",
+                "variable": "scf",
+                "stream": "assimilation_fit",
+                "representation": "prior",
+                "timestamp": "2023-01-02 00:00:00",
+                "date": "2023-01-02",
+                "crpss": 0.25,
+                "ner": 0.10,
+            },
+            {
+                "score_set": "analysis",
+                "variable": "scf",
+                "stream": "assimilation_fit",
+                "representation": "posterior",
+                "timestamp": "2023-01-02 00:00:00",
+                "date": "2023-01-02",
+                "crpss": 0.55,
+                "ner": 0.40,
+            },
+            {
+                "score_set": "analysis",
+                "variable": "station_hs",
+                "stream": "semi_independent",
+                "representation": "prior",
+                "timestamp": "2023-01-02 00:00:00",
+                "date": "2023-01-02",
+                "crpss": 0.20,
+                "ner": 0.10,
+            },
+            {
+                "score_set": "analysis",
+                "variable": "station_hs",
+                "stream": "semi_independent",
+                "representation": "prior",
+                "timestamp": "2023-01-02 12:00:00",
+                "date": "2023-01-02",
+                "crpss": 0.40,
+                "ner": 0.30,
+            },
+            {
+                "score_set": "analysis",
+                "variable": "station_hs",
+                "stream": "semi_independent",
+                "representation": "posterior",
+                "timestamp": "2023-01-02 00:00:00",
+                "date": "2023-01-02",
+                "crpss": 0.35,
+                "ner": 0.28,
+            },
+            {
+                "score_set": "analysis",
+                "variable": "station_hs",
+                "stream": "semi_independent",
+                "representation": "posterior",
+                "timestamp": "2023-01-02 12:00:00",
+                "date": "2023-01-02",
+                "crpss": 0.45,
+                "ner": 0.36,
+            },
+            {
+                "score_set": "analysis",
+                "variable": "wet_snow",
+                "stream": "independent",
+                "representation": "prior",
+                "timestamp": "2023-01-04 12:00:00",
+                "date": "2023-01-04",
+                "crpss": 0.90,
+                "ner": 0.90,
+            },
+        ]
+    )
+
+    points = build_event_skill_plot_data(event_scores, project_dir=project_dir)
+
+    assert set(points["point_type"]) == {"prior", "posterior"}
+    assert pd.Timestamp("2023-01-04") not in set(pd.to_datetime(points["assimilation_date"]))
+
+    station_prior = points[
+        (points["variable"] == "station_hs")
+        & (points["stream"] == "semi_independent")
+        & (points["point_type"] == "prior")
+        & (pd.to_datetime(points["assimilation_date"]) == pd.Timestamp("2023-01-02"))
+    ]
+    station_posterior = points[
+        (points["variable"] == "station_hs")
+        & (points["stream"] == "semi_independent")
+        & (points["point_type"] == "posterior")
+        & (pd.to_datetime(points["assimilation_date"]) == pd.Timestamp("2023-01-02"))
+    ]
+    assert len(station_prior) == 1
+    assert len(station_posterior) == 1
+    assert float(station_prior["crpss"].iloc[0]) == pytest.approx(0.30)
+    assert float(station_prior["ner"].iloc[0]) == pytest.approx(0.20)
+    assert float(station_posterior["crpss"].iloc[0]) == pytest.approx(0.40)
+    assert float(station_posterior["ner"].iloc[0]) == pytest.approx(0.32)
+
+
+def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path: Path) -> None:
+    setup_dir, project_dir = _setup_render_project(tmp_path)
+    raw_cases = [
+        RawBenchmarkCase(
+            score_set="continuous",
+            variable="scf",
+            stream="assimilation_fit",
+            timestamp="2023-01-02",
+            obs_id="roi",
+            step_name="step_00_init",
+            obs_value=0.4,
+            open_loop_value=0.2,
+            da_informed_values=(0.3, 0.45, 0.5),
+            prior_values=None,
+            posterior_values=None,
+            posterior_weights=None,
+        ),
+        RawBenchmarkCase(
+            score_set="analysis",
+            variable="scf",
+            stream="assimilation_fit",
+            timestamp="2023-01-02",
+            obs_id="roi",
+            step_name="step_00_init",
+            obs_value=0.7,
+            open_loop_value=0.35,
+            da_informed_values=None,
+            prior_values=(0.45, 0.55, 0.65),
+            posterior_values=(0.55, 0.68, 0.8),
+            posterior_weights=(0.2, 0.5, 0.3),
+        ),
+        RawBenchmarkCase(
+            score_set="continuous",
+            variable="wet_snow",
+            stream="independent",
+            timestamp="2023-01-02",
+            obs_id="roi",
+            step_name="step_00_init",
+            obs_value=0.4,
+            open_loop_value=0.2,
+            da_informed_values=(0.3, 0.45, 0.5),
+            prior_values=None,
+            posterior_values=None,
+            posterior_weights=None,
+        ),
+        RawBenchmarkCase(
+            score_set="analysis",
+            variable="wet_snow",
+            stream="independent",
+            timestamp="2023-01-02",
+            obs_id="roi",
+            step_name="step_00_init",
+            obs_value=0.4,
+            open_loop_value=0.2,
+            da_informed_values=None,
+            prior_values=(0.15, 0.25, 0.35),
+            posterior_values=(0.15, 0.25, 0.35),
+            posterior_weights=(0.3, 0.4, 0.3),
+        ),
+        RawBenchmarkCase(
+            score_set="continuous",
+            variable="station_hs",
+            stream="assimilation_fit",
+            timestamp="2023-01-03 00:00:00",
+            obs_id="station_a",
+            step_name="step_00_init",
+            obs_value=1.05,
+            open_loop_value=1.2,
+            da_informed_values=(1.0, 1.08, 1.12),
+            prior_values=None,
+            posterior_values=None,
+            posterior_weights=None,
+        ),
+        RawBenchmarkCase(
+            score_set="continuous",
+            variable="station_hs",
+            stream="assimilation_fit",
+            timestamp="2023-01-03 12:00:00",
+            obs_id="station_a",
+            step_name="step_00_init",
+            obs_value=1.15,
+            open_loop_value=1.3,
+            da_informed_values=(1.02, 1.10, 1.18),
+            prior_values=None,
+            posterior_values=None,
+            posterior_weights=None,
+        ),
+        RawBenchmarkCase(
+            score_set="analysis",
+            variable="station_hs",
+            stream="assimilation_fit",
+            timestamp="2023-01-03 06:00:00",
+            obs_id="station_a",
+            step_name="step_00_init",
+            obs_value=1.1,
+            open_loop_value=1.35,
+            da_informed_values=None,
+            prior_values=(1.22, 1.18, 1.14),
+            posterior_values=(1.14, 1.11, 1.08),
+            posterior_weights=(0.2, 0.4, 0.4),
+        ),
+        RawBenchmarkCase(
+            score_set="continuous",
+            variable="station_swe",
+            stream="semi_independent",
+            timestamp="2023-01-03 09:00:00",
+            obs_id="station_a",
+            step_name="step_00_init",
+            obs_value=250.0,
+            open_loop_value=290.0,
+            da_informed_values=(230.0, 240.0, 255.0),
+            prior_values=None,
+            posterior_values=None,
+            posterior_weights=None,
+        ),
+        RawBenchmarkCase(
+            score_set="analysis",
+            variable="station_swe",
+            stream="semi_independent",
+            timestamp="2023-01-03 09:00:00",
+            obs_id="station_a",
+            step_name="step_00_init",
+            obs_value=250.0,
+            open_loop_value=290.0,
+            da_informed_values=None,
+            prior_values=(235.0, 245.0, 260.0),
+            posterior_values=(235.0, 245.0, 260.0),
+            posterior_weights=(0.2, 0.5, 0.3),
+        ),
+    ]
+    case_scores = build_case_scores(raw_cases)
+    case_scores = enrich_case_scores(case_scores, project_dir=project_dir, setup_dir=setup_dir)
+    event_scores = aggregate_scores(
+        case_scores,
+        group_cols=("score_set", "variable", "stream", "step_name", "timestamp", "date"),
+    )
+    project_scores = aggregate_scores(
+        case_scores,
+        group_cols=("score_set", "variable", "stream"),
+    )
+    reliability = reliability_rows(case_scores, group_cols=("score_set", "variable", "stream"))
+
+    table_outputs, tables = write_summary_tables(
+        project_dir / "results" / "benchmark",
+        event_scores=event_scores,
+        project_scores=project_scores,
+        reliability=reliability,
+    )
+    plot_outputs = write_plots(
+        project_dir / "plots" / "assim" / "scores",
+        case_scores=case_scores,
+        event_scores=event_scores,
+        reliability=reliability,
+        project_dir=project_dir,
+    )
+
+    tables_dir = project_dir / "results" / "benchmark" / "tables"
+    plot_path = project_dir / "plots" / "assim" / "scores" / "performance_scores.png"
+
+    assert (tables_dir / "project_summary.csv").is_file()
+    assert (tables_dir / "update_summary.csv").is_file()
+    assert not (tables_dir / "project_summary_wide.csv").exists()
+    assert not (tables_dir / "event_summary_wide.csv").exists()
+    assert not (tables_dir / "reliability_summary_wide.csv").exists()
+    assert not (tables_dir / "improvement_summary.csv").exists()
+    assert not any(tables_dir.glob("*.md"))
+
+    assert plot_path.is_file()
+    assert not (project_dir / "plots" / "benchmark").exists()
+
+    project_summary = tables["project_summary"]
+    update_summary = tables["update_summary"]
+    assert list(project_summary.columns) == [
+        "variable",
+        "stream",
+        "n_project_points",
+        "whole_project_crpss",
+        "whole_project_ner",
+        "whole_project_bias",
+        "n_update_dates",
+        "update_prior_crpss",
+        "update_posterior_crpss",
+        "update_prior_ner",
+        "update_posterior_ner",
+        "update_prior_bias",
+        "update_posterior_bias",
+    ]
+    assert list(update_summary.columns) == [
+        "assimilation_date",
+        "variable",
+        "stream",
+        "prior_crpss",
+        "posterior_crpss",
+        "prior_ner",
+        "posterior_ner",
+        "prior_bias",
+        "posterior_bias",
+        "delta_crpss",
+        "delta_ner",
+        "delta_abs_bias",
+    ]
+
+    station_swe_row = project_summary[
+        (project_summary["variable"] == "station_swe") & (project_summary["stream"] == "semi_independent")
+    ].iloc[0]
+    assert not pd.isna(station_swe_row["update_prior_crpss"])
+    assert not pd.isna(station_swe_row["update_posterior_crpss"])
+
+    scf_update = update_summary[
+        (update_summary["variable"] == "scf") & (update_summary["stream"] == "assimilation_fit")
+    ].iloc[0]
+    assert float(scf_update["posterior_crpss"]) > float(scf_update["prior_crpss"])
+    wet_snow_update = update_summary[
+        (update_summary["variable"] == "wet_snow") & (update_summary["stream"] == "independent")
+    ].iloc[0]
+    assert wet_snow_update["stream"] == "independent"
+
+    assert "project_summary" in table_outputs
+    assert "update_summary" in table_outputs
+    assert "performance_scores" in plot_outputs
+
+
+def test_event_skill_plot_positions_distinguish_same_date_markers(tmp_path: Path) -> None:
+    _, project_dir = _setup_render_project(tmp_path)
+    points = pd.DataFrame(
+        [
+            {
+                "variable": "scf",
+                "stream": "assimilation_fit",
+                "assimilation_date": "2023-01-02",
+                "point_type": "prior",
+                "crpss": 0.10,
+                "ner": 0.05,
+            },
+            {
+                "variable": "scf",
+                "stream": "assimilation_fit",
+                "assimilation_date": "2023-01-02",
+                "point_type": "posterior",
+                "crpss": 0.30,
+                "ner": 0.25,
+            },
+            {
+                "variable": "station_hs",
+                "stream": "semi_independent",
+                "assimilation_date": "2023-01-02",
+                "point_type": "prior",
+                "crpss": 0.20,
+                "ner": 0.15,
+            },
+            {
+                "variable": "wet_snow",
+                "stream": "independent",
+                "assimilation_date": "2023-01-02",
+                "point_type": "posterior",
+                "crpss": -0.10,
+                "ner": -0.05,
+            },
+        ]
+    )
+
+    positioned = compute_event_skill_plot_positions(
+        points,
+        assimilation_dates=[pd.Timestamp("2023-01-02"), pd.Timestamp("2023-01-03")],
+    )
+
+    assert positioned["plot_x"].nunique() == 4
+    assert all(pd.Timestamp("2023-01-02") != ts for ts in pd.to_datetime(positioned["plot_x"]))
+
+
+def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monkeypatch) -> None:
+    setup_dir, project_dir = _setup_render_project(tmp_path)
+    raw_cases = [
+        RawBenchmarkCase(
+            score_set="analysis",
+            variable="scf",
+            stream="assimilation_fit",
+            timestamp="2023-01-02",
+            obs_id="roi",
+            step_name="step_00_init",
+            obs_value=0.7,
+            open_loop_value=0.35,
+            da_informed_values=None,
+            prior_values=(0.45, 0.55, 0.65),
+            posterior_values=(0.55, 0.68, 0.8),
+            posterior_weights=(0.2, 0.5, 0.3),
+        ),
+        RawBenchmarkCase(
+            score_set="analysis",
+            variable="station_swe",
+            stream="semi_independent",
+            timestamp="2023-01-03 09:00:00",
+            obs_id="station_a",
+            step_name="step_00_init",
+            obs_value=250.0,
+            open_loop_value=290.0,
+            da_informed_values=None,
+            prior_values=(230.0, 240.0, 255.0),
+            posterior_values=(230.0, 240.0, 255.0),
+            posterior_weights=(0.2, 0.5, 0.3),
+        ),
+    ]
+    case_scores = build_case_scores(raw_cases)
+    case_scores = enrich_case_scores(case_scores, project_dir=project_dir, setup_dir=setup_dir)
+    event_scores = aggregate_scores(
+        case_scores,
+        group_cols=("score_set", "variable", "stream", "step_name", "timestamp", "date"),
+    )
+    reliability = reliability_rows(case_scores, group_cols=("score_set", "variable", "stream"))
+
+    captured: dict[str, object] = {}
+
+    def _capture(fig, out_path, **kwargs):
+        captured["fig"] = fig
+        captured["path"] = out_path
+        fig.savefig(out_path, **kwargs)
+
+    monkeypatch.setattr(plots_core, "save_figure_png", _capture)
+
+    outputs = write_plots(
+        project_dir / "plots" / "assim" / "scores",
+        case_scores=case_scores,
+        event_scores=event_scores,
+        reliability=reliability,
+        project_dir=project_dir,
+    )
+
+    fig = captured["fig"]
+    assert outputs["performance_scores"].is_file()
+    assert fig._suptitle is not None
+    assert fig._suptitle.get_text() == "Data assimilation performance scores"
+    assert fig._suptitle.get_ha() == "left"
+    label_axes = [ax for ax in fig.axes if ax.get_label().startswith("assimilation_label_axis_")]
+    main_axes = [ax for ax in fig.axes if not ax.get_label().startswith("assimilation_label_axis_")]
+    assert len(label_axes) == 2
+    assert len(main_axes) == 2
+    ax_crpss, ax_ner = main_axes
+    x_title, y_title = fig._suptitle.get_position()
+    assert x_title < ax_crpss.get_position().x0
+    assert y_title < 0.98
+    assert ax_crpss.get_title() == ""
+    assert ax_ner.get_title() == ""
+    assert ax_ner.get_xlabel() == ""
+    assert ax_crpss.get_ylabel() == "CRPSS"
+    assert ax_ner.get_ylabel() == "NER"
+    assert 0.5 in list(ax_crpss.get_yticks())
+    assert 0.5 in list(ax_ner.get_yticks())
+    x0, x1 = ax_crpss.get_xlim()
+    first = plots_core.mdates.date2num(pd.Timestamp("2023-01-02"))
+    last = plots_core.mdates.date2num(pd.Timestamp("2023-01-03"))
+    assert x0 < first < last < x1
+    assert x0 <= plots_core.mdates.date2num(pd.Timestamp("2022-12-31"))
+    assert x1 >= plots_core.mdates.date2num(pd.Timestamp("2023-01-05"))
+    assert any("\n2023" in label.get_text() for label in ax_ner.get_xticklabels())
+    assert len(ax_crpss.collections) > 0
+    assert len(ax_ner.collections) > 0
+    assert ax_crpss.lines
+    assert max(line.get_zorder() for line in ax_crpss.lines) < min(c.get_zorder() for c in ax_crpss.collections)
+    vline_colors = []
+    for line in ax_crpss.lines:
+        xdata = pd.to_datetime(line.get_xdata())
+        if len(xdata) >= 2 and all(ts == xdata[0] for ts in xdata):
+            vline_colors.append(mcolors.to_hex(line.get_color()).lower())
+    assert plots_core.variable_style("scf")["line"].lower() in vline_colors
+    assert plots_core.variable_style("station_hs")["line"].lower() in vline_colors
+    assert {text.get_text() for ax in label_axes for text in ax.texts} >= {"1", "2"}
+    assert fig.subplotpars.bottom < 0.18
+    saw_prior = False
+    saw_posterior = False
+    for collection in (*ax_crpss.collections, *ax_ner.collections):
+        facecolors = collection.get_facecolors()
+        edgecolors = collection.get_edgecolors()
+        assert facecolors.size > 0
+        assert edgecolors.size > 0
+        if np.allclose(facecolors[:, :3], np.array([[1.0, 1.0, 1.0]])):
+            saw_prior = True
+            assert not np.allclose(edgecolors[:, :3], np.array([[0.0, 0.0, 0.0]]))
+        else:
+            saw_posterior = True
+            assert not np.allclose(edgecolors[:, :3], np.array([[0.0, 0.0, 0.0]]))
+            assert np.allclose(edgecolors[:, :3], facecolors[:, :3])
+    assert saw_prior
+    assert saw_posterior
+    legend_handles = plots_core.score_legend_handles(["scf", "wet_snow"])
+    assert legend_handles[0].get_markeredgecolor() == plots_core.score_variable_color("scf")
+    assert legend_handles[0].get_markerfacecolor() == plots_core.score_variable_color("scf")
+    prior_handle = legend_handles[2]
+    posterior_handle = legend_handles[3]
+    assert prior_handle.get_label() == "prior"
+    assert posterior_handle.get_label() == "posterior"
+    assert isinstance(prior_handle, tuple)
+    assert isinstance(posterior_handle, tuple)
+    assert [artist.get_marker() for artist in prior_handle] == ["o", "s", "^"]
+    assert [artist.get_markerfacecolor() for artist in prior_handle] == ["white", "white", "white"]
+    assert [artist.get_markeredgecolor() for artist in prior_handle] == ["#000000", "#000000", "#000000"]
+    assert [artist.get_marker() for artist in posterior_handle] == ["o", "s", "^"]
+    assert [artist.get_markerfacecolor() for artist in posterior_handle] == ["#000000", "#000000", "#000000"]
+    assert [artist.get_markeredgecolor() for artist in posterior_handle] == ["#000000", "#000000", "#000000"]
+    handler_map = plots_core.score_legend_handler_map()
+    stage_handler = handler_map[type(prior_handle)]
+    assert isinstance(stage_handler, plots_core._StageLegendHandler)
+    assert tuple(stage_handler._x_fracs) == (0.04, 0.5, 0.96)
+    grid_lines = [line for line in ax_crpss.get_xgridlines() if line.get_visible()]
+    assert grid_lines
+    assert grid_lines[0].get_linestyle() == "--"
+    assert grid_lines[0].get_linewidth() == pytest.approx(0.8)
+    assert fig.legends
+    legend = fig.legends[0]
+    assert getattr(legend, "_loc", None) == 3
+    assert getattr(legend, "_mode", None) == "expand"

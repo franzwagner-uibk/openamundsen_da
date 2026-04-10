@@ -129,6 +129,12 @@ data_assimilation:
     state_pattern: model_state.pickle.gz
     cleanup_after_setup: true
 
+  benchmark:
+    independent_variables:
+      - station_swe
+    plots: true
+    output_dir: results/benchmark
+
   output:
     retention: compact # options: compact | full
 
@@ -210,6 +216,9 @@ Notes:
 - Station absolute sigma floors are configured per station in `stations_da_metadata.csv` via `hs_sigma_abs_min` and `swe_sigma_abs_min`.
 - See [Station Assimilation]({{ site.baseurl }}{% link guides/station-assimilation.md %}) for the method logic, effective sigma definition, single-station handling, and diagnostics.
 - Observation class mappings and product tags are configured under project YAML `obs.*`.
+- `data_assimilation.benchmark` does not enable or disable benchmarking; the project pipeline always runs it. This block extends the benchmark scope and controls benchmark output location and plot writing. The benchmark presentation itself is fixed and lean: one assimilation-date skill plot plus two compact summary tables.
+- `independent_variables` may currently list only the DA-supported families: `scf`, `wet_snow`, `station_hs`, `station_swe`.
+- Output stream labels are derived by benchmark semantics, not by config naming alone: a configured extra family can still appear as `semi_independent` in outputs when it shares same-variable reuse or sister-station representativeness with assimilated observations.
 - Land-cover mask uses `grids/lc_<domain>_<resolution>.asc` from setup-level paths and data assimilation mask classes from project YAML.
 - For SCF uncertainty:
   - `enabled: true` activates strict uncertainty checks (fail-fast on missing/invalid config or layers).

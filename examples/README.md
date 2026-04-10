@@ -41,6 +41,6 @@ examples/rofental/
 ### `projects/`
 - Project runtime configuration/output roots.
 - `project_*/project_*.yml`: project-level data assimilation configuration and time span.
+- The shipped `rofental` project also enables the benchmark stage and adds `station_swe` as an extra benchmark family, so completed runs write `results/benchmark/` plus the headline DA-skill plot `plots/assim/scores/performance_scores.png` in addition to the usual DA outputs. Because `station_hs` is assimilated in that project, the resulting `station_swe` benchmark rows appear as `semi_independent` in the benchmark outputs.
 
 This bundle mirrors the documented setup/project structure and is used by tests and examples.
-

@@ -61,7 +61,7 @@ Workflow file: `.github/workflows/ci.yml`
 6. Setup skeleton is generated for the shipped `project_2022_2023`.
 7. SCF and wet-snow per-step observation CSVs are prepared.
 8. Full example pipeline is executed (`oa-da-project` equivalent module call).
-9. Integration validator checks logs, outputs, plots, and weight sanity.
+9. Integration validator checks logs, outputs, plots, scientific benchmark outputs, and weight sanity.
 10. Example-specific diagnostics such as station HS weights and setup weights overview are checked.
 11. Sub-domain integration validator checks manifest status and project-level results outputs.
 12. If integration fails, log and example outputs are uploaded as CI artifacts.
@@ -104,6 +104,7 @@ Framework/tooling config:
   - required per-step SCF and wet-snow obs CSVs
   - required station HS diagnostics and weights
   - required SCF and wet-snow weights CSVs
+  - required benchmark manifest, long-form tables, wide summary tables, summary, and core timeline plots
   - required model result artifacts (`point_*.csv`, `*.nc`)
   - required ROI mean SWE / snow-depth member CSVs
   - required plot outputs (forcing, results, assimilation, setup ESS timeline, setup weights overview)
@@ -136,6 +137,8 @@ Validation focuses on:
   - wet-snow weights CSVs
   - member SCF point time series
   - forcing plots, setup result plots, setup ESS timeline, setup weights overview, and assimilation plots
+  - benchmark outputs under `results/benchmark/` and the headline skill figure `plots/assim/scores/performance_scores.png`
+  - shipped semi-independent benchmark view for `station_swe`
   - persistent point outputs (`point_*.csv`)
   - compact data assimilation grid output (`results/grids/da_output_grids.nc`)
 - minimal weight sanity (weights exist, numeric, sum to `1.0`)
@@ -259,4 +262,3 @@ From repository root:
 - run sub-domain integration wrapper: `bash scripts/ci/run_integration_tests_subdomain.sh`
 
 Use same scripts as CI to avoid drift between local and server behavior.
-

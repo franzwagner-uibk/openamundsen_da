@@ -13,7 +13,8 @@ project pipeline on the prepared setup and project configuration.
 
 The pipeline executes the step-wise ensemble workflow, reads the matching per-step
 observation CSVs, performs the configured assimilation updates, and writes diagnostics and
-result products.
+result products. It also always runs the scientific benchmarking stage at the end of the
+project.
 
 From this point on, the tutorial assumes you are inside the running tutorial container
 shell at `/data/rofental`.
@@ -96,6 +97,30 @@ data_assimilation:
 ```
 
 This snippet shows the three project settings that most visibly change runtime and outputs in the tutorial: ensemble size, number/timing of events, and which grid-summary variables/metrics are exported.
+
+### Benchmark outputs written by the project run
+
+Every `oa-da-project` run now writes benchmark artifacts under:
+
+- `/data/rofental/projects/project_2022_2023/results/benchmark/`
+- `/data/rofental/projects/project_2022_2023/plots/assim/scores/`
+
+The benchmark result directory now contains:
+
+- long-form case and score tables under `cases/` and `scores/`
+- two compact curated tables under `tables/`
+- a markdown summary plus manifest
+- one headline DA-skill plot under `plots/assim/scores/performance_scores.png`
+
+These files keep both a propagated whole-project benchmark view and an assimilation-date update-skill view. The headline plot itself is narrower: it shows only DA-date `prior` and weighted `posterior` skill, while the whole-project propagated summary stays in `project_summary.csv`. Results are split into:
+
+- `assimilation_fit`: the exact family/date pair was assimilated
+- `semi_independent`: the exact family/date pair was not assimilated, but it is still linked through same-variable reuse elsewhere in the project or through a sister station variable
+- `independent`: the benchmark variable is never assimilated anywhere in the project and is not downgraded by station linkage
+
+The benchmark figure is intentionally different from the main result overview. It focuses on assimilation-date DA performance (`CRPSS` and `NER`) rather than state evolution, while the established result plots remain the place for ensemble spread and observation-vs-model context.
+
+This is an observation-based benchmarking layer. It strengthens scientific score reporting, but it does not replace future holdout, LOOCV, or OSSE validation workflows.
 
 ### How to configure data assimilation grid output content and dimensions (important)
 

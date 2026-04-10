@@ -24,7 +24,7 @@ Complete reference for all CLI commands.
 
 ## Overview
 
-The package provides **17 CLI entry points** for workflow automation, organized into 5 categories:
+The package provides **18 CLI entry points** for workflow automation, organized into 5 categories:
 
 1. **Core Workflow** - Main pipeline commands
 2. **Data Assimilation** - data assimilation-specific operations
@@ -45,6 +45,7 @@ All commands are available as:
 **Main setup pipeline orchestrator**
 
 Runs the complete setup data assimilation cycle: prior forcing → ensemble run → assimilation → resampling → rejuvenation.
+The pipeline now also runs the scientific benchmark stage automatically at the end of every project.
 
 ```bash
 oa-da-project \
@@ -73,6 +74,61 @@ docker compose run --rm oa oa-da-project \
   --project-dir /data/projects/project_2019-2020 \
   --max-workers 8 \
   --monitor-perf
+```
+
+**Benchmark outputs written by default:**
+- `results/benchmark/manifest.json`
+- `results/benchmark/cases/*.csv`
+- `results/benchmark/scores/*.csv`
+- `results/benchmark/tables/project_summary.csv`
+- `results/benchmark/tables/update_summary.csv`
+- `results/benchmark/summary.md`
+- `plots/assim/scores/performance_scores.png`
+
+**Benchmark config block (optional scope controls only):**
+```yaml
+data_assimilation:
+  benchmark:
+    independent_variables:
+      - station_swe
+    plots: true
+    output_dir: results/benchmark
+```
+
+Configured extra benchmark families can still appear as `semi_independent` in outputs when they share same-variable reuse or sister-station representativeness with assimilated observations.
+The headline plot shows only DA-date `prior` and `posterior` skill for assimilated and transfer-observed variables; whole-project propagated skill remains in `project_summary.csv`.
+
+---
+
+### oa-da-benchmark
+
+**Re-run scientific benchmarking on an existing finished project**
+
+Runs the same benchmark code path used by `oa-da-project` without re-running the model pipeline.
+
+```bash
+oa-da-benchmark \
+  --project-dir /data/projects/project_2019-2020 \
+  [OPTIONS]
+```
+
+**Required Arguments:**
+- `--project-dir PATH` - Project directory to benchmark
+
+**Optional Arguments:**
+- `--setup-dir PATH` - Override setup root (otherwise inferred from `--project-dir`)
+- `--variables NAME [NAME ...]` - Restrict benchmark variables to `scf`, `wet_snow`, `station_hs`, `station_swe`
+- `--output-dir PATH` - Override benchmark results directory
+- `--no-plots` - Skip benchmark plots
+- `--max-workers N` - Override benchmark preprocessing worker count
+- `--overwrite` - Recompute benchmark prerequisites if needed
+- `--log-level LEVEL` - Logging level
+
+**Example:**
+```bash
+docker compose run --rm oa oa-da-benchmark \
+  --project-dir /data/projects/project_2019-2020 \
+  --variables scf wet_snow station_swe
 ```
 
 ---
@@ -388,7 +444,7 @@ Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PR
 
 **Setup result overview**
 
-Plots the combined setup result overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. If `<project-dir>/result_overview_custom.yml` exists, the pipeline additionally writes `result_overview_custom.png` with the configured panel list.
+Plots the combined setup result overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. If `<project-dir>/result_overview_custom.yml` exists, the pipeline additionally writes `result_overview_custom.png` with the configured panel list. Custom panel configs also support `scores-crpss` and `scores-ner` to embed the benchmark score panels individually.
 
 ```bash
 oa-da-plot-result-overview \

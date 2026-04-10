@@ -10,6 +10,15 @@ from string import ascii_lowercase
 import pandas as pd
 from loguru import logger
 
+from openamundsen_da.benchmark.render.plots.core import (
+    build_event_skill_plot_data,
+    compute_event_skill_plot_positions,
+    draw_score_metric_panel,
+    score_legend_handles,
+    score_legend_handler_map,
+    score_metric_ylim,
+    score_variable_sort_key,
+)
 from openamundsen_da.io.paths import (
     abspath_relative_to,
     find_project_yaml,
@@ -99,6 +108,8 @@ _PANEL_ALIASES = {
     "station-sd": "station-sd",
     "station-swe": "station-swe",
     "ess": "ess",
+    "scores-crpss": "scores-crpss",
+    "scores-ner": "scores-ner",
 }
 
 _DEFAULT_PANELS = [
@@ -116,6 +127,8 @@ _PANEL_YLABELS = {
     "station-sd": "snow depth [m]",
     "station-swe": "swe [mm]",
     "ess": "ESS",
+    "scores-crpss": "CRPSS",
+    "scores-ner": "NER",
 }
 
 _DEFAULT_TITLES = {
@@ -124,6 +137,8 @@ _DEFAULT_TITLES = {
     "roi-swe": "mean swe (roi) - openAMUNDSEN ensemble and open loop",
     "roi-sd": "mean snow depth (roi) - openAMUNDSEN ensemble and open loop",
     "ess": "effective sample size",
+    "scores-crpss": "CRPSS",
+    "scores-ner": "NER",
 }
 
 _STATION_PANEL_META = {
@@ -168,6 +183,62 @@ _STATION_PANEL_EVENT_VARIABLE = {
 
 _ASSIM_LABEL_ROW_OFFSETS_PTS = [2.0, 8.0]
 _ASSIM_LABEL_MIN_SPACING_DAYS = 18.0
+
+
+class _LabeledLegendTuple(tuple):
+    def __new__(cls, artists, label: str):
+        obj = super().__new__(cls, artists)
+        obj._label = label
+        return obj
+
+    def get_label(self) -> str:
+        return str(self._label)
+
+
+class _EnsembleLegendHandle(_LabeledLegendTuple):
+    pass
+
+
+class _EnsembleLegendHandler:
+    def __init__(self, *, patch_height_frac: float = 0.86, line_inset_frac: float = 0.12):
+        self._patch_height_frac = patch_height_frac
+        self._line_inset_frac = line_inset_frac
+
+    def legend_artist(self, legend, orig_handle, fontsize, handlebox):
+        from matplotlib.lines import Line2D
+        from matplotlib.patches import Rectangle
+
+        x0, y0 = handlebox.xdescent, handlebox.ydescent
+        width = handlebox.width
+        height = handlebox.height
+        y_bottom = y0 + 0.5 * (1.0 - self._patch_height_frac) * height
+        patch_height = self._patch_height_frac * height
+
+        patch_artist = Rectangle(
+            (x0, y_bottom),
+            width,
+            patch_height,
+            facecolor=orig_handle[0].get_facecolor(),
+            edgecolor=orig_handle[0].get_edgecolor(),
+            linewidth=orig_handle[0].get_linewidth(),
+            alpha=orig_handle[0].get_alpha(),
+            transform=handlebox.get_transform(),
+        )
+        handlebox.add_artist(patch_artist)
+
+        inset = self._line_inset_frac * width
+        line_artist = Line2D(
+            [x0 + inset, x0 + width - inset],
+            [y0 + 0.5 * height, y0 + 0.5 * height],
+            color=orig_handle[1].get_color(),
+            linewidth=orig_handle[1].get_linewidth(),
+            transform=handlebox.get_transform(),
+            solid_capstyle="round",
+        )
+        handlebox.add_artist(line_artist)
+        return patch_artist
+
+
 def _load_scf_obs_series(path: Path) -> pd.DataFrame | None:
     """Load SCF summary data, falling back to a generic fraction-series reader."""
     try:
@@ -252,6 +323,30 @@ def _project_time_bounds(project_dir: Path) -> tuple[pd.Timestamp, pd.Timestamp]
     if pd.isna(start) or pd.isna(end):
         return None
     return start, end
+
+
+def _custom_overview_needs_score_points(specs: list[PanelSpec] | None) -> bool:
+    return any(_is_score_panel(spec.panel) for spec in (specs or []))
+
+
+def _load_score_points_for_custom_overview(project_dir: Path) -> pd.DataFrame:
+    score_path = project_dir / "results" / "benchmark" / "scores" / "event_scores.csv"
+    if not score_path.is_file():
+        raise FileNotFoundError(
+            f"Missing benchmark event scores for custom score panel(s): {score_path}. "
+            "Run the benchmark stage before requesting scores-crpss or scores-ner."
+        )
+
+    event_scores = pd.read_csv(score_path)
+    if event_scores.empty:
+        raise ValueError(f"Benchmark event scores CSV is empty: {score_path}")
+
+    score_points = build_event_skill_plot_data(event_scores, project_dir=project_dir)
+    if score_points.empty:
+        raise ValueError(f"Benchmark event scores contain no usable DA-date score points: {score_path}")
+
+    assimilation_dates = sorted({pd.Timestamp(ev.date).normalize() for ev in load_assimilation_events(project_dir)})
+    return compute_event_skill_plot_positions(score_points, assimilation_dates=assimilation_dates)
 
 
 def _load_setup_stations_df(project_dir: Path, setup_dir: Path) -> pd.DataFrame | None:
@@ -419,6 +514,28 @@ def _ess_panel_title(spec: PanelSpec, ess_data: EssPanelData | None) -> str:
     return ess_title(ensemble_size=ensemble_size)
 
 
+def _is_score_panel(panel: str) -> bool:
+    return panel in {"scores-crpss", "scores-ner"}
+
+
+def _score_metric_for_panel(panel: str) -> str:
+    if panel == "scores-crpss":
+        return "crpss"
+    if panel == "scores-ner":
+        return "ner"
+    raise ValueError(f"Unsupported score panel: {panel}")
+
+
+def _score_panel_points_for_metric(score_points: pd.DataFrame | None, panel: str) -> pd.DataFrame:
+    if score_points is None or score_points.empty:
+        return pd.DataFrame()
+    metric = _score_metric_for_panel(panel)
+    filtered = score_points.copy()
+    filtered[metric] = pd.to_numeric(filtered[metric], errors="coerce")
+    filtered = filtered[filtered[metric].notna()].copy()
+    return filtered
+
+
 def _date_bounds_frames(*frames: pd.DataFrame | None) -> tuple[pd.Timestamp, pd.Timestamp] | None:
     mins: list[pd.Timestamp] = []
     maxs: list[pd.Timestamp] = []
@@ -572,8 +689,13 @@ def _add_assim_label_axis(ax, events: list[AssimilationEvent], idx: int, *, cent
     return label_axis
 
 
-def _build_result_overview_legend(fig, *, show_station_observation: bool) -> None:
+def _build_result_overview_legend_handles(
+    *,
+    show_station_observation: bool,
+    show_ess_threshold: bool = False,
+) -> list:
     from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
 
     handles = [
         Line2D(
@@ -596,7 +718,18 @@ def _build_result_overview_legend(fig, *, show_station_observation: bool) -> Non
             label="satellite observation",
         ),
         Line2D([0], [0], color="black", lw=1.8, label="open loop"),
-        Line2D([0], [0], color="#666666", lw=LW_MEAN, label="ensemble mean"),
+        _EnsembleLegendHandle(
+            (
+                Patch(
+                    facecolor="#bfc6cf",
+                    edgecolor="#666666",
+                    linewidth=0.9,
+                    alpha=0.55,
+                ),
+                Line2D([0], [0], color="#666666", lw=1.2),
+            ),
+            "ensemble (min - max, mean)",
+        ),
         Line2D([0], [0], color="#666666", lw=1.2, ls="--", label="data assimilation event"),
     ]
     if show_station_observation:
@@ -610,21 +743,91 @@ def _build_result_overview_legend(fig, *, show_station_observation: bool) -> Non
                 label="station observation",
             ),
         )
-    legend = fig.legend(
-        handles=handles,
-        loc="lower left",
-        bbox_to_anchor=(0.055, 0.008, 0.865, 0.06),
-        bbox_transform=fig.transFigure,
-        mode="expand",
-        ncol=3,
-        frameon=False,
-        fontsize=8.0,
-        handlelength=1.6,
-        columnspacing=1.1,
-        handletextpad=0.45,
-        borderaxespad=0.0,
+    return handles
+
+
+def _result_overview_legend_handler_map() -> dict[type, object]:
+    handler_map = dict(score_legend_handler_map())
+    handler_map[_EnsembleLegendHandle] = _EnsembleLegendHandler()
+    return handler_map
+
+
+def _build_result_overview_legends(
+    fig,
+    *,
+    show_station_observation: bool,
+    score_variables: list[str] | None = None,
+    show_ess_threshold: bool = False,
+) -> list:
+    overview_handles = _build_result_overview_legend_handles(
+        show_station_observation=show_station_observation,
+        show_ess_threshold=show_ess_threshold and not score_variables,
     )
 
+    if not score_variables:
+        legend = fig.legend(
+            handles=overview_handles,
+            handler_map=_result_overview_legend_handler_map(),
+            loc="lower left",
+            bbox_to_anchor=(0.055, 0.008, 0.865, 0.06),
+            bbox_transform=fig.transFigure,
+            mode="expand",
+            ncol=3,
+            frameon=False,
+            fontsize=8.0,
+            handlelength=2.45,
+            handleheight=1.25,
+            columnspacing=1.1,
+            handletextpad=0.45,
+            borderaxespad=0.0,
+        )
+        return [legend]
+
+    score_handles = score_legend_handles(score_variables, include_da_event=False)
+    overview_legend = fig.legend(
+        handles=overview_handles,
+        handler_map=_result_overview_legend_handler_map(),
+        loc="lower left",
+        bbox_to_anchor=(0.055, 0.038, 0.865, 0.032),
+        bbox_transform=fig.transFigure,
+        mode="expand",
+        ncol=4,
+        frameon=False,
+        fontsize=6.2,
+        handlelength=2.4,
+        handleheight=1.22,
+        columnspacing=0.8,
+        handletextpad=0.32,
+        borderaxespad=0.0,
+    )
+    score_legend = fig.legend(
+        handles=score_handles,
+        handler_map=_result_overview_legend_handler_map(),
+        loc="lower left",
+        bbox_to_anchor=(0.055, 0.007, 0.865, 0.032),
+        bbox_transform=fig.transFigure,
+        mode="expand",
+        ncol=5,
+        frameon=False,
+        fontsize=6.2,
+        handlelength=2.4,
+        handleheight=1.22,
+        columnspacing=0.8,
+        handletextpad=0.32,
+        borderaxespad=0.0,
+    )
+    return [overview_legend, score_legend]
+
+
+def _legend_band_bottom(fig, legends: list, *, gap: float = 0.008, minimum: float = 0.04) -> float:
+    if not legends:
+        return minimum
+    renderer = fig.canvas.get_renderer()
+    top = 0.0
+    for legend in legends:
+        bbox = legend.get_window_extent(renderer=renderer).transformed(fig.transFigure.inverted())
+        top = max(top, float(bbox.y1))
+    return max(minimum, top + gap)
 
 def _apply_result_y_ticks(ax, panel: str) -> None:
     from matplotlib.ticker import MultipleLocator
@@ -778,7 +981,10 @@ def _panel_has_data(
     roi_snow_depth_members: list[pd.Series] | None,
     station_panels: dict[tuple[str, str], StationPanelData],
     ess_panel: EssPanelData | None,
+    score_points: pd.DataFrame | None = None,
 ) -> bool:
+    if _is_score_panel(spec.panel):
+        return not _score_panel_points_for_metric(score_points, spec.panel).empty
     if spec.panel == "fSC":
         return any(frame is not None and not frame.empty for frame in (scf_obs, scf_model, scf_env))
     if spec.panel == "fWS":
@@ -812,6 +1018,7 @@ def _filter_panel_specs(
     roi_snow_depth_members: list[pd.Series] | None,
     station_panels: dict[tuple[str, str], StationPanelData],
     ess_panel: EssPanelData | None,
+    score_points: pd.DataFrame | None = None,
 ) -> list[PanelSpec]:
     out: list[PanelSpec] = []
     for spec in specs:
@@ -829,6 +1036,7 @@ def _filter_panel_specs(
             roi_snow_depth_members=roi_snow_depth_members,
             station_panels=station_panels,
             ess_panel=ess_panel,
+            score_points=score_points,
         ):
             out.append(spec)
             continue
@@ -857,6 +1065,7 @@ def plot_result_overview(
     panel_specs: list[PanelSpec] | None = None,
     station_panels: dict[tuple[str, str], StationPanelData] | None = None,
     ess_panel: EssPanelData | None = None,
+    score_points: pd.DataFrame | None = None,
     strict_panels: bool = False,
     x_bounds: tuple[pd.Timestamp, pd.Timestamp] | None = None,
     backend: str = "Agg",
@@ -870,9 +1079,18 @@ def plot_result_overview(
 
     specs = panel_specs or list(_DEFAULT_PANELS)
     station_panels = station_panels or {}
+    score_points = score_points.copy() if score_points is not None else None
     mode = (mode or "band").lower()
     if mode not in {"band", "members"}:
         mode = "band"
+
+    events = list(assim_events or [])
+    if score_points is not None and not score_points.empty and "plot_x" not in score_points.columns:
+        score_dates = sorted({pd.Timestamp(ev.date).normalize() for ev in events})
+        if not score_dates:
+            score_dates = sorted(pd.to_datetime(score_points["assimilation_date"]).dt.normalize().unique())
+        if score_dates:
+            score_points = compute_event_skill_plot_positions(score_points, assimilation_dates=score_dates)
 
     specs = _filter_panel_specs(
         specs,
@@ -889,11 +1107,12 @@ def plot_result_overview(
         roi_snow_depth_members=roi_snow_depth_members,
         station_panels=station_panels,
         ess_panel=ess_panel,
+        score_points=score_points,
     )
     if not specs:
         raise ValueError("No data available to plot.")
 
-    height_ratios = [0.5 if spec.panel == "ess" else 1.0 for spec in specs]
+    height_ratios = [0.5 if spec.panel == "ess" else 1.15 if _is_score_panel(spec.panel) else 1.0 for spec in specs]
     total_height_units = sum(height_ratios)
     fig, axes = plt.subplots(
         len(specs),
@@ -906,7 +1125,6 @@ def plot_result_overview(
         axes = [axes]
     title_artists: list[tuple[object, object]] = []
 
-    events = list(assim_events or [])
     roi_swe_env = _band_frame(roi_swe_members)
     roi_snow_depth_env = _band_frame(roi_snow_depth_members)
     shared_scales = _shared_result_scales(
@@ -920,6 +1138,13 @@ def plot_result_overview(
     data_x_bounds: tuple[pd.Timestamp, pd.Timestamp] | None = None
     label_axes: list[tuple[object, object]] = []
     show_station_observation = False
+    score_panel_indices = [idx for idx, spec in enumerate(specs) if _is_score_panel(spec.panel)]
+    score_legend_variables = (
+        sorted(score_points["variable"].astype(str).unique(), key=score_variable_sort_key)
+        if score_panel_indices and score_points is not None and not score_points.empty
+        else []
+    )
+    show_ess_threshold = any(spec.panel == "ess" and ess_panel is not None and ess_panel.threshold is not None for spec in specs)
 
     for idx, (ax, spec) in enumerate(zip(axes, specs)):
         letter = ascii_lowercase[idx] if idx < len(ascii_lowercase) else str(idx + 1)
@@ -928,7 +1153,7 @@ def plot_result_overview(
         if spec.panel.startswith("station-") and spec.station_id is not None:
             value_col = _STATION_PANEL_META[spec.panel]["value_col"]
             station_data = station_panels[(spec.station_id.lower(), value_col)]
-        panel_style = _panel_style(spec.panel)
+        panel_style = None if _is_score_panel(spec.panel) else _panel_style(spec.panel)
 
         title_artist = ax.set_title(
             f"({letter}) {(_ess_panel_title(spec, current_ess_panel) if spec.panel == 'ess' else _panel_title(spec, station_data))}",
@@ -938,9 +1163,24 @@ def plot_result_overview(
         )
         title_artists.append((ax, title_artist))
         center_assim = spec.panel in {"roi-swe", "roi-sd", "station-swe", "station-sd"}
-        _draw_all_assim(ax, events, center_of_day=center_assim)
+        if not _is_score_panel(spec.panel):
+            _draw_all_assim(ax, events, center_of_day=center_assim)
 
-        if spec.panel == "fSC":
+        if _is_score_panel(spec.panel):
+            score_metric = _score_metric_for_panel(spec.panel)
+            metric_points = _score_panel_points_for_metric(score_points, spec.panel)
+            score_variables = sorted(metric_points["variable"].astype(str).unique(), key=score_variable_sort_key)
+            draw_score_metric_panel(
+                ax,
+                points=metric_points,
+                metric=score_metric,
+                variables=score_variables,
+                assimilation_events=events,
+            )
+            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
+            ax.set_ylim(*score_metric_ylim(metric_points, score_metric))
+            bounds = _date_bounds_frames(pd.DataFrame({"date": pd.to_datetime(metric_points["assimilation_date"])}))
+        elif spec.panel == "fSC":
             if mode == "band" and scf_env is not None and not scf_env.empty:
                 ax.fill_between(
                     scf_env["date"],
@@ -1110,8 +1350,6 @@ def plot_result_overview(
             _apply_shared_result_scale(ax, spec.panel, shared_scales)
             bounds = _date_bounds_frames(roi_snow_depth_model, roi_snow_depth_env)
         elif spec.panel == "ess":
-            from matplotlib.lines import Line2D
-
             if current_ess_panel is None or current_ess_panel.series is None or current_ess_panel.series.empty:
                 raise ValueError("Missing ESS panel data")
             ess_series = current_ess_panel.series
@@ -1134,6 +1372,8 @@ def plot_result_overview(
                     threshold=current_ess_panel.threshold,
                 )
             if current_ess_panel.threshold is not None:
+                from matplotlib.lines import Line2D
+
                 ax.axhline(current_ess_panel.threshold, color="#d62728", lw=0.9, ls="--", zorder=10)
                 ax.legend(
                     [Line2D([0], [0], color="#d62728", lw=0.9, ls="--")],
@@ -1252,7 +1492,31 @@ def plot_result_overview(
     for ax, title_artist in title_artists:
         x_axes = ax.transAxes.inverted().transform((global_left_disp, ax.bbox.y1))[0]
         title_artist.set_x(x_axes)
-    _build_result_overview_legend(fig, show_station_observation=show_station_observation)
+    legends = _build_result_overview_legends(
+        fig,
+        show_station_observation=show_station_observation,
+        score_variables=score_legend_variables,
+        show_ess_threshold=show_ess_threshold,
+    )
+    fig.canvas.draw()
+    legend_bottom = _legend_band_bottom(fig, legends, gap=0.008, minimum=0.04)
+    fig.tight_layout(rect=(-0.02, legend_bottom, 0.985, 1.0), h_pad=0.74)
+    fig.align_ylabels(axes)
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    global_left_disp = None
+    for ax, _title_artist in title_artists:
+        tick_labels = [label for label in ax.get_yticklabels() if label.get_text()]
+        if not tick_labels:
+            continue
+        left_disp = min(label.get_window_extent(renderer).x0 for label in tick_labels) - 6.0
+        if global_left_disp is None or left_disp < global_left_disp:
+            global_left_disp = left_disp
+    if global_left_disp is None:
+        global_left_disp = min(ax.bbox.x0 for ax in axes)
+    for ax, title_artist in title_artists:
+        x_axes = ax.transAxes.inverted().transform((global_left_disp, ax.bbox.y1))[0]
+        title_artist.set_x(x_axes)
     force_figure_text_black(fig, axes)
     save_figure_png(fig, output)
     plt.close(fig)
@@ -1348,6 +1612,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     )
     custom_specs: list[PanelSpec] | None = None
     custom_station_panels: dict[tuple[str, str], StationPanelData] = {}
+    custom_score_points: pd.DataFrame | None = None
     if custom_config_path is not None:
         try:
             custom_specs = _parse_panel_specs(custom_config_path)
@@ -1361,6 +1626,8 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                 key: _load_station_panel_data(project_dir, key[0], value_col=key[1], stations_df=stations_df)
                 for key in sorted(requested_station_keys)
             }
+            if _custom_overview_needs_score_points(custom_specs):
+                custom_score_points = _load_score_points_for_custom_overview(project_dir)
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to load custom result overview config {}: {}", custom_config_path, exc)
             return 1
@@ -1387,6 +1654,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                 panel_specs=custom_specs,
                 station_panels=custom_station_panels,
                 ess_panel=ess_panel,
+                score_points=custom_score_points,
                 strict_panels=True,
                 x_bounds=project_time_bounds,
                 backend=args.backend,
@@ -1433,6 +1701,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                     panel_specs=custom_specs,
                     station_panels=custom_station_panels,
                     ess_panel=ess_panel,
+                    score_points=custom_score_points,
                     strict_panels=True,
                     x_bounds=project_time_bounds,
                     backend=args.backend,

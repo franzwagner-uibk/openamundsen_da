@@ -49,8 +49,6 @@ panels:
 
   - panel: scores-crpss
 
-  - panel: scores-ner
-
 # Additional examples for all supported panel types:
 #  - panel: roi-swe
 #

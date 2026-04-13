@@ -14,6 +14,7 @@ from openamundsen_da.benchmark.pipeline import load_benchmark_config
 from openamundsen_da.benchmark.render.plots import core as plots_core
 from openamundsen_da.benchmark.render.plots.core import build_event_skill_plot_data, compute_event_skill_plot_positions
 from openamundsen_da.benchmark.render.plots import write_plots
+from openamundsen_da.methods.viz._style import da_variable_style
 from openamundsen_da.methods.viz._utils import CRPSS_AXIS_POLICY, bounded_metric_range
 from openamundsen_da.benchmark.render.tables import write_summary_tables
 
@@ -577,6 +578,10 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     legend_handles = plots_core.score_legend_handles(["scf", "wet_snow"])
     assert legend_handles[0].get_markeredgecolor() == plots_core.score_variable_color("scf")
     assert legend_handles[0].get_markerfacecolor() == plots_core.score_variable_color("scf")
+    assert plots_core.score_variable_color("station_hs") == da_variable_style("station_hs")["line"]
+    assert plots_core.score_variable_color("station_swe") == da_variable_style("station_swe")["line"]
+    assert plots_core.variable_style("station_hs")["line"] == da_variable_style("station_hs")["line"]
+    assert plots_core.variable_style("station_swe")["line"] == da_variable_style("station_swe")["line"]
     prior_handle = legend_handles[2]
     posterior_handle = legend_handles[3]
     assert prior_handle.get_label() == "prior"

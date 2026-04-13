@@ -19,11 +19,6 @@ SIZE_DA_OBS = 100
 LW_DA_OBS = 1.8
 COLOR_OBS_SCF = "#d62728"
 SIZE_OBS_SCF = 10
-COLOR_DA_STATION_HS = "#2b6cb0"
-COLOR_DA_STATION_SWE = "#2f855a"
-LS_DA_STATION_HS = "-."
-LS_DA_STATION_SWE = ":"
-LW_DA_STATION = 1.4
 
 # Grid style
 GRID_LS = ":"
@@ -56,3 +51,42 @@ STANDALONE_SCORE_FIGURE_ROW_UNITS = 2.91
 
 # Export
 EXPORT_DPI = 600
+
+_DA_VARIABLE_ALIASES = {
+    "scf": "scf",
+    "fsc": "scf",
+    "wet_snow": "wet_snow",
+    "fws": "wet_snow",
+    "station_hs": "station_hs",
+    "station_sd": "station_hs",
+    "sd": "station_hs",
+    "snow_depth": "station_hs",
+    "snowdepth": "station_hs",
+    "hs": "station_hs",
+    "station_swe": "station_swe",
+    "swe": "station_swe",
+}
+
+DA_VARIABLE_STYLES = {
+    "scf": {"fill": "#9ec5ff", "line": "#2f6fb5"},
+    "wet_snow": {"fill": "#9bd8bf", "line": "#2c8a64"},
+    "station_hs": {"fill": "#f3c38e", "line": "#ff7f0e"},
+    "station_swe": {"fill": "#ccb8f2", "line": "#9467bd"},
+}
+
+
+def canonical_da_variable(variable: str) -> str:
+    token = str(variable or "").strip().lower().replace("-", "_")
+    return _DA_VARIABLE_ALIASES.get(token, token)
+
+
+def da_variable_style(variable: str) -> dict[str, str]:
+    return DA_VARIABLE_STYLES[canonical_da_variable(variable)]
+
+
+def da_variable_line_color(variable: str) -> str:
+    return da_variable_style(variable)["line"]
+
+
+def da_variable_fill_color(variable: str) -> str:
+    return da_variable_style(variable)["fill"]

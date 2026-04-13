@@ -77,6 +77,8 @@ from openamundsen_da.methods.viz._style import (
     ASSIM_LABEL_ROT,
     FIGSIZE_FORCING,
     FIGSIZE_RESULTS,
+    da_variable_fill_color,
+    da_variable_line_color,
 )
 from openamundsen_da.util.stats import envelope
 from openamundsen_da.util.ts import (
@@ -319,6 +321,7 @@ def _build_station_result_legend(
     *,
     show_station_observation: bool,
     mean_color: str,
+    band_color: str,
     show_ensemble_summary: bool = True,
 ) -> None:
     from matplotlib.lines import Line2D
@@ -331,7 +334,7 @@ def _build_station_result_legend(
         handles.extend(
             [
                 Line2D([0], [0], color=mean_color, lw=LW_MEAN, label="ensemble mean"),
-                Patch(facecolor=mean_color, edgecolor=mean_color, linewidth=1.2, alpha=BAND_ALPHA, label="ensemble"),
+                Patch(facecolor=band_color, edgecolor=band_color, linewidth=1.2, alpha=BAND_ALPHA, label="ensemble"),
             ]
         )
     handles.append(Line2D([0], [0], color="#666666", lw=1.2, ls="--", label="data assimilation event"))
@@ -367,9 +370,18 @@ def _station_obs_color(var_col: str) -> str:
 def _station_model_color(var_col: str) -> str:
     key = str(var_col or "").strip().lower()
     if key in {"snow_depth", "hs"}:
-        return "#cf7a20"
+        return da_variable_line_color("station_hs")
     if key == "swe":
-        return "#7a58b5"
+        return da_variable_line_color("station_swe")
+    return COLOR_MEAN
+
+
+def _station_band_color(var_col: str) -> str:
+    key = str(var_col or "").strip().lower()
+    if key in {"snow_depth", "hs"}:
+        return da_variable_fill_color("station_hs")
+    if key == "swe":
+        return da_variable_fill_color("station_swe")
     return COLOR_MEAN
 
 
@@ -911,6 +923,7 @@ def plot_setup_results(
         # Members or band + ensemble mean (stepwise, to avoid jumps after resampling)
         station_obs_color = _station_obs_color(var_col)
         station_model_color = _station_model_color(var_col)
+        station_band_color = _station_band_color(var_col)
         effective_mode = "members" if show_members else mode
         if effective_mode == "members":
             for series in member_series:
@@ -930,7 +943,7 @@ def plot_setup_results(
                     mean.index,
                     lo,
                     hi,
-                    color=station_model_color,
+                    color=station_band_color,
                     alpha=BAND_ALPHA,
                     label="_nolegend_",
                     zorder=2,
@@ -1005,6 +1018,7 @@ def plot_setup_results(
             fig,
             show_station_observation=obs_series is not None and not obs_series.empty,
             mean_color=station_model_color,
+            band_color=station_band_color,
             show_ensemble_summary=effective_mode == "band",
         )
 

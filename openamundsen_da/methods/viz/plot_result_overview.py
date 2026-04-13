@@ -36,6 +36,7 @@ from openamundsen_da.methods.viz._style import (
     LW_OPEN,
     SIZE_DA_OBS,
     LW_DA_OBS,
+    da_variable_style,
 )
 from openamundsen_da.methods.viz._utils import (
     apply_fraction_grid,
@@ -156,28 +157,21 @@ _STATION_PANEL_META = {
     },
 }
 
-_VARIABLE_STYLES = {
-    "fSC": {"fill": "#9ec5ff", "line": "#2f6fb5"},
-    "fWS": {"fill": "#9bd8bf", "line": "#2c8a64"},
-    "SWE": {"fill": "#ccb8f2", "line": "#7a58b5"},
-    "SD": {"fill": "#f3c38e", "line": "#cf7a20"},
-}
-
 _PANEL_VARIABLE_KEYS = {
-    "fSC": "fSC",
-    "fWS": "fWS",
-    "roi-swe": "SWE",
-    "roi-sd": "SD",
-    "station-swe": "SWE",
-    "station-sd": "SD",
-    "ess": "fSC",
+    "fSC": "scf",
+    "fWS": "wet_snow",
+    "roi-swe": "station_swe",
+    "roi-sd": "station_hs",
+    "station-swe": "station_swe",
+    "station-sd": "station_hs",
+    "ess": "scf",
 }
 
 _ASSIM_STYLES = {
-    "scf": {"variable_key": "fSC", "ls": "--"},
-    "wet_snow": {"variable_key": "fWS", "ls": "--"},
-    "station_hs": {"variable_key": "SD", "ls": "--"},
-    "station_swe": {"variable_key": "SWE", "ls": "--"},
+    "scf": {"ls": "--"},
+    "wet_snow": {"ls": "--"},
+    "station_hs": {"ls": "--"},
+    "station_swe": {"ls": "--"},
 }
 
 _STATION_PANEL_EVENT_VARIABLE = {
@@ -597,16 +591,15 @@ def _band_frame(
 
 
 def _panel_style(panel: str) -> dict[str, str]:
-    return _VARIABLE_STYLES[_PANEL_VARIABLE_KEYS[panel]]
+    return da_variable_style(_PANEL_VARIABLE_KEYS[panel])
 
 
 def _assim_style(variable: str) -> dict[str, str]:
     meta = _ASSIM_STYLES.get(variable)
     if meta is None:
         return {"variable_key": variable, "color": "#777777", "ls": "--"}
-    variable_key = str(meta["variable_key"])
-    style = _VARIABLE_STYLES[variable_key]
-    return {"variable_key": variable_key, "color": style["line"], "ls": str(meta["ls"])}
+    style = da_variable_style(variable)
+    return {"variable_key": variable, "color": style["line"], "ls": str(meta["ls"])}
 
 
 def _assim_labels(events: list[AssimilationEvent]) -> tuple[list[pd.Timestamp], list[str]]:

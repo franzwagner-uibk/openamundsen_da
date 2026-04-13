@@ -4,32 +4,30 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from openamundsen_da.methods.viz._style import da_variable_style as _da_variable_style
+
 
 VARIABLE_STYLES = {
     "scf": {
-        "fill": "#9ec5ff",
-        "line": "#2f6fb5",
+        **_da_variable_style("scf"),
         "title": "snow cover fraction benchmark",
         "ylabel": "snow cover fraction",
         "label": "SCF",
     },
     "wet_snow": {
-        "fill": "#9bd8bf",
-        "line": "#2c8a64",
+        **_da_variable_style("wet_snow"),
         "title": "wet snow fraction benchmark",
         "ylabel": "wet snow fraction",
         "label": "wet snow",
     },
     "station_swe": {
-        "fill": "#ccb8f2",
-        "line": "#7a58b5",
+        **_da_variable_style("station_swe"),
         "title": "station SWE benchmark",
         "ylabel": "swe [mm]",
         "label": "station SWE",
     },
     "station_hs": {
-        "fill": "#f3c38e",
-        "line": "#cf7a20",
+        **_da_variable_style("station_hs"),
         "title": "station snow-depth benchmark",
         "ylabel": "snow depth [m]",
         "label": "station HS",

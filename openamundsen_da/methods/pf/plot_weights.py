@@ -27,6 +27,7 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 from openamundsen_da.io.paths import infer_project_dir, infer_setup_dir, list_steps_sorted
+from openamundsen_da.methods.viz._style import da_variable_line_color
 from openamundsen_da.methods.viz._utils import force_figure_text_black, save_figure_png, set_matplotlib_text_black
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.da_observables import station_diagnostics_csv_name, weight_plot_title_from_csv_path
@@ -35,16 +36,31 @@ from openamundsen_da.util.stats import effective_sample_size
 
 _WEIGHTS_FIGSIZE = (7.2876875, 3.013)
 _FRACTION_MISMATCH_COLORS = {
-    "scf": "#2f6fb5",
-    "wet_snow": "#2c8a64",
+    "scf": da_variable_line_color("scf"),
+    "wet_snow": da_variable_line_color("wet_snow"),
 }
 _FRACTION_DISPLAY_LABELS = {
     "scf": "SCF",
     "wet_snow": "wet snow",
 }
-# Keep station colors distinct from the fixed DA-variable colors:
-# SCF = blue, wet snow = green.
-_STATION_COLORS = ["#ff7f0e", "#9467bd", "#8c564b", "#e377c2", "#bcbd22", "#17becf"]
+_STATION_COLOR_CYCLES = {
+    "station_hs": [
+        da_variable_line_color("station_hs"),
+        da_variable_line_color("station_swe"),
+        "#8c564b",
+        "#e377c2",
+        "#bcbd22",
+        "#17becf",
+    ],
+    "station_swe": [
+        da_variable_line_color("station_swe"),
+        da_variable_line_color("station_hs"),
+        "#8c564b",
+        "#e377c2",
+        "#bcbd22",
+        "#17becf",
+    ],
+}
 _FS_TITLE = 9.4
 _FS_AXIS = 8.6
 _FS_TICK = 8.4
@@ -295,9 +311,13 @@ def _station_metadata_uncertainty_pct(csv_path: Path, station_ids: list[str]) ->
     return mapping
 
 
-def _station_color_map(station_ids: list[str]) -> dict[str, str]:
+def _station_color_map(station_ids: list[str], *, observable: str | None = None) -> dict[str, str]:
+    color_cycle = _STATION_COLOR_CYCLES.get(
+        str(observable or "").strip().lower(),
+        _STATION_COLOR_CYCLES["station_hs"],
+    )
     return {
-        station_id: _STATION_COLORS[idx % len(_STATION_COLORS)]
+        station_id: color_cycle[idx % len(color_cycle)]
         for idx, station_id in enumerate(station_ids)
     }
 
@@ -334,7 +354,7 @@ def _marker_legend_entries_for_csv(csv_path: Path, observable: str | None) -> li
         station_ids = sorted(diag["station_id"].dropna().astype(str).unique())
         station_display_names = _station_display_names(csv_path, station_ids)
         station_sigma_meta = _station_metadata_uncertainty_pct(csv_path, station_ids)
-        station_color_map = _station_color_map(station_ids)
+        station_color_map = _station_color_map(station_ids, observable=observable)
         entries: list[tuple[str, str]] = []
         for station_id in station_ids:
             display_name = station_display_names.get(station_id, station_id)
@@ -792,7 +812,7 @@ def _draw_weights_event(
             if not diag.empty and "station_id" in diag.columns
             else []
         )
-        station_color_map = _station_color_map(station_ids)
+        station_color_map = _station_color_map(station_ids, observable=observable)
         for station_id in station_ids:
             station_mask = diag["station_id"].astype(str) == station_id
             sdf = diag.loc[station_mask].copy()

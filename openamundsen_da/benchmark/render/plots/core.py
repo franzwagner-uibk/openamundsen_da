@@ -51,12 +51,6 @@ _STREAM_LABELS = {
     "semi_independent": "semi-independent",
     "independent": "independent",
 }
-_SCORE_VARIABLE_COLORS = {
-    "scf": "#2f6fb5",
-    "wet_snow": "#2c8a64",
-    "station_hs": "#ff7f0e",
-    "station_swe": "#9467bd",
-}
 _FIGURE_TITLE = "Data assimilation performance scores"
 _MARKER_EDGE_COLOR = "#000000"
 _MARKER_EDGE_WIDTH = 0.5
@@ -132,7 +126,7 @@ def _sort_variable(variable: str) -> tuple[int, str]:
 
 
 def score_variable_color(variable: str) -> str:
-    return _SCORE_VARIABLE_COLORS.get(str(variable), variable_style(str(variable))["line"])
+    return variable_style(str(variable))["line"]
 
 
 def _clean_plot_dir(plots_dir: Path) -> None:

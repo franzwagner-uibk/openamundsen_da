@@ -8,6 +8,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 import openamundsen_da.methods.viz.plot_result_overview as plot_mod
+from openamundsen_da.methods.viz._style import da_variable_style
 from openamundsen_da.methods.viz.plot_result_overview import (
     PanelSpec,
     StationPanelData,
@@ -110,8 +111,8 @@ def test_plot_result_overview_uses_four_panels_when_roi_series_exist(monkeypatch
     ]
     assert axes[0].get_title(loc="left").startswith("(a) ")
     assert axes[1].get_title(loc="left").startswith("(b) ")
-    assert axes[2].lines[0].get_color() == plot_mod._VARIABLE_STYLES["SWE"]["line"]
-    assert axes[3].lines[0].get_color() == plot_mod._VARIABLE_STYLES["SD"]["line"]
+    assert axes[2].lines[0].get_color() == da_variable_style("station_swe")["line"]
+    assert axes[3].lines[0].get_color() == da_variable_style("station_hs")["line"]
     assert isinstance(axes[2].yaxis.get_major_locator(), mticker.MultipleLocator)
     assert isinstance(axes[3].yaxis.get_major_locator(), mticker.MultipleLocator)
     swe_ticks = axes[2].yaxis.get_major_locator().tick_values(0.0, 200.0)
@@ -215,7 +216,7 @@ def test_plot_result_overview_roi_band_excludes_open_loop_and_plots_it_separatel
     )
 
     band_low, band_high, band_color = captured["bands"][0]
-    assert band_color == plot_mod._VARIABLE_STYLES["SWE"]["fill"]
+    assert band_color == da_variable_style("station_swe")["fill"]
     assert max(band_high) < 10.0
     open_loop_calls = [vals for vals, color in captured["plots"] if color == "black"]
     assert open_loop_calls == [[100.0, 100.0]]
@@ -297,14 +298,14 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
     wet_midday = wet_date + pd.Timedelta(hours=12)
     hs_midday = hs_date + pd.Timedelta(hours=12)
     swe_midday = swe_date + pd.Timedelta(hours=12)
-    assert sum(1 for dates, color in vline_calls if dates == [scf_date] and color == plot_mod._VARIABLE_STYLES["fSC"]["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [scf_midday] and color == plot_mod._VARIABLE_STYLES["fSC"]["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [wet_date] and color == plot_mod._VARIABLE_STYLES["fWS"]["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [wet_midday] and color == plot_mod._VARIABLE_STYLES["fWS"]["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [hs_date] and color == plot_mod._VARIABLE_STYLES["SD"]["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [hs_midday] and color == plot_mod._VARIABLE_STYLES["SD"]["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [swe_date] and color == plot_mod._VARIABLE_STYLES["SWE"]["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [swe_midday] and color == plot_mod._VARIABLE_STYLES["SWE"]["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [scf_date] and color == da_variable_style("scf")["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [scf_midday] and color == da_variable_style("scf")["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [wet_date] and color == da_variable_style("wet_snow")["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [wet_midday] and color == da_variable_style("wet_snow")["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [hs_date] and color == da_variable_style("station_hs")["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [hs_midday] and color == da_variable_style("station_hs")["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [swe_date] and color == da_variable_style("station_swe")["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [swe_midday] and color == da_variable_style("station_swe")["line"]) == 2
     assert label_calls == [
         (
             "assimilation_label_axis_0",
@@ -631,7 +632,7 @@ def test_plot_result_overview_supports_custom_station_panel(tmp_path: Path) -> N
         ]
         assert axes[1].get_title(loc="left").startswith("(b) snow depth Latschbloder 2919 m")
         line_colors = [line.get_color() for line in axes[1].lines]
-        assert plot_mod._VARIABLE_STYLES["SD"]["line"] in line_colors
+        assert da_variable_style("station_hs")["line"] in line_colors
         assert "black" in line_colors
         assert plot_mod.COLOR_DA_OBS in line_colors
         assert axes[1].collections

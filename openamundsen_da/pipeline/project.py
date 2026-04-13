@@ -33,6 +33,7 @@ from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.core.launch import launch_members
 from openamundsen_da.core.prior_forcing import build_prior_ensemble
+from openamundsen_da.benchmark.pipeline import run_project_benchmark
 from openamundsen_da.io.paths import (
     read_step_config,
     find_setup_yaml,
@@ -467,7 +468,49 @@ def _run_live_plots(
             _setup_logger(cfg.project_dir, cfg.log_level)
 
 
-def _build_post_run_plot_tasks(cfg: "OrchestratorConfig", steps: List[Path]) -> List[PlotTask]:
+def _build_fraction_overlay_task(cfg: "OrchestratorConfig") -> PlotTask:
+    return PlotTask(
+        name="fraction_overlay",
+        func=plot_result_overview_cli,
+        args=(
+            [
+                "--project-dir",
+                str(cfg.project_dir),
+                "--setup-dir",
+                str(cfg.setup_dir),
+            ],
+        ),
+        kwargs={"configure_logger": False},
+    )
+
+
+def _custom_overview_needs_benchmark_scores(project_dir: Path) -> bool:
+    custom_cfg = Path(project_dir) / "result_overview_custom.yml"
+    if not custom_cfg.is_file():
+        return False
+    try:
+        data = _read_yaml_file(custom_cfg) or {}
+    except Exception:
+        return False
+    panels = data.get("panels") or []
+    for entry in panels:
+        if isinstance(entry, str):
+            panel = entry
+        elif isinstance(entry, dict):
+            panel = entry.get("panel")
+        else:
+            continue
+        if str(panel or "").strip().lower() in {"scores-crpss", "scores-ner"}:
+            return True
+    return False
+
+
+def _build_post_run_plot_tasks(
+    cfg: "OrchestratorConfig",
+    steps: List[Path],
+    *,
+    include_fraction_overlay: bool = True,
+) -> List[PlotTask]:
     """Build final project-level plot tasks executed after the run completes."""
     plot_tasks: List[PlotTask] = []
     for step_dir in steps:
@@ -518,21 +561,8 @@ def _build_post_run_plot_tasks(cfg: "OrchestratorConfig", steps: List[Path]) -> 
             },
         )
     )
-    plot_tasks.append(
-        PlotTask(
-            name="fraction_overlay",
-            func=plot_result_overview_cli,
-            args=(
-                [
-                    "--project-dir",
-                    str(cfg.project_dir),
-                    "--setup-dir",
-                    str(cfg.setup_dir),
-                ],
-            ),
-            kwargs={"configure_logger": False},
-        )
-    )
+    if include_fraction_overlay:
+        plot_tasks.append(_build_fraction_overlay_task(cfg))
     weights_csvs: List[Path] = []
     for step_dir in steps:
         assim_dir = Path(step_dir) / "assim"
@@ -1054,8 +1084,15 @@ def run_project(cfg: OrchestratorConfig) -> None:
     # Aggregate fraction envelopes before plotting overlays
     _aggregate_fraction_envelopes(cfg.project_dir)
 
-    # Build post-run plot tasks (per-step forcing, project results, fraction overlay, weights, ESS)
-    plot_tasks = _build_post_run_plot_tasks(cfg, steps)
+    score_dependent_fraction_overlay = _custom_overview_needs_benchmark_scores(cfg.project_dir)
+
+    # Build post-run plot tasks (per-step forcing, project results, weights, ESS,
+    # and the overview plot when it does not depend on benchmark score outputs).
+    plot_tasks = _build_post_run_plot_tasks(
+        cfg,
+        steps,
+        include_fraction_overlay=not score_dependent_fraction_overlay,
+    )
     try:
         _run_plot_tasks_parallel(plot_tasks, cfg.plot_workers, cfg.max_workers)
     except Exception as exc:
@@ -1075,6 +1112,28 @@ def run_project(cfg: OrchestratorConfig) -> None:
             da_summary_written = da_path is not None
         except Exception as exc:
             logger.warning("DA output grid summary failed: {}", exc)
+
+    try:
+        benchmark_outputs = run_project_benchmark(
+            project_dir=cfg.project_dir,
+            setup_dir=cfg.setup_dir,
+            max_workers=cfg.max_workers,
+            overwrite=cfg.overwrite,
+            reuse_existing_prerequisites=True,
+        )
+        logger.info(
+            "Benchmark stage complete -> {}",
+            benchmark_outputs.get("manifest", cfg.project_dir / "results" / "benchmark" / "manifest.json"),
+        )
+    except Exception:
+        logger.exception("Project benchmarking failed")
+        raise
+
+    if score_dependent_fraction_overlay:
+        try:
+            _run_plot_tasks_parallel([_build_fraction_overlay_task(cfg)], cfg.plot_workers, cfg.max_workers)
+        except Exception as exc:
+            logger.warning("Post-benchmark plotting failed: {}", exc)
 
     retention_mode = output_retention_mode(cfg.project_dir)
     if retention_mode == "compact":

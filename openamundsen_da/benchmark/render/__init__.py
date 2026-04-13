@@ -1,0 +1,2 @@
+"""Benchmark rendering helpers."""
+

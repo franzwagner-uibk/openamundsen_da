@@ -3,8 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 
 import openamundsen_da.methods.viz.plot_result_overview as plot_mod
+from openamundsen_da.methods.viz._style import da_variable_style
 from openamundsen_da.methods.viz.plot_result_overview import (
     PanelSpec,
     StationPanelData,
@@ -22,6 +26,45 @@ def _series(values: list[float]) -> pd.Series:
 
 def _frame(col: str, values: list[float]) -> pd.DataFrame:
     return pd.DataFrame({"date": pd.to_datetime(["2023-01-01", "2023-01-02"]), col: values})
+
+
+def _score_points() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "variable": "scf",
+                "stream": "assimilation_fit",
+                "assimilation_date": "2023-01-02",
+                "point_type": "prior",
+                "crpss": 0.10,
+                "ner": 0.05,
+            },
+            {
+                "variable": "scf",
+                "stream": "assimilation_fit",
+                "assimilation_date": "2023-01-02",
+                "point_type": "posterior",
+                "crpss": 0.35,
+                "ner": 0.22,
+            },
+            {
+                "variable": "station_swe",
+                "stream": "semi_independent",
+                "assimilation_date": "2023-01-03",
+                "point_type": "prior",
+                "crpss": 0.18,
+                "ner": 0.11,
+            },
+            {
+                "variable": "station_swe",
+                "stream": "semi_independent",
+                "assimilation_date": "2023-01-03",
+                "point_type": "posterior",
+                "crpss": 0.26,
+                "ner": 0.16,
+            },
+        ]
+    )
 
 
 def _panel_axes(fig) -> list:
@@ -68,8 +111,8 @@ def test_plot_result_overview_uses_four_panels_when_roi_series_exist(monkeypatch
     ]
     assert axes[0].get_title(loc="left").startswith("(a) ")
     assert axes[1].get_title(loc="left").startswith("(b) ")
-    assert axes[2].lines[0].get_color() == plot_mod._VARIABLE_STYLES["SWE"]["line"]
-    assert axes[3].lines[0].get_color() == plot_mod._VARIABLE_STYLES["SD"]["line"]
+    assert axes[2].lines[0].get_color() == da_variable_style("station_swe")["line"]
+    assert axes[3].lines[0].get_color() == da_variable_style("station_hs")["line"]
     assert isinstance(axes[2].yaxis.get_major_locator(), mticker.MultipleLocator)
     assert isinstance(axes[3].yaxis.get_major_locator(), mticker.MultipleLocator)
     swe_ticks = axes[2].yaxis.get_major_locator().tick_values(0.0, 200.0)
@@ -77,8 +120,8 @@ def test_plot_result_overview_uses_four_panels_when_roi_series_exist(monkeypatch
     assert swe_ticks[1] - swe_ticks[0] == 50.0
     assert sd_ticks[1] - sd_ticks[0] == 0.25
     assert plt.gcf()._suptitle is None
-    assert plt.gcf().get_size_inches()[0] == 7.2876875
-    assert plt.gcf().get_size_inches()[1] == 6.8494734
+    assert plt.gcf().get_size_inches()[0] == plot_mod.FIGWIDTH_OVERVIEW_PAPER
+    assert plt.gcf().get_size_inches()[1] == pytest.approx(plot_mod.FIGHEIGHT_OVERVIEW_ROW * 4.0)
     assert len(plt.gcf().legends) == 1
     assert out_path.is_file()
     original_close(plt.gcf())
@@ -173,7 +216,7 @@ def test_plot_result_overview_roi_band_excludes_open_loop_and_plots_it_separatel
     )
 
     band_low, band_high, band_color = captured["bands"][0]
-    assert band_color == plot_mod._VARIABLE_STYLES["SWE"]["fill"]
+    assert band_color == da_variable_style("station_swe")["fill"]
     assert max(band_high) < 10.0
     open_loop_calls = [vals for vals, color in captured["plots"] if color == "black"]
     assert open_loop_calls == [[100.0, 100.0]]
@@ -255,14 +298,14 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
     wet_midday = wet_date + pd.Timedelta(hours=12)
     hs_midday = hs_date + pd.Timedelta(hours=12)
     swe_midday = swe_date + pd.Timedelta(hours=12)
-    assert sum(1 for dates, color in vline_calls if dates == [scf_date] and color == plot_mod._VARIABLE_STYLES["fSC"]["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [scf_midday] and color == plot_mod._VARIABLE_STYLES["fSC"]["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [wet_date] and color == plot_mod._VARIABLE_STYLES["fWS"]["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [wet_midday] and color == plot_mod._VARIABLE_STYLES["fWS"]["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [hs_date] and color == plot_mod._VARIABLE_STYLES["SD"]["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [hs_midday] and color == plot_mod._VARIABLE_STYLES["SD"]["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [swe_date] and color == plot_mod._VARIABLE_STYLES["SWE"]["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [swe_midday] and color == plot_mod._VARIABLE_STYLES["SWE"]["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [scf_date] and color == da_variable_style("scf")["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [scf_midday] and color == da_variable_style("scf")["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [wet_date] and color == da_variable_style("wet_snow")["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [wet_midday] and color == da_variable_style("wet_snow")["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [hs_date] and color == da_variable_style("station_hs")["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [hs_midday] and color == da_variable_style("station_hs")["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [swe_date] and color == da_variable_style("station_swe")["line"]) == 2
+    assert sum(1 for dates, color in vline_calls if dates == [swe_midday] and color == da_variable_style("station_swe")["line"]) == 2
     assert label_calls == [
         (
             "assimilation_label_axis_0",
@@ -364,9 +407,19 @@ def test_plot_result_overview_uses_single_figure_legend_labels(tmp_path: Path) -
             "observation used for data assimilation",
             "satellite observation",
             "open loop",
-            "ensemble mean",
+            "ensemble (min - max, mean)",
             "data assimilation event",
         ]
+        legend_handles = plot_mod._build_result_overview_legend_handles(show_station_observation=False)
+        ensemble_handle = legend_handles[3]
+        assert ensemble_handle.get_label() == "ensemble (min - max, mean)"
+        assert isinstance(ensemble_handle, tuple)
+        assert isinstance(ensemble_handle[0], Patch)
+        assert isinstance(ensemble_handle[1], Line2D)
+        handler_map = plot_mod._result_overview_legend_handler_map()
+        ensemble_handler = handler_map[type(ensemble_handle)]
+        assert isinstance(ensemble_handler, plot_mod._EnsembleLegendHandler)
+        assert ensemble_handler._line_inset_frac > 0.0
         assert all(ax.get_legend() is None for ax in _panel_axes(plt.gcf()))
         assert out_path.is_file()
     finally:
@@ -410,7 +463,7 @@ def test_plot_result_overview_custom_legend_includes_station_observation_when_dr
             "observation used for data assimilation",
             "satellite observation",
             "open loop",
-            "ensemble mean",
+            "ensemble (min - max, mean)",
             "station observation",
             "data assimilation event",
         ]
@@ -456,7 +509,7 @@ def test_plot_result_overview_custom_legend_omits_station_observation_when_hidde
             "observation used for data assimilation",
             "satellite observation",
             "open loop",
-            "ensemble mean",
+            "ensemble (min - max, mean)",
             "data assimilation event",
         ]
         assert out_path.is_file()
@@ -579,7 +632,7 @@ def test_plot_result_overview_supports_custom_station_panel(tmp_path: Path) -> N
         ]
         assert axes[1].get_title(loc="left").startswith("(b) snow depth Latschbloder 2919 m")
         line_colors = [line.get_color() for line in axes[1].lines]
-        assert plot_mod._VARIABLE_STYLES["SD"]["line"] in line_colors
+        assert da_variable_style("station_hs")["line"] in line_colors
         assert "black" in line_colors
         assert plot_mod.COLOR_DA_OBS in line_colors
         assert axes[1].collections
@@ -619,9 +672,256 @@ def test_plot_result_overview_custom_ess_panel_uses_threshold_and_top_tick_only(
 
         axes = _panel_axes(plt.gcf())
         assert list(axes[0].get_yticks()) == [23.5, 47.0]
+        assert axes[0].get_legend() is not None
+        assert [text.get_text() for text in axes[0].get_legend().get_texts()] == ["ESS threshold"]
+        assert len(plt.gcf().legends) == 1
         assert out_path.is_file()
     finally:
         plt.close = original_close
+
+
+def test_plot_result_overview_supports_custom_crpss_score_panel(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        out_path = tmp_path / "result_overview_custom.png"
+        plot_result_overview(
+            scf_obs=None,
+            scf_model=None,
+            wet_obs=None,
+            wet_model=None,
+            scf_env=None,
+            wet_env=None,
+            output=out_path,
+            panel_specs=[PanelSpec(panel="scores-crpss")],
+            score_points=_score_points(),
+            assim_events=[
+                plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-02").date(), variable="scf", product="SNOWCOVER"),
+                plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-03").date(), variable="station_hs", product="STATION"),
+            ],
+            strict_panels=True,
+        )
+
+        axes = _panel_axes(plt.gcf())
+        assert len(axes) == 1
+        assert axes[0].get_title(loc="left").endswith("CRPSS")
+        assert axes[0].get_ylabel() == "CRPSS"
+        assert 0.5 in list(axes[0].get_yticks())
+        assert axes[0].collections
+        assert axes[0].get_legend() is None
+        assert len(plt.gcf().legends) == 2
+        overview_labels = [text.get_text() for text in plt.gcf().legends[0].get_texts()]
+        score_labels = [text.get_text() for text in plt.gcf().legends[1].get_texts()]
+        assert "open loop" in overview_labels
+        assert "prior" in score_labels
+        assert "posterior" in score_labels
+        assert "assimilation fit" in score_labels
+        assert getattr(plt.gcf().legends[0], "_ncols", None) == 4
+        assert getattr(plt.gcf().legends[1], "_ncols", None) == 5
+        assert out_path.is_file()
+    finally:
+        plt.close = original_close
+
+
+def test_plot_result_overview_supports_custom_ner_score_panel(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        out_path = tmp_path / "result_overview_custom.png"
+        plot_result_overview(
+            scf_obs=None,
+            scf_model=None,
+            wet_obs=None,
+            wet_model=None,
+            scf_env=None,
+            wet_env=None,
+            output=out_path,
+            panel_specs=[PanelSpec(panel="scores-ner")],
+            score_points=_score_points(),
+            assim_events=[
+                plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-02").date(), variable="scf", product="SNOWCOVER"),
+                plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-03").date(), variable="station_hs", product="STATION"),
+            ],
+            strict_panels=True,
+        )
+
+        axes = _panel_axes(plt.gcf())
+        assert len(axes) == 1
+        assert axes[0].get_title(loc="left").endswith("NER")
+        assert axes[0].get_ylabel() == "NER"
+        assert 0.5 in list(axes[0].get_yticks())
+        assert axes[0].collections
+        assert out_path.is_file()
+    finally:
+        plt.close = original_close
+
+
+def test_plot_result_overview_supports_both_score_panels_and_single_local_legend(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        out_path = tmp_path / "result_overview_custom.png"
+        plot_result_overview(
+            scf_obs=None,
+            scf_model=None,
+            wet_obs=None,
+            wet_model=None,
+            scf_env=None,
+            wet_env=None,
+            output=out_path,
+            panel_specs=[PanelSpec(panel="scores-crpss"), PanelSpec(panel="scores-ner")],
+            score_points=_score_points(),
+            assim_events=[
+                plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-02").date(), variable="scf", product="SNOWCOVER"),
+                plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-03").date(), variable="station_hs", product="STATION"),
+            ],
+            strict_panels=True,
+        )
+
+        axes = _panel_axes(plt.gcf())
+        assert axes[0].get_title(loc="left").endswith("CRPSS")
+        assert axes[1].get_title(loc="left").endswith("NER")
+        assert [ax.get_ylabel() for ax in axes] == ["CRPSS", "NER"]
+        assert 0.5 in list(axes[0].get_yticks())
+        assert 0.5 in list(axes[1].get_yticks())
+        assert axes[0].get_legend() is None
+        assert axes[1].get_legend() is None
+        assert len(plt.gcf().legends) == 2
+        assert getattr(plt.gcf().legends[0], "_ncols", None) == 4
+        assert getattr(plt.gcf().legends[1], "_ncols", None) == 5
+        assert out_path.is_file()
+    finally:
+        plt.close = original_close
+
+
+def test_plot_result_overview_score_panels_use_taller_height_ratios(monkeypatch, tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    recorded: dict[str, object] = {}
+    original_subplots = plt.subplots
+    original_close = plt.close
+
+    def _spy_subplots(nrows, *args, **kwargs):
+        recorded["nrows"] = nrows
+        recorded["figsize"] = kwargs.get("figsize")
+        recorded["height_ratios"] = kwargs.get("gridspec_kw", {}).get("height_ratios")
+        return original_subplots(nrows, *args, **kwargs)
+
+    monkeypatch.setattr(plt, "subplots", _spy_subplots)
+    monkeypatch.setattr(plt, "close", lambda fig=None: None)
+
+    out_path = tmp_path / "result_overview_custom.png"
+    plot_result_overview(
+        scf_obs=None,
+        scf_model=_frame("scf", [0.2, 0.4]),
+        wet_obs=None,
+        wet_model=None,
+        scf_env=None,
+        wet_env=None,
+        output=out_path,
+        panel_specs=[
+            PanelSpec(panel="fSC"),
+            PanelSpec(panel="ess"),
+            PanelSpec(panel="scores-crpss"),
+            PanelSpec(panel="scores-ner"),
+        ],
+        score_points=_score_points(),
+        assim_events=[
+            plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-02").date(), variable="scf", product="SNOWCOVER"),
+            plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-03").date(), variable="station_hs", product="STATION"),
+        ],
+        ess_panel=plot_mod.EssPanelData(
+            series=pd.DataFrame(
+                {
+                    "date": pd.to_datetime(["2023-01-01", "2023-02-01"]),
+                    "ess": [22.0, 31.0],
+                }
+            ),
+            ensemble_size=47,
+            threshold=23.5,
+        ),
+        strict_panels=True,
+    )
+
+    assert recorded["nrows"] == 4
+    assert recorded["height_ratios"] == [
+        1.0,
+        0.5,
+        plot_mod.OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR,
+        plot_mod.OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR,
+    ]
+    assert recorded["figsize"][0] == plot_mod.FIGWIDTH_OVERVIEW_PAPER
+    expected_height_units = 1.0 + 0.5 + plot_mod.OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR * 2.0
+    assert recorded["figsize"][1] == pytest.approx(plot_mod.FIGHEIGHT_OVERVIEW_ROW * expected_height_units)
+    assert out_path.is_file()
+    original_close(plt.gcf())
+
+
+def test_plot_result_overview_score_panel_keeps_ess_threshold_local(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        out_path = tmp_path / "result_overview_custom.png"
+        plot_result_overview(
+            scf_obs=None,
+            scf_model=None,
+            wet_obs=None,
+            wet_model=None,
+            scf_env=None,
+            wet_env=None,
+            output=out_path,
+            panel_specs=[PanelSpec(panel="ess"), PanelSpec(panel="scores-crpss")],
+            score_points=_score_points(),
+            assim_events=[
+                plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-02").date(), variable="scf", product="SNOWCOVER"),
+                plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-03").date(), variable="station_hs", product="STATION"),
+            ],
+            ess_panel=plot_mod.EssPanelData(
+                series=pd.DataFrame(
+                    {
+                        "date": pd.to_datetime(["2023-01-01", "2023-02-01"]),
+                        "ess": [22.0, 31.0],
+                    }
+                ),
+                ensemble_size=47,
+                threshold=23.5,
+            ),
+            strict_panels=True,
+        )
+
+        axes = _panel_axes(plt.gcf())
+        assert axes[0].get_legend() is not None
+        assert [text.get_text() for text in axes[0].get_legend().get_texts()] == ["ESS threshold"]
+        assert axes[1].get_legend() is None
+        assert len(plt.gcf().legends) == 2
+        overview_labels = [text.get_text() for text in plt.gcf().legends[0].get_texts()]
+        assert "ESS threshold" not in overview_labels
+        assert out_path.is_file()
+    finally:
+        plt.close = original_close
+
+
+def test_plot_result_overview_score_panel_requires_score_points() -> None:
+    with pytest.raises(ValueError, match="No data available for requested panel scores-crpss"):
+        plot_result_overview(
+            scf_obs=None,
+            scf_model=None,
+            wet_obs=None,
+            wet_model=None,
+            scf_env=None,
+            wet_env=None,
+            output=Path("/tmp/unused.png"),
+            panel_specs=[PanelSpec(panel="scores-crpss")],
+            strict_panels=True,
+        )
 
 
 def test_plot_result_overview_shares_absolute_y_scale_between_roi_and_station_panels(tmp_path: Path) -> None:
@@ -697,6 +997,7 @@ def test_parse_custom_panel_specs_supports_titles_and_obs_toggle(tmp_path: Path)
                 "  - panel: station-swe",
                 "    station_id: proviantdepot",
                 "    subtitle: custom station subtitle",
+                "  - panel: scores-crpss",
             ]
         ),
         encoding="utf-8",
@@ -707,6 +1008,7 @@ def test_parse_custom_panel_specs_supports_titles_and_obs_toggle(tmp_path: Path)
     assert specs == [
         PanelSpec(panel="fSC", title=None, show_obs=False, station_id=None),
         PanelSpec(panel="station-swe", title="custom station subtitle", show_obs=True, station_id="proviantdepot"),
+        PanelSpec(panel="scores-crpss", title=None, show_obs=True, station_id=None),
     ]
 
 

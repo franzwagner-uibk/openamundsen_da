@@ -154,15 +154,32 @@ def compute_step_daily_series_for_all_members(
     )
 
     created = 0
+    failures: List[Tuple[Path, Exception]] = []
     with cf.ProcessPoolExecutor(max_workers=n_workers) as ex:
-        futures = [ex.submit(worker, *args) for args in jobs]
-        for fut in cf.as_completed(futures):
+        future_to_results_dir = {
+            ex.submit(worker, *args): Path(args[0])
+            for args in jobs
+        }
+        for fut in cf.as_completed(future_to_results_dir):
             try:
                 did_create = bool(fut.result())
                 if did_create:
                     created += 1
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Daily AOI series worker failed for a member in {}: {}", step_dir, exc)
+                results_dir = future_to_results_dir[fut]
+                failures.append((results_dir, exc))
+
+    if failures:
+        first_results_dir, first_exc = failures[0]
+        failure_summary = ", ".join(str(results_dir) for results_dir, _ in failures[:3])
+        if len(failures) > 3:
+            failure_summary += ", ..."
+        raise RuntimeError(
+            f"Daily AOI series failed for {len(failures)} / {len(jobs)} member(s) "
+            f"in {step_dir.name} for {csv_name}. "
+            f"First failure: {first_results_dir}: {first_exc}. "
+            f"Failed results dirs: {failure_summary}"
+        ) from first_exc
 
     logger.info(
         "Daily AOI series ({}) written for {} / {} member(s) in {}",
@@ -171,4 +188,3 @@ def compute_step_daily_series_for_all_members(
         len(jobs),
         step_dir.name,
     )
-

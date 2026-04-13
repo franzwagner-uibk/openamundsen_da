@@ -2,13 +2,46 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Iterable, List, Optional, Tuple
 import math
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
-from openamundsen_da.methods.viz._style import EXPORT_DPI
+from openamundsen_da.methods.viz._style import (
+    CRPSS_AXIS_STEP_CANDIDATES,
+    CRPSS_AXIS_UPPER_CAP,
+    EXPORT_DPI,
+    FIGURE_TITLE_CLEARANCE_PTS,
+    FIGURE_TITLE_TOP_MARGIN_PTS,
+    METRIC_AXIS_MAX_INTERVALS,
+    METRIC_AXIS_MIN_INTERVALS,
+    TITLE_PAD_DEFAULT,
+    TITLE_PAD_WITH_ASSIM_LABELS,
+)
+
+
+@dataclass(frozen=True)
+class MetricAxisPolicy:
+    """Generic axis-scaling policy for bounded or semi-bounded metrics."""
+
+    preferred_steps: tuple[float, ...]
+    min_intervals: int = METRIC_AXIS_MIN_INTERVALS
+    max_intervals: int = METRIC_AXIS_MAX_INTERVALS
+    lower_cap: float | None = None
+    upper_cap: float | None = None
+    force_include_zero: bool = False
+
+
+CRPSS_AXIS_POLICY = MetricAxisPolicy(
+    preferred_steps=CRPSS_AXIS_STEP_CANDIDATES,
+    min_intervals=METRIC_AXIS_MIN_INTERVALS,
+    max_intervals=METRIC_AXIS_MAX_INTERVALS,
+    upper_cap=CRPSS_AXIS_UPPER_CAP,
+    force_include_zero=False,
+)
 
 
 def set_matplotlib_text_black(matplotlib) -> None:
@@ -62,6 +95,181 @@ def save_figure_png(
     if pad_inches is not None:
         save_kwargs["pad_inches"] = pad_inches
     fig.savefig(output_png, dpi=dpi, **save_kwargs)
+
+
+def result_title_pad(has_assim_labels: bool) -> float:
+    """Return the shared title pad for panels with/without assimilation labels."""
+    return TITLE_PAD_WITH_ASSIM_LABELS if has_assim_labels else TITLE_PAD_DEFAULT
+
+
+def align_figure_title_to_plot_block(
+    fig,
+    axes: Iterable,
+    *,
+    left_pad_pts: float = 6.0,
+) -> None:
+    """Align a figure-level title to the visible plot block using shared spacing rules."""
+    title_artist = getattr(fig, "_suptitle", None)
+    if title_artist is None:
+        return
+
+    axes_list = list(axes)
+    if not axes_list:
+        return
+
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+
+    global_left_disp: float | None = None
+    top_disp = max(ax.bbox.y1 for ax in axes_list)
+    for ax in axes_list:
+        tick_labels = [label for label in ax.get_yticklabels() if label.get_text()]
+        if tick_labels:
+            left_disp = min(label.get_window_extent(renderer).x0 for label in tick_labels) - left_pad_pts
+            if global_left_disp is None or left_disp < global_left_disp:
+                global_left_disp = left_disp
+
+        for text in (*ax.texts, *ax.get_xticklabels(), *ax.get_yticklabels()):
+            if not text.get_visible() or not text.get_text():
+                continue
+            top_disp = max(top_disp, text.get_window_extent(renderer).y1)
+
+    if global_left_disp is None:
+        global_left_disp = min(ax.bbox.x0 for ax in axes_list)
+
+    current_bbox = title_artist.get_window_extent(renderer)
+    title_height_px = current_bbox.height
+    clearance_px = FIGURE_TITLE_CLEARANCE_PTS * fig.dpi / 72.0
+    top_margin_px = FIGURE_TITLE_TOP_MARGIN_PTS * fig.dpi / 72.0
+    title_x = fig.transFigure.inverted().transform((global_left_disp, 0.0))[0]
+    target_top_disp = fig.bbox.y1 - top_margin_px
+    min_bottom_disp = top_disp + clearance_px
+    desired_top_disp = min(fig.bbox.y1 - 1.0, max(target_top_disp, min_bottom_disp + title_height_px))
+    desired_bottom_disp = desired_top_disp - title_height_px
+    current_y_disp = fig.transFigure.transform((0.0, title_artist.get_position()[1]))[1]
+    title_y = fig.transFigure.inverted().transform((0.0, current_y_disp + (desired_bottom_disp - current_bbox.y0)))[1]
+    title_artist.set_x(title_x)
+    title_artist.set_y(title_y)
+    title_artist.set_ha("left")
+
+
+def _expand_metric_range(
+    lower: float,
+    upper: float,
+    step: float,
+    *,
+    min_intervals: int,
+    lower_cap: float | None,
+    upper_cap: float | None,
+    positive_only: bool,
+    negative_only: bool,
+    center: float,
+) -> tuple[float, float]:
+    """Expand a rounded metric range to a readable minimum span."""
+    tol = 1e-12
+    while ((upper - lower) / step) + tol < float(min_intervals):
+        candidates: list[tuple[float, float, tuple[float, float]]] = []
+        if lower_cap is None or lower - step >= lower_cap - tol:
+            candidate = (lower - step, upper)
+            candidate_center = (candidate[0] + candidate[1]) / 2.0
+            penalty = 0.0
+            if positive_only and candidate[0] < -tol:
+                penalty += 1e6
+            if negative_only and candidate[1] > tol:
+                penalty += 1e6
+            candidates.append((penalty, abs(candidate_center - center), candidate))
+        if upper_cap is None or upper + step <= upper_cap + tol:
+            candidate = (lower, upper + step)
+            candidate_center = (candidate[0] + candidate[1]) / 2.0
+            penalty = 0.0
+            if positive_only and candidate[0] < -tol:
+                penalty += 1e6
+            if negative_only and candidate[1] > tol:
+                penalty += 1e6
+            candidates.append((penalty, abs(candidate_center - center), candidate))
+        if not candidates:
+            break
+        _, _, chosen = min(candidates, key=lambda item: (item[0], item[1], item[2][0], item[2][1]))
+        lower, upper = chosen
+    return float(lower), float(upper)
+
+
+def bounded_metric_range(
+    values,
+    *,
+    policy: MetricAxisPolicy,
+) -> tuple[float, float, float]:
+    """Return a rounded outward metric range using a generic bounded-metric policy."""
+    arr = np.asarray(list(values), dtype=float)
+    arr = arr[np.isfinite(arr)]
+    preferred_steps = tuple(float(step) for step in policy.preferred_steps)
+    if not preferred_steps:
+        raise ValueError("MetricAxisPolicy.preferred_steps must not be empty")
+    if arr.size == 0:
+        step = preferred_steps[0]
+        lower = float(policy.lower_cap) if policy.lower_cap is not None else 0.0
+        upper = lower + step * max(1, policy.min_intervals)
+        if policy.upper_cap is not None:
+            upper = min(upper, float(policy.upper_cap))
+            if upper - lower < step:
+                lower = upper - step * max(1, policy.min_intervals)
+        return float(lower), float(upper), float(step)
+
+    data_min = float(arr.min())
+    data_max = float(arr.max())
+    if policy.lower_cap is not None:
+        data_min = max(data_min, float(policy.lower_cap))
+    if policy.upper_cap is not None:
+        data_max = min(data_max, float(policy.upper_cap))
+    if policy.force_include_zero:
+        data_min = min(data_min, 0.0)
+        data_max = max(data_max, 0.0)
+
+    positive_only = data_min >= 0.0 and not policy.force_include_zero
+    negative_only = data_max <= 0.0 and not policy.force_include_zero
+    center = (data_min + data_max) / 2.0
+
+    for step in preferred_steps:
+        lower = float(math.floor(data_min / step) * step)
+        upper = float(math.ceil(data_max / step) * step)
+        if policy.lower_cap is not None:
+            lower = max(lower, float(policy.lower_cap))
+        if policy.upper_cap is not None:
+            upper = min(upper, float(policy.upper_cap))
+        lower, upper = _expand_metric_range(
+            lower,
+            upper,
+            step,
+            min_intervals=policy.min_intervals,
+            lower_cap=policy.lower_cap,
+            upper_cap=policy.upper_cap,
+            positive_only=positive_only,
+            negative_only=negative_only,
+            center=center,
+        )
+        interval_count = (upper - lower) / step
+        if interval_count <= policy.max_intervals + 1e-12:
+            return float(lower), float(upper), float(step)
+
+    step = preferred_steps[-1]
+    lower = float(math.floor(data_min / step) * step)
+    upper = float(math.ceil(data_max / step) * step)
+    if policy.lower_cap is not None:
+        lower = max(lower, float(policy.lower_cap))
+    if policy.upper_cap is not None:
+        upper = min(upper, float(policy.upper_cap))
+    lower, upper = _expand_metric_range(
+        lower,
+        upper,
+        step,
+        min_intervals=policy.min_intervals,
+        lower_cap=policy.lower_cap,
+        upper_cap=policy.upper_cap,
+        positive_only=positive_only,
+        negative_only=negative_only,
+        center=center,
+    )
+    return float(lower), float(upper), float(step)
 
 
 def result_axis_scale(

@@ -97,3 +97,55 @@ def test_post_run_plot_tasks_include_setup_weights_overview(tmp_path: Path) -> N
     assert overview_task.func is project_cli.plot_setup_weights_overview
     assert overview_task.args == (project_dir,)
     assert overview_task.kwargs == {}
+
+
+def test_custom_overview_needs_benchmark_scores_detects_score_panels(tmp_path: Path) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir)
+    (project_dir / "result_overview_custom.yml").write_text(
+        "panels:\n  - panel: fSC\n  - panel: scores-crpss\n",
+        encoding="utf-8",
+    )
+
+    assert project_cli._custom_overview_needs_benchmark_scores(project_dir) is True
+
+
+def test_post_run_plot_tasks_can_defer_fraction_overlay_for_score_panels(tmp_path: Path) -> None:
+    setup_dir = tmp_path / "setup"
+    project_dir = setup_dir / "projects" / "project_2022_2023"
+    step_dir = project_dir / "steps" / "step_01_event"
+    step_dir.mkdir(parents=True, exist_ok=True)
+    _write_project_yaml(project_dir)
+    (project_dir / "result_overview_custom.yml").write_text(
+        "panels:\n  - panel: scores-crpss\n",
+        encoding="utf-8",
+    )
+
+    cfg = project_cli.OrchestratorConfig(
+        project_dir=project_dir,
+        setup_dir=setup_dir,
+    )
+
+    needs_scores = project_cli._custom_overview_needs_benchmark_scores(project_dir)
+    tasks = project_cli._build_post_run_plot_tasks(
+        cfg,
+        [step_dir],
+        include_fraction_overlay=not needs_scores,
+    )
+
+    names = [task.name for task in tasks]
+    assert needs_scores is True
+    assert "fraction_overlay" not in names
+
+    deferred = project_cli._build_fraction_overlay_task(cfg)
+    assert deferred.name == "fraction_overlay"
+    assert deferred.func is project_cli.plot_result_overview_cli
+    assert deferred.args == (
+        [
+            "--project-dir",
+            str(project_dir),
+            "--setup-dir",
+            str(setup_dir),
+        ],
+    )
+    assert deferred.kwargs == {"configure_logger": False}

@@ -78,6 +78,138 @@ def effective_sample_size(w: np.ndarray) -> float:
     return float(1.0 / s) if s > 0 else 0.0
 
 
+def normalize_weights(weights: np.ndarray | list[float] | tuple[float, ...]) -> np.ndarray:
+    """Return finite, non-negative weights normalized to sum to one."""
+    w = np.asarray(weights, dtype=float)
+    if w.ndim != 1:
+        raise ValueError("Weights must be one-dimensional")
+    if w.size == 0:
+        raise ValueError("Weights must not be empty")
+    if not np.all(np.isfinite(w)):
+        raise ValueError("Weights must be finite")
+    if np.any(w < 0.0):
+        raise ValueError("Weights must be non-negative")
+    total = float(np.sum(w))
+    if total <= 0.0:
+        raise ValueError("Weights must sum to a positive value")
+    return w / total
+
+
+def weighted_mean(values: np.ndarray | list[float], weights: np.ndarray | list[float] | None = None) -> float:
+    """Return mean of values using optional normalized weights."""
+    x = np.asarray(values, dtype=float)
+    if x.ndim != 1 or x.size == 0:
+        raise ValueError("Values must be a non-empty one-dimensional array")
+    if not np.all(np.isfinite(x)):
+        raise ValueError("Values must be finite")
+    if weights is None:
+        return float(np.mean(x))
+    w = normalize_weights(weights)
+    if w.size != x.size:
+        raise ValueError("Values and weights must have the same length")
+    return float(np.sum(w * x))
+
+
+def weighted_variance(values: np.ndarray | list[float], weights: np.ndarray | list[float] | None = None) -> float:
+    """Return population variance of values using optional normalized weights."""
+    x = np.asarray(values, dtype=float)
+    mean = weighted_mean(x, weights=weights)
+    if weights is None:
+        return float(np.mean((x - mean) ** 2))
+    w = normalize_weights(weights)
+    if w.size != x.size:
+        raise ValueError("Values and weights must have the same length")
+    return float(np.sum(w * (x - mean) ** 2))
+
+
+def weighted_std(values: np.ndarray | list[float], weights: np.ndarray | list[float] | None = None) -> float:
+    """Return population standard deviation using optional normalized weights."""
+    return float(np.sqrt(max(0.0, weighted_variance(values, weights=weights))))
+
+
+def weighted_quantile(
+    values: np.ndarray | list[float],
+    q: float,
+    weights: np.ndarray | list[float] | None = None,
+) -> float:
+    """Return empirical quantile using optional normalized weights."""
+    if not np.isfinite(q) or q < 0.0 or q > 1.0:
+        raise ValueError(f"Quantile must lie in [0, 1], got {q!r}")
+    x = np.asarray(values, dtype=float)
+    if x.ndim != 1 or x.size == 0:
+        raise ValueError("Values must be a non-empty one-dimensional array")
+    if not np.all(np.isfinite(x)):
+        raise ValueError("Values must be finite")
+    order = np.argsort(x)
+    x_sorted = x[order]
+    if weights is None:
+        if x_sorted.size == 1:
+            return float(x_sorted[0])
+        return float(np.quantile(x_sorted, q))
+    w = normalize_weights(weights)
+    if w.size != x.size:
+        raise ValueError("Values and weights must have the same length")
+    w_sorted = w[order]
+    cdf = np.cumsum(w_sorted)
+    idx = int(np.searchsorted(cdf, q, side="left"))
+    idx = min(max(idx, 0), x_sorted.size - 1)
+    return float(x_sorted[idx])
+
+
+def ensemble_crps(
+    values: np.ndarray | list[float],
+    observation: float,
+    *,
+    weights: np.ndarray | list[float] | None = None,
+) -> float:
+    """Return CRPS for an empirical ensemble, optionally with weights."""
+    x = np.asarray(values, dtype=float)
+    if x.ndim != 1 or x.size == 0:
+        raise ValueError("Values must be a non-empty one-dimensional array")
+    if not np.all(np.isfinite(x)):
+        raise ValueError("Values must be finite")
+    y = float(observation)
+    if not np.isfinite(y):
+        raise ValueError("Observation must be finite")
+    if weights is None:
+        w = np.full(x.size, 1.0 / x.size, dtype=float)
+    else:
+        w = normalize_weights(weights)
+        if w.size != x.size:
+            raise ValueError("Values and weights must have the same length")
+    term_obs = float(np.sum(w * np.abs(x - y)))
+    pairwise = np.abs(x[:, None] - x[None, :])
+    term_ens = 0.5 * float(np.sum((w[:, None] * w[None, :]) * pairwise))
+    return term_obs - term_ens
+
+
+def midpoint_pit(
+    values: np.ndarray | list[float],
+    observation: float,
+    *,
+    weights: np.ndarray | list[float] | None = None,
+) -> float:
+    """Return midpoint PIT value for an empirical ensemble."""
+    x = np.asarray(values, dtype=float)
+    if x.ndim != 1 or x.size == 0:
+        raise ValueError("Values must be a non-empty one-dimensional array")
+    if not np.all(np.isfinite(x)):
+        raise ValueError("Values must be finite")
+    y = float(observation)
+    if not np.isfinite(y):
+        raise ValueError("Observation must be finite")
+    if weights is None:
+        w = np.full(x.size, 1.0 / x.size, dtype=float)
+    else:
+        w = normalize_weights(weights)
+        if w.size != x.size:
+            raise ValueError("Values and weights must have the same length")
+    less = float(np.sum(w[x < y]))
+    equal = float(np.sum(w[x == y]))
+    pit = less + 0.5 * equal
+    return float(min(max(pit, 0.0), 1.0))
+
+
 def systematic_resample(rng: Generator, weights: np.ndarray, n: int | None = None) -> np.ndarray:
     """Systematic resampling; returns integer indices of selected particles.
 

@@ -16,6 +16,8 @@
 # - station-swe
 # - station-sd
 # - ess
+# - scores-crpss
+# - scores-ner
 #
 # Supported keys per panel entry:
 # - panel: required
@@ -45,6 +47,8 @@ panels:
 
   - panel: ess
 
+  - panel: scores-crpss
+
 # Additional examples for all supported panel types:
 #  - panel: roi-swe
 #
@@ -52,6 +56,10 @@ panels:
 #    station_id: proviantdepot
 #
 #  - panel: ess
+#
+#  - panel: scores-crpss
+#
+#  - panel: scores-ner
 #
 #  - panel: station-sd
 #    station_id: latschbloder

@@ -22,6 +22,10 @@ SEVERE_WARNING_PATTERNS = [
 
 BENIGN_WARNING_PATTERNS = [
     re.compile(r"Coverage check: .* within tolerance", re.IGNORECASE),
+    re.compile(
+        r"Skipping analysis benchmark for .* on \d{4}-\d{2}-\d{2}: missing observation row",
+        re.IGNORECASE,
+    ),
 ]
 
 

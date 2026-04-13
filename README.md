@@ -81,8 +81,10 @@ setup/
     stations.csv
     <station>.csv           # long-span forcing inputs
   projects/
-    project_YYYY-YYYY/
-      project_YYYY-YYYY.yml # project-level data assimilation config + start/end + assimilation_events
+      project_YYYY-YYYY/
+        project_YYYY-YYYY.yml # project-level data assimilation config + start/end + assimilation_events
+        results/
+          benchmark/          # scientific benchmark tables + manifest + summary
       steps/
         step_00_init/
           step_00.yml         # initial spin-up step
@@ -119,6 +121,7 @@ and naming conventions.
 - Observations live under `obs/project_X`; the pipeline assumes the CSVs follow `obs_scf_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`. Configure product tags explicitly in project YAML under `obs.*`.
 - Station observations live under `obs/stations`; ROI-based station assimilation uses `assimilation_events` variables `station_hs` and `station_swe` and reads optional per-station uncertainty metadata from `obs/stations/stations_da_metadata.csv`.
 - The station assimilation method itself is documented in the docs guide: `guides/station-assimilation`.
+- Scientific benchmarking always runs at the end of `oa-da-project` and writes observation-based score tables under `results/benchmark/` plus the headline DA-skill plot `plots/assim/scores/performance_scores.png`.
 - data assimilation uses `grids/roi_<domain>_<resolution>.asc` as canonical ROI mask; if missing, it is generated silently from ROI vectors under `env/` (`roi.gpkg` preferred, `subdomains.gpkg` supported).
 - Land-cover masking (applied to obs + model SCF/wet-snow): land-cover ASCII is resolved as `grids/lc_<domain>_<resolution>.asc` from setup config; excluded classes come from project YAML `data_assimilation.landcover_mask.classes_to_exclude`.
 
@@ -271,7 +274,7 @@ docker compose run --rm oa `
   --project-dir $project
 ```
 
-Defaults read obs from `obs/summaries/<setup>/scf_summary.csv` and `obs/summaries/<setup>/wet_snow_summary.csv`, envelopes from the setup root, and write `plots/results/result_overview.png`. The output now expands to a 4-panel setup overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE / snow-depth panels are built from per-member `point_swe_roi.csv` / `point_snow_depth_roi.csv` files, use the full ROI footprint (no land-cover masking), and show ensemble-only 5-95% bands plus ensemble mean against a separate `open_loop` line. Add `--scf-model-csv` / `--wet-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` to use custom envelopes. Plot mode can be switched with `--mode band|members` (pipeline default: `band`). When `<project-dir>/result_overview_custom.yml` exists, the project pipeline also writes `plots/results/result_overview_custom.png` using the requested panel order and station panels from that YAML.
+Defaults read obs from `obs/summaries/<setup>/scf_summary.csv` and `obs/summaries/<setup>/wet_snow_summary.csv`, envelopes from the setup root, and write `plots/results/result_overview.png`. The output now expands to a 4-panel setup overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE / snow-depth panels are built from per-member `point_swe_roi.csv` / `point_snow_depth_roi.csv` files, use the full ROI footprint (no land-cover masking), and show ensemble-only 5-95% bands plus ensemble mean against a separate `open_loop` line. Add `--scf-model-csv` / `--wet-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` to use custom envelopes. Plot mode can be switched with `--mode band|members` (pipeline default: `band`). When `<project-dir>/result_overview_custom.yml` exists, the project pipeline also writes `plots/results/result_overview_custom.png` using the requested panel order and station panels from that YAML; custom panels now also support `scores-crpss` and `scores-ner` to embed the benchmark score panels individually.
 
 ## Setup point results (SWE / snow depth, member mode)
 
@@ -589,6 +592,39 @@ docker compose run --rm oa `
 - `--no-monitor-perf` disables monitoring for the project run.
 - `--project-dir` is optional; it is auto-detected by walking up from `--setup-dir` to the nearest `project.yml`.
 - `--perf-sample-interval` and `--perf-plot-interval` default to 5 seconds and 30 seconds respectively.
+
+### Scientific Benchmarking
+
+`oa-da-project` now always ends with an observation-based benchmarking stage. It writes:
+
+- `results/benchmark/manifest.json`
+- `results/benchmark/cases/*.csv`
+- `results/benchmark/scores/*.csv`
+- `results/benchmark/tables/project_summary.csv`
+- `results/benchmark/tables/update_summary.csv`
+- `results/benchmark/summary.md`
+- `plots/assim/scores/performance_scores.png`
+
+The raw benchmark backend still scores whole-project propagated `da_informed_ensemble` skill against `open_loop` and, on assimilation dates, explicit analysis-time `prior` and weighted `posterior` skill. The headline plot is intentionally narrower: it shows only assimilation-date `prior` and `posterior` skill (`CRPSS`, `NER`) for assimilated and transfer-observed variables on the DA dates themselves, while `project_summary.csv` keeps the whole-project propagated view. Results are split into `assimilation_fit`, `semi_independent`, and `independent`: `semi_independent` means the exact variable/date pair was not assimilated but is still linked through same-variable reuse elsewhere in the project or through a sister station variable, while `independent` is reserved for benchmark variables never assimilated anywhere in the project and not downgraded by station linkage. The human-facing benchmark core stays lean: one DA-date skill plot plus two compact tables, while the existing result-overview plots remain the place for state evolution and observation-vs-model context. This is a scientific benchmarking layer, not a substitute for future holdout, LOOCV, or OSSE workflows.
+
+You can add extra independent benchmark families from the current DA-supported set (`scf`, `wet_snow`, `station_hs`, `station_swe`) in project YAML:
+
+```yaml
+data_assimilation:
+  benchmark:
+    independent_variables:
+      - station_swe
+    plots: true
+    output_dir: results/benchmark
+```
+
+You can also rerun the same benchmark logic manually on an existing finished project:
+
+```powershell
+docker compose run --rm oa `
+  oa-da-benchmark `
+  --project-dir $project
+```
 
 Running the monitor manually
 

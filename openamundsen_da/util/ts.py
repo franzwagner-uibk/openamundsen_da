@@ -75,12 +75,18 @@ def parse_time_column(series: pd.Series) -> pd.DatetimeIndex:
     Tries common explicit formats before falling back to pandas' parser.
     """
     text = series.astype(str)
+    try:
+        parsed = pd.to_datetime(text, format="mixed", errors="coerce")
+    except TypeError:
+        parsed = pd.to_datetime(text, errors="coerce")
+    if not parsed.isna().all():
+        return pd.DatetimeIndex(parsed)
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
         try:
             parsed = pd.to_datetime(text, format=fmt, errors="coerce")
         except Exception:
             continue
-        if not parsed.isna().all():
+        if parsed.notna().sum() == text.notna().sum():
             return pd.DatetimeIndex(parsed)
     return pd.DatetimeIndex(pd.to_datetime(text, errors="coerce"))
 

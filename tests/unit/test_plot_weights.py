@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from openamundsen_da.methods.pf import plot_weights as plot_mod
+from openamundsen_da.methods.viz._style import da_variable_style
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -165,6 +166,17 @@ def test_collect_marker_legend_entries_combines_station_and_fraction_labels(tmp_
         ("wet snow", "#2c8a64"),
         ("SCF", "#2f6fb5"),
     ]
+
+
+def test_weights_color_sources_follow_shared_da_palette() -> None:
+    assert plot_mod._FRACTION_MISMATCH_COLORS["scf"] == da_variable_style("scf")["line"]
+    assert plot_mod._FRACTION_MISMATCH_COLORS["wet_snow"] == da_variable_style("wet_snow")["line"]
+    assert plot_mod._station_color_map(["station_a"], observable="station_hs") == {
+        "station_a": da_variable_style("station_hs")["line"],
+    }
+    assert plot_mod._station_color_map(["station_b"], observable="station_swe") == {
+        "station_b": da_variable_style("station_swe")["line"],
+    }
 
 
 def test_station_plot_uses_right_aligned_sigma_strip_and_shared_bottom_legend(tmp_path: Path) -> None:

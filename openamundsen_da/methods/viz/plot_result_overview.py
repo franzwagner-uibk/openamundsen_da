@@ -28,6 +28,9 @@ from openamundsen_da.io.paths import (
 from openamundsen_da.methods.viz._ensemble_meta import load_stations_table_from_steps
 from openamundsen_da.methods.viz._style import (
     COLOR_DA_OBS,
+    FIGHEIGHT_OVERVIEW_ROW,
+    FIGWIDTH_OVERVIEW_PAPER,
+    OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR,
     LW_MEMBER,
     LW_MEAN,
     LW_OPEN,
@@ -41,6 +44,7 @@ from openamundsen_da.methods.viz._utils import (
     draw_assimilation_vlines,
     force_figure_text_black,
     format_station_label,
+    result_title_pad,
     result_axis_scale,
     save_figure_png,
     set_matplotlib_text_black,
@@ -813,7 +817,7 @@ def _build_result_overview_legends(
         handlelength=2.4,
         handleheight=1.22,
         columnspacing=0.8,
-        handletextpad=0.32,
+        handletextpad=0.62,
         borderaxespad=0.0,
     )
     return [overview_legend, score_legend]
@@ -1112,12 +1116,15 @@ def plot_result_overview(
     if not specs:
         raise ValueError("No data available to plot.")
 
-    height_ratios = [0.5 if spec.panel == "ess" else 1.15 if _is_score_panel(spec.panel) else 1.0 for spec in specs]
+    height_ratios = [
+        0.5 if spec.panel == "ess" else OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR if _is_score_panel(spec.panel) else 1.0
+        for spec in specs
+    ]
     total_height_units = sum(height_ratios)
     fig, axes = plt.subplots(
         len(specs),
         1,
-        figsize=(7.2876875, 1.71236835 * total_height_units),
+        figsize=(FIGWIDTH_OVERVIEW_PAPER, FIGHEIGHT_OVERVIEW_ROW * total_height_units),
         sharex=True,
         gridspec_kw={"height_ratios": height_ratios},
     )
@@ -1159,7 +1166,7 @@ def plot_result_overview(
             f"({letter}) {(_ess_panel_title(spec, current_ess_panel) if spec.panel == 'ess' else _panel_title(spec, station_data))}",
             loc="left",
             fontsize=9.4,
-            pad=16.0 if events else 9.0,
+            pad=result_title_pad(bool(events)),
         )
         title_artists.append((ax, title_artist))
         center_assim = spec.panel in {"roi-swe", "roi-sd", "station-swe", "station-sd"}

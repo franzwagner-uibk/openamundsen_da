@@ -14,6 +14,7 @@ from openamundsen_da.benchmark.pipeline import load_benchmark_config
 from openamundsen_da.benchmark.render.plots import core as plots_core
 from openamundsen_da.benchmark.render.plots.core import build_event_skill_plot_data, compute_event_skill_plot_positions
 from openamundsen_da.benchmark.render.plots import write_plots
+from openamundsen_da.methods.viz._utils import CRPSS_AXIS_POLICY, bounded_metric_range
 from openamundsen_da.benchmark.render.tables import write_summary_tables
 
 
@@ -479,6 +480,7 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     def _capture(fig, out_path, **kwargs):
         captured["fig"] = fig
         captured["path"] = out_path
+        captured["kwargs"] = kwargs
         fig.savefig(out_path, **kwargs)
 
     monkeypatch.setattr(plots_core, "save_figure_png", _capture)
@@ -496,6 +498,11 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     assert fig._suptitle is not None
     assert fig._suptitle.get_text() == "Data assimilation performance scores"
     assert fig._suptitle.get_ha() == "left"
+    assert fig.get_size_inches()[0] == plots_core.FIGWIDTH_OVERVIEW_PAPER
+    assert fig.get_size_inches()[1] == pytest.approx(
+        plots_core.FIGHEIGHT_OVERVIEW_ROW * plots_core.STANDALONE_SCORE_FIGURE_ROW_UNITS
+    )
+    assert captured["kwargs"] == {}
     label_axes = [ax for ax in fig.axes if ax.get_label().startswith("assimilation_label_axis_")]
     main_axes = [ax for ax in fig.axes if not ax.get_label().startswith("assimilation_label_axis_")]
     assert len(label_axes) == 2
@@ -503,13 +510,33 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     ax_crpss, ax_ner = main_axes
     x_title, y_title = fig._suptitle.get_position()
     assert x_title < ax_crpss.get_position().x0
-    assert y_title < 0.98
+    assert y_title < 1.0
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    title_bbox = fig._suptitle.get_window_extent(renderer)
+    assert fig.bbox.y1 - title_bbox.y1 < 20.0
+    for ax in label_axes:
+        for text in ax.texts:
+            assert not title_bbox.overlaps(text.get_window_extent(renderer))
     assert ax_crpss.get_title() == ""
     assert ax_ner.get_title() == ""
     assert ax_ner.get_xlabel() == ""
     assert ax_crpss.get_ylabel() == "CRPSS"
     assert ax_ner.get_ylabel() == "NER"
-    assert 0.5 in list(ax_crpss.get_yticks())
+    crpss_ticks = [tick for tick in ax_crpss.get_yticks() if ax_crpss.get_ylim()[0] - 1e-9 <= tick <= ax_crpss.get_ylim()[1] + 1e-9]
+    assert len(crpss_ticks) >= 3
+    crpss_step = float(np.diff(crpss_ticks)[0])
+    assert any(crpss_step == pytest.approx(candidate) for candidate in CRPSS_AXIS_POLICY.preferred_steps)
+    crpss_data = np.concatenate([collection.get_offsets()[:, 1] for collection in ax_crpss.collections])
+    assert float(np.min(crpss_data)) > 0.0
+    expected_lower = np.floor(float(np.min(crpss_data)) / crpss_step) * crpss_step
+    expected_upper = min(
+        CRPSS_AXIS_POLICY.upper_cap if CRPSS_AXIS_POLICY.upper_cap is not None else np.inf,
+        np.ceil(float(np.max(crpss_data)) / crpss_step) * crpss_step,
+    )
+    assert ax_crpss.get_ylim()[0] == pytest.approx(expected_lower)
+    assert ax_crpss.get_ylim()[1] == pytest.approx(expected_upper)
+    assert ax_crpss.get_ylim()[0] >= 0.0
     assert 0.5 in list(ax_ner.get_yticks())
     x0, x1 = ax_crpss.get_xlim()
     first = plots_core.mdates.date2num(pd.Timestamp("2023-01-02"))
@@ -530,7 +557,7 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     assert plots_core.variable_style("scf")["line"].lower() in vline_colors
     assert plots_core.variable_style("station_hs")["line"].lower() in vline_colors
     assert {text.get_text() for ax in label_axes for text in ax.texts} >= {"1", "2"}
-    assert fig.subplotpars.bottom < 0.18
+    assert fig.subplotpars.bottom < 0.25
     saw_prior = False
     saw_posterior = False
     for collection in (*ax_crpss.collections, *ax_ner.collections):
@@ -574,3 +601,54 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     legend = fig.legends[0]
     assert getattr(legend, "_loc", None) == 3
     assert getattr(legend, "_mode", None) == "expand"
+
+
+def test_bounded_metric_range_rounds_rofental_like_crpss_to_quarter_steps() -> None:
+    lower, upper, step = bounded_metric_range([-0.056, 0.903], policy=CRPSS_AXIS_POLICY)
+
+    assert (lower, upper, step) == pytest.approx((-0.25, 1.0, 0.25))
+
+
+@pytest.mark.parametrize("values", ([0.83, 0.97], [0.31, 0.42, 0.57], [0.61, 0.62, 0.63]))
+def test_bounded_metric_range_keeps_positive_only_crpss_nonnegative(values) -> None:
+    lower, upper, step = bounded_metric_range(values, policy=CRPSS_AXIS_POLICY)
+
+    clipped_min = min(values)
+    clipped_max = max(values)
+    if CRPSS_AXIS_POLICY.lower_cap is not None:
+        clipped_min = max(clipped_min, CRPSS_AXIS_POLICY.lower_cap)
+    if CRPSS_AXIS_POLICY.upper_cap is not None:
+        clipped_max = min(clipped_max, CRPSS_AXIS_POLICY.upper_cap)
+    assert lower <= clipped_min
+    assert upper >= clipped_max
+    assert lower >= 0.0
+    assert upper <= CRPSS_AXIS_POLICY.upper_cap
+    assert any(step == pytest.approx(candidate) for candidate in CRPSS_AXIS_POLICY.preferred_steps)
+    assert (upper - lower) / step >= CRPSS_AXIS_POLICY.min_intervals - 1e-9
+    assert (upper - lower) / step <= CRPSS_AXIS_POLICY.max_intervals + 1e-9
+
+
+def test_bounded_metric_range_keeps_negative_only_crpss_nonpositive() -> None:
+    lower, upper, step = bounded_metric_range([-0.72, -0.31, -0.15], policy=CRPSS_AXIS_POLICY)
+
+    assert lower <= -0.72
+    assert upper >= -0.15
+    assert upper <= 0.0
+    assert step == pytest.approx(0.25)
+
+
+def test_bounded_metric_range_expands_narrow_crpss_ranges_to_readable_span() -> None:
+    lower, upper, step = bounded_metric_range([0.61, 0.62, 0.63], policy=CRPSS_AXIS_POLICY)
+
+    assert lower <= 0.61
+    assert upper >= 0.63
+    assert (upper - lower) / step >= CRPSS_AXIS_POLICY.min_intervals - 1e-9
+    assert upper <= CRPSS_AXIS_POLICY.upper_cap
+
+
+def test_bounded_metric_range_uses_larger_steps_for_wide_future_ranges() -> None:
+    lower, upper, step = bounded_metric_range([-3.2, 0.9], policy=CRPSS_AXIS_POLICY)
+
+    assert step == pytest.approx(1.0)
+    assert lower == pytest.approx(-4.0)
+    assert upper == pytest.approx(1.0)

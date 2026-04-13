@@ -119,8 +119,8 @@ def test_plot_result_overview_uses_four_panels_when_roi_series_exist(monkeypatch
     assert swe_ticks[1] - swe_ticks[0] == 50.0
     assert sd_ticks[1] - sd_ticks[0] == 0.25
     assert plt.gcf()._suptitle is None
-    assert plt.gcf().get_size_inches()[0] == 7.2876875
-    assert plt.gcf().get_size_inches()[1] == 6.8494734
+    assert plt.gcf().get_size_inches()[0] == plot_mod.FIGWIDTH_OVERVIEW_PAPER
+    assert plt.gcf().get_size_inches()[1] == pytest.approx(plot_mod.FIGHEIGHT_OVERVIEW_ROW * 4.0)
     assert len(plt.gcf().legends) == 1
     assert out_path.is_file()
     original_close(plt.gcf())
@@ -849,8 +849,15 @@ def test_plot_result_overview_score_panels_use_taller_height_ratios(monkeypatch,
     )
 
     assert recorded["nrows"] == 4
-    assert recorded["height_ratios"] == [1.0, 0.5, 1.15, 1.15]
-    assert recorded["figsize"][1] == pytest.approx(1.71236835 * 3.8)
+    assert recorded["height_ratios"] == [
+        1.0,
+        0.5,
+        plot_mod.OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR,
+        plot_mod.OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR,
+    ]
+    assert recorded["figsize"][0] == plot_mod.FIGWIDTH_OVERVIEW_PAPER
+    expected_height_units = 1.0 + 0.5 + plot_mod.OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR * 2.0
+    assert recorded["figsize"][1] == pytest.approx(plot_mod.FIGHEIGHT_OVERVIEW_ROW * expected_height_units)
     assert out_path.is_file()
     original_close(plt.gcf())
 

@@ -16,9 +16,17 @@ from matplotlib.lines import Line2D
 from matplotlib.legend_handler import HandlerBase
 from matplotlib.ticker import MultipleLocator
 
-from openamundsen_da.methods.viz._style import FIGSIZE_RESULTS, LEGEND_NCOL
+from openamundsen_da.methods.viz._style import (
+    FIGHEIGHT_OVERVIEW_ROW,
+    FIGWIDTH_OVERVIEW_PAPER,
+    LEGEND_NCOL,
+    STANDALONE_SCORE_FIGURE_ROW_UNITS,
+)
 from openamundsen_da.methods.viz._utils import (
+    CRPSS_AXIS_POLICY,
+    align_figure_title_to_plot_block,
     apply_fraction_grid,
+    bounded_metric_range,
     draw_assim_labels,
     draw_assimilation_vlines,
     force_figure_text_black,
@@ -311,14 +319,18 @@ def _metric_ylim(points: pd.DataFrame, metric: str) -> tuple[float, float]:
     values = values[np.isfinite(values)]
     if values.size == 0:
         return (-0.2, 0.2)
-    lo = min(float(values.min()), 0.0)
-    hi = max(float(values.max()), 0.0)
+    lo = float(values.min())
+    hi = float(values.max())
     span = max(0.2, hi - lo)
-    margin = 0.18 * span
+    margin = 0.08 * span
     return lo - margin, hi + margin
 
 
 def score_metric_ylim(points: pd.DataFrame, metric: str) -> tuple[float, float]:
+    if metric == "crpss":
+        values = pd.to_numeric(points[metric], errors="coerce").to_numpy(dtype=float)
+        lower, upper, _ = bounded_metric_range(values, policy=CRPSS_AXIS_POLICY)
+        return lower, upper
     return _metric_ylim(points, metric)
 
 
@@ -430,10 +442,11 @@ def _draw_metric_panel(
 
 
 def _apply_score_axis(ax, points: pd.DataFrame, metric: str) -> None:
+    lower, upper = score_metric_ylim(points, metric)
     step = 0.5
-    lower, upper = _metric_ylim(points, metric)
-    lower = float(step * np.floor(lower / step))
-    upper = float(step * np.ceil(upper / step))
+    if metric == "crpss":
+        values = pd.to_numeric(points[metric], errors="coerce").to_numpy(dtype=float)
+        lower, upper, step = bounded_metric_range(values, policy=CRPSS_AXIS_POLICY)
     if np.isclose(lower, upper):
         upper = lower + step
     ax.set_ylim(lower, upper)
@@ -540,28 +553,7 @@ def score_variable_sort_key(variable: str) -> tuple[int, str]:
 
 
 def _align_title_to_plot_block(fig, axes: tuple) -> None:
-    title_artist = getattr(fig, "_suptitle", None)
-    if title_artist is None:
-        return
-
-    fig.canvas.draw()
-    renderer = fig.canvas.get_renderer()
-    global_left_disp: float | None = None
-    for ax in axes:
-        tick_labels = [label for label in ax.get_yticklabels() if label.get_text()]
-        if not tick_labels:
-            continue
-        left_disp = min(label.get_window_extent(renderer).x0 for label in tick_labels) - 6.0
-        if global_left_disp is None or left_disp < global_left_disp:
-            global_left_disp = left_disp
-    if global_left_disp is None:
-        global_left_disp = min(ax.bbox.x0 for ax in axes)
-
-    title_x = fig.transFigure.inverted().transform((global_left_disp, 0.0))[0]
-    title_y = min(0.987, max(ax.get_position().y1 for ax in axes) + 0.038)
-    title_artist.set_x(title_x)
-    title_artist.set_y(title_y)
-    title_artist.set_ha("left")
+    align_figure_title_to_plot_block(fig, axes)
 
 
 def align_score_title_to_plot_block(fig, axes: tuple) -> None:
@@ -594,7 +586,7 @@ def _write_event_skill_figure(
     fig, axes = plt.subplots(
         2,
         1,
-        figsize=(FIGSIZE_RESULTS[0], 6.8),
+        figsize=(FIGWIDTH_OVERVIEW_PAPER, FIGHEIGHT_OVERVIEW_ROW * STANDALONE_SCORE_FIGURE_ROW_UNITS),
         sharex=True,
         squeeze=False,
     )
@@ -631,7 +623,6 @@ def _write_event_skill_figure(
         if label_axis is not None:
             label_axes.append(label_axis)
 
-    fig.suptitle(_FIGURE_TITLE, ha="left", fontsize=10.2)
     legend_handles = score_legend_handles(variables)
     fig.legend(
         handles=legend_handles,
@@ -648,12 +639,13 @@ def _write_event_skill_figure(
         handletextpad=0.45,
         borderaxespad=0.0,
     )
-    fig.tight_layout(rect=(-0.015, 0.058, 0.992, 0.982), h_pad=0.72)
+    fig.tight_layout(rect=(-0.015, 0.058, 0.992, 0.998), h_pad=0.72)
     fig.align_ylabels((ax_crpss, ax_ner))
-    _align_title_to_plot_block(fig, (ax_crpss, ax_ner))
+    fig.suptitle(_FIGURE_TITLE, ha="left", fontsize=10.2)
+    _align_title_to_plot_block(fig, (ax_crpss, ax_ner, *label_axes))
     force_figure_text_black(fig, (ax_crpss, ax_ner, *label_axes))
     ensure_dir(out_path.parent)
-    save_figure_png(fig, out_path, bbox_inches="tight", pad_inches=0.08)
+    save_figure_png(fig, out_path)
     plt.close(fig)
     return out_path
 

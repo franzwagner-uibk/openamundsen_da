@@ -95,6 +95,7 @@ from openamundsen_da.methods.viz._utils import (
     force_figure_text_black,
     format_station_label,
     pretty_var_title,
+    result_title_pad,
     result_axis_scale,
     save_figure_png,
     set_matplotlib_text_black,
@@ -978,7 +979,7 @@ def plot_setup_results(
             _standalone_result_title(token, var_key=vv, station_label=station_label),
             loc="left",
             fontsize=9.4,
-            pad=16.0 if centered_assim_dates else 9.0,
+            pad=result_title_pad(bool(centered_assim_dates)),
         )
         ax.set_ylabel(var_title, fontsize=8.6)
         apply_fraction_grid(ax, y_step=None)

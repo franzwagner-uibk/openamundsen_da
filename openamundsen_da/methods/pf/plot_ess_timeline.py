@@ -26,6 +26,7 @@ from openamundsen_da.methods.viz._utils import (
     draw_assim_labels,
     draw_assimilation_vlines,
     force_figure_text_black,
+    result_title_pad,
     save_figure_png,
     set_matplotlib_text_black,
 )
@@ -266,7 +267,7 @@ def _plot(
     ax.plot(df["date"], df[ycol], marker="o", ms=4.0, lw=0.0, ls="none", color="#000000", zorder=25)
     ax.set_ylabel("ESS/N" if normalized else "ESS", fontsize=8.6)
     ax.set_xlabel("")
-    ax.set_title(title, loc="left", fontsize=9.4, pad=16.0 if assim_dates else 9.0)
+    ax.set_title(title, loc="left", fontsize=9.4, pad=result_title_pad(bool(assim_dates)))
     apply_fraction_grid(ax, y_step=None)
     if x_bounds is not None:
         x_start, x_end = x_bounds

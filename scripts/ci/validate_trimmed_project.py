@@ -40,6 +40,10 @@ BENIGN_WARNING_PATTERNS = [
     re.compile(r"No member series found for point_wet_snow_roi\.csv", re.IGNORECASE),
     re.compile(r"No data for station point_scf_roi\.csv across setup; skipping\.", re.IGNORECASE),
     re.compile(r"Missing liquid water grids for .*", re.IGNORECASE),
+    re.compile(
+        r"Skipping analysis benchmark for .* on \d{4}-\d{2}-\d{2}: missing observation row",
+        re.IGNORECASE,
+    ),
 ]
 
 

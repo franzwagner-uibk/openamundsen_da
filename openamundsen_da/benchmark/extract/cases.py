@@ -157,6 +157,14 @@ def event_dates_by_variable(project_dir: Path) -> dict[str, set[date]]:
     return out
 
 
+def _first_event_date_by_variable(project_dir: Path) -> dict[str, date]:
+    first_dates: dict[str, date] = {}
+    for variable, dates in event_dates_by_variable(project_dir).items():
+        if dates:
+            first_dates[variable] = min(dates)
+    return first_dates
+
+
 def analysis_event_contexts(project_dir: Path, *, variables: Iterable[str] | None = None) -> list[AnalysisEventContext]:
     selected = None
     if variables is not None:
@@ -186,20 +194,30 @@ def analysis_event_contexts(project_dir: Path, *, variables: Iterable[str] | Non
     return contexts
 
 
-def _has_same_station_link(variable: str, event_dates: dict[str, set[date]]) -> bool:
+def _has_active_station_link(variable: str, *, obs_date: date, first_event_dates: dict[str, date]) -> bool:
     if not is_station_variable(variable):
         return False
     return any(
-        is_station_variable(other_variable) and other_variable != variable and bool(dates)
-        for other_variable, dates in event_dates.items()
+        is_station_variable(other_variable) and other_variable != variable and first_date <= obs_date
+        for other_variable, first_date in first_event_dates.items()
     )
 
 
-def _obs_stream(variable: str, timestamp: pd.Timestamp, event_dates: dict[str, set[date]]) -> str:
+def _obs_stream(
+    variable: str,
+    timestamp: pd.Timestamp,
+    event_dates: dict[str, set[date]],
+    *,
+    first_event_dates: dict[str, date],
+) -> str:
+    obs_date = timestamp.date()
     variable_dates = event_dates.get(variable, set())
-    if timestamp.date() in variable_dates:
+    if obs_date in variable_dates:
         return "assimilation_fit"
-    if variable_dates or _has_same_station_link(variable, event_dates):
+    first_variable_date = first_event_dates.get(variable)
+    if first_variable_date is not None and first_variable_date < obs_date:
+        return "semi_independent"
+    if _has_active_station_link(variable, obs_date=obs_date, first_event_dates=first_event_dates):
         return "semi_independent"
     return "independent"
 
@@ -448,6 +466,7 @@ def extract_continuous_cases(
     start_date, end_date = project_window(project_dir)
     windows = step_windows(project_dir)
     events_by_var = event_dates_by_variable(project_dir)
+    first_event_dates = _first_event_date_by_variable(project_dir)
     out: list[RawBenchmarkCase] = []
     station_sigma_context = None
 
@@ -478,7 +497,12 @@ def extract_continuous_cases(
                     RawBenchmarkCase(
                         score_set="continuous",
                         variable=variable,
-                        stream=_obs_stream(variable, timestamp, events_by_var),
+                        stream=_obs_stream(
+                            variable,
+                            timestamp,
+                            events_by_var,
+                            first_event_dates=first_event_dates,
+                        ),
                         timestamp=timestamp,
                         obs_id="roi",
                         step_name=_match_step_name(timestamp, windows),
@@ -520,7 +544,12 @@ def extract_continuous_cases(
                     RawBenchmarkCase(
                         score_set="continuous",
                         variable=variable,
-                        stream=_obs_stream(variable, timestamp, events_by_var),
+                        stream=_obs_stream(
+                            variable,
+                            timestamp,
+                            events_by_var,
+                            first_event_dates=first_event_dates,
+                        ),
                         timestamp=timestamp,
                         obs_id=station_id,
                         step_name=_match_step_name(timestamp, windows),
@@ -561,6 +590,7 @@ def extract_analysis_cases(
     station_sigma_context = None
 
     events_by_var = event_dates_by_variable(project_dir)
+    first_event_dates = _first_event_date_by_variable(project_dir)
 
     for ctx in analysis_event_contexts(project_dir):
         if not (start_date <= ctx.event_date <= end_date):
@@ -608,7 +638,12 @@ def extract_analysis_cases(
                     variable=benchmark_variable,
                     timestamp=timestamp,
                 )
-                stream = _obs_stream(benchmark_variable, timestamp, events_by_var)
+                stream = _obs_stream(
+                    benchmark_variable,
+                    timestamp,
+                    events_by_var,
+                    first_event_dates=first_event_dates,
+                )
                 out.append(
                     RawBenchmarkCase(
                         score_set="analysis",
@@ -672,7 +707,12 @@ def extract_analysis_cases(
                     variable=benchmark_variable,
                     timestamp=obs_time,
                 )
-                stream = _obs_stream(benchmark_variable, obs_time, events_by_var)
+                stream = _obs_stream(
+                    benchmark_variable,
+                    obs_time,
+                    events_by_var,
+                    first_event_dates=first_event_dates,
+                )
                 out.append(
                     RawBenchmarkCase(
                         score_set="analysis",

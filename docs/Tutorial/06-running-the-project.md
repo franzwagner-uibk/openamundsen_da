@@ -115,8 +115,8 @@ The benchmark result directory now contains:
 These files keep both a propagated whole-project benchmark view and an assimilation-date update-skill view. The headline plot itself is narrower: it shows only DA-date `prior` and weighted `posterior` skill, and adds a third station-only `zSkill` panel when sigma-aware station scores are available, while the whole-project propagated summary stays in `project_summary.csv`. Results are split into:
 
 - `assimilation_fit`: the exact family/date pair was assimilated
-- `semi_independent`: the exact family/date pair was not assimilated, but it is still linked through same-variable reuse elsewhere in the project or through a sister station variable
-- `independent`: the benchmark variable is never assimilated anywhere in the project and is not downgraded by station linkage
+- `semi_independent`: the exact family/date pair was not assimilated, but a same-variable or sister-station assimilation has already happened by that date
+- `independent`: no same-variable assimilation has happened yet by that date and no active sister-station linkage applies
 
 The benchmark figure is intentionally different from the main result overview. It focuses on assimilation-date DA performance (`CRPSS`, `NER`, and station-only `zSkill`) rather than state evolution, while the established result plots remain the place for ensemble spread and observation-vs-model context.
 

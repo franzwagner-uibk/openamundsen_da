@@ -218,7 +218,7 @@ Notes:
 - Observation class mappings and product tags are configured under project YAML `obs.*`.
 - `data_assimilation.benchmark` does not enable or disable benchmarking; the project pipeline always runs it. This block extends the benchmark scope and controls benchmark output location and plot writing. The benchmark presentation itself is fixed and lean: one assimilation-date skill plot plus two compact summary tables.
 - `independent_variables` may currently list only the DA-supported families: `scf`, `wet_snow`, `station_hs`, `station_swe`.
-- Output stream labels are derived by benchmark semantics, not by config naming alone: a configured extra family can still appear as `semi_independent` in outputs when it shares same-variable reuse or sister-station representativeness with assimilated observations.
+- Output stream labels are derived by benchmark semantics, not by config naming alone: a configured extra family can still appear as `semi_independent` in outputs, but only from the first same-variable or sister-station assimilation date onward.
 - Land-cover mask uses `grids/lc_<domain>_<resolution>.asc` from setup-level paths and data assimilation mask classes from project YAML.
 - For SCF uncertainty:
   - `enabled: true` activates strict uncertainty checks (fail-fast on missing/invalid config or layers).

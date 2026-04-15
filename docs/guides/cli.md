@@ -95,7 +95,7 @@ data_assimilation:
     output_dir: results/benchmark
 ```
 
-Configured extra benchmark families can still appear as `semi_independent` in outputs when they share same-variable reuse or sister-station representativeness with assimilated observations.
+Configured extra benchmark families can still appear as `semi_independent` in outputs, but only from the first same-variable or sister-station assimilation date onward.
 The headline plot shows only DA-date `prior` and `posterior` skill for assimilated and transfer-observed variables; whole-project propagated skill remains in `project_summary.csv`. Station-point rows also carry sigma-aware `zSkill`, and the headline plot adds a third `zSkill` panel whenever those station scores are available.
 
 ---

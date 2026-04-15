@@ -1,0 +1,25 @@
+overview_maps:
+  - name: rofental_overview
+    title: Rofental overview
+
+comparison_maps:
+  - name: snowdepth_2023-06-02
+    variable: snowdepth_daily
+    title: Snow depth comparison
+    dates:
+      explicit: ["2023-06-02"]
+
+observation_context_maps:
+  - name: snowdepth_scf_2023-06-02
+    model_variable: snowdepth_daily
+    observation: scf
+    title: Snow depth and FSC
+    dates:
+      explicit: ["2023-06-02"]
+
+  - name: lwc_wet_snow_2023-05-23
+    model_variable: liquid_water_content
+    observation: wet_snow
+    title: Liquid water content and wet snow
+    dates:
+      explicit: ["2023-05-23"]

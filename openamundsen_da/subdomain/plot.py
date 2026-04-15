@@ -7,6 +7,7 @@ from typing import Iterable, Optional
 
 import pandas as pd
 from loguru import logger
+from openamundsen_da.io.paths import project_plot_points_dir
 from openamundsen_da.methods.viz._utils import format_station_label, pretty_var_title, save_figure_png, set_matplotlib_text_black
 from openamundsen_da.methods.viz._style import (
     COLOR_DA_OBS,
@@ -97,7 +98,7 @@ def plot_station_comparisons(
     logger.debug("Using manifest created at {}", manifest.created_at)
     pts_root = points_dir or (manifest.project_dir / "results" / "points")
     obs_root = obs_dir or (pts_root / "obs" / "stations")
-    plot_dir = manifest.project_dir / "plots" / "points"
+    plot_dir = project_plot_points_dir(manifest.project_dir)
     plot_dir.mkdir(parents=True, exist_ok=True)
 
     obs_files = station_observation_csvs(obs_root)

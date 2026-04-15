@@ -111,7 +111,7 @@ def test_setup_weights_overview_default_output_path_uses_project_weights_dir(tmp
 
     out = plot_mod._default_setup_weights_overview_output(project_dir)
 
-    assert out == project_dir / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
+    assert out == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
 
 
 def test_collect_marker_legend_entries_combines_station_and_fraction_labels(tmp_path: Path) -> None:

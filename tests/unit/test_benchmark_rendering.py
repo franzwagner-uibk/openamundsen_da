@@ -14,6 +14,7 @@ from openamundsen_da.benchmark.pipeline import load_benchmark_config
 from openamundsen_da.benchmark.render.plots import core as plots_core
 from openamundsen_da.benchmark.render.plots.core import build_event_skill_plot_data, compute_event_skill_plot_positions
 from openamundsen_da.benchmark.render.plots import write_plots
+from openamundsen_da.io.paths import project_plot_assim_scores_dir
 from openamundsen_da.methods.viz._style import da_variable_style
 from openamundsen_da.methods.viz._utils import CRPSS_AXIS_POLICY, bounded_metric_range
 from openamundsen_da.benchmark.render.tables import write_summary_tables
@@ -77,6 +78,7 @@ def test_build_event_skill_plot_data_reduces_station_same_day_rows(tmp_path: Pat
                 "date": "2023-01-02",
                 "crpss": 0.25,
                 "ner": 0.10,
+                "zskill": np.nan,
             },
             {
                 "score_set": "analysis",
@@ -87,6 +89,7 @@ def test_build_event_skill_plot_data_reduces_station_same_day_rows(tmp_path: Pat
                 "date": "2023-01-02",
                 "crpss": 0.55,
                 "ner": 0.40,
+                "zskill": np.nan,
             },
             {
                 "score_set": "analysis",
@@ -97,6 +100,7 @@ def test_build_event_skill_plot_data_reduces_station_same_day_rows(tmp_path: Pat
                 "date": "2023-01-02",
                 "crpss": 0.20,
                 "ner": 0.10,
+                "zskill": -0.20,
             },
             {
                 "score_set": "analysis",
@@ -107,6 +111,7 @@ def test_build_event_skill_plot_data_reduces_station_same_day_rows(tmp_path: Pat
                 "date": "2023-01-02",
                 "crpss": 0.40,
                 "ner": 0.30,
+                "zskill": 0.10,
             },
             {
                 "score_set": "analysis",
@@ -117,6 +122,7 @@ def test_build_event_skill_plot_data_reduces_station_same_day_rows(tmp_path: Pat
                 "date": "2023-01-02",
                 "crpss": 0.35,
                 "ner": 0.28,
+                "zskill": -0.05,
             },
             {
                 "score_set": "analysis",
@@ -127,6 +133,7 @@ def test_build_event_skill_plot_data_reduces_station_same_day_rows(tmp_path: Pat
                 "date": "2023-01-02",
                 "crpss": 0.45,
                 "ner": 0.36,
+                "zskill": 0.20,
             },
             {
                 "score_set": "analysis",
@@ -137,6 +144,7 @@ def test_build_event_skill_plot_data_reduces_station_same_day_rows(tmp_path: Pat
                 "date": "2023-01-04",
                 "crpss": 0.90,
                 "ner": 0.90,
+                "zskill": np.nan,
             },
         ]
     )
@@ -162,8 +170,10 @@ def test_build_event_skill_plot_data_reduces_station_same_day_rows(tmp_path: Pat
     assert len(station_posterior) == 1
     assert float(station_prior["crpss"].iloc[0]) == pytest.approx(0.30)
     assert float(station_prior["ner"].iloc[0]) == pytest.approx(0.20)
+    assert float(station_prior["zskill"].iloc[0]) == pytest.approx(-0.05)
     assert float(station_posterior["crpss"].iloc[0]) == pytest.approx(0.40)
     assert float(station_posterior["ner"].iloc[0]) == pytest.approx(0.32)
+    assert float(station_posterior["zskill"].iloc[0]) == pytest.approx(0.075)
 
 
 def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path: Path) -> None:
@@ -238,6 +248,7 @@ def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path:
             prior_values=None,
             posterior_values=None,
             posterior_weights=None,
+            sigma_base=0.20,
         ),
         RawBenchmarkCase(
             score_set="continuous",
@@ -252,6 +263,7 @@ def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path:
             prior_values=None,
             posterior_values=None,
             posterior_weights=None,
+            sigma_base=0.20,
         ),
         RawBenchmarkCase(
             score_set="analysis",
@@ -266,6 +278,7 @@ def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path:
             prior_values=(1.22, 1.18, 1.14),
             posterior_values=(1.14, 1.11, 1.08),
             posterior_weights=(0.2, 0.4, 0.4),
+            sigma_base=0.20,
         ),
         RawBenchmarkCase(
             score_set="continuous",
@@ -280,6 +293,7 @@ def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path:
             prior_values=None,
             posterior_values=None,
             posterior_weights=None,
+            sigma_base=15.0,
         ),
         RawBenchmarkCase(
             score_set="analysis",
@@ -294,6 +308,7 @@ def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path:
             prior_values=(235.0, 245.0, 260.0),
             posterior_values=(235.0, 245.0, 260.0),
             posterior_weights=(0.2, 0.5, 0.3),
+            sigma_base=15.0,
         ),
     ]
     case_scores = build_case_scores(raw_cases)
@@ -314,8 +329,14 @@ def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path:
         project_scores=project_scores,
         reliability=reliability,
     )
+    legacy_results_plot_dir = project_dir / "results" / "benchmark" / "plots"
+    legacy_results_plot_dir.mkdir(parents=True, exist_ok=True)
+    (legacy_results_plot_dir / "performance_scores.png").write_text("stale", encoding="utf-8")
+    legacy_project_plot_dir = project_dir / "plots" / "benchmark"
+    legacy_project_plot_dir.mkdir(parents=True, exist_ok=True)
+
     plot_outputs = write_plots(
-        project_dir / "plots" / "assim" / "scores",
+        project_plot_assim_scores_dir(project_dir),
         case_scores=case_scores,
         event_scores=event_scores,
         reliability=reliability,
@@ -323,7 +344,7 @@ def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path:
     )
 
     tables_dir = project_dir / "results" / "benchmark" / "tables"
-    plot_path = project_dir / "plots" / "assim" / "scores" / "performance_scores.png"
+    plot_path = project_plot_assim_scores_dir(project_dir) / "performance_scores.png"
 
     assert (tables_dir / "project_summary.csv").is_file()
     assert (tables_dir / "update_summary.csv").is_file()
@@ -334,7 +355,9 @@ def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path:
     assert not any(tables_dir.glob("*.md"))
 
     assert plot_path.is_file()
-    assert not (project_dir / "plots" / "benchmark").exists()
+    assert not legacy_results_plot_dir.exists()
+    assert not legacy_project_plot_dir.exists()
+    assert not (project_dir / "plots").exists()
 
     project_summary = tables["project_summary"]
     update_summary = tables["update_summary"]
@@ -344,12 +367,15 @@ def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path:
         "n_project_points",
         "whole_project_crpss",
         "whole_project_ner",
+        "whole_project_zskill",
         "whole_project_bias",
         "n_update_dates",
         "update_prior_crpss",
         "update_posterior_crpss",
         "update_prior_ner",
         "update_posterior_ner",
+        "update_prior_zskill",
+        "update_posterior_zskill",
         "update_prior_bias",
         "update_posterior_bias",
     ]
@@ -361,10 +387,13 @@ def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path:
         "posterior_crpss",
         "prior_ner",
         "posterior_ner",
+        "prior_zskill",
+        "posterior_zskill",
         "prior_bias",
         "posterior_bias",
         "delta_crpss",
         "delta_ner",
+        "delta_zskill",
         "delta_abs_bias",
     ]
 
@@ -373,6 +402,8 @@ def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path:
     ].iloc[0]
     assert not pd.isna(station_swe_row["update_prior_crpss"])
     assert not pd.isna(station_swe_row["update_posterior_crpss"])
+    assert not pd.isna(station_swe_row["whole_project_zskill"])
+    assert not pd.isna(station_swe_row["update_posterior_zskill"])
 
     scf_update = update_summary[
         (update_summary["variable"] == "scf") & (update_summary["stream"] == "assimilation_fit")
@@ -386,6 +417,151 @@ def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path:
     assert "project_summary" in table_outputs
     assert "update_summary" in table_outputs
     assert "performance_scores" in plot_outputs
+
+
+def test_write_plots_adds_zskill_third_panel_when_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import matplotlib.pyplot as plt
+
+    _, project_dir = _setup_render_project(tmp_path)
+    event_scores = pd.DataFrame(
+        [
+            {
+                "score_set": "analysis",
+                "variable": "scf",
+                "stream": "assimilation_fit",
+                "representation": "prior",
+                "timestamp": "2023-01-02 00:00:00",
+                "date": "2023-01-02",
+                "crpss": 0.25,
+                "ner": 0.10,
+                "zskill": np.nan,
+            },
+            {
+                "score_set": "analysis",
+                "variable": "scf",
+                "stream": "assimilation_fit",
+                "representation": "posterior",
+                "timestamp": "2023-01-02 00:00:00",
+                "date": "2023-01-02",
+                "crpss": 0.55,
+                "ner": 0.40,
+                "zskill": np.nan,
+            },
+            {
+                "score_set": "analysis",
+                "variable": "station_hs",
+                "stream": "assimilation_fit",
+                "representation": "prior",
+                "timestamp": "2023-01-03 00:00:00",
+                "date": "2023-01-03",
+                "crpss": 0.20,
+                "ner": 0.10,
+                "zskill": -0.15,
+            },
+            {
+                "score_set": "analysis",
+                "variable": "station_hs",
+                "stream": "assimilation_fit",
+                "representation": "posterior",
+                "timestamp": "2023-01-03 00:00:00",
+                "date": "2023-01-03",
+                "crpss": 0.35,
+                "ner": 0.28,
+                "zskill": 0.22,
+            },
+        ]
+    )
+    recorded: dict[str, object] = {}
+    original_subplots = plt.subplots
+
+    def _spy_subplots(nrows, *args, **kwargs):
+        recorded["nrows"] = nrows
+        recorded["figsize"] = kwargs.get("figsize")
+        return original_subplots(nrows, *args, **kwargs)
+
+    monkeypatch.setattr(plt, "subplots", _spy_subplots)
+
+    outputs = write_plots(
+        project_dir / "results" / "benchmark" / "plots",
+        event_scores=event_scores,
+        project_dir=project_dir,
+    )
+
+    assert outputs["performance_scores"].is_file()
+    assert recorded["nrows"] == 3
+    assert recorded["figsize"][1] == pytest.approx(
+        plots_core.FIGHEIGHT_OVERVIEW_ROW * plots_core.STANDALONE_SCORE_FIGURE_ROW_UNITS * 1.5
+    )
+
+
+def test_write_plots_can_hide_station_swe_only_from_performance_scores_plot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, project_dir = _setup_render_project(tmp_path)
+    event_scores = pd.DataFrame(
+        [
+            {
+                "score_set": "analysis",
+                "variable": "scf",
+                "stream": "assimilation_fit",
+                "representation": "prior",
+                "timestamp": "2023-01-02 00:00:00",
+                "date": "2023-01-02",
+                "crpss": 0.25,
+                "ner": 0.10,
+            },
+            {
+                "score_set": "analysis",
+                "variable": "scf",
+                "stream": "assimilation_fit",
+                "representation": "posterior",
+                "timestamp": "2023-01-02 00:00:00",
+                "date": "2023-01-02",
+                "crpss": 0.55,
+                "ner": 0.40,
+            },
+            {
+                "score_set": "analysis",
+                "variable": "station_swe",
+                "stream": "semi_independent",
+                "representation": "prior",
+                "timestamp": "2023-01-03 09:00:00",
+                "date": "2023-01-03",
+                "crpss": 0.20,
+                "ner": 0.12,
+            },
+            {
+                "score_set": "analysis",
+                "variable": "station_swe",
+                "stream": "semi_independent",
+                "representation": "posterior",
+                "timestamp": "2023-01-03 09:00:00",
+                "date": "2023-01-03",
+                "crpss": 0.28,
+                "ner": 0.18,
+            },
+        ]
+    )
+    captured: list[list[str]] = []
+    original_score_legend_handles = plots_core.score_legend_handles
+
+    def _capture_score_legend_handles(variables: list[str], *, include_da_event: bool = True):
+        captured.append(list(variables))
+        return original_score_legend_handles(variables, include_da_event=include_da_event)
+
+    monkeypatch.setattr(plots_core, "score_legend_handles", _capture_score_legend_handles)
+
+    outputs = write_plots(
+        project_dir / "results" / "benchmark" / "plots",
+        event_scores=event_scores,
+        project_dir=project_dir,
+        exclude_variables=("station_swe",),
+    )
+
+    assert outputs["performance_scores"].is_file()
+    assert "station_swe" in set(event_scores["variable"])
+    assert captured == [["scf"]]
 
 
 def test_event_skill_plot_positions_distinguish_same_date_markers(tmp_path: Path) -> None:
@@ -487,7 +663,7 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     monkeypatch.setattr(plots_core, "save_figure_png", _capture)
 
     outputs = write_plots(
-        project_dir / "plots" / "assim" / "scores",
+        project_dir / "results" / "benchmark" / "plots",
         case_scores=case_scores,
         event_scores=event_scores,
         reliability=reliability,
@@ -582,8 +758,9 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     assert plots_core.score_variable_color("station_swe") == da_variable_style("station_swe")["line"]
     assert plots_core.variable_style("station_hs")["line"] == da_variable_style("station_hs")["line"]
     assert plots_core.variable_style("station_swe")["line"] == da_variable_style("station_swe")["line"]
-    prior_handle = legend_handles[2]
-    posterior_handle = legend_handles[3]
+    handle_by_label = {handle.get_label(): handle for handle in legend_handles if handle.get_label()}
+    prior_handle = handle_by_label["prior"]
+    posterior_handle = handle_by_label["posterior"]
     assert prior_handle.get_label() == "prior"
     assert posterior_handle.get_label() == "posterior"
     assert isinstance(prior_handle, tuple)
@@ -606,6 +783,33 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     legend = fig.legends[0]
     assert getattr(legend, "_loc", None) == 3
     assert getattr(legend, "_mode", None) == "expand"
+    legend_texts = {text.get_text(): text for text in legend.get_texts() if text.get_text()}
+    assert legend_texts["posterior"].get_window_extent(renderer).y0 > legend_texts["prior"].get_window_extent(renderer).y0
+
+
+@pytest.mark.parametrize(
+    ("variables", "include_da_event"),
+    [
+        (["scf", "wet_snow"], True),
+        (["scf", "wet_snow", "station_hs"], True),
+        (["scf", "wet_snow", "station_hs", "station_swe"], True),
+        (["scf", "station_swe"], False),
+    ],
+)
+def test_score_legend_handles_keep_posterior_above_prior_for_supported_variable_counts(
+    variables: list[str],
+    include_da_event: bool,
+) -> None:
+    rows = plots_core._score_legend_display_rows(variables, include_da_event=include_da_event)
+    stage_col = (len(variables) + 1) // 2
+    assert rows[0][stage_col].get_label() == "posterior"
+    assert rows[1][stage_col].get_label() == "prior"
+
+    labels = [handle.get_label() for handle in plots_core.score_legend_handles(variables, include_da_event=include_da_event)]
+    posterior_idx = labels.index("posterior")
+    prior_idx = labels.index("prior")
+    assert posterior_idx % 2 == 0
+    assert prior_idx == posterior_idx + 1
 
 
 def test_bounded_metric_range_rounds_rofental_like_crpss_to_quarter_steps() -> None:

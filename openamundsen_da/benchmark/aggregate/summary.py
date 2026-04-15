@@ -17,6 +17,13 @@ _COVERAGE_LEVELS = (50, 80, 90)
 _PIT_BIN_COUNT = 10
 
 
+def _finite_mean(values: np.ndarray) -> float:
+    valid = values[np.isfinite(values)]
+    if valid.size == 0:
+        return np.nan
+    return float(valid.mean())
+
+
 def _load_station_metadata(project_dir: Path, setup_dir: Path) -> pd.DataFrame | None:
     candidates = [setup_dir / "meteo" / "stations.csv"]
     for candidate in candidates:
@@ -112,12 +119,14 @@ def enrich_case_scores(case_scores: pd.DataFrame, *, project_dir: Path, setup_di
 def _aggregate_group_rows(group: pd.DataFrame) -> pd.Series:
     errors = pd.to_numeric(group["error"], errors="coerce").to_numpy(dtype=float)
     sq_errors = pd.to_numeric(group["sq_error"], errors="coerce").to_numpy(dtype=float)
+    z_sq_errors = pd.to_numeric(group["z_sq_error"], errors="coerce").to_numpy(dtype=float)
     abs_errors = pd.to_numeric(group["abs_error"], errors="coerce").to_numpy(dtype=float)
     crps = pd.to_numeric(group["crps"], errors="coerce").to_numpy(dtype=float)
     spread = pd.to_numeric(group["spread"], errors="coerce").to_numpy(dtype=float)
     row = {
         "n_cases": int(len(group)),
         "rmse": float(np.sqrt(np.nanmean(sq_errors))) if len(sq_errors) else np.nan,
+        "z_rmse": float(np.sqrt(_finite_mean(z_sq_errors))) if len(z_sq_errors) else np.nan,
         "mae": float(np.nanmean(abs_errors)) if len(abs_errors) else np.nan,
         "bias": float(np.nanmean(errors)) if len(errors) else np.nan,
         "ubrmse": float(np.sqrt(np.nanmean((errors - np.nanmean(errors)) ** 2))) if len(errors) else np.nan,
@@ -148,12 +157,24 @@ def aggregate_scores(case_scores: pd.DataFrame, *, group_cols: Sequence[str]) ->
 
     baseline_cols = list(group_cols)
     baseline = grouped[grouped["representation"] == "open_loop"][
-        baseline_cols + ["rmse", "crps", "bias"]
-    ].rename(columns={"rmse": "open_loop_rmse", "crps": "open_loop_crps", "bias": "open_loop_bias"})
+        baseline_cols + ["rmse", "z_rmse", "crps", "bias"]
+    ].rename(
+        columns={
+            "rmse": "open_loop_rmse",
+            "z_rmse": "open_loop_z_rmse",
+            "crps": "open_loop_crps",
+            "bias": "open_loop_bias",
+        }
+    )
     merged = grouped.merge(baseline, on=baseline_cols, how="left")
     merged["ner"] = np.where(
         merged["open_loop_rmse"] > 0.0,
         1.0 - (merged["rmse"] / merged["open_loop_rmse"]),
+        np.nan,
+    )
+    merged["zskill"] = np.where(
+        merged["open_loop_z_rmse"] > 0.0,
+        1.0 - (merged["z_rmse"] / merged["open_loop_z_rmse"]),
         np.nan,
     )
     merged["crpss"] = np.where(
@@ -163,6 +184,7 @@ def aggregate_scores(case_scores: pd.DataFrame, *, group_cols: Sequence[str]) ->
     )
     merged["delta_bias"] = merged["open_loop_bias"] - merged["bias"]
     merged["delta_rmse"] = merged["open_loop_rmse"] - merged["rmse"]
+    merged["delta_z_rmse"] = merged["open_loop_z_rmse"] - merged["z_rmse"]
     merged["delta_crps"] = merged["open_loop_crps"] - merged["crps"]
     return merged.sort_values(rep_group_cols).reset_index(drop=True)
 

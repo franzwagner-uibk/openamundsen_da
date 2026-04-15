@@ -79,12 +79,15 @@ def test_plot_setup_results_members_mode_draws_members_without_band(tmp_path: Pa
     original_close = plt.close
     plt.close = lambda fig=None: None
     try:
-        plot_setup_results(
+        out_dir = plot_setup_results(
             setup_dir=project_dir,
             var_col="swe",
             mode="members",
             configure_logger=False,
         )
+        assert out_dir == project_dir / "results" / "plots" / "points"
+        assert not (project_dir / "plots").exists()
+        assert (out_dir / "setup_results_point_latschbloder_swe_2022_2023.png").is_file()
         fig = plt.gcf()
         ax = fig.axes[0]
         assert len(ax.collections) == 0

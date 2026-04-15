@@ -3,6 +3,8 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
+import pytest
+
 from openamundsen_da.benchmark.pipeline import core as pipeline_mod
 
 
@@ -158,3 +160,46 @@ def test_benchmark_prerequisites_overwrite_still_forces_recompute(tmp_path, monk
     )
 
     assert calls == [("scf", True), ("wet_classify", True), ("wet_daily", True)]
+
+
+def test_load_benchmark_config_accepts_performance_score_exclusions(tmp_path: Path) -> None:
+    setup_dir, project_dir, _step_dir = _setup_project(tmp_path)
+    _write_yaml(
+        project_dir / "project_2022_2023.yml",
+        """
+        start_date: '2023-01-01'
+        end_date: '2023-01-02'
+        data_assimilation:
+          wet_snow:
+            classification_threshold_percent: 12.5
+          benchmark:
+            independent_variables: [station_swe]
+            performance_scores_exclude_variables: [station_swe, wet_snow_fraction]
+        """,
+    )
+
+    cfg = pipeline_mod.load_benchmark_config(project_dir)
+
+    assert cfg.output_dir == project_dir / "results" / "benchmark"
+    assert cfg.independent_variables == ("station_swe",)
+    assert cfg.performance_scores_exclude_variables == ("station_swe", "wet_snow")
+
+
+def test_load_benchmark_config_rejects_invalid_performance_score_exclusion(tmp_path: Path) -> None:
+    _setup_project(tmp_path)
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    _write_yaml(
+        project_dir / "project_2022_2023.yml",
+        """
+        start_date: '2023-01-01'
+        end_date: '2023-01-02'
+        data_assimilation:
+          wet_snow:
+            classification_threshold_percent: 12.5
+          benchmark:
+            performance_scores_exclude_variables: [bogus_variable]
+        """,
+    )
+
+    with pytest.raises(ValueError, match="bogus_variable"):
+        pipeline_mod.load_benchmark_config(project_dir)

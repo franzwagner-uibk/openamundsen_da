@@ -38,6 +38,7 @@ def _score_points() -> pd.DataFrame:
                 "point_type": "prior",
                 "crpss": 0.10,
                 "ner": 0.05,
+                "zskill": float("nan"),
             },
             {
                 "variable": "scf",
@@ -46,6 +47,7 @@ def _score_points() -> pd.DataFrame:
                 "point_type": "posterior",
                 "crpss": 0.35,
                 "ner": 0.22,
+                "zskill": float("nan"),
             },
             {
                 "variable": "station_swe",
@@ -54,6 +56,7 @@ def _score_points() -> pd.DataFrame:
                 "point_type": "prior",
                 "crpss": 0.18,
                 "ner": 0.11,
+                "zskill": -0.08,
             },
             {
                 "variable": "station_swe",
@@ -62,6 +65,7 @@ def _score_points() -> pd.DataFrame:
                 "point_type": "posterior",
                 "crpss": 0.26,
                 "ner": 0.16,
+                "zskill": 0.24,
             },
         ]
     )
@@ -720,6 +724,10 @@ def test_plot_result_overview_supports_custom_crpss_score_panel(tmp_path: Path) 
         assert "assimilation fit" in score_labels
         assert getattr(plt.gcf().legends[0], "_ncols", None) == 4
         assert getattr(plt.gcf().legends[1], "_ncols", None) == 5
+        plt.gcf().canvas.draw()
+        renderer = plt.gcf().canvas.get_renderer()
+        score_texts = {text.get_text(): text for text in plt.gcf().legends[1].get_texts() if text.get_text()}
+        assert score_texts["posterior"].get_window_extent(renderer).y0 > score_texts["prior"].get_window_extent(renderer).y0
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -754,6 +762,40 @@ def test_plot_result_overview_supports_custom_ner_score_panel(tmp_path: Path) ->
         assert axes[0].get_title(loc="left").endswith("NER")
         assert axes[0].get_ylabel() == "NER"
         assert 0.5 in list(axes[0].get_yticks())
+        assert axes[0].collections
+        assert out_path.is_file()
+    finally:
+        plt.close = original_close
+
+
+def test_plot_result_overview_supports_custom_zskill_score_panel(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        out_path = tmp_path / "result_overview_custom.png"
+        plot_result_overview(
+            scf_obs=None,
+            scf_model=None,
+            wet_obs=None,
+            wet_model=None,
+            scf_env=None,
+            wet_env=None,
+            output=out_path,
+            panel_specs=[PanelSpec(panel="scores-zskill")],
+            score_points=_score_points(),
+            assim_events=[
+                plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-02").date(), variable="scf", product="SNOWCOVER"),
+                plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-03").date(), variable="station_hs", product="STATION"),
+            ],
+            strict_panels=True,
+        )
+
+        axes = _panel_axes(plt.gcf())
+        assert len(axes) == 1
+        assert axes[0].get_title(loc="left").endswith("zSkill")
+        assert axes[0].get_ylabel() == "zSkill"
         assert axes[0].collections
         assert out_path.is_file()
     finally:
@@ -998,6 +1040,7 @@ def test_parse_custom_panel_specs_supports_titles_and_obs_toggle(tmp_path: Path)
                 "    station_id: proviantdepot",
                 "    subtitle: custom station subtitle",
                 "  - panel: scores-crpss",
+                "  - panel: scores-zskill",
             ]
         ),
         encoding="utf-8",
@@ -1009,6 +1052,7 @@ def test_parse_custom_panel_specs_supports_titles_and_obs_toggle(tmp_path: Path)
         PanelSpec(panel="fSC", title=None, show_obs=False, station_id=None),
         PanelSpec(panel="station-swe", title="custom station subtitle", show_obs=True, station_id="proviantdepot"),
         PanelSpec(panel="scores-crpss", title=None, show_obs=True, station_id=None),
+        PanelSpec(panel="scores-zskill", title=None, show_obs=True, station_id=None),
     ]
 
 

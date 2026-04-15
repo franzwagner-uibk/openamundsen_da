@@ -23,6 +23,8 @@ from openamundsen_da.util.da_observables import weights_csv_name
 from openamundsen_da.util.station_da import (
     is_station_variable,
     load_station_assimilation_config,
+    read_station_metadata,
+    resolve_station_sigma_base,
     station_observation_csvs,
     station_variable_spec,
 )
@@ -56,6 +58,7 @@ class RawBenchmarkCase:
     prior_values: tuple[float, ...] | None
     posterior_values: tuple[float, ...] | None
     posterior_weights: tuple[float, ...] | None
+    sigma_base: float | None = None
 
 
 @dataclass(frozen=True)
@@ -361,6 +364,39 @@ def _member_values_nearest(named_series: dict[str, pd.Series], timestamp: pd.Tim
     return matched_time, values
 
 
+def _station_sigma_context(
+    *,
+    setup_dir: Path,
+    project_dir: Path,
+) -> tuple:
+    config = load_station_assimilation_config(setup_dir, project_dir)
+    metadata_df = read_station_metadata(config.metadata_path)
+    return config, metadata_df
+
+
+def _station_case_sigma_base(
+    *,
+    setup_dir: Path,
+    project_dir: Path,
+    variable: str,
+    station_id: str,
+    obs_value: float,
+    sigma_context: tuple | None,
+) -> float:
+    config, metadata_df = sigma_context or _station_sigma_context(
+        setup_dir=setup_dir,
+        project_dir=project_dir,
+    )
+    sigma_terms = resolve_station_sigma_base(
+        station_id=station_id,
+        obs_value=float(obs_value),
+        variable=variable,
+        config=config,
+        metadata_df=metadata_df,
+    )
+    return float(sigma_terms.sigma_base)
+
+
 def _weights_for_event(step_dir: Path, variable: str, assimilation_dt: datetime) -> pd.DataFrame:
     weights_path = step_dir / "assim" / weights_csv_name(variable, assimilation_dt)
     if not weights_path.is_file():
@@ -413,6 +449,7 @@ def extract_continuous_cases(
     windows = step_windows(project_dir)
     events_by_var = event_dates_by_variable(project_dir)
     out: list[RawBenchmarkCase] = []
+    station_sigma_context = None
 
     for variable in sorted({benchmark_variable_spec(v).variable for v in variables}):
         spec = benchmark_variable_spec(variable)
@@ -455,6 +492,8 @@ def extract_continuous_cases(
                 )
             continue
 
+        if station_sigma_context is None:
+            station_sigma_context = _station_sigma_context(setup_dir=setup_dir, project_dir=project_dir)
         obs_series_by_station = _station_observation_series(
             setup_dir=setup_dir,
             project_dir=project_dir,
@@ -491,6 +530,14 @@ def extract_continuous_cases(
                         prior_values=None,
                         posterior_values=None,
                         posterior_weights=None,
+                        sigma_base=_station_case_sigma_base(
+                            setup_dir=setup_dir,
+                            project_dir=project_dir,
+                            variable=variable,
+                            station_id=station_id,
+                            obs_value=float(obs_value),
+                            sigma_context=station_sigma_context,
+                        ),
                     )
                 )
     return out
@@ -511,6 +558,7 @@ def extract_analysis_cases(
     station_obs_cache: dict[str, dict[str, pd.Series]] = {}
     open_loop_cache: dict[tuple[str, str | None], pd.Series | None] = {}
     members_cache: dict[tuple[str, str | None], dict[str, pd.Series]] = {}
+    station_sigma_context = None
 
     events_by_var = event_dates_by_variable(project_dir)
 
@@ -615,6 +663,8 @@ def extract_analysis_cases(
                 member_time, member_values = members_match
                 if member_time != obs_time:
                     continue
+                if station_sigma_context is None:
+                    station_sigma_context = _station_sigma_context(setup_dir=setup_dir, project_dir=project_dir)
                 prior_values = tuple(member_values[mid] for mid in sorted(member_values))
                 posterior_values, posterior_weights = _aligned_posterior(
                     member_values,
@@ -637,6 +687,14 @@ def extract_analysis_cases(
                         prior_values=prior_values,
                         posterior_values=posterior_values,
                         posterior_weights=posterior_weights,
+                        sigma_base=_station_case_sigma_base(
+                            setup_dir=setup_dir,
+                            project_dir=project_dir,
+                            variable=benchmark_variable,
+                            station_id=station_id,
+                            obs_value=float(obs_value),
+                            sigma_context=station_sigma_context,
+                        ),
                     )
                 )
     return out

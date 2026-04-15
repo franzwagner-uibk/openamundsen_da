@@ -22,7 +22,7 @@ from rasterio.mask import mask as rio_mask
 from rasterio.warp import Resampling, reproject
 
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import find_setup_yaml, find_project_yaml
+from openamundsen_da.io.paths import abspath_relative_to, find_setup_yaml, find_project_yaml
 from openamundsen_da.util.roi import read_single_roi
 
 LC_MASK_BLOCK = "landcover_mask"
@@ -107,14 +107,13 @@ def _format_resolution(resolution: object) -> str:
     return str(resolution).strip()
 
 
-def _derive_landcover_path(setup_dir: Path, domain: str, resolution: object) -> Path:
+def _derive_landcover_path(grids_dir: Path, domain: str, resolution: object) -> Path:
     """Find land-cover file matching lc_<domain>_<resolution>*.asc under grids/.
 
     Prefers an exact name lc_<domain>_<resolution>.asc. If not present, falls
     back to a single unique match with a suffix (e.g., lc_domain_res_large.asc).
     Raises when zero or multiple matches are found to avoid ambiguous selection.
     """
-    grids_dir = Path(setup_dir) / "grids"
     base = f"lc_{domain}_{_format_resolution(resolution)}"
     exact = grids_dir / f"{base}.asc"
     if exact.is_file():
@@ -130,6 +129,24 @@ def _derive_landcover_path(setup_dir: Path, domain: str, resolution: object) -> 
             "Keep exactly one matching file or rename to lc_<domain>_<resolution>.asc."
         )
     return candidates[0]
+
+
+def resolve_setup_landcover_grid(setup_dir: Path) -> Path:
+    """Resolve the setup land-cover grid using setup YAML grid-dir conventions."""
+    setup_yaml = find_setup_yaml(setup_dir)
+    setup_cfg = _read_yaml_file(setup_yaml) or {}
+    domain = setup_cfg.get("domain")
+    resolution = setup_cfg.get("resolution")
+    if domain is None:
+        raise ValueError(f"{setup_yaml} missing 'domain' required for land-cover filename derivation")
+    if resolution is None:
+        raise ValueError(f"{setup_yaml} missing 'resolution' required for land-cover filename derivation")
+
+    grids_rel = (((setup_cfg.get("input_data") or {}).get("grids") or {}).get("dir")) or "grids"
+    grids_dir = Path(abspath_relative_to(setup_dir, Path(grids_rel)))
+    if not grids_dir.is_dir():
+        raise FileNotFoundError(f"Grids directory not found: {grids_dir}")
+    return _derive_landcover_path(grids_dir, str(domain), resolution)
 
 
 def resolve_landcover_mask(setup_dir: Path, project_dir: Path) -> LandcoverMaskConfig:
@@ -155,14 +172,7 @@ def resolve_landcover_mask(setup_dir: Path, project_dir: Path) -> LandcoverMaskC
     if not classes:
         raise ValueError(f"Land-cover mask enabled in {project_yaml} but 'classes_to_exclude' is empty")
 
-    domain = setup_cfg.get("domain")
-    resolution = setup_cfg.get("resolution")
-    if domain is None:
-        raise ValueError(f"{setup_yaml} missing 'domain' required for land-cover filename derivation")
-    if resolution is None:
-        raise ValueError(f"{setup_yaml} missing 'resolution' required for land-cover filename derivation")
-
-    lc_path = _derive_landcover_path(Path(setup_dir), str(domain), resolution)
+    lc_path = resolve_setup_landcover_grid(Path(setup_dir))
     if not lc_path.is_file():
         raise FileNotFoundError(f"Land-cover mask enabled but file not found: {lc_path}")
 
@@ -378,4 +388,3 @@ __all__ = [
     "summarize_landcover_mask",
     "write_landcover_mask_report",
 ]
-

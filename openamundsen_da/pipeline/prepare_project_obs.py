@@ -20,7 +20,7 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import find_project_yaml
+from openamundsen_da.io.paths import find_project_yaml, project_obs_selection_plot_path
 from openamundsen_da.methods.viz.fraction_series import (
     default_fraction_obs_path,
     load_fraction_series,
@@ -336,7 +336,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         default=0,
         help="When both primary and secondary vars are present in a window, pick the secondary every Nth time (0 disables)",
     )
-    parser.add_argument("--output-plot", type=Path, help="Output PNG for obs-only plot (default: <project>/plots/results/obs_selection.png)")
+    parser.add_argument("--output-plot", type=Path, help="Output PNG for obs-only plot (default: <project>/results/plots/results/obs_selection.png)")
     parser.add_argument("--output-project-yaml", type=Path, help="Output project YAML path (default: <project>/<project>.yml)")
     parser.add_argument("--overwrite", action="store_true", help="Allow overwriting an existing project YAML")
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
@@ -450,7 +450,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         logger.info("Wrote project file: {}", project_path)
 
     if not args.no_plot:
-        plot_path = args.output_plot if args.output_plot else (project_dir / "plots" / "results" / "obs_selection.png")
+        plot_path = args.output_plot if args.output_plot else project_obs_selection_plot_path(project_dir)
         try:
             _plot_obs_only(
                 scf_obs=scf_df,

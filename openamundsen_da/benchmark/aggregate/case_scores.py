@@ -72,6 +72,15 @@ def _representation_case_row(
     pred_mean = weighted_mean(arr, weights=w_arr)
     spread = weighted_std(arr, weights=w_arr)
     error = pred_mean - obs_value
+    sigma_base = raw_case.sigma_base
+    if sigma_base is not None and np.isfinite(float(sigma_base)) and float(sigma_base) > 0.0:
+        sigma_base = float(sigma_base)
+        z_error = error / sigma_base
+        z_sq_error = z_error ** 2
+    else:
+        sigma_base = np.nan
+        z_error = np.nan
+        z_sq_error = np.nan
     crps = ensemble_crps(arr, obs_value, weights=w_arr)
     pit = midpoint_pit(arr, obs_value, weights=w_arr)
     rank = _rank_bin(arr, obs_value) if weights is None and arr.size > 1 else None
@@ -93,6 +102,9 @@ def _representation_case_row(
         "error": error,
         "abs_error": abs(error),
         "sq_error": error ** 2,
+        "sigma_base": sigma_base,
+        "z_error": z_error,
+        "z_sq_error": z_sq_error,
         "crps": crps,
         "pit": pit,
         "n_members": int(arr.size),
@@ -172,6 +184,9 @@ def build_case_scores(raw_cases: Sequence[RawBenchmarkCase]) -> pd.DataFrame:
                 "error",
                 "abs_error",
                 "sq_error",
+                "sigma_base",
+                "z_error",
+                "z_sq_error",
                 "crps",
                 "pit",
                 "n_members",

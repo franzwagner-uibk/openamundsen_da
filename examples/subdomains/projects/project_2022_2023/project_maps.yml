@@ -1,0 +1,6 @@
+comparison_maps:
+  - name: snowdepth_2023-03-17
+    variable: snowdepth_daily
+    title: Snow depth comparison
+    dates:
+      explicit: ["2023-03-17"]

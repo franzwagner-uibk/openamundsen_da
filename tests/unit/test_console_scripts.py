@@ -27,3 +27,12 @@ def test_benchmark_console_script_is_published():
     assert data["project"]["scripts"]["oa-da-benchmark"] == (
         "openamundsen_da.benchmark.pipeline:cli"
     )
+
+
+def test_project_maps_console_script_is_published():
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    data = tomllib.loads(pyproject.read_text())
+
+    assert data["project"]["scripts"]["oa-da-plot-project-maps"] == (
+        "openamundsen_da.methods.viz.project_maps:cli_main"
+    )

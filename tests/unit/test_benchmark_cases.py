@@ -4,6 +4,7 @@ import textwrap
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from openamundsen_da.benchmark.cases import extract_analysis_cases, extract_continuous_cases
 from openamundsen_da.benchmark.metrics import build_case_scores
@@ -118,6 +119,23 @@ def _write_fraction_benchmark_inputs(setup_dir: Path, project_dir: Path) -> None
 def _write_station_benchmark_inputs(project_dir: Path, setup_dir: Path) -> None:
     stations_dir = setup_dir / "obs" / "stations"
     _write_series_csv(
+        stations_dir / "stations_da_metadata.csv",
+        [
+            {
+                "station_id": "station_a",
+                "station_uncertainty_pct": 12.0,
+                "hs_sigma_abs_min": 0.15,
+                "swe_sigma_abs_min": 8.0,
+            },
+            {
+                "station_id": "station_b",
+                "station_uncertainty_pct": 20.0,
+                "hs_sigma_abs_min": 0.20,
+                "swe_sigma_abs_min": 10.0,
+            },
+        ],
+    )
+    _write_series_csv(
         stations_dir / "station_a.csv",
         [
             {"time": "2023-01-02 00:00:00", "snow_depth": 1.1, "swe": None},
@@ -190,6 +208,12 @@ def test_extract_continuous_cases_supports_all_benchmark_families(tmp_path: Path
     assert by_key[("station_hs", "2023-01-02 00:00:00", "station_a")].stream == "assimilation_fit"
     assert by_key[("station_hs", "2023-01-03 00:00:00", "station_a")].stream == "semi_independent"
     assert by_key[("station_swe", "2023-01-03 00:00:00", "station_b")].stream == "semi_independent"
+    assert by_key[("station_hs", "2023-01-02 00:00:00", "station_a")].sigma_base == pytest.approx(
+        ((1.1 * 0.12) ** 2 + 0.15 ** 2) ** 0.5
+    )
+    assert by_key[("station_swe", "2023-01-03 00:00:00", "station_b")].sigma_base == pytest.approx(
+        ((12.0 * 0.20) ** 2 + 10.0 ** 2) ** 0.5
+    )
 
 
 def test_extract_analysis_cases_uses_weighted_station_posterior(tmp_path: Path) -> None:
@@ -225,6 +249,7 @@ def test_extract_analysis_cases_uses_weighted_station_posterior(tmp_path: Path) 
     assert case.prior_values == (1.0, 1.2)
     assert case.posterior_values == (1.0, 1.2)
     assert case.posterior_weights == (0.25, 0.75)
+    assert case.sigma_base == pytest.approx(((1.1 * 0.12) ** 2 + 0.15 ** 2) ** 0.5)
 
     case_scores = build_case_scores(cases)
     posterior = case_scores.loc[case_scores["representation"] == "posterior"].iloc[0]

@@ -26,7 +26,12 @@ import re
 import numpy as np
 import pandas as pd
 from loguru import logger
-from openamundsen_da.io.paths import infer_project_dir, infer_setup_dir, list_steps_sorted
+from openamundsen_da.io.paths import (
+    infer_project_dir,
+    infer_setup_dir,
+    list_steps_sorted,
+    project_plot_assim_weights_dir,
+)
 from openamundsen_da.methods.viz._style import da_variable_line_color
 from openamundsen_da.methods.viz._utils import force_figure_text_black, save_figure_png, set_matplotlib_text_black
 from openamundsen_da.util.da_events import load_assimilation_events
@@ -1017,7 +1022,7 @@ def _setup_weights_csvs(setup_dir: Path) -> list[Path]:
 
 
 def _default_setup_weights_overview_output(setup_dir: Path) -> Path:
-    out_dir = Path(setup_dir) / "plots" / "assim" / "weights"
+    out_dir = project_plot_assim_weights_dir(Path(setup_dir))
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir / f"setup_weights_overview_{_setup_id_from_dir(Path(setup_dir))}.png"
 
@@ -1160,7 +1165,7 @@ def _default_output_path(csv_path: Path) -> Path:
     """Return default output PNG path for a weights CSV.
 
     If the CSV lives under <project>/step_XX_*/assim/, write to
-    <project>/plots/assim/weights/DA_XX_weights.png. Otherwise, fall back
+    <project>/results/plots/assim/weights/DA_XX_weights.png. Otherwise, fall back
     to csv_path.with_suffix('.png').
     """
     csv_path = csv_path.resolve()
@@ -1172,7 +1177,7 @@ def _default_output_path(csv_path: Path) -> Path:
         except Exception:
             return csv_path.with_suffix(".png")
         if step_dir.name.startswith("step_"):
-            out_dir = project_dir / "plots" / "assim" / "weights"
+            out_dir = project_plot_assim_weights_dir(project_dir)
             out_dir.mkdir(parents=True, exist_ok=True)
             da_index = _step_da_index_from_path(csv_path)
             if da_index is not None:

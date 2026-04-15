@@ -83,7 +83,7 @@ docker compose run --rm oa oa-da-project \
 - `results/benchmark/tables/project_summary.csv`
 - `results/benchmark/tables/update_summary.csv`
 - `results/benchmark/summary.md`
-- `plots/assim/scores/performance_scores.png`
+- `results/plots/assim/scores/performance_scores.png`
 
 **Benchmark config block (optional scope controls only):**
 ```yaml
@@ -96,7 +96,7 @@ data_assimilation:
 ```
 
 Configured extra benchmark families can still appear as `semi_independent` in outputs when they share same-variable reuse or sister-station representativeness with assimilated observations.
-The headline plot shows only DA-date `prior` and `posterior` skill for assimilated and transfer-observed variables; whole-project propagated skill remains in `project_summary.csv`.
+The headline plot shows only DA-date `prior` and `posterior` skill for assimilated and transfer-observed variables; whole-project propagated skill remains in `project_summary.csv`. Station-point rows also carry sigma-aware `zSkill`, and the headline plot adds a third `zSkill` panel whenever those station scores are available.
 
 ---
 
@@ -444,7 +444,7 @@ Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PR
 
 **Setup result overview**
 
-Plots the combined setup result overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. If `<project-dir>/result_overview_custom.yml` exists, the pipeline additionally writes `result_overview_custom.png` with the configured panel list. Custom panel configs also support `scores-crpss` and `scores-ner` to embed the benchmark score panels individually.
+Plots the combined setup result overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. If `<project-dir>/result_overview_custom.yml` exists, the pipeline additionally writes `result_overview_custom.png` with the configured panel list. Custom panel configs also support `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
 
 ```bash
 oa-da-plot-result-overview \
@@ -454,8 +454,30 @@ oa-da-plot-result-overview \
 ```
 
 **Output:**
-- `plots/results/result_overview.png`
-- `plots/results/result_overview_custom.png` when `<project-dir>/result_overview_custom.yml` is present
+- `results/plots/results/result_overview.png`
+- `results/plots/results/result_overview_custom.png` when `<project-dir>/result_overview_custom.yml` is present
+
+---
+
+### oa-da-plot-project-maps
+
+**Publication-style project maps**
+
+Renders curated project maps from the compact project summary grid, setup grids, ROI, stations, and project observation summaries. Rendering is config-driven only via `<project-dir>/project_maps.yml`, and the same sidecar also enables best-effort post-run pipeline rendering.
+Snow-depth model maps use the fixed reference palette with colorbar ticks shown in `cm`, and cells below `1 cm` remain transparent. Increment maps use a signed diverging palette with negative changes in red and positive changes in blue.
+
+```bash
+oa-da-plot-project-maps \
+  --project-dir PATH \
+  [--config PATH] \
+  [--family overview|comparison|observation_context] \
+  [--name RECIPE_NAME]
+```
+
+**Output:**
+- `results/maps/overview/*.png`
+- `results/maps/comparison/*.png`
+- `results/maps/observation_context/*.png`
 
 ---
 
@@ -494,7 +516,7 @@ oa-da-plot-ess --setup-dir PATH  # Setup-wide
 
 **Output:**
 - Per-step: `plots/assim/ess/step_XX_ess.png`
-- Setup: `plots/assim/ess/setup_ess_timeline_{setup}.png`
+- Setup: `results/plots/assim/ess/setup_ess_timeline_{setup}.png`
 
 ---
 
@@ -516,8 +538,8 @@ oa-da-perf-monitor \
 Suggested intervals: sample every 5–10 seconds; refresh the plot every 30–60 seconds.
 
 **Output:**
-- `plots/perf/setup_perf_metrics.csv`
-- `plots/perf/setup_perf.png` (CPU/RAM% left axis, disk GB right axis)
+- `results/plots/perf/project_perf_metrics.csv`
+- `results/plots/perf/project_perf.png` (CPU/RAM% left axis, disk GB right axis)
 
 ---
 

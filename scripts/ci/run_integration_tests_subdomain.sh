@@ -68,6 +68,7 @@ echo "[subdomain-integration] Preparing trimmed CI project in ${SETUP_DIR}"
 
 compose_run python - <<'PY'
 from pathlib import Path
+import shutil
 import yaml
 
 setup_dir = Path("/data/subdomains")
@@ -96,6 +97,10 @@ project_cfg["data_assimilation"] = da_cfg
 
 with (project_dir / "project_ci_2022_2023.yml").open("w", encoding="utf-8") as f:
     yaml.safe_dump(project_cfg, f, sort_keys=False)
+
+source_maps_cfg = source_project_yml.parent / "project_maps.yml"
+if source_maps_cfg.is_file():
+    shutil.copy2(source_maps_cfg, project_dir / "project_maps.yml")
 PY
 
 echo "[subdomain-integration] Running sub-domain pipeline (max-workers=${MAX_WORKERS}, inner=${INNER_WORKERS})"

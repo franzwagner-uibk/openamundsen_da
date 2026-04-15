@@ -24,7 +24,13 @@ from openamundsen_da.benchmark.render.tables import (
     write_summary_tables,
 )
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import find_project_yaml, infer_setup_dir_from_project, list_member_dirs, list_steps_sorted
+from openamundsen_da.io.paths import (
+    find_project_yaml,
+    infer_setup_dir_from_project,
+    list_member_dirs,
+    list_steps_sorted,
+    project_plot_assim_scores_dir,
+)
 from openamundsen_da.methods.h_of_x.model_scf import compute_step_scf_daily_for_all_members
 from openamundsen_da.methods.wet_snow.area import compute_step_wet_snow_daily_for_all_members
 from openamundsen_da.methods.wet_snow.classify import classify_step_wet_snow
@@ -39,6 +45,7 @@ class BenchmarkConfig:
     output_dir: Path
     plots: bool
     independent_variables: tuple[str, ...]
+    performance_scores_exclude_variables: tuple[str, ...]
 
 
 def _normalize_variable(raw: object) -> str:
@@ -57,6 +64,7 @@ def load_benchmark_config(project_dir: Path) -> BenchmarkConfig:
             output_dir=project_dir / "results" / "benchmark",
             plots=True,
             independent_variables=(),
+            performance_scores_exclude_variables=(),
         )
     bench_cfg = da_cfg.get("benchmark")
     if bench_cfg is None:
@@ -64,6 +72,7 @@ def load_benchmark_config(project_dir: Path) -> BenchmarkConfig:
             output_dir=project_dir / "results" / "benchmark",
             plots=True,
             independent_variables=(),
+            performance_scores_exclude_variables=(),
         )
     if not isinstance(bench_cfg, dict):
         raise ValueError("project.data_assimilation.benchmark must be a mapping")
@@ -72,6 +81,11 @@ def load_benchmark_config(project_dir: Path) -> BenchmarkConfig:
     if not isinstance(independent_raw, list):
         raise ValueError("project.data_assimilation.benchmark.independent_variables must be a list")
     independent_variables = tuple(sorted({_normalize_variable(v) for v in independent_raw}))
+
+    exclude_raw = bench_cfg.get("performance_scores_exclude_variables") or []
+    if not isinstance(exclude_raw, list):
+        raise ValueError("project.data_assimilation.benchmark.performance_scores_exclude_variables must be a list")
+    performance_scores_exclude_variables = tuple(sorted({_normalize_variable(v) for v in exclude_raw}))
 
     plots_raw = bench_cfg.get("plots", True)
     plots = bool(plots_raw)
@@ -87,6 +101,7 @@ def load_benchmark_config(project_dir: Path) -> BenchmarkConfig:
         output_dir=output_dir,
         plots=plots,
         independent_variables=independent_variables,
+        performance_scores_exclude_variables=performance_scores_exclude_variables,
     )
 
 
@@ -229,7 +244,7 @@ def run_project_benchmark(
     if not results_dir.is_absolute():
         results_dir = project_dir / results_dir
     plots_enabled = cfg.plots if plots is None else bool(plots)
-    plots_dir = project_dir / "plots" / "assim" / "scores"
+    plots_dir = project_plot_assim_scores_dir(project_dir)
 
     logger.info(
         "Running project benchmark for {} variable(s): {}",
@@ -308,6 +323,7 @@ def run_project_benchmark(
                 event_scores=event_scores,
                 reliability=reliability,
                 project_dir=project_dir,
+                exclude_variables=cfg.performance_scores_exclude_variables,
             )
         )
     manifest_path = write_manifest(

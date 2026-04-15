@@ -103,22 +103,22 @@ This snippet shows the three project settings that most visibly change runtime a
 Every `oa-da-project` run now writes benchmark artifacts under:
 
 - `/data/rofental/projects/project_2022_2023/results/benchmark/`
-- `/data/rofental/projects/project_2022_2023/plots/assim/scores/`
+- `/data/rofental/projects/project_2022_2023/results/plots/assim/scores/`
 
 The benchmark result directory now contains:
 
 - long-form case and score tables under `cases/` and `scores/`
 - two compact curated tables under `tables/`
 - a markdown summary plus manifest
-- one headline DA-skill plot under `plots/assim/scores/performance_scores.png`
+- one headline DA-skill plot under `results/plots/assim/scores/performance_scores.png`
 
-These files keep both a propagated whole-project benchmark view and an assimilation-date update-skill view. The headline plot itself is narrower: it shows only DA-date `prior` and weighted `posterior` skill, while the whole-project propagated summary stays in `project_summary.csv`. Results are split into:
+These files keep both a propagated whole-project benchmark view and an assimilation-date update-skill view. The headline plot itself is narrower: it shows only DA-date `prior` and weighted `posterior` skill, and adds a third station-only `zSkill` panel when sigma-aware station scores are available, while the whole-project propagated summary stays in `project_summary.csv`. Results are split into:
 
 - `assimilation_fit`: the exact family/date pair was assimilated
 - `semi_independent`: the exact family/date pair was not assimilated, but it is still linked through same-variable reuse elsewhere in the project or through a sister station variable
 - `independent`: the benchmark variable is never assimilated anywhere in the project and is not downgraded by station linkage
 
-The benchmark figure is intentionally different from the main result overview. It focuses on assimilation-date DA performance (`CRPSS` and `NER`) rather than state evolution, while the established result plots remain the place for ensemble spread and observation-vs-model context.
+The benchmark figure is intentionally different from the main result overview. It focuses on assimilation-date DA performance (`CRPSS`, `NER`, and station-only `zSkill`) rather than state evolution, while the established result plots remain the place for ensemble spread and observation-vs-model context.
 
 This is an observation-based benchmarking layer. It strengthens scientific score reporting, but it does not replace future holdout, LOOCV, or OSSE validation workflows.
 
@@ -151,40 +151,57 @@ Note on `grids.dims: [x, y, time]`:
 
 After a successful run, these paths should exist:
 
-- `/data/rofental/projects/project_2022_2023/plots/perf/project_perf.png`
-- `/data/rofental/projects/project_2022_2023/plots/assim/ess/setup_ess_timeline_2022_2023.png`
-- `/data/rofental/projects/project_2022_2023/plots/assim/weights/setup_weights_overview_2022_2023.png`
-- `/data/rofental/projects/project_2022_2023/plots/assim/weights/DA_04_weights.png`
-- `/data/rofental/projects/project_2022_2023/plots/results/result_overview.png`
-- `/data/rofental/projects/project_2022_2023/plots/results/setup_results_point_latschbloder_snow_depth_2022_2023.png`
-- `/data/rofental/projects/project_2022_2023/plots/results/setup_results_point_proviantdepot_swe_2022_2023.png`
-- `/data/rofental/projects/project_2022_2023/point_scf_roi_envelope.csv`
-- `/data/rofental/projects/project_2022_2023/point_wet_snow_roi_envelope.csv`
+- `/data/rofental/projects/project_2022_2023/results/plots/perf/project_perf.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/assim/ess/setup_ess_timeline_2022_2023.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/assim/scores/performance_scores.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/assim/weights/setup_weights_overview_2022_2023.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/assim/weights/DA_04_weights.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/results/result_overview.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/points/setup_results_point_latschbloder_snow_depth_2022_2023.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/points/setup_results_point_proviantdepot_swe_2022_2023.png`
+- `/data/rofental/projects/project_2022_2023/results/misc/point_scf_roi_envelope.csv`
+- `/data/rofental/projects/project_2022_2023/results/misc/point_wet_snow_roi_envelope.csv`
 - `/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc`
+- `/data/rofental/projects/project_2022_2023/results/maps/`
 
 Typical result files after a successful run:
 
 ```text
-plots/assim/ess/
+results/plots/assim/ess/
   setup_ess_timeline_2022_2023.png
 
-plots/assim/weights/
+results/plots/assim/scores/
+  performance_scores.png
+
+results/plots/assim/weights/
   DA_01_weights.png
   ...
   DA_10_weights.png
   setup_weights_overview_2022_2023.png
 
-plots/perf/
+results/plots/perf/
   project_perf.png
   project_perf_metrics.csv
 
-plots/results/
+results/plots/results/
   result_overview.png
-  lc_mask_report.csv
+  result_overview_custom.png
+
+results/plots/points/
   setup_results_point_latschbloder_snow_depth_2022_2023.png
   setup_results_point_latschbloder_swe_2022_2023.png
   setup_results_point_proviantdepot_snow_depth_2022_2023.png
   setup_results_point_proviantdepot_swe_2022_2023.png
+
+results/misc/
+  lc_mask_report.csv
+  point_scf_roi_envelope.csv
+  point_wet_snow_roi_envelope.csv
+
+results/maps/
+  overview/
+  comparison/
+  observation_context/
 ```
 
 ![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/project_perf.png)
@@ -193,4 +210,4 @@ plots/results/
 
 Detailed interpretation of these plots is covered in [7. Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}).
 
-Before continuing, verify that the project log ends with a completion message and that `plots/perf/project_perf.png`, `plots/assim/weights/setup_weights_overview_2022_2023.png`, `plots/results/result_overview.png`, and `results/grids/da_output_grids.nc` exist.
+Before continuing, verify that the project log ends with a completion message and that `results/plots/perf/project_perf.png`, `results/plots/assim/weights/setup_weights_overview_2022_2023.png`, `results/plots/results/result_overview.png`, and `results/grids/da_output_grids.nc` exist.

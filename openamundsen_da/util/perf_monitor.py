@@ -4,7 +4,7 @@ When enabled, a background thread samples:
 - System CPU percent
 - System RAM percent/GB
 
-Outputs under `<project_dir>/plots/perf/`:
+Outputs under `<project_dir>/results/plots/perf/`:
 - `project_perf_metrics.csv`
 - `project_perf.png` (CPU+RAM)
 
@@ -22,6 +22,7 @@ from threading import Event, Thread
 from typing import List
 
 from loguru import logger
+from openamundsen_da.io.paths import project_plot_perf_dir
 from openamundsen_da.methods.viz._utils import force_figure_text_black, save_figure_png
 
 try:
@@ -50,7 +51,7 @@ def start_perf_monitor(cfg: PerfMonitorConfig) -> Event:
         logger.warning("psutil is not available; performance monitoring is disabled.")
         return stop_event
 
-    out_dir = Path(cfg.project_dir) / "plots" / "perf"
+    out_dir = project_plot_perf_dir(cfg.project_dir)
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
     except Exception as exc:  # pragma: no cover
@@ -213,7 +214,7 @@ def cli_main(argv: List[str] | None = None) -> int:
         return 1
 
     project_dir = Path(args.project_dir)
-    out_dir = project_dir / "plots" / "perf"
+    out_dir = project_plot_perf_dir(project_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     cfg = PerfMonitorConfig(

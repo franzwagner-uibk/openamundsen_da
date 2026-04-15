@@ -15,8 +15,9 @@ Behavior and conventions
   present in steps.
 - Draws vertical dashed lines at the start of each step i >= 1 (assimilation
   times), excluding the first step (typically October 1st).
-- Output figures are written under ``<setup_dir>/plots/{forcing,results}/`` and
-  include the setup identifier in the filename.
+- Output figures are written under the canonical project-level
+  ``<project_dir>/results/plots/points/`` directory and include the project
+  identifier in the filename.
 
 CLI usage examples
 - Forcing (two panels):
@@ -49,6 +50,7 @@ from openamundsen_da.io.paths import (
     read_step_config,
     list_station_files_forcing as io_list_station_files_forcing,
     list_point_files_results as io_list_point_files_results,
+    project_plot_points_dir,
 )
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.da_events import load_assimilation_events
@@ -586,7 +588,7 @@ def plot_setup_forcing(
     if max_stations is not None:
         station_files = station_files[: max(0, int(max_stations))]
 
-    out_root = setup_dir / "plots" / "forcing"
+    out_root = project_plot_points_dir(setup_dir)
     out_root.mkdir(parents=True, exist_ok=True)
     setup_id = _setup_id_from_dir(setup_dir)
     stations_df = load_stations_table_from_steps([s.path for s in steps], "prior")
@@ -837,7 +839,7 @@ def plot_setup_results(
     if max_stations is not None:
         point_files = point_files[: max(0, int(max_stations))]
 
-    out_root = setup_dir / "plots" / "results"
+    out_root = project_plot_points_dir(setup_dir)
     out_root.mkdir(parents=True, exist_ok=True)
     setup_id = _setup_id_from_dir(setup_dir)
     stations_df = load_stations_table_from_steps([s.path for s in steps], "prior")

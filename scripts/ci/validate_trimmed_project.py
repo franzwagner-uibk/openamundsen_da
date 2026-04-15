@@ -114,39 +114,51 @@ def _check_logs(log_file: Path) -> None:
         raise ValueError(f"Integration log contains severe warning lines:\n{sample}")
 
 
-def _check_plot_outputs(setup_dir: Path) -> None:
+def _check_plot_outputs(project_dir: Path) -> None:
     plot_specs = [
         CheckSpec(
             label="step forcing plots",
             patterns=("steps/step_*/plots/forcing/**/*.png", "steps/step_*/plots/forcing/**/*.svg"),
         ),
         CheckSpec(
-            label="setup results plots",
-            patterns=("plots/results/**/*.png", "plots/results/**/*.svg"),
+            label="project overview plots",
+            patterns=("results/plots/results/**/*.png", "results/plots/results/**/*.svg"),
+        ),
+        CheckSpec(
+            label="project point plots",
+            patterns=("results/plots/points/**/*.png", "results/plots/points/**/*.svg"),
         ),
         CheckSpec(
             label="assimilation weights plots",
             patterns=(
-                "plots/assim/weights/**/*.png",
-                "plots/assim/weights/**/*.svg",
+                "results/plots/assim/weights/**/*.png",
+                "results/plots/assim/weights/**/*.svg",
                 "steps/step_*/assim/weights_*.png",
                 "steps/step_*/assim/weights_*.svg",
             ),
         ),
         CheckSpec(
             label="assimilation ESS plots",
-            patterns=("plots/assim/ess/**/*.png", "plots/assim/ess/**/*.svg"),
+            patterns=("results/plots/assim/ess/**/*.png", "results/plots/assim/ess/**/*.svg"),
         ),
         CheckSpec(
             label="benchmark plots",
-            patterns=("plots/assim/scores/performance_scores.png", "plots/assim/scores/performance_scores.svg"),
+            patterns=("results/plots/assim/scores/performance_scores.png", "results/plots/assim/scores/performance_scores.svg"),
             min_count=1,
         ),
     ]
+    if (project_dir / "project_maps.yml").is_file():
+        plot_specs.append(
+            CheckSpec(
+                label="project maps",
+                patterns=("results/maps/**/*.png", "results/maps/**/*.svg"),
+                min_count=1,
+            )
+        )
 
     missing: list[str] = []
     for spec in plot_specs:
-        found = _collect_non_empty(setup_dir, spec.patterns)
+        found = _collect_non_empty(project_dir, spec.patterns)
         if len(found) < spec.min_count:
             missing.append(f"{spec.label}: expected >= {spec.min_count}, found {len(found)}")
 
@@ -353,6 +365,7 @@ def _check_benchmark_outputs(project_dir: Path) -> None:
         results_dir / "tables" / "improvement_summary.csv",
     )
     stale_plot_dirs = (
+        results_dir / "plots",
         project_dir / "plots" / "benchmark" / "core",
         project_dir / "plots" / "benchmark" / "extended",
         project_dir / "plots" / "benchmark",
@@ -380,7 +393,7 @@ def _check_benchmark_outputs(project_dir: Path) -> None:
     headline_plot_outputs = [
         value
         for value in manifest.get("outputs", {}).values()
-        if str(value).replace("\\", "/").endswith("/plots/assim/scores/performance_scores.png")
+        if str(value).replace("\\", "/").endswith("/results/plots/assim/scores/performance_scores.png")
     ]
     if len(headline_plot_outputs) != 1:
         raise ValueError(f"Benchmark manifest is missing the shipped performance_scores plot: {manifest_path}")
@@ -414,6 +427,8 @@ def _check_benchmark_outputs(project_dir: Path) -> None:
     for path in stale_plot_dirs:
         if path.exists():
             raise ValueError(f"Stale benchmark plot directory should not be written anymore: {path}")
+    if (project_dir / "plots").exists():
+        raise ValueError(f"Legacy project-level plots root should not be written anymore: {project_dir / 'plots'}")
 
 
 def validate_project(project_dir: Path, log_file: Path) -> None:

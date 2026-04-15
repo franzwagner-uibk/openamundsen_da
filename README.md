@@ -121,7 +121,7 @@ and naming conventions.
 - Observations live under `obs/project_X`; the pipeline assumes the CSVs follow `obs_scf_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`. Configure product tags explicitly in project YAML under `obs.*`.
 - Station observations live under `obs/stations`; ROI-based station assimilation uses `assimilation_events` variables `station_hs` and `station_swe` and reads optional per-station uncertainty metadata from `obs/stations/stations_da_metadata.csv`.
 - The station assimilation method itself is documented in the docs guide: `guides/station-assimilation`.
-- Scientific benchmarking always runs at the end of `oa-da-project` and writes observation-based score tables under `results/benchmark/` plus the headline DA-skill plot `plots/assim/scores/performance_scores.png`.
+- Scientific benchmarking always runs at the end of `oa-da-project` and writes observation-based score tables under `results/benchmark/` plus the headline DA-skill plot `results/plots/assim/scores/performance_scores.png`. Station benchmark rows now also carry sigma-aware `zSkill` based on the configured station uncertainty metadata.
 - data assimilation uses `grids/roi_<domain>_<resolution>.asc` as canonical ROI mask; if missing, it is generated silently from ROI vectors under `env/` (`roi.gpkg` preferred, `subdomains.gpkg` supported).
 - Land-cover masking (applied to obs + model SCF/wet-snow): land-cover ASCII is resolved as `grids/lc_<domain>_<resolution>.asc` from setup config; excluded classes come from project YAML `data_assimilation.landcover_mask.classes_to_exclude`.
 
@@ -247,10 +247,10 @@ docker compose run --rm oa `
 
 ## Setup-level model envelopes for plotting
 
-Setup runs now aggregate member ROI series into:
+Project runs now aggregate member ROI series into:
 
-- `point_scf_roi_envelope.csv`
-- `point_wet_snow_roi_envelope.csv`
+- `results/misc/point_scf_roi_envelope.csv`
+- `results/misc/point_wet_snow_roi_envelope.csv`
 
 Each contains `date, value_mean, value_min, value_max, n` computed from all available prior member `point_*_roi.csv` files. Generate manually if needed:
 
@@ -274,7 +274,7 @@ docker compose run --rm oa `
   --project-dir $project
 ```
 
-Defaults read obs from `obs/summaries/<setup>/scf_summary.csv` and `obs/summaries/<setup>/wet_snow_summary.csv`, envelopes from the setup root, and write `plots/results/result_overview.png`. The output now expands to a 4-panel setup overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE / snow-depth panels are built from per-member `point_swe_roi.csv` / `point_snow_depth_roi.csv` files, use the full ROI footprint (no land-cover masking), and show ensemble-only 5-95% bands plus ensemble mean against a separate `open_loop` line. Add `--scf-model-csv` / `--wet-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` to use custom envelopes. Plot mode can be switched with `--mode band|members` (pipeline default: `band`). When `<project-dir>/result_overview_custom.yml` exists, the project pipeline also writes `plots/results/result_overview_custom.png` using the requested panel order and station panels from that YAML; custom panels now also support `scores-crpss` and `scores-ner` to embed the benchmark score panels individually.
+Defaults read obs from `obs/summaries/<setup>/scf_summary.csv` and `obs/summaries/<setup>/wet_snow_summary.csv`, use the canonical project envelopes under `results/misc/`, and write `results/plots/results/result_overview.png`. The output now expands to a 4-panel setup overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE / snow-depth panels are built from per-member `point_swe_roi.csv` / `point_snow_depth_roi.csv` files, use the full ROI footprint (no land-cover masking), and show ensemble-only 5-95% bands plus ensemble mean against a separate `open_loop` line. Add `--scf-model-csv` / `--wet-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` to use custom envelopes. Plot mode can be switched with `--mode band|members` (pipeline default: `band`). When `<project-dir>/result_overview_custom.yml` exists, the project pipeline also writes `results/plots/results/result_overview_custom.png` using the requested panel order and station panels from that YAML; custom panels now also support `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
 
 ## Setup point results (SWE / snow depth, member mode)
 
@@ -285,7 +285,7 @@ docker compose run --rm oa python -m openamundsen_da.methods.viz.plot_project_en
 docker compose run --rm oa python -m openamundsen_da.methods.viz.plot_project_ensemble results --setup-dir $setup --var-col snow_depth --mode members --log-level INFO
 ```
 
-Outputs are written to `<setup>/plots/results/setup_results_point_<station>_{swe|snow_depth}_<setup>.png`. The setup pipeline calls the same functions with `mode=members` after each step and at the end.
+Outputs are written to `<setup>/results/plots/points/setup_results_point_<station>_{swe|snow_depth}_<setup>.png`. The setup pipeline calls the same functions with `mode=members` after each step and at the end.
 
 ### H(x) Model SCF (optional, per-member debug)
 
@@ -397,7 +397,7 @@ docker compose run --rm oa `
 
 Optional: `--normalized`, `--threshold <ratio>`, `--output <svg>`, `--backend`, `--log-level`
 
-Outputs are written to `$setup/plots/forcing` and `$setup/plots/results` with the setup identifier in filenames.
+Project-level stitched forcing and point-result panels are written to `$setup/results/plots/points` with the setup identifier in the filenames.
 
 - Setup-level assimilation plots:
 
@@ -428,7 +428,7 @@ Outputs are written to `$setup/plots/forcing` and `$setup/plots/results` with th
     python -c "from pathlib import Path; from openamundsen_da.methods.pf.plot_ess_timeline import plot_setup_ess_timeline; plot_setup_ess_timeline(Path('$setup'))"
   ```
 
-  This scans `steps/step_*/assim/weights_scf_*.csv` under `$setup` and writes the timeline to `$setup/plots/assim/ess/setup_ess_timeline_<setup_id>.png`.
+  This scans `steps/step_*/assim/weights_scf_*.csv` under `$setup` and writes the timeline to `$setup/results/plots/assim/ess/setup_ess_timeline_<setup_id>.png`.
 
 - Setup-wide forcing/results (stitch all steps together):
 
@@ -491,6 +491,19 @@ Note: running the setup pipeline (see below) also generates these setup plots au
 
   The output file is written next to the input CSV as `<basename>.<var>.png`, e.g., `point_latschbloder.swe.png`.
 
+- Project maps (compact project grid -> publication-style PNGs):
+
+  Use `oa-da-plot-project-maps` to render curated overview, comparison, and observation-context figures from a completed project. The renderer reads `results/grids/da_output_grids.nc`, setup grids/ROI/stations, and project observation summaries automatically; map selection itself is driven by `<project-dir>/project_maps.yml`.
+
+  ```powershell
+  docker compose run --rm oa `
+    oa-da-plot-project-maps `
+    --project-dir /data/projects/project_2022_2023
+  ```
+
+  Outputs are written under `results/maps/{overview,comparison,observation_context}/`. When `<project-dir>/project_maps.yml` is present, `oa-da-project` and merged sub-domain runs also render these maps automatically as a best-effort post-run stage.
+  Snow-depth model panels use the fixed tutorial/reference palette with colorbar labels in `cm`; values below `1 cm` are hidden so bare or nearly bare cells stay transparent over the hillshade. Increment panels use a signed diverging palette with negative changes in red and positive changes in blue.
+
 ## Setup Pipeline
 
 ```powershell
@@ -518,11 +531,14 @@ Outputs
   - `increment_<var>` is defined as `ens_mean_<var> - open_loop_<var>`
   - Time axis spans the full project timeline across all steps (not only the last step)
 - Setup plots under `<setup_dir>/plots/{forcing,results}`
+- Project-level plots under `<project>/results/plots/{results,perf,points,assim/{weights,ess,scores}}`
+- Project-level misc artifacts under `<project>/results/misc`
+- Project maps under `<project>/results/maps` when `<project>/project_maps.yml` is present
 - When model SCF is enabled, daily ROI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_roi.csv`.
 - Full-ROI daily mean SWE and snow depth are written to `<step>/ensembles/prior/<member>/results/point_swe_roi.csv` and `<step>/ensembles/prior/<member>/results/point_snow_depth_roi.csv`.
-- The combined setup overview plot (`plots/results/result_overview.png`) now shows SCF, wet-snow, ROI mean SWE, and ROI mean snow depth together.
+- The combined project result overview plot (`results/plots/results/result_overview.png`) now shows SCF, wet-snow, ROI mean SWE, and ROI mean snow depth together.
   Setup results plots now show the ensemble mean, the 90% envelope, and the open loop by default; individual members are hidden unless `--show-members` is passed to the plot CLI. Wet-snow setup plots overlay available observations from `obs/<setup>/wet_snow_summary.csv` automatically.
-  At the end of the setup run, per-step weights plots (`step_XX_weights.png`) and the setup ESS timeline (`setup_ess_timeline_<setup_id>.png`) are also generated under `<setup_dir>/plots/assim/{weights,ess}`.
+  At the end of the setup run, per-step weights plots (`step_XX_weights.png`) and the setup ESS timeline (`setup_ess_timeline_<setup_id>.png`) are also generated under `<project_dir>/results/plots/assim/{weights,ess}`.
   Default retention is compact (`data_assimilation.output.retention: compact`), which prunes heavy member grid artifacts after writing `da_output_grids.nc`. Set `retention: full` to keep all member grid files.
 
 ### Backfilling model SCF for an existing setup (optional)
@@ -574,9 +590,9 @@ The skeleton uses the `timestep` from `project.yml` (e.g. `3H`, `6H`, `1D`) to d
 ### Performance monitoring (CPU / RAM)
 
 A minimal monitor samples system CPU% and RAM% (enabled by default for `oa-da-project`).
-Outputs under `<setup_dir>/plots/perf/`:
-- `setup_perf_metrics.csv` (timestamp, cpu_total_pct, mem_used_pct, mem_used_gb, mem_total_gb)
-- `setup_perf.png` (CPU/RAM%)
+Outputs under `<project>/results/plots/perf/`:
+- `project_perf_metrics.csv` (timestamp, cpu_total_pct, mem_used_pct, mem_used_gb, mem_total_gb)
+- `project_perf.png` (CPU/RAM%)
 
 Suggested intervals: sample every 5-10 seconds; refresh the plot every 30-60 seconds.
 
@@ -603,9 +619,9 @@ docker compose run --rm oa `
 - `results/benchmark/tables/project_summary.csv`
 - `results/benchmark/tables/update_summary.csv`
 - `results/benchmark/summary.md`
-- `plots/assim/scores/performance_scores.png`
+- `results/plots/assim/scores/performance_scores.png`
 
-The raw benchmark backend still scores whole-project propagated `da_informed_ensemble` skill against `open_loop` and, on assimilation dates, explicit analysis-time `prior` and weighted `posterior` skill. The headline plot is intentionally narrower: it shows only assimilation-date `prior` and `posterior` skill (`CRPSS`, `NER`) for assimilated and transfer-observed variables on the DA dates themselves, while `project_summary.csv` keeps the whole-project propagated view. Results are split into `assimilation_fit`, `semi_independent`, and `independent`: `semi_independent` means the exact variable/date pair was not assimilated but is still linked through same-variable reuse elsewhere in the project or through a sister station variable, while `independent` is reserved for benchmark variables never assimilated anywhere in the project and not downgraded by station linkage. The human-facing benchmark core stays lean: one DA-date skill plot plus two compact tables, while the existing result-overview plots remain the place for state evolution and observation-vs-model context. This is a scientific benchmarking layer, not a substitute for future holdout, LOOCV, or OSSE workflows.
+The raw benchmark backend still scores whole-project propagated `da_informed_ensemble` skill against `open_loop` and, on assimilation dates, explicit analysis-time `prior` and weighted `posterior` skill. The headline plot is intentionally narrower: it shows only assimilation-date `prior` and `posterior` skill (`CRPSS`, `NER`) for assimilated and transfer-observed variables on the DA dates themselves, and adds a third station-only `zSkill` panel when sigma-aware station scores are available, while `project_summary.csv` keeps the whole-project propagated view. Results are split into `assimilation_fit`, `semi_independent`, and `independent`: `semi_independent` means the exact variable/date pair was not assimilated but is still linked through same-variable reuse elsewhere in the project or through a sister station variable, while `independent` is reserved for benchmark variables never assimilated anywhere in the project and not downgraded by station linkage. The human-facing benchmark core stays lean: one DA-date skill plot plus two compact tables, while the existing result-overview plots remain the place for state evolution and observation-vs-model context. This is a scientific benchmarking layer, not a substitute for future holdout, LOOCV, or OSSE workflows.
 
 You can add extra independent benchmark families from the current DA-supported set (`scf`, `wet_snow`, `station_hs`, `station_swe`) in project YAML:
 

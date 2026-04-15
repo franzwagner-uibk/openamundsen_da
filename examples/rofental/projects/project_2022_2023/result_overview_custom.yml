@@ -2,7 +2,7 @@
 #
 # Discovery:
 # - Keep this file in the project root directory.
-# - When present, the pipeline writes plots/results/result_overview_custom.png.
+# - When present, the pipeline writes results/plots/results/result_overview_custom.png.
 # - When absent, no custom overview is written.
 #
 # Structure:
@@ -18,6 +18,7 @@
 # - ess
 # - scores-crpss
 # - scores-ner
+# - scores-zskill
 #
 # Supported keys per panel entry:
 # - panel: required
@@ -60,6 +61,8 @@ panels:
 #  - panel: scores-crpss
 #
 #  - panel: scores-ner
+#
+#  - panel: scores-zskill
 #
 #  - panel: station-sd
 #    station_id: latschbloder

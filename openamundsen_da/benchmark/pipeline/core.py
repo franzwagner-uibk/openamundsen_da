@@ -46,6 +46,7 @@ class BenchmarkConfig:
     plots: bool
     independent_variables: tuple[str, ...]
     performance_scores_exclude_variables: tuple[str, ...]
+    score_station_sigma_threshold: float | None
 
 
 def _normalize_variable(raw: object) -> str:
@@ -65,6 +66,7 @@ def load_benchmark_config(project_dir: Path) -> BenchmarkConfig:
             plots=True,
             independent_variables=(),
             performance_scores_exclude_variables=(),
+            score_station_sigma_threshold=None,
         )
     bench_cfg = da_cfg.get("benchmark")
     if bench_cfg is None:
@@ -73,6 +75,7 @@ def load_benchmark_config(project_dir: Path) -> BenchmarkConfig:
             plots=True,
             independent_variables=(),
             performance_scores_exclude_variables=(),
+            score_station_sigma_threshold=None,
         )
     if not isinstance(bench_cfg, dict):
         raise ValueError("project.data_assimilation.benchmark must be a mapping")
@@ -86,6 +89,16 @@ def load_benchmark_config(project_dir: Path) -> BenchmarkConfig:
     if not isinstance(exclude_raw, list):
         raise ValueError("project.data_assimilation.benchmark.performance_scores_exclude_variables must be a list")
     performance_scores_exclude_variables = tuple(sorted({_normalize_variable(v) for v in exclude_raw}))
+
+    threshold_raw = bench_cfg.get("score_station_sigma_threshold")
+    score_station_sigma_threshold: float | None = None
+    if threshold_raw is not None and str(threshold_raw).strip() != "":
+        try:
+            score_station_sigma_threshold = float(threshold_raw)
+        except Exception as exc:
+            raise ValueError("project.data_assimilation.benchmark.score_station_sigma_threshold must be numeric") from exc
+        if score_station_sigma_threshold <= 0.0:
+            raise ValueError("project.data_assimilation.benchmark.score_station_sigma_threshold must be > 0")
 
     plots_raw = bench_cfg.get("plots", True)
     plots = bool(plots_raw)
@@ -102,6 +115,7 @@ def load_benchmark_config(project_dir: Path) -> BenchmarkConfig:
         plots=plots,
         independent_variables=independent_variables,
         performance_scores_exclude_variables=performance_scores_exclude_variables,
+        score_station_sigma_threshold=score_station_sigma_threshold,
     )
 
 
@@ -275,7 +289,12 @@ def run_project_benchmark(
         raise ValueError("Benchmark stage found no usable observation/model cases in the project window")
 
     case_scores = build_case_scores(raw_cases)
-    case_scores = enrich_case_scores(case_scores, project_dir=project_dir, setup_dir=resolved_setup_dir)
+    case_scores = enrich_case_scores(
+        case_scores,
+        project_dir=project_dir,
+        setup_dir=resolved_setup_dir,
+        score_station_sigma_threshold=cfg.score_station_sigma_threshold,
+    )
     event_scores = aggregate_scores(
         case_scores,
         group_cols=("score_set", "variable", "stream", "step_name", "timestamp", "date"),

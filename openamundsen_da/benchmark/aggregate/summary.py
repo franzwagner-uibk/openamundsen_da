@@ -11,6 +11,11 @@ import pandas as pd
 
 from openamundsen_da.io.paths import list_steps_sorted
 from openamundsen_da.methods.viz._ensemble_meta import load_stations_table_from_steps
+from openamundsen_da.util.station_da import (
+    load_station_assimilation_config,
+    read_station_metadata,
+    resolve_station_uncertainty_pct,
+)
 
 
 _COVERAGE_LEVELS = (50, 80, 90)
@@ -67,7 +72,50 @@ def _normalize_station_metadata(stations_df: pd.DataFrame | None) -> pd.DataFram
     return normalized.drop_duplicates(subset=["obs_id"]).reset_index(drop=True)
 
 
-def enrich_case_scores(case_scores: pd.DataFrame, *, project_dir: Path, setup_dir: Path) -> pd.DataFrame:
+def _station_uncertainty_lookup(
+    *,
+    case_scores: pd.DataFrame,
+    project_dir: Path,
+    setup_dir: Path,
+    strict: bool,
+) -> dict[str, float]:
+    station_ids = sorted(
+        {
+            str(obs_id).strip().lower()
+            for obs_id in case_scores.loc[case_scores["obs_kind"] == "station", "obs_id"].tolist()
+            if str(obs_id).strip()
+        }
+    )
+    if not station_ids:
+        return {}
+
+    try:
+        config = load_station_assimilation_config(setup_dir, project_dir)
+        metadata_df = read_station_metadata(config.metadata_path)
+    except Exception:
+        if strict:
+            raise
+        return {}
+
+    lookup: dict[str, float] = {}
+    for station_id in station_ids:
+        try:
+            station_uncertainty_pct, _source = resolve_station_uncertainty_pct(station_id, metadata_df, config)
+        except Exception:
+            if strict:
+                raise
+            continue
+        lookup[station_id] = float(station_uncertainty_pct)
+    return lookup
+
+
+def enrich_case_scores(
+    case_scores: pd.DataFrame,
+    *,
+    project_dir: Path,
+    setup_dir: Path,
+    score_station_sigma_threshold: float | None = None,
+) -> pd.DataFrame:
     if case_scores.empty:
         return case_scores.copy()
 
@@ -89,6 +137,8 @@ def enrich_case_scores(case_scores: pd.DataFrame, *, project_dir: Path, setup_di
     out["delta_sq_error"] = out["open_loop_sq_error"] - out["sq_error"]
     out["delta_crps"] = out["open_loop_case_crps"] - out["crps"]
     out["obs_kind"] = np.where(out["obs_id"].astype(str).str.lower() == "roi", "roi", "station")
+    out["station_uncertainty_pct"] = np.nan
+    out["exclude_from_non_sigma_scores"] = False
 
     station_meta = _normalize_station_metadata(_load_station_metadata(project_dir, setup_dir))
     if not station_meta.empty:
@@ -113,25 +163,51 @@ def enrich_case_scores(case_scores: pd.DataFrame, *, project_dir: Path, setup_di
             out["obs_name"].astype(str),
         ),
     )
+
+    if score_station_sigma_threshold is not None:
+        uncertainty_lookup = _station_uncertainty_lookup(
+            case_scores=out,
+            project_dir=project_dir,
+            setup_dir=setup_dir,
+            strict=True,
+        )
+        if uncertainty_lookup:
+            out["station_uncertainty_pct"] = np.where(
+                out["obs_kind"] == "station",
+                out["obs_id"].astype(str).str.strip().str.lower().map(uncertainty_lookup),
+                np.nan,
+            )
+        uncertainty_pct = pd.to_numeric(out["station_uncertainty_pct"], errors="coerce")
+        out["exclude_from_non_sigma_scores"] = (
+            (out["obs_kind"] == "station") & uncertainty_pct.ge(float(score_station_sigma_threshold))
+        ).fillna(False)
     return out
 
 
+def _non_sigma_score_group(group: pd.DataFrame) -> pd.DataFrame:
+    if "exclude_from_non_sigma_scores" not in group.columns:
+        return group
+    exclude = group["exclude_from_non_sigma_scores"].fillna(False).astype(bool)
+    return group.loc[~exclude].copy()
+
+
 def _aggregate_group_rows(group: pd.DataFrame) -> pd.Series:
+    non_sigma_group = _non_sigma_score_group(group)
     errors = pd.to_numeric(group["error"], errors="coerce").to_numpy(dtype=float)
-    sq_errors = pd.to_numeric(group["sq_error"], errors="coerce").to_numpy(dtype=float)
+    non_sigma_sq_errors = pd.to_numeric(non_sigma_group["sq_error"], errors="coerce").to_numpy(dtype=float)
     z_sq_errors = pd.to_numeric(group["z_sq_error"], errors="coerce").to_numpy(dtype=float)
     abs_errors = pd.to_numeric(group["abs_error"], errors="coerce").to_numpy(dtype=float)
-    crps = pd.to_numeric(group["crps"], errors="coerce").to_numpy(dtype=float)
-    spread = pd.to_numeric(group["spread"], errors="coerce").to_numpy(dtype=float)
+    non_sigma_crps = pd.to_numeric(non_sigma_group["crps"], errors="coerce").to_numpy(dtype=float)
+    non_sigma_spread = pd.to_numeric(non_sigma_group["spread"], errors="coerce").to_numpy(dtype=float)
     row = {
         "n_cases": int(len(group)),
-        "rmse": float(np.sqrt(np.nanmean(sq_errors))) if len(sq_errors) else np.nan,
+        "rmse": float(np.sqrt(np.nanmean(non_sigma_sq_errors))) if len(non_sigma_sq_errors) else np.nan,
         "z_rmse": float(np.sqrt(_finite_mean(z_sq_errors))) if len(z_sq_errors) else np.nan,
         "mae": float(np.nanmean(abs_errors)) if len(abs_errors) else np.nan,
         "bias": float(np.nanmean(errors)) if len(errors) else np.nan,
         "ubrmse": float(np.sqrt(np.nanmean((errors - np.nanmean(errors)) ** 2))) if len(errors) else np.nan,
-        "crps": float(np.nanmean(crps)) if len(crps) else np.nan,
-        "spread_mean": float(np.nanmean(spread)) if len(spread) else np.nan,
+        "crps": float(np.nanmean(non_sigma_crps)) if len(non_sigma_crps) else np.nan,
+        "spread_mean": float(np.nanmean(non_sigma_spread)) if len(non_sigma_spread) else np.nan,
     }
     for nominal in _COVERAGE_LEVELS:
         values = pd.to_numeric(group[f"coverage_{nominal}"], errors="coerce").to_numpy(dtype=float)

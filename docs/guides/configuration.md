@@ -132,6 +132,7 @@ data_assimilation:
   benchmark:
     independent_variables:
       - station_swe
+    score_station_sigma_threshold: 200
     plots: true
     output_dir: results/benchmark
 
@@ -218,6 +219,7 @@ Notes:
 - Observation class mappings and product tags are configured under project YAML `obs.*`.
 - `data_assimilation.benchmark` does not enable or disable benchmarking; the project pipeline always runs it. This block extends the benchmark scope and controls benchmark output location and plot writing. The benchmark presentation itself is fixed and lean: one assimilation-date skill plot plus two compact summary tables.
 - `independent_variables` may currently list only the DA-supported families: `scf`, `wet_snow`, `station_hs`, `station_swe`.
+- `score_station_sigma_threshold` optionally excludes high-uncertainty station rows from non-sigma-aware benchmark metrics (`CRPSS`, `NER`) while leaving sigma-aware `zSkill` unchanged. The threshold is compared against the resolved station uncertainty percent from `obs/stations/stations_da_metadata.csv`.
 - Output stream labels are derived by benchmark semantics, not by config naming alone: a configured extra family can still appear as `semi_independent` in outputs, but only from the first same-variable or sister-station assimilation date onward.
 - Land-cover mask uses `grids/lc_<domain>_<resolution>.asc` from setup-level paths and data assimilation mask classes from project YAML.
 - For SCF uncertainty:

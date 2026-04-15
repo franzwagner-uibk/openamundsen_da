@@ -175,6 +175,7 @@ def test_load_benchmark_config_accepts_performance_score_exclusions(tmp_path: Pa
           benchmark:
             independent_variables: [station_swe]
             performance_scores_exclude_variables: [station_swe, wet_snow_fraction]
+            score_station_sigma_threshold: 200
         """,
     )
 
@@ -183,6 +184,7 @@ def test_load_benchmark_config_accepts_performance_score_exclusions(tmp_path: Pa
     assert cfg.output_dir == project_dir / "results" / "benchmark"
     assert cfg.independent_variables == ("station_swe",)
     assert cfg.performance_scores_exclude_variables == ("station_swe", "wet_snow")
+    assert cfg.score_station_sigma_threshold == pytest.approx(200.0)
 
 
 def test_load_benchmark_config_rejects_invalid_performance_score_exclusion(tmp_path: Path) -> None:
@@ -202,4 +204,44 @@ def test_load_benchmark_config_rejects_invalid_performance_score_exclusion(tmp_p
     )
 
     with pytest.raises(ValueError, match="bogus_variable"):
+        pipeline_mod.load_benchmark_config(project_dir)
+
+
+def test_load_benchmark_config_rejects_invalid_station_score_sigma_threshold(tmp_path: Path) -> None:
+    _setup_project(tmp_path)
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    _write_yaml(
+        project_dir / "project_2022_2023.yml",
+        """
+        start_date: '2023-01-01'
+        end_date: '2023-01-02'
+        data_assimilation:
+          wet_snow:
+            classification_threshold_percent: 12.5
+          benchmark:
+            score_station_sigma_threshold: nope
+        """,
+    )
+
+    with pytest.raises(ValueError, match="score_station_sigma_threshold"):
+        pipeline_mod.load_benchmark_config(project_dir)
+
+
+def test_load_benchmark_config_rejects_non_positive_station_score_sigma_threshold(tmp_path: Path) -> None:
+    _setup_project(tmp_path)
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    _write_yaml(
+        project_dir / "project_2022_2023.yml",
+        """
+        start_date: '2023-01-01'
+        end_date: '2023-01-02'
+        data_assimilation:
+          wet_snow:
+            classification_threshold_percent: 12.5
+          benchmark:
+            score_station_sigma_threshold: 0
+        """,
+    )
+
+    with pytest.raises(ValueError, match="score_station_sigma_threshold"):
         pipeline_mod.load_benchmark_config(project_dir)

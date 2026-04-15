@@ -85,18 +85,20 @@ docker compose run --rm oa oa-da-project \
 - `results/benchmark/summary.md`
 - `results/plots/assim/scores/performance_scores.png`
 
-**Benchmark config block (optional scope controls only):**
+**Benchmark config block (optional benchmark controls):**
 ```yaml
 data_assimilation:
   benchmark:
     independent_variables:
       - station_swe
     plots: true
+    score_station_sigma_threshold: 200
     output_dir: results/benchmark
 ```
 
 Configured extra benchmark families can still appear as `semi_independent` in outputs, but only from the first same-variable or sister-station assimilation date onward.
 The headline plot shows only DA-date `prior` and `posterior` skill for assimilated and transfer-observed variables; whole-project propagated skill remains in `project_summary.csv`. Station-point rows also carry sigma-aware `zSkill`, and the headline plot adds a third `zSkill` panel whenever those station scores are available.
+`score_station_sigma_threshold` optionally excludes station rows with high resolved `station_uncertainty_pct` from non-sigma-aware benchmark metrics (`CRPSS`, `NER`) while leaving sigma-aware `zSkill` unchanged.
 
 ---
 

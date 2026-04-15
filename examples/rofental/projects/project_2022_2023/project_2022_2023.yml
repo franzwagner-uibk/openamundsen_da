@@ -147,6 +147,7 @@ data_assimilation:
   benchmark:
     independent_variables:
     - station_swe
+    score_station_sigma_threshold: 200
     plots: true
     output_dir: results/benchmark
   output:

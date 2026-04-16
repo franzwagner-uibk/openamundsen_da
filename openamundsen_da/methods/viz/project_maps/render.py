@@ -149,6 +149,10 @@ def _masked(arr: np.ndarray, roi_mask: np.ndarray) -> np.ma.MaskedArray:
     return np.ma.masked_invalid(masked)
 
 
+def _masked_invalid(arr: np.ndarray) -> np.ma.MaskedArray:
+    return np.ma.masked_invalid(np.asarray(arr, dtype=float))
+
+
 def _masked_model(arr: np.ndarray, roi_mask: np.ndarray, *, preset) -> np.ma.MaskedArray:
     masked = _masked(arr, roi_mask)
     if preset.variable == "snowdepth_daily":
@@ -187,7 +191,6 @@ def _hillshade(context: StaticContext) -> np.ndarray:
         dx=abs(float(context.spec.transform.a)),
         dy=abs(float(context.spec.transform.e)),
     )
-    shade = np.where(context.roi_mask, shade, np.nan)
     return shade
 
 
@@ -885,7 +888,7 @@ def _render_static_panel(
         return {}
 
     if panel.kind == "landcover":
-        masked_landcover = _masked(_field_array(context, "landcover"), context.roi_mask)
+        masked_landcover = _masked_invalid(_field_array(context, "landcover"))
         present_codes = sorted({int(value) for value in masked_landcover.compressed() if np.isfinite(value)})
         if not present_codes:
             present_codes = [0]
@@ -922,7 +925,7 @@ def _render_static_panel(
 
     field = _STATIC_FIELD_KIND_TO_FIELD[panel.kind]
     preset = require_static_field_preset(field)
-    data = _masked(_field_array(context, field), context.roi_mask)
+    data = _masked_invalid(_field_array(context, field))
     norm = static_field_norm(preset, data.filled(np.nan))
     image = ax.imshow(data, cmap=static_field_cmap(preset), norm=norm, extent=grid_extent, origin="upper", interpolation="nearest", zorder=5)
     _apply_common_overlays(

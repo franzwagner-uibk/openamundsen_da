@@ -501,6 +501,8 @@ oa-da-plot-project-maps \
 **Output:**
 - `results/maps/*.png`
 
+Static context panels (`hillshade`, `dem`, `svf`, `srf`, `landcover`) render the full raster coverage inside the map extent. Model and observation panels remain ROI-masked. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
+
 ---
 
 ### oa-da-plot-weights

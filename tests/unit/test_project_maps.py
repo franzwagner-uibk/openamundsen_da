@@ -13,7 +13,8 @@ import xarray as xr
 from rasterio.transform import from_origin
 from shapely.geometry import box
 
-from openamundsen_da.methods.viz.project_maps.config import DateSelector, load_project_maps_config
+import openamundsen_da.methods.viz.project_maps.render as render_module
+from openamundsen_da.methods.viz.project_maps.config import DateSelector, MapDefaults, MapPanelSpec, load_project_maps_config
 from openamundsen_da.methods.viz.project_maps.data import (
     ModelFields,
     load_observation_scene,
@@ -142,11 +143,12 @@ def _write_station_netcdf(path: Path, *, lon: float, lat: float, alt: float, nam
     ds.to_netcdf(path)
 
 
-def _write_roi_vector(path: Path) -> None:
+def _write_roi_vector(path: Path, *, bounds: tuple[float, float, float, float] = (0.0, 0.0, 400.0, 400.0)) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    xmin, ymin, xmax, ymax = bounds
     gdf = gpd.GeoDataFrame(
         {"id": pd.Series(["roi"], dtype=object)},
-        geometry=[box(0.0, 0.0, 400.0, 400.0)],
+        geometry=[box(xmin, ymin, xmax, ymax)],
         crs="EPSG:25832",
     )
     gdf.to_file(path, driver="GPKG")
@@ -157,7 +159,13 @@ def _write_summary(path: Path, rows: list[dict[str, object]]) -> None:
     pd.DataFrame(rows).to_csv(path, index=False)
 
 
-def _build_project_fixture(tmp_path: Path, *, meteo_format: str = "csv") -> tuple[Path, Path]:
+def _build_project_fixture(
+    tmp_path: Path,
+    *,
+    meteo_format: str = "csv",
+    roi_mask: np.ndarray | None = None,
+    roi_bounds: tuple[float, float, float, float] | None = None,
+) -> tuple[Path, Path]:
     setup_dir = tmp_path / f"setup_{meteo_format}"
     project_dir = setup_dir / "projects" / "project_demo"
     grids_dir = setup_dir / "custom_grids"
@@ -246,13 +254,14 @@ def _build_project_fixture(tmp_path: Path, *, meteo_format: str = "csv") -> tupl
         ],
         dtype=np.float32,
     )
-    roi = np.ones((4, 4), dtype=np.uint8)
+    roi = np.asarray(roi_mask, dtype=np.uint8) if roi_mask is not None else np.ones((4, 4), dtype=np.uint8)
+    roi_vector_bounds = roi_bounds or (0.0, 0.0, 400.0, 400.0)
     _write_grid(grids_dir / "dem_demo_100.asc", dem, transform=transform)
     _write_grid(grids_dir / "lc_demo_100.asc", landcover, transform=transform, nodata=0)
     _write_grid(grids_dir / "svf_demo_100.asc", svf, transform=transform)
     _write_grid(grids_dir / "srf_demo_100.asc", srf, transform=transform)
     _write_grid(grids_dir / "roi_demo_100.asc", roi, transform=transform, nodata=0)
-    _write_roi_vector(setup_dir / "env" / "roi.gpkg")
+    _write_roi_vector(setup_dir / "env" / "roi.gpkg", bounds=roi_vector_bounds)
     _write_da_output(project_dir / "results" / "grids" / "da_output_grids.nc")
 
     if meteo_format == "csv":
@@ -683,6 +692,105 @@ def test_snowdepth_model_mask_hides_values_below_one_centimeter() -> None:
     )
 
     assert masked.mask.tolist() == [[True, False, False]]
+
+
+def test_static_panels_keep_context_outside_roi(tmp_path: Path) -> None:
+    roi_mask = np.array(
+        [
+            [0, 0, 0, 0],
+            [0, 1, 1, 0],
+            [0, 1, 1, 0],
+            [0, 0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
+    _setup_dir, project_dir = _build_project_fixture(
+        tmp_path,
+        roi_mask=roi_mask,
+    )
+    context = load_static_context(project_dir)
+    extent = buffered_extent(context)
+    grid_extent = render_module._grid_extent(context)
+
+    hillshade = render_module._hillshade(context)
+    assert not context.roi_mask[0, 0]
+    assert np.isfinite(hillshade[0, 0])
+
+    fig, axes = plt.subplots(1, 2, figsize=(6, 3))
+    try:
+        dem_artifact = render_module._render_static_panel(
+            axes[0],
+            panel=MapPanelSpec(kind="dem", row=0, col=0, show_colorbar=False),
+            context=context,
+            extent=extent,
+            grid_extent=grid_extent,
+            label=None,
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
+        landcover_artifact = render_module._render_static_panel(
+            axes[1],
+            panel=MapPanelSpec(kind="landcover", row=0, col=0),
+            context=context,
+            extent=extent,
+            grid_extent=grid_extent,
+            label=None,
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
+
+        dem_array = np.ma.asarray(dem_artifact["mappable"].get_array())
+        landcover_array = np.ma.asarray(landcover_artifact["mappable"].get_array())
+        assert not np.ma.getmaskarray(dem_array)[0, 0]
+        assert np.isfinite(dem_array[0, 0])
+        assert not np.ma.getmaskarray(landcover_array)[0, 0]
+        assert np.isfinite(landcover_array[0, 0])
+    finally:
+        plt.close(fig)
+
+
+def test_model_panels_remain_masked_outside_roi(tmp_path: Path) -> None:
+    roi_mask = np.array(
+        [
+            [0, 0, 0, 0],
+            [0, 1, 1, 0],
+            [0, 1, 1, 0],
+            [0, 0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
+    _setup_dir, project_dir = _build_project_fixture(
+        tmp_path,
+        roi_mask=roi_mask,
+        roi_bounds=(100.0, 100.0, 300.0, 300.0),
+    )
+    context = load_static_context(project_dir)
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        artifact = render_module._render_model_panel(
+            ax,
+            panel=MapPanelSpec(
+                kind="snow_depth",
+                row=0,
+                col=0,
+                source="open_loop",
+                date="2023-01-02",
+                show_colorbar=False,
+            ),
+            context=context,
+            extent=buffered_extent(context),
+            grid_extent=render_module._grid_extent(context),
+            label=None,
+            defaults=MapDefaults(),
+            model_cache={},
+            scale_cache={},
+            figure_horizontal_default=True,
+        )
+        model_array = np.ma.asarray(artifact["mappable"].get_array())
+        assert np.ma.getmaskarray(model_array)[0, 0]
+        assert not np.ma.getmaskarray(model_array)[1, 1]
+    finally:
+        plt.close(fig)
 
 
 def test_snowdepth_model_palette_uses_reference_ticks_and_transparent_under_range() -> None:

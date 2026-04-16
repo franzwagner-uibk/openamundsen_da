@@ -1,0 +1,11 @@
+---
+paths:
+  - "openamundsen_da/observer/**/*.py"
+---
+
+# Observation Rules
+
+- Keep preprocessing strict fail-fast on missing config, missing layers, invalid grids, ambiguous dates, or unsupported product assumptions.
+- Preserve deterministic product tags and file naming such as `obs_scf_<PRODUCT>_YYYYMMDD.csv`.
+- Treat cloud pixels as gaps, not uncertainty penalties; use exclusion for unusable classes and uncertainty penalties for usable-but-uncertain classes.
+- Keep NetCDF and GeoTIFF ingest rules explicit rather than guessed.

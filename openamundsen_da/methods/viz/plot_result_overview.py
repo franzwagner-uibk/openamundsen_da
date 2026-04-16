@@ -10,6 +10,7 @@ from string import ascii_lowercase
 import pandas as pd
 from loguru import logger
 
+from openamundsen_da.benchmark.pipeline.core import load_benchmark_config
 from openamundsen_da.benchmark.render.plots.core import (
     build_event_skill_plot_data,
     compute_event_skill_plot_positions,
@@ -345,8 +346,15 @@ def _load_score_points_for_custom_overview(project_dir: Path) -> pd.DataFrame:
         raise ValueError(f"Benchmark event scores CSV is empty: {score_path}")
 
     score_points = build_event_skill_plot_data(event_scores, project_dir=project_dir)
+    exclude_variables = {
+        str(value).strip().lower()
+        for value in load_benchmark_config(project_dir).performance_scores_exclude_variables
+        if str(value).strip()
+    }
+    if exclude_variables:
+        score_points = score_points[~score_points["variable"].astype(str).str.lower().isin(exclude_variables)].copy()
     if score_points.empty:
-        raise ValueError(f"Benchmark event scores contain no usable DA-date score points: {score_path}")
+        raise ValueError(f"Benchmark event scores contain no usable DA-date score points after exclusions: {score_path}")
 
     assimilation_dates = sorted({pd.Timestamp(ev.date).normalize() for ev in load_assimilation_events(project_dir)})
     return compute_event_skill_plot_positions(score_points, assimilation_dates=assimilation_dates)

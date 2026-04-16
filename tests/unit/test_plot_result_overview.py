@@ -733,6 +733,83 @@ def test_plot_result_overview_supports_custom_crpss_score_panel(tmp_path: Path) 
         plt.close = original_close
 
 
+def test_load_score_points_for_custom_overview_applies_benchmark_exclusions(tmp_path: Path) -> None:
+    project_dir = tmp_path / "projects" / "project_2022_2023"
+    (project_dir / "results" / "benchmark" / "scores").mkdir(parents=True)
+    (project_dir / "project_2022_2023.yml").write_text(
+        "\n".join(
+            [
+                "start_date: '2022-10-01'",
+                "end_date: '2023-06-30'",
+                "data_assimilation:",
+                "  assimilation_events:",
+                "    - date: '2023-01-02'",
+                "      variable: scf",
+                "      product: SNOWCOVER",
+                "    - date: '2023-01-03'",
+                "      variable: station_hs",
+                "  benchmark:",
+                "    performance_scores_exclude_variables: [station_swe]",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    pd.DataFrame(
+        [
+            {
+                "score_set": "analysis",
+                "variable": "scf",
+                "stream": "assimilation_fit",
+                "representation": "prior",
+                "timestamp": "2023-01-02 09:00:00",
+                "date": "2023-01-02",
+                "crpss": 0.10,
+                "ner": 0.05,
+                "zskill": float("nan"),
+            },
+            {
+                "score_set": "analysis",
+                "variable": "scf",
+                "stream": "assimilation_fit",
+                "representation": "posterior",
+                "timestamp": "2023-01-02 09:00:00",
+                "date": "2023-01-02",
+                "crpss": 0.35,
+                "ner": 0.22,
+                "zskill": float("nan"),
+            },
+            {
+                "score_set": "analysis",
+                "variable": "station_swe",
+                "stream": "semi_independent",
+                "representation": "prior",
+                "timestamp": "2023-01-03 09:00:00",
+                "date": "2023-01-03",
+                "crpss": 0.18,
+                "ner": 0.11,
+                "zskill": -0.08,
+            },
+            {
+                "score_set": "analysis",
+                "variable": "station_swe",
+                "stream": "semi_independent",
+                "representation": "posterior",
+                "timestamp": "2023-01-03 09:00:00",
+                "date": "2023-01-03",
+                "crpss": 0.26,
+                "ner": 0.16,
+                "zskill": 0.24,
+            },
+        ]
+    ).to_csv(project_dir / "results" / "benchmark" / "scores" / "event_scores.csv", index=False)
+
+    points = plot_mod._load_score_points_for_custom_overview(project_dir)
+
+    assert set(points["variable"]) == {"scf"}
+    assert pd.Timestamp("2023-01-03") not in set(pd.to_datetime(points["assimilation_date"]))
+
+
 def test_plot_result_overview_supports_custom_ner_score_panel(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 

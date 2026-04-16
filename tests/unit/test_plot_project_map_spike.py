@@ -34,7 +34,7 @@ def test_default_output_path_points_into_project_results_maps() -> None:
 
     output_path = module._default_output_path(project_dir, "2023-06-02")
 
-    assert output_path == project_dir / "results" / "maps" / "overview" / "spike_snow_depth_2023-06-02.png"
+    assert output_path == project_dir / "results" / "maps" / "spike_snow_depth_2023-06-02.png"
 
 
 def test_nice_ceiling_rounds_up_to_requested_step() -> None:

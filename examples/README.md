@@ -41,7 +41,7 @@ examples/rofental/
 ### `projects/`
 - Project runtime configuration/output roots.
 - `project_*/project_*.yml`: project-level data assimilation configuration and time span.
-- `project_*/project_maps.yml`: optional curated project-map recipes for overview, comparison, and observation-context figures. When present, project maps are written under `results/maps/`.
+- `project_*/maps.yml`: optional curated YAML map recipes for grid-composed project figures. When present, project maps are written directly under `results/maps/`.
 - The shipped `rofental` project also enables the benchmark stage and adds `station_swe` as an extra benchmark family, so completed runs write `results/benchmark/` plus the headline DA-skill plot `results/plots/assim/scores/performance_scores.png` in addition to the usual DA outputs. Because `station_hs` is assimilated in that project, the resulting `station_swe` benchmark rows appear as `semi_independent` in the benchmark outputs. Station benchmark rows also expose sigma-aware `zSkill`, and the headline plot grows a third panel when those scores are available.
 
 This bundle mirrors the documented setup/project structure and is used by tests and examples.

@@ -30,7 +30,7 @@ from openamundsen_da.methods.viz.project_maps.config import DateSelector
 from openamundsen_da.observer.class_config import load_observation_classes, load_wetsnow_classes
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.landcover_mask import resolve_setup_landcover_grid
-from openamundsen_da.util.roi_grid import load_setup_roi_mask
+from openamundsen_da.util.roi_grid import _find_grid_file, load_setup_roi_mask, resolve_setup_grid_spec
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,8 @@ class StaticContext:
     roi_gdf: gpd.GeoDataFrame
     dem: np.ndarray
     landcover: np.ndarray
+    svf: np.ndarray | None
+    srf: np.ndarray | None
     stations: pd.DataFrame | None
 
 
@@ -61,6 +63,8 @@ class ObservationScene:
     transform: rasterio.Affine
     bounds: tuple[float, float, float, float]
     coverage_fraction: float
+    roi_mask: np.ndarray
+    invalid_mask: np.ndarray | None = None
 
 
 def _normalize_dates(values: object) -> tuple[pd.Timestamp, ...]:
@@ -154,10 +158,26 @@ def _load_stations_table(setup_dir: Path) -> pd.DataFrame | None:
     return None
 
 
+def _load_optional_setup_grid(
+    setup_dir: Path,
+    *,
+    prefix: str,
+    shape: tuple[int, int],
+    transform,
+    crs: str | None,
+) -> np.ndarray | None:
+    spec = resolve_setup_grid_spec(setup_dir)
+    try:
+        grid_path = _find_grid_file(spec.grids_dir, prefix, spec.domain, spec.resolution)
+    except FileNotFoundError:
+        return None
+    return _read_dataset_array(grid_path, shape=shape, transform=transform, crs=crs)
+
+
 def load_static_context(project_dir: Path) -> StaticContext:
     project_dir = Path(project_dir).resolve()
     setup_dir = infer_setup_dir_from_project(project_dir)
-    roi_mask, spec, _ = load_setup_roi_mask(setup_dir, ensure_grid=False)
+    roi_mask, spec, _ = load_setup_roi_mask(setup_dir, ensure_grid=True)
     roi_vector_path = None
     from openamundsen_da.util.roi_grid import discover_setup_roi_vector
 
@@ -184,6 +204,20 @@ def load_static_context(project_dir: Path) -> StaticContext:
     dem = _read_dataset_array(spec.dem_path, shape=roi_mask.shape, transform=spec.transform, crs=spec.crs)
     landcover_path = resolve_setup_landcover_grid(setup_dir)
     landcover = _read_dataset_array(landcover_path, shape=roi_mask.shape, transform=spec.transform, crs=spec.crs)
+    svf = _load_optional_setup_grid(
+        setup_dir,
+        prefix="svf",
+        shape=roi_mask.shape,
+        transform=spec.transform,
+        crs=spec.crs,
+    )
+    srf = _load_optional_setup_grid(
+        setup_dir,
+        prefix="srf",
+        shape=roi_mask.shape,
+        transform=spec.transform,
+        crs=spec.crs,
+    )
     stations = _load_stations_table(setup_dir)
     return StaticContext(
         project_dir=project_dir,
@@ -193,6 +227,8 @@ def load_static_context(project_dir: Path) -> StaticContext:
         roi_gdf=roi_gdf,
         dem=dem,
         landcover=landcover,
+        svf=svf,
+        srf=srf,
         stations=stations,
     )
 
@@ -423,17 +459,21 @@ def load_observation_scene(project_dir: Path, context: StaticContext, *, observa
         transform=transform,
         invert=True,
     )
+    invalid_mask = np.zeros(arr.shape, dtype=bool)
     if observation == "scf":
         classes = load_observation_classes(project_dir, obs_key="snowcover")
         invalid_classes = set(classes.get("cloud", [])) | set(classes.get("water", [])) | set(classes.get("nodata", []))
         if invalid_classes:
-            arr[np.isin(arr, list(invalid_classes))] = np.nan
+            invalid_mask = np.isin(arr, list(invalid_classes))
+            arr[invalid_mask] = np.nan
     else:
-        _wet, _valid, exclude = load_wetsnow_classes(project_dir)
-        if exclude:
-            arr[np.isin(arr, list(exclude))] = np.nan
+        _wet, valid, _exclude = load_wetsnow_classes(project_dir)
+        if valid:
+            invalid_mask = ~np.isin(arr, list(valid))
+            arr[invalid_mask] = np.nan
 
     arr[~roi_mask] = np.nan
+    invalid_mask &= roi_mask
     coverage_fraction = float(np.isfinite(arr).sum()) / float(max(1, roi_mask.sum()))
     left, bottom, right, top = rasterio.transform.array_bounds(arr.shape[0], arr.shape[1], transform)
     return ObservationScene(
@@ -443,4 +483,6 @@ def load_observation_scene(project_dir: Path, context: StaticContext, *, observa
         transform=transform,
         bounds=(left, right, bottom, top),
         coverage_fraction=coverage_fraction,
+        roi_mask=roi_mask,
+        invalid_mask=invalid_mask,
     )

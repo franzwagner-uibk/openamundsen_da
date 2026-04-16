@@ -129,7 +129,7 @@ def run_pipeline(
             if skip_merge:
                 logger.info("PLOT skipped in subdomain pipeline: merged project maps require merge_grids output.")
             elif not project_maps_enabled(project_dir):
-                logger.info("PLOT skipped in subdomain pipeline: no project_maps.yml found under {}", project_dir)
+                logger.info("PLOT skipped in subdomain pipeline: no maps.yml found under {}", project_dir)
             else:
                 try:
                     outputs = render_project_maps(project_dir=project_dir)

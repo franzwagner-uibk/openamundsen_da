@@ -22,7 +22,7 @@ from matplotlib.colors import BoundaryNorm, LightSource, ListedColormap, Normali
 import numpy as np
 import pandas as pd
 
-from openamundsen_da.io.paths import project_map_family_dir
+from openamundsen_da.io.paths import project_maps_output_dir
 
 
 DEFAULT_PROJECT_DIR = Path(
@@ -61,7 +61,7 @@ def _derive_setup_dir(project_dir: Path) -> Path:
 
 
 def _default_output_path(project_dir: Path, date_str: str) -> Path:
-    return project_map_family_dir(project_dir, "overview") / f"spike_snow_depth_{date_str}.png"
+    return project_maps_output_dir(project_dir) / f"spike_snow_depth_{date_str}.png"
 
 
 def _nice_ceiling(value: float, *, step: float, minimum: float) -> float:
@@ -338,7 +338,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output",
         type=Path,
-        help="Output PNG path. Defaults to <project>/results/maps/overview/spike_snow_depth_<date>.png",
+        help="Output PNG path. Defaults to <project>/results/maps/spike_snow_depth_<date>.png",
     )
     parser.add_argument("--dpi", type=int, default=DEFAULT_DPI)
     return parser

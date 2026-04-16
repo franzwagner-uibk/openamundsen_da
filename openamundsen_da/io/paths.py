@@ -398,13 +398,9 @@ def project_maps_root(project_dir: str | Path) -> Path:
     return project_results_root(project_dir) / "maps"
 
 
-def project_map_family_dir(project_dir: str | Path, family: str) -> Path:
-    """Return the canonical output directory for one project-map family."""
-    token = str(family).strip().lower()
-    valid = {"overview", "comparison", "observation_context"}
-    if token not in valid:
-        raise ValueError(f"Unsupported project map family '{family}', expected one of {sorted(valid)}")
-    return project_maps_root(project_dir) / token
+def project_maps_output_dir(project_dir: str | Path) -> Path:
+    """Return the canonical flat output directory for project maps."""
+    return project_maps_root(project_dir)
 
 
 def project_benchmark_root(project_dir: str | Path) -> Path:

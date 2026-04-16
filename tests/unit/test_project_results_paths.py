@@ -8,7 +8,7 @@ from openamundsen_da.io.paths import (
     project_da_output_grids_path,
     project_fraction_envelope_path,
     project_grids_root,
-    project_map_family_dir,
+    project_maps_output_dir,
     project_maps_root,
     project_misc_root,
     project_obs_selection_plot_path,
@@ -47,8 +47,6 @@ def test_project_level_results_paths_use_canonical_results_tree(tmp_path: Path) 
     assert project_grids_root(project_dir) == project_dir / "results" / "grids"
     assert project_da_output_grids_path(project_dir) == project_dir / "results" / "grids" / "da_output_grids.nc"
     assert project_maps_root(project_dir) == project_dir / "results" / "maps"
-    assert project_map_family_dir(project_dir, "overview") == project_dir / "results" / "maps" / "overview"
-    assert project_map_family_dir(project_dir, "comparison") == project_dir / "results" / "maps" / "comparison"
-    assert project_map_family_dir(project_dir, "observation_context") == project_dir / "results" / "maps" / "observation_context"
+    assert project_maps_output_dir(project_dir) == project_dir / "results" / "maps"
     assert project_benchmark_root(project_dir) == project_dir / "results" / "benchmark"
     assert project_benchmark_plots_dir(project_dir) == project_plot_assim_scores_dir(project_dir)

@@ -465,21 +465,41 @@ oa-da-plot-result-overview \
 
 **Publication-style project maps**
 
-Renders curated project maps from the compact project summary grid, setup grids, ROI, stations, and project observation summaries. Rendering is config-driven only via `<project-dir>/project_maps.yml`, and the same sidecar also enables best-effort post-run pipeline rendering.
-Snow-depth model maps use the fixed reference palette with colorbar ticks shown in `cm`, and cells below `1 cm` remain transparent. Increment maps use a signed diverging palette with negative changes in red and positive changes in blue.
+Renders curated project maps from the compact project summary grid, setup grids, ROI, stations, and project observation summaries. Rendering is driven entirely by `<project-dir>/maps.yml`, which defines generic grid-composed figures with explicit panel placement, titles, and styles. The same sidecar also enables best-effort post-run pipeline rendering.
+Map panels use the example-map visual grammar by default: boxed axes, coordinate ticks and grid lines, subplot labels like `(a)`, and attached vertical colorbars. Snow-depth model maps use the fixed reference palette with colorbar ticks shown in `cm`, and cells below `1 cm` remain transparent. Increment maps use a signed diverging palette with negative changes in red and positive changes in blue.
+
+Typical `maps.yml` files start with a commented panel catalog:
+
+```yaml
+# Available panel kinds:
+# - overview                 # scale: 1000000 ; optional roi_label
+# - roi
+# - hillshade
+# - dem
+# - svf
+# - srf
+# - landcover
+# - snow_depth               # source: open_loop | ensemble_mean | increment
+# - swe                      # source: open_loop | ensemble_mean | increment
+# - liquid_water_content     # source: open_loop | ensemble_mean | increment
+# - fsc
+# - wet_snow
+# - legend
+# - colorbar
+# Optional panel keys:
+# - title, name, date, legend, show_colorbar, show_scalebar, show_grid, show_hillshade
+# - show_roi, show_station_marker, show_stations_name, show_stations_elev
+```
 
 ```bash
 oa-da-plot-project-maps \
   --project-dir PATH \
   [--config PATH] \
-  [--family overview|comparison|observation_context] \
   [--name RECIPE_NAME]
 ```
 
 **Output:**
-- `results/maps/overview/*.png`
-- `results/maps/comparison/*.png`
-- `results/maps/observation_context/*.png`
+- `results/maps/*.png`
 
 ---
 

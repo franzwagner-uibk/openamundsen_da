@@ -493,7 +493,29 @@ Note: running the setup pipeline (see below) also generates these setup plots au
 
 - Project maps (compact project grid -> publication-style PNGs):
 
-  Use `oa-da-plot-project-maps` to render curated overview, comparison, and observation-context figures from a completed project. The renderer reads `results/grids/da_output_grids.nc`, setup grids/ROI/stations, and project observation summaries automatically; map selection itself is driven by `<project-dir>/project_maps.yml`.
+  Use `oa-da-plot-project-maps` to render YAML-driven grid-composed project figures from a completed project. The renderer reads `results/grids/da_output_grids.nc`, setup grids/ROI/stations, and project observation summaries automatically; map selection itself is driven by `<project-dir>/maps.yml`.
+  The shipped `maps.yml` files start with a commented panel catalog like this:
+
+  ```yaml
+  # Available panel kinds:
+  # - overview                 # scale: 1000000 ; optional roi_label
+  # - roi
+  # - hillshade
+  # - dem
+  # - svf
+  # - srf
+  # - landcover
+  # - snow_depth               # source: open_loop | ensemble_mean | increment
+  # - swe                      # source: open_loop | ensemble_mean | increment
+  # - liquid_water_content     # source: open_loop | ensemble_mean | increment
+  # - fsc
+  # - wet_snow
+  # - legend
+  # - colorbar
+  # Optional panel keys:
+  # - title, name, date, legend, show_colorbar, show_scalebar, show_grid, show_hillshade
+  # - show_roi, show_station_marker, show_stations_name, show_stations_elev
+  ```
 
   ```powershell
   docker compose run --rm oa `
@@ -501,8 +523,8 @@ Note: running the setup pipeline (see below) also generates these setup plots au
     --project-dir /data/projects/project_2022_2023
   ```
 
-  Outputs are written under `results/maps/{overview,comparison,observation_context}/`. When `<project-dir>/project_maps.yml` is present, `oa-da-project` and merged sub-domain runs also render these maps automatically as a best-effort post-run stage.
-  Snow-depth model panels use the fixed tutorial/reference palette with colorbar labels in `cm`; values below `1 cm` are hidden so bare or nearly bare cells stay transparent over the hillshade. Increment panels use a signed diverging palette with negative changes in red and positive changes in blue.
+  Outputs are written directly under `results/maps/`. When `<project-dir>/maps.yml` is present, `oa-da-project` and merged sub-domain runs also render these maps automatically as a best-effort post-run stage.
+  YAML-driven maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`), and optional support panels (`legend`, `colorbar`). Snow-depth model panels use the fixed tutorial/reference palette with colorbar labels in `cm`; values below `1 cm` are hidden so bare or nearly bare cells stay transparent. Increment maps are selected with `source: increment` and use a signed diverging palette with negative changes in red and positive changes in blue. Four-column figures and mixed classified figures default to horizontal legends/colorbars below the panels, and georeferenced panels can opt into the reference-style in-panel scale bar with `show_scalebar: true`.
 
 ## Setup Pipeline
 
@@ -533,7 +555,7 @@ Outputs
 - Setup plots under `<setup_dir>/plots/{forcing,results}`
 - Project-level plots under `<project>/results/plots/{results,perf,points,assim/{weights,ess,scores}}`
 - Project-level misc artifacts under `<project>/results/misc`
-- Project maps under `<project>/results/maps` when `<project>/project_maps.yml` is present
+- Project maps under `<project>/results/maps` when `<project>/maps.yml` is present
 - When model SCF is enabled, daily ROI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_roi.csv`.
 - Full-ROI daily mean SWE and snow depth are written to `<step>/ensembles/prior/<member>/results/point_swe_roi.csv` and `<step>/ensembles/prior/<member>/results/point_snow_depth_roi.csv`.
 - The combined project result overview plot (`results/plots/results/result_overview.png`) now shows SCF, wet-snow, ROI mean SWE, and ROI mean snow depth together.

@@ -4,8 +4,10 @@ from pathlib import Path
 import textwrap
 
 import geopandas as gpd
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import pytest
 import rasterio
 import xarray as xr
 from rasterio.transform import from_origin
@@ -20,19 +22,29 @@ from openamundsen_da.methods.viz.project_maps.data import (
     resolve_observation_context_dates,
 )
 from openamundsen_da.methods.viz.project_maps.render import (
+    _apply_map_axis_style,
     _comparison_scales,
+    _draw_map_grid_overlay,
+    _draw_scale_bar,
+    _draw_stations_overlay,
     _masked_model,
     buffered_extent,
     figure_height_for_extent,
 )
-from openamundsen_da.methods.viz.project_maps.runner import render_project_maps
+from openamundsen_da.methods.viz.project_maps.runner import project_maps_enabled, render_project_maps
 from openamundsen_da.methods.viz.project_maps.styles import (
+    FSC_OBS_CMAP,
+    FSC_INVALID_COLOR,
     INCREMENT_CMAP,
     SNOW_DEPTH_REFERENCE_TICKS_M,
     SNOW_DEPTH_REFERENCE_TICKLABELS_CM,
+    WET_SNOW_COLORS,
     model_colorbar_style,
     model_map_cmap,
+    require_static_field_preset,
     require_variable_preset,
+    static_field_cmap,
+    static_field_colorbar_style,
 )
 
 
@@ -216,9 +228,29 @@ def _build_project_fixture(tmp_path: Path, *, meteo_format: str = "csv") -> tupl
         ],
         dtype=np.int16,
     )
+    svf = np.array(
+        [
+            [0.75, 0.78, 0.80, 0.82],
+            [0.70, 0.74, 0.77, 0.81],
+            [0.68, 0.71, 0.74, 0.78],
+            [0.65, 0.68, 0.71, 0.75],
+        ],
+        dtype=np.float32,
+    )
+    srf = np.array(
+        [
+            [1.15, 1.20, 1.18, 1.12],
+            [1.10, 1.14, 1.16, 1.08],
+            [1.05, 1.10, 1.12, 1.04],
+            [1.00, 1.04, 1.07, 1.02],
+        ],
+        dtype=np.float32,
+    )
     roi = np.ones((4, 4), dtype=np.uint8)
     _write_grid(grids_dir / "dem_demo_100.asc", dem, transform=transform)
     _write_grid(grids_dir / "lc_demo_100.asc", landcover, transform=transform, nodata=0)
+    _write_grid(grids_dir / "svf_demo_100.asc", svf, transform=transform)
+    _write_grid(grids_dir / "srf_demo_100.asc", srf, transform=transform)
     _write_grid(grids_dir / "roi_demo_100.asc", roi, transform=transform, nodata=0)
     _write_roi_vector(setup_dir / "env" / "roi.gpkg")
     _write_da_output(project_dir / "results" / "grids" / "da_output_grids.nc")
@@ -250,57 +282,25 @@ def _build_project_fixture(tmp_path: Path, *, meteo_format: str = "csv") -> tupl
 
     _write_grid(
         setup_dir / "obs" / "snowcover" / "scf_partial.tif",
-        np.array(
-            [
-                [20, 20],
-                [40, 40],
-                [60, 60],
-                [80, 80],
-            ],
-            dtype=np.float32,
-        ),
+        np.array([[20, 20], [40, 40], [60, 60], [80, 80]], dtype=np.float32),
         transform=from_origin(0.0, 400.0, 100.0, 100.0),
         nodata=255.0,
     )
     _write_grid(
         setup_dir / "obs" / "snowcover" / "scf_left.tif",
-        np.array(
-            [
-                [10, 20],
-                [10, 20],
-                [10, 20],
-                [10, 20],
-            ],
-            dtype=np.float32,
-        ),
+        np.array([[10, 20], [10, 20], [10, 20], [10, 20]], dtype=np.float32),
         transform=from_origin(0.0, 400.0, 100.0, 100.0),
         nodata=255.0,
     )
     _write_grid(
         setup_dir / "obs" / "snowcover" / "scf_right.tif",
-        np.array(
-            [
-                [90, 100],
-                [90, 100],
-                [90, 100],
-                [90, 100],
-            ],
-            dtype=np.float32,
-        ),
+        np.array([[90, 100], [90, 100], [90, 100], [90, 100]], dtype=np.float32),
         transform=from_origin(200.0, 400.0, 100.0, 100.0),
         nodata=255.0,
     )
     _write_grid(
         setup_dir / "obs" / "wetsnow" / "wet_partial.tif",
-        np.array(
-            [
-                [110, 110],
-                [110, 110],
-                [200, 200],
-                [200, 200],
-            ],
-            dtype=np.float32,
-        ),
+        np.array([[110, 110], [110, 110], [200, 200], [200, 200]], dtype=np.float32),
         transform=from_origin(0.0, 400.0, 100.0, 100.0),
         nodata=255.0,
     )
@@ -314,6 +314,8 @@ def test_load_static_context_reads_csv_station_metadata_and_landcover_from_setup
 
     assert context.dem.shape == (4, 4)
     assert context.landcover.shape == (4, 4)
+    assert context.svf is not None and context.svf.shape == (4, 4)
+    assert context.srf is not None and context.srf.shape == (4, 4)
     assert set(context.stations["id"]) == {"station_a", "station_b"}
 
 
@@ -327,40 +329,270 @@ def test_load_static_context_reads_netcdf_station_metadata(tmp_path: Path) -> No
     assert list(context.stations["name"]) == ["Station Alpha"]
 
 
-def test_project_maps_config_and_date_resolution_follow_recipe_selectors(tmp_path: Path) -> None:
+def test_project_maps_enabled_looks_for_maps_yml(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
-    config_path = project_dir / "project_maps.yml"
+    assert project_maps_enabled(project_dir) is False
+
+    (project_dir / "maps.yml").write_text("maps: {}\n", encoding="utf-8")
+
+    assert project_maps_enabled(project_dir) is True
+
+
+def test_project_maps_config_loads_keyed_grid_recipes(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
     _write_yaml(
         config_path,
         """
-        overview_maps:
-          - name: overview
-        comparison_maps:
-          - name: snowdepth_window
-            variable: snowdepth_daily
-            dates:
-              assimilation_variables: [scf]
-              include_first: true
-        observation_context_maps:
-          - name: snowdepth_scf
-            model_variable: snowdepth_daily
-            observation: scf
-            dates:
-              explicit: ["2023-01-02"]
+        maps:
+          snowdepth_reference:
+            title: Snow depth 2023/01/02
+            output_name: snowdepth_2023-01-02
+            defaults:
+              date: "2023-01-02"
+            layout:
+              nrows: 1
+              ncols: 3
+            panels:
+              - row: 0
+                col: 0
+                kind: snow_depth
+                source: open_loop
+                title: Open loop
+              - row: 0
+                col: 1
+                kind: snow_depth
+                source: ensemble_mean
+                title: Ensemble mean
+              - row: 0
+                col: 2
+                kind: fsc
+                title: Sentinel-2
         """,
     )
 
     cfg = load_project_maps_config(config_path)
+
+    assert [item.name for item in cfg.maps] == ["snowdepth_reference"]
+    assert cfg.maps[0].layout.ncols == 3
+    assert cfg.maps[0].defaults.date == "2023-01-02"
+    assert cfg.maps[0].output_stem == "snowdepth_2023-01-02"
+
+
+def test_project_maps_config_accepts_static_panels_and_legend_items(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          setup_map:
+            title: Setup map
+            layout:
+              nrows: 1
+              ncols: 3
+            panels:
+              - row: 0
+                col: 0
+                kind: overview
+                title: Overview
+                scale: 1000000
+                roi_label: Demo ROI
+              - row: 0
+                col: 1
+                kind: svf
+                title: Sky view factor
+              - row: 0
+                col: 2
+                kind: legend
+                items:
+                  - kind: station_symbol
+                    label: Demo stations
+                  - kind: heading
+                    label: Static setup context
+        """,
+    )
+
+    cfg = load_project_maps_config(config_path)
+
+    assert cfg.maps[0].panels[0].kind == "overview"
+    assert cfg.maps[0].panels[0].scale == 1000000
+    assert cfg.maps[0].panels[1].kind == "svf"
+    assert [item.kind for item in cfg.maps[0].panels[2].items] == ["station_symbol", "heading"]
+
+
+def test_project_maps_config_rejects_text_panel_kind(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          bad_recipe:
+            title: Bad
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: text
+                lines:
+                  - "not supported anymore"
+        """,
+    )
+
+    with pytest.raises(ValueError, match="no longer supported"):
+        load_project_maps_config(config_path)
+
+
+def test_project_maps_config_accepts_explicit_station_overlay_flags(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          setup_map:
+            title: Setup map
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: roi
+                title: Region of interest
+                show_station_marker: true
+                show_stations_name: true
+                show_stations_elev: false
+        """,
+    )
+
+    cfg = load_project_maps_config(config_path)
+
+    panel = cfg.maps[0].panels[0]
+    assert panel.show_station_marker is True
+    assert panel.show_stations_name is True
+    assert panel.show_stations_elev is False
+
+
+def test_project_maps_config_accepts_classified_legend_layout(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          setup_map:
+            title: Setup map
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: landcover
+                legend: horizontal
+        """,
+    )
+
+    cfg = load_project_maps_config(config_path)
+
+    assert cfg.maps[0].panels[0].legend == "horizontal"
+
+
+def test_project_maps_config_rejects_removed_station_overlay_keys(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          setup_map:
+            title: Setup map
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: roi
+                show_stations: true
+        """,
+    )
+
+    with pytest.raises(ValueError, match="removed panel keys: show_stations"):
+        load_project_maps_config(config_path)
+
+
+def test_project_maps_config_rejects_unknown_legend_layout(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          bad_recipe:
+            title: Bad
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: wet_snow
+                legend: diagonal
+        """,
+    )
+
+    with pytest.raises(ValueError, match="legend must be one of"):
+        load_project_maps_config(config_path)
+
+
+def test_project_maps_config_rejects_overlapping_panels(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          bad_recipe:
+            title: Bad
+            layout:
+              nrows: 1
+              ncols: 2
+            panels:
+              - row: 0
+                col: 0
+                kind: hillshade
+              - row: 0
+                col: 0
+                kind: landcover
+        """,
+    )
+
+    try:
+        load_project_maps_config(config_path)
+    except ValueError as exc:
+        assert "Overlapping panel placement" in str(exc)
+    else:
+        raise AssertionError("Expected overlap validation failure")
+
+
+def test_date_resolution_helpers_follow_selectors(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+
     comparison_dates = resolve_comparison_dates(
         project_dir,
         "snowdepth_daily",
-        cfg.comparison_maps[0].dates,
+        DateSelector(assimilation_variables=("scf",), include_first=True),
     )
     observation_dates = resolve_observation_context_dates(
         project_dir,
         model_variable="snowdepth_daily",
         observation="scf",
-        selector=cfg.observation_context_maps[0].dates,
+        selector=DateSelector(explicit=("2023-01-02",)),
     )
 
     assert [date.strftime("%Y-%m-%d") for date in comparison_dates] == ["2023-01-01", "2023-01-02"]
@@ -377,7 +609,7 @@ def test_load_observation_scene_uses_setup_relative_obs_dir_and_reports_partial_
     assert np.isfinite(scene.array).sum() == 8
 
 
-def test_load_observation_scene_mosaics_multiple_sources_and_masks_excluded_wet_snow_classes(tmp_path: Path) -> None:
+def test_load_observation_scene_keeps_visual_wet_snow_classes(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     context = load_static_context(project_dir)
 
@@ -386,8 +618,8 @@ def test_load_observation_scene_mosaics_multiple_sources_and_masks_excluded_wet_
 
     assert scf_scene.coverage_fraction == 1.0
     assert np.isfinite(scf_scene.array).sum() == 16
-    assert wet_scene.coverage_fraction == 0.25
-    assert set(np.unique(wet_scene.array[np.isfinite(wet_scene.array)])) == {110.0}
+    assert wet_scene.coverage_fraction == 0.5
+    assert set(np.unique(wet_scene.array[np.isfinite(wet_scene.array)])) == {110.0, 200.0}
 
 
 def test_buffered_extent_and_figure_height_follow_bounds(tmp_path: Path) -> None:
@@ -398,7 +630,7 @@ def test_buffered_extent_and_figure_height_follow_bounds(tmp_path: Path) -> None
     height = figure_height_for_extent(extent)
 
     assert extent == (-200.0, 600.0, -200.0, 600.0)
-    assert 2.8 <= height <= 5.2
+    assert 2.9 <= height <= 4.8
 
 
 def test_comparison_scales_use_zero_centered_diverging_increment_norm() -> None:
@@ -473,36 +705,173 @@ def test_increment_cmap_runs_from_negative_red_to_positive_blue() -> None:
     assert high[2] > high[0]
 
 
-def test_render_project_maps_writes_overview_comparison_and_observation_outputs(tmp_path: Path) -> None:
+def test_scf_observation_palette_uses_greys_for_example_map_style() -> None:
+    low = FSC_OBS_CMAP(0.0)
+    high = FSC_OBS_CMAP(1.0)
+
+    assert sum(high[:3]) < sum(low[:3])
+
+
+def test_static_field_palettes_follow_reference_style() -> None:
+    dem_cmap = static_field_cmap(require_static_field_preset("dem"))
+    svf_cmap = static_field_cmap(require_static_field_preset("svf"))
+    srf_cmap = static_field_cmap(require_static_field_preset("srf"))
+    srf_style = static_field_colorbar_style(require_static_field_preset("srf"))
+
+    dem_low = dem_cmap(0.0)
+    dem_high = dem_cmap(1.0)
+    svf_low = svf_cmap(0.0)
+    svf_high = svf_cmap(1.0)
+    srf_low = srf_cmap(0.0)
+    srf_high = srf_cmap(1.0)
+
+    assert sum(dem_high[:3]) > sum(dem_low[:3])
+    assert sum(svf_high[:3]) > sum(svf_low[:3])
+    assert srf_low[0] > srf_low[2]
+    assert srf_high[2] > srf_high[0]
+    assert srf_style.ticks == (0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8)
+
+
+def test_wet_snow_reference_colors_follow_example_palette() -> None:
+    assert WET_SNOW_COLORS[110] == "#000000"
+    assert WET_SNOW_COLORS[125] == "#d8d8d8"
+    assert WET_SNOW_COLORS[200] == "#ddb9ba"
+    assert WET_SNOW_COLORS[210] == "#4b79c6"
+    assert FSC_INVALID_COLOR == "#d8b3b7"
+
+
+def test_map_axis_style_rotates_labels_vertically_and_shows_every_second_tick() -> None:
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        _apply_map_axis_style(ax, (632000.0, 645000.0, 5180000.0, 5195000.0), title="Demo", show_grid=True)
+        _draw_map_grid_overlay(ax, show_grid=True)
+        xlabels = [label for label in ax.get_xticklabels()]
+        ylabels = [label for label in ax.get_yticklabels()]
+        grid_lines = [line for line in ax.lines if line.get_gid() == "oa_da_grid"]
+        assert any(label.get_text() == "" for label in xlabels)
+        assert any(label.get_text() == "" for label in ylabels)
+        assert {label.get_rotation() for label in xlabels if label.get_text()} == {0.0}
+        assert {label.get_rotation() for label in ylabels if label.get_text()} == {90.0}
+        assert grid_lines
+        assert all(line.get_zorder() == 120 for line in grid_lines)
+    finally:
+        plt.close(fig)
+
+
+def test_draw_scale_bar_adds_reference_style_annotations() -> None:
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        extent = (632000.0, 645000.0, 5180000.0, 5195000.0)
+        _draw_scale_bar(ax, extent)
+        labels = {text.get_text() for text in ax.texts}
+        assert {"0", "2.5", "5", "km"} <= labels
+    finally:
+        plt.close(fig)
+
+
+def test_draw_stations_overlay_supports_marker_only_and_explicit_labels(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    extent = buffered_extent(context)
+    ordered = context.stations.sort_values("id").reset_index(drop=True)
+    fig, axes = plt.subplots(1, 3, figsize=(8, 3))
+    try:
+        _draw_stations_overlay(
+            axes[0],
+            context,
+            extent,
+            show_station_marker=True,
+            show_stations_name=False,
+            show_stations_elev=False,
+        )
+        _draw_stations_overlay(
+            axes[1],
+            context,
+            extent,
+            show_station_marker=True,
+            show_stations_name=True,
+            show_stations_elev=False,
+        )
+        _draw_stations_overlay(
+            axes[2],
+            context,
+            extent,
+            show_station_marker=False,
+            show_stations_name=True,
+            show_stations_elev=True,
+        )
+
+        assert len(axes[0].collections) == 1
+        assert len(axes[0].texts) == 0
+        assert len(axes[1].collections) == 1
+        assert all("Station" in text.get_text() for text in axes[1].texts)
+        expected_dx = 0.026 * (extent[1] - extent[0])
+        expected_dy = 0.013 * (extent[3] - extent[2])
+        for text, (_, row) in zip(axes[1].texts, ordered.iterrows()):
+            xpos, ypos = text.get_position()
+            assert np.isclose(xpos, float(row["x"]) + expected_dx)
+            assert np.isclose(ypos, float(row["y"]) + expected_dy)
+        assert len(axes[2].collections) == 0
+        assert len(axes[2].texts) == 0
+    finally:
+        plt.close(fig)
+
+
+def test_render_project_maps_writes_flat_recipe_outputs(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     _write_yaml(
-        project_dir / "project_maps.yml",
+        project_dir / "maps.yml",
         """
-        overview_maps:
-          - name: domain_overview
-            title: Demo overview
-        comparison_maps:
-          - name: snowdepth_series
-            variable: snowdepth_daily
-            dates:
-              include_first: true
-              include_last: true
-        observation_context_maps:
-          - name: snowdepth_scf
-            model_variable: snowdepth_daily
-            observation: scf
-            dates:
-              explicit: ["2023-01-02"]
+        maps:
+          setup_map:
+            title: Demo setup
+            layout:
+              nrows: 1
+              ncols: 2
+            panels:
+              - row: 0
+                col: 0
+                kind: hillshade
+                title: Hillshade
+                show_station_marker: true
+                show_stations_name: false
+                show_stations_elev: false
+              - row: 0
+                col: 1
+                kind: landcover
+                title: Landcover
+                legend: horizontal
+          snowdepth_reference:
+            title: Snow depth 2023/01/02
+            output_name: snowdepth_2023-01-02
+            defaults:
+              date: "2023-01-02"
+            layout:
+              nrows: 1
+              ncols: 3
+            panels:
+              - row: 0
+                col: 0
+                kind: snow_depth
+                source: open_loop
+                title: Open loop
+              - row: 0
+                col: 1
+                kind: snow_depth
+                source: ensemble_mean
+                title: Ensemble mean
+              - row: 0
+                col: 2
+                kind: fsc
+                title: Sentinel-2
         """,
     )
 
     outputs = render_project_maps(project_dir=project_dir)
 
     expected = {
-        project_dir / "results" / "maps" / "overview" / "domain_overview.png",
-        project_dir / "results" / "maps" / "comparison" / "snowdepth_series_2023-01-01.png",
-        project_dir / "results" / "maps" / "comparison" / "snowdepth_series_2023-01-02.png",
-        project_dir / "results" / "maps" / "observation_context" / "snowdepth_scf.png",
+        project_dir / "results" / "maps" / "setup_map.png",
+        project_dir / "results" / "maps" / "snowdepth_2023-01-02.png",
     }
 
     assert set(outputs) == expected

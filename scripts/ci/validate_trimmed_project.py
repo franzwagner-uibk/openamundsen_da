@@ -147,11 +147,11 @@ def _check_plot_outputs(project_dir: Path) -> None:
             min_count=1,
         ),
     ]
-    if (project_dir / "project_maps.yml").is_file():
+    if (project_dir / "maps.yml").is_file():
         plot_specs.append(
             CheckSpec(
                 label="project maps",
-                patterns=("results/maps/**/*.png", "results/maps/**/*.svg"),
+                patterns=("results/maps/*.png", "results/maps/*.svg"),
                 min_count=1,
             )
         )

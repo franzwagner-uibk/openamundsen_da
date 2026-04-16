@@ -480,7 +480,7 @@ def _build_fraction_overlay_task(cfg: "OrchestratorConfig") -> PlotTask:
 
 
 def _custom_overview_needs_benchmark_scores(project_dir: Path) -> bool:
-    custom_cfg = Path(project_dir) / "result_overview_custom.yml"
+    custom_cfg = Path(project_dir) / "plots.yml"
     if not custom_cfg.is_file():
         return False
     try:
@@ -495,14 +495,14 @@ def _custom_overview_needs_benchmark_scores(project_dir: Path) -> bool:
             panel = entry.get("panel")
         else:
             continue
-        if str(panel or "").strip().lower() in {"scores-crpss", "scores-ner"}:
+        if str(panel or "").strip().lower() in {"scores-crpss", "scores-ner", "scores-zskill"}:
             return True
     return False
 
 
 def _render_project_maps_best_effort(project_dir: Path) -> None:
     if not project_maps_enabled(project_dir):
-        logger.info("Project maps skipped: no project_maps.yml found under {}", project_dir)
+        logger.info("Project maps skipped: no maps.yml found under {}", project_dir)
         return
     try:
         outputs = render_project_maps(project_dir=project_dir)

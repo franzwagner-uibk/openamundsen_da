@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from matplotlib import colormaps
-from matplotlib.colors import FuncNorm, LinearSegmentedColormap, ListedColormap, Normalize, to_rgba
+from matplotlib.colors import FuncNorm, LinearSegmentedColormap, ListedColormap, Normalize, TwoSlopeNorm, to_rgba
 
 
 @dataclass(frozen=True)
@@ -28,6 +28,21 @@ class ColorbarStyle:
     ticklabels: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class StaticFieldPreset:
+    field: str
+    title: str
+    unit_label: str
+    cmap_name: str
+    vmin: float | None = None
+    vmax: float | None = None
+    step: float | None = None
+    floor: float | None = None
+    center: float | None = None
+    ticks: tuple[float, ...] = ()
+    ticklabels: tuple[str, ...] = ()
+
+
 VARIABLE_PRESETS = {
     "snowdepth_daily": VariablePreset(
         variable="snowdepth_daily",
@@ -44,7 +59,7 @@ VARIABLE_PRESETS = {
         variable="swe_daily",
         title="snow water equivalent",
         unit_label="SWE [mm]",
-        sequential_cmap="viridis",
+        sequential_cmap="viridis_r",
         model_min=0.0,
         max_step=25.0,
         max_floor=50.0,
@@ -55,12 +70,49 @@ VARIABLE_PRESETS = {
         variable="liquid_water_content",
         title="liquid water content",
         unit_label="liquid water content [-]",
-        sequential_cmap="magma",
+        sequential_cmap="viridis_r",
         model_min=0.0,
         max_step=0.005,
         max_floor=0.01,
         increment_step=0.002,
         increment_floor=0.005,
+    ),
+}
+
+
+STATIC_FIELD_PRESETS = {
+    "dem": StaticFieldPreset(
+        field="dem",
+        title="digital elevation model",
+        unit_label="elevation [m]",
+        cmap_name="Greys_r",
+        step=250.0,
+        floor=500.0,
+    ),
+    "svf": StaticFieldPreset(
+        field="svf",
+        title="sky view factor",
+        unit_label="SVF [-]",
+        cmap_name="Greys_r",
+        vmin=0.5,
+        vmax=1.0,
+        ticks=(0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
+    ),
+    "srf": StaticFieldPreset(
+        field="srf",
+        title="snow redistribution factor",
+        unit_label="SRF [-]",
+        cmap_name="RdBu",
+        vmin=0.1,
+        vmax=1.9,
+        center=1.0,
+        ticks=(0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8),
+    ),
+    "landcover": StaticFieldPreset(
+        field="landcover",
+        title="landcover",
+        unit_label="landcover",
+        cmap_name="oa_da_landcover",
     ),
 }
 
@@ -111,12 +163,13 @@ LANDCOVER_LABELS = {
     13: "built-up",
 }
 
-FSC_OBS_CMAP = colormaps["Blues"]
+FSC_OBS_CMAP = colormaps["Greys"]
+FSC_INVALID_COLOR = "#d8b3b7"
 UNKNOWN_LANDCOVER_COLOR = "#d9d9d9"
 WET_SNOW_COLORS = {
-    110: "#cf3c2e",
-    125: "#f4cf65",
-    200: "#8c8c8c",
+    110: "#000000",
+    125: "#d8d8d8",
+    200: "#ddb9ba",
     210: "#4b79c6",
 }
 WET_SNOW_LABELS = {
@@ -171,6 +224,15 @@ def require_variable_preset(variable: str) -> VariablePreset:
         raise ValueError(f"Unsupported project-map variable '{variable}'. Supported variables: {supported}") from exc
 
 
+def require_static_field_preset(field: str) -> StaticFieldPreset:
+    token = str(field).strip()
+    try:
+        return STATIC_FIELD_PRESETS[token]
+    except KeyError as exc:
+        supported = ", ".join(sorted(STATIC_FIELD_PRESETS))
+        raise ValueError(f"Unsupported project-map static field '{field}'. Supported fields: {supported}") from exc
+
+
 def nice_ceiling(value: float, *, step: float, minimum: float) -> float:
     if step <= 0:
         raise ValueError("step must be > 0")
@@ -204,3 +266,44 @@ def model_colorbar_style(preset: VariablePreset) -> ColorbarStyle:
             ticklabels=SNOW_DEPTH_REFERENCE_TICKLABELS_CM,
         )
     return ColorbarStyle(label=preset.unit_label)
+
+
+def static_field_cmap(preset: StaticFieldPreset):
+    if preset.field == "landcover":
+        raise ValueError("Landcover colors are derived from present codes")
+    return colormaps[preset.cmap_name]
+
+
+def static_field_range(preset: StaticFieldPreset, values: np.ndarray) -> tuple[float, float]:
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        if preset.vmin is not None and preset.vmax is not None:
+            return float(preset.vmin), float(preset.vmax)
+        return (0.0, 1.0)
+
+    if preset.vmin is not None:
+        vmin = float(preset.vmin)
+    else:
+        step = float(preset.step or 1.0)
+        vmin = math.floor(float(finite.min()) / step) * step
+
+    if preset.vmax is not None:
+        vmax = float(preset.vmax)
+    else:
+        vmax = nice_ceiling(float(finite.max()), step=float(preset.step or 1.0), minimum=float(preset.floor or 1.0))
+    if vmax <= vmin:
+        vmax = vmin + max(float(preset.step or 1.0), 1e-6)
+    return vmin, vmax
+
+
+def static_field_norm(preset: StaticFieldPreset, values: np.ndarray) -> Normalize:
+    vmin, vmax = static_field_range(preset, values)
+    if preset.center is not None:
+        if vmin < float(preset.center) < vmax:
+            return TwoSlopeNorm(vcenter=float(preset.center), vmin=vmin, vmax=vmax)
+    return Normalize(vmin=vmin, vmax=vmax, clip=False)
+
+
+def static_field_colorbar_style(preset: StaticFieldPreset) -> ColorbarStyle:
+    return ColorbarStyle(label=preset.unit_label, ticks=preset.ticks, ticklabels=preset.ticklabels)

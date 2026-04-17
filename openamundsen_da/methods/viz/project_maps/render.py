@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from string import ascii_lowercase
 
@@ -11,7 +13,9 @@ import numpy as np
 import pandas as pd
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import BoundaryNorm, LightSource, Normalize, TwoSlopeNorm
+from matplotlib.font_manager import FontProperties
 from matplotlib.patches import FancyBboxPatch, Patch, Rectangle
+from matplotlib.textpath import TextPath
 from rasterio.transform import array_bounds
 from shapely.geometry import box
 
@@ -25,7 +29,11 @@ from openamundsen_da.methods.viz.project_maps.data import (
     load_model_fields,
     load_observation_scene,
 )
-from openamundsen_da.methods.viz.project_maps.overview import load_overview_boundaries
+from openamundsen_da.methods.viz.project_maps.overview import (
+    load_overview_boundaries,
+    load_overview_labels,
+    load_overview_regions,
+)
 from openamundsen_da.methods.viz.project_maps.styles import (
     FSC_OBS_CMAP,
     FSC_INVALID_COLOR,
@@ -48,7 +56,7 @@ from openamundsen_da.methods.viz.project_maps.styles import (
 
 
 _FIGURE_HEIGHT_MIN = 2.9
-_FIGURE_HEIGHT_MAX = 11.5
+_FIGURE_HEIGHT_MAX = 16.5
 _BUFFER_RATIO = 0.03
 _STATION_LABEL_RATIO = 0.04
 _GRID_COLOR = "#666666"
@@ -64,18 +72,41 @@ _ROI_FILL = "#efefef"
 _OVERVIEW_ROI_COLOR = "#c21f24"
 _GRID_ZORDER = 120
 _ANNOTATION_ZORDER = 130
-_LAYOUT_COL_GAP = 0.11
-_LAYOUT_ROW_GAP = 0.35
+_LAYOUT_COL_GAP = 0.10
+_LAYOUT_ROW_GAP = 0.10
 _LEFT_MARGIN = 0.03
 _RIGHT_MARGIN = 0.992
 _BOTTOM_MARGIN = 0.028
 _TOP_MARGIN = 0.992
 _DATE_CALLOUT_ALPHA = 0.30
-_SCALEBAR_X_FRACTION = 0.68
+_SCALEBAR_TARGET_FRACTION = 0.27
+_SCALEBAR_RIGHT_PAD_FRACTION = 0.05
+_SCALEBAR_BOTTOM_FRACTION = 0.060
 _OVERVIEW_FRAGMENT_RATIO = 0.018
-_FIGURE_HORIZONTAL_COLORBAR_EXTRA = 0.18
-_FIGURE_HORIZONTAL_LEGEND_BASE_EXTRA = 0.12
-_FIGURE_HORIZONTAL_LEGEND_ROW_EXTRA = 0.07
+_VERTICAL_COLORBAR_GAP_EXTRA = 0.11
+_VERTICAL_COLORBAR_OUTER_EXTRA = 0.09
+_VERTICAL_COLORBAR_XOFFSET_AXES = 0.038
+_VERTICAL_COLORBAR_WIDTH_AXES = 0.060
+_VERTICAL_COLORBAR_BOTTOM_AXES = 0.035
+_VERTICAL_COLORBAR_HEIGHT_AXES = 0.89
+_HORIZONTAL_COLORBAR_GAP_AXES = 0.22
+_HORIZONTAL_COLORBAR_HEIGHT_AXES = 0.060
+_HORIZONTAL_COLORBAR_BOTTOM_PAD_AXES = 0.05
+_HORIZONTAL_COLORBAR_EXTRA = _HORIZONTAL_COLORBAR_GAP_AXES + _HORIZONTAL_COLORBAR_HEIGHT_AXES + _HORIZONTAL_COLORBAR_BOTTOM_PAD_AXES
+_HORIZONTAL_LEGEND_GAP_AXES = 0.075
+_HORIZONTAL_LEGEND_ROW_HEIGHT_AXES = 0.12
+_HORIZONTAL_LEGEND_BOTTOM_PAD_AXES = 0.22
+_HORIZONTAL_LEGEND_ITEM_GAP_IN = 0.05
+_HORIZONTAL_LEGEND_MIN_ITEM_GAP_IN = 0.022
+_HORIZONTAL_LEGEND_HANDLE_WIDTH_IN = 0.105
+_HORIZONTAL_LEGEND_HANDLE_TEXT_PAD_IN = 0.025
+_HORIZONTAL_LEGEND_MIN_TEXT_WIDTH_IN = 0.12
+_HORIZONTAL_LEGEND_SIDE_PAD_IN = 0.018
+_HORIZONTAL_LEGEND_TEXT_SIZE = 5.5
+_HORIZONTAL_LEGEND_PATCH_HEIGHT_AXES = 0.095
+_OVERVIEW_LABEL_SIZE = 6.2
+_OVERVIEW_LABEL_DX_RATIO = 0.09
+_OVERVIEW_LABEL_DY_RATIO = 0.07
 
 _MODEL_KIND_TO_VARIABLE = {
     "snow_depth": "snowdepth_daily",
@@ -113,6 +144,14 @@ _AUTO_TITLE_KIND = {
     "fsc": "Sentinel-2 FSC",
     "wet_snow": "Sentinel-1 wet snow",
 }
+
+
+@dataclass
+class RenderRuntimeCache:
+    model_fields: dict[tuple[str, pd.Timestamp], ModelFields] = field(default_factory=dict)
+    scale_cache: dict[tuple[str, pd.Timestamp], tuple[Normalize, TwoSlopeNorm]] = field(default_factory=dict)
+    observations: dict[tuple[str, pd.Timestamp], ObservationScene] = field(default_factory=dict)
+    derived_arrays: dict[str, np.ndarray] = field(default_factory=dict)
 
 
 def buffered_extent(context: StaticContext) -> tuple[float, float, float, float]:
@@ -177,7 +216,9 @@ def _field_array(context: StaticContext, field: str) -> np.ndarray:
     raise ValueError(f"Unsupported static field '{field}'")
 
 
-def _hillshade(context: StaticContext) -> np.ndarray:
+def _hillshade(context: StaticContext, *, derived_cache: dict[str, np.ndarray] | None = None) -> np.ndarray:
+    if derived_cache is not None and "hillshade" in derived_cache:
+        return derived_cache["hillshade"]
     dem = np.asarray(context.dem, dtype=float)
     filled = dem.copy()
     if np.isfinite(filled).any():
@@ -191,6 +232,8 @@ def _hillshade(context: StaticContext) -> np.ndarray:
         dx=abs(float(context.spec.transform.a)),
         dy=abs(float(context.spec.transform.e)),
     )
+    if derived_cache is not None:
+        derived_cache["hillshade"] = shade
     return shade
 
 
@@ -248,6 +291,14 @@ def _axis_width_inches(ax) -> float:
     return float(ax.figure.get_size_inches()[0] * bbox.width)
 
 
+@lru_cache(maxsize=256)
+def _text_width_in(text: str, *, size: float) -> float:
+    if not text:
+        return 0.0
+    path = TextPath((0.0, 0.0), text, prop=FontProperties(size=size))
+    return float(path.get_extents().width) / 72.0
+
+
 def _axes_title_fontsize(ax) -> float:
     width_in = _axis_width_inches(ax)
     if width_in < 1.45:
@@ -287,6 +338,20 @@ def _legend_columns_for_axis(ax, labels: list[str]) -> int:
     return _legend_columns_for_width(_axis_width_inches(ax), labels)
 
 
+def _draw_axes_title(ax, title: str) -> None:
+    ax.text(
+        0.0,
+        0.995,
+        title,
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=_axes_title_fontsize(ax),
+        color="black",
+        zorder=_ANNOTATION_ZORDER,
+    )
+
+
 def _apply_map_axis_style(ax, extent: tuple[float, float, float, float], *, title: str | None, show_grid: bool) -> None:
     ax.set_xlim(extent[0], extent[1])
     ax.set_ylim(extent[2], extent[3])
@@ -306,7 +371,7 @@ def _apply_map_axis_style(ax, extent: tuple[float, float, float, float], *, titl
     ax.tick_params(
         axis="x",
         direction="out",
-        top=True,
+        top=False,
         bottom=True,
         labeltop=False,
         labelbottom=True,
@@ -319,9 +384,9 @@ def _apply_map_axis_style(ax, extent: tuple[float, float, float, float], *, titl
         axis="y",
         direction="out",
         left=True,
-        right=True,
+        right=False,
         labelleft=True,
-        labelright=True,
+        labelright=False,
         labelsize=_TICK_SIZE,
         length=3.0,
         width=0.75,
@@ -331,15 +396,16 @@ def _apply_map_axis_style(ax, extent: tuple[float, float, float, float], *, titl
         tick.label1.set_rotation(0)
         tick.label1.set_ha("center")
         tick.label1.set_va("top")
+        tick.label2.set_visible(False)
     for tick in ax.yaxis.get_major_ticks():
-        for label in (tick.label1, tick.label2):
-            label.set_rotation(90)
-            label.set_rotation_mode("anchor")
-            label.set_ha("center")
-            label.set_va("center")
+        tick.label1.set_rotation(90)
+        tick.label1.set_rotation_mode("anchor")
+        tick.label1.set_ha("center")
+        tick.label1.set_va("center")
+        tick.label2.set_visible(False)
     ax.grid(False)
     if title:
-        ax.set_title(title, loc="left", fontsize=_axes_title_fontsize(ax), pad=2.8)
+        _draw_axes_title(ax, title)
 
 
 def _draw_map_grid_overlay(ax, *, show_grid: bool) -> None:
@@ -517,7 +583,155 @@ def _panel_legend_layout(panel: MapPanelSpec, *, figure_horizontal_default: bool
     return "vertical" if is_colorbar else "horizontal"
 
 
-def _row_has_below_panel_artists(
+def _effective_width_ratios(recipe: MapRecipe) -> tuple[float, ...]:
+    return recipe.layout.width_ratios or tuple(1.0 for _ in range(recipe.layout.ncols))
+
+
+def _effective_height_ratios(recipe: MapRecipe) -> tuple[float, ...]:
+    return recipe.layout.height_ratios or tuple(1.0 for _ in range(recipe.layout.nrows))
+
+
+def _horizontal_legend_item_width_in(label: str) -> float:
+    text_width = max(_HORIZONTAL_LEGEND_MIN_TEXT_WIDTH_IN, _text_width_in(str(label), size=_HORIZONTAL_LEGEND_TEXT_SIZE))
+    return _HORIZONTAL_LEGEND_HANDLE_WIDTH_IN + _HORIZONTAL_LEGEND_HANDLE_TEXT_PAD_IN + text_width
+
+
+def _horizontal_legend_side_pad_in(panel_width_in: float) -> float:
+    return min(_HORIZONTAL_LEGEND_SIDE_PAD_IN, max(panel_width_in / 2.0 - 0.05, 0.0))
+
+
+def _horizontal_legend_available_width_in(panel_width_in: float) -> float:
+    side_pad_in = _horizontal_legend_side_pad_in(panel_width_in)
+    return max(panel_width_in - 2.0 * side_pad_in, 0.25)
+
+
+def _pack_horizontal_legend_rows(labels: list[str], *, panel_width_in: float) -> list[list[str]]:
+    if not labels:
+        return []
+    available_width_in = _horizontal_legend_available_width_in(panel_width_in)
+    item_widths = [_horizontal_legend_item_width_in(label) for label in labels]
+    rows: list[list[str]] = []
+    current_row: list[str] = []
+    current_width = 0.0
+
+    for label, item_width in zip(labels, item_widths):
+        proposed_width = item_width if not current_row else current_width + _HORIZONTAL_LEGEND_MIN_ITEM_GAP_IN + item_width
+        if current_row and proposed_width > available_width_in:
+            rows.append(current_row)
+            current_row = [label]
+            current_width = item_width
+        else:
+            current_row.append(label)
+            current_width = proposed_width
+
+    if current_row:
+        rows.append(current_row)
+    return rows
+
+
+def _horizontal_legend_row_height_factors(rows: list[list[str]]) -> list[float]:
+    return [1.0] * len(rows)
+
+
+def _horizontal_legend_row_layout(
+    row_labels: list[str],
+    *,
+    panel_width_in: float,
+) -> tuple[list[float], float, float]:
+    item_widths = [_horizontal_legend_item_width_in(label) for label in row_labels]
+    side_pad_in = _horizontal_legend_side_pad_in(panel_width_in)
+    available_width_in = _horizontal_legend_available_width_in(panel_width_in)
+
+    if len(item_widths) <= 1:
+        row_width_in = item_widths[0] if item_widths else 0.0
+        start_x_in = side_pad_in + max((available_width_in - row_width_in) / 2.0, 0.0)
+        return item_widths, start_x_in, 0.0
+
+    min_gaps_total = _HORIZONTAL_LEGEND_MIN_ITEM_GAP_IN * (len(item_widths) - 1)
+    content_width_in = float(sum(item_widths) + min_gaps_total)
+    extra_gap_in = max(available_width_in - content_width_in, 0.0) / (len(item_widths) - 1)
+    return item_widths, side_pad_in, _HORIZONTAL_LEGEND_MIN_ITEM_GAP_IN + min(extra_gap_in, _HORIZONTAL_LEGEND_ITEM_GAP_IN)
+
+
+def _classified_legend_labels(panel_kind: str) -> list[str]:
+    if panel_kind == "landcover":
+        return list(LANDCOVER_LABELS.values())
+    if panel_kind == "wet_snow":
+        return [WET_SNOW_LABELS[code] for code in sorted(WET_SNOW_LABELS)]
+    raise ValueError(f"Unsupported classified panel kind '{panel_kind}'")
+
+
+def _horizontal_legend_bottom_pad(panel_width_in: float) -> float:
+    if panel_width_in < 1.7:
+        return max(_HORIZONTAL_LEGEND_BOTTOM_PAD_AXES, 0.78)
+    if panel_width_in < 2.0:
+        return max(_HORIZONTAL_LEGEND_BOTTOM_PAD_AXES, 0.48)
+    return _HORIZONTAL_LEGEND_BOTTOM_PAD_AXES
+
+
+def _horizontal_legend_total_extra(rows: list[list[str]], *, panel_width_in: float) -> float:
+    if not rows:
+        return 0.0
+    total_row_units = float(sum(_horizontal_legend_row_height_factors(rows)))
+    return _HORIZONTAL_LEGEND_GAP_AXES + total_row_units * _HORIZONTAL_LEGEND_ROW_HEIGHT_AXES + _horizontal_legend_bottom_pad(panel_width_in)
+
+
+def _panel_has_vertical_colorbar(
+    panel: MapPanelSpec,
+    *,
+    defaults: MapDefaults,
+    figure_horizontal_default: bool,
+) -> bool:
+    if panel.kind not in _CONTINUOUS_COLORBAR_PANEL_KINDS:
+        return False
+    if not _resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
+        return False
+    return _panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True) == "vertical"
+
+
+def _column_gap_factors(
+    recipe: MapRecipe,
+    *,
+    figure_horizontal_default: bool,
+) -> tuple[float, ...]:
+    gap_factors: list[float] = []
+    for col in range(recipe.layout.ncols - 1):
+        extra = 0.0
+        for panel in recipe.panels:
+            end_col = int(panel.col + panel.colspan - 1)
+            if end_col != col:
+                continue
+            if _panel_has_vertical_colorbar(
+                panel,
+                defaults=recipe.defaults,
+                figure_horizontal_default=figure_horizontal_default,
+            ):
+                extra = max(extra, _VERTICAL_COLORBAR_GAP_EXTRA)
+        gap_factors.append(_LAYOUT_COL_GAP + extra)
+    return tuple(gap_factors)
+
+
+def _outer_right_factor(
+    recipe: MapRecipe,
+    *,
+    figure_horizontal_default: bool,
+) -> float:
+    outer_extra = 0.0
+    last_col = recipe.layout.ncols - 1
+    for panel in recipe.panels:
+        end_col = int(panel.col + panel.colspan - 1)
+        if end_col != last_col:
+            continue
+        if _panel_has_vertical_colorbar(
+            panel,
+            defaults=recipe.defaults,
+            figure_horizontal_default=figure_horizontal_default,
+        ):
+            outer_extra = max(outer_extra, _VERTICAL_COLORBAR_OUTER_EXTRA)
+    return outer_extra
+
+
+def _row_bottom_extras(
     recipe: MapRecipe,
     *,
     panel_width_in: float,
@@ -525,24 +739,20 @@ def _row_has_below_panel_artists(
 ) -> dict[int, float]:
     row_extras = {row: 0.0 for row in range(recipe.layout.nrows)}
     for panel in recipe.panels:
-        row = int(panel.row)
+        row = int(panel.row + panel.rowspan - 1)
         extra = 0.0
-        if panel.kind in {"landcover", "wet_snow"}:
+        if panel.kind in _CLASSIFIED_PANEL_KINDS:
             layout = _panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default)
             if layout == "horizontal":
-                labels = (
-                    list(LANDCOVER_LABELS.values())
-                    if panel.kind == "landcover"
-                    else [WET_SNOW_LABELS[code] for code in sorted(WET_SNOW_LABELS)]
-                )
-                ncols = _legend_columns_for_width(panel_width_in, labels)
-                nrows = int(np.ceil(len(labels) / max(ncols, 1)))
-                extra = _FIGURE_HORIZONTAL_LEGEND_BASE_EXTRA + _FIGURE_HORIZONTAL_LEGEND_ROW_EXTRA * max(nrows - 1, 0)
+                labels = _classified_legend_labels(panel.kind)
+                rows = _pack_horizontal_legend_rows(labels, panel_width_in=panel_width_in)
+                extra = _horizontal_legend_total_extra(rows, panel_width_in=panel_width_in)
         elif panel.kind in _CONTINUOUS_COLORBAR_PANEL_KINDS:
-            show_colorbar = _resolve_flag(panel.show_colorbar, recipe.defaults, "show_colorbar", True)
-            layout = _panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True)
-            if show_colorbar and layout == "horizontal":
-                extra = _FIGURE_HORIZONTAL_COLORBAR_EXTRA
+            if (
+                _resolve_flag(panel.show_colorbar, recipe.defaults, "show_colorbar", True)
+                and _panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True) == "horizontal"
+            ):
+                extra = _HORIZONTAL_COLORBAR_EXTRA
         row_extras[row] = max(row_extras.get(row, 0.0), extra)
     return row_extras
 
@@ -557,7 +767,15 @@ def _attach_colorbar(
     layout: str,
 ) -> None:
     if layout == "horizontal":
-        cax = ax.inset_axes([0.06, -0.145, 0.88, 0.052], transform=ax.transAxes)
+        cax = ax.inset_axes(
+            [
+                0.06,
+                -(_HORIZONTAL_COLORBAR_GAP_AXES + _HORIZONTAL_COLORBAR_HEIGHT_AXES),
+                0.88,
+                _HORIZONTAL_COLORBAR_HEIGHT_AXES,
+            ],
+            transform=ax.transAxes,
+        )
         cbar = plt.colorbar(mappable, cax=cax, orientation="horizontal")
         if ticks:
             cbar.set_ticks(ticks)
@@ -571,7 +789,15 @@ def _attach_colorbar(
             cbar.set_label(label, fontsize=_COLORBAR_TITLE_SIZE)
         return
 
-    cax = ax.inset_axes([1.06, -0.045, 0.076, 0.94], transform=ax.transAxes)
+    cax = ax.inset_axes(
+        [
+            1.0 + _VERTICAL_COLORBAR_XOFFSET_AXES,
+            _VERTICAL_COLORBAR_BOTTOM_AXES,
+            _VERTICAL_COLORBAR_WIDTH_AXES,
+            _VERTICAL_COLORBAR_HEIGHT_AXES,
+        ],
+        transform=ax.transAxes,
+    )
     cbar = plt.colorbar(mappable, cax=cax, orientation="vertical")
     if ticks:
         cbar.set_ticks(ticks)
@@ -601,7 +827,7 @@ def _draw_panel_date(ax, date: pd.Timestamp | None) -> None:
         return
     ax.text(
         0.02,
-        0.98,
+        0.92,
         text,
         transform=ax.transAxes,
         ha="left",
@@ -615,9 +841,9 @@ def _draw_panel_date(ax, date: pd.Timestamp | None) -> None:
 
 def _scale_bar_length_m(extent: tuple[float, float, float, float]) -> float:
     span_m = max(1.0, float(extent[1] - extent[0]))
-    max_length = span_m * 0.40
-    preferred = np.array([5000.0, 2500.0, 2000.0, 1000.0])
-    viable = preferred[preferred <= max_length]
+    target_length = span_m * _SCALEBAR_TARGET_FRACTION
+    preferred = np.array([500.0, 1000.0, 2000.0, 2500.0, 5000.0, 10000.0, 20000.0, 25000.0, 50000.0, 100000.0])
+    viable = preferred[preferred >= target_length]
     if viable.size:
         return float(viable[0])
     return float(preferred[-1])
@@ -635,10 +861,9 @@ def _draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
     span_y = float(extent[3] - extent[2])
     total_length = _scale_bar_length_m(extent)
     half_length = total_length / 2.0
-    x0 = extent[0] + _SCALEBAR_X_FRACTION * span_x
-    x0 = min(x0, extent[1] - 0.08 * span_x - total_length)
+    x0 = extent[1] - _SCALEBAR_RIGHT_PAD_FRACTION * span_x - total_length
     x0 = max(x0, extent[0] + 0.08 * span_x)
-    y0 = extent[2] + 0.045 * span_y
+    y0 = extent[2] + _SCALEBAR_BOTTOM_FRACTION * span_y
     tick_height = 0.016 * span_y
     label_y = y0 + 1.15 * tick_height
 
@@ -673,33 +898,67 @@ def _draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
     )
 
 
+def _panel_width_in_for_recipe(recipe: MapRecipe, *, figure_horizontal_default: bool) -> float:
+    width_factors = _effective_width_ratios(recipe)
+    col_gap_factors = _column_gap_factors(
+        recipe,
+        figure_horizontal_default=figure_horizontal_default,
+    )
+    outer_right_factor = _outer_right_factor(
+        recipe,
+        figure_horizontal_default=figure_horizontal_default,
+    )
+    inner_width_in = FIGWIDTH_OVERVIEW_PAPER * (_RIGHT_MARGIN - _LEFT_MARGIN)
+    width_units = float(sum(width_factors)) + float(sum(col_gap_factors)) + outer_right_factor
+    return inner_width_in / max(width_units, 1.0)
+
+
 def _figure_size(extent: tuple[float, float, float, float], recipe: MapRecipe) -> tuple[float, float]:
     width = max(1.0, float(extent[1] - extent[0]))
     height = max(1.0, float(extent[3] - extent[2]))
     aspect = height / width
-    width_factors = recipe.layout.width_ratios or tuple(1.0 for _ in range(recipe.layout.ncols))
-    height_factors = recipe.layout.height_ratios or tuple(1.0 for _ in range(recipe.layout.nrows))
+    height_factors = _effective_height_ratios(recipe)
     figure_horizontal_default = _figure_prefers_horizontal_legends(recipe)
-    count_vertical_colorbars = sum(
-        1
-        for panel in recipe.panels
-        if panel.kind in _CONTINUOUS_COLORBAR_PANEL_KINDS
-        and _panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True) == "vertical"
+    panel_width = _panel_width_in_for_recipe(
+        recipe,
+        figure_horizontal_default=figure_horizontal_default,
     )
-    width_units = float(sum(width_factors)) + _LAYOUT_COL_GAP * max(recipe.layout.ncols - 1, 0) + 0.22 * count_vertical_colorbars
-    panel_width = FIGWIDTH_OVERVIEW_PAPER / max(width_units, 1.0)
-    row_bottom_extras = _row_has_below_panel_artists(
+    row_bottom_extras = _row_bottom_extras(
         recipe,
         panel_width_in=panel_width,
         figure_horizontal_default=figure_horizontal_default,
     )
-    panel_height = panel_width * aspect * 1.02
-    fig_height = (
-        panel_height * float(sum(height_factors))
-        + panel_height * _LAYOUT_ROW_GAP * max(recipe.layout.nrows - 1, 0)
-        + float(sum(row_bottom_extras.values()))
+    inter_row_gap_factors = tuple(
+        _LAYOUT_ROW_GAP + row_bottom_extras[row]
+        for row in range(recipe.layout.nrows - 1)
     )
+    bottom_extra_factor = row_bottom_extras.get(recipe.layout.nrows - 1, 0.0)
+    panel_height = panel_width * aspect * 1.02
+    inner_height = (
+        panel_height * float(sum(height_factors))
+        + panel_height * float(sum(inter_row_gap_factors))
+        + panel_height * bottom_extra_factor
+    )
+    fig_height = inner_height / max(_TOP_MARGIN - _BOTTOM_MARGIN, 1e-9)
     return FIGWIDTH_OVERVIEW_PAPER, float(np.clip(fig_height, _FIGURE_HEIGHT_MIN, _FIGURE_HEIGHT_MAX))
+
+
+def _expanded_grid_ratios(
+    data_ratios: tuple[float, ...],
+    gap_factors: tuple[float, ...],
+) -> list[float]:
+    ratios: list[float] = []
+    for idx, ratio in enumerate(data_ratios):
+        ratios.append(float(ratio))
+        if idx < len(gap_factors):
+            ratios.append(float(gap_factors[idx]))
+    return ratios
+
+
+def _grid_span(start: int, span: int) -> slice:
+    grid_start = start * 2
+    grid_stop = grid_start + span * 2 - 1
+    return slice(grid_start, grid_stop)
 
 
 def _draw_classified_legend(ax, handles: list[Patch], *, layout: str) -> None:
@@ -707,19 +966,58 @@ def _draw_classified_legend(ax, handles: list[Patch], *, layout: str) -> None:
         return
     if layout == "horizontal":
         labels = [handle.get_label() for handle in handles]
-        ncols = _legend_columns_for_axis(ax, labels)
-        ax.legend(
-            handles=handles,
-            loc="upper left",
-            bbox_to_anchor=(0.0, -0.14),
-            ncol=ncols,
-            frameon=False,
-            fontsize=5.7,
-            handlelength=1.3,
-            handletextpad=0.45,
-            columnspacing=0.9,
-            borderaxespad=0.0,
+        panel_width_in = _axis_width_inches(ax)
+        rows = _pack_horizontal_legend_rows(labels, panel_width_in=panel_width_in)
+        if not rows:
+            return
+        row_height_factors = _horizontal_legend_row_height_factors(rows)
+        total_row_units = float(sum(row_height_factors))
+        inset_height = total_row_units * _HORIZONTAL_LEGEND_ROW_HEIGHT_AXES
+        legend_ax = ax.inset_axes(
+            [0.0, -(_HORIZONTAL_LEGEND_GAP_AXES + inset_height), 1.0, inset_height],
+            transform=ax.transAxes,
         )
+        legend_ax.set_axis_off()
+        handle_lookup = {handle.get_label(): handle for handle in handles}
+        row_top = 1.0
+        for row_labels, row_units in zip(rows, row_height_factors):
+            row_height = row_units / max(total_row_units, 1e-9)
+            patch_height = min(_HORIZONTAL_LEGEND_PATCH_HEIGHT_AXES, 0.62 * row_height)
+            item_widths, start_x_in, item_gap_in = _horizontal_legend_row_layout(row_labels, panel_width_in=panel_width_in)
+            y_center = row_top - 0.5 * row_height
+            x_in = start_x_in
+            for label, item_width in zip(row_labels, item_widths):
+                handle = handle_lookup[label]
+                facecolor = handle.get_facecolor()
+                edgecolor = handle.get_edgecolor()
+                if np.ndim(facecolor) == 2:
+                    facecolor = facecolor[0]
+                if np.ndim(edgecolor) == 2:
+                    edgecolor = edgecolor[0]
+                x0 = x_in / panel_width_in
+                patch_width = _HORIZONTAL_LEGEND_HANDLE_WIDTH_IN / panel_width_in
+                legend_ax.add_patch(
+                    Rectangle(
+                        (x0, y_center - 0.5 * patch_height),
+                        patch_width,
+                        patch_height,
+                        transform=legend_ax.transAxes,
+                        facecolor=facecolor,
+                        edgecolor=edgecolor,
+                        linewidth=0.8,
+                    )
+                )
+                legend_ax.text(
+                    (x_in + _HORIZONTAL_LEGEND_HANDLE_WIDTH_IN + _HORIZONTAL_LEGEND_HANDLE_TEXT_PAD_IN) / panel_width_in,
+                    y_center,
+                    label,
+                    transform=legend_ax.transAxes,
+                    ha="left",
+                    va="center",
+                    fontsize=_HORIZONTAL_LEGEND_TEXT_SIZE,
+                )
+                x_in += item_width + item_gap_in
+            row_top -= row_height
         return
     ax.legend(
         handles=handles,
@@ -761,6 +1059,106 @@ def _apply_common_overlays(
         )
 
 
+def _overview_label_column(labels) -> str | None:
+    for candidate in ("NAME_ENGL", "CNTR_NAME", "NAME_LATN", "COUNTRY", "label", "name", "CNTR_ID"):
+        if candidate in labels.columns:
+            return candidate
+    return None
+
+
+def _overview_code_column(gdf) -> str | None:
+    for candidate in ("CNTR_ID", "CNTR_CODE", "ISO3_CODE"):
+        if candidate in gdf.columns:
+            return candidate
+    return None
+
+
+def _overview_name_lookup(labels) -> dict[str, str]:
+    name_col = _overview_label_column(labels)
+    code_col = _overview_code_column(labels)
+    if name_col is None or code_col is None or labels.empty:
+        return {}
+
+    working = labels.dropna(subset=[name_col, code_col]).copy()
+    working[name_col] = working[name_col].astype(str).str.strip()
+    working[code_col] = working[code_col].astype(str).str.strip()
+    working = working.loc[(working[name_col] != "") & (working[code_col] != "")]
+    working = working.drop_duplicates(subset=[code_col])
+    return dict(zip(working[code_col], working[name_col], strict=False))
+
+
+def _overview_label_point(geometry):
+    if geometry is None or geometry.is_empty:
+        return None
+    if geometry.geom_type == "MultiPolygon":
+        geometry = max(geometry.geoms, key=lambda geom: geom.area, default=geometry)
+    elif geometry.geom_type == "GeometryCollection":
+        polygons = [geom for geom in geometry.geoms if geom.geom_type in {"Polygon", "MultiPolygon"} and not geom.is_empty]
+        if polygons:
+            geometry = max(polygons, key=lambda geom: geom.area)
+        else:
+            geometry = geometry.convex_hull
+    elif geometry.geom_type not in {"Polygon", "MultiPolygon"}:
+        geometry = geometry.convex_hull
+    return geometry.representative_point()
+
+
+def _draw_overview_country_labels(
+    ax,
+    *,
+    visible_countries,
+    labels,
+    extent: tuple[float, float, float, float],
+    roi_anchor: tuple[float, float] | None,
+) -> None:
+    if visible_countries.empty:
+        return
+    code_col = _overview_code_column(visible_countries)
+    if code_col is None:
+        return
+    name_lookup = _overview_name_lookup(labels)
+    span_x = extent[1] - extent[0]
+    span_y = extent[3] - extent[2]
+    min_dx = _OVERVIEW_LABEL_DX_RATIO * span_x
+    min_dy = _OVERVIEW_LABEL_DY_RATIO * span_y
+    placed: list[tuple[float, float]] = []
+    if roi_anchor is not None:
+        placed.append(roi_anchor)
+
+    working = visible_countries.dropna(subset=[code_col]).copy()
+    working[code_col] = working[code_col].astype(str).str.strip()
+    working = working.loc[working[code_col] != ""]
+    if working.empty:
+        return
+    working["label_key"] = working[code_col]
+    working = working.dissolve(by="label_key", as_index=False)
+    working["label_name"] = working["label_key"].map(name_lookup).fillna(working["label_key"])
+    working["label_area"] = working.geometry.area
+
+    for row in working.sort_values(by="label_area", ascending=False).itertuples():
+        point = _overview_label_point(row.geometry)
+        if point is None:
+            continue
+        x = float(point.x)
+        y = float(point.y)
+        if not (extent[0] <= x <= extent[1] and extent[2] <= y <= extent[3]):
+            continue
+        if any(abs(x - px) < min_dx and abs(y - py) < min_dy for px, py in placed):
+            continue
+        ax.text(
+            x,
+            y,
+            str(row.label_name),
+            ha="center",
+            va="center",
+            fontsize=_OVERVIEW_LABEL_SIZE,
+            color="black",
+            zorder=_ANNOTATION_ZORDER - 2,
+            bbox={"boxstyle": "round,pad=0.10", "facecolor": "white", "edgecolor": "none", "alpha": 0.45},
+        )
+        placed.append((x, y))
+
+
 def _overview_extent(ax, context: StaticContext, *, scale: int) -> tuple[float, float, float, float]:
     fig = ax.figure
     bbox = ax.get_position()
@@ -768,13 +1166,6 @@ def _overview_extent(ax, context: StaticContext, *, scale: int) -> tuple[float, 
     height_in = fig.get_size_inches()[1] * bbox.height
     width_m = width_in * 0.0254 * float(scale)
     height_m = height_in * 0.0254 * float(scale)
-    local_extent = buffered_extent(context)
-    target_aspect = (local_extent[3] - local_extent[2]) / max(local_extent[1] - local_extent[0], 1.0)
-    current_aspect = height_m / max(width_m, 1.0)
-    if current_aspect < target_aspect:
-        height_m = width_m * target_aspect
-    else:
-        width_m = height_m / max(target_aspect, 1e-9)
     centroid = context.roi_gdf.geometry.unary_union.centroid
     center_x = float(centroid.x)
     center_y = float(centroid.y)
@@ -789,6 +1180,8 @@ def _overview_extent(ax, context: StaticContext, *, scale: int) -> tuple[float, 
 def _render_overview_panel(ax, *, panel: MapPanelSpec, context: StaticContext, label: str | None, defaults: MapDefaults) -> dict[str, object]:
     extent = _overview_extent(ax, context, scale=int(panel.scale or 1))
     countries = load_overview_boundaries()
+    country_regions = load_overview_regions()
+    country_labels = load_overview_labels()
     target_window = box(extent[0], extent[2], extent[1], extent[3])
     target_window_gdf = context.roi_gdf.iloc[:1].copy()
     target_window_gdf.geometry = [target_window]
@@ -816,12 +1209,39 @@ def _render_overview_panel(ax, *, panel: MapPanelSpec, context: StaticContext, l
             subset = subset.loc[fragment_dim > threshold].copy()
     if not subset.empty:
         subset.plot(ax=ax, color="black", linewidth=0.65, zorder=8)
+    region_window_gdf = target_window_gdf.to_crs(country_regions.crs)
+    region_window_geom = region_window_gdf.geometry.iloc[0]
+    visible_regions = country_regions.cx[window_bounds[0] : window_bounds[2], window_bounds[1] : window_bounds[3]].copy()
+    if visible_regions.empty:
+        visible_regions = country_regions.copy()
+    visible_regions = visible_regions[visible_regions.geom_type.isin({"Polygon", "MultiPolygon"})].copy()
+    visible_regions = visible_regions.loc[visible_regions.intersects(region_window_geom)].copy()
+    if (
+        not visible_regions.empty
+        and visible_regions.crs is not None
+        and context.spec.crs is not None
+        and str(visible_regions.crs) != str(context.spec.crs)
+    ):
+        visible_regions = visible_regions.to_crs(context.spec.crs)
+    visible_regions = visible_regions[visible_regions.geometry.notna()].copy()
+    visible_regions = visible_regions.loc[~visible_regions.geometry.is_empty].copy()
+    if not visible_regions.empty:
+        clip_geom = box(extent[0], extent[2], extent[1], extent[3])
+        visible_regions = visible_regions.loc[visible_regions.intersects(clip_geom)].copy()
+        if not visible_regions.empty:
+            visible_regions = visible_regions.clip(clip_geom)
+            visible_regions = visible_regions.loc[~visible_regions.geometry.is_empty].copy()
     context.roi_gdf.plot(ax=ax, facecolor=_OVERVIEW_ROI_COLOR, edgecolor=_OVERVIEW_ROI_COLOR, linewidth=0.8, zorder=25)
+    roi_anchor: tuple[float, float] | None = None
     if panel.roi_label:
         centroid = context.roi_gdf.geometry.unary_union.centroid
-        ax.text(
+        roi_anchor = (
             float(centroid.x) + 0.02 * (extent[1] - extent[0]),
             float(centroid.y),
+        )
+        ax.text(
+            roi_anchor[0],
+            roi_anchor[1],
             panel.roi_label,
             color="black",
             fontsize=6.4,
@@ -829,6 +1249,13 @@ def _render_overview_panel(ax, *, panel: MapPanelSpec, context: StaticContext, l
             va="center",
             zorder=_ANNOTATION_ZORDER,
         )
+    _draw_overview_country_labels(
+        ax,
+        visible_countries=visible_regions,
+        labels=country_labels,
+        extent=extent,
+        roi_anchor=roi_anchor,
+    )
     show_grid = _resolve_flag(panel.show_grid, defaults, "show_grid", True)
     _apply_map_axis_style(ax, extent, title=_panel_title(label, _panel_semantic_title(panel)), show_grid=show_grid)
     _draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=_panel_date(panel, defaults))
@@ -864,6 +1291,7 @@ def _render_static_panel(
     label: str | None,
     defaults: MapDefaults,
     figure_horizontal_default: bool,
+    derived_cache: dict[str, np.ndarray] | None = None,
 ) -> dict[str, object]:
     show_grid = _resolve_flag(panel.show_grid, defaults, "show_grid", True)
     show_roi = _resolve_panel_toggle(panel.show_roi, True)
@@ -872,7 +1300,15 @@ def _render_static_panel(
     show_stations_elev = _resolve_panel_toggle(panel.show_stations_elev, False)
 
     if panel.kind == "hillshade":
-        ax.imshow(_hillshade(context), cmap="Greys", extent=grid_extent, origin="upper", vmin=0.0, vmax=1.0, zorder=5)
+        ax.imshow(
+            _hillshade(context, derived_cache=derived_cache),
+            cmap="Greys",
+            extent=grid_extent,
+            origin="upper",
+            vmin=0.0,
+            vmax=1.0,
+            zorder=5,
+        )
         _apply_common_overlays(
             ax,
             context=context,
@@ -965,6 +1401,7 @@ def _render_model_panel(
     model_cache,
     scale_cache,
     figure_horizontal_default: bool,
+    derived_cache: dict[str, np.ndarray] | None = None,
 ) -> dict[str, object]:
     date = _panel_date(panel, defaults)
     if date is None:
@@ -978,7 +1415,15 @@ def _render_model_panel(
         scale_cache[field_key] = _comparison_scales([model_cache[field_key]], preset)
     model_norm, increment_norm = scale_cache[field_key]
     if _resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
-        ax.imshow(_hillshade(context), cmap="Greys", extent=grid_extent, origin="upper", vmin=0.0, vmax=1.0, zorder=0)
+        ax.imshow(
+            _hillshade(context, derived_cache=derived_cache),
+            cmap="Greys",
+            extent=grid_extent,
+            origin="upper",
+            vmin=0.0,
+            vmax=1.0,
+            zorder=0,
+        )
 
     colorbar_style: dict[str, object] | object
     if panel.source == "increment":
@@ -1045,6 +1490,7 @@ def _render_observation_panel(
     defaults: MapDefaults,
     obs_cache,
     figure_horizontal_default: bool,
+    derived_cache: dict[str, np.ndarray] | None = None,
 ) -> dict[str, object]:
     date = _panel_date(panel, defaults)
     if date is None:
@@ -1056,7 +1502,15 @@ def _render_observation_panel(
     scene = obs_cache[obs_key]
     show_grid = _resolve_flag(panel.show_grid, defaults, "show_grid", True)
     if _resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
-        ax.imshow(_hillshade(context), cmap="Greys", extent=_grid_extent(context), origin="upper", vmin=0.0, vmax=1.0, zorder=0)
+        ax.imshow(
+            _hillshade(context, derived_cache=derived_cache),
+            cmap="Greys",
+            extent=_grid_extent(context),
+            origin="upper",
+            vmin=0.0,
+            vmax=1.0,
+            zorder=0,
+        )
 
     if observation == "scf":
         norm = Normalize(vmin=0.0, vmax=100.0)
@@ -1115,7 +1569,7 @@ def _render_observation_panel(
 def _render_text_panel(ax, *, panel: MapPanelSpec) -> dict[str, object]:
     ax.set_axis_off()
     if panel.title:
-        ax.set_title(panel.title, loc="left", fontsize=_axes_title_fontsize(ax), pad=2.8)
+        _draw_axes_title(ax, panel.title)
     y = 0.95
     for line in panel.lines:
         ax.text(0.0, y, line, transform=ax.transAxes, ha="left", va="top", fontsize=7.2)
@@ -1202,19 +1656,45 @@ def _render_legend_panel(ax, *, panel: MapPanelSpec, artifacts: dict[str, dict[s
     return {}
 
 
-def render_map_recipe(*, project_dir: Path, context: StaticContext, recipe: MapRecipe, output_path: Path) -> Path:
+def render_map_recipe(
+    *,
+    project_dir: Path,
+    context: StaticContext,
+    recipe: MapRecipe,
+    output_path: Path,
+    runtime_cache: RenderRuntimeCache | None = None,
+) -> Path:
     del project_dir
+    cache = runtime_cache or RenderRuntimeCache()
     extent = buffered_extent(context)
     grid_extent = _grid_extent(context)
     figure_horizontal_default = _figure_prefers_horizontal_legends(recipe)
     fig = plt.figure(figsize=_figure_size(extent, recipe))
+    width_ratios = _effective_width_ratios(recipe)
+    height_ratios = _effective_height_ratios(recipe)
+    col_gap_factors = _column_gap_factors(
+        recipe,
+        figure_horizontal_default=figure_horizontal_default,
+    )
+    row_bottom_extras = _row_bottom_extras(
+        recipe,
+        panel_width_in=_panel_width_in_for_recipe(
+            recipe,
+            figure_horizontal_default=figure_horizontal_default,
+        ),
+        figure_horizontal_default=figure_horizontal_default,
+    )
+    row_gap_factors = tuple(
+        _LAYOUT_ROW_GAP + row_bottom_extras[row]
+        for row in range(recipe.layout.nrows - 1)
+    )
     gs = fig.add_gridspec(
-        recipe.layout.nrows,
-        recipe.layout.ncols,
-        width_ratios=recipe.layout.width_ratios or None,
-        height_ratios=recipe.layout.height_ratios or None,
-        wspace=_LAYOUT_COL_GAP,
-        hspace=_LAYOUT_ROW_GAP,
+        max(1, recipe.layout.nrows * 2 - 1),
+        max(1, recipe.layout.ncols * 2 - 1),
+        width_ratios=_expanded_grid_ratios(width_ratios, col_gap_factors),
+        height_ratios=_expanded_grid_ratios(height_ratios, row_gap_factors),
+        wspace=0.0,
+        hspace=0.0,
     )
     fig.subplots_adjust(left=_LEFT_MARGIN, right=_RIGHT_MARGIN, bottom=_BOTTOM_MARGIN, top=_TOP_MARGIN)
 
@@ -1226,14 +1706,16 @@ def render_map_recipe(*, project_dir: Path, context: StaticContext, recipe: MapR
         else:
             panel_labels.append(next(title_letters))
 
-    model_cache: dict[tuple[str, pd.Timestamp], ModelFields] = {}
-    scale_cache: dict[tuple[str, pd.Timestamp], tuple[Normalize, TwoSlopeNorm]] = {}
-    obs_cache: dict[tuple[str, pd.Timestamp], ObservationScene] = {}
     artifacts: dict[str, dict[str, object]] = {}
     axes: list = []
 
     for idx, panel in enumerate(recipe.panels):
-        ax = fig.add_subplot(gs[panel.row : panel.row + panel.rowspan, panel.col : panel.col + panel.colspan])
+        ax = fig.add_subplot(
+            gs[
+                _grid_span(panel.row, panel.rowspan),
+                _grid_span(panel.col, panel.colspan),
+            ]
+        )
         axes.append(ax)
         key = panel.name or f"panel_{idx}"
         if panel.kind == "overview":
@@ -1250,6 +1732,7 @@ def render_map_recipe(*, project_dir: Path, context: StaticContext, recipe: MapR
                 label=panel_labels[idx],
                 defaults=recipe.defaults,
                 figure_horizontal_default=figure_horizontal_default,
+                derived_cache=cache.derived_arrays,
             )
         elif panel.kind in _MODEL_KIND_TO_VARIABLE:
             artifacts[key] = _render_model_panel(
@@ -1260,9 +1743,10 @@ def render_map_recipe(*, project_dir: Path, context: StaticContext, recipe: MapR
                 grid_extent=grid_extent,
                 label=panel_labels[idx],
                 defaults=recipe.defaults,
-                model_cache=model_cache,
-                scale_cache=scale_cache,
+                model_cache=cache.model_fields,
+                scale_cache=cache.scale_cache,
                 figure_horizontal_default=figure_horizontal_default,
+                derived_cache=cache.derived_arrays,
             )
         elif panel.kind in _OBSERVATION_KIND_TO_NAME:
             artifacts[key] = _render_observation_panel(
@@ -1272,8 +1756,9 @@ def render_map_recipe(*, project_dir: Path, context: StaticContext, recipe: MapR
                 extent=extent,
                 label=panel_labels[idx],
                 defaults=recipe.defaults,
-                obs_cache=obs_cache,
+                obs_cache=cache.observations,
                 figure_horizontal_default=figure_horizontal_default,
+                derived_cache=cache.derived_arrays,
             )
         elif panel.kind == "colorbar":
             artifacts[key] = _render_colorbar_panel(ax, panel=panel, artifacts=artifacts)
@@ -1296,6 +1781,7 @@ __all__ = [
     "_draw_scale_bar",
     "_draw_stations_overlay",
     "_masked_model",
+    "RenderRuntimeCache",
     "buffered_extent",
     "figure_height_for_extent",
     "render_map_recipe",

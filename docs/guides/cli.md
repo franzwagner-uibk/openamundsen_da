@@ -91,14 +91,14 @@ data_assimilation:
   benchmark:
     independent_variables:
       - station_swe
-    plots: true
     score_station_sigma_threshold: 200
+    plots: true
     output_dir: results/benchmark
 ```
 
 Configured extra benchmark families can still appear as `semi_independent` in outputs, but only from the first same-variable or sister-station assimilation date onward.
-The headline plot shows only DA-date `prior` and `posterior` skill for assimilated and transfer-observed variables; whole-project propagated skill remains in `project_summary.csv`. Station-point rows also carry sigma-aware `zSkill`, and the headline plot adds a third `zSkill` panel whenever those station scores are available.
 `score_station_sigma_threshold` optionally excludes station rows with high resolved `station_uncertainty_pct` from non-sigma-aware benchmark metrics (`CRPSS`, `NER`) while leaving sigma-aware `zSkill` unchanged.
+The headline plot shows only DA-date `prior` and `posterior` skill for assimilated and transfer-observed variables; whole-project propagated skill remains in `project_summary.csv`. Station-point rows also carry sigma-aware `zSkill`, and the headline plot adds a third `zSkill` panel whenever those station scores are available.
 
 ---
 
@@ -446,7 +446,7 @@ Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PR
 
 **Setup result overview**
 
-Plots the combined setup result overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. If `<project-dir>/result_overview_custom.yml` exists, the pipeline additionally writes `result_overview_custom.png` with the configured panel list. Custom panel configs also support `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
+Plots the combined setup result overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. If `<project-dir>/plots.yml` exists, the pipeline additionally writes `result_overview_custom.png` with the configured panel list. Custom panel configs also support `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
 
 ```bash
 oa-da-plot-result-overview \
@@ -457,7 +457,7 @@ oa-da-plot-result-overview \
 
 **Output:**
 - `results/plots/results/result_overview.png`
-- `results/plots/results/result_overview_custom.png` when `<project-dir>/result_overview_custom.yml` is present
+- `results/plots/results/result_overview_custom.png` when `<project-dir>/plots.yml` is present
 
 ---
 
@@ -495,13 +495,14 @@ Typical `maps.yml` files start with a commented panel catalog:
 oa-da-plot-project-maps \
   --project-dir PATH \
   [--config PATH] \
-  [--name RECIPE_NAME]
+  [--name RECIPE_NAME] \
+  [--max-workers N]
 ```
 
 **Output:**
 - `results/maps/*.png`
 
-Static context panels (`hillshade`, `dem`, `svf`, `srf`, `landcover`) render the full raster coverage inside the map extent. Model and observation panels remain ROI-masked. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
+Static context panels (`hillshade`, `dem`, `svf`, `srf`, `landcover`) render the full raster coverage inside the map extent. Model and observation panels remain ROI-masked. In the supported Docker workflow, omitted `--max-workers` uses automatic recipe-level multicore rendering with the effective worker count clamped to `min(visible CPUs, selected recipes)`; pass `--max-workers 1` to keep rendering sequential. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
 
 ---
 

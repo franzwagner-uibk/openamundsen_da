@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import Future
 from pathlib import Path
 import textwrap
 
@@ -11,9 +12,10 @@ import pytest
 import rasterio
 import xarray as xr
 from rasterio.transform import from_origin
-from shapely.geometry import box
+from shapely.geometry import Point, box
 
 import openamundsen_da.methods.viz.project_maps.render as render_module
+import openamundsen_da.methods.viz.project_maps.runner as runner_module
 from openamundsen_da.methods.viz.project_maps.config import DateSelector, MapDefaults, MapPanelSpec, load_project_maps_config
 from openamundsen_da.methods.viz.project_maps.data import (
     ModelFields,
@@ -28,10 +30,15 @@ from openamundsen_da.methods.viz.project_maps.render import (
     _draw_map_grid_overlay,
     _draw_scale_bar,
     _draw_stations_overlay,
+    _horizontal_legend_row_layout,
+    _horizontal_legend_total_extra,
     _masked_model,
+    _overview_extent,
+    _pack_horizontal_legend_rows,
     buffered_extent,
     figure_height_for_extent,
 )
+from openamundsen_da.pipeline import project as project_pipeline
 from openamundsen_da.methods.viz.project_maps.runner import project_maps_enabled, render_project_maps
 from openamundsen_da.methods.viz.project_maps.styles import (
     FSC_OBS_CMAP,
@@ -40,6 +47,7 @@ from openamundsen_da.methods.viz.project_maps.styles import (
     SNOW_DEPTH_REFERENCE_TICKS_M,
     SNOW_DEPTH_REFERENCE_TICKLABELS_CM,
     WET_SNOW_COLORS,
+    WET_SNOW_LABELS,
     model_colorbar_style,
     model_map_cmap,
     require_static_field_preset,
@@ -860,6 +868,8 @@ def test_map_axis_style_rotates_labels_vertically_and_shows_every_second_tick() 
         assert any(label.get_text() == "" for label in ylabels)
         assert {label.get_rotation() for label in xlabels if label.get_text()} == {0.0}
         assert {label.get_rotation() for label in ylabels if label.get_text()} == {90.0}
+        assert all(not tick.label2.get_visible() for tick in ax.xaxis.get_major_ticks())
+        assert all(not tick.label2.get_visible() for tick in ax.yaxis.get_major_ticks())
         assert grid_lines
         assert all(line.get_zorder() == 120 for line in grid_lines)
     finally:
@@ -873,6 +883,140 @@ def test_draw_scale_bar_adds_reference_style_annotations() -> None:
         _draw_scale_bar(ax, extent)
         labels = {text.get_text() for text in ax.texts}
         assert {"0", "2.5", "5", "km"} <= labels
+    finally:
+        plt.close(fig)
+
+
+def test_overview_extent_follows_axes_aspect_ratio(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    fig = plt.figure(figsize=(8, 4))
+    ax = fig.add_axes([0.1, 0.1, 0.4, 0.8])
+    try:
+        extent = _overview_extent(ax, context, scale=1_000_000)
+        extent_aspect = (extent[3] - extent[2]) / (extent[1] - extent[0])
+        axes_aspect = (fig.get_size_inches()[1] * ax.get_position().height) / (fig.get_size_inches()[0] * ax.get_position().width)
+        assert np.isclose(extent_aspect, axes_aspect, rtol=1e-6)
+    finally:
+        plt.close(fig)
+
+
+def test_pack_horizontal_legend_rows_keep_single_line_labels() -> None:
+    labels = [
+        "rock",
+        "ice",
+        "water",
+        "grassland",
+        "shrubland",
+        "farmland",
+        "transitional",
+        "deciduous 30-60",
+        "deciduous 60-100",
+        "mixed forest",
+        "coniferous 30-60",
+        "coniferous 60-100",
+        "built-up",
+    ]
+
+    rows = _pack_horizontal_legend_rows(labels, panel_width_in=2.2)
+
+    assert len(rows) > 1
+    assert sum(len(row) for row in rows) == len(labels)
+    assert len({len(row) for row in rows}) > 1
+    assert all("\n" not in label for row in rows for label in row)
+
+
+def test_horizontal_legend_row_layout_caps_extra_item_spacing() -> None:
+    item_widths, start_x_in, item_gap_in = _horizontal_legend_row_layout(
+        ["rock", "ice", "water"],
+        panel_width_in=3.2,
+    )
+
+    assert len(item_widths) == 3
+    assert start_x_in >= 0.0
+    assert item_gap_in <= (
+        render_module._HORIZONTAL_LEGEND_MIN_ITEM_GAP_IN + render_module._HORIZONTAL_LEGEND_ITEM_GAP_IN
+    )
+
+
+def test_horizontal_legend_total_extra_is_tighter_for_multirow_classified_legends() -> None:
+    rows = _pack_horizontal_legend_rows(
+        [
+            "rock",
+            "ice",
+            "water",
+            "grassland",
+            "shrubland",
+            "farmland",
+            "transitional",
+            "deciduous 30-60",
+            "deciduous 60-100",
+            "mixed forest",
+            "coniferous 30-60",
+            "coniferous 60-100",
+            "built-up",
+        ],
+        panel_width_in=2.2,
+    )
+
+    extra = _horizontal_legend_total_extra(rows, panel_width_in=2.2)
+
+    assert len(rows) > 1
+    assert extra < 0.8
+
+
+def test_pack_horizontal_legend_rows_wrap_wet_snow_labels_in_narrow_panel() -> None:
+    labels = [WET_SNOW_LABELS[code] for code in sorted(WET_SNOW_LABELS)]
+
+    rows = _pack_horizontal_legend_rows(labels, panel_width_in=1.15)
+    extra = _horizontal_legend_total_extra(rows, panel_width_in=1.15)
+    legacy_extra = 0.10 + len(rows) * 0.155 + 1.0
+
+    assert len(rows) > 1
+    assert sum(len(row) for row in rows) == len(labels)
+    assert extra < legacy_extra
+
+
+def test_render_overview_panel_adds_country_labels(tmp_path: Path, monkeypatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    boundaries = gpd.GeoDataFrame(
+        {"CNTR_ID": ["AT", "IT"]},
+        geometry=[
+            box(-90000.0, -90000.0, -5000.0, 90000.0),
+            box(5000.0, -90000.0, 90000.0, 90000.0),
+        ],
+        crs="EPSG:25832",
+    )
+    regions = gpd.GeoDataFrame(
+        {"CNTR_ID": ["AT", "IT"]},
+        geometry=[
+            box(-90000.0, -90000.0, -5000.0, 90000.0),
+            box(5000.0, -90000.0, 90000.0, 90000.0),
+        ],
+        crs="EPSG:25832",
+    )
+    labels = gpd.GeoDataFrame(
+        {"CNTR_ID": ["AT", "IT"], "NAME_ENGL": ["Austria", "Italy"]},
+        geometry=[Point(-40000.0, 30000.0), Point(45000.0, -5000.0)],
+        crs="EPSG:25832",
+    )
+    monkeypatch.setattr(render_module, "load_overview_boundaries", lambda: boundaries)
+    monkeypatch.setattr(render_module, "load_overview_regions", lambda: regions)
+    monkeypatch.setattr(render_module, "load_overview_labels", lambda: labels)
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        render_module._render_overview_panel(
+            ax,
+            panel=MapPanelSpec(kind="overview", row=0, col=0, scale=1_800_000, roi_label="Demo ROI"),
+            context=context,
+            label="a",
+            defaults=MapDefaults(),
+        )
+        texts = {text.get_text() for text in ax.texts}
+        assert "Austria" in texts
+        assert "Italy" in texts
+        assert "Demo ROI" in texts
     finally:
         plt.close(fig)
 
@@ -986,3 +1130,402 @@ def test_render_project_maps_writes_flat_recipe_outputs(tmp_path: Path) -> None:
     for path in outputs:
         assert path.is_file()
         assert path.stat().st_size > 0
+
+
+def test_resolve_effective_max_workers_clamps_to_recipe_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runner_module.os, "cpu_count", lambda: 8)
+
+    assert runner_module._resolve_effective_max_workers(None, recipe_count=3) == 3
+    assert runner_module._resolve_effective_max_workers(1, recipe_count=3) == 1
+    assert runner_module._resolve_effective_max_workers(10, recipe_count=3) == 3
+
+
+def test_render_project_maps_parallel_matches_sequential_order(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_yaml(
+        project_dir / "maps.yml",
+        """
+        maps:
+          setup_map:
+            title: Demo setup
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: hillshade
+          snowdepth_reference:
+            title: Snow depth 2023/01/02
+            output_name: snowdepth_2023-01-02
+            defaults:
+              date: "2023-01-02"
+            layout:
+              nrows: 1
+              ncols: 2
+            panels:
+              - row: 0
+                col: 0
+                kind: snow_depth
+                source: open_loop
+              - row: 0
+                col: 1
+                kind: fsc
+        """,
+    )
+
+    sequential = render_project_maps(project_dir=project_dir, max_workers=1)
+    parallel = render_project_maps(project_dir=project_dir, max_workers=2)
+
+    expected = [
+        project_dir / "results" / "maps" / "setup_map.png",
+        project_dir / "results" / "maps" / "snowdepth_2023-01-02.png",
+    ]
+    assert sequential == expected
+    assert parallel == expected
+
+
+def test_render_project_maps_name_filter_limits_outputs(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_yaml(
+        project_dir / "maps.yml",
+        """
+        maps:
+          setup_map:
+            title: Demo setup
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: hillshade
+          snowdepth_reference:
+            title: Snow depth 2023/01/02
+            defaults:
+              date: "2023-01-02"
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: snow_depth
+                source: open_loop
+        """,
+    )
+
+    outputs = render_project_maps(project_dir=project_dir, names={"setup_map"}, max_workers=8)
+
+    assert outputs == [project_dir / "results" / "maps" / "setup_map.png"]
+
+
+def test_render_project_maps_logs_batch_and_per_map_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_yaml(
+        project_dir / "maps.yml",
+        """
+        maps:
+          setup_map:
+            title: Demo setup
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: hillshade
+          wet_scene:
+            title: Wet snow scene
+            defaults:
+              date: "2023-01-02"
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: wet_snow
+        """,
+    )
+
+    info_messages: list[str] = []
+    error_messages: list[str] = []
+
+    class StubLogger:
+        def info(self, message: str, *args) -> None:
+            info_messages.append(message.format(*args))
+
+        def error(self, message: str, *args) -> None:
+            error_messages.append(message.format(*args))
+
+    monkeypatch.setattr(runner_module, "logger", StubLogger())
+
+    outputs = render_project_maps(project_dir=project_dir, max_workers=1)
+
+    assert len(outputs) == 2
+    assert any("Rendering 2 project map(s)" in msg for msg in info_messages)
+    assert "Starting map setup_map" in info_messages
+    assert "Starting map wet_scene" in info_messages
+    assert any(msg.startswith("Finished map setup_map -> ") for msg in info_messages)
+    assert any(msg.startswith("Finished map wet_scene -> ") for msg in info_messages)
+    assert error_messages == []
+
+
+def test_render_project_maps_reuses_model_and_observation_caches_across_recipes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_yaml(
+        project_dir / "maps.yml",
+        """
+        maps:
+          first:
+            title: First
+            defaults:
+              date: "2023-01-02"
+            layout:
+              nrows: 1
+              ncols: 2
+            panels:
+              - row: 0
+                col: 0
+                kind: snow_depth
+                source: open_loop
+              - row: 0
+                col: 1
+                kind: fsc
+          second:
+            title: Second
+            defaults:
+              date: "2023-01-02"
+            layout:
+              nrows: 1
+              ncols: 2
+            panels:
+              - row: 0
+                col: 0
+                kind: snow_depth
+                source: ensemble_mean
+              - row: 0
+                col: 1
+                kind: fsc
+        """,
+    )
+
+    model_calls = 0
+    obs_calls = 0
+    original_load_model_fields = render_module.load_model_fields
+    original_load_observation_scene = render_module.load_observation_scene
+
+    def counting_load_model_fields(project_dir_arg: Path, variable: str, dates: tuple[pd.Timestamp, ...]) -> list[ModelFields]:
+        nonlocal model_calls
+        model_calls += 1
+        return original_load_model_fields(project_dir_arg, variable, dates)
+
+    def counting_load_observation_scene(project_dir_arg: Path, context, *, observation: str, date: pd.Timestamp):
+        nonlocal obs_calls
+        obs_calls += 1
+        return original_load_observation_scene(project_dir_arg, context, observation=observation, date=date)
+
+    monkeypatch.setattr(render_module, "load_model_fields", counting_load_model_fields)
+    monkeypatch.setattr(render_module, "load_observation_scene", counting_load_observation_scene)
+
+    outputs = render_project_maps(project_dir=project_dir, max_workers=1)
+
+    assert len(outputs) == 2
+    assert model_calls == 1
+    assert obs_calls == 1
+
+
+def test_render_project_maps_parallel_failure_propagates(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_yaml(
+        project_dir / "maps.yml",
+        """
+        maps:
+          ok_map:
+            title: OK
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: hillshade
+          broken_map:
+            title: Broken
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: snow_depth
+                source: open_loop
+        """,
+    )
+
+    with pytest.raises(runner_module.ProjectMapRenderError, match="broken_map"):
+        render_project_maps(project_dir=project_dir, max_workers=2)
+
+
+def test_render_project_maps_parallel_logs_recipe_attributed_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_yaml(
+        project_dir / "maps.yml",
+        """
+        maps:
+          ok_map:
+            title: OK
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: hillshade
+          broken_map:
+            title: Broken
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: hillshade
+        """,
+    )
+
+    info_messages: list[str] = []
+    error_messages: list[str] = []
+
+    class StubLogger:
+        def info(self, message: str, *args) -> None:
+            info_messages.append(message.format(*args))
+
+        def error(self, message: str, *args) -> None:
+            error_messages.append(message.format(*args))
+
+    class FakeExecutor:
+        def __init__(self, *, max_workers: int):
+            self.max_workers = max_workers
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def submit(self, _fn, project_dir_arg, config_path_arg, recipe_name):
+            del project_dir_arg, config_path_arg
+            future: Future = Future()
+            if recipe_name == "broken_map":
+                future.set_exception(ValueError("boom"))
+            else:
+                future.set_result(
+                    runner_module.RecipeRenderResult(
+                        recipe_name=recipe_name,
+                        output_path=Path("/tmp") / f"{recipe_name}.png",
+                    )
+                )
+            return future
+
+    monkeypatch.setattr(runner_module, "logger", StubLogger())
+    monkeypatch.setattr(runner_module, "ProcessPoolExecutor", FakeExecutor)
+    monkeypatch.setattr(
+        runner_module,
+        "as_completed",
+        lambda futures: iter(sorted(futures, key=lambda future: 0 if futures[future].name == "broken_map" else 1)),
+    )
+
+    with pytest.raises(runner_module.ProjectMapRenderError, match="broken_map"):
+        render_project_maps(project_dir=project_dir, max_workers=2)
+
+    assert "Starting map ok_map" in info_messages
+    assert "Starting map broken_map" in info_messages
+    assert any(msg == "Failed map broken_map: boom" for msg in error_messages)
+
+
+def test_project_pipeline_best_effort_map_render_logs_warning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    project_dir = tmp_path / "project_demo"
+    project_dir.mkdir(parents=True)
+
+    warnings: list[str] = []
+
+    class StubLogger:
+        def info(self, *_args, **_kwargs) -> None:
+            return None
+
+        def warning(self, message: str, *args) -> None:
+            warnings.append(message.format(*args))
+
+    monkeypatch.setattr(project_pipeline, "logger", StubLogger())
+    monkeypatch.setattr(project_pipeline, "project_maps_enabled", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(project_pipeline, "render_project_maps", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    project_pipeline._render_project_maps_best_effort(project_dir)
+
+    assert warnings == ["Project maps failed: boom"]
+
+
+def test_project_maps_cli_passes_max_workers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    project_dir = tmp_path / "project_demo"
+    calls: list[dict[str, object]] = []
+
+    def fake_render_project_maps(**kwargs):
+        calls.append(kwargs)
+        return [Path(kwargs["project_dir"]) / "results" / "maps" / "demo.png"]
+
+    monkeypatch.setattr(runner_module, "render_project_maps", fake_render_project_maps)
+
+    exit_code = runner_module.cli_main(
+        [
+            "--project-dir",
+            str(project_dir),
+            "--max-workers",
+            "4",
+        ]
+    )
+
+    assert exit_code == 0
+    assert calls == [
+        {
+            "project_dir": project_dir,
+            "config_path": None,
+            "names": set(),
+            "max_workers": 4,
+        }
+    ]
+
+
+def test_project_maps_cli_logs_recipe_attributed_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    project_dir = tmp_path / "project_demo"
+    error_messages: list[str] = []
+
+    class StubLogger:
+        def error(self, message: str, *args) -> None:
+            error_messages.append(message.format(*args))
+
+    def fake_render_project_maps(**_kwargs):
+        raise runner_module.ProjectMapRenderError("broken_map", "boom")
+
+    monkeypatch.setattr(runner_module, "logger", StubLogger())
+    monkeypatch.setattr(runner_module, "render_project_maps", fake_render_project_maps)
+
+    exit_code = runner_module.cli_main(
+        [
+            "--project-dir",
+            str(project_dir),
+        ]
+    )
+
+    assert exit_code == 1
+    assert error_messages == ["Project maps rendering failed: map 'broken_map' failed: boom"]

@@ -274,7 +274,7 @@ docker compose run --rm oa `
   --project-dir $project
 ```
 
-Defaults read obs from `obs/summaries/<setup>/scf_summary.csv` and `obs/summaries/<setup>/wet_snow_summary.csv`, use the canonical project envelopes under `results/misc/`, and write `results/plots/results/result_overview.png`. The output now expands to a 4-panel setup overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE / snow-depth panels are built from per-member `point_swe_roi.csv` / `point_snow_depth_roi.csv` files, use the full ROI footprint (no land-cover masking), and show ensemble-only 5-95% bands plus ensemble mean against a separate `open_loop` line. Add `--scf-model-csv` / `--wet-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` to use custom envelopes. Plot mode can be switched with `--mode band|members` (pipeline default: `band`). When `<project-dir>/result_overview_custom.yml` exists, the project pipeline also writes `results/plots/results/result_overview_custom.png` using the requested panel order and station panels from that YAML; custom panels now also support `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
+Defaults read obs from `obs/summaries/<setup>/scf_summary.csv` and `obs/summaries/<setup>/wet_snow_summary.csv`, use the canonical project envelopes under `results/misc/`, and write `results/plots/results/result_overview.png`. The output now expands to a 4-panel setup overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE / snow-depth panels are built from per-member `point_swe_roi.csv` / `point_snow_depth_roi.csv` files, use the full ROI footprint (no land-cover masking), and show ensemble-only 5-95% bands plus ensemble mean against a separate `open_loop` line. Add `--scf-model-csv` / `--wet-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` to use custom envelopes. Plot mode can be switched with `--mode band|members` (pipeline default: `band`). When `<project-dir>/plots.yml` exists, the project pipeline also writes `results/plots/results/result_overview_custom.png` using the requested panel order and station panels from that YAML; custom panels now also support `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
 
 ## Setup point results (SWE / snow depth, member mode)
 
@@ -520,10 +520,11 @@ Note: running the setup pipeline (see below) also generates these setup plots au
   ```powershell
   docker compose run --rm oa `
     oa-da-plot-project-maps `
-    --project-dir /data/projects/project_2022_2023
+    --project-dir /data/projects/project_2022_2023 `
+    --max-workers 4
   ```
 
-  Outputs are written directly under `results/maps/`. When `<project-dir>/maps.yml` is present, `oa-da-project` and merged sub-domain runs also render these maps automatically as a best-effort post-run stage.
+  Outputs are written directly under `results/maps/`. By default the renderer parallelizes across independent recipe PNGs inside the Docker container and clamps the effective worker count to `min(visible CPUs, selected recipes)`; use `--max-workers 1` to force sequential rendering. When `<project-dir>/maps.yml` is present, `oa-da-project` and merged sub-domain runs also render these maps automatically as a best-effort post-run stage and use the same Docker-container worker auto-selection.
   YAML-driven maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`), and optional support panels (`legend`, `colorbar`). Static context panels render the full raster coverage inside the map extent, while model and observation panels stay ROI-masked. Snow-depth model panels use the fixed tutorial/reference palette with colorbar labels in `cm`; values below `1 cm` are hidden so bare or nearly bare cells stay transparent. Increment maps are selected with `source: increment` and use a signed diverging palette with negative changes in red and positive changes in blue. Four-column figures and mixed classified figures default to horizontal legends/colorbars below the panels, and georeferenced panels can opt into the reference-style in-panel scale bar with `show_scalebar: true`.
 
 ## Setup Pipeline

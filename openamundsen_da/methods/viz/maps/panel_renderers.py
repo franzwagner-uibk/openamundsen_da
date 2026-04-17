@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import matplotlib
@@ -37,13 +38,16 @@ from openamundsen_da.methods.viz.maps.layout import (
     apply_map_axis_style,
     attach_colorbar,
     axis_height_inches,
+    axis_width_inches,
     buffered_extent,
     draw_axes_title,
     draw_map_grid_overlay,
+    extract_unit_title,
     horizontal_legend_row_height_factors,
     horizontal_legend_row_layout,
     pack_horizontal_legend_rows,
     panel_legend_layout,
+    register_child_axes,
     resolve_flag,
     resolve_panel_toggle,
     text_size_in,
@@ -75,6 +79,8 @@ from openamundsen_da.methods.viz.maps.styles import (
 from openamundsen_da.methods.viz.maps.theme import (
     _ANNOTATION_ZORDER,
     _CLASSIFIED_PANEL_KINDS,
+    _COLORBAR_TICK_SIZE,
+    _COLORBAR_TITLE_SIZE,
     _GRID_ZORDER,
     _HILLSHADE_INTERPOLATION,
     _HORIZONTAL_LEGEND_GAP_AXES,
@@ -250,6 +256,7 @@ def classified_display_labels(
     context: StaticContext,
     defaults: MapDefaults,
     obs_cache: dict[tuple[str, str], ObservationScene] | None = None,
+    observation_loader: Callable[..., ObservationScene] = load_observation_scene,
 ) -> list[str]:
     if panel.kind == "landcover":
         masked_landcover = np.ma.masked_array(context.landcover, mask=~context.roi_mask)
@@ -268,7 +275,7 @@ def classified_display_labels(
         if obs_cache is not None:
             scene = obs_cache.get(obs_key)
         if scene is None:
-            scene = load_observation_scene(context.project_dir, context, observation="wet_snow", date=date)
+            scene = observation_loader(context.project_dir, context, observation="wet_snow", date=date)
             if obs_cache is not None:
                 obs_cache[obs_key] = scene
         canonical_codes = sorted(WET_SNOW_LABELS)
@@ -314,7 +321,6 @@ def draw_classified_legend(ax, handles: list[Patch], *, layout: str) -> None:
         return
     if layout == "horizontal":
         labels = [handle.get_label() for handle in handles]
-        from openamundsen_da.methods.viz.maps.layout import axis_width_inches, register_child_axes
 
         panel_width_in = axis_width_inches(ax)
         rows = pack_horizontal_legend_rows(labels, panel_width_in=panel_width_in)
@@ -534,7 +540,6 @@ def overview_extent_growth_for_labels(
         return extent
     span_x = max(float(extent[1] - extent[0]), 1e-9)
     span_y = max(float(extent[3] - extent[2]), 1e-9)
-    from openamundsen_da.methods.viz.maps.layout import axis_width_inches
 
     data_per_in_x = span_x / max(axis_width_inches(ax), 1e-9)
     data_per_in_y = span_y / max(axis_height_inches(ax), 1e-9)
@@ -703,10 +708,20 @@ def overview_extent_with_label_fit(
     return extent
 
 
-def render_overview_panel(ax, *, panel: MapPanelSpec, context: StaticContext, label: str | None, defaults: MapDefaults) -> dict[str, object]:
-    countries = load_overview_boundaries(setup_dir=context.setup_dir)
-    country_regions = load_overview_regions(setup_dir=context.setup_dir)
-    country_labels = load_overview_labels(setup_dir=context.setup_dir)
+def render_overview_panel(
+    ax,
+    *,
+    panel: MapPanelSpec,
+    context: StaticContext,
+    label: str | None,
+    defaults: MapDefaults,
+    boundaries_loader: Callable[..., object] = load_overview_boundaries,
+    regions_loader: Callable[..., object] = load_overview_regions,
+    labels_loader: Callable[..., object] = load_overview_labels,
+) -> dict[str, object]:
+    countries = boundaries_loader(setup_dir=context.setup_dir)
+    country_regions = regions_loader(setup_dir=context.setup_dir)
+    country_labels = labels_loader(setup_dir=context.setup_dir)
     visible_regions_getter = lambda current_extent: overview_subset_geometries(
         country_regions,
         context=context,
@@ -919,6 +934,7 @@ def render_model_panel(
     scale_cache,
     figure_horizontal_default: bool,
     derived_cache: dict[str, np.ndarray] | None = None,
+    model_loader: Callable[..., list[ModelFields]] = load_model_fields,
 ) -> dict[str, object]:
     date = panel_date(panel, defaults)
     if date is None:
@@ -926,7 +942,7 @@ def render_model_panel(
     variable = _MODEL_KIND_TO_VARIABLE[panel.kind]
     field_key = (variable, date)
     if field_key not in model_cache:
-        model_cache[field_key] = load_model_fields(context.project_dir, variable, (date,))[0]
+        model_cache[field_key] = model_loader(context.project_dir, variable, (date,))[0]
     preset = require_variable_preset(variable)
     if field_key not in scale_cache:
         scale_cache[field_key] = comparison_scales([model_cache[field_key]], preset)
@@ -1025,6 +1041,7 @@ def render_observation_panel(
     obs_cache,
     figure_horizontal_default: bool,
     derived_cache: dict[str, np.ndarray] | None = None,
+    observation_loader: Callable[..., ObservationScene] = load_observation_scene,
 ) -> dict[str, object]:
     date = panel_date(panel, defaults)
     if date is None:
@@ -1032,7 +1049,7 @@ def render_observation_panel(
     observation = _OBSERVATION_KIND_TO_NAME[panel.kind]
     obs_key = (observation, date)
     if obs_key not in obs_cache:
-        obs_cache[obs_key] = load_observation_scene(context.project_dir, context, observation=observation, date=date)
+        obs_cache[obs_key] = observation_loader(context.project_dir, context, observation=observation, date=date)
     scene = obs_cache[obs_key]
     show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
     if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
@@ -1141,9 +1158,6 @@ def render_colorbar_panel(ax, *, panel: MapPanelSpec, artifacts: dict[str, dict[
         cbar.set_ticks(ticks)
     if ticklabels:
         cbar.set_ticklabels(ticklabels)
-    from openamundsen_da.methods.viz.maps.theme import _COLORBAR_TICK_SIZE, _COLORBAR_TITLE_SIZE
-    from openamundsen_da.methods.viz.maps.layout import extract_unit_title
-
     cbar.ax.tick_params(labelsize=_COLORBAR_TICK_SIZE)
     title = extract_unit_title(label)
     if title:

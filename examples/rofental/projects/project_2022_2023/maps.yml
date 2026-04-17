@@ -1,525 +1,171 @@
 maps:
-  rofental_setup_map:
-    title: Rofental setup map
-    layout:
-      nrows: 1
-      ncols: 2
-    panels:
-      - row: 0
-        col: 0
-        kind: hillshade
-        title: Hillshade
-        show_station_marker: true
-      - row: 0
-        col: 1
-        kind: landcover
-        title: Landcover
-        show_station_marker: true
-
-  rofental_static_grids:
-    title: Static setup grids
+  setup_overview:
+    title: setup_overview
+    output_name: setup_overview
     layout:
       nrows: 2
-      ncols: 2
-    panels:
-      - row: 0
-        col: 0
-        kind: roi
-        title: Region of interest
-        show_station_marker: true
-        show_stations_name: true
-        show_stations_elev: true
-      - row: 0
-        col: 1
-        kind: dem
-        title: Digital elevation model
-      - row: 1
-        col: 0
-        kind: svf
-        title: Sky view factor
-      - row: 1
-        col: 1
-        kind: srf
-        title: Snow redistribution factor
-
-  rofental_setup_story:
-    title: Rofental setup story
-    layout:
-      nrows: 3
-      ncols: 2
+      ncols: 3
+    defaults:
+      show_scalebar: true
     panels:
       - row: 0
         col: 0
         kind: overview
-        title: Alpine context
+        title: overview
         scale: 2500000
         roi_label: Rofental
       - row: 0
         col: 1
         kind: roi
-        title: Region of interest
+        title: region of interest
         show_station_marker: true
         show_stations_name: true
         show_stations_elev: true
-      - row: 1
-        col: 0
+        below_items:
+          - kind: station_symbol
+            label: Meteorological stations
+      - row: 0
+        col: 2
         kind: dem
-        title: Elevation
+        title: digital elevation model
       - row: 1
-        col: 1
+        col: 0
         kind: landcover
-        title: Landcover
-        show_station_marker: true
-      - row: 2
-        col: 0
-        kind: svf
-        title: Sky view factor
-      - row: 2
+        title: landcover
+      - row: 1
         col: 1
+        kind: hillshade
+        title: hillshade
+      - row: 1
+        col: 2
         kind: srf
-        title: Snow redistribution factor
+        title: snow redistribution factor
 
-  rofental_melt_progression:
-    title: Melt progression
+  da_3:
+    title: da_3
+    output_name: da_3
     layout:
-      nrows: 4
-      ncols: 2
+      nrows: 1
+      ncols: 4
     defaults:
+      date: "2023-01-21"
       show_scalebar: true
     panels:
       - row: 0
         col: 0
         kind: snow_depth
         source: open_loop
-        date: "2023-04-26"
+        title: open loop snow depth
       - row: 0
         col: 1
         kind: snow_depth
         source: ensemble_mean
-        date: "2023-04-26"
-      - row: 1
+        title: ensemble mean snow depth
+      - row: 0
+        col: 2
+        kind: fsc
+        title: Sentinel 2 snow cover
+      - row: 0
+        col: 3
+        kind: snow_depth
+        source: increment
+        title: snow depth increment
+
+  da_6:
+    title: da_6
+    output_name: da_6
+    layout:
+      nrows: 1
+      ncols: 4
+    defaults:
+      date: "2023-04-29"
+      show_scalebar: true
+    panels:
+      - row: 0
         col: 0
-        kind: swe
+        kind: snow_depth
         source: open_loop
-        date: "2023-05-18"
-      - row: 1
+        title: open loop snow depth
+      - row: 0
         col: 1
-        kind: swe
+        kind: snow_depth
         source: ensemble_mean
-        date: "2023-05-18"
-      - row: 2
-        col: 0
-        kind: liquid_water_content
-        source: open_loop
-        date: "2023-05-23"
-      - row: 2
-        col: 1
-        kind: liquid_water_content
-        source: ensemble_mean
-        date: "2023-05-23"
-      - row: 3
-        col: 0
+        title: ensemble mean snow depth
+      - row: 0
+        col: 2
         kind: wet_snow
-        date: "2023-05-23"
-      - row: 3
-        col: 1
-        kind: fsc
-        date: "2023-05-26"
-
-  snowdepth_2023-06-02:
-    title: Snow depth 2023/06/02
-    layout:
-      nrows: 1
-      ncols: 3
-    defaults:
-      date: "2023-06-02"
-      show_scalebar: true
-    panels:
+        title: Sentinel 1 wet snow
       - row: 0
-        col: 0
+        col: 3
         kind: snow_depth
-        source: open_loop
-      - row: 0
-        col: 1
-        kind: snow_depth
-        source: ensemble_mean
-      - row: 0
-        col: 2
-        kind: fsc
+        source: increment
+        title: snow depth increment
 
-  swe_2023-06-02:
-    title: SWE 2023/06/02
-    layout:
-      nrows: 1
-      ncols: 3
-    defaults:
-      date: "2023-06-02"
-      show_scalebar: true
-    panels:
-      - row: 0
-        col: 0
-        kind: swe
-        source: open_loop
-      - row: 0
-        col: 1
-        kind: swe
-        source: ensemble_mean
-      - row: 0
-        col: 2
-        kind: fsc
-
-  lwc_wet_snow_2023-05-23:
-    title: Liquid water content and wet snow 2023/05/23
+  da_7:
+    title: da_7
+    output_name: da_7
     layout:
       nrows: 2
       ncols: 3
     defaults:
+      date: "2023-05-03"
       show_scalebar: true
     panels:
       - row: 0
         col: 0
-        kind: liquid_water_content
+        kind: snow_depth
         source: open_loop
-        date: "2023-05-23"
+        title: open loop snow depth
       - row: 0
         col: 1
-        kind: liquid_water_content
+        kind: snow_depth
         source: ensemble_mean
-        date: "2023-05-23"
+        title: ensemble mean snow depth
       - row: 0
+        col: 2
+        kind: snow_depth
+        source: increment
+        title: snow depth increment
+      - row: 1
+        col: 0
+        kind: fsc
+        title: Sentinel 2 snow cover
+      - row: 1
+        col: 1
+        kind: wet_snow
+        title: Sentinel 1 wet snow
+      - row: 1
         col: 2
         kind: liquid_water_content
         source: increment
-        date: "2023-05-23"
-      - row: 1
-        col: 0
-        kind: wet_snow
-        date: "2023-05-23"
-      - row: 1
-        col: 1
-        kind: fsc
-        date: "2023-05-26"
-      - row: 1
-        col: 2
-        kind: snow_depth
-        source: open_loop
-        date: "2023-05-23"
+        title: liquid water content increment
 
-  rofental_context_gallery:
-    title: Context gallery
-    layout:
-      nrows: 3
-      ncols: 3
-    defaults:
-      show_scalebar: true
-    panels:
-      - row: 0
-        col: 0
-        kind: overview
-        scale: 1800000
-        roi_label: Rofental
-      - row: 0
-        col: 1
-        kind: roi
-        show_station_marker: true
-        show_stations_name: true
-        show_stations_elev: true
-      - row: 0
-        col: 2
-        kind: hillshade
-        show_station_marker: true
-      - row: 1
-        col: 0
-        kind: dem
-      - row: 1
-        col: 1
-        kind: svf
-      - row: 1
-        col: 2
-        kind: srf
-      - row: 2
-        col: 0
-        kind: landcover
-      - row: 2
-        col: 1
-        kind: fsc
-        date: "2023-06-12"
-      - row: 2
-        col: 2
-        kind: wet_snow
-        date: "2023-06-08"
-
-  rofental_timeline_gallery:
-    title: Spring timeline gallery
-    layout:
-      nrows: 4
-      ncols: 3
-    defaults:
-      show_scalebar: true
-    panels:
-      - row: 0
-        col: 0
-        kind: snow_depth
-        source: open_loop
-        date: "2023-04-26"
-      - row: 0
-        col: 1
-        kind: swe
-        source: open_loop
-        date: "2023-04-26"
-      - row: 0
-        col: 2
-        kind: fsc
-        date: "2023-04-26"
-      - row: 1
-        col: 0
-        kind: snow_depth
-        source: open_loop
-        date: "2023-05-18"
-      - row: 1
-        col: 1
-        kind: swe
-        source: open_loop
-        date: "2023-05-18"
-      - row: 1
-        col: 2
-        kind: fsc
-        date: "2023-05-18"
-      - row: 2
-        col: 0
-        kind: snow_depth
-        source: open_loop
-        date: "2023-06-02"
-      - row: 2
-        col: 1
-        kind: swe
-        source: open_loop
-        date: "2023-06-02"
-      - row: 2
-        col: 2
-        kind: fsc
-        date: "2023-06-02"
-      - row: 3
-        col: 0
-        kind: snow_depth
-        source: open_loop
-        date: "2023-06-20"
-      - row: 3
-        col: 1
-        kind: swe
-        source: open_loop
-        date: "2023-06-20"
-      - row: 3
-        col: 2
-        kind: fsc
-        date: "2023-06-20"
-
-  snowdepth_increment_2023-06-02:
-    title: Snow depth increment 2023/06/02
+  da_10:
+    title: da_10
+    output_name: da_10
     layout:
       nrows: 1
       ncols: 4
     defaults:
-      date: "2023-06-02"
+      date: "2023-05-26"
       show_scalebar: true
     panels:
       - row: 0
         col: 0
         kind: snow_depth
         source: open_loop
+        title: open loop snow depth
       - row: 0
         col: 1
         kind: snow_depth
         source: ensemble_mean
+        title: ensemble mean snow depth
       - row: 0
         col: 2
-        kind: snow_depth
-        source: increment
-      - row: 0
-        col: 3
         kind: fsc
-
-  rofental_static_context_mix:
-    title: Static and context mix
-    layout:
-      nrows: 2
-      ncols: 4
-    defaults:
-      show_scalebar: true
-    panels:
-      - row: 0
-        col: 0
-        kind: overview
-        scale: 2000000
-        roi_label: Rofental
-      - row: 0
-        col: 1
-        kind: roi
-        show_station_marker: true
-        show_stations_name: true
-        show_stations_elev: true
-      - row: 0
-        col: 2
-        kind: hillshade
-        show_station_marker: true
+        title: Sentinel 2 snow cover
       - row: 0
         col: 3
-        kind: landcover
-      - row: 1
-        col: 0
-        kind: dem
-      - row: 1
-        col: 1
-        kind: svf
-      - row: 1
-        col: 2
-        kind: srf
-      - row: 1
-        col: 3
-        kind: fsc
-        date: "2023-06-02"
-
-  rofental_mixed_states:
-    title: Mixed model and observation states
-    layout:
-      nrows: 3
-      ncols: 4
-    defaults:
-      show_scalebar: true
-    panels:
-      - row: 0
-        col: 0
-        kind: snow_depth
-        source: open_loop
-        date: "2023-05-18"
-      - row: 0
-        col: 1
-        kind: snow_depth
-        source: ensemble_mean
-        date: "2023-05-18"
-      - row: 0
-        col: 2
         kind: snow_depth
         source: increment
-        date: "2023-05-18"
-      - row: 0
-        col: 3
-        kind: fsc
-        date: "2023-05-18"
-      - row: 1
-        col: 0
-        kind: swe
-        source: open_loop
-        date: "2023-06-02"
-      - row: 1
-        col: 1
-        kind: swe
-        source: ensemble_mean
-        date: "2023-06-02"
-      - row: 1
-        col: 2
-        kind: swe
-        source: increment
-        date: "2023-06-02"
-      - row: 1
-        col: 3
-        kind: fsc
-        date: "2023-06-12"
-      - row: 2
-        col: 0
-        kind: liquid_water_content
-        source: open_loop
-        date: "2023-05-23"
-      - row: 2
-        col: 1
-        kind: liquid_water_content
-        source: ensemble_mean
-        date: "2023-05-23"
-      - row: 2
-        col: 2
-        kind: liquid_water_content
-        source: increment
-        date: "2023-05-23"
-      - row: 2
-        col: 3
-        kind: wet_snow
-        date: "2023-05-23"
-
-  rofental_full_catalog:
-    title: Full panel catalog
-    layout:
-      nrows: 4
-      ncols: 4
-    defaults:
-      show_scalebar: true
-    panels:
-      - row: 0
-        col: 0
-        kind: overview
-        scale: 2200000
-        roi_label: Rofental
-      - row: 0
-        col: 1
-        kind: roi
-        show_station_marker: true
-        show_stations_name: true
-        show_stations_elev: true
-      - row: 0
-        col: 2
-        kind: hillshade
-        show_station_marker: true
-      - row: 0
-        col: 3
-        kind: landcover
-      - row: 1
-        col: 0
-        kind: dem
-      - row: 1
-        col: 1
-        kind: svf
-      - row: 1
-        col: 2
-        kind: srf
-      - row: 1
-        col: 3
-        kind: fsc
-        date: "2023-06-02"
-      - row: 2
-        col: 0
-        kind: snow_depth
-        source: open_loop
-        date: "2023-06-02"
-      - row: 2
-        col: 1
-        kind: snow_depth
-        source: ensemble_mean
-        date: "2023-06-02"
-      - row: 2
-        col: 2
-        kind: snow_depth
-        source: increment
-        date: "2023-06-02"
-      - row: 2
-        col: 3
-        kind: wet_snow
-        date: "2023-06-08"
-      - row: 3
-        col: 0
-        kind: swe
-        source: open_loop
-        date: "2023-06-02"
-      - row: 3
-        col: 1
-        kind: liquid_water_content
-        source: open_loop
-        date: "2023-05-23"
-      - row: 3
-        col: 2
-        kind: swe
-        source: increment
-        date: "2023-06-02"
-      - row: 3
-        col: 3
-        kind: liquid_water_content
-        source: ensemble_mean
-        date: "2023-05-23"
+        title: snow depth increment

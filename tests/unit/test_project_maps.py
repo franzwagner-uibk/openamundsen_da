@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import Future
 from pathlib import Path
+import shutil
 import textwrap
 
 import geopandas as gpd
@@ -18,9 +19,17 @@ import openamundsen_da.methods.viz.project_maps.render as render_module
 import openamundsen_da.methods.viz.project_maps.runner as runner_module
 import openamundsen_da.methods.viz.project_maps.data as data_module
 import openamundsen_da.methods.viz.project_maps.overview as overview_module
-from openamundsen_da.methods.viz.project_maps.config import DateSelector, MapDefaults, MapPanelSpec, load_project_maps_config
+from openamundsen_da.methods.viz.project_maps.config import (
+    DateSelector,
+    LayoutSpec,
+    MapDefaults,
+    MapPanelSpec,
+    MapRecipe,
+    load_project_maps_config,
+)
 from openamundsen_da.methods.viz.project_maps.data import (
     ModelFields,
+    ObservationScene,
     load_observation_scene,
     load_static_context,
     resolve_comparison_dates,
@@ -57,6 +66,9 @@ from openamundsen_da.methods.viz.project_maps.styles import (
     static_field_cmap,
     static_field_colorbar_style,
 )
+
+
+PROJECT_MAPS_FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "project_maps" / "rofental"
 
 
 def _write_yaml(path: Path, text: str) -> None:
@@ -126,6 +138,13 @@ def _write_da_output(path: Path) -> None:
         coords={"time": times, "snow_layer": np.arange(3), "y": np.arange(4), "x": np.arange(4)},
     )
     ds.to_netcdf(path)
+
+
+def _mean_abs_png_diff(expected_path: Path, actual_path: Path) -> float:
+    expected = np.asarray(plt.imread(expected_path), dtype=float)
+    actual = np.asarray(plt.imread(actual_path), dtype=float)
+    assert expected.shape == actual.shape
+    return float(np.mean(np.abs(expected - actual)))
 
 
 def _write_station_csv(path: Path) -> None:
@@ -532,6 +551,70 @@ def test_project_maps_config_accepts_static_panels_and_legend_items(tmp_path: Pa
     assert [item.kind for item in cfg.maps[0].panels[2].items] == ["station_symbol", "heading"]
 
 
+def test_project_maps_config_accepts_below_panel_legend_items(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          setup_overview:
+            title: setup_overview
+            output_name: setup_overview
+            layout:
+              nrows: 1
+              ncols: 2
+            panels:
+              - row: 0
+                col: 0
+                kind: roi
+                title: region of interest
+                below_items:
+                  - kind: station_symbol
+                    label: Meteorological stations
+              - row: 0
+                col: 1
+                kind: dem
+                title: digital elevation model
+        """,
+    )
+
+    cfg = load_project_maps_config(config_path)
+
+    assert cfg.maps[0].output_stem == "setup_overview"
+    assert [item.kind for item in cfg.maps[0].panels[0].below_items] == ["station_symbol"]
+    assert cfg.maps[0].panels[0].below_items[0].label == "Meteorological stations"
+
+
+def test_project_maps_config_rejects_below_items_on_legend_panel(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          bad_legend:
+            title: bad_legend
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: legend
+                below_items:
+                  - kind: station_symbol
+                    label: Demo stations
+                items:
+                  - kind: heading
+                    label: Existing legend
+        """,
+    )
+
+    with pytest.raises(ValueError, match="below_items is only supported for non-legend panels"):
+        load_project_maps_config(config_path)
+
+
 def test_project_maps_config_rejects_text_panel_kind(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     config_path = project_dir / "maps.yml"
@@ -684,6 +767,29 @@ def test_project_maps_config_rejects_unknown_legend_layout(tmp_path: Path) -> No
 
     with pytest.raises(ValueError, match="legend must be one of"):
         load_project_maps_config(config_path)
+
+
+def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> None:
+    config_path = Path(__file__).resolve().parents[2] / "examples/rofental/projects/project_2022_2023/maps.yml"
+
+    cfg = load_project_maps_config(config_path)
+
+    assert [recipe.name for recipe in cfg.maps] == ["setup_overview", "da_3", "da_6", "da_7", "da_10"]
+    assert [recipe.title for recipe in cfg.maps] == ["setup_overview", "da_3", "da_6", "da_7", "da_10"]
+    assert [recipe.output_stem for recipe in cfg.maps] == ["setup_overview", "da_3", "da_6", "da_7", "da_10"]
+    assert cfg.maps[0].layout.nrows == 2
+    assert cfg.maps[0].layout.ncols == 3
+    assert [panel.title for panel in cfg.maps[0].panels] == [
+        "overview",
+        "region of interest",
+        "digital elevation model",
+        "landcover",
+        "hillshade",
+        "snow redistribution factor",
+    ]
+    assert [(panel.row, panel.col) for panel in cfg.maps[0].panels] == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
+    assert cfg.maps[0].panels[3].name is None
+    assert cfg.maps[0].panels[1].below_items[0].label == "Meteorological stations"
 
 
 def test_project_maps_config_rejects_overlapping_panels(tmp_path: Path) -> None:
@@ -975,22 +1081,53 @@ def test_wet_snow_reference_colors_follow_example_palette() -> None:
     assert FSC_INVALID_COLOR == "#d8b3b7"
 
 
-def test_map_axis_style_rotates_labels_vertically_and_shows_every_second_tick() -> None:
+def test_map_axis_style_places_title_above_axes_and_can_hide_nonfirstcolumn_ylabels() -> None:
     fig, ax = plt.subplots(figsize=(4, 4))
     try:
-        _apply_map_axis_style(ax, (632000.0, 645000.0, 5180000.0, 5195000.0), title="Demo", show_grid=True)
+        _apply_map_axis_style(
+            ax,
+            (632000.0, 645000.0, 5180000.0, 5195000.0),
+            title="Demo",
+            show_grid=True,
+            show_y_ticklabels=False,
+        )
         _draw_map_grid_overlay(ax, show_grid=True)
+        fig.canvas.draw()
         xlabels = [label for label in ax.get_xticklabels()]
         ylabels = [label for label in ax.get_yticklabels()]
         grid_lines = [line for line in ax.lines if line.get_gid() == "oa_da_grid"]
+        title_bbox = ax._left_title.get_window_extent(fig.canvas.get_renderer())
+        axes_bbox = ax.get_window_extent(fig.canvas.get_renderer())
         assert any(label.get_text() == "" for label in xlabels)
-        assert any(label.get_text() == "" for label in ylabels)
+        assert all(label.get_text() == "" for label in ylabels)
         assert {label.get_rotation() for label in xlabels if label.get_text()} == {0.0}
-        assert {label.get_rotation() for label in ylabels if label.get_text()} == {90.0}
+        assert ax.get_title(loc="left") == "Demo"
+        assert title_bbox.y0 >= axes_bbox.y1
         assert all(not tick.label2.get_visible() for tick in ax.xaxis.get_major_ticks())
         assert all(not tick.label2.get_visible() for tick in ax.yaxis.get_major_ticks())
         assert grid_lines
         assert all(line.get_zorder() == 120 for line in grid_lines)
+    finally:
+        plt.close(fig)
+
+
+def test_panel_date_callout_stays_inside_axes_with_white_background() -> None:
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        _apply_map_axis_style(ax, (632000.0, 645000.0, 5180000.0, 5195000.0), title="Demo", show_grid=False)
+        render_module._draw_panel_date(ax, pd.Timestamp("2023-05-03"))
+        fig.canvas.draw()
+        axes_bbox = ax.get_window_extent(fig.canvas.get_renderer())
+        text = ax.texts[-1]
+        text_bbox = text.get_window_extent(fig.canvas.get_renderer())
+        facecolor = text.get_bbox_patch().get_facecolor()
+        anchor = text.get_position()
+        assert text_bbox.x0 >= axes_bbox.x0
+        assert text_bbox.x1 <= axes_bbox.x1
+        assert text_bbox.y0 >= axes_bbox.y0
+        assert text_bbox.y1 <= axes_bbox.y1
+        assert facecolor[0:3] == pytest.approx((1.0, 1.0, 1.0))
+        assert anchor[1] > 0.92
     finally:
         plt.close(fig)
 
@@ -1002,6 +1139,11 @@ def test_draw_scale_bar_adds_reference_style_annotations() -> None:
         _draw_scale_bar(ax, extent)
         labels = {text.get_text() for text in ax.texts}
         assert {"0", "2.5", "5", "km"} <= labels
+        bar = ax.lines[0]
+        km_text = next(text for text in ax.texts if text.get_text() == "km")
+        assert any(effect.__class__.__name__ == "Stroke" for effect in bar.get_path_effects())
+        assert any(effect.__class__.__name__ == "Stroke" for effect in km_text.get_path_effects())
+        assert km_text.get_position()[1] < min(line.get_ydata()[0] for line in ax.lines)
     finally:
         plt.close(fig)
 
@@ -1095,6 +1237,118 @@ def test_horizontal_legend_total_extra_is_tighter_for_multirow_classified_legend
 
     assert len(rows) > 1
     assert extra < 0.55
+
+
+def test_horizontal_colorbar_gap_is_tighter_than_legacy_spacing() -> None:
+    assert render_module._HORIZONTAL_COLORBAR_GAP_AXES < 0.22
+
+
+def test_station_entry_is_more_compact() -> None:
+    fig, ax = plt.subplots(figsize=(3, 2))
+    try:
+        y_next = render_module._draw_station_entry(ax, y=0.8, label="Meteorological stations")
+        scatter = ax.collections[-1]
+        text = ax.texts[-1]
+        assert scatter.get_sizes()[0] < 110
+        assert text.get_fontsize() < 6.4
+        assert y_next > 0.8 - 0.068
+    finally:
+        plt.close(fig)
+
+
+def test_wet_snow_legend_handles_only_include_present_classes(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    scene = ObservationScene(
+        date=pd.Timestamp("2023-05-03"),
+        observation="wet_snow",
+        array=np.array([[110.0, 110.0], [np.nan, 125.0]], dtype=float),
+        transform=rasterio.Affine.identity(),
+        roi_mask=np.array([[True, True], [False, False]], dtype=bool),
+        invalid_mask=np.zeros((2, 2), dtype=bool),
+        bounds=(0.0, 2.0, 0.0, 2.0),
+        coverage_fraction=1.0,
+    )
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        artifacts = render_module._render_observation_panel(
+            ax,
+            panel=MapPanelSpec(kind="wet_snow", row=0, col=0, date="2023-05-03"),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(),
+            obs_cache={("wet_snow", pd.Timestamp("2023-05-03")): scene},
+            figure_horizontal_default=True,
+        )
+        assert [handle.get_label() for handle in artifacts["legend_handles"]] == [WET_SNOW_LABELS[110]]
+    finally:
+        plt.close(fig)
+
+
+def test_panel_empty_below_units_only_counts_directly_empty_cells() -> None:
+    recipe_empty = MapRecipe(
+        name="setup_overview",
+        title="setup_overview",
+        layout=LayoutSpec(nrows=2, ncols=3),
+        panels=(
+            MapPanelSpec(kind="landcover", row=0, col=2),
+            MapPanelSpec(kind="dem", row=1, col=0),
+            MapPanelSpec(kind="srf", row=1, col=1),
+        ),
+    )
+    recipe_occupied = MapRecipe(
+        name="setup_overview",
+        title="setup_overview",
+        layout=LayoutSpec(nrows=2, ncols=3),
+        panels=(
+            MapPanelSpec(kind="landcover", row=0, col=2),
+            MapPanelSpec(kind="dem", row=1, col=0),
+            MapPanelSpec(kind="srf", row=1, col=1),
+            MapPanelSpec(kind="roi", row=1, col=2),
+        ),
+    )
+
+    assert render_module._panel_empty_below_units(recipe_empty, recipe_empty.panels[0]) == pytest.approx(1.0)
+    assert render_module._panel_empty_below_units(recipe_occupied, recipe_occupied.panels[0]) == pytest.approx(0.0)
+
+
+def test_row_bottom_extras_include_below_panel_legend_items(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          setup_overview:
+            title: setup_overview
+            layout:
+              nrows: 1
+              ncols: 2
+            panels:
+              - row: 0
+                col: 0
+                kind: roi
+                title: region of interest
+                below_items:
+                  - kind: station_symbol
+                    label: Meteorological stations
+              - row: 0
+                col: 1
+                kind: dem
+                title: digital elevation model
+        """,
+    )
+
+    cfg = load_project_maps_config(config_path)
+    extra = render_module._row_bottom_extras(
+        cfg.maps[0],
+        context=load_static_context(project_dir),
+        panel_width_in=2.2,
+        figure_horizontal_default=True,
+    )
+
+    assert extra[0] >= render_module._panel_below_items_extra(cfg.maps[0].panels[0].below_items)
 
 
 def test_pack_horizontal_legend_rows_wrap_wet_snow_labels_in_narrow_panel() -> None:
@@ -1457,6 +1711,47 @@ def test_render_project_maps_writes_flat_recipe_outputs(tmp_path: Path) -> None:
     for path in outputs:
         assert path.is_file()
         assert path.stat().st_size > 0
+
+
+def test_shipped_rofental_render_regression_against_tuned_baseline(tmp_path: Path) -> None:
+    benchmark_inputs_dir = PROJECT_MAPS_FIXTURE_DIR / "inputs"
+    da_output_fixture = benchmark_inputs_dir / "da_output_grids.nc"
+    overview_assets = (
+        benchmark_inputs_dir / "CNTR_BN_01M_2020_3857.geojson",
+        benchmark_inputs_dir / "CNTR_RG_01M_2020_3857.geojson",
+        benchmark_inputs_dir / "CNTR_LB_2020_3857.geojson",
+    )
+    if not da_output_fixture.is_file() or not all(path.is_file() for path in overview_assets):
+        pytest.skip("project-map image regression inputs are not available")
+
+    shipped_setup_dir = Path(__file__).resolve().parents[2] / "examples" / "rofental"
+    work_setup_dir = tmp_path / "rofental"
+    shutil.copytree(shipped_setup_dir, work_setup_dir)
+    project_dir = work_setup_dir / "projects" / "project_2022_2023"
+    results_dir = project_dir / "results"
+    if results_dir.exists():
+        shutil.rmtree(results_dir)
+
+    results_grids_dir = project_dir / "results" / "grids"
+    results_grids_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(da_output_fixture, results_grids_dir / "da_output_grids.nc")
+    env_dir = work_setup_dir / "env"
+    env_dir.mkdir(parents=True, exist_ok=True)
+    for path in overview_assets:
+        shutil.copy2(path, env_dir / path.name)
+
+    outputs = render_project_maps(project_dir=project_dir, max_workers=1)
+
+    assert [path.name for path in outputs] == ["setup_overview.png", "da_3.png", "da_6.png", "da_7.png", "da_10.png"]
+    for output_path in outputs:
+        expected_path = PROJECT_MAPS_FIXTURE_DIR / "expected" / output_path.name
+        assert expected_path.is_file()
+        diff = _mean_abs_png_diff(expected_path, output_path)
+        if diff >= 0.01:
+            failure_dir = tmp_path / "project_map_regression_failure"
+            failure_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(output_path, failure_dir / output_path.name)
+        assert diff < 0.01, f"{output_path.name} mean abs diff too high: {diff:.5f}"
 
 
 def test_resolve_effective_max_workers_clamps_to_recipe_count(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -199,12 +199,11 @@ results/misc/
   point_wet_snow_roi_envelope.csv
 
 results/maps/
-  rofental_setup_map.png
-  rofental_static_grids.png
-  snowdepth_2023-06-02.png
-  swe_2023-06-02.png
-  snowdepth_increment_2023-06-02.png
-  lwc_wet_snow_2023-05-23.png
+  setup_overview.png
+  da_3.png
+  da_6.png
+  da_7.png
+  da_10.png
 ```
 
 ![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/project_perf.png)

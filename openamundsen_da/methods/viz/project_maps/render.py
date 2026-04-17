@@ -9,6 +9,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as pe
 import numpy as np
 import pandas as pd
 from matplotlib.cm import ScalarMappable
@@ -16,6 +17,7 @@ from matplotlib.colors import BoundaryNorm, LightSource, Normalize, TwoSlopeNorm
 from matplotlib.font_manager import FontProperties
 from matplotlib.patches import FancyBboxPatch, Patch, Rectangle
 from matplotlib.textpath import TextPath
+from rasterio import features as rio_features
 from rasterio.transform import array_bounds
 from shapely.geometry import box
 
@@ -72,15 +74,17 @@ _ROI_FILL = "#efefef"
 _OVERVIEW_ROI_COLOR = "#c21f24"
 _GRID_ZORDER = 120
 _ANNOTATION_ZORDER = 130
-_LAYOUT_COL_GAP = 0.10
-_LAYOUT_ROW_GAP = 0.10
+_HILLSHADE_INTERPOLATION = "bilinear"
+_SNOW_DEPTH_PANEL_ALPHA = 0.70
+_LAYOUT_COL_GAP = 0.07
+_LAYOUT_ROW_GAP = 0.02
 _LEFT_MARGIN = 0.03
 _RIGHT_MARGIN = 0.992
 _BOTTOM_MARGIN = 0.028
 _TOP_MARGIN = 0.992
-_DATE_CALLOUT_ALPHA = 0.30
+_DATE_CALLOUT_ALPHA = 1.0
 _SCALEBAR_TARGET_FRACTION = 0.27
-_SCALEBAR_RIGHT_PAD_FRACTION = 0.05
+_SCALEBAR_RIGHT_PAD_FRACTION = 0.04
 _SCALEBAR_BOTTOM_FRACTION = 0.060
 _OVERVIEW_FRAGMENT_RATIO = 0.018
 _VERTICAL_COLORBAR_GAP_EXTRA = 0.11
@@ -89,12 +93,12 @@ _VERTICAL_COLORBAR_XOFFSET_AXES = 0.038
 _VERTICAL_COLORBAR_WIDTH_AXES = 0.060
 _VERTICAL_COLORBAR_BOTTOM_AXES = 0.035
 _VERTICAL_COLORBAR_HEIGHT_AXES = 0.89
-_HORIZONTAL_COLORBAR_GAP_AXES = 0.22
-_HORIZONTAL_COLORBAR_HEIGHT_AXES = 0.060
-_HORIZONTAL_COLORBAR_BOTTOM_PAD_AXES = 0.05
+_HORIZONTAL_COLORBAR_GAP_AXES = 0.10
+_HORIZONTAL_COLORBAR_HEIGHT_AXES = 0.050
+_HORIZONTAL_COLORBAR_BOTTOM_PAD_AXES = 0.02
 _HORIZONTAL_COLORBAR_EXTRA = _HORIZONTAL_COLORBAR_GAP_AXES + _HORIZONTAL_COLORBAR_HEIGHT_AXES + _HORIZONTAL_COLORBAR_BOTTOM_PAD_AXES
-_HORIZONTAL_LEGEND_GAP_AXES = 0.082
-_HORIZONTAL_LEGEND_ROW_HEIGHT_AXES = 0.078
+_HORIZONTAL_LEGEND_GAP_AXES = 0.095
+_HORIZONTAL_LEGEND_ROW_HEIGHT_AXES = 0.058
 _HORIZONTAL_LEGEND_BOTTOM_PAD_AXES = 0.14
 _HORIZONTAL_LEGEND_ITEM_GAP_IN = 0.05
 _HORIZONTAL_LEGEND_MIN_ITEM_GAP_IN = 0.022
@@ -104,13 +108,18 @@ _HORIZONTAL_LEGEND_MIN_TEXT_WIDTH_IN = 0.12
 _HORIZONTAL_LEGEND_SIDE_PAD_IN = 0.018
 _HORIZONTAL_LEGEND_TEXT_SIZE = 5.5
 _HORIZONTAL_LEGEND_PATCH_HEIGHT_IN = 0.055
+_PANEL_BELOW_ITEMS_GAP_AXES = 0.000
+_PANEL_BELOW_ITEMS_DRAW_GAP_BASE_AXES = 0.090
+_PANEL_BELOW_ITEMS_DRAW_GAP_PER_HEIGHT_AXES = 0.15
+_PANEL_BELOW_ITEMS_ROW_HEIGHT_AXES = 0.040
+_PANEL_BELOW_ITEMS_BOTTOM_PAD_AXES = 0.000
 _OVERVIEW_LABEL_SIZE = 6.2
 _OVERVIEW_LABEL_DX_RATIO = 0.09
 _OVERVIEW_LABEL_DY_RATIO = 0.07
 _OVERVIEW_LABEL_BOX_PAD_EM = 0.10
 _OVERVIEW_LABEL_BOX_SAFETY_IN = 0.02
 _OVERVIEW_ROI_LABEL_SIZE = 6.4
-_OVERVIEW_ROI_LABEL_DX_RATIO = 0.02
+_OVERVIEW_ROI_LABEL_DX_RATIO = 0.04
 
 _MODEL_KIND_TO_VARIABLE = {
     "snow_depth": "snowdepth_daily",
@@ -198,6 +207,17 @@ def _grid_extent(context: StaticContext) -> tuple[float, float, float, float]:
     return (float(left), float(right), float(bottom), float(top))
 
 
+def _hillshade_extent(context: StaticContext) -> tuple[float, float, float, float]:
+    if context.hillshade_dem is not None and context.hillshade_transform is not None:
+        left, bottom, right, top = array_bounds(
+            int(context.hillshade_dem.shape[0]),
+            int(context.hillshade_dem.shape[1]),
+            context.hillshade_transform,
+        )
+        return (float(left), float(right), float(bottom), float(top))
+    return _grid_extent(context)
+
+
 def _masked(arr: np.ndarray, roi_mask: np.ndarray) -> np.ma.MaskedArray:
     masked = np.asarray(arr, dtype=float).copy()
     masked[~roi_mask] = np.nan
@@ -235,22 +255,53 @@ def _field_array(context: StaticContext, field: str) -> np.ndarray:
 def _hillshade(context: StaticContext, *, derived_cache: dict[str, np.ndarray] | None = None) -> np.ndarray:
     if derived_cache is not None and "hillshade" in derived_cache:
         return derived_cache["hillshade"]
-    dem = np.asarray(context.dem, dtype=float)
+    dem_source = context.hillshade_dem if context.hillshade_dem is not None else context.dem
+    dem = np.asarray(dem_source, dtype=float)
     filled = dem.copy()
     if np.isfinite(filled).any():
         filled[~np.isfinite(filled)] = float(np.nanmedian(filled))
     else:
         filled[:] = 0.0
-    light = LightSource(azdeg=315, altdeg=45)
-    shade = light.hillshade(
-        filled,
-        vert_exag=1.3,
-        dx=abs(float(context.spec.transform.a)),
-        dy=abs(float(context.spec.transform.e)),
+    transform = context.hillshade_transform if context.hillshade_transform is not None else context.spec.transform
+    dx = float(transform.a)
+    dy = float(transform.e)
+    shades = []
+    weights = np.array([0.40, 0.27, 0.20, 0.13], dtype=float)
+    for azdeg in (315, 45, 270, 135):
+        light = LightSource(azdeg=azdeg, altdeg=45)
+        shades.append(
+            light.hillshade(
+                filled,
+                vert_exag=1.3,
+                dx=dx,
+                dy=dy,
+            )
     )
+    shade = np.average(np.stack(shades, axis=0), axis=0, weights=weights)
+    shade = np.clip(shade, 0.0, 1.0)
     if derived_cache is not None:
         derived_cache["hillshade"] = shade
     return shade
+
+
+def _hillshade_underlay(context: StaticContext, *, derived_cache: dict[str, np.ndarray] | None = None) -> np.ma.MaskedArray:
+    cache_key = "hillshade_underlay"
+    if derived_cache is not None and cache_key in derived_cache:
+        return np.ma.masked_invalid(derived_cache[cache_key])
+
+    shade = _hillshade(context, derived_cache=derived_cache)
+    transform = context.hillshade_transform if context.hillshade_transform is not None else context.spec.transform
+    mask = rio_features.rasterize(
+        [(geom, 1) for geom in context.roi_gdf.geometry if geom is not None and not geom.is_empty],
+        out_shape=shade.shape,
+        transform=transform,
+        fill=0,
+        dtype="uint8",
+    ).astype(bool)
+    underlay = np.where(mask, shade, np.nan)
+    if derived_cache is not None:
+        derived_cache[cache_key] = underlay
+    return np.ma.masked_invalid(underlay)
 
 
 def _draw_roi(ax, context: StaticContext, *, linewidth: float = 0.8, facecolor=None, alpha: float | None = None) -> None:
@@ -369,16 +420,12 @@ def _legend_columns_for_axis(ax, labels: list[str]) -> int:
 
 
 def _draw_axes_title(ax, title: str) -> None:
-    ax.text(
-        0.0,
-        0.995,
+    ax.set_title(
         title,
-        transform=ax.transAxes,
-        ha="left",
-        va="top",
+        loc="left",
+        pad=2.8,
         fontsize=_axes_title_fontsize(ax),
         color="black",
-        zorder=_ANNOTATION_ZORDER,
     )
 
 
@@ -388,6 +435,7 @@ def _apply_map_axis_style(
     *,
     title: str | None,
     show_grid: bool,
+    show_y_ticklabels: bool = True,
     aspect_adjustable: str = "box",
 ) -> None:
     ax.set_xlim(extent[0], extent[1])
@@ -404,7 +452,9 @@ def _apply_map_axis_style(
     ax.set_xticks(xticks)
     ax.set_yticks(yticks)
     ax.set_xticklabels([_coord_label(value) if idx % 2 == 0 else "" for idx, value in enumerate(xticks)])
-    ax.set_yticklabels([_coord_label(value) if idx % 2 == 0 else "" for idx, value in enumerate(yticks)])
+    ax.set_yticklabels(
+        [_coord_label(value) if show_y_ticklabels and idx % 2 == 0 else "" for idx, value in enumerate(yticks)]
+    )
     ax.tick_params(
         axis="x",
         direction="out",
@@ -422,12 +472,12 @@ def _apply_map_axis_style(
         direction="out",
         left=True,
         right=False,
-        labelleft=True,
+        labelleft=show_y_ticklabels,
         labelright=False,
         labelsize=_TICK_SIZE,
         length=3.0,
         width=0.75,
-        pad=4.0,
+        pad=3.2 if show_y_ticklabels else 1.0,
     )
     for tick in ax.xaxis.get_major_ticks():
         tick.label1.set_rotation(0)
@@ -696,6 +746,47 @@ def _classified_legend_labels(panel_kind: str) -> list[str]:
     raise ValueError(f"Unsupported classified panel kind '{panel_kind}'")
 
 
+def _classified_display_labels(
+    panel: MapPanelSpec,
+    *,
+    context: StaticContext,
+    defaults: MapDefaults,
+    obs_cache: dict[tuple[str, str], ObservationScene] | None = None,
+) -> list[str]:
+    if panel.kind == "landcover":
+        masked_landcover = np.ma.masked_array(context.landcover, mask=~context.roi_mask)
+        present_codes = {int(value) for value in masked_landcover.compressed() if np.isfinite(value)}
+        active_codes = [code for code in LANDCOVER_LABELS if code in present_codes]
+        if not active_codes:
+            return _classified_legend_labels(panel.kind)
+        return [LANDCOVER_LABELS[code] for code in active_codes]
+
+    if panel.kind == "wet_snow":
+        date = _panel_date(panel, defaults)
+        if date is None:
+            return _classified_legend_labels(panel.kind)
+        obs_key = ("wet_snow", pd.Timestamp(date).isoformat())
+        scene = None
+        if obs_cache is not None:
+            scene = obs_cache.get(obs_key)
+        if scene is None:
+            scene = load_observation_scene(context.project_dir, context, observation="wet_snow", date=date)
+            if obs_cache is not None:
+                obs_cache[obs_key] = scene
+        canonical_codes = sorted(WET_SNOW_LABELS)
+        present_codes = {
+            code
+            for code in canonical_codes
+            if np.any(scene.roi_mask & np.isclose(scene.array, float(code), equal_nan=False))
+        }
+        active_codes = [code for code in canonical_codes if code in present_codes]
+        if not active_codes:
+            return _classified_legend_labels(panel.kind)
+        return [WET_SNOW_LABELS[code] for code in active_codes]
+
+    raise ValueError(f"Unsupported classified panel kind '{panel.kind}'")
+
+
 def _horizontal_legend_bottom_pad(panel_width_in: float) -> float:
     if panel_width_in < 1.7:
         return max(_HORIZONTAL_LEGEND_BOTTOM_PAD_AXES, 0.56)
@@ -766,11 +857,32 @@ def _outer_right_factor(
     return outer_extra
 
 
+def _panel_empty_below_units(recipe: MapRecipe, panel: MapPanelSpec) -> float:
+    end_row = int(panel.row + panel.rowspan - 1)
+    start_col = int(panel.col)
+    end_col = int(panel.col + panel.colspan - 1)
+    height_factors = _effective_height_ratios(recipe)
+    occupied: set[tuple[int, int]] = set()
+    for other in recipe.panels:
+        for row in range(other.row, other.row + other.rowspan):
+            for col in range(other.col, other.col + other.colspan):
+                occupied.add((row, col))
+
+    borrow_units = 0.0
+    for row in range(end_row + 1, recipe.layout.nrows):
+        if any((row, col) in occupied for col in range(start_col, end_col + 1)):
+            break
+        borrow_units += float(height_factors[row])
+    return borrow_units
+
+
 def _row_bottom_extras(
     recipe: MapRecipe,
     *,
+    context: StaticContext,
     panel_width_in: float,
     figure_horizontal_default: bool,
+    obs_cache: dict[tuple[str, str], ObservationScene] | None = None,
 ) -> dict[int, float]:
     row_extras = {row: 0.0 for row in range(recipe.layout.nrows)}
     for panel in recipe.panels:
@@ -779,15 +891,25 @@ def _row_bottom_extras(
         if panel.kind in _CLASSIFIED_PANEL_KINDS:
             layout = _panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default)
             if layout == "horizontal":
-                labels = _classified_legend_labels(panel.kind)
+                labels = _classified_display_labels(
+                    panel,
+                    context=context,
+                    defaults=recipe.defaults,
+                    obs_cache=obs_cache,
+                )
                 rows = _pack_horizontal_legend_rows(labels, panel_width_in=panel_width_in)
                 extra = _horizontal_legend_total_extra(rows, panel_width_in=panel_width_in)
+                extra = max(extra - _panel_empty_below_units(recipe, panel), 0.0)
         elif panel.kind in _CONTINUOUS_COLORBAR_PANEL_KINDS:
             if (
                 _resolve_flag(panel.show_colorbar, recipe.defaults, "show_colorbar", True)
                 and _panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True) == "horizontal"
             ):
                 extra = _HORIZONTAL_COLORBAR_EXTRA
+        if panel.below_items:
+            below_items_extra = _panel_below_items_extra(panel.below_items)
+            below_items_extra = max(below_items_extra - _panel_empty_below_units(recipe, panel), 0.0)
+            extra = max(extra, below_items_extra)
         row_extras[row] = max(row_extras.get(row, 0.0), extra)
     return row_extras
 
@@ -811,6 +933,7 @@ def _attach_colorbar(
             ],
             transform=ax.transAxes,
         )
+        _register_child_axes(ax, cax)
         cbar = plt.colorbar(mappable, cax=cax, orientation="horizontal")
         if ticks:
             cbar.set_ticks(ticks)
@@ -862,7 +985,7 @@ def _draw_panel_date(ax, date: pd.Timestamp | None) -> None:
         return
     ax.text(
         0.02,
-        0.92,
+        0.955,
         text,
         transform=ax.transAxes,
         ha="left",
@@ -901,29 +1024,32 @@ def _draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
     y0 = extent[2] + _SCALEBAR_BOTTOM_FRACTION * span_y
     tick_height = 0.016 * span_y
     label_y = y0 + 1.15 * tick_height
-
-    box = FancyBboxPatch(
-        (x0 - 0.03 * total_length, y0 - 0.9 * tick_height),
-        total_length * 1.11,
-        tick_height * 3.1,
-        boxstyle="round,pad=0.0,rounding_size=0.0",
-        facecolor=(1.0, 1.0, 1.0, 0.3),
-        edgecolor="none",
-        zorder=_ANNOTATION_ZORDER - 1,
-    )
-    ax.add_patch(box)
-    ax.plot([x0, x0 + total_length], [y0, y0], color="black", linewidth=0.8, zorder=_ANNOTATION_ZORDER, solid_capstyle="butt")
+    line_halo = [pe.Stroke(linewidth=2.2, foreground="white"), pe.Normal()]
+    text_halo = [pe.Stroke(linewidth=1.8, foreground="white"), pe.Normal()]
+    bar = ax.plot([x0, x0 + total_length], [y0, y0], color="black", linewidth=0.8, zorder=_ANNOTATION_ZORDER, solid_capstyle="butt")[0]
+    bar.set_path_effects(line_halo)
     for xpos in (x0, x0 + half_length, x0 + total_length):
-        ax.plot([xpos, xpos], [y0, y0 + tick_height], color="black", linewidth=0.8, zorder=_ANNOTATION_ZORDER, solid_capstyle="butt")
+        tick = ax.plot([xpos, xpos], [y0, y0 + tick_height], color="black", linewidth=0.8, zorder=_ANNOTATION_ZORDER, solid_capstyle="butt")[0]
+        tick.set_path_effects(line_halo)
     for xpos, label in (
         (x0, "0"),
         (x0 + half_length, _format_km_label(half_length)),
         (x0 + total_length, _format_km_label(total_length)),
     ):
-        ax.text(xpos, label_y, label, ha="center", va="bottom", fontsize=5.8, color="black", zorder=_ANNOTATION_ZORDER)
-    ax.text(
+        text = ax.text(
+            xpos,
+            label_y,
+            label,
+            ha="center",
+            va="bottom",
+            fontsize=5.8,
+            color="black",
+            zorder=_ANNOTATION_ZORDER,
+        )
+        text.set_path_effects(text_halo)
+    km_text = ax.text(
         x0 + 0.72 * total_length,
-        y0 - 0.25 * tick_height,
+        y0 - 0.45 * tick_height,
         "km",
         ha="center",
         va="top",
@@ -931,6 +1057,13 @@ def _draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
         color="black",
         zorder=_ANNOTATION_ZORDER,
     )
+    km_text.set_path_effects(text_halo)
+
+
+def _register_child_axes(parent_ax, child_ax) -> None:
+    children = list(getattr(parent_ax, "_oa_child_axes", []))
+    children.append(child_ax)
+    setattr(parent_ax, "_oa_child_axes", children)
 
 
 def _panel_width_in_for_recipe(recipe: MapRecipe, *, figure_horizontal_default: bool) -> float:
@@ -948,7 +1081,13 @@ def _panel_width_in_for_recipe(recipe: MapRecipe, *, figure_horizontal_default: 
     return inner_width_in / max(width_units, 1.0)
 
 
-def _figure_size(extent: tuple[float, float, float, float], recipe: MapRecipe) -> tuple[float, float]:
+def _figure_size(
+    extent: tuple[float, float, float, float],
+    recipe: MapRecipe,
+    *,
+    context: StaticContext,
+    obs_cache: dict[tuple[str, str], ObservationScene] | None = None,
+) -> tuple[float, float]:
     width = max(1.0, float(extent[1] - extent[0]))
     height = max(1.0, float(extent[3] - extent[2]))
     aspect = height / width
@@ -960,8 +1099,10 @@ def _figure_size(extent: tuple[float, float, float, float], recipe: MapRecipe) -
     )
     row_bottom_extras = _row_bottom_extras(
         recipe,
+        context=context,
         panel_width_in=panel_width,
         figure_horizontal_default=figure_horizontal_default,
+        obs_cache=obs_cache,
     )
     inter_row_gap_factors = tuple(
         _LAYOUT_ROW_GAP + row_bottom_extras[row]
@@ -996,6 +1137,23 @@ def _grid_span(start: int, span: int) -> slice:
     return slice(grid_start, grid_stop)
 
 
+def _classified_legend_handles(
+    *,
+    canonical_codes: list[int],
+    present_codes: set[int],
+    label_lookup: dict[int, str],
+    color_lookup,
+    fallback_codes: list[int],
+) -> list[Patch]:
+    active_codes = [code for code in canonical_codes if code in present_codes]
+    if not active_codes:
+        active_codes = list(fallback_codes)
+    return [
+        Patch(facecolor=color_lookup(code), edgecolor="none", label=label_lookup.get(code, str(code)))
+        for code in active_codes
+    ]
+
+
 def _draw_classified_legend(ax, handles: list[Patch], *, layout: str) -> None:
     if not handles:
         return
@@ -1013,6 +1171,7 @@ def _draw_classified_legend(ax, handles: list[Patch], *, layout: str) -> None:
             [0.0, -(_HORIZONTAL_LEGEND_GAP_AXES + inset_height), 1.0, inset_height],
             transform=ax.transAxes,
         )
+        _register_child_axes(ax, legend_ax)
         legend_ax.set_axis_off()
         handle_lookup = {handle.get_label(): handle for handle in handles}
         row_top = 1.0
@@ -1385,10 +1544,7 @@ def _overview_extent_with_label_fit(
 
 def _draw_overview_label_specs(ax, specs: list[_OverviewLabelSpec]) -> None:
     for spec in specs:
-        kwargs = {}
-        if spec.with_bbox:
-            kwargs["bbox"] = {"boxstyle": "round,pad=0.10", "facecolor": "white", "edgecolor": "none", "alpha": 0.45}
-        ax.text(
+        text = ax.text(
             spec.x,
             spec.y,
             spec.text,
@@ -1397,8 +1553,9 @@ def _draw_overview_label_specs(ax, specs: list[_OverviewLabelSpec]) -> None:
             fontsize=spec.fontsize,
             color="black",
             zorder=spec.zorder,
-            **kwargs,
         )
+        halo_width = 2.4 if spec.with_bbox else 2.0
+        text.set_path_effects([pe.Stroke(linewidth=halo_width, foreground="white"), pe.Normal()])
 
 
 def _overview_extent(ax, context: StaticContext, *, scale: int) -> tuple[float, float, float, float]:
@@ -1456,6 +1613,7 @@ def _render_overview_panel(ax, *, panel: MapPanelSpec, context: StaticContext, l
         extent,
         title=_panel_title(label, _panel_semantic_title(panel)),
         show_grid=_resolve_flag(panel.show_grid, defaults, "show_grid", True),
+        show_y_ticklabels=panel.col == 0,
         aspect_adjustable="box",
     )
     context.roi_gdf.plot(ax=ax, facecolor=_OVERVIEW_ROI_COLOR, edgecolor=_OVERVIEW_ROI_COLOR, linewidth=0.8, zorder=25)
@@ -1487,7 +1645,13 @@ def _render_roi_panel(ax, *, panel: MapPanelSpec, context: StaticContext, extent
         show_stations_name=_resolve_panel_toggle(panel.show_stations_name, True),
         show_stations_elev=_resolve_panel_toggle(panel.show_stations_elev, True),
     )
-    _apply_map_axis_style(ax, extent, title=_panel_title(label, _panel_semantic_title(panel)), show_grid=show_grid)
+    _apply_map_axis_style(
+        ax,
+        extent,
+        title=_panel_title(label, _panel_semantic_title(panel)),
+        show_grid=show_grid,
+        show_y_ticklabels=panel.col == 0,
+    )
     _draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=_panel_date(panel, defaults))
     _draw_map_grid_overlay(ax, show_grid=show_grid)
     return {}
@@ -1514,9 +1678,10 @@ def _render_static_panel(
     if panel.kind == "hillshade":
         ax.imshow(
             _hillshade(context, derived_cache=derived_cache),
-            cmap="Greys",
-            extent=grid_extent,
+            cmap="Greys_r",
+            extent=_hillshade_extent(context),
             origin="upper",
+            interpolation=_HILLSHADE_INTERPOLATION,
             vmin=0.0,
             vmax=1.0,
             zorder=5,
@@ -1530,23 +1695,28 @@ def _render_static_panel(
             show_stations_name=show_stations_name,
             show_stations_elev=show_stations_elev,
         )
-        _apply_map_axis_style(ax, extent, title=_panel_title(label, _panel_semantic_title(panel)), show_grid=show_grid)
+        _apply_map_axis_style(
+            ax,
+            extent,
+            title=_panel_title(label, _panel_semantic_title(panel)),
+            show_grid=show_grid,
+            show_y_ticklabels=panel.col == 0,
+        )
         _draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=_panel_date(panel, defaults))
         _draw_map_grid_overlay(ax, show_grid=show_grid)
         return {}
 
     if panel.kind == "landcover":
         masked_landcover = _masked_invalid(_field_array(context, "landcover"))
-        present_codes = sorted({int(value) for value in masked_landcover.compressed() if np.isfinite(value)})
-        if not present_codes:
-            present_codes = [0]
-        code_to_index = {code: idx for idx, code in enumerate(present_codes)}
+        present_codes = {int(value) for value in masked_landcover.compressed() if np.isfinite(value)}
+        canonical_codes = sorted(present_codes) if present_codes else [0]
+        code_to_index = {code: idx for idx, code in enumerate(canonical_codes)}
         categorical = np.full(masked_landcover.shape, np.nan, dtype=float)
         filled = masked_landcover.filled(np.nan)
         for code, idx in code_to_index.items():
             categorical[np.isclose(filled, float(code), equal_nan=False)] = idx
-        cmap = landcover_cmap_for_codes(present_codes)
-        norm = BoundaryNorm(np.arange(-0.5, len(present_codes) + 0.5), cmap.N)
+        cmap = landcover_cmap_for_codes(canonical_codes)
+        norm = BoundaryNorm(np.arange(-0.5, len(canonical_codes) + 0.5), cmap.N)
         image = ax.imshow(categorical, cmap=cmap, norm=norm, extent=grid_extent, origin="upper", interpolation="nearest", zorder=5)
         _apply_common_overlays(
             ax,
@@ -1557,11 +1727,20 @@ def _render_static_panel(
             show_stations_name=show_stations_name,
             show_stations_elev=show_stations_elev,
         )
-        _apply_map_axis_style(ax, extent, title=_panel_title(label, _panel_semantic_title(panel)), show_grid=show_grid)
-        legend_handles = [
-            Patch(facecolor=cmap(code_to_index[code]), edgecolor="none", label=LANDCOVER_LABELS.get(code, str(code)))
-            for code in present_codes
-        ]
+        _apply_map_axis_style(
+            ax,
+            extent,
+            title=_panel_title(label, _panel_semantic_title(panel)),
+            show_grid=show_grid,
+            show_y_ticklabels=panel.col == 0,
+        )
+        legend_handles = _classified_legend_handles(
+            canonical_codes=canonical_codes,
+            present_codes=present_codes,
+            label_lookup=LANDCOVER_LABELS,
+            color_lookup=lambda code: cmap(code_to_index[code]),
+            fallback_codes=[0],
+        )
         _draw_classified_legend(
             ax,
             legend_handles,
@@ -1585,7 +1764,13 @@ def _render_static_panel(
         show_stations_name=show_stations_name,
         show_stations_elev=show_stations_elev,
     )
-    _apply_map_axis_style(ax, extent, title=_panel_title(label, _panel_semantic_title(panel)), show_grid=show_grid)
+    _apply_map_axis_style(
+        ax,
+        extent,
+        title=_panel_title(label, _panel_semantic_title(panel)),
+        show_grid=show_grid,
+        show_y_ticklabels=panel.col == 0,
+    )
     colorbar_style = static_field_colorbar_style(preset)
     if _resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
         _attach_colorbar(
@@ -1626,12 +1811,14 @@ def _render_model_panel(
     if field_key not in scale_cache:
         scale_cache[field_key] = _comparison_scales([model_cache[field_key]], preset)
     model_norm, increment_norm = scale_cache[field_key]
-    if _resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
+    show_model_hillshade = panel.kind == "snow_depth" or _resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False)
+    if show_model_hillshade:
         ax.imshow(
-            _hillshade(context, derived_cache=derived_cache),
-            cmap="Greys",
-            extent=grid_extent,
+            _hillshade_underlay(context, derived_cache=derived_cache) if panel.kind == "snow_depth" else _hillshade(context, derived_cache=derived_cache),
+            cmap="Greys_r",
+            extent=_hillshade_extent(context),
             origin="upper",
+            interpolation=_HILLSHADE_INTERPOLATION,
             vmin=0.0,
             vmax=1.0,
             zorder=0,
@@ -1646,7 +1833,7 @@ def _render_model_panel(
             extent=grid_extent,
             origin="upper",
             interpolation="nearest",
-            alpha=0.95,
+            alpha=_SNOW_DEPTH_PANEL_ALPHA if panel.kind == "snow_depth" else 0.95,
             zorder=5,
         )
         colorbar_style = {"label": f"increment {preset.unit_label}"}
@@ -1659,7 +1846,7 @@ def _render_model_panel(
             extent=grid_extent,
             origin="upper",
             interpolation="nearest",
-            alpha=0.96,
+            alpha=_SNOW_DEPTH_PANEL_ALPHA if panel.kind == "snow_depth" else 0.96,
             zorder=5,
         )
         colorbar_style = model_colorbar_style(preset)
@@ -1674,7 +1861,13 @@ def _render_model_panel(
         show_stations_elev=_resolve_panel_toggle(panel.show_stations_elev, False),
     )
     show_grid = _resolve_flag(panel.show_grid, defaults, "show_grid", True)
-    _apply_map_axis_style(ax, extent, title=_panel_title(label, _panel_semantic_title(panel)), show_grid=show_grid)
+    _apply_map_axis_style(
+        ax,
+        extent,
+        title=_panel_title(label, _panel_semantic_title(panel)),
+        show_grid=show_grid,
+        show_y_ticklabels=panel.col == 0,
+    )
     if _resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
         label_text = colorbar_style["label"] if isinstance(colorbar_style, dict) else colorbar_style.label
         ticks = colorbar_style.get("ticks", ()) if isinstance(colorbar_style, dict) else colorbar_style.ticks
@@ -1716,9 +1909,10 @@ def _render_observation_panel(
     if _resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
         ax.imshow(
             _hillshade(context, derived_cache=derived_cache),
-            cmap="Greys",
-            extent=_grid_extent(context),
+            cmap="Greys_r",
+            extent=_hillshade_extent(context),
             origin="upper",
+            interpolation=_HILLSHADE_INTERPOLATION,
             vmin=0.0,
             vmax=1.0,
             zorder=0,
@@ -1738,6 +1932,11 @@ def _render_observation_panel(
         legend_handles = None
     else:
         codes = sorted(WET_SNOW_COLORS)
+        present_codes = {
+            int(code)
+            for code in codes
+            if np.any(scene.roi_mask & np.isclose(scene.array, float(code), equal_nan=False))
+        }
         code_to_index = {code: idx for idx, code in enumerate(codes)}
         categorical = np.full(scene.array.shape, np.nan, dtype=float)
         for code, idx in code_to_index.items():
@@ -1746,7 +1945,13 @@ def _render_observation_panel(
         cmap.set_bad((1.0, 1.0, 1.0, 0.0))
         norm = BoundaryNorm(np.arange(-0.5, len(codes) + 0.5), cmap.N)
         image = ax.imshow(np.ma.masked_invalid(categorical), cmap=cmap, norm=norm, extent=scene.bounds, origin="upper", interpolation="nearest", zorder=5)
-        legend_handles = [Patch(facecolor=WET_SNOW_COLORS[code], edgecolor="none", label=WET_SNOW_LABELS[code]) for code in codes]
+        legend_handles = _classified_legend_handles(
+            canonical_codes=codes,
+            present_codes=present_codes,
+            label_lookup=WET_SNOW_LABELS,
+            color_lookup=lambda code: WET_SNOW_COLORS[code],
+            fallback_codes=codes,
+        )
 
     _apply_common_overlays(
         ax,
@@ -1757,7 +1962,13 @@ def _render_observation_panel(
         show_stations_name=_resolve_panel_toggle(panel.show_stations_name, False),
         show_stations_elev=_resolve_panel_toggle(panel.show_stations_elev, False),
     )
-    _apply_map_axis_style(ax, extent, title=_panel_title(label, _panel_semantic_title(panel)), show_grid=show_grid)
+    _apply_map_axis_style(
+        ax,
+        extent,
+        title=_panel_title(label, _panel_semantic_title(panel)),
+        show_grid=show_grid,
+        show_y_ticklabels=panel.col == 0,
+    )
     if observation == "scf":
         if _resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
             _attach_colorbar(
@@ -1818,14 +2029,75 @@ def _draw_patch_entry(ax, *, y: float, label: str, facecolor, edgecolor="none") 
 
 
 def _draw_station_entry(ax, *, y: float, label: str) -> float:
-    ax.scatter([0.08], [y], s=110, marker="v", facecolor=_STATION_COLOR, edgecolor="none", transform=ax.transAxes, clip_on=False)
-    ax.text(0.18, y, label, transform=ax.transAxes, ha="left", va="center", fontsize=6.4)
-    return y - 0.068
+    ax.scatter([0.070], [y], s=40, marker="v", facecolor=_STATION_COLOR, edgecolor="none", transform=ax.transAxes, clip_on=False)
+    ax.text(0.148, y, label, transform=ax.transAxes, ha="left", va="center", fontsize=6.1)
+    return y - 0.054
 
 
 def _draw_heading(ax, *, y: float, text: str) -> float:
     ax.text(0.0, y, text, transform=ax.transAxes, ha="left", va="top", fontsize=7.8)
     return y - 0.05
+
+
+def _panel_below_item_units(item: LegendItemSpec) -> float:
+    if item.kind == "heading":
+        return 0.65
+    if item.kind == "station_symbol":
+        return 0.40
+    return 1.0
+
+
+def _panel_below_items_layout(items: tuple[LegendItemSpec, ...]) -> tuple[float, float, float, float]:
+    row_units = sum(_panel_below_item_units(item) for item in items)
+    inset_height = max(row_units * _PANEL_BELOW_ITEMS_ROW_HEIGHT_AXES, 1e-9)
+    reserve_extra = _PANEL_BELOW_ITEMS_GAP_AXES + inset_height + _PANEL_BELOW_ITEMS_BOTTOM_PAD_AXES
+    draw_gap = _PANEL_BELOW_ITEMS_DRAW_GAP_BASE_AXES + _PANEL_BELOW_ITEMS_DRAW_GAP_PER_HEIGHT_AXES * inset_height
+    return row_units, inset_height, reserve_extra, draw_gap
+
+
+def _panel_below_items_extra(items: tuple[LegendItemSpec, ...]) -> float:
+    if not items:
+        return 0.0
+    _, _, reserve_extra, _ = _panel_below_items_layout(items)
+    return reserve_extra
+
+
+def _draw_panel_below_items(
+    ax,
+    *,
+    panel: MapPanelSpec,
+    artifacts: dict[str, dict[str, object]],
+) -> None:
+    if not panel.below_items:
+        return
+    row_units, inset_height, _, draw_gap = _panel_below_items_layout(panel.below_items)
+    legend_ax = ax.inset_axes(
+        [0.0, -(draw_gap + inset_height), 1.0, inset_height],
+        transform=ax.transAxes,
+    )
+    _register_child_axes(ax, legend_ax)
+    legend_ax.set_axis_off()
+    y = 1.0 - (0.4 / max(row_units, 1e-9))
+    for item in panel.below_items:
+        if item.kind == "heading":
+            y = _draw_heading(legend_ax, y=y, text=str(item.label))
+        elif item.kind == "station_symbol":
+            y = _draw_station_entry(legend_ax, y=y, label=str(item.label))
+        elif item.kind == "source_legend":
+            if item.label:
+                y = _draw_heading(legend_ax, y=y, text=str(item.label))
+            for handle in _legend_source_handles(item, artifacts):
+                y = _draw_patch_entry(
+                    legend_ax,
+                    y=y,
+                    label=handle.get_label(),
+                    facecolor=handle.get_facecolor(),
+                    edgecolor=handle.get_edgecolor(),
+                )
+        elif item.kind == "scale_bar":
+            continue
+        else:
+            raise ValueError(f"Unsupported below-panel legend item kind '{item.kind}'")
 
 
 def _legend_source_handles(item: LegendItemSpec, artifacts: dict[str, dict[str, object]]) -> list[Patch]:
@@ -1868,6 +2140,63 @@ def _render_legend_panel(ax, *, panel: MapPanelSpec, artifacts: dict[str, dict[s
     return {}
 
 
+def _axes_group_bbox(fig, renderer, axes_group) -> tuple[float, float] | None:
+    inverse = fig.transFigure.inverted()
+    y0_values: list[float] = []
+    y1_values: list[float] = []
+    for ax in axes_group:
+        bbox = ax.get_tightbbox(renderer)
+        if bbox is not None:
+            bbox_fig = bbox.transformed(inverse)
+            y0_values.append(float(bbox_fig.y0))
+            y1_values.append(float(bbox_fig.y1))
+        for child_ax in getattr(ax, "_oa_child_axes", []):
+            child_bbox = child_ax.get_tightbbox(renderer)
+            if child_bbox is None:
+                continue
+            child_bbox_fig = child_bbox.transformed(inverse)
+            y0_values.append(float(child_bbox_fig.y0))
+            y1_values.append(float(child_bbox_fig.y1))
+    if not y0_values:
+        return None
+    return min(y0_values), max(y1_values)
+
+
+def _shift_axes_group(axes_group, delta_y: float) -> None:
+    if delta_y <= 0.0:
+        return
+    for ax in axes_group:
+        pos = ax.get_position()
+        ax.set_position([pos.x0, pos.y0 + delta_y, pos.width, pos.height])
+
+
+def _tighten_panel_row_gaps(fig, row_axes: dict[int, list]) -> None:
+    if len(row_axes) < 2:
+        return
+    canvas = fig.canvas
+    canvas.draw()
+    renderer = canvas.get_renderer()
+    ordered_rows = sorted(row_axes)
+    for idx in range(len(ordered_rows) - 1):
+        upper_row = ordered_rows[idx]
+        lower_rows = ordered_rows[idx + 1 :]
+        upper_bbox = _axes_group_bbox(fig, renderer, row_axes[upper_row])
+        lower_group = [ax for row in lower_rows for ax in row_axes[row]]
+        lower_bbox = _axes_group_bbox(fig, renderer, lower_group)
+        if upper_bbox is None or lower_bbox is None:
+            continue
+        current_gap = upper_bbox[0] - lower_bbox[1]
+        mean_panel_height = float(np.mean([ax.get_position().height for ax in row_axes[upper_row]]))
+        target_gap = max(0.0, _LAYOUT_ROW_GAP * mean_panel_height)
+        delta_y = current_gap - target_gap
+        if delta_y <= 1e-6:
+            continue
+        for row in lower_rows:
+            _shift_axes_group(row_axes[row], delta_y)
+        canvas.draw()
+        renderer = canvas.get_renderer()
+
+
 def render_map_recipe(
     *,
     project_dir: Path,
@@ -1881,7 +2210,7 @@ def render_map_recipe(
     extent = buffered_extent(context)
     grid_extent = _grid_extent(context)
     figure_horizontal_default = _figure_prefers_horizontal_legends(recipe)
-    fig = plt.figure(figsize=_figure_size(extent, recipe))
+    fig = plt.figure(figsize=_figure_size(extent, recipe, context=context, obs_cache=cache.observations))
     width_ratios = _effective_width_ratios(recipe)
     height_ratios = _effective_height_ratios(recipe)
     col_gap_factors = _column_gap_factors(
@@ -1890,11 +2219,13 @@ def render_map_recipe(
     )
     row_bottom_extras = _row_bottom_extras(
         recipe,
+        context=context,
         panel_width_in=_panel_width_in_for_recipe(
             recipe,
             figure_horizontal_default=figure_horizontal_default,
         ),
         figure_horizontal_default=figure_horizontal_default,
+        obs_cache=cache.observations,
     )
     row_gap_factors = tuple(
         _LAYOUT_ROW_GAP + row_bottom_extras[row]
@@ -1920,6 +2251,7 @@ def render_map_recipe(
 
     artifacts: dict[str, dict[str, object]] = {}
     axes: list = []
+    row_axes: dict[int, list] = {row: [] for row in range(recipe.layout.nrows)}
 
     for idx, panel in enumerate(recipe.panels):
         ax = fig.add_subplot(
@@ -1929,6 +2261,7 @@ def render_map_recipe(
             ]
         )
         axes.append(ax)
+        row_axes[int(panel.row)].append(ax)
         key = panel.name or f"panel_{idx}"
         if panel.kind == "overview":
             artifacts[key] = _render_overview_panel(ax, panel=panel, context=context, label=panel_labels[idx], defaults=recipe.defaults)
@@ -1978,7 +2311,10 @@ def render_map_recipe(
             artifacts[key] = _render_legend_panel(ax, panel=panel, artifacts=artifacts)
         else:
             raise ValueError(f"Unsupported panel kind '{panel.kind}'")
+        if panel.below_items:
+            _draw_panel_below_items(ax, panel=panel, artifacts=artifacts)
 
+    _tighten_panel_row_gaps(fig, row_axes)
     force_figure_text_black(fig, axes)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     save_figure_png(fig, output_path, bbox_inches="tight", pad_inches=0.0)

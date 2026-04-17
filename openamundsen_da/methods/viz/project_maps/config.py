@@ -78,6 +78,7 @@ class MapPanelSpec:
     roi_label: str | None = None
     lines: tuple[str, ...] = ()
     items: tuple[LegendItemSpec, ...] = ()
+    below_items: tuple[LegendItemSpec, ...] = ()
     show_colorbar: bool | None = None
     show_scalebar: bool | None = None
     show_grid: bool | None = None
@@ -294,6 +295,7 @@ def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
         roi_label=_optional_str(mapping.get("roi_label")),
         lines=_coerce_str_list(mapping.get("lines"), context=f"{context}.lines"),
         items=_parse_legend_items(mapping.get("items"), context=f"{context}.items"),
+        below_items=_parse_legend_items(mapping.get("below_items"), context=f"{context}.below_items"),
         show_colorbar=_coerce_bool(mapping.get("show_colorbar"), default=None),
         show_scalebar=_coerce_bool(mapping.get("show_scalebar"), default=None),
         show_grid=_coerce_bool(mapping.get("show_grid"), default=None),
@@ -324,6 +326,8 @@ def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
     elif panel.kind == "legend":
         if not (panel.items or panel.source or panel.lines):
             raise ValueError(f"{context} must define items, source, or lines for legend panels")
+        if panel.below_items:
+            raise ValueError(f"{context}.below_items is only supported for non-legend panels")
     elif panel.source is not None and panel.kind not in {"fsc", "wet_snow"}:
         raise ValueError(f"{context}.source is only valid for model panels, legend panels, and colorbar panels")
 

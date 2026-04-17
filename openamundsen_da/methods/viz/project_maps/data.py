@@ -46,6 +46,8 @@ class StaticContext:
     svf: np.ndarray | None
     srf: np.ndarray | None
     stations: pd.DataFrame | None
+    hillshade_dem: np.ndarray | None = None
+    hillshade_transform: object | None = None
 
 
 @dataclass(frozen=True)
@@ -105,6 +107,37 @@ def _read_dataset_array(path: Path, *, shape: tuple[int, int], transform, crs: s
             dst_nodata=np.nan,
         )
         return dst
+
+
+def _read_native_dataset_array(path: Path) -> tuple[np.ndarray, object, str | None]:
+    with rasterio.open(path) as src:
+        arr = src.read(1).astype(float)
+        nodata = src.nodata
+        if nodata is not None:
+            arr[arr == nodata] = np.nan
+        crs = src.crs.to_string() if src.crs else None
+        return arr, src.transform, crs
+
+
+def _highest_resolution_dem_path(spec) -> Path:
+    candidates = {spec.dem_path}
+    prefix = f"dem_{spec.domain}_"
+    for pattern in ("*.asc", "*.tif", "*.tiff"):
+        for path in spec.grids_dir.glob(pattern):
+            if path.is_file() and path.stem.startswith(prefix):
+                candidates.add(path)
+
+    def _resolution_key(path: Path) -> tuple[int, int | str]:
+        stem = path.stem
+        if not stem.startswith(prefix):
+            return (1, path.name)
+        suffix = stem[len(prefix) :]
+        match = re.match(r"(?P<res>\d+)(?:_.*)?$", suffix)
+        if match is None:
+            return (1, path.name)
+        return (0, int(match.group("res")))
+
+    return sorted(candidates, key=_resolution_key)[0]
 
 
 def _load_stations_table(setup_dir: Path) -> pd.DataFrame | None:
@@ -204,6 +237,17 @@ def _load_static_context_cached(project_dir_str: str) -> StaticContext:
         roi_gdf = gpd.GeoDataFrame(geometry=[shapely_shape(geom) for geom in shapes], crs=spec.crs)
 
     dem = _read_dataset_array(spec.dem_path, shape=roi_mask.shape, transform=spec.transform, crs=spec.crs)
+    hillshade_dem = None
+    hillshade_transform = None
+    highest_dem_path = _highest_resolution_dem_path(spec)
+    try:
+        native_dem, native_transform, native_crs = _read_native_dataset_array(highest_dem_path)
+        if spec.crs is None or native_crs is None or str(native_crs).lower() == str(spec.crs).lower():
+            hillshade_dem = native_dem
+            hillshade_transform = native_transform
+    except Exception:
+        hillshade_dem = None
+        hillshade_transform = None
     landcover_path = resolve_setup_landcover_grid(setup_dir)
     landcover = _read_dataset_array(landcover_path, shape=roi_mask.shape, transform=spec.transform, crs=spec.crs)
     svf = _load_optional_setup_grid(
@@ -232,6 +276,8 @@ def _load_static_context_cached(project_dir_str: str) -> StaticContext:
         svf=svf,
         srf=srf,
         stations=stations,
+        hillshade_dem=hillshade_dem,
+        hillshade_transform=hillshade_transform,
     )
 
 

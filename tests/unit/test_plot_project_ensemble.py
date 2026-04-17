@@ -6,9 +6,9 @@ import matplotlib.colors as mcolors
 import pandas as pd
 import pytest
 
-import openamundsen_da.methods.viz.plot_project_ensemble as plot_mod
+import openamundsen_da.methods.viz.plots.project_ensemble as plot_mod
 from openamundsen_da.methods.viz._style import da_variable_style
-from openamundsen_da.methods.viz.plot_project_ensemble import plot_setup_results
+from openamundsen_da.methods.viz.plots.project_ensemble import plot_setup_results
 
 
 def _write_text(path: Path, content: str) -> None:

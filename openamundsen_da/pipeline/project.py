@@ -74,9 +74,9 @@ from openamundsen_da.methods.pf.plot_weights import plot_setup_weights_overview,
 from openamundsen_da.methods.pf.plot_station_diagnostics import plot_station_diagnostics_for_csv
 from openamundsen_da.methods.pf.plot_ess_timeline import plot_setup_ess_timeline
 from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_envelope
-from openamundsen_da.methods.viz.plot_result_overview import cli_main as plot_result_overview_cli
-from openamundsen_da.methods.viz.plot_project_ensemble import plot_setup_results
-from openamundsen_da.methods.viz.plot_forcing_ensemble import cli_main as plot_forcing_cli
+from openamundsen_da.methods.viz.plots.result_overview import cli_main as plot_result_overview_cli
+from openamundsen_da.methods.viz.plots.project_ensemble import plot_setup_results
+from openamundsen_da.methods.viz.plots.forcing_ensemble import cli_main as plot_forcing_cli
 from openamundsen_da.methods.viz.project_maps import project_maps_enabled, render_project_maps
 from openamundsen_da.util.validation import validate_assimilation_requirements
 from openamundsen_da.util.run_mode import ensure_run_mode

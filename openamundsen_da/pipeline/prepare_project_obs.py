@@ -25,7 +25,7 @@ from openamundsen_da.methods.viz.fraction_series import (
     default_fraction_obs_path,
     load_fraction_series,
 )
-from openamundsen_da.methods.viz.plot_result_overview import plot_result_overview
+from openamundsen_da.methods.viz.plots.result_overview import plot_result_overview
 from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
 from openamundsen_da.observer.plot_scf_summary import _load_summary as _load_scf_summary
 from openamundsen_da.util.da_events import AssimilationEvent

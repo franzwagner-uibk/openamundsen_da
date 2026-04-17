@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.patches import FancyBboxPatch, Patch, Rectangle
 
-from openamundsen_da.methods.viz._utils import force_figure_text_black, save_figure_png
+from openamundsen_da.methods.viz.common import force_figure_text_black, save_figure_png
 import openamundsen_da.methods.viz.project_maps.theme as _theme
 import openamundsen_da.methods.viz.project_maps.annotations as _annotations
 import openamundsen_da.methods.viz.project_maps.hillshade as _hillshade_mod

@@ -16,7 +16,7 @@ def test_result_overview_console_script_is_published():
     data = tomllib.loads(pyproject.read_text())
 
     assert data["project"]["scripts"]["oa-da-plot-result-overview"] == (
-        "openamundsen_da.methods.viz.plot_result_overview:cli_main"
+        "openamundsen_da.methods.viz.plots.result_overview:cli_main"
     )
 
 

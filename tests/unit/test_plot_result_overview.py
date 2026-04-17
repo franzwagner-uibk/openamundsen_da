@@ -7,9 +7,9 @@ import pytest
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
-import openamundsen_da.methods.viz.plot_result_overview as plot_mod
+import openamundsen_da.methods.viz.plots.result_overview as plot_mod
 from openamundsen_da.methods.viz._style import da_variable_style
-from openamundsen_da.methods.viz.plot_result_overview import (
+from openamundsen_da.methods.viz.plots.result_overview import (
     PanelSpec,
     StationPanelData,
     _project_custom_config_path,

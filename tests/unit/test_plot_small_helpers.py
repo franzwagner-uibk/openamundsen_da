@@ -6,7 +6,7 @@ import pandas as pd
 
 import openamundsen_da.methods.pf.plot_ess_timeline as ess_mod
 from openamundsen_da.methods.viz._utils import result_axis_scale
-from openamundsen_da.methods.viz.plot_result_overview import plot_result_overview
+from openamundsen_da.methods.viz.plots.result_overview import plot_result_overview
 
 
 def _frame(col: str, values: list[float]) -> pd.DataFrame:

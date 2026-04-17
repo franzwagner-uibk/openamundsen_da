@@ -200,9 +200,15 @@ results/misc/
 
 results/maps/
   setup_overview.png
+  da_1.png
+  da_2.png
   da_3.png
+  da_4.png
+  da_5.png
   da_6.png
   da_7.png
+  da_8.png
+  da_9.png
   da_10.png
 ```
 

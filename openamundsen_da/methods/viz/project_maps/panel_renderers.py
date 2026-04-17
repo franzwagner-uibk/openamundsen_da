@@ -285,6 +285,13 @@ def classified_display_labels(
     raise ValueError(f"Unsupported classified panel kind '{panel.kind}'")
 
 
+def resolve_hillshade_extent(panel: MapPanelSpec, defaults: MapDefaults, *, builtin: str) -> str:
+    extent = panel.hillshade_extent
+    if extent is None:
+        extent = defaults.hillshade_extent
+    return str(extent or builtin)
+
+
 def classified_legend_handles(
     *,
     canonical_codes: list[int],
@@ -925,7 +932,16 @@ def render_model_panel(
         scale_cache[field_key] = comparison_scales([model_cache[field_key]], preset)
     model_norm, increment_norm = scale_cache[field_key]
     if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
-        underlay = hillshade_underlay(context, derived_cache=derived_cache) if panel.kind == "snow_depth" else hillshade(context, derived_cache=derived_cache)
+        hillshade_mode = resolve_hillshade_extent(
+            panel,
+            defaults,
+            builtin="roi" if panel.kind == "snow_depth" else "full",
+        )
+        underlay = (
+            hillshade_underlay(context, derived_cache=derived_cache)
+            if hillshade_mode == "roi"
+            else hillshade(context, derived_cache=derived_cache)
+        )
         ax.imshow(
             underlay,
             cmap="Greys_r",
@@ -1020,8 +1036,11 @@ def render_observation_panel(
     scene = obs_cache[obs_key]
     show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
     if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
+        hillshade_mode = resolve_hillshade_extent(panel, defaults, builtin="full")
         ax.imshow(
-            hillshade(context, derived_cache=derived_cache),
+            hillshade_underlay(context, derived_cache=derived_cache)
+            if hillshade_mode == "roi"
+            else hillshade(context, derived_cache=derived_cache),
             cmap="Greys_r",
             extent=hillshade_extent(context),
             origin="upper",

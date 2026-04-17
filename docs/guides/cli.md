@@ -487,7 +487,7 @@ Typical `maps.yml` files start with a commented panel catalog:
 # - legend
 # - colorbar
 # Optional panel keys:
-# - title, name, date, legend, show_colorbar, show_scalebar, show_grid, show_hillshade
+# - title, name, date, legend, show_colorbar, show_scalebar, show_grid, show_hillshade, hillshade_extent
 # - show_roi, show_station_marker, show_stations_name, show_stations_elev
 ```
 
@@ -502,7 +502,7 @@ oa-da-plot-project-maps \
 **Output:**
 - `results/maps/*.png`
 
-Static context panels (`hillshade`, `dem`, `svf`, `srf`, `landcover`) render the full raster coverage inside the map extent. Model and observation panels remain ROI-masked. In the supported Docker workflow, omitted `--max-workers` uses automatic recipe-level multicore rendering with the effective worker count clamped to `min(visible CPUs, selected recipes)`; pass `--max-workers 1` to keep rendering sequential. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
+Static context panels (`hillshade`, `dem`, `svf`, `srf`, `landcover`) render the full raster coverage inside the map extent. Model and observation panels remain ROI-masked. When `show_hillshade: true`, `hillshade_extent: roi` limits the hillshade to the ROI mask and `hillshade_extent: full` draws it across the full panel. In the supported Docker workflow, omitted `--max-workers` uses automatic recipe-level multicore rendering with the effective worker count clamped to `min(visible CPUs, selected recipes)`; pass `--max-workers 1` to keep rendering sequential. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
 
 Overview panels use setup-local GISCO GeoJSONs under `<setup>/env/` for country boundaries, regions, and labels. If those files are missing, the overview renderer downloads them once into that directory automatically.
 

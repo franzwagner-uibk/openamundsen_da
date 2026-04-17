@@ -25,6 +25,7 @@ SUPPORTED_PANEL_KINDS = {
 SUPPORTED_MODEL_SOURCES = {"open_loop", "ensemble_mean", "increment"}
 SUPPORTED_LEGEND_ITEM_KINDS = {"heading", "station_symbol", "source_legend", "scale_bar"}
 SUPPORTED_PANEL_LEGEND_LAYOUTS = {"horizontal", "vertical"}
+SUPPORTED_HILLSHADE_EXTENTS = {"full", "roi"}
 _REMOVED_PANEL_KEYS = {"variable", "metric", "observation", "field", "style", "legend_inside"}
 _REMOVED_LAYOUT_KEYS = {"wspace", "hspace"}
 _REMOVED_PANEL_KINDS = {"stations", "static_field", "model_field", "increment_field", "observation_field", "roi_overview", "text"}
@@ -45,6 +46,7 @@ class MapDefaults:
     show_scalebar: bool | None = None
     show_grid: bool | None = None
     show_hillshade: bool | None = None
+    hillshade_extent: str | None = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +85,7 @@ class MapPanelSpec:
     show_scalebar: bool | None = None
     show_grid: bool | None = None
     show_hillshade: bool | None = None
+    hillshade_extent: str | None = None
     show_roi: bool | None = None
     show_station_marker: bool | None = None
     show_stations_name: bool | None = None
@@ -194,6 +197,16 @@ def _optional_positive_float(value: object, *, context: str) -> float | None:
     return parsed
 
 
+def _optional_hillshade_extent(value: object, *, context: str) -> str | None:
+    token = _optional_str(value)
+    if token is None:
+        return None
+    if token not in SUPPORTED_HILLSHADE_EXTENTS:
+        supported = ", ".join(sorted(SUPPORTED_HILLSHADE_EXTENTS))
+        raise ValueError(f"{context} must be one of: {supported}")
+    return token
+
+
 def _coerce_str_list(value: object, *, context: str) -> tuple[str, ...]:
     if value is None:
         return ()
@@ -248,6 +261,7 @@ def _parse_defaults(value: object, *, context: str) -> MapDefaults:
         show_scalebar=_coerce_bool(mapping.get("show_scalebar"), default=None),
         show_grid=_coerce_bool(mapping.get("show_grid"), default=None),
         show_hillshade=_coerce_bool(mapping.get("show_hillshade"), default=None),
+        hillshade_extent=_optional_hillshade_extent(mapping.get("hillshade_extent"), context=f"{context}.hillshade_extent"),
     )
 
 
@@ -300,6 +314,7 @@ def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
         show_scalebar=_coerce_bool(mapping.get("show_scalebar"), default=None),
         show_grid=_coerce_bool(mapping.get("show_grid"), default=None),
         show_hillshade=_coerce_bool(mapping.get("show_hillshade"), default=None),
+        hillshade_extent=_optional_hillshade_extent(mapping.get("hillshade_extent"), context=f"{context}.hillshade_extent"),
         show_roi=_coerce_bool(mapping.get("show_roi"), default=None),
         show_station_marker=_coerce_bool(mapping.get("show_station_marker"), default=None),
         show_stations_name=_coerce_bool(mapping.get("show_stations_name"), default=None),

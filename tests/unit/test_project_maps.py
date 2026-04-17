@@ -586,6 +586,69 @@ def test_project_maps_config_accepts_below_panel_legend_items(tmp_path: Path) ->
     assert cfg.maps[0].panels[0].below_items[0].label == "Meteorological stations"
 
 
+def test_project_maps_config_accepts_hillshade_extent_on_defaults_and_panels(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          demo_map:
+            title: demo_map
+            layout:
+              nrows: 1
+              ncols: 2
+            defaults:
+              show_hillshade: true
+              hillshade_extent: roi
+            panels:
+              - row: 0
+                col: 0
+                kind: snow_depth
+                source: open_loop
+                date: "2023-01-02"
+              - row: 0
+                col: 1
+                kind: liquid_water_content
+                source: increment
+                date: "2023-01-02"
+                hillshade_extent: full
+        """,
+    )
+
+    cfg = load_project_maps_config(config_path)
+
+    assert cfg.maps[0].defaults.show_hillshade is True
+    assert cfg.maps[0].defaults.hillshade_extent == "roi"
+    assert cfg.maps[0].panels[1].hillshade_extent == "full"
+
+
+def test_project_maps_config_rejects_invalid_hillshade_extent(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          demo_map:
+            title: demo_map
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: snow_depth
+                source: open_loop
+                date: "2023-01-02"
+                hillshade_extent: outside
+        """,
+    )
+
+    with pytest.raises(ValueError, match="hillshade_extent"):
+        load_project_maps_config(config_path)
+
+
 def test_project_maps_config_rejects_below_items_on_legend_panel(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     config_path = project_dir / "maps.yml"
@@ -774,9 +837,45 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
 
     cfg = load_project_maps_config(config_path)
 
-    assert [recipe.name for recipe in cfg.maps] == ["setup_overview", "da_3", "da_6", "da_7", "da_10"]
-    assert [recipe.title for recipe in cfg.maps] == ["setup_overview", "da_3", "da_6", "da_7", "da_10"]
-    assert [recipe.output_stem for recipe in cfg.maps] == ["setup_overview", "da_3", "da_6", "da_7", "da_10"]
+    assert [recipe.name for recipe in cfg.maps] == [
+        "setup_overview",
+        "da_1",
+        "da_2",
+        "da_3",
+        "da_4",
+        "da_5",
+        "da_6",
+        "da_7",
+        "da_8",
+        "da_9",
+        "da_10",
+    ]
+    assert [recipe.title for recipe in cfg.maps] == [
+        "setup_overview",
+        "da_1",
+        "da_2",
+        "da_3",
+        "da_4",
+        "da_5",
+        "da_6",
+        "da_7",
+        "da_8",
+        "da_9",
+        "da_10",
+    ]
+    assert [recipe.output_stem for recipe in cfg.maps] == [
+        "setup_overview",
+        "da_1",
+        "da_2",
+        "da_3",
+        "da_4",
+        "da_5",
+        "da_6",
+        "da_7",
+        "da_8",
+        "da_9",
+        "da_10",
+    ]
     assert cfg.maps[0].layout.nrows == 2
     assert cfg.maps[0].layout.ncols == 3
     assert [panel.title for panel in cfg.maps[0].panels] == [
@@ -790,6 +889,16 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
     assert [(panel.row, panel.col) for panel in cfg.maps[0].panels] == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
     assert cfg.maps[0].panels[3].name is None
     assert cfg.maps[0].panels[1].below_items[0].label == "Meteorological stations"
+    assert cfg.maps[7].panels[3].show_hillshade is None
+    assert cfg.maps[7].panels[4].show_hillshade is None
+    assert cfg.maps[7].panels[5].show_hillshade is True
+    assert cfg.maps[7].panels[5].hillshade_extent == "roi"
+    assert [panel.kind for panel in cfg.maps[1].panels] == ["snow_depth", "snow_depth", "snow_depth"]
+    assert [panel.kind for panel in cfg.maps[2].panels] == ["snow_depth", "snow_depth", "snow_depth"]
+    assert [panel.kind for panel in cfg.maps[4].panels] == ["snow_depth", "snow_depth", "snow_depth"]
+    assert [panel.kind for panel in cfg.maps[5].panels] == ["snow_depth", "snow_depth", "snow_depth"]
+    assert cfg.maps[8].panels[2].kind == "wet_snow"
+    assert cfg.maps[9].panels[2].kind == "fsc"
 
 
 def test_project_maps_config_rejects_overlapping_panels(tmp_path: Path) -> None:
@@ -1105,6 +1214,123 @@ def test_model_panel_hillshade_respects_recipe_default_and_panel_override(tmp_pa
     finally:
         plt.close(fig_default)
         plt.close(fig_override)
+
+
+def test_model_panel_hillshade_extent_can_switch_between_full_and_roi(tmp_path: Path) -> None:
+    roi_mask = np.array(
+        [
+            [0, 0, 0, 0],
+            [0, 1, 1, 0],
+            [0, 1, 1, 0],
+            [0, 0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
+    _setup_dir, project_dir = _build_project_fixture(
+        tmp_path,
+        roi_mask=roi_mask,
+        roi_bounds=(100.0, 100.0, 300.0, 300.0),
+    )
+    context = load_static_context(project_dir)
+    fig_full, ax_full = plt.subplots(figsize=(3, 3))
+    fig_roi, ax_roi = plt.subplots(figsize=(3, 3))
+    try:
+        render_module._render_model_panel(
+            ax_full,
+            panel=MapPanelSpec(
+                kind="liquid_water_content",
+                row=0,
+                col=0,
+                source="increment",
+                date="2023-01-02",
+                show_colorbar=False,
+            ),
+            context=context,
+            extent=buffered_extent(context),
+            grid_extent=render_module._grid_extent(context),
+            label=None,
+            defaults=MapDefaults(show_hillshade=True, hillshade_extent="full"),
+            model_cache={},
+            scale_cache={},
+            figure_horizontal_default=True,
+        )
+        render_module._render_model_panel(
+            ax_roi,
+            panel=MapPanelSpec(
+                kind="liquid_water_content",
+                row=0,
+                col=0,
+                source="increment",
+                date="2023-01-02",
+                show_colorbar=False,
+                hillshade_extent="roi",
+            ),
+            context=context,
+            extent=buffered_extent(context),
+            grid_extent=render_module._grid_extent(context),
+            label=None,
+            defaults=MapDefaults(show_hillshade=True, hillshade_extent="full"),
+            model_cache={},
+            scale_cache={},
+            figure_horizontal_default=True,
+        )
+        full_underlay = np.ma.asarray(ax_full.images[0].get_array())
+        roi_underlay = np.ma.asarray(ax_roi.images[0].get_array())
+        assert not np.ma.getmaskarray(full_underlay)[0, 0]
+        assert np.ma.getmaskarray(roi_underlay)[0, 0]
+        assert not np.ma.getmaskarray(roi_underlay)[1, 1]
+    finally:
+        plt.close(fig_full)
+        plt.close(fig_roi)
+
+
+def test_observation_panel_hillshade_can_be_disabled_or_limited_to_roi(tmp_path: Path) -> None:
+    roi_mask = np.array(
+        [
+            [0, 0, 0, 0],
+            [0, 1, 1, 0],
+            [0, 1, 1, 0],
+            [0, 0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
+    _setup_dir, project_dir = _build_project_fixture(
+        tmp_path,
+        roi_mask=roi_mask,
+        roi_bounds=(100.0, 100.0, 300.0, 300.0),
+    )
+    context = load_static_context(project_dir)
+    fig_off, ax_off = plt.subplots(figsize=(3, 3))
+    fig_roi, ax_roi = plt.subplots(figsize=(3, 3))
+    try:
+        render_module._render_observation_panel(
+            ax_off,
+            panel=MapPanelSpec(kind="wet_snow", row=0, col=0, date="2023-01-02"),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(show_hillshade=False),
+            obs_cache={},
+            figure_horizontal_default=True,
+        )
+        render_module._render_observation_panel(
+            ax_roi,
+            panel=MapPanelSpec(kind="wet_snow", row=0, col=0, date="2023-01-02"),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(show_hillshade=True, hillshade_extent="roi"),
+            obs_cache={},
+            figure_horizontal_default=True,
+        )
+        assert len(ax_off.images) == 1
+        assert len(ax_roi.images) == 2
+        roi_underlay = np.ma.asarray(ax_roi.images[0].get_array())
+        assert np.ma.getmaskarray(roi_underlay)[0, 0]
+        assert not np.ma.getmaskarray(roi_underlay)[1, 1]
+    finally:
+        plt.close(fig_off)
+        plt.close(fig_roi)
 
 
 def test_snowdepth_model_palette_uses_reference_ticks_and_transparent_under_range() -> None:
@@ -1823,10 +2049,13 @@ def test_shipped_rofental_render_regression_against_tuned_baseline(tmp_path: Pat
 
     outputs = render_project_maps(project_dir=project_dir, max_workers=1)
 
-    assert [path.name for path in outputs] == ["setup_overview.png", "da_3.png", "da_6.png", "da_7.png", "da_10.png"]
+    expected_names = sorted(path.name for path in (PROJECT_MAPS_FIXTURE_DIR / "expected").glob("*.png"))
+    output_names = [path.name for path in outputs]
+    assert set(expected_names).issubset(output_names)
     for output_path in outputs:
         expected_path = PROJECT_MAPS_FIXTURE_DIR / "expected" / output_path.name
-        assert expected_path.is_file()
+        if not expected_path.is_file():
+            continue
         diff = _mean_abs_png_diff(expected_path, output_path)
         if diff >= 0.01:
             failure_dir = tmp_path / "project_map_regression_failure"

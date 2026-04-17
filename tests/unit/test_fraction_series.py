@@ -80,7 +80,7 @@ def test_default_result_overview_output_uses_new_filename(tmp_path: Path) -> Non
 
     out_path = default_result_overview_output(project_dir, None)
 
-    assert out_path == project_dir / "plots" / "results" / "result_overview.png"
+    assert out_path == project_dir / "results" / "plots" / "results" / "result_overview.png"
 
 
 def test_load_named_member_series_returns_member_mapping(tmp_path: Path) -> None:

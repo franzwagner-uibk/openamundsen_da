@@ -5,8 +5,8 @@ from pathlib import Path
 import pandas as pd
 
 import openamundsen_da.methods.pf.plot_ess_timeline as ess_mod
-from openamundsen_da.methods.viz._utils import result_axis_scale
-from openamundsen_da.methods.viz.plot_result_overview import plot_result_overview
+from openamundsen_da.methods.viz.plots.common import result_axis_scale
+from openamundsen_da.methods.viz.plots.result_overview import plot_result_overview
 
 
 def _frame(col: str, values: list[float]) -> pd.DataFrame:
@@ -86,3 +86,37 @@ def test_plot_ess_timeline_uses_sparse_threshold_and_top_y_ticks() -> None:
 
     assert list(fig.axes[0].get_yticks()) == [23.5, 47.0]
     plt.close(fig)
+
+
+def test_plot_setup_ess_timeline_uses_canonical_project_results_dir(tmp_path: Path) -> None:
+    project_dir = tmp_path / "projects" / "project_2022_2023"
+    step_dir = project_dir / "steps" / "step_00_init"
+    (step_dir / "assim").mkdir(parents=True, exist_ok=True)
+    (step_dir / "step_00_init.yml").write_text(
+        "start_date: '2023-01-01'\nend_date: '2023-01-31'\n",
+        encoding="utf-8",
+    )
+    (project_dir / "project_2022_2023.yml").write_text(
+        "\n".join(
+            [
+                "start_date: '2023-01-01'",
+                "end_date: '2023-01-31'",
+                "data_assimilation:",
+                "  assimilation_events:",
+                "    - date: '2023-01-15'",
+                "      variable: station_hs",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    pd.DataFrame({"weight": [0.6, 0.4]}).to_csv(
+        step_dir / "assim" / "weights_station_hs_20230115.csv",
+        index=False,
+    )
+
+    out_path = ess_mod.plot_setup_ess_timeline(project_dir)
+
+    assert out_path == project_dir / "results" / "plots" / "assim" / "ess" / "setup_ess_timeline_2022_2023.png"
+    assert out_path.is_file()
+    assert not (project_dir / "plots").exists()

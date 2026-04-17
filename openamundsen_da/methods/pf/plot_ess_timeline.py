@@ -17,16 +17,24 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 from openamundsen_da.util.stats import effective_sample_size
-from openamundsen_da.io.paths import find_project_yaml, list_step_dirs, list_steps_sorted, read_step_config
+from openamundsen_da.io.paths import (
+    find_project_yaml,
+    list_step_dirs,
+    list_steps_sorted,
+    project_plot_assim_ess_dir,
+    read_step_config,
+)
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.yaml_utils import read_yaml_mapping
-from openamundsen_da.methods.viz._utils import (
+from openamundsen_da.methods.viz.plots.common import (
     apply_fraction_grid,
     draw_assim_labels,
     draw_assimilation_vlines,
-    force_figure_text_black,
     result_title_pad,
+)
+from openamundsen_da.methods.viz.common import (
+    force_figure_text_black,
     save_figure_png,
     set_matplotlib_text_black,
 )
@@ -329,7 +337,7 @@ def plot_setup_ess_timeline(
 
     Scans steps/step_*/assim/weights_*_*.csv under setup_dir, computes ESS per
     assimilation date, and writes a single PNG under
-    <setup_dir>/plots/assim/ess/setup_ess_timeline_<setup_id>.png.
+    <project_dir>/results/plots/assim/ess/setup_ess_timeline_<setup_id>.png.
     """
     setup_dir = Path(setup_dir)
     df = load_setup_ess_series(setup_dir)
@@ -349,7 +357,7 @@ def plot_setup_ess_timeline(
         backend=backend,
     )
     setup_id = _setup_id_from_dir(setup_dir)
-    out_dir = setup_dir / "plots" / "assim" / "ess"
+    out_dir = project_plot_assim_ess_dir(setup_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"setup_ess_timeline_{setup_id}.png"
     save_figure_png(fig, out, bbox_inches="tight", pad_inches=0.08)

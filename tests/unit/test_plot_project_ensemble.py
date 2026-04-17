@@ -6,9 +6,9 @@ import matplotlib.colors as mcolors
 import pandas as pd
 import pytest
 
-import openamundsen_da.methods.viz.plot_project_ensemble as plot_mod
-from openamundsen_da.methods.viz._style import da_variable_style
-from openamundsen_da.methods.viz.plot_project_ensemble import plot_setup_results
+import openamundsen_da.methods.viz.plots.project_ensemble as plot_mod
+from openamundsen_da.methods.viz.plots.theme import da_variable_style
+from openamundsen_da.methods.viz.plots.project_ensemble import plot_setup_results
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -79,12 +79,15 @@ def test_plot_setup_results_members_mode_draws_members_without_band(tmp_path: Pa
     original_close = plt.close
     plt.close = lambda fig=None: None
     try:
-        plot_setup_results(
+        out_dir = plot_setup_results(
             setup_dir=project_dir,
             var_col="swe",
             mode="members",
             configure_logger=False,
         )
+        assert out_dir == project_dir / "results" / "plots" / "points"
+        assert not (project_dir / "plots").exists()
+        assert (out_dir / "setup_results_point_latschbloder_swe_2022_2023.png").is_file()
         fig = plt.gcf()
         ax = fig.axes[0]
         assert len(ax.collections) == 0

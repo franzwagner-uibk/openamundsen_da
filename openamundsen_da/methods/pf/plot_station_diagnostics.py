@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from openamundsen_da.methods.viz._utils import (
+from openamundsen_da.methods.viz.common import (
     force_figure_text_black,
     save_figure_png,
     set_matplotlib_text_black,

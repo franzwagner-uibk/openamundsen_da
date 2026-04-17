@@ -19,9 +19,11 @@ Most tutorial outputs live under:
 The most important locations are:
 
 - `project_2022_2023.log`
-- `plots/perf/`
-- `plots/assim/`
-- `plots/results/`
+- `results/plots/perf/`
+- `results/plots/assim/`
+- `results/plots/results/`
+- `results/maps/`
+- `results/misc/`
 - `results/grids/da_output_grids.nc`
 
 ## 1. Read the log first
@@ -55,19 +57,19 @@ Warning signs:
 
 ---
 
-## 2. Performance diagnostics (`plots/perf`)
+## 2. Performance diagnostics (`results/plots/perf`)
 
 The performance plots help you understand runtime distribution and resource behavior.
 
 Files to inspect:
 
-- `plots/perf/project_perf.png`
-- `plots/perf/project_perf_metrics.csv`
+- `results/plots/perf/project_perf.png`
+- `results/plots/perf/project_perf_metrics.csv`
 
-Reference structure snippet (`plots/perf`)
+Reference structure snippet (`results/plots/perf`)
 
 ```text
-/data/rofental/projects/project_2022_2023/plots/perf/
+/data/rofental/projects/project_2022_2023/results/plots/perf/
   project_perf.png
   project_perf_metrics.csv
 ```
@@ -84,7 +86,7 @@ Reference structure snippet (`plots/perf`)
 
 Reference CSV snippet (performance metrics)
 
-File path: `/data/rofental/projects/project_2022_2023/plots/perf/project_perf_metrics.csv`
+File path: `/data/rofental/projects/project_2022_2023/results/plots/perf/project_perf_metrics.csv`
 
 | timestamp | cpu_total_pct | mem_used_pct | mem_used_gb | mem_total_gb |
 | --- | --- | --- | --- | --- |
@@ -96,7 +98,7 @@ File path: `/data/rofental/projects/project_2022_2023/plots/perf/project_perf_me
 
 Plot file to open:
 
-- `/data/rofental/projects/project_2022_2023/plots/perf/project_perf.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/perf/project_perf.png`
 
 Reference plot (tutorial baseline, `ens=15`):
 
@@ -115,27 +117,31 @@ What to read in the plot:
 
 ---
 
-## 3. Assimilation diagnostics (`plots/assim`)
+## 3. Assimilation diagnostics (`results/plots/assim`)
 
 These plots are the core data assimilation diagnostics.
 
 Typical outputs:
 
-- `plots/assim/weights/DA_XX_weights.png`
-- `plots/assim/weights/setup_weights_overview_*.png`
-- `plots/assim/ess/setup_ess_timeline_*.png`
+- `results/plots/assim/weights/DA_XX_weights.png`
+- `results/plots/assim/weights/setup_weights_overview_*.png`
+- `results/plots/assim/ess/setup_ess_timeline_*.png`
+- `results/plots/assim/scores/performance_scores.png`
 
 What they show:
 
 - **weights**: how strongly observations favor some particles over others
 - **ESS (effective sample size)**: particle degeneracy indicator
+- **headline benchmark scores**: update-date `CRPSS`, `NER`, and station-only `zSkill` when available
 
-Reference structure snippet (`plots/assim`, typical files)
+Reference structure snippet (`results/plots/assim`, typical files)
 
 ```text
-/data/rofental/projects/project_2022_2023/plots/assim/
+/data/rofental/projects/project_2022_2023/results/plots/assim/
   ess/
     setup_ess_timeline_2022_2023.png
+  scores/
+    performance_scores.png
   weights/
     DA_01_weights.png
     ...
@@ -172,9 +178,10 @@ File path: `/data/rofental/projects/project_2022_2023/steps/step_03_20230122-202
 
 Plot files to open:
 
-- `/data/rofental/projects/project_2022_2023/plots/assim/ess/setup_ess_timeline_2022_2023.png`
-- `/data/rofental/projects/project_2022_2023/plots/assim/weights/setup_weights_overview_2022_2023.png`
-- `/data/rofental/projects/project_2022_2023/plots/assim/weights/DA_04_weights.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/assim/ess/setup_ess_timeline_2022_2023.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/assim/scores/performance_scores.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/assim/weights/setup_weights_overview_2022_2023.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/assim/weights/DA_04_weights.png`
 
 Reference ESS plot (tutorial baseline):
 
@@ -214,9 +221,9 @@ Exact weights differ between runs because the ensemble is stochastic. Focus on t
 
 ---
 
-## 4. Result plots (`plots/results`)
+## 4. Point plots (`results/plots/points`)
 
-This directory contains the main user-facing validation and data assimilation result figures for the setup.
+This directory contains the stitched station and ROI point plots for the setup.
 
 Typical files include:
 
@@ -225,12 +232,10 @@ Typical files include:
 - station SWE plots
 - ROI envelope exports and land-cover masking report
 
-Reference structure snippet (`plots/results`, typical files)
+Reference structure snippet (`results/plots/points`, typical files)
 
 ```text
-/data/rofental/projects/project_2022_2023/plots/results/
-  result_overview.png
-  lc_mask_report.csv
+/data/rofental/projects/project_2022_2023/results/plots/points/
   setup_results_point_latschbloder_snow_depth_2022_2023.png
   setup_results_point_latschbloder_swe_2022_2023.png
   setup_results_point_proviantdepot_snow_depth_2022_2023.png
@@ -275,7 +280,7 @@ result plots and ROI envelope values shown in this chapter.
 
 Reference CSV snippet (land-cover masking report)
 
-File path: `/data/rofental/projects/project_2022_2023/plots/results/lc_mask_report.csv`
+File path: `/data/rofental/projects/project_2022_2023/results/misc/lc_mask_report.csv`
 
 | class_code | class_name | cells | area_km2 | percent_of_roi |
 | --- | --- | --- | --- | --- |
@@ -293,11 +298,11 @@ How to use this table:
 
 Recommended plot files to inspect (Rofental tutorial run):
 
-- `/data/rofental/projects/project_2022_2023/plots/results/result_overview.png`
-- `/data/rofental/projects/project_2022_2023/plots/results/setup_results_point_latschbloder_snow_depth_2022_2023.png`
-- `/data/rofental/projects/project_2022_2023/plots/results/setup_results_point_proviantdepot_snow_depth_2022_2023.png`
-- `/data/rofental/projects/project_2022_2023/plots/results/setup_results_point_latschbloder_swe_2022_2023.png`
-- `/data/rofental/projects/project_2022_2023/plots/results/setup_results_point_proviantdepot_swe_2022_2023.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/results/result_overview.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/points/setup_results_point_latschbloder_snow_depth_2022_2023.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/points/setup_results_point_proviantdepot_snow_depth_2022_2023.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/points/setup_results_point_latschbloder_swe_2022_2023.png`
+- `/data/rofental/projects/project_2022_2023/results/plots/points/setup_results_point_proviantdepot_swe_2022_2023.png`
 
 <details markdown="block">
   <summary>Suggested plot review order (practical)</summary>
@@ -467,6 +472,9 @@ Use `results/grids/da_output_grids.nc` in a GIS software of your choice and visu
 Recommended map date(s): choose one date with active snow cover and one date near melt season.
 Use the same date across `open_loop`, `ens_mean`, and `increment` maps.
 
+For the shipped examples, a curated `maps.yml` now drives publication-style PNG exports under `results/maps/`. Use `oa-da-plot-project-maps --project-dir /data/rofental/projects/project_2022_2023 --max-workers 4` to rerender them directly from the grid-composed project map recipes. Omit `--max-workers` to let the Docker container auto-select a recipe-level worker count from the visible CPUs. Overview panels use setup-local GISCO GeoJSONs under `env/`; if you want to prefetch them ahead of time, run `oa-da-fetch-overview-geojson --project-dir /data/rofental/projects/project_2022_2023`.
+For `snowdepth_daily`, the map renderer uses the fixed tutorial/reference palette with legend ticks in `cm` (`1, 10, 25, 50, 100, 200, 300, 400+`). Cells below `1 cm` stay transparent so only meaningful snow cover is colored. Increment panels use a signed diverging palette: negative increments are red, positive increments are blue.
+
 ### data assimilation increment map
 
 The tutorial also includes a reference increment map above (`increment_snowdepth_daily`, date
@@ -482,7 +490,7 @@ The tutorial also includes a reference increment map above (`increment_snowdepth
 
 ## 6. ROI envelopes and summary CSVs
 
-The project root contains setup-level envelope time series:
+The project now writes these setup-level envelope time series under `results/misc/`:
 
 - `point_scf_roi_envelope.csv`
 - `point_wet_snow_roi_envelope.csv`
@@ -493,8 +501,8 @@ These CSVs are lightweight outputs that are ideal for quick comparisons between 
 
 Reference file paths for ROI envelope outputs:
 
-- `/data/rofental/projects/project_2022_2023/point_scf_roi_envelope.csv`
-- `/data/rofental/projects/project_2022_2023/point_wet_snow_roi_envelope.csv`
+- `/data/rofental/projects/project_2022_2023/results/misc/point_scf_roi_envelope.csv`
+- `/data/rofental/projects/project_2022_2023/results/misc/point_wet_snow_roi_envelope.csv`
 
 
 {: .checks }
@@ -506,7 +514,7 @@ Reference file paths for ROI envelope outputs:
 
 Reference CSV snippet (SCF ROI envelope)
 
-File path: `/data/rofental/projects/project_2022_2023/point_scf_roi_envelope.csv`
+File path: `/data/rofental/projects/project_2022_2023/results/misc/point_scf_roi_envelope.csv`
 
 | date | value_mean | value_min | value_max | n |
 | --- | --- | --- | --- | --- |
@@ -517,7 +525,7 @@ File path: `/data/rofental/projects/project_2022_2023/point_scf_roi_envelope.csv
 
 Reference CSV snippet (wet-snow ROI envelope)
 
-File path: `/data/rofental/projects/project_2022_2023/point_wet_snow_roi_envelope.csv`
+File path: `/data/rofental/projects/project_2022_2023/results/misc/point_wet_snow_roi_envelope.csv`
 
 | date | value_mean | value_min | value_max | n |
 | --- | --- | --- | --- | --- |
@@ -542,11 +550,11 @@ Interpretation:
 > Use this checklist after each tutorial run:
 >
 > 1. Log ends with `Project processing complete`
-> 2. `plots/perf/project_perf.png` exists
-> 3. `plots/assim/` contains ESS and weight plots
-> 4. `plots/results/result_overview.png` exists
+> 2. `results/plots/perf/project_perf.png` exists
+> 3. `results/plots/assim/` contains ESS, weight, and score plots
+> 4. `results/plots/results/result_overview.png` exists
 > 5. Station plots exist (snow depth and SWE)
-> 6. `point_scf_roi_envelope.csv` and `point_wet_snow_roi_envelope.csv` exist
+> 6. `results/misc/point_scf_roi_envelope.csv` and `results/misc/point_wet_snow_roi_envelope.csv` exist
 > 7. `results/grids/da_output_grids.nc` exists and opens
 >
 > If one of these fails, check the log before changing configuration.

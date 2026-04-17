@@ -23,14 +23,14 @@ obs:
 
 data_assimilation:
   prior_forcing:
-    ensemble_size: 15
+    ensemble_size: 30
     random_seed: 42
     sigma_t: 0.7
     mu_p: 0.0
     sigma_p: 0.8
   resampling:
     algorithm: systematic
-    ess_threshold_ratio: 0.5
+    ess_threshold_ratio: 0.7
     seed: 42
   rejuvenation:
     sigma_t: 0.7
@@ -42,21 +42,21 @@ data_assimilation:
     dump_state: true
     state_pattern: model_state.pickle.gz
   assimilation_events:
-  - date: '2022-11-22'
+  - date: '2022-11-24'
     variable: station_hs
   - date: '2022-12-22'
     variable: station_hs
-  - date: '2023-01-22'
+  - date: '2023-01-21'
     variable: station_hs
   - date: '2023-02-21'
     variable: station_hs
   - date: '2023-03-22'
     variable: station_hs
-  - date: '2023-04-26'
-    variable: station_hs
-  - date: '2023-05-03'
+  - date: '2023-04-29'
     variable: wet_snow
     product: WETSNOW
+  - date: '2023-05-03'
+    variable: station_hs
   - date: '2023-05-23'
     variable: wet_snow
     product: WETSNOW
@@ -147,6 +147,8 @@ data_assimilation:
   benchmark:
     independent_variables:
     - station_swe
+    performance_scores_exclude_variables: [station_swe]
+    score_station_sigma_threshold: 200
     plots: true
     output_dir: results/benchmark
   output:

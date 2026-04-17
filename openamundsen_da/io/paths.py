@@ -301,6 +301,118 @@ def abspath_relative_to(base: str | Path, p: str | Path) -> str:
     return str(pp if pp.is_absolute() else (base / pp))
 
 
+def project_results_root(project_dir: str | Path) -> Path:
+    """Return the canonical project-level results root."""
+    return Path(project_dir) / "results"
+
+
+def project_plots_root(project_dir: str | Path) -> Path:
+    """Return the canonical project-level plots root."""
+    return project_results_root(project_dir) / "plots"
+
+
+def project_plot_results_dir(project_dir: str | Path) -> Path:
+    """Return the canonical project-level result-plots directory."""
+    return project_plots_root(project_dir) / "results"
+
+
+def project_plot_assim_dir(project_dir: str | Path) -> Path:
+    """Return the canonical project-level assimilation-plots directory."""
+    return project_plots_root(project_dir) / "assim"
+
+
+def project_plot_assim_weights_dir(project_dir: str | Path) -> Path:
+    """Return the canonical project-level weights-plots directory."""
+    return project_plot_assim_dir(project_dir) / "weights"
+
+
+def project_plot_assim_ess_dir(project_dir: str | Path) -> Path:
+    """Return the canonical project-level ESS-plots directory."""
+    return project_plot_assim_dir(project_dir) / "ess"
+
+
+def project_plot_assim_scores_dir(project_dir: str | Path) -> Path:
+    """Return the canonical project-level benchmark score-plots directory."""
+    return project_plot_assim_dir(project_dir) / "scores"
+
+
+def project_plot_perf_dir(project_dir: str | Path) -> Path:
+    """Return the canonical project-level performance-plots directory."""
+    return project_plots_root(project_dir) / "perf"
+
+
+def project_plot_points_dir(project_dir: str | Path) -> Path:
+    """Return the canonical project-level points-plots directory."""
+    return project_plots_root(project_dir) / "points"
+
+
+def project_result_overview_output_path(project_dir: str | Path) -> Path:
+    """Return the canonical default result-overview plot path."""
+    return project_plot_results_dir(project_dir) / "result_overview.png"
+
+
+def project_result_overview_custom_output_path(project_dir: str | Path) -> Path:
+    """Return the canonical custom result-overview plot path."""
+    return project_plot_results_dir(project_dir) / "result_overview_custom.png"
+
+
+def project_obs_selection_plot_path(project_dir: str | Path) -> Path:
+    """Return the canonical observation-selection plot path."""
+    return project_plot_results_dir(project_dir) / "obs_selection.png"
+
+
+def project_misc_root(project_dir: str | Path) -> Path:
+    """Return the canonical project-level misc-artifacts directory."""
+    return project_results_root(project_dir) / "misc"
+
+
+def project_fraction_envelope_path(project_dir: str | Path, observable: str) -> Path:
+    """Return the canonical fraction-envelope CSV path for one observable."""
+    token = str(observable).strip().lower()
+    if token == "scf":
+        name = "point_scf_roi_envelope.csv"
+    elif token in {"wet_snow", "wet_snow_fraction"}:
+        name = "point_wet_snow_roi_envelope.csv"
+    else:
+        raise ValueError(f"Unsupported fraction envelope observable: {observable}")
+    return project_misc_root(project_dir) / name
+
+
+def project_landcover_mask_report_path(project_dir: str | Path) -> Path:
+    """Return the canonical land-cover mask report path."""
+    return project_misc_root(project_dir) / "lc_mask_report.csv"
+
+
+def project_grids_root(project_dir: str | Path) -> Path:
+    """Return the canonical project-level grids directory."""
+    return project_results_root(project_dir) / "grids"
+
+
+def project_da_output_grids_path(project_dir: str | Path) -> Path:
+    """Return the canonical compact DA summary NetCDF path."""
+    return project_grids_root(project_dir) / "da_output_grids.nc"
+
+
+def project_maps_root(project_dir: str | Path) -> Path:
+    """Return the canonical project-level maps directory."""
+    return project_results_root(project_dir) / "maps"
+
+
+def project_maps_output_dir(project_dir: str | Path) -> Path:
+    """Return the canonical flat output directory for project maps."""
+    return project_maps_root(project_dir)
+
+
+def project_benchmark_root(project_dir: str | Path) -> Path:
+    """Return the canonical project-level benchmark directory."""
+    return project_results_root(project_dir) / "benchmark"
+
+
+def project_benchmark_plots_dir(project_dir: str | Path) -> Path:
+    """Legacy alias for the canonical project-level benchmark score-plots directory."""
+    return project_plot_assim_scores_dir(project_dir)
+
+
 # ---- Prior ensemble layout helpers -----------------------------------------
 
 PathLike = Union[str, Path]
@@ -452,4 +564,3 @@ def find_member_daily_grid_slice(
     raise FileNotFoundError(
         f"No GeoTIFF or NetCDF daily grid found for variable '{variable}' and date {date_str} in {results_dir}"
     )
-

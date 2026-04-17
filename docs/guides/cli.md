@@ -83,20 +83,22 @@ docker compose run --rm oa oa-da-project \
 - `results/benchmark/tables/project_summary.csv`
 - `results/benchmark/tables/update_summary.csv`
 - `results/benchmark/summary.md`
-- `plots/assim/scores/performance_scores.png`
+- `results/plots/assim/scores/performance_scores.png`
 
-**Benchmark config block (optional scope controls only):**
+**Benchmark config block (optional benchmark controls):**
 ```yaml
 data_assimilation:
   benchmark:
     independent_variables:
       - station_swe
+    score_station_sigma_threshold: 200
     plots: true
     output_dir: results/benchmark
 ```
 
-Configured extra benchmark families can still appear as `semi_independent` in outputs when they share same-variable reuse or sister-station representativeness with assimilated observations.
-The headline plot shows only DA-date `prior` and `posterior` skill for assimilated and transfer-observed variables; whole-project propagated skill remains in `project_summary.csv`.
+Configured extra benchmark families can still appear as `semi_independent` in outputs, but only from the first same-variable or sister-station assimilation date onward.
+`score_station_sigma_threshold` optionally excludes station rows with high resolved `station_uncertainty_pct` from non-sigma-aware benchmark metrics (`CRPSS`, `NER`) while leaving sigma-aware `zSkill` unchanged.
+The headline plot shows only DA-date `prior` and `posterior` skill for assimilated and transfer-observed variables; whole-project propagated skill remains in `project_summary.csv`. Station-point rows also carry sigma-aware `zSkill`, and the headline plot adds a third `zSkill` panel whenever those station scores are available.
 
 ---
 
@@ -444,7 +446,7 @@ Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PR
 
 **Setup result overview**
 
-Plots the combined setup result overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. If `<project-dir>/result_overview_custom.yml` exists, the pipeline additionally writes `result_overview_custom.png` with the configured panel list. Custom panel configs also support `scores-crpss` and `scores-ner` to embed the benchmark score panels individually.
+Plots the combined setup result overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. If `<project-dir>/plots.yml` exists, the pipeline additionally writes `result_overview_custom.png` with the configured panel list. Custom panel configs also support `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
 
 ```bash
 oa-da-plot-result-overview \
@@ -454,8 +456,67 @@ oa-da-plot-result-overview \
 ```
 
 **Output:**
-- `plots/results/result_overview.png`
-- `plots/results/result_overview_custom.png` when `<project-dir>/result_overview_custom.yml` is present
+- `results/plots/results/result_overview.png`
+- `results/plots/results/result_overview_custom.png` when `<project-dir>/plots.yml` is present
+
+---
+
+### oa-da-plot-project-maps
+
+**Publication-style project maps**
+
+Renders curated project maps from the compact project summary grid, setup grids, ROI, stations, and project observation summaries. Rendering is driven entirely by `<project-dir>/maps.yml`, which defines generic grid-composed figures with explicit panel placement, titles, and styles. The same sidecar also enables best-effort post-run pipeline rendering.
+Map panels use the example-map visual grammar by default: boxed axes, coordinate ticks and grid lines, subplot labels like `(a)`, and attached vertical colorbars. Snow-depth model maps use the fixed reference palette with colorbar ticks shown in `cm`, and cells below `1 cm` remain transparent. Increment maps use a signed diverging palette with negative changes in red and positive changes in blue.
+
+Typical `maps.yml` files start with a commented panel catalog:
+
+```yaml
+# Available panel kinds:
+# - overview                 # scale: 1000000 ; optional roi_label
+# - roi
+# - hillshade
+# - dem
+# - svf
+# - srf
+# - landcover
+# - snow_depth               # source: open_loop | ensemble_mean | increment
+# - swe                      # source: open_loop | ensemble_mean | increment
+# - liquid_water_content     # source: open_loop | ensemble_mean | increment
+# - fsc
+# - wet_snow
+# - legend
+# - colorbar
+# Optional panel keys:
+# - title, name, date, legend, show_colorbar, show_scalebar, show_grid, show_hillshade, hillshade_extent
+# - show_roi, show_station_marker, show_stations_name, show_stations_elev
+```
+
+```bash
+oa-da-plot-project-maps \
+  --project-dir PATH \
+  [--config PATH] \
+  [--name RECIPE_NAME] \
+  [--max-workers N]
+```
+
+**Output:**
+- `results/maps/*.png`
+
+Static context panels (`hillshade`, `dem`, `svf`, `srf`, `landcover`) render the full raster coverage inside the map extent. Model and observation panels remain ROI-masked. When `show_hillshade: true`, `hillshade_extent: roi` limits the hillshade to the ROI mask and `hillshade_extent: full` draws it across the full panel. In the supported Docker workflow, omitted `--max-workers` uses automatic recipe-level multicore rendering with the effective worker count clamped to `min(visible CPUs, selected recipes)`; pass `--max-workers 1` to keep rendering sequential. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
+
+Overview panels use setup-local GISCO GeoJSONs under `<setup>/env/` for country boundaries, regions, and labels. If those files are missing, the overview renderer downloads them once into that directory automatically.
+
+### oa-da-fetch-overview-geojson
+
+**Prefetch setup-local overview GeoJSONs**
+
+Downloads the GISCO overview boundaries, regions, and labels into `<setup>/env/` so overview-map rendering does not need a first-use network fetch.
+
+```bash
+oa-da-fetch-overview-geojson --setup-dir PATH
+# OR
+oa-da-fetch-overview-geojson --project-dir PATH
+```
 
 ---
 
@@ -494,7 +555,7 @@ oa-da-plot-ess --setup-dir PATH  # Setup-wide
 
 **Output:**
 - Per-step: `plots/assim/ess/step_XX_ess.png`
-- Setup: `plots/assim/ess/setup_ess_timeline_{setup}.png`
+- Setup: `results/plots/assim/ess/setup_ess_timeline_{setup}.png`
 
 ---
 
@@ -516,8 +577,8 @@ oa-da-perf-monitor \
 Suggested intervals: sample every 5–10 seconds; refresh the plot every 30–60 seconds.
 
 **Output:**
-- `plots/perf/setup_perf_metrics.csv`
-- `plots/perf/setup_perf.png` (CPU/RAM% left axis, disk GB right axis)
+- `results/plots/perf/project_perf_metrics.csv`
+- `results/plots/perf/project_perf.png` (CPU/RAM% left axis, disk GB right axis)
 
 ---
 

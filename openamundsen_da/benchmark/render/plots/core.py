@@ -16,19 +16,21 @@ from matplotlib.lines import Line2D
 from matplotlib.legend_handler import HandlerBase
 from matplotlib.ticker import MultipleLocator
 
-from openamundsen_da.methods.viz._style import (
+from openamundsen_da.methods.viz.plots.theme import (
     FIGHEIGHT_OVERVIEW_ROW,
     FIGWIDTH_OVERVIEW_PAPER,
     LEGEND_NCOL,
     STANDALONE_SCORE_FIGURE_ROW_UNITS,
 )
-from openamundsen_da.methods.viz._utils import (
+from openamundsen_da.methods.viz.plots.common import (
     CRPSS_AXIS_POLICY,
     align_figure_title_to_plot_block,
     apply_fraction_grid,
     bounded_metric_range,
     draw_assim_labels,
     draw_assimilation_vlines,
+)
+from openamundsen_da.methods.viz.common import (
     force_figure_text_black,
     save_figure_png,
     set_matplotlib_text_black,
@@ -51,6 +53,11 @@ _STREAM_LABELS = {
     "semi_independent": "semi-independent",
     "independent": "independent",
 }
+_METRIC_PANEL_LABELS = {
+    "crpss": "CRPSS",
+    "ner": "NER",
+    "zskill": "zSkill",
+}
 _FIGURE_TITLE = "Data assimilation performance scores"
 _MARKER_EDGE_COLOR = "#000000"
 _MARKER_EDGE_WIDTH = 0.5
@@ -70,6 +77,11 @@ class _LabeledLegendTuple(tuple):
 
 class _StageLegendHandle(_LabeledLegendTuple):
     pass
+
+
+class _LegendSpacerHandle:
+    def get_label(self) -> str:
+        return ""
 
 
 class _StageLegendHandler(HandlerBase):
@@ -109,6 +121,29 @@ class _StageLegendHandler(HandlerBase):
         return artists
 
 
+class _LegendSpacerHandler(HandlerBase):
+    def create_artists(
+        self,
+        legend,
+        orig_handle,
+        xdescent,
+        ydescent,
+        width,
+        height,
+        fontsize,
+        trans,
+    ):
+        artist = Line2D(
+            [-xdescent],
+            [-ydescent],
+            linestyle="none",
+            marker="",
+            alpha=0.0,
+        )
+        artist.set_transform(trans)
+        return [artist]
+
+
 def _project_assimilation_events(project_dir: Path):
     return sorted(load_assimilation_events(project_dir), key=lambda event: (pd.Timestamp(event.date), str(event.variable)))
 
@@ -144,11 +179,36 @@ def _clean_plot_dir(plots_dir: Path) -> None:
                 stale.unlink()
 
 
+def _remove_dir_if_present(path: Path) -> None:
+    if path.exists():
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+
+
+def _remove_empty_legacy_plot_parents(project_dir: Path) -> None:
+    for candidate in (
+        project_dir / "plots" / "assim",
+        project_dir / "plots",
+    ):
+        if candidate.is_dir():
+            try:
+                candidate.rmdir()
+            except OSError:
+                pass
+
+
 def clean_plot_outputs(project_dir: Path, plots_dir: Path) -> None:
     _clean_plot_dir(plots_dir)
-    legacy_root = project_dir / "plots" / "benchmark"
-    if legacy_root.exists():
-        shutil.rmtree(legacy_root)
+    legacy_roots = (
+        project_dir / "results" / "benchmark" / "plots",
+        project_dir / "plots" / "benchmark",
+        project_dir / "plots" / "assim" / "scores",
+    )
+    for legacy_root in legacy_roots:
+        _remove_dir_if_present(legacy_root)
+    _remove_empty_legacy_plot_parents(project_dir)
 
 
 def _normalized_date_series(frame: pd.DataFrame) -> pd.Series:
@@ -159,26 +219,27 @@ def _normalized_date_series(frame: pd.DataFrame) -> pd.Series:
 
 def _reduce_daily_means(frame: pd.DataFrame, *, point_type: str) -> pd.DataFrame:
     if frame.empty:
-        return pd.DataFrame(columns=["variable", "stream", "assimilation_date", "point_type", "crpss", "ner"])
+        return pd.DataFrame(columns=["variable", "stream", "assimilation_date", "point_type", "crpss", "ner", "zskill"])
     working = frame.copy()
     working["assimilation_date"] = _normalized_date_series(working)
+    metric_cols = [col for col in ("crpss", "ner", "zskill") if col in working.columns]
     aggregated = (
-        working.groupby(["variable", "stream", "assimilation_date"], sort=True, dropna=False)[["crpss", "ner"]]
+        working.groupby(["variable", "stream", "assimilation_date"], sort=True, dropna=False)[metric_cols]
         .mean()
         .reset_index()
     )
     aggregated["point_type"] = point_type
-    return aggregated[["variable", "stream", "assimilation_date", "point_type", "crpss", "ner"]]
+    return aggregated.reindex(columns=["variable", "stream", "assimilation_date", "point_type", "crpss", "ner", "zskill"])
 
 
 def build_event_skill_plot_data(event_scores: pd.DataFrame, *, project_dir: Path) -> pd.DataFrame:
     """Build one-row-per-variable-date-point-type data for the headline benchmark plot."""
     if event_scores.empty:
-        return pd.DataFrame(columns=["variable", "stream", "assimilation_date", "point_type", "crpss", "ner"])
+        return pd.DataFrame(columns=["variable", "stream", "assimilation_date", "point_type", "crpss", "ner", "zskill"])
 
     assimilation_dates = _project_assimilation_dates(project_dir)
     if not assimilation_dates:
-        return pd.DataFrame(columns=["variable", "stream", "assimilation_date", "point_type", "crpss", "ner"])
+        return pd.DataFrame(columns=["variable", "stream", "assimilation_date", "point_type", "crpss", "ner", "zskill"])
     valid_dates = pd.DatetimeIndex(assimilation_dates)
 
     analysis = event_scores[
@@ -208,6 +269,15 @@ def build_event_skill_plot_data(event_scores: pd.DataFrame, *, project_dir: Path
         ),
     ).reset_index(drop=True)
     return merged
+
+
+def _score_plot_metrics(points: pd.DataFrame) -> list[str]:
+    metrics = ["crpss", "ner"]
+    if "zskill" in points.columns:
+        values = pd.to_numeric(points["zskill"], errors="coerce")
+        if values.notna().any():
+            metrics.append("zskill")
+    return metrics
 
 
 def _scaled_timedelta(delta: pd.Timedelta, factor: float) -> pd.Timedelta:
@@ -486,15 +556,40 @@ def _stage_legend_handle(point_type: str) -> _StageLegendHandle:
     return _StageLegendHandle(artists, point_type)
 
 
-def score_legend_handler_map() -> dict[type, HandlerBase]:
-    return {_StageLegendHandle: _StageLegendHandler()}
+def _stream_legend_handle(stream: str) -> Line2D:
+    return Line2D(
+        [0],
+        [0],
+        linestyle="none",
+        marker=_STREAM_MARKERS[stream],
+        markersize=5.5,
+        markerfacecolor="white",
+        markeredgecolor=_MARKER_EDGE_COLOR,
+        markeredgewidth=_MARKER_EDGE_WIDTH,
+        color="black",
+        label=_STREAM_LABELS[stream],
+    )
 
 
-def score_legend_handles(variables: list[str], *, include_da_event: bool = True) -> list:
-    handles: list = []
+def _da_event_legend_handle() -> Line2D:
+    return Line2D(
+        [0],
+        [0],
+        color="#777777",
+        lw=1.2,
+        ls="--",
+        label="data assimilation event",
+    )
+
+
+def _score_legend_display_rows(variables: list[str], *, include_da_event: bool = True) -> list[list]:
+    if len(variables) > 4:
+        raise ValueError(f"Score legend layout supports at most 4 variables, got {len(variables)}")
+
+    variable_handles: list[Line2D] = []
     for variable in variables:
         score_color = score_variable_color(variable)
-        handles.append(
+        variable_handles.append(
             Line2D(
                 [0],
                 [0],
@@ -508,38 +603,55 @@ def score_legend_handles(variables: list[str], *, include_da_event: bool = True)
                 label=variable_label(variable),
             )
         )
-    extra_handles = [
-            _stage_legend_handle("prior"),
-            _stage_legend_handle("posterior"),
-            *[
-                Line2D(
-                    [0],
-                    [0],
-                    linestyle="none",
-                    marker=_STREAM_MARKERS[stream],
-                    markersize=5.5,
-                    markerfacecolor="white",
-                    markeredgecolor=_MARKER_EDGE_COLOR,
-                    markeredgewidth=_MARKER_EDGE_WIDTH,
-                    color="black",
-                    label=_STREAM_LABELS[stream],
-                )
-                for stream in _STREAM_ORDER
-            ],
-    ]
+
+    variable_cols = (len(variable_handles) + 1) // 2
+    ncols = variable_cols + 3
+    spacer = _LegendSpacerHandle()
+    rows = [[spacer for _ in range(ncols)] for _ in range(2)]
+
+    for idx, handle in enumerate(variable_handles):
+        row = idx % 2
+        col = idx // 2
+        rows[row][col] = handle
+
+    stage_col = variable_cols
+    rows[0][stage_col] = _stage_legend_handle("posterior")
+    rows[1][stage_col] = _stage_legend_handle("prior")
+    rows[0][stage_col + 1] = _stream_legend_handle("assimilation_fit")
+    rows[1][stage_col + 1] = _stream_legend_handle("semi_independent")
+    rows[0][stage_col + 2] = _stream_legend_handle("independent")
     if include_da_event:
-        extra_handles.append(
-            Line2D(
-                [0],
-                [0],
-                color="#777777",
-                lw=1.2,
-                ls="--",
-                label="data assimilation event",
-            )
-        )
-    handles.extend(extra_handles)
+        rows[1][stage_col + 2] = _da_event_legend_handle()
+
+    return rows
+
+
+def _flatten_legend_rows_for_column_major(rows: list[list]) -> list:
+    if not rows:
+        return []
+
+    handles: list = []
+    ncols = max(len(row) for row in rows)
+    for col in range(ncols):
+        for row in rows:
+            handles.append(row[col])
+
+    while handles and isinstance(handles[-1], _LegendSpacerHandle):
+        handles.pop()
     return handles
+
+
+def score_legend_handler_map() -> dict[type, HandlerBase]:
+    return {
+        _StageLegendHandle: _StageLegendHandler(),
+        _LegendSpacerHandle: _LegendSpacerHandler(),
+    }
+
+
+def score_legend_handles(variables: list[str], *, include_da_event: bool = True) -> list:
+    return _flatten_legend_rows_for_column_major(
+        _score_legend_display_rows(variables, include_da_event=include_da_event)
+    )
 
 
 def score_variable_sort_key(variable: str) -> tuple[int, str]:
@@ -559,8 +671,13 @@ def _write_event_skill_figure(
     *,
     event_scores: pd.DataFrame,
     project_dir: Path,
+    exclude_variables: tuple[str, ...] = (),
 ) -> Path | None:
     points = build_event_skill_plot_data(event_scores, project_dir=project_dir)
+    if exclude_variables:
+        excluded = {str(v).strip().lower() for v in exclude_variables if str(v).strip()}
+        if excluded:
+            points = points[~points["variable"].astype(str).str.lower().isin(excluded)].copy()
     if points.empty:
         return None
 
@@ -575,44 +692,39 @@ def _write_event_skill_figure(
 
     variables = sorted(points["variable"].astype(str).unique(), key=_sort_variable)
     points = compute_event_skill_plot_positions(points, assimilation_dates=assimilation_dates)
+    metrics = _score_plot_metrics(points)
 
     set_matplotlib_text_black(matplotlib)
     fig, axes = plt.subplots(
-        2,
+        len(metrics),
         1,
-        figsize=(FIGWIDTH_OVERVIEW_PAPER, FIGHEIGHT_OVERVIEW_ROW * STANDALONE_SCORE_FIGURE_ROW_UNITS),
+        figsize=(
+            FIGWIDTH_OVERVIEW_PAPER,
+            FIGHEIGHT_OVERVIEW_ROW * STANDALONE_SCORE_FIGURE_ROW_UNITS * (len(metrics) / 2.0),
+        ),
         sharex=True,
         squeeze=False,
     )
-    ax_crpss, ax_ner = axes[:, 0]
+    metric_axes = list(axes[:, 0])
 
-    _draw_metric_panel(
-        ax_crpss,
-        points=points,
-        metric="crpss",
-        variables=variables,
-        assimilation_events=assimilation_events,
-    )
-    _draw_metric_panel(
-        ax_ner,
-        points=points,
-        metric="ner",
-        variables=variables,
-        assimilation_events=assimilation_events,
-    )
+    for ax, metric in zip(metric_axes, metrics, strict=True):
+        _draw_metric_panel(
+            ax,
+            points=points,
+            metric=metric,
+            variables=variables,
+            assimilation_events=assimilation_events,
+        )
+        ax.set_ylabel(_METRIC_PANEL_LABELS[metric])
+        ax.set_title("")
+    metric_axes[-1].set_xlabel("")
 
-    ax_crpss.set_ylabel("CRPSS")
-    ax_ner.set_ylabel("NER")
-    ax_ner.set_xlabel("")
-    ax_crpss.set_title("")
-    ax_ner.set_title("")
-
-    for ax in (ax_crpss, ax_ner):
+    for ax in metric_axes:
         ax.set_xlim(x_min, x_max)
-    _apply_result_like_time_axis_labels((ax_crpss, ax_ner), (x_min, x_max))
+    _apply_result_like_time_axis_labels(tuple(metric_axes), (x_min, x_max))
 
     label_axes = []
-    for idx, ax in enumerate((ax_crpss, ax_ner)):
+    for idx, ax in enumerate(metric_axes):
         label_axis = _add_assim_label_axis(ax, assimilation_dates, idx)
         if label_axis is not None:
             label_axes.append(label_axis)
@@ -634,10 +746,10 @@ def _write_event_skill_figure(
         borderaxespad=0.0,
     )
     fig.tight_layout(rect=(-0.015, 0.058, 0.992, 0.998), h_pad=0.72)
-    fig.align_ylabels((ax_crpss, ax_ner))
+    fig.align_ylabels(tuple(metric_axes))
     fig.suptitle(_FIGURE_TITLE, ha="left", fontsize=10.2)
-    _align_title_to_plot_block(fig, (ax_crpss, ax_ner, *label_axes))
-    force_figure_text_black(fig, (ax_crpss, ax_ner, *label_axes))
+    _align_title_to_plot_block(fig, (*metric_axes, *label_axes))
+    force_figure_text_black(fig, (*metric_axes, *label_axes))
     ensure_dir(out_path.parent)
     save_figure_png(fig, out_path)
     plt.close(fig)
@@ -651,6 +763,7 @@ def write_plots(
     project_dir: Path,
     case_scores: pd.DataFrame | None = None,
     reliability: pd.DataFrame | None = None,
+    exclude_variables: tuple[str, ...] = (),
 ) -> dict[str, Path]:
     del case_scores, reliability
     plots_dir = Path(plots_dir)
@@ -658,7 +771,12 @@ def write_plots(
 
     outputs: dict[str, Path] = {}
     out_path = plots_dir / "performance_scores.png"
-    written = _write_event_skill_figure(out_path, event_scores=event_scores, project_dir=project_dir)
+    written = _write_event_skill_figure(
+        out_path,
+        event_scores=event_scores,
+        project_dir=project_dir,
+        exclude_variables=exclude_variables,
+    )
     if written is not None:
         outputs["performance_scores"] = written
     return outputs

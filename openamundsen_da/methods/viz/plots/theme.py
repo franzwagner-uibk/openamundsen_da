@@ -1,4 +1,13 @@
-"""Shared visualization style constants for ensemble plots."""
+"""Shared visualization style constants for ensemble plot modules."""
+
+from __future__ import annotations
+
+from openamundsen_da.methods.viz.theme import (
+    EXPORT_DPI,
+    FIGHEIGHT_OVERVIEW_ROW,
+    FIGWIDTH_OVERVIEW_PAPER,
+    TEXT_COLOR as COLOR_TEXT,
+)
 
 COLOR_MEAN = "#120fb6"
 COLOR_OPEN_LOOP = "black"
@@ -26,7 +35,6 @@ GRID_LW = 0.6
 GRID_ALPHA = 0.7
 
 # Titles / text
-COLOR_TEXT = "#000000"
 FS_TITLE = 12
 FS_SUBTITLE = 10
 COLOR_SUBTITLE = COLOR_TEXT
@@ -44,13 +52,8 @@ CRPSS_AXIS_UPPER_CAP = 1.0
 # Figure sizes
 FIGSIZE_FORCING = (12.0, 6.0)
 FIGSIZE_RESULTS = (10.2, 5.2)
-FIGWIDTH_OVERVIEW_PAPER = 7.2876875
-FIGHEIGHT_OVERVIEW_ROW = 1.71236835
 OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR = 1.68
 STANDALONE_SCORE_FIGURE_ROW_UNITS = 2.91
-
-# Export
-EXPORT_DPI = 600
 
 _DA_VARIABLE_ALIASES = {
     "scf": "scf",

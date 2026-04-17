@@ -23,6 +23,8 @@ from openamundsen_da.util.da_observables import weights_csv_name
 from openamundsen_da.util.station_da import (
     is_station_variable,
     load_station_assimilation_config,
+    read_station_metadata,
+    resolve_station_sigma_base,
     station_observation_csvs,
     station_variable_spec,
 )
@@ -56,6 +58,7 @@ class RawBenchmarkCase:
     prior_values: tuple[float, ...] | None
     posterior_values: tuple[float, ...] | None
     posterior_weights: tuple[float, ...] | None
+    sigma_base: float | None = None
 
 
 @dataclass(frozen=True)
@@ -154,6 +157,14 @@ def event_dates_by_variable(project_dir: Path) -> dict[str, set[date]]:
     return out
 
 
+def _first_event_date_by_variable(project_dir: Path) -> dict[str, date]:
+    first_dates: dict[str, date] = {}
+    for variable, dates in event_dates_by_variable(project_dir).items():
+        if dates:
+            first_dates[variable] = min(dates)
+    return first_dates
+
+
 def analysis_event_contexts(project_dir: Path, *, variables: Iterable[str] | None = None) -> list[AnalysisEventContext]:
     selected = None
     if variables is not None:
@@ -183,20 +194,30 @@ def analysis_event_contexts(project_dir: Path, *, variables: Iterable[str] | Non
     return contexts
 
 
-def _has_same_station_link(variable: str, event_dates: dict[str, set[date]]) -> bool:
+def _has_active_station_link(variable: str, *, obs_date: date, first_event_dates: dict[str, date]) -> bool:
     if not is_station_variable(variable):
         return False
     return any(
-        is_station_variable(other_variable) and other_variable != variable and bool(dates)
-        for other_variable, dates in event_dates.items()
+        is_station_variable(other_variable) and other_variable != variable and first_date <= obs_date
+        for other_variable, first_date in first_event_dates.items()
     )
 
 
-def _obs_stream(variable: str, timestamp: pd.Timestamp, event_dates: dict[str, set[date]]) -> str:
+def _obs_stream(
+    variable: str,
+    timestamp: pd.Timestamp,
+    event_dates: dict[str, set[date]],
+    *,
+    first_event_dates: dict[str, date],
+) -> str:
+    obs_date = timestamp.date()
     variable_dates = event_dates.get(variable, set())
-    if timestamp.date() in variable_dates:
+    if obs_date in variable_dates:
         return "assimilation_fit"
-    if variable_dates or _has_same_station_link(variable, event_dates):
+    first_variable_date = first_event_dates.get(variable)
+    if first_variable_date is not None and first_variable_date < obs_date:
+        return "semi_independent"
+    if _has_active_station_link(variable, obs_date=obs_date, first_event_dates=first_event_dates):
         return "semi_independent"
     return "independent"
 
@@ -361,6 +382,39 @@ def _member_values_nearest(named_series: dict[str, pd.Series], timestamp: pd.Tim
     return matched_time, values
 
 
+def _station_sigma_context(
+    *,
+    setup_dir: Path,
+    project_dir: Path,
+) -> tuple:
+    config = load_station_assimilation_config(setup_dir, project_dir)
+    metadata_df = read_station_metadata(config.metadata_path)
+    return config, metadata_df
+
+
+def _station_case_sigma_base(
+    *,
+    setup_dir: Path,
+    project_dir: Path,
+    variable: str,
+    station_id: str,
+    obs_value: float,
+    sigma_context: tuple | None,
+) -> float:
+    config, metadata_df = sigma_context or _station_sigma_context(
+        setup_dir=setup_dir,
+        project_dir=project_dir,
+    )
+    sigma_terms = resolve_station_sigma_base(
+        station_id=station_id,
+        obs_value=float(obs_value),
+        variable=variable,
+        config=config,
+        metadata_df=metadata_df,
+    )
+    return float(sigma_terms.sigma_base)
+
+
 def _weights_for_event(step_dir: Path, variable: str, assimilation_dt: datetime) -> pd.DataFrame:
     weights_path = step_dir / "assim" / weights_csv_name(variable, assimilation_dt)
     if not weights_path.is_file():
@@ -412,7 +466,9 @@ def extract_continuous_cases(
     start_date, end_date = project_window(project_dir)
     windows = step_windows(project_dir)
     events_by_var = event_dates_by_variable(project_dir)
+    first_event_dates = _first_event_date_by_variable(project_dir)
     out: list[RawBenchmarkCase] = []
+    station_sigma_context = None
 
     for variable in sorted({benchmark_variable_spec(v).variable for v in variables}):
         spec = benchmark_variable_spec(variable)
@@ -441,7 +497,12 @@ def extract_continuous_cases(
                     RawBenchmarkCase(
                         score_set="continuous",
                         variable=variable,
-                        stream=_obs_stream(variable, timestamp, events_by_var),
+                        stream=_obs_stream(
+                            variable,
+                            timestamp,
+                            events_by_var,
+                            first_event_dates=first_event_dates,
+                        ),
                         timestamp=timestamp,
                         obs_id="roi",
                         step_name=_match_step_name(timestamp, windows),
@@ -455,6 +516,8 @@ def extract_continuous_cases(
                 )
             continue
 
+        if station_sigma_context is None:
+            station_sigma_context = _station_sigma_context(setup_dir=setup_dir, project_dir=project_dir)
         obs_series_by_station = _station_observation_series(
             setup_dir=setup_dir,
             project_dir=project_dir,
@@ -481,7 +544,12 @@ def extract_continuous_cases(
                     RawBenchmarkCase(
                         score_set="continuous",
                         variable=variable,
-                        stream=_obs_stream(variable, timestamp, events_by_var),
+                        stream=_obs_stream(
+                            variable,
+                            timestamp,
+                            events_by_var,
+                            first_event_dates=first_event_dates,
+                        ),
                         timestamp=timestamp,
                         obs_id=station_id,
                         step_name=_match_step_name(timestamp, windows),
@@ -491,6 +559,14 @@ def extract_continuous_cases(
                         prior_values=None,
                         posterior_values=None,
                         posterior_weights=None,
+                        sigma_base=_station_case_sigma_base(
+                            setup_dir=setup_dir,
+                            project_dir=project_dir,
+                            variable=variable,
+                            station_id=station_id,
+                            obs_value=float(obs_value),
+                            sigma_context=station_sigma_context,
+                        ),
                     )
                 )
     return out
@@ -511,8 +587,10 @@ def extract_analysis_cases(
     station_obs_cache: dict[str, dict[str, pd.Series]] = {}
     open_loop_cache: dict[tuple[str, str | None], pd.Series | None] = {}
     members_cache: dict[tuple[str, str | None], dict[str, pd.Series]] = {}
+    station_sigma_context = None
 
     events_by_var = event_dates_by_variable(project_dir)
+    first_event_dates = _first_event_date_by_variable(project_dir)
 
     for ctx in analysis_event_contexts(project_dir):
         if not (start_date <= ctx.event_date <= end_date):
@@ -560,7 +638,12 @@ def extract_analysis_cases(
                     variable=benchmark_variable,
                     timestamp=timestamp,
                 )
-                stream = _obs_stream(benchmark_variable, timestamp, events_by_var)
+                stream = _obs_stream(
+                    benchmark_variable,
+                    timestamp,
+                    events_by_var,
+                    first_event_dates=first_event_dates,
+                )
                 out.append(
                     RawBenchmarkCase(
                         score_set="analysis",
@@ -615,6 +698,8 @@ def extract_analysis_cases(
                 member_time, member_values = members_match
                 if member_time != obs_time:
                     continue
+                if station_sigma_context is None:
+                    station_sigma_context = _station_sigma_context(setup_dir=setup_dir, project_dir=project_dir)
                 prior_values = tuple(member_values[mid] for mid in sorted(member_values))
                 posterior_values, posterior_weights = _aligned_posterior(
                     member_values,
@@ -622,7 +707,12 @@ def extract_analysis_cases(
                     variable=benchmark_variable,
                     timestamp=obs_time,
                 )
-                stream = _obs_stream(benchmark_variable, obs_time, events_by_var)
+                stream = _obs_stream(
+                    benchmark_variable,
+                    obs_time,
+                    events_by_var,
+                    first_event_dates=first_event_dates,
+                )
                 out.append(
                     RawBenchmarkCase(
                         score_set="analysis",
@@ -637,6 +727,14 @@ def extract_analysis_cases(
                         prior_values=prior_values,
                         posterior_values=posterior_values,
                         posterior_weights=posterior_weights,
+                        sigma_base=_station_case_sigma_base(
+                            setup_dir=setup_dir,
+                            project_dir=project_dir,
+                            variable=benchmark_variable,
+                            station_id=station_id,
+                            obs_value=float(obs_value),
+                            sigma_context=station_sigma_context,
+                        ),
                     )
                 )
     return out

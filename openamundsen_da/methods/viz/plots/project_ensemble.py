@@ -1,4 +1,4 @@
-﻿"""openamundsen_da.methods.viz.plot_project_ensemble
+﻿"""openamundsen_da.methods.viz.plots.project_ensemble
 
 Setup-wide ensemble plots that stitch together all step segments into a single
 figure per station, with vertical dashed lines marking assimilation instants.
@@ -15,14 +15,15 @@ Behavior and conventions
   present in steps.
 - Draws vertical dashed lines at the start of each step i >= 1 (assimilation
   times), excluding the first step (typically October 1st).
-- Output figures are written under ``<setup_dir>/plots/{forcing,results}/`` and
-  include the setup identifier in the filename.
+- Output figures are written under the canonical project-level
+  ``<project_dir>/results/plots/points/`` directory and include the project
+  identifier in the filename.
 
 CLI usage examples
 - Forcing (two panels):
-  ``python -m openamundsen_da.methods.viz.plot_project_ensemble forcing --setup-dir <path/to/setup> --hydro-month 10 --hydro-day 1``
+  ``python -m openamundsen_da.methods.viz.plots.project_ensemble forcing --setup-dir <path/to/setup> --hydro-month 10 --hydro-day 1``
 - Results (SWE):
-  ``python -m openamundsen_da.methods.viz.plot_project_ensemble results --setup-dir <path/to/setup> --var-col swe``
+  ``python -m openamundsen_da.methods.viz.plots.project_ensemble results --setup-dir <path/to/setup> --var-col swe``
 
 Notes
 - End date accepts both ``YYYY-MM-DD`` and compact forms like ``YYYY-06_01``; the
@@ -49,10 +50,11 @@ from openamundsen_da.io.paths import (
     read_step_config,
     list_station_files_forcing as io_list_station_files_forcing,
     list_point_files_results as io_list_point_files_results,
+    project_plot_points_dir,
 )
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.da_events import load_assimilation_events
-from openamundsen_da.methods.viz._style import (
+from openamundsen_da.methods.viz.plots.theme import (
     BAND_ALPHA,
     COLOR_MEMBER,
     COLOR_MEAN,
@@ -88,7 +90,7 @@ from openamundsen_da.util.ts import (
     read_timeseries_csv,
     concat_series,
 )
-from openamundsen_da.methods.viz._utils import (
+from openamundsen_da.methods.viz.plots.common import (
     apply_fraction_grid,
     draw_assimilation_vlines,
     dedupe_legend,
@@ -102,7 +104,7 @@ from openamundsen_da.methods.viz._utils import (
     save_figure_png,
     set_matplotlib_text_black,
 )
-from openamundsen_da.methods.viz._ensemble_meta import load_stations_table_from_steps
+from openamundsen_da.methods.viz.plots.ensemble_meta import load_stations_table_from_steps
 from openamundsen_da.util.station_da import station_observation_csvs
 
 
@@ -586,7 +588,7 @@ def plot_setup_forcing(
     if max_stations is not None:
         station_files = station_files[: max(0, int(max_stations))]
 
-    out_root = setup_dir / "plots" / "forcing"
+    out_root = project_plot_points_dir(setup_dir)
     out_root.mkdir(parents=True, exist_ok=True)
     setup_id = _setup_id_from_dir(setup_dir)
     stations_df = load_stations_table_from_steps([s.path for s in steps], "prior")
@@ -837,7 +839,7 @@ def plot_setup_results(
     if max_stations is not None:
         point_files = point_files[: max(0, int(max_stations))]
 
-    out_root = setup_dir / "plots" / "results"
+    out_root = project_plot_points_dir(setup_dir)
     out_root.mkdir(parents=True, exist_ok=True)
     setup_id = _setup_id_from_dir(setup_dir)
     stations_df = load_stations_table_from_steps([s.path for s in steps], "prior")
@@ -1072,7 +1074,7 @@ def plot_setup_both(
 # ---- CLI --------------------------------------------------------------------
 
 
-def _cli(argv: Iterable[str] | None = None) -> int:
+def cli_main(argv: Iterable[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="oa-da-plot-setup",
         description="Setup-wide ensemble plots (forcing/results) with assimilation markers.",
@@ -1164,4 +1166,4 @@ def _cli(argv: Iterable[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(_cli())
+    raise SystemExit(cli_main())

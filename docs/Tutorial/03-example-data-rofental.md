@@ -14,7 +14,7 @@ context.
 
 ![Rofental tutorial setup map (domain, forcing stations, and land cover layer)]({{ site.baseurl }}/assets/images/tutorial/rofental_setup_map.png)
 
-*Rofental tutorial setup showing the model domain, forcing stations, and land-cover context used throughout the tutorial.*
+*Rofental tutorial setup map rendered from `projects/project_2022_2023/maps.yml`, showing the model domain, forcing stations, and land-cover context used throughout the tutorial.*
 
 ## What Is Included
 

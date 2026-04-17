@@ -11,6 +11,7 @@ from openamundsen_da.subdomain.merge import merge_grids
 from openamundsen_da.subdomain.prepare import prepare_subdomains
 from openamundsen_da.subdomain.report import write_subdomain_reports
 from openamundsen_da.subdomain.run import run_subdomains
+from openamundsen_da.methods.viz.maps import project_maps_enabled, render_project_maps
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.util.run_mode import ensure_run_mode
 
@@ -125,13 +126,23 @@ def run_pipeline(
         if skip_plot:
             logger.info("PLOT skipped")
         else:
-            logger.info(
-                "PLOT skipped in subdomain pipeline: sub-domain mode keeps point outputs and plots inside each sub-domain project (variable={}, obs_col={}, obs_scale={}, stations={}).",
-                plot_var,
-                plot_obs_col,
-                plot_obs_scale,
-                plot_stations,
-            )
+            if skip_merge:
+                logger.info("PLOT skipped in subdomain pipeline: merged project maps require merge_grids output.")
+            elif not project_maps_enabled(project_dir):
+                logger.info("PLOT skipped in subdomain pipeline: no maps.yml found under {}", project_dir)
+            else:
+                try:
+                    outputs = render_project_maps(project_dir=project_dir)
+                    logger.info("PLOT OK (project maps, {} output(s))", len(outputs))
+                except Exception as exc:
+                    logger.warning(
+                        "PLOT failed in subdomain pipeline after merge (variable={}, obs_col={}, obs_scale={}, stations={}): {}",
+                        plot_var,
+                        plot_obs_col,
+                        plot_obs_scale,
+                        plot_stations,
+                        exc,
+                    )
 
         logger.info("PIPELINE DONE subdomain_root={}", subdomain_root)
     finally:

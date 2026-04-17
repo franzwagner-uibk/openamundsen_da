@@ -137,7 +137,8 @@ Validation focuses on:
   - wet-snow weights CSVs
   - member SCF point time series
   - forcing plots, setup result plots, setup ESS timeline, setup weights overview, and assimilation plots
-  - benchmark outputs under `results/benchmark/` and the headline skill figure `plots/assim/scores/performance_scores.png`
+  - benchmark outputs under `results/benchmark/` and the headline skill figure `results/plots/assim/scores/performance_scores.png`
+  - project maps under `results/maps/` when `maps.yml` is present
   - shipped semi-independent benchmark view for `station_swe`
   - persistent point outputs (`point_*.csv`)
   - compact data assimilation grid output (`results/grids/da_output_grids.nc`)

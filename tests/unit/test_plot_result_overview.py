@@ -7,9 +7,9 @@ import pytest
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
-import openamundsen_da.methods.viz.plot_result_overview as plot_mod
-from openamundsen_da.methods.viz._style import da_variable_style
-from openamundsen_da.methods.viz.plot_result_overview import (
+import openamundsen_da.methods.viz.plots.result_overview as plot_mod
+from openamundsen_da.methods.viz.plots.theme import da_variable_style
+from openamundsen_da.methods.viz.plots.result_overview import (
     PanelSpec,
     StationPanelData,
     _project_custom_config_path,
@@ -38,6 +38,7 @@ def _score_points() -> pd.DataFrame:
                 "point_type": "prior",
                 "crpss": 0.10,
                 "ner": 0.05,
+                "zskill": float("nan"),
             },
             {
                 "variable": "scf",
@@ -46,6 +47,7 @@ def _score_points() -> pd.DataFrame:
                 "point_type": "posterior",
                 "crpss": 0.35,
                 "ner": 0.22,
+                "zskill": float("nan"),
             },
             {
                 "variable": "station_swe",
@@ -54,6 +56,7 @@ def _score_points() -> pd.DataFrame:
                 "point_type": "prior",
                 "crpss": 0.18,
                 "ner": 0.11,
+                "zskill": -0.08,
             },
             {
                 "variable": "station_swe",
@@ -62,6 +65,7 @@ def _score_points() -> pd.DataFrame:
                 "point_type": "posterior",
                 "crpss": 0.26,
                 "ner": 0.16,
+                "zskill": 0.24,
             },
         ]
     )
@@ -720,9 +724,90 @@ def test_plot_result_overview_supports_custom_crpss_score_panel(tmp_path: Path) 
         assert "assimilation fit" in score_labels
         assert getattr(plt.gcf().legends[0], "_ncols", None) == 4
         assert getattr(plt.gcf().legends[1], "_ncols", None) == 5
+        plt.gcf().canvas.draw()
+        renderer = plt.gcf().canvas.get_renderer()
+        score_texts = {text.get_text(): text for text in plt.gcf().legends[1].get_texts() if text.get_text()}
+        assert score_texts["posterior"].get_window_extent(renderer).y0 > score_texts["prior"].get_window_extent(renderer).y0
         assert out_path.is_file()
     finally:
         plt.close = original_close
+
+
+def test_load_score_points_for_custom_overview_applies_benchmark_exclusions(tmp_path: Path) -> None:
+    project_dir = tmp_path / "projects" / "project_2022_2023"
+    (project_dir / "results" / "benchmark" / "scores").mkdir(parents=True)
+    (project_dir / "project_2022_2023.yml").write_text(
+        "\n".join(
+            [
+                "start_date: '2022-10-01'",
+                "end_date: '2023-06-30'",
+                "data_assimilation:",
+                "  assimilation_events:",
+                "    - date: '2023-01-02'",
+                "      variable: scf",
+                "      product: SNOWCOVER",
+                "    - date: '2023-01-03'",
+                "      variable: station_hs",
+                "  benchmark:",
+                "    performance_scores_exclude_variables: [station_swe]",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    pd.DataFrame(
+        [
+            {
+                "score_set": "analysis",
+                "variable": "scf",
+                "stream": "assimilation_fit",
+                "representation": "prior",
+                "timestamp": "2023-01-02 09:00:00",
+                "date": "2023-01-02",
+                "crpss": 0.10,
+                "ner": 0.05,
+                "zskill": float("nan"),
+            },
+            {
+                "score_set": "analysis",
+                "variable": "scf",
+                "stream": "assimilation_fit",
+                "representation": "posterior",
+                "timestamp": "2023-01-02 09:00:00",
+                "date": "2023-01-02",
+                "crpss": 0.35,
+                "ner": 0.22,
+                "zskill": float("nan"),
+            },
+            {
+                "score_set": "analysis",
+                "variable": "station_swe",
+                "stream": "semi_independent",
+                "representation": "prior",
+                "timestamp": "2023-01-03 09:00:00",
+                "date": "2023-01-03",
+                "crpss": 0.18,
+                "ner": 0.11,
+                "zskill": -0.08,
+            },
+            {
+                "score_set": "analysis",
+                "variable": "station_swe",
+                "stream": "semi_independent",
+                "representation": "posterior",
+                "timestamp": "2023-01-03 09:00:00",
+                "date": "2023-01-03",
+                "crpss": 0.26,
+                "ner": 0.16,
+                "zskill": 0.24,
+            },
+        ]
+    ).to_csv(project_dir / "results" / "benchmark" / "scores" / "event_scores.csv", index=False)
+
+    points = plot_mod._load_score_points_for_custom_overview(project_dir)
+
+    assert set(points["variable"]) == {"scf"}
+    assert pd.Timestamp("2023-01-03") not in set(pd.to_datetime(points["assimilation_date"]))
 
 
 def test_plot_result_overview_supports_custom_ner_score_panel(tmp_path: Path) -> None:
@@ -754,6 +839,40 @@ def test_plot_result_overview_supports_custom_ner_score_panel(tmp_path: Path) ->
         assert axes[0].get_title(loc="left").endswith("NER")
         assert axes[0].get_ylabel() == "NER"
         assert 0.5 in list(axes[0].get_yticks())
+        assert axes[0].collections
+        assert out_path.is_file()
+    finally:
+        plt.close = original_close
+
+
+def test_plot_result_overview_supports_custom_zskill_score_panel(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        out_path = tmp_path / "result_overview_custom.png"
+        plot_result_overview(
+            scf_obs=None,
+            scf_model=None,
+            wet_obs=None,
+            wet_model=None,
+            scf_env=None,
+            wet_env=None,
+            output=out_path,
+            panel_specs=[PanelSpec(panel="scores-zskill")],
+            score_points=_score_points(),
+            assim_events=[
+                plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-02").date(), variable="scf", product="SNOWCOVER"),
+                plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-03").date(), variable="station_hs", product="STATION"),
+            ],
+            strict_panels=True,
+        )
+
+        axes = _panel_axes(plt.gcf())
+        assert len(axes) == 1
+        assert axes[0].get_title(loc="left").endswith("zSkill")
+        assert axes[0].get_ylabel() == "zSkill"
         assert axes[0].collections
         assert out_path.is_file()
     finally:
@@ -987,7 +1106,7 @@ def test_plot_result_overview_shares_absolute_y_scale_between_roi_and_station_pa
 
 
 def test_parse_custom_panel_specs_supports_titles_and_obs_toggle(tmp_path: Path) -> None:
-    cfg = tmp_path / "custom_result_overview.yml"
+    cfg = tmp_path / "custom_plots.yml"
     cfg.write_text(
         "\n".join(
             [
@@ -998,6 +1117,7 @@ def test_parse_custom_panel_specs_supports_titles_and_obs_toggle(tmp_path: Path)
                 "    station_id: proviantdepot",
                 "    subtitle: custom station subtitle",
                 "  - panel: scores-crpss",
+                "  - panel: scores-zskill",
             ]
         ),
         encoding="utf-8",
@@ -1009,11 +1129,12 @@ def test_parse_custom_panel_specs_supports_titles_and_obs_toggle(tmp_path: Path)
         PanelSpec(panel="fSC", title=None, show_obs=False, station_id=None),
         PanelSpec(panel="station-swe", title="custom station subtitle", show_obs=True, station_id="proviantdepot"),
         PanelSpec(panel="scores-crpss", title=None, show_obs=True, station_id=None),
+        PanelSpec(panel="scores-zskill", title=None, show_obs=True, station_id=None),
     ]
 
 
 def test_project_custom_config_path_uses_project_root_file(tmp_path: Path) -> None:
-    cfg = tmp_path / "result_overview_custom.yml"
+    cfg = tmp_path / "plots.yml"
     cfg.write_text("panels: []\n", encoding="utf-8")
 
     assert _project_custom_config_path(tmp_path) == cfg.resolve()

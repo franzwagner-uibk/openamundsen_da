@@ -1,0 +1,10 @@
+---
+paths:
+  - "tests/**/*"
+---
+
+# Test Rules
+
+- `tests/README.md` and `scripts/ci/*.sh` define the current validation workflow.
+- Prefer deterministic contract tests over brittle implementation-detail assertions.
+- Keep shipped example baselines and validator expectations aligned with any behavior or output change.

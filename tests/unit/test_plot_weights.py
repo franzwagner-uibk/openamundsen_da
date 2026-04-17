@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from openamundsen_da.methods.pf import plot_weights as plot_mod
-from openamundsen_da.methods.viz._style import da_variable_style
+from openamundsen_da.methods.viz.plots.theme import da_variable_style
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -111,7 +111,7 @@ def test_setup_weights_overview_default_output_path_uses_project_weights_dir(tmp
 
     out = plot_mod._default_setup_weights_overview_output(project_dir)
 
-    assert out == project_dir / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
+    assert out == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
 
 
 def test_collect_marker_legend_entries_combines_station_and_fraction_labels(tmp_path: Path) -> None:

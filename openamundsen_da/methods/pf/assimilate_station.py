@@ -14,6 +14,10 @@ from openamundsen_da.io.paths import default_results_dir, infer_project_dir, lis
 from openamundsen_da.util.station_da import (
     StationAssimilationConfig,
     load_station_assimilation_config,
+    read_station_metadata,
+    resolve_station_sigma_base,
+    resolve_station_sigma_abs_floor,
+    resolve_station_uncertainty_pct,
     station_observation_csvs,
     station_variable_spec,
 )
@@ -46,58 +50,7 @@ class StationAssimilationResult:
 
 
 def _read_station_metadata(metadata_path: Path) -> pd.DataFrame:
-    """Read station DA metadata keyed by station_id, validating optional sigma columns."""
-    base_columns = ["station_uncertainty_pct", "hs_sigma_abs_min", "swe_sigma_abs_min"]
-    if not metadata_path.is_file():
-        logger.warning(
-            "Station DA metadata file not found: {}. Active station DA will fail until station-wise absolute sigma metadata are provided.",
-            metadata_path,
-        )
-        return pd.DataFrame(columns=base_columns)
-
-    df = pd.read_csv(metadata_path)
-    if df.empty:
-        logger.warning(
-            "Station DA metadata file is empty: {}. Active station DA will fail until station-wise absolute sigma metadata are provided.",
-            metadata_path,
-        )
-        return pd.DataFrame(columns=base_columns)
-    if "station_id" not in df.columns:
-        raise ValueError(f"Station DA metadata file missing required column 'station_id': {metadata_path}")
-    if "station_uncertainty_pct" not in df.columns:
-        raise ValueError(f"Station DA metadata file missing required column 'station_uncertainty_pct': {metadata_path}")
-
-    out = df.copy()
-    out["station_id"] = out["station_id"].astype(str).str.strip().str.lower()
-    out = out[out["station_id"] != ""].copy()
-    if out.empty:
-        logger.warning(
-            "Station DA metadata file has no usable station_id rows: {}. Active station DA will fail until station-wise absolute sigma metadata are provided.",
-            metadata_path,
-        )
-        return pd.DataFrame(columns=base_columns)
-    for col in ("hs_sigma_abs_min", "swe_sigma_abs_min"):
-        if col not in out.columns:
-            out[col] = np.nan
-        else:
-            normalized: list[float] = []
-            for station_id, raw in zip(out["station_id"], out[col], strict=False):
-                if pd.isna(raw) or str(raw).strip() == "":
-                    normalized.append(np.nan)
-                    continue
-                try:
-                    value = float(raw)
-                except Exception as exc:
-                    raise ValueError(
-                        f"Invalid {col} for station {station_id!r} in {metadata_path}: {raw!r}"
-                    ) from exc
-                if not np.isfinite(value):
-                    raise ValueError(f"{col} for station {station_id!r} in {metadata_path} is not finite")
-                if value <= 0.0:
-                    raise ValueError(f"{col} for station {station_id!r} in {metadata_path} must be > 0")
-                normalized.append(float(value))
-            out[col] = normalized
-    return out.drop_duplicates(subset=["station_id"], keep="last").set_index("station_id")
+    return read_station_metadata(metadata_path)
 
 
 def _read_timeseries_with_fallback(csv_path: Path, value_col: str) -> pd.DataFrame:
@@ -171,52 +124,7 @@ def _resolve_station_uncertainty_pct(
     metadata_df: pd.DataFrame,
     config: StationAssimilationConfig,
 ) -> tuple[float, str]:
-    """Return effective station uncertainty percentage and its source."""
-    source = "metadata"
-    value = None
-    if station_id in metadata_df.index:
-        raw = metadata_df.loc[station_id, "station_uncertainty_pct"]
-        if isinstance(raw, pd.Series):
-            raw = raw.iloc[-1]
-        if pd.isna(raw) or str(raw).strip() == "":
-            source = "default"
-            value = float(config.default_station_uncertainty_pct)
-            logger.warning(
-                "Station {} has empty station_uncertainty_pct in {}; using project default {:.3f}%",
-                station_id,
-                config.metadata_path,
-                value,
-            )
-        else:
-            try:
-                value = float(raw)
-            except Exception as exc:
-                raise ValueError(
-                    f"Invalid station_uncertainty_pct for station {station_id!r} in {config.metadata_path}: {raw!r}"
-                ) from exc
-    else:
-        source = "default"
-        value = float(config.default_station_uncertainty_pct)
-        logger.warning(
-            "Station {} missing in {}; using project default {:.3f}%",
-            station_id,
-            config.metadata_path,
-            value,
-        )
-
-    if not np.isfinite(value):
-        raise ValueError(f"Station uncertainty for {station_id!r} is not finite")
-    if value <= 0.0:
-        raise ValueError(f"Station uncertainty for {station_id!r} must be > 0")
-    if value < float(config.min_station_uncertainty_pct):
-        logger.warning(
-            "Station {} uncertainty {:.3f}% below configured minimum {:.3f}%; clamping to minimum.",
-            station_id,
-            value,
-            config.min_station_uncertainty_pct,
-        )
-        value = float(config.min_station_uncertainty_pct)
-    return float(value), source
+    return resolve_station_uncertainty_pct(station_id, metadata_df, config)
 
 
 def _resolve_station_sigma_abs_floor(
@@ -225,30 +133,7 @@ def _resolve_station_sigma_abs_floor(
     metadata_path: Path,
     variable: str,
 ) -> float:
-    """Return the metadata-only absolute sigma floor for one active station."""
-    spec = station_variable_spec(variable)
-    column = spec.metadata_sigma_column
-    if station_id not in metadata_df.index:
-        raise ValueError(
-            f"Station {station_id!r} missing in {metadata_path}. "
-            f"Active {variable} assimilation requires metadata column {column!r} for every station."
-        )
-
-    raw = metadata_df.loc[station_id, column]
-    if isinstance(raw, pd.Series):
-        raw = raw.iloc[-1]
-    if pd.isna(raw) or str(raw).strip() == "":
-        raise ValueError(
-            f"Station {station_id!r} missing required metadata value {column!r} in {metadata_path} "
-            f"for active {variable} assimilation."
-        )
-
-    value = float(raw)
-    if not np.isfinite(value):
-        raise ValueError(f"{column} for station {station_id!r} in {metadata_path} is not finite")
-    if value <= 0.0:
-        raise ValueError(f"{column} for station {station_id!r} in {metadata_path} must be > 0")
-    return float(value)
+    return resolve_station_sigma_abs_floor(station_id, metadata_df, metadata_path, variable)
 
 
 def _build_active_stations(
@@ -283,26 +168,24 @@ def _build_active_stations(
                 obs_value,
             )
             continue
-        sigma_abs_floor = _resolve_station_sigma_abs_floor(
+        sigma_terms = resolve_station_sigma_base(
             station_id=station_id,
-            metadata_df=metadata_df,
-            metadata_path=config.metadata_path,
+            obs_value=float(obs_value),
             variable=variable,
+            config=config,
+            metadata_df=metadata_df,
         )
-        pct, source = _resolve_station_uncertainty_pct(station_id, metadata_df, config)
-        sigma_rel = (pct / 100.0) * float(obs_value)
-        sigma_base = float(np.hypot(sigma_rel, sigma_abs_floor))
         active.append(
             ActiveStation(
                 station_id=station_id,
                 obs_csv=obs_csv,
                 obs_time=obs_time,
                 obs_value=float(obs_value),
-                station_uncertainty_pct=float(pct),
-                uncertainty_source=source,
-                sigma_abs_floor=float(sigma_abs_floor),
-                sigma_base=float(sigma_base),
-                sigma=float(sigma_base),
+                station_uncertainty_pct=float(sigma_terms.station_uncertainty_pct),
+                uncertainty_source=sigma_terms.uncertainty_source,
+                sigma_abs_floor=float(sigma_terms.sigma_abs_floor),
+                sigma_base=float(sigma_terms.sigma_base),
+                sigma=float(sigma_terms.sigma_base),
                 single_station_inflated=False,
             )
         )

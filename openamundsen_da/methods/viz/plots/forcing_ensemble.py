@@ -1,4 +1,4 @@
-"""openamundsen_da.methods.viz.plot_forcing_ensemble
+"""openamundsen_da.methods.viz.plots.forcing_ensemble
 
 Per-station ensemble plots for forcing time series (temperature and cumulative
 precipitation) across all members. Designed to visualize prior/posterior
@@ -36,13 +36,18 @@ from openamundsen_da.util.ts import (
     parse_time_column,
     collapse_duplicates,
 )
-from openamundsen_da.methods.viz._style import (
+from openamundsen_da.methods.viz.plots.theme import (
     COLOR_OPEN_LOOP,
     LW_MEMBER,
     LW_OPEN,
 )
-from openamundsen_da.methods.viz._utils import force_figure_text_black, format_station_label, save_figure_png, set_matplotlib_text_black
-from openamundsen_da.methods.viz._ensemble_meta import load_stations_table
+from openamundsen_da.methods.viz.plots.common import (
+    force_figure_text_black,
+    format_station_label,
+    save_figure_png,
+    set_matplotlib_text_black,
+)
+from openamundsen_da.methods.viz.plots.ensemble_meta import load_stations_table
 
 _FORCING_FIGSIZE_FULL = (11.5, 7.2)
 _FORCING_FIGSIZE_TEMP_ONLY = (11.5, 4.2)

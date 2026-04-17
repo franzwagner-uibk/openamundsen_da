@@ -1,3 +1,3 @@
 station_id,station_uncertainty_pct,hs_sigma_abs_min,swe_sigma_abs_min
-latschbloder,500,0.30,
-proviantdepot,10,0.10,
+latschbloder,500,0.30,0.30
+proviantdepot,10,0.10,0.10

@@ -10,6 +10,7 @@ from string import ascii_lowercase
 import pandas as pd
 from loguru import logger
 
+from openamundsen_da.benchmark.pipeline.core import load_benchmark_config
 from openamundsen_da.benchmark.render.plots.core import (
     build_event_skill_plot_data,
     compute_event_skill_plot_positions,
@@ -24,9 +25,11 @@ from openamundsen_da.io.paths import (
     find_project_yaml,
     list_member_dirs,
     list_steps_sorted,
+    project_fraction_envelope_path,
+    project_result_overview_custom_output_path,
 )
-from openamundsen_da.methods.viz._ensemble_meta import load_stations_table_from_steps
-from openamundsen_da.methods.viz._style import (
+from openamundsen_da.methods.viz.plots.ensemble_meta import load_stations_table_from_steps
+from openamundsen_da.methods.viz.plots.theme import (
     COLOR_DA_OBS,
     FIGHEIGHT_OVERVIEW_ROW,
     FIGWIDTH_OVERVIEW_PAPER,
@@ -38,7 +41,7 @@ from openamundsen_da.methods.viz._style import (
     LW_DA_OBS,
     da_variable_style,
 )
-from openamundsen_da.methods.viz._utils import (
+from openamundsen_da.methods.viz.plots.common import (
     apply_fraction_grid,
     draw_assim_labels,
     draw_assimilation_markers,
@@ -115,6 +118,7 @@ _PANEL_ALIASES = {
     "ess": "ess",
     "scores-crpss": "scores-crpss",
     "scores-ner": "scores-ner",
+    "scores-zskill": "scores-zskill",
 }
 
 _DEFAULT_PANELS = [
@@ -134,6 +138,7 @@ _PANEL_YLABELS = {
     "ess": "ESS",
     "scores-crpss": "CRPSS",
     "scores-ner": "NER",
+    "scores-zskill": "zSkill",
 }
 
 _DEFAULT_TITLES = {
@@ -144,6 +149,7 @@ _DEFAULT_TITLES = {
     "ess": "effective sample size",
     "scores-crpss": "CRPSS",
     "scores-ner": "NER",
+    "scores-zskill": "zSkill",
 }
 
 _STATION_PANEL_META = {
@@ -267,7 +273,7 @@ def _coerce_bool(raw: object, *, default: bool = True) -> bool:
 
 
 def _parse_panel_specs(config_path: Path) -> list[PanelSpec]:
-    cfg = read_yaml_mapping(config_path, error_cls=RuntimeError, context="Custom result overview config")
+    cfg = read_yaml_mapping(config_path, error_cls=RuntimeError, context="Project plots config")
     raw_panels = cfg.get("panels")
     if not isinstance(raw_panels, list) or not raw_panels:
         raise ValueError(f"Missing non-empty panels list in {config_path}")
@@ -297,16 +303,16 @@ def _parse_panel_specs(config_path: Path) -> list[PanelSpec]:
 
 
 def _project_custom_config_path(project_dir: Path) -> Path | None:
-    candidate = (project_dir / "result_overview_custom.yml").resolve()
+    candidate = (project_dir / "plots.yml").resolve()
     if not candidate.is_file():
         return None
     return candidate
 
 
 def _default_custom_output(project_dir: Path) -> Path:
-    out_dir = project_dir / "plots" / "results"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    return out_dir / "result_overview_custom.png"
+    out_path = project_result_overview_custom_output_path(project_dir)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    return out_path
 
 
 def _project_time_bounds(project_dir: Path) -> tuple[pd.Timestamp, pd.Timestamp] | None:
@@ -332,7 +338,7 @@ def _load_score_points_for_custom_overview(project_dir: Path) -> pd.DataFrame:
     if not score_path.is_file():
         raise FileNotFoundError(
             f"Missing benchmark event scores for custom score panel(s): {score_path}. "
-            "Run the benchmark stage before requesting scores-crpss or scores-ner."
+            "Run the benchmark stage before requesting scores-crpss, scores-ner, or scores-zskill."
         )
 
     event_scores = pd.read_csv(score_path)
@@ -340,8 +346,15 @@ def _load_score_points_for_custom_overview(project_dir: Path) -> pd.DataFrame:
         raise ValueError(f"Benchmark event scores CSV is empty: {score_path}")
 
     score_points = build_event_skill_plot_data(event_scores, project_dir=project_dir)
+    exclude_variables = {
+        str(value).strip().lower()
+        for value in load_benchmark_config(project_dir).performance_scores_exclude_variables
+        if str(value).strip()
+    }
+    if exclude_variables:
+        score_points = score_points[~score_points["variable"].astype(str).str.lower().isin(exclude_variables)].copy()
     if score_points.empty:
-        raise ValueError(f"Benchmark event scores contain no usable DA-date score points: {score_path}")
+        raise ValueError(f"Benchmark event scores contain no usable DA-date score points after exclusions: {score_path}")
 
     assimilation_dates = sorted({pd.Timestamp(ev.date).normalize() for ev in load_assimilation_events(project_dir)})
     return compute_event_skill_plot_positions(score_points, assimilation_dates=assimilation_dates)
@@ -513,7 +526,7 @@ def _ess_panel_title(spec: PanelSpec, ess_data: EssPanelData | None) -> str:
 
 
 def _is_score_panel(panel: str) -> bool:
-    return panel in {"scores-crpss", "scores-ner"}
+    return panel in {"scores-crpss", "scores-ner", "scores-zskill"}
 
 
 def _score_metric_for_panel(panel: str) -> str:
@@ -521,6 +534,8 @@ def _score_metric_for_panel(panel: str) -> str:
         return "crpss"
     if panel == "scores-ner":
         return "ner"
+    if panel == "scores-zskill":
+        return "zskill"
     raise ValueError(f"Unsupported score panel: {panel}")
 
 
@@ -528,6 +543,8 @@ def _score_panel_points_for_metric(score_points: pd.DataFrame | None, panel: str
     if score_points is None or score_points.empty:
         return pd.DataFrame()
     metric = _score_metric_for_panel(panel)
+    if metric not in score_points.columns:
+        return pd.DataFrame()
     filtered = score_points.copy()
     filtered[metric] = pd.to_numeric(filtered[metric], errors="coerce")
     filtered = filtered[filtered[metric].notna()].copy()
@@ -561,6 +578,16 @@ def _date_bounds_series(*series_items: pd.Series | None) -> tuple[pd.Timestamp, 
     if not mins:
         return None
     return min(mins), max(maxs)
+
+
+def _pad_single_day_bounds(bounds: tuple[pd.Timestamp, pd.Timestamp] | None) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+    if bounds is None:
+        return None
+    start, end = bounds
+    if pd.Timestamp(start) != pd.Timestamp(end):
+        return bounds
+    pad = pd.Timedelta(days=3)
+    return pd.Timestamp(start) - pad, pd.Timestamp(end) + pad
 
 
 def _series_to_frame(series: pd.Series | None, value_col: str) -> pd.DataFrame | None:
@@ -1460,7 +1487,7 @@ def plot_result_overview(
             else:
                 data_x_bounds = (min(data_x_bounds[0], bounds[0]), max(data_x_bounds[1], bounds[1]))
 
-    effective_x_bounds = x_bounds or data_x_bounds
+    effective_x_bounds = _pad_single_day_bounds(x_bounds or data_x_bounds)
     if effective_x_bounds is not None:
         for ax in axes:
             ax.set_xlim(*effective_x_bounds)
@@ -1536,8 +1563,8 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     parser.add_argument("--wet-model-csv", type=Path, help="Model wet-snow CSV (date/time + wet_snow_fraction)")
     parser.add_argument("--scf-env-csv", type=Path, help="SCF envelope CSV (value_min/value_max/value_mean)")
     parser.add_argument("--wet-env-csv", type=Path, help="Wet-snow envelope CSV (value_min/value_max/value_mean)")
-    parser.add_argument("--output", type=Path, help="Output PNG path (default: <project>/plots/results/result_overview.png)")
-    parser.add_argument("--custom-config", type=Path, help="Custom panel YAML (default: <project-dir>/result_overview_custom.yml)")
+    parser.add_argument("--output", type=Path, help="Output PNG path (default: <project>/results/plots/results/result_overview.png)")
+    parser.add_argument("--custom-config", type=Path, help="Custom panel YAML (default: <project-dir>/plots.yml)")
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
     parser.add_argument("--mode", choices=["band", "members"], default="band", help="Plot mode: band (default) or members")
     parser.add_argument("--backend", default="Agg", help="Matplotlib backend (default: Agg)")
@@ -1552,8 +1579,8 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
 
     scf_obs_path = Path(args.scf_obs_csv) if args.scf_obs_csv else default_fraction_obs_path(setup_dir, project_name, "scf_summary.csv")
     wet_obs_path = Path(args.wet_obs_csv) if args.wet_obs_csv else default_fraction_obs_path(setup_dir, project_name, "wet_snow_summary.csv")
-    scf_env_path = Path(args.scf_env_csv) if args.scf_env_csv else (project_dir / "point_scf_roi_envelope.csv")
-    wet_env_path = Path(args.wet_env_csv) if args.wet_env_csv else (project_dir / "point_wet_snow_roi_envelope.csv")
+    scf_env_path = Path(args.scf_env_csv) if args.scf_env_csv else project_fraction_envelope_path(project_dir, "scf")
+    wet_env_path = Path(args.wet_env_csv) if args.wet_env_csv else project_fraction_envelope_path(project_dir, "wet_snow")
 
     scf_obs = _load_scf_obs_series(scf_obs_path)
     wet_obs = load_fraction_series(wet_obs_path, "wet_snow_fraction")

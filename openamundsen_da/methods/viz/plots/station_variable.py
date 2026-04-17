@@ -1,4 +1,4 @@
-"""openamundsen_da.methods.viz.plot_station_variable
+"""openamundsen_da.methods.viz.plots.station_variable
 
 Small, manual CLI to plot a single variable from a single station
 results CSV (e.g. point_latschbloder.csv) as a time series.
@@ -6,7 +6,7 @@ results CSV (e.g. point_latschbloder.csv) as a time series.
 Typical usage
 -------------
 
-    python -m openamundsen_da.methods.viz.plot_station_variable \\
+    python -m openamundsen_da.methods.viz.plots.station_variable \\
         path/to/point_latschbloder.csv \\
         --var swe \\
         --start-date 2020-03-01 \\
@@ -26,7 +26,7 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.util.loguru_utils import configure_cli_logger
-from openamundsen_da.methods.viz._utils import (
+from openamundsen_da.methods.viz.plots.common import (
     force_figure_text_black,
     pretty_var_title,
     save_figure_png,

@@ -1,0 +1,26 @@
+maps:
+  snowdepth_increment_2023-06-02:
+    title: Snow depth increment 2023/06/02
+    layout:
+      nrows: 1
+      ncols: 4
+    defaults:
+      date: "2023-06-02"
+      show_scalebar: true
+    panels:
+      - row: 0
+        col: 0
+        kind: snow_depth
+        source: open_loop
+      - row: 0
+        col: 1
+        kind: snow_depth
+        source: ensemble_mean
+      - row: 0
+        col: 2
+        kind: snow_depth
+        source: increment
+      - row: 0
+        col: 3
+        kind: roi
+        title: Subdomain context

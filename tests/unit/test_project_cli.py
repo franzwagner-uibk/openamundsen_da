@@ -102,7 +102,7 @@ def test_post_run_plot_tasks_include_setup_weights_overview(tmp_path: Path) -> N
 def test_custom_overview_needs_benchmark_scores_detects_score_panels(tmp_path: Path) -> None:
     project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
     _write_project_yaml(project_dir)
-    (project_dir / "result_overview_custom.yml").write_text(
+    (project_dir / "plots.yml").write_text(
         "panels:\n  - panel: fSC\n  - panel: scores-crpss\n",
         encoding="utf-8",
     )
@@ -116,7 +116,7 @@ def test_post_run_plot_tasks_can_defer_fraction_overlay_for_score_panels(tmp_pat
     step_dir = project_dir / "steps" / "step_01_event"
     step_dir.mkdir(parents=True, exist_ok=True)
     _write_project_yaml(project_dir)
-    (project_dir / "result_overview_custom.yml").write_text(
+    (project_dir / "plots.yml").write_text(
         "panels:\n  - panel: scores-crpss\n",
         encoding="utf-8",
     )

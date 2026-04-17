@@ -99,14 +99,16 @@ def _analysis_daily_summary(event_scores: pd.DataFrame) -> pd.DataFrame:
         & (event_scores["representation"].isin(["prior", "posterior"]))
     ].copy()
     if analysis.empty:
-        return pd.DataFrame(columns=["assimilation_date", "variable", "stream", "representation", "crpss", "ner", "bias"])
+        return pd.DataFrame(
+            columns=["assimilation_date", "variable", "stream", "representation", "crpss", "ner", "zskill", "bias"]
+        )
     analysis["assimilation_date"] = pd.to_datetime(analysis["date"]).dt.normalize()
+    metric_cols = [col for col in ("crpss", "ner", "zskill", "bias") if col in analysis.columns]
     return (
-        analysis.groupby(["assimilation_date", "variable", "stream", "representation"], dropna=False, sort=True)[
-            ["crpss", "ner", "bias"]
-        ]
+        analysis.groupby(["assimilation_date", "variable", "stream", "representation"], dropna=False, sort=True)[metric_cols]
         .mean()
         .reset_index()
+        .reindex(columns=["assimilation_date", "variable", "stream", "representation", "crpss", "ner", "zskill", "bias"])
     )
 
 
@@ -121,12 +123,15 @@ def build_project_summary_table(
         "n_project_points",
         "whole_project_crpss",
         "whole_project_ner",
+        "whole_project_zskill",
         "whole_project_bias",
         "n_update_dates",
         "update_prior_crpss",
         "update_posterior_crpss",
         "update_prior_ner",
         "update_posterior_ner",
+        "update_prior_zskill",
+        "update_posterior_zskill",
         "update_prior_bias",
         "update_posterior_bias",
     ]
@@ -136,11 +141,12 @@ def build_project_summary_table(
     whole_project = project_scores[
         (project_scores["score_set"] == "continuous")
         & (project_scores["representation"] == "da_informed_ensemble")
-    ][["variable", "stream", "n_cases", "crpss", "ner", "bias"]].rename(
+    ][["variable", "stream", "n_cases", "crpss", "ner", "zskill", "bias"]].rename(
         columns={
             "n_cases": "n_project_points",
             "crpss": "whole_project_crpss",
             "ner": "whole_project_ner",
+            "zskill": "whole_project_zskill",
             "bias": "whole_project_bias",
         }
     )
@@ -148,7 +154,7 @@ def build_project_summary_table(
     update_metrics = project_scores[
         (project_scores["score_set"] == "analysis")
         & (project_scores["representation"].isin(["prior", "posterior"]))
-    ][["variable", "stream", "representation", "crpss", "ner", "bias"]].copy()
+    ][["variable", "stream", "representation", "crpss", "ner", "zskill", "bias"]].copy()
 
     if update_metrics.empty:
         update_wide = pd.DataFrame(columns=["variable", "stream"])
@@ -156,7 +162,7 @@ def build_project_summary_table(
         update_wide = update_metrics.pivot_table(
             index=["variable", "stream"],
             columns="representation",
-            values=["crpss", "ner", "bias"],
+            values=["crpss", "ner", "zskill", "bias"],
             aggfunc="first",
         ).reset_index()
         update_wide.columns = [
@@ -171,6 +177,8 @@ def build_project_summary_table(
                 "crpss_posterior": "update_posterior_crpss",
                 "ner_prior": "update_prior_ner",
                 "ner_posterior": "update_posterior_ner",
+                "zskill_prior": "update_prior_zskill",
+                "zskill_posterior": "update_posterior_zskill",
                 "bias_prior": "update_prior_bias",
                 "bias_posterior": "update_posterior_bias",
             }
@@ -203,10 +211,13 @@ def build_update_summary_table(event_scores: pd.DataFrame) -> pd.DataFrame:
         "posterior_crpss",
         "prior_ner",
         "posterior_ner",
+        "prior_zskill",
+        "posterior_zskill",
         "prior_bias",
         "posterior_bias",
         "delta_crpss",
         "delta_ner",
+        "delta_zskill",
         "delta_abs_bias",
     ]
     daily_updates = _analysis_daily_summary(event_scores)
@@ -216,7 +227,7 @@ def build_update_summary_table(event_scores: pd.DataFrame) -> pd.DataFrame:
     wide = daily_updates.pivot_table(
         index=["assimilation_date", "variable", "stream"],
         columns="representation",
-        values=["crpss", "ner", "bias"],
+        values=["crpss", "ner", "zskill", "bias"],
         aggfunc="first",
     ).reset_index()
     wide.columns = [
@@ -231,12 +242,27 @@ def build_update_summary_table(event_scores: pd.DataFrame) -> pd.DataFrame:
             "crpss_posterior": "posterior_crpss",
             "ner_prior": "prior_ner",
             "ner_posterior": "posterior_ner",
+            "zskill_prior": "prior_zskill",
+            "zskill_posterior": "posterior_zskill",
             "bias_prior": "prior_bias",
             "bias_posterior": "posterior_bias",
         }
     )
+    for column in (
+        "prior_crpss",
+        "posterior_crpss",
+        "prior_ner",
+        "posterior_ner",
+        "prior_zskill",
+        "posterior_zskill",
+        "prior_bias",
+        "posterior_bias",
+    ):
+        if column not in wide.columns:
+            wide[column] = np.nan
     wide["delta_crpss"] = wide["posterior_crpss"] - wide["prior_crpss"]
     wide["delta_ner"] = wide["posterior_ner"] - wide["prior_ner"]
+    wide["delta_zskill"] = wide["posterior_zskill"] - wide["prior_zskill"]
     wide["delta_abs_bias"] = wide["prior_bias"].abs() - wide["posterior_bias"].abs()
     wide["assimilation_date"] = pd.to_datetime(wide["assimilation_date"]).dt.date
     return _ordered_sort(wide.reindex(columns=columns))
@@ -305,13 +331,13 @@ def write_summary_markdown(
         f"Independent benchmark additions: `{', '.join(independent_variables) if independent_variables else 'none'}`",
         "",
         "This is an observation-based benchmarking layer focused on DA performance over the open-loop baseline.",
-        "Headline metrics are `CRPSS` and `NER`; `bias` is kept as the core support metric.",
+        "Headline metrics are `CRPSS` and `NER`; station-point rows also carry sigma-aware `zSkill`, while `bias` remains the core support metric.",
         "Score basis remains ROI-based for `scf` / `wet_snow` and station-point based for `station_hs` / `station_swe`.",
         "These outputs do not replace future holdout, LOOCV, or OSSE validation.",
         "",
         "## Core Outputs",
         "",
-        "- `plots/assim/scores/performance_scores.png` shows update-date `CRPSS` and `NER` on project assimilation dates, using `prior` and `posterior` points for assimilated and transfer-observed variables.",
+        "- `results/plots/assim/scores/performance_scores.png` shows update-date `CRPSS` and `NER` on project assimilation dates, and adds a third `zSkill` panel when station sigma-aware scores are available.",
         "- `results/benchmark/tables/project_summary.csv` gives the compact whole-project summary.",
         "- `results/benchmark/tables/update_summary.csv` gives prior/posterior update-date skill.",
         "",
@@ -328,7 +354,12 @@ def write_summary_markdown(
                 f"`{row.variable}` (`{row.stream}`): "
                 f"`CRPSS={float(row.whole_project_crpss):.3f}` "
                 f"`NER={float(row.whole_project_ner):.3f}` "
-                f"`bias={float(row.whole_project_bias):.3f}`"
+                + (
+                    f"`zSkill={float(row.whole_project_zskill):.3f}` "
+                    if pd.notna(getattr(row, "whole_project_zskill", np.nan))
+                    else ""
+                )
+                + f"`bias={float(row.whole_project_bias):.3f}`"
             )
 
     lines.extend(["", "## Update-Date Highlights", ""])
@@ -347,6 +378,14 @@ def write_summary_markdown(
                 f"`posterior CRPSS={float(row.posterior_crpss):.3f}`, "
                 f"`prior NER={float(row.prior_ner):.3f}` -> "
                 f"`posterior NER={float(row.posterior_ner):.3f}`"
+                + (
+                    ", "
+                    f"`prior zSkill={float(row.prior_zskill):.3f}` -> "
+                    f"`posterior zSkill={float(row.posterior_zskill):.3f}`"
+                    if pd.notna(getattr(row, "prior_zskill", np.nan))
+                    and pd.notna(getattr(row, "posterior_zskill", np.nan))
+                    else ""
+                )
             )
 
     lines.extend(
@@ -355,9 +394,10 @@ def write_summary_markdown(
             "## Interpretation Notes",
             "",
             "- `assimilation_fit` means the exact variable/date pair was assimilated.",
-            "- `semi_independent` means the exact variable/date pair was not assimilated, but it is still linked through same-variable reuse elsewhere in the project or through a sister station variable.",
-            "- `independent` means the benchmark variable is never assimilated anywhere in the project and is not downgraded by station linkage.",
+            "- `semi_independent` means the exact variable/date pair was not assimilated, but a same-variable or sister-station assimilation has already happened by that date.",
+            "- `independent` means no same-variable assimilation has happened yet by that date and no active sister-station linkage applies.",
             "- Positive `CRPSS` and `NER` indicate improvement over `open_loop`.",
+            "- Positive `zSkill` indicates improvement in sigma-normalized station residual skill over `open_loop`.",
             "- Positive `delta_abs_bias` means the posterior reduced absolute bias relative to the prior.",
         ]
     )

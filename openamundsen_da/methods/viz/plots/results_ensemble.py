@@ -1,4 +1,4 @@
-"""openamundsen_da.methods.viz.plot_results_ensemble
+"""openamundsen_da.methods.viz.plots.results_ensemble
 
 Per-station ensemble plots for point-model CSV outputs (e.g., SWE or snow
 depth) across all members. Mirrors the prior plotting script used in the
@@ -17,7 +17,7 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.io.paths import list_member_dirs, list_point_files_results
-from openamundsen_da.methods.viz._style import (
+from openamundsen_da.methods.viz.plots.theme import (
     BAND_ALPHA,
     COLOR_MEAN,
     COLOR_OPEN_LOOP,
@@ -26,14 +26,14 @@ from openamundsen_da.methods.viz._style import (
     LW_MEAN,
     LW_OPEN,
 )
-from openamundsen_da.methods.viz._utils import (
+from openamundsen_da.methods.viz.plots.common import (
     force_figure_text_black,
     format_station_label,
     pretty_var_title,
     save_figure_png,
     set_matplotlib_text_black,
 )
-from openamundsen_da.methods.viz._ensemble_meta import (
+from openamundsen_da.methods.viz.plots.ensemble_meta import (
     format_member_label,
     load_stations_table,
     read_member_perturbations,

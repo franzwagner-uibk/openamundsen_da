@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from openamundsen_da.io.paths import list_member_dirs, list_step_dirs
+from openamundsen_da.io.paths import (
+    list_member_dirs,
+    list_step_dirs,
+    project_result_overview_output_path,
+)
 from openamundsen_da.util.ts import concat_series, parse_time_column
 
 
@@ -67,9 +71,9 @@ def default_result_overview_output(project_dir: Path, output: Path | None) -> Pa
     """Return the output path for the default setup-level result overview plot."""
     if output is not None:
         return output
-    out_dir = project_dir / "plots" / "results"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    return out_dir / "result_overview.png"
+    out_path = project_result_overview_output_path(project_dir)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    return out_path
 
 
 def load_open_loop_fraction_series(project_dir: Path, filename: str, value_col: str) -> pd.DataFrame | None:

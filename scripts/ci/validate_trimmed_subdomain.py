@@ -129,6 +129,12 @@ def _check_project_results(subdomain_root: Path) -> None:
     _assert_non_empty(results / "subdomain_overview.csv")
     _assert_non_empty(results / "subdomain_assimilation_stats.csv")
     _assert_non_empty(results / "subdomain_assimilation_aggregate.csv")
+    if (project_dir / "maps.yml").is_file():
+        map_outputs = sorted((results / "maps").glob("*.png"))
+        if not map_outputs:
+            raise FileNotFoundError(f"Expected merged project maps under {results / 'maps'}")
+        for path in map_outputs:
+            _assert_non_empty(path)
 
 
 def validate_subdomain_root(subdomain_root: Path, log_file: Path) -> None:

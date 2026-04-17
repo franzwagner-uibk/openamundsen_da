@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openamundsen_da.methods.viz._style import da_variable_style as _da_variable_style
+from openamundsen_da.methods.viz.plots.theme import da_variable_style as _da_variable_style
 
 
 VARIABLE_STYLES = {

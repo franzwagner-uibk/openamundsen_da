@@ -39,6 +39,9 @@ from openamundsen_da.io.paths import (
     find_setup_yaml,
     find_project_yaml,
     list_steps_sorted,
+    project_da_output_grids_path,
+    project_fraction_envelope_path,
+    project_landcover_mask_report_path,
 )
 from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.roi_grid import ensure_setup_roi_grid, ensure_setup_roi_vector
@@ -71,9 +74,10 @@ from openamundsen_da.methods.pf.plot_weights import plot_setup_weights_overview,
 from openamundsen_da.methods.pf.plot_station_diagnostics import plot_station_diagnostics_for_csv
 from openamundsen_da.methods.pf.plot_ess_timeline import plot_setup_ess_timeline
 from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_envelope
-from openamundsen_da.methods.viz.plot_result_overview import cli_main as plot_result_overview_cli
-from openamundsen_da.methods.viz.plot_project_ensemble import plot_setup_results
-from openamundsen_da.methods.viz.plot_forcing_ensemble import cli_main as plot_forcing_cli
+from openamundsen_da.methods.viz.plots.result_overview import cli_main as plot_result_overview_cli
+from openamundsen_da.methods.viz.plots.project_ensemble import plot_setup_results
+from openamundsen_da.methods.viz.plots.forcing_ensemble import cli_main as plot_forcing_cli
+from openamundsen_da.methods.viz.maps import project_maps_enabled, render_project_maps
 from openamundsen_da.util.validation import validate_assimilation_requirements
 from openamundsen_da.util.run_mode import ensure_run_mode
 from openamundsen_da.util.station_da import is_station_variable
@@ -174,48 +178,39 @@ def _load_wet_snow_threshold_percent(project_dir: Path) -> float:
     return value
 
 
-def _aggregate_and_copy_fraction(
-    setup_dir: Path,
+def _aggregate_fraction(
+    project_dir: Path,
     filename: str,
     value_col: str,
-    output_name: str,
-) -> tuple[Path | None, Path | None]:
-    """Aggregate fraction envelopes and mirror them into plots/results."""
+    output_path: Path,
+) -> Path | None:
+    """Aggregate fraction envelopes into the canonical project misc directory."""
     env_path = aggregate_fraction_envelope(
-        setup_dir=setup_dir,
+        setup_dir=project_dir,
         filename=filename,
         value_col=value_col,
-        output_name=output_name,
+        output_name=str(output_path.relative_to(project_dir)),
     )
-    copy_path: Path | None = None
-    if env_path is not None:
-        try:
-            copy_path = Path(setup_dir) / "plots" / "results" / Path(output_name).name
-            copy_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy(env_path, copy_path)
-        except Exception as exc:
-            logger.warning("Failed to copy {} -> {}: {}", env_path, copy_path, exc)
-            copy_path = None
-    return env_path, copy_path
+    return env_path
 
 
-def _aggregate_fraction_envelopes(setup_dir: Path) -> None:
-    """Aggregate SCF and wet-snow envelopes and mirror them into plots/results."""
+def _aggregate_fraction_envelopes(project_dir: Path) -> None:
+    """Aggregate SCF and wet-snow envelopes into results/misc."""
     try:
-        _aggregate_and_copy_fraction(
-            setup_dir=setup_dir,
+        _aggregate_fraction(
+            project_dir=project_dir,
             filename="point_scf_roi.csv",
             value_col="scf",
-            output_name="point_scf_roi_envelope.csv",
+            output_path=project_fraction_envelope_path(project_dir, "scf"),
         )
     except Exception as exc:
         logger.warning("SCF envelope aggregation failed: {}", exc)
     try:
-        _aggregate_and_copy_fraction(
-            setup_dir=setup_dir,
+        _aggregate_fraction(
+            project_dir=project_dir,
             filename="point_wet_snow_roi.csv",
             value_col="wet_snow_fraction",
-            output_name="point_wet_snow_roi_envelope.csv",
+            output_path=project_fraction_envelope_path(project_dir, "wet_snow"),
         )
     except Exception as exc:
         logger.warning("Wet-snow envelope aggregation failed: {}", exc)
@@ -485,7 +480,7 @@ def _build_fraction_overlay_task(cfg: "OrchestratorConfig") -> PlotTask:
 
 
 def _custom_overview_needs_benchmark_scores(project_dir: Path) -> bool:
-    custom_cfg = Path(project_dir) / "result_overview_custom.yml"
+    custom_cfg = Path(project_dir) / "plots.yml"
     if not custom_cfg.is_file():
         return False
     try:
@@ -500,9 +495,20 @@ def _custom_overview_needs_benchmark_scores(project_dir: Path) -> bool:
             panel = entry.get("panel")
         else:
             continue
-        if str(panel or "").strip().lower() in {"scores-crpss", "scores-ner"}:
+        if str(panel or "").strip().lower() in {"scores-crpss", "scores-ner", "scores-zskill"}:
             return True
     return False
+
+
+def _render_project_maps_best_effort(project_dir: Path) -> None:
+    if not project_maps_enabled(project_dir):
+        logger.info("Project maps skipped: no maps.yml found under {}", project_dir)
+        return
+    try:
+        outputs = render_project_maps(project_dir=project_dir)
+        logger.info("Project maps complete -> {} output(s)", len(outputs))
+    except Exception as exc:
+        logger.warning("Project maps failed: {}", exc)
 
 
 def _build_post_run_plot_tasks(
@@ -699,6 +705,10 @@ def run_project(cfg: OrchestratorConfig) -> None:
     # Console + file log under project root.
     _setup_logger(cfg.project_dir, cfg.log_level)
     live_plot_threads: list[threading.Thread] = []
+    legacy_plots_root = cfg.project_dir / "plots"
+    if legacy_plots_root.is_dir():
+        shutil.rmtree(legacy_plots_root)
+        logger.info("Removed legacy project-level plots root {}", legacy_plots_root)
 
     steps = _list_steps_sorted(cfg.project_dir)
     if not steps:
@@ -818,7 +828,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
     if lc_cfg.enabled:
         try:
             lc_report = summarize_landcover_mask(Path(roi), lc_cfg)
-            lc_report_path = Path(cfg.project_dir) / "plots" / "results" / "lc_mask_report.csv"
+            lc_report_path = project_landcover_mask_report_path(cfg.project_dir)
             write_landcover_mask_report(lc_report, lc_report_path)
             for cls in lc_report.classes:
                 label = cls.name
@@ -1099,7 +1109,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
         logger.warning("Post-run plotting failed: {}", exc)
 
     da_summary_written = False
-    da_summary_path = Path(cfg.project_dir) / "results" / "grids" / "da_output_grids.nc"
+    da_summary_path = project_da_output_grids_path(cfg.project_dir)
     if da_summary_path.is_file() and not cfg.overwrite:
         da_summary_written = True
         logger.info("Using existing DA output summary {}", da_summary_path)
@@ -1112,6 +1122,9 @@ def run_project(cfg: OrchestratorConfig) -> None:
             da_summary_written = da_path is not None
         except Exception as exc:
             logger.warning("DA output grid summary failed: {}", exc)
+
+    if da_summary_written:
+        _render_project_maps_best_effort(cfg.project_dir)
 
     try:
         benchmark_outputs = run_project_benchmark(

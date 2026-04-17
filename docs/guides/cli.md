@@ -504,6 +504,20 @@ oa-da-plot-project-maps \
 
 Static context panels (`hillshade`, `dem`, `svf`, `srf`, `landcover`) render the full raster coverage inside the map extent. Model and observation panels remain ROI-masked. In the supported Docker workflow, omitted `--max-workers` uses automatic recipe-level multicore rendering with the effective worker count clamped to `min(visible CPUs, selected recipes)`; pass `--max-workers 1` to keep rendering sequential. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
 
+Overview panels use setup-local GISCO GeoJSONs under `<setup>/env/` for country boundaries, regions, and labels. If those files are missing, the overview renderer downloads them once into that directory automatically.
+
+### oa-da-fetch-overview-geojson
+
+**Prefetch setup-local overview GeoJSONs**
+
+Downloads the GISCO overview boundaries, regions, and labels into `<setup>/env/` so overview-map rendering does not need a first-use network fetch.
+
+```bash
+oa-da-fetch-overview-geojson --setup-dir PATH
+# OR
+oa-da-fetch-overview-geojson --project-dir PATH
+```
+
 ---
 
 ### oa-da-plot-weights

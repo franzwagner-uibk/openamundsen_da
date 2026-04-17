@@ -472,7 +472,7 @@ Use `results/grids/da_output_grids.nc` in a GIS software of your choice and visu
 Recommended map date(s): choose one date with active snow cover and one date near melt season.
 Use the same date across `open_loop`, `ens_mean`, and `increment` maps.
 
-For the shipped examples, a curated `maps.yml` now drives publication-style PNG exports under `results/maps/`. Use `oa-da-plot-project-maps --project-dir /data/rofental/projects/project_2022_2023 --max-workers 4` to rerender them directly from the grid-composed project map recipes. Omit `--max-workers` to let the Docker container auto-select a recipe-level worker count from the visible CPUs.
+For the shipped examples, a curated `maps.yml` now drives publication-style PNG exports under `results/maps/`. Use `oa-da-plot-project-maps --project-dir /data/rofental/projects/project_2022_2023 --max-workers 4` to rerender them directly from the grid-composed project map recipes. Omit `--max-workers` to let the Docker container auto-select a recipe-level worker count from the visible CPUs. Overview panels use setup-local GISCO GeoJSONs under `env/`; if you want to prefetch them ahead of time, run `oa-da-fetch-overview-geojson --project-dir /data/rofental/projects/project_2022_2023`.
 For `snowdepth_daily`, the map renderer uses the fixed tutorial/reference palette with legend ticks in `cm` (`1, 10, 25, 50, 100, 200, 300, 400+`). Cells below `1 cm` stay transparent so only meaningful snow cover is colored. Increment panels use a signed diverging palette: negative increments are red, positive increments are blue.
 
 ### data assimilation increment map

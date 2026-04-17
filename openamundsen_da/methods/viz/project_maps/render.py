@@ -107,6 +107,10 @@ _HORIZONTAL_LEGEND_PATCH_HEIGHT_IN = 0.055
 _OVERVIEW_LABEL_SIZE = 6.2
 _OVERVIEW_LABEL_DX_RATIO = 0.09
 _OVERVIEW_LABEL_DY_RATIO = 0.07
+_OVERVIEW_LABEL_BOX_PAD_EM = 0.10
+_OVERVIEW_LABEL_BOX_SAFETY_IN = 0.02
+_OVERVIEW_ROI_LABEL_SIZE = 6.4
+_OVERVIEW_ROI_LABEL_DX_RATIO = 0.02
 
 _MODEL_KIND_TO_VARIABLE = {
     "snow_depth": "snowdepth_daily",
@@ -152,6 +156,18 @@ class RenderRuntimeCache:
     scale_cache: dict[tuple[str, pd.Timestamp], tuple[Normalize, TwoSlopeNorm]] = field(default_factory=dict)
     observations: dict[tuple[str, pd.Timestamp], ObservationScene] = field(default_factory=dict)
     derived_arrays: dict[str, np.ndarray] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _OverviewLabelSpec:
+    text: str
+    x: float
+    y: float
+    ha: str
+    va: str
+    fontsize: float
+    with_bbox: bool
+    zorder: int
 
 
 def buffered_extent(context: StaticContext) -> tuple[float, float, float, float]:
@@ -304,6 +320,15 @@ def _text_width_in(text: str, *, size: float) -> float:
     return float(path.get_extents().width) / 72.0
 
 
+@lru_cache(maxsize=256)
+def _text_size_in(text: str, *, size: float) -> tuple[float, float]:
+    if not text:
+        return (0.0, 0.0)
+    path = TextPath((0.0, 0.0), text, prop=FontProperties(size=size))
+    bounds = path.get_extents()
+    return float(bounds.width) / 72.0, float(bounds.height) / 72.0
+
+
 def _axes_title_fontsize(ax) -> float:
     width_in = _axis_width_inches(ax)
     if width_in < 1.45:
@@ -357,10 +382,17 @@ def _draw_axes_title(ax, title: str) -> None:
     )
 
 
-def _apply_map_axis_style(ax, extent: tuple[float, float, float, float], *, title: str | None, show_grid: bool) -> None:
+def _apply_map_axis_style(
+    ax,
+    extent: tuple[float, float, float, float],
+    *,
+    title: str | None,
+    show_grid: bool,
+    aspect_adjustable: str = "box",
+) -> None:
     ax.set_xlim(extent[0], extent[1])
     ax.set_ylim(extent[2], extent[3])
-    ax.set_aspect("equal")
+    ax.set_aspect("equal", adjustable=aspect_adjustable)
     ax.set_facecolor("white")
     for spine in ax.spines.values():
         spine.set_linewidth(_SPINE_WIDTH)
@@ -1107,19 +1139,18 @@ def _overview_label_point(geometry):
     return geometry.representative_point()
 
 
-def _draw_overview_country_labels(
-    ax,
+def _overview_country_label_specs(
     *,
     visible_countries,
     labels,
     extent: tuple[float, float, float, float],
     roi_anchor: tuple[float, float] | None,
-) -> None:
+) -> list[_OverviewLabelSpec]:
     if visible_countries.empty:
-        return
+        return []
     code_col = _overview_code_column(visible_countries)
     if code_col is None:
-        return
+        return []
     name_lookup = _overview_name_lookup(labels)
     span_x = extent[1] - extent[0]
     span_y = extent[3] - extent[2]
@@ -1133,11 +1164,12 @@ def _draw_overview_country_labels(
     working[code_col] = working[code_col].astype(str).str.strip()
     working = working.loc[working[code_col] != ""]
     if working.empty:
-        return
+        return []
     working["label_key"] = working[code_col]
     working = working.dissolve(by="label_key", as_index=False)
     working["label_name"] = working["label_key"].map(name_lookup).fillna(working["label_key"])
     working["label_area"] = working.geometry.area
+    placements: list[_OverviewLabelSpec] = []
 
     for row in working.sort_values(by="label_area", ascending=False).itertuples():
         point = _overview_label_point(row.geometry)
@@ -1149,27 +1181,234 @@ def _draw_overview_country_labels(
             continue
         if any(abs(x - px) < min_dx and abs(y - py) < min_dy for px, py in placed):
             continue
-        ax.text(
-            x,
-            y,
-            str(row.label_name),
-            ha="center",
-            va="center",
-            fontsize=_OVERVIEW_LABEL_SIZE,
-            color="black",
-            zorder=_ANNOTATION_ZORDER - 2,
-            bbox={"boxstyle": "round,pad=0.10", "facecolor": "white", "edgecolor": "none", "alpha": 0.45},
+        placements.append(
+            _OverviewLabelSpec(
+                text=str(row.label_name),
+                x=x,
+                y=y,
+                ha="center",
+                va="center",
+                fontsize=_OVERVIEW_LABEL_SIZE,
+                with_bbox=True,
+                zorder=_ANNOTATION_ZORDER - 2,
+            )
         )
         placed.append((x, y))
+    return placements
+
+
+def _overview_roi_label_spec(panel: MapPanelSpec, *, extent: tuple[float, float, float, float], context: StaticContext) -> _OverviewLabelSpec | None:
+    if not panel.roi_label:
+        return None
+    centroid = context.roi_gdf.geometry.unary_union.centroid
+    return _OverviewLabelSpec(
+        text=panel.roi_label,
+        x=float(centroid.x) + _OVERVIEW_ROI_LABEL_DX_RATIO * (extent[1] - extent[0]),
+        y=float(centroid.y),
+        ha="left",
+        va="center",
+        fontsize=_OVERVIEW_ROI_LABEL_SIZE,
+        with_bbox=False,
+        zorder=_ANNOTATION_ZORDER,
+    )
+
+
+def _overview_label_box_size_in(spec: _OverviewLabelSpec) -> tuple[float, float]:
+    width_in, height_in = _text_size_in(spec.text, size=spec.fontsize)
+    if spec.with_bbox:
+        pad_in = _OVERVIEW_LABEL_BOX_PAD_EM * spec.fontsize / 72.0
+        width_in += 2.0 * pad_in
+        height_in += 2.0 * pad_in
+    width_in += 2.0 * _OVERVIEW_LABEL_BOX_SAFETY_IN
+    height_in += 2.0 * _OVERVIEW_LABEL_BOX_SAFETY_IN
+    return width_in, height_in
+
+
+def _overview_extent_growth_for_labels(
+    ax,
+    *,
+    extent: tuple[float, float, float, float],
+    label_specs: list[_OverviewLabelSpec],
+    margin_ratio: float = 0.0,
+) -> tuple[float, float, float, float]:
+    if not label_specs:
+        return extent
+    span_x = max(float(extent[1] - extent[0]), 1e-9)
+    span_y = max(float(extent[3] - extent[2]), 1e-9)
+    data_per_in_x = span_x / max(_axis_width_inches(ax), 1e-9)
+    data_per_in_y = span_y / max(_axis_height_inches(ax), 1e-9)
+    extra_left = extra_right = extra_bottom = extra_top = 0.0
+
+    for spec in label_specs:
+        width_in, height_in = _overview_label_box_size_in(spec)
+        half_width = 0.5 * width_in
+        half_height = 0.5 * height_in
+        if spec.ha == "left":
+            left_in = 0.0
+            right_in = width_in
+        elif spec.ha == "right":
+            left_in = width_in
+            right_in = 0.0
+        else:
+            left_in = half_width
+            right_in = half_width
+        if spec.va == "top":
+            bottom_in = height_in
+            top_in = 0.0
+        elif spec.va == "bottom":
+            bottom_in = 0.0
+            top_in = height_in
+        else:
+            bottom_in = half_height
+            top_in = half_height
+
+        extra_left = max(extra_left, max(left_in * data_per_in_x - (spec.x - extent[0]), 0.0))
+        extra_right = max(extra_right, max(right_in * data_per_in_x - (extent[1] - spec.x), 0.0))
+        extra_bottom = max(extra_bottom, max(bottom_in * data_per_in_y - (spec.y - extent[2]), 0.0))
+        extra_top = max(extra_top, max(top_in * data_per_in_y - (extent[3] - spec.y), 0.0))
+
+    if margin_ratio > 0.0:
+        margin_x = margin_ratio * span_x
+        margin_y = margin_ratio * span_y
+        extra_left += margin_x
+        extra_right += margin_x
+        extra_bottom += margin_y
+        extra_top += margin_y
+
+    return (
+        extent[0] - extra_left,
+        extent[1] + extra_right,
+        extent[2] - extra_bottom,
+        extent[3] + extra_top,
+    )
+
+
+def _expand_extent_to_target_aspect(
+    extent: tuple[float, float, float, float],
+    *,
+    target_aspect: float,
+) -> tuple[float, float, float, float]:
+    span_x = max(float(extent[1] - extent[0]), 1e-9)
+    span_y = max(float(extent[3] - extent[2]), 1e-9)
+    current_aspect = span_y / span_x
+    center_x = 0.5 * (extent[0] + extent[1])
+    center_y = 0.5 * (extent[2] + extent[3])
+    if np.isclose(current_aspect, target_aspect):
+        return extent
+    if current_aspect < target_aspect:
+        target_span_y = span_x * target_aspect
+        half_span_y = 0.5 * target_span_y
+        return (extent[0], extent[1], center_y - half_span_y, center_y + half_span_y)
+    target_span_x = span_y / target_aspect
+    half_span_x = 0.5 * target_span_x
+    return (center_x - half_span_x, center_x + half_span_x, extent[2], extent[3])
+
+
+def _overview_subset_geometries(
+    data,
+    *,
+    context: StaticContext,
+    extent: tuple[float, float, float, float],
+    geom_types: set[str],
+    clip_to_extent: bool,
+    filter_fragments: bool,
+):
+    target_window = box(extent[0], extent[2], extent[1], extent[3])
+    target_window_gdf = context.roi_gdf.iloc[:1].copy()
+    target_window_gdf.geometry = [target_window]
+    source_window_gdf = target_window_gdf.to_crs(data.crs)
+    window_geom = source_window_gdf.geometry.iloc[0]
+    window_bounds = source_window_gdf.total_bounds
+    subset = data.cx[window_bounds[0] : window_bounds[2], window_bounds[1] : window_bounds[3]].copy()
+    if subset.empty:
+        subset = data.copy()
+    subset = subset[subset.geom_type.isin(geom_types)].copy()
+    subset = subset.loc[subset.intersects(window_geom)].copy()
+    if subset.crs is not None and context.spec.crs is not None and str(subset.crs) != str(context.spec.crs):
+        subset = subset.to_crs(context.spec.crs)
+    subset = subset[subset.geometry.notna()].copy()
+    subset = subset.loc[~subset.geometry.is_empty].copy()
+    if clip_to_extent and not subset.empty:
+        clip_geom = box(extent[0], extent[2], extent[1], extent[3])
+        subset = subset.loc[subset.intersects(clip_geom)].copy()
+        if not subset.empty:
+            subset = subset.clip(clip_geom)
+            subset = subset.loc[~subset.geometry.is_empty].copy()
+    if filter_fragments and not subset.empty:
+        subset = subset.explode(ignore_index=True)
+        bounds = subset.geometry.bounds
+        fragment_dim = np.maximum(bounds.maxx - bounds.minx, bounds.maxy - bounds.miny)
+        threshold = _OVERVIEW_FRAGMENT_RATIO * max(extent[1] - extent[0], extent[3] - extent[2])
+        subset = subset.loc[fragment_dim > threshold].copy()
+    return subset
+
+
+def _overview_extent_with_label_fit(
+    ax,
+    *,
+    panel: MapPanelSpec,
+    context: StaticContext,
+    labels,
+    visible_regions_getter,
+) -> tuple[float, float, float, float]:
+    target_extent = buffered_extent(context)
+    target_aspect = max(float(target_extent[3] - target_extent[2]), 1e-9) / max(float(target_extent[1] - target_extent[0]), 1e-9)
+    extent = _expand_extent_to_target_aspect(
+        _overview_extent(ax, context, scale=int(panel.scale or 1)),
+        target_aspect=target_aspect,
+    )
+    margin_ratio = float(panel.label_fit_margin or 0.0)
+    for _ in range(4):
+        roi_label = _overview_roi_label_spec(panel, extent=extent, context=context)
+        visible_regions = visible_regions_getter(extent)
+        label_specs = _overview_country_label_specs(
+            visible_countries=visible_regions,
+            labels=labels,
+            extent=extent,
+            roi_anchor=(roi_label.x, roi_label.y) if roi_label is not None else None,
+        )
+        if roi_label is not None:
+            label_specs.append(roi_label)
+        expanded = _overview_extent_growth_for_labels(
+            ax,
+            extent=extent,
+            label_specs=label_specs,
+            margin_ratio=margin_ratio,
+        )
+        expanded = _expand_extent_to_target_aspect(expanded, target_aspect=target_aspect)
+        if all(np.isclose(a, b) for a, b in zip(expanded, extent, strict=False)):
+            return extent
+        extent = expanded
+        margin_ratio = 0.0
+    return extent
+
+
+def _draw_overview_label_specs(ax, specs: list[_OverviewLabelSpec]) -> None:
+    for spec in specs:
+        kwargs = {}
+        if spec.with_bbox:
+            kwargs["bbox"] = {"boxstyle": "round,pad=0.10", "facecolor": "white", "edgecolor": "none", "alpha": 0.45}
+        ax.text(
+            spec.x,
+            spec.y,
+            spec.text,
+            ha=spec.ha,
+            va=spec.va,
+            fontsize=spec.fontsize,
+            color="black",
+            zorder=spec.zorder,
+            **kwargs,
+        )
 
 
 def _overview_extent(ax, context: StaticContext, *, scale: int) -> tuple[float, float, float, float]:
     fig = ax.figure
     bbox = ax.get_position()
     width_in = fig.get_size_inches()[0] * bbox.width
-    height_in = fig.get_size_inches()[1] * bbox.height
     width_m = width_in * 0.0254 * float(scale)
-    height_m = height_in * 0.0254 * float(scale)
+    target_extent = buffered_extent(context)
+    target_aspect = max(float(target_extent[3] - target_extent[2]), 1e-9) / max(float(target_extent[1] - target_extent[0]), 1e-9)
+    height_m = width_m * target_aspect
     centroid = context.roi_gdf.geometry.unary_union.centroid
     center_x = float(centroid.x)
     center_y = float(centroid.y)
@@ -1182,89 +1421,58 @@ def _overview_extent(ax, context: StaticContext, *, scale: int) -> tuple[float, 
 
 
 def _render_overview_panel(ax, *, panel: MapPanelSpec, context: StaticContext, label: str | None, defaults: MapDefaults) -> dict[str, object]:
-    extent = _overview_extent(ax, context, scale=int(panel.scale or 1))
-    countries = load_overview_boundaries()
-    country_regions = load_overview_regions()
-    country_labels = load_overview_labels()
-    target_window = box(extent[0], extent[2], extent[1], extent[3])
-    target_window_gdf = context.roi_gdf.iloc[:1].copy()
-    target_window_gdf.geometry = [target_window]
-    source_window_gdf = target_window_gdf.to_crs(countries.crs)
-    window_geom = source_window_gdf.geometry.iloc[0]
-    window_bounds = source_window_gdf.total_bounds
-    subset = countries.cx[window_bounds[0] : window_bounds[2], window_bounds[1] : window_bounds[3]].copy()
-    if subset.empty:
-        subset = countries.copy()
-    subset = subset[subset.geom_type.isin({"LineString", "MultiLineString", "Polygon", "MultiPolygon"})].copy()
-    subset = subset.loc[subset.intersects(window_geom)].copy()
-    if subset.crs is not None and context.spec.crs is not None and str(subset.crs) != str(context.spec.crs):
-        subset = subset.to_crs(context.spec.crs)
-    subset = subset[subset.geometry.notna()].copy()
-    subset = subset.loc[~subset.geometry.is_empty].copy()
-    if not subset.empty:
-        subset = subset.explode(ignore_index=True)
-        clip_geom = box(extent[0], extent[2], extent[1], extent[3])
-        subset = subset.loc[subset.intersects(clip_geom)].copy()
-        if not subset.empty:
-            subset = subset.clip(clip_geom)
-            bounds = subset.geometry.bounds
-            fragment_dim = np.maximum(bounds.maxx - bounds.minx, bounds.maxy - bounds.miny)
-            threshold = _OVERVIEW_FRAGMENT_RATIO * max(extent[1] - extent[0], extent[3] - extent[2])
-            subset = subset.loc[fragment_dim > threshold].copy()
+    original_position = ax.get_position().frozen()
+    countries = load_overview_boundaries(setup_dir=context.setup_dir)
+    country_regions = load_overview_regions(setup_dir=context.setup_dir)
+    country_labels = load_overview_labels(setup_dir=context.setup_dir)
+    visible_regions_getter = lambda current_extent: _overview_subset_geometries(
+        country_regions,
+        context=context,
+        extent=current_extent,
+        geom_types={"Polygon", "MultiPolygon"},
+        clip_to_extent=True,
+        filter_fragments=False,
+    )
+    extent = _overview_extent_with_label_fit(
+        ax,
+        panel=panel,
+        context=context,
+        labels=country_labels,
+        visible_regions_getter=visible_regions_getter,
+    )
+    subset = _overview_subset_geometries(
+        countries,
+        context=context,
+        extent=extent,
+        geom_types={"LineString", "MultiLineString", "Polygon", "MultiPolygon"},
+        clip_to_extent=True,
+        filter_fragments=False,
+    )
     if not subset.empty:
         subset.plot(ax=ax, color="black", linewidth=0.65, zorder=8)
-    region_window_gdf = target_window_gdf.to_crs(country_regions.crs)
-    region_window_geom = region_window_gdf.geometry.iloc[0]
-    visible_regions = country_regions.cx[window_bounds[0] : window_bounds[2], window_bounds[1] : window_bounds[3]].copy()
-    if visible_regions.empty:
-        visible_regions = country_regions.copy()
-    visible_regions = visible_regions[visible_regions.geom_type.isin({"Polygon", "MultiPolygon"})].copy()
-    visible_regions = visible_regions.loc[visible_regions.intersects(region_window_geom)].copy()
-    if (
-        not visible_regions.empty
-        and visible_regions.crs is not None
-        and context.spec.crs is not None
-        and str(visible_regions.crs) != str(context.spec.crs)
-    ):
-        visible_regions = visible_regions.to_crs(context.spec.crs)
-    visible_regions = visible_regions[visible_regions.geometry.notna()].copy()
-    visible_regions = visible_regions.loc[~visible_regions.geometry.is_empty].copy()
-    if not visible_regions.empty:
-        clip_geom = box(extent[0], extent[2], extent[1], extent[3])
-        visible_regions = visible_regions.loc[visible_regions.intersects(clip_geom)].copy()
-        if not visible_regions.empty:
-            visible_regions = visible_regions.clip(clip_geom)
-            visible_regions = visible_regions.loc[~visible_regions.geometry.is_empty].copy()
-    context.roi_gdf.plot(ax=ax, facecolor=_OVERVIEW_ROI_COLOR, edgecolor=_OVERVIEW_ROI_COLOR, linewidth=0.8, zorder=25)
-    roi_anchor: tuple[float, float] | None = None
-    if panel.roi_label:
-        centroid = context.roi_gdf.geometry.unary_union.centroid
-        roi_anchor = (
-            float(centroid.x) + 0.02 * (extent[1] - extent[0]),
-            float(centroid.y),
-        )
-        ax.text(
-            roi_anchor[0],
-            roi_anchor[1],
-            panel.roi_label,
-            color="black",
-            fontsize=6.4,
-            ha="left",
-            va="center",
-            zorder=_ANNOTATION_ZORDER,
-        )
-    _draw_overview_country_labels(
+    visible_regions = visible_regions_getter(extent)
+    _apply_map_axis_style(
         ax,
+        extent,
+        title=_panel_title(label, _panel_semantic_title(panel)),
+        show_grid=_resolve_flag(panel.show_grid, defaults, "show_grid", True),
+        aspect_adjustable="box",
+    )
+    context.roi_gdf.plot(ax=ax, facecolor=_OVERVIEW_ROI_COLOR, edgecolor=_OVERVIEW_ROI_COLOR, linewidth=0.8, zorder=25)
+    roi_label = _overview_roi_label_spec(panel, extent=extent, context=context)
+    label_specs = _overview_country_label_specs(
         visible_countries=visible_regions,
         labels=country_labels,
         extent=extent,
-        roi_anchor=roi_anchor,
+        roi_anchor=(roi_label.x, roi_label.y) if roi_label is not None else None,
     )
+    if roi_label is not None:
+        label_specs.append(roi_label)
+    _draw_overview_label_specs(ax, label_specs)
     show_grid = _resolve_flag(panel.show_grid, defaults, "show_grid", True)
-    _apply_map_axis_style(ax, extent, title=_panel_title(label, _panel_semantic_title(panel)), show_grid=show_grid)
     _draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=_panel_date(panel, defaults))
     _draw_map_grid_overlay(ax, show_grid=show_grid)
-    return {}
+    return {"extent": extent}
 
 
 def _render_roi_panel(ax, *, panel: MapPanelSpec, context: StaticContext, extent, label: str | None, defaults: MapDefaults) -> dict[str, object]:

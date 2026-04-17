@@ -74,6 +74,7 @@ class MapPanelSpec:
     date: str | None = None
     source: str | None = None
     scale: int | None = None
+    label_fit_margin: float | None = None
     roi_label: str | None = None
     lines: tuple[str, ...] = ()
     items: tuple[LegendItemSpec, ...] = ()
@@ -180,6 +181,18 @@ def _optional_positive_int(value: object, *, context: str) -> int | None:
     return _coerce_int(value, context=context, minimum=1)
 
 
+def _optional_positive_float(value: object, *, context: str) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{context} must be numeric") from exc
+    if parsed <= 0.0:
+        raise ValueError(f"{context} must be > 0")
+    return parsed
+
+
 def _coerce_str_list(value: object, *, context: str) -> tuple[str, ...]:
     if value is None:
         return ()
@@ -277,6 +290,7 @@ def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
         date=_optional_str(mapping.get("date")),
         source=_optional_str(mapping.get("source")),
         scale=_optional_positive_int(mapping.get("scale"), context=f"{context}.scale"),
+        label_fit_margin=_optional_positive_float(mapping.get("label_fit_margin"), context=f"{context}.label_fit_margin"),
         roi_label=_optional_str(mapping.get("roi_label")),
         lines=_coerce_str_list(mapping.get("lines"), context=f"{context}.lines"),
         items=_parse_legend_items(mapping.get("items"), context=f"{context}.items"),

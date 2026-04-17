@@ -379,8 +379,8 @@ def test_overview_geojson_loaders_reuse_cached_reads_and_return_copies(monkeypat
         crs="EPSG:3857",
     )
 
-    def fake_ensure(*, cache_dir=None, filename: str):
-        del cache_dir
+    def fake_ensure(*, setup_dir=None, cache_dir=None, filename: str):
+        del setup_dir, cache_dir
         return Path("/tmp") / filename
 
     def fake_read_file(path: Path):
@@ -405,6 +405,37 @@ def test_overview_geojson_loaders_reuse_cached_reads_and_return_copies(monkeypat
     assert list(labels["name"]) == ["demo"]
     assert list(regions["name"]) == ["demo"]
     overview_module._load_overview_geojson_cached.cache_clear()
+
+
+def test_overview_geojson_path_resolves_under_setup_env(tmp_path: Path) -> None:
+    setup_dir = tmp_path / "setup_demo"
+    expected = setup_dir / "env" / overview_module.GISCO_BOUNDARIES_GEOJSON_NAME
+
+    assert overview_module.overview_geojson_path(
+        setup_dir=setup_dir,
+        filename=overview_module.GISCO_BOUNDARIES_GEOJSON_NAME,
+    ) == expected
+
+
+def test_overview_cli_fetches_into_setup_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    setup_dir = tmp_path / "setup_demo"
+    calls: list[Path] = []
+
+    def fake_ensure(*, setup_dir=None, cache_dir=None):
+        del cache_dir
+        calls.append(Path(setup_dir))
+        return {name: Path(setup_dir) / "env" / name for name in (
+            overview_module.GISCO_BOUNDARIES_GEOJSON_NAME,
+            overview_module.GISCO_REGIONS_GEOJSON_NAME,
+            overview_module.GISCO_LABELS_GEOJSON_NAME,
+        )}
+
+    monkeypatch.setattr(overview_module, "ensure_overview_geojsons", fake_ensure)
+
+    exit_code = overview_module.cli_main(["--setup-dir", str(setup_dir)])
+
+    assert exit_code == 0
+    assert calls == [setup_dir.resolve()]
 
 
 def test_project_maps_enabled_looks_for_maps_yml(tmp_path: Path) -> None:
@@ -475,6 +506,7 @@ def test_project_maps_config_accepts_static_panels_and_legend_items(tmp_path: Pa
                 kind: overview
                 title: Overview
                 scale: 1000000
+                label_fit_margin: 0.04
                 roi_label: Demo ROI
               - row: 0
                 col: 1
@@ -495,6 +527,7 @@ def test_project_maps_config_accepts_static_panels_and_legend_items(tmp_path: Pa
 
     assert cfg.maps[0].panels[0].kind == "overview"
     assert cfg.maps[0].panels[0].scale == 1000000
+    assert cfg.maps[0].panels[0].label_fit_margin == 0.04
     assert cfg.maps[0].panels[1].kind == "svf"
     assert [item.kind for item in cfg.maps[0].panels[2].items] == ["station_symbol", "heading"]
 
@@ -553,6 +586,31 @@ def test_project_maps_config_accepts_explicit_station_overlay_flags(tmp_path: Pa
     assert panel.show_station_marker is True
     assert panel.show_stations_name is True
     assert panel.show_stations_elev is False
+
+
+def test_project_maps_config_rejects_nonpositive_overview_label_fit_margin(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          setup_map:
+            title: Setup map
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: overview
+                scale: 1000000
+                label_fit_margin: 0
+        """,
+    )
+
+    with pytest.raises(ValueError, match="label_fit_margin"):
+        load_project_maps_config(config_path)
 
 
 def test_project_maps_config_accepts_classified_legend_layout(tmp_path: Path) -> None:
@@ -1075,9 +1133,9 @@ def test_render_overview_panel_adds_country_labels(tmp_path: Path, monkeypatch) 
         geometry=[Point(-40000.0, 30000.0), Point(45000.0, -5000.0)],
         crs="EPSG:25832",
     )
-    monkeypatch.setattr(render_module, "load_overview_boundaries", lambda: boundaries)
-    monkeypatch.setattr(render_module, "load_overview_regions", lambda: regions)
-    monkeypatch.setattr(render_module, "load_overview_labels", lambda: labels)
+    monkeypatch.setattr(render_module, "load_overview_boundaries", lambda **_kwargs: boundaries)
+    monkeypatch.setattr(render_module, "load_overview_regions", lambda **_kwargs: regions)
+    monkeypatch.setattr(render_module, "load_overview_labels", lambda **_kwargs: labels)
     fig, ax = plt.subplots(figsize=(4, 4))
     try:
         render_module._render_overview_panel(
@@ -1091,6 +1149,201 @@ def test_render_overview_panel_adds_country_labels(tmp_path: Path, monkeypatch) 
         assert "Austria" in texts
         assert "Italy" in texts
         assert "Demo ROI" in texts
+    finally:
+        plt.close(fig)
+
+
+def test_overview_extent_with_label_fit_expands_for_border_hugging_labels(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        panel = MapPanelSpec(kind="overview", row=0, col=0, scale=1_800_000)
+        base_extent = render_module._overview_extent(ax, context, scale=1_800_000)
+        regions = gpd.GeoDataFrame(
+            {"CNTR_ID": ["DEMO"]},
+            geometry=[box(base_extent[1] - 500.0, base_extent[2] + 500.0, base_extent[1] - 10.0, base_extent[3] - 500.0)],
+            crs="EPSG:25832",
+        )
+        labels = gpd.GeoDataFrame(
+            {"CNTR_ID": ["DEMO"], "NAME_ENGL": ["A very long country label near the right border"]},
+            geometry=[Point(base_extent[1] - 100.0, 0.5 * (base_extent[2] + base_extent[3]))],
+            crs="EPSG:25832",
+        )
+
+        fitted_extent = render_module._overview_extent_with_label_fit(
+            ax,
+            panel=panel,
+            context=context,
+            labels=labels,
+            visible_regions_getter=lambda _extent: regions,
+        )
+
+        assert fitted_extent[1] > base_extent[1]
+    finally:
+        plt.close(fig)
+
+
+def test_overview_extent_with_label_fit_keeps_base_extent_when_labels_fit(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        panel = MapPanelSpec(kind="overview", row=0, col=0, scale=1_800_000)
+        base_extent = render_module._overview_extent(ax, context, scale=1_800_000)
+        center_x = 0.5 * (base_extent[0] + base_extent[1])
+        center_y = 0.5 * (base_extent[2] + base_extent[3])
+        regions = gpd.GeoDataFrame(
+            {"CNTR_ID": ["DEMO"]},
+            geometry=[box(center_x - 5000.0, center_y - 5000.0, center_x + 5000.0, center_y + 5000.0)],
+            crs="EPSG:25832",
+        )
+        labels = gpd.GeoDataFrame(
+            {"CNTR_ID": ["DEMO"], "NAME_ENGL": ["Demo"]},
+            geometry=[Point(center_x, center_y)],
+            crs="EPSG:25832",
+        )
+
+        fitted_extent = render_module._overview_extent_with_label_fit(
+            ax,
+            panel=panel,
+            context=context,
+            labels=labels,
+            visible_regions_getter=lambda _extent: regions,
+        )
+
+        assert np.allclose(fitted_extent, base_extent)
+    finally:
+        plt.close(fig)
+
+
+def test_overview_label_fit_margin_scales_out_beyond_automatic_fit(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        base_extent = render_module._overview_extent(ax, context, scale=1_800_000)
+        regions = gpd.GeoDataFrame(
+            {"CNTR_ID": ["DEMO"]},
+            geometry=[box(base_extent[1] - 500.0, base_extent[2] + 500.0, base_extent[1] - 10.0, base_extent[3] - 500.0)],
+            crs="EPSG:25832",
+        )
+        labels = gpd.GeoDataFrame(
+            {"CNTR_ID": ["DEMO"], "NAME_ENGL": ["Long border label"]},
+            geometry=[Point(base_extent[1] - 100.0, 0.5 * (base_extent[2] + base_extent[3]))],
+            crs="EPSG:25832",
+        )
+
+        auto_extent = render_module._overview_extent_with_label_fit(
+            ax,
+            panel=MapPanelSpec(kind="overview", row=0, col=0, scale=1_800_000),
+            context=context,
+            labels=labels,
+            visible_regions_getter=lambda _extent: regions,
+        )
+        expanded_extent = render_module._overview_extent_with_label_fit(
+            ax,
+            panel=MapPanelSpec(kind="overview", row=0, col=0, scale=1_800_000, label_fit_margin=0.03),
+            context=context,
+            labels=labels,
+            visible_regions_getter=lambda _extent: regions,
+        )
+
+        auto_width = auto_extent[1] - auto_extent[0]
+        expanded_width = expanded_extent[1] - expanded_extent[0]
+        auto_height = auto_extent[3] - auto_extent[2]
+        expanded_height = expanded_extent[3] - expanded_extent[2]
+        assert expanded_width > auto_width
+        assert expanded_height > auto_height
+    finally:
+        plt.close(fig)
+
+
+def test_render_overview_panel_keeps_country_labels_inside_axes_bounds(tmp_path: Path, monkeypatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        base_extent = render_module._overview_extent(ax, context, scale=1_800_000)
+        boundaries = gpd.GeoDataFrame(
+            {"CNTR_ID": ["DEMO"]},
+            geometry=[box(base_extent[1] - 500.0, base_extent[2] + 500.0, base_extent[1] - 10.0, base_extent[3] - 500.0)],
+            crs="EPSG:25832",
+        )
+        regions = boundaries.copy()
+        label_text = "A very long country label near the right border"
+        labels = gpd.GeoDataFrame(
+            {"CNTR_ID": ["DEMO"], "NAME_ENGL": [label_text]},
+            geometry=[Point(base_extent[1] - 100.0, 0.5 * (base_extent[2] + base_extent[3]))],
+            crs="EPSG:25832",
+        )
+        monkeypatch.setattr(render_module, "load_overview_boundaries", lambda **_kwargs: boundaries)
+        monkeypatch.setattr(render_module, "load_overview_regions", lambda **_kwargs: regions)
+        monkeypatch.setattr(render_module, "load_overview_labels", lambda **_kwargs: labels)
+
+        render_module._render_overview_panel(
+            ax,
+            panel=MapPanelSpec(kind="overview", row=0, col=0, scale=1_800_000),
+            context=context,
+            label="a",
+            defaults=MapDefaults(),
+        )
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        ax_bbox = ax.get_window_extent(renderer)
+        country_text = next(text for text in ax.texts if text.get_text() == label_text)
+        text_bbox = country_text.get_window_extent(renderer)
+
+        assert text_bbox.x0 >= ax_bbox.x0 - 1.0
+        assert text_bbox.x1 <= ax_bbox.x1 + 1.0
+        assert text_bbox.y0 >= ax_bbox.y0 - 1.0
+        assert text_bbox.y1 <= ax_bbox.y1 + 1.0
+    finally:
+        plt.close(fig)
+
+
+def test_render_overview_panel_keeps_axes_box_aligned_with_sibling_panels(tmp_path: Path, monkeypatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    boundaries = gpd.GeoDataFrame(
+        {"CNTR_ID": ["DEMO"]},
+        geometry=[box(-90000.0, -90000.0, 90000.0, 90000.0)],
+        crs="EPSG:25832",
+    )
+    regions = boundaries.copy()
+    labels = gpd.GeoDataFrame(
+        {"CNTR_ID": ["DEMO"], "NAME_ENGL": ["Long country label at the border"]},
+        geometry=[Point(85000.0, 0.0)],
+        crs="EPSG:25832",
+    )
+    monkeypatch.setattr(render_module, "load_overview_boundaries", lambda **_kwargs: boundaries)
+    monkeypatch.setattr(render_module, "load_overview_regions", lambda **_kwargs: regions)
+    monkeypatch.setattr(render_module, "load_overview_labels", lambda **_kwargs: labels)
+
+    fig = plt.figure(figsize=(6, 3))
+    gs = fig.add_gridspec(1, 2, wspace=0.0, hspace=0.0)
+    ax_overview = fig.add_subplot(gs[0, 0])
+    ax_roi = fig.add_subplot(gs[0, 1])
+    try:
+        render_module._render_overview_panel(
+            ax_overview,
+            panel=MapPanelSpec(kind="overview", row=0, col=0, scale=1_800_000),
+            context=context,
+            label="a",
+            defaults=MapDefaults(),
+        )
+        render_module._render_roi_panel(
+            ax_roi,
+            panel=MapPanelSpec(kind="roi", row=0, col=1),
+            context=context,
+            extent=render_module.buffered_extent(context),
+            label="b",
+            defaults=MapDefaults(),
+        )
+        overview_box = ax_overview.get_position()
+        roi_box = ax_roi.get_position()
+        assert np.isclose(overview_box.width, roi_box.width, rtol=0.02)
+        assert np.isclose(overview_box.height, roi_box.height, rtol=0.02)
     finally:
         plt.close(fig)
 

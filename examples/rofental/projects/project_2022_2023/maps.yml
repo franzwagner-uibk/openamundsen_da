@@ -49,6 +49,7 @@ maps:
       ncols: 4
     defaults:
       date: "2023-01-21"
+      show_hillshade: true
       show_scalebar: true
     panels:
       - row: 0
@@ -79,6 +80,7 @@ maps:
       ncols: 4
     defaults:
       date: "2023-04-29"
+      show_hillshade: true
       show_scalebar: true
     panels:
       - row: 0
@@ -109,6 +111,7 @@ maps:
       ncols: 3
     defaults:
       date: "2023-05-03"
+      show_hillshade: true
       show_scalebar: true
     panels:
       - row: 0
@@ -148,6 +151,7 @@ maps:
       ncols: 4
     defaults:
       date: "2023-05-26"
+      show_hillshade: true
       show_scalebar: true
     panels:
       - row: 0

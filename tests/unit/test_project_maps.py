@@ -1026,6 +1026,87 @@ def test_model_panels_remain_masked_outside_roi(tmp_path: Path) -> None:
         plt.close(fig)
 
 
+def test_model_panel_hillshade_defaults_to_off_for_snow_depth(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        render_module._render_model_panel(
+            ax,
+            panel=MapPanelSpec(
+                kind="snow_depth",
+                row=0,
+                col=0,
+                source="open_loop",
+                date="2023-01-02",
+                show_colorbar=False,
+            ),
+            context=context,
+            extent=buffered_extent(context),
+            grid_extent=render_module._grid_extent(context),
+            label=None,
+            defaults=MapDefaults(),
+            model_cache={},
+            scale_cache={},
+            figure_horizontal_default=True,
+        )
+        assert len(ax.images) == 1
+    finally:
+        plt.close(fig)
+
+
+def test_model_panel_hillshade_respects_recipe_default_and_panel_override(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    fig_default, ax_default = plt.subplots(figsize=(3, 3))
+    fig_override, ax_override = plt.subplots(figsize=(3, 3))
+    try:
+        render_module._render_model_panel(
+            ax_default,
+            panel=MapPanelSpec(
+                kind="snow_depth",
+                row=0,
+                col=0,
+                source="open_loop",
+                date="2023-01-02",
+                show_colorbar=False,
+            ),
+            context=context,
+            extent=buffered_extent(context),
+            grid_extent=render_module._grid_extent(context),
+            label=None,
+            defaults=MapDefaults(show_hillshade=True),
+            model_cache={},
+            scale_cache={},
+            figure_horizontal_default=True,
+        )
+        render_module._render_model_panel(
+            ax_override,
+            panel=MapPanelSpec(
+                kind="snow_depth",
+                row=0,
+                col=0,
+                source="open_loop",
+                date="2023-01-02",
+                show_colorbar=False,
+                show_hillshade=False,
+            ),
+            context=context,
+            extent=buffered_extent(context),
+            grid_extent=render_module._grid_extent(context),
+            label=None,
+            defaults=MapDefaults(show_hillshade=True),
+            model_cache={},
+            scale_cache={},
+            figure_horizontal_default=True,
+        )
+        assert len(ax_default.images) == 2
+        assert len(ax_override.images) == 1
+    finally:
+        plt.close(fig_default)
+        plt.close(fig_override)
+
+
 def test_snowdepth_model_palette_uses_reference_ticks_and_transparent_under_range() -> None:
     preset = require_variable_preset("snowdepth_daily")
 

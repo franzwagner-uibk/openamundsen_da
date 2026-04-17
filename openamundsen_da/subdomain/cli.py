@@ -203,7 +203,7 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
         return 0
 
     if args.command == "plot":
-        from openamundsen_da.subdomain.plot import plot_station_comparisons
+        from openamundsen_da.methods.viz.plots.subdomain.station_comparisons import plot_station_comparisons
 
         manifest = _resolve_manifest(
             manifest_arg=args.manifest,
@@ -260,4 +260,3 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli())
-

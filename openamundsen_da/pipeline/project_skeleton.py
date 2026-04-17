@@ -1,4 +1,4 @@
-﻿"""openamundsen_da.pipeline.project_skeleton
+"""openamundsen_da.pipeline.project_skeleton
 
 Helper to create an empty project step layout from high-level config.
 

@@ -1,4 +1,4 @@
-﻿"""Gaussian-likelihood weighting for fraction-based ROI observations.
+"""Gaussian-likelihood weighting for fraction-based ROI observations.
 
 Supports ROI snow-cover fraction and ROI wet-snow fraction observations
 against model-derived H(x) values per ensemble member.

@@ -1,4 +1,4 @@
-﻿import tempfile
+import tempfile
 import unittest
 from datetime import date
 from pathlib import Path

@@ -1,4 +1,4 @@
-﻿"""Wet-snow area fractions for model and observation rasters.
+"""Wet-snow area fractions for model and observation rasters.
 
 This module mirrors the SCF operator structure (openamundsen_da.methods.h_of_x)
 but works on categorical wet-snow masks:

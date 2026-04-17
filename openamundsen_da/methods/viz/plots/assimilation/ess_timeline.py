@@ -1,4 +1,4 @@
-"""openamundsen_da.methods.pf.plot_ess_timeline
+"""ESS timeline plot for setup-level assimilation diagnostics.
 
 Plot ESS (and optionally normalized ESS/N) vs time by scanning a step's
 assim directory for weights_*_YYYYMMDD.csv files.
@@ -28,8 +28,8 @@ from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.yaml_utils import read_yaml_mapping
 from openamundsen_da.methods.viz.plots.common import (
+    add_assim_label_axis,
     apply_fraction_grid,
-    draw_assim_labels,
     draw_assimilation_vlines,
     result_title_pad,
 )
@@ -42,10 +42,6 @@ from openamundsen_da.methods.viz.common import (
 
 _RE_DATE = re.compile(r"weights_.+_(\d{8})\.csv$", re.IGNORECASE)
 _ESS_PANEL_FIGSIZE = (7.2876875, 2.28)
-_ASSIM_LABEL_ROW_OFFSETS_PTS = [2.0, 8.0]
-_ASSIM_LABEL_MIN_SPACING_DAYS = 18.0
-
-
 def ess_title(*, ensemble_size: int | None, normalized: bool = False) -> str:
     base = "effective sample size"
     if normalized:
@@ -139,49 +135,7 @@ def _assimilation_event_dates(setup_dir: Path) -> list[pd.Timestamp]:
 
 
 def _add_assim_label_axis(ax, dates: list[pd.Timestamp]) -> None:
-    import matplotlib.dates as mdates
-
-    if not dates:
-        return
-    x_min, x_max = sorted(ax.get_xlim())
-    visible_start = pd.Timestamp(mdates.num2date(x_min)).tz_localize(None)
-    visible_end = pd.Timestamp(mdates.num2date(x_max)).tz_localize(None)
-    visible_items = [
-        (date, str(i))
-        for i, date in enumerate(dates, start=1)
-        if visible_start <= date <= visible_end
-    ]
-    if not visible_items:
-        return
-
-    label_axis = ax.twiny()
-    label_axis.patch.set_alpha(0.0)
-    if hasattr(label_axis, "set_in_layout"):
-        label_axis.set_in_layout(False)
-    label_axis.set_xlim(ax.get_xlim())
-    label_axis.set_xticks([])
-    label_axis.set_xlabel("")
-    label_axis.yaxis.set_visible(False)
-    label_axis.xaxis.set_visible(False)
-    for spine in label_axis.spines.values():
-        spine.set_visible(False)
-
-    draw_assim_labels(
-        label_axis,
-        [item[0] for item in visible_items],
-        labels=[item[1] for item in visible_items],
-        max_labels=max(1, len(visible_items)),
-        y_offset_pts=_ASSIM_LABEL_ROW_OFFSETS_PTS[0],
-        fontsize=6.0,
-        color="#000000",
-        rotation=0.0,
-        va="bottom",
-        row_y_offsets_pts=_ASSIM_LABEL_ROW_OFFSETS_PTS,
-        min_row_spacing_days=_ASSIM_LABEL_MIN_SPACING_DAYS,
-        axes_y=1.0,
-        ha="center",
-        x_offset_pts=0.0,
-    )
+    add_assim_label_axis(ax, dates)
 
 
 def _apply_result_like_time_axis_labels(ax) -> None:

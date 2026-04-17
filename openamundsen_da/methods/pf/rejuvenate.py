@@ -1,4 +1,4 @@
-﻿"""openamundsen_da.methods.pf.rejuvenate
+"""openamundsen_da.methods.pf.rejuvenate
 
 Create a rejuvenated prior ensemble for the next step from a posterior ensemble
 without duplicating large state files.

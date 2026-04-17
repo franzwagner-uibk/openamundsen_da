@@ -1,4 +1,4 @@
-﻿"""Generic snow-cover summarization with configurable classes."""
+"""Generic snow-cover summarization with configurable classes."""
 
 from __future__ import annotations
 

@@ -49,6 +49,7 @@ from openamundsen_da.methods.viz.maps.render import (
     buffered_extent,
     figure_height_for_extent,
 )
+import openamundsen_da.pipeline.plot_tasks as plot_tasks_module
 from openamundsen_da.pipeline import project as project_pipeline
 from openamundsen_da.methods.viz.maps.runner import project_maps_enabled, render_project_maps
 from openamundsen_da.methods.viz.maps.styles import (
@@ -2399,11 +2400,15 @@ def test_project_pipeline_best_effort_map_render_logs_warning(monkeypatch: pytes
         def warning(self, message: str, *args) -> None:
             warnings.append(message.format(*args))
 
-    monkeypatch.setattr(project_pipeline, "logger", StubLogger())
-    monkeypatch.setattr(project_pipeline, "project_maps_enabled", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(project_pipeline, "render_project_maps", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(plot_tasks_module, "logger", StubLogger())
+    monkeypatch.setattr(plot_tasks_module, "project_maps_enabled", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        plot_tasks_module,
+        "render_project_maps",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
 
-    project_pipeline._render_project_maps_best_effort(project_dir)
+    plot_tasks_module.render_project_maps_best_effort(project_dir)
 
     assert warnings == ["Project maps failed: boom"]
 

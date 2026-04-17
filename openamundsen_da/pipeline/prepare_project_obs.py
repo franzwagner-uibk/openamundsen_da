@@ -1,4 +1,4 @@
-﻿"""
+"""
 prepare_project_obs.py
 Author: Franz Wagner
 Date: 2026-02-05
@@ -27,7 +27,7 @@ from openamundsen_da.methods.viz.fraction_series import (
 )
 from openamundsen_da.methods.viz.plots.result_overview import plot_result_overview
 from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
-from openamundsen_da.observer.plot_scf_summary import _load_summary as _load_scf_summary
+from openamundsen_da.observer.summary_io import load_scf_summary as _load_scf_summary
 from openamundsen_da.util.da_events import AssimilationEvent
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 

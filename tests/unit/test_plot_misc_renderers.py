@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from openamundsen_da.methods.pf.plot_station_diagnostics import plot_station_diagnostics_for_csv
+from openamundsen_da.methods.viz.plots.assimilation.station_diagnostics import plot_station_diagnostics_for_csv
 from openamundsen_da.methods.viz.plots.forcing_ensemble import _plot_station
-from openamundsen_da.observer.plot_scf_summary import cli_main as plot_scf_cli_main
+from openamundsen_da.methods.viz.plots.observer.scf_summary import cli_main as plot_scf_cli_main
 
 
 def test_plot_station_diagnostics_for_csv_writes_png(tmp_path: Path) -> None:

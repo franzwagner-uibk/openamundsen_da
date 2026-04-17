@@ -1,21 +1,14 @@
 from __future__ import annotations
 
-"""Helpers for project execution mode markers.
-
-The project YAML persists a top-level `run_mode` marker to guard against
-accidentally running a project with the wrong workflow entrypoint.
-
-Legacy compatibility: `data_assimilation.run_mode` is still read when the
-top-level key is missing.
-"""
+"""Helpers for project execution mode markers."""
 
 from pathlib import Path
 
-from openamundsen_da.core.constants import DA_BLOCK
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml
 
 _RUN_MODE_KEY = "run_mode"
+_DA_BLOCK_KEY = "data_assimilation"
 _VALID_RUN_MODES = {"single", "subdomain"}
 
 
@@ -32,9 +25,6 @@ def read_run_mode(project_dir: Path) -> str | None:
     cfg = _read_yaml_file(project_yaml) or {}
     raw = cfg.get(_RUN_MODE_KEY)
     if raw is None:
-        da_cfg = cfg.get(DA_BLOCK) or {}
-        raw = da_cfg.get(_RUN_MODE_KEY)
-    if raw is None:
         return None
     return _normalize_mode(str(raw))
 
@@ -45,11 +35,11 @@ def write_run_mode(project_dir: Path, run_mode: str) -> str:
     project_yaml = find_project_yaml(project_dir)
     cfg = _read_yaml_file(project_yaml) or {}
     cfg[_RUN_MODE_KEY] = mode
-    da_cfg = cfg.get(DA_BLOCK)
+    da_cfg = cfg.get(_DA_BLOCK_KEY)
     if isinstance(da_cfg, dict) and _RUN_MODE_KEY in da_cfg:
         da_cfg = dict(da_cfg)
         da_cfg.pop(_RUN_MODE_KEY, None)
-        cfg[DA_BLOCK] = da_cfg
+        cfg[_DA_BLOCK_KEY] = da_cfg
 
     import ruamel.yaml as _yaml
 

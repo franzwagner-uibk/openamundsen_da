@@ -1,6 +1,6 @@
 """Compatibility wrapper for benchmark rendering/writing helpers."""
 
-from .render.plots import write_plots
+from openamundsen_da.methods.viz.plots.benchmark import write_plots
 from .render.tables import (
     write_case_tables,
     write_manifest,

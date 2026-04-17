@@ -38,7 +38,7 @@ Scripting-oriented entry points. Everything else should be used via the CLI.
 - `openamundsen_da.subdomain.run.run_subdomains(...)`
 - `openamundsen_da.subdomain.merge.merge_grids(...)`
 - `openamundsen_da.subdomain.merge.merge_points(...)`
-- `openamundsen_da.subdomain.plot.plot_station_comparisons(...)`
+- `openamundsen_da.methods.viz.plots.subdomain.station_comparisons.plot_station_comparisons(...)`
 
 ## Utilities (selected)
 - `openamundsen_da.util.stats`
@@ -47,6 +47,5 @@ Scripting-oriented entry points. Everything else should be used via the CLI.
 
 ## Stability note
 Prefer CLI usage for stable workflows. Direct Python APIs may change between minor versions.
-
 
 

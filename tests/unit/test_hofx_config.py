@@ -1,10 +1,10 @@
-﻿import tempfile
+import tempfile
 import unittest
 from pathlib import Path
 
 from ruamel.yaml import YAML
 
-from openamundsen_da.methods.h_of_x.model_scf import load_hofx_from_setup
+from openamundsen_da.methods.h_of_x.model_scf import load_hofx_from_project
 
 
 def _write_yaml(path: Path, payload: dict) -> None:
@@ -32,7 +32,7 @@ class HofxConfigTests(unittest.TestCase):
                 },
             )
 
-            method, variable, params = load_hofx_from_setup(project_dir)
+            method, variable, params = load_hofx_from_project(project_dir)
 
             self.assertEqual(method, "logistic")
             self.assertEqual(variable, "hs")
@@ -55,9 +55,8 @@ class HofxConfigTests(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(ValueError, "data_assimilation.h_of_x"):
-                load_hofx_from_setup(project_dir)
+                load_hofx_from_project(project_dir)
 
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -391,7 +391,7 @@ Optional flags: `--time-col`, `--var-col`, `--var-label`, `--var-units`, `--star
 
 ```powershell
 docker compose run --rm oa `
-  python -m openamundsen_da.methods.pf.plot_ess_timeline `
+  python -m openamundsen_da.methods.viz.plots.assimilation.ess_timeline `
   --step-dir $step
 ```
 
@@ -415,7 +415,7 @@ Project-level stitched forcing and point-result panels are written to `$setup/re
   $weights = "$setup/steps/step_01_20171122-20171224/assim/weights_scf_20171122.csv"
 
   docker compose run --rm oa `
-    python -m openamundsen_da.methods.pf.plot_weights `
+    python -m openamundsen_da.methods.viz.plots.assimilation.weights `
     $weights
   ```
 
@@ -425,7 +425,7 @@ Project-level stitched forcing and point-result panels are written to `$setup/re
 
   ```powershell
   docker compose run --rm oa `
-    python -c "from pathlib import Path; from openamundsen_da.methods.pf.plot_ess_timeline import plot_setup_ess_timeline; plot_setup_ess_timeline(Path('$setup'))"
+    python -c "from pathlib import Path; from openamundsen_da.methods.viz.plots.assimilation.ess_timeline import plot_setup_ess_timeline; plot_setup_ess_timeline(Path('$setup'))"
   ```
 
   This scans `steps/step_*/assim/weights_scf_*.csv` under `$setup` and writes the timeline to `$setup/results/plots/assim/ess/setup_ess_timeline_<setup_id>.png`.

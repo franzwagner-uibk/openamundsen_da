@@ -1,4 +1,4 @@
-﻿import unittest
+import unittest
 from datetime import timedelta
 
 from openamundsen_da.pipeline.project_skeleton import _parse_timestep

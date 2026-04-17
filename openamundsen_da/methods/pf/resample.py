@@ -1,4 +1,4 @@
-﻿"""openamundsen_da.methods.pf.resample
+"""openamundsen_da.methods.pf.resample
 
 Systematic resampling of a single-date weights CSV to form a posterior ensemble.
 

@@ -1,4 +1,4 @@
-﻿"""openamundsen_da.pipeline.project
+"""openamundsen_da.pipeline.project
 
 End-to-end project orchestrator with strict, opinionated behavior:
 
@@ -20,7 +20,6 @@ import os
 import shutil
 import threading
 import sys
-import concurrent.futures as cf
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -70,14 +69,15 @@ from openamundsen_da.methods.wet_snow.classify import classify_step_wet_snow
 from openamundsen_da.methods.wet_snow.area import compute_step_wet_snow_daily_for_all_members
 from openamundsen_da.methods.pf.rejuvenate import rejuvenate
 from openamundsen_da.methods.pf.resample import resample_from_weights, _read_resampling_from_project
-from openamundsen_da.methods.pf.plot_weights import plot_setup_weights_overview, plot_weights_for_csv
-from openamundsen_da.methods.pf.plot_station_diagnostics import plot_station_diagnostics_for_csv
-from openamundsen_da.methods.pf.plot_ess_timeline import plot_setup_ess_timeline
-from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_envelope
-from openamundsen_da.methods.viz.plots.result_overview import cli_main as plot_result_overview_cli
-from openamundsen_da.methods.viz.plots.project_ensemble import plot_setup_results
-from openamundsen_da.methods.viz.plots.forcing_ensemble import cli_main as plot_forcing_cli
-from openamundsen_da.methods.viz.maps import project_maps_enabled, render_project_maps
+from openamundsen_da.pipeline.plot_tasks import (
+    aggregate_fraction_envelopes,
+    build_fraction_overlay_task,
+    build_post_run_plot_tasks,
+    custom_overview_needs_benchmark_scores,
+    render_project_maps_best_effort,
+    run_live_plots,
+    run_plot_tasks_parallel,
+)
 from openamundsen_da.util.validation import validate_assimilation_requirements
 from openamundsen_da.util.run_mode import ensure_run_mode
 from openamundsen_da.util.station_da import is_station_variable
@@ -105,26 +105,6 @@ DA_DIAGNOSTICS = {
         "wet_plots": True,
     },
 }
-
-
-@dataclass(frozen=True)
-class PlotTask:
-    """Picklable plot task for process-based fan-out."""
-    name: str
-    func: object
-    args: tuple
-    kwargs: dict
-
-
-def _run_plot_task(task: PlotTask) -> tuple[str, str | None]:
-    """Execute a PlotTask in a worker process and return (name, error)."""
-    try:
-        result = task.func(*task.args, **task.kwargs)
-        if isinstance(result, int) and result != 0:
-            return task.name, f"exit code {result}"
-        return task.name, None
-    except Exception as exc:  # pragma: no cover
-        return task.name, str(exc)
 
 
 def _list_steps_sorted(project_dir: Path) -> List[Path]:
@@ -176,44 +156,6 @@ def _load_wet_snow_threshold_percent(project_dir: Path) -> float:
             f"data_assimilation.wet_snow.classification_threshold_percent must be >= 0 in {project_yaml}"
         )
     return value
-
-
-def _aggregate_fraction(
-    project_dir: Path,
-    filename: str,
-    value_col: str,
-    output_path: Path,
-) -> Path | None:
-    """Aggregate fraction envelopes into the canonical project misc directory."""
-    env_path = aggregate_fraction_envelope(
-        setup_dir=project_dir,
-        filename=filename,
-        value_col=value_col,
-        output_name=str(output_path.relative_to(project_dir)),
-    )
-    return env_path
-
-
-def _aggregate_fraction_envelopes(project_dir: Path) -> None:
-    """Aggregate SCF and wet-snow envelopes into results/misc."""
-    try:
-        _aggregate_fraction(
-            project_dir=project_dir,
-            filename="point_scf_roi.csv",
-            value_col="scf",
-            output_path=project_fraction_envelope_path(project_dir, "scf"),
-        )
-    except Exception as exc:
-        logger.warning("SCF envelope aggregation failed: {}", exc)
-    try:
-        _aggregate_fraction(
-            project_dir=project_dir,
-            filename="point_wet_snow_roi.csv",
-            value_col="wet_snow_fraction",
-            output_path=project_fraction_envelope_path(project_dir, "wet_snow"),
-        )
-    except Exception as exc:
-        logger.warning("Wet-snow envelope aggregation failed: {}", exc)
 
 
 def _compute_prior_step_diagnostics(
@@ -360,264 +302,6 @@ def _run_assimilation_for_event(
     return weights, None
 
 
-def _run_plot_tasks_parallel(
-    tasks: List[PlotTask],
-    max_workers: int | None,
-    setup_max_workers: int | None,
-) -> None:
-    """Execute plot tasks concurrently using process-based workers."""
-    if not tasks:
-        return
-    cpu_cap = os.cpu_count() or len(tasks)
-    candidates = [len(tasks), cpu_cap]
-    if max_workers is not None:
-        candidates.append(max_workers)
-    if setup_max_workers is not None:
-        candidates.append(setup_max_workers)
-    workers = max(1, min(candidates))
-    logger.info("Running {} plot task(s) with {} worker(s) ...", len(tasks), workers)
-    with cf.ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(_run_plot_task, t): t for t in tasks}
-        for fut in cf.as_completed(futures):
-            task = futures[fut]
-            try:
-                name, err = fut.result()
-            except Exception as exc:  # pragma: no cover
-                logger.warning("Plot task {} crashed: {}", task.name, exc)
-                continue
-            if err:
-                logger.warning("Plot task {} failed: {}", name, err)
-            else:
-                logger.info("Plot task {} completed", name)
-
-
-def _run_live_plots(
-    cfg: OrchestratorConfig,
-    step_dir: Path,
-    step_name: str,
-    wcsv: Path,
-    *,
-    variable: str,
-    station_diagnostics_csv: Path | None = None,
-    reset_logger: bool = True,
-    wet_snow_enabled: bool = True,
-) -> None:
-    """Run per-step plotting suite."""
-    try:
-        logger.info("Updating project plots after assimilation step {} ...", step_name)
-        _aggregate_fraction_envelopes(cfg.project_dir)
-        try:
-            rc = plot_forcing_cli([
-                "--step-dir", str(step_dir),
-                "--ensemble", "prior",
-                "--log-level", cfg.log_level,
-            ], configure_logger=False)
-            if isinstance(rc, int) and rc != 0:
-                raise RuntimeError(f"plot_forcing_cli returned {rc}")
-        except Exception as exc:
-            logger.warning("Forcing plot failed for {}: {}", step_name, exc)
-        try:
-            plot_setup_results(
-                setup_dir=cfg.project_dir,
-                var_col="swe",
-                mode="band",
-                resample="D",
-                resample_agg="mean",
-                configure_logger=False,
-            )
-            plot_setup_results(
-                setup_dir=cfg.project_dir,
-                var_col="snow_depth",
-                mode="band",
-                resample="D",
-                resample_agg="mean",
-                configure_logger=False,
-            )
-        except Exception as exc:
-            logger.warning("Setup point results plot failed after step {}: {}", step_name, exc)
-        try:
-            rc = plot_result_overview_cli([
-                "--project-dir", str(cfg.project_dir),
-                "--setup-dir", str(cfg.setup_dir),
-                "--log-level", cfg.log_level,
-                "--mode", "band",
-            ], configure_logger=False)
-            if isinstance(rc, int) and rc != 0:
-                raise RuntimeError(f"plot_result_overview_cli returned {rc}")
-        except Exception as exc:
-            logger.warning("Result overview plot skipped after step {}: {}", step_name, exc)
-        plot_weights_for_csv(wcsv)
-        if station_diagnostics_csv is not None and station_diagnostics_csv.is_file():
-            try:
-                plot_station_diagnostics_for_csv(station_diagnostics_csv)
-            except Exception as exc:
-                logger.warning("Station diagnostics plot failed after step {}: {}", step_name, exc)
-        try:
-            plot_setup_ess_timeline(cfg.project_dir)
-        except FileNotFoundError:
-            pass
-    except Exception as exc:
-        logger.warning("Setup plotting failed after step {}: {}", step_name, exc)
-    finally:
-        if reset_logger:
-            _setup_logger(cfg.project_dir, cfg.log_level)
-
-
-def _build_fraction_overlay_task(cfg: "OrchestratorConfig") -> PlotTask:
-    return PlotTask(
-        name="fraction_overlay",
-        func=plot_result_overview_cli,
-        args=(
-            [
-                "--project-dir",
-                str(cfg.project_dir),
-                "--setup-dir",
-                str(cfg.setup_dir),
-            ],
-        ),
-        kwargs={"configure_logger": False},
-    )
-
-
-def _custom_overview_needs_benchmark_scores(project_dir: Path) -> bool:
-    custom_cfg = Path(project_dir) / "plots.yml"
-    if not custom_cfg.is_file():
-        return False
-    try:
-        data = _read_yaml_file(custom_cfg) or {}
-    except Exception:
-        return False
-    panels = data.get("panels") or []
-    for entry in panels:
-        if isinstance(entry, str):
-            panel = entry
-        elif isinstance(entry, dict):
-            panel = entry.get("panel")
-        else:
-            continue
-        if str(panel or "").strip().lower() in {"scores-crpss", "scores-ner", "scores-zskill"}:
-            return True
-    return False
-
-
-def _render_project_maps_best_effort(project_dir: Path) -> None:
-    if not project_maps_enabled(project_dir):
-        logger.info("Project maps skipped: no maps.yml found under {}", project_dir)
-        return
-    try:
-        outputs = render_project_maps(project_dir=project_dir)
-        logger.info("Project maps complete -> {} output(s)", len(outputs))
-    except Exception as exc:
-        logger.warning("Project maps failed: {}", exc)
-
-
-def _build_post_run_plot_tasks(
-    cfg: "OrchestratorConfig",
-    steps: List[Path],
-    *,
-    include_fraction_overlay: bool = True,
-) -> List[PlotTask]:
-    """Build final project-level plot tasks executed after the run completes."""
-    plot_tasks: List[PlotTask] = []
-    for step_dir in steps:
-        plot_tasks.append(
-            PlotTask(
-                name=f"forcing:{Path(step_dir).name}",
-                func=plot_forcing_cli,
-                args=(
-                    [
-                        "--step-dir",
-                        str(step_dir),
-                        "--ensemble",
-                        "prior",
-                        "--log-level",
-                        cfg.log_level,
-                    ],
-                ),
-                kwargs={"configure_logger": False},
-            )
-        )
-    plot_tasks.append(
-        PlotTask(
-            name="setup_results_swe",
-            func=plot_setup_results,
-            args=(),
-            kwargs={
-                "setup_dir": cfg.project_dir,
-                "var_col": "swe",
-                "mode": "band",
-                "resample": "D",
-                "resample_agg": "mean",
-                "configure_logger": False,
-            },
-        )
-    )
-    plot_tasks.append(
-        PlotTask(
-            name="setup_results_snow_depth",
-            func=plot_setup_results,
-            args=(),
-            kwargs={
-                "setup_dir": cfg.project_dir,
-                "var_col": "snow_depth",
-                "mode": "band",
-                "resample": "D",
-                "resample_agg": "mean",
-                "configure_logger": False,
-            },
-        )
-    )
-    if include_fraction_overlay:
-        plot_tasks.append(_build_fraction_overlay_task(cfg))
-    weights_csvs: List[Path] = []
-    for step_dir in steps:
-        assim_dir = Path(step_dir) / "assim"
-        if not assim_dir.is_dir():
-            continue
-        candidates = sorted(assim_dir.glob("weights_*_*.csv"))
-        if candidates:
-            weights_csvs.append(candidates[-1])
-    for wcsv in weights_csvs:
-        plot_tasks.append(
-            PlotTask(
-                name=f"weights:{wcsv.parent.parent.name}",
-                func=plot_weights_for_csv,
-                args=(wcsv,),
-                kwargs={},
-            )
-        )
-    for step_dir in steps:
-        assim_dir = Path(step_dir) / "assim"
-        if not assim_dir.is_dir():
-            continue
-        for diag_csv in sorted(assim_dir.glob("station_diagnostics_*_*.csv")):
-            plot_tasks.append(
-                PlotTask(
-                    name=f"station_diag:{diag_csv.parent.parent.name}:{diag_csv.stem}",
-                    func=plot_station_diagnostics_for_csv,
-                    args=(diag_csv,),
-                    kwargs={},
-                )
-            )
-    plot_tasks.append(
-        PlotTask(
-            name="setup_ess_timeline",
-            func=plot_setup_ess_timeline,
-            args=(cfg.project_dir,),
-            kwargs={},
-        )
-    )
-    plot_tasks.append(
-        PlotTask(
-            name="setup_weights_overview",
-            func=plot_setup_weights_overview,
-            args=(cfg.project_dir,),
-            kwargs={},
-        )
-    )
-    return plot_tasks
-
-
 @dataclass
 class OrchestratorConfig:
     project_dir: Path
@@ -721,7 +405,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
         meteo_dir = cfg.setup_dir / "meteo"
         if not meteo_dir.is_dir():
             raise FileNotFoundError(f"Required meteo directory not found: {meteo_dir}")
-        logger.info("Initializing prior ensemble for step {} â€¦", steps[0].name)
+        logger.info("Initializing prior ensemble for step {} ...", steps[0].name)
 
     # Assimilation configuration (variable/product per date)
     events = load_assimilation_events(cfg.project_dir)
@@ -1071,12 +755,14 @@ def run_project(cfg: OrchestratorConfig) -> None:
         if cfg.live_plots:
             logger.info("Dispatching live plots in background for {} ...", step_name)
             t = threading.Thread(
-                target=_run_live_plots,
+                target=run_live_plots,
                 args=(cfg, step_dir, step_name, wcsv),
                 kwargs={
+                    "project_fraction_envelope_path": project_fraction_envelope_path,
                     "variable": ev.variable,
                     "station_diagnostics_csv": station_diag_csv,
                     "reset_logger": False,
+                    "reset_logger_func": _setup_logger,
                     "wet_snow_enabled": wet_snow_enabled,
                 },
                 daemon=False,
@@ -1092,19 +778,22 @@ def run_project(cfg: OrchestratorConfig) -> None:
         except Exception:
             pass
     # Aggregate fraction envelopes before plotting overlays
-    _aggregate_fraction_envelopes(cfg.project_dir)
+    aggregate_fraction_envelopes(
+        project_dir=cfg.project_dir,
+        project_fraction_envelope_path=project_fraction_envelope_path,
+    )
 
-    score_dependent_fraction_overlay = _custom_overview_needs_benchmark_scores(cfg.project_dir)
+    score_dependent_fraction_overlay = custom_overview_needs_benchmark_scores(cfg.project_dir)
 
     # Build post-run plot tasks (per-step forcing, project results, weights, ESS,
     # and the overview plot when it does not depend on benchmark score outputs).
-    plot_tasks = _build_post_run_plot_tasks(
+    plot_tasks = build_post_run_plot_tasks(
         cfg,
         steps,
         include_fraction_overlay=not score_dependent_fraction_overlay,
     )
     try:
-        _run_plot_tasks_parallel(plot_tasks, cfg.plot_workers, cfg.max_workers)
+        run_plot_tasks_parallel(plot_tasks, cfg.plot_workers, cfg.max_workers)
     except Exception as exc:
         logger.warning("Post-run plotting failed: {}", exc)
 
@@ -1124,7 +813,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
             logger.warning("DA output grid summary failed: {}", exc)
 
     if da_summary_written:
-        _render_project_maps_best_effort(cfg.project_dir)
+        render_project_maps_best_effort(cfg.project_dir)
 
     try:
         benchmark_outputs = run_project_benchmark(
@@ -1144,7 +833,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
 
     if score_dependent_fraction_overlay:
         try:
-            _run_plot_tasks_parallel([_build_fraction_overlay_task(cfg)], cfg.plot_workers, cfg.max_workers)
+            run_plot_tasks_parallel([build_fraction_overlay_task(cfg)], cfg.plot_workers, cfg.max_workers)
         except Exception as exc:
             logger.warning("Post-benchmark plotting failed: {}", exc)
 

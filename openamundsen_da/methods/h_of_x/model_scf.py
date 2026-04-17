@@ -1,4 +1,4 @@
-﻿"""openamundsen_da.methods.h_of_x.model_scf
+"""openamundsen_da.methods.h_of_x.model_scf
 
 Model-based Snow Cover Fraction (SCF) operator H(x).
 
@@ -124,11 +124,6 @@ def load_hofx_from_project(project_dir: Path) -> tuple[str, str, SCFParams]:
     if not hofx:
         raise ValueError(f"Missing '{DA_BLOCK}.{HOFX_BLOCK}' section in {project_yaml}")
     return _parse_hofx_block(hofx)
-
-
-def load_hofx_from_setup(project_dir: Path) -> tuple[str, str, SCFParams]:
-    """Backward-compatible alias; delegated to project-level config."""
-    return load_hofx_from_project(project_dir)
 
 
 def _grid_format_from_setup(setup_dir: Path) -> str | None:
@@ -606,6 +601,5 @@ cli_setup_daily = cli_project_daily
 
 if __name__ == "__main__":
     sys.exit(cli_main())
-
 
 

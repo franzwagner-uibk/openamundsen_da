@@ -15,7 +15,7 @@ from openamundsen_da.benchmark.extract import (
     extract_analysis_cases,
     extract_continuous_cases,
 )
-from openamundsen_da.benchmark.render.plots import write_plots
+from openamundsen_da.methods.viz.plots.benchmark import write_plots
 from openamundsen_da.benchmark.render.tables import (
     write_case_tables,
     write_manifest,

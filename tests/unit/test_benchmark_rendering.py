@@ -11,11 +11,14 @@ import pytest
 from openamundsen_da.benchmark.aggregate import aggregate_scores, build_case_scores, enrich_case_scores, reliability_rows
 from openamundsen_da.benchmark.cases import RawBenchmarkCase
 from openamundsen_da.benchmark.pipeline import load_benchmark_config
-from openamundsen_da.benchmark.render.plots import core as plots_core
-from openamundsen_da.benchmark.render.plots.core import build_event_skill_plot_data, compute_event_skill_plot_positions
-from openamundsen_da.benchmark.render.plots import write_plots
 from openamundsen_da.benchmark.render.tables.core import build_update_summary_table
 from openamundsen_da.io.paths import project_plot_assim_scores_dir
+from openamundsen_da.methods.viz.plots.benchmark import write_plots
+from openamundsen_da.methods.viz.plots.benchmark import core as plots_core
+from openamundsen_da.methods.viz.plots.benchmark.core import (
+    build_event_skill_plot_data,
+    compute_event_skill_plot_positions,
+)
 from openamundsen_da.methods.viz.plots.theme import da_variable_style
 from openamundsen_da.methods.viz.plots.common import CRPSS_AXIS_POLICY, bounded_metric_range
 from openamundsen_da.benchmark.render.tables import write_summary_tables

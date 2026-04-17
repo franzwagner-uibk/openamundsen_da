@@ -1,4 +1,4 @@
-﻿"""Validation helpers for DA runs."""
+"""Validation helpers for DA runs."""
 
 from __future__ import annotations
 

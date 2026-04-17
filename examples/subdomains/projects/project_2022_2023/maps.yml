@@ -1,23 +1,3 @@
-# Available panel kinds:
-# - overview                 # scale: 1000000 ; optional roi_label
-# - roi
-# - hillshade
-# - dem
-# - svf
-# - srf
-# - landcover
-# - snow_depth               # source: open_loop | ensemble_mean | increment
-# - swe                      # source: open_loop | ensemble_mean | increment
-# - liquid_water_content     # source: open_loop | ensemble_mean | increment
-# - fsc
-# - wet_snow
-# - legend
-# - colorbar
-# Optional panel keys:
-# - title, name, date, legend, show_colorbar, show_scalebar, show_grid, show_hillshade
-# - show_roi, show_station_marker, show_stations_name, show_stations_elev
-# legend: horizontal | vertical
-
 maps:
   snowdepth_increment_2023-06-02:
     title: Snow depth increment 2023/06/02

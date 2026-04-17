@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 import re
 
@@ -174,8 +175,9 @@ def _load_optional_setup_grid(
     return _read_dataset_array(grid_path, shape=shape, transform=transform, crs=crs)
 
 
-def load_static_context(project_dir: Path) -> StaticContext:
-    project_dir = Path(project_dir).resolve()
+@lru_cache(maxsize=16)
+def _load_static_context_cached(project_dir_str: str) -> StaticContext:
+    project_dir = Path(project_dir_str)
     setup_dir = infer_setup_dir_from_project(project_dir)
     roi_mask, spec, _ = load_setup_roi_mask(setup_dir, ensure_grid=True)
     roi_vector_path = None
@@ -233,6 +235,11 @@ def load_static_context(project_dir: Path) -> StaticContext:
     )
 
 
+def load_static_context(project_dir: Path) -> StaticContext:
+    return _load_static_context_cached(str(Path(project_dir).resolve()))
+
+
+@lru_cache(maxsize=8)
 def _load_da_dataset(project_dir: Path) -> xr.Dataset:
     ds_path = project_da_output_grids_path(project_dir)
     if not ds_path.is_file():
@@ -293,6 +300,7 @@ def resolve_comparison_dates(project_dir: Path, variable: str, selector: DateSel
     return _resolve_candidate_dates(selector, candidate_dates=candidate_dates, project_dir=project_dir)
 
 
+@lru_cache(maxsize=16)
 def _load_summary(project_dir: Path, observation: str) -> pd.DataFrame:
     project_name = Path(project_dir).name
     filename = "scf_summary.csv" if observation == "scf" else "wet_snow_summary.csv"

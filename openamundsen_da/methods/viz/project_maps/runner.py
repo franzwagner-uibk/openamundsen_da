@@ -5,6 +5,7 @@ import os
 import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from loguru import logger
@@ -72,6 +73,11 @@ def _require_recipe(config: ProjectMapsConfig, recipe_name: str) -> MapRecipe:
     raise KeyError(f"Project map recipe '{recipe_name}' not found in {config.path}")
 
 
+@lru_cache(maxsize=16)
+def _load_project_maps_config_cached(config_path_str: str) -> ProjectMapsConfig:
+    return load_project_maps_config(Path(config_path_str))
+
+
 def _render_recipe_with_cache(
     *,
     project_dir: Path,
@@ -92,7 +98,7 @@ def _render_recipe_with_cache(
 
 def _render_recipe_worker(project_dir: Path, config_path: Path, recipe_name: str) -> RecipeRenderResult:
     project_dir = Path(project_dir).resolve()
-    config = load_project_maps_config(Path(config_path))
+    config = _load_project_maps_config_cached(str(Path(config_path).resolve()))
     recipe = _require_recipe(config, recipe_name)
     context = load_static_context(project_dir)
     return _render_recipe_with_cache(

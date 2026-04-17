@@ -16,6 +16,8 @@ from shapely.geometry import Point, box
 
 import openamundsen_da.methods.viz.project_maps.render as render_module
 import openamundsen_da.methods.viz.project_maps.runner as runner_module
+import openamundsen_da.methods.viz.project_maps.data as data_module
+import openamundsen_da.methods.viz.project_maps.overview as overview_module
 from openamundsen_da.methods.viz.project_maps.config import DateSelector, MapDefaults, MapPanelSpec, load_project_maps_config
 from openamundsen_da.methods.viz.project_maps.data import (
     ModelFields,
@@ -336,6 +338,28 @@ def test_load_static_context_reads_csv_station_metadata_and_landcover_from_setup
     assert set(context.stations["id"]) == {"station_a", "station_b"}
 
 
+def test_load_static_context_reuses_in_process_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path, meteo_format="csv")
+    data_module._load_static_context_cached.cache_clear()
+
+    read_calls = 0
+    original_read_dataset_array = data_module._read_dataset_array
+
+    def counting_read_dataset_array(*args, **kwargs):
+        nonlocal read_calls
+        read_calls += 1
+        return original_read_dataset_array(*args, **kwargs)
+
+    monkeypatch.setattr(data_module, "_read_dataset_array", counting_read_dataset_array)
+
+    first = load_static_context(project_dir)
+    second = load_static_context(project_dir)
+
+    assert first is second
+    assert read_calls == 4
+    data_module._load_static_context_cached.cache_clear()
+
+
 def test_load_static_context_reads_netcdf_station_metadata(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path, meteo_format="netcdf")
 
@@ -344,6 +368,43 @@ def test_load_static_context_reads_netcdf_station_metadata(tmp_path: Path) -> No
     assert context.stations is not None
     assert list(context.stations["id"]) == ["station_alpha"]
     assert list(context.stations["name"]) == ["Station Alpha"]
+
+
+def test_overview_geojson_loaders_reuse_cached_reads_and_return_copies(monkeypatch: pytest.MonkeyPatch) -> None:
+    overview_module._load_overview_geojson_cached.cache_clear()
+    read_calls: list[str] = []
+    sample = gpd.GeoDataFrame(
+        {"name": pd.Series(["demo"], dtype=object)},
+        geometry=[box(0.0, 0.0, 1.0, 1.0)],
+        crs="EPSG:3857",
+    )
+
+    def fake_ensure(*, cache_dir=None, filename: str):
+        del cache_dir
+        return Path("/tmp") / filename
+
+    def fake_read_file(path: Path):
+        read_calls.append(Path(path).name)
+        return sample.copy()
+
+    monkeypatch.setattr(overview_module, "ensure_overview_countries_geojson", fake_ensure)
+    monkeypatch.setattr(overview_module.gpd, "read_file", fake_read_file)
+
+    first = overview_module.load_overview_boundaries()
+    second = overview_module.load_overview_boundaries()
+    labels = overview_module.load_overview_labels()
+    regions = overview_module.load_overview_regions()
+
+    assert first is not second
+    assert list(first["name"]) == ["demo"]
+    assert read_calls == [
+        overview_module.GISCO_BOUNDARIES_GEOJSON_NAME,
+        overview_module.GISCO_LABELS_GEOJSON_NAME,
+        overview_module.GISCO_REGIONS_GEOJSON_NAME,
+    ]
+    assert list(labels["name"]) == ["demo"]
+    assert list(regions["name"]) == ["demo"]
+    overview_module._load_overview_geojson_cached.cache_clear()
 
 
 def test_project_maps_enabled_looks_for_maps_yml(tmp_path: Path) -> None:
@@ -939,6 +1000,19 @@ def test_horizontal_legend_row_layout_caps_extra_item_spacing() -> None:
     )
 
 
+def test_horizontal_legend_row_layout_left_aligns_single_item_rows() -> None:
+    row_labels = ["coniferous 60-100"]
+
+    item_widths, start_x_in, item_gap_in = _horizontal_legend_row_layout(
+        row_labels,
+        panel_width_in=2.2,
+    )
+
+    assert len(item_widths) == 1
+    assert np.isclose(start_x_in, render_module._horizontal_legend_side_pad_in(2.2))
+    assert item_gap_in == 0.0
+
+
 def test_horizontal_legend_total_extra_is_tighter_for_multirow_classified_legends() -> None:
     rows = _pack_horizontal_legend_rows(
         [
@@ -962,7 +1036,7 @@ def test_horizontal_legend_total_extra_is_tighter_for_multirow_classified_legend
     extra = _horizontal_legend_total_extra(rows, panel_width_in=2.2)
 
     assert len(rows) > 1
-    assert extra < 0.8
+    assert extra < 0.55
 
 
 def test_pack_horizontal_legend_rows_wrap_wet_snow_labels_in_narrow_panel() -> None:

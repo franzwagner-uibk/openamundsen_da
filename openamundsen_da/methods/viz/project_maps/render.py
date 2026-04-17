@@ -93,17 +93,17 @@ _HORIZONTAL_COLORBAR_GAP_AXES = 0.22
 _HORIZONTAL_COLORBAR_HEIGHT_AXES = 0.060
 _HORIZONTAL_COLORBAR_BOTTOM_PAD_AXES = 0.05
 _HORIZONTAL_COLORBAR_EXTRA = _HORIZONTAL_COLORBAR_GAP_AXES + _HORIZONTAL_COLORBAR_HEIGHT_AXES + _HORIZONTAL_COLORBAR_BOTTOM_PAD_AXES
-_HORIZONTAL_LEGEND_GAP_AXES = 0.075
-_HORIZONTAL_LEGEND_ROW_HEIGHT_AXES = 0.12
-_HORIZONTAL_LEGEND_BOTTOM_PAD_AXES = 0.22
+_HORIZONTAL_LEGEND_GAP_AXES = 0.082
+_HORIZONTAL_LEGEND_ROW_HEIGHT_AXES = 0.078
+_HORIZONTAL_LEGEND_BOTTOM_PAD_AXES = 0.14
 _HORIZONTAL_LEGEND_ITEM_GAP_IN = 0.05
 _HORIZONTAL_LEGEND_MIN_ITEM_GAP_IN = 0.022
-_HORIZONTAL_LEGEND_HANDLE_WIDTH_IN = 0.105
+_HORIZONTAL_LEGEND_HANDLE_WIDTH_IN = 0.145
 _HORIZONTAL_LEGEND_HANDLE_TEXT_PAD_IN = 0.025
 _HORIZONTAL_LEGEND_MIN_TEXT_WIDTH_IN = 0.12
 _HORIZONTAL_LEGEND_SIDE_PAD_IN = 0.018
 _HORIZONTAL_LEGEND_TEXT_SIZE = 5.5
-_HORIZONTAL_LEGEND_PATCH_HEIGHT_AXES = 0.095
+_HORIZONTAL_LEGEND_PATCH_HEIGHT_IN = 0.055
 _OVERVIEW_LABEL_SIZE = 6.2
 _OVERVIEW_LABEL_DX_RATIO = 0.09
 _OVERVIEW_LABEL_DY_RATIO = 0.07
@@ -289,6 +289,11 @@ def _panel_title(letter: str | None, title: str | None) -> str | None:
 def _axis_width_inches(ax) -> float:
     bbox = ax.get_position()
     return float(ax.figure.get_size_inches()[0] * bbox.width)
+
+
+def _axis_height_inches(ax) -> float:
+    bbox = ax.get_position()
+    return float(ax.figure.get_size_inches()[1] * bbox.height)
 
 
 @lru_cache(maxsize=256)
@@ -643,9 +648,7 @@ def _horizontal_legend_row_layout(
     available_width_in = _horizontal_legend_available_width_in(panel_width_in)
 
     if len(item_widths) <= 1:
-        row_width_in = item_widths[0] if item_widths else 0.0
-        start_x_in = side_pad_in + max((available_width_in - row_width_in) / 2.0, 0.0)
-        return item_widths, start_x_in, 0.0
+        return item_widths, side_pad_in, 0.0
 
     min_gaps_total = _HORIZONTAL_LEGEND_MIN_ITEM_GAP_IN * (len(item_widths) - 1)
     content_width_in = float(sum(item_widths) + min_gaps_total)
@@ -663,9 +666,9 @@ def _classified_legend_labels(panel_kind: str) -> list[str]:
 
 def _horizontal_legend_bottom_pad(panel_width_in: float) -> float:
     if panel_width_in < 1.7:
-        return max(_HORIZONTAL_LEGEND_BOTTOM_PAD_AXES, 0.78)
+        return max(_HORIZONTAL_LEGEND_BOTTOM_PAD_AXES, 0.56)
     if panel_width_in < 2.0:
-        return max(_HORIZONTAL_LEGEND_BOTTOM_PAD_AXES, 0.48)
+        return max(_HORIZONTAL_LEGEND_BOTTOM_PAD_AXES, 0.28)
     return _HORIZONTAL_LEGEND_BOTTOM_PAD_AXES
 
 
@@ -973,6 +976,7 @@ def _draw_classified_legend(ax, handles: list[Patch], *, layout: str) -> None:
         row_height_factors = _horizontal_legend_row_height_factors(rows)
         total_row_units = float(sum(row_height_factors))
         inset_height = total_row_units * _HORIZONTAL_LEGEND_ROW_HEIGHT_AXES
+        legend_height_in = max(_axis_height_inches(ax) * inset_height, 1e-9)
         legend_ax = ax.inset_axes(
             [0.0, -(_HORIZONTAL_LEGEND_GAP_AXES + inset_height), 1.0, inset_height],
             transform=ax.transAxes,
@@ -982,7 +986,7 @@ def _draw_classified_legend(ax, handles: list[Patch], *, layout: str) -> None:
         row_top = 1.0
         for row_labels, row_units in zip(rows, row_height_factors):
             row_height = row_units / max(total_row_units, 1e-9)
-            patch_height = min(_HORIZONTAL_LEGEND_PATCH_HEIGHT_AXES, 0.62 * row_height)
+            patch_height = min(_HORIZONTAL_LEGEND_PATCH_HEIGHT_IN / legend_height_in, 0.72 * row_height)
             item_widths, start_x_in, item_gap_in = _horizontal_legend_row_layout(row_labels, panel_width_in=panel_width_in)
             y_center = row_top - 0.5 * row_height
             x_in = start_x_in

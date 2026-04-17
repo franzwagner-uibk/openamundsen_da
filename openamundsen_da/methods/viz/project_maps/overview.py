@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 import os
 from pathlib import Path
 from urllib.request import urlopen
@@ -35,37 +36,33 @@ def ensure_overview_countries_geojson(*, cache_dir: Path | None = None, filename
     return geojson_path
 
 
-def load_overview_boundaries(*, cache_dir: Path | None = None) -> gpd.GeoDataFrame:
+@lru_cache(maxsize=8)
+def _load_overview_geojson_cached(filename: str, cache_dir: str | None) -> gpd.GeoDataFrame:
     geojson_path = ensure_overview_countries_geojson(
-        cache_dir=cache_dir,
-        filename=GISCO_BOUNDARIES_GEOJSON_NAME,
+        cache_dir=Path(cache_dir) if cache_dir is not None else None,
+        filename=filename,
     )
-    countries = gpd.read_file(geojson_path)
-    countries = countries[countries.geometry.notna()].copy()
-    countries = countries.loc[~countries.geometry.is_empty].copy()
-    return countries
+    data = gpd.read_file(geojson_path)
+    data = data[data.geometry.notna()].copy()
+    data = data.loc[~data.geometry.is_empty].copy()
+    return data
+
+
+def _cached_overview_copy(filename: str, *, cache_dir: Path | None = None) -> gpd.GeoDataFrame:
+    # Return a copy so callers can filter/clip without mutating the shared in-process cache.
+    return _load_overview_geojson_cached(filename, str(cache_dir) if cache_dir is not None else None).copy()
+
+
+def load_overview_boundaries(*, cache_dir: Path | None = None) -> gpd.GeoDataFrame:
+    return _cached_overview_copy(GISCO_BOUNDARIES_GEOJSON_NAME, cache_dir=cache_dir)
 
 
 def load_overview_labels(*, cache_dir: Path | None = None) -> gpd.GeoDataFrame:
-    geojson_path = ensure_overview_countries_geojson(
-        cache_dir=cache_dir,
-        filename=GISCO_LABELS_GEOJSON_NAME,
-    )
-    labels = gpd.read_file(geojson_path)
-    labels = labels[labels.geometry.notna()].copy()
-    labels = labels.loc[~labels.geometry.is_empty].copy()
-    return labels
+    return _cached_overview_copy(GISCO_LABELS_GEOJSON_NAME, cache_dir=cache_dir)
 
 
 def load_overview_regions(*, cache_dir: Path | None = None) -> gpd.GeoDataFrame:
-    geojson_path = ensure_overview_countries_geojson(
-        cache_dir=cache_dir,
-        filename=GISCO_REGIONS_GEOJSON_NAME,
-    )
-    regions = gpd.read_file(geojson_path)
-    regions = regions[regions.geometry.notna()].copy()
-    regions = regions.loc[~regions.geometry.is_empty].copy()
-    return regions
+    return _cached_overview_copy(GISCO_REGIONS_GEOJSON_NAME, cache_dir=cache_dir)
 
 
 __all__ = [

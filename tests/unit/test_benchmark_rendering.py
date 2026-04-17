@@ -14,6 +14,7 @@ from openamundsen_da.benchmark.pipeline import load_benchmark_config
 from openamundsen_da.benchmark.render.plots import core as plots_core
 from openamundsen_da.benchmark.render.plots.core import build_event_skill_plot_data, compute_event_skill_plot_positions
 from openamundsen_da.benchmark.render.plots import write_plots
+from openamundsen_da.benchmark.render.tables.core import build_update_summary_table
 from openamundsen_da.io.paths import project_plot_assim_scores_dir
 from openamundsen_da.methods.viz.plots.theme import da_variable_style
 from openamundsen_da.methods.viz.plots.common import CRPSS_AXIS_POLICY, bounded_metric_range
@@ -417,6 +418,47 @@ def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path:
     assert "project_summary" in table_outputs
     assert "update_summary" in table_outputs
     assert "performance_scores" in plot_outputs
+
+
+def test_build_update_summary_table_tolerates_missing_zskill_columns() -> None:
+    event_scores = pd.DataFrame(
+        [
+            {
+                "score_set": "analysis",
+                "variable": "scf",
+                "stream": "assimilation_fit",
+                "representation": "prior",
+                "timestamp": "2023-03-17 00:00:00",
+                "date": "2023-03-17",
+                "assimilation_date": "2023-03-17",
+                "crpss": 0.35,
+                "ner": 0.25,
+                "bias": 0.05,
+            },
+            {
+                "score_set": "analysis",
+                "variable": "scf",
+                "stream": "assimilation_fit",
+                "representation": "posterior",
+                "timestamp": "2023-03-17 00:00:00",
+                "date": "2023-03-17",
+                "assimilation_date": "2023-03-17",
+                "crpss": 0.55,
+                "ner": 0.40,
+                "bias": 0.02,
+            },
+        ]
+    )
+
+    update_summary = build_update_summary_table(event_scores)
+
+    assert list(update_summary["variable"]) == ["scf"]
+    row = update_summary.iloc[0]
+    assert pd.isna(row["prior_zskill"])
+    assert pd.isna(row["posterior_zskill"])
+    assert pd.isna(row["delta_zskill"])
+    assert float(row["delta_crpss"]) == pytest.approx(0.20)
+    assert float(row["delta_ner"]) == pytest.approx(0.15)
 
 
 def test_write_plots_adds_zskill_third_panel_when_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

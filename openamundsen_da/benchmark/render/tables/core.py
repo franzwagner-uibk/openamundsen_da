@@ -248,6 +248,18 @@ def build_update_summary_table(event_scores: pd.DataFrame) -> pd.DataFrame:
             "bias_posterior": "posterior_bias",
         }
     )
+    for column in (
+        "prior_crpss",
+        "posterior_crpss",
+        "prior_ner",
+        "posterior_ner",
+        "prior_zskill",
+        "posterior_zskill",
+        "prior_bias",
+        "posterior_bias",
+    ):
+        if column not in wide.columns:
+            wide[column] = np.nan
     wide["delta_crpss"] = wide["posterior_crpss"] - wide["prior_crpss"]
     wide["delta_ner"] = wide["posterior_ner"] - wide["prior_ner"]
     wide["delta_zskill"] = wide["posterior_zskill"] - wide["prior_zskill"]

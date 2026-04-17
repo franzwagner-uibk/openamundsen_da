@@ -68,6 +68,7 @@ echo "[subdomain-integration] Preparing trimmed CI project in ${SETUP_DIR}"
 
 compose_run python - <<'PY'
 from pathlib import Path
+import re
 import shutil
 import yaml
 
@@ -100,7 +101,28 @@ with (project_dir / "project_ci_2022_2023.yml").open("w", encoding="utf-8") as f
 
 source_maps_cfg = source_project_yml.parent / "maps.yml"
 if source_maps_cfg.is_file():
-    shutil.copy2(source_maps_cfg, project_dir / "maps.yml")
+    with source_maps_cfg.open("r", encoding="utf-8") as f:
+        maps_cfg = yaml.safe_load(f) or {}
+
+    event_date = str(da_cfg["assimilation_events"][0]["date"])
+    event_title_date = event_date.replace("-", "/")
+    rewritten_maps = {}
+    for name, spec in (maps_cfg.get("maps") or {}).items():
+        spec = dict(spec or {})
+        defaults = dict(spec.get("defaults") or {})
+        defaults["date"] = event_date
+        spec["defaults"] = defaults
+
+        title = spec.get("title")
+        if isinstance(title, str):
+            spec["title"] = re.sub(r"\d{4}[/-]\d{2}[/-]\d{2}", event_title_date, title)
+
+        rewritten_name = re.sub(r"\d{4}-\d{2}-\d{2}", event_date, str(name))
+        rewritten_maps[rewritten_name] = spec
+
+    maps_cfg["maps"] = rewritten_maps
+    with (project_dir / "maps.yml").open("w", encoding="utf-8") as f:
+        yaml.safe_dump(maps_cfg, f, sort_keys=False)
 PY
 
 echo "[subdomain-integration] Running sub-domain pipeline (max-workers=${MAX_WORKERS}, inner=${INNER_WORKERS})"

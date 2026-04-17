@@ -6,7 +6,12 @@ import pandas as pd
 from matplotlib.patches import Rectangle
 
 from openamundsen_da.methods.viz.maps.config import LegendItemSpec, MapDefaults, MapPanelSpec
-from openamundsen_da.methods.viz.maps.layout import axes_date_fontsize, axis_height_inches, register_child_axes
+from openamundsen_da.methods.viz.maps.layout import (
+    axes_date_fontsize,
+    axis_height_inches,
+    register_child_axes,
+    text_size_in,
+)
 from openamundsen_da.methods.viz.maps.theme import (
     _ANNOTATION_ZORDER,
     _AUTO_TITLE_KIND,
@@ -184,8 +189,6 @@ def panel_below_items_extra(items: tuple[LegendItemSpec, ...]) -> float:
 
 
 def overview_label_box_size_in(spec) -> tuple[float, float]:
-    from openamundsen_da.methods.viz.maps.layout import text_size_in
-
     width_in, height_in = text_size_in(spec.text, size=spec.fontsize)
     if spec.with_bbox:
         pad_in = _OVERVIEW_LABEL_BOX_PAD_EM * spec.fontsize / 72.0

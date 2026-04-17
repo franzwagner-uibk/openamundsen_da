@@ -1,4 +1,4 @@
-﻿"""openamundsen_da.methods.viz.plots.project_ensemble
+"""openamundsen_da.methods.viz.plots.project_ensemble
 
 Setup-wide ensemble plots that stitch together all step segments into a single
 figure per station, with vertical dashed lines marking assimilation instants.

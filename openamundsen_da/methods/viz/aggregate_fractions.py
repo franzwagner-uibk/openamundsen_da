@@ -1,4 +1,4 @@
-﻿"""
+"""
 aggregate_fractions.py
 Author: openamundsen_da
 Date: 2025-12-02
@@ -146,4 +146,3 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-

@@ -26,6 +26,15 @@ for _name in dir(_theme):
     if _name.startswith("_") and not _name.startswith("__"):
         globals()[_name] = getattr(_theme, _name)
 
+_LAYOUT_ROW_GAP = _theme._LAYOUT_ROW_GAP
+_LEFT_MARGIN = _theme._LEFT_MARGIN
+_RIGHT_MARGIN = _theme._RIGHT_MARGIN
+_BOTTOM_MARGIN = _theme._BOTTOM_MARGIN
+_TOP_MARGIN = _theme._TOP_MARGIN
+_SUPPORT_PANEL_KINDS = _theme._SUPPORT_PANEL_KINDS
+_MODEL_KIND_TO_VARIABLE = _theme._MODEL_KIND_TO_VARIABLE
+_OBSERVATION_KIND_TO_NAME = _theme._OBSERVATION_KIND_TO_NAME
+
 
 @dataclass
 class RenderRuntimeCache:

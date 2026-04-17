@@ -273,7 +273,7 @@ def _coerce_bool(raw: object, *, default: bool = True) -> bool:
 
 
 def _parse_panel_specs(config_path: Path) -> list[PanelSpec]:
-    cfg = read_yaml_mapping(config_path, error_cls=RuntimeError, context="Custom result overview config")
+    cfg = read_yaml_mapping(config_path, error_cls=RuntimeError, context="Project plots config")
     raw_panels = cfg.get("panels")
     if not isinstance(raw_panels, list) or not raw_panels:
         raise ValueError(f"Missing non-empty panels list in {config_path}")
@@ -303,7 +303,7 @@ def _parse_panel_specs(config_path: Path) -> list[PanelSpec]:
 
 
 def _project_custom_config_path(project_dir: Path) -> Path | None:
-    candidate = (project_dir / "result_overview_custom.yml").resolve()
+    candidate = (project_dir / "plots.yml").resolve()
     if not candidate.is_file():
         return None
     return candidate
@@ -1564,7 +1564,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     parser.add_argument("--scf-env-csv", type=Path, help="SCF envelope CSV (value_min/value_max/value_mean)")
     parser.add_argument("--wet-env-csv", type=Path, help="Wet-snow envelope CSV (value_min/value_max/value_mean)")
     parser.add_argument("--output", type=Path, help="Output PNG path (default: <project>/results/plots/results/result_overview.png)")
-    parser.add_argument("--custom-config", type=Path, help="Custom panel YAML (default: <project-dir>/result_overview_custom.yml)")
+    parser.add_argument("--custom-config", type=Path, help="Custom panel YAML (default: <project-dir>/plots.yml)")
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
     parser.add_argument("--mode", choices=["band", "members"], default="band", help="Plot mode: band (default) or members")
     parser.add_argument("--backend", default="Agg", help="Matplotlib backend (default: Agg)")

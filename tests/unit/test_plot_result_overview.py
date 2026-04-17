@@ -1106,7 +1106,7 @@ def test_plot_result_overview_shares_absolute_y_scale_between_roi_and_station_pa
 
 
 def test_parse_custom_panel_specs_supports_titles_and_obs_toggle(tmp_path: Path) -> None:
-    cfg = tmp_path / "custom_result_overview.yml"
+    cfg = tmp_path / "custom_plots.yml"
     cfg.write_text(
         "\n".join(
             [
@@ -1134,7 +1134,7 @@ def test_parse_custom_panel_specs_supports_titles_and_obs_toggle(tmp_path: Path)
 
 
 def test_project_custom_config_path_uses_project_root_file(tmp_path: Path) -> None:
-    cfg = tmp_path / "result_overview_custom.yml"
+    cfg = tmp_path / "plots.yml"
     cfg.write_text("panels: []\n", encoding="utf-8")
 
     assert _project_custom_config_path(tmp_path) == cfg.resolve()

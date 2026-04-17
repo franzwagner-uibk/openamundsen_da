@@ -1,4 +1,4 @@
-﻿"""openamundsen_da.methods.viz.plot_project_ensemble
+﻿"""openamundsen_da.methods.viz.plots.project_ensemble
 
 Setup-wide ensemble plots that stitch together all step segments into a single
 figure per station, with vertical dashed lines marking assimilation instants.
@@ -21,9 +21,9 @@ Behavior and conventions
 
 CLI usage examples
 - Forcing (two panels):
-  ``python -m openamundsen_da.methods.viz.plot_project_ensemble forcing --setup-dir <path/to/setup> --hydro-month 10 --hydro-day 1``
+  ``python -m openamundsen_da.methods.viz.plots.project_ensemble forcing --setup-dir <path/to/setup> --hydro-month 10 --hydro-day 1``
 - Results (SWE):
-  ``python -m openamundsen_da.methods.viz.plot_project_ensemble results --setup-dir <path/to/setup> --var-col swe``
+  ``python -m openamundsen_da.methods.viz.plots.project_ensemble results --setup-dir <path/to/setup> --var-col swe``
 
 Notes
 - End date accepts both ``YYYY-MM-DD`` and compact forms like ``YYYY-06_01``; the
@@ -1074,7 +1074,7 @@ def plot_setup_both(
 # ---- CLI --------------------------------------------------------------------
 
 
-def _cli(argv: Iterable[str] | None = None) -> int:
+def cli_main(argv: Iterable[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="oa-da-plot-setup",
         description="Setup-wide ensemble plots (forcing/results) with assimilation markers.",
@@ -1166,4 +1166,4 @@ def _cli(argv: Iterable[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(_cli())
+    raise SystemExit(cli_main())

@@ -240,7 +240,7 @@ Forcing (temperature in K, cumulative precipitation) is plotted per step with al
 
 ```powershell
 docker compose run --rm oa `
-  python -m openamundsen_da.methods.viz.plot_forcing_ensemble `
+  python -m openamundsen_da.methods.viz.plots.forcing_ensemble `
   --step-dir $step `
   --ensemble prior
 ```
@@ -269,7 +269,7 @@ Use the combined plot helper to overlay observations, optional single-model seri
 
 ```powershell
 docker compose run --rm oa `
-  python -m openamundsen_da.methods.viz.plot_result_overview `
+  python -m openamundsen_da.methods.viz.plots.result_overview `
   --setup-dir $setup `
   --project-dir $project
 ```
@@ -281,8 +281,8 @@ Defaults read obs from `obs/summaries/<setup>/scf_summary.csv` and `obs/summarie
 Generate setup-wide point plots (members only, legend shows just open loop + assimilation markers):
 
 ```powershell
-docker compose run --rm oa python -m openamundsen_da.methods.viz.plot_project_ensemble results --setup-dir $setup --var-col swe --mode members --log-level INFO
-docker compose run --rm oa python -m openamundsen_da.methods.viz.plot_project_ensemble results --setup-dir $setup --var-col snow_depth --mode members --log-level INFO
+docker compose run --rm oa python -m openamundsen_da.methods.viz.plots.project_ensemble results --setup-dir $setup --var-col swe --mode members --log-level INFO
+docker compose run --rm oa python -m openamundsen_da.methods.viz.plots.project_ensemble results --setup-dir $setup --var-col snow_depth --mode members --log-level INFO
 ```
 
 Outputs are written to `<setup>/results/plots/points/setup_results_point_<station>_{swe|snow_depth}_<setup>.png`. The setup pipeline calls the same functions with `mode=members` after each step and at the end.
@@ -369,7 +369,7 @@ data_assimilation:
 
 ```powershell
 docker compose run --rm oa `
-  python -m openamundsen_da.methods.viz.plot_forcing_ensemble `
+  python -m openamundsen_da.methods.viz.plots.forcing_ensemble `
   --step-dir $step `
   --ensemble prior
 ```
@@ -380,7 +380,7 @@ Optional flags: `--time-col`, `--temp-col`, `--precip-col`, `--start-date`, `--e
 
 ```powershell
 docker compose run --rm oa `
-  python -m openamundsen_da.methods.viz.plot_results_ensemble `
+  python -m openamundsen_da.methods.viz.plots.results_ensemble `
   --step-dir $step `
   --ensemble prior
 ```
@@ -434,14 +434,14 @@ Project-level stitched forcing and point-result panels are written to `$setup/re
 
 ```powershell
 docker compose run --rm oa `
-  python -m openamundsen_da.methods.viz.plot_project_ensemble `
+  python -m openamundsen_da.methods.viz.plots.project_ensemble `
   forcing `
   --setup-dir $setup
 ```
 
 ```powershell
 docker compose run --rm oa `
-  python -m openamundsen_da.methods.viz.plot_project_ensemble `
+  python -m openamundsen_da.methods.viz.plots.project_ensemble `
   results `
   --setup-dir $setup `
   --var-col swe
@@ -451,7 +451,7 @@ docker compose run --rm oa `
 
 ```powershell
 docker compose run --rm oa `
-  python -m openamundsen_da.methods.viz.plot_project_ensemble `
+  python -m openamundsen_da.methods.viz.plots.project_ensemble `
   results `
   --setup-dir $setup `
   --var-col scf `
@@ -475,7 +475,7 @@ Note: running the setup pipeline (see below) also generates these setup plots au
   $step    = "$setup/steps/step_00_init"
 
   docker compose run --rm oa `
-    python -m openamundsen_da.methods.viz.plot_station_variable `
+    python -m openamundsen_da.methods.viz.plots.station_variable `
     "$step/ensembles/prior/member_001/results/point_latschbloder.csv" `
     --var swe
   ```

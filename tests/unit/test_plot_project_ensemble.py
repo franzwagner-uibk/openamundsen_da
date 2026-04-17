@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 import openamundsen_da.methods.viz.plots.project_ensemble as plot_mod
-from openamundsen_da.methods.viz._style import da_variable_style
+from openamundsen_da.methods.viz.plots.theme import da_variable_style
 from openamundsen_da.methods.viz.plots.project_ensemble import plot_setup_results
 
 

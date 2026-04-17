@@ -8,8 +8,9 @@ from typing import Iterable, Optional
 import pandas as pd
 from loguru import logger
 from openamundsen_da.io.paths import project_plot_points_dir
-from openamundsen_da.methods.viz._utils import format_station_label, pretty_var_title, save_figure_png, set_matplotlib_text_black
-from openamundsen_da.methods.viz._style import (
+from openamundsen_da.methods.viz.common import save_figure_png, set_matplotlib_text_black
+from openamundsen_da.methods.viz.plots.common import format_station_label, pretty_var_title
+from openamundsen_da.methods.viz.plots.theme import (
     COLOR_DA_OBS,
     COLOR_OPEN_LOOP,
     GRID_ALPHA,

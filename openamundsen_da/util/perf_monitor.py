@@ -23,7 +23,7 @@ from typing import List
 
 from loguru import logger
 from openamundsen_da.io.paths import project_plot_perf_dir
-from openamundsen_da.methods.viz._utils import force_figure_text_black, save_figure_png
+from openamundsen_da.methods.viz.common import force_figure_text_black, save_figure_png
 
 try:
     import psutil  # type: ignore[import]

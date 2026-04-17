@@ -540,7 +540,7 @@ import matplotlib.pyplot as plt
 Or set environment variable inline:
 
 ```bash
-MPLBACKEND=Agg python -m openamundsen_da.methods.viz.plot_results_ensemble ...
+MPLBACKEND=Agg python -m openamundsen_da.methods.viz.plots.results_ensemble ...
 ```
 
 ---
@@ -612,7 +612,6 @@ If your issue isn't covered here:
 4. **Rejuvenation**: Only supports additive perturbations (no multiplicative state updates)
 
 See GitHub Issues for full list and planned improvements.
-
 
 
 

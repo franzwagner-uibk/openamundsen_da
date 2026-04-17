@@ -1,4 +1,4 @@
-"""openamundsen_da.methods.viz.plot_results_ensemble
+"""openamundsen_da.methods.viz.plots.results_ensemble
 
 Per-station ensemble plots for point-model CSV outputs (e.g., SWE or snow
 depth) across all members. Mirrors the prior plotting script used in the

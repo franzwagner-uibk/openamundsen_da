@@ -32,8 +32,8 @@ from openamundsen_da.io.paths import (
     list_steps_sorted,
     project_plot_assim_weights_dir,
 )
-from openamundsen_da.methods.viz._style import da_variable_line_color
-from openamundsen_da.methods.viz._utils import force_figure_text_black, save_figure_png, set_matplotlib_text_black
+from openamundsen_da.methods.viz.plots.theme import da_variable_line_color
+from openamundsen_da.methods.viz.common import force_figure_text_black, save_figure_png, set_matplotlib_text_black
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.da_observables import station_diagnostics_csv_name, weight_plot_title_from_csv_path
 from openamundsen_da.util.loguru_utils import configure_cli_logger

@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from openamundsen_da.methods.pf import plot_weights as plot_mod
-from openamundsen_da.methods.viz._style import da_variable_style
+from openamundsen_da.methods.viz.plots.theme import da_variable_style
 
 
 def _write_text(path: Path, content: str) -> None:

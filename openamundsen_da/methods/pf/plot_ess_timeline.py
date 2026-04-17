@@ -27,12 +27,14 @@ from openamundsen_da.io.paths import (
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.yaml_utils import read_yaml_mapping
-from openamundsen_da.methods.viz._utils import (
+from openamundsen_da.methods.viz.plots.common import (
     apply_fraction_grid,
     draw_assim_labels,
     draw_assimilation_vlines,
-    force_figure_text_black,
     result_title_pad,
+)
+from openamundsen_da.methods.viz.common import (
+    force_figure_text_black,
     save_figure_png,
     set_matplotlib_text_black,
 )

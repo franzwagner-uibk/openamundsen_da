@@ -1,4 +1,4 @@
-"""openamundsen_da.methods.viz.plot_forcing_ensemble
+"""openamundsen_da.methods.viz.plots.forcing_ensemble
 
 Per-station ensemble plots for forcing time series (temperature and cumulative
 precipitation) across all members. Designed to visualize prior/posterior

@@ -16,19 +16,21 @@ from matplotlib.lines import Line2D
 from matplotlib.legend_handler import HandlerBase
 from matplotlib.ticker import MultipleLocator
 
-from openamundsen_da.methods.viz._style import (
+from openamundsen_da.methods.viz.plots.theme import (
     FIGHEIGHT_OVERVIEW_ROW,
     FIGWIDTH_OVERVIEW_PAPER,
     LEGEND_NCOL,
     STANDALONE_SCORE_FIGURE_ROW_UNITS,
 )
-from openamundsen_da.methods.viz._utils import (
+from openamundsen_da.methods.viz.plots.common import (
     CRPSS_AXIS_POLICY,
     align_figure_title_to_plot_block,
     apply_fraction_grid,
     bounded_metric_range,
     draw_assim_labels,
     draw_assimilation_vlines,
+)
+from openamundsen_da.methods.viz.common import (
     force_figure_text_black,
     save_figure_png,
     set_matplotlib_text_black,

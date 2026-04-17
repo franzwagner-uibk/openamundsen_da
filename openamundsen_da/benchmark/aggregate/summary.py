@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from openamundsen_da.io.paths import list_steps_sorted
-from openamundsen_da.methods.viz._ensemble_meta import load_stations_table_from_steps
+from openamundsen_da.methods.viz.plots.ensemble_meta import load_stations_table_from_steps
 from openamundsen_da.util.station_da import (
     load_station_assimilation_config,
     read_station_metadata,

@@ -15,8 +15,8 @@ from openamundsen_da.benchmark.render.plots import core as plots_core
 from openamundsen_da.benchmark.render.plots.core import build_event_skill_plot_data, compute_event_skill_plot_positions
 from openamundsen_da.benchmark.render.plots import write_plots
 from openamundsen_da.io.paths import project_plot_assim_scores_dir
-from openamundsen_da.methods.viz._style import da_variable_style
-from openamundsen_da.methods.viz._utils import CRPSS_AXIS_POLICY, bounded_metric_range
+from openamundsen_da.methods.viz.plots.theme import da_variable_style
+from openamundsen_da.methods.viz.plots.common import CRPSS_AXIS_POLICY, bounded_metric_range
 from openamundsen_da.benchmark.render.tables import write_summary_tables
 
 

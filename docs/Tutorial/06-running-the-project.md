@@ -57,30 +57,30 @@ File path: `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`
 ```yaml
 data_assimilation:
   prior_forcing:
-    ensemble_size: 15
+    ensemble_size: 30
 
   assimilation_events:
-    - date: "2022-11-22"
+    - date: "2022-11-24"
       variable: station_hs
     - date: "2022-12-22"
       variable: station_hs
-    - date: "2023-01-22"
+    - date: "2023-01-21"
       variable: station_hs
     - date: "2023-02-21"
       variable: station_hs
     - date: "2023-03-22"
       variable: station_hs
-    - date: "2023-04-26"
-      variable: station_hs
+    - date: "2023-04-29"
+      variable: wet_snow
+      product: WETSNOW
     - date: "2023-05-03"
+      variable: station_hs
+    - date: "2023-05-23"
       variable: wet_snow
       product: WETSNOW
     - date: "2023-05-18"
       variable: scf
       product: SNOWCOVER
-    - date: "2023-05-23"
-      variable: wet_snow
-      product: WETSNOW
     - date: "2023-05-26"
       variable: scf
       product: SNOWCOVER
@@ -199,9 +199,12 @@ results/misc/
   point_wet_snow_roi_envelope.csv
 
 results/maps/
-  overview/
-  comparison/
-  observation_context/
+  rofental_setup_map.png
+  rofental_static_grids.png
+  snowdepth_2023-06-02.png
+  swe_2023-06-02.png
+  snowdepth_increment_2023-06-02.png
+  lwc_wet_snow_2023-05-23.png
 ```
 
 ![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/project_perf.png)

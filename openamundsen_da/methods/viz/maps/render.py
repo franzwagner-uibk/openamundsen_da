@@ -13,13 +13,13 @@ import pandas as pd
 from matplotlib.patches import FancyBboxPatch, Patch, Rectangle
 
 from openamundsen_da.methods.viz.common import force_figure_text_black, save_figure_png
-import openamundsen_da.methods.viz.project_maps.theme as _theme
-import openamundsen_da.methods.viz.project_maps.annotations as _annotations
-import openamundsen_da.methods.viz.project_maps.hillshade as _hillshade_mod
-import openamundsen_da.methods.viz.project_maps.layout as _layout
-import openamundsen_da.methods.viz.project_maps.panel_renderers as _panels
-from openamundsen_da.methods.viz.project_maps.config import MapRecipe
-from openamundsen_da.methods.viz.project_maps.data import ModelFields, ObservationScene, StaticContext
+import openamundsen_da.methods.viz.maps.theme as _theme
+import openamundsen_da.methods.viz.maps.annotations as _annotations
+import openamundsen_da.methods.viz.maps.hillshade as _hillshade_mod
+import openamundsen_da.methods.viz.maps.layout as _layout
+import openamundsen_da.methods.viz.maps.panel_renderers as _panels
+from openamundsen_da.methods.viz.maps.config import MapRecipe
+from openamundsen_da.methods.viz.maps.data import ModelFields, ObservationScene, StaticContext
 
 
 for _name in dir(_theme):

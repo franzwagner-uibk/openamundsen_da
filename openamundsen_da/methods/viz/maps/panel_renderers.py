@@ -12,7 +12,7 @@ from matplotlib.colors import BoundaryNorm, Normalize, TwoSlopeNorm
 from matplotlib.patches import Patch, Rectangle
 from shapely.geometry import box
 
-from openamundsen_da.methods.viz.project_maps.annotations import (
+from openamundsen_da.methods.viz.maps.annotations import (
     draw_heading,
     draw_overview_label_specs,
     draw_panel_below_items,
@@ -24,16 +24,16 @@ from openamundsen_da.methods.viz.project_maps.annotations import (
     panel_semantic_title,
     panel_title,
 )
-from openamundsen_da.methods.viz.project_maps.config import LegendItemSpec, MapDefaults, MapPanelSpec
-from openamundsen_da.methods.viz.project_maps.data import (
+from openamundsen_da.methods.viz.maps.config import LegendItemSpec, MapDefaults, MapPanelSpec
+from openamundsen_da.methods.viz.maps.data import (
     ModelFields,
     ObservationScene,
     StaticContext,
     load_model_fields,
     load_observation_scene,
 )
-from openamundsen_da.methods.viz.project_maps.hillshade import grid_extent, hillshade, hillshade_extent, hillshade_underlay
-from openamundsen_da.methods.viz.project_maps.layout import (
+from openamundsen_da.methods.viz.maps.hillshade import grid_extent, hillshade, hillshade_extent, hillshade_underlay
+from openamundsen_da.methods.viz.maps.layout import (
     apply_map_axis_style,
     attach_colorbar,
     axis_height_inches,
@@ -48,12 +48,12 @@ from openamundsen_da.methods.viz.project_maps.layout import (
     resolve_panel_toggle,
     text_size_in,
 )
-from openamundsen_da.methods.viz.project_maps.overview import (
+from openamundsen_da.methods.viz.maps.overview import (
     load_overview_boundaries,
     load_overview_labels,
     load_overview_regions,
 )
-from openamundsen_da.methods.viz.project_maps.styles import (
+from openamundsen_da.methods.viz.maps.styles import (
     FSC_OBS_CMAP,
     FSC_INVALID_COLOR,
     INCREMENT_CMAP,
@@ -72,7 +72,7 @@ from openamundsen_da.methods.viz.project_maps.styles import (
     static_field_colorbar_style,
     static_field_norm,
 )
-from openamundsen_da.methods.viz.project_maps.theme import (
+from openamundsen_da.methods.viz.maps.theme import (
     _ANNOTATION_ZORDER,
     _CLASSIFIED_PANEL_KINDS,
     _GRID_ZORDER,
@@ -314,7 +314,7 @@ def draw_classified_legend(ax, handles: list[Patch], *, layout: str) -> None:
         return
     if layout == "horizontal":
         labels = [handle.get_label() for handle in handles]
-        from openamundsen_da.methods.viz.project_maps.layout import axis_width_inches, register_child_axes
+        from openamundsen_da.methods.viz.maps.layout import axis_width_inches, register_child_axes
 
         panel_width_in = axis_width_inches(ax)
         rows = pack_horizontal_legend_rows(labels, panel_width_in=panel_width_in)
@@ -534,7 +534,7 @@ def overview_extent_growth_for_labels(
         return extent
     span_x = max(float(extent[1] - extent[0]), 1e-9)
     span_y = max(float(extent[3] - extent[2]), 1e-9)
-    from openamundsen_da.methods.viz.project_maps.layout import axis_width_inches
+    from openamundsen_da.methods.viz.maps.layout import axis_width_inches
 
     data_per_in_x = span_x / max(axis_width_inches(ax), 1e-9)
     data_per_in_y = span_y / max(axis_height_inches(ax), 1e-9)
@@ -1141,8 +1141,8 @@ def render_colorbar_panel(ax, *, panel: MapPanelSpec, artifacts: dict[str, dict[
         cbar.set_ticks(ticks)
     if ticklabels:
         cbar.set_ticklabels(ticklabels)
-    from openamundsen_da.methods.viz.project_maps.theme import _COLORBAR_TICK_SIZE, _COLORBAR_TITLE_SIZE
-    from openamundsen_da.methods.viz.project_maps.layout import extract_unit_title
+    from openamundsen_da.methods.viz.maps.theme import _COLORBAR_TICK_SIZE, _COLORBAR_TITLE_SIZE
+    from openamundsen_da.methods.viz.maps.layout import extract_unit_title
 
     cbar.ax.tick_params(labelsize=_COLORBAR_TICK_SIZE)
     title = extract_unit_title(label)

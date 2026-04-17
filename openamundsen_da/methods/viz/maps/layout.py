@@ -8,10 +8,10 @@ from matplotlib.font_manager import FontProperties
 from matplotlib.textpath import TextPath
 
 from openamundsen_da.methods.viz.theme import FIGWIDTH_OVERVIEW_PAPER
-from openamundsen_da.methods.viz.project_maps.config import MapDefaults, MapPanelSpec, MapRecipe
-from openamundsen_da.methods.viz.project_maps.data import ObservationScene, StaticContext
-from openamundsen_da.methods.viz.project_maps.styles import LANDCOVER_LABELS, WET_SNOW_LABELS
-from openamundsen_da.methods.viz.project_maps.theme import (
+from openamundsen_da.methods.viz.maps.config import MapDefaults, MapPanelSpec, MapRecipe
+from openamundsen_da.methods.viz.maps.data import ObservationScene, StaticContext
+from openamundsen_da.methods.viz.maps.styles import LANDCOVER_LABELS, WET_SNOW_LABELS
+from openamundsen_da.methods.viz.maps.theme import (
     _ANNOTATION_ZORDER,
     _BOTTOM_MARGIN,
     _BUFFER_RATIO,

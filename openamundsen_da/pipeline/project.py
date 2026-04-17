@@ -77,7 +77,7 @@ from openamundsen_da.methods.viz.aggregate_fractions import aggregate_fraction_e
 from openamundsen_da.methods.viz.plots.result_overview import cli_main as plot_result_overview_cli
 from openamundsen_da.methods.viz.plots.project_ensemble import plot_setup_results
 from openamundsen_da.methods.viz.plots.forcing_ensemble import cli_main as plot_forcing_cli
-from openamundsen_da.methods.viz.project_maps import project_maps_enabled, render_project_maps
+from openamundsen_da.methods.viz.maps import project_maps_enabled, render_project_maps
 from openamundsen_da.util.validation import validate_assimilation_requirements
 from openamundsen_da.util.run_mode import ensure_run_mode
 from openamundsen_da.util.station_da import is_station_variable

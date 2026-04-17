@@ -27,7 +27,7 @@ from openamundsen_da.io.paths import (
     infer_setup_dir_from_project,
     project_da_output_grids_path,
 )
-from openamundsen_da.methods.viz.project_maps.config import DateSelector
+from openamundsen_da.methods.viz.maps.config import DateSelector
 from openamundsen_da.observer.class_config import load_observation_classes, load_wetsnow_classes
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.landcover_mask import resolve_setup_landcover_grid

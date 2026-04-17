@@ -11,7 +11,7 @@ from openamundsen_da.subdomain.merge import merge_grids
 from openamundsen_da.subdomain.prepare import prepare_subdomains
 from openamundsen_da.subdomain.report import write_subdomain_reports
 from openamundsen_da.subdomain.run import run_subdomains
-from openamundsen_da.methods.viz.project_maps import project_maps_enabled, render_project_maps
+from openamundsen_da.methods.viz.maps import project_maps_enabled, render_project_maps
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.util.run_mode import ensure_run_mode
 

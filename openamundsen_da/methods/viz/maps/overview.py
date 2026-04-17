@@ -27,7 +27,7 @@ _ALL_OVERVIEW_GEOJSONS = (
 
 def overview_cache_dir() -> Path:
     base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    return base / "openamundsen_da" / "project_maps" / "overview"
+    return base / "openamundsen_da" / "maps" / "overview"
 
 
 def overview_setup_env_dir(setup_dir: Path) -> Path:

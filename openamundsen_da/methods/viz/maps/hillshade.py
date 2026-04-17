@@ -5,7 +5,7 @@ from matplotlib.colors import LightSource
 from rasterio import features as rio_features
 from rasterio.transform import array_bounds
 
-from openamundsen_da.methods.viz.project_maps.data import StaticContext
+from openamundsen_da.methods.viz.maps.data import StaticContext
 
 
 def grid_extent(context: StaticContext) -> tuple[float, float, float, float]:

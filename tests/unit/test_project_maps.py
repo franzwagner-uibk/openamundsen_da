@@ -15,11 +15,11 @@ import xarray as xr
 from rasterio.transform import from_origin
 from shapely.geometry import Point, box
 
-import openamundsen_da.methods.viz.project_maps.render as render_module
-import openamundsen_da.methods.viz.project_maps.runner as runner_module
-import openamundsen_da.methods.viz.project_maps.data as data_module
-import openamundsen_da.methods.viz.project_maps.overview as overview_module
-from openamundsen_da.methods.viz.project_maps.config import (
+import openamundsen_da.methods.viz.maps.render as render_module
+import openamundsen_da.methods.viz.maps.runner as runner_module
+import openamundsen_da.methods.viz.maps.data as data_module
+import openamundsen_da.methods.viz.maps.overview as overview_module
+from openamundsen_da.methods.viz.maps.config import (
     DateSelector,
     LayoutSpec,
     MapDefaults,
@@ -27,7 +27,7 @@ from openamundsen_da.methods.viz.project_maps.config import (
     MapRecipe,
     load_project_maps_config,
 )
-from openamundsen_da.methods.viz.project_maps.data import (
+from openamundsen_da.methods.viz.maps.data import (
     ModelFields,
     ObservationScene,
     load_observation_scene,
@@ -35,7 +35,7 @@ from openamundsen_da.methods.viz.project_maps.data import (
     resolve_comparison_dates,
     resolve_observation_context_dates,
 )
-from openamundsen_da.methods.viz.project_maps.render import (
+from openamundsen_da.methods.viz.maps.render import (
     _apply_map_axis_style,
     _comparison_scales,
     _draw_map_grid_overlay,
@@ -50,8 +50,8 @@ from openamundsen_da.methods.viz.project_maps.render import (
     figure_height_for_extent,
 )
 from openamundsen_da.pipeline import project as project_pipeline
-from openamundsen_da.methods.viz.project_maps.runner import project_maps_enabled, render_project_maps
-from openamundsen_da.methods.viz.project_maps.styles import (
+from openamundsen_da.methods.viz.maps.runner import project_maps_enabled, render_project_maps
+from openamundsen_da.methods.viz.maps.styles import (
     FSC_OBS_CMAP,
     FSC_INVALID_COLOR,
     INCREMENT_CMAP,

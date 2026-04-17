@@ -11,14 +11,14 @@ from pathlib import Path
 from loguru import logger
 
 from openamundsen_da.io.paths import project_maps_output_dir, project_maps_root
-from openamundsen_da.methods.viz.project_maps.config import (
+from openamundsen_da.methods.viz.maps.config import (
     MapRecipe,
     ProjectMapsConfig,
     default_project_maps_config_path,
     load_project_maps_config,
 )
-from openamundsen_da.methods.viz.project_maps.data import load_static_context
-from openamundsen_da.methods.viz.project_maps.render import RenderRuntimeCache, render_map_recipe
+from openamundsen_da.methods.viz.maps.data import load_static_context
+from openamundsen_da.methods.viz.maps.render import RenderRuntimeCache, render_map_recipe
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 

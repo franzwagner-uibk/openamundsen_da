@@ -114,6 +114,12 @@ def _derive_landcover_path(grids_dir: Path, domain: str, resolution: object) -> 
     back to a single unique match with a suffix (e.g., lc_domain_res_large.asc).
     Raises when zero or multiple matches are found to avoid ambiguous selection.
     """
+    grids_dir = Path(grids_dir)
+    # Accept either the grids directory itself or a parent path that contains
+    # the conventional "grids/" subdirectory to preserve the older helper API.
+    if grids_dir.name != "grids" and (grids_dir / "grids").is_dir():
+        grids_dir = grids_dir / "grids"
+
     base = f"lc_{domain}_{_format_resolution(resolution)}"
     exact = grids_dir / f"{base}.asc"
     if exact.is_file():

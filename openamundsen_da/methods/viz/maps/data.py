@@ -9,6 +9,7 @@ import re
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import pyproj
 import rasterio
 import xarray as xr
 from rasterio import features
@@ -16,8 +17,6 @@ from rasterio.merge import merge
 from rasterio.vrt import WarpedVRT
 from rasterio.warp import Resampling, reproject
 from shapely.geometry import shape as shapely_shape
-
-from openamundsen import util as oa_util
 
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import (
@@ -77,6 +76,13 @@ def _normalize_dates(values: object) -> tuple[pd.Timestamp, ...]:
 
 def _metric_var(metric: str, variable: str) -> str:
     return f"{metric}_{variable}"
+
+
+def _transform_coords(x, y, src_crs: str | None, dst_crs: str | None):
+    if src_crs is None or dst_crs is None or str(src_crs).lower() == str(dst_crs).lower():
+        return np.asarray(x), np.asarray(y)
+    transformer = pyproj.Transformer.from_crs(src_crs, dst_crs, always_xy=True)
+    return transformer.transform(np.asarray(x), np.asarray(y))
 
 
 def _read_dataset_array(path: Path, *, shape: tuple[int, int], transform, crs: str | None) -> np.ndarray:
@@ -159,7 +165,7 @@ def _load_stations_table(setup_dir: Path) -> pd.DataFrame | None:
         if {"id", "x", "y"}.issubset(stations.columns):
             meteo_crs = meteo_cfg.get("crs")
             if meteo_crs and grid_crs and str(meteo_crs).lower() != str(grid_crs).lower():
-                xs, ys = oa_util.transform_coords(stations["x"], stations["y"], meteo_crs, grid_crs)
+                xs, ys = _transform_coords(stations["x"], stations["y"], meteo_crs, grid_crs)
                 stations = stations.copy()
                 stations["x"] = xs
                 stations["y"] = ys
@@ -177,7 +183,7 @@ def _load_stations_table(setup_dir: Path) -> pd.DataFrame | None:
                 station_name = ds.attrs.get("station_name")
                 if not station_name and "station_name" in ds:
                     station_name = str(np.asarray(ds["station_name"]).reshape(-1)[0])
-                x, y = oa_util.transform_coords(lon, lat, "epsg:4326", grid_crs)
+                x, y = _transform_coords(lon, lat, "epsg:4326", grid_crs)
                 rows.append(
                     {
                         "id": station_id,

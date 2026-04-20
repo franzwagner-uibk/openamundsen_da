@@ -200,16 +200,10 @@ results/misc/
 
 results/maps/
   setup_overview.png
-  da_1.png
-  da_2.png
-  da_3.png
-  da_4.png
-  da_5.png
-  da_6.png
-  da_7.png
-  da_8.png
-  da_9.png
-  da_10.png
+  da_events/
+    da_1.png
+    ...
+    da_10.png
 ```
 
 ![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/project_perf.png)
@@ -219,3 +213,15 @@ results/maps/
 Detailed interpretation of these plots is covered in [7. Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}).
 
 Before continuing, verify that the project log ends with a completion message and that `results/plots/perf/project_perf.png`, `results/plots/assim/weights/setup_weights_overview_2022_2023.png`, `results/plots/results/result_overview.png`, and `results/grids/da_output_grids.nc` exist.
+
+If you later change only visualization code or `plots.yml`, you can rerender the finished project plots without rerunning the DA pipeline:
+
+```bash
+oa-da-plot-project-plots --project-dir /data/projects/project_2022_2023
+```
+
+And you can rerender the full project-map catalog separately with:
+
+```bash
+oa-da-plot-project-maps --project-dir /data/projects/project_2022_2023
+```

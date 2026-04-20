@@ -100,6 +100,9 @@ class MapRecipe:
     layout: LayoutSpec
     panels: tuple[MapPanelSpec, ...]
     output_name: str | None = None
+    output_subdir: str | None = None
+    figure_title: str | None = None
+    row_labels: tuple[str, ...] = ()
     defaults: MapDefaults = MapDefaults()
 
     @property
@@ -343,7 +346,10 @@ def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
             raise ValueError(f"{context} must define items, source, or lines for legend panels")
         if panel.below_items:
             raise ValueError(f"{context}.below_items is only supported for non-legend panels")
-    elif panel.source is not None and panel.kind not in {"fsc", "wet_snow"}:
+    elif panel.kind in {"fsc", "wet_snow"}:
+        if panel.source is not None and panel.source not in {"open_loop", "ensemble_mean"}:
+            raise ValueError(f"{context}.source must be one of: ensemble_mean, open_loop")
+    elif panel.source is not None:
         raise ValueError(f"{context}.source is only valid for model panels, legend panels, and colorbar panels")
 
     return panel
@@ -375,10 +381,15 @@ def _parse_recipe(recipe_name: str, value: object, *, context: str, config_path:
         name=recipe_name,
         title=title,
         output_name=_optional_str(mapping.get("output_name")),
+        output_subdir=_optional_str(mapping.get("output_subdir")),
+        figure_title=_optional_str(mapping.get("figure_title")),
+        row_labels=_coerce_str_list(mapping.get("row_labels"), context=f"{context}.row_labels"),
         layout=layout,
         defaults=_parse_defaults(mapping.get("defaults"), context=f"{context}.defaults"),
         panels=tuple(_parse_panel(item, context=f"{context}.panels[{idx}]") for idx, item in enumerate(raw_panels)),
     )
+    if recipe.row_labels and len(recipe.row_labels) != recipe.layout.nrows:
+        raise ValueError(f"{context}.row_labels must have length {recipe.layout.nrows}")
     _validate_panel_layout(recipe, config_path=config_path)
     return recipe
 

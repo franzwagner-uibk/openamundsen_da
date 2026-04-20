@@ -12,6 +12,8 @@ from loguru import logger
 
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.methods.viz.maps import project_maps_enabled, render_project_maps
+from openamundsen_da.methods.viz.maps.generated import default_project_maps_rerun_command
+from openamundsen_da.methods.viz.maps.runner import ProjectMapRenderError
 from openamundsen_da.methods.viz.plots.assimilation import (
     plot_setup_ess_timeline,
     plot_setup_weights_overview,
@@ -232,13 +234,27 @@ def custom_overview_needs_benchmark_scores(project_dir: Path) -> bool:
 
 def render_project_maps_best_effort(project_dir: Path) -> None:
     if not project_maps_enabled(project_dir):
-        logger.info("Project maps skipped: no maps.yml found under {}", project_dir)
+        logger.info("Project maps skipped: no generated events or custom maps found under {}", project_dir)
         return
     try:
         outputs = render_project_maps(project_dir=project_dir)
         logger.info("Project maps complete -> {} output(s)", len(outputs))
+    except ProjectMapRenderError as exc:
+        logger.warning("Project maps failed on {} map {}: {}", exc.output_class, exc.recipe_name, exc)
+        logger.warning(
+            "Rerun all project maps with: {}",
+            default_project_maps_rerun_command(project_dir),
+        )
+        logger.warning(
+            "Rerun only this map with: {}",
+            default_project_maps_rerun_command(project_dir, recipe_name=exc.recipe_name),
+        )
     except Exception as exc:
         logger.warning("Project maps failed: {}", exc)
+        logger.warning(
+            "Rerun project maps with: {}",
+            default_project_maps_rerun_command(project_dir),
+        )
 
 
 def build_post_run_plot_tasks(

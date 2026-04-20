@@ -643,15 +643,27 @@ def axes_group_bbox(fig, renderer, axes_group) -> tuple[float, float] | None:
     return min(y0_values), max(y1_values)
 
 
+def axes_group_panel_bbox(axes_group) -> tuple[float, float] | None:
+    y0_values: list[float] = []
+    y1_values: list[float] = []
+    for ax in axes_group:
+        pos = ax.get_position()
+        y0_values.append(float(pos.y0))
+        y1_values.append(float(pos.y1))
+    if not y0_values:
+        return None
+    return min(y0_values), max(y1_values)
+
+
 def shift_axes_group(axes_group, delta_y: float) -> None:
-    if delta_y <= 0.0:
+    if abs(delta_y) <= 1e-9:
         return
     for ax in axes_group:
         pos = ax.get_position()
         ax.set_position([pos.x0, pos.y0 + delta_y, pos.width, pos.height])
 
 
-def tighten_panel_row_gaps(fig, row_axes: dict[int, list]) -> None:
+def tighten_panel_row_gaps(fig, row_axes: dict[int, list], *, target_gap_scale: float = 1.0) -> None:
     if len(row_axes) < 2:
         return
     canvas = fig.canvas
@@ -664,13 +676,20 @@ def tighten_panel_row_gaps(fig, row_axes: dict[int, list]) -> None:
         upper_bbox = axes_group_bbox(fig, renderer, row_axes[upper_row])
         lower_group = [ax for row in lower_rows for ax in row_axes[row]]
         lower_bbox = axes_group_bbox(fig, renderer, lower_group)
+        next_lower_axes = row_axes[ordered_rows[idx + 1]]
+        next_lower_bbox = axes_group_bbox(fig, renderer, next_lower_axes)
+        next_lower_panel_bbox = axes_group_panel_bbox(next_lower_axes)
         if upper_bbox is None or lower_bbox is None:
             continue
         current_gap = upper_bbox[0] - lower_bbox[1]
         mean_panel_height = float(np.mean([ax.get_position().height for ax in row_axes[upper_row]]))
-        target_gap = max(0.0, _LAYOUT_ROW_GAP * mean_panel_height)
+        base_gap = max(0.0, _LAYOUT_ROW_GAP * float(target_gap_scale) * mean_panel_height)
+        lower_title_overhang = 0.0
+        if next_lower_bbox is not None and next_lower_panel_bbox is not None:
+            lower_title_overhang = max(0.0, next_lower_bbox[1] - next_lower_panel_bbox[1])
+        target_gap = max(base_gap, 0.008 + 0.65 * lower_title_overhang)
         delta_y = current_gap - target_gap
-        if delta_y <= 1e-6:
+        if abs(delta_y) <= 1e-6:
             continue
         for row in lower_rows:
             shift_axes_group(row_axes[row], delta_y)

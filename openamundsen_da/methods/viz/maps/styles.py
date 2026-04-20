@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from matplotlib import colormaps
-from matplotlib.colors import FuncNorm, LinearSegmentedColormap, ListedColormap, Normalize, TwoSlopeNorm, to_rgba
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize, TwoSlopeNorm, to_rgba
 
 
 @dataclass(frozen=True)
@@ -201,21 +201,8 @@ SNOW_DEPTH_COLORBAR_STEPS_CM = (5.0, 10.0, 25.0, 50.0, 100.0)
 
 def snow_depth_scale_ticks(vmax: float) -> tuple[float, ...]:
     low = float(SNOW_DEPTH_REFERENCE_TICKS_M[0])
-    ref_high = float(SNOW_DEPTH_REFERENCE_TICKS_M[-1])
     high = max(float(vmax), low)
-    if high == low:
-        return (low,)
-    positions = np.linspace(0.0, 1.0, len(SNOW_DEPTH_REFERENCE_TICKS_M))
-    ticks = np.interp(positions, (0.0, 1.0), (low, high))
-    reference_positions = np.interp(
-        np.asarray(SNOW_DEPTH_REFERENCE_TICKS_M, dtype=float),
-        (low, ref_high),
-        (0.0, 1.0),
-    )
-    scaled = np.interp(reference_positions, positions, ticks)
-    scaled[0] = low
-    scaled[-1] = high
-    return tuple(float(value) for value in scaled)
+    return tuple(float(value) for value in np.linspace(low, high, len(SNOW_DEPTH_REFERENCE_TICKS_M)))
 
 
 def snow_depth_colorbar_labels_cm(vmax: float) -> tuple[float, ...]:
@@ -234,19 +221,7 @@ def snow_depth_colorbar_labels_cm(vmax: float) -> tuple[float, ...]:
 
 
 def snow_depth_colorbar_ticks(vmax: float) -> tuple[float, ...]:
-    labels_cm = snow_depth_colorbar_labels_cm(vmax)
-    if len(labels_cm) == 1:
-        return (float(vmax),)
-    target_positions = np.linspace(0.0, 1.0, len(labels_cm))
-    anchor_positions = np.linspace(0.0, 1.0, len(SNOW_DEPTH_REFERENCE_TICKS_M))
-    return tuple(
-        float(value)
-        for value in np.interp(
-            target_positions,
-            anchor_positions,
-            np.asarray(snow_depth_scale_ticks(vmax), dtype=float),
-        )
-    )
+    return tuple(float(value) / 100.0 for value in snow_depth_colorbar_labels_cm(vmax))
 
 
 def snow_depth_colorbar_ticklabels(vmax: float) -> tuple[str, ...]:
@@ -254,21 +229,9 @@ def snow_depth_colorbar_ticklabels(vmax: float) -> tuple[str, ...]:
 
 
 def _snow_depth_reference_norm(vmax: float) -> Normalize:
-    ticks = snow_depth_scale_ticks(vmax)
-    positions = np.linspace(0.0, 1.0, len(ticks))
-
-    def forward(values):
-        return np.interp(values, ticks, positions)
-
-    def inverse(values):
-        return np.interp(values, positions, ticks)
-
-    return FuncNorm(
-        (forward, inverse),
-        vmin=ticks[0],
-        vmax=ticks[-1],
-        clip=False,
-    )
+    low = float(SNOW_DEPTH_REFERENCE_TICKS_M[0])
+    high = max(float(vmax), low)
+    return Normalize(vmin=low, vmax=high, clip=False)
 
 
 def require_variable_preset(variable: str) -> VariablePreset:

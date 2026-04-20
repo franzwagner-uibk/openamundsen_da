@@ -465,10 +465,10 @@ oa-da-plot-result-overview \
 
 **Publication-style project maps**
 
-Renders curated project maps from the compact project summary grid, setup grids, ROI, stations, and project observation summaries. Rendering is driven entirely by `<project-dir>/maps.yml`, which defines generic grid-composed figures with explicit panel placement, titles, and styles. The same sidecar also enables best-effort post-run pipeline rendering.
-Map panels use the example-map visual grammar by default: boxed axes, coordinate ticks and grid lines, subplot labels like `(a)`, and attached vertical colorbars. Snow-depth model maps use the fixed reference palette with colorbar ticks shown in `cm`, and cells below `1 cm` remain transparent. Increment maps use a signed diverging palette with negative changes in red and positive changes in blue.
+Renders generated DA-event maps plus optional custom project maps from the compact project summary grid, setup grids, ROI, stations, and project observation summaries. By default the command generates one `da_*` map per assimilation event from the project YAML. `<project-dir>/maps.yml` is now reserved for custom maps such as `setup_overview`, and those custom maps are rendered together with the generated DA-event set in one command. The same workflow is also used for best-effort post-run pipeline rendering.
+Map panels use the example-map visual grammar by default: boxed axes, coordinate ticks and grid lines, subplot labels like `(a)`, and attached vertical colorbars. Snow-depth model maps use the fixed reference palette with a shared linear colorbar scale per render run, `cm` tick labels, and transparent cells below `1 cm`. Increment maps use a signed diverging palette with negative changes in red and positive changes in blue.
 
-Typical `maps.yml` files start with a commented panel catalog:
+Typical custom `maps.yml` files still use this panel catalog:
 
 ```yaml
 # Available panel kinds:
@@ -500,11 +500,31 @@ oa-da-plot-project-maps \
 ```
 
 **Output:**
-- `results/maps/*.png`
+- generated DA-event maps under `results/maps/da_events/*.png`
+- custom YAML maps under `results/maps/*.png`
 
-Static context panels (`hillshade`, `dem`, `svf`, `srf`, `landcover`) render the full raster coverage inside the map extent. Model and observation panels remain ROI-masked. When `show_hillshade: true`, `hillshade_extent: roi` limits the hillshade to the ROI mask and `hillshade_extent: full` draws it across the full panel. In the supported Docker workflow, omitted `--max-workers` uses automatic recipe-level multicore rendering with the effective worker count clamped to `min(visible CPUs, selected recipes)`; pass `--max-workers 1` to keep rendering sequential. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
+Static context panels (`hillshade`, `dem`, `svf`, `srf`, `landcover`) render the full raster coverage inside the map extent. Model and observation panels remain ROI-masked. When `show_hillshade: true`, `hillshade_extent: roi` limits the hillshade to the ROI mask and `hillshade_extent: full` draws it across the full panel. In the supported Docker workflow, omitted `--max-workers` uses automatic recipe-level multicore rendering with the effective worker count clamped to `min(visible CPUs, selected recipes)`; pass `--max-workers 1` to keep rendering sequential. If one or more maps fail because supporting data are missing, the pipeline logs a rerun command and continues. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
 
 Overview panels use setup-local GISCO GeoJSONs under `<setup>/env/` for country boundaries, regions, and labels. If those files are missing, the overview renderer downloads them once into that directory automatically.
+
+### oa-da-plot-project-plots
+
+**Recreate all project plots from existing outputs**
+
+Runs the same post-run plot orchestration used by the project pipeline, but without rerunning the DA workflow itself. The command expects an already finished project with populated `steps/step_*/.../results` outputs. Before plotting, it rebuilds the ROI fraction envelopes in `results/misc/`, then renders forcing plots, setup point-result plots, assimilation weights, ESS timeline, and the result overview panels.
+
+```bash
+oa-da-plot-project-plots \
+  --project-dir PATH \
+  [--plot-workers N] \
+  [--max-workers N]
+```
+
+**Output:**
+- regenerated plot products under `results/plots/**`
+- refreshed fraction envelopes under `results/misc/point_*_roi_envelope.csv`
+
+Use this when you changed plotting code, `plots.yml`, or map-independent styling and want a clean plot rerender without executing `oa-da-project` again.
 
 ### oa-da-fetch-overview-geojson
 

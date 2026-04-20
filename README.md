@@ -493,8 +493,8 @@ Note: running the setup pipeline (see below) also generates these setup plots au
 
 - Project maps (compact project grid -> publication-style PNGs):
 
-  Use `oa-da-plot-project-maps` to render YAML-driven grid-composed project figures from a completed project. The renderer reads `results/grids/da_output_grids.nc`, setup grids/ROI/stations, and project observation summaries automatically; map selection itself is driven by `<project-dir>/maps.yml`.
-  The shipped `maps.yml` files start with a commented panel catalog like this:
+  Use `oa-da-plot-project-maps` to render generated DA-event maps plus optional custom YAML map recipes from a completed project. The renderer reads `results/grids/da_output_grids.nc`, setup grids/ROI/stations, and project observation summaries automatically. By default it generates one `da_*` map per assimilation event from `<project-dir>/project_*.yml`; `<project-dir>/maps.yml` is now for custom maps such as `setup_overview`.
+  The custom `maps.yml` sidecar still uses the same panel catalog:
 
   ```yaml
   # Available panel kinds:
@@ -524,8 +524,26 @@ Note: running the setup pipeline (see below) also generates these setup plots au
     --max-workers 4
   ```
 
-  Outputs are written directly under `results/maps/`. By default the renderer parallelizes across independent recipe PNGs inside the Docker container and clamps the effective worker count to `min(visible CPUs, selected recipes)`; use `--max-workers 1` to force sequential rendering. When `<project-dir>/maps.yml` is present, `oa-da-project` and merged sub-domain runs also render these maps automatically as a best-effort post-run stage and use the same Docker-container worker auto-selection.
-  YAML-driven maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`), and optional support panels (`legend`, `colorbar`). Static context panels render the full raster coverage inside the map extent, while model and observation panels stay ROI-masked. Snow-depth model panels keep the tutorial/reference color grade, hide values below `1 cm`, and now share one common nonlinear legend scale per `maps.yml` render run across all non-increment snow-depth panels. Increment maps are selected with `source: increment` and use a signed diverging palette with negative changes in red and positive changes in blue. Four-column figures and mixed classified figures default to horizontal legends/colorbars below the panels, and georeferenced panels can opt into the reference-style in-panel scale bar with `show_scalebar: true`. When `show_hillshade: true`, `hillshade_extent: roi` restricts the hillshade to the ROI mask, while `hillshade_extent: full` shows it across the full panel extent.
+  Outputs are split by type:
+  - generated DA-event maps under `results/maps/da_events/`
+  - custom YAML maps at the root of `results/maps/`
+
+  By default the renderer parallelizes across independent recipe PNGs inside the Docker container and clamps the effective worker count to `min(visible CPUs, selected recipes)`; use `--max-workers 1` to force sequential rendering. `oa-da-project` and merged sub-domain runs also render project maps automatically as a best-effort post-run stage. If a map fails because supporting data are missing, the pipeline logs a rerun command and continues.
+  Project maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`), and optional support panels (`legend`, `colorbar`). Static context panels render the full raster coverage inside the map extent, while model and observation panels stay ROI-masked. Snow-depth model panels keep the tutorial/reference color grade, hide values below `1 cm`, and share one common linear legend scale per render run across all non-increment snow-depth panels, with equal-distance tick spacing and `cm` labels. Increment maps are selected with `source: increment` and use a signed diverging palette with negative changes in red and positive changes in blue. Four-column figures and mixed classified figures default to horizontal legends/colorbars below the panels, and georeferenced panels can opt into the reference-style in-panel scale bar with `show_scalebar: true`. When `show_hillshade: true`, `hillshade_extent: roi` restricts the hillshade to the ROI mask, while `hillshade_extent: full` shows it across the full panel extent.
+
+- Project plots (all post-run plots without rerunning DA):
+
+  Use `oa-da-plot-project-plots` to recreate the full `results/plots/` tree from existing project outputs. The command reuses the same post-run plot orchestration as the project pipeline: forcing plots, setup point-result plots, weights, ESS timeline, and the result overview. It also rebuilds the ROI fraction envelopes in `results/misc/` first, because the overview plots depend on them.
+
+  ```powershell
+  docker compose run --rm oa `
+    oa-da-plot-project-plots `
+    --project-dir /data/projects/project_2022_2023 `
+    --plot-workers 4 `
+    --max-workers 4
+  ```
+
+  The command expects an already finished project with step outputs under `<project-dir>/steps/`. It does not rerun openAMUNDSEN or data assimilation; it only regenerates plot artifacts under `results/plots/` and the fraction envelopes under `results/misc/`.
 
 ## Setup Pipeline
 
@@ -556,7 +574,7 @@ Outputs
 - Setup plots under `<setup_dir>/plots/{forcing,results}`
 - Project-level plots under `<project>/results/plots/{results,perf,points,assim/{weights,ess,scores}}`
 - Project-level misc artifacts under `<project>/results/misc`
-- Project maps under `<project>/results/maps` when `<project>/maps.yml` is present
+- Project maps under `<project>/results/maps`, with generated DA maps under `da_events/` and optional custom YAML maps at the root
 - When model SCF is enabled, daily ROI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_roi.csv`.
 - Full-ROI daily mean SWE and snow depth are written to `<step>/ensembles/prior/<member>/results/point_swe_roi.csv` and `<step>/ensembles/prior/<member>/results/point_snow_depth_roi.csv`.
 - The combined project result overview plot (`results/plots/results/result_overview.png`) now shows SCF, wet-snow, ROI mean SWE, and ROI mean snow depth together.

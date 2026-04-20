@@ -19,6 +19,7 @@ from shapely.geometry import Point, box
 import openamundsen_da.methods.viz.maps.render as render_module
 import openamundsen_da.methods.viz.maps.runner as runner_module
 import openamundsen_da.methods.viz.maps.data as data_module
+import openamundsen_da.methods.viz.maps.generated as generated_module
 import openamundsen_da.methods.viz.maps.overview as overview_module
 import openamundsen_da.methods.viz.maps.panel_renderers as panel_renderers_module
 from openamundsen_da.methods.viz.maps.config import (
@@ -463,9 +464,9 @@ def test_overview_cli_fetches_into_setup_env(monkeypatch: pytest.MonkeyPatch, tm
     assert calls == [setup_dir.resolve()]
 
 
-def test_project_maps_enabled_looks_for_maps_yml(tmp_path: Path) -> None:
+def test_project_maps_enabled_accepts_generated_events_without_maps_yml(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
-    assert project_maps_enabled(project_dir) is False
+    assert project_maps_enabled(project_dir) is True
 
     (project_dir / "maps.yml").write_text("maps: {}\n", encoding="utf-8")
 
@@ -843,45 +844,9 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
 
     cfg = load_project_maps_config(config_path)
 
-    assert [recipe.name for recipe in cfg.maps] == [
-        "setup_overview",
-        "da_1",
-        "da_2",
-        "da_3",
-        "da_4",
-        "da_5",
-        "da_6",
-        "da_7",
-        "da_8",
-        "da_9",
-        "da_10",
-    ]
-    assert [recipe.title for recipe in cfg.maps] == [
-        "setup_overview",
-        "da_1",
-        "da_2",
-        "da_3",
-        "da_4",
-        "da_5",
-        "da_6",
-        "da_7",
-        "da_8",
-        "da_9",
-        "da_10",
-    ]
-    assert [recipe.output_stem for recipe in cfg.maps] == [
-        "setup_overview",
-        "da_1",
-        "da_2",
-        "da_3",
-        "da_4",
-        "da_5",
-        "da_6",
-        "da_7",
-        "da_8",
-        "da_9",
-        "da_10",
-    ]
+    assert [recipe.name for recipe in cfg.maps] == ["setup_overview"]
+    assert [recipe.title for recipe in cfg.maps] == ["setup_overview"]
+    assert [recipe.output_stem for recipe in cfg.maps] == ["setup_overview"]
     assert cfg.maps[0].layout.nrows == 2
     assert cfg.maps[0].layout.ncols == 3
     assert [panel.title for panel in cfg.maps[0].panels] == [
@@ -895,16 +860,46 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
     assert [(panel.row, panel.col) for panel in cfg.maps[0].panels] == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
     assert cfg.maps[0].panels[3].name is None
     assert cfg.maps[0].panels[1].below_items[0].label == "Meteorological stations"
-    assert cfg.maps[7].panels[3].show_hillshade is None
-    assert cfg.maps[7].panels[4].show_hillshade is None
-    assert cfg.maps[7].panels[5].show_hillshade is True
-    assert cfg.maps[7].panels[5].hillshade_extent == "roi"
-    assert [panel.kind for panel in cfg.maps[1].panels] == ["snow_depth", "snow_depth", "snow_depth"]
-    assert [panel.kind for panel in cfg.maps[2].panels] == ["snow_depth", "snow_depth", "snow_depth"]
-    assert [panel.kind for panel in cfg.maps[4].panels] == ["snow_depth", "snow_depth", "snow_depth"]
-    assert [panel.kind for panel in cfg.maps[5].panels] == ["snow_depth", "snow_depth", "snow_depth"]
-    assert cfg.maps[8].panels[2].kind == "wet_snow"
-    assert cfg.maps[9].panels[2].kind == "fsc"
+    assert cfg.maps[0].panels[5].show_hillshade is True
+
+
+def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(generated_module, "_fraction_model_support_available", lambda *_args, **_kwargs: False)
+
+    recipes = generated_module.generated_da_map_recipes(project_dir)
+
+    assert [recipe.name for recipe in recipes] == ["da_1", "da_2"]
+    assert all(recipe.output_subdir == generated_module.GENERATED_DA_MAPS_SUBDIR for recipe in recipes)
+    assert recipes[0].figure_title == "2023-01-02 (snow cover fraction)"
+    assert recipes[1].figure_title == "2023-01-02 (wet snow)"
+    assert recipes[0].row_labels == ("station snow depth",)
+    assert [panel.title for panel in recipes[0].panels] == ["open loop", "ensemble mean", "increment"]
+
+
+def test_reference_stream_uses_variable_name_labels(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    target_date = pd.Timestamp("2023-01-02")
+
+    monkeypatch.setattr(generated_module, "_fraction_summary_dates", lambda *_args, **_kwargs: {target_date})
+    monkeypatch.setattr(generated_module, "_event_dates_by_variable", lambda *_args, **_kwargs: {"scf": {pd.Timestamp("2023-02-01")}})
+
+    assert generated_module._reference_stream(project_dir, variable="scf", date=target_date) == "snow cover fraction (independent)"
+
+
+def test_render_project_maps_generates_da_event_maps_under_subdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(generated_module, "_fraction_model_support_available", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", generated_module.generated_da_map_recipes)
+
+    outputs = render_project_maps(project_dir=project_dir, max_workers=1)
+
+    assert outputs == [
+        project_dir / "results" / "maps" / "da_events" / "da_1.png",
+        project_dir / "results" / "maps" / "da_events" / "da_2.png",
+    ]
+    for output in outputs:
+        assert output.is_file()
 
 
 def test_project_maps_config_rejects_overlapping_panels(tmp_path: Path) -> None:
@@ -2023,8 +2018,9 @@ def test_draw_stations_overlay_supports_marker_only_and_explicit_labels(tmp_path
         plt.close(fig)
 
 
-def test_render_project_maps_writes_flat_recipe_outputs(tmp_path: Path) -> None:
+def test_render_project_maps_writes_flat_recipe_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: ())
     _write_yaml(
         project_dir / "maps.yml",
         """
@@ -2138,8 +2134,9 @@ def test_resolve_effective_max_workers_clamps_to_recipe_count(monkeypatch: pytes
     assert runner_module._resolve_effective_max_workers(10, recipe_count=3) == 3
 
 
-def test_render_project_maps_parallel_matches_sequential_order(tmp_path: Path) -> None:
+def test_render_project_maps_parallel_matches_sequential_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: ())
     _write_yaml(
         project_dir / "maps.yml",
         """
@@ -2236,8 +2233,9 @@ def test_collect_shared_model_vmax_uses_selected_nonincrement_snowdepth_panels(
     assert shared_vmax == {"snowdepth_daily": 1.25}
 
 
-def test_render_project_maps_name_filter_limits_outputs(tmp_path: Path) -> None:
+def test_render_project_maps_name_filter_limits_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: ())
     _write_yaml(
         project_dir / "maps.yml",
         """
@@ -2276,6 +2274,7 @@ def test_render_project_maps_logs_batch_and_per_map_progress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: ())
     _write_yaml(
         project_dir / "maps.yml",
         """
@@ -2319,8 +2318,8 @@ def test_render_project_maps_logs_batch_and_per_map_progress(
 
     assert len(outputs) == 2
     assert any("Rendering 2 project map(s)" in msg for msg in info_messages)
-    assert "Starting map setup_map" in info_messages
-    assert "Starting map wet_scene" in info_messages
+    assert "Starting custom map setup_map" in info_messages
+    assert "Starting custom map wet_scene" in info_messages
     assert any(msg.startswith("Finished map setup_map -> ") for msg in info_messages)
     assert any(msg.startswith("Finished map wet_scene -> ") for msg in info_messages)
     assert error_messages == []
@@ -2331,6 +2330,7 @@ def test_render_project_maps_reuses_model_and_observation_caches_across_recipes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: ())
     _write_yaml(
         project_dir / "maps.yml",
         """
@@ -2393,8 +2393,9 @@ def test_render_project_maps_reuses_model_and_observation_caches_across_recipes(
     assert obs_calls == 1
 
 
-def test_render_project_maps_parallel_failure_propagates(tmp_path: Path) -> None:
+def test_render_project_maps_parallel_failure_propagates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: ())
     _write_yaml(
         project_dir / "maps.yml",
         """
@@ -2430,6 +2431,7 @@ def test_render_project_maps_parallel_logs_recipe_attributed_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: ())
     _write_yaml(
         project_dir / "maps.yml",
         """
@@ -2475,16 +2477,16 @@ def test_render_project_maps_parallel_logs_recipe_attributed_failure(
         def __exit__(self, exc_type, exc, tb):
             return None
 
-        def submit(self, _fn, project_dir_arg, config_path_arg, recipe_name, shared_model_vmax):
-            del project_dir_arg, config_path_arg, shared_model_vmax
+        def submit(self, _fn, project_dir_arg, recipe, shared_model_vmax):
+            del project_dir_arg, shared_model_vmax
             future: Future = Future()
-            if recipe_name == "broken_map":
+            if recipe.name == "broken_map":
                 future.set_exception(ValueError("boom"))
             else:
                 future.set_result(
                     runner_module.RecipeRenderResult(
-                        recipe_name=recipe_name,
-                        output_path=Path("/tmp") / f"{recipe_name}.png",
+                        recipe_name=recipe.name,
+                        output_path=Path("/tmp") / f"{recipe.name}.png",
                     )
                 )
             return future
@@ -2500,9 +2502,9 @@ def test_render_project_maps_parallel_logs_recipe_attributed_failure(
     with pytest.raises(runner_module.ProjectMapRenderError, match="broken_map"):
         render_project_maps(project_dir=project_dir, max_workers=2)
 
-    assert "Starting map ok_map" in info_messages
-    assert "Starting map broken_map" in info_messages
-    assert any(msg == "Failed map broken_map: boom" for msg in error_messages)
+    assert "Starting custom map ok_map" in info_messages
+    assert "Starting custom map broken_map" in info_messages
+    assert any(msg == "Failed custom map broken_map: boom" for msg in error_messages)
 
 
 def test_project_pipeline_best_effort_map_render_logs_warning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -2528,7 +2530,10 @@ def test_project_pipeline_best_effort_map_render_logs_warning(monkeypatch: pytes
 
     plot_tasks_module.render_project_maps_best_effort(project_dir)
 
-    assert warnings == ["Project maps failed: boom"]
+    assert warnings == [
+        "Project maps failed: boom",
+        f"Rerun project maps with: python -m openamundsen_da.methods.viz.maps.runner --project-dir {project_dir}",
+    ]
 
 
 def test_project_maps_cli_passes_max_workers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -2583,4 +2588,7 @@ def test_project_maps_cli_logs_recipe_attributed_failure(monkeypatch: pytest.Mon
     )
 
     assert exit_code == 1
-    assert error_messages == ["Project maps rendering failed: map 'broken_map' failed: boom"]
+    assert error_messages == [
+        "Project maps rendering failed: custom map 'broken_map' failed: boom",
+        f"Rerun project maps with: python -m openamundsen_da.methods.viz.maps.runner --project-dir {project_dir}",
+    ]

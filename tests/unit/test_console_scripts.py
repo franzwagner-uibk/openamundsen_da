@@ -38,6 +38,15 @@ def test_project_maps_console_script_is_published():
     )
 
 
+def test_project_plots_console_script_is_published():
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    data = tomllib.loads(pyproject.read_text())
+
+    assert data["project"]["scripts"]["oa-da-plot-project-plots"] == (
+        "openamundsen_da.methods.viz.plots:cli_main"
+    )
+
+
 def test_fetch_overview_geojson_console_script_is_published():
     pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
     data = tomllib.loads(pyproject.read_text())

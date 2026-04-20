@@ -59,13 +59,16 @@ from openamundsen_da.methods.viz.maps.styles import (
     FSC_INVALID_COLOR,
     INCREMENT_CMAP,
     SNOW_DEPTH_REFERENCE_TICKS_M,
-    SNOW_DEPTH_REFERENCE_TICKLABELS_CM,
     WET_SNOW_COLORS,
     WET_SNOW_LABELS,
     model_colorbar_style,
     model_map_cmap,
     require_static_field_preset,
     require_variable_preset,
+    snow_depth_colorbar_labels_cm,
+    snow_depth_colorbar_ticklabels,
+    snow_depth_colorbar_ticks,
+    snow_depth_scale_ticks,
     static_field_cmap,
     static_field_colorbar_style,
 )
@@ -1010,7 +1013,7 @@ def test_comparison_scales_use_zero_centered_diverging_increment_norm() -> None:
     assert increment_norm.vmin == -increment_norm.vmax
 
 
-def test_comparison_scales_fix_snowdepth_model_range_to_reference_palette() -> None:
+def test_comparison_scales_stretch_snowdepth_model_range_to_data_ceiling() -> None:
     preset = require_variable_preset("snowdepth_daily")
     fields = [
         ModelFields(
@@ -1024,7 +1027,26 @@ def test_comparison_scales_fix_snowdepth_model_range_to_reference_palette() -> N
     model_norm, _increment_norm = _comparison_scales(fields, preset)
 
     assert model_norm.vmin == SNOW_DEPTH_REFERENCE_TICKS_M[0]
-    assert model_norm.vmax == SNOW_DEPTH_REFERENCE_TICKS_M[-1]
+    assert model_norm.vmax == 5.0
+
+
+def test_comparison_scales_allow_shared_snowdepth_upper_bound() -> None:
+    preset = require_variable_preset("snowdepth_daily")
+    fields = [
+        ModelFields(
+            date=pd.Timestamp("2023-01-01"),
+            open_loop=np.array([[0.05, 0.20]], dtype=float),
+            ens_mean=np.array([[0.30, 0.40]], dtype=float),
+            increment=np.array([[-0.05, 0.10]], dtype=float),
+        ),
+    ]
+
+    model_norm, increment_norm = _comparison_scales(fields, preset, model_vmax=1.5)
+
+    assert model_norm.vmin == SNOW_DEPTH_REFERENCE_TICKS_M[0]
+    assert model_norm.vmax == 1.5
+    assert increment_norm.vmin == -0.25
+    assert increment_norm.vmax == 0.25
 
 
 def test_snowdepth_model_mask_hides_values_below_one_centimeter() -> None:
@@ -1336,16 +1358,28 @@ def test_observation_panel_hillshade_can_be_disabled_or_limited_to_roi(tmp_path:
         plt.close(fig_roi)
 
 
-def test_snowdepth_model_palette_uses_reference_ticks_and_transparent_under_range() -> None:
+def test_snowdepth_model_palette_uses_dynamic_ticks_and_transparent_under_range() -> None:
     preset = require_variable_preset("snowdepth_daily")
+    vmax = 2.5
 
-    colorbar_style = model_colorbar_style(preset)
+    colorbar_style = model_colorbar_style(preset, vmax=vmax)
     cmap = model_map_cmap(preset)
 
     assert colorbar_style.label == "snow depth [cm]"
-    assert colorbar_style.ticks == SNOW_DEPTH_REFERENCE_TICKS_M
-    assert colorbar_style.ticklabels == SNOW_DEPTH_REFERENCE_TICKLABELS_CM
+    assert colorbar_style.ticks == snow_depth_colorbar_ticks(vmax)
+    assert colorbar_style.ticklabels == snow_depth_colorbar_ticklabels(vmax)
+    assert colorbar_style.ticks[0] == SNOW_DEPTH_REFERENCE_TICKS_M[0]
+    assert colorbar_style.ticks[-1] == vmax
     assert cmap(-0.1)[3] == 0.0
+
+
+def test_snowdepth_colorbar_ticks_keep_reference_style_with_dynamic_top_bin() -> None:
+    vmax = 2.25
+
+    assert snow_depth_scale_ticks(vmax)[-1] == vmax
+    assert snow_depth_colorbar_labels_cm(vmax) == (1.0, 50.0, 100.0, 150.0, 200.0, 225.0)
+    assert len(snow_depth_colorbar_ticks(vmax)) == 6
+    assert snow_depth_colorbar_ticklabels(vmax) == ("1", "50", "100", "150", "200", "225")
 
 
 def test_increment_cmap_runs_from_negative_red_to_positive_blue() -> None:
@@ -2149,6 +2183,59 @@ def test_render_project_maps_parallel_matches_sequential_order(tmp_path: Path) -
     assert parallel == expected
 
 
+def test_collect_shared_model_vmax_uses_selected_nonincrement_snowdepth_panels(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    recipes = (
+        MapRecipe(
+            name="a",
+            title="A",
+            layout=LayoutSpec(nrows=1, ncols=1),
+            defaults=MapDefaults(date="2023-01-01"),
+            panels=(MapPanelSpec(kind="snow_depth", row=0, col=0, source="open_loop"),),
+        ),
+        MapRecipe(
+            name="b",
+            title="B",
+            layout=LayoutSpec(nrows=1, ncols=2),
+            defaults=MapDefaults(date="2023-01-02"),
+            panels=(
+                MapPanelSpec(kind="snow_depth", row=0, col=0, source="ensemble_mean"),
+                MapPanelSpec(kind="snow_depth", row=0, col=1, source="increment"),
+            ),
+        ),
+    )
+
+    calls: list[tuple[str, tuple[pd.Timestamp, ...]]] = []
+
+    def fake_load_model_fields(project_dir_arg: Path, variable: str, dates: tuple[pd.Timestamp, ...]) -> list[ModelFields]:
+        assert project_dir_arg == project_dir
+        calls.append((variable, dates))
+        return [
+            ModelFields(
+                date=dates[0],
+                open_loop=np.array([[0.2, 0.4]], dtype=float),
+                ens_mean=np.array([[0.6, 0.9]], dtype=float),
+                increment=np.array([[0.1, -0.1]], dtype=float),
+            ),
+            ModelFields(
+                date=dates[1],
+                open_loop=np.array([[0.3, 0.5]], dtype=float),
+                ens_mean=np.array([[0.8, 1.2]], dtype=float),
+                increment=np.array([[0.2, -0.2]], dtype=float),
+            ),
+        ]
+
+    monkeypatch.setattr(runner_module, "load_model_fields", fake_load_model_fields)
+
+    shared_vmax = runner_module._collect_shared_model_vmax(project_dir, recipes)
+
+    assert calls == [("snowdepth_daily", (pd.Timestamp("2023-01-01"), pd.Timestamp("2023-01-02")))]
+    assert shared_vmax == {"snowdepth_daily": 1.25}
+
+
 def test_render_project_maps_name_filter_limits_outputs(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     _write_yaml(
@@ -2388,8 +2475,8 @@ def test_render_project_maps_parallel_logs_recipe_attributed_failure(
         def __exit__(self, exc_type, exc, tb):
             return None
 
-        def submit(self, _fn, project_dir_arg, config_path_arg, recipe_name):
-            del project_dir_arg, config_path_arg
+        def submit(self, _fn, project_dir_arg, config_path_arg, recipe_name, shared_model_vmax):
+            del project_dir_arg, config_path_arg, shared_model_vmax
             future: Future = Future()
             if recipe_name == "broken_map":
                 future.set_exception(ValueError("boom"))

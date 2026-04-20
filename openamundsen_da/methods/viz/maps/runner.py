@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+import numpy as np
 from loguru import logger
 
 from openamundsen_da.io.paths import project_maps_output_dir, project_maps_root
@@ -17,8 +18,10 @@ from openamundsen_da.methods.viz.maps.config import (
     default_project_maps_config_path,
     load_project_maps_config,
 )
-from openamundsen_da.methods.viz.maps.data import load_static_context
+from openamundsen_da.methods.viz.maps.annotations import panel_date
+from openamundsen_da.methods.viz.maps.data import load_model_fields, load_static_context
 from openamundsen_da.methods.viz.maps.render import RenderRuntimeCache, render_map_recipe
+from openamundsen_da.methods.viz.maps.styles import nice_ceiling, require_variable_preset
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
@@ -96,7 +99,38 @@ def _render_recipe_with_cache(
     return RecipeRenderResult(recipe_name=recipe.name, output_path=rendered_output)
 
 
-def _render_recipe_worker(project_dir: Path, config_path: Path, recipe_name: str) -> RecipeRenderResult:
+def _collect_shared_model_vmax(project_dir: Path, recipes: tuple[MapRecipe, ...]) -> dict[str, float]:
+    snow_depth_dates = sorted(
+        {
+            panel_date(panel, recipe.defaults)
+            for recipe in recipes
+            for panel in recipe.panels
+            if panel.kind == "snow_depth" and panel.source != "increment" and panel_date(panel, recipe.defaults) is not None
+        }
+    )
+    if not snow_depth_dates:
+        return {}
+
+    preset = require_variable_preset("snowdepth_daily")
+    fields = load_model_fields(project_dir, "snowdepth_daily", tuple(snow_depth_dates))
+    max_value = 0.0
+    for field in fields:
+        for arr in (field.open_loop, field.ens_mean):
+            finite = np.asarray(arr, dtype=float)
+            finite = finite[np.isfinite(finite)]
+            if finite.size:
+                max_value = max(max_value, float(finite.max()))
+    return {
+        "snowdepth_daily": nice_ceiling(max_value, step=preset.max_step, minimum=preset.max_floor),
+    }
+
+
+def _render_recipe_worker(
+    project_dir: Path,
+    config_path: Path,
+    recipe_name: str,
+    shared_model_vmax: dict[str, float] | None = None,
+) -> RecipeRenderResult:
     project_dir = Path(project_dir).resolve()
     config = _load_project_maps_config_cached(str(Path(config_path).resolve()))
     recipe = _require_recipe(config, recipe_name)
@@ -105,12 +139,13 @@ def _render_recipe_worker(project_dir: Path, config_path: Path, recipe_name: str
         project_dir=project_dir,
         recipe=recipe,
         context=context,
+        runtime_cache=RenderRuntimeCache(shared_model_vmax=dict(shared_model_vmax or {})),
     )
 
 
 def _render_project_maps_sequential(project_dir: Path, recipes: tuple[MapRecipe, ...]) -> list[Path]:
     context = load_static_context(project_dir)
-    runtime_cache = RenderRuntimeCache()
+    runtime_cache = RenderRuntimeCache(shared_model_vmax=_collect_shared_model_vmax(project_dir, recipes))
     outputs: list[Path] = []
     for recipe in recipes:
         logger.info("Starting map {}", recipe.name)
@@ -131,11 +166,12 @@ def _render_project_maps_sequential(project_dir: Path, recipes: tuple[MapRecipe,
 
 def _render_project_maps_parallel(project_dir: Path, config_path: Path, recipes: tuple[MapRecipe, ...], *, max_workers: int) -> list[Path]:
     output_by_name: dict[str, Path] = {}
+    shared_model_vmax = _collect_shared_model_vmax(project_dir, recipes)
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         future_by_recipe = {}
         for recipe in recipes:
             logger.info("Starting map {}", recipe.name)
-            future = executor.submit(_render_recipe_worker, project_dir, config_path, recipe.name)
+            future = executor.submit(_render_recipe_worker, project_dir, config_path, recipe.name, shared_model_vmax)
             future_by_recipe[future] = recipe
         try:
             for future in as_completed(future_by_recipe):

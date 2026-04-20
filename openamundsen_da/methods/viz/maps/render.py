@@ -130,6 +130,7 @@ from openamundsen_da.methods.viz.maps.theme import (
 class RenderRuntimeCache:
     model_fields: dict[tuple[str, pd.Timestamp], ModelFields] = field(default_factory=dict)
     scale_cache: dict[tuple[str, pd.Timestamp], tuple[object, object]] = field(default_factory=dict)
+    shared_model_vmax: dict[str, float] = field(default_factory=dict)
     observations: dict[tuple[str, pd.Timestamp], ObservationScene] = field(default_factory=dict)
     derived_arrays: dict[str, np.ndarray] = field(default_factory=dict)
 
@@ -244,6 +245,7 @@ def _render_model_panel(
     defaults,
     model_cache,
     scale_cache,
+    shared_model_vmax=None,
     figure_horizontal_default,
     derived_cache=None,
 ):
@@ -257,6 +259,7 @@ def _render_model_panel(
         defaults=defaults,
         model_cache=model_cache,
         scale_cache=scale_cache,
+        shared_model_vmax=shared_model_vmax,
         figure_horizontal_default=figure_horizontal_default,
         derived_cache=derived_cache,
         model_loader=load_model_fields,
@@ -325,6 +328,7 @@ def _render_panel(
             defaults=defaults,
             model_cache=cache.model_fields,
             scale_cache=cache.scale_cache,
+            shared_model_vmax=cache.shared_model_vmax,
             figure_horizontal_default=figure_horizontal_default,
             derived_cache=cache.derived_arrays,
         )

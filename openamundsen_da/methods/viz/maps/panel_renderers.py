@@ -230,9 +230,7 @@ def draw_stations_overlay(
             color="black",
             zorder=_GRID_ZORDER + 5,
         ))
-
-
-def comparison_scales(fields: list[ModelFields], preset) -> tuple[Normalize, TwoSlopeNorm]:
+def comparison_scales(fields: list[ModelFields], preset, *, model_vmax: float | None = None) -> tuple[Normalize, TwoSlopeNorm]:
     comparisons = [field for field in fields if field is not None]
     if not comparisons:
         raise ValueError("comparison_scales requires at least one model field")
@@ -245,7 +243,7 @@ def comparison_scales(fields: list[ModelFields], preset) -> tuple[Normalize, Two
     max_value = max(float(np.nanmax(arr)) if np.isfinite(arr).any() else 0.0 for arr in valid_arrays)
     max_increment = max(float(np.nanmax(arr)) if np.isfinite(arr).any() else 0.0 for arr in increment_arrays)
 
-    vmax = nice_ceiling(max_value, step=preset.max_step, minimum=preset.max_floor)
+    vmax = float(model_vmax) if model_vmax is not None else nice_ceiling(max_value, step=preset.max_step, minimum=preset.max_floor)
     inc_abs = nice_ceiling(max_increment, step=preset.increment_step, minimum=preset.increment_floor)
     return model_map_norm(preset, vmax=vmax), TwoSlopeNorm(vcenter=0.0, vmin=-inc_abs, vmax=inc_abs)
 
@@ -932,6 +930,7 @@ def render_model_panel(
     defaults: MapDefaults,
     model_cache,
     scale_cache,
+    shared_model_vmax: dict[str, float] | None = None,
     figure_horizontal_default: bool,
     derived_cache: dict[str, np.ndarray] | None = None,
     model_loader: Callable[..., list[ModelFields]] = load_model_fields,
@@ -945,7 +944,8 @@ def render_model_panel(
         model_cache[field_key] = model_loader(context.project_dir, variable, (date,))[0]
     preset = require_variable_preset(variable)
     if field_key not in scale_cache:
-        scale_cache[field_key] = comparison_scales([model_cache[field_key]], preset)
+        shared_vmax = None if shared_model_vmax is None else shared_model_vmax.get(variable)
+        scale_cache[field_key] = comparison_scales([model_cache[field_key]], preset, model_vmax=shared_vmax)
     model_norm, increment_norm = scale_cache[field_key]
     if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
         hillshade_mode = resolve_hillshade_extent(
@@ -994,7 +994,7 @@ def render_model_panel(
             alpha=_SNOW_DEPTH_PANEL_ALPHA if panel.kind == "snow_depth" else 0.96,
             zorder=5,
         )
-        colorbar_style = model_colorbar_style(preset)
+        colorbar_style = model_colorbar_style(preset, vmax=model_norm.vmax)
 
     apply_common_overlays(
         ax,

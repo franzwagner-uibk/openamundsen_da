@@ -196,21 +196,77 @@ def _snow_depth_reference_cmap() -> LinearSegmentedColormap:
 
 SNOW_DEPTH_CMAP = _snow_depth_reference_cmap()
 INCREMENT_CMAP = colormaps["RdBu"]
+SNOW_DEPTH_COLORBAR_STEPS_CM = (5.0, 10.0, 25.0, 50.0, 100.0)
 
 
-def _snow_depth_reference_norm() -> Normalize:
+def snow_depth_scale_ticks(vmax: float) -> tuple[float, ...]:
+    low = float(SNOW_DEPTH_REFERENCE_TICKS_M[0])
+    ref_high = float(SNOW_DEPTH_REFERENCE_TICKS_M[-1])
+    high = max(float(vmax), low)
+    if high == low:
+        return (low,)
     positions = np.linspace(0.0, 1.0, len(SNOW_DEPTH_REFERENCE_TICKS_M))
+    ticks = np.interp(positions, (0.0, 1.0), (low, high))
+    reference_positions = np.interp(
+        np.asarray(SNOW_DEPTH_REFERENCE_TICKS_M, dtype=float),
+        (low, ref_high),
+        (0.0, 1.0),
+    )
+    scaled = np.interp(reference_positions, positions, ticks)
+    scaled[0] = low
+    scaled[-1] = high
+    return tuple(float(value) for value in scaled)
+
+
+def snow_depth_colorbar_labels_cm(vmax: float) -> tuple[float, ...]:
+    vmax_cm = max(float(vmax) * 100.0, 1.0)
+    for step in SNOW_DEPTH_COLORBAR_STEPS_CM:
+        labels = [1.0]
+        current = step
+        while current < vmax_cm - 1e-9:
+            labels.append(float(current))
+            current += step
+        if abs(labels[-1] - vmax_cm) > 1e-9:
+            labels.append(float(vmax_cm))
+        if len(labels) <= 7:
+            return tuple(labels)
+    return (1.0, float(vmax_cm))
+
+
+def snow_depth_colorbar_ticks(vmax: float) -> tuple[float, ...]:
+    labels_cm = snow_depth_colorbar_labels_cm(vmax)
+    if len(labels_cm) == 1:
+        return (float(vmax),)
+    target_positions = np.linspace(0.0, 1.0, len(labels_cm))
+    anchor_positions = np.linspace(0.0, 1.0, len(SNOW_DEPTH_REFERENCE_TICKS_M))
+    return tuple(
+        float(value)
+        for value in np.interp(
+            target_positions,
+            anchor_positions,
+            np.asarray(snow_depth_scale_ticks(vmax), dtype=float),
+        )
+    )
+
+
+def snow_depth_colorbar_ticklabels(vmax: float) -> tuple[str, ...]:
+    return tuple(str(int(round(value))) for value in snow_depth_colorbar_labels_cm(vmax))
+
+
+def _snow_depth_reference_norm(vmax: float) -> Normalize:
+    ticks = snow_depth_scale_ticks(vmax)
+    positions = np.linspace(0.0, 1.0, len(ticks))
 
     def forward(values):
-        return np.interp(values, SNOW_DEPTH_REFERENCE_TICKS_M, positions)
+        return np.interp(values, ticks, positions)
 
     def inverse(values):
-        return np.interp(values, positions, SNOW_DEPTH_REFERENCE_TICKS_M)
+        return np.interp(values, positions, ticks)
 
     return FuncNorm(
         (forward, inverse),
-        vmin=SNOW_DEPTH_REFERENCE_TICKS_M[0],
-        vmax=SNOW_DEPTH_REFERENCE_TICKS_M[-1],
+        vmin=ticks[0],
+        vmax=ticks[-1],
         clip=False,
     )
 
@@ -254,16 +310,23 @@ def model_map_cmap(preset: VariablePreset):
 
 def model_map_norm(preset: VariablePreset, *, vmax: float) -> Normalize:
     if preset.variable == "snowdepth_daily":
-        return _snow_depth_reference_norm()
+        return _snow_depth_reference_norm(vmax)
     return Normalize(vmin=preset.model_min, vmax=vmax, clip=False)
 
 
-def model_colorbar_style(preset: VariablePreset) -> ColorbarStyle:
+def model_colorbar_style(preset: VariablePreset, *, vmax: float | None = None) -> ColorbarStyle:
     if preset.variable == "snowdepth_daily":
+        if vmax is None:
+            return ColorbarStyle(
+                label="snow depth [cm]",
+                ticks=SNOW_DEPTH_REFERENCE_TICKS_M,
+                ticklabels=SNOW_DEPTH_REFERENCE_TICKLABELS_CM,
+            )
+        ticks = snow_depth_colorbar_ticks(vmax if vmax is not None else SNOW_DEPTH_REFERENCE_TICKS_M[-1])
         return ColorbarStyle(
             label="snow depth [cm]",
-            ticks=SNOW_DEPTH_REFERENCE_TICKS_M,
-            ticklabels=SNOW_DEPTH_REFERENCE_TICKLABELS_CM,
+            ticks=ticks,
+            ticklabels=snow_depth_colorbar_ticklabels(vmax),
         )
     return ColorbarStyle(label=preset.unit_label)
 

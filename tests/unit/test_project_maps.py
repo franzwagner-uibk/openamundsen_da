@@ -7,6 +7,7 @@ import textwrap
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as pe
 import numpy as np
 import pandas as pd
 import pytest
@@ -19,6 +20,7 @@ import openamundsen_da.methods.viz.maps.render as render_module
 import openamundsen_da.methods.viz.maps.runner as runner_module
 import openamundsen_da.methods.viz.maps.data as data_module
 import openamundsen_da.methods.viz.maps.overview as overview_module
+import openamundsen_da.methods.viz.maps.panel_renderers as panel_renderers_module
 from openamundsen_da.methods.viz.maps.config import (
     DateSelector,
     LayoutSpec,
@@ -1449,9 +1451,35 @@ def test_draw_scale_bar_adds_reference_style_annotations() -> None:
         assert {"0", "2.5", "5", "km"} <= labels
         bar = ax.lines[0]
         km_text = next(text for text in ax.texts if text.get_text() == "km")
+        zero_text = next(text for text in ax.texts if text.get_text() == "0")
         assert any(effect.__class__.__name__ == "Stroke" for effect in bar.get_path_effects())
         assert any(effect.__class__.__name__ == "Stroke" for effect in km_text.get_path_effects())
+        halo = next(effect for effect in km_text.get_path_effects() if isinstance(effect, pe.Stroke))
+        zero_halo = next(effect for effect in zero_text.get_path_effects() if isinstance(effect, pe.Stroke))
+        assert halo._gc["foreground"] == "white"
+        assert halo._gc["linewidth"] == pytest.approx(2.0)
+        assert zero_halo._gc["linewidth"] == pytest.approx(2.0)
         assert km_text.get_position()[1] < min(line.get_ydata()[0] for line in ax.lines)
+    finally:
+        plt.close(fig)
+
+
+def test_draw_overview_label_specs_use_bbox_sensitive_halo_widths() -> None:
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        render_module._draw_overview_label_specs(
+            ax,
+            [
+                panel_renderers_module.OverviewLabelSpec("Country", 0.4, 0.6, "center", "center", 6.2, True, 10),
+                panel_renderers_module.OverviewLabelSpec("ROI", 0.6, 0.4, "left", "center", 6.2, False, 10),
+            ],
+        )
+        country_halo = next(effect for effect in ax.texts[0].get_path_effects() if isinstance(effect, pe.Stroke))
+        roi_halo = next(effect for effect in ax.texts[1].get_path_effects() if isinstance(effect, pe.Stroke))
+        assert country_halo._gc["foreground"] == "white"
+        assert country_halo._gc["linewidth"] == pytest.approx(2.4)
+        assert roi_halo._gc["foreground"] == "white"
+        assert roi_halo._gc["linewidth"] == pytest.approx(2.0)
     finally:
         plt.close(fig)
 
@@ -1952,6 +1980,9 @@ def test_draw_stations_overlay_supports_marker_only_and_explicit_labels(tmp_path
             xpos, ypos = text.get_position()
             assert np.isclose(xpos, float(row["x"]) + expected_dx)
             assert np.isclose(ypos, float(row["y"]) + expected_dy)
+            halo = next(effect for effect in text.get_path_effects() if isinstance(effect, pe.Stroke))
+            assert halo._gc["foreground"] == "white"
+            assert halo._gc["linewidth"] == pytest.approx(2.0)
         assert len(axes[2].collections) == 0
         assert len(axes[2].texts) == 0
     finally:

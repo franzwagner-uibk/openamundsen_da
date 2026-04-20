@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 import matplotlib
 import matplotlib.pyplot as plt
-import matplotlib.patheffects as pe
 import numpy as np
 import pandas as pd
 from matplotlib.cm import ScalarMappable
@@ -14,6 +13,7 @@ from matplotlib.patches import Patch, Rectangle
 from shapely.geometry import box
 
 from openamundsen_da.methods.viz.maps.annotations import (
+    apply_overlay_label_halo,
     draw_heading,
     draw_overview_label_specs,
     draw_panel_below_items,
@@ -220,7 +220,7 @@ def draw_stations_overlay(
         label = str(row.get("name") or row.get("id") or "").strip()
         if show_stations_elev and "alt" in row and np.isfinite(float(row["alt"])):
             label = f"{label} ({int(round(float(row['alt'])))} m)"
-        ax.text(
+        apply_overlay_label_halo(ax.text(
             float(row["x"]) + dx,
             float(row["y"]) + dy,
             label,
@@ -229,7 +229,7 @@ def draw_stations_overlay(
             va="bottom",
             color="black",
             zorder=_GRID_ZORDER + 5,
-        )
+        ))
 
 
 def comparison_scales(fields: list[ModelFields], preset) -> tuple[Normalize, TwoSlopeNorm]:

@@ -175,7 +175,7 @@ oa-da-scf \
 
 **snow-cover Sentinel-2 FSC summarization**
 
-Summarizes snow-cover FSC rasters (GeoTIFF or NetCDF) to a setup-level `scf_summary.csv` with `scf`, `n_valid`, `n_snow`, and `cloud_fraction`. If SCF uncertainty is enabled in project YAML, summary also includes `unc_mean`, `unc_min`, `unc_max`, and `unc_n_valid`.
+Summarizes snow-cover FSC rasters (GeoTIFF or NetCDF) to a setup-level `scf_summary.csv` with `scf`, `n_valid`, `n_snow`, `n_invalid`, `cloud_fraction`, and `invalid_fraction`. `invalid_fraction` is the ROI-based unusable-scene fraction and captures missing or otherwise unusable ROI pixels even when they are not encoded as explicit cloud classes. If SCF uncertainty is enabled in project YAML, summary also includes `unc_mean`, `unc_min`, `unc_max`, and `unc_n_valid`.
 
 ```bash
 oa-da-snowcover \

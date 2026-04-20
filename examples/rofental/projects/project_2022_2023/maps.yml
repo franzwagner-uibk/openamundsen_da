@@ -42,6 +42,7 @@ maps:
         col: 2
         kind: srf
         title: snow redistribution factor
+        show_hillshade: true
 
   da_1:
     title: da_1

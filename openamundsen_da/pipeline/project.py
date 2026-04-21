@@ -74,6 +74,8 @@ from openamundsen_da.pipeline.plot_tasks import (
     build_fraction_overlay_task,
     build_post_run_plot_tasks,
     custom_overview_needs_benchmark_scores,
+    plot_result_overview_cli,
+    plot_setup_weights_overview,
     render_project_maps_best_effort,
     run_live_plots,
     run_plot_tasks_parallel,
@@ -105,6 +107,13 @@ DA_DIAGNOSTICS = {
         "wet_plots": True,
     },
 }
+
+
+# Backward-compatible aliases for older tests and imports that still reach into
+# the project orchestrator module for plot-task helpers.
+_build_post_run_plot_tasks = build_post_run_plot_tasks
+_custom_overview_needs_benchmark_scores = custom_overview_needs_benchmark_scores
+_build_fraction_overlay_task = build_fraction_overlay_task
 
 
 def _list_steps_sorted(project_dir: Path) -> List[Path]:

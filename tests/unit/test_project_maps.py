@@ -1559,8 +1559,10 @@ def test_observation_panel_hillshade_can_be_disabled_or_limited_to_roi(tmp_path:
             obs_cache={},
             figure_horizontal_default=True,
         )
-        assert len(ax_off.images) == 1
-        assert len(ax_roi.images) == 2
+        assert len(ax_off.images) == 2
+        assert len(ax_roi.images) == 3
+        off_overlay = np.asarray(ax_off.images[-1].get_array(), dtype=float)
+        assert off_overlay.shape[-1] == 4
         roi_underlay = np.ma.asarray(ax_roi.images[0].get_array())
         assert np.ma.getmaskarray(roi_underlay)[0, 0]
         assert not np.ma.getmaskarray(roi_underlay)[1, 1]

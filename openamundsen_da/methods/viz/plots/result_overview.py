@@ -42,8 +42,8 @@ from openamundsen_da.methods.viz.plots.theme import (
     da_variable_style,
 )
 from openamundsen_da.methods.viz.plots.common import (
-    add_assim_label_axis,
     apply_fraction_grid,
+    draw_assim_labels,
     draw_assimilation_markers,
     draw_assimilation_vlines,
     force_figure_text_black,
@@ -661,19 +661,52 @@ def _draw_all_assim(ax, events: list[AssimilationEvent], *, center_of_day: bool 
 def _add_assim_label_axis(ax, events: list[AssimilationEvent], idx: int, *, center_of_day: bool = False):
     if not events:
         return None
+    import matplotlib.dates as mdates
+
     if center_of_day:
         dates = _center_assim_event_times(events)
         labels = [str(i) for i in range(1, len(events) + 1)]
     else:
         dates, labels = _assim_labels(events)
-    label_axis = add_assim_label_axis(
-        ax,
-        dates,
-        idx=idx,
-        labels=labels,
+
+    date_index = pd.to_datetime(list(dates))
+    if date_index.empty:
+        return None
+    x_min, x_max = ax.get_xlim()
+    visible_start = pd.Timestamp(mdates.num2date(x_min)).tz_localize(None)
+    visible_end = pd.Timestamp(mdates.num2date(x_max)).tz_localize(None)
+    visible_items = [
+        (date, label)
+        for date, label in zip(date_index, labels)
+        if visible_start <= pd.Timestamp(date).tz_localize(None) <= visible_end
+    ]
+    if not visible_items:
+        return None
+
+    label_axis = ax.twiny()
+    label_axis.set_label(f"assimilation_label_axis_{idx}")
+    label_axis.patch.set_alpha(0.0)
+    if hasattr(label_axis, "set_in_layout"):
+        label_axis.set_in_layout(False)
+    label_axis.set_xlim(ax.get_xlim())
+    label_axis.set_xticks([])
+    label_axis.set_xlabel("")
+    label_axis.yaxis.set_visible(False)
+    label_axis.xaxis.set_visible(False)
+    for spine in label_axis.spines.values():
+        spine.set_visible(False)
+
+    draw_assim_labels(
+        label_axis,
+        [item[0] for item in visible_items],
+        labels=[item[1] for item in visible_items],
+        max_labels=max(1, len(visible_items)),
         y_offset_pts=_ASSIM_LABEL_ROW_OFFSETS_PTS[0],
+        rotation=0.0,
         row_y_offsets_pts=_ASSIM_LABEL_ROW_OFFSETS_PTS,
         min_row_spacing_days=_ASSIM_LABEL_MIN_SPACING_DAYS,
+        axes_y=1.0,
+        ha="center",
     )
     if label_axis is not None:
         label_axis.set_zorder(ax.get_zorder() + 1)

@@ -13,6 +13,7 @@ from rasterio.warp import Resampling, reproject
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import abspath_relative_to, find_project_yaml
 from openamundsen_da.observer.class_config import load_observation_classes, load_wetsnow_classes
+from openamundsen_da.subdomain.manifest import SubdomainManifest
 from openamundsen_da.util.config_validators import require_mapping
 from openamundsen_da.util.landcover_mask import LandcoverMaskConfig, apply_landcover_mask
 from openamundsen_da.util.roi_grid import load_setup_roi_mask
@@ -46,12 +47,40 @@ def _split_source_tokens(value: object) -> tuple[str, ...]:
     return tuple(sorted(set(tokens)))
 
 
-def _source_path_from_token(obs_dir: Path, token: str) -> Path:
+def _fallback_observation_dir_for_project(project_dir: Path, *, observable: str) -> Path | None:
+    project_resolved = Path(project_dir).resolve()
+    for base in project_resolved.parents:
+        manifest_path = base / "subdomain_manifest.json"
+        if not manifest_path.is_file():
+            continue
+        try:
+            manifest = SubdomainManifest.load(manifest_path)
+        except Exception:
+            continue
+        for sub in manifest.subdomains.values():
+            try:
+                if Path(sub.project_dir).resolve() != project_resolved:
+                    continue
+            except Exception:
+                continue
+            if observable == "scf":
+                return Path(manifest.raw_snowcover_dir)
+            if observable == "wet_snow":
+                return Path(manifest.raw_wetsnow_dir)
+            return None
+    return None
+
+
+def _source_path_from_token(obs_dir: Path, token: str, *, fallback_dir: Path | None = None) -> Path:
     source_token = str(token).strip()
     source_name = source_token.split("@", 1)[0]
     source_path = Path(source_name)
     if not source_path.is_absolute():
         source_path = obs_dir / source_path
+    if not source_path.is_file() and fallback_dir is not None:
+        candidate = Path(fallback_dir) / source_name
+        if candidate.is_file():
+            source_path = candidate
     if not source_path.is_file():
         raise FileNotFoundError(f"Observation source raster not found: {source_path}")
     if source_path.suffix.lower() not in {".tif", ".tiff"}:
@@ -142,9 +171,10 @@ def load_observation_support_mask(
     eligible_mask, spec = _eligible_model_mask(setup_dir=setup_dir, landcover_cfg=landcover_cfg)
     support_mask = np.zeros(eligible_mask.shape, dtype=bool)
     obs_dir = _observation_dir(project_dir, observable=observable, setup_dir=setup_dir)
+    fallback_dir = _fallback_observation_dir_for_project(project_dir, observable=observable)
 
     for token in tokens:
-        source_path = _source_path_from_token(obs_dir, token)
+        source_path = _source_path_from_token(obs_dir, token, fallback_dir=fallback_dir)
         with rasterio.open(source_path) as src:
             data = src.read(1).astype(float)
             valid_src = _observation_valid_pixels(

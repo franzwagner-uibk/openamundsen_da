@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from datetime import datetime
@@ -8,6 +9,8 @@ from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
+import rasterio
+from rasterio.transform import from_origin
 from ruamel.yaml import YAML
 
 from openamundsen_da.methods.pf.assimilate_fraction import (
@@ -24,7 +27,7 @@ from openamundsen_da.methods.pf.assimilate_fraction import (
     assimilate_scf_for_date,
     assimilate_wet_snow_for_date,
 )
-from openamundsen_da.methods.pf.fraction_support import ObservationSupportMask
+from openamundsen_da.methods.pf.fraction_support import ObservationSupportMask, load_observation_support_mask
 
 
 def _write_project_yaml(project_dir: Path, payload: dict) -> None:
@@ -376,6 +379,168 @@ class AssimilateUncertaintyTests(unittest.TestCase):
             self.assertEqual(float(df["value_model_full_roi"].iloc[0]), 0.8)
             self.assertEqual(float(df["value_model_obs_support"].iloc[0]), 0.4)
             self.assertEqual(int(df["obs_support_n_valid"].iloc[0]), 20)
+
+    def test_load_observation_support_mask_falls_back_to_subdomain_manifest_raw_snowcover_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            setup_dir = root / "setup"
+            raw_snowcover_dir = setup_dir / "obs" / "snowcover"
+            project_root = setup_dir / "projects" / "project_2024_2025"
+            subdomain_root = project_root / "subdomains"
+            sub_setup_dir = subdomain_root / "sd_01"
+            sub_project_dir = sub_setup_dir / "projects" / "project_2024_2025"
+            obs_csv = sub_project_dir / "steps" / "step_00_init" / "obs" / "obs_scf_SNOWCOVER_20240401.csv"
+            local_obs_dir = sub_setup_dir / "obs" / "snowcover"
+            grid_dir = sub_setup_dir / "grids"
+
+            raw_snowcover_dir.mkdir(parents=True, exist_ok=True)
+            local_obs_dir.mkdir(parents=True, exist_ok=True)
+            grid_dir.mkdir(parents=True, exist_ok=True)
+            obs_csv.parent.mkdir(parents=True, exist_ok=True)
+
+            y = YAML()
+            with (sub_setup_dir / "setup.yml").open("w", encoding="utf-8") as f:
+                y.dump(
+                    {
+                        "domain": "demo",
+                        "resolution": 100,
+                        "crs": "EPSG:25832",
+                        "input_data": {"grids": {"dir": "grids"}},
+                    },
+                    f,
+                )
+            _write_project_yaml(
+                sub_project_dir,
+                {
+                    "obs": {
+                        "snowcover": {
+                            "dir": "obs/snowcover",
+                            "classes": {
+                                "valid": [0, 100],
+                                "cloud": [205],
+                                "water": [],
+                                "nodata": [255],
+                            },
+                        }
+                    },
+                    "data_assimilation": {},
+                },
+            )
+
+            transform = from_origin(0.0, 200.0, 100.0, 100.0)
+            roi = np.array([[1, 1], [1, 1]], dtype=np.int16)
+            with rasterio.open(
+                grid_dir / "dem_demo_100.tif",
+                "w",
+                driver="GTiff",
+                width=2,
+                height=2,
+                count=1,
+                dtype="float32",
+                crs="EPSG:25832",
+                transform=transform,
+                nodata=-9999.0,
+            ) as dst:
+                dst.write(np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32), 1)
+            with rasterio.open(
+                grid_dir / "roi_demo_100.asc",
+                "w",
+                driver="AAIGrid",
+                width=2,
+                height=2,
+                count=1,
+                dtype="uint8",
+                crs="EPSG:25832",
+                transform=transform,
+                nodata=0,
+            ) as dst:
+                dst.write(roi.astype(np.uint8), 1)
+
+            raw_raster = raw_snowcover_dir / "scene_20240401.tif"
+            with rasterio.open(
+                raw_raster,
+                "w",
+                driver="GTiff",
+                width=2,
+                height=2,
+                count=1,
+                dtype="uint8",
+                crs="EPSG:25832",
+                transform=transform,
+                nodata=255,
+            ) as dst:
+                dst.write(np.array([[100, 0], [205, 255]], dtype=np.uint8), 1)
+
+            manifest = {
+                "run_mode": "subdomain",
+                "setup_dir": str(setup_dir),
+                "project_dir": str(project_root),
+                "project_name": "project_2024_2025",
+                "setup_yaml": str(setup_dir / "setup.yml"),
+                "project_yaml": str(project_root / "project_2024_2025.yml"),
+                "subdomain_root": str(subdomain_root),
+                "regions_path": str(setup_dir / "env" / "subdomains.gpkg"),
+                "id_field": "id",
+                "crs": "EPSG:25832",
+                "grid_rows": 2,
+                "grid_cols": 2,
+                "grid_transform": list(transform)[:6],
+                "grid_resolution": 100.0,
+                "grid_domain": "demo",
+                "clip_mode": "window",
+                "station_buffer_m": 0.0,
+                "roi_buffer_m": 0.0,
+                "grid_buffer_m": 0.0,
+                "raw_snowcover_dir": str(raw_snowcover_dir),
+                "raw_wetsnow_dir": str(setup_dir / "obs" / "wetsnow"),
+                "subdomains": {
+                    "sd_01": {
+                        "id": "sd_01",
+                        "label": "sd_01",
+                        "setup_dir": str(sub_setup_dir),
+                        "setup_yaml": str(sub_setup_dir / "setup.yml"),
+                        "project_dir": str(sub_project_dir),
+                        "project_yaml": str(sub_project_dir / "project_2024_2025.yml"),
+                        "project_name": "project_2024_2025",
+                        "grids_dir": str(grid_dir),
+                        "meteo_dir": str(sub_setup_dir / "meteo"),
+                        "obs_stations_dir": str(sub_setup_dir / "obs" / "stations"),
+                        "roi_raster_path": str(grid_dir / "roi_demo_100.asc"),
+                        "roi_vector_path": str(sub_setup_dir / "env" / "roi.gpkg"),
+                        "window": {"row_off": 0, "col_off": 0, "height": 2, "width": 2},
+                        "transform": list(transform)[:6],
+                        "bounds": [0.0, 0.0, 200.0, 200.0],
+                        "crs": "EPSG:25832",
+                        "status": "pending",
+                    }
+                },
+            }
+            (subdomain_root / "subdomain_manifest.json").parent.mkdir(parents=True, exist_ok=True)
+            (subdomain_root / "subdomain_manifest.json").write_text(
+                json.dumps(manifest),
+                encoding="utf-8",
+            )
+
+            pd.DataFrame([{"date": "2024-04-01", "scf": 0.5, "n_valid": 2, "source": raw_raster.name}]).to_csv(
+                obs_csv,
+                index=False,
+            )
+
+            support = load_observation_support_mask(
+                setup_dir=sub_setup_dir,
+                project_dir=sub_project_dir,
+                obs_csv=obs_csv,
+                observable="scf",
+                landcover_cfg=None,
+            )
+
+            self.assertEqual(support.n_valid, 2)
+            self.assertEqual(support.n_eligible, 4)
+            self.assertAlmostEqual(support.coverage_ratio, 0.5, places=6)
+            np.testing.assert_array_equal(
+                support.mask.astype(np.uint8),
+                np.array([[1, 1], [0, 0]], dtype=np.uint8),
+            )
 
 
 if __name__ == "__main__":

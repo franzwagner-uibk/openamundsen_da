@@ -346,7 +346,17 @@ def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
             raise ValueError(f"{context} must define items, source, or lines for legend panels")
         if panel.below_items:
             raise ValueError(f"{context}.below_items is only supported for non-legend panels")
-    elif panel.kind in {"fsc", "wet_snow"}:
+    elif panel.kind == "fsc":
+        if panel.source is not None and panel.source not in {
+            "open_loop",
+            "ensemble_mean",
+            "open_loop_binary",
+            "posterior_probability",
+        }:
+            raise ValueError(
+                f"{context}.source must be one of: ensemble_mean, open_loop, open_loop_binary, posterior_probability"
+            )
+    elif panel.kind == "wet_snow":
         if panel.source is not None and panel.source not in {"open_loop", "ensemble_mean"}:
             raise ValueError(f"{context}.source must be one of: ensemble_mean, open_loop")
     elif panel.source is not None:

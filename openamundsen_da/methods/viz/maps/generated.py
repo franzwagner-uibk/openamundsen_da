@@ -21,6 +21,9 @@ _VARIABLE_LABELS = {
     "station_hs": "station snow depth",
     "station_swe": "station snow water equivalent",
 }
+_STREAM_VARIABLE_LABELS = {
+    "scf": "snow cover",
+}
 
 
 @dataclass(frozen=True)
@@ -38,7 +41,7 @@ def _variable_label(variable: str) -> str:
 
 
 def _stream_row_label(variable: str, relation: str | None = None) -> str:
-    base = _variable_label(variable)
+    base = _STREAM_VARIABLE_LABELS.get(variable, _variable_label(variable))
     if relation is None:
         return base
     return f"{base} ({relation})"
@@ -113,6 +116,31 @@ def _snow_depth_row(*, row: int, label: str) -> GeneratedRow:
 
 
 def _fraction_row(*, row: int, kind: str, label: str) -> GeneratedRow:
+    if kind == "fsc":
+        return GeneratedRow(
+            label=label,
+            panels=(
+                MapPanelSpec(
+                    kind=kind,
+                    row=row,
+                    col=0,
+                    source="open_loop_binary",
+                    title="open-loop snow cover",
+                    show_hillshade=True,
+                    hillshade_extent="roi",
+                ),
+                MapPanelSpec(
+                    kind=kind,
+                    row=row,
+                    col=1,
+                    source="posterior_probability",
+                    title="ensemble snow-cover probability",
+                    show_hillshade=True,
+                    hillshade_extent="roi",
+                ),
+                MapPanelSpec(kind=kind, row=row, col=2, title="satellite FSC observation"),
+            ),
+        )
     return GeneratedRow(
         label=label,
         panels=(

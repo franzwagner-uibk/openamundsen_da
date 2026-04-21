@@ -146,16 +146,16 @@ def _panel_group_bbox(axes_group: list) -> tuple[float, float] | None:
 
 def _figure_title_gap(fig, axes_group: list) -> float:
     if not axes_group:
-        return 0.035
+        return 0.045
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
     decorated_bbox = _axes_group_bbox(fig, renderer, axes_group)
     panel_bbox = _panel_group_bbox(axes_group)
     if decorated_bbox is None or panel_bbox is None:
-        return 0.035
+        return 0.045
     title_overhang = max(0.0, decorated_bbox[1] - panel_bbox[1])
     mean_panel_height = float(np.mean([ax.get_position().height for ax in axes_group]))
-    return max(0.010, 0.55 * title_overhang + 0.04 * mean_panel_height)
+    return max(0.016, 0.65 * title_overhang + 0.05 * mean_panel_height)
 
 
 def _decorated_axes_top(fig, axes: list) -> float:

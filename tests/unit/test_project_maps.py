@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from concurrent.futures import Future
+import json
 from pathlib import Path
 import shutil
 import textwrap
 
 import geopandas as gpd
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
 import numpy as np
@@ -244,6 +246,11 @@ def _build_project_fixture(
               valid: [110, 125, 200, 210]
               exclude: [200, 210]
         data_assimilation:
+          h_of_x:
+            method: depth_threshold
+            variable: hs
+            params:
+              h0: 0.25
           assimilation_events:
             - date: "2023-01-02"
               variable: scf
@@ -877,6 +884,90 @@ def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, 
     assert [panel.title for panel in recipes[0].panels] == ["open loop", "ensemble mean", "increment"]
 
 
+def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_support_exists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(
+        generated_module,
+        "_fraction_model_support_available",
+        lambda _project_dir, variable: variable == "scf",
+    )
+
+    recipes = generated_module.generated_da_map_recipes(project_dir)
+
+    assert recipes[0].row_labels[0] == "snow cover"
+    scf_panels = recipes[0].panels[:6]
+    assert [panel.source for panel in scf_panels[:3]] == ["open_loop_binary", "posterior_probability", None]
+    assert [panel.title for panel in scf_panels[:3]] == [
+        "open-loop snow cover",
+        "ensemble snow-cover probability",
+        "satellite FSC observation",
+    ]
+
+
+def test_scf_probability_model_resolves_posterior_member_source_pointers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    step_dir = project_dir / "steps" / "step_01_20230101-20230102"
+    source_member_dir = step_dir / "ensembles" / "prior" / "member_002"
+    (source_member_dir / "results").mkdir(parents=True, exist_ok=True)
+    posterior_member_dir = step_dir / "ensembles" / "posterior" / "member_001"
+    posterior_member_dir.mkdir(parents=True, exist_ok=True)
+    (posterior_member_dir / "source_pointer.json").write_text(
+        json.dumps({"member_dir": str(source_member_dir)}, indent=2),
+        encoding="utf-8",
+    )
+
+    seen_results_dirs: list[Path] = []
+
+    monkeypatch.setattr(panel_renderers_module, "_step_dir_for_date", lambda *_args, **_kwargs: step_dir)
+    monkeypatch.setattr(panel_renderers_module, "list_member_dirs", lambda *_args, **_kwargs: [posterior_member_dir])
+
+    def fake_binary_grid(**kwargs):
+        seen_results_dirs.append(Path(kwargs["results_dir"]))
+        return np.ones((4, 4), dtype=float)
+
+    monkeypatch.setattr(panel_renderers_module, "_scf_binary_grid_from_results", fake_binary_grid)
+
+    probability = panel_renderers_module._scf_model_probability_array(
+        context=context,
+        source="posterior_probability",
+        date=pd.Timestamp("2023-01-02"),
+        derived_cache={},
+    )
+
+    assert seen_results_dirs == [source_member_dir / "results"]
+    assert np.allclose(probability[context.roi_mask], 1.0)
+
+
+def test_scf_binary_map_uses_full_roi_without_landcover_mask(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    captured: dict[str, object] = {}
+
+    def fake_compute_model_scf_binary_grid(**kwargs):
+        captured.update(kwargs)
+        return np.ones((4, 4), dtype=float)
+
+    monkeypatch.setattr(panel_renderers_module, "compute_model_scf_binary_grid", fake_compute_model_scf_binary_grid)
+
+    panel_renderers_module._scf_binary_grid_from_results(
+        context=context,
+        results_dir=project_dir / "steps" / "step_01_20230101-20230102" / "ensembles" / "prior" / "open_loop" / "results",
+        date=pd.Timestamp("2023-01-02"),
+    )
+
+    assert captured["apply_landcover_mask"] is False
+
+
 def test_reference_stream_uses_variable_name_labels(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     target_date = pd.Timestamp("2023-01-02")
@@ -884,7 +975,7 @@ def test_reference_stream_uses_variable_name_labels(tmp_path: Path, monkeypatch:
     monkeypatch.setattr(generated_module, "_fraction_summary_dates", lambda *_args, **_kwargs: {target_date})
     monkeypatch.setattr(generated_module, "_event_dates_by_variable", lambda *_args, **_kwargs: {"scf": {pd.Timestamp("2023-02-01")}})
 
-    assert generated_module._reference_stream(project_dir, variable="scf", date=target_date) == "snow cover fraction (independent)"
+    assert generated_module._reference_stream(project_dir, variable="scf", date=target_date) == "snow cover (independent)"
 
 
 def test_render_project_maps_generates_da_event_maps_under_subdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1151,6 +1242,131 @@ def test_model_panels_remain_masked_outside_roi(tmp_path: Path) -> None:
         model_array = np.ma.asarray(artifact["mappable"].get_array())
         assert np.ma.getmaskarray(model_array)[0, 0]
         assert not np.ma.getmaskarray(model_array)[1, 1]
+    finally:
+        plt.close(fig)
+
+
+def test_fsc_probability_model_panel_renders_probability_field(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        monkeypatch.setattr(
+            panel_renderers_module,
+            "_scf_model_probability_array",
+            lambda **_kwargs: np.array(
+                [
+                    [0.0, 0.5, 1.0, np.nan],
+                    [0.0, 0.5, 1.0, np.nan],
+                    [0.0, 0.5, 1.0, np.nan],
+                    [0.0, 0.5, 1.0, np.nan],
+                ],
+                dtype=float,
+            ),
+        )
+        artifact = render_module._render_observation_panel(
+            ax,
+            panel=MapPanelSpec(
+                kind="fsc",
+                row=0,
+                col=0,
+                source="posterior_probability",
+                date="2023-01-02",
+                show_colorbar=False,
+            ),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(),
+            obs_cache={},
+            figure_horizontal_default=True,
+        )
+        model_array = np.ma.asarray(artifact["mappable"].get_array())
+        assert float(model_array[0, 0]) == 0.0
+        assert float(model_array[0, 1]) == 50.0
+        assert float(model_array[0, 2]) == 100.0
+        assert isinstance(artifact["mappable"].norm, matplotlib.colors.Normalize)
+    finally:
+        plt.close(fig)
+
+
+def test_fsc_open_loop_model_panel_renders_binary_field_discretely(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        monkeypatch.setattr(
+            panel_renderers_module,
+            "_scf_model_probability_array",
+            lambda **_kwargs: np.array(
+                [
+                    [0.0, 1.0, np.nan, 0.0],
+                    [1.0, 0.0, 1.0, 0.0],
+                    [0.0, 1.0, 0.0, 1.0],
+                    [1.0, 0.0, 1.0, 0.0],
+                ],
+                dtype=float,
+            ),
+        )
+        artifact = render_module._render_observation_panel(
+            ax,
+            panel=MapPanelSpec(
+                kind="fsc",
+                row=0,
+                col=0,
+                source="open_loop_binary",
+                date="2023-01-02",
+                show_colorbar=False,
+            ),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(),
+            obs_cache={},
+            figure_horizontal_default=True,
+        )
+        model_array = np.ma.asarray(artifact["mappable"].get_array())
+        assert float(model_array[0, 0]) == 0.0
+        assert float(model_array[0, 1]) == 1.0
+        assert isinstance(artifact["mappable"].norm, matplotlib.colors.BoundaryNorm)
+    finally:
+        plt.close(fig)
+
+
+def test_invalid_pixels_inside_roi_use_fsc_invalid_overlay_color(tmp_path: Path) -> None:
+    roi_mask = np.array(
+        [
+            [0, 0, 0, 0],
+            [0, 1, 1, 0],
+            [0, 1, 1, 0],
+            [0, 0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
+    _setup_dir, project_dir = _build_project_fixture(
+        tmp_path,
+        roi_mask=roi_mask,
+        roi_bounds=(100.0, 100.0, 300.0, 300.0),
+    )
+    context = load_static_context(project_dir)
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        context.dem[1, 1] = np.nan
+        render_module._render_static_panel(
+            ax,
+            panel=MapPanelSpec(kind="dem", row=0, col=0, show_colorbar=False),
+            context=context,
+            extent=buffered_extent(context),
+            grid_extent=render_module._grid_extent(context),
+            label=None,
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
+        assert len(ax.images) >= 2
+        overlay = np.asarray(ax.images[-1].get_array(), dtype=float)
+        pink = matplotlib.colors.to_rgba(FSC_INVALID_COLOR)
+        assert np.allclose(overlay[1, 1], pink)
+        assert overlay[0, 0, 3] == 0.0
     finally:
         plt.close(fig)
 

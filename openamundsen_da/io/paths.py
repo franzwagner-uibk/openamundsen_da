@@ -25,9 +25,11 @@ from typing import Any, Literal, Union
 
 import pandas as pd
 from loguru import logger
+import json
 
 from openamundsen_da.core.constants import (
     ENSEMBLE_PRIOR,
+    MEMBER_SOURCE_POINTER,
     MEMBER_PREFIX,
     OPEN_LOOP,
     VAR_HS,
@@ -248,6 +250,53 @@ def list_member_dirs(base_dir: str | Path, ensemble: str) -> list[Path]:
         if root.is_dir():
             return [p for p in sorted(root.glob("member_*")) if p.is_dir()]
     return []
+
+
+def resolve_member_source_dir(member_dir: str | Path) -> Path:
+    """Resolve a PF posterior member pointer back to its source member directory."""
+    member_dir = Path(member_dir)
+    ptr = member_dir / MEMBER_SOURCE_POINTER
+    if not ptr.is_file():
+        return member_dir
+
+    try:
+        data = json.loads(ptr.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return member_dir
+
+    raw_target = data.get("member_dir")
+    if not raw_target:
+        return member_dir
+
+    target = Path(str(raw_target))
+    if not target.is_absolute():
+        target = (member_dir / target).resolve()
+    if target.is_dir():
+        return target
+
+    if not target.is_absolute():
+        return member_dir
+
+    project_dir = None
+    for parent in member_dir.parents:
+        try:
+            _ = find_project_yaml(parent)
+            project_dir = parent
+            break
+        except Exception:
+            continue
+    if project_dir is None:
+        return member_dir
+
+    try:
+        parts = list(target.parts)
+        if project_dir.name not in parts:
+            return member_dir
+        idx = parts.index(project_dir.name)
+        remapped = project_dir.joinpath(*parts[idx + 1 :])
+    except Exception:
+        return member_dir
+    return remapped if remapped.is_dir() else member_dir
 
 
 # ---- Per-step file discovery helpers ---------------------------------------

@@ -89,6 +89,8 @@ _AUTO_TITLE_SOURCE = {
     "open_loop": "Open loop",
     "ensemble_mean": "Ensemble mean",
     "increment": "Increment",
+    "open_loop_binary": "Open-loop snow cover",
+    "posterior_probability": "Snow-cover probability",
 }
 _AUTO_TITLE_KIND = {
     "overview": "Overview map",

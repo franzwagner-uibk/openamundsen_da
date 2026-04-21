@@ -11,12 +11,20 @@ import pandas as pd
 import rasterio
 from matplotlib.cm import ScalarMappable
 from matplotlib import colormaps
-from matplotlib.colors import BoundaryNorm, Normalize, TwoSlopeNorm
+from matplotlib.colors import BoundaryNorm, ListedColormap, Normalize, TwoSlopeNorm
 from matplotlib.patches import Patch, Rectangle
 from shapely.geometry import box
 
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import find_project_yaml, list_member_dirs, list_steps_sorted, project_fraction_envelope_path, read_step_config
+from openamundsen_da.io.paths import (
+    find_project_yaml,
+    list_member_dirs,
+    list_steps_sorted,
+    project_fraction_envelope_path,
+    read_step_config,
+    resolve_member_source_dir,
+)
+from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf_binary_grid, load_hofx_from_project
 from openamundsen_da.methods.viz.fraction_series import load_fraction_series, load_open_loop_fraction_series
 from openamundsen_da.methods.viz.maps.annotations import (
     apply_overlay_label_halo,
@@ -110,10 +118,13 @@ from openamundsen_da.methods.viz.maps.theme import (
     _STATION_COLOR,
     _STATION_LABEL_RATIO,
 )
+from openamundsen_da.util.landcover_mask import resolve_landcover_mask
+from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
 
 
 _FRACTION_MODEL_CMAP = colormaps["Greys"]
 _WET_SNOW_MODEL_CODES = (110, 125)
+_SCF_BINARY_CMAP = ListedColormap(["#efefef", "#111111"], name="scf_binary")
 
 
 @dataclass(frozen=True)
@@ -136,6 +147,26 @@ def masked(arr: np.ndarray, roi_mask: np.ndarray) -> np.ma.MaskedArray:
 
 def masked_invalid(arr: np.ndarray) -> np.ma.MaskedArray:
     return np.ma.masked_invalid(np.asarray(arr, dtype=float))
+
+
+def inside_roi_invalid_mask(arr: np.ndarray, roi_mask: np.ndarray) -> np.ndarray:
+    data = np.asarray(arr, dtype=float)
+    return np.asarray(roi_mask, dtype=bool) & (~np.isfinite(data))
+
+
+def overlay_invalid_inside_roi(ax, invalid_mask: np.ndarray, *, extent) -> None:
+    mask = np.asarray(invalid_mask, dtype=bool)
+    if not np.any(mask):
+        return
+    rgba = np.zeros(mask.shape + (4,), dtype=float)
+    rgba[mask] = matplotlib.colors.to_rgba(FSC_INVALID_COLOR)
+    ax.imshow(
+        rgba,
+        extent=extent,
+        origin="upper",
+        interpolation="nearest",
+        zorder=6,
+    )
 
 
 def masked_model(arr: np.ndarray, roi_mask: np.ndarray, *, preset) -> np.ma.MaskedArray:
@@ -913,9 +944,11 @@ def render_static_panel(
 
     field = _STATIC_FIELD_KIND_TO_FIELD[panel.kind]
     preset = require_static_field_preset(field)
-    data = masked_invalid(field_array(context, field))
+    raw_data = field_array(context, field)
+    data = masked_invalid(raw_data)
     norm = static_field_norm(preset, data.filled(np.nan))
     image = ax.imshow(data, cmap=static_field_cmap(preset), norm=norm, extent=panel_grid_extent, origin="upper", interpolation="nearest", zorder=5)
+    overlay_invalid_inside_roi(ax, inside_roi_invalid_mask(raw_data, context.roi_mask), extent=panel_grid_extent)
     apply_common_overlays(
         ax,
         context=context,
@@ -998,6 +1031,7 @@ def render_model_panel(
 
     colorbar_style: dict[str, object] | object
     if panel.source == "increment":
+        invalid_mask = inside_roi_invalid_mask(model_cache[field_key].increment, context.roi_mask)
         image = ax.imshow(
             masked(model_cache[field_key].increment, context.roi_mask),
             cmap=INCREMENT_CMAP,
@@ -1011,6 +1045,7 @@ def render_model_panel(
         colorbar_style = {"label": f"increment {preset.unit_label}"}
     else:
         data = model_cache[field_key].open_loop if panel.source == "open_loop" else model_cache[field_key].ens_mean
+        invalid_mask = inside_roi_invalid_mask(data, context.roi_mask)
         image = ax.imshow(
             masked_model(data, context.roi_mask, preset=preset),
             cmap=model_map_cmap(preset),
@@ -1022,6 +1057,7 @@ def render_model_panel(
             zorder=5,
         )
         colorbar_style = model_colorbar_style(preset, vmax=model_norm.vmax)
+    overlay_invalid_inside_roi(ax, invalid_mask, extent=grid_extent(context))
 
     apply_common_overlays(
         ax,
@@ -1134,6 +1170,10 @@ def render_observation_panel(
         cmap.set_bad((1.0, 1.0, 1.0, 0.0))
         norm = BoundaryNorm(np.arange(-0.5, len(codes) + 0.5), cmap.N)
         image = ax.imshow(np.ma.masked_invalid(categorical), cmap=cmap, norm=norm, extent=scene.bounds, origin="upper", interpolation="nearest", zorder=5)
+        invalid_mask = (scene.invalid_mask if scene.invalid_mask is not None else np.zeros(scene.array.shape, dtype=bool)) | (
+            scene.roi_mask & ~np.isfinite(scene.array)
+        )
+        overlay_invalid_inside_roi(ax, invalid_mask, extent=scene.bounds)
         legend_handles = classified_legend_handles(
             canonical_codes=codes,
             present_codes=present_codes,
@@ -1263,6 +1303,77 @@ def _wet_snow_model_classified_array(
     return classified
 
 
+def _scf_binary_grid_from_results(
+    *,
+    context: StaticContext,
+    results_dir: Path,
+    date: pd.Timestamp,
+) -> np.ndarray:
+    _method, variable, params = load_hofx_from_project(context.project_dir)
+    lc_cfg = resolve_landcover_mask(context.setup_dir, context.project_dir)
+    roi_path = ensure_setup_roi_vector(context.setup_dir)
+    return compute_model_scf_binary_grid(
+        setup_dir=context.setup_dir,
+        project_dir=context.project_dir,
+        results_dir=results_dir,
+        aoi_path=roi_path,
+        landcover_cfg=lc_cfg,
+        apply_landcover_mask=False,
+        date=date.to_pydatetime(),
+        variable=variable,  # type: ignore[arg-type]
+        params=params,
+    )
+
+
+def _scf_model_probability_array(
+    *,
+    context: StaticContext,
+    source: str,
+    date: pd.Timestamp,
+    derived_cache: dict[str, np.ndarray] | None,
+) -> np.ndarray:
+    cache_key = f"scf-model-map:{source}:{pd.Timestamp(date).normalize().isoformat()}"
+    if derived_cache is not None and cache_key in derived_cache:
+        return np.asarray(derived_cache[cache_key], dtype=float)
+
+    step_dir = _step_dir_for_date(context.project_dir, date)
+    if source == "open_loop_binary":
+        classified = _scf_binary_grid_from_results(
+            context=context,
+            results_dir=step_dir / "ensembles" / "prior" / "open_loop" / "results",
+            date=date,
+        )
+    elif source == "posterior_probability":
+        member_fields: list[np.ndarray] = []
+        for member_dir in list_member_dirs(step_dir, "posterior"):
+            source_member_dir = resolve_member_source_dir(member_dir)
+            member_fields.append(
+                _scf_binary_grid_from_results(
+                    context=context,
+                    results_dir=source_member_dir / "results",
+                    date=date,
+                )
+            )
+        if not member_fields:
+            raise FileNotFoundError(f"Missing posterior members for SCF probability map in {step_dir}")
+        stack = np.stack(member_fields, axis=0)
+        valid_count = np.sum(np.isfinite(stack), axis=0)
+        classified = np.divide(
+            np.nansum(stack, axis=0),
+            valid_count,
+            out=np.full(valid_count.shape, np.nan, dtype=float),
+            where=valid_count > 0,
+        )
+    else:
+        raise ValueError(f"Unsupported SCF model source '{source}'")
+
+    classified = np.asarray(classified, dtype=float)
+    classified[~context.roi_mask] = np.nan
+    if derived_cache is not None:
+        derived_cache[cache_key] = classified
+    return classified
+
+
 def _load_fraction_model_value(
     *,
     project_dir,
@@ -1311,6 +1422,87 @@ def render_fraction_model_panel(
     observation: str,
     date: pd.Timestamp,
 ) -> dict[str, object]:
+    if observation == "scf" and str(panel.source) in {"open_loop_binary", "posterior_probability"}:
+        scf_field = _scf_model_probability_array(
+            context=context,
+            source=str(panel.source),
+            date=date,
+            derived_cache=derived_cache,
+        )
+        show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
+        if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
+            hillshade_mode = resolve_hillshade_extent(panel, defaults, builtin="roi")
+            ax.imshow(
+                hillshade_underlay(context, derived_cache=derived_cache)
+                if hillshade_mode == "roi"
+                else hillshade(context, derived_cache=derived_cache),
+                cmap="Greys_r",
+                extent=hillshade_extent(context),
+                origin="upper",
+                interpolation=_HILLSHADE_INTERPOLATION,
+                vmin=0.0,
+                vmax=1.0,
+                zorder=0,
+            )
+        invalid_mask = inside_roi_invalid_mask(scf_field, context.roi_mask)
+        if str(panel.source) == "posterior_probability":
+            norm = Normalize(vmin=0.0, vmax=100.0)
+            image = ax.imshow(
+                np.ma.masked_invalid(100.0 * scf_field),
+                cmap=FSC_OBS_CMAP,
+                norm=norm,
+                extent=grid_extent(context),
+                origin="upper",
+                interpolation="nearest",
+                alpha=0.95,
+                zorder=5,
+            )
+        else:
+            norm = BoundaryNorm(boundaries=(-0.5, 0.5, 1.5), ncolors=_SCF_BINARY_CMAP.N)
+            image = ax.imshow(
+                np.ma.masked_invalid(scf_field),
+                cmap=_SCF_BINARY_CMAP,
+                norm=norm,
+                extent=grid_extent(context),
+                origin="upper",
+                interpolation="nearest",
+                alpha=0.95,
+                zorder=5,
+            )
+        overlay_invalid_inside_roi(ax, invalid_mask, extent=grid_extent(context))
+        apply_common_overlays(
+            ax,
+            context=context,
+            extent=extent,
+            show_roi=resolve_panel_toggle(panel.show_roi, True),
+            show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
+            show_stations_name=resolve_panel_toggle(panel.show_stations_name, False),
+            show_stations_elev=resolve_panel_toggle(panel.show_stations_elev, False),
+        )
+        apply_map_axis_style(
+            ax,
+            extent,
+            title=panel_title(label, panel_semantic_title(panel)),
+            show_grid=show_grid,
+            show_y_ticklabels=panel.col == 0,
+        )
+        if resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
+            is_probability = str(panel.source) == "posterior_probability"
+            colorbar_label = "ensemble snow-cover probability [%]" if is_probability else "binary snow cover [%]"
+            ticks = (0, 20, 40, 60, 80, 100) if is_probability else (0, 1)
+            ticklabels = () if is_probability else ("0", "100")
+            attach_colorbar(
+                ax,
+                image,
+                label=colorbar_label,
+                ticks=ticks,
+                ticklabels=ticklabels,
+                layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True),
+            )
+        draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=date, resolve_flag=resolve_flag)
+        draw_map_grid_overlay(ax, show_grid=show_grid)
+        return {"mappable": image}
+
     if observation == "wet_snow":
         classified = _wet_snow_model_classified_array(
             context=context,
@@ -1349,6 +1541,7 @@ def render_fraction_model_panel(
             interpolation="nearest",
             zorder=5,
         )
+        overlay_invalid_inside_roi(ax, inside_roi_invalid_mask(classified, context.roi_mask), extent=grid_extent(context))
         present_codes = {
             code for code in _WET_SNOW_MODEL_CODES if np.any(np.isclose(classified, float(code), equal_nan=False))
         }
@@ -1422,6 +1615,7 @@ def render_fraction_model_panel(
         alpha=0.9,
         zorder=5,
     )
+    overlay_invalid_inside_roi(ax, inside_roi_invalid_mask(fill, context.roi_mask), extent=grid_extent(context))
     apply_common_overlays(
         ax,
         context=context,

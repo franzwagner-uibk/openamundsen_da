@@ -1,4 +1,4 @@
-﻿"""Cleanup utilities for removing project state pickle files."""
+"""Cleanup utilities for removing project state pickle files."""
 
 from __future__ import annotations
 

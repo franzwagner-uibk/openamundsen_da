@@ -1,4 +1,4 @@
-﻿"""Helpers for converting project-wide fraction summaries into per-step obs CSVs.
+"""Helpers for converting project-wide fraction summaries into per-step obs CSVs.
 
 Both MODIS SCF and Sentinel-1 wet-snow summaries share the same pattern:
 

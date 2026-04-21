@@ -11,7 +11,7 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.benchmark.pipeline.core import load_benchmark_config
-from openamundsen_da.benchmark.render.plots.core import (
+from openamundsen_da.methods.viz.plots.benchmark.core import (
     build_event_skill_plot_data,
     compute_event_skill_plot_positions,
     draw_score_metric_panel,
@@ -28,7 +28,7 @@ from openamundsen_da.io.paths import (
     project_fraction_envelope_path,
     project_result_overview_custom_output_path,
 )
-from openamundsen_da.methods.viz.plots.ensemble_meta import load_stations_table_from_steps
+from openamundsen_da.methods.viz.station_meta import load_ensemble_station_table_from_steps
 from openamundsen_da.methods.viz.plots.theme import (
     COLOR_DA_OBS,
     FIGHEIGHT_OVERVIEW_ROW,
@@ -60,13 +60,13 @@ from openamundsen_da.methods.viz.fraction_series import (
     load_member_series,
     load_open_loop_fraction_series,
 )
-from openamundsen_da.methods.pf.plot_ess_timeline import (
+from openamundsen_da.methods.viz.plots.assimilation.ess_timeline import (
     ess_axis_ticks,
     ess_title,
     load_setup_ess_series,
     load_setup_ess_threshold,
 )
-from openamundsen_da.observer.plot_scf_summary import _load_summary as _load_scf_obs
+from openamundsen_da.observer.summary_io import load_scf_summary as _load_scf_obs
 from openamundsen_da.util.da_events import AssimilationEvent, load_assimilation_events
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.station_da import station_observation_csvs
@@ -373,7 +373,7 @@ def _load_setup_stations_df(project_dir: Path, setup_dir: Path) -> pd.DataFrame 
         return None
     if not steps:
         return None
-    return load_stations_table_from_steps(steps, "prior")
+    return load_ensemble_station_table_from_steps(steps, "prior")
 
 
 def _validate_station_ids(specs: list[PanelSpec], stations_df: pd.DataFrame | None) -> None:
@@ -659,23 +659,26 @@ def _draw_all_assim(ax, events: list[AssimilationEvent], *, center_of_day: bool 
 
 
 def _add_assim_label_axis(ax, events: list[AssimilationEvent], idx: int, *, center_of_day: bool = False):
-    import matplotlib.dates as mdates
-
     if not events:
         return None
+    import matplotlib.dates as mdates
 
-    x_min, x_max = sorted(ax.get_xlim())
-    visible_start = pd.Timestamp(mdates.num2date(x_min)).tz_localize(None)
-    visible_end = pd.Timestamp(mdates.num2date(x_max)).tz_localize(None)
     if center_of_day:
         dates = _center_assim_event_times(events)
         labels = [str(i) for i in range(1, len(events) + 1)]
     else:
         dates, labels = _assim_labels(events)
+
+    date_index = pd.to_datetime(list(dates))
+    if date_index.empty:
+        return None
+    x_min, x_max = ax.get_xlim()
+    visible_start = pd.Timestamp(mdates.num2date(x_min)).tz_localize(None)
+    visible_end = pd.Timestamp(mdates.num2date(x_max)).tz_localize(None)
     visible_items = [
         (date, label)
-        for date, label in zip(dates, labels)
-        if visible_start <= date <= visible_end
+        for date, label in zip(date_index, labels)
+        if visible_start <= pd.Timestamp(date).tz_localize(None) <= visible_end
     ]
     if not visible_items:
         return None
@@ -683,7 +686,6 @@ def _add_assim_label_axis(ax, events: list[AssimilationEvent], idx: int, *, cent
     label_axis = ax.twiny()
     label_axis.set_label(f"assimilation_label_axis_{idx}")
     label_axis.patch.set_alpha(0.0)
-    label_axis.set_zorder(ax.get_zorder() + 1)
     if hasattr(label_axis, "set_in_layout"):
         label_axis.set_in_layout(False)
     label_axis.set_xlim(ax.get_xlim())
@@ -700,16 +702,14 @@ def _add_assim_label_axis(ax, events: list[AssimilationEvent], idx: int, *, cent
         labels=[item[1] for item in visible_items],
         max_labels=max(1, len(visible_items)),
         y_offset_pts=_ASSIM_LABEL_ROW_OFFSETS_PTS[0],
-        fontsize=6.0,
-        color="#000000",
         rotation=0.0,
-        va="bottom",
         row_y_offsets_pts=_ASSIM_LABEL_ROW_OFFSETS_PTS,
         min_row_spacing_days=_ASSIM_LABEL_MIN_SPACING_DAYS,
         axes_y=1.0,
         ha="center",
-        x_offset_pts=0.0,
     )
+    if label_axis is not None:
+        label_axis.set_zorder(ax.get_zorder() + 1)
     return label_axis
 
 

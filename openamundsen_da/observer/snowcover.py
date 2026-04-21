@@ -1,4 +1,4 @@
-﻿"""Generic snow-cover summarization with configurable classes."""
+"""Generic snow-cover summarization with configurable classes."""
 
 from __future__ import annotations
 
@@ -181,7 +181,7 @@ def _mask_band(
     band_index: int,
     gdf,
     lc_cfg: LandcoverMaskConfig,
-) -> tuple[np.ndarray, np.ndarray, float | int | None]:
+) -> tuple[np.ndarray, np.ndarray, float | int | None, np.ndarray, np.ndarray]:
     data, transform = rio_mask(
         src,
         gdf.geometry,
@@ -206,8 +206,9 @@ def _mask_band(
         invert=True,
     )
     arr = np.ma.array(band, copy=False)
+    source_mask = np.ma.getmaskarray(arr)
     arr, _ = apply_landcover_mask(arr, transform=transform, target_crs=src.crs, roi_mask=roi_mask, lc_cfg=lc_cfg)
-    return np.ma.getdata(arr), np.ma.getmaskarray(arr), src.nodata
+    return np.ma.getdata(arr), np.ma.getmaskarray(arr), src.nodata, roi_mask, source_mask
 
 
 def _assert_same_grid(src: rasterio.DatasetReader, other: rasterio.DatasetReader, *, left: Path, right: Path) -> None:
@@ -237,6 +238,8 @@ def _build_stats_row(
     data: np.ndarray,
     mask: np.ndarray,
     nodata: float | int | None,
+    roi_mask: np.ndarray,
+    source_mask: np.ndarray,
     classes: SnowcoverClasses,
     unc_data: np.ndarray | None = None,
     unc_mask: np.ndarray | None = None,
@@ -263,10 +266,26 @@ def _build_stats_row(
     scf = float(vals.mean())
     n_snow = int(round(scf * n_valid))
 
+    scene_valid = roi_mask & (~source_mask) & np.isfinite(data)
+    if nodata is not None and not (isinstance(nodata, float) and np.isnan(nodata)):
+        scene_valid &= data != nodata
+    if classes.valid:
+        scene_valid &= np.isin(data, classes.valid)
+    if classes.cloud:
+        scene_valid &= ~np.isin(data, classes.cloud)
+    if classes.water:
+        scene_valid &= ~np.isin(data, classes.water)
+    if classes.nodata:
+        scene_valid &= ~np.isin(data, classes.nodata)
+
+    n_scene_valid = int(np.count_nonzero(scene_valid))
+    invalid = roi_mask & (~scene_valid)
+    n_invalid = int(np.count_nonzero(invalid))
     clouds = (~mask) & np.isin(data, classes.cloud) if classes.cloud else np.zeros_like(valid, dtype=bool)
     n_cloud = int(np.count_nonzero(clouds))
     denom = n_valid + n_cloud
     cloud_fraction = (n_cloud / denom) if denom > 0 else 0.0
+    invalid_fraction = (n_invalid / (n_scene_valid + n_invalid)) if (n_scene_valid + n_invalid) > 0 else 0.0
 
     row: dict[str, object] = {
         "date": date_key,
@@ -275,9 +294,12 @@ def _build_stats_row(
         "n_valid": n_valid,
         "n_snow": n_snow,
         "n_cloud": n_cloud,
+        "n_invalid": n_invalid,
         "scf": scf,
         "cloud_fraction": cloud_fraction,
+        "invalid_fraction": invalid_fraction,
         "source": source_name,
+        "_n_scene_valid": n_scene_valid,
     }
     if require_uncertainty:
         if unc_data is None or unc_mask is None:
@@ -316,7 +338,7 @@ def _compute_tif_stats(
         if src.crs is None:
             raise ValueError(f"Raster {raster_path} has no CRS; cannot align AOI/land cover")
         gdf, region_id = read_single_roi(aoi_path, required_field=region_field, to_crs=src.crs)
-        data, mask, nodata = _mask_band(src, band_index=1, gdf=gdf, lc_cfg=lc_cfg)
+        data, mask, nodata, roi_mask, source_mask = _mask_band(src, band_index=1, gdf=gdf, lc_cfg=lc_cfg)
 
         unc_data: np.ndarray | None = None
         unc_mask: np.ndarray | None = None
@@ -328,7 +350,12 @@ def _compute_tif_stats(
                 raise _missing_uncertainty_companion_error(raster_path)
             with rasterio.open(unc_path) as src_unc:
                 _assert_same_grid(src, src_unc, left=raster_path, right=unc_path)
-                unc_data, unc_mask, unc_nodata = _mask_band(src_unc, band_index=1, gdf=gdf, lc_cfg=lc_cfg)
+                unc_data, unc_mask, unc_nodata, _unc_roi_mask, _unc_source_mask = _mask_band(
+                    src_unc,
+                    band_index=1,
+                    gdf=gdf,
+                    lc_cfg=lc_cfg,
+                )
 
     return _build_stats_row(
         date_key=_extract_date(raster_path).strftime("%Y-%m-%d"),
@@ -338,6 +365,8 @@ def _compute_tif_stats(
         data=data,
         mask=mask,
         nodata=nodata,
+        roi_mask=roi_mask,
+        source_mask=source_mask,
         classes=classes,
         unc_data=unc_data,
         unc_mask=unc_mask,
@@ -400,8 +429,13 @@ def _compute_netcdf_product_stats(
         tile = _extract_tile(raster_path)
 
         for i, ts in enumerate(times, start=1):
-            data, mask, nodata = _mask_band(src, band_index=i, gdf=gdf, lc_cfg=lc_cfg)
-            unc_data, unc_mask, unc_nodata = _mask_band(src_unc, band_index=i, gdf=gdf, lc_cfg=lc_cfg)
+            data, mask, nodata, roi_mask, source_mask = _mask_band(src, band_index=i, gdf=gdf, lc_cfg=lc_cfg)
+            unc_data, unc_mask, unc_nodata, _unc_roi_mask, _unc_source_mask = _mask_band(
+                src_unc,
+                band_index=i,
+                gdf=gdf,
+                lc_cfg=lc_cfg,
+            )
             source_name = f"{raster_path.name}@{ts.strftime('%Y-%m-%dT%H:%M:%SZ')}"
             row = _build_stats_row(
                 date_key=ts.date().isoformat(),
@@ -411,6 +445,8 @@ def _compute_netcdf_product_stats(
                 data=data,
                 mask=mask,
                 nodata=nodata,
+                roi_mask=roi_mask,
+                source_mask=source_mask,
                 classes=classes,
                 unc_data=unc_data,
                 unc_mask=unc_mask,
@@ -568,6 +604,8 @@ def summarize_snowcover_directory(
                 "n_valid": 0,
                 "n_snow": 0,
                 "n_cloud": 0,
+                "n_invalid": 0,
+                "_n_scene_valid": 0,
                 "source_set": set(),
                 "tile_set": set(),
             }
@@ -580,6 +618,8 @@ def summarize_snowcover_directory(
         slot["n_valid"] = int(slot["n_valid"]) + int(row.get("n_valid", 0))
         slot["n_snow"] = int(slot["n_snow"]) + int(row.get("n_snow", 0))
         slot["n_cloud"] = int(slot["n_cloud"]) + int(row.get("n_cloud", 0))
+        slot["n_invalid"] = int(slot["n_invalid"]) + int(row.get("n_invalid", 0))
+        slot["_n_scene_valid"] = int(slot["_n_scene_valid"]) + int(row.get("_n_scene_valid", 0))
         slot["source_set"].add(str(row.get("source", "")))
         slot["tile_set"].add(str(row.get("tile", "UNKNOWN")))
         if uncertainty_cfg.enabled:
@@ -596,17 +636,22 @@ def summarize_snowcover_directory(
         n_valid = int(entry["n_valid"])
         n_snow = int(entry["n_snow"])
         n_cloud = int(entry["n_cloud"])
+        n_invalid = int(entry["n_invalid"])
+        n_scene_valid = int(entry["_n_scene_valid"])
         scf = (n_snow / n_valid) if n_valid > 0 else 0.0
         denom = n_valid + n_cloud
         cloud_fraction = (n_cloud / denom) if denom > 0 else 0.0
+        invalid_fraction = (n_invalid / (n_scene_valid + n_invalid)) if (n_scene_valid + n_invalid) > 0 else 0.0
         row = {
             "date": entry["date"],
             "region_id": entry["region_id"],
             "n_valid": n_valid,
             "n_snow": n_snow,
             "n_cloud": n_cloud,
+            "n_invalid": n_invalid,
             "scf": scf,
             "cloud_fraction": cloud_fraction,
+            "invalid_fraction": invalid_fraction,
             "tiles_used": ";".join(sorted(x for x in entry["tile_set"] if x)),
             "source": ";".join(sorted(x for x in entry["source_set"] if x)),
         }

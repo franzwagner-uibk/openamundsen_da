@@ -65,7 +65,8 @@ docker compose run --rm oa oa-da-scf \\
 
 Use `obs/<project-label>/scf_summary.csv` for quality control and to decide which dates to assimilate (set `data_assimilation.assimilation_events` in `projects/<project-label>/<project-label>.yml`).
 
-`scf_summary.csv` contains (per date): `date`, `region_id`, `n_valid`, `n_snow`, `scf`, `cloud_fraction`, `source`. Typical filters include a minimum `n_valid` and a maximum `cloud_fraction`.
+`scf_summary.csv` contains (per date): `date`, `region_id`, `n_valid`, `n_snow`, `n_invalid`, `scf`, `cloud_fraction`, `invalid_fraction`, `source`. Typical filters include a minimum `n_valid` and a maximum `cloud_fraction` and/or `invalid_fraction`.
+`invalid_fraction` is the ROI-based unusable-scene fraction and captures missing or otherwise unusable ROI pixels even when they are not encoded as explicit cloud classes.
 When SCF uncertainty is enabled, additional columns are included: `unc_mean`, `unc_min`, `unc_max`, `unc_n_valid`.
 
 ## Snow-cover rasters

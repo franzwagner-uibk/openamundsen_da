@@ -1,4 +1,4 @@
-﻿"""Project helper for wet-snow observations from project summaries."""
+"""Project helper for wet-snow observations from project summaries."""
 
 from __future__ import annotations
 

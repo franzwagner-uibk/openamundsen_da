@@ -1,4 +1,4 @@
-﻿"""Wet-snow area fractions for model and observation rasters.
+"""Wet-snow area fractions for model and observation rasters.
 
 This module mirrors the SCF operator structure (openamundsen_da.methods.h_of_x)
 but works on categorical wet-snow masks:
@@ -231,16 +231,66 @@ def _read_mask_by_aoi(
     return arr, roi_mask, transform, pixel_area, region_id, src_crs, src_nodata
 
 
+def _read_mask_full_grid(
+    raster_path: Path | str,
+    aoi_path: Path,
+    *,
+    lc_cfg: LandcoverMaskConfig,
+    band_index: int = 1,
+) -> tuple[np.ma.MaskedArray, np.ndarray, rasterio.Affine, float | None, str, object, float | int | None]:
+    """Read raster values on the full model grid and mask outside the ROI."""
+
+    with rasterio.open(str(raster_path)) as src:
+        src_crs = src.crs
+        src_nodata = src.nodata
+        if src_crs is None:
+            raise ValueError(f"Raster {raster_path} lacks a CRS")
+        gdf, region_id = read_single_roi(
+            aoi_path,
+            required_field=None,
+            to_crs=src_crs,
+        )
+        roi_mask = features.geometry_mask(
+            gdf.geometry,
+            out_shape=(src.height, src.width),
+            transform=src.transform,
+            invert=True,
+        )
+        data = src.read(band_index, masked=False)
+        arr = np.ma.array(data, mask=~roi_mask, copy=False)
+        if src_nodata is not None:
+            arr.mask = np.ma.getmaskarray(arr) | (data == src_nodata)
+        pixel_area = None
+        try:
+            pixel_area = abs(float(src.transform.a) * float(src.transform.e))
+        except AttributeError:
+            pass
+        arr, _ = apply_landcover_mask(
+            arr,
+            transform=src.transform,
+            target_crs=src_crs,
+            roi_mask=roi_mask,
+            lc_cfg=lc_cfg,
+        )
+        return arr, roi_mask, src.transform, pixel_area, region_id, src_crs, src_nodata
+
+
 def _compute_valid_and_wet_masks(
     arr: np.ma.MaskedArray,
     *,
     wet_values: Sequence[int],
     valid_values: Sequence[int] | None = None,
     exclude_values: Sequence[int] | None = None,
+    support_mask: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     data = np.ma.getdata(arr)
     mask = np.ma.getmaskarray(arr)
     valid = (~mask) & np.isfinite(data)
+    if support_mask is not None:
+        support = np.asarray(support_mask, dtype=bool)
+        if support.shape != arr.shape:
+            raise ValueError(f"Support mask shape {support.shape} does not match raster shape {arr.shape}")
+        valid &= support
     if valid_values:
         valid &= np.isin(data, valid_values)
     if exclude_values:
@@ -256,6 +306,7 @@ def _compute_fraction(
     exclude_values: Sequence[int] | None = None,
     pixel_area: float | None = None,
     region_id: str = "",
+    support_mask: np.ndarray | None = None,
 ) -> WetSnowStats:
     """Return wet/valid counts and their ratio for the provided array."""
 
@@ -264,6 +315,7 @@ def _compute_fraction(
         wet_values=wet_values,
         valid_values=valid_values,
         exclude_values=exclude_values,
+        support_mask=support_mask,
     )
     valid_pixels = int(valid.sum())
     if valid_pixels == 0:
@@ -385,6 +437,7 @@ def compute_model_wet_snow_fraction(
     date: datetime,
     mask_subdir: str = "wet_snow",
     mask_prefix: str = "wet_snow_mask",
+    support_mask: np.ndarray | None = None,
 ) -> dict:
     """Compute AOI wet-snow fraction for one member/date."""
 
@@ -393,12 +446,25 @@ def compute_model_wet_snow_fraction(
     else:
         lc_cfg = resolve_landcover_mask(Path(setup_dir), Path(project_dir))
     raster = _find_mask_raster(Path(results_dir), date, subdir=mask_subdir, prefix=mask_prefix)
-    stats = compute_wet_snow_fraction_from_raster(
-        raster,
-        aoi_path,
+    arr, _roi_mask, _transform, pixel_area, region_id, _src_crs, _src_nodata = _read_mask_full_grid(
+        Path(raster),
+        Path(aoi_path),
+        lc_cfg=lc_cfg,
+    )
+    stats_full = _compute_fraction(
+        arr,
         wet_values=_MODEL_WET,
         valid_values=_MODEL_VALID,
-        landcover_cfg=lc_cfg,
+        pixel_area=pixel_area,
+        region_id=region_id,
+    )
+    stats = _compute_fraction(
+        arr,
+        wet_values=_MODEL_WET,
+        valid_values=_MODEL_VALID,
+        pixel_area=pixel_area,
+        region_id=region_id,
+        support_mask=support_mask,
     )
     member_id = member_id_from_results_dir(Path(results_dir))
     return {
@@ -410,6 +476,9 @@ def compute_model_wet_snow_fraction(
         "n_wet": stats.wet_pixels,
         "valid_area_m2": stats.valid_area_m2,
         "wet_area_m2": stats.wet_area_m2,
+        "wet_fraction_full_roi": stats_full.wet_fraction,
+        "n_valid_full_roi": stats_full.valid_pixels,
+        "n_wet_full_roi": stats_full.wet_pixels,
         "raster": Path(raster).name,
     }
 

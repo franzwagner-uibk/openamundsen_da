@@ -1,4 +1,4 @@
-﻿"""Generic wet-snow summarization CLI with configurable class mapping."""
+"""Generic wet-snow summarization CLI with configurable class mapping."""
 
 from __future__ import annotations
 

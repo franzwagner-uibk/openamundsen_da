@@ -1,5 +1,4 @@
-"""
-openamundsen_da.observer.plot_scf_summary
+"""Plot a publication-ready SCF time series from a summary CSV.
 
 Purpose
 - Plot a simple, publication-ready SCF time series from a setup-level
@@ -29,31 +28,13 @@ from openamundsen_da.methods.viz.common import (
     save_figure_png,
     set_matplotlib_text_black,
 )
+from openamundsen_da.observer.summary_io import load_scf_summary
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
 def _load_summary(csv_path: Path) -> pd.DataFrame:
-    """Load and normalize SCF summary CSV.
-
-    Parameters
-    ----------
-    csv_path : Path
-        Path to `scf_summary.csv` containing at least `date` and `scf`.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Data sorted by `date` with parsed datetime column.
-    """
-    # Read and validate minimal schema
-    df = pd.read_csv(csv_path)
-    if "date" not in df or "scf" not in df:
-        raise ValueError("CSV must contain columns 'date' and 'scf'")
-    # Parse dates and sort chronologically
-    df = df.copy()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df = df.dropna(subset=["date"]).sort_values("date")
-    return df
+    """Load and normalize SCF summary CSV."""
+    return load_scf_summary(csv_path)
 
 
 def _plot(df: pd.DataFrame, title: str | None = None, subtitle: str | None = None, *, backend: str = "Agg"):
@@ -105,8 +86,8 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     Examples
     --------
-    oa-da-plot-scf path\to\scf_summary.csv \
-      --output path\to\scf_summary.png \
+    oa-da-plot-scf path/to/scf_summary.csv \
+      --output path/to/scf_summary.png \
       --title "Snow Cover Fraction for observation period" \
       --subtitle "derived from MODIS 10A1 v6 NDSI"
     """

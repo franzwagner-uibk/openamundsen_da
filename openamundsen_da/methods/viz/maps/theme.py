@@ -62,6 +62,9 @@ _OVERVIEW_LABEL_DX_RATIO = 0.09
 _OVERVIEW_LABEL_DY_RATIO = 0.07
 _OVERVIEW_LABEL_BOX_PAD_EM = 0.10
 _OVERVIEW_LABEL_BOX_SAFETY_IN = 0.02
+_OVERLAY_LABEL_HALO_COLOR = "white"
+_OVERLAY_LABEL_HALO_WIDTH = 2.0
+_OVERLAY_LABEL_BBOX_HALO_WIDTH = 2.4
 _OVERVIEW_ROI_LABEL_SIZE = 6.4
 _OVERVIEW_ROI_LABEL_DX_RATIO = 0.04
 
@@ -86,6 +89,8 @@ _AUTO_TITLE_SOURCE = {
     "open_loop": "Open loop",
     "ensemble_mean": "Ensemble mean",
     "increment": "Increment",
+    "open_loop_binary": "Open-loop snow cover",
+    "posterior_probability": "Snow-cover probability",
 }
 _AUTO_TITLE_KIND = {
     "overview": "Overview map",

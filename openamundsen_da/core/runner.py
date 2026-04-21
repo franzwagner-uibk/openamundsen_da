@@ -1,4 +1,4 @@
-﻿"""
+"""
 openamundsen_da.core.runner
 
 Purpose

@@ -1,4 +1,4 @@
-﻿"""Helpers for loading assimilation events from project YAML."""
+"""Helpers for loading assimilation events from project YAML."""
 
 from __future__ import annotations
 

@@ -2,18 +2,32 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import matplotlib
 import matplotlib.pyplot as plt
-import matplotlib.patheffects as pe
 import numpy as np
 import pandas as pd
+import rasterio
 from matplotlib.cm import ScalarMappable
-from matplotlib.colors import BoundaryNorm, Normalize, TwoSlopeNorm
+from matplotlib import colormaps
+from matplotlib.colors import BoundaryNorm, ListedColormap, Normalize, TwoSlopeNorm
 from matplotlib.patches import Patch, Rectangle
 from shapely.geometry import box
 
+from openamundsen_da.core.env import _read_yaml_file
+from openamundsen_da.io.paths import (
+    find_project_yaml,
+    list_member_dirs,
+    list_steps_sorted,
+    project_fraction_envelope_path,
+    read_step_config,
+    resolve_member_source_dir,
+)
+from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf_binary_grid, load_hofx_from_project
+from openamundsen_da.methods.viz.fraction_series import load_fraction_series, load_open_loop_fraction_series
 from openamundsen_da.methods.viz.maps.annotations import (
+    apply_overlay_label_halo,
     draw_heading,
     draw_overview_label_specs,
     draw_panel_below_items,
@@ -104,6 +118,13 @@ from openamundsen_da.methods.viz.maps.theme import (
     _STATION_COLOR,
     _STATION_LABEL_RATIO,
 )
+from openamundsen_da.util.landcover_mask import resolve_landcover_mask
+from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
+
+
+_FRACTION_MODEL_CMAP = colormaps["Greys"]
+_WET_SNOW_MODEL_CODES = (110, 125)
+_SCF_BINARY_CMAP = ListedColormap(["#efefef", "#111111"], name="scf_binary")
 
 
 @dataclass(frozen=True)
@@ -126,6 +147,26 @@ def masked(arr: np.ndarray, roi_mask: np.ndarray) -> np.ma.MaskedArray:
 
 def masked_invalid(arr: np.ndarray) -> np.ma.MaskedArray:
     return np.ma.masked_invalid(np.asarray(arr, dtype=float))
+
+
+def inside_roi_invalid_mask(arr: np.ndarray, roi_mask: np.ndarray) -> np.ndarray:
+    data = np.asarray(arr, dtype=float)
+    return np.asarray(roi_mask, dtype=bool) & (~np.isfinite(data))
+
+
+def overlay_invalid_inside_roi(ax, invalid_mask: np.ndarray, *, extent) -> None:
+    mask = np.asarray(invalid_mask, dtype=bool)
+    if not np.any(mask):
+        return
+    rgba = np.zeros(mask.shape + (4,), dtype=float)
+    rgba[mask] = matplotlib.colors.to_rgba(FSC_INVALID_COLOR)
+    ax.imshow(
+        rgba,
+        extent=extent,
+        origin="upper",
+        interpolation="nearest",
+        zorder=6,
+    )
 
 
 def masked_model(arr: np.ndarray, roi_mask: np.ndarray, *, preset) -> np.ma.MaskedArray:
@@ -220,7 +261,7 @@ def draw_stations_overlay(
         label = str(row.get("name") or row.get("id") or "").strip()
         if show_stations_elev and "alt" in row and np.isfinite(float(row["alt"])):
             label = f"{label} ({int(round(float(row['alt'])))} m)"
-        ax.text(
+        apply_overlay_label_halo(ax.text(
             float(row["x"]) + dx,
             float(row["y"]) + dy,
             label,
@@ -229,10 +270,8 @@ def draw_stations_overlay(
             va="bottom",
             color="black",
             zorder=_GRID_ZORDER + 5,
-        )
-
-
-def comparison_scales(fields: list[ModelFields], preset) -> tuple[Normalize, TwoSlopeNorm]:
+        ))
+def comparison_scales(fields: list[ModelFields], preset, *, model_vmax: float | None = None) -> tuple[Normalize, TwoSlopeNorm]:
     comparisons = [field for field in fields if field is not None]
     if not comparisons:
         raise ValueError("comparison_scales requires at least one model field")
@@ -245,7 +284,7 @@ def comparison_scales(fields: list[ModelFields], preset) -> tuple[Normalize, Two
     max_value = max(float(np.nanmax(arr)) if np.isfinite(arr).any() else 0.0 for arr in valid_arrays)
     max_increment = max(float(np.nanmax(arr)) if np.isfinite(arr).any() else 0.0 for arr in increment_arrays)
 
-    vmax = nice_ceiling(max_value, step=preset.max_step, minimum=preset.max_floor)
+    vmax = float(model_vmax) if model_vmax is not None else nice_ceiling(max_value, step=preset.max_step, minimum=preset.max_floor)
     inc_abs = nice_ceiling(max_increment, step=preset.increment_step, minimum=preset.increment_floor)
     return model_map_norm(preset, vmax=vmax), TwoSlopeNorm(vcenter=0.0, vmin=-inc_abs, vmax=inc_abs)
 
@@ -267,6 +306,23 @@ def classified_display_labels(
         return [LANDCOVER_LABELS[code] for code in active_codes]
 
     if panel.kind == "wet_snow":
+        if panel.source is not None:
+            date = panel_date(panel, defaults)
+            if date is None:
+                return [WET_SNOW_LABELS[code] for code in _WET_SNOW_MODEL_CODES]
+            scene = _wet_snow_model_classified_array(
+                context=context,
+                source=str(panel.source),
+                date=pd.Timestamp(date).normalize(),
+                derived_cache=None,
+            )
+            present_codes = {
+                code for code in _WET_SNOW_MODEL_CODES if np.any(np.isclose(scene, float(code), equal_nan=False))
+            }
+            active_codes = [code for code in _WET_SNOW_MODEL_CODES if code in present_codes]
+            if not active_codes:
+                active_codes = list(_WET_SNOW_MODEL_CODES)
+            return [WET_SNOW_LABELS[code] for code in active_codes]
         date = panel_date(panel, defaults)
         if date is None:
             return [WET_SNOW_LABELS[code] for code in sorted(WET_SNOW_LABELS)]
@@ -888,9 +944,11 @@ def render_static_panel(
 
     field = _STATIC_FIELD_KIND_TO_FIELD[panel.kind]
     preset = require_static_field_preset(field)
-    data = masked_invalid(field_array(context, field))
+    raw_data = field_array(context, field)
+    data = masked_invalid(raw_data)
     norm = static_field_norm(preset, data.filled(np.nan))
     image = ax.imshow(data, cmap=static_field_cmap(preset), norm=norm, extent=panel_grid_extent, origin="upper", interpolation="nearest", zorder=5)
+    overlay_invalid_inside_roi(ax, inside_roi_invalid_mask(raw_data, context.roi_mask), extent=panel_grid_extent)
     apply_common_overlays(
         ax,
         context=context,
@@ -932,6 +990,7 @@ def render_model_panel(
     defaults: MapDefaults,
     model_cache,
     scale_cache,
+    shared_model_vmax: dict[str, float] | None = None,
     figure_horizontal_default: bool,
     derived_cache: dict[str, np.ndarray] | None = None,
     model_loader: Callable[..., list[ModelFields]] = load_model_fields,
@@ -945,7 +1004,8 @@ def render_model_panel(
         model_cache[field_key] = model_loader(context.project_dir, variable, (date,))[0]
     preset = require_variable_preset(variable)
     if field_key not in scale_cache:
-        scale_cache[field_key] = comparison_scales([model_cache[field_key]], preset)
+        shared_vmax = None if shared_model_vmax is None else shared_model_vmax.get(variable)
+        scale_cache[field_key] = comparison_scales([model_cache[field_key]], preset, model_vmax=shared_vmax)
     model_norm, increment_norm = scale_cache[field_key]
     if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
         hillshade_mode = resolve_hillshade_extent(
@@ -971,6 +1031,7 @@ def render_model_panel(
 
     colorbar_style: dict[str, object] | object
     if panel.source == "increment":
+        invalid_mask = inside_roi_invalid_mask(model_cache[field_key].increment, context.roi_mask)
         image = ax.imshow(
             masked(model_cache[field_key].increment, context.roi_mask),
             cmap=INCREMENT_CMAP,
@@ -984,6 +1045,7 @@ def render_model_panel(
         colorbar_style = {"label": f"increment {preset.unit_label}"}
     else:
         data = model_cache[field_key].open_loop if panel.source == "open_loop" else model_cache[field_key].ens_mean
+        invalid_mask = inside_roi_invalid_mask(data, context.roi_mask)
         image = ax.imshow(
             masked_model(data, context.roi_mask, preset=preset),
             cmap=model_map_cmap(preset),
@@ -994,7 +1056,8 @@ def render_model_panel(
             alpha=_SNOW_DEPTH_PANEL_ALPHA if panel.kind == "snow_depth" else 0.96,
             zorder=5,
         )
-        colorbar_style = model_colorbar_style(preset)
+        colorbar_style = model_colorbar_style(preset, vmax=model_norm.vmax)
+    overlay_invalid_inside_roi(ax, invalid_mask, extent=grid_extent(context))
 
     apply_common_overlays(
         ax,
@@ -1047,6 +1110,19 @@ def render_observation_panel(
     if date is None:
         raise ValueError(f"Panel '{panel.kind}' requires a date (panel '{panel.title or panel.kind}')")
     observation = _OBSERVATION_KIND_TO_NAME[panel.kind]
+    if panel.source is not None:
+        return render_fraction_model_panel(
+            ax,
+            panel=panel,
+            context=context,
+            extent=extent,
+            label=label,
+            defaults=defaults,
+            figure_horizontal_default=figure_horizontal_default,
+            derived_cache=derived_cache,
+            observation=observation,
+            date=pd.Timestamp(date).normalize(),
+        )
     obs_key = (observation, date)
     if obs_key not in obs_cache:
         obs_cache[obs_key] = observation_loader(context.project_dir, context, observation=observation, date=date)
@@ -1094,6 +1170,10 @@ def render_observation_panel(
         cmap.set_bad((1.0, 1.0, 1.0, 0.0))
         norm = BoundaryNorm(np.arange(-0.5, len(codes) + 0.5), cmap.N)
         image = ax.imshow(np.ma.masked_invalid(categorical), cmap=cmap, norm=norm, extent=scene.bounds, origin="upper", interpolation="nearest", zorder=5)
+        invalid_mask = (scene.invalid_mask if scene.invalid_mask is not None else np.zeros(scene.array.shape, dtype=bool)) | (
+            scene.roi_mask & ~np.isfinite(scene.array)
+        )
+        overlay_invalid_inside_roi(ax, invalid_mask, extent=scene.bounds)
         legend_handles = classified_legend_handles(
             canonical_codes=codes,
             present_codes=present_codes,
@@ -1132,6 +1212,437 @@ def render_observation_panel(
     draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=date, resolve_flag=resolve_flag)
     draw_map_grid_overlay(ax, show_grid=show_grid)
     return {"mappable": image, "legend_handles": legend_handles}
+
+
+def _fraction_value_column(observation: str) -> str:
+    return "scf" if observation == "scf" else "wet_snow_fraction"
+
+
+def _fraction_member_filename(observation: str) -> str:
+    return "point_scf_roi.csv" if observation == "scf" else "point_wet_snow_roi.csv"
+
+
+def _wet_snow_threshold_fraction(project_dir: Path) -> float:
+    project_yaml = find_project_yaml(project_dir)
+    cfg = _read_yaml_file(project_yaml) or {}
+    da_cfg = cfg.get("data_assimilation") if isinstance(cfg, dict) else None
+    wet_cfg = da_cfg.get("wet_snow") if isinstance(da_cfg, dict) else None
+    raw_value = wet_cfg.get("classification_threshold_percent") if isinstance(wet_cfg, dict) else None
+    if raw_value is None:
+        raise ValueError(
+            f"Missing required configuration key: {project_yaml} -> "
+            "data_assimilation.wet_snow.classification_threshold_percent"
+        )
+    return float(raw_value) / 100.0
+
+
+def _step_dir_for_date(project_dir: Path, date: pd.Timestamp) -> Path:
+    target = pd.Timestamp(date).normalize()
+    for step_dir in list_steps_sorted(project_dir):
+        cfg = read_step_config(step_dir)
+        start = pd.Timestamp(cfg["start_date"]).normalize()
+        end = pd.Timestamp(cfg["end_date"]).normalize()
+        if start <= target <= end:
+            return Path(step_dir)
+    raise FileNotFoundError(f"No project step found for {target.date()} in {project_dir}")
+
+
+def _wet_snow_mask_path(results_dir: Path, date: pd.Timestamp) -> Path:
+    stamp = pd.Timestamp(date).strftime("%Y-%m-%dT%H%M")
+    path = Path(results_dir) / "wet_snow" / f"wet_snow_mask_{stamp}.tif"
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing wet-snow mask: {path}")
+    return path
+
+
+def _load_wet_snow_mask(path: Path) -> np.ndarray:
+    with rasterio.open(path) as src:
+        return src.read(1)
+
+
+def _wet_snow_model_classified_array(
+    *,
+    context: StaticContext,
+    source: str,
+    date: pd.Timestamp,
+    derived_cache: dict[str, np.ndarray] | None,
+) -> np.ndarray:
+    cache_key = f"wet-snow-model-map:{source}:{pd.Timestamp(date).normalize().isoformat()}"
+    if derived_cache is not None and cache_key in derived_cache:
+        return np.asarray(derived_cache[cache_key], dtype=float)
+
+    step_dir = _step_dir_for_date(context.project_dir, date)
+    if source == "open_loop":
+        mask = _load_wet_snow_mask(_wet_snow_mask_path(step_dir / "ensembles" / "prior" / "open_loop" / "results", date))
+        classified = np.full(mask.shape, np.nan, dtype=float)
+        classified[mask == 1] = float(_WET_SNOW_MODEL_CODES[0])
+        classified[mask == 0] = float(_WET_SNOW_MODEL_CODES[1])
+    elif source == "ensemble_mean":
+        member_masks: list[np.ndarray] = []
+        for member_dir in list_member_dirs(step_dir, "prior"):
+            mask_path = _wet_snow_mask_path(member_dir / "results", date)
+            member_masks.append(_load_wet_snow_mask(mask_path))
+        if not member_masks:
+            raise FileNotFoundError(f"Missing prior members for wet-snow ensemble map in {step_dir}")
+        stack = np.stack([np.where(mask == 255, np.nan, mask.astype(float)) for mask in member_masks], axis=0)
+        valid_count = np.sum(np.isfinite(stack), axis=0)
+        wet_sum = np.nansum(stack, axis=0)
+        wet_fraction = np.divide(wet_sum, valid_count, out=np.full(valid_count.shape, np.nan, dtype=float), where=valid_count > 0)
+        valid = np.isfinite(wet_fraction)
+        threshold = _wet_snow_threshold_fraction(context.project_dir)
+        classified = np.full(wet_fraction.shape, np.nan, dtype=float)
+        classified[valid & (wet_fraction >= threshold)] = float(_WET_SNOW_MODEL_CODES[0])
+        classified[valid & (wet_fraction < threshold)] = float(_WET_SNOW_MODEL_CODES[1])
+    else:
+        raise ValueError(f"Unsupported wet-snow model source '{source}'")
+
+    classified = np.asarray(classified, dtype=float)
+    classified[~context.roi_mask] = np.nan
+    if derived_cache is not None:
+        derived_cache[cache_key] = classified
+    return classified
+
+
+def _scf_binary_grid_from_results(
+    *,
+    context: StaticContext,
+    results_dir: Path,
+    date: pd.Timestamp,
+) -> np.ndarray:
+    _method, variable, params = load_hofx_from_project(context.project_dir)
+    lc_cfg = resolve_landcover_mask(context.setup_dir, context.project_dir)
+    roi_path = ensure_setup_roi_vector(context.setup_dir)
+    return compute_model_scf_binary_grid(
+        setup_dir=context.setup_dir,
+        project_dir=context.project_dir,
+        results_dir=results_dir,
+        aoi_path=roi_path,
+        landcover_cfg=lc_cfg,
+        apply_landcover_mask=False,
+        date=date.to_pydatetime(),
+        variable=variable,  # type: ignore[arg-type]
+        params=params,
+    )
+
+
+def _scf_model_probability_array(
+    *,
+    context: StaticContext,
+    source: str,
+    date: pd.Timestamp,
+    derived_cache: dict[str, np.ndarray] | None,
+) -> np.ndarray:
+    cache_key = f"scf-model-map:{source}:{pd.Timestamp(date).normalize().isoformat()}"
+    if derived_cache is not None and cache_key in derived_cache:
+        return np.asarray(derived_cache[cache_key], dtype=float)
+
+    step_dir = _step_dir_for_date(context.project_dir, date)
+    if source == "open_loop_binary":
+        classified = _scf_binary_grid_from_results(
+            context=context,
+            results_dir=step_dir / "ensembles" / "prior" / "open_loop" / "results",
+            date=date,
+        )
+    elif source == "posterior_probability":
+        member_fields: list[np.ndarray] = []
+        for member_dir in list_member_dirs(step_dir, "posterior"):
+            source_member_dir = resolve_member_source_dir(member_dir)
+            member_fields.append(
+                _scf_binary_grid_from_results(
+                    context=context,
+                    results_dir=source_member_dir / "results",
+                    date=date,
+                )
+            )
+        if not member_fields:
+            raise FileNotFoundError(f"Missing posterior members for SCF probability map in {step_dir}")
+        stack = np.stack(member_fields, axis=0)
+        valid_count = np.sum(np.isfinite(stack), axis=0)
+        classified = np.divide(
+            np.nansum(stack, axis=0),
+            valid_count,
+            out=np.full(valid_count.shape, np.nan, dtype=float),
+            where=valid_count > 0,
+        )
+    else:
+        raise ValueError(f"Unsupported SCF model source '{source}'")
+
+    classified = np.asarray(classified, dtype=float)
+    classified[~context.roi_mask] = np.nan
+    if derived_cache is not None:
+        derived_cache[cache_key] = classified
+    return classified
+
+
+def _load_fraction_model_value(
+    *,
+    project_dir,
+    observation: str,
+    source: str,
+    date: pd.Timestamp,
+    derived_cache: dict[str, np.ndarray] | None = None,
+) -> float:
+    cache_key = f"fraction-model:{observation}:{source}:{date.isoformat()}"
+    if derived_cache is not None and cache_key in derived_cache:
+        return float(derived_cache[cache_key])
+
+    value_col = _fraction_value_column(observation)
+    if source == "open_loop":
+        df = load_open_loop_fraction_series(project_dir, _fraction_member_filename(observation), value_col)
+    elif source == "ensemble_mean":
+        df = load_fraction_series(project_fraction_envelope_path(project_dir, observation), "value_mean")
+        value_col = "value_mean"
+    else:
+        raise ValueError(f"Unsupported fraction model source '{source}' for observation panel")
+
+    if df is None or df.empty:
+        raise FileNotFoundError(f"Missing model fraction series for {observation} ({source})")
+
+    working = df.copy()
+    working["date"] = pd.to_datetime(working["date"]).dt.normalize()
+    row = working.loc[working["date"] == date]
+    if row.empty:
+        raise KeyError(f"No model fraction value for {observation} ({source}) on {date.date()}")
+    value = float(row.iloc[-1][value_col])
+    if derived_cache is not None:
+        derived_cache[cache_key] = np.asarray(value, dtype=float)
+    return value
+
+
+def render_fraction_model_panel(
+    ax,
+    *,
+    panel: MapPanelSpec,
+    context: StaticContext,
+    extent,
+    label: str | None,
+    defaults: MapDefaults,
+    figure_horizontal_default: bool,
+    derived_cache: dict[str, np.ndarray] | None,
+    observation: str,
+    date: pd.Timestamp,
+) -> dict[str, object]:
+    if observation == "scf" and str(panel.source) in {"open_loop_binary", "posterior_probability"}:
+        scf_field = _scf_model_probability_array(
+            context=context,
+            source=str(panel.source),
+            date=date,
+            derived_cache=derived_cache,
+        )
+        show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
+        if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
+            hillshade_mode = resolve_hillshade_extent(panel, defaults, builtin="roi")
+            ax.imshow(
+                hillshade_underlay(context, derived_cache=derived_cache)
+                if hillshade_mode == "roi"
+                else hillshade(context, derived_cache=derived_cache),
+                cmap="Greys_r",
+                extent=hillshade_extent(context),
+                origin="upper",
+                interpolation=_HILLSHADE_INTERPOLATION,
+                vmin=0.0,
+                vmax=1.0,
+                zorder=0,
+            )
+        invalid_mask = inside_roi_invalid_mask(scf_field, context.roi_mask)
+        if str(panel.source) == "posterior_probability":
+            norm = Normalize(vmin=0.0, vmax=100.0)
+            image = ax.imshow(
+                np.ma.masked_invalid(100.0 * scf_field),
+                cmap=FSC_OBS_CMAP,
+                norm=norm,
+                extent=grid_extent(context),
+                origin="upper",
+                interpolation="nearest",
+                alpha=0.95,
+                zorder=5,
+            )
+        else:
+            norm = BoundaryNorm(boundaries=(-0.5, 0.5, 1.5), ncolors=_SCF_BINARY_CMAP.N)
+            image = ax.imshow(
+                np.ma.masked_invalid(scf_field),
+                cmap=_SCF_BINARY_CMAP,
+                norm=norm,
+                extent=grid_extent(context),
+                origin="upper",
+                interpolation="nearest",
+                alpha=0.95,
+                zorder=5,
+            )
+        overlay_invalid_inside_roi(ax, invalid_mask, extent=grid_extent(context))
+        apply_common_overlays(
+            ax,
+            context=context,
+            extent=extent,
+            show_roi=resolve_panel_toggle(panel.show_roi, True),
+            show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
+            show_stations_name=resolve_panel_toggle(panel.show_stations_name, False),
+            show_stations_elev=resolve_panel_toggle(panel.show_stations_elev, False),
+        )
+        apply_map_axis_style(
+            ax,
+            extent,
+            title=panel_title(label, panel_semantic_title(panel)),
+            show_grid=show_grid,
+            show_y_ticklabels=panel.col == 0,
+        )
+        if resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
+            is_probability = str(panel.source) == "posterior_probability"
+            colorbar_label = "ensemble snow-cover probability [%]" if is_probability else "binary snow cover [%]"
+            ticks = (0, 20, 40, 60, 80, 100) if is_probability else (0, 1)
+            ticklabels = () if is_probability else ("0", "100")
+            attach_colorbar(
+                ax,
+                image,
+                label=colorbar_label,
+                ticks=ticks,
+                ticklabels=ticklabels,
+                layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True),
+            )
+        draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=date, resolve_flag=resolve_flag)
+        draw_map_grid_overlay(ax, show_grid=show_grid)
+        return {"mappable": image}
+
+    if observation == "wet_snow":
+        classified = _wet_snow_model_classified_array(
+            context=context,
+            source=str(panel.source),
+            date=date,
+            derived_cache=derived_cache,
+        )
+        show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
+        if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
+            hillshade_mode = resolve_hillshade_extent(panel, defaults, builtin="roi")
+            ax.imshow(
+                hillshade_underlay(context, derived_cache=derived_cache)
+                if hillshade_mode == "roi"
+                else hillshade(context, derived_cache=derived_cache),
+                cmap="Greys_r",
+                extent=hillshade_extent(context),
+                origin="upper",
+                interpolation=_HILLSHADE_INTERPOLATION,
+                vmin=0.0,
+                vmax=1.0,
+                zorder=0,
+            )
+        code_to_index = {code: idx for idx, code in enumerate(_WET_SNOW_MODEL_CODES)}
+        categorical = np.full(classified.shape, np.nan, dtype=float)
+        for code, idx in code_to_index.items():
+            categorical[np.isclose(classified, float(code), equal_nan=False)] = idx
+        cmap = matplotlib.colors.ListedColormap([WET_SNOW_COLORS[code] for code in _WET_SNOW_MODEL_CODES], name="wet_snow_model")
+        cmap.set_bad((1.0, 1.0, 1.0, 0.0))
+        norm = BoundaryNorm(np.arange(-0.5, len(_WET_SNOW_MODEL_CODES) + 0.5), cmap.N)
+        image = ax.imshow(
+            np.ma.masked_invalid(categorical),
+            cmap=cmap,
+            norm=norm,
+            extent=grid_extent(context),
+            origin="upper",
+            interpolation="nearest",
+            zorder=5,
+        )
+        overlay_invalid_inside_roi(ax, inside_roi_invalid_mask(classified, context.roi_mask), extent=grid_extent(context))
+        present_codes = {
+            code for code in _WET_SNOW_MODEL_CODES if np.any(np.isclose(classified, float(code), equal_nan=False))
+        }
+        legend_handles = classified_legend_handles(
+            canonical_codes=list(_WET_SNOW_MODEL_CODES),
+            present_codes=present_codes,
+            label_lookup=WET_SNOW_LABELS,
+            color_lookup=lambda code: WET_SNOW_COLORS[code],
+            fallback_codes=list(_WET_SNOW_MODEL_CODES),
+        )
+        apply_common_overlays(
+            ax,
+            context=context,
+            extent=extent,
+            show_roi=resolve_panel_toggle(panel.show_roi, True),
+            show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
+            show_stations_name=resolve_panel_toggle(panel.show_stations_name, False),
+            show_stations_elev=resolve_panel_toggle(panel.show_stations_elev, False),
+        )
+        apply_map_axis_style(
+            ax,
+            extent,
+            title=panel_title(label, panel_semantic_title(panel)),
+            show_grid=show_grid,
+            show_y_ticklabels=panel.col == 0,
+        )
+        draw_classified_legend(ax, legend_handles, layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default))
+        draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=date, resolve_flag=resolve_flag)
+        draw_map_grid_overlay(ax, show_grid=show_grid)
+        return {"mappable": image, "legend_handles": legend_handles}
+
+    value = _load_fraction_model_value(
+        project_dir=context.project_dir,
+        observation=observation,
+        source=str(panel.source),
+        date=date,
+        derived_cache=derived_cache,
+    )
+    show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
+    if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
+        hillshade_mode = resolve_hillshade_extent(panel, defaults, builtin="roi")
+        ax.imshow(
+            hillshade_underlay(context, derived_cache=derived_cache)
+            if hillshade_mode == "roi"
+            else hillshade(context, derived_cache=derived_cache),
+            cmap="Greys_r",
+            extent=hillshade_extent(context),
+            origin="upper",
+            interpolation=_HILLSHADE_INTERPOLATION,
+            vmin=0.0,
+            vmax=1.0,
+            zorder=0,
+        )
+
+    fill = np.full(context.roi_mask.shape, np.nan, dtype=float)
+    fill[context.roi_mask] = 100.0 * value
+    if observation == "scf":
+        cmap = FSC_OBS_CMAP
+        colorbar_label = "fractional snow cover [%]"
+    else:
+        cmap = _FRACTION_MODEL_CMAP
+        colorbar_label = "wet snow fraction [%]"
+    norm = Normalize(vmin=0.0, vmax=100.0)
+    image = ax.imshow(
+        np.ma.masked_invalid(fill),
+        cmap=cmap,
+        norm=norm,
+        extent=grid_extent(context),
+        origin="upper",
+        interpolation="nearest",
+        alpha=0.9,
+        zorder=5,
+    )
+    overlay_invalid_inside_roi(ax, inside_roi_invalid_mask(fill, context.roi_mask), extent=grid_extent(context))
+    apply_common_overlays(
+        ax,
+        context=context,
+        extent=extent,
+        show_roi=resolve_panel_toggle(panel.show_roi, True),
+        show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
+        show_stations_name=resolve_panel_toggle(panel.show_stations_name, False),
+        show_stations_elev=resolve_panel_toggle(panel.show_stations_elev, False),
+    )
+    apply_map_axis_style(
+        ax,
+        extent,
+        title=panel_title(label, panel_semantic_title(panel)),
+        show_grid=show_grid,
+        show_y_ticklabels=panel.col == 0,
+    )
+    if resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
+        attach_colorbar(
+            ax,
+            image,
+            label=colorbar_label,
+            ticks=(0, 20, 40, 60, 80, 100),
+            layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True),
+        )
+    draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=date, resolve_flag=resolve_flag)
+    draw_map_grid_overlay(ax, show_grid=show_grid)
+    return {"mappable": image}
 
 
 def legend_source_handles(item: LegendItemSpec, artifacts: dict[str, dict[str, object]]) -> list[Patch]:

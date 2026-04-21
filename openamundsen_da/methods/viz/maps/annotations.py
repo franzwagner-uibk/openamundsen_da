@@ -18,6 +18,9 @@ from openamundsen_da.methods.viz.maps.theme import (
     _AUTO_TITLE_SOURCE,
     _DATE_CALLOUT_ALPHA,
     _HORIZONTAL_LEGEND_PATCH_HEIGHT_IN,
+    _OVERLAY_LABEL_BBOX_HALO_WIDTH,
+    _OVERLAY_LABEL_HALO_COLOR,
+    _OVERLAY_LABEL_HALO_WIDTH,
     _OVERVIEW_LABEL_BOX_PAD_EM,
     _OVERVIEW_LABEL_BOX_SAFETY_IN,
     _PANEL_BELOW_ITEMS_BOTTOM_PAD_AXES,
@@ -84,6 +87,12 @@ def draw_panel_date(ax, date: pd.Timestamp | None) -> None:
     )
 
 
+def apply_overlay_label_halo(text, *, with_bbox: bool = False):
+    halo_width = _OVERLAY_LABEL_BBOX_HALO_WIDTH if with_bbox else _OVERLAY_LABEL_HALO_WIDTH
+    text.set_path_effects([pe.Stroke(linewidth=halo_width, foreground=_OVERLAY_LABEL_HALO_COLOR), pe.Normal()])
+    return text
+
+
 def scale_bar_length_m(extent: tuple[float, float, float, float]) -> float:
     span_m = max(1.0, float(extent[1] - extent[0]))
     target_length = span_m * _SCALEBAR_TARGET_FRACTION
@@ -112,7 +121,6 @@ def draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
     tick_height = 0.016 * span_y
     label_y = y0 + 1.15 * tick_height
     line_halo = [pe.Stroke(linewidth=2.2, foreground="white"), pe.Normal()]
-    text_halo = [pe.Stroke(linewidth=1.8, foreground="white"), pe.Normal()]
     bar = ax.plot([x0, x0 + total_length], [y0, y0], color="black", linewidth=0.8, zorder=_ANNOTATION_ZORDER, solid_capstyle="butt")[0]
     bar.set_path_effects(line_halo)
     for xpos in (x0, x0 + half_length, x0 + total_length):
@@ -123,7 +131,7 @@ def draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
         (x0 + half_length, format_km_label(half_length)),
         (x0 + total_length, format_km_label(total_length)),
     ):
-        text = ax.text(
+        apply_overlay_label_halo(ax.text(
             xpos,
             label_y,
             label,
@@ -132,9 +140,8 @@ def draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
             fontsize=5.8,
             color="black",
             zorder=_ANNOTATION_ZORDER,
-        )
-        text.set_path_effects(text_halo)
-    km_text = ax.text(
+        ))
+    apply_overlay_label_halo(ax.text(
         x0 + 0.72 * total_length,
         y0 - 0.45 * tick_height,
         "km",
@@ -143,8 +150,7 @@ def draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
         fontsize=5.8,
         color="black",
         zorder=_ANNOTATION_ZORDER,
-    )
-    km_text.set_path_effects(text_halo)
+    ))
 
 
 def draw_patch_entry(ax, *, y: float, label: str, facecolor, edgecolor="none") -> float:
@@ -201,7 +207,7 @@ def overview_label_box_size_in(spec) -> tuple[float, float]:
 
 def draw_overview_label_specs(ax, specs: list) -> None:
     for spec in specs:
-        text = ax.text(
+        apply_overlay_label_halo(ax.text(
             spec.x,
             spec.y,
             spec.text,
@@ -210,9 +216,7 @@ def draw_overview_label_specs(ax, specs: list) -> None:
             fontsize=spec.fontsize,
             color="black",
             zorder=spec.zorder,
-        )
-        halo_width = 2.4 if spec.with_bbox else 2.0
-        text.set_path_effects([pe.Stroke(linewidth=halo_width, foreground="white"), pe.Normal()])
+        ), with_bbox=spec.with_bbox)
 
 
 def draw_panel_below_items(

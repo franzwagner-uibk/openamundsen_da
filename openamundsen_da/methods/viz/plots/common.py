@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Iterable, List, Optional, Tuple
 import math
 
+import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
 
@@ -429,6 +430,69 @@ def draw_assim_labels(
             rotation_mode="anchor",
             clip_on=False,
         )
+
+
+def add_assim_label_axis(
+    ax,
+    dates: Iterable,
+    *,
+    idx: int = 0,
+    labels: Iterable[str] | None = None,
+    y_offset_pts: float = 2.0,
+    fontsize: float = 6.0,
+    color: str = "#000000",
+    row_y_offsets_pts: Iterable[float] = (2.0, 8.0),
+    min_row_spacing_days: float = 18.0,
+    axes_y: float = 1.0,
+    ha: str = "center",
+    x_offset_pts: float = 0.0,
+) -> object | None:
+    """Create a lightweight top axis for visible assimilation labels."""
+    date_index = list(pd.to_datetime(list(dates)))
+    if not date_index:
+        return None
+    x_min, x_max = sorted(ax.get_xlim())
+    visible_start = pd.Timestamp(mdates.num2date(x_min)).tz_localize(None)
+    visible_end = pd.Timestamp(mdates.num2date(x_max)).tz_localize(None)
+    label_list = list(labels) if labels is not None else [str(i) for i in range(1, len(date_index) + 1)]
+    visible_items = [
+        (date, label)
+        for date, label in zip(date_index, label_list)
+        if visible_start <= pd.Timestamp(date).tz_localize(None) <= visible_end
+    ]
+    if not visible_items:
+        return None
+
+    label_axis = ax.twiny()
+    label_axis.set_label(f"assimilation_label_axis_{idx}")
+    label_axis.patch.set_alpha(0.0)
+    if hasattr(label_axis, "set_in_layout"):
+        label_axis.set_in_layout(False)
+    label_axis.set_xlim(ax.get_xlim())
+    label_axis.set_xticks([])
+    label_axis.set_xlabel("")
+    label_axis.yaxis.set_visible(False)
+    label_axis.xaxis.set_visible(False)
+    for spine in label_axis.spines.values():
+        spine.set_visible(False)
+
+    draw_assim_labels(
+        label_axis,
+        [item[0] for item in visible_items],
+        labels=[item[1] for item in visible_items],
+        max_labels=max(1, len(visible_items)),
+        y_offset_pts=y_offset_pts,
+        fontsize=fontsize,
+        color=color,
+        rotation=0.0,
+        va="bottom",
+        row_y_offsets_pts=row_y_offsets_pts,
+        min_row_spacing_days=min_row_spacing_days,
+        axes_y=axes_y,
+        ha=ha,
+        x_offset_pts=x_offset_pts,
+    )
+    return label_axis
 
 
 def draw_assimilation_markers(

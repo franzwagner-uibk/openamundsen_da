@@ -9,31 +9,20 @@ from typing import Dict, Optional, Sequence, Tuple
 import pandas as pd
 
 from openamundsen_da.io.paths import list_member_dirs
+from openamundsen_da.methods.viz.station_meta import (
+    load_ensemble_station_table,
+    load_ensemble_station_table_from_steps,
+)
 
 
 def load_stations_table(step_dir: Path, ensemble: str) -> Optional[pd.DataFrame]:
     """Load stations.csv from open_loop or first member meteo dir if available."""
-    base = Path(step_dir) / "ensembles" / str(ensemble)
-    candidates = [base / "open_loop" / "meteo" / "stations.csv"]
-    members = list_member_dirs(Path(step_dir) / "ensembles", ensemble)
-    if members:
-        candidates.append(members[0] / "meteo" / "stations.csv")
-    for path in candidates:
-        if path.is_file():
-            try:
-                return pd.read_csv(path)
-            except Exception:
-                return None
-    return None
+    return load_ensemble_station_table(step_dir, ensemble)
 
 
 def load_stations_table_from_steps(step_dirs: Sequence[Path], ensemble: str = "prior") -> Optional[pd.DataFrame]:
     """Load stations.csv from the first step that provides it."""
-    for step_dir in step_dirs:
-        stations = load_stations_table(Path(step_dir), ensemble)
-        if stations is not None:
-            return stations
-    return None
+    return load_ensemble_station_table_from_steps(step_dirs, ensemble)
 
 
 def read_member_perturbations(step_dir: Path, ensemble: str) -> Dict[str, Tuple[Optional[float], Optional[float]]]:

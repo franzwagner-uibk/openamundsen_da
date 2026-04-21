@@ -91,6 +91,7 @@ from openamundsen_da.util.ts import (
     concat_series,
 )
 from openamundsen_da.methods.viz.plots.common import (
+    add_assim_label_axis,
     apply_fraction_grid,
     draw_assimilation_vlines,
     dedupe_legend,
@@ -242,53 +243,15 @@ def _standalone_assimilation_dates(steps: Sequence[StepInfo], fallback: Sequence
 
 
 def _add_result_label_axis(ax, dates: Sequence[datetime], idx: int = 0):
-    import matplotlib.dates as mdates
-
     centered_dates = list(pd.to_datetime(dates))
-    if not centered_dates:
-        return None
-
-    x_min, x_max = sorted(ax.get_xlim())
-    visible_start = pd.Timestamp(mdates.num2date(x_min)).tz_localize(None)
-    visible_end = pd.Timestamp(mdates.num2date(x_max)).tz_localize(None)
-    visible_items = [
-        (date, str(i))
-        for i, date in enumerate(centered_dates, start=1)
-        if visible_start <= date <= visible_end
-    ]
-    if not visible_items:
-        return None
-
-    label_axis = ax.twiny()
-    label_axis.set_label(f"setup_result_assimilation_label_axis_{idx}")
-    label_axis.patch.set_alpha(0.0)
-    if hasattr(label_axis, "set_in_layout"):
-        label_axis.set_in_layout(False)
-    label_axis.set_xlim(ax.get_xlim())
-    label_axis.set_xticks([])
-    label_axis.set_xlabel("")
-    label_axis.yaxis.set_visible(False)
-    label_axis.xaxis.set_visible(False)
-    for spine in label_axis.spines.values():
-        spine.set_visible(False)
-
-    draw_assim_labels(
-        label_axis,
-        [item[0] for item in visible_items],
-        labels=[item[1] for item in visible_items],
-        max_labels=max(1, len(visible_items)),
+    return add_assim_label_axis(
+        ax,
+        centered_dates,
+        idx=idx,
         y_offset_pts=_RESULT_ASSIM_LABEL_ROW_OFFSETS_PTS[0],
-        fontsize=6.0,
-        color="#000000",
-        rotation=0.0,
-        va="bottom",
         row_y_offsets_pts=_RESULT_ASSIM_LABEL_ROW_OFFSETS_PTS,
         min_row_spacing_days=_RESULT_ASSIM_LABEL_MIN_SPACING_DAYS,
-        axes_y=1.0,
-        ha="center",
-        x_offset_pts=0.0,
     )
-    return label_axis
 
 
 def _apply_result_time_axis_labels(ax) -> None:

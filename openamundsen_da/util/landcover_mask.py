@@ -1,4 +1,4 @@
-﻿"""Land-cover based masking for DA grids and observations.
+"""Land-cover based masking for DA grids and observations.
 
 This module replaces the former glacier mask logic. It resolves the land-cover
 file from setup YAML, reads DA mask settings from project YAML, reprojects the

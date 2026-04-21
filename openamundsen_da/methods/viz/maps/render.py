@@ -130,8 +130,47 @@ from openamundsen_da.methods.viz.maps.theme import (
 class RenderRuntimeCache:
     model_fields: dict[tuple[str, pd.Timestamp], ModelFields] = field(default_factory=dict)
     scale_cache: dict[tuple[str, pd.Timestamp], tuple[object, object]] = field(default_factory=dict)
+    shared_model_vmax: dict[str, float] = field(default_factory=dict)
     observations: dict[tuple[str, pd.Timestamp], ObservationScene] = field(default_factory=dict)
     derived_arrays: dict[str, np.ndarray] = field(default_factory=dict)
+
+def _panel_group_bbox(axes_group: list) -> tuple[float, float] | None:
+    if not axes_group:
+        return None
+    y0_values = [float(ax.get_position().y0) for ax in axes_group]
+    y1_values = [float(ax.get_position().y1) for ax in axes_group]
+    if not y0_values:
+        return None
+    return min(y0_values), max(y1_values)
+
+
+def _figure_title_gap(fig, axes_group: list) -> float:
+    if not axes_group:
+        return 0.045
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    decorated_bbox = _axes_group_bbox(fig, renderer, axes_group)
+    panel_bbox = _panel_group_bbox(axes_group)
+    if decorated_bbox is None or panel_bbox is None:
+        return 0.045
+    title_overhang = max(0.0, decorated_bbox[1] - panel_bbox[1])
+    mean_panel_height = float(np.mean([ax.get_position().height for ax in axes_group]))
+    return max(0.016, 0.65 * title_overhang + 0.05 * mean_panel_height)
+
+
+def _decorated_axes_top(fig, axes: list) -> float:
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    top = 0.0
+    transform = fig.transFigure.inverted()
+    for ax in axes:
+        bbox = ax.get_window_extent(renderer)
+        top = max(top, float(transform.transform((0.0, bbox.y1))[1]))
+        left_title = getattr(ax, "_left_title", None)
+        if left_title is not None and left_title.get_text():
+            title_bbox = left_title.get_window_extent(renderer)
+            top = max(top, float(transform.transform((0.0, title_bbox.y1))[1]))
+    return top
 
 
 def _classified_display_labels(
@@ -244,6 +283,7 @@ def _render_model_panel(
     defaults,
     model_cache,
     scale_cache,
+    shared_model_vmax=None,
     figure_horizontal_default,
     derived_cache=None,
 ):
@@ -257,6 +297,7 @@ def _render_model_panel(
         defaults=defaults,
         model_cache=model_cache,
         scale_cache=scale_cache,
+        shared_model_vmax=shared_model_vmax,
         figure_horizontal_default=figure_horizontal_default,
         derived_cache=derived_cache,
         model_loader=load_model_fields,
@@ -325,6 +366,7 @@ def _render_panel(
             defaults=defaults,
             model_cache=cache.model_fields,
             scale_cache=cache.scale_cache,
+            shared_model_vmax=cache.shared_model_vmax,
             figure_horizontal_default=figure_horizontal_default,
             derived_cache=cache.derived_arrays,
         )
@@ -379,7 +421,14 @@ def render_map_recipe(
         wspace=0.0,
         hspace=0.0,
     )
-    fig.subplots_adjust(left=_LEFT_MARGIN, right=_RIGHT_MARGIN, bottom=_BOTTOM_MARGIN, top=_TOP_MARGIN)
+    has_row_labels = bool(recipe.row_labels)
+    has_figure_title = bool(recipe.figure_title)
+    left_margin = max(_LEFT_MARGIN, 0.07) if has_row_labels else _LEFT_MARGIN
+    top_margin = min(_TOP_MARGIN, 0.955) if has_figure_title else _TOP_MARGIN
+    fig.subplots_adjust(left=left_margin, right=_RIGHT_MARGIN, bottom=_BOTTOM_MARGIN, top=top_margin)
+    title_artist = None
+    if recipe.figure_title:
+        title_artist = fig.suptitle(recipe.figure_title, y=0.988, fontsize=9.2)
 
     title_letters = iter(ascii_lowercase)
     panel_labels: list[str | None] = [
@@ -422,6 +471,28 @@ def render_map_recipe(
             _draw_panel_below_items(ax, panel=panel, artifacts=artifacts)
 
     _tighten_panel_row_gaps(fig, row_axes)
+    if recipe.row_labels:
+        for row_idx, row_label in enumerate(recipe.row_labels):
+            current_row_axes = row_axes.get(row_idx) or []
+            if not current_row_axes:
+                continue
+            x0 = min(ax.get_position().x0 for ax in current_row_axes)
+            y0 = min(ax.get_position().y0 for ax in current_row_axes)
+            y1 = max(ax.get_position().y1 for ax in current_row_axes)
+            fig.text(
+                min(left_margin - 0.028, x0 - 0.02),
+                0.5 * (y0 + y1),
+                row_label,
+                rotation=90,
+                ha="center",
+                va="center",
+                fontsize=8.0,
+            )
+    if title_artist is not None:
+        populated_axes = [ax for axes_group in row_axes.values() for ax in axes_group]
+        if populated_axes:
+            top_row = _decorated_axes_top(fig, populated_axes)
+            title_artist.set_y(min(1.03, top_row + _figure_title_gap(fig, populated_axes)))
     force_figure_text_black(fig, axes)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     save_figure_png(fig, output_path, bbox_inches="tight", pad_inches=0.0)

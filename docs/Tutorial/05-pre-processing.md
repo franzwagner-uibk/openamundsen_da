@@ -154,22 +154,24 @@ oa-da-snowcover \
 ```
 
 Before you trust the resulting summary, confirm that the expected acquisition dates
-are present, cloud fraction is acceptable for your use case, valid support is
-large enough, and the `scf` values look plausible for the season. Expect columns
-for date, spatial support, `scf`, `cloud_fraction`, and `source`. When
-uncertainty is enabled, the summary also contains `unc_mean`, `unc_min`,
-`unc_max`, and `unc_n_valid`.
+are present, cloud fraction and invalid fraction are acceptable for your use case,
+valid support is large enough, and the `scf` values look plausible for the season.
+Expect columns for date, spatial support, `scf`, `cloud_fraction`,
+`invalid_fraction`, and `source`. `invalid_fraction` is the ROI-based unusable-scene
+fraction and catches missing or otherwise unusable ROI pixels even when they are
+not encoded as explicit cloud classes. When uncertainty is enabled, the summary
+also contains `unc_mean`, `unc_min`, `unc_max`, and `unc_n_valid`.
 
 Reference snippet from
 `/data/rofental/obs/summaries/project_2022_2023/scf_summary.csv`:
 
-| date | region_id | n_valid | n_snow | scf | cloud_fraction | source |
-| --- | --- | --- | --- | --- | --- | --- |
-| 2022-10-03 |  | 88455 | 46001 | 0.52 | 0.00 | s2_fsc_snowflake_rofental_2022_10_03.tif |
-| 2022-10-05 |  | 78631 | 23973 | 0.30 | 0.00 | s2_fsc_snowflake_rofental_2022_10_05.tif |
-| 2022-10-08 |  | 33976 | 1078 | 0.03 | 0.00 | s2_fsc_snowflake_rofental_2022_10_08.tif |
-| 2022-10-13 |  | 12530 | 306 | 0.02 | 0.00 | s2_fsc_snowflake_rofental_2022_10_13.tif |
-| 2022-10-18 |  | 72228 | 2255 | 0.03 | 0.00 | s2_fsc_snowflake_rofental_2022_10_18.tif |
+| date | region_id | n_valid | n_snow | n_invalid | scf | cloud_fraction | invalid_fraction | source |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2022-10-03 |  | 89927 | 46001 | 90529 | 0.51 | 0.00 | 0.36 | s2_fsc_snowflake_rofental_2022_10_03.tif |
+| 2022-10-05 |  | 80183 | 23973 | 102121 | 0.30 | 0.00 | 0.41 | s2_fsc_snowflake_rofental_2022_10_05.tif |
+| 2022-10-08 |  | 35064 | 1078 | 194266 | 0.03 | 0.00 | 0.77 | s2_fsc_snowflake_rofental_2022_10_08.tif |
+| 2022-10-13 |  | 13648 | 306 | 233362 | 0.02 | 0.00 | 0.93 | s2_fsc_snowflake_rofental_2022_10_13.tif |
+| 2022-10-18 |  | 73805 | 2255 | 120769 | 0.03 | 0.00 | 0.48 | s2_fsc_snowflake_rofental_2022_10_18.tif |
 
 ## Step 2: Summarize wet-snow rasters to `wet_snow_summary.csv`
 

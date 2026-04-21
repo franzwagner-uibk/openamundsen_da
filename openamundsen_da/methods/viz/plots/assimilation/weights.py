@@ -1,4 +1,4 @@
-﻿"""openamundsen_da.methods.pf.plot_weights
+"""Plot per-date assimilation weights and residual summaries.
 
 Plot per-date assimilation weights and residual summaries.
 

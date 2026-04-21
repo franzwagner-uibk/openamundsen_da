@@ -9,7 +9,6 @@ import re
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import pyproj
 import rasterio
 import xarray as xr
 from rasterio import features
@@ -27,6 +26,7 @@ from openamundsen_da.io.paths import (
     project_da_output_grids_path,
 )
 from openamundsen_da.methods.viz.maps.config import DateSelector
+from openamundsen_da.methods.viz.station_meta import load_setup_station_table
 from openamundsen_da.observer.class_config import load_observation_classes, load_wetsnow_classes
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.landcover_mask import resolve_setup_landcover_grid
@@ -76,13 +76,6 @@ def _normalize_dates(values: object) -> tuple[pd.Timestamp, ...]:
 
 def _metric_var(metric: str, variable: str) -> str:
     return f"{metric}_{variable}"
-
-
-def _transform_coords(x, y, src_crs: str | None, dst_crs: str | None):
-    if src_crs is None or dst_crs is None or str(src_crs).lower() == str(dst_crs).lower():
-        return np.asarray(x), np.asarray(y)
-    transformer = pyproj.Transformer.from_crs(src_crs, dst_crs, always_xy=True)
-    return transformer.transform(np.asarray(x), np.asarray(y))
 
 
 def _read_dataset_array(path: Path, *, shape: tuple[int, int], transform, crs: str | None) -> np.ndarray:
@@ -144,58 +137,6 @@ def _highest_resolution_dem_path(spec) -> Path:
         return (0, int(match.group("res")))
 
     return sorted(candidates, key=_resolution_key)[0]
-
-
-def _load_stations_table(setup_dir: Path) -> pd.DataFrame | None:
-    setup_cfg = _read_yaml_file(find_setup_yaml(setup_dir)) or {}
-    if not isinstance(setup_cfg, dict):
-        return None
-    input_data = (setup_cfg.get("input_data") or {}) if isinstance(setup_cfg.get("input_data"), dict) else {}
-    meteo_cfg = (input_data.get("meteo") or {}) if isinstance(input_data.get("meteo"), dict) else {}
-    meteo_dir_raw = meteo_cfg.get("dir") or "meteo"
-    meteo_dir = Path(abspath_relative_to(setup_dir, Path(str(meteo_dir_raw))))
-    meteo_format = str(meteo_cfg.get("format") or "csv").strip().lower()
-    grid_crs = setup_cfg.get("crs")
-
-    if meteo_format == "csv":
-        stations_path = meteo_dir / "stations.csv"
-        if not stations_path.is_file():
-            return None
-        stations = pd.read_csv(stations_path)
-        if {"id", "x", "y"}.issubset(stations.columns):
-            meteo_crs = meteo_cfg.get("crs")
-            if meteo_crs and grid_crs and str(meteo_crs).lower() != str(grid_crs).lower():
-                xs, ys = _transform_coords(stations["x"], stations["y"], meteo_crs, grid_crs)
-                stations = stations.copy()
-                stations["x"] = xs
-                stations["y"] = ys
-            return stations
-        return None
-
-    if meteo_format == "netcdf":
-        rows: list[dict[str, object]] = []
-        for nc_path in sorted(meteo_dir.glob("*.nc")):
-            with xr.open_dataset(nc_path) as ds:
-                station_id = str(nc_path.stem)
-                lon = float(ds["lon"].values)
-                lat = float(ds["lat"].values)
-                alt = float(ds["alt"].values)
-                station_name = ds.attrs.get("station_name")
-                if not station_name and "station_name" in ds:
-                    station_name = str(np.asarray(ds["station_name"]).reshape(-1)[0])
-                x, y = _transform_coords(lon, lat, "epsg:4326", grid_crs)
-                rows.append(
-                    {
-                        "id": station_id,
-                        "name": str(station_name or station_id),
-                        "x": float(x),
-                        "y": float(y),
-                        "alt": alt,
-                    }
-                )
-        return pd.DataFrame(rows) if rows else None
-
-    return None
 
 
 def _load_optional_setup_grid(
@@ -270,7 +211,7 @@ def _load_static_context_cached(project_dir_str: str) -> StaticContext:
         transform=spec.transform,
         crs=spec.crs,
     )
-    stations = _load_stations_table(setup_dir)
+    stations = load_setup_station_table(setup_dir)
     return StaticContext(
         project_dir=project_dir,
         setup_dir=setup_dir,

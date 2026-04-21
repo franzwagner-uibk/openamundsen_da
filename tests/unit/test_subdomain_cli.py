@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import sys
-import types
 
 from openamundsen_da.subdomain import cli as subdomain_cli
 
@@ -183,8 +181,10 @@ def test_plot_defaults_to_snow_depth_obs_column(monkeypatch, tmp_path: Path) -> 
         called.update(kwargs)
         return []
 
-    fake_plot_module = types.SimpleNamespace(plot_station_comparisons=_fake_plot_station_comparisons)
-    monkeypatch.setitem(sys.modules, "openamundsen_da.subdomain.plot", fake_plot_module)
+    monkeypatch.setattr(
+        "openamundsen_da.methods.viz.plots.subdomain.station_comparisons.plot_station_comparisons",
+        _fake_plot_station_comparisons,
+    )
 
     rc = subdomain_cli.cli(["plot", "--project-dir", str(project_dir)])
 

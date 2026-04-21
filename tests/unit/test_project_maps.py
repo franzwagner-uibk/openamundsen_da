@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from concurrent.futures import Future
+import json
 from pathlib import Path
 import shutil
 import textwrap
 
 import geopandas as gpd
+import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as pe
 import numpy as np
 import pandas as pd
 import pytest
@@ -18,7 +21,9 @@ from shapely.geometry import Point, box
 import openamundsen_da.methods.viz.maps.render as render_module
 import openamundsen_da.methods.viz.maps.runner as runner_module
 import openamundsen_da.methods.viz.maps.data as data_module
+import openamundsen_da.methods.viz.maps.generated as generated_module
 import openamundsen_da.methods.viz.maps.overview as overview_module
+import openamundsen_da.methods.viz.maps.panel_renderers as panel_renderers_module
 from openamundsen_da.methods.viz.maps.config import (
     DateSelector,
     LayoutSpec,
@@ -49,6 +54,7 @@ from openamundsen_da.methods.viz.maps.render import (
     buffered_extent,
     figure_height_for_extent,
 )
+import openamundsen_da.pipeline.plot_tasks as plot_tasks_module
 from openamundsen_da.pipeline import project as project_pipeline
 from openamundsen_da.methods.viz.maps.runner import project_maps_enabled, render_project_maps
 from openamundsen_da.methods.viz.maps.styles import (
@@ -56,13 +62,16 @@ from openamundsen_da.methods.viz.maps.styles import (
     FSC_INVALID_COLOR,
     INCREMENT_CMAP,
     SNOW_DEPTH_REFERENCE_TICKS_M,
-    SNOW_DEPTH_REFERENCE_TICKLABELS_CM,
     WET_SNOW_COLORS,
     WET_SNOW_LABELS,
     model_colorbar_style,
     model_map_cmap,
     require_static_field_preset,
     require_variable_preset,
+    snow_depth_colorbar_labels_cm,
+    snow_depth_colorbar_ticklabels,
+    snow_depth_colorbar_ticks,
+    snow_depth_scale_ticks,
     static_field_cmap,
     static_field_colorbar_style,
 )
@@ -237,6 +246,11 @@ def _build_project_fixture(
               valid: [110, 125, 200, 210]
               exclude: [200, 210]
         data_assimilation:
+          h_of_x:
+            method: depth_threshold
+            variable: hs
+            params:
+              h0: 0.25
           assimilation_events:
             - date: "2023-01-02"
               variable: scf
@@ -457,9 +471,9 @@ def test_overview_cli_fetches_into_setup_env(monkeypatch: pytest.MonkeyPatch, tm
     assert calls == [setup_dir.resolve()]
 
 
-def test_project_maps_enabled_looks_for_maps_yml(tmp_path: Path) -> None:
+def test_project_maps_enabled_accepts_generated_events_without_maps_yml(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
-    assert project_maps_enabled(project_dir) is False
+    assert project_maps_enabled(project_dir) is True
 
     (project_dir / "maps.yml").write_text("maps: {}\n", encoding="utf-8")
 
@@ -837,45 +851,9 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
 
     cfg = load_project_maps_config(config_path)
 
-    assert [recipe.name for recipe in cfg.maps] == [
-        "setup_overview",
-        "da_1",
-        "da_2",
-        "da_3",
-        "da_4",
-        "da_5",
-        "da_6",
-        "da_7",
-        "da_8",
-        "da_9",
-        "da_10",
-    ]
-    assert [recipe.title for recipe in cfg.maps] == [
-        "setup_overview",
-        "da_1",
-        "da_2",
-        "da_3",
-        "da_4",
-        "da_5",
-        "da_6",
-        "da_7",
-        "da_8",
-        "da_9",
-        "da_10",
-    ]
-    assert [recipe.output_stem for recipe in cfg.maps] == [
-        "setup_overview",
-        "da_1",
-        "da_2",
-        "da_3",
-        "da_4",
-        "da_5",
-        "da_6",
-        "da_7",
-        "da_8",
-        "da_9",
-        "da_10",
-    ]
+    assert [recipe.name for recipe in cfg.maps] == ["setup_overview"]
+    assert [recipe.title for recipe in cfg.maps] == ["setup_overview"]
+    assert [recipe.output_stem for recipe in cfg.maps] == ["setup_overview"]
     assert cfg.maps[0].layout.nrows == 2
     assert cfg.maps[0].layout.ncols == 3
     assert [panel.title for panel in cfg.maps[0].panels] == [
@@ -889,16 +867,130 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
     assert [(panel.row, panel.col) for panel in cfg.maps[0].panels] == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
     assert cfg.maps[0].panels[3].name is None
     assert cfg.maps[0].panels[1].below_items[0].label == "Meteorological stations"
-    assert cfg.maps[7].panels[3].show_hillshade is None
-    assert cfg.maps[7].panels[4].show_hillshade is None
-    assert cfg.maps[7].panels[5].show_hillshade is True
-    assert cfg.maps[7].panels[5].hillshade_extent == "roi"
-    assert [panel.kind for panel in cfg.maps[1].panels] == ["snow_depth", "snow_depth", "snow_depth"]
-    assert [panel.kind for panel in cfg.maps[2].panels] == ["snow_depth", "snow_depth", "snow_depth"]
-    assert [panel.kind for panel in cfg.maps[4].panels] == ["snow_depth", "snow_depth", "snow_depth"]
-    assert [panel.kind for panel in cfg.maps[5].panels] == ["snow_depth", "snow_depth", "snow_depth"]
-    assert cfg.maps[8].panels[2].kind == "wet_snow"
-    assert cfg.maps[9].panels[2].kind == "fsc"
+    assert cfg.maps[0].panels[5].show_hillshade is True
+
+
+def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(generated_module, "_fraction_model_support_available", lambda *_args, **_kwargs: False)
+
+    recipes = generated_module.generated_da_map_recipes(project_dir)
+
+    assert [recipe.name for recipe in recipes] == ["da_1", "da_2"]
+    assert all(recipe.output_subdir == generated_module.GENERATED_DA_MAPS_SUBDIR for recipe in recipes)
+    assert recipes[0].figure_title == "2023-01-02 (snow cover fraction)"
+    assert recipes[1].figure_title == "2023-01-02 (wet snow)"
+    assert recipes[0].row_labels == ("station snow depth",)
+    assert [panel.title for panel in recipes[0].panels] == ["open loop", "ensemble mean", "increment"]
+
+
+def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_support_exists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(
+        generated_module,
+        "_fraction_model_support_available",
+        lambda _project_dir, variable: variable == "scf",
+    )
+
+    recipes = generated_module.generated_da_map_recipes(project_dir)
+
+    assert recipes[0].row_labels[0] == "snow cover"
+    scf_panels = recipes[0].panels[:6]
+    assert [panel.source for panel in scf_panels[:3]] == ["open_loop_binary", "posterior_probability", None]
+    assert [panel.title for panel in scf_panels[:3]] == [
+        "open-loop snow cover",
+        "ensemble snow-cover probability",
+        "satellite FSC observation",
+    ]
+
+
+def test_scf_probability_model_resolves_posterior_member_source_pointers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    step_dir = project_dir / "steps" / "step_01_20230101-20230102"
+    source_member_dir = step_dir / "ensembles" / "prior" / "member_002"
+    (source_member_dir / "results").mkdir(parents=True, exist_ok=True)
+    posterior_member_dir = step_dir / "ensembles" / "posterior" / "member_001"
+    posterior_member_dir.mkdir(parents=True, exist_ok=True)
+    (posterior_member_dir / "source_pointer.json").write_text(
+        json.dumps({"member_dir": str(source_member_dir)}, indent=2),
+        encoding="utf-8",
+    )
+
+    seen_results_dirs: list[Path] = []
+
+    monkeypatch.setattr(panel_renderers_module, "_step_dir_for_date", lambda *_args, **_kwargs: step_dir)
+    monkeypatch.setattr(panel_renderers_module, "list_member_dirs", lambda *_args, **_kwargs: [posterior_member_dir])
+
+    def fake_binary_grid(**kwargs):
+        seen_results_dirs.append(Path(kwargs["results_dir"]))
+        return np.ones((4, 4), dtype=float)
+
+    monkeypatch.setattr(panel_renderers_module, "_scf_binary_grid_from_results", fake_binary_grid)
+
+    probability = panel_renderers_module._scf_model_probability_array(
+        context=context,
+        source="posterior_probability",
+        date=pd.Timestamp("2023-01-02"),
+        derived_cache={},
+    )
+
+    assert seen_results_dirs == [source_member_dir / "results"]
+    assert np.allclose(probability[context.roi_mask], 1.0)
+
+
+def test_scf_binary_map_uses_full_roi_without_landcover_mask(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    captured: dict[str, object] = {}
+
+    def fake_compute_model_scf_binary_grid(**kwargs):
+        captured.update(kwargs)
+        return np.ones((4, 4), dtype=float)
+
+    monkeypatch.setattr(panel_renderers_module, "compute_model_scf_binary_grid", fake_compute_model_scf_binary_grid)
+
+    panel_renderers_module._scf_binary_grid_from_results(
+        context=context,
+        results_dir=project_dir / "steps" / "step_01_20230101-20230102" / "ensembles" / "prior" / "open_loop" / "results",
+        date=pd.Timestamp("2023-01-02"),
+    )
+
+    assert captured["apply_landcover_mask"] is False
+
+
+def test_reference_stream_uses_variable_name_labels(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    target_date = pd.Timestamp("2023-01-02")
+
+    monkeypatch.setattr(generated_module, "_fraction_summary_dates", lambda *_args, **_kwargs: {target_date})
+    monkeypatch.setattr(generated_module, "_event_dates_by_variable", lambda *_args, **_kwargs: {"scf": {pd.Timestamp("2023-02-01")}})
+
+    assert generated_module._reference_stream(project_dir, variable="scf", date=target_date) == "snow cover (independent)"
+
+
+def test_render_project_maps_generates_da_event_maps_under_subdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(generated_module, "_fraction_model_support_available", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", generated_module.generated_da_map_recipes)
+
+    outputs = render_project_maps(project_dir=project_dir, max_workers=1)
+
+    assert outputs == [
+        project_dir / "results" / "maps" / "da_events" / "da_1.png",
+        project_dir / "results" / "maps" / "da_events" / "da_2.png",
+    ]
+    for output in outputs:
+        assert output.is_file()
 
 
 def test_project_maps_config_rejects_overlapping_panels(tmp_path: Path) -> None:
@@ -1007,7 +1099,7 @@ def test_comparison_scales_use_zero_centered_diverging_increment_norm() -> None:
     assert increment_norm.vmin == -increment_norm.vmax
 
 
-def test_comparison_scales_fix_snowdepth_model_range_to_reference_palette() -> None:
+def test_comparison_scales_stretch_snowdepth_model_range_to_data_ceiling() -> None:
     preset = require_variable_preset("snowdepth_daily")
     fields = [
         ModelFields(
@@ -1021,7 +1113,26 @@ def test_comparison_scales_fix_snowdepth_model_range_to_reference_palette() -> N
     model_norm, _increment_norm = _comparison_scales(fields, preset)
 
     assert model_norm.vmin == SNOW_DEPTH_REFERENCE_TICKS_M[0]
-    assert model_norm.vmax == SNOW_DEPTH_REFERENCE_TICKS_M[-1]
+    assert model_norm.vmax == 5.0
+
+
+def test_comparison_scales_allow_shared_snowdepth_upper_bound() -> None:
+    preset = require_variable_preset("snowdepth_daily")
+    fields = [
+        ModelFields(
+            date=pd.Timestamp("2023-01-01"),
+            open_loop=np.array([[0.05, 0.20]], dtype=float),
+            ens_mean=np.array([[0.30, 0.40]], dtype=float),
+            increment=np.array([[-0.05, 0.10]], dtype=float),
+        ),
+    ]
+
+    model_norm, increment_norm = _comparison_scales(fields, preset, model_vmax=1.5)
+
+    assert model_norm.vmin == SNOW_DEPTH_REFERENCE_TICKS_M[0]
+    assert model_norm.vmax == 1.5
+    assert increment_norm.vmin == -0.25
+    assert increment_norm.vmax == 0.25
 
 
 def test_snowdepth_model_mask_hides_values_below_one_centimeter() -> None:
@@ -1131,6 +1242,131 @@ def test_model_panels_remain_masked_outside_roi(tmp_path: Path) -> None:
         model_array = np.ma.asarray(artifact["mappable"].get_array())
         assert np.ma.getmaskarray(model_array)[0, 0]
         assert not np.ma.getmaskarray(model_array)[1, 1]
+    finally:
+        plt.close(fig)
+
+
+def test_fsc_probability_model_panel_renders_probability_field(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        monkeypatch.setattr(
+            panel_renderers_module,
+            "_scf_model_probability_array",
+            lambda **_kwargs: np.array(
+                [
+                    [0.0, 0.5, 1.0, np.nan],
+                    [0.0, 0.5, 1.0, np.nan],
+                    [0.0, 0.5, 1.0, np.nan],
+                    [0.0, 0.5, 1.0, np.nan],
+                ],
+                dtype=float,
+            ),
+        )
+        artifact = render_module._render_observation_panel(
+            ax,
+            panel=MapPanelSpec(
+                kind="fsc",
+                row=0,
+                col=0,
+                source="posterior_probability",
+                date="2023-01-02",
+                show_colorbar=False,
+            ),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(),
+            obs_cache={},
+            figure_horizontal_default=True,
+        )
+        model_array = np.ma.asarray(artifact["mappable"].get_array())
+        assert float(model_array[0, 0]) == 0.0
+        assert float(model_array[0, 1]) == 50.0
+        assert float(model_array[0, 2]) == 100.0
+        assert isinstance(artifact["mappable"].norm, matplotlib.colors.Normalize)
+    finally:
+        plt.close(fig)
+
+
+def test_fsc_open_loop_model_panel_renders_binary_field_discretely(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        monkeypatch.setattr(
+            panel_renderers_module,
+            "_scf_model_probability_array",
+            lambda **_kwargs: np.array(
+                [
+                    [0.0, 1.0, np.nan, 0.0],
+                    [1.0, 0.0, 1.0, 0.0],
+                    [0.0, 1.0, 0.0, 1.0],
+                    [1.0, 0.0, 1.0, 0.0],
+                ],
+                dtype=float,
+            ),
+        )
+        artifact = render_module._render_observation_panel(
+            ax,
+            panel=MapPanelSpec(
+                kind="fsc",
+                row=0,
+                col=0,
+                source="open_loop_binary",
+                date="2023-01-02",
+                show_colorbar=False,
+            ),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(),
+            obs_cache={},
+            figure_horizontal_default=True,
+        )
+        model_array = np.ma.asarray(artifact["mappable"].get_array())
+        assert float(model_array[0, 0]) == 0.0
+        assert float(model_array[0, 1]) == 1.0
+        assert isinstance(artifact["mappable"].norm, matplotlib.colors.BoundaryNorm)
+    finally:
+        plt.close(fig)
+
+
+def test_invalid_pixels_inside_roi_use_fsc_invalid_overlay_color(tmp_path: Path) -> None:
+    roi_mask = np.array(
+        [
+            [0, 0, 0, 0],
+            [0, 1, 1, 0],
+            [0, 1, 1, 0],
+            [0, 0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
+    _setup_dir, project_dir = _build_project_fixture(
+        tmp_path,
+        roi_mask=roi_mask,
+        roi_bounds=(100.0, 100.0, 300.0, 300.0),
+    )
+    context = load_static_context(project_dir)
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        context.dem[1, 1] = np.nan
+        render_module._render_static_panel(
+            ax,
+            panel=MapPanelSpec(kind="dem", row=0, col=0, show_colorbar=False),
+            context=context,
+            extent=buffered_extent(context),
+            grid_extent=render_module._grid_extent(context),
+            label=None,
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
+        assert len(ax.images) >= 2
+        overlay = np.asarray(ax.images[-1].get_array(), dtype=float)
+        pink = matplotlib.colors.to_rgba(FSC_INVALID_COLOR)
+        assert np.allclose(overlay[1, 1], pink)
+        assert overlay[0, 0, 3] == 0.0
     finally:
         plt.close(fig)
 
@@ -1323,8 +1559,10 @@ def test_observation_panel_hillshade_can_be_disabled_or_limited_to_roi(tmp_path:
             obs_cache={},
             figure_horizontal_default=True,
         )
-        assert len(ax_off.images) == 1
-        assert len(ax_roi.images) == 2
+        assert len(ax_off.images) == 2
+        assert len(ax_roi.images) == 3
+        off_overlay = np.asarray(ax_off.images[-1].get_array(), dtype=float)
+        assert off_overlay.shape[-1] == 4
         roi_underlay = np.ma.asarray(ax_roi.images[0].get_array())
         assert np.ma.getmaskarray(roi_underlay)[0, 0]
         assert not np.ma.getmaskarray(roi_underlay)[1, 1]
@@ -1333,16 +1571,28 @@ def test_observation_panel_hillshade_can_be_disabled_or_limited_to_roi(tmp_path:
         plt.close(fig_roi)
 
 
-def test_snowdepth_model_palette_uses_reference_ticks_and_transparent_under_range() -> None:
+def test_snowdepth_model_palette_uses_dynamic_ticks_and_transparent_under_range() -> None:
     preset = require_variable_preset("snowdepth_daily")
+    vmax = 2.5
 
-    colorbar_style = model_colorbar_style(preset)
+    colorbar_style = model_colorbar_style(preset, vmax=vmax)
     cmap = model_map_cmap(preset)
 
     assert colorbar_style.label == "snow depth [cm]"
-    assert colorbar_style.ticks == SNOW_DEPTH_REFERENCE_TICKS_M
-    assert colorbar_style.ticklabels == SNOW_DEPTH_REFERENCE_TICKLABELS_CM
+    assert colorbar_style.ticks == snow_depth_colorbar_ticks(vmax)
+    assert colorbar_style.ticklabels == snow_depth_colorbar_ticklabels(vmax)
+    assert colorbar_style.ticks[0] == SNOW_DEPTH_REFERENCE_TICKS_M[0]
+    assert colorbar_style.ticks[-1] == vmax
     assert cmap(-0.1)[3] == 0.0
+
+
+def test_snowdepth_colorbar_ticks_keep_reference_style_with_dynamic_top_bin() -> None:
+    vmax = 2.25
+
+    assert snow_depth_scale_ticks(vmax)[-1] == vmax
+    assert snow_depth_colorbar_labels_cm(vmax) == (1.0, 50.0, 100.0, 150.0, 200.0, 225.0)
+    assert len(snow_depth_colorbar_ticks(vmax)) == 6
+    assert snow_depth_colorbar_ticklabels(vmax) == ("1", "50", "100", "150", "200", "225")
 
 
 def test_increment_cmap_runs_from_negative_red_to_positive_blue() -> None:
@@ -1448,9 +1698,35 @@ def test_draw_scale_bar_adds_reference_style_annotations() -> None:
         assert {"0", "2.5", "5", "km"} <= labels
         bar = ax.lines[0]
         km_text = next(text for text in ax.texts if text.get_text() == "km")
+        zero_text = next(text for text in ax.texts if text.get_text() == "0")
         assert any(effect.__class__.__name__ == "Stroke" for effect in bar.get_path_effects())
         assert any(effect.__class__.__name__ == "Stroke" for effect in km_text.get_path_effects())
+        halo = next(effect for effect in km_text.get_path_effects() if isinstance(effect, pe.Stroke))
+        zero_halo = next(effect for effect in zero_text.get_path_effects() if isinstance(effect, pe.Stroke))
+        assert halo._gc["foreground"] == "white"
+        assert halo._gc["linewidth"] == pytest.approx(2.0)
+        assert zero_halo._gc["linewidth"] == pytest.approx(2.0)
         assert km_text.get_position()[1] < min(line.get_ydata()[0] for line in ax.lines)
+    finally:
+        plt.close(fig)
+
+
+def test_draw_overview_label_specs_use_bbox_sensitive_halo_widths() -> None:
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        render_module._draw_overview_label_specs(
+            ax,
+            [
+                panel_renderers_module.OverviewLabelSpec("Country", 0.4, 0.6, "center", "center", 6.2, True, 10),
+                panel_renderers_module.OverviewLabelSpec("ROI", 0.6, 0.4, "left", "center", 6.2, False, 10),
+            ],
+        )
+        country_halo = next(effect for effect in ax.texts[0].get_path_effects() if isinstance(effect, pe.Stroke))
+        roi_halo = next(effect for effect in ax.texts[1].get_path_effects() if isinstance(effect, pe.Stroke))
+        assert country_halo._gc["foreground"] == "white"
+        assert country_halo._gc["linewidth"] == pytest.approx(2.4)
+        assert roi_halo._gc["foreground"] == "white"
+        assert roi_halo._gc["linewidth"] == pytest.approx(2.0)
     finally:
         plt.close(fig)
 
@@ -1951,14 +2227,18 @@ def test_draw_stations_overlay_supports_marker_only_and_explicit_labels(tmp_path
             xpos, ypos = text.get_position()
             assert np.isclose(xpos, float(row["x"]) + expected_dx)
             assert np.isclose(ypos, float(row["y"]) + expected_dy)
+            halo = next(effect for effect in text.get_path_effects() if isinstance(effect, pe.Stroke))
+            assert halo._gc["foreground"] == "white"
+            assert halo._gc["linewidth"] == pytest.approx(2.0)
         assert len(axes[2].collections) == 0
         assert len(axes[2].texts) == 0
     finally:
         plt.close(fig)
 
 
-def test_render_project_maps_writes_flat_recipe_outputs(tmp_path: Path) -> None:
+def test_render_project_maps_writes_flat_recipe_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: ())
     _write_yaml(
         project_dir / "maps.yml",
         """
@@ -2072,8 +2352,9 @@ def test_resolve_effective_max_workers_clamps_to_recipe_count(monkeypatch: pytes
     assert runner_module._resolve_effective_max_workers(10, recipe_count=3) == 3
 
 
-def test_render_project_maps_parallel_matches_sequential_order(tmp_path: Path) -> None:
+def test_render_project_maps_parallel_matches_sequential_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: ())
     _write_yaml(
         project_dir / "maps.yml",
         """
@@ -2117,8 +2398,62 @@ def test_render_project_maps_parallel_matches_sequential_order(tmp_path: Path) -
     assert parallel == expected
 
 
-def test_render_project_maps_name_filter_limits_outputs(tmp_path: Path) -> None:
+def test_collect_shared_model_vmax_uses_selected_nonincrement_snowdepth_panels(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    recipes = (
+        MapRecipe(
+            name="a",
+            title="A",
+            layout=LayoutSpec(nrows=1, ncols=1),
+            defaults=MapDefaults(date="2023-01-01"),
+            panels=(MapPanelSpec(kind="snow_depth", row=0, col=0, source="open_loop"),),
+        ),
+        MapRecipe(
+            name="b",
+            title="B",
+            layout=LayoutSpec(nrows=1, ncols=2),
+            defaults=MapDefaults(date="2023-01-02"),
+            panels=(
+                MapPanelSpec(kind="snow_depth", row=0, col=0, source="ensemble_mean"),
+                MapPanelSpec(kind="snow_depth", row=0, col=1, source="increment"),
+            ),
+        ),
+    )
+
+    calls: list[tuple[str, tuple[pd.Timestamp, ...]]] = []
+
+    def fake_load_model_fields(project_dir_arg: Path, variable: str, dates: tuple[pd.Timestamp, ...]) -> list[ModelFields]:
+        assert project_dir_arg == project_dir
+        calls.append((variable, dates))
+        return [
+            ModelFields(
+                date=dates[0],
+                open_loop=np.array([[0.2, 0.4]], dtype=float),
+                ens_mean=np.array([[0.6, 0.9]], dtype=float),
+                increment=np.array([[0.1, -0.1]], dtype=float),
+            ),
+            ModelFields(
+                date=dates[1],
+                open_loop=np.array([[0.3, 0.5]], dtype=float),
+                ens_mean=np.array([[0.8, 1.2]], dtype=float),
+                increment=np.array([[0.2, -0.2]], dtype=float),
+            ),
+        ]
+
+    monkeypatch.setattr(runner_module, "load_model_fields", fake_load_model_fields)
+
+    shared_vmax = runner_module._collect_shared_model_vmax(project_dir, recipes)
+
+    assert calls == [("snowdepth_daily", (pd.Timestamp("2023-01-01"), pd.Timestamp("2023-01-02")))]
+    assert shared_vmax == {"snowdepth_daily": 1.25}
+
+
+def test_render_project_maps_name_filter_limits_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: ())
     _write_yaml(
         project_dir / "maps.yml",
         """
@@ -2157,6 +2492,7 @@ def test_render_project_maps_logs_batch_and_per_map_progress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: ())
     _write_yaml(
         project_dir / "maps.yml",
         """
@@ -2200,8 +2536,8 @@ def test_render_project_maps_logs_batch_and_per_map_progress(
 
     assert len(outputs) == 2
     assert any("Rendering 2 project map(s)" in msg for msg in info_messages)
-    assert "Starting map setup_map" in info_messages
-    assert "Starting map wet_scene" in info_messages
+    assert "Starting custom map setup_map" in info_messages
+    assert "Starting custom map wet_scene" in info_messages
     assert any(msg.startswith("Finished map setup_map -> ") for msg in info_messages)
     assert any(msg.startswith("Finished map wet_scene -> ") for msg in info_messages)
     assert error_messages == []
@@ -2212,6 +2548,7 @@ def test_render_project_maps_reuses_model_and_observation_caches_across_recipes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: ())
     _write_yaml(
         project_dir / "maps.yml",
         """
@@ -2274,8 +2611,9 @@ def test_render_project_maps_reuses_model_and_observation_caches_across_recipes(
     assert obs_calls == 1
 
 
-def test_render_project_maps_parallel_failure_propagates(tmp_path: Path) -> None:
+def test_render_project_maps_parallel_failure_propagates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: ())
     _write_yaml(
         project_dir / "maps.yml",
         """
@@ -2311,6 +2649,7 @@ def test_render_project_maps_parallel_logs_recipe_attributed_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: ())
     _write_yaml(
         project_dir / "maps.yml",
         """
@@ -2356,16 +2695,16 @@ def test_render_project_maps_parallel_logs_recipe_attributed_failure(
         def __exit__(self, exc_type, exc, tb):
             return None
 
-        def submit(self, _fn, project_dir_arg, config_path_arg, recipe_name):
-            del project_dir_arg, config_path_arg
+        def submit(self, _fn, project_dir_arg, recipe, shared_model_vmax):
+            del project_dir_arg, shared_model_vmax
             future: Future = Future()
-            if recipe_name == "broken_map":
+            if recipe.name == "broken_map":
                 future.set_exception(ValueError("boom"))
             else:
                 future.set_result(
                     runner_module.RecipeRenderResult(
-                        recipe_name=recipe_name,
-                        output_path=Path("/tmp") / f"{recipe_name}.png",
+                        recipe_name=recipe.name,
+                        output_path=Path("/tmp") / f"{recipe.name}.png",
                     )
                 )
             return future
@@ -2381,9 +2720,9 @@ def test_render_project_maps_parallel_logs_recipe_attributed_failure(
     with pytest.raises(runner_module.ProjectMapRenderError, match="broken_map"):
         render_project_maps(project_dir=project_dir, max_workers=2)
 
-    assert "Starting map ok_map" in info_messages
-    assert "Starting map broken_map" in info_messages
-    assert any(msg == "Failed map broken_map: boom" for msg in error_messages)
+    assert "Starting custom map ok_map" in info_messages
+    assert "Starting custom map broken_map" in info_messages
+    assert any(msg == "Failed custom map broken_map: boom" for msg in error_messages)
 
 
 def test_project_pipeline_best_effort_map_render_logs_warning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -2399,13 +2738,20 @@ def test_project_pipeline_best_effort_map_render_logs_warning(monkeypatch: pytes
         def warning(self, message: str, *args) -> None:
             warnings.append(message.format(*args))
 
-    monkeypatch.setattr(project_pipeline, "logger", StubLogger())
-    monkeypatch.setattr(project_pipeline, "project_maps_enabled", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(project_pipeline, "render_project_maps", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(plot_tasks_module, "logger", StubLogger())
+    monkeypatch.setattr(plot_tasks_module, "project_maps_enabled", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        plot_tasks_module,
+        "render_project_maps",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
 
-    project_pipeline._render_project_maps_best_effort(project_dir)
+    plot_tasks_module.render_project_maps_best_effort(project_dir)
 
-    assert warnings == ["Project maps failed: boom"]
+    assert warnings == [
+        "Project maps failed: boom",
+        f"Rerun project maps with: python -m openamundsen_da.methods.viz.maps.runner --project-dir {project_dir}",
+    ]
 
 
 def test_project_maps_cli_passes_max_workers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -2460,4 +2806,7 @@ def test_project_maps_cli_logs_recipe_attributed_failure(monkeypatch: pytest.Mon
     )
 
     assert exit_code == 1
-    assert error_messages == ["Project maps rendering failed: map 'broken_map' failed: boom"]
+    assert error_messages == [
+        "Project maps rendering failed: custom map 'broken_map' failed: boom",
+        f"Rerun project maps with: python -m openamundsen_da.methods.viz.maps.runner --project-dir {project_dir}",
+    ]

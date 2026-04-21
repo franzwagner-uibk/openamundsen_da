@@ -39,11 +39,11 @@ def test_ensure_run_mode_rejects_mismatch(tmp_path: Path) -> None:
         ensure_run_mode(project_dir, expected="single", write_if_missing=False)
 
 
-def test_read_run_mode_accepts_legacy_nested_marker(tmp_path: Path) -> None:
+def test_read_run_mode_ignores_removed_nested_legacy_marker(tmp_path: Path) -> None:
     project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
     _write_project_yaml(
         project_dir,
         "start_date: '2022-10-01'\nend_date: '2022-10-02'\ndata_assimilation:\n  run_mode: subdomain\n",
     )
 
-    assert read_run_mode(project_dir) == "subdomain"
+    assert read_run_mode(project_dir) is None

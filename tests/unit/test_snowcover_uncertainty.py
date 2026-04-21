@@ -98,6 +98,8 @@ class SnowcoverUncertaintyTests(unittest.TestCase):
             data=data,
             mask=mask,
             nodata=None,
+            roi_mask=np.ones_like(data, dtype=bool),
+            source_mask=np.zeros_like(data, dtype=bool),
             classes=classes,
             unc_data=unc,
             unc_mask=unc_mask,
@@ -108,8 +110,42 @@ class SnowcoverUncertaintyTests(unittest.TestCase):
         assert row is not None
         self.assertEqual(row["n_valid"], 3)
         self.assertEqual(row["n_cloud"], 1)
+        self.assertEqual(row["n_invalid"], 1)
+        self.assertAlmostEqual(float(row["invalid_fraction"]), 0.25, places=6)
         self.assertAlmostEqual(float(row["unc_mean"]), 30.0, places=6)
         self.assertEqual(int(row["unc_n_valid"]), 3)
+
+    def test_invalid_fraction_counts_nan_nodata_pixels(self):
+        classes = SnowcoverClasses(
+            valid=[0, 50, 100],
+            cloud=[205],
+            water=[210],
+            nodata=[255],
+        )
+        data = np.array([[50, np.nan], [255, 100]], dtype=np.float32)
+        mask = np.zeros_like(data, dtype=bool)
+
+        row = _build_stats_row(
+            date_key="2024-04-01",
+            region_id="roi",
+            tile="UNKNOWN",
+            source_name="test",
+            data=data,
+            mask=mask,
+            nodata=np.nan,
+            roi_mask=np.ones_like(data, dtype=bool),
+            source_mask=np.zeros_like(data, dtype=bool),
+            classes=classes,
+            require_uncertainty=False,
+        )
+
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row["n_valid"], 2)
+        self.assertEqual(row["n_cloud"], 0)
+        self.assertEqual(row["n_invalid"], 2)
+        self.assertAlmostEqual(float(row["cloud_fraction"]), 0.0, places=6)
+        self.assertAlmostEqual(float(row["invalid_fraction"]), 0.5, places=6)
 
     def test_out_of_range_uncertainty_raises(self):
         classes = SnowcoverClasses(
@@ -132,6 +168,8 @@ class SnowcoverUncertaintyTests(unittest.TestCase):
                 data=data,
                 mask=mask,
                 nodata=None,
+                roi_mask=np.ones_like(data, dtype=bool),
+                source_mask=np.zeros_like(data, dtype=bool),
                 classes=classes,
                 unc_data=unc,
                 unc_mask=unc_mask,

@@ -24,10 +24,10 @@ from openamundsen_da.methods.viz.plots.theme import (
 )
 from openamundsen_da.methods.viz.plots.common import (
     CRPSS_AXIS_POLICY,
+    add_assim_label_axis,
     align_figure_title_to_plot_block,
     apply_fraction_grid,
     bounded_metric_range,
-    draw_assim_labels,
     draw_assimilation_vlines,
 )
 from openamundsen_da.methods.viz.common import (
@@ -37,7 +37,7 @@ from openamundsen_da.methods.viz.common import (
 )
 from openamundsen_da.util.da_events import load_assimilation_events
 
-from ..common import ensure_dir, variable_label, variable_style
+from openamundsen_da.benchmark.render.common import ensure_dir, variable_label, variable_style
 
 
 _VARIABLE_ORDER = ("scf", "wet_snow", "station_hs", "station_swe")
@@ -61,10 +61,6 @@ _METRIC_PANEL_LABELS = {
 _FIGURE_TITLE = "Data assimilation performance scores"
 _MARKER_EDGE_COLOR = "#000000"
 _MARKER_EDGE_WIDTH = 0.5
-_ASSIM_LABEL_ROW_OFFSETS_PTS = [2.0, 8.0]
-_ASSIM_LABEL_MIN_SPACING_DAYS = 18.0
-
-
 class _LabeledLegendTuple(tuple):
     def __new__(cls, artists, label: str):
         obj = super().__new__(cls, artists)
@@ -403,51 +399,11 @@ def _assim_labels(dates: list[pd.Timestamp]) -> tuple[list[pd.Timestamp], list[s
 
 
 def _add_assim_label_axis(ax, assimilation_dates: list[pd.Timestamp], idx: int):
-    if not assimilation_dates:
-        return None
-
-    x_min, x_max = sorted(ax.get_xlim())
-    visible_start = pd.Timestamp(mdates.num2date(x_min)).tz_localize(None)
-    visible_end = pd.Timestamp(mdates.num2date(x_max)).tz_localize(None)
     dates, labels = _assim_labels(assimilation_dates)
-    visible_items = [
-        (date_value, label)
-        for date_value, label in zip(dates, labels)
-        if visible_start <= date_value <= visible_end
-    ]
-    if not visible_items:
+    label_axis = add_assim_label_axis(ax, dates, idx=idx, labels=labels)
+    if label_axis is None:
         return None
-
-    label_axis = ax.twiny()
-    label_axis.set_label(f"assimilation_label_axis_{idx}")
-    label_axis.patch.set_alpha(0.0)
     label_axis.set_zorder(ax.get_zorder() + 1)
-    if hasattr(label_axis, "set_in_layout"):
-        label_axis.set_in_layout(False)
-    label_axis.set_xlim(ax.get_xlim())
-    label_axis.set_xticks([])
-    label_axis.set_xlabel("")
-    label_axis.yaxis.set_visible(False)
-    label_axis.xaxis.set_visible(False)
-    for spine in label_axis.spines.values():
-        spine.set_visible(False)
-
-    draw_assim_labels(
-        label_axis,
-        [item[0] for item in visible_items],
-        labels=[item[1] for item in visible_items],
-        max_labels=max(1, len(visible_items)),
-        y_offset_pts=_ASSIM_LABEL_ROW_OFFSETS_PTS[0],
-        fontsize=6.0,
-        color="#000000",
-        rotation=0.0,
-        va="bottom",
-        row_y_offsets_pts=_ASSIM_LABEL_ROW_OFFSETS_PTS,
-        min_row_spacing_days=_ASSIM_LABEL_MIN_SPACING_DAYS,
-        axes_y=1.0,
-        ha="center",
-        x_offset_pts=0.0,
-    )
     return label_axis
 
 

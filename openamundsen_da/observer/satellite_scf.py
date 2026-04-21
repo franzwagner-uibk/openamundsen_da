@@ -1,4 +1,4 @@
-﻿"""Project helper for snow-cover observations backed by ``scf_summary.csv``."""
+"""Project helper for snow-cover observations backed by ``scf_summary.csv``."""
 
 from __future__ import annotations
 

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from matplotlib import colormaps
-from matplotlib.colors import FuncNorm, LinearSegmentedColormap, ListedColormap, Normalize, TwoSlopeNorm, to_rgba
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize, TwoSlopeNorm, to_rgba
 
 
 @dataclass(frozen=True)
@@ -196,23 +196,42 @@ def _snow_depth_reference_cmap() -> LinearSegmentedColormap:
 
 SNOW_DEPTH_CMAP = _snow_depth_reference_cmap()
 INCREMENT_CMAP = colormaps["RdBu"]
+SNOW_DEPTH_COLORBAR_STEPS_CM = (5.0, 10.0, 25.0, 50.0, 100.0)
 
 
-def _snow_depth_reference_norm() -> Normalize:
-    positions = np.linspace(0.0, 1.0, len(SNOW_DEPTH_REFERENCE_TICKS_M))
+def snow_depth_scale_ticks(vmax: float) -> tuple[float, ...]:
+    low = float(SNOW_DEPTH_REFERENCE_TICKS_M[0])
+    high = max(float(vmax), low)
+    return tuple(float(value) for value in np.linspace(low, high, len(SNOW_DEPTH_REFERENCE_TICKS_M)))
 
-    def forward(values):
-        return np.interp(values, SNOW_DEPTH_REFERENCE_TICKS_M, positions)
 
-    def inverse(values):
-        return np.interp(values, positions, SNOW_DEPTH_REFERENCE_TICKS_M)
+def snow_depth_colorbar_labels_cm(vmax: float) -> tuple[float, ...]:
+    vmax_cm = max(float(vmax) * 100.0, 1.0)
+    for step in SNOW_DEPTH_COLORBAR_STEPS_CM:
+        labels = [1.0]
+        current = step
+        while current < vmax_cm - 1e-9:
+            labels.append(float(current))
+            current += step
+        if abs(labels[-1] - vmax_cm) > 1e-9:
+            labels.append(float(vmax_cm))
+        if len(labels) <= 7:
+            return tuple(labels)
+    return (1.0, float(vmax_cm))
 
-    return FuncNorm(
-        (forward, inverse),
-        vmin=SNOW_DEPTH_REFERENCE_TICKS_M[0],
-        vmax=SNOW_DEPTH_REFERENCE_TICKS_M[-1],
-        clip=False,
-    )
+
+def snow_depth_colorbar_ticks(vmax: float) -> tuple[float, ...]:
+    return tuple(float(value) / 100.0 for value in snow_depth_colorbar_labels_cm(vmax))
+
+
+def snow_depth_colorbar_ticklabels(vmax: float) -> tuple[str, ...]:
+    return tuple(str(int(round(value))) for value in snow_depth_colorbar_labels_cm(vmax))
+
+
+def _snow_depth_reference_norm(vmax: float) -> Normalize:
+    low = float(SNOW_DEPTH_REFERENCE_TICKS_M[0])
+    high = max(float(vmax), low)
+    return Normalize(vmin=low, vmax=high, clip=False)
 
 
 def require_variable_preset(variable: str) -> VariablePreset:
@@ -254,16 +273,23 @@ def model_map_cmap(preset: VariablePreset):
 
 def model_map_norm(preset: VariablePreset, *, vmax: float) -> Normalize:
     if preset.variable == "snowdepth_daily":
-        return _snow_depth_reference_norm()
+        return _snow_depth_reference_norm(vmax)
     return Normalize(vmin=preset.model_min, vmax=vmax, clip=False)
 
 
-def model_colorbar_style(preset: VariablePreset) -> ColorbarStyle:
+def model_colorbar_style(preset: VariablePreset, *, vmax: float | None = None) -> ColorbarStyle:
     if preset.variable == "snowdepth_daily":
+        if vmax is None:
+            return ColorbarStyle(
+                label="snow depth [cm]",
+                ticks=SNOW_DEPTH_REFERENCE_TICKS_M,
+                ticklabels=SNOW_DEPTH_REFERENCE_TICKLABELS_CM,
+            )
+        ticks = snow_depth_colorbar_ticks(vmax if vmax is not None else SNOW_DEPTH_REFERENCE_TICKS_M[-1])
         return ColorbarStyle(
             label="snow depth [cm]",
-            ticks=SNOW_DEPTH_REFERENCE_TICKS_M,
-            ticklabels=SNOW_DEPTH_REFERENCE_TICKLABELS_CM,
+            ticks=ticks,
+            ticklabels=snow_depth_colorbar_ticklabels(vmax),
         )
     return ColorbarStyle(label=preset.unit_label)
 

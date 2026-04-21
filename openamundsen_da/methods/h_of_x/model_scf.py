@@ -150,6 +150,17 @@ def _valid_mask(x: np.ma.MaskedArray) -> np.ndarray:
     return valid_mask(x)
 
 
+def _apply_support_mask(x: np.ma.MaskedArray, support_mask: np.ndarray | None) -> np.ma.MaskedArray:
+    """Restrict a masked array to an optional external boolean support mask."""
+    if support_mask is None:
+        return np.ma.array(x, copy=False)
+    support = np.asarray(support_mask, dtype=bool)
+    if support.shape != x.shape:
+        raise ValueError(f"Support mask shape {support.shape} does not match raster shape {x.shape}")
+    combined_mask = np.ma.getmaskarray(x) | (~support)
+    return np.ma.array(np.ma.getdata(x), mask=combined_mask, copy=False)
+
+
 def _scf_depth_threshold(x: np.ma.MaskedArray, h0: float) -> Tuple[int, int, float]:
     """Compute SCF using deterministic threshold (I = 1 if x > h0)."""
     valid = np.ma.array(_valid_mask(x), copy=False)
@@ -174,6 +185,45 @@ def _scf_logistic(x: np.ma.MaskedArray, h0: float, k: float) -> Tuple[int, float
     return n_valid, scf
 
 
+def compute_model_scf_binary_grid(
+    *,
+    setup_dir: Path,
+    project_dir: Path,
+    results_dir: Path,
+    aoi_path: Path,
+    landcover_cfg: LandcoverMaskConfig | None = None,
+    apply_landcover_mask: bool = True,
+    date: datetime,
+    variable: Variable = "hs",
+    params: SCFParams | None = None,
+) -> np.ndarray:
+    """Return a full-grid binary snow-cover field masked outside the ROI."""
+
+    ensure_gdal_proj_from_conda()
+    params = params or SCFParams()
+    lc_cfg = None
+    if apply_landcover_mask:
+        lc_cfg = landcover_cfg or resolve_landcover_mask(Path(setup_dir), Path(project_dir))
+
+    var = variable if variable in (VAR_HS, VAR_SWE) else VAR_HS
+    preferred_format = _grid_format_from_setup(Path(setup_dir))
+    slice_ = find_member_daily_grid_slice(
+        Path(results_dir),
+        var,
+        date.strftime("%Y-%m-%d"),
+        preferred_format=preferred_format,
+    )
+    arr = read_grid_slice_roi_masked_array(
+        slice_,
+        Path(aoi_path),
+        landcover_cfg=lc_cfg,
+    )
+    valid = _valid_mask(arr)
+    out = np.full(arr.shape, np.nan, dtype=float)
+    out[valid] = np.where(np.ma.getdata(arr)[valid] > float(params.h0), 1.0, 0.0)
+    return out
+
+
 def compute_model_scf(
     *,
     setup_dir: Path,
@@ -185,6 +235,7 @@ def compute_model_scf(
     variable: Variable = "hs",
     method: Method = "depth_threshold",
     params: SCFParams | None = None,
+    support_mask: np.ndarray | None = None,
 ) -> dict:
     """Compute model SCF for one member/date within an AOI.
 
@@ -229,11 +280,24 @@ def compute_model_scf(
         landcover_cfg=lc_cfg,
     )
 
+    full_arr = np.ma.array(arr, copy=False)
+    eval_arr = _apply_support_mask(full_arr, support_mask)
+
     if method == "depth_threshold":
-        n_valid, n_snow, scf = _scf_depth_threshold(arr, float(params.h0))
+        n_valid_full, n_snow_full, scf_full = _scf_depth_threshold(full_arr, float(params.h0))
+        if support_mask is None:
+            n_valid, n_snow, scf = n_valid_full, n_snow_full, scf_full
+        else:
+            n_valid, n_snow, scf = _scf_depth_threshold(eval_arr, float(params.h0))
     elif method == "logistic":
-        n_valid, scf = _scf_logistic(arr, float(params.h0), float(params.k))
-        n_snow = int(round(scf * n_valid))  # pseudo-count for reporting only
+        n_valid_full, scf_full = _scf_logistic(full_arr, float(params.h0), float(params.k))
+        n_snow_full = int(round(scf_full * n_valid_full))  # pseudo-count for reporting only
+        if support_mask is None:
+            n_valid, scf = n_valid_full, scf_full
+            n_snow = n_snow_full
+        else:
+            n_valid, scf = _scf_logistic(eval_arr, float(params.h0), float(params.k))
+            n_snow = int(round(scf * n_valid))  # pseudo-count for reporting only
     else:
         raise ValueError(f"Unknown method: {method}")
 
@@ -248,6 +312,9 @@ def compute_model_scf(
         "n_valid": int(n_valid),
         "n_snow": int(n_snow),
         "scf": float(scf),
+        "n_valid_full_roi": int(n_valid_full),
+        "n_snow_full_roi": int(n_snow_full),
+        "scf_full_roi": float(scf_full),
         "raster": Path(slice_.path).name,
     }
 
@@ -601,5 +668,3 @@ cli_setup_daily = cli_project_daily
 
 if __name__ == "__main__":
     sys.exit(cli_main())
-
-

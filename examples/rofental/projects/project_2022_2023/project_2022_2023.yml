@@ -85,12 +85,14 @@ data_assimilation:
       sigma_floor: 0.05
       sigma_cloud_scale: 0.1
       min_sigma: 0.03
+      min_support_coverage_ratio: 0.1
     wet_snow:
       obs_sigma: 0.08
       use_binomial: false
       sigma_floor: 0.03
       sigma_cloud_scale: 0.1
       min_sigma: 0.03
+      min_support_coverage_ratio: 0.1
   uncertainty:
     scf:
       enabled: true

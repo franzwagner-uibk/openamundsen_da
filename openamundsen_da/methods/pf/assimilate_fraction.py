@@ -30,6 +30,7 @@ from openamundsen_da.core.constants import (
     LIK_SIGMA_FLOOR,
     LIK_SIGMA_CLOUD_SCALE,
     LIK_MIN_SIGMA,
+    LIK_MIN_SUPPORT_COVERAGE_RATIO,
     OBS_DIR_NAME,
 )
 from openamundsen_da.io.paths import (
@@ -40,6 +41,7 @@ from openamundsen_da.io.paths import (
     infer_setup_dir_from_project,
 )
 from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf, load_hofx_from_project
+from openamundsen_da.methods.pf.fraction_support import ObservationSupportMask, load_observation_support_mask
 from openamundsen_da.methods.wet_snow.area import compute_model_wet_snow_fraction
 from openamundsen_da.util.stats import gaussian_logpdf, normalize_log_weights, effective_sample_size, compute_obs_sigma
 from openamundsen_da.core.env import _read_yaml_file
@@ -62,6 +64,16 @@ class LikelihoodParams:
     sigma_floor: float = 0.05
     sigma_cloud_scale: float = 0.10
     min_sigma: float = 0.03
+    min_support_coverage_ratio: float = 0.0
+
+
+@dataclass(frozen=True)
+class FractionModelEvaluation:
+    value_model: float
+    value_model_full_roi: float
+    value_model_obs_support: float
+    full_roi_n_valid: int | None = None
+    obs_support_n_valid: int | None = None
 
 
 @dataclass(frozen=True)
@@ -179,6 +191,15 @@ def _read_likelihood_from_project(project_dir: Path, observable: str) -> Likelih
         )
     if LIK_MIN_SIGMA in lk:
         params.min_sigma = _coerce_float(lk[LIK_MIN_SIGMA], path=f"{lk_path}.{LIK_MIN_SIGMA}")
+    if LIK_MIN_SUPPORT_COVERAGE_RATIO in lk:
+        params.min_support_coverage_ratio = _coerce_float(
+            lk[LIK_MIN_SUPPORT_COVERAGE_RATIO],
+            path=f"{lk_path}.{LIK_MIN_SUPPORT_COVERAGE_RATIO}",
+        )
+        if not (0.0 <= params.min_support_coverage_ratio <= 1.0):
+            raise ValueError(
+                f"{lk_path}.{LIK_MIN_SUPPORT_COVERAGE_RATIO} must be within [0, 1]"
+            )
     return params
 
 
@@ -255,7 +276,7 @@ def assimilate_fraction_for_date(
     value_col: str,
     observable: str,
     obs_candidates: Sequence[Path],
-    model_eval: Callable[[Path, Path, datetime], float],
+    model_eval: Callable[[Path, Path, datetime, ObservationSupportMask], FractionModelEvaluation],
     sigma_mode: str = "formula",
     uncertainty_metric: str | None = None,
 ) -> pd.DataFrame:
@@ -266,7 +287,6 @@ def assimilate_fraction_for_date(
     """
     lk = _read_likelihood_from_project(project_dir, observable)
 
-    # Read observation
     candidates = list(obs_candidates)
     if obs_csv is not None:
         obs_path = obs_csv
@@ -284,49 +304,78 @@ def assimilate_fraction_for_date(
         uncertainty_metric=(uncertainty_metric if sigma_mode == "uncertainty_layer" else None),
     )
     y = float(obs[value_col])
-    sigma = _compute_sigma(
-        obs=obs,
-        y=y,
-        prm=lk,
-        sigma_mode=sigma_mode,
-        uncertainty_metric=uncertainty_metric,
-        obs_path=obs_path,
+    setup_dir = infer_setup_dir_from_project(project_dir)
+    lc_cfg = resolve_landcover_mask(setup_dir, project_dir)
+    support_info = load_observation_support_mask(
+        setup_dir=setup_dir,
+        project_dir=project_dir,
+        obs_csv=obs_path,
+        observable=observable,
+        landcover_cfg=lc_cfg,
+    )
+    support_gate_triggered = support_info.coverage_ratio < float(lk.min_support_coverage_ratio)
+    support_gate_reason = (
+        f"obs_support_coverage_ratio<{lk.min_support_coverage_ratio:.4f}"
+        if support_gate_triggered
+        else ""
+    )
+    sigma = (
+        float("nan")
+        if support_gate_triggered
+        else _compute_sigma(
+            obs=obs,
+            y=y,
+            prm=lk,
+            sigma_mode=sigma_mode,
+            uncertainty_metric=uncertainty_metric,
+            obs_path=obs_path,
+        )
     )
 
-    # Gather member result dirs
     members = list_member_dirs(step_dir / "ensembles", ensemble)
     if not members:
         raise RuntimeError(f"No members found under {step_dir}/ensembles/{ensemble}")
 
-    # Compute model value per member
     rows: list[dict] = []
     for m in members:
         results = default_results_dir(m)
-        model_val = float(model_eval(results, aoi, date))
-        r = y - model_val
+        model = model_eval(results, aoi, date, support_info)
+        r = y - float(model.value_model)
         rows.append({
             "member_id": m.name,
-            "value_model": model_val,
+            "value_model": float(model.value_model),
+            "value_model_full_roi": float(model.value_model_full_roi),
+            "value_model_obs_support": float(model.value_model_obs_support),
             "value_obs": y,
             "residual": r,
+            "full_roi_n_valid": model.full_roi_n_valid,
+            "obs_support_n_valid": model.obs_support_n_valid,
+            "obs_support_coverage_ratio": support_info.coverage_ratio,
+            "min_support_coverage_ratio": float(lk.min_support_coverage_ratio),
+            "support_gate_triggered": bool(support_gate_triggered),
+            "support_gate_reason": support_gate_reason,
         })
 
     df = pd.DataFrame(rows)
-    # Likelihood and weights
-    logL = gaussian_logpdf(df["residual"].to_numpy(), sigma)
-    w = normalize_log_weights(logL)
     df["sigma"] = sigma
+    if support_gate_triggered:
+        logL = np.zeros(len(df), dtype=float)
+        w = np.full(len(df), 1.0 / float(len(df)), dtype=float)
+    else:
+        logL = gaussian_logpdf(df["residual"].to_numpy(), sigma)
+        w = normalize_log_weights(logL)
     df["log_weight"] = logL
     df["weight"] = w
-    # Summary
     ess = effective_sample_size(w)
     logger.info(
-        "{} Assimilation | date={} members={} sigma={:.3f} ESS={:.1f}",
+        "{} Assimilation | date={} members={} sigma={} support={:.3f} ESS={:.1f} gate={}",
         observable,
         date.strftime("%Y-%m-%d"),
         len(rows),
-        sigma,
+        "nan" if support_gate_triggered else f"{sigma:.3f}",
+        support_info.coverage_ratio,
         ess,
+        support_gate_triggered,
     )
     return df
 
@@ -367,7 +416,12 @@ def assimilate_scf_for_date(
             product=prod_tag,
         )
 
-    def _model_eval(results_dir: Path, aoi_path: Path, dt: datetime) -> float:
+    def _model_eval(
+        results_dir: Path,
+        aoi_path: Path,
+        dt: datetime,
+        support_info: ObservationSupportMask,
+    ) -> FractionModelEvaluation:
         out = compute_model_scf(
             setup_dir=setup_dir,
             project_dir=project_dir,
@@ -378,8 +432,15 @@ def assimilate_scf_for_date(
             variable=variable,  # type: ignore[arg-type]
             method=("logistic" if method == "logistic" else "depth_threshold"),  # type: ignore[arg-type]
             params=hofx_params,
+            support_mask=support_info.mask,
         )
-        return float(out["scf"])
+        return FractionModelEvaluation(
+            value_model=float(out["scf"]),
+            value_model_full_roi=float(out["scf_full_roi"]),
+            value_model_obs_support=float(out["scf"]),
+            full_roi_n_valid=int(out["n_valid_full_roi"]),
+            obs_support_n_valid=int(out["n_valid"]),
+        )
 
     df = assimilate_fraction_for_date(
         project_dir=project_dir,
@@ -395,8 +456,8 @@ def assimilate_scf_for_date(
         sigma_mode=(unc_cfg.sigma_mode if unc_cfg.enabled else "formula"),
         uncertainty_metric=(unc_cfg.aggregate_metric if unc_cfg.sigma_mode == "uncertainty_layer" else None),
     )
-    # Preserve SCF-specific column names for downstream tools.
-    df = df.rename(columns={"value_model": "scf_model", "value_obs": "scf_obs"})
+    df["scf_model"] = df["value_model"]
+    df["scf_obs"] = df["value_obs"]
     return df
 
 
@@ -434,7 +495,12 @@ def assimilate_wet_snow_for_date(
             product=prod_tag,
         )
 
-    def _model_eval(results_dir: Path, aoi_path: Path, dt: datetime) -> float:
+    def _model_eval(
+        results_dir: Path,
+        aoi_path: Path,
+        dt: datetime,
+        support_info: ObservationSupportMask,
+    ) -> FractionModelEvaluation:
         out = compute_model_wet_snow_fraction(
             setup_dir=setup_dir,
             project_dir=project_dir,
@@ -442,8 +508,15 @@ def assimilate_wet_snow_for_date(
             aoi_path=aoi_path,
             landcover_cfg=lc_cfg,
             date=dt,
+            support_mask=support_info.mask,
         )
-        return float(out["wet_fraction"])
+        return FractionModelEvaluation(
+            value_model=float(out["wet_fraction"]),
+            value_model_full_roi=float(out["wet_fraction_full_roi"]),
+            value_model_obs_support=float(out["wet_fraction"]),
+            full_roi_n_valid=int(out["n_valid_full_roi"]),
+            obs_support_n_valid=int(out["n_valid"]),
+        )
 
     df = assimilate_fraction_for_date(
         project_dir=project_dir,
@@ -459,7 +532,8 @@ def assimilate_wet_snow_for_date(
         sigma_mode=(unc_cfg.sigma_mode if unc_cfg.enabled else "formula"),
         uncertainty_metric=(unc_cfg.aggregate_metric if unc_cfg.sigma_mode == "uncertainty_layer" else None),
     )
-    df = df.rename(columns={"value_model": "wet_snow_model", "value_obs": "wet_snow_obs"})
+    df["wet_snow_model"] = df["value_model"]
+    df["wet_snow_obs"] = df["value_obs"]
     return df
 
 

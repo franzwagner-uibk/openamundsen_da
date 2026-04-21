@@ -6,10 +6,12 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 import pandas as pd
 from ruamel.yaml import YAML
 
 from openamundsen_da.methods.pf.assimilate_fraction import (
+    FractionModelEvaluation,
     LikelihoodParams,
     ScfUncertaintyAssimilationConfig,
     WetSnowUncertaintyAssimilationConfig,
@@ -18,9 +20,11 @@ from openamundsen_da.methods.pf.assimilate_fraction import (
     _read_obs,
     _read_scf_uncertainty_assimilation_config,
     _read_wet_snow_uncertainty_assimilation_config,
+    assimilate_fraction_for_date,
     assimilate_scf_for_date,
     assimilate_wet_snow_for_date,
 )
+from openamundsen_da.methods.pf.fraction_support import ObservationSupportMask
 
 
 def _write_project_yaml(project_dir: Path, payload: dict) -> None:
@@ -60,6 +64,46 @@ class AssimilateUncertaintyTests(unittest.TestCase):
             with self.assertRaises(ValueError) as ctx:
                 _read_likelihood_from_project(project_dir, "scf")
             self.assertIn("obs_sigma", str(ctx.exception))
+
+    def test_likelihood_config_reads_min_support_coverage_ratio(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
+            _write_project_yaml(
+                project_dir,
+                {
+                    "data_assimilation": {
+                        "likelihood": {
+                            "scf": {
+                                "min_support_coverage_ratio": 0.35,
+                            }
+                        }
+                    }
+                },
+            )
+
+            params = _read_likelihood_from_project(project_dir, "scf")
+
+            self.assertAlmostEqual(params.min_support_coverage_ratio, 0.35, places=6)
+
+    def test_likelihood_config_rejects_invalid_min_support_coverage_ratio(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
+            _write_project_yaml(
+                project_dir,
+                {
+                    "data_assimilation": {
+                        "likelihood": {
+                            "scf": {
+                                "min_support_coverage_ratio": 1.5,
+                            }
+                        }
+                    }
+                },
+            )
+
+            with self.assertRaises(ValueError) as ctx:
+                _read_likelihood_from_project(project_dir, "scf")
+            self.assertIn("min_support_coverage_ratio", str(ctx.exception))
 
     def test_uncertainty_assimilation_config_missing_block_raises_when_enabled(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -253,6 +297,85 @@ class AssimilateUncertaintyTests(unittest.TestCase):
             self.assertIsInstance(obs_candidates, list)
             self.assertEqual(len(obs_candidates), 1)
             self.assertTrue(str(obs_candidates[0]).endswith("obs_wet_snow_WETSNOW_20240511.csv"))
+
+    def test_support_gate_writes_uniform_weights_and_support_diagnostics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            setup_dir = Path(tmp) / "setup"
+            project_dir = setup_dir / "projects" / "project_2024_2025"
+            step_dir = project_dir / "steps" / "step_00_init"
+            obs_dir = step_dir / "obs"
+            member_1 = step_dir / "ensembles" / "prior" / "member_0001"
+            member_2 = step_dir / "ensembles" / "prior" / "member_0002"
+            for path in (obs_dir, member_1 / "results", member_2 / "results"):
+                path.mkdir(parents=True, exist_ok=True)
+            y = YAML()
+            with (setup_dir / "setup.yml").open("w", encoding="utf-8") as f:
+                y.dump({"crs": "EPSG:25832", "domain": "demo", "resolution": 100}, f)
+            _write_project_yaml(project_dir, {"data_assimilation": {}})
+            obs_csv = obs_dir / "obs_scf_20240401.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "date": "2024-04-01",
+                        "scf": 0.6,
+                        "n_valid": 10,
+                        "cloud_fraction": 0.0,
+                        "source": "scene.tif",
+                    }
+                ]
+            ).to_csv(obs_csv, index=False)
+
+            def _model_eval(_results_dir, _aoi_path, _dt, _support_info):
+                return FractionModelEvaluation(
+                    value_model=0.4,
+                    value_model_full_roi=0.8,
+                    value_model_obs_support=0.4,
+                    full_roi_n_valid=100,
+                    obs_support_n_valid=20,
+                )
+
+            with (
+                patch(
+                    "openamundsen_da.methods.pf.assimilate_fraction._read_likelihood_from_project",
+                    return_value=LikelihoodParams(min_support_coverage_ratio=0.5),
+                ),
+                patch(
+                    "openamundsen_da.methods.pf.assimilate_fraction.resolve_landcover_mask",
+                    return_value=None,
+                ),
+                patch(
+                    "openamundsen_da.methods.pf.assimilate_fraction.load_observation_support_mask",
+                    return_value=ObservationSupportMask(
+                        mask=np.ones((2, 2), dtype=bool),
+                        eligible_mask=np.ones((2, 2), dtype=bool),
+                        n_valid=1,
+                        n_eligible=4,
+                        coverage_ratio=0.25,
+                    ),
+                ),
+            ):
+                df = assimilate_fraction_for_date(
+                    project_dir=project_dir,
+                    step_dir=step_dir,
+                    ensemble="prior",
+                    date=datetime(2024, 4, 1),
+                    aoi=Path(tmp) / "roi.gpkg",
+                    obs_csv=obs_csv,
+                    value_col="scf",
+                    observable="scf",
+                    obs_candidates=[obs_csv],
+                    model_eval=_model_eval,
+                )
+
+            self.assertEqual(list(df["weight"]), [0.5, 0.5])
+            self.assertEqual(list(df["log_weight"]), [0.0, 0.0])
+            self.assertTrue(pd.isna(df["sigma"]).all())
+            self.assertTrue(bool(df["support_gate_triggered"].iloc[0]))
+            self.assertAlmostEqual(float(df["obs_support_coverage_ratio"].iloc[0]), 0.25, places=6)
+            self.assertAlmostEqual(float(df["min_support_coverage_ratio"].iloc[0]), 0.5, places=6)
+            self.assertEqual(float(df["value_model_full_roi"].iloc[0]), 0.8)
+            self.assertEqual(float(df["value_model_obs_support"].iloc[0]), 0.4)
+            self.assertEqual(int(df["obs_support_n_valid"].iloc[0]), 20)
 
 
 if __name__ == "__main__":

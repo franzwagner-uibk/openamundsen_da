@@ -316,6 +316,8 @@ docker compose run --rm oa `
 
 Optional flags: `--obs-csv <path>`, `--output <csv>`, `--log-level <LEVEL>`
 
+Fraction DA remains a scalar ROI-style particle-filter update, but the model-side scalar is now derived on the event-date observation-valid support for `scf` and `wet_snow`. The written weights CSV keeps `value_model` as the assimilated support-aware value and also records `value_model_full_roi`, `value_model_obs_support`, `obs_support_n_valid`, and `obs_support_coverage_ratio`. You can optionally gate sparse scenes with `data_assimilation.likelihood.<observable>.min_support_coverage_ratio`; below that threshold the step becomes a no-op update with uniform weights and diagnostic metadata preserved.
+
 ### Resampling (posterior ensemble)
 
 ```powershell

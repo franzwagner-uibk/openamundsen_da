@@ -73,6 +73,7 @@ LIK_USE_BINOMIAL = "use_binomial"
 LIK_SIGMA_FLOOR = "sigma_floor"
 LIK_SIGMA_CLOUD_SCALE = "sigma_cloud_scale"
 LIK_MIN_SIGMA = "min_sigma"
+LIK_MIN_SUPPORT_COVERAGE_RATIO = "min_support_coverage_ratio"
 
 RESAMPLING_BLOCK = "resampling"
 RESAMPLING_ALGORITHM = "algorithm"  # multinomial|systematic|stratified (we implement systematic)

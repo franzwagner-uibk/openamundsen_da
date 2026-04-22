@@ -846,6 +846,41 @@ def test_project_maps_config_rejects_unknown_legend_layout(tmp_path: Path) -> No
         load_project_maps_config(config_path)
 
 
+def test_project_maps_config_accepts_wet_snow_line_panel_kind(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          wsl_demo:
+            title: WSL demo
+            defaults:
+              date: "2023-01-02"
+            layout:
+              nrows: 1
+              ncols: 3
+            panels:
+              - row: 0
+                col: 0
+                kind: wet_snow_line
+                source: open_loop
+              - row: 0
+                col: 1
+                kind: wet_snow_line
+                source: posterior
+              - row: 0
+                col: 2
+                kind: wet_snow_line
+        """,
+    )
+
+    cfg = load_project_maps_config(config_path)
+
+    assert [panel.kind for panel in cfg.maps[0].panels] == ["wet_snow_line", "wet_snow_line", "wet_snow_line"]
+    assert [panel.source for panel in cfg.maps[0].panels] == ["open_loop", "posterior", None]
+
+
 def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> None:
     config_path = Path(__file__).resolve().parents[2] / "examples/rofental/projects/project_2022_2023/maps.yml"
 
@@ -905,6 +940,36 @@ def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_sup
         "ensemble snow-cover probability",
         "satellite FSC observation",
     ]
+
+
+def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(
+        generated_module,
+        "load_assimilation_events",
+        lambda _project_dir: (
+            generated_module.AssimilationEvent(
+                date=pd.Timestamp("2023-01-02").date(),
+                variable="wet_snow_line",
+                product="WETSNOW",
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        generated_module,
+        "_fraction_model_support_available",
+        lambda _project_dir, variable: variable == "wet_snow",
+    )
+
+    recipes = generated_module.generated_da_map_recipes(project_dir)
+
+    assert recipes[0].row_labels[0] == "wet snow line"
+    assert [panel.kind for panel in recipes[0].panels[:3]] == ["wet_snow_line", "wet_snow_line", "wet_snow_line"]
+    assert [panel.source for panel in recipes[0].panels[:3]] == ["open_loop", "posterior", None]
+    assert [panel.title for panel in recipes[0].panels[:3]] == ["open loop", "posterior", "observation"]
 
 
 def test_scf_probability_model_resolves_posterior_member_source_pointers(
@@ -1865,6 +1930,193 @@ def test_wet_snow_legend_handles_only_include_present_classes(tmp_path: Path) ->
             figure_horizontal_default=True,
         )
         assert [handle.get_label() for handle in artifacts["legend_handles"]] == [WET_SNOW_LABELS[110]]
+    finally:
+        plt.close(fig)
+
+
+def test_wet_snow_line_model_panel_draws_wsl_contour(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    classified = np.full(context.roi_mask.shape, np.nan, dtype=float)
+    classified[context.roi_mask] = 125.0
+    classified[:2, :] = 110.0
+    recorded_levels: list[float | None] = []
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        monkeypatch.setattr(panel_renderers_module, "_wet_snow_model_classified_array", lambda **kwargs: classified)
+        monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_classified", lambda **kwargs: 2450.0)
+        monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: 2550.0)
+
+        def _record_contour(_ax, *, context, level, color, linestyle, linewidth=1.6, zorder=9):
+            recorded_levels.append((level, color, linestyle))
+            return True
+
+        monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", _record_contour)
+
+        artifacts = panel_renderers_module.render_wet_snow_line_panel(
+            ax,
+            panel=MapPanelSpec(kind="wet_snow_line", row=0, col=0, source="open_loop", date="2023-01-02"),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(),
+            obs_cache={},
+            figure_horizontal_default=True,
+        )
+
+        assert recorded_levels == [(2450.0, "#c21f24", "-"), (2550.0, "#2f6db2", "-")]
+        assert artifacts["wsl"] == 2450.0
+        assert artifacts["obs_wsl"] == 2550.0
+        legend_labels = [
+            handle.get_label()
+            for handle in panel_renderers_module._wet_snow_line_legend_handles(
+                list(artifacts["legend_handles"]),
+                include_model_wsl=True,
+                include_obs_wsl=True,
+            )
+        ]
+        assert legend_labels[-2:] == ["model WSL", "obs WSL"]
+        assert "WSL unavailable" not in {text.get_text() for text in ax.texts}
+        assert "WSL 2450 m" in {text.get_text() for text in ax.texts}
+    finally:
+        plt.close(fig)
+
+
+def test_posterior_weighted_wet_fraction_array_uses_da_weights(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    step_dir = project_dir / "steps" / "step_01_20230101-20230102"
+    member_a = step_dir / "ensembles" / "prior" / "member_001"
+    member_b = step_dir / "ensembles" / "prior" / "member_002"
+
+    monkeypatch.setattr(
+        panel_renderers_module,
+        "_posterior_da_weights",
+        lambda *_args, **_kwargs: pd.Series([0.25, 0.75], index=["member_001", "member_002"], dtype=float),
+    )
+    monkeypatch.setattr(panel_renderers_module, "_step_dir_for_date", lambda *_args, **_kwargs: step_dir)
+    monkeypatch.setattr(panel_renderers_module, "list_member_dirs", lambda *_args, **_kwargs: [member_a, member_b])
+    monkeypatch.setattr(panel_renderers_module, "_wet_snow_mask_path", lambda results_dir, _date: Path(results_dir) / "dummy.tif")
+
+    def fake_load_mask(path: Path) -> np.ndarray:
+        if "member_001" in str(path):
+            return np.array([[1, 0], [1, 0]], dtype=np.uint8)
+        return np.array([[0, 1], [1, 0]], dtype=np.uint8)
+
+    monkeypatch.setattr(panel_renderers_module, "_load_wet_snow_mask", fake_load_mask)
+
+    weighted = panel_renderers_module._posterior_weighted_wet_fraction_array(
+        context=context,
+        date=pd.Timestamp("2023-01-02"),
+        derived_cache={},
+    )
+
+    assert weighted[0, 0] == pytest.approx(0.25)
+    assert weighted[0, 1] == pytest.approx(0.75)
+    assert weighted[1, 0] == pytest.approx(1.0)
+    assert weighted[1, 1] == pytest.approx(0.0)
+
+
+def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    wet_fraction = np.full(context.roi_mask.shape, np.nan, dtype=float)
+    wet_fraction[context.roi_mask] = 0.2
+    recorded_levels: list[float | None] = []
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        monkeypatch.setattr(
+            panel_renderers_module,
+            "_posterior_weighted_wet_fraction_array",
+            lambda **kwargs: wet_fraction,
+        )
+        monkeypatch.setattr(
+            panel_renderers_module,
+            "_classify_wet_snow_fraction_for_wsl",
+            lambda **kwargs: np.full(context.roi_mask.shape, float(panel_renderers_module._WET_SNOW_MODEL_CODES[1]), dtype=float),
+        )
+        def _wsl_from_fraction(*, threshold=None, **_kwargs):
+            if threshold == 0.75:
+                return 2425.0
+            if threshold == 0.25:
+                return 2625.0
+            return 2525.0
+
+        monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", _wsl_from_fraction)
+        monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: 2625.0)
+
+        def _unexpected_raster_wsl(**_kwargs):
+            raise AssertionError("posterior panel should not derive its WSL from the classified raster helper")
+
+        monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_classified", _unexpected_raster_wsl)
+
+        def _record_contour(_ax, *, context, level, color, linestyle, linewidth=1.6, zorder=9):
+            recorded_levels.append((level, color, linestyle))
+            return True
+
+        monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", _record_contour)
+
+        artifacts = panel_renderers_module.render_wet_snow_line_panel(
+            ax,
+            panel=MapPanelSpec(kind="wet_snow_line", row=0, col=0, source="posterior", date="2023-01-02"),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(),
+            obs_cache={},
+            figure_horizontal_default=True,
+        )
+
+        assert recorded_levels == [
+            (2525.0, "#c21f24", "-"),
+            (2425.0, "#e58b8b", "--"),
+            (2625.0, "#e58b8b", "--"),
+            (2625.0, "#2f6db2", "-"),
+        ]
+        assert artifacts["wsl"] == 2525.0
+        assert artifacts["obs_wsl"] == 2625.0
+        assert artifacts["posterior_band_drawn"] is True
+        assert "WSL unavailable" not in {text.get_text() for text in ax.texts}
+        assert "WSL 2530 m" in {text.get_text() for text in ax.texts}
+    finally:
+        plt.close(fig)
+
+
+def test_wet_snow_line_panel_annotates_unavailable_wsl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    wet_fraction = np.full(context.roi_mask.shape, np.nan, dtype=float)
+    wet_fraction[context.roi_mask] = 0.2
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        monkeypatch.setattr(
+            panel_renderers_module,
+            "_posterior_weighted_wet_fraction_array",
+            lambda **kwargs: wet_fraction,
+        )
+        monkeypatch.setattr(
+            panel_renderers_module,
+            "_classify_wet_snow_fraction_for_wsl",
+            lambda **kwargs: np.full(context.roi_mask.shape, float(panel_renderers_module._WET_SNOW_MODEL_CODES[1]), dtype=float),
+        )
+        monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", lambda **kwargs: None)
+        monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", lambda *_args, **_kwargs: False)
+
+        panel_renderers_module.render_wet_snow_line_panel(
+            ax,
+            panel=MapPanelSpec(kind="wet_snow_line", row=0, col=0, source="posterior", date="2023-01-02"),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(),
+            obs_cache={},
+            figure_horizontal_default=True,
+        )
+
+        assert "WSL unavailable" in {text.get_text() for text in ax.texts}
+        callout = next(text for text in ax.texts if text.get_text() == "WSL unavailable")
+        assert callout.get_position() == pytest.approx((0.98, 0.955))
     finally:
         plt.close(fig)
 

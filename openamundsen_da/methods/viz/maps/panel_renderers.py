@@ -12,7 +12,9 @@ import rasterio
 from matplotlib.cm import ScalarMappable
 from matplotlib import colormaps
 from matplotlib.colors import BoundaryNorm, ListedColormap, Normalize, TwoSlopeNorm
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Rectangle
+from rasterio.transform import array_bounds
 from shapely.geometry import box
 
 from openamundsen_da.core.env import _read_yaml_file
@@ -26,6 +28,7 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf_binary_grid, load_hofx_from_project
 from openamundsen_da.methods.viz.fraction_series import load_fraction_series, load_open_loop_fraction_series
+from openamundsen_da.methods.viz.fraction_series import default_fraction_obs_path
 from openamundsen_da.methods.viz.maps.annotations import (
     apply_overlay_label_halo,
     draw_heading,
@@ -95,6 +98,7 @@ from openamundsen_da.methods.viz.maps.theme import (
     _CLASSIFIED_PANEL_KINDS,
     _COLORBAR_TICK_SIZE,
     _COLORBAR_TITLE_SIZE,
+    _DATE_CALLOUT_ALPHA,
     _GRID_ZORDER,
     _HILLSHADE_INTERPOLATION,
     _HORIZONTAL_LEGEND_GAP_AXES,
@@ -120,11 +124,13 @@ from openamundsen_da.methods.viz.maps.theme import (
 )
 from openamundsen_da.util.landcover_mask import resolve_landcover_mask
 from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
+from openamundsen_da.methods.wet_snow.wsl import compute_wet_snow_line_from_masks, load_wet_snow_line_config
 
 
 _FRACTION_MODEL_CMAP = colormaps["Greys"]
 _WET_SNOW_MODEL_CODES = (110, 125)
 _SCF_BINARY_CMAP = ListedColormap(["#efefef", "#111111"], name="scf_binary")
+_WSL_POSTERIOR_BAND_COLOR = "#e58b8b"
 
 
 @dataclass(frozen=True)
@@ -305,7 +311,7 @@ def classified_display_labels(
             return list(LANDCOVER_LABELS.values())
         return [LANDCOVER_LABELS[code] for code in active_codes]
 
-    if panel.kind == "wet_snow":
+    if panel.kind in {"wet_snow", "wet_snow_line"}:
         if panel.source is not None:
             date = panel_date(panel, defaults)
             if date is None:
@@ -372,7 +378,7 @@ def classified_legend_handles(
     ]
 
 
-def draw_classified_legend(ax, handles: list[Patch], *, layout: str) -> None:
+def draw_classified_legend(ax, handles: list[object], *, layout: str) -> None:
     if not handles:
         return
     if layout == "horizontal":
@@ -402,25 +408,39 @@ def draw_classified_legend(ax, handles: list[Patch], *, layout: str) -> None:
             x_in = start_x_in
             for label, item_width in zip(row_labels, item_widths, strict=False):
                 handle = handle_lookup[label]
-                facecolor = handle.get_facecolor()
-                edgecolor = handle.get_edgecolor()
-                if np.ndim(facecolor) == 2:
-                    facecolor = facecolor[0]
-                if np.ndim(edgecolor) == 2:
-                    edgecolor = edgecolor[0]
                 x0 = x_in / panel_width_in
                 patch_width = _HORIZONTAL_LEGEND_HANDLE_WIDTH_IN / panel_width_in
-                legend_ax.add_patch(
-                    Rectangle(
-                        (x0, y_center - 0.5 * patch_height),
-                        patch_width,
-                        patch_height,
-                        transform=legend_ax.transAxes,
-                        facecolor=facecolor,
-                        edgecolor=edgecolor,
-                        linewidth=0.8,
+                if isinstance(handle, Patch):
+                    facecolor = handle.get_facecolor()
+                    edgecolor = handle.get_edgecolor()
+                    if np.ndim(facecolor) == 2:
+                        facecolor = facecolor[0]
+                    if np.ndim(edgecolor) == 2:
+                        edgecolor = edgecolor[0]
+                    legend_ax.add_patch(
+                        Rectangle(
+                            (x0, y_center - 0.5 * patch_height),
+                            patch_width,
+                            patch_height,
+                            transform=legend_ax.transAxes,
+                            facecolor=facecolor,
+                            edgecolor=edgecolor,
+                            linewidth=0.8,
+                        )
                     )
-                )
+                elif isinstance(handle, Line2D):
+                    inset = 0.08 * patch_width
+                    legend_ax.plot(
+                        [x0 + inset, x0 + patch_width - inset],
+                        [y_center, y_center],
+                        transform=legend_ax.transAxes,
+                        color=handle.get_color(),
+                        linewidth=handle.get_linewidth(),
+                        linestyle=handle.get_linestyle(),
+                        solid_capstyle="round",
+                    )
+                else:
+                    raise TypeError(f"Unsupported classified legend handle type: {type(handle)!r}")
                 legend_ax.text(
                     (x_in + _HORIZONTAL_LEGEND_HANDLE_WIDTH_IN + _HORIZONTAL_LEGEND_HANDLE_TEXT_PAD_IN) / panel_width_in,
                     y_center,
@@ -1277,13 +1297,15 @@ def _wet_snow_model_classified_array(
         classified = np.full(mask.shape, np.nan, dtype=float)
         classified[mask == 1] = float(_WET_SNOW_MODEL_CODES[0])
         classified[mask == 0] = float(_WET_SNOW_MODEL_CODES[1])
-    elif source == "ensemble_mean":
+    elif source in {"ensemble_mean", "posterior"}:
         member_masks: list[np.ndarray] = []
-        for member_dir in list_member_dirs(step_dir, "prior"):
-            mask_path = _wet_snow_mask_path(member_dir / "results", date)
+        ensemble = "prior" if source == "ensemble_mean" else "posterior"
+        for member_dir in list_member_dirs(step_dir, ensemble):
+            source_member_dir = resolve_member_source_dir(member_dir) if source == "posterior" else member_dir
+            mask_path = _wet_snow_mask_path(source_member_dir / "results", date)
             member_masks.append(_load_wet_snow_mask(mask_path))
         if not member_masks:
-            raise FileNotFoundError(f"Missing prior members for wet-snow ensemble map in {step_dir}")
+            raise FileNotFoundError(f"Missing {ensemble} members for wet-snow ensemble map in {step_dir}")
         stack = np.stack([np.where(mask == 255, np.nan, mask.astype(float)) for mask in member_masks], axis=0)
         valid_count = np.sum(np.isfinite(stack), axis=0)
         wet_sum = np.nansum(stack, axis=0)
@@ -1301,6 +1323,296 @@ def _wet_snow_model_classified_array(
     if derived_cache is not None:
         derived_cache[cache_key] = classified
     return classified
+
+
+def _wet_snow_line_from_classified(
+    *,
+    context: StaticContext,
+    classified: np.ndarray,
+) -> float | None:
+    valid_mask = np.isfinite(classified) & np.asarray(context.roi_mask, dtype=bool)
+    wet_mask = valid_mask & np.isclose(classified, float(_WET_SNOW_MODEL_CODES[0]), equal_nan=False)
+    evaluation = compute_wet_snow_line_from_masks(
+        setup_dir=context.setup_dir,
+        project_dir=context.project_dir,
+        valid_mask=valid_mask,
+        wet_mask=wet_mask,
+    )
+    return evaluation.wet_snow_line
+
+
+def _posterior_da_weights(context: StaticContext, date: pd.Timestamp) -> pd.Series | None:
+    step_dir = _step_dir_for_date(context.project_dir, date)
+    weights_path = step_dir / "assim" / f"weights_wet_snow_line_{pd.Timestamp(date).strftime('%Y%m%d')}.csv"
+    if not weights_path.is_file():
+        return None
+
+    df = pd.read_csv(weights_path)
+    if df.empty or "member_id" not in df.columns or "weight" not in df.columns:
+        return None
+
+    weights = pd.to_numeric(df["weight"], errors="coerce")
+    member_ids = df["member_id"].astype(str).str.strip()
+    valid = member_ids.ne("") & weights.notna()
+    if not bool(valid.any()):
+        return None
+    series = pd.Series(weights.loc[valid].to_numpy(dtype=float), index=member_ids.loc[valid].tolist(), dtype=float)
+    if series.empty:
+        return None
+    total_weight = float(series.sum())
+    if not np.isfinite(total_weight) or total_weight <= 0.0:
+        return None
+    return series / total_weight
+
+
+def _posterior_weighted_wet_fraction_array(
+    *,
+    context: StaticContext,
+    date: pd.Timestamp,
+    derived_cache: dict[str, np.ndarray] | None,
+) -> np.ndarray:
+    cache_key = f"wet-snow-posterior-weighted-fraction:{pd.Timestamp(date).normalize().isoformat()}"
+    if derived_cache is not None and cache_key in derived_cache:
+        return np.asarray(derived_cache[cache_key], dtype=float)
+
+    step_dir = _step_dir_for_date(context.project_dir, date)
+    weights = _posterior_da_weights(context, date)
+    member_masks: list[np.ndarray] = []
+    member_weights: list[float] = []
+
+    if weights is not None:
+        prior_members = {member_dir.name: member_dir for member_dir in list_member_dirs(step_dir, "prior")}
+        for member_id, weight in weights.items():
+            member_dir = prior_members.get(str(member_id))
+            if member_dir is None:
+                continue
+            mask_path = _wet_snow_mask_path(member_dir / "results", date)
+            mask = _load_wet_snow_mask(mask_path)
+            member_masks.append(np.where(mask == 255, np.nan, mask.astype(float)))
+            member_weights.append(float(weight))
+    else:
+        for member_dir in list_member_dirs(step_dir, "posterior"):
+            source_member_dir = resolve_member_source_dir(member_dir)
+            mask_path = _wet_snow_mask_path(source_member_dir / "results", date)
+            mask = _load_wet_snow_mask(mask_path)
+            member_masks.append(np.where(mask == 255, np.nan, mask.astype(float)))
+            member_weights.append(1.0)
+
+    if not member_masks:
+        raise FileNotFoundError(f"Missing weighted posterior members for wet-snow WSL map in {step_dir}")
+
+    stack = np.stack(member_masks, axis=0)
+    weight_arr = np.asarray(member_weights, dtype=float)
+    valid_weight = np.sum(np.where(np.isfinite(stack), weight_arr[:, None, None], 0.0), axis=0)
+    wet_weight = np.nansum(stack * weight_arr[:, None, None], axis=0)
+    wet_fraction = np.divide(
+        wet_weight,
+        valid_weight,
+        out=np.full(valid_weight.shape, np.nan, dtype=float),
+        where=valid_weight > 0.0,
+    )
+    wet_fraction = np.asarray(wet_fraction, dtype=float)
+    wet_fraction[~context.roi_mask] = np.nan
+    if derived_cache is not None:
+        derived_cache[cache_key] = wet_fraction
+    return wet_fraction
+
+
+def _classify_wet_snow_fraction_for_wsl(
+    *,
+    context: StaticContext,
+    wet_fraction: np.ndarray,
+) -> np.ndarray:
+    threshold = float(load_wet_snow_line_config(context.project_dir).crossing_fraction)
+    classified = np.full(wet_fraction.shape, np.nan, dtype=float)
+    valid = np.isfinite(wet_fraction)
+    classified[valid & (wet_fraction >= threshold)] = float(_WET_SNOW_MODEL_CODES[0])
+    classified[valid & (wet_fraction < threshold)] = float(_WET_SNOW_MODEL_CODES[1])
+    classified[~context.roi_mask] = np.nan
+    return classified
+
+
+def _wet_snow_line_from_fraction(
+    *,
+    context: StaticContext,
+    wet_fraction: np.ndarray,
+    threshold: float | None = None,
+) -> float | None:
+    cfg = load_wet_snow_line_config(context.project_dir)
+    dem = np.asarray(context.dem, dtype=float)
+    valid = np.isfinite(wet_fraction) & np.asarray(context.roi_mask, dtype=bool) & np.isfinite(dem)
+    if not np.any(valid):
+        return None
+
+    valid_elev = dem[valid]
+    band = float(cfg.elevation_band_size_m)
+    low = np.floor(np.nanmin(valid_elev) / band) * band
+    high = np.ceil(np.nanmax(valid_elev) / band) * band
+    if np.isclose(low, high):
+        high = low + band
+    edges = np.arange(low, high + band, band, dtype=float)
+    if edges.size < 2:
+        edges = np.array([low, low + band], dtype=float)
+
+    mids: list[float] = []
+    fractions: list[float] = []
+    for idx in range(len(edges) - 1):
+        band_low = float(edges[idx])
+        band_high = float(edges[idx + 1])
+        band_mask = valid & (dem >= band_low) & (dem < band_high)
+        if not np.any(band_mask):
+            mids.append(band_low + (band / 2.0))
+            fractions.append(np.nan)
+            continue
+        mids.append(band_low + (band / 2.0))
+        fractions.append(float(np.nanmean(wet_fraction[band_mask])))
+
+    profile = pd.DataFrame({"band_mid_m": mids, "f_wet": fractions})
+    profile["f_wet_smooth"] = (
+        profile["f_wet"]
+        .rolling(window=int(cfg.smoothing_window_bands), center=True, min_periods=1)
+        .median()
+    )
+    series = profile[["band_mid_m", "f_wet_smooth"]].dropna().sort_values("band_mid_m").reset_index(drop=True)
+    if len(series) < 2:
+        return None
+    crossing_threshold = float(cfg.crossing_fraction if threshold is None else threshold)
+    for idx in range(len(series) - 1):
+        x1 = float(series.loc[idx, "band_mid_m"])
+        y1 = float(series.loc[idx, "f_wet_smooth"])
+        x2 = float(series.loc[idx + 1, "band_mid_m"])
+        y2 = float(series.loc[idx + 1, "f_wet_smooth"])
+        if y1 >= crossing_threshold and y2 < crossing_threshold:
+            if np.isclose(y1, y2):
+                return x1
+            frac = (crossing_threshold - y1) / (y2 - y1)
+            return float(x1 + frac * (x2 - x1))
+    return None
+
+
+def _observed_wet_snow_line_value(context: StaticContext, date: pd.Timestamp) -> float | None:
+    diag_path = default_fraction_obs_path(
+        context.setup_dir,
+        context.project_dir.name,
+        "wet_snow_line_diagnostics.csv",
+    )
+    df = load_fraction_series(diag_path, "wet_snow_line")
+    if df is None or df.empty:
+        return None
+    working = df.copy()
+    working["date"] = pd.to_datetime(working["date"]).dt.normalize()
+    row = working.loc[working["date"] == pd.Timestamp(date).normalize()]
+    if row.empty:
+        return None
+    value = pd.to_numeric(row.iloc[-1]["wet_snow_line"], errors="coerce")
+    return None if pd.isna(value) else float(value)
+
+
+def _contour_xy(context: StaticContext) -> tuple[np.ndarray, np.ndarray]:
+    transform = context.spec.transform
+    height, width = context.dem.shape
+    xs = transform.c + (np.arange(width, dtype=float) + 0.5) * transform.a
+    ys = transform.f + (np.arange(height, dtype=float) + 0.5) * transform.e
+    return np.meshgrid(xs, ys)
+
+
+_WSL_MODEL_COLOR = "#c21f24"
+_WSL_OBS_COLOR = "#2f6db2"
+
+
+def _draw_wsl_contour(
+    ax,
+    *,
+    context: StaticContext,
+    level: float | None,
+    color: str = _WSL_MODEL_COLOR,
+    linestyle: str = "-",
+    linewidth: float = 1.6,
+    zorder: float = 9,
+) -> bool:
+    if level is None or not np.isfinite(level):
+        return False
+    dem = np.asarray(context.dem, dtype=float)
+    finite = dem[np.isfinite(dem)]
+    if finite.size == 0:
+        return False
+    if float(level) < float(np.nanmin(finite)) or float(level) > float(np.nanmax(finite)):
+        return False
+    contour_dem = np.array(dem, copy=True)
+    contour_dem[~np.asarray(context.roi_mask, dtype=bool)] = np.nan
+    if not np.isfinite(contour_dem).any():
+        return False
+    xx, yy = _contour_xy(context)
+    contour = ax.contour(
+        xx,
+        yy,
+        contour_dem,
+        levels=[float(level)],
+        colors=[color],
+        linewidths=linewidth,
+        linestyles=linestyle,
+        zorder=zorder,
+    )
+    for collection in contour.collections:
+        collection.set_path_effects(
+            [
+                matplotlib.patheffects.Stroke(linewidth=3.0, foreground="white"),
+                matplotlib.patheffects.Normal(),
+            ]
+        )
+    return True
+
+
+def _wsl_callout_text(level: float | None) -> str:
+    if level is None or not np.isfinite(level):
+        return "WSL unavailable"
+    rounded = int(10.0 * np.floor((float(level) / 10.0) + 0.5))
+    return f"WSL {rounded} m"
+
+
+def _annotate_wsl_callout(ax, *, level: float | None) -> None:
+    apply_overlay_label_halo(
+        ax.text(
+            0.98,
+            0.955,
+            _wsl_callout_text(level),
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=6.0,
+            color="black",
+            zorder=_ANNOTATION_ZORDER + 2,
+            bbox={"boxstyle": "round,pad=0.10", "facecolor": "white", "edgecolor": "none", "alpha": _DATE_CALLOUT_ALPHA},
+        ),
+        with_bbox=True,
+    )
+
+
+def _wet_snow_line_legend_handles(
+    base_handles: list[object],
+    *,
+    include_model_wsl: bool,
+    include_obs_wsl: bool,
+    include_posterior_band: bool = False,
+    obs_linestyle: str = "-",
+) -> list[object]:
+    handles = list(base_handles)
+    if include_model_wsl:
+        handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, label="model WSL"))
+    if include_posterior_band:
+        handles.append(
+            Line2D(
+                [0],
+                [0],
+                color=_WSL_POSTERIOR_BAND_COLOR,
+                linewidth=1.2,
+                linestyle="--",
+                label="posterior band (25/75%)",
+            )
+        )
+    if include_obs_wsl:
+        handles.append(Line2D([0], [0], color=_WSL_OBS_COLOR, linewidth=1.6, linestyle=obs_linestyle, label="obs WSL"))
+    return handles
 
 
 def _scf_binary_grid_from_results(
@@ -1407,6 +1719,225 @@ def _load_fraction_model_value(
     if derived_cache is not None:
         derived_cache[cache_key] = np.asarray(value, dtype=float)
     return value
+
+
+def render_wet_snow_line_panel(
+    ax,
+    *,
+    panel: MapPanelSpec,
+    context: StaticContext,
+    extent,
+    label: str | None,
+    defaults: MapDefaults,
+    obs_cache,
+    figure_horizontal_default: bool,
+    derived_cache: dict[str, np.ndarray] | None = None,
+    observation_loader: Callable[..., ObservationScene] = load_observation_scene,
+) -> dict[str, object]:
+    date = panel_date(panel, defaults)
+    if date is None:
+        raise ValueError(f"Panel '{panel.kind}' requires a date (panel '{panel.title or panel.kind}')")
+    date = pd.Timestamp(date).normalize()
+    show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
+    if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
+        hillshade_mode = resolve_hillshade_extent(panel, defaults, builtin="roi")
+        ax.imshow(
+            hillshade_underlay(context, derived_cache=derived_cache)
+            if hillshade_mode == "roi"
+            else hillshade(context, derived_cache=derived_cache),
+            cmap="Greys_r",
+            extent=hillshade_extent(context),
+            origin="upper",
+            interpolation=_HILLSHADE_INTERPOLATION,
+            vmin=0.0,
+            vmax=1.0,
+            zorder=0,
+        )
+
+    obs_contour_level = _observed_wet_snow_line_value(context, date)
+    if panel.source is None:
+        obs_key = ("wet_snow", date)
+        if obs_key not in obs_cache:
+            obs_cache[obs_key] = observation_loader(context.project_dir, context, observation="wet_snow", date=date)
+        scene = obs_cache[obs_key]
+        codes = sorted(WET_SNOW_COLORS)
+        present_codes = {
+            int(code)
+            for code in codes
+            if np.any(scene.roi_mask & np.isclose(scene.array, float(code), equal_nan=False))
+        }
+        code_to_index = {code: idx for idx, code in enumerate(codes)}
+        categorical = np.full(scene.array.shape, np.nan, dtype=float)
+        for code, idx in code_to_index.items():
+            categorical[np.isclose(scene.array, float(code), equal_nan=False)] = idx
+        cmap = matplotlib.colors.ListedColormap([WET_SNOW_COLORS[code] for code in codes], name="wet_snow_obs")
+        cmap.set_bad((1.0, 1.0, 1.0, 0.0))
+        norm = BoundaryNorm(np.arange(-0.5, len(codes) + 0.5), cmap.N)
+        image = ax.imshow(
+            np.ma.masked_invalid(categorical),
+            cmap=cmap,
+            norm=norm,
+            extent=scene.bounds,
+            origin="upper",
+            interpolation="nearest",
+            zorder=5,
+        )
+        invalid_mask = (scene.invalid_mask if scene.invalid_mask is not None else np.zeros(scene.array.shape, dtype=bool)) | (
+            scene.roi_mask & ~np.isfinite(scene.array)
+        )
+        overlay_invalid_inside_roi(ax, invalid_mask, extent=scene.bounds)
+        legend_handles = classified_legend_handles(
+            canonical_codes=codes,
+            present_codes=present_codes,
+            label_lookup=WET_SNOW_LABELS,
+            color_lookup=lambda code: WET_SNOW_COLORS[code],
+            fallback_codes=codes,
+        )
+        contour_level = obs_contour_level
+    else:
+        posterior_band_levels: tuple[float | None, float | None] = (None, None)
+        if str(panel.source) == "posterior":
+            wet_fraction = _posterior_weighted_wet_fraction_array(
+                context=context,
+                date=date,
+                derived_cache=derived_cache,
+            )
+            fill = 100.0 * np.asarray(wet_fraction, dtype=float)
+            norm = Normalize(vmin=0.0, vmax=100.0)
+            contour_level = _wet_snow_line_from_fraction(context=context, wet_fraction=wet_fraction)
+            posterior_band_levels = (
+                _wet_snow_line_from_fraction(context=context, wet_fraction=wet_fraction, threshold=0.75),
+                _wet_snow_line_from_fraction(context=context, wet_fraction=wet_fraction, threshold=0.25),
+            )
+            image = ax.imshow(
+                np.ma.masked_invalid(fill),
+                cmap=_FRACTION_MODEL_CMAP,
+                norm=norm,
+                extent=grid_extent(context),
+                origin="upper",
+                interpolation="nearest",
+                alpha=0.92,
+                zorder=5,
+            )
+            overlay_invalid_inside_roi(ax, inside_roi_invalid_mask(fill, context.roi_mask), extent=grid_extent(context))
+            legend_handles = None
+        else:
+            classified = _wet_snow_model_classified_array(
+                context=context,
+                source=str(panel.source),
+                date=date,
+                derived_cache=derived_cache,
+            )
+            contour_level = _wet_snow_line_from_classified(context=context, classified=classified)
+            code_to_index = {code: idx for idx, code in enumerate(_WET_SNOW_MODEL_CODES)}
+            categorical = np.full(classified.shape, np.nan, dtype=float)
+            for code, idx in code_to_index.items():
+                categorical[np.isclose(classified, float(code), equal_nan=False)] = idx
+            cmap = matplotlib.colors.ListedColormap([WET_SNOW_COLORS[code] for code in _WET_SNOW_MODEL_CODES], name="wet_snow_model")
+            cmap.set_bad((1.0, 1.0, 1.0, 0.0))
+            norm = BoundaryNorm(np.arange(-0.5, len(_WET_SNOW_MODEL_CODES) + 0.5), cmap.N)
+            image = ax.imshow(
+                np.ma.masked_invalid(categorical),
+                cmap=cmap,
+                norm=norm,
+                extent=grid_extent(context),
+                origin="upper",
+                interpolation="nearest",
+                zorder=5,
+            )
+            overlay_invalid_inside_roi(ax, inside_roi_invalid_mask(classified, context.roi_mask), extent=grid_extent(context))
+            present_codes = {
+                code for code in _WET_SNOW_MODEL_CODES if np.any(np.isclose(classified, float(code), equal_nan=False))
+            }
+            legend_handles = classified_legend_handles(
+                canonical_codes=list(_WET_SNOW_MODEL_CODES),
+                present_codes=present_codes,
+                label_lookup=WET_SNOW_LABELS,
+                color_lookup=lambda code: WET_SNOW_COLORS[code],
+                fallback_codes=list(_WET_SNOW_MODEL_CODES),
+            )
+
+    model_contour_drawn = _draw_wsl_contour(
+        ax,
+        context=context,
+        level=contour_level,
+        color=_WSL_OBS_COLOR if panel.source is None else _WSL_MODEL_COLOR,
+        linestyle="-",
+    )
+    posterior_band_drawn = False
+    if panel.source == "posterior":
+        for band_level in posterior_band_levels:
+            posterior_band_drawn = (
+                _draw_wsl_contour(
+                    ax,
+                    context=context,
+                    level=band_level,
+                    color=_WSL_POSTERIOR_BAND_COLOR,
+                    linestyle="--",
+                    linewidth=1.15,
+                    zorder=9.5,
+                )
+                or posterior_band_drawn
+            )
+    obs_contour_drawn = False
+    if panel.source is not None:
+        obs_contour_drawn = _draw_wsl_contour(
+            ax,
+            context=context,
+            level=obs_contour_level,
+            color=_WSL_OBS_COLOR,
+            linestyle="-",
+            linewidth=1.5,
+            zorder=10,
+        )
+    _annotate_wsl_callout(ax, level=contour_level)
+
+    apply_common_overlays(
+        ax,
+        context=context,
+        extent=extent,
+        show_roi=resolve_panel_toggle(panel.show_roi, True),
+        show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
+        show_stations_name=resolve_panel_toggle(panel.show_stations_name, False),
+        show_stations_elev=resolve_panel_toggle(panel.show_stations_elev, False),
+    )
+    apply_map_axis_style(
+        ax,
+        extent,
+        title=panel_title(label, panel_semantic_title(panel)),
+        show_grid=show_grid,
+        show_y_ticklabels=panel.col == 0,
+    )
+    if panel.source == "posterior":
+        if resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
+            attach_colorbar(
+                ax,
+                image,
+                label="posterior wet-snow probability [%]",
+                ticks=(0, 20, 40, 60, 80, 100),
+                layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True),
+            )
+    else:
+        draw_classified_legend(
+            ax,
+            _wet_snow_line_legend_handles(
+                list(legend_handles),
+                include_model_wsl=model_contour_drawn and panel.source is not None,
+                include_obs_wsl=panel.source is None or obs_contour_drawn,
+            ),
+            layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default),
+        )
+    draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=date, resolve_flag=resolve_flag)
+    draw_map_grid_overlay(ax, show_grid=show_grid)
+    return {
+        "mappable": image,
+        "legend_handles": legend_handles,
+        "wsl": contour_level,
+        "obs_wsl": obs_contour_level,
+        "model_wsl_drawn": model_contour_drawn,
+        "posterior_band_drawn": posterior_band_drawn,
+        "obs_wsl_drawn": obs_contour_drawn,
+    }
 
 
 def render_fraction_model_panel(
@@ -1645,7 +2176,7 @@ def render_fraction_model_panel(
     return {"mappable": image}
 
 
-def legend_source_handles(item: LegendItemSpec, artifacts: dict[str, dict[str, object]]) -> list[Patch]:
+def legend_source_handles(item: LegendItemSpec, artifacts: dict[str, dict[str, object]]) -> list[object]:
     source = artifacts.get(str(item.source or ""))
     if source is None:
         raise ValueError(f"Legend source '{item.source}' is not available")
@@ -1692,7 +2223,14 @@ def render_legend_panel(ax, *, panel: MapPanelSpec, artifacts: dict[str, dict[st
             if item.label:
                 y = draw_heading(ax, y=y, text=str(item.label))
             for handle in legend_source_handles(item, artifacts):
-                y = draw_patch_entry(ax, y=y, label=handle.get_label(), facecolor=handle.get_facecolor(), edgecolor=handle.get_edgecolor())
+                if isinstance(handle, Patch):
+                    y = draw_patch_entry(ax, y=y, label=handle.get_label(), facecolor=handle.get_facecolor(), edgecolor=handle.get_edgecolor())
+                elif isinstance(handle, Line2D):
+                    ax.plot([0.02, 0.12], [y - 0.02, y - 0.02], transform=ax.transAxes, color=handle.get_color(), lw=handle.get_linewidth(), ls=handle.get_linestyle(), solid_capstyle="round")
+                    ax.text(0.15, y - 0.02, handle.get_label(), transform=ax.transAxes, ha="left", va="center", fontsize=5.8)
+                    y -= 0.065
+                else:
+                    raise TypeError(f"Unsupported legend source handle type: {type(handle)!r}")
         elif item.kind == "scale_bar":
             continue
         else:

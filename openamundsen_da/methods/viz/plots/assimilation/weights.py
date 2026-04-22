@@ -43,10 +43,12 @@ _WEIGHTS_FIGSIZE = (7.2876875, 3.013)
 _FRACTION_MISMATCH_COLORS = {
     "scf": da_variable_line_color("scf"),
     "wet_snow": da_variable_line_color("wet_snow"),
+    "wet_snow_line": da_variable_line_color("wet_snow_line"),
 }
 _FRACTION_DISPLAY_LABELS = {
     "scf": "SCF",
     "wet_snow": "wet snow",
+    "wet_snow_line": "wet snow line",
 }
 _STATION_COLOR_CYCLES = {
     "station_hs": [
@@ -117,13 +119,14 @@ def _member_ticks(n: int) -> list[int]:
 
 def _observable_from_csv_path(csv_path: Path) -> str | None:
     stem = Path(csv_path).stem.lower()
-    prefixes = {
-        "weights_scf_": "scf",
-        "weights_wet_snow_": "wet_snow",
-        "weights_station_hs_": "station_hs",
-        "weights_station_swe_": "station_swe",
-    }
-    for prefix, variable in prefixes.items():
+    prefixes = [
+        ("weights_wet_snow_line_", "wet_snow_line"),
+        ("weights_station_hs_", "station_hs"),
+        ("weights_station_swe_", "station_swe"),
+        ("weights_wet_snow_", "wet_snow"),
+        ("weights_scf_", "scf"),
+    ]
+    for prefix, variable in prefixes:
         if stem.startswith(prefix):
             return variable
     return None
@@ -148,7 +151,64 @@ def _fraction_axis_label(observable: str | None) -> str:
         return "snow cover fraction residual"
     if observable == "wet_snow":
         return "wet-snow fraction residual"
+    if observable == "wet_snow_line":
+        return "wet-snow line residual [m]"
     return "residual"
+
+
+def _finite_numeric_column(df: pd.DataFrame, column: str) -> pd.Series:
+    if column not in df.columns:
+        return pd.Series(dtype=float)
+    return pd.to_numeric(df[column], errors="coerce").dropna()
+
+
+def _first_finite_value(df: pd.DataFrame, columns: list[str]) -> float | None:
+    for column in columns:
+        values = _finite_numeric_column(df, column)
+        if not values.empty:
+            return float(values.iloc[0])
+    return None
+
+
+def _observed_wsl_value(df: pd.DataFrame) -> float | None:
+    return _first_finite_value(df, ["value_obs", "wet_snow_line_obs"])
+
+
+def _draw_wsl_zero_line_label(ax, df: pd.DataFrame, *, fontsize: float) -> None:
+    obs_value = _observed_wsl_value(df)
+    if obs_value is None:
+        return
+    ax.text(
+        0.0,
+        1.02,
+        f"obs WSL {obs_value:.0f} m",
+        transform=ax.get_xaxis_transform(),
+        ha="center",
+        va="bottom",
+        fontsize=fontsize,
+        color="#000000",
+        zorder=6,
+        bbox={"boxstyle": "round,pad=0.16", "facecolor": "white", "edgecolor": "none", "alpha": 0.92},
+        clip_on=False,
+    )
+
+
+def _draw_wsl_skipped_overlay(ax, df: pd.DataFrame, *, fontsize: float) -> None:
+    has_finite_residual = not _finite_numeric_column(df, "residual").empty
+    if has_finite_residual:
+        return
+    ax.text(
+        0.5,
+        0.5,
+        "WSL update skipped",
+        transform=ax.transAxes,
+        ha="center",
+        va="center",
+        fontsize=fontsize + 0.3,
+        color="#000000",
+        zorder=6,
+        bbox={"boxstyle": "round,pad=0.24", "facecolor": "white", "edgecolor": "none", "alpha": 0.92},
+    )
 
 
 def _station_axis_label(observable: str | None) -> str:
@@ -905,6 +965,9 @@ def _draw_weights_event(
             residual_axis_values.extend([-sigma_val, sigma_val])
         ax1.set_xlabel(_fraction_axis_label(observable), fontsize=fs_axis)
         ax1.xaxis.set_minor_locator(AutoMinorLocator(4))
+        if observable == "wet_snow_line":
+            _draw_wsl_zero_line_label(ax1, ordered_df, fontsize=fs_note)
+            _draw_wsl_skipped_overlay(ax1, ordered_df, fontsize=fs_note)
     _draw_sigma_strip(ax1, sigma_strip_entries, fontsize=fs_note)
     if residual_xlim is not None:
         ax1.set_xlim(*_expand_xlim(residual_xlim))

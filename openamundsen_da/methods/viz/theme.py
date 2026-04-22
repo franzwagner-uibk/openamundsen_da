@@ -18,6 +18,7 @@ _DA_VARIABLE_ALIASES = {
     "scf": "scf",
     "fsc": "scf",
     "wet_snow": "wet_snow",
+    "wet_snow_line": "wet_snow",
     "fws": "wet_snow",
     "station_hs": "station_hs",
     "station_sd": "station_hs",

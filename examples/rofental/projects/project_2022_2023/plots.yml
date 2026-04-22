@@ -11,6 +11,7 @@
 # Supported panel values:
 # - fSC
 # - fWS
+# - WSL
 # - roi-swe
 # - roi-sd
 # - station-swe
@@ -40,6 +41,10 @@ panels:
     show_obs: true
     title: wet snow fraction Rofental catchment - openAMUNDSEN ensemble and satellite data
 
+  - panel: WSL
+    show_obs: true
+    title: wet-snow line Rofental catchment - openAMUNDSEN ensemble and satellite data
+
   - panel: station-sd
     station_id: proviantdepot
     title: snow depth Proviantdepot 2659 m - openAMUNDSEN ensemble and station observation
@@ -51,6 +56,8 @@ panels:
 
 # Additional examples for all supported panel types:
 #  - panel: roi-swe
+#
+#  - panel: WSL
 #
 #  - panel: station-swe
 #    station_id: proviantdepot

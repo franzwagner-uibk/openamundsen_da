@@ -420,6 +420,8 @@ def project_fraction_envelope_path(project_dir: str | Path, observable: str) -> 
     token = str(observable).strip().lower()
     if token == "scf":
         name = "point_scf_roi_envelope.csv"
+    elif token == "wet_snow_line":
+        name = "point_wet_snow_line_roi_envelope.csv"
     elif token in {"wet_snow", "wet_snow_fraction"}:
         name = "point_wet_snow_roi_envelope.csv"
     else:

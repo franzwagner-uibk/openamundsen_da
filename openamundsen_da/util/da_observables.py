@@ -28,6 +28,11 @@ _SPECS = {
         weight_prefix="weights_wet_snow",
         weight_title="wet snow data assimilation weights",
     ),
+    "wet_snow_line": AssimilationObservableSpec(
+        variable="wet_snow_line",
+        weight_prefix="weights_wet_snow_line",
+        weight_title="wet snow line data assimilation weights",
+    ),
     "station_hs": AssimilationObservableSpec(
         variable="station_hs",
         weight_prefix="weights_station_hs",
@@ -84,7 +89,8 @@ def station_diagnostics_glob_pattern(variable: str) -> str:
 def weight_plot_title_from_csv_path(csv_path: Path) -> str:
     """Infer a plot title from a weights CSV filename."""
     stem = Path(csv_path).stem.lower()
-    for spec in _SPECS.values():
+    specs = sorted(_SPECS.values(), key=lambda spec: len(spec.weight_prefix), reverse=True)
+    for spec in specs:
         if stem.startswith(f"{spec.weight_prefix}_"):
             return spec.weight_title
     return "Data Assimilation Weights"

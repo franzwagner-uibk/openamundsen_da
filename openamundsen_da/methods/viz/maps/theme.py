@@ -76,6 +76,7 @@ _MODEL_KIND_TO_VARIABLE = {
 _OBSERVATION_KIND_TO_NAME = {
     "fsc": "scf",
     "wet_snow": "wet_snow",
+    "wet_snow_line": "wet_snow",
 }
 _STATIC_FIELD_KIND_TO_FIELD = {
     "dem": "dem",
@@ -83,11 +84,12 @@ _STATIC_FIELD_KIND_TO_FIELD = {
     "srf": "srf",
     "landcover": "landcover",
 }
-_CLASSIFIED_PANEL_KINDS = {"landcover", "wet_snow"}
+_CLASSIFIED_PANEL_KINDS = {"landcover", "wet_snow", "wet_snow_line"}
 _CONTINUOUS_COLORBAR_PANEL_KINDS = {"dem", "svf", "srf", "snow_depth", "swe", "liquid_water_content", "fsc"}
 _AUTO_TITLE_SOURCE = {
     "open_loop": "Open loop",
     "ensemble_mean": "Ensemble mean",
+    "posterior": "Posterior",
     "increment": "Increment",
     "open_loop_binary": "Open-loop snow cover",
     "posterior_probability": "Snow-cover probability",
@@ -105,4 +107,5 @@ _AUTO_TITLE_KIND = {
     "liquid_water_content": "liquid water content",
     "fsc": "Sentinel-2 FSC",
     "wet_snow": "Sentinel-1 wet snow",
+    "wet_snow_line": "Wet-snow line",
 }

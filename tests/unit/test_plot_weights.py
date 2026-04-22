@@ -7,6 +7,7 @@ import pytest
 
 from openamundsen_da.methods.pf import plot_weights as plot_mod
 from openamundsen_da.methods.viz.plots.theme import da_variable_style
+from openamundsen_da.util.da_observables import weight_plot_title_from_csv_path
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -47,6 +48,7 @@ def _add_weights_event(
         "station_swe": "weights_station_swe",
         "scf": "weights_scf",
         "wet_snow": "weights_wet_snow",
+        "wet_snow_line": "weights_wet_snow_line",
     }[observable]
     diag_prefix = {
         "station_hs": "station_diagnostics_station_hs",
@@ -93,8 +95,18 @@ def _axes_with_xlabel(fig, label: str) -> list[object]:
 def test_axis_labels_use_residual_terminology() -> None:
     assert plot_mod._fraction_axis_label("scf") == "snow cover fraction residual"
     assert plot_mod._fraction_axis_label("wet_snow") == "wet-snow fraction residual"
+    assert plot_mod._fraction_axis_label("wet_snow_line") == "wet-snow line residual [m]"
     assert plot_mod._station_axis_label("station_hs") == "snow depth residual [m]"
     assert plot_mod._station_axis_label("station_swe") == "SWE residual [mm]"
+
+
+def test_wet_snow_line_weights_csv_is_not_misclassified_as_wet_snow(tmp_path: Path) -> None:
+    _setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
+    csv_path = step_dir / "assim" / "weights_wet_snow_line_20230523.csv"
+    _write_csv(csv_path, [{"member_id": "member_001", "residual": 12.0, "sigma": 150.0, "log_weight": -1.0, "weight": 1.0}])
+
+    assert plot_mod._observable_from_csv_path(csv_path) == "wet_snow_line"
+    assert weight_plot_title_from_csv_path(csv_path) == "wet snow line data assimilation weights"
 
 
 def test_nice_axis_extent_uses_quarter_steps_just_above_one() -> None:
@@ -286,6 +298,62 @@ def test_fraction_plot_uses_observable_legend_entry_and_sigma_strip(tmp_path: Pa
         "SCF",
         "redrawn source member (extra rings = repeated draws)",
     ]
+    plt.close(fig)
+
+
+def test_wet_snow_line_plot_labels_zero_line_and_skipped_event(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
+    csv_path = step_dir / "assim" / "weights_wet_snow_line_20230523.csv"
+    _write_csv(
+        csv_path,
+        [
+            {
+                "member_id": "member_001",
+                "residual": "",
+                "sigma": "",
+                "weight": 0.5,
+                "log_weight": 0.0,
+                "value_obs": 3066.7,
+                "value_model": 2890.0,
+                "wet_information_gate_triggered": True,
+                "wet_information_gate_reason": "no_crossing_fraction",
+                "model_gate_triggered": True,
+                "model_gate_reason": "no_crossing_fraction",
+            },
+            {
+                "member_id": "member_002",
+                "residual": "",
+                "sigma": "",
+                "weight": 0.5,
+                "log_weight": 0.0,
+                "value_obs": 3066.7,
+                "value_model": 3010.0,
+                "wet_information_gate_triggered": True,
+                "wet_information_gate_reason": "no_crossing_fraction",
+                "model_gate_triggered": True,
+                "model_gate_reason": "no_crossing_fraction",
+            },
+        ],
+    )
+
+    fig = plot_mod._plot(
+        csv_path,
+        plot_mod._load_weights(csv_path),
+        title="wet snow line data assimilation weights",
+        subtitle="DA 13 - 2023-05-23",
+        observable="wet_snow_line",
+        backend="Agg",
+    )
+
+    ax1 = fig.axes[1]
+    note_texts = [text.get_text() for text in ax1.texts]
+
+    assert ax1.get_xlabel() == "wet-snow line residual [m]"
+    assert any("obs WSL 3067 m" in text for text in note_texts)
+    assert any("WSL update skipped" in text for text in note_texts)
+    assert not any("model range" in text for text in note_texts)
     plt.close(fig)
 
 

@@ -18,6 +18,7 @@ _FRACTION_REFERENCE_VARIABLES = ("scf", "wet_snow")
 _VARIABLE_LABELS = {
     "scf": "snow cover fraction",
     "wet_snow": "wet snow",
+    "wet_snow_line": "wet snow line",
     "station_hs": "station snow depth",
     "station_swe": "station snow water equivalent",
 }
@@ -151,6 +152,17 @@ def _fraction_row(*, row: int, kind: str, label: str) -> GeneratedRow:
     )
 
 
+def _wet_snow_line_row(*, row: int, label: str) -> GeneratedRow:
+    return GeneratedRow(
+        label=label,
+        panels=(
+            MapPanelSpec(kind="wet_snow_line", row=row, col=0, source="open_loop", title="open loop", show_hillshade=True, hillshade_extent="roi"),
+            MapPanelSpec(kind="wet_snow_line", row=row, col=1, source="posterior", title="posterior", show_hillshade=True, hillshade_extent="roi"),
+            MapPanelSpec(kind="wet_snow_line", row=row, col=2, title="observation"),
+        ),
+    )
+
+
 def _generated_rows_for_event(project_dir: Path, event: AssimilationEvent) -> tuple[GeneratedRow, ...]:
     rows: list[GeneratedRow] = []
     row_index = 0
@@ -162,6 +174,18 @@ def _generated_rows_for_event(project_dir: Path, event: AssimilationEvent) -> tu
         row_index += 1
     elif event.variable == "scf" and _fraction_model_support_available(project_dir, "scf"):
         rows.append(_fraction_row(row=row_index, kind="fsc", label=_stream_row_label("scf")))
+        row_index += 1
+        hs_relation = _relation_for_variable(
+            project_dir,
+            variable="station_hs",
+            date=pd.Timestamp(event.date).normalize(),
+            require_summary_date=False,
+        )
+        hs_label = _stream_row_label("station_hs", hs_relation or "independent")
+        rows.append(_snow_depth_row(row=row_index, label=hs_label))
+        row_index += 1
+    elif event.variable == "wet_snow_line" and _fraction_model_support_available(project_dir, "wet_snow"):
+        rows.append(_wet_snow_line_row(row=row_index, label=_stream_row_label("wet_snow_line")))
         row_index += 1
         hs_relation = _relation_for_variable(
             project_dir,
@@ -190,7 +214,7 @@ def _generated_rows_for_event(project_dir: Path, event: AssimilationEvent) -> tu
 
     event_date = pd.Timestamp(event.date).normalize()
     for variable in _FRACTION_REFERENCE_VARIABLES:
-        if variable == event.variable:
+        if variable == event.variable or (event.variable == "wet_snow_line" and variable == "wet_snow"):
             continue
         if not _fraction_model_support_available(project_dir, variable):
             continue

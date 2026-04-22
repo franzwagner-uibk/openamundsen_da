@@ -111,6 +111,7 @@ class EssPanelData:
 _PANEL_ALIASES = {
     "fsc": "fSC",
     "fws": "fWS",
+    "wsl": "WSL",
     "roi-swe": "roi-swe",
     "roi-sd": "roi-sd",
     "station-sd": "station-sd",
@@ -124,6 +125,7 @@ _PANEL_ALIASES = {
 _DEFAULT_PANELS = [
     PanelSpec(panel="fSC"),
     PanelSpec(panel="fWS"),
+    PanelSpec(panel="WSL"),
     PanelSpec(panel="roi-swe"),
     PanelSpec(panel="roi-sd"),
 ]
@@ -131,6 +133,7 @@ _DEFAULT_PANELS = [
 _PANEL_YLABELS = {
     "fSC": "snow cover fraction",
     "fWS": "wet snow fraction",
+    "WSL": "wet-snow line elevation [m a.s.l.]",
     "roi-swe": "swe [mm]",
     "roi-sd": "snow depth [m]",
     "station-sd": "snow depth [m]",
@@ -144,6 +147,7 @@ _PANEL_YLABELS = {
 _DEFAULT_TITLES = {
     "fSC": "snow cover fraction (roi) - openAMUNDSEN ensemble and satellite observations",
     "fWS": "wet snow fraction (roi) - openAMUNDSEN ensemble and satellite observations",
+    "WSL": "wet-snow line (roi) - openAMUNDSEN ensemble and satellite observations",
     "roi-swe": "mean swe (roi) - openAMUNDSEN ensemble and open loop",
     "roi-sd": "mean snow depth (roi) - openAMUNDSEN ensemble and open loop",
     "ess": "effective sample size",
@@ -166,6 +170,7 @@ _STATION_PANEL_META = {
 _PANEL_VARIABLE_KEYS = {
     "fSC": "scf",
     "fWS": "wet_snow",
+    "WSL": "wet_snow_line",
     "roi-swe": "station_swe",
     "roi-sd": "station_hs",
     "station-swe": "station_swe",
@@ -176,6 +181,7 @@ _PANEL_VARIABLE_KEYS = {
 _ASSIM_STYLES = {
     "scf": {"ls": "--"},
     "wet_snow": {"ls": "--"},
+    "wet_snow_line": {"ls": "--"},
     "station_hs": {"ls": "--"},
     "station_swe": {"ls": "--"},
 }
@@ -997,8 +1003,11 @@ def _panel_has_data(
     scf_model: pd.DataFrame | None,
     wet_obs: pd.DataFrame | None,
     wet_model: pd.DataFrame | None,
+    wsl_obs: pd.DataFrame | None,
+    wsl_model: pd.DataFrame | None,
     scf_env: pd.DataFrame | None,
     wet_env: pd.DataFrame | None,
+    wsl_env: pd.DataFrame | None,
     roi_swe_model: pd.DataFrame | None,
     roi_swe_members: list[pd.Series] | None,
     roi_snow_depth_model: pd.DataFrame | None,
@@ -1013,6 +1022,8 @@ def _panel_has_data(
         return any(frame is not None and not frame.empty for frame in (scf_obs, scf_model, scf_env))
     if spec.panel == "fWS":
         return any(frame is not None and not frame.empty for frame in (wet_obs, wet_model, wet_env))
+    if spec.panel == "WSL":
+        return any(frame is not None and not frame.empty for frame in (wsl_obs, wsl_model, wsl_env))
     if spec.panel == "roi-swe":
         return (roi_swe_model is not None and not roi_swe_model.empty) or bool(roi_swe_members)
     if spec.panel == "roi-sd":
@@ -1034,8 +1045,11 @@ def _filter_panel_specs(
     scf_model: pd.DataFrame | None,
     wet_obs: pd.DataFrame | None,
     wet_model: pd.DataFrame | None,
+    wsl_obs: pd.DataFrame | None,
+    wsl_model: pd.DataFrame | None,
     scf_env: pd.DataFrame | None,
     wet_env: pd.DataFrame | None,
+    wsl_env: pd.DataFrame | None,
     roi_swe_model: pd.DataFrame | None,
     roi_swe_members: list[pd.Series] | None,
     roi_snow_depth_model: pd.DataFrame | None,
@@ -1052,8 +1066,11 @@ def _filter_panel_specs(
             scf_model=scf_model,
             wet_obs=wet_obs,
             wet_model=wet_model,
+            wsl_obs=wsl_obs,
+            wsl_model=wsl_model,
             scf_env=scf_env,
             wet_env=wet_env,
+            wsl_env=wsl_env,
             roi_swe_model=roi_swe_model,
             roi_swe_members=roi_swe_members,
             roi_snow_depth_model=roi_snow_depth_model,
@@ -1080,6 +1097,9 @@ def plot_result_overview(
     scf_env: pd.DataFrame | None,
     wet_env: pd.DataFrame | None,
     output: Path,
+    wsl_obs: pd.DataFrame | None = None,
+    wsl_model: pd.DataFrame | None = None,
+    wsl_env: pd.DataFrame | None = None,
     assim_events: list[AssimilationEvent] | None = None,
     mode: str = "band",
     roi_swe_model: pd.DataFrame | None = None,
@@ -1123,8 +1143,11 @@ def plot_result_overview(
         scf_model=scf_model,
         wet_obs=wet_obs,
         wet_model=wet_model,
+        wsl_obs=wsl_obs,
+        wsl_model=wsl_model,
         scf_env=scf_env,
         wet_env=wet_env,
+        wsl_env=wsl_env,
         roi_swe_model=roi_swe_model,
         roi_swe_members=roi_swe_members,
         roi_snow_depth_model=roi_snow_depth_model,
@@ -1294,7 +1317,7 @@ def plot_result_overview(
                     color=COLOR_DA_OBS,
                     label="_nolegend_",
                 )
-                wet_dates = [pd.to_datetime(ev.date) for ev in events if ev.variable == "wet_snow"]
+                wet_dates = [pd.to_datetime(ev.date) for ev in events if ev.variable in {"wet_snow", "wet_snow_line"}]
                 if wet_dates:
                     draw_assimilation_markers(
                         ax,
@@ -1312,6 +1335,60 @@ def plot_result_overview(
             apply_fraction_grid(ax, y_step=0.2)
             _apply_fraction_ticks(ax)
             bounds = _date_bounds_frames(wet_obs, wet_model, wet_env)
+        elif spec.panel == "WSL":
+            if mode == "band" and wsl_env is not None and not wsl_env.empty:
+                ax.fill_between(
+                    wsl_env["date"],
+                    wsl_env["value_min"],
+                    wsl_env["value_max"],
+                    color=panel_style["fill"],
+                    alpha=0.35,
+                    label="_nolegend_",
+                )
+                ax.plot(
+                    wsl_env["date"],
+                    wsl_env["value_mean"],
+                    "-",
+                    color=panel_style["line"],
+                    lw=LW_MEAN,
+                    alpha=0.95,
+                    label="_nolegend_",
+                )
+            if wsl_model is not None and not wsl_model.empty:
+                ax.plot(
+                    wsl_model["date"],
+                    wsl_model["wet_snow_line"],
+                    "-",
+                    color="black",
+                    lw=LW_OPEN,
+                    label="_nolegend_",
+                )
+            if spec.show_obs and wsl_obs is not None and not wsl_obs.empty:
+                ax.plot(
+                    wsl_obs["date"],
+                    wsl_obs["wet_snow_line"],
+                    linestyle="none",
+                    marker="o",
+                    ms=2.8,
+                    color=COLOR_DA_OBS,
+                    label="_nolegend_",
+                )
+                wsl_dates = [pd.to_datetime(ev.date) for ev in events if ev.variable == "wet_snow_line"]
+                if wsl_dates:
+                    draw_assimilation_markers(
+                        ax,
+                        dates=wsl_dates,
+                        obs=wsl_obs,
+                        value_col="wet_snow_line",
+                        color=COLOR_DA_OBS,
+                        label="_nolegend_",
+                        size=SIZE_DA_OBS * 0.8,
+                        linewidth=LW_DA_OBS,
+                        draw_vlines=False,
+                    )
+            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
+            apply_fraction_grid(ax, y_step=None)
+            bounds = _date_bounds_frames(wsl_obs, wsl_model, wsl_env)
         elif spec.panel == "roi-swe":
             if roi_swe_env is not None and not roi_swe_env.empty:
                 ax.fill_between(
@@ -1559,10 +1636,13 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     parser.add_argument("--setup-dir", type=Path, help="Setup directory (default: project_dir/../..)")
     parser.add_argument("--scf-obs-csv", type=Path, help="Path to scf_summary.csv (obs)")
     parser.add_argument("--wet-obs-csv", type=Path, help="Path to wet_snow_summary.csv (obs)")
+    parser.add_argument("--wsl-obs-csv", type=Path, help="Path to wet_snow_line_diagnostics.csv (obs)")
     parser.add_argument("--scf-model-csv", type=Path, help="Model SCF CSV (date/time + scf)")
     parser.add_argument("--wet-model-csv", type=Path, help="Model wet-snow CSV (date/time + wet_snow_fraction)")
+    parser.add_argument("--wsl-model-csv", type=Path, help="Model wet-snow-line CSV (date/time + wet_snow_line)")
     parser.add_argument("--scf-env-csv", type=Path, help="SCF envelope CSV (value_min/value_max/value_mean)")
     parser.add_argument("--wet-env-csv", type=Path, help="Wet-snow envelope CSV (value_min/value_max/value_mean)")
+    parser.add_argument("--wsl-env-csv", type=Path, help="Wet-snow-line envelope CSV (value_min/value_max/value_mean)")
     parser.add_argument("--output", type=Path, help="Output PNG path (default: <project>/results/plots/results/result_overview.png)")
     parser.add_argument("--custom-config", type=Path, help="Custom panel YAML (default: <project-dir>/plots.yml)")
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
@@ -1579,17 +1659,23 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
 
     scf_obs_path = Path(args.scf_obs_csv) if args.scf_obs_csv else default_fraction_obs_path(setup_dir, project_name, "scf_summary.csv")
     wet_obs_path = Path(args.wet_obs_csv) if args.wet_obs_csv else default_fraction_obs_path(setup_dir, project_name, "wet_snow_summary.csv")
+    wsl_obs_path = Path(args.wsl_obs_csv) if args.wsl_obs_csv else default_fraction_obs_path(setup_dir, project_name, "wet_snow_line_diagnostics.csv")
     scf_env_path = Path(args.scf_env_csv) if args.scf_env_csv else project_fraction_envelope_path(project_dir, "scf")
     wet_env_path = Path(args.wet_env_csv) if args.wet_env_csv else project_fraction_envelope_path(project_dir, "wet_snow")
+    wsl_env_path = Path(args.wsl_env_csv) if args.wsl_env_csv else project_fraction_envelope_path(project_dir, "wet_snow_line")
 
     scf_obs = _load_scf_obs_series(scf_obs_path)
     wet_obs = load_fraction_series(wet_obs_path, "wet_snow_fraction")
+    wsl_obs = load_fraction_series(wsl_obs_path, "wet_snow_line")
     scf_model = load_fraction_series(Path(args.scf_model_csv), "scf") if args.scf_model_csv else None
     wet_model = load_fraction_series(Path(args.wet_model_csv), "wet_snow_fraction") if args.wet_model_csv else None
+    wsl_model = load_fraction_series(Path(args.wsl_model_csv), "wet_snow_line") if args.wsl_model_csv else None
     if scf_model is None:
         scf_model = load_open_loop_fraction_series(project_dir, "point_scf_roi.csv", "scf")
     if wet_model is None:
         wet_model = load_open_loop_fraction_series(project_dir, "point_wet_snow_roi.csv", "wet_snow_fraction")
+    if wsl_model is None:
+        wsl_model = load_open_loop_fraction_series(project_dir, "point_wet_snow_line_roi.csv", "wet_snow_line")
     roi_swe_model = load_open_loop_fraction_series(project_dir, "point_swe_roi.csv", "swe")
     roi_swe_members = load_member_series(project_dir, "point_swe_roi.csv", "swe")
     roi_snow_depth_model = load_open_loop_fraction_series(project_dir, "point_snow_depth_roi.csv", "snow_depth")
@@ -1600,11 +1686,16 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     wet_env = load_fraction_series(wet_env_path, "value_mean")
     if wet_env is not None and not wet_env.empty and {"value_min", "value_max"}.issubset(wet_env.columns) is False:
         wet_env = None
+    wsl_env = load_fraction_series(wsl_env_path, "value_mean")
+    if wsl_env is not None and not wsl_env.empty and {"value_min", "value_max"}.issubset(wsl_env.columns) is False:
+        wsl_env = None
 
     if scf_obs is None or scf_obs.empty:
         logger.warning("SCF obs not found at {} - plotting without obs points", scf_obs_path)
     if wet_obs is None or wet_obs.empty:
         logger.warning("Wet-snow obs not found at {} - plotting without obs points", wet_obs_path)
+    if wsl_obs is None or wsl_obs.empty:
+        logger.warning("Wet-snow-line obs not found at {} - plotting without obs points", wsl_obs_path)
 
     try:
         assim_events = load_assimilation_events(project_dir)
@@ -1628,7 +1719,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     if all(
         x is None or x.empty
         for x in (scf_obs, wet_obs, scf_model, wet_model, scf_env, wet_env, roi_swe_model, roi_snow_depth_model, ess_panel.series)
-    ) and not roi_swe_members and not roi_snow_depth_members:
+    ) and all(x is None or x.empty for x in (wsl_obs, wsl_model, wsl_env)) and not roi_swe_members and not roi_snow_depth_members:
         logger.error("No data available to plot. Provide at least one obs/model series.")
         return 1
 
@@ -1669,8 +1760,11 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                 scf_model=scf_model,
                 wet_obs=wet_obs,
                 wet_model=wet_model,
+                wsl_obs=wsl_obs,
+                wsl_model=wsl_model,
                 scf_env=scf_env,
                 wet_env=wet_env,
+                wsl_env=wsl_env,
                 output=custom_output,
                 assim_events=assim_events,
                 mode=str(args.mode or "band"),
@@ -1694,8 +1788,11 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                 scf_model=scf_model,
                 wet_obs=wet_obs,
                 wet_model=wet_model,
+                wsl_obs=wsl_obs,
+                wsl_model=wsl_model,
                 scf_env=scf_env,
                 wet_env=wet_env,
+                wsl_env=wsl_env,
                 output=default_output,
                 assim_events=assim_events,
                 mode=str(args.mode or "band"),
@@ -1716,8 +1813,11 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                     scf_model=scf_model,
                     wet_obs=wet_obs,
                     wet_model=wet_model,
+                    wsl_obs=wsl_obs,
+                    wsl_model=wsl_model,
                     scf_env=scf_env,
                     wet_env=wet_env,
+                    wsl_env=wsl_env,
                     output=custom_output,
                     assim_events=assim_events,
                     mode=str(args.mode or "band"),

@@ -19,6 +19,7 @@ SUPPORTED_PANEL_KINDS = {
     "liquid_water_content",
     "fsc",
     "wet_snow",
+    "wet_snow_line",
     "legend",
     "colorbar",
 }
@@ -359,6 +360,9 @@ def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
     elif panel.kind == "wet_snow":
         if panel.source is not None and panel.source not in {"open_loop", "ensemble_mean"}:
             raise ValueError(f"{context}.source must be one of: ensemble_mean, open_loop")
+    elif panel.kind == "wet_snow_line":
+        if panel.source is not None and panel.source not in {"open_loop", "posterior"}:
+            raise ValueError(f"{context}.source must be one of: open_loop, posterior")
     elif panel.source is not None:
         raise ValueError(f"{context}.source is only valid for model panels, legend panels, and colorbar panels")
 

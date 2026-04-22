@@ -158,6 +158,73 @@ def test_plot_result_overview_keeps_two_panels_without_roi_series(monkeypatch, t
     assert out_path.is_file()
 
 
+def test_plot_result_overview_adds_wsl_panel_when_wsl_series_exist(monkeypatch, tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    recorded: dict[str, int] = {}
+    original_subplots = plt.subplots
+    original_close = plt.close
+
+    def _spy_subplots(nrows, *args, **kwargs):
+        recorded["nrows"] = nrows
+        return original_subplots(nrows, *args, **kwargs)
+
+    monkeypatch.setattr(plt, "subplots", _spy_subplots)
+    monkeypatch.setattr(plt, "close", lambda fig=None: None)
+
+    out_path = tmp_path / "result_overview.png"
+    plot_result_overview(
+        scf_obs=None,
+        scf_model=_frame("scf", [0.2, 0.4]),
+        wet_obs=None,
+        wet_model=_frame("wet_snow_fraction", [0.1, 0.2]),
+        wsl_obs=_frame("wet_snow_line", [2400.0, 2450.0]),
+        wsl_model=_frame("wet_snow_line", [2380.0, 2440.0]),
+        scf_env=None,
+        wet_env=None,
+        wsl_env=_frame("value_mean", [2390.0, 2430.0]).assign(value_min=[2360.0, 2400.0], value_max=[2420.0, 2460.0]),
+        output=out_path,
+    )
+
+    assert recorded["nrows"] == 3
+    axes = _panel_axes(plt.gcf())
+    assert [ax.get_ylabel() for ax in axes] == [
+        "snow cover fraction",
+        "wet snow fraction",
+        "wet-snow line elevation [m a.s.l.]",
+    ]
+    assert out_path.is_file()
+    original_close(plt.gcf())
+
+
+def test_plot_result_overview_marks_wet_snow_line_events_on_wsl_panel(monkeypatch, tmp_path: Path) -> None:
+    marker_calls: list[list[pd.Timestamp]] = []
+
+    def _record_markers(ax, *, dates, **kwargs) -> None:
+        marker_calls.append(list(pd.to_datetime(dates)))
+
+    monkeypatch.setattr(plot_mod, "draw_assimilation_markers", _record_markers)
+
+    event_date = pd.Timestamp("2023-04-29")
+    out_path = tmp_path / "result_overview.png"
+    plot_result_overview(
+        scf_obs=None,
+        scf_model=None,
+        wet_obs=None,
+        wet_model=None,
+        wsl_obs=pd.DataFrame({"date": [event_date], "wet_snow_line": [2450.0]}),
+        wsl_model=pd.DataFrame({"date": [event_date], "wet_snow_line": [2430.0]}),
+        scf_env=None,
+        wet_env=None,
+        wsl_env=None,
+        output=out_path,
+        assim_events=[plot_mod.AssimilationEvent(date=event_date.date(), variable="wet_snow_line", product="WETSNOW")],
+    )
+
+    assert marker_calls == [[event_date]]
+    assert out_path.is_file()
+
+
 def test_plot_result_overview_fraction_panels_use_point_two_y_step(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 
@@ -1117,6 +1184,7 @@ def test_parse_custom_panel_specs_supports_titles_and_obs_toggle(tmp_path: Path)
                 "    station_id: proviantdepot",
                 "    subtitle: custom station subtitle",
                 "  - panel: scores-crpss",
+                "  - panel: WSL",
                 "  - panel: scores-zskill",
             ]
         ),
@@ -1129,6 +1197,7 @@ def test_parse_custom_panel_specs_supports_titles_and_obs_toggle(tmp_path: Path)
         PanelSpec(panel="fSC", title=None, show_obs=False, station_id=None),
         PanelSpec(panel="station-swe", title="custom station subtitle", show_obs=True, station_id="proviantdepot"),
         PanelSpec(panel="scores-crpss", title=None, show_obs=True, station_id=None),
+        PanelSpec(panel="WSL", title=None, show_obs=True, station_id=None),
         PanelSpec(panel="scores-zskill", title=None, show_obs=True, station_id=None),
     ]
 

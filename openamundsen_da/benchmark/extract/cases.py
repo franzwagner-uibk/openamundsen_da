@@ -110,10 +110,15 @@ _SPECS = {
 }
 
 
-def benchmark_variable_spec(variable: str) -> BenchmarkVariableSpec:
+def normalize_benchmark_variable(variable: str) -> str:
     key = str(variable).strip().lower()
-    if key == "wet_snow_fraction":
-        key = "wet_snow"
+    if key in {"wet_snow_fraction", "wet_snow_line"}:
+        return "wet_snow"
+    return key
+
+
+def benchmark_variable_spec(variable: str) -> BenchmarkVariableSpec:
+    key = normalize_benchmark_variable(variable)
     if key not in _SPECS:
         raise ValueError(f"Unsupported benchmark variable: {variable!r}")
     return _SPECS[key]
@@ -153,7 +158,7 @@ def step_windows(project_dir: Path) -> list[StepWindow]:
 def event_dates_by_variable(project_dir: Path) -> dict[str, set[date]]:
     out: dict[str, set[date]] = {}
     for ev in load_assimilation_events(project_dir):
-        out.setdefault(ev.variable, set()).add(ev.date)
+        out.setdefault(normalize_benchmark_variable(ev.variable), set()).add(ev.date)
     return out
 
 
@@ -168,13 +173,13 @@ def _first_event_date_by_variable(project_dir: Path) -> dict[str, date]:
 def analysis_event_contexts(project_dir: Path, *, variables: Iterable[str] | None = None) -> list[AnalysisEventContext]:
     selected = None
     if variables is not None:
-        selected = {benchmark_variable_spec(v).variable for v in variables}
+        selected = {normalize_benchmark_variable(v) for v in variables}
 
     steps = list_steps_sorted(project_dir)
     events = load_assimilation_events(project_dir)
     contexts: list[AnalysisEventContext] = []
     for idx, ev in enumerate(events[: min(len(events), len(steps))]):
-        if selected is not None and ev.variable not in selected:
+        if selected is not None and normalize_benchmark_variable(ev.variable) not in selected:
             continue
         step_dir = steps[idx]
         cfg = read_step_config(step_dir) or {}
@@ -288,7 +293,7 @@ def _fraction_summary_rows(
     assert spec.summary_filename is not None
     if variable == "scf":
         resolve_obs_product_tag("scf", setup_dir=setup_dir, project_dir=project_dir)
-    elif variable == "wet_snow":
+    elif variable in {"wet_snow", "wet_snow_line"}:
         resolve_obs_product_tag("wet_snow", setup_dir=setup_dir, project_dir=project_dir)
     summary_path = default_fraction_obs_path(setup_dir, project_dir.name, spec.summary_filename)
     if not summary_path.is_file():
@@ -747,6 +752,7 @@ __all__ = [
     "StepWindow",
     "analysis_event_contexts",
     "benchmark_supported_variables",
+    "normalize_benchmark_variable",
     "benchmark_variable_spec",
     "event_dates_by_variable",
     "extract_analysis_cases",

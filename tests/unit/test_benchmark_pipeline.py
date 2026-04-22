@@ -187,6 +187,10 @@ def test_load_benchmark_config_accepts_performance_score_exclusions(tmp_path: Pa
     assert cfg.score_station_sigma_threshold == pytest.approx(200.0)
 
 
+def test_normalize_variable_maps_wet_snow_line_to_wet_snow() -> None:
+    assert pipeline_mod._normalize_variable("wet_snow_line") == "wet_snow"
+
+
 def test_load_benchmark_config_rejects_invalid_performance_score_exclusion(tmp_path: Path) -> None:
     _setup_project(tmp_path)
     project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"

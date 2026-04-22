@@ -11,6 +11,7 @@ from loguru import logger
 from openamundsen_da.benchmark.aggregate import aggregate_scores, build_case_scores, enrich_case_scores, reliability_rows
 from openamundsen_da.benchmark.extract import (
     benchmark_supported_variables,
+    normalize_benchmark_variable,
     benchmark_variable_spec,
     extract_analysis_cases,
     extract_continuous_cases,
@@ -50,9 +51,7 @@ class BenchmarkConfig:
 
 
 def _normalize_variable(raw: object) -> str:
-    value = str(raw).strip().lower()
-    if value == "wet_snow_fraction":
-        value = "wet_snow"
+    value = normalize_benchmark_variable(str(raw))
     benchmark_variable_spec(value)
     return value
 

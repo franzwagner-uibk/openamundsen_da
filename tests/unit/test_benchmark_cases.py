@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from openamundsen_da.benchmark.cases import extract_analysis_cases, extract_continuous_cases
+from openamundsen_da.benchmark.cases import analysis_event_contexts, event_dates_by_variable, extract_analysis_cases, extract_continuous_cases
 from openamundsen_da.benchmark.metrics import build_case_scores
 
 
@@ -460,3 +460,22 @@ def test_extract_continuous_station_cases_activate_sister_link_on_first_sister_e
     }
     assert by_time["2023-01-02 00:00:00"] == "independent"
     assert by_time["2023-01-03 00:00:00"] == "semi_independent"
+
+
+def test_benchmark_event_contexts_normalize_wet_snow_line_to_wet_snow_family(tmp_path: Path) -> None:
+    _setup_basic_project(
+        tmp_path,
+        events_yaml="""
+            - date: '2023-01-03'
+              variable: wet_snow_line
+              product: WETSNOW
+        """,
+    )
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+
+    contexts = analysis_event_contexts(project_dir, variables=("wet_snow",))
+    by_variable = event_dates_by_variable(project_dir)
+
+    assert len(contexts) == 1
+    assert contexts[0].variable == "wet_snow_line"
+    assert by_variable == {"wet_snow": {pd.Timestamp("2023-01-03").date()}}

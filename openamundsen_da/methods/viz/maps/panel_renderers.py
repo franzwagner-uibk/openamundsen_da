@@ -1517,7 +1517,7 @@ def _contour_xy(context: StaticContext) -> tuple[np.ndarray, np.ndarray]:
 
 
 _WSL_MODEL_COLOR = "#c21f24"
-_WSL_OBS_COLOR = "#2f6db2"
+_WSL_OBS_COLOR = "#9467bd"
 
 
 def _draw_wsl_contour(
@@ -1570,7 +1570,7 @@ def _wsl_callout_text(level: float | None) -> str:
     return f"WSL {rounded} m"
 
 
-def _annotate_wsl_callout(ax, *, level: float | None) -> None:
+def _annotate_wsl_callout(ax, *, level: float | None, color: str = "black") -> None:
     apply_overlay_label_halo(
         ax.text(
             0.98,
@@ -1580,7 +1580,7 @@ def _annotate_wsl_callout(ax, *, level: float | None) -> None:
             ha="right",
             va="top",
             fontsize=6.0,
-            color="black",
+            color=color,
             zorder=_ANNOTATION_ZORDER + 2,
             bbox={"boxstyle": "round,pad=0.10", "facecolor": "white", "edgecolor": "none", "alpha": _DATE_CALLOUT_ALPHA},
         ),
@@ -1605,14 +1605,47 @@ def _wet_snow_line_legend_handles(
                 [0],
                 [0],
                 color=_WSL_POSTERIOR_BAND_COLOR,
-                linewidth=1.2,
-                linestyle="--",
-                label="posterior band (25/75%)",
+                linewidth=0.9,
+                linestyle="-",
+                label="posterior WSL band (25%/75% contours)",
             )
         )
     if include_obs_wsl:
         handles.append(Line2D([0], [0], color=_WSL_OBS_COLOR, linewidth=1.6, linestyle=obs_linestyle, label="obs WSL"))
     return handles
+
+
+def _draw_inpanel_wsl_legend(ax, handles: list[object]) -> None:
+    if not handles:
+        return
+    legend = ax.legend(
+        handles=handles,
+        loc="upper left",
+        bbox_to_anchor=(0.02, 0.87),
+        frameon=True,
+        fancybox=True,
+        framealpha=_DATE_CALLOUT_ALPHA,
+        facecolor="white",
+        edgecolor="none",
+        fontsize=5.3,
+        handlelength=1.5,
+        handletextpad=0.45,
+        borderpad=0.25,
+        labelspacing=0.25,
+        borderaxespad=0.0,
+    )
+    legend.set_zorder(_ANNOTATION_ZORDER + 1)
+
+
+def _posterior_band_overlay_handle() -> Line2D:
+    return Line2D(
+        [0],
+        [0],
+        color=_WSL_POSTERIOR_BAND_COLOR,
+        linewidth=0.9,
+        linestyle="-",
+        label="25 - 75% posterior WSL",
+    )
 
 
 def _scf_binary_grid_from_results(
@@ -1873,8 +1906,8 @@ def render_wet_snow_line_panel(
                     context=context,
                     level=band_level,
                     color=_WSL_POSTERIOR_BAND_COLOR,
-                    linestyle="--",
-                    linewidth=1.15,
+                    linestyle="-",
+                    linewidth=0.9,
                     zorder=9.5,
                 )
                 or posterior_band_drawn
@@ -1890,7 +1923,10 @@ def render_wet_snow_line_panel(
             linewidth=1.5,
             zorder=10,
         )
-    _annotate_wsl_callout(ax, level=contour_level)
+    callout_color = "black"
+    if contour_level is not None and np.isfinite(contour_level):
+        callout_color = _WSL_OBS_COLOR if panel.source is None else _WSL_MODEL_COLOR
+    _annotate_wsl_callout(ax, level=contour_level, color=callout_color)
 
     apply_common_overlays(
         ax,
@@ -1908,6 +1944,7 @@ def render_wet_snow_line_panel(
         show_grid=show_grid,
         show_y_ticklabels=panel.col == 0,
     )
+    posterior_overlay_handles: list[object] = []
     if panel.source == "posterior":
         if resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
             attach_colorbar(
@@ -1917,6 +1954,8 @@ def render_wet_snow_line_panel(
                 ticks=(0, 20, 40, 60, 80, 100),
                 layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True),
             )
+        if posterior_band_drawn:
+            posterior_overlay_handles = [_posterior_band_overlay_handle()]
     else:
         draw_classified_legend(
             ax,
@@ -1928,10 +1967,13 @@ def render_wet_snow_line_panel(
             layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default),
         )
     draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=date, resolve_flag=resolve_flag)
+    if panel.source == "posterior":
+        _draw_inpanel_wsl_legend(ax, posterior_overlay_handles)
     draw_map_grid_overlay(ax, show_grid=show_grid)
     return {
         "mappable": image,
         "legend_handles": legend_handles,
+        "posterior_overlay_handles": posterior_overlay_handles,
         "wsl": contour_level,
         "obs_wsl": obs_contour_level,
         "model_wsl_drawn": model_contour_drawn,

@@ -10,10 +10,11 @@ Design
 - Inputs: explicit input meteo dir, project dir, and step dir
 - Dates: inclusive [start_date..end_date] read from the step YAML
 - Params: read from project YAML under data_assimilation.prior_forcing
-- Perturbations: temperature additive dT ~ N(0, sigma_T), precipitation factor
-  f_p ~ LogNormal(mu_P, sigma_P), constant per member across stations and time
-- Schema: first column must be datetime (name is flexible); 'temp' and 'precip'
-  are optional per station file
+- Perturbations: additive temperature and relative humidity offsets plus
+  multiplicative precipitation and shortwave factors, constant per member
+  across stations and time
+- Schema: first column must be datetime (name is flexible); 'temp', 'precip',
+  'rel_hum', and 'sw_in' are optional per station file
 - Precip negatives: if 'precip' exists and contains negatives, abort
 - Output: <step_dir>/ensembles/prior/{open_loop,member_XXX}/{meteo,results}
 """
@@ -46,6 +47,8 @@ from openamundsen_da.core.constants import (
     DA_SIGMA_T,
     DA_MU_P,
     DA_SIGMA_P,
+    DA_SIGMA_RH,
+    DA_SIGMA_SW,
     DEFAULT_TIME_COL,
     DEFAULT_TEMP_COL,
     DEFAULT_PRECIP_COL,
@@ -55,7 +58,12 @@ from openamundsen_da.core.constants import (
     END_DATE,
     LOGURU_FORMAT,
 )
-from openamundsen_da.util.stats import sample_delta_t, sample_precip_factor
+from openamundsen_da.util.stats import (
+    sample_delta_rh,
+    sample_delta_t,
+    sample_precip_factor,
+    sample_shortwave_factor,
+)
 from openamundsen_da.util.parallel import pick_max_workers, resolve_base_seed
 from openamundsen_da.util.meteo import filter_and_write_meteo
 from openamundsen_da.io.paths import (
@@ -80,6 +88,8 @@ class PriorParams:
     sigma_t: float
     mu_p: float
     sigma_p: float
+    sigma_rh: float
+    sigma_sw: float
 
 
 def _read_prior_params(project_dir: Path) -> PriorParams:
@@ -98,6 +108,8 @@ def _read_prior_params(project_dir: Path) -> PriorParams:
             sigma_t=float(da[DA_SIGMA_T]),
             mu_p=float(da[DA_MU_P]),
             sigma_p=float(da[DA_SIGMA_P]),
+            sigma_rh=float(da.get(DA_SIGMA_RH, 0.0)),
+            sigma_sw=float(da.get(DA_SIGMA_SW, 0.0)),
         )
     except KeyError as e:
         missing = str(e).strip("'")
@@ -225,8 +237,18 @@ def _make_member_dirs(root: Path) -> Tuple[Path, Path]:
     return meteo, results
 
 
-def _write_info(member_root: Path, name: str, seed: int, delta_t: float, f_p: float,
-                start: pd.Timestamp, end: pd.Timestamp, input_dir: Path) -> None:
+def _write_info(
+    member_root: Path,
+    name: str,
+    seed: int,
+    delta_t: float,
+    f_p: float,
+    delta_rh: float,
+    f_sw: float,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    input_dir: Path,
+) -> None:
     """Write a compact INFO.txt summarizing the member perturbations and context."""
     info = member_root / "INFO.txt"
     lines = [
@@ -236,6 +258,8 @@ def _write_info(member_root: Path, name: str, seed: int, delta_t: float, f_p: fl
         "Perturbations (constant per member):",
         f"  delta_T (additive): {delta_t:+.3f}",
         f"  precip factor f_p:  {f_p:.3f}",
+        f"  delta_RH (additive): {delta_rh:+.3f}",
+        f"  shortwave factor f_sw: {f_sw:.3f}",
         "",
         "Date filter (inclusive):",
         f"  start_date: {start}",
@@ -243,7 +267,7 @@ def _write_info(member_root: Path, name: str, seed: int, delta_t: float, f_p: fl
         "",
         "Schema:",
         "  required: first column = datetime (name flexible)",
-        f"  optional: {DEFAULT_TEMP_COL}, {DEFAULT_PRECIP_COL}",
+        "  optional: temp, precip, rel_hum, sw_in",
         "",
         "Input:",
         f"  meteo dir: {input_dir}",
@@ -293,6 +317,8 @@ def _build_member(
     end: pd.Timestamp,
     delta_t: float,
     f_p: float,
+    delta_rh: float,
+    f_sw: float,
     random_seed: int,
     input_meteo_dir: Path,
 ) -> None:
@@ -305,6 +331,8 @@ def _build_member(
         end=end,
         delta_t=delta_t,
         f_p=f_p,
+        delta_rh=delta_rh,
+        f_sw=f_sw,
     )
     _write_info(
         member_root,
@@ -312,6 +340,8 @@ def _build_member(
         seed=random_seed,
         delta_t=delta_t,
         f_p=f_p,
+        delta_rh=delta_rh,
+        f_sw=f_sw,
         start=start,
         end=end,
         input_dir=input_meteo_dir,
@@ -374,6 +404,8 @@ def build_prior_ensemble(
             end=end,
             delta_t=0.0,
             f_p=1.0,
+            delta_rh=0.0,
+            f_sw=1.0,
         )
         logger.info("Open-loop written: {p}", p=str(open_loop_root))
 
@@ -387,8 +419,17 @@ def build_prior_ensemble(
             continue
         delta_t = sample_delta_t(rng, params.sigma_t)
         f_p = sample_precip_factor(rng, params.mu_p, params.sigma_p)
-        logger.info("[{m}] delta_T={dt:+.3f}  f_p={fp:.3f}", m=member_name, dt=delta_t, fp=f_p)
-        tasks.append((i, member_root, delta_t, f_p, input_meteo_dir))
+        delta_rh = sample_delta_rh(rng, params.sigma_rh)
+        f_sw = sample_shortwave_factor(rng, params.sigma_sw)
+        logger.info(
+            "[{m}] delta_T={dt:+.3f}  f_p={fp:.3f}  delta_RH={drh:+.3f}  f_sw={fsw:.3f}",
+            m=member_name,
+            dt=delta_t,
+            fp=f_p,
+            drh=delta_rh,
+            fsw=f_sw,
+        )
+        tasks.append((i, member_root, delta_t, f_p, delta_rh, f_sw, input_meteo_dir))
 
     if not tasks:
         logger.info("No members to build (all exist and overwrite is False).")
@@ -399,7 +440,7 @@ def build_prior_ensemble(
     logger.info("Building {} member(s) with max_workers={}", len(tasks), workers)
 
     if workers <= 1:
-        for i, member_root, delta_t, f_p, src_dir in tasks:
+        for i, member_root, delta_t, f_p, delta_rh, f_sw, src_dir in tasks:
             _build_member(
                 member_idx=i,
                 member_root=member_root,
@@ -407,6 +448,8 @@ def build_prior_ensemble(
                 end=end,
                 delta_t=delta_t,
                 f_p=f_p,
+                delta_rh=delta_rh,
+                f_sw=f_sw,
                 random_seed=params.random_seed,
                 input_meteo_dir=src_dir,
             )
@@ -421,10 +464,12 @@ def build_prior_ensemble(
                     end,
                     delta_t,
                     f_p,
+                    delta_rh,
+                    f_sw,
                     params.random_seed,
                     src_dir,
                 ): f"member_{i:03d}"
-                for i, member_root, delta_t, f_p, src_dir in tasks
+                for i, member_root, delta_t, f_p, delta_rh, f_sw, src_dir in tasks
             }
             for fut in cf.as_completed(futs):
                 name = futs[fut]
@@ -490,6 +535,4 @@ def main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
 

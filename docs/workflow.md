@@ -55,6 +55,18 @@ T_perturbed = T_original + epsilon_T,  epsilon_T ~ N(0, sigma_T^2)
 P_perturbed = P_original * exp(epsilon_P),  epsilon_P ~ N(mu_P, sigma_P^2)
 ```
 
+**Relative humidity**: Additive Gaussian noise with clipping
+
+```
+RH_perturbed = clip(RH_original + epsilon_RH, 0, 100),  epsilon_RH ~ N(0, sigma_RH^2)
+```
+
+**Incoming shortwave radiation**: Multiplicative log-normal noise for daytime values only
+
+```
+SW_perturbed = SW_original * exp(epsilon_SW),  epsilon_SW ~ N(0, sigma_SW^2),  applied only if SW_original > 0
+```
+
 **Command**:
 
 ```bash
@@ -386,9 +398,11 @@ data_assimilation:
   rejuvenation:
     sigma_t: 0.2 # Additive temperature noise (deg C)
     sigma_p: 0.2 # Lognormal sigma for precip factor (mu=0)
+    sigma_rh: 0.0 # Additive relative humidity noise (percentage points)
+    sigma_sw: 0.0 # Lognormal sigma for daytime shortwave factor (mu=0)
 ```
 
-If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas.
+If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas. `sigma_rh` and `sigma_sw` default to `0.0` when omitted.
 
 ### State Propagation
 

@@ -154,6 +154,15 @@ docker compose run --rm oa `
 
 Optional flags: `--overwrite`, `--log-level <LEVEL>`
 
+Current forcing perturbations are:
+
+- additive `temp` offset (`sigma_t`)
+- multiplicative precipitation factor (`mu_p`, `sigma_p`)
+- additive relative humidity offset (`sigma_rh`)
+- multiplicative shortwave factor (`sigma_sw`)
+
+`sigma_rh` and `sigma_sw` default to `0.0` when omitted, which preserves the previous two-variable behavior.
+
 ### Run Ensemble
 
 ```powershell
@@ -367,6 +376,8 @@ data_assimilation:
   rejuvenation:
     sigma_t: 0.2
     sigma_p: 0.2
+    sigma_rh: 0.0
+    sigma_sw: 0.0
 ```
 
 ## Plots

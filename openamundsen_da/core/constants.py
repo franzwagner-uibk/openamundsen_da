@@ -31,6 +31,8 @@ OPEN_LOOP = "open_loop"
 DEFAULT_TIME_COL = "date"
 DEFAULT_TEMP_COL = "temp"
 DEFAULT_PRECIP_COL = "precip"
+DEFAULT_REL_HUM_COL = "rel_hum"
+DEFAULT_SW_IN_COL = "sw_in"
 
 # Station metadata filename (CSV schema used by openAMUNDSEN)
 STATIONS_CSV = "stations.csv"
@@ -43,6 +45,8 @@ DA_RANDOM_SEED = "random_seed"
 DA_SIGMA_T = "sigma_t"
 DA_MU_P = "mu_p"
 DA_SIGMA_P = "sigma_p"
+DA_SIGMA_RH = "sigma_rh"
+DA_SIGMA_SW = "sigma_sw"
 
 # Observation processing (satellite SCF)
 OBS_DIR_NAME = "obs"
@@ -85,6 +89,8 @@ RESAMPLING_ESS_THRESHOLD_RATIO = "ess_threshold_ratio"  # optional, 0..1 interpr
 REJUVENATION_BLOCK = "rejuvenation"
 REJ_SIGMA_T = "sigma_t"
 REJ_SIGMA_P = "sigma_p"
+REJ_SIGMA_RH = "sigma_rh"
+REJ_SIGMA_SW = "sigma_sw"
 
 # Warm start / restart configuration
 RESTART_BLOCK = "restart"

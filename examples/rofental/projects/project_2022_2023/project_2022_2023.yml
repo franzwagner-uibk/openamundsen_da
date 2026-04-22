@@ -28,6 +28,8 @@ data_assimilation:
     sigma_t: 0.7
     mu_p: 0.0
     sigma_p: 0.8
+    sigma_rh: 0.0
+    sigma_sw: 0.0
   resampling:
     algorithm: systematic
     ess_threshold_ratio: 0.7
@@ -35,6 +37,8 @@ data_assimilation:
   rejuvenation:
     sigma_t: 0.7
     sigma_p: 0.8
+    sigma_rh: 0.0
+    sigma_sw: 0.0
     seed: 42
     rebase_open_loop: false
   restart:

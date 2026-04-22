@@ -7,7 +7,9 @@ Compact statistical helpers used across DA modules.
 Includes:
 - Prior forcing perturbation samplers
   - Temperature offset: Normal(0, sigma_t^2)
+  - Relative humidity offset: Normal(0, sigma_rh^2)
   - Precipitation factor: LogNormal(mu_p, sigma_p^2)
+  - Shortwave factor: LogNormal(0, sigma_sw^2)
 - Core math utilities
   - Logistic sigmoid with numerical stability
 """
@@ -22,9 +24,19 @@ def sample_delta_t(rng: Generator, sigma_t: float) -> float:
     return float(rng.normal(0.0, sigma_t))
 
 
+def sample_delta_rh(rng: Generator, sigma_rh: float) -> float:
+    """Sample an additive relative humidity offset ΔRH ~ N(0, sigma_rh^2)."""
+    return float(rng.normal(0.0, sigma_rh))
+
+
 def sample_precip_factor(rng: Generator, mu_p: float, sigma_p: float) -> float:
     """Sample a multiplicative precipitation factor f_p ~ LogNormal(mu_p, sigma_p^2)."""
     return float(rng.lognormal(mean=mu_p, sigma=sigma_p))
+
+
+def sample_shortwave_factor(rng: Generator, sigma_sw: float) -> float:
+    """Sample a positive multiplicative shortwave factor f_sw ~ LogNormal(0, sigma_sw^2)."""
+    return float(rng.lognormal(mean=0.0, sigma=sigma_sw))
 
 
 def sigmoid(x):

@@ -155,6 +155,7 @@ After a successful run, these paths should exist:
 - `/data/rofental/projects/project_2022_2023/results/plots/assim/ess/setup_ess_timeline_2022_2023.png`
 - `/data/rofental/projects/project_2022_2023/results/plots/assim/scores/performance_scores.png`
 - `/data/rofental/projects/project_2022_2023/results/plots/assim/weights/setup_weights_overview_2022_2023.png`
+  - for projects with many assimilation dates, continuation pages are written as `setup_weights_overview_2022_2023_page_02.png`, `..._page_03.png`, etc.
 - `/data/rofental/projects/project_2022_2023/results/plots/assim/weights/DA_04_weights.png`
 - `/data/rofental/projects/project_2022_2023/results/plots/results/result_overview.png`
 - `/data/rofental/projects/project_2022_2023/results/plots/points/setup_results_point_latschbloder_snow_depth_2022_2023.png`
@@ -178,6 +179,7 @@ results/plots/assim/weights/
   ...
   DA_10_weights.png
   setup_weights_overview_2022_2023.png
+  setup_weights_overview_2022_2023_page_02.png   # only when the overview spans multiple A4-length pages
 
 results/plots/perf/
   project_perf.png

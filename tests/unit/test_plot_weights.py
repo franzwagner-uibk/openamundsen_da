@@ -73,19 +73,29 @@ def _add_weights_event(
 
 
 def _render_setup_weights_overview_figure(project_dir: Path, monkeypatch) -> object:
-    import matplotlib.pyplot as plt
-
-    saved: dict[str, object] = {}
+    saved: list[dict[str, object]] = []
 
     def _fake_save(fig, out, **kwargs) -> None:
-        saved["fig"] = fig
-        saved["out"] = out
+        saved.append({"fig": fig, "out": out, "kwargs": kwargs})
 
     monkeypatch.setattr(plot_mod, "save_figure_png", _fake_save)
     plot_mod.plot_setup_weights_overview(project_dir, backend="Agg")
-    fig = saved["fig"]
+    fig = saved[0]["fig"]
     fig.canvas.draw()
     return fig
+
+
+def _render_setup_weights_overview_pages(project_dir: Path, monkeypatch) -> list[dict[str, object]]:
+    saved: list[dict[str, object]] = []
+
+    def _fake_save(fig, out, **kwargs) -> None:
+        saved.append({"fig": fig, "out": out, "kwargs": kwargs})
+
+    monkeypatch.setattr(plot_mod, "save_figure_png", _fake_save)
+    plot_mod.plot_setup_weights_overview(project_dir, backend="Agg")
+    for item in saved:
+        item["fig"].canvas.draw()
+    return saved
 
 
 def _axes_with_xlabel(fig, label: str) -> list[object]:
@@ -124,6 +134,31 @@ def test_setup_weights_overview_default_output_path_uses_project_weights_dir(tmp
     out = plot_mod._default_setup_weights_overview_output(project_dir)
 
     assert out == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
+
+
+def test_setup_weights_overview_page_output_uses_stable_base_name_for_page_one(tmp_path: Path) -> None:
+    _, project_dir, _ = _build_project_tree(tmp_path)
+    out = plot_mod._default_setup_weights_overview_output(project_dir)
+
+    assert plot_mod._setup_weights_overview_page_output(out, 0) == out
+    assert plot_mod._setup_weights_overview_page_output(out, 1) == out.with_name("setup_weights_overview_2022_2023_page_02.png")
+
+
+def test_remove_stale_setup_weights_overview_pages_keeps_requested_outputs(tmp_path: Path) -> None:
+    _, project_dir, _ = _build_project_tree(tmp_path)
+    out = plot_mod._default_setup_weights_overview_output(project_dir)
+    page_02 = out.with_name("setup_weights_overview_2022_2023_page_02.png")
+    page_03 = out.with_name("setup_weights_overview_2022_2023_page_03.png")
+    page_99 = out.with_name("setup_weights_overview_2022_2023_page_99.png")
+    page_02.write_text("page 2", encoding="utf-8")
+    page_03.write_text("page 3", encoding="utf-8")
+    page_99.write_text("page 99", encoding="utf-8")
+
+    plot_mod._remove_stale_setup_weights_overview_pages(out, [out, page_02])
+
+    assert page_02.exists()
+    assert not page_03.exists()
+    assert not page_99.exists()
 
 
 def test_collect_marker_legend_entries_combines_station_and_fraction_labels(tmp_path: Path) -> None:
@@ -1015,3 +1050,46 @@ def test_setup_overview_uses_sparse_member_ticks_for_high_ensemble_sizes(tmp_pat
     assert len(residual_axes) == 1
     assert len(residual_axes[0].yaxis.get_minorticklocs()) == 0
     plt.close(fig)
+
+
+def test_setup_overview_splits_many_events_across_multiple_pages(tmp_path: Path, monkeypatch) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
+    for step_idx in range(13):
+        day = step_idx + 1
+        _add_weights_event(
+            project_dir,
+            step_idx=step_idx,
+            observable="scf",
+            date_str=f"202305{day:02d}",
+            weights_rows=[
+                {
+                    "member_id": "member_001",
+                    "residual": -0.1,
+                    "sigma": 0.2,
+                    "log_weight": -1.0,
+                    "weight": 0.6,
+                },
+                {
+                    "member_id": "member_002",
+                    "residual": 0.1,
+                    "sigma": 0.2,
+                    "log_weight": -1.2,
+                    "weight": 0.4,
+                },
+            ],
+        )
+
+    saved = _render_setup_weights_overview_pages(project_dir, monkeypatch)
+
+    assert len(saved) == 2
+    assert saved[0]["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
+    assert saved[1]["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023_page_02.png"
+    assert saved[0]["fig"].get_figheight() == pytest.approx(plot_mod._COMPOSITE_ROW_HEIGHT * plot_mod._OVERVIEW_MAX_ROWS_PER_PAGE)
+    assert saved[1]["fig"].get_figheight() == pytest.approx(plot_mod._COMPOSITE_ROW_HEIGHT)
+    assert "page 1/2" in saved[0]["fig"].texts[0].get_text()
+    assert "page 2/2" in saved[1]["fig"].texts[0].get_text()
+
+    for item in saved:
+        plt.close(item["fig"])

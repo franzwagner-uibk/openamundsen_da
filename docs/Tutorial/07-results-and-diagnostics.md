@@ -147,6 +147,7 @@ Reference structure snippet (`results/plots/assim`, typical files)
     ...
     DA_10_weights.png
     setup_weights_overview_2022_2023.png
+    setup_weights_overview_2022_2023_page_02.png
     ...
 ```
 
@@ -181,6 +182,7 @@ Plot files to open:
 - `/data/rofental/projects/project_2022_2023/results/plots/assim/ess/setup_ess_timeline_2022_2023.png`
 - `/data/rofental/projects/project_2022_2023/results/plots/assim/scores/performance_scores.png`
 - `/data/rofental/projects/project_2022_2023/results/plots/assim/weights/setup_weights_overview_2022_2023.png`
+  - if the setup has many assimilation dates, open the numbered continuation pages (`..._page_02.png`, `..._page_03.png`, ...) as well
 - `/data/rofental/projects/project_2022_2023/results/plots/assim/weights/DA_04_weights.png`
 
 Reference ESS plot (tutorial baseline):
@@ -200,6 +202,8 @@ Reference setup weights overview:
 ![Setup weights overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/setup_weights_overview_2022_2023.png)
 
 _Setup-wide comparison of all ten assimilation events, grouped by observable family._
+
+For larger projects, the setup overview is automatically split into multiple A4-length PNG pages that keep the first file name above and add numbered continuation pages.
 
 Reference weights plot (example event):
 

@@ -36,7 +36,7 @@ def _parse_event_variable(raw: object, *, idx: int) -> str:
         raise ValueError(f"Missing required configuration key: data_assimilation.assimilation_events[{idx}].variable")
     if value == "wet_snow_fraction":
         value = "wet_snow"
-    if value not in {"scf", "wet_snow"} and not is_station_variable(value):
+    if value not in {"scf", "wet_snow", "wet_snow_line"} and not is_station_variable(value):
         raise ValueError(
             f"Unsupported assimilation variable at data_assimilation.assimilation_events[{idx}].variable: {raw!r}"
         )
@@ -88,4 +88,3 @@ def load_assimilation_events(project_dir: Path) -> list[AssimilationEvent]:
 
     events.sort(key=lambda ev: ev.date)
     return events
-

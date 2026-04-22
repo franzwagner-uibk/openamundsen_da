@@ -53,12 +53,12 @@ data_assimilation:
   - date: '2023-03-22'
     variable: station_hs
   - date: '2023-04-29'
-    variable: wet_snow
+    variable: wet_snow_line
     product: WETSNOW
   - date: '2023-05-03'
     variable: station_hs
   - date: '2023-05-23'
-    variable: wet_snow
+    variable: wet_snow_line
     product: WETSNOW
   - date: '2023-05-18'
     variable: scf
@@ -78,6 +78,13 @@ data_assimilation:
     single_station_factor: 2.0
   wet_snow:
     classification_threshold_percent: 0.4
+  wet_snow_line:
+    elevation_band_size_m: 100.0
+    smoothing_window_bands: 3
+    crossing_fraction: 0.5
+    wet_elevation_percentile: 95.0
+    aspect_diagnostics: four_sectors
+    sector_relative_threshold: 0.8
   likelihood:
     scf:
       obs_sigma: 0.1
@@ -93,6 +100,14 @@ data_assimilation:
       sigma_cloud_scale: 0.1
       min_sigma: 0.03
       min_support_coverage_ratio: 0.1
+    wet_snow_line:
+      obs_sigma: 150.0
+      use_binomial: false
+      sigma_floor: 25.0
+      min_sigma: 25.0
+      min_support_coverage_ratio: 0.1
+      min_wet_pixels_total: 50
+      min_wet_bands: 1
   uncertainty:
     scf:
       enabled: true

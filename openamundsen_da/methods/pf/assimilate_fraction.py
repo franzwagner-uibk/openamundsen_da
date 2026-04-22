@@ -31,6 +31,8 @@ from openamundsen_da.core.constants import (
     LIK_SIGMA_CLOUD_SCALE,
     LIK_MIN_SIGMA,
     LIK_MIN_SUPPORT_COVERAGE_RATIO,
+    LIK_MIN_WET_BANDS,
+    LIK_MIN_WET_PIXELS_TOTAL,
     OBS_DIR_NAME,
 )
 from openamundsen_da.io.paths import (
@@ -42,7 +44,7 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf, load_hofx_from_project
 from openamundsen_da.methods.pf.fraction_support import ObservationSupportMask, load_observation_support_mask
-from openamundsen_da.methods.wet_snow.area import compute_model_wet_snow_fraction
+from openamundsen_da.methods.wet_snow.area import compute_model_wet_snow_fraction, compute_model_wet_snow_line
 from openamundsen_da.util.stats import gaussian_logpdf, normalize_log_weights, effective_sample_size, compute_obs_sigma
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.util.config_validators import require_mapping
@@ -65,6 +67,8 @@ class LikelihoodParams:
     sigma_cloud_scale: float = 0.10
     min_sigma: float = 0.03
     min_support_coverage_ratio: float = 0.0
+    min_wet_pixels_total: int = 0
+    min_wet_bands: int = 0
 
 
 @dataclass(frozen=True)
@@ -150,6 +154,13 @@ def _coerce_bool(raw: object, *, path: str) -> bool:
     raise ValueError(f"Invalid boolean value at {path}: {raw!r}")
 
 
+def _coerce_int(raw: object, *, path: str) -> int:
+    try:
+        return int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid integer value at {path}: {raw!r}") from exc
+
+
 def _read_likelihood_from_project(project_dir: Path, observable: str) -> LikelihoodParams:
     """Read likelihood settings from project YAML for a given observable if available.
 
@@ -200,6 +211,20 @@ def _read_likelihood_from_project(project_dir: Path, observable: str) -> Likelih
             raise ValueError(
                 f"{lk_path}.{LIK_MIN_SUPPORT_COVERAGE_RATIO} must be within [0, 1]"
             )
+    if LIK_MIN_WET_PIXELS_TOTAL in lk:
+        params.min_wet_pixels_total = _coerce_int(
+            lk[LIK_MIN_WET_PIXELS_TOTAL],
+            path=f"{lk_path}.{LIK_MIN_WET_PIXELS_TOTAL}",
+        )
+        if params.min_wet_pixels_total < 0:
+            raise ValueError(f"{lk_path}.{LIK_MIN_WET_PIXELS_TOTAL} must be >= 0")
+    if LIK_MIN_WET_BANDS in lk:
+        params.min_wet_bands = _coerce_int(
+            lk[LIK_MIN_WET_BANDS],
+            path=f"{lk_path}.{LIK_MIN_WET_BANDS}",
+        )
+        if params.min_wet_bands < 0:
+            raise ValueError(f"{lk_path}.{LIK_MIN_WET_BANDS} must be >= 0")
     return params
 
 
@@ -534,6 +559,181 @@ def assimilate_wet_snow_for_date(
     )
     df["wet_snow_model"] = df["value_model"]
     df["wet_snow_obs"] = df["value_obs"]
+    return df
+
+
+def assimilate_wet_snow_line_for_date(
+    *,
+    setup_dir: Path,
+    step_dir: Path,
+    ensemble: str,
+    date: datetime,
+    aoi: Path,
+    landcover_cfg: LandcoverMaskConfig | None = None,
+    obs_csv: Optional[Path] = None,
+    product: str | None = None,
+) -> pd.DataFrame:
+    """Wet-snow-line assimilation for one date using an elevation-space Gaussian likelihood."""
+
+    project_dir = infer_project_dir(step_dir)
+    lc_cfg = landcover_cfg or resolve_landcover_mask(setup_dir, project_dir)
+    lk = _read_likelihood_from_project(project_dir, "wet_snow_line")
+    if lk.use_binomial:
+        raise ValueError("project.data_assimilation.likelihood.wet_snow_line.use_binomial must be false")
+    prod_tag = str(product).strip().upper() if product else resolve_obs_product_tag(
+        "wet_snow_line",
+        setup_dir=setup_dir,
+        project_dir=project_dir,
+    )
+    obs_candidates = build_obs_candidate_paths(
+        step_dir=step_dir,
+        variable="wet_snow_line",
+        date=date,
+        product=prod_tag,
+    )
+    obs_path = Path(obs_csv) if obs_csv is not None else next((p for p in obs_candidates if p.exists()), None)
+    if obs_path is None:
+        missing = ", ".join(p.name for p in obs_candidates) or "<none>"
+        raise FileNotFoundError(
+            f"Observation CSV not found for wet_snow_line at {date.date()}: "
+            f"expected one of [{missing}] under {step_dir / OBS_DIR_NAME}"
+        )
+    obs_df = pd.read_csv(obs_path)
+    if obs_df.empty:
+        raise ValueError(f"Observation CSV has no rows: {obs_path}")
+    obs_row = obs_df.iloc[0]
+    if "wet_snow_line" not in obs_row or pd.isna(obs_row["wet_snow_line"]):
+        y = float("nan")
+    else:
+        y = float(obs_row["wet_snow_line"])
+    support_info = load_observation_support_mask(
+        setup_dir=setup_dir,
+        project_dir=project_dir,
+        obs_csv=obs_path,
+        observable="wet_snow_line",
+        landcover_cfg=lc_cfg,
+    )
+    support_gate_triggered = support_info.coverage_ratio < float(lk.min_support_coverage_ratio)
+    support_gate_reason = (
+        f"obs_support_coverage_ratio<{lk.min_support_coverage_ratio:.4f}"
+        if support_gate_triggered
+        else ""
+    )
+    obs_n_wet = (
+        int(obs_row["wet_snow_line_n_wet"])
+        if "wet_snow_line_n_wet" in obs_row and not pd.isna(obs_row["wet_snow_line_n_wet"])
+        else 0
+    )
+    obs_wet_bands = (
+        int(obs_row["wet_snow_line_wet_bands"])
+        if "wet_snow_line_wet_bands" in obs_row and not pd.isna(obs_row["wet_snow_line_wet_bands"])
+        else 0
+    )
+    raw_obs_gate_reason = obs_row.get("wet_snow_line_gate_reason", "")
+    if pd.isna(raw_obs_gate_reason):
+        obs_gate_reason = ""
+    else:
+        obs_gate_reason = str(raw_obs_gate_reason or "").strip()
+    if not np.isfinite(y) and not obs_gate_reason:
+        obs_gate_reason = "no_crossing_fraction"
+    wet_information_gate_triggered = (
+        bool(obs_gate_reason)
+        or obs_n_wet < int(lk.min_wet_pixels_total)
+        or obs_wet_bands < int(lk.min_wet_bands)
+    )
+    if obs_gate_reason:
+        wet_information_gate_reason = obs_gate_reason
+    elif obs_n_wet < int(lk.min_wet_pixels_total):
+        wet_information_gate_reason = f"wet_pixels<{lk.min_wet_pixels_total}"
+    elif obs_wet_bands < int(lk.min_wet_bands):
+        wet_information_gate_reason = f"wet_bands<{lk.min_wet_bands}"
+    else:
+        wet_information_gate_reason = ""
+    gate_triggered = support_gate_triggered or wet_information_gate_triggered
+    sigma = (
+        float("nan")
+        if gate_triggered
+        else max(float(lk.obs_sigma), float(lk.sigma_floor), float(lk.min_sigma))
+    )
+
+    members = list_member_dirs(step_dir / "ensembles", ensemble)
+    if not members:
+        raise RuntimeError(f"No members found under {step_dir}/ensembles/{ensemble}")
+
+    rows: list[dict[str, object]] = []
+    for m in members:
+        results = default_results_dir(m)
+        model = compute_model_wet_snow_line(
+            setup_dir=setup_dir,
+            project_dir=project_dir,
+            results_dir=results,
+            aoi_path=aoi,
+            landcover_cfg=lc_cfg,
+            date=date,
+            support_mask=support_info.mask,
+        )
+        value_model = model["wet_snow_line"]
+        value_model_full_roi = model["wet_snow_line_full_roi"]
+        residual = y - float(value_model) if (value_model is not None and np.isfinite(y)) else np.nan
+        rows.append(
+            {
+                "member_id": m.name,
+                "value_model": value_model,
+                "value_model_full_roi": value_model_full_roi,
+                "value_model_obs_support": value_model,
+                "value_obs": y,
+                "residual": residual,
+                "full_roi_n_valid": model["n_valid_full_roi"],
+                "obs_support_n_valid": model["n_valid"],
+                "obs_support_coverage_ratio": support_info.coverage_ratio,
+                "min_support_coverage_ratio": float(lk.min_support_coverage_ratio),
+                "support_gate_triggered": bool(support_gate_triggered),
+                "support_gate_reason": support_gate_reason,
+                "wet_information_gate_triggered": bool(wet_information_gate_triggered),
+                "wet_information_gate_reason": wet_information_gate_reason,
+                "value_model_gate_reason": str(model.get("wet_snow_line_gate_reason", "") or ""),
+                "value_model_wet_bands": model.get("wet_bands"),
+            }
+        )
+
+    df = pd.DataFrame(rows)
+    model_missing_mask = ~pd.to_numeric(df["value_model"], errors="coerce").notna()
+    model_gate_triggered = bool(model_missing_mask.any())
+    model_gate_reasons = sorted(
+        {
+            str(reason).strip()
+            for reason in df.loc[model_missing_mask, "value_model_gate_reason"].tolist()
+            if str(reason).strip()
+        }
+    )
+    model_gate_reason = ";".join(model_gate_reasons) if model_gate_reasons else ("model_no_crossing_fraction" if model_gate_triggered else "")
+    df["model_gate_triggered"] = model_gate_triggered
+    df["model_gate_reason"] = model_gate_reason
+    df["sigma"] = sigma
+    gate_triggered = support_gate_triggered or wet_information_gate_triggered or model_gate_triggered
+    if gate_triggered:
+        df["sigma"] = float("nan")
+        logL = np.zeros(len(df), dtype=float)
+        w = np.full(len(df), 1.0 / float(len(df)), dtype=float)
+    else:
+        residuals = pd.to_numeric(df["residual"], errors="coerce").to_numpy(dtype=float)
+        logL = gaussian_logpdf(residuals, sigma)
+        logL[~np.isfinite(logL)] = -1.0e12
+        w = normalize_log_weights(logL)
+    df["log_weight"] = logL
+    df["weight"] = w
+    df["wet_snow_line_model"] = df["value_model"]
+    df["wet_snow_line_obs"] = df["value_obs"]
+    ess = effective_sample_size(w)
+    logger.info(
+        "wet_snow_line Assimilation | date={} members={} sigma={} support={:.3f} ESS={:.1f} gate={}",
+        date.strftime("%Y-%m-%d"),
+        len(rows),
+        "nan" if gate_triggered else f"{sigma:.1f}",
+        support_info.coverage_ratio,
+        ess,
+        gate_triggered,
+    )
     return df
 
 

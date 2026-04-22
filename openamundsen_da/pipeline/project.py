@@ -56,6 +56,7 @@ from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_moni
 from openamundsen_da.util.ts import parse_datetime_opt
 from openamundsen_da.methods.pf.assimilate_fraction import (
     assimilate_scf_for_date,
+    assimilate_wet_snow_line_for_date,
     assimilate_wet_snow_for_date,
 )
 from openamundsen_da.methods.pf.assimilate_station import (
@@ -102,6 +103,11 @@ DA_DIAGNOSTICS = {
         "plots": True,
     },
     "wet_snow": {
+        "wet_classify": True,
+        "wet_daily": True,
+        "wet_plots": True,
+    },
+    "wet_snow_line": {
         "wet_classify": True,
         "wet_daily": True,
         "wet_plots": True,
@@ -258,6 +264,18 @@ def _run_assimilation_for_event(
     ev: AssimilationEvent,
     assim_dt: datetime,
 ) -> tuple[pd.DataFrame, Path | None]:
+    if ev.variable == "wet_snow_line":
+        weights = assimilate_wet_snow_line_for_date(
+            setup_dir=cfg.setup_dir,
+            step_dir=step_dir,
+            ensemble="prior",
+            date=assim_dt,
+            aoi=roi,
+            landcover_cfg=lc_cfg,
+            obs_csv=None,
+            product=ev.product,
+        )
+        return weights, None
     if ev.variable == "wet_snow":
         weights = assimilate_wet_snow_for_date(
             setup_dir=cfg.setup_dir,
@@ -428,7 +446,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
         logger.warning("More assimilation events ({}) than steps needing DA ({}); extra events will be ignored.", len(events), n_expected)
     vars_used = {getattr(ev, "variable", None) for ev in events if getattr(ev, "variable", None)}
     scf_enabled = "scf" in vars_used
-    wet_snow_enabled = "wet_snow" in vars_used
+    wet_snow_enabled = bool({"wet_snow", "wet_snow_line"} & vars_used)
     if not vars_used:
         logger.info("No assimilation events found; skipping SCF/wet-snow diagnostics (explicit variables only).")
         scf_enabled = False
@@ -436,9 +454,9 @@ def run_project(cfg: OrchestratorConfig) -> None:
     else:
         logger.info("Assimilation variables detected: {}", ", ".join(sorted(vars_used)))
         if wet_snow_enabled:
-            logger.info("Wet-snow diagnostics enabled (wet_snow present in assimilation_events).")
+            logger.info("Wet-snow diagnostics enabled (wet_snow / wet_snow_line present in assimilation_events).")
         else:
-            logger.info("Wet-snow diagnostics disabled (wet_snow not in assimilation_events).")
+            logger.info("Wet-snow diagnostics disabled (wet_snow / wet_snow_line not in assimilation_events).")
         if scf_enabled:
             logger.info("SCF diagnostics enabled (scf present in assimilation_events).")
         else:

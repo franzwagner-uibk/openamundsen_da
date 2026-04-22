@@ -65,6 +65,32 @@ class DaEventsTests(unittest.TestCase):
             self.assertEqual(events[2].variable, "scf")
             self.assertEqual(events[2].product, "SNOWCOVER")
 
+    def test_wet_snow_line_uses_wetsnow_product_tag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            setup_dir = Path(tmp) / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2022_2023"
+            _write_setup_with_product_tags(setup_dir)
+            _write_yaml(
+                project_dir / "project_2022_2023.yml",
+                {
+                    "obs": {
+                        "snowcover": {"product_tag": "SNOWCOVER"},
+                        "wetsnow": {"product_tag": "WETSNOW"},
+                    },
+                    "data_assimilation": {
+                        "assimilation_events": [
+                            {"date": "2022-10-03", "variable": "wet_snow_line"},
+                        ]
+                    },
+                },
+            )
+
+            events = load_assimilation_events(project_dir)
+
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0].variable, "wet_snow_line")
+            self.assertEqual(events[0].product, "WETSNOW")
+
     def test_station_events_default_to_station_product(self):
         with tempfile.TemporaryDirectory() as tmp:
             setup_dir = Path(tmp) / "setup_root"

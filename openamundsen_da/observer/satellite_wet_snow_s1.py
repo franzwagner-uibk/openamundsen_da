@@ -34,6 +34,19 @@ def generate_project_from_summary(
         summary_date_col="date",
         log_prefix="Wet-snow project summary prep",
     )
+    prepare_project_obs_from_summary(
+        project_dir=project_dir,
+        summary_csv=summary_csv,
+        variable="wet_snow_line",
+        value_col="wet_snow_line",
+        accepted_event_variables=("wet_snow_line",),
+        product=product,
+        overwrite=overwrite,
+        include_product_tag=True,
+        use_step_start_time=True,
+        summary_date_col="date",
+        log_prefix="Wet-snow-line project summary prep",
+    )
 
 
 def cli_main(argv: list[str] | None = None) -> int:
@@ -91,5 +104,4 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-
 

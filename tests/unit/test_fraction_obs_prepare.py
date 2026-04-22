@@ -135,6 +135,66 @@ class FractionObsPrepareTests(unittest.TestCase):
             out_df = pd.read_csv(out_csv)
             self.assertEqual(float(out_df.iloc[0]["wet_snow_fraction"]), 0.18)
 
+    def test_wet_summary_writes_wet_snow_line_obs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            setup_dir = Path(tmp) / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2024_2025"
+            summary_csv = setup_dir / "obs" / project_dir.name / "wet_snow_summary.csv"
+
+            _write_yaml(
+                setup_dir / "setup_root.yml",
+                {
+                    "obs": {
+                        "snowcover": {"product_tag": "FSC"},
+                        "wetsnow": {"product_tag": "SWS"},
+                    }
+                },
+            )
+            _write_yaml(
+                project_dir / "project_2024_2025.yml",
+                {
+                    "obs": {
+                        "snowcover": {"product_tag": "FSC"},
+                        "wetsnow": {"product_tag": "SWS"},
+                    },
+                    "data_assimilation": {
+                        "assimilation_events": [
+                            {"date": "2025-03-05", "variable": "wet_snow_line"},
+                        ]
+                    },
+                },
+            )
+            _write_step(
+                project_dir / "steps" / "step_00_init",
+                start_date="2025-03-01 06:00:00",
+                end_date="2025-03-10 21:00:00",
+            )
+            _write_step(
+                project_dir / "steps" / "step_01_20250310-20250320",
+                start_date="2025-03-11 00:00:00",
+                end_date="2025-03-20 21:00:00",
+            )
+
+            summary_csv.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(
+                [
+                    {
+                        "date": "2025-03-05",
+                        "wet_snow_fraction": 0.18,
+                        "wet_snow_line": 2450.0,
+                        "wet_snow_line_n_wet": 120,
+                        "wet_snow_line_wet_bands": 2,
+                    }
+                ]
+            ).to_csv(summary_csv, index=False)
+
+            generate_wet_obs(project_dir=project_dir, summary_csv=summary_csv, product=None, overwrite=True)
+
+            out_csv = project_dir / "steps" / "step_00_init" / "obs" / "obs_wet_snow_line_SWS_20250305.csv"
+            self.assertTrue(out_csv.is_file())
+            out_df = pd.read_csv(out_csv)
+            self.assertEqual(float(out_df.iloc[0]["wet_snow_line"]), 2450.0)
+
 
 if __name__ == "__main__":
     unittest.main()

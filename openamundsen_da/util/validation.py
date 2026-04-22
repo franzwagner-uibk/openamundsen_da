@@ -49,7 +49,7 @@ def validate_assimilation_requirements(
     if needs_scf and not ({"snowdepth_daily"} & names or {"snow.depth"} & vars_):
         errors.append("Configure snow depth daily output (var: snow.depth, name: snowdepth_daily) in output_data.grids for SCF assimilation.")
 
-    needs_wet = any(ev.variable == "wet_snow" for ev in events)
+    needs_wet = any(ev.variable in {"wet_snow", "wet_snow_line"} for ev in events)
     if needs_wet and not ({"liquid_water_content"} & names or {"snow.liquid_water_content"} & vars_):
         errors.append("Configure liquid water content output (var: snow.liquid_water_content, name: liquid_water_content) in output_data.grids for wet-snow assimilation.")
 

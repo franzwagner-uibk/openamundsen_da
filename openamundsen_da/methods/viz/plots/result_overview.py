@@ -31,6 +31,7 @@ from openamundsen_da.io.paths import (
 from openamundsen_da.methods.viz.station_meta import load_ensemble_station_table_from_steps
 from openamundsen_da.methods.viz.plots.theme import (
     COLOR_DA_OBS,
+    BAND_ALPHA,
     FIGHEIGHT_OVERVIEW_ROW,
     FIGWIDTH_OVERVIEW_PAPER,
     OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR,
@@ -754,7 +755,7 @@ def _build_result_overview_legend_handles(
                     facecolor="#bfc6cf",
                     edgecolor="#666666",
                     linewidth=0.9,
-                    alpha=0.55,
+                    alpha=BAND_ALPHA,
                 ),
                 Line2D([0], [0], color="#666666", lw=1.2),
             ),
@@ -1237,7 +1238,7 @@ def plot_result_overview(
                     scf_env["value_min"],
                     scf_env["value_max"],
                     color=panel_style["fill"],
-                    alpha=0.6,
+                    alpha=BAND_ALPHA,
                     label="_nolegend_",
                 )
                 ax.plot(
@@ -1286,7 +1287,7 @@ def plot_result_overview(
                     wet_env["value_min"],
                     wet_env["value_max"],
                     color=panel_style["fill"],
-                    alpha=0.6,
+                    alpha=BAND_ALPHA,
                     label="_nolegend_",
                 )
                 ax.plot(
@@ -1342,7 +1343,7 @@ def plot_result_overview(
                     wsl_env["value_min"],
                     wsl_env["value_max"],
                     color=panel_style["fill"],
-                    alpha=0.35,
+                    alpha=BAND_ALPHA,
                     label="_nolegend_",
                 )
                 ax.plot(
@@ -1396,7 +1397,7 @@ def plot_result_overview(
                     roi_swe_env["value_min"],
                     roi_swe_env["value_max"],
                     color=panel_style["fill"],
-                    alpha=0.35,
+                    alpha=BAND_ALPHA,
                     label="_nolegend_",
                 )
                 ax.plot(
@@ -1428,7 +1429,7 @@ def plot_result_overview(
                     roi_snow_depth_env["value_min"],
                     roi_snow_depth_env["value_max"],
                     color=panel_style["fill"],
-                    alpha=0.35,
+                    alpha=BAND_ALPHA,
                     label="_nolegend_",
                 )
                 ax.plot(
@@ -1501,7 +1502,7 @@ def plot_result_overview(
                     env_frame["value_min"],
                     env_frame["value_max"],
                     color=panel_style["fill"],
-                    alpha=0.35,
+                    alpha=BAND_ALPHA,
                     label="_nolegend_",
                     zorder=2,
                 )

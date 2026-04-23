@@ -8,7 +8,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 import openamundsen_da.methods.viz.plots.result_overview as plot_mod
-from openamundsen_da.methods.viz.plots.theme import da_variable_style
+from openamundsen_da.methods.viz.plots.theme import BAND_ALPHA, da_variable_style
 from openamundsen_da.methods.viz.plots.result_overview import (
     PanelSpec,
     StationPanelData,
@@ -263,7 +263,7 @@ def test_plot_result_overview_roi_band_excludes_open_loop_and_plots_it_separatel
     original_plot = matplotlib.axes.Axes.plot
 
     def _spy_fill_between(self, x, y1, y2, *args, **kwargs):
-        captured["bands"].append((list(y1), list(y2), kwargs.get("color")))
+        captured["bands"].append((list(y1), list(y2), kwargs.get("color"), kwargs.get("alpha")))
         return original_fill_between(self, x, y1, y2, *args, **kwargs)
 
     def _spy_plot(self, x, y, *args, **kwargs):
@@ -286,8 +286,9 @@ def test_plot_result_overview_roi_band_excludes_open_loop_and_plots_it_separatel
         output=out_path,
     )
 
-    band_low, band_high, band_color = captured["bands"][0]
+    band_low, band_high, band_color, band_alpha = captured["bands"][0]
     assert band_color == da_variable_style("station_swe")["fill"]
+    assert band_alpha == BAND_ALPHA
     assert max(band_high) < 10.0
     open_loop_calls = [vals for vals, color in captured["plots"] if color == "black"]
     assert open_loop_calls == [[100.0, 100.0]]
@@ -487,6 +488,7 @@ def test_plot_result_overview_uses_single_figure_legend_labels(tmp_path: Path) -
         assert isinstance(ensemble_handle, tuple)
         assert isinstance(ensemble_handle[0], Patch)
         assert isinstance(ensemble_handle[1], Line2D)
+        assert ensemble_handle[0].get_alpha() == BAND_ALPHA
         handler_map = plot_mod._result_overview_legend_handler_map()
         ensemble_handler = handler_map[type(ensemble_handle)]
         assert isinstance(ensemble_handler, plot_mod._EnsembleLegendHandler)
@@ -495,6 +497,54 @@ def test_plot_result_overview_uses_single_figure_legend_labels(tmp_path: Path) -
         assert out_path.is_file()
     finally:
         plt.close = original_close
+
+
+def test_plot_result_overview_uses_shared_band_alpha_on_fraction_and_station_panels(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import matplotlib.axes
+
+    captured_alphas: list[float | None] = []
+    original_fill_between = matplotlib.axes.Axes.fill_between
+
+    def _spy_fill_between(self, x, y1, y2, *args, **kwargs):
+        captured_alphas.append(kwargs.get("alpha"))
+        return original_fill_between(self, x, y1, y2, *args, **kwargs)
+
+    monkeypatch.setattr(matplotlib.axes.Axes, "fill_between", _spy_fill_between)
+
+    out_path = tmp_path / "result_overview_custom.png"
+    plot_result_overview(
+        scf_obs=None,
+        scf_model=_frame("scf", [0.2, 0.4]),
+        wet_obs=None,
+        wet_model=_frame("wet_snow_fraction", [0.1, 0.2]),
+        scf_env=_frame("value_mean", [0.3, 0.5]).assign(value_min=[0.1, 0.3], value_max=[0.5, 0.7]),
+        wet_env=_frame("value_mean", [0.2, 0.3]).assign(value_min=[0.1, 0.2], value_max=[0.3, 0.4]),
+        output=out_path,
+        panel_specs=[
+            PanelSpec(panel="fSC"),
+            PanelSpec(panel="fWS"),
+            PanelSpec(panel="roi-sd"),
+            PanelSpec(panel="station-sd", station_id="latschbloder"),
+        ],
+        roi_snow_depth_model=_frame("snow_depth", [0.3, 0.35]),
+        roi_snow_depth_members=[_series([0.2, 0.3]), _series([0.4, 0.5])],
+        station_panels={
+            ("latschbloder", "snow_depth"): StationPanelData(
+                station_id="latschbloder",
+                display_name="Latschbloder",
+                altitude_m=2450.0,
+                open_loop=_series([0.25, 0.3]),
+                members=[_series([0.2, 0.25]), _series([0.35, 0.4])],
+                obs=_series([0.22, 0.32]),
+            )
+        },
+    )
+
+    assert captured_alphas == [BAND_ALPHA, BAND_ALPHA, BAND_ALPHA, BAND_ALPHA]
+    assert out_path.is_file()
 
 
 def test_plot_result_overview_custom_legend_includes_station_observation_when_drawn(tmp_path: Path) -> None:

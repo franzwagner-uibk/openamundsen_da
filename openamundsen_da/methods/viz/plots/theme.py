@@ -17,7 +17,8 @@ from openamundsen_da.methods.viz.theme import (
 COLOR_MEAN = "#120fb6"
 COLOR_OPEN_LOOP = "black"
 COLOR_MEMBER = "#9a9a9a"
-BAND_ALPHA = 0.18
+# One shared ensemble-band opacity across plot modules and legend swatches.
+BAND_ALPHA = 0.45
 # Use one shared linewidth across all plotted data lines.
 LW_MEMBER = 1.8
 LW_MEAN = 1.8

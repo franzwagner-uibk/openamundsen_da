@@ -178,13 +178,14 @@ def ensure_benchmark_prerequisites(
     reuse_existing_prerequisites: bool = False,
 ) -> None:
     required = {benchmark_variable_spec(v).variable for v in variables}
-    if not required.intersection({"scf", "wet_snow"}):
+    if not required.intersection({"scf", "wet_snow", "wet_snow_line"}):
         return
 
     roi_path = ensure_setup_roi_vector(setup_dir)
     landcover_cfg = resolve_landcover_mask(setup_dir, project_dir)
     workers = pick_max_workers(max_workers, fallback=4)
-    wet_threshold = _load_wet_snow_threshold(project_dir) if "wet_snow" in required else None
+    needs_wet_snow_masks = bool(required.intersection({"wet_snow", "wet_snow_line"}))
+    wet_threshold = _load_wet_snow_threshold(project_dir) if needs_wet_snow_masks else None
     effective_overwrite = bool(overwrite and not reuse_existing_prerequisites)
 
     for step_dir in list_steps_sorted(project_dir):
@@ -204,8 +205,14 @@ def ensure_benchmark_prerequisites(
                     max_workers=workers,
                     overwrite=effective_overwrite,
                 )
-        if "wet_snow" in required:
-            if not effective_overwrite and _prior_member_point_series_complete(step_dir, "point_wet_snow_roi.csv"):
+        if needs_wet_snow_masks:
+            required_wet_files = []
+            if "wet_snow" in required:
+                required_wet_files.append("point_wet_snow_roi.csv")
+            if "wet_snow_line" in required:
+                required_wet_files.append("point_wet_snow_line_roi.csv")
+            complete = all(_prior_member_point_series_complete(step_dir, filename) for filename in required_wet_files)
+            if not effective_overwrite and complete:
                 logger.info(
                     "Wet-snow benchmark prerequisites already present for {} -> reusing existing outputs",
                     step_dir.name,

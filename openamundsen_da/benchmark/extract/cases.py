@@ -13,11 +13,11 @@ from loguru import logger
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml, list_steps_sorted, read_step_config
 from openamundsen_da.methods.viz.fraction_series import (
-    default_fraction_obs_path,
     load_named_member_series,
     load_open_loop_fraction_series,
 )
 from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
+from openamundsen_da.observer.summary_paths import resolve_fraction_summary_path
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.da_observables import weights_csv_name
 from openamundsen_da.util.station_da import (
@@ -31,7 +31,7 @@ from openamundsen_da.util.station_da import (
 from openamundsen_da.util.ts import parse_datetime_opt, read_timeseries_csv
 
 
-SUPPORTED_BENCHMARK_VARIABLES = ("scf", "wet_snow", "station_hs", "station_swe")
+SUPPORTED_BENCHMARK_VARIABLES = ("scf", "wet_snow", "wet_snow_line", "station_hs", "station_swe")
 
 
 @dataclass(frozen=True)
@@ -95,6 +95,14 @@ _SPECS = {
         summary_filename="wet_snow_summary.csv",
         member_filename="point_wet_snow_roi.csv",
     ),
+    "wet_snow_line": BenchmarkVariableSpec(
+        variable="wet_snow_line",
+        kind="fraction",
+        obs_value_col="wet_snow_line",
+        model_value_col="wet_snow_line",
+        summary_filename="wet_snow_line_diagnostics.csv",
+        member_filename="point_wet_snow_line_roi.csv",
+    ),
     "station_hs": BenchmarkVariableSpec(
         variable="station_hs",
         kind="station",
@@ -112,7 +120,7 @@ _SPECS = {
 
 def normalize_benchmark_variable(variable: str) -> str:
     key = str(variable).strip().lower()
-    if key in {"wet_snow_fraction", "wet_snow_line"}:
+    if key == "wet_snow_fraction":
         return "wet_snow"
     return key
 
@@ -295,7 +303,7 @@ def _fraction_summary_rows(
         resolve_obs_product_tag("scf", setup_dir=setup_dir, project_dir=project_dir)
     elif variable in {"wet_snow", "wet_snow_line"}:
         resolve_obs_product_tag("wet_snow", setup_dir=setup_dir, project_dir=project_dir)
-    summary_path = default_fraction_obs_path(setup_dir, project_dir.name, spec.summary_filename)
+    summary_path = resolve_fraction_summary_path(setup_dir, project_dir, spec.summary_filename)
     if not summary_path.is_file():
         raise FileNotFoundError(f"Benchmark summary CSV not found for {variable}: {summary_path}")
     df = pd.read_csv(summary_path, parse_dates=["date"])
@@ -427,13 +435,30 @@ def _weights_for_event(step_dir: Path, variable: str, assimilation_dt: datetime)
     df = pd.read_csv(weights_path)
     if "member_id" not in df.columns or "weight" not in df.columns:
         raise ValueError(f"{weights_path} must contain member_id and weight columns")
-    out = df[["member_id", "weight"]].copy()
+    out = df.copy()
     out["member_id"] = out["member_id"].astype(str)
     out["weight"] = pd.to_numeric(out["weight"], errors="coerce")
     out = out.dropna(subset=["member_id", "weight"]).sort_values("member_id").reset_index(drop=True)
     if out.empty:
         raise ValueError(f"{weights_path} contains no usable member weights")
     return out
+
+
+def _wsl_member_values_from_weights(weights_df: pd.DataFrame) -> tuple[float, dict[str, float]] | None:
+    """Return the assimilated WSLA observation and member scalars from an event weights CSV."""
+    if "value_model" not in weights_df.columns or "value_obs" not in weights_df.columns:
+        return None
+    working = weights_df[["member_id", "value_model", "value_obs"]].copy()
+    working["value_model"] = pd.to_numeric(working["value_model"], errors="coerce")
+    working["value_obs"] = pd.to_numeric(working["value_obs"], errors="coerce")
+    working = working.dropna(subset=["member_id", "value_model", "value_obs"])
+    if working.empty:
+        return None
+    obs_values = working["value_obs"].dropna().unique()
+    if len(obs_values) != 1:
+        raise ValueError("WSLA weights must contain exactly one finite value_obs")
+    member_values = {str(row.member_id): float(row.value_model) for row in working.itertuples(index=False)}
+    return float(obs_values[0]), member_values
 
 
 def _aligned_posterior(
@@ -607,6 +632,66 @@ def extract_analysis_cases(
             stream: str | None = None
 
             if spec.kind == "fraction":
+                if benchmark_variable == "wet_snow_line" and ctx.variable == "wet_snow_line":
+                    wsl_values = _wsl_member_values_from_weights(weights_df)
+                    if wsl_values is None:
+                        logger.warning(
+                            "Skipping analysis benchmark for wet_snow_line on {}: no finite WSLA event scalars",
+                            ctx.event_date,
+                        )
+                        continue
+                    obs_value, member_values = wsl_values
+                    timestamp = pd.Timestamp(ctx.event_date)
+                    key = (benchmark_variable, None)
+                    if key not in open_loop_cache:
+                        open_loop_cache[key] = _open_loop_series_for_variable(project_dir, benchmark_variable)
+                    open_loop_value = _series_exact_value(open_loop_cache[key], timestamp)
+                    if open_loop_value is None:
+                        logger.warning(
+                            "Skipping analysis benchmark for wet_snow_line on {}: missing open-loop WSLA value",
+                            ctx.event_date,
+                        )
+                        continue
+                    finite_member_ids = set(member_values)
+                    filtered_weights = weights_df[weights_df["member_id"].astype(str).isin(finite_member_ids)].copy()
+                    weight_sum = pd.to_numeric(filtered_weights["weight"], errors="coerce").sum()
+                    if not pd.notna(weight_sum) or float(weight_sum) <= 0.0:
+                        logger.warning(
+                            "Skipping analysis benchmark for wet_snow_line on {}: no positive posterior weight on finite WSLA members",
+                            ctx.event_date,
+                        )
+                        continue
+                    filtered_weights["weight"] = pd.to_numeric(filtered_weights["weight"], errors="coerce") / float(weight_sum)
+                    prior_values = tuple(member_values[mid] for mid in sorted(member_values))
+                    posterior_values, posterior_weights = _aligned_posterior(
+                        member_values,
+                        filtered_weights,
+                        variable=benchmark_variable,
+                        timestamp=timestamp,
+                    )
+                    stream = _obs_stream(
+                        benchmark_variable,
+                        timestamp,
+                        events_by_var,
+                        first_event_dates=first_event_dates,
+                    )
+                    out.append(
+                        RawBenchmarkCase(
+                            score_set="analysis",
+                            variable=benchmark_variable,
+                            stream=stream,
+                            timestamp=timestamp,
+                            obs_id="roi",
+                            step_name=_match_step_name(timestamp, windows) or ctx.step_name,
+                            obs_value=obs_value,
+                            open_loop_value=open_loop_value,
+                            da_informed_values=None,
+                            prior_values=prior_values,
+                            posterior_values=posterior_values,
+                            posterior_weights=posterior_weights,
+                        )
+                    )
+                    continue
                 if benchmark_variable not in fraction_obs_cache:
                     fraction_obs_cache[benchmark_variable] = _fraction_summary_rows(
                         setup_dir=setup_dir,

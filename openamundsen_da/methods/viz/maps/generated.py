@@ -8,8 +8,8 @@ import pandas as pd
 from openamundsen_da.benchmark.extract.cases import benchmark_variable_spec
 from openamundsen_da.io.paths import project_fraction_envelope_path
 from openamundsen_da.methods.viz.fraction_series import load_fraction_series, load_open_loop_fraction_series
-from openamundsen_da.methods.viz.fraction_series import default_fraction_obs_path
 from openamundsen_da.methods.viz.maps.config import LayoutSpec, MapDefaults, MapPanelSpec, MapRecipe
+from openamundsen_da.observer.summary_paths import resolve_fraction_summary_path
 from openamundsen_da.util.da_events import AssimilationEvent, load_assimilation_events
 
 
@@ -17,8 +17,8 @@ GENERATED_DA_MAPS_SUBDIR = "da_events"
 _FRACTION_REFERENCE_VARIABLES = ("scf", "wet_snow")
 _VARIABLE_LABELS = {
     "scf": "snow cover fraction",
-    "wet_snow": "wet snow",
-    "wet_snow_line": "wet snow line",
+    "wet_snow": "wet snow fraction (WSF)",
+    "wet_snow_line": "wet snow line altitude (WSLA)",
     "station_hs": "station snow depth",
     "station_swe": "station snow water equivalent",
 }
@@ -53,7 +53,7 @@ def _fraction_summary_dates(project_dir: Path, variable: str) -> set[pd.Timestam
     if spec.summary_filename is None:
         return set()
     setup_dir = _project_setup_dir(project_dir)
-    summary_path = default_fraction_obs_path(setup_dir, Path(project_dir).name, spec.summary_filename)
+    summary_path = resolve_fraction_summary_path(setup_dir, project_dir, spec.summary_filename)
     if not summary_path.is_file():
         return set()
     df = pd.read_csv(summary_path, usecols=["date"])

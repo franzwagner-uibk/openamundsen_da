@@ -104,8 +104,8 @@ def _axes_with_xlabel(fig, label: str) -> list[object]:
 
 def test_axis_labels_use_residual_terminology() -> None:
     assert plot_mod._fraction_axis_label("scf") == "snow cover fraction residual"
-    assert plot_mod._fraction_axis_label("wet_snow") == "wet-snow fraction residual"
-    assert plot_mod._fraction_axis_label("wet_snow_line") == "wet-snow line residual [m]"
+    assert plot_mod._fraction_axis_label("wet_snow") == "wet snow fraction (WSF) residual"
+    assert plot_mod._fraction_axis_label("wet_snow_line") == "wet snow line altitude (WSLA) residual [m]"
     assert plot_mod._station_axis_label("station_hs") == "snow depth residual [m]"
     assert plot_mod._station_axis_label("station_swe") == "SWE residual [mm]"
 
@@ -116,7 +116,7 @@ def test_wet_snow_line_weights_csv_is_not_misclassified_as_wet_snow(tmp_path: Pa
     _write_csv(csv_path, [{"member_id": "member_001", "residual": 12.0, "sigma": 150.0, "log_weight": -1.0, "weight": 1.0}])
 
     assert plot_mod._observable_from_csv_path(csv_path) == "wet_snow_line"
-    assert weight_plot_title_from_csv_path(csv_path) == "wet snow line data assimilation weights"
+    assert weight_plot_title_from_csv_path(csv_path) == "wet snow line altitude (WSLA) data assimilation weights"
 
 
 def test_nice_axis_extent_uses_quarter_steps_just_above_one() -> None:
@@ -210,7 +210,7 @@ def test_collect_marker_legend_entries_combines_station_and_fraction_labels(tmp_
     assert entries == [
         ("Latschbloder (σ=500%)", "#ff7f0e"),
         ("Proviantdepot (σ=10%)", "#9467bd"),
-        ("wet snow", "#2c8a64"),
+        ("WSF", "#2c8a64"),
         ("SCF", "#2f6fb5"),
     ]
 
@@ -376,7 +376,7 @@ def test_wet_snow_line_plot_labels_zero_line_and_skipped_event(tmp_path: Path) -
     fig = plot_mod._plot(
         csv_path,
         plot_mod._load_weights(csv_path),
-        title="wet snow line data assimilation weights",
+        title="wet snow line altitude (WSLA) data assimilation weights",
         subtitle="DA 13 - 2023-05-23",
         observable="wet_snow_line",
         backend="Agg",
@@ -385,9 +385,9 @@ def test_wet_snow_line_plot_labels_zero_line_and_skipped_event(tmp_path: Path) -
     ax1 = fig.axes[1]
     note_texts = [text.get_text() for text in ax1.texts]
 
-    assert ax1.get_xlabel() == "wet-snow line residual [m]"
-    assert any("obs WSL 3067 m" in text for text in note_texts)
-    assert any("WSL update skipped" in text for text in note_texts)
+    assert ax1.get_xlabel() == "wet snow line altitude (WSLA) residual [m]"
+    assert any("obs WSLA 3067 m" in text for text in note_texts)
+    assert any("WSLA update skipped" in text for text in note_texts)
     assert not any("model range" in text for text in note_texts)
     plt.close(fig)
 
@@ -717,7 +717,7 @@ def test_setup_weights_overview_legend_prefers_single_row_until_wrap_is_needed()
     labels = [
         "Latschbloder (σ=500%)",
         "Proviantdepot (σ=10%)",
-        "wet snow",
+        "WSF",
         "redrawn source member (extra rings = repeated draws)",
     ]
     legend_kwargs = dict(
@@ -861,7 +861,7 @@ def test_setup_overview_uses_separate_residual_xlims_per_observable(tmp_path: Pa
     hs_axes = _axes_with_xlabel(fig, "snow depth residual [m]")
     swe_axes = _axes_with_xlabel(fig, "SWE residual [mm]")
     scf_axes = _axes_with_xlabel(fig, "snow cover fraction residual")
-    wet_axes = _axes_with_xlabel(fig, "wet-snow fraction residual")
+    wet_axes = _axes_with_xlabel(fig, "wet snow fraction (WSF) residual")
 
     assert len(hs_axes) == 1
     assert len(swe_axes) == 1

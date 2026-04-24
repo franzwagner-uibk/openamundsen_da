@@ -71,6 +71,7 @@ obs:
   snowcover:
     dir: obs/snowcover
     product_tag: SNOWCOVER
+    summary_csv: obs/summaries/project_2022_2023/scf_summary.csv
     classes:
       # Example only: use the class set required by your product
       valid: [0, 1, 2, 3, 4, 5]
@@ -80,6 +81,7 @@ obs:
   wetsnow:
     dir: obs/wetsnow
     product_tag: WETSNOW
+    summary_csv: obs/summaries/project_2022_2023/wet_snow_summary.csv
     classes:
       wet: [110]
       valid: [110, 125, 200, 210]
@@ -222,7 +224,7 @@ Notes:
 - See [Station Assimilation]({{ site.baseurl }}{% link guides/station-assimilation.md %}) for the method logic, effective sigma definition, single-station handling, and diagnostics.
 - Observation class mappings and product tags are configured under project YAML `obs.*`.
 - `data_assimilation.benchmark` does not enable or disable benchmarking; the project pipeline always runs it. This block extends the benchmark scope and controls benchmark output location and plot writing. The benchmark presentation itself is fixed and lean: one assimilation-date skill plot plus two compact summary tables.
-- `independent_variables` may currently list only the DA-supported families: `scf`, `wet_snow`, `station_hs`, `station_swe`.
+- `independent_variables` may currently list only the DA-supported families: `scf`, WSF (`wet_snow`), WSLA (`wet_snow_line`), `station_hs`, `station_swe`.
 - `score_station_sigma_threshold` optionally excludes high-uncertainty station rows from non-sigma-aware benchmark metrics (`CRPSS`, `NER`) while leaving sigma-aware `zSkill` unchanged. The threshold is compared against the resolved station uncertainty percent from `obs/stations/stations_da_metadata.csv`.
 - `prior_forcing.sigma_rh` adds an additive `rel_hum` perturbation in percentage points and clips perturbed values to `[0, 100]`.
 - `prior_forcing.sigma_sw` adds a multiplicative `sw_in` perturbation using a positive factor; it is applied only for positive daytime shortwave values, so nighttime `sw_in` remains unchanged.

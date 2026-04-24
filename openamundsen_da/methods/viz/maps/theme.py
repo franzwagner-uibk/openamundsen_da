@@ -76,7 +76,6 @@ _MODEL_KIND_TO_VARIABLE = {
 _OBSERVATION_KIND_TO_NAME = {
     "fsc": "scf",
     "wet_snow": "wet_snow",
-    "wet_snow_line": "wet_snow",
 }
 _STATIC_FIELD_KIND_TO_FIELD = {
     "dem": "dem",
@@ -106,6 +105,6 @@ _AUTO_TITLE_KIND = {
     "swe": "SWE",
     "liquid_water_content": "liquid water content",
     "fsc": "Sentinel-2 FSC",
-    "wet_snow": "Sentinel-1 wet snow",
-    "wet_snow_line": "Wet-snow line",
+    "wet_snow": "Sentinel-1 wet snow fraction (WSF)",
+    "wet_snow_line": "Wet snow line altitude (WSLA)",
 }

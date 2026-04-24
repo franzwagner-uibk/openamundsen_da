@@ -40,7 +40,7 @@ from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.benchmark.render.common import ensure_dir, variable_label, variable_style
 
 
-_VARIABLE_ORDER = ("scf", "wet_snow", "station_hs", "station_swe")
+_VARIABLE_ORDER = ("scf", "wet_snow", "wet_snow_line", "station_hs", "station_swe")
 _POINT_TYPE_ORDER = ("prior", "posterior")
 _STREAM_ORDER = ("assimilation_fit", "semi_independent", "independent")
 _STREAM_MARKERS = {
@@ -309,7 +309,7 @@ def _apply_result_like_time_axis_labels(axes, x_bounds: tuple[pd.Timestamp, pd.T
 
 def _assim_style(variable: str) -> dict[str, str]:
     token = str(variable or "").strip().lower()
-    if token in {"scf", "wet_snow", "station_hs", "station_swe"}:
+    if token in {"scf", "wet_snow", "wet_snow_line", "station_hs", "station_swe"}:
         style = variable_style(token)
         return {"variable_key": token, "color": style["line"], "ls": "--"}
     return {"variable_key": token, "color": "#777777", "ls": "--"}
@@ -539,8 +539,8 @@ def _da_event_legend_handle() -> Line2D:
 
 
 def _score_legend_display_rows(variables: list[str], *, include_da_event: bool = True) -> list[list]:
-    if len(variables) > 4:
-        raise ValueError(f"Score legend layout supports at most 4 variables, got {len(variables)}")
+    if len(variables) > 6:
+        raise ValueError(f"Score legend layout supports at most 6 variables, got {len(variables)}")
 
     variable_handles: list[Line2D] = []
     for variable in variables:

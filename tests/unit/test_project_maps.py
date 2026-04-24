@@ -854,7 +854,7 @@ def test_project_maps_config_accepts_wet_snow_line_panel_kind(tmp_path: Path) ->
         """
         maps:
           wsl_demo:
-            title: WSL demo
+            title: WSLA demo
             defaults:
               date: "2023-01-02"
             layout:
@@ -914,7 +914,7 @@ def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, 
     assert [recipe.name for recipe in recipes] == ["da_1", "da_2"]
     assert all(recipe.output_subdir == generated_module.GENERATED_DA_MAPS_SUBDIR for recipe in recipes)
     assert recipes[0].figure_title == "2023-01-02 (snow cover fraction)"
-    assert recipes[1].figure_title == "2023-01-02 (wet snow)"
+    assert recipes[1].figure_title == "2023-01-02 (wet snow fraction (WSF))"
     assert recipes[0].row_labels == ("station snow depth",)
     assert [panel.title for panel in recipes[0].panels] == ["open loop", "ensemble mean", "increment"]
 
@@ -966,7 +966,7 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
 
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
-    assert recipes[0].row_labels[0] == "wet snow line"
+    assert recipes[0].row_labels[0] == "wet snow line altitude (WSLA)"
     assert [panel.kind for panel in recipes[0].panels[:3]] == ["wet_snow_line", "wet_snow_line", "wet_snow_line"]
     assert [panel.source for panel in recipes[0].panels[:3]] == ["open_loop", "posterior", None]
     assert [panel.title for panel in recipes[0].panels[:3]] == ["open loop", "posterior", "observation"]
@@ -1975,9 +1975,9 @@ def test_wet_snow_line_model_panel_draws_wsl_contour(tmp_path: Path, monkeypatch
                 include_obs_wsl=True,
             )
         ]
-        assert legend_labels[-2:] == ["model WSL", "obs WSL"]
-        assert "WSL unavailable" not in {text.get_text() for text in ax.texts}
-        callout = next(text for text in ax.texts if text.get_text() == "WSL 2450 m")
+        assert legend_labels[-2:] == ["model WSLA", "obs WSLA"]
+        assert "WSLA unavailable" not in {text.get_text() for text in ax.texts}
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2450 m")
         assert callout.get_color() == "#c21f24"
     finally:
         plt.close(fig)
@@ -2000,9 +2000,12 @@ def test_posterior_weighted_wet_fraction_array_uses_da_weights(tmp_path: Path, m
     monkeypatch.setattr(panel_renderers_module, "_wet_snow_mask_path", lambda results_dir, _date: Path(results_dir) / "dummy.tif")
 
     def fake_load_mask(path: Path) -> np.ndarray:
+        mask = np.zeros(context.roi_mask.shape, dtype=np.uint8)
         if "member_001" in str(path):
-            return np.array([[1, 0], [1, 0]], dtype=np.uint8)
-        return np.array([[0, 1], [1, 0]], dtype=np.uint8)
+            mask[:2, :2] = np.array([[1, 0], [1, 0]], dtype=np.uint8)
+            return mask
+        mask[:2, :2] = np.array([[0, 1], [1, 0]], dtype=np.uint8)
+        return mask
 
     monkeypatch.setattr(panel_renderers_module, "_load_wet_snow_mask", fake_load_mask)
 
@@ -2050,7 +2053,7 @@ def test_wet_snow_line_observation_panel_uses_obs_color_for_callout(
             observation_loader=lambda *_args, **_kwargs: observation,
         )
 
-        callout = next(text for text in ax.texts if text.get_text() == "WSL 2550 m")
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2550 m")
         assert callout.get_color() == "#9467bd"
     finally:
         plt.close(fig)
@@ -2074,10 +2077,15 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
             "_classify_wet_snow_fraction_for_wsl",
             lambda **kwargs: np.full(context.roi_mask.shape, float(panel_renderers_module._WET_SNOW_MODEL_CODES[1]), dtype=float),
         )
+        monkeypatch.setattr(
+            panel_renderers_module,
+            "_prior_wsl_summary_from_weights",
+            lambda _context, _date: {"median": 2475.0, "min": 2350.0, "max": 2750.0, "obs": 2625.0, "n_members": 3},
+        )
         def _wsl_from_fraction(*, threshold=None, **_kwargs):
-            if threshold == 0.75:
+            if threshold == panel_renderers_module._WSL_POSTERIOR_BAND_HIGH:
                 return 2425.0
-            if threshold == 0.25:
+            if threshold == panel_renderers_module._WSL_POSTERIOR_BAND_LOW:
                 return 2625.0
             return 2525.0
 
@@ -2085,7 +2093,7 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
         monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: 2625.0)
 
         def _unexpected_raster_wsl(**_kwargs):
-            raise AssertionError("posterior panel should not derive its WSL from the classified raster helper")
+            raise AssertionError("posterior panel should not derive its WSLA from the classified raster helper")
 
         monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_classified", _unexpected_raster_wsl)
 
@@ -2110,39 +2118,66 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
             (2525.0, "#c21f24", "-"),
             (2425.0, "#e58b8b", "-"),
             (2625.0, "#e58b8b", "-"),
+            (2475.0, "#2c8a64", "-"),
+            (2350.0, "#72b79a", "--"),
+            (2750.0, "#72b79a", "--"),
             (2625.0, "#9467bd", "-"),
         ]
         assert artifacts["wsl"] == 2525.0
         assert artifacts["obs_wsl"] == 2625.0
         assert artifacts["posterior_band_drawn"] is True
-        assert [handle.get_label() for handle in artifacts["posterior_overlay_handles"]] == ["25 - 75% posterior WSL"]
+        assert artifacts["prior_wsl_summary"] == {
+            "median": 2475.0,
+            "min": 2350.0,
+            "max": 2750.0,
+            "obs": 2625.0,
+            "n_members": 3,
+        }
+        assert artifacts["prior_median_drawn"] is True
+        assert artifacts["prior_span_drawn"] is True
+        assert [handle.get_label() for handle in artifacts["posterior_overlay_handles"]] == [
+            "5 - 95% posterior WSLA",
+            "prior median WSLA",
+            "prior min / max WSLA",
+            "obs WSLA",
+        ]
         legend = ax.get_legend()
         assert legend is not None
-        assert [text.get_text() for text in legend.get_texts()] == ["25 - 75% posterior WSL"]
-        assert "WSL unavailable" not in {text.get_text() for text in ax.texts}
-        callout = next(text for text in ax.texts if text.get_text() == "WSL 2530 m")
+        assert [text.get_text() for text in legend.get_texts()] == [
+            "5 - 95% posterior WSLA",
+            "prior median WSLA",
+            "prior min / max WSLA",
+            "obs WSLA",
+        ]
+        assert "WSLA unavailable" not in {text.get_text() for text in ax.texts}
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2530 m")
         assert callout.get_color() == "#c21f24"
     finally:
         plt.close(fig)
 
 
-def test_wet_snow_line_legend_handles_describe_posterior_band_and_obs_color() -> None:
-    handles = panel_renderers_module._wet_snow_line_legend_handles(
-        [],
-        include_model_wsl=True,
-        include_obs_wsl=True,
-        include_posterior_band=True,
-    )
+def test_wet_snow_line_overlay_handles_describe_posterior_prior_and_obs_contours() -> None:
+    handles = [
+        panel_renderers_module._posterior_band_overlay_handle(),
+        panel_renderers_module._prior_median_overlay_handle(),
+        panel_renderers_module._prior_span_overlay_handle(),
+        panel_renderers_module._obs_overlay_handle(),
+    ]
 
     assert [handle.get_label() for handle in handles] == [
-        "model WSL",
-        "posterior WSL band (25%/75% contours)",
-        "obs WSL",
+        "5 - 95% posterior WSLA",
+        "prior median WSLA",
+        "prior min / max WSLA",
+        "obs WSLA",
     ]
-    assert handles[1].get_color() == "#e58b8b"
+    assert handles[0].get_color() == "#e58b8b"
+    assert handles[0].get_linestyle() == "-"
+    assert handles[0].get_linewidth() == pytest.approx(0.9)
+    assert handles[1].get_color() == "#2c8a64"
     assert handles[1].get_linestyle() == "-"
-    assert handles[1].get_linewidth() == pytest.approx(0.9)
-    assert handles[2].get_color() == "#9467bd"
+    assert handles[2].get_color() == "#72b79a"
+    assert handles[2].get_linestyle() == "--"
+    assert handles[3].get_color() == "#9467bd"
 
 
 def test_wet_snow_line_panel_annotates_unavailable_wsl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2177,8 +2212,8 @@ def test_wet_snow_line_panel_annotates_unavailable_wsl(tmp_path: Path, monkeypat
             figure_horizontal_default=True,
         )
 
-        assert "WSL unavailable" in {text.get_text() for text in ax.texts}
-        callout = next(text for text in ax.texts if text.get_text() == "WSL unavailable")
+        assert "WSLA unavailable" in {text.get_text() for text in ax.texts}
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA unavailable")
         assert callout.get_position() == pytest.approx((0.98, 0.955))
         assert callout.get_color() == "black"
     finally:

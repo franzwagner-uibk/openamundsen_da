@@ -13,7 +13,7 @@ import pandas as pd
 from ..common import ensure_dir
 
 
-_VARIABLE_ORDER = ("scf", "wet_snow", "station_hs", "station_swe")
+_VARIABLE_ORDER = ("scf", "wet_snow", "wet_snow_line", "station_hs", "station_swe")
 _STREAM_ORDER = ("assimilation_fit", "semi_independent", "independent")
 
 
@@ -332,7 +332,7 @@ def write_summary_markdown(
         "",
         "This is an observation-based benchmarking layer focused on DA performance over the open-loop baseline.",
         "Headline metrics are `CRPSS` and `NER`; station-point rows also carry sigma-aware `zSkill`, while `bias` remains the core support metric.",
-        "Score basis remains ROI-based for `scf` / `wet_snow` and station-point based for `station_hs` / `station_swe`.",
+        "Score basis remains ROI-based for `scf` / WSF (`wet_snow`) / WSLA (`wet_snow_line`) and station-point based for `station_hs` / `station_swe`.",
         "These outputs do not replace future holdout, LOOCV, or OSSE validation.",
         "",
         "## Core Outputs",

@@ -75,6 +75,64 @@ def _panel_axes(fig) -> list:
     return [ax for ax in fig.axes if not ax.get_label().startswith("assimilation_label_axis")]
 
 
+def test_default_wsl_overview_env_uses_prior_member_median_minmax_and_preserves_gaps(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    member_001 = project_dir / "steps" / "step_00" / "ensembles" / "prior" / "member_001" / "results"
+    member_002 = project_dir / "steps" / "step_00" / "ensembles" / "prior" / "member_002" / "results"
+    member_001.mkdir(parents=True, exist_ok=True)
+    member_002.mkdir(parents=True, exist_ok=True)
+
+    pd.DataFrame(
+        {
+            "time": ["2023-04-29", "2023-05-11", "2023-05-15"],
+            "wet_snow_line": [2400.0, float("nan"), 2600.0],
+        }
+    ).to_csv(member_001 / "point_wet_snow_line_roi.csv", index=False)
+    pd.DataFrame(
+        {
+            "time": ["2023-04-29", "2023-05-11", "2023-05-15"],
+            "wet_snow_line": [2500.0, float("nan"), 2700.0],
+        }
+    ).to_csv(member_002 / "point_wet_snow_line_roi.csv", index=False)
+
+    env = plot_mod._default_wsl_overview_env(project_dir)
+
+    assert env is not None
+    assert list(env["date"]) == list(pd.to_datetime(["2023-04-29", "2023-05-11", "2023-05-15"]))
+    assert env.iloc[0]["value_mean"] == 2450.0
+    assert env.iloc[0]["value_min"] == 2400.0
+    assert env.iloc[0]["value_max"] == 2500.0
+    assert pd.isna(env.iloc[1]["value_mean"])
+    assert pd.isna(env.iloc[1]["value_min"])
+    assert pd.isna(env.iloc[1]["value_max"])
+    assert env.iloc[2]["value_mean"] == 2650.0
+    assert env.iloc[2]["value_min"] == 2600.0
+    assert env.iloc[2]["value_max"] == 2700.0
+    assert list(env["n"]) == [2.0, 0.0, 2.0]
+
+
+def test_load_wsl_prior_coverage_frame_uses_value_model_from_weights_csv(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    weights_dir = project_dir / "steps" / "step_01" / "assim"
+    weights_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {"member_id": "member_001", "value_model": 2400.0, "value_obs": 2550.0, "weight": 0.4},
+            {"member_id": "member_002", "value_model": 2600.0, "value_obs": 2550.0, "weight": 0.6},
+        ]
+    ).to_csv(weights_dir / "weights_wet_snow_line_20230511.csv", index=False)
+
+    frame = plot_mod._load_wsl_prior_coverage_frame(project_dir)
+
+    assert frame is not None
+    assert list(frame["date"]) == [pd.Timestamp("2023-05-11")]
+    assert list(frame["value_mean"]) == [2500.0]
+    assert list(frame["value_min"]) == [2400.0]
+    assert list(frame["value_max"]) == [2600.0]
+    assert list(frame["value_obs"]) == [2550.0]
+    assert list(frame["n"]) == [2]
+
+
 def test_plot_result_overview_uses_four_panels_when_roi_series_exist(monkeypatch, tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
     import matplotlib.ticker as mticker
@@ -109,7 +167,7 @@ def test_plot_result_overview_uses_four_panels_when_roi_series_exist(monkeypatch
     axes = _panel_axes(plt.gcf())
     assert [ax.get_ylabel() for ax in axes] == [
         "snow cover fraction",
-        "wet snow fraction",
+        "wet snow fraction (WSF)",
         "swe [mm]",
         "snow depth [m]",
     ]
@@ -190,18 +248,18 @@ def test_plot_result_overview_adds_wsl_panel_when_wsl_series_exist(monkeypatch, 
     axes = _panel_axes(plt.gcf())
     assert [ax.get_ylabel() for ax in axes] == [
         "snow cover fraction",
-        "wet snow fraction",
-        "wet-snow line elevation [m a.s.l.]",
+        "wet snow fraction (WSF)",
+        "wet snow line altitude (WSLA) [m a.s.l.]",
     ]
     assert out_path.is_file()
     original_close(plt.gcf())
 
 
 def test_plot_result_overview_marks_wet_snow_line_events_on_wsl_panel(monkeypatch, tmp_path: Path) -> None:
-    marker_calls: list[list[pd.Timestamp]] = []
+    marker_calls: list[tuple[list[pd.Timestamp], pd.DataFrame, str | None]] = []
 
-    def _record_markers(ax, *, dates, **kwargs) -> None:
-        marker_calls.append(list(pd.to_datetime(dates)))
+    def _record_markers(ax, *, dates, obs, **kwargs) -> None:
+        marker_calls.append((list(pd.to_datetime(dates)), obs.copy(), kwargs.get("marker")))
 
     monkeypatch.setattr(plot_mod, "draw_assimilation_markers", _record_markers)
 
@@ -221,7 +279,169 @@ def test_plot_result_overview_marks_wet_snow_line_events_on_wsl_panel(monkeypatc
         assim_events=[plot_mod.AssimilationEvent(date=event_date.date(), variable="wet_snow_line", product="WETSNOW")],
     )
 
-    assert marker_calls == [[event_date]]
+    assert len(marker_calls) == 1
+    assert marker_calls[0][0] == [event_date]
+    assert list(marker_calls[0][1]["wet_snow_line"]) == [2450.0]
+    assert marker_calls[0][2] is None
+    assert out_path.is_file()
+
+
+def test_plot_result_overview_does_not_mark_wet_snow_line_events_on_fws_panel(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    marker_calls: list[tuple[list[pd.Timestamp], pd.DataFrame, str | None]] = []
+
+    def _record_markers(ax, *, dates, obs, **kwargs) -> None:
+        marker_calls.append((list(pd.to_datetime(dates)), obs.copy(), kwargs.get("marker")))
+
+    monkeypatch.setattr(plot_mod, "draw_assimilation_markers", _record_markers)
+
+    event_date = pd.Timestamp("2023-04-29")
+    out_path = tmp_path / "result_overview.png"
+    plot_result_overview(
+        scf_obs=None,
+        scf_model=None,
+        wet_obs=pd.DataFrame({"date": [event_date], "wet_snow_fraction": [0.35]}),
+        wet_model=pd.DataFrame({"date": [event_date], "wet_snow_fraction": [0.30]}),
+        wsl_obs=None,
+        wsl_model=None,
+        scf_env=None,
+        wet_env=None,
+        wsl_env=None,
+        output=out_path,
+        assim_events=[plot_mod.AssimilationEvent(date=event_date.date(), variable="wet_snow_line", product="WETSNOW")],
+    )
+
+    assert marker_calls == []
+    assert out_path.is_file()
+
+
+def test_plot_result_overview_wsl_keeps_model_gaps_and_omits_missing_obs_points(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import matplotlib.axes
+
+    captured_plots: list[dict[str, object]] = []
+    captured_marker_calls: list[dict[str, object]] = []
+    original_plot = matplotlib.axes.Axes.plot
+
+    def _spy_plot(self, x, y, *args, **kwargs):
+        captured_plots.append(
+            {
+                "color": kwargs.get("color"),
+                "marker": kwargs.get("marker"),
+                "linestyle": kwargs.get("linestyle"),
+                "y": list(pd.Series(y)),
+            }
+        )
+        return original_plot(self, x, y, *args, **kwargs)
+
+    def _record_markers(ax, *, dates, obs, **kwargs) -> None:
+        captured_marker_calls.append(
+            {
+                "dates": list(pd.to_datetime(dates)),
+                "obs": obs.copy(),
+                "marker": kwargs.get("marker"),
+            }
+        )
+
+    monkeypatch.setattr(matplotlib.axes.Axes, "plot", _spy_plot)
+    monkeypatch.setattr(plot_mod, "draw_assimilation_markers", _record_markers)
+
+    dates = pd.to_datetime(["2023-04-29", "2023-05-11", "2023-05-15"])
+    out_path = tmp_path / "result_overview.png"
+    plot_result_overview(
+        scf_obs=None,
+        scf_model=None,
+        wet_obs=None,
+        wet_model=None,
+        wsl_obs=pd.DataFrame({"date": dates[:2], "wet_snow_line": [2450.0, float("nan")]}),
+        wsl_model=pd.DataFrame({"date": dates, "wet_snow_line": [2430.0, float("nan"), 2520.0]}),
+        scf_env=None,
+        wet_env=None,
+        wsl_env=None,
+        output=out_path,
+        assim_events=[
+            plot_mod.AssimilationEvent(date=dates[0].date(), variable="wet_snow_line", product="WETSNOW"),
+            plot_mod.AssimilationEvent(date=dates[1].date(), variable="wet_snow_line", product="WETSNOW"),
+        ],
+    )
+
+    wsl_line_calls = [call for call in captured_plots if call["color"] == "black"]
+    wsl_obs_calls = [call for call in captured_plots if call["color"] == plot_mod.COLOR_DA_OBS and call["marker"] == "o"]
+
+    assert any(pd.isna(value) for value in wsl_line_calls[0]["y"])
+    assert len(wsl_obs_calls) == 1
+    assert wsl_obs_calls[0]["y"] == [2450.0]
+    assert len(captured_marker_calls) == 1
+    assert captured_marker_calls[0]["dates"] == [dates[0], dates[1]]
+    assert list(captured_marker_calls[0]["obs"]["wet_snow_line"]) == [2450.0]
+    assert captured_marker_calls[0]["marker"] is None
+    assert out_path.is_file()
+
+
+def test_plot_result_overview_wsl_draws_prior_coverage_markers_from_weights_frame(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import matplotlib.axes
+
+    captured_vlines: list[dict[str, object]] = []
+    captured_scatter: list[dict[str, object]] = []
+    original_vlines = matplotlib.axes.Axes.vlines
+    original_scatter = matplotlib.axes.Axes.scatter
+
+    def _spy_vlines(self, x, ymin, ymax, *args, **kwargs):
+        captured_vlines.append(
+            {
+                "x": list(pd.to_datetime(pd.Index(x))),
+                "ymin": list(pd.Series(ymin, dtype=float)),
+                "ymax": list(pd.Series(ymax, dtype=float)),
+            }
+        )
+        return original_vlines(self, x, ymin, ymax, *args, **kwargs)
+
+    def _spy_scatter(self, x, y, *args, **kwargs):
+        captured_scatter.append(
+            {
+                "x": list(pd.to_datetime(pd.Index(x))),
+                "y": list(pd.Series(y, dtype=float)),
+                "marker": kwargs.get("marker"),
+            }
+        )
+        return original_scatter(self, x, y, *args, **kwargs)
+
+    monkeypatch.setattr(matplotlib.axes.Axes, "vlines", _spy_vlines)
+    monkeypatch.setattr(matplotlib.axes.Axes, "scatter", _spy_scatter)
+
+    event_date = pd.Timestamp("2023-05-11")
+    out_path = tmp_path / "result_overview.png"
+    plot_result_overview(
+        scf_obs=None,
+        scf_model=None,
+        wet_obs=None,
+        wet_model=None,
+        wsl_obs=None,
+        wsl_model=pd.DataFrame({"date": [event_date], "wet_snow_line": [2500.0]}),
+        scf_env=None,
+        wet_env=None,
+        wsl_env=pd.DataFrame({"date": [event_date], "value_mean": [2800.0], "value_min": [2750.0], "value_max": [2850.0]}),
+        wsl_prior_coverage=pd.DataFrame(
+            {"date": [event_date], "value_mean": [2100.0], "value_min": [2000.0], "value_max": [2200.0]}
+        ),
+        output=out_path,
+    )
+
+    assert len(captured_vlines) == 1
+    assert captured_vlines[0]["x"] == [event_date]
+    assert captured_vlines[0]["ymin"] == [2000.0]
+    assert captured_vlines[0]["ymax"] == [2200.0]
+    prior_center_calls = [call for call in captured_scatter if call["marker"] == "_"]
+    assert len(prior_center_calls) == 1
+    assert prior_center_calls[0]["x"] == [event_date]
+    assert prior_center_calls[0]["y"] == [2100.0]
     assert out_path.is_file()
 
 
@@ -483,6 +703,7 @@ def test_plot_result_overview_uses_single_figure_legend_labels(tmp_path: Path) -
             "data assimilation event",
         ]
         legend_handles = plot_mod._build_result_overview_legend_handles(show_station_observation=False)
+        assert legend_handles[0].get_marker() == "x"
         ensemble_handle = legend_handles[3]
         assert ensemble_handle.get_label() == "ensemble (min - max, mean)"
         assert isinstance(ensemble_handle, tuple)
@@ -525,7 +746,7 @@ def test_plot_result_overview_uses_shared_band_alpha_on_fraction_and_station_pan
         output=out_path,
         panel_specs=[
             PanelSpec(panel="fSC"),
-            PanelSpec(panel="fWS"),
+            PanelSpec(panel="WSF"),
             PanelSpec(panel="roi-sd"),
             PanelSpec(panel="station-sd", station_id="latschbloder"),
         ],
@@ -1234,7 +1455,7 @@ def test_parse_custom_panel_specs_supports_titles_and_obs_toggle(tmp_path: Path)
                 "    station_id: proviantdepot",
                 "    subtitle: custom station subtitle",
                 "  - panel: scores-crpss",
-                "  - panel: WSL",
+                "  - panel: WSLA",
                 "  - panel: scores-zskill",
             ]
         ),
@@ -1247,9 +1468,22 @@ def test_parse_custom_panel_specs_supports_titles_and_obs_toggle(tmp_path: Path)
         PanelSpec(panel="fSC", title=None, show_obs=False, station_id=None),
         PanelSpec(panel="station-swe", title="custom station subtitle", show_obs=True, station_id="proviantdepot"),
         PanelSpec(panel="scores-crpss", title=None, show_obs=True, station_id=None),
-        PanelSpec(panel="WSL", title=None, show_obs=True, station_id=None),
+        PanelSpec(panel="WSLA", title=None, show_obs=True, station_id=None),
         PanelSpec(panel="scores-zskill", title=None, show_obs=True, station_id=None),
     ]
+
+
+@pytest.mark.parametrize(("old_panel", "new_panel"), [("fWS", "WSF"), ("WSL", "WSLA")])
+def test_parse_custom_panel_specs_rejects_old_wet_snow_aliases(
+    tmp_path: Path,
+    old_panel: str,
+    new_panel: str,
+) -> None:
+    cfg = tmp_path / "custom_plots.yml"
+    cfg.write_text(f"panels:\n  - panel: {old_panel}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=f"Use '{new_panel}' instead"):
+        _parse_panel_specs(cfg)
 
 
 def test_project_custom_config_path_uses_project_root_file(tmp_path: Path) -> None:

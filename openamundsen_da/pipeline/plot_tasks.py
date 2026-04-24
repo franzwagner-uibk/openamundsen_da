@@ -66,7 +66,7 @@ def aggregate_fraction_envelopes(
     project_dir: Path,
     project_fraction_envelope_path: Callable[[Path, str], Path],
 ) -> None:
-    """Aggregate SCF, wet-snow, and WSL envelopes into results/misc."""
+    """Aggregate SCF, WSF, and WSLA envelopes into results/misc."""
     try:
         _aggregate_fraction(
             project_dir=project_dir,
@@ -84,7 +84,7 @@ def aggregate_fraction_envelopes(
             output_path=project_fraction_envelope_path(project_dir, "wet_snow"),
         )
     except Exception as exc:
-        logger.warning("Wet-snow envelope aggregation failed: {}", exc)
+        logger.warning("WSF envelope aggregation failed: {}", exc)
     try:
         _aggregate_fraction(
             project_dir=project_dir,
@@ -93,7 +93,7 @@ def aggregate_fraction_envelopes(
             output_path=project_fraction_envelope_path(project_dir, "wet_snow_line"),
         )
     except Exception as exc:
-        logger.warning("Wet-snow-line envelope aggregation failed: {}", exc)
+        logger.warning("WSLA envelope aggregation failed: {}", exc)
 
 
 def run_plot_tasks_parallel(

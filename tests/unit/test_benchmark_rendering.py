@@ -801,8 +801,12 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     assert legend_handles[0].get_markerfacecolor() == plots_core.score_variable_color("scf")
     assert plots_core.score_variable_color("station_hs") == da_variable_style("station_hs")["line"]
     assert plots_core.score_variable_color("station_swe") == da_variable_style("station_swe")["line"]
+    assert plots_core.score_variable_color("wet_snow_line") == da_variable_style("wet_snow_line")["line"]
+    assert da_variable_style("wet_snow_line")["line"] != da_variable_style("wet_snow")["line"]
     assert plots_core.variable_style("station_hs")["line"] == da_variable_style("station_hs")["line"]
     assert plots_core.variable_style("station_swe")["line"] == da_variable_style("station_swe")["line"]
+    assert plots_core.variable_style("wet_snow")["label"] == "WSF"
+    assert plots_core.variable_style("wet_snow_line")["label"] == "WSLA"
     handle_by_label = {handle.get_label(): handle for handle in legend_handles if handle.get_label()}
     prior_handle = handle_by_label["prior"]
     posterior_handle = handle_by_label["posterior"]
@@ -838,6 +842,7 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
         (["scf", "wet_snow"], True),
         (["scf", "wet_snow", "station_hs"], True),
         (["scf", "wet_snow", "station_hs", "station_swe"], True),
+        (["scf", "wet_snow", "wet_snow_line", "station_hs", "station_swe"], True),
         (["scf", "station_swe"], False),
     ],
 )

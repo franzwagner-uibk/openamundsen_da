@@ -119,7 +119,7 @@ oa-da-benchmark \
 
 **Optional Arguments:**
 - `--setup-dir PATH` - Override setup root (otherwise inferred from `--project-dir`)
-- `--variables NAME [NAME ...]` - Restrict benchmark variables to `scf`, `wet_snow`, `station_hs`, `station_swe`
+- `--variables NAME [NAME ...]` - Restrict benchmark variables to `scf`, `wet_snow`, `wet_snow_line`, `station_hs`, `station_swe`
 - `--output-dir PATH` - Override benchmark results directory
 - `--no-plots` - Skip benchmark plots
 - `--max-workers N` - Override benchmark preprocessing worker count
@@ -130,7 +130,7 @@ oa-da-benchmark \
 ```bash
 docker compose run --rm oa oa-da-benchmark \
   --project-dir /data/projects/project_2019-2020 \
-  --variables scf wet_snow station_swe
+  --variables scf wet_snow_line station_swe
 ```
 
 ---
@@ -152,7 +152,7 @@ oa-da-scf \
 
 **Arguments:**
 - `--project-dir PATH` - Project directory (e.g., `/data/projects/project_2019-2020`)
-- `--summary-csv PATH` - Optional path to `scf_summary.csv` (default: `<setup>/obs/<project>/scf_summary.csv`)
+- `--summary-csv PATH` - Optional path to `scf_summary.csv`; when provided it is recorded in `obs.snowcover.summary_csv` so later maps and benchmarks use the same source. Without this option the command resolves `obs.snowcover.summary_csv`, then legacy defaults under `<setup>/obs/<project>/` and `<setup>/obs/summaries/<project>/`.
 - `--product CODE` - Optional product tag override used in filenames (otherwise read from `project.yml` -> `obs.snowcover.product_tag`)
 - `--overwrite` - Overwrite existing `obs_scf_*.csv` files
 
@@ -436,7 +436,7 @@ Output is written next to the wet-snow source rasters (same filename stem plus
 
 **Per-step wet-snow observation CSV generation**
 
-Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` files based on project assimilation events.
+Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_line_<PRODUCT>_YYYYMMDD.csv` files based on project assimilation events. If `--summary-csv` is provided, the path is recorded in `obs.wetsnow.summary_csv` so later maps and WSF benchmarks use the same source; WSLA benchmarks read `wet_snow_line_diagnostics.csv` from the same directory unless `obs.wetsnow.wet_snow_line_diagnostics_csv` is configured explicitly.
 
 ---
 
@@ -446,7 +446,7 @@ Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PR
 
 **Setup result overview**
 
-Plots the combined setup result overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. If `<project-dir>/plots.yml` exists, the pipeline additionally writes `result_overview_custom.png` with the configured panel list. Custom panel configs also support `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
+Plots the combined setup result overview: SCF, WSF, WSLA, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. If `<project-dir>/plots.yml` exists, the pipeline additionally writes `result_overview_custom.png` with the configured panel list. Custom panel configs support `WSF`, `WSLA`, `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
 
 ```bash
 oa-da-plot-result-overview \
@@ -483,7 +483,8 @@ Typical custom `maps.yml` files still use this panel catalog:
 # - swe                      # source: open_loop | ensemble_mean | increment
 # - liquid_water_content     # source: open_loop | ensemble_mean | increment
 # - fsc
-# - wet_snow
+# - wet_snow                  # wet snow fraction (WSF)
+# - wet_snow_line             # wet snow line altitude (WSLA)
 # - legend
 # - colorbar
 # Optional panel keys:

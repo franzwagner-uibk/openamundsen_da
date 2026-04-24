@@ -47,8 +47,8 @@ _FRACTION_MISMATCH_COLORS = {
 }
 _FRACTION_DISPLAY_LABELS = {
     "scf": "SCF",
-    "wet_snow": "wet snow",
-    "wet_snow_line": "wet snow line",
+    "wet_snow": "WSF",
+    "wet_snow_line": "WSLA",
 }
 _STATION_COLOR_CYCLES = {
     "station_hs": [
@@ -152,9 +152,9 @@ def _fraction_axis_label(observable: str | None) -> str:
     if observable == "scf":
         return "snow cover fraction residual"
     if observable == "wet_snow":
-        return "wet-snow fraction residual"
+        return "wet snow fraction (WSF) residual"
     if observable == "wet_snow_line":
-        return "wet-snow line residual [m]"
+        return "wet snow line altitude (WSLA) residual [m]"
     return "residual"
 
 
@@ -183,7 +183,7 @@ def _draw_wsl_zero_line_label(ax, df: pd.DataFrame, *, fontsize: float) -> None:
     ax.text(
         0.0,
         1.02,
-        f"obs WSL {obs_value:.0f} m",
+        f"obs WSLA {obs_value:.0f} m",
         transform=ax.get_xaxis_transform(),
         ha="center",
         va="bottom",
@@ -202,7 +202,7 @@ def _draw_wsl_skipped_overlay(ax, df: pd.DataFrame, *, fontsize: float) -> None:
     ax.text(
         0.5,
         0.5,
-        "WSL update skipped",
+        "WSLA update skipped",
         transform=ax.transAxes,
         ha="center",
         va="center",

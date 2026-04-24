@@ -7,6 +7,7 @@ import pytest
 
 from openamundsen_da.methods.viz.fraction_series import (
     default_result_overview_output,
+    load_fraction_series,
     load_member_series,
     load_named_member_series,
     load_open_loop_fraction_series,
@@ -163,3 +164,123 @@ def test_load_named_member_series_supports_mixed_timestamp_formats(tmp_path: Pat
         pd.to_datetime(["2023-01-01 00:00:00", "2023-01-01 03:00:00", "2023-01-02 00:00:00"])
     )
     assert list(member_series["member_001"].values) == pytest.approx([0.1, 0.3, 0.5])
+
+
+def test_load_fraction_series_can_preserve_missing_wsl_values_without_changing_default(tmp_path: Path) -> None:
+    csv_path = tmp_path / "wet_snow_line_diagnostics.csv"
+    pd.DataFrame(
+        {
+            "date": ["2023-04-29", "2023-05-11", "2023-05-15"],
+            "wet_snow_line": [2450.0, float("nan"), 2550.0],
+        }
+    ).to_csv(csv_path, index=False)
+
+    default_loaded = load_fraction_series(csv_path, "wet_snow_line")
+    preserved_loaded = load_fraction_series(csv_path, "wet_snow_line", preserve_missing_values=True)
+
+    assert default_loaded is not None
+    assert preserved_loaded is not None
+    assert list(default_loaded["date"]) == list(pd.to_datetime(["2023-04-29", "2023-05-15"]))
+    assert list(default_loaded["wet_snow_line"]) == [2450.0, 2550.0]
+    assert list(preserved_loaded["date"]) == list(pd.to_datetime(["2023-04-29", "2023-05-11", "2023-05-15"]))
+    assert pd.isna(preserved_loaded.iloc[1]["wet_snow_line"])
+
+
+def test_load_open_loop_fraction_series_can_preserve_missing_wsl_gaps_across_steps(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    step_00 = project_dir / "steps" / "step_00_init" / "ensembles" / "prior" / "open_loop" / "results"
+    step_01 = project_dir / "steps" / "step_01_next" / "ensembles" / "prior" / "open_loop" / "results"
+    step_00.mkdir(parents=True, exist_ok=True)
+    step_01.mkdir(parents=True, exist_ok=True)
+
+    pd.DataFrame(
+        {
+            "time": ["2023-04-29", "2023-05-11"],
+            "wet_snow_line": [2450.0, float("nan")],
+        }
+    ).to_csv(step_00 / "point_wet_snow_line_roi.csv", index=False)
+    pd.DataFrame(
+        {
+            "time": ["2023-05-11", "2023-05-15"],
+            "wet_snow_line": [float("nan"), 2550.0],
+        }
+    ).to_csv(step_01 / "point_wet_snow_line_roi.csv", index=False)
+
+    default_loaded = load_open_loop_fraction_series(project_dir, "point_wet_snow_line_roi.csv", "wet_snow_line")
+    preserved_loaded = load_open_loop_fraction_series(
+        project_dir,
+        "point_wet_snow_line_roi.csv",
+        "wet_snow_line",
+        preserve_missing_values=True,
+    )
+
+    assert default_loaded is not None
+    assert preserved_loaded is not None
+    assert list(default_loaded["date"]) == list(pd.to_datetime(["2023-04-29", "2023-05-15"]))
+    assert list(default_loaded["wet_snow_line"]) == [2450.0, 2550.0]
+    assert list(preserved_loaded["date"]) == list(pd.to_datetime(["2023-04-29", "2023-05-11", "2023-05-15"]))
+    assert pd.isna(preserved_loaded.iloc[1]["wet_snow_line"])
+
+
+def test_load_member_series_can_preserve_missing_wsl_gaps_across_steps(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    step_00 = project_dir / "steps" / "step_00_init" / "ensembles" / "prior"
+    step_01 = project_dir / "steps" / "step_01_next" / "ensembles" / "prior"
+
+    _write_series_csv(
+        step_00 / "member_001" / "results" / "point_wet_snow_line_roi.csv",
+        "wet_snow_line",
+        [("2023-04-29", 2450.0), ("2023-05-11", float("nan"))],
+    )
+    _write_series_csv(
+        step_01 / "member_001" / "results" / "point_wet_snow_line_roi.csv",
+        "wet_snow_line",
+        [("2023-05-11", float("nan")), ("2023-05-15", 2550.0)],
+    )
+
+    default_loaded = load_member_series(project_dir, "point_wet_snow_line_roi.csv", "wet_snow_line")
+    preserved_loaded = load_member_series(
+        project_dir,
+        "point_wet_snow_line_roi.csv",
+        "wet_snow_line",
+        preserve_missing_values=True,
+    )
+
+    assert len(default_loaded) == 1
+    assert len(preserved_loaded) == 1
+    assert list(default_loaded[0].index) == list(pd.to_datetime(["2023-04-29", "2023-05-15"]))
+    assert list(default_loaded[0].values) == [2450.0, 2550.0]
+    assert list(preserved_loaded[0].index) == list(pd.to_datetime(["2023-04-29", "2023-05-11", "2023-05-15"]))
+    assert pd.isna(preserved_loaded[0].iloc[1])
+
+
+def test_load_named_member_series_can_preserve_missing_wsl_gaps_across_steps(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    step_00 = project_dir / "steps" / "step_00_init" / "ensembles" / "prior"
+    step_01 = project_dir / "steps" / "step_01_next" / "ensembles" / "prior"
+
+    _write_series_csv(
+        step_00 / "member_001" / "results" / "point_wet_snow_line_roi.csv",
+        "wet_snow_line",
+        [("2023-04-29", 2450.0), ("2023-05-11", float("nan"))],
+    )
+    _write_series_csv(
+        step_01 / "member_001" / "results" / "point_wet_snow_line_roi.csv",
+        "wet_snow_line",
+        [("2023-05-11", float("nan")), ("2023-05-15", 2550.0)],
+    )
+
+    default_loaded = load_named_member_series(project_dir, "point_wet_snow_line_roi.csv", "wet_snow_line")
+    preserved_loaded = load_named_member_series(
+        project_dir,
+        "point_wet_snow_line_roi.csv",
+        "wet_snow_line",
+        preserve_missing_values=True,
+    )
+
+    assert list(default_loaded["member_001"].index) == list(pd.to_datetime(["2023-04-29", "2023-05-15"]))
+    assert list(default_loaded["member_001"].values) == [2450.0, 2550.0]
+    assert list(preserved_loaded["member_001"].index) == list(
+        pd.to_datetime(["2023-04-29", "2023-05-11", "2023-05-15"])
+    )
+    assert pd.isna(preserved_loaded["member_001"].iloc[1])

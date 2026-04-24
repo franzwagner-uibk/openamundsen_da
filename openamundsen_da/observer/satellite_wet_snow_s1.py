@@ -9,7 +9,7 @@ from loguru import logger
 from openamundsen_da.observer.fraction_obs import (
     prepare_project_obs_from_summary,
 )
-from openamundsen_da.methods.viz.fraction_series import default_fraction_obs_path
+from openamundsen_da.observer.summary_paths import record_fraction_summary_path, resolve_fraction_summary_path
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
@@ -65,9 +65,8 @@ def cli_main(argv: list[str] | None = None) -> int:
         "--summary-csv",
         type=Path,
         help=(
-            "Path to wet_snow_summary.csv "
-            "(default: <setup>/obs/summaries/<project>/wet_snow_summary.csv; "
-            "legacy <setup>/obs/<project>/wet_snow_summary.csv is also supported)"
+            "Path to wet_snow_summary.csv. When provided, the path is recorded "
+            "in obs.wetsnow.summary_csv for maps and benchmarking."
         ),
     )
     parser.add_argument("--product", help="Product tag to use in obs filename (default: obs.wetsnow.product_tag)")
@@ -83,9 +82,9 @@ def cli_main(argv: list[str] | None = None) -> int:
         summary_path = args.summary_csv
     else:
         setup_root = project_dir.parent.parent
-        summary_path = default_fraction_obs_path(
+        summary_path = resolve_fraction_summary_path(
             setup_root,
-            project_dir.name,
+            project_dir,
             "wet_snow_summary.csv",
         )
 
@@ -96,6 +95,12 @@ def cli_main(argv: list[str] | None = None) -> int:
             product=str(args.product) if args.product else None,
             overwrite=args.overwrite,
         )
+        record_fraction_summary_path(
+            setup_dir=project_dir.parent.parent,
+            project_dir=project_dir,
+            filename="wet_snow_summary.csv",
+            summary_csv=summary_path,
+        )
         return 0
     except Exception as exc:
         logger.error("Wet-snow project summary prep failed: {}", exc)
@@ -104,4 +109,3 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-

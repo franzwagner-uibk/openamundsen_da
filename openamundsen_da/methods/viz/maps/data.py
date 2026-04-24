@@ -295,11 +295,10 @@ def resolve_comparison_dates(project_dir: Path, variable: str, selector: DateSel
 
 @lru_cache(maxsize=16)
 def _load_summary(project_dir: Path, observation: str) -> pd.DataFrame:
-    project_name = Path(project_dir).name
     filename = "scf_summary.csv" if observation == "scf" else "wet_snow_summary.csv"
-    from openamundsen_da.methods.viz.fraction_series import default_fraction_obs_path
+    from openamundsen_da.observer.summary_paths import resolve_fraction_summary_path
 
-    summary_path = default_fraction_obs_path(infer_setup_dir_from_project(project_dir), project_name, filename)
+    summary_path = resolve_fraction_summary_path(infer_setup_dir_from_project(project_dir), Path(project_dir), filename)
     if not summary_path.is_file():
         raise FileNotFoundError(f"Observation summary not found: {summary_path}")
     df = pd.read_csv(summary_path)

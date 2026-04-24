@@ -13,7 +13,8 @@ from openamundsen_da.util.station_da import (
 )
 from openamundsen_da.util.da_events import AssimilationEvent
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import find_setup_yaml, list_member_dirs
+from openamundsen_da.io.paths import find_project_yaml, find_setup_yaml, list_member_dirs
+from openamundsen_da.observer.summary_paths import resolve_fraction_summary_path
 
 
 def _has_output_pattern(base_dirs: Iterable[Path], patterns: list[str]) -> bool:
@@ -52,6 +53,30 @@ def validate_assimilation_requirements(
     needs_wet = any(ev.variable in {"wet_snow", "wet_snow_line"} for ev in events)
     if needs_wet and not ({"liquid_water_content"} & names or {"snow.liquid_water_content"} & vars_):
         errors.append("Configure liquid water content output (var: snow.liquid_water_content, name: liquid_water_content) in output_data.grids for wet-snow assimilation.")
+
+    project_cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+    da_cfg = project_cfg.get("data_assimilation") or {}
+    bench_cfg = da_cfg.get("benchmark") or {}
+    benchmark_variables = set()
+    if isinstance(bench_cfg, dict):
+        for raw in bench_cfg.get("independent_variables") or []:
+            key = str(raw).strip().lower()
+            benchmark_variables.add("wet_snow" if key == "wet_snow_fraction" else key)
+    event_variables = {("wet_snow" if ev.variable == "wet_snow_fraction" else ev.variable) for ev in events}
+    for variable, filename in (
+        ("scf", "scf_summary.csv"),
+        ("wet_snow", "wet_snow_summary.csv"),
+        ("wet_snow_line", "wet_snow_line_diagnostics.csv"),
+    ):
+        if variable not in event_variables and variable not in benchmark_variables:
+            continue
+        summary_path = resolve_fraction_summary_path(setup_dir, project_dir, filename)
+        if not summary_path.is_file():
+            owner = "snowcover" if variable == "scf" else "wetsnow"
+            errors.append(
+                f"Missing {variable} summary CSV required by post-processing/benchmark: {summary_path}. "
+                f"Set obs.{owner}.summary_csv / obs.{owner}.wet_snow_line_diagnostics_csv or run the corresponding obs prep command."
+            )
 
     if any(is_station_variable(ev.variable) for ev in events):
         try:

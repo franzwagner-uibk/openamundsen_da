@@ -12,6 +12,7 @@ from openamundsen_da.io.paths import (
     list_step_dirs,
     project_result_overview_output_path,
 )
+from openamundsen_da.observer.summary_paths import default_fraction_obs_path
 from openamundsen_da.util.ts import concat_series, parse_time_column
 
 
@@ -25,7 +26,12 @@ def parse_fraction_dates(df: pd.DataFrame) -> pd.DataFrame:
     raise KeyError("No date/time column found")
 
 
-def load_fraction_series(path: Path | None, value_col: str) -> pd.DataFrame | None:
+def load_fraction_series(
+    path: Path | None,
+    value_col: str,
+    *,
+    preserve_missing_values: bool = False,
+) -> pd.DataFrame | None:
     """Load a fraction time series if the file exists and contains the value column."""
     if path is None or not path.is_file():
         return None
@@ -37,34 +43,28 @@ def load_fraction_series(path: Path | None, value_col: str) -> pd.DataFrame | No
     for extra in ("value_min", "value_max", "n"):
         if extra in df.columns:
             cols.append(extra)
-    return df[cols].dropna(subset=[value_col]).sort_values("date")
+    out = df[cols].copy()
+    if not preserve_missing_values:
+        out = out.dropna(subset=[value_col])
+    return out.sort_values("date")
 
 
-def _load_fraction_value_series(path: Path, value_col: str) -> pd.Series | None:
+def _load_fraction_value_series(
+    path: Path,
+    value_col: str,
+    *,
+    preserve_missing_values: bool = False,
+) -> pd.Series | None:
     """Load one stitched value column as a datetime-indexed series."""
-    df = load_fraction_series(path, value_col)
+    df = load_fraction_series(path, value_col, preserve_missing_values=preserve_missing_values)
     if df is None or df.empty:
         return None
-    series = df.set_index("date")[value_col].dropna().sort_index()
+    series = df.set_index("date")[value_col].sort_index()
+    if not preserve_missing_values:
+        series = series.dropna()
     if series.empty:
         return None
     return series
-
-
-def default_fraction_obs_path(setup_dir: Path, setup_name: str, filename: str) -> Path:
-    """Return the default obs summary path for one fraction summary CSV."""
-    candidates = [
-        setup_dir / "obs" / setup_name / filename,
-        setup_dir / "obs" / "summaries" / setup_name / filename,
-    ]
-    if "-" in setup_name:
-        candidates.append(setup_dir / "obs" / setup_name.replace("-", "_") / filename)
-    elif "_" in setup_name:
-        candidates.append(setup_dir / "obs" / setup_name.replace("_", "-") / filename)
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return candidates[0]
 
 
 def default_result_overview_output(project_dir: Path, output: Path | None) -> Path:
@@ -76,53 +76,86 @@ def default_result_overview_output(project_dir: Path, output: Path | None) -> Pa
     return out_path
 
 
-def load_open_loop_fraction_series(project_dir: Path, filename: str, value_col: str) -> pd.DataFrame | None:
+def load_open_loop_fraction_series(
+    project_dir: Path,
+    filename: str,
+    value_col: str,
+    *,
+    preserve_missing_values: bool = False,
+) -> pd.DataFrame | None:
     """Stitch open-loop point series across project steps into one DataFrame."""
     segments: list[pd.Series] = []
     for step in list_step_dirs(project_dir):
         series = _load_fraction_value_series(
             step / "ensembles" / "prior" / "open_loop" / "results" / filename,
             value_col,
+            preserve_missing_values=preserve_missing_values,
         )
         if series is not None:
             segments.append(series)
     if not segments:
         return None
-    stitched = concat_series(segments).dropna().sort_index()
+    stitched = concat_series(segments).sort_index()
+    if not preserve_missing_values:
+        stitched = stitched.dropna()
     if stitched.empty:
         return None
     return pd.DataFrame({"date": stitched.index, value_col: stitched.values})
 
 
-def load_member_series(project_dir: Path, filename: str, value_col: str) -> list[pd.Series]:
+def load_member_series(
+    project_dir: Path,
+    filename: str,
+    value_col: str,
+    *,
+    preserve_missing_values: bool = False,
+) -> list[pd.Series]:
     """Return per-member setup-wide series stitched across all project steps."""
     member_segments: dict[str, list[pd.Series]] = defaultdict(list)
     for step in list_step_dirs(project_dir):
         for member_dir in list_member_dirs(step / "ensembles", "prior"):
-            series = _load_fraction_value_series(member_dir / "results" / filename, value_col)
+            series = _load_fraction_value_series(
+                member_dir / "results" / filename,
+                value_col,
+                preserve_missing_values=preserve_missing_values,
+            )
             if series is not None:
                 member_segments[member_dir.name].append(series)
 
     stitched_members: list[pd.Series] = []
     for member_name in sorted(member_segments):
-        stitched = concat_series(member_segments[member_name]).dropna().sort_index()
+        stitched = concat_series(member_segments[member_name]).sort_index()
+        if not preserve_missing_values:
+            stitched = stitched.dropna()
         if not stitched.empty:
             stitched_members.append(stitched)
     return stitched_members
 
 
-def load_named_member_series(project_dir: Path, filename: str, value_col: str) -> dict[str, pd.Series]:
+def load_named_member_series(
+    project_dir: Path,
+    filename: str,
+    value_col: str,
+    *,
+    preserve_missing_values: bool = False,
+) -> dict[str, pd.Series]:
     """Return per-member setup-wide series stitched across all project steps."""
     member_segments: dict[str, list[pd.Series]] = defaultdict(list)
     for step in list_step_dirs(project_dir):
         for member_dir in list_member_dirs(step / "ensembles", "prior"):
-            series = _load_fraction_value_series(member_dir / "results" / filename, value_col)
+            series = _load_fraction_value_series(
+                member_dir / "results" / filename,
+                value_col,
+                preserve_missing_values=preserve_missing_values,
+            )
             if series is not None:
                 member_segments[member_dir.name].append(series)
 
     stitched_members: dict[str, pd.Series] = {}
     for member_name in sorted(member_segments):
-        stitched = concat_series(member_segments[member_name]).dropna().sort_index()
+        stitched = concat_series(member_segments[member_name]).sort_index()
+        if not preserve_missing_values:
+            stitched = stitched.dropna()
         if not stitched.empty:
             stitched_members[member_name] = stitched
     return stitched_members

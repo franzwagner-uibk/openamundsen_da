@@ -8,6 +8,7 @@ import pandas as pd
 from ruamel.yaml import YAML
 
 from openamundsen_da.observer.satellite_scf import (
+    cli_main as scf_cli_main,
     generate_project_from_summary as generate_scf_obs,
 )
 from openamundsen_da.observer.satellite_wet_snow_s1 import (
@@ -33,6 +34,45 @@ def _write_step(step_dir: Path, *, start_date: str, end_date: str) -> None:
 
 
 class FractionObsPrepareTests(unittest.TestCase):
+    def test_scf_cli_records_summary_path_in_project_yaml(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            setup_dir = Path(tmp) / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2024_2025_ens23"
+            summary_csv = setup_dir / "obs" / "summaries" / "project_2024_2025" / "scf_summary.csv"
+
+            _write_yaml(setup_dir / "setup_root.yml", {"obs": {"snowcover": {"product_tag": "FSC"}}})
+            _write_yaml(
+                project_dir / "project_2024_2025_ens23.yml",
+                {
+                    "obs": {"snowcover": {"product_tag": "FSC"}},
+                    "data_assimilation": {
+                        "assimilation_events": [
+                            {"date": "2024-12-15", "variable": "scf"},
+                        ]
+                    },
+                },
+            )
+            _write_step(
+                project_dir / "steps" / "step_00_init",
+                start_date="2024-12-10 00:00:00",
+                end_date="2024-12-20 21:00:00",
+            )
+            _write_step(
+                project_dir / "steps" / "step_01_20241220-20250101",
+                start_date="2024-12-21 00:00:00",
+                end_date="2025-01-01 21:00:00",
+            )
+            summary_csv.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame([{"date": "2024-12-15", "scf": 0.42, "n_valid": 100}]).to_csv(summary_csv, index=False)
+
+            rc = scf_cli_main(["--project-dir", str(project_dir), "--summary-csv", str(summary_csv), "--overwrite"])
+
+            self.assertEqual(rc, 0)
+            y = YAML(typ="safe")
+            with (project_dir / "project_2024_2025_ens23.yml").open("r", encoding="utf-8") as f:
+                data = y.load(f)
+            self.assertEqual(data["obs"]["snowcover"]["summary_csv"], "obs/summaries/project_2024_2025/scf_summary.csv")
+
     def test_scf_summary_writes_product_tagged_obs(self):
         with tempfile.TemporaryDirectory() as tmp:
             setup_dir = Path(tmp) / "setup_root"

@@ -29,6 +29,15 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                 setup_dir / "setup_root.yml",
                 {"output_data": {"grids": {"variables": []}}},
             )
+            _write_yaml(
+                project_dir / "project_2022_2023.yml",
+                {"obs": {"snowcover": {"product_tag": "SNOWCOVER", "summary_csv": "obs/summaries/project_2022_2023/scf_summary.csv"}}},
+            )
+            (setup_dir / "obs" / "summaries" / "project_2022_2023").mkdir(parents=True, exist_ok=True)
+            (setup_dir / "obs" / "summaries" / "project_2022_2023" / "scf_summary.csv").write_text(
+                "date,scf\n2022-10-03,0.5\n",
+                encoding="ascii",
+            )
             (step0 / "obs").mkdir(parents=True, exist_ok=True)
             (step1 / "obs").mkdir(parents=True, exist_ok=True)
             (step0 / "obs" / "obs_scf_SNOWCOVER_20221003.csv").write_text("date,scf\n2022-10-03,0.5\n", encoding="ascii")
@@ -62,6 +71,15 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                         }
                     }
                 },
+            )
+            _write_yaml(
+                project_dir / "project_2022_2023.yml",
+                {"obs": {"snowcover": {"product_tag": "SNOWCOVER", "summary_csv": "obs/summaries/project_2022_2023/scf_summary.csv"}}},
+            )
+            (setup_dir / "obs" / "summaries" / "project_2022_2023").mkdir(parents=True, exist_ok=True)
+            (setup_dir / "obs" / "summaries" / "project_2022_2023" / "scf_summary.csv").write_text(
+                "date,scf\n2022-10-03,0.5\n",
+                encoding="ascii",
             )
             (step0 / "obs").mkdir(parents=True, exist_ok=True)
             (step1 / "obs").mkdir(parents=True, exist_ok=True)
@@ -99,6 +117,30 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                         }
                     }
                 },
+            )
+            _write_yaml(
+                project_dir / "project_2022_2023.yml",
+                {
+                    "obs": {
+                        "snowcover": {
+                            "product_tag": "SNOWCOVER",
+                            "summary_csv": "obs/summaries/project_2022_2023/scf_summary.csv",
+                        },
+                        "wetsnow": {
+                            "product_tag": "WETSNOW",
+                            "summary_csv": "obs/summaries/project_2022_2023/wet_snow_summary.csv",
+                        },
+                    }
+                },
+            )
+            (setup_dir / "obs" / "summaries" / "project_2022_2023").mkdir(parents=True, exist_ok=True)
+            (setup_dir / "obs" / "summaries" / "project_2022_2023" / "scf_summary.csv").write_text(
+                "date,scf\n2022-10-03,0.5\n",
+                encoding="ascii",
+            )
+            (setup_dir / "obs" / "summaries" / "project_2022_2023" / "wet_snow_summary.csv").write_text(
+                "date,wet_snow_fraction\n2022-10-05,0.3\n",
+                encoding="ascii",
             )
             (step0 / "obs").mkdir(parents=True, exist_ok=True)
             (step1 / "obs").mkdir(parents=True, exist_ok=True)

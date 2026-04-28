@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -105,15 +106,38 @@ def _reference_stream(project_dir: Path, *, variable: str, date: pd.Timestamp) -
     return _stream_row_label(variable, relation)
 
 
+def _resampling_skipped(project_dir: Path, date: pd.Timestamp) -> bool:
+    stamp = pd.Timestamp(date).strftime("%Y%m%d")
+    steps_dir = Path(project_dir) / "steps"
+    if not steps_dir.is_dir():
+        return False
+    for manifest_path in steps_dir.glob(f"*/assim/resample_manifest_{stamp}.json"):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if bool(manifest.get("skipped")):
+            return True
+    return False
+
+
+def _generated_figure_title(index: int, project_dir: Path, event: AssimilationEvent) -> str:
+    title = f"DA {index} - {event.date.isoformat()} ({_variable_label(event.variable)})"
+    if _resampling_skipped(project_dir, pd.Timestamp(event.date).normalize()):
+        title += " - resampling skipped"
+    return title
+
+
 def _snow_depth_row(*, row: int, label: str, event_variable: str) -> GeneratedRow:
     return GeneratedRow(
         label=label,
         panels=(
-            MapPanelSpec(kind="snow_depth", row=row, col=0, source="ensemble_mean", title="prior mean", show_hillshade=True),
+            MapPanelSpec(kind="snow_depth", row=row, col=0, source="open_loop", title="open loop", show_hillshade=True),
+            MapPanelSpec(kind="snow_depth", row=row, col=1, source="ensemble_mean", title="prior mean", show_hillshade=True),
             MapPanelSpec(
                 kind="snow_depth",
                 row=row,
-                col=1,
+                col=2,
                 source="analysis_mean",
                 title="posterior mean",
                 show_hillshade=True,
@@ -122,7 +146,7 @@ def _snow_depth_row(*, row: int, label: str, event_variable: str) -> GeneratedRo
             MapPanelSpec(
                 kind="snow_depth",
                 row=row,
-                col=2,
+                col=3,
                 source="analysis_increment",
                 title="DA increment",
                 show_hillshade=True,
@@ -150,20 +174,46 @@ def _fraction_row(*, row: int, kind: str, label: str) -> GeneratedRow:
                     kind=kind,
                     row=row,
                     col=1,
-                    source="posterior_probability",
-                    title="ensemble snow-cover probability",
+                    source="prior_probability",
+                    title="prior snow-cover probability",
                     show_hillshade=True,
                     hillshade_extent="roi",
                 ),
-                MapPanelSpec(kind=kind, row=row, col=2, title="satellite FSC observation"),
+                MapPanelSpec(
+                    kind=kind,
+                    row=row,
+                    col=2,
+                    source="posterior_probability",
+                    title="posterior snow-cover probability",
+                    show_hillshade=True,
+                    hillshade_extent="roi",
+                ),
+                MapPanelSpec(kind=kind, row=row, col=3, title="satellite FSC observation"),
             ),
         )
     return GeneratedRow(
         label=label,
         panels=(
             MapPanelSpec(kind=kind, row=row, col=0, source="open_loop", title="open loop", show_hillshade=True, hillshade_extent="roi"),
-            MapPanelSpec(kind=kind, row=row, col=1, source="ensemble_mean", title="ensemble mean", show_hillshade=True, hillshade_extent="roi"),
-            MapPanelSpec(kind=kind, row=row, col=2, title="observation"),
+            MapPanelSpec(
+                kind=kind,
+                row=row,
+                col=1,
+                source="prior_probability",
+                title="prior WSF probability",
+                show_hillshade=True,
+                hillshade_extent="roi",
+            ),
+            MapPanelSpec(
+                kind=kind,
+                row=row,
+                col=2,
+                source="posterior_probability",
+                title="posterior WSF probability",
+                show_hillshade=True,
+                hillshade_extent="roi",
+            ),
+            MapPanelSpec(kind=kind, row=row, col=3, title="observation"),
         ),
     )
 
@@ -173,8 +223,25 @@ def _wet_snow_line_row(*, row: int, label: str) -> GeneratedRow:
         label=label,
         panels=(
             MapPanelSpec(kind="wet_snow_line", row=row, col=0, source="open_loop", title="open loop", show_hillshade=True, hillshade_extent="roi"),
-            MapPanelSpec(kind="wet_snow_line", row=row, col=1, source="posterior", title="posterior", show_hillshade=True, hillshade_extent="roi"),
-            MapPanelSpec(kind="wet_snow_line", row=row, col=2, title="observation"),
+            MapPanelSpec(
+                kind="wet_snow_line",
+                row=row,
+                col=1,
+                source="prior_probability",
+                title="prior",
+                show_hillshade=True,
+                hillshade_extent="roi",
+            ),
+            MapPanelSpec(
+                kind="wet_snow_line",
+                row=row,
+                col=2,
+                source="posterior_probability",
+                title="posterior",
+                show_hillshade=True,
+                hillshade_extent="roi",
+            ),
+            MapPanelSpec(kind="wet_snow_line", row=row, col=3, title="observation"),
         ),
     )
 
@@ -184,8 +251,23 @@ def _wet_snow_elevation_fraction_row(*, row: int, variable: str) -> GeneratedRow
         label="elevation-band WSF",
         panels=(
             MapPanelSpec(kind="wet_snow_elevation_fraction", row=row, col=0, source="open_loop", title="open loop", variable=variable),
-            MapPanelSpec(kind="wet_snow_elevation_fraction", row=row, col=1, source="posterior", title="posterior", variable=variable),
-            MapPanelSpec(kind="wet_snow_elevation_fraction", row=row, col=2, title="observation", variable=variable),
+            MapPanelSpec(
+                kind="wet_snow_elevation_fraction",
+                row=row,
+                col=1,
+                source="prior_probability",
+                title="prior",
+                variable=variable,
+            ),
+            MapPanelSpec(
+                kind="wet_snow_elevation_fraction",
+                row=row,
+                col=2,
+                source="posterior_probability",
+                title="posterior",
+                variable=variable,
+            ),
+            MapPanelSpec(kind="wet_snow_elevation_fraction", row=row, col=3, title="observation", variable=variable),
         ),
     )
 
@@ -258,7 +340,7 @@ def _generated_rows_for_event(project_dir: Path, event: AssimilationEvent) -> tu
     return tuple(rows)
 
 
-def _generated_recipe(index: int, event: AssimilationEvent, rows: tuple[GeneratedRow, ...]) -> MapRecipe:
+def _generated_recipe(index: int, project_dir: Path, event: AssimilationEvent, rows: tuple[GeneratedRow, ...]) -> MapRecipe:
     panels = tuple(
         MapPanelSpec(
             kind=panel.kind,
@@ -276,9 +358,9 @@ def _generated_recipe(index: int, event: AssimilationEvent, rows: tuple[Generate
     return MapRecipe(
         name=f"da_{index}",
         title=f"da_{index}",
-        figure_title=f"{event.date.isoformat()} ({_variable_label(event.variable)})",
+        figure_title=_generated_figure_title(index, project_dir, event),
         output_subdir=GENERATED_DA_MAPS_SUBDIR,
-        layout=LayoutSpec(nrows=len(rows), ncols=3),
+        layout=LayoutSpec(nrows=len(rows), ncols=4),
         row_labels=tuple(row.label for row in rows),
         defaults=MapDefaults(date=event.date.isoformat(), show_scalebar=True),
         panels=panels,
@@ -288,7 +370,7 @@ def _generated_recipe(index: int, event: AssimilationEvent, rows: tuple[Generate
 def generated_da_map_recipes(project_dir: Path) -> tuple[MapRecipe, ...]:
     events = load_assimilation_events(project_dir)
     return tuple(
-        _generated_recipe(index, event, _generated_rows_for_event(project_dir, event))
+        _generated_recipe(index, project_dir, event, _generated_rows_for_event(project_dir, event))
         for index, event in enumerate(events, start=1)
     )
 

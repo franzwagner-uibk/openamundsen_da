@@ -863,7 +863,7 @@ def test_project_maps_config_accepts_wet_snow_line_panel_kind(tmp_path: Path) ->
               date: "2023-01-02"
             layout:
               nrows: 1
-              ncols: 3
+              ncols: 4
             panels:
               - row: 0
                 col: 0
@@ -872,17 +872,95 @@ def test_project_maps_config_accepts_wet_snow_line_panel_kind(tmp_path: Path) ->
               - row: 0
                 col: 1
                 kind: wet_snow_line
-                source: posterior
+                source: prior_probability
               - row: 0
                 col: 2
+                kind: wet_snow_line
+                source: posterior_probability
+              - row: 0
+                col: 3
                 kind: wet_snow_line
         """,
     )
 
     cfg = load_project_maps_config(config_path)
 
-    assert [panel.kind for panel in cfg.maps[0].panels] == ["wet_snow_line", "wet_snow_line", "wet_snow_line"]
-    assert [panel.source for panel in cfg.maps[0].panels] == ["open_loop", "posterior", None]
+    assert [panel.kind for panel in cfg.maps[0].panels] == [
+        "wet_snow_line",
+        "wet_snow_line",
+        "wet_snow_line",
+        "wet_snow_line",
+    ]
+    assert [panel.source for panel in cfg.maps[0].panels] == [
+        "open_loop",
+        "prior_probability",
+        "posterior_probability",
+        None,
+    ]
+
+
+def test_project_maps_config_accepts_four_column_probability_sources(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          probability_sources:
+            title: Probability sources
+            defaults:
+              date: "2023-01-02"
+            layout:
+              nrows: 2
+              ncols: 4
+            panels:
+              - row: 0
+                col: 0
+                kind: snow_depth
+                source: analysis_mean
+              - row: 0
+                col: 1
+                kind: snow_depth
+                source: analysis_increment
+              - row: 0
+                col: 2
+                kind: fsc
+                source: prior_probability
+              - row: 0
+                col: 3
+                kind: fsc
+                source: posterior_probability
+              - row: 1
+                col: 0
+                kind: wet_snow
+                source: prior_probability
+              - row: 1
+                col: 1
+                kind: wet_snow
+                source: posterior_probability
+              - row: 1
+                col: 2
+                kind: wet_snow_elevation_fraction
+                source: prior_probability
+              - row: 1
+                col: 3
+                kind: wet_snow_elevation_fraction
+                source: posterior_probability
+        """,
+    )
+
+    cfg = load_project_maps_config(config_path)
+
+    assert [panel.source for panel in cfg.maps[0].panels] == [
+        "analysis_mean",
+        "analysis_increment",
+        "prior_probability",
+        "posterior_probability",
+        "prior_probability",
+        "posterior_probability",
+        "prior_probability",
+        "posterior_probability",
+    ]
 
 
 def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> None:
@@ -917,11 +995,29 @@ def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, 
 
     assert [recipe.name for recipe in recipes] == ["da_1", "da_2"]
     assert all(recipe.output_subdir == generated_module.GENERATED_DA_MAPS_SUBDIR for recipe in recipes)
-    assert recipes[0].figure_title == "2023-01-02 (snow cover fraction)"
-    assert recipes[1].figure_title == "2023-01-02 (wet snow fraction (WSF))"
+    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (snow cover fraction)"
+    assert recipes[1].figure_title == "DA 2 - 2023-01-02 (wet snow fraction (WSF))"
     assert recipes[0].row_labels == ("station snow depth",)
-    assert [panel.title for panel in recipes[0].panels] == ["prior mean", "posterior mean", "DA increment"]
-    assert [panel.source for panel in recipes[0].panels] == ["ensemble_mean", "analysis_mean", "analysis_increment"]
+    assert recipes[0].layout.ncols == 4
+    assert [panel.title for panel in recipes[0].panels] == ["open loop", "prior mean", "posterior mean", "DA increment"]
+    assert [panel.source for panel in recipes[0].panels] == [
+        "open_loop",
+        "ensemble_mean",
+        "analysis_mean",
+        "analysis_increment",
+    ]
+
+
+def test_generated_da_map_title_marks_skipped_resampling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(generated_module, "_fraction_model_support_available", lambda *_args, **_kwargs: False)
+    manifest_path = project_dir / "steps" / "step_01_20230101-20230102" / "assim" / "resample_manifest_20230102.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps({"skipped": True}), encoding="utf-8")
+
+    recipes = generated_module.generated_da_map_recipes(project_dir)
+
+    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (snow cover fraction) - resampling skipped"
 
 
 def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_support_exists(
@@ -938,11 +1034,18 @@ def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_sup
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
     assert recipes[0].row_labels[0] == "snow cover"
-    scf_panels = recipes[0].panels[:6]
-    assert [panel.source for panel in scf_panels[:3]] == ["open_loop_binary", "posterior_probability", None]
-    assert [panel.title for panel in scf_panels[:3]] == [
+    scf_panels = recipes[0].panels[:8]
+    assert recipes[0].layout.ncols == 4
+    assert [panel.source for panel in scf_panels[:4]] == [
+        "open_loop_binary",
+        "prior_probability",
+        "posterior_probability",
+        None,
+    ]
+    assert [panel.title for panel in scf_panels[:4]] == [
         "open-loop snow cover",
-        "ensemble snow-cover probability",
+        "prior snow-cover probability",
+        "posterior snow-cover probability",
         "satellite FSC observation",
     ]
 
@@ -973,16 +1076,38 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
 
     assert recipes[0].row_labels[0] == "wet snow line altitude (WSLA)"
     assert recipes[0].row_labels[1] == "elevation-band WSF"
-    assert [panel.kind for panel in recipes[0].panels[:3]] == ["wet_snow_line", "wet_snow_line", "wet_snow_line"]
-    assert [panel.source for panel in recipes[0].panels[:3]] == ["open_loop", "posterior", None]
-    assert [panel.title for panel in recipes[0].panels[:3]] == ["open loop", "posterior", "observation"]
-    assert [panel.kind for panel in recipes[0].panels[3:6]] == [
+    assert recipes[0].layout.ncols == 4
+    assert [panel.kind for panel in recipes[0].panels[:4]] == [
+        "wet_snow_line",
+        "wet_snow_line",
+        "wet_snow_line",
+        "wet_snow_line",
+    ]
+    assert [panel.source for panel in recipes[0].panels[:4]] == [
+        "open_loop",
+        "prior_probability",
+        "posterior_probability",
+        None,
+    ]
+    assert [panel.title for panel in recipes[0].panels[:4]] == ["open loop", "prior", "posterior", "observation"]
+    assert [panel.kind for panel in recipes[0].panels[4:8]] == [
+        "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
     ]
-    assert [panel.source for panel in recipes[0].panels[3:6]] == ["open_loop", "posterior", None]
-    assert [panel.variable for panel in recipes[0].panels[3:6]] == ["wet_snow_line", "wet_snow_line", "wet_snow_line"]
+    assert [panel.source for panel in recipes[0].panels[4:8]] == [
+        "open_loop",
+        "prior_probability",
+        "posterior_probability",
+        None,
+    ]
+    assert [panel.variable for panel in recipes[0].panels[4:8]] == [
+        "wet_snow_line",
+        "wet_snow_line",
+        "wet_snow_line",
+        "wet_snow_line",
+    ]
 
 
 def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events(
@@ -1000,14 +1125,27 @@ def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events
 
     wet_recipe = recipes[1]
     assert wet_recipe.row_labels[:2] == ("wet snow fraction (WSF)", "elevation-band WSF")
-    assert [panel.kind for panel in wet_recipe.panels[:3]] == ["wet_snow", "wet_snow", "wet_snow"]
-    assert [panel.kind for panel in wet_recipe.panels[3:6]] == [
+    assert wet_recipe.layout.ncols == 4
+    assert [panel.kind for panel in wet_recipe.panels[:4]] == ["wet_snow", "wet_snow", "wet_snow", "wet_snow"]
+    assert [panel.source for panel in wet_recipe.panels[:4]] == [
+        "open_loop",
+        "prior_probability",
+        "posterior_probability",
+        None,
+    ]
+    assert [panel.kind for panel in wet_recipe.panels[4:8]] == [
+        "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
     ]
-    assert [panel.source for panel in wet_recipe.panels[3:6]] == ["open_loop", "posterior", None]
-    assert [panel.variable for panel in wet_recipe.panels[3:6]] == ["wet_snow", "wet_snow", "wet_snow"]
+    assert [panel.source for panel in wet_recipe.panels[4:8]] == [
+        "open_loop",
+        "prior_probability",
+        "posterior_probability",
+        None,
+    ]
+    assert [panel.variable for panel in wet_recipe.panels[4:8]] == ["wet_snow", "wet_snow", "wet_snow", "wet_snow"]
 
 
 def test_scf_probability_model_resolves_posterior_member_source_pointers(
@@ -1395,6 +1533,54 @@ def test_fsc_probability_model_panel_renders_probability_field(tmp_path: Path, m
         plt.close(fig)
 
 
+def test_fsc_prior_probability_model_panel_renders_probability_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    captured_sources: list[str] = []
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        def fake_scf_probability(**kwargs):
+            captured_sources.append(str(kwargs["source"]))
+            return np.array(
+                [
+                    [0.25, 0.5, 0.75, np.nan],
+                    [0.25, 0.5, 0.75, np.nan],
+                    [0.25, 0.5, 0.75, np.nan],
+                    [0.25, 0.5, 0.75, np.nan],
+                ],
+                dtype=float,
+            )
+
+        monkeypatch.setattr(panel_renderers_module, "_scf_model_probability_array", fake_scf_probability)
+        artifact = render_module._render_observation_panel(
+            ax,
+            panel=MapPanelSpec(
+                kind="fsc",
+                row=0,
+                col=0,
+                source="prior_probability",
+                date="2023-01-02",
+                show_colorbar=False,
+            ),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(),
+            obs_cache={},
+            figure_horizontal_default=True,
+        )
+        model_array = np.ma.asarray(artifact["mappable"].get_array())
+        assert captured_sources == ["prior_probability"]
+        assert float(model_array[0, 0]) == 25.0
+        assert float(model_array[0, 1]) == 50.0
+        assert float(model_array[0, 2]) == 75.0
+        assert isinstance(artifact["mappable"].norm, matplotlib.colors.Normalize)
+    finally:
+        plt.close(fig)
+
+
 def test_fsc_open_loop_model_panel_renders_binary_field_discretely(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     context = load_static_context(project_dir)
@@ -1434,6 +1620,49 @@ def test_fsc_open_loop_model_panel_renders_binary_field_discretely(tmp_path: Pat
         assert float(model_array[0, 0]) == 0.0
         assert float(model_array[0, 1]) == 1.0
         assert isinstance(artifact["mappable"].norm, matplotlib.colors.BoundaryNorm)
+    finally:
+        plt.close(fig)
+
+
+def test_wet_snow_probability_model_panel_renders_spatial_wsf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    wet_fraction = np.array(
+        [
+            [0.0, 0.4, 1.0, np.nan],
+            [0.0, 0.4, 1.0, np.nan],
+            [0.0, 0.4, 1.0, np.nan],
+            [0.0, 0.4, 1.0, np.nan],
+        ],
+        dtype=float,
+    )
+    monkeypatch.setattr(panel_renderers_module, "_prior_wet_fraction_array", lambda **_kwargs: wet_fraction)
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        artifact = render_module._render_observation_panel(
+            ax,
+            panel=MapPanelSpec(
+                kind="wet_snow",
+                row=0,
+                col=0,
+                source="prior_probability",
+                date="2023-01-02",
+                show_colorbar=False,
+            ),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(),
+            obs_cache={},
+            figure_horizontal_default=True,
+        )
+        model_array = np.ma.asarray(artifact["mappable"].get_array())
+        assert float(model_array[0, 0]) == 0.0
+        assert float(model_array[0, 1]) == 40.0
+        assert float(model_array[0, 2]) == 100.0
+        assert isinstance(artifact["mappable"].norm, matplotlib.colors.Normalize)
     finally:
         plt.close(fig)
 
@@ -2004,7 +2233,7 @@ def test_wet_snow_line_model_panel_draws_wsl_contour(tmp_path: Path, monkeypatch
             figure_horizontal_default=True,
         )
 
-        assert recorded_levels == [(2450.0, "#c21f24", "-"), (2550.0, "#9467bd", "-")]
+        assert recorded_levels == [(2450.0, "#c21f24", "-")]
         assert artifacts["wsl"] == 2450.0
         assert artifacts["obs_wsl"] == 2550.0
         legend_labels = [
@@ -2012,10 +2241,10 @@ def test_wet_snow_line_model_panel_draws_wsl_contour(tmp_path: Path, monkeypatch
             for handle in panel_renderers_module._wet_snow_line_legend_handles(
                 list(artifacts["legend_handles"]),
                 include_model_wsl=True,
-                include_obs_wsl=True,
+                include_obs_wsl=False,
             )
         ]
-        assert legend_labels[-2:] == ["model WSLA", "observation WSLA"]
+        assert legend_labels[-1:] == ["model WSLA"]
         assert "WSLA unavailable" not in {text.get_text() for text in ax.texts}
         callout = next(text for text in ax.texts if text.get_text() == "WSLA 2450 m")
         assert callout.get_color() == "#c21f24"
@@ -2087,6 +2316,34 @@ def test_wet_snow_elevation_fraction_open_loop_aggregates_raw_bands(
 
     assert np.allclose(values[low_band], 0.5)
     assert np.allclose(values[high_band], 0.2)
+
+
+def test_wet_snow_elevation_fraction_prior_probability_aggregates_raw_bands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    dem = np.asarray(context.dem, dtype=float)
+    low_band = context.roi_mask & (dem < 2800.0)
+    high_band = context.roi_mask & (dem >= 2800.0)
+    wet_fraction = np.full(context.roi_mask.shape, np.nan, dtype=float)
+    wet_fraction[low_band] = 0.5
+    wet_fraction[high_band] = 0.5
+
+    monkeypatch.setattr(panel_renderers_module, "_prior_wet_fraction_array", lambda **_kwargs: wet_fraction)
+
+    values = panel_renderers_module._wet_snow_elevation_fraction_array(
+        context=context,
+        source="prior_probability",
+        date=pd.Timestamp("2023-01-02"),
+        weights_variable="wet_snow",
+        obs_cache={},
+        derived_cache={},
+        observation_loader=load_observation_scene,
+    )
+
+    assert np.allclose(values[low_band], 0.5)
+    assert np.allclose(values[high_band], 0.5)
 
 
 def test_elevation_band_wsf_cmap_accents_fifty_percent() -> None:
@@ -2332,8 +2589,6 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
     context = load_static_context(project_dir)
     wet_fraction = np.full(context.roi_mask.shape, np.nan, dtype=float)
     wet_fraction[context.roi_mask] = 0.2
-    prior_wet_fraction = np.full(context.roi_mask.shape, np.nan, dtype=float)
-    prior_wet_fraction[context.roi_mask] = 0.8
     recorded_levels: list[float | None] = []
     fig, ax = plt.subplots(figsize=(4, 4))
     try:
@@ -2342,22 +2597,7 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
             "_posterior_weighted_wet_fraction_array",
             lambda **kwargs: wet_fraction,
         )
-        monkeypatch.setattr(
-            panel_renderers_module,
-            "_classify_wet_snow_fraction_for_wsl",
-            lambda **kwargs: np.full(context.roi_mask.shape, float(panel_renderers_module._WET_SNOW_MODEL_CODES[1]), dtype=float),
-        )
-        monkeypatch.setattr(
-            panel_renderers_module,
-            "_prior_wet_fraction_array",
-            lambda **kwargs: prior_wet_fraction,
-        )
-        def _wsl_from_fraction(*, wet_fraction, **_kwargs):
-            if wet_fraction is prior_wet_fraction:
-                return 2475.0
-            return 2525.0
-
-        monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", _wsl_from_fraction)
+        monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", lambda **_kwargs: 2525.0)
         monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: 2625.0)
 
         def _unexpected_raster_wsl(**_kwargs):
@@ -2382,29 +2622,17 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
             figure_horizontal_default=True,
         )
 
-        assert recorded_levels == [
-            (2475.0, "#2c8a64", "--", 9.75),
-            (2525.0, "#c21f24", "-", 9.5),
-            (2625.0, "#9467bd", "-", 10),
-        ]
+        assert recorded_levels == [(2525.0, "#c21f24", "-", 9.5)]
         assert artifacts["wsl"] == 2525.0
         assert artifacts["obs_wsl"] == 2625.0
         assert artifacts["posterior_band_drawn"] is False
-        assert artifacts["prior_wsf_field_wsl"] == 2475.0
-        assert artifacts["prior_wsf_field_drawn"] is True
+        assert artifacts["prior_wsf_field_wsl"] is None
+        assert artifacts["prior_wsf_field_drawn"] is False
         assert artifacts["prior_span_drawn"] is False
-        assert [handle.get_label() for handle in artifacts["posterior_overlay_handles"]] == [
-            "posterior WSLA",
-            "prior WSLA",
-            "observation WSLA",
-        ]
+        assert [handle.get_label() for handle in artifacts["posterior_overlay_handles"]] == ["posterior WSLA"]
         legend = ax.get_legend()
         assert legend is not None
-        assert [text.get_text() for text in legend.get_texts()] == [
-            "posterior WSLA",
-            "prior WSLA",
-            "observation WSLA",
-        ]
+        assert [text.get_text() for text in legend.get_texts()] == ["posterior WSLA"]
         assert "WSLA unavailable" not in {text.get_text() for text in ax.texts}
         callout = next(text for text in ax.texts if text.get_text() == "WSLA 2530 m")
         assert callout.get_color() == "#c21f24"

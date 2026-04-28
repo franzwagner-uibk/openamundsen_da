@@ -99,10 +99,11 @@ _AUTO_TITLE_SOURCE = {
     "ensemble_mean": "Ensemble mean",
     "analysis_mean": "Posterior mean",
     "posterior": "Posterior",
+    "prior_probability": "Prior probability",
+    "posterior_probability": "Posterior probability",
     "increment": "Increment",
     "analysis_increment": "DA increment",
     "open_loop_binary": "Open-loop snow cover",
-    "posterior_probability": "Snow-cover probability",
 }
 _AUTO_TITLE_KIND = {
     "overview": "Overview map",

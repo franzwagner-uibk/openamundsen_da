@@ -467,7 +467,18 @@ def row_bottom_extras(
     for panel in recipe.panels:
         row = int(panel.row + panel.rowspan - 1)
         extra = 0.0
-        if panel.kind in _CLASSIFIED_PANEL_KINDS:
+        probability_classified_panel = panel.kind in {"wet_snow", "wet_snow_line"} and panel.source in {
+            "prior_probability",
+            "posterior",
+            "posterior_probability",
+        }
+        if probability_classified_panel:
+            if (
+                resolve_flag(panel.show_colorbar, recipe.defaults, "show_colorbar", True)
+                and panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True) == "horizontal"
+            ):
+                extra = _HORIZONTAL_COLORBAR_EXTRA
+        elif panel.kind in _CLASSIFIED_PANEL_KINDS:
             layout = panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default)
             if layout == "horizontal":
                 labels = classified_labels_getter(panel, context=context, defaults=recipe.defaults, obs_cache=obs_cache)

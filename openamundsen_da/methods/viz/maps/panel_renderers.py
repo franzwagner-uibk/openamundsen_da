@@ -349,6 +349,8 @@ def classified_display_labels(
         return [LANDCOVER_LABELS[code] for code in active_codes]
 
     if panel.kind in {"wet_snow", "wet_snow_line"}:
+        if panel.source in {"prior_probability", "posterior", "posterior_probability"}:
+            return []
         if panel.source is not None:
             date = panel_date(panel, defaults)
             if date is None:
@@ -1638,7 +1640,14 @@ def _wet_snow_elevation_fraction_array(
         wet_fraction = np.full(classified.shape, np.nan, dtype=float)
         wet_fraction[valid] = 0.0
         wet_fraction[np.isclose(classified, float(_WET_SNOW_MODEL_CODES[0]), equal_nan=False)] = 1.0
-    elif source == "posterior":
+    elif source in {"prior_probability", "ensemble_mean"}:
+        wet_fraction = _prior_wet_fraction_array(
+            context=context,
+            date=date,
+            derived_cache=derived_cache,
+        )
+        valid = np.isfinite(wet_fraction)
+    elif source in {"posterior", "posterior_probability"}:
         wet_fraction = _posterior_weighted_wet_fraction_array(
             context=context,
             date=date,
@@ -1947,10 +1956,11 @@ def _scf_model_probability_array(
             results_dir=step_dir / "ensembles" / "prior" / "open_loop" / "results",
             date=date,
         )
-    elif source == "posterior_probability":
+    elif source in {"prior_probability", "posterior_probability"}:
         member_fields: list[np.ndarray] = []
-        for member_dir in list_member_dirs(step_dir, "posterior"):
-            source_member_dir = resolve_member_source_dir(member_dir)
+        ensemble = "prior" if source == "prior_probability" else "posterior"
+        for member_dir in list_member_dirs(step_dir, ensemble):
+            source_member_dir = member_dir if ensemble == "prior" else resolve_member_source_dir(member_dir)
             member_fields.append(
                 _scf_binary_grid_from_results(
                     context=context,
@@ -1959,7 +1969,7 @@ def _scf_model_probability_array(
                 )
             )
         if not member_fields:
-            raise FileNotFoundError(f"Missing posterior members for SCF probability map in {step_dir}")
+            raise FileNotFoundError(f"Missing {ensemble} members for SCF probability map in {step_dir}")
         stack = np.stack(member_fields, axis=0)
         valid_count = np.sum(np.isfinite(stack), axis=0)
         classified = np.divide(
@@ -2087,14 +2097,14 @@ def render_wet_snow_line_panel(
         )
         contour_level = obs_contour_level
     else:
-        prior_wsf_field_wsl: float | None = None
-        if str(panel.source) == "posterior":
+        source = str(panel.source)
+        if source in {"prior_probability", "posterior", "posterior_probability"}:
             wet_fraction = _posterior_weighted_wet_fraction_array(
                 context=context,
                 date=date,
                 derived_cache=derived_cache,
-            )
-            prior_wet_fraction = _prior_wet_fraction_array(
+                weights_variable="wet_snow_line",
+            ) if source in {"posterior", "posterior_probability"} else _prior_wet_fraction_array(
                 context=context,
                 date=date,
                 derived_cache=derived_cache,
@@ -2102,7 +2112,6 @@ def render_wet_snow_line_panel(
             fill = 100.0 * np.asarray(wet_fraction, dtype=float)
             norm = Normalize(vmin=0.0, vmax=100.0)
             contour_level = _wet_snow_line_from_fraction(context=context, wet_fraction=wet_fraction)
-            prior_wsf_field_wsl = _wet_snow_line_from_fraction(context=context, wet_fraction=prior_wet_fraction)
             image = ax.imshow(
                 np.ma.masked_invalid(fill),
                 cmap=_FRACTION_MODEL_CMAP,
@@ -2151,47 +2160,20 @@ def render_wet_snow_line_panel(
                 fallback_codes=list(_WET_SNOW_MODEL_CODES),
             )
 
+    probability_panel = str(panel.source) in {"prior_probability", "posterior", "posterior_probability"}
     model_contour_drawn = False
     posterior_band_drawn = False
     prior_wsf_field_drawn = False
     prior_span_drawn = False
-    if panel.source == "posterior":
-        prior_wsf_field_drawn = _draw_wsl_contour(
-            ax,
-            context=context,
-            level=prior_wsf_field_wsl,
-            color=_WSL_PRIOR_MEDIAN_COLOR,
-            linestyle="--",
-            linewidth=1.45,
-            zorder=9.75,
-        )
-        model_contour_drawn = _draw_wsl_contour(
-            ax,
-            context=context,
-            level=contour_level,
-            color=_WSL_MODEL_COLOR,
-            linestyle="-",
-            zorder=9.5,
-        )
-    else:
-        model_contour_drawn = _draw_wsl_contour(
-            ax,
-            context=context,
-            level=contour_level,
-            color=_WSL_OBS_COLOR if panel.source is None else _WSL_MODEL_COLOR,
-            linestyle="-",
-        )
+    model_contour_drawn = _draw_wsl_contour(
+        ax,
+        context=context,
+        level=contour_level,
+        color=_WSL_OBS_COLOR if panel.source is None else _WSL_MODEL_COLOR,
+        linestyle="-",
+        zorder=9.5 if panel.source is not None else 9,
+    )
     obs_contour_drawn = False
-    if panel.source is not None:
-        obs_contour_drawn = _draw_wsl_contour(
-            ax,
-            context=context,
-            level=obs_contour_level,
-            color=_WSL_OBS_COLOR,
-            linestyle="-",
-            linewidth=1.5,
-            zorder=10,
-        )
     callout_color = "black"
     if contour_level is not None and np.isfinite(contour_level):
         callout_color = _WSL_OBS_COLOR if panel.source is None else _WSL_MODEL_COLOR
@@ -2214,21 +2196,19 @@ def render_wet_snow_line_panel(
         show_y_ticklabels=panel.col == 0,
     )
     posterior_overlay_handles: list[object] = []
-    if panel.source == "posterior":
+    if probability_panel:
         if resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
+            probability_label = "posterior" if str(panel.source) in {"posterior", "posterior_probability"} else "prior"
             attach_colorbar(
                 ax,
                 image,
-                label="posterior wet snow fraction (WSF) probability [%]",
+                label=f"{probability_label} wet snow fraction (WSF) probability [%]",
                 ticks=(0, 20, 40, 60, 80, 100),
                 layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True),
             )
         if model_contour_drawn:
-            posterior_overlay_handles.append(_posterior_wsl_overlay_handle())
-        if prior_wsf_field_drawn:
-            posterior_overlay_handles.append(_prior_wsf_field_overlay_handle())
-        if obs_contour_drawn:
-            posterior_overlay_handles.append(_obs_overlay_handle())
+            label_text = "posterior WSLA" if str(panel.source) in {"posterior", "posterior_probability"} else "prior WSLA"
+            posterior_overlay_handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, linestyle="-", label=label_text))
     else:
         draw_classified_legend(
             ax,
@@ -2240,7 +2220,7 @@ def render_wet_snow_line_panel(
             layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default),
         )
     draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=date, resolve_flag=resolve_flag)
-    if panel.source == "posterior":
+    if probability_panel:
         _draw_inpanel_wsl_legend(ax, posterior_overlay_handles)
     draw_map_grid_overlay(ax, show_grid=show_grid)
     return {
@@ -2249,7 +2229,7 @@ def render_wet_snow_line_panel(
         "posterior_overlay_handles": posterior_overlay_handles,
         "wsl": contour_level,
         "obs_wsl": obs_contour_level,
-        "prior_wsf_field_wsl": prior_wsf_field_wsl if panel.source == "posterior" else None,
+        "prior_wsf_field_wsl": None,
         "model_wsl_drawn": model_contour_drawn,
         "posterior_band_drawn": posterior_band_drawn,
         "prior_wsf_field_drawn": prior_wsf_field_drawn,
@@ -2365,7 +2345,7 @@ def render_fraction_model_panel(
     observation: str,
     date: pd.Timestamp,
 ) -> dict[str, object]:
-    if observation == "scf" and str(panel.source) in {"open_loop_binary", "posterior_probability"}:
+    if observation == "scf" and str(panel.source) in {"open_loop_binary", "prior_probability", "posterior_probability"}:
         scf_field = _scf_model_probability_array(
             context=context,
             source=str(panel.source),
@@ -2388,7 +2368,8 @@ def render_fraction_model_panel(
                 zorder=0,
             )
         invalid_mask = inside_roi_invalid_mask(scf_field, context.roi_mask)
-        if str(panel.source) == "posterior_probability":
+        is_probability = str(panel.source) in {"prior_probability", "posterior_probability"}
+        if is_probability:
             norm = Normalize(vmin=0.0, vmax=100.0)
             image = ax.imshow(
                 np.ma.masked_invalid(100.0 * scf_field),
@@ -2430,8 +2411,12 @@ def render_fraction_model_panel(
             show_y_ticklabels=panel.col == 0,
         )
         if resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
-            is_probability = str(panel.source) == "posterior_probability"
-            colorbar_label = "ensemble snow-cover probability [%]" if is_probability else "binary snow cover [%]"
+            if str(panel.source) == "prior_probability":
+                colorbar_label = "prior snow-cover probability [%]"
+            elif str(panel.source) == "posterior_probability":
+                colorbar_label = "posterior snow-cover probability [%]"
+            else:
+                colorbar_label = "binary snow cover [%]"
             ticks = (0, 20, 40, 60, 80, 100) if is_probability else (0, 1)
             ticklabels = () if is_probability else ("0", "100")
             attach_colorbar(
@@ -2445,6 +2430,78 @@ def render_fraction_model_panel(
         draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=date, resolve_flag=resolve_flag)
         draw_map_grid_overlay(ax, show_grid=show_grid)
         return {"mappable": image}
+
+    if observation == "wet_snow" and str(panel.source) in {"prior_probability", "posterior_probability"}:
+        wet_fraction = (
+            _prior_wet_fraction_array(context=context, date=date, derived_cache=derived_cache)
+            if str(panel.source) == "prior_probability"
+            else _posterior_weighted_wet_fraction_array(
+                context=context,
+                date=date,
+                derived_cache=derived_cache,
+                weights_variable="wet_snow",
+            )
+        )
+        show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
+        if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
+            hillshade_mode = resolve_hillshade_extent(panel, defaults, builtin="roi")
+            ax.imshow(
+                hillshade_underlay(context, derived_cache=derived_cache)
+                if hillshade_mode == "roi"
+                else hillshade(context, derived_cache=derived_cache),
+                cmap="Greys_r",
+                extent=hillshade_extent(context),
+                origin="upper",
+                interpolation=_HILLSHADE_INTERPOLATION,
+                vmin=0.0,
+                vmax=1.0,
+                zorder=0,
+            )
+        fill = 100.0 * np.asarray(wet_fraction, dtype=float)
+        norm = Normalize(vmin=0.0, vmax=100.0)
+        image = ax.imshow(
+            np.ma.masked_invalid(fill),
+            cmap=_FRACTION_MODEL_CMAP,
+            norm=norm,
+            extent=grid_extent(context),
+            origin="upper",
+            interpolation="nearest",
+            alpha=0.95,
+            zorder=5,
+        )
+        overlay_invalid_inside_roi(ax, inside_roi_invalid_mask(fill, context.roi_mask), extent=grid_extent(context))
+        apply_common_overlays(
+            ax,
+            context=context,
+            extent=extent,
+            show_roi=resolve_panel_toggle(panel.show_roi, True),
+            show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
+            show_stations_name=resolve_panel_toggle(panel.show_stations_name, False),
+            show_stations_elev=resolve_panel_toggle(panel.show_stations_elev, False),
+        )
+        apply_map_axis_style(
+            ax,
+            extent,
+            title=panel_title(label, panel_semantic_title(panel)),
+            show_grid=show_grid,
+            show_y_ticklabels=panel.col == 0,
+        )
+        if resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
+            colorbar_label = (
+                "prior wet snow fraction (WSF) probability [%]"
+                if str(panel.source) == "prior_probability"
+                else "posterior wet snow fraction (WSF) probability [%]"
+            )
+            attach_colorbar(
+                ax,
+                image,
+                label=colorbar_label,
+                ticks=(0, 20, 40, 60, 80, 100),
+                layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True),
+            )
+        draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=date, resolve_flag=resolve_flag)
+        draw_map_grid_overlay(ax, show_grid=show_grid)
+        return {"mappable": image, "values": wet_fraction}
 
     if observation == "wet_snow":
         classified = _wet_snow_model_classified_array(

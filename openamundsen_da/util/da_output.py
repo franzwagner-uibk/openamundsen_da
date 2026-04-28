@@ -6,11 +6,14 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 from loguru import logger
 
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import find_project_yaml
+from openamundsen_da.io.paths import find_project_yaml, infer_project_dir, read_step_config
+from openamundsen_da.util.da_events import AssimilationEvent, load_assimilation_events
+from openamundsen_da.util.da_observables import weights_csv_name
 
 
 def output_retention_mode(project_dir: Path) -> str:
@@ -40,10 +43,122 @@ def _as_nan_array(da: xr.DataArray) -> np.ndarray:
     return arr
 
 
+def _member_id_from_output_nc(path: Path) -> str:
+    """Return member directory name for a member results/output_grids.nc path."""
+    return Path(path).parent.parent.name
+
+
+def _normalize_time_index(values: object) -> tuple[pd.Timestamp, ...]:
+    return tuple(pd.Timestamp(value).normalize() for value in pd.to_datetime(values))
+
+
+def _time_index_by_date(ds: xr.Dataset, da: xr.DataArray) -> tuple[int | None, dict[pd.Timestamp, int]]:
+    """Return the single time axis and normalized-date index for a grid variable."""
+    time_dims = [dim for dim in da.dims if "time" in str(dim).lower()]
+    if len(time_dims) != 1:
+        return None, {}
+    time_dim = time_dims[0]
+    if time_dim not in ds.coords:
+        return None, {}
+    try:
+        dates = _normalize_time_index(ds[time_dim].values)
+    except Exception:
+        return None, {}
+    return da.get_axis_num(time_dim), {date: idx for idx, date in enumerate(dates)}
+
+
+def _analysis_mean_for_time(
+    *,
+    var_name: str,
+    member_files: Sequence[Path],
+    weights: pd.Series,
+    shape: tuple[int, ...],
+    time_axis: int,
+    time_idx: int,
+) -> np.ndarray:
+    """Compute weighted member mean for one variable/time slice."""
+    slicer = [slice(None)] * len(shape)
+    slicer[time_axis] = time_idx
+    target = tuple(slicer)
+    slice_shape = tuple(size for axis, size in enumerate(shape) if axis != time_axis)
+    weighted_sum = np.zeros(slice_shape, dtype=np.float64)
+    weight_sum = np.zeros(slice_shape, dtype=np.float64)
+    matched = 0
+
+    for nc_path in member_files:
+        member_id = _member_id_from_output_nc(nc_path)
+        if member_id not in weights.index:
+            continue
+        weight = float(weights.loc[member_id])
+        if not np.isfinite(weight) or weight <= 0.0:
+            continue
+        with xr.open_dataset(nc_path) as ds_m:
+            if var_name not in ds_m.data_vars:
+                continue
+            da_m = ds_m[var_name]
+            if tuple(int(s) for s in da_m.shape) != shape:
+                continue
+            arr = _as_nan_array(da_m)[target]
+        valid = np.isfinite(arr)
+        if not np.any(valid):
+            continue
+        weighted_sum[valid] += arr[valid] * weight
+        weight_sum[valid] += weight
+        matched += 1
+
+    if matched == 0:
+        logger.warning("Analysis mean skipped for {}: no weighted member grids matched", var_name)
+    out = np.full(slice_shape, np.nan, dtype=np.float64)
+    np.divide(weighted_sum, weight_sum, out=out, where=weight_sum > 0.0)
+    return out
+
+
+def _analysis_arrays(
+    *,
+    var_name: str,
+    ds_ol: xr.Dataset,
+    da_ol: xr.DataArray,
+    member_files: Sequence[Path],
+    arr_mean: np.ndarray,
+    analysis_weights: dict[pd.Timestamp, pd.Series],
+    write_analysis_fields: bool,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    if not write_analysis_fields:
+        return None
+    shape = tuple(int(s) for s in da_ol.shape)
+    time_axis, index_by_date = _time_index_by_date(ds_ol, da_ol)
+    if time_axis is None:
+        return None
+
+    analysis_mean = np.full(shape, np.nan, dtype=np.float64)
+    analysis_increment = np.full(shape, np.nan, dtype=np.float64)
+    for date, weights in sorted(analysis_weights.items()):
+        idx = index_by_date.get(pd.Timestamp(date).normalize())
+        if idx is None:
+            continue
+        slicer = [slice(None)] * len(shape)
+        slicer[time_axis] = idx
+        target = tuple(slicer)
+        weighted_mean = _analysis_mean_for_time(
+            var_name=var_name,
+            member_files=member_files,
+            weights=weights,
+            shape=shape,
+            time_axis=time_axis,
+            time_idx=idx,
+        )
+        analysis_mean[target] = weighted_mean
+        analysis_increment[target] = weighted_mean - arr_mean[target]
+
+    return analysis_mean, analysis_increment
+
+
 def _build_da_output_dataset(
     *,
     open_loop_nc: Path,
     member_ncs: Sequence[Path],
+    analysis_weights: dict[pd.Timestamp, pd.Series] | None = None,
+    write_analysis_fields: bool = False,
 ) -> xr.Dataset | None:
     """Build compact DA summary grids for one step from open-loop + members."""
     if not open_loop_nc.is_file():
@@ -108,6 +223,15 @@ def _build_da_output_dataset(
             arr_ol = _as_nan_array(da_ol)
             # DA increment is posterior ensemble mean minus open-loop baseline.
             arr_inc = arr_mean - arr_ol
+            analysis = _analysis_arrays(
+                var_name=var_name,
+                ds_ol=ds_ol,
+                da_ol=da_ol,
+                member_files=member_files,
+                arr_mean=arr_mean,
+                analysis_weights=analysis_weights or {},
+                write_analysis_fields=write_analysis_fields,
+            )
 
             dims = da_ol.dims
             coords = {d: ds_ol.coords[d] for d in dims if d in ds_ol.coords}
@@ -172,6 +296,28 @@ def _build_da_output_dataset(
                     "description": "Posterior ensemble mean minus open-loop baseline",
                 },
             )
+            if analysis is not None:
+                arr_analysis_mean, arr_analysis_increment = analysis
+                out_vars[f"analysis_mean_{var_name}"] = xr.DataArray(
+                    arr_analysis_mean.astype(np.float32),
+                    dims=dims,
+                    coords=coords,
+                    attrs={
+                        **base_attrs,
+                        "summary_metric": "analysis_mean",
+                        "description": "Event-weighted posterior ensemble mean at assimilation date",
+                    },
+                )
+                out_vars[f"analysis_increment_{var_name}"] = xr.DataArray(
+                    arr_analysis_increment.astype(np.float32),
+                    dims=dims,
+                    coords=coords,
+                    attrs={
+                        **base_attrs,
+                        "summary_metric": "analysis_increment",
+                        "description": "Event-weighted posterior ensemble mean minus prior ensemble mean",
+                    },
+                )
             for out_name in (
                 f"open_loop_{var_name}",
                 f"ens_mean_{var_name}",
@@ -181,24 +327,38 @@ def _build_da_output_dataset(
                 f"increment_{var_name}",
             ):
                 encoding[out_name] = {"zlib": True, "complevel": 4, "shuffle": True, "_FillValue": -9999.0}
+            if analysis is not None:
+                for out_name in (
+                    f"analysis_mean_{var_name}",
+                    f"analysis_increment_{var_name}",
+                ):
+                    encoding[out_name] = {"zlib": True, "complevel": 4, "shuffle": True, "_FillValue": -9999.0}
 
         if not out_vars:
             logger.warning("DA output summary skipped: no grid variables with x/y dims in {}", open_loop_nc)
             return None
 
+        summary_variables = ["open_loop", "ens_mean", "ens_std", "ens_min", "ens_max", "increment"]
+        has_analysis_fields = any(name.startswith("analysis_mean_") for name in out_vars)
+        if has_analysis_fields:
+            summary_variables.extend(["analysis_mean", "analysis_increment"])
+        attrs = {
+            **(dict(ds_ol.attrs) if ds_ol.attrs is not None else {}),
+            "da_output_version": "2",
+            "source_open_loop_nc": str(open_loop_nc),
+            "source_member_count": str(n_members),
+            "source_member_weighting": "uniform",
+            "source_grid_variables": ",".join(grid_var_names),
+            "summary_variables": ",".join(summary_variables),
+            "increment_definition": "increment_<var> = ens_mean_<var> - open_loop_<var>",
+        }
+        if has_analysis_fields:
+            attrs["analysis_increment_definition"] = "analysis_increment_<var> = analysis_mean_<var> - ens_mean_<var>"
+
         out_ds = xr.Dataset(
             data_vars=out_vars,
             coords=ds_ol.coords,
-            attrs={
-                **(dict(ds_ol.attrs) if ds_ol.attrs is not None else {}),
-                "da_output_version": "2",
-                "source_open_loop_nc": str(open_loop_nc),
-                "source_member_count": str(n_members),
-                "source_member_weighting": "uniform",
-                "source_grid_variables": ",".join(grid_var_names),
-                "summary_variables": "open_loop,ens_mean,ens_std,ens_min,ens_max,increment",
-                "increment_definition": "increment_<var> = ens_mean_<var> - open_loop_<var>",
-            },
+            attrs=attrs,
         )
         for out_name, enc in encoding.items():
             out_ds[out_name].encoding.update(enc)
@@ -303,6 +463,63 @@ def write_da_output_grids(
     return output_nc
 
 
+def _step_event_weights(step_dir: Path, events: Sequence[AssimilationEvent]) -> dict[pd.Timestamp, pd.Series]:
+    """Load normalized member weights for assimilation events inside one step."""
+    try:
+        cfg = read_step_config(step_dir) or {}
+        start = pd.Timestamp(cfg["start_date"]).normalize()
+        end = pd.Timestamp(cfg["end_date"]).normalize()
+    except Exception as exc:
+        logger.warning("Analysis increment skipped for {}: could not read step dates ({})", step_dir, exc)
+        return {}
+
+    weights_by_date: dict[pd.Timestamp, pd.Series] = {}
+    for event in events:
+        event_date = pd.Timestamp(event.date).normalize()
+        if not (start <= event_date <= end):
+            continue
+        weights_path = Path(step_dir) / "assim" / weights_csv_name(event.variable, event_date.to_pydatetime())
+        if not weights_path.is_file():
+            logger.warning("Analysis increment skipped for {}: weights CSV not found at {}", event_date.date(), weights_path)
+            continue
+        try:
+            df = pd.read_csv(weights_path)
+        except Exception as exc:
+            logger.warning("Analysis increment skipped for {}: could not read {} ({})", event_date.date(), weights_path, exc)
+            continue
+        if "member_id" not in df.columns or "weight" not in df.columns:
+            logger.warning("Analysis increment skipped for {}: {} must contain member_id and weight columns", event_date.date(), weights_path)
+            continue
+        working = df[["member_id", "weight"]].copy()
+        working["member_id"] = working["member_id"].astype(str).str.strip()
+        working["weight"] = pd.to_numeric(working["weight"], errors="coerce")
+        working = working.loc[(working["member_id"] != "") & np.isfinite(working["weight"]) & (working["weight"] >= 0.0)]
+        if working.empty:
+            logger.warning("Analysis increment skipped for {}: no finite non-negative weights in {}", event_date.date(), weights_path)
+            continue
+        weights = working.groupby("member_id")["weight"].sum()
+        total = float(weights.sum())
+        if not np.isfinite(total) or total <= 0.0:
+            logger.warning("Analysis increment skipped for {}: weights sum is not positive in {}", event_date.date(), weights_path)
+            continue
+        if event_date in weights_by_date:
+            logger.warning(
+                "Multiple assimilation events found for {}; using weights from {} for compact analysis fields",
+                event_date.date(),
+                weights_path,
+            )
+        weights_by_date[event_date] = weights.astype(float) / total
+    return weights_by_date
+
+
+def _load_project_assimilation_events(project_dir: Path) -> list[AssimilationEvent]:
+    try:
+        return load_assimilation_events(project_dir)
+    except Exception as exc:
+        logger.warning("Analysis increment fields skipped: could not load assimilation events for {} ({})", project_dir, exc)
+        return []
+
+
 def write_project_da_output_grids(
     *,
     step_dirs: Sequence[Path],
@@ -311,6 +528,14 @@ def write_project_da_output_grids(
     """Write one compact DA summary NetCDF spanning all available project steps."""
     step_summaries: list[xr.Dataset] = []
     used_steps: list[str] = []
+    project_dir: Path | None = None
+    if step_dirs:
+        try:
+            project_dir = infer_project_dir(step_dirs[0])
+        except Exception as exc:
+            logger.warning("Analysis increment fields skipped: could not infer project directory from {} ({})", step_dirs[0], exc)
+    events = _load_project_assimilation_events(project_dir) if project_dir is not None else []
+
     for step_dir in step_dirs:
         prior_root = Path(step_dir) / "ensembles" / "prior"
         open_loop_nc = prior_root / "open_loop" / "results" / "output_grids.nc"
@@ -319,9 +544,12 @@ def write_project_da_output_grids(
             for p in sorted(prior_root.glob("member_*"))
             if p.is_dir()
         ]
+        analysis_weights = _step_event_weights(Path(step_dir), events) if events else {}
         ds = _build_da_output_dataset(
             open_loop_nc=open_loop_nc,
             member_ncs=member_ncs,
+            analysis_weights=analysis_weights,
+            write_analysis_fields=bool(events),
         )
         if ds is None:
             continue

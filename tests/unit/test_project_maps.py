@@ -128,6 +128,8 @@ def _write_da_output(path: Path) -> None:
             "open_loop_snowdepth_daily": (("time", "y", "x"), base),
             "ens_mean_snowdepth_daily": (("time", "y", "x"), base + 0.05),
             "increment_snowdepth_daily": (("time", "y", "x"), np.full(base.shape, 0.05, dtype=np.float32)),
+            "analysis_mean_snowdepth_daily": (("time", "y", "x"), base + 0.08),
+            "analysis_increment_snowdepth_daily": (("time", "y", "x"), np.full(base.shape, 0.03, dtype=np.float32)),
             "open_loop_swe_daily": (("time", "y", "x"), base * 100.0),
             "ens_mean_swe_daily": (("time", "y", "x"), base * 100.0 + 10.0),
             "increment_swe_daily": (("time", "y", "x"), np.full(base.shape, 10.0, dtype=np.float32)),
@@ -251,6 +253,8 @@ def _build_project_fixture(
             variable: hs
             params:
               h0: 0.25
+          wet_snow_line:
+            elevation_band_size_m: 100.0
           assimilation_events:
             - date: "2023-01-02"
               variable: scf
@@ -916,7 +920,8 @@ def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, 
     assert recipes[0].figure_title == "2023-01-02 (snow cover fraction)"
     assert recipes[1].figure_title == "2023-01-02 (wet snow fraction (WSF))"
     assert recipes[0].row_labels == ("station snow depth",)
-    assert [panel.title for panel in recipes[0].panels] == ["open loop", "ensemble mean", "increment"]
+    assert [panel.title for panel in recipes[0].panels] == ["prior mean", "posterior mean", "DA increment"]
+    assert [panel.source for panel in recipes[0].panels] == ["ensemble_mean", "analysis_mean", "analysis_increment"]
 
 
 def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_support_exists(
@@ -967,9 +972,42 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
     assert recipes[0].row_labels[0] == "wet snow line altitude (WSLA)"
+    assert recipes[0].row_labels[1] == "elevation-band WSF"
     assert [panel.kind for panel in recipes[0].panels[:3]] == ["wet_snow_line", "wet_snow_line", "wet_snow_line"]
     assert [panel.source for panel in recipes[0].panels[:3]] == ["open_loop", "posterior", None]
     assert [panel.title for panel in recipes[0].panels[:3]] == ["open loop", "posterior", "observation"]
+    assert [panel.kind for panel in recipes[0].panels[3:6]] == [
+        "wet_snow_elevation_fraction",
+        "wet_snow_elevation_fraction",
+        "wet_snow_elevation_fraction",
+    ]
+    assert [panel.source for panel in recipes[0].panels[3:6]] == ["open_loop", "posterior", None]
+    assert [panel.variable for panel in recipes[0].panels[3:6]] == ["wet_snow_line", "wet_snow_line", "wet_snow_line"]
+
+
+def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(
+        generated_module,
+        "_fraction_model_support_available",
+        lambda _project_dir, variable: variable == "wet_snow",
+    )
+
+    recipes = generated_module.generated_da_map_recipes(project_dir)
+
+    wet_recipe = recipes[1]
+    assert wet_recipe.row_labels[:2] == ("wet snow fraction (WSF)", "elevation-band WSF")
+    assert [panel.kind for panel in wet_recipe.panels[:3]] == ["wet_snow", "wet_snow", "wet_snow"]
+    assert [panel.kind for panel in wet_recipe.panels[3:6]] == [
+        "wet_snow_elevation_fraction",
+        "wet_snow_elevation_fraction",
+        "wet_snow_elevation_fraction",
+    ]
+    assert [panel.source for panel in wet_recipe.panels[3:6]] == ["open_loop", "posterior", None]
+    assert [panel.variable for panel in wet_recipe.panels[3:6]] == ["wet_snow", "wet_snow", "wet_snow"]
 
 
 def test_scf_probability_model_resolves_posterior_member_source_pointers(
@@ -1155,6 +1193,7 @@ def test_comparison_scales_use_zero_centered_diverging_increment_norm() -> None:
             open_loop=np.array([[0.2, 0.3]], dtype=float),
             ens_mean=np.array([[0.4, 0.5]], dtype=float),
             increment=np.array([[-0.20, 0.05]], dtype=float),
+            analysis_increment=np.array([[0.35, -0.10]], dtype=float),
         ),
     ]
 
@@ -1162,6 +1201,7 @@ def test_comparison_scales_use_zero_centered_diverging_increment_norm() -> None:
 
     assert increment_norm.vcenter == 0.0
     assert increment_norm.vmin == -increment_norm.vmax
+    assert increment_norm.vmax == pytest.approx(0.4)
 
 
 def test_comparison_scales_stretch_snowdepth_model_range_to_data_ceiling() -> None:
@@ -1975,7 +2015,7 @@ def test_wet_snow_line_model_panel_draws_wsl_contour(tmp_path: Path, monkeypatch
                 include_obs_wsl=True,
             )
         ]
-        assert legend_labels[-2:] == ["model WSLA", "obs WSLA"]
+        assert legend_labels[-2:] == ["model WSLA", "observation WSLA"]
         assert "WSLA unavailable" not in {text.get_text() for text in ax.texts}
         callout = next(text for text in ax.texts if text.get_text() == "WSLA 2450 m")
         assert callout.get_color() == "#c21f24"
@@ -2021,7 +2061,233 @@ def test_posterior_weighted_wet_fraction_array_uses_da_weights(tmp_path: Path, m
     assert weighted[1, 1] == pytest.approx(0.0)
 
 
+def test_wet_snow_elevation_fraction_open_loop_aggregates_raw_bands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    dem = np.asarray(context.dem, dtype=float)
+    low_band = context.roi_mask & (dem < 2800.0)
+    high_band = context.roi_mask & (dem >= 2800.0)
+    classified = np.full(context.roi_mask.shape, float(panel_renderers_module._WET_SNOW_MODEL_CODES[1]), dtype=float)
+    for row, col in [(1, 0), (2, 0), (3, 0), (0, 0), (0, 1)]:
+        classified[row, col] = float(panel_renderers_module._WET_SNOW_MODEL_CODES[0])
+
+    monkeypatch.setattr(panel_renderers_module, "_wet_snow_model_classified_array", lambda **_kwargs: classified)
+
+    values = panel_renderers_module._wet_snow_elevation_fraction_array(
+        context=context,
+        source="open_loop",
+        date=pd.Timestamp("2023-01-02"),
+        weights_variable="wet_snow",
+        obs_cache={},
+        derived_cache={},
+        observation_loader=load_observation_scene,
+    )
+
+    assert np.allclose(values[low_band], 0.5)
+    assert np.allclose(values[high_band], 0.2)
+
+
+def test_elevation_band_wsf_cmap_accents_fifty_percent() -> None:
+    low = panel_renderers_module._ELEVATION_BAND_WSF_CMAP(0.25)
+    lower_accent = panel_renderers_module._ELEVATION_BAND_WSF_CMAP(0.46)
+    midpoint = panel_renderers_module._ELEVATION_BAND_WSF_CMAP(0.5)
+    upper_accent = panel_renderers_module._ELEVATION_BAND_WSF_CMAP(0.54)
+    high = panel_renderers_module._ELEVATION_BAND_WSF_CMAP(0.75)
+
+    assert midpoint[0] > midpoint[1]
+    assert midpoint[0] > midpoint[2]
+    assert np.allclose(lower_accent[:3], midpoint[:3], atol=0.02)
+    assert np.allclose(upper_accent[:3], midpoint[:3], atol=0.02)
+    assert midpoint[3] == pytest.approx(1.0)
+    assert not np.allclose(midpoint[:3], low[:3])
+    assert not np.allclose(midpoint[:3], high[:3])
+
+
+def test_wet_snow_elevation_fraction_panel_draws_source_local_wsl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    values = np.full(context.roi_mask.shape, np.nan, dtype=float)
+    values[context.roi_mask] = 0.5
+    recorded: list[tuple[float | None, str, str]] = []
+
+    monkeypatch.setattr(panel_renderers_module, "_wet_snow_elevation_fraction_array", lambda **_kwargs: values)
+    monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", lambda **_kwargs: 2450.0)
+
+    def _record_contour(_ax, *, context, level, color, linestyle, **_kwargs):
+        recorded.append((level, color, linestyle))
+        return True
+
+    monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", _record_contour)
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        artifacts = panel_renderers_module.render_wet_snow_elevation_fraction_panel(
+            ax,
+            panel=MapPanelSpec(kind="wet_snow_elevation_fraction", row=0, col=0, source="posterior", date="2023-01-02"),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(show_colorbar=False),
+            obs_cache={},
+            figure_horizontal_default=True,
+        )
+
+        assert recorded == [(2450.0, "#c21f24", "-")]
+        assert artifacts["wsl"] == 2450.0
+        assert artifacts["wsl_drawn"] is True
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2450 m")
+        assert callout.get_color() == "#c21f24"
+    finally:
+        plt.close(fig)
+
+
+def test_wet_snow_elevation_fraction_panel_annotates_unavailable_wsl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    values = np.full(context.roi_mask.shape, np.nan, dtype=float)
+    values[context.roi_mask] = 0.2
+
+    monkeypatch.setattr(panel_renderers_module, "_wet_snow_elevation_fraction_array", lambda **_kwargs: values)
+    monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", lambda **_kwargs: None)
+    monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", lambda *_args, **_kwargs: False)
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        artifacts = panel_renderers_module.render_wet_snow_elevation_fraction_panel(
+            ax,
+            panel=MapPanelSpec(kind="wet_snow_elevation_fraction", row=0, col=0, source=None, date="2023-01-02"),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(show_colorbar=False),
+            obs_cache={},
+            figure_horizontal_default=True,
+        )
+
+        assert artifacts["wsl"] is None
+        assert artifacts["wsl_drawn"] is False
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA unavailable")
+        assert callout.get_color() == "black"
+    finally:
+        plt.close(fig)
+
+
+def test_posterior_da_weights_reads_requested_wet_snow_variable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    step_dir = project_dir / "steps" / "step_01_20230101-20230102"
+    assim_dir = step_dir / "assim"
+    assim_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {"member_id": ["member_001", "member_002"], "weight": [0.2, 0.8]},
+    ).to_csv(assim_dir / "weights_wet_snow_20230102.csv", index=False)
+    pd.DataFrame(
+        {"member_id": ["member_001", "member_002"], "weight": [0.5, 0.5]},
+    ).to_csv(assim_dir / "weights_wet_snow_line_20230102.csv", index=False)
+    monkeypatch.setattr(panel_renderers_module, "_step_dir_for_date", lambda *_args, **_kwargs: step_dir)
+
+    wsf_weights = panel_renderers_module._posterior_da_weights(context, pd.Timestamp("2023-01-02"), variable="wet_snow")
+    wsla_weights = panel_renderers_module._posterior_da_weights(context, pd.Timestamp("2023-01-02"), variable="wet_snow_line")
+
+    assert wsf_weights is not None
+    assert wsla_weights is not None
+    assert wsf_weights["member_001"] == pytest.approx(0.2)
+    assert wsla_weights["member_001"] == pytest.approx(0.5)
+
+
+def test_wet_snow_elevation_fraction_observation_excludes_non_contributors(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    dem = np.asarray(context.dem, dtype=float)
+    low_band = context.roi_mask & (dem < 2800.0)
+    arr = np.full(context.roi_mask.shape, 125.0, dtype=float)
+    arr[1, 0] = 110.0
+    arr[2, 0] = 110.0
+    arr[3, 0] = 200.0
+    arr[3, 1] = 210.0
+    arr[3, 2] = np.nan
+    scene = ObservationScene(
+        date=pd.Timestamp("2023-01-02"),
+        observation="wet_snow",
+        array=arr,
+        transform=context.spec.transform,
+        bounds=(0.0, 400.0, 0.0, 400.0),
+        coverage_fraction=1.0,
+        roi_mask=context.roi_mask,
+        invalid_mask=np.zeros(context.roi_mask.shape, dtype=bool),
+    )
+
+    values = panel_renderers_module._wet_snow_elevation_fraction_array(
+        context=context,
+        source=None,
+        date=pd.Timestamp("2023-01-02"),
+        weights_variable="wet_snow",
+        obs_cache={},
+        derived_cache={},
+        observation_loader=lambda *_args, **_kwargs: scene,
+    )
+
+    assert values[1, 0] == pytest.approx(2.0 / 3.0)
+    assert values[2, 1] == pytest.approx(2.0 / 3.0)
+    assert np.isnan(values[3, 0])
+    assert np.isnan(values[3, 1])
+    assert np.isnan(values[3, 2])
+    assert np.count_nonzero(np.isfinite(values[low_band])) == 3
+
+
 def test_wet_snow_line_observation_panel_uses_obs_color_for_callout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    observation = ObservationScene(
+        date=pd.Timestamp("2023-01-02"),
+        observation="wet_snow",
+        array=np.full(context.roi_mask.shape, 125.0, dtype=float),
+        transform=from_origin(0.0, 2.0, 1.0, 1.0),
+        bounds=(0.0, float(context.roi_mask.shape[1]), 0.0, float(context.roi_mask.shape[0])),
+        coverage_fraction=1.0,
+        roi_mask=context.roi_mask,
+        invalid_mask=np.zeros(context.roi_mask.shape, dtype=bool),
+    )
+    recorded_levels: list[tuple[float | None, str, str]] = []
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: 2550.0)
+
+        def _record_contour(_ax, *, context, level, color, linestyle, linewidth=1.6, zorder=9):
+            recorded_levels.append((level, color, linestyle))
+            return True
+
+        monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", _record_contour)
+
+        panel_renderers_module.render_wet_snow_line_panel(
+            ax,
+            panel=MapPanelSpec(kind="wet_snow_line", row=0, col=0, source=None, date="2023-01-02", legend="vertical"),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(),
+            obs_cache={},
+            figure_horizontal_default=True,
+            observation_loader=lambda *_args, **_kwargs: observation,
+        )
+
+        assert recorded_levels == [(2550.0, "#9467bd", "-")]
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2550 m")
+        assert callout.get_color() == "#9467bd"
+        legend = ax.get_legend()
+        assert legend is not None
+        assert [text.get_text() for text in legend.get_texts()][-1] == "observation WSLA"
+    finally:
+        plt.close(fig)
+
+
+def test_wet_snow_line_observation_panel_annotates_unavailable_without_wsl_legend(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
@@ -2038,12 +2304,12 @@ def test_wet_snow_line_observation_panel_uses_obs_color_for_callout(
     )
     fig, ax = plt.subplots(figsize=(4, 4))
     try:
-        monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: 2550.0)
-        monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", lambda *_args, **_kwargs: False)
 
         panel_renderers_module.render_wet_snow_line_panel(
             ax,
-            panel=MapPanelSpec(kind="wet_snow_line", row=0, col=0, source=None, date="2023-01-02"),
+            panel=MapPanelSpec(kind="wet_snow_line", row=0, col=0, source=None, date="2023-01-02", legend="vertical"),
             context=context,
             extent=buffered_extent(context),
             label=None,
@@ -2053,8 +2319,10 @@ def test_wet_snow_line_observation_panel_uses_obs_color_for_callout(
             observation_loader=lambda *_args, **_kwargs: observation,
         )
 
-        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2550 m")
-        assert callout.get_color() == "#9467bd"
+        assert "WSLA unavailable" in {text.get_text() for text in ax.texts}
+        legend = ax.get_legend()
+        assert legend is not None
+        assert "observation WSLA" not in {text.get_text() for text in legend.get_texts()}
     finally:
         plt.close(fig)
 
@@ -2064,6 +2332,8 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
     context = load_static_context(project_dir)
     wet_fraction = np.full(context.roi_mask.shape, np.nan, dtype=float)
     wet_fraction[context.roi_mask] = 0.2
+    prior_wet_fraction = np.full(context.roi_mask.shape, np.nan, dtype=float)
+    prior_wet_fraction[context.roi_mask] = 0.8
     recorded_levels: list[float | None] = []
     fig, ax = plt.subplots(figsize=(4, 4))
     try:
@@ -2079,14 +2349,12 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
         )
         monkeypatch.setattr(
             panel_renderers_module,
-            "_prior_wsl_summary_from_weights",
-            lambda _context, _date: {"median": 2475.0, "min": 2350.0, "max": 2750.0, "obs": 2625.0, "n_members": 3},
+            "_prior_wet_fraction_array",
+            lambda **kwargs: prior_wet_fraction,
         )
-        def _wsl_from_fraction(*, threshold=None, **_kwargs):
-            if threshold == panel_renderers_module._WSL_POSTERIOR_BAND_HIGH:
-                return 2425.0
-            if threshold == panel_renderers_module._WSL_POSTERIOR_BAND_LOW:
-                return 2625.0
+        def _wsl_from_fraction(*, wet_fraction, **_kwargs):
+            if wet_fraction is prior_wet_fraction:
+                return 2475.0
             return 2525.0
 
         monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", _wsl_from_fraction)
@@ -2098,7 +2366,7 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
         monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_classified", _unexpected_raster_wsl)
 
         def _record_contour(_ax, *, context, level, color, linestyle, linewidth=1.6, zorder=9):
-            recorded_levels.append((level, color, linestyle))
+            recorded_levels.append((level, color, linestyle, zorder))
             return True
 
         monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", _record_contour)
@@ -2115,39 +2383,27 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
         )
 
         assert recorded_levels == [
-            (2525.0, "#c21f24", "-"),
-            (2425.0, "#e58b8b", "-"),
-            (2625.0, "#e58b8b", "-"),
-            (2475.0, "#2c8a64", "-"),
-            (2350.0, "#72b79a", "--"),
-            (2750.0, "#72b79a", "--"),
-            (2625.0, "#9467bd", "-"),
+            (2475.0, "#2c8a64", "--", 9.75),
+            (2525.0, "#c21f24", "-", 9.5),
+            (2625.0, "#9467bd", "-", 10),
         ]
         assert artifacts["wsl"] == 2525.0
         assert artifacts["obs_wsl"] == 2625.0
-        assert artifacts["posterior_band_drawn"] is True
-        assert artifacts["prior_wsl_summary"] == {
-            "median": 2475.0,
-            "min": 2350.0,
-            "max": 2750.0,
-            "obs": 2625.0,
-            "n_members": 3,
-        }
-        assert artifacts["prior_median_drawn"] is True
-        assert artifacts["prior_span_drawn"] is True
+        assert artifacts["posterior_band_drawn"] is False
+        assert artifacts["prior_wsf_field_wsl"] == 2475.0
+        assert artifacts["prior_wsf_field_drawn"] is True
+        assert artifacts["prior_span_drawn"] is False
         assert [handle.get_label() for handle in artifacts["posterior_overlay_handles"]] == [
-            "5 - 95% posterior WSLA",
-            "prior median WSLA",
-            "prior min / max WSLA",
-            "obs WSLA",
+            "posterior WSLA",
+            "prior WSLA",
+            "observation WSLA",
         ]
         legend = ax.get_legend()
         assert legend is not None
         assert [text.get_text() for text in legend.get_texts()] == [
-            "5 - 95% posterior WSLA",
-            "prior median WSLA",
-            "prior min / max WSLA",
-            "obs WSLA",
+            "posterior WSLA",
+            "prior WSLA",
+            "observation WSLA",
         ]
         assert "WSLA unavailable" not in {text.get_text() for text in ax.texts}
         callout = next(text for text in ax.texts if text.get_text() == "WSLA 2530 m")
@@ -2158,26 +2414,22 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
 
 def test_wet_snow_line_overlay_handles_describe_posterior_prior_and_obs_contours() -> None:
     handles = [
-        panel_renderers_module._posterior_band_overlay_handle(),
-        panel_renderers_module._prior_median_overlay_handle(),
-        panel_renderers_module._prior_span_overlay_handle(),
+        panel_renderers_module._posterior_wsl_overlay_handle(),
+        panel_renderers_module._prior_wsf_field_overlay_handle(),
         panel_renderers_module._obs_overlay_handle(),
     ]
 
     assert [handle.get_label() for handle in handles] == [
-        "5 - 95% posterior WSLA",
-        "prior median WSLA",
-        "prior min / max WSLA",
-        "obs WSLA",
+        "posterior WSLA",
+        "prior WSLA",
+        "observation WSLA",
     ]
-    assert handles[0].get_color() == "#e58b8b"
+    assert handles[0].get_color() == "#c21f24"
     assert handles[0].get_linestyle() == "-"
-    assert handles[0].get_linewidth() == pytest.approx(0.9)
+    assert handles[0].get_linewidth() == pytest.approx(1.6)
     assert handles[1].get_color() == "#2c8a64"
-    assert handles[1].get_linestyle() == "-"
-    assert handles[2].get_color() == "#72b79a"
-    assert handles[2].get_linestyle() == "--"
-    assert handles[3].get_color() == "#9467bd"
+    assert handles[1].get_linestyle() == "--"
+    assert handles[2].get_color() == "#9467bd"
 
 
 def test_wet_snow_line_panel_annotates_unavailable_wsl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2198,6 +2450,7 @@ def test_wet_snow_line_panel_annotates_unavailable_wsl(tmp_path: Path, monkeypat
             lambda **kwargs: np.full(context.roi_mask.shape, float(panel_renderers_module._WET_SNOW_MODEL_CODES[1]), dtype=float),
         )
         monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(panel_renderers_module, "_prior_wet_fraction_array", lambda **kwargs: wet_fraction)
         monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", lambda **kwargs: None)
         monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", lambda *_args, **_kwargs: False)
 
@@ -2765,11 +3018,12 @@ def test_collect_shared_model_vmax_uses_selected_nonincrement_snowdepth_panels(
         MapRecipe(
             name="b",
             title="B",
-            layout=LayoutSpec(nrows=1, ncols=2),
+            layout=LayoutSpec(nrows=1, ncols=3),
             defaults=MapDefaults(date="2023-01-02"),
             panels=(
                 MapPanelSpec(kind="snow_depth", row=0, col=0, source="ensemble_mean"),
                 MapPanelSpec(kind="snow_depth", row=0, col=1, source="increment"),
+                MapPanelSpec(kind="snow_depth", row=0, col=2, source="analysis_increment"),
             ),
         ),
     )
@@ -2785,12 +3039,16 @@ def test_collect_shared_model_vmax_uses_selected_nonincrement_snowdepth_panels(
                 open_loop=np.array([[0.2, 0.4]], dtype=float),
                 ens_mean=np.array([[0.6, 0.9]], dtype=float),
                 increment=np.array([[0.1, -0.1]], dtype=float),
+                analysis_mean=np.array([[1.3, 1.4]], dtype=float),
+                analysis_increment=np.array([[0.7, 0.5]], dtype=float),
             ),
             ModelFields(
                 date=dates[1],
                 open_loop=np.array([[0.3, 0.5]], dtype=float),
                 ens_mean=np.array([[0.8, 1.2]], dtype=float),
                 increment=np.array([[0.2, -0.2]], dtype=float),
+                analysis_mean=np.array([[1.4, 1.6]], dtype=float),
+                analysis_increment=np.array([[0.6, 0.4]], dtype=float),
             ),
         ]
 
@@ -2799,7 +3057,7 @@ def test_collect_shared_model_vmax_uses_selected_nonincrement_snowdepth_panels(
     shared_vmax = runner_module._collect_shared_model_vmax(project_dir, recipes)
 
     assert calls == [("snowdepth_daily", (pd.Timestamp("2023-01-01"), pd.Timestamp("2023-01-02")))]
-    assert shared_vmax == {"snowdepth_daily": 1.25}
+    assert shared_vmax == {"snowdepth_daily": 1.75}
 
 
 def test_render_project_maps_name_filter_limits_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

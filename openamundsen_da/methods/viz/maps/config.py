@@ -92,6 +92,7 @@ class MapPanelSpec:
     show_stations_name: bool | None = None
     show_stations_elev: bool | None = None
     legend: str | None = None
+    variable: str | None = None
 
 
 @dataclass(frozen=True)

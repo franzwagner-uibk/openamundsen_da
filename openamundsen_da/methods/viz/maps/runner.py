@@ -127,7 +127,9 @@ def _collect_shared_model_vmax(project_dir: Path, recipes: tuple[MapRecipe, ...]
             panel_date(panel, recipe.defaults)
             for recipe in recipes
             for panel in recipe.panels
-            if panel.kind == "snow_depth" and panel.source != "increment" and panel_date(panel, recipe.defaults) is not None
+            if panel.kind == "snow_depth"
+            and panel.source not in {"increment", "analysis_increment"}
+            and panel_date(panel, recipe.defaults) is not None
         }
     )
     if not snow_depth_dates:
@@ -137,7 +139,10 @@ def _collect_shared_model_vmax(project_dir: Path, recipes: tuple[MapRecipe, ...]
     fields = load_model_fields(project_dir, "snowdepth_daily", tuple(snow_depth_dates))
     max_value = 0.0
     for field in fields:
-        for arr in (field.open_loop, field.ens_mean):
+        arrays = [field.open_loop, field.ens_mean]
+        if field.analysis_mean is not None:
+            arrays.append(field.analysis_mean)
+        for arr in arrays:
             finite = np.asarray(arr, dtype=float)
             finite = finite[np.isfinite(finite)]
             if finite.size:

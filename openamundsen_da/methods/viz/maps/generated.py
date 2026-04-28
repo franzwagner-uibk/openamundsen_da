@@ -105,13 +105,29 @@ def _reference_stream(project_dir: Path, *, variable: str, date: pd.Timestamp) -
     return _stream_row_label(variable, relation)
 
 
-def _snow_depth_row(*, row: int, label: str) -> GeneratedRow:
+def _snow_depth_row(*, row: int, label: str, event_variable: str) -> GeneratedRow:
     return GeneratedRow(
         label=label,
         panels=(
-            MapPanelSpec(kind="snow_depth", row=row, col=0, source="open_loop", title="open loop", show_hillshade=True),
-            MapPanelSpec(kind="snow_depth", row=row, col=1, source="ensemble_mean", title="ensemble mean", show_hillshade=True),
-            MapPanelSpec(kind="snow_depth", row=row, col=2, source="increment", title="increment", show_hillshade=True),
+            MapPanelSpec(kind="snow_depth", row=row, col=0, source="ensemble_mean", title="prior mean", show_hillshade=True),
+            MapPanelSpec(
+                kind="snow_depth",
+                row=row,
+                col=1,
+                source="analysis_mean",
+                title="posterior mean",
+                show_hillshade=True,
+                variable=event_variable,
+            ),
+            MapPanelSpec(
+                kind="snow_depth",
+                row=row,
+                col=2,
+                source="analysis_increment",
+                title="DA increment",
+                show_hillshade=True,
+                variable=event_variable,
+            ),
         ),
     )
 
@@ -163,14 +179,25 @@ def _wet_snow_line_row(*, row: int, label: str) -> GeneratedRow:
     )
 
 
+def _wet_snow_elevation_fraction_row(*, row: int, variable: str) -> GeneratedRow:
+    return GeneratedRow(
+        label="elevation-band WSF",
+        panels=(
+            MapPanelSpec(kind="wet_snow_elevation_fraction", row=row, col=0, source="open_loop", title="open loop", variable=variable),
+            MapPanelSpec(kind="wet_snow_elevation_fraction", row=row, col=1, source="posterior", title="posterior", variable=variable),
+            MapPanelSpec(kind="wet_snow_elevation_fraction", row=row, col=2, title="observation", variable=variable),
+        ),
+    )
+
+
 def _generated_rows_for_event(project_dir: Path, event: AssimilationEvent) -> tuple[GeneratedRow, ...]:
     rows: list[GeneratedRow] = []
     row_index = 0
     if event.variable == "station_hs":
-        rows.append(_snow_depth_row(row=row_index, label=_variable_label("station_hs")))
+        rows.append(_snow_depth_row(row=row_index, label=_variable_label("station_hs"), event_variable=event.variable))
         row_index += 1
     elif event.variable == "station_swe":
-        rows.append(_snow_depth_row(row=row_index, label=_variable_label("station_swe")))
+        rows.append(_snow_depth_row(row=row_index, label=_variable_label("station_swe"), event_variable=event.variable))
         row_index += 1
     elif event.variable == "scf" and _fraction_model_support_available(project_dir, "scf"):
         rows.append(_fraction_row(row=row_index, kind="fsc", label=_stream_row_label("scf")))
@@ -182,11 +209,13 @@ def _generated_rows_for_event(project_dir: Path, event: AssimilationEvent) -> tu
             require_summary_date=False,
         )
         hs_label = _stream_row_label("station_hs", hs_relation or "independent")
-        rows.append(_snow_depth_row(row=row_index, label=hs_label))
+        rows.append(_snow_depth_row(row=row_index, label=hs_label, event_variable=event.variable))
         row_index += 1
     elif event.variable == "wet_snow_line" and _fraction_model_support_available(project_dir, "wet_snow"):
         rows.append(_wet_snow_line_row(row=row_index, label=_stream_row_label("wet_snow_line")))
         row_index += 1
+        rows.append(_wet_snow_elevation_fraction_row(row=row_index, variable="wet_snow_line"))
+        row_index += 1
         hs_relation = _relation_for_variable(
             project_dir,
             variable="station_hs",
@@ -194,11 +223,13 @@ def _generated_rows_for_event(project_dir: Path, event: AssimilationEvent) -> tu
             require_summary_date=False,
         )
         hs_label = _stream_row_label("station_hs", hs_relation or "independent")
-        rows.append(_snow_depth_row(row=row_index, label=hs_label))
+        rows.append(_snow_depth_row(row=row_index, label=hs_label, event_variable=event.variable))
         row_index += 1
     elif event.variable == "wet_snow" and _fraction_model_support_available(project_dir, "wet_snow"):
         rows.append(_fraction_row(row=row_index, kind="wet_snow", label=_stream_row_label("wet_snow")))
         row_index += 1
+        rows.append(_wet_snow_elevation_fraction_row(row=row_index, variable="wet_snow"))
+        row_index += 1
         hs_relation = _relation_for_variable(
             project_dir,
             variable="station_hs",
@@ -206,10 +237,10 @@ def _generated_rows_for_event(project_dir: Path, event: AssimilationEvent) -> tu
             require_summary_date=False,
         )
         hs_label = _stream_row_label("station_hs", hs_relation or "independent")
-        rows.append(_snow_depth_row(row=row_index, label=hs_label))
+        rows.append(_snow_depth_row(row=row_index, label=hs_label, event_variable=event.variable))
         row_index += 1
     else:
-        rows.append(_snow_depth_row(row=row_index, label=_variable_label("station_hs")))
+        rows.append(_snow_depth_row(row=row_index, label=_variable_label("station_hs"), event_variable=event.variable))
         row_index += 1
 
     event_date = pd.Timestamp(event.date).normalize()
@@ -237,6 +268,7 @@ def _generated_recipe(index: int, event: AssimilationEvent, rows: tuple[Generate
             source=panel.source,
             show_hillshade=panel.show_hillshade,
             hillshade_extent=panel.hillshade_extent,
+            variable=panel.variable,
         )
         for row_idx, row in enumerate(rows)
         for panel in row.panels

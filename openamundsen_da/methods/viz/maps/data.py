@@ -55,6 +55,8 @@ class ModelFields:
     open_loop: np.ndarray
     ens_mean: np.ndarray
     increment: np.ndarray
+    analysis_mean: np.ndarray | None = None
+    analysis_increment: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -353,6 +355,8 @@ def load_model_fields(project_dir: Path, variable: str, dates: tuple[pd.Timestam
         open_name = _metric_var("open_loop", variable)
         mean_name = _metric_var("ens_mean", variable)
         inc_name = _metric_var("increment", variable)
+        analysis_mean_name = _metric_var("analysis_mean", variable)
+        analysis_inc_name = _metric_var("analysis_increment", variable)
         missing = [name for name in (open_name, mean_name, inc_name) if name not in ds]
         if missing:
             raise KeyError(f"Missing required variables in {ds_path}: {', '.join(missing)}")
@@ -378,6 +382,28 @@ def load_model_fields(project_dir: Path, variable: str, dates: tuple[pd.Timestam
                     ),
                     increment=_extract_spatial_field(
                         ds[inc_name], time_dim=time_dim, idx=idx, variable_name=inc_name, ds_path=ds_path
+                    ),
+                    analysis_mean=(
+                        _extract_spatial_field(
+                            ds[analysis_mean_name],
+                            time_dim=time_dim,
+                            idx=idx,
+                            variable_name=analysis_mean_name,
+                            ds_path=ds_path,
+                        )
+                        if analysis_mean_name in ds
+                        else None
+                    ),
+                    analysis_increment=(
+                        _extract_spatial_field(
+                            ds[analysis_inc_name],
+                            time_dim=time_dim,
+                            idx=idx,
+                            variable_name=analysis_inc_name,
+                            ds_path=ds_path,
+                        )
+                        if analysis_inc_name in ds
+                        else None
                     ),
                 )
             )

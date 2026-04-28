@@ -110,6 +110,7 @@ from openamundsen_da.methods.viz.maps.panel_renderers import (
     render_overview_panel,
     render_roi_panel as _render_roi_panel,
     render_static_panel,
+    render_wet_snow_elevation_fraction_panel,
     render_wet_snow_line_panel,
 )
 from openamundsen_da.methods.viz.maps.theme import (
@@ -359,6 +360,19 @@ def _render_panel(
         )
     if panel.kind == "wet_snow_line":
         return render_wet_snow_line_panel(
+            ax,
+            panel=panel,
+            context=context,
+            extent=extent,
+            label=label,
+            defaults=defaults,
+            obs_cache=cache.observations,
+            figure_horizontal_default=figure_horizontal_default,
+            derived_cache=cache.derived_arrays,
+            observation_loader=load_observation_scene,
+        )
+    if panel.kind == "wet_snow_elevation_fraction":
+        return render_wet_snow_elevation_fraction_panel(
             ax,
             panel=panel,
             context=context,

@@ -11,10 +11,11 @@ import pandas as pd
 import rasterio
 from matplotlib.cm import ScalarMappable
 from matplotlib import colormaps
-from matplotlib.colors import BoundaryNorm, ListedColormap, Normalize, TwoSlopeNorm
+from matplotlib.colors import BoundaryNorm, LinearSegmentedColormap, ListedColormap, Normalize, TwoSlopeNorm
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Rectangle
 from rasterio.transform import array_bounds
+from rasterio.warp import Resampling, reproject
 from shapely.geometry import box
 
 from openamundsen_da.core.env import _read_yaml_file
@@ -124,17 +125,30 @@ from openamundsen_da.methods.viz.maps.theme import (
 )
 from openamundsen_da.util.landcover_mask import resolve_landcover_mask
 from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
+from openamundsen_da.methods.wet_snow.classify import CLASSIFICATION_METHOD_AMOUNT, load_wet_snow_classification_config
 from openamundsen_da.methods.wet_snow.wsl import compute_wet_snow_line_from_masks, load_wet_snow_line_config
+from openamundsen_da.util.da_observables import weights_csv_name
 
 
 _FRACTION_MODEL_CMAP = colormaps["Greys"]
+_ELEVATION_BAND_WSF_ACCENT_LOW = 0.45
+_ELEVATION_BAND_WSF_ACCENT_HIGH = 0.55
+_ELEVATION_BAND_WSF_ACCENT_COLOR = "#d95f02"
+_ELEVATION_BAND_WSF_CMAP = LinearSegmentedColormap.from_list(
+    "oa_da_elevation_band_wsf",
+    (
+        (0.00, "#ffffff"),
+        (_ELEVATION_BAND_WSF_ACCENT_LOW, "#b8b8b8"),
+        (_ELEVATION_BAND_WSF_ACCENT_LOW + 0.0001, _ELEVATION_BAND_WSF_ACCENT_COLOR),
+        (0.50, _ELEVATION_BAND_WSF_ACCENT_COLOR),
+        (_ELEVATION_BAND_WSF_ACCENT_HIGH - 0.0001, _ELEVATION_BAND_WSF_ACCENT_COLOR),
+        (_ELEVATION_BAND_WSF_ACCENT_HIGH, "#8f8f8f"),
+        (1.00, "#000000"),
+    ),
+)
 _WET_SNOW_MODEL_CODES = (110, 125)
 _SCF_BINARY_CMAP = ListedColormap(["#efefef", "#111111"], name="scf_binary")
-_WSL_POSTERIOR_BAND_COLOR = "#e58b8b"
-_WSL_POSTERIOR_BAND_LOW = 0.05
-_WSL_POSTERIOR_BAND_HIGH = 0.95
 _WSL_PRIOR_MEDIAN_COLOR = "#2c8a64"
-_WSL_PRIOR_SPAN_COLOR = "#72b79a"
 
 
 @dataclass(frozen=True)
@@ -290,13 +304,32 @@ def comparison_scales(fields: list[ModelFields], preset, *, model_vmax: float | 
     increment_arrays = []
     for field in comparisons:
         valid_arrays.extend([field.open_loop, field.ens_mean])
+        if field.analysis_mean is not None:
+            valid_arrays.append(field.analysis_mean)
         increment_arrays.append(np.abs(field.increment))
+        if field.analysis_increment is not None:
+            increment_arrays.append(np.abs(field.analysis_increment))
     max_value = max(float(np.nanmax(arr)) if np.isfinite(arr).any() else 0.0 for arr in valid_arrays)
     max_increment = max(float(np.nanmax(arr)) if np.isfinite(arr).any() else 0.0 for arr in increment_arrays)
 
     vmax = float(model_vmax) if model_vmax is not None else nice_ceiling(max_value, step=preset.max_step, minimum=preset.max_floor)
     inc_abs = nice_ceiling(max_increment, step=preset.increment_step, minimum=preset.increment_floor)
     return model_map_norm(preset, vmax=vmax), TwoSlopeNorm(vcenter=0.0, vmin=-inc_abs, vmax=inc_abs)
+
+
+def _required_analysis_array(field: ModelFields, source: str, variable: str, date: pd.Timestamp) -> np.ndarray:
+    if source == "analysis_mean":
+        arr = field.analysis_mean
+    elif source == "analysis_increment":
+        arr = field.analysis_increment
+    else:
+        raise ValueError(f"Unsupported analysis source '{source}'")
+    if arr is None:
+        raise KeyError(
+            f"Compact DA output is missing '{source}_{variable}' for {pd.Timestamp(date).date()}; "
+            "rerun the project so analysis_mean/analysis_increment fields are written"
+        )
+    return arr
 
 
 def classified_display_labels(
@@ -1054,10 +1087,16 @@ def render_model_panel(
         )
 
     colorbar_style: dict[str, object] | object
-    if panel.source == "increment":
-        invalid_mask = inside_roi_invalid_mask(model_cache[field_key].increment, context.roi_mask)
+    field = model_cache[field_key]
+    if panel.source in {"increment", "analysis_increment"}:
+        data = (
+            field.increment
+            if panel.source == "increment"
+            else _required_analysis_array(field, "analysis_increment", variable, date)
+        )
+        invalid_mask = inside_roi_invalid_mask(data, context.roi_mask)
         image = ax.imshow(
-            masked(model_cache[field_key].increment, context.roi_mask),
+            masked(data, context.roi_mask),
             cmap=INCREMENT_CMAP,
             norm=increment_norm,
             extent=grid_extent(context),
@@ -1066,9 +1105,17 @@ def render_model_panel(
             alpha=_SNOW_DEPTH_PANEL_ALPHA if panel.kind == "snow_depth" else 0.95,
             zorder=5,
         )
-        colorbar_style = {"label": f"increment {preset.unit_label}"}
+        colorbar_label = (
+            f"DA increment (posterior - prior) {preset.unit_label}"
+            if panel.source == "analysis_increment"
+            else f"increment {preset.unit_label}"
+        )
+        colorbar_style = {"label": colorbar_label}
     else:
-        data = model_cache[field_key].open_loop if panel.source == "open_loop" else model_cache[field_key].ens_mean
+        if panel.source == "analysis_mean":
+            data = _required_analysis_array(field, "analysis_mean", variable, date)
+        else:
+            data = field.open_loop if panel.source == "open_loop" else field.ens_mean
         invalid_mask = inside_roi_invalid_mask(data, context.roi_mask)
         image = ax.imshow(
             masked_model(data, context.roi_mask, preset=preset),
@@ -1247,17 +1294,10 @@ def _fraction_member_filename(observation: str) -> str:
 
 
 def _wet_snow_threshold_fraction(project_dir: Path) -> float:
-    project_yaml = find_project_yaml(project_dir)
-    cfg = _read_yaml_file(project_yaml) or {}
-    da_cfg = cfg.get("data_assimilation") if isinstance(cfg, dict) else None
-    wet_cfg = da_cfg.get("wet_snow") if isinstance(da_cfg, dict) else None
-    raw_value = wet_cfg.get("classification_threshold_percent") if isinstance(wet_cfg, dict) else None
-    if raw_value is None:
-        raise ValueError(
-            f"Missing required configuration key: {project_yaml} -> "
-            "data_assimilation.wet_snow.classification_threshold_percent"
-        )
-    return float(raw_value) / 100.0
+    cfg = load_wet_snow_classification_config(project_dir)
+    if cfg.method == CLASSIFICATION_METHOD_AMOUNT:
+        return 0.5
+    return float(cfg.threshold_percent) / 100.0
 
 
 def _step_dir_for_date(project_dir: Path, date: pd.Timestamp) -> Path:
@@ -1329,6 +1369,39 @@ def _wet_snow_model_classified_array(
     return classified
 
 
+def _prior_wet_fraction_array(
+    *,
+    context: StaticContext,
+    date: pd.Timestamp,
+    derived_cache: dict[str, np.ndarray] | None,
+) -> np.ndarray:
+    cache_key = f"wet-snow-prior-fraction:{pd.Timestamp(date).normalize().isoformat()}"
+    if derived_cache is not None and cache_key in derived_cache:
+        return np.asarray(derived_cache[cache_key], dtype=float)
+
+    step_dir = _step_dir_for_date(context.project_dir, date)
+    member_masks: list[np.ndarray] = []
+    for member_dir in list_member_dirs(step_dir, "prior"):
+        mask_path = _wet_snow_mask_path(member_dir / "results", date)
+        member_masks.append(_load_wet_snow_mask(mask_path))
+    if not member_masks:
+        raise FileNotFoundError(f"Missing prior members for wet-snow probability map in {step_dir}")
+    stack = np.stack([np.where(mask == 255, np.nan, mask.astype(float)) for mask in member_masks], axis=0)
+    valid_count = np.sum(np.isfinite(stack), axis=0)
+    wet_sum = np.nansum(stack, axis=0)
+    wet_fraction = np.divide(
+        wet_sum,
+        valid_count,
+        out=np.full(valid_count.shape, np.nan, dtype=float),
+        where=valid_count > 0,
+    )
+    wet_fraction = np.asarray(wet_fraction, dtype=float)
+    wet_fraction[~context.roi_mask] = np.nan
+    if derived_cache is not None:
+        derived_cache[cache_key] = wet_fraction
+    return wet_fraction
+
+
 def _wet_snow_line_from_classified(
     *,
     context: StaticContext,
@@ -1345,14 +1418,14 @@ def _wet_snow_line_from_classified(
     return evaluation.wet_snow_line
 
 
-def _wsl_weights_path(project_dir: Path, date: pd.Timestamp) -> Path:
+def _weights_path(project_dir: Path, date: pd.Timestamp, variable: str) -> Path:
     step_dir = _step_dir_for_date(project_dir, date)
-    return step_dir / "assim" / f"weights_wet_snow_line_{pd.Timestamp(date).strftime('%Y%m%d')}.csv"
+    return step_dir / "assim" / weights_csv_name(variable, pd.Timestamp(date).to_pydatetime())
 
 
-def _load_wsl_weights_df(project_dir: Path, date: pd.Timestamp) -> pd.DataFrame | None:
+def _load_weights_df(project_dir: Path, date: pd.Timestamp, variable: str) -> pd.DataFrame | None:
     try:
-        weights_path = _wsl_weights_path(project_dir, date)
+        weights_path = _weights_path(project_dir, date, variable)
     except FileNotFoundError:
         return None
     if not weights_path.is_file():
@@ -1361,6 +1434,14 @@ def _load_wsl_weights_df(project_dir: Path, date: pd.Timestamp) -> pd.DataFrame 
     if df.empty:
         return None
     return df
+
+
+def _wsl_weights_path(project_dir: Path, date: pd.Timestamp) -> Path:
+    return _weights_path(project_dir, date, "wet_snow_line")
+
+
+def _load_wsl_weights_df(project_dir: Path, date: pd.Timestamp) -> pd.DataFrame | None:
+    return _load_weights_df(project_dir, date, "wet_snow_line")
 
 
 def _finite_numeric_column(df: pd.DataFrame, column: str) -> pd.Series:
@@ -1397,8 +1478,8 @@ def _prior_wsl_summary_from_weights(context: StaticContext, date: pd.Timestamp) 
     return _wsl_prior_summary_from_weights_df(df)
 
 
-def _posterior_da_weights(context: StaticContext, date: pd.Timestamp) -> pd.Series | None:
-    df = _load_wsl_weights_df(context.project_dir, date)
+def _posterior_da_weights(context: StaticContext, date: pd.Timestamp, variable: str = "wet_snow_line") -> pd.Series | None:
+    df = _load_weights_df(context.project_dir, date, variable)
     if df is None:
         return None
     if "member_id" not in df.columns or "weight" not in df.columns:
@@ -1423,13 +1504,14 @@ def _posterior_weighted_wet_fraction_array(
     context: StaticContext,
     date: pd.Timestamp,
     derived_cache: dict[str, np.ndarray] | None,
+    weights_variable: str = "wet_snow_line",
 ) -> np.ndarray:
-    cache_key = f"wet-snow-posterior-weighted-fraction:{pd.Timestamp(date).normalize().isoformat()}"
+    cache_key = f"wet-snow-posterior-weighted-fraction:{weights_variable}:{pd.Timestamp(date).normalize().isoformat()}"
     if derived_cache is not None and cache_key in derived_cache:
         return np.asarray(derived_cache[cache_key], dtype=float)
 
     step_dir = _step_dir_for_date(context.project_dir, date)
-    weights = _posterior_da_weights(context, date)
+    weights = _posterior_da_weights(context, date, variable=weights_variable)
     member_masks: list[np.ndarray] = []
     member_weights: list[float] = []
 
@@ -1469,6 +1551,120 @@ def _posterior_weighted_wet_fraction_array(
     if derived_cache is not None:
         derived_cache[cache_key] = wet_fraction
     return wet_fraction
+
+
+def _elevation_band_fraction_map(
+    *,
+    context: StaticContext,
+    wet_fraction: np.ndarray,
+    valid_mask: np.ndarray,
+) -> np.ndarray:
+    cfg = load_wet_snow_line_config(context.project_dir)
+    dem = np.asarray(context.dem, dtype=float)
+    wet_fraction = np.asarray(wet_fraction, dtype=float)
+    valid = np.asarray(valid_mask, dtype=bool) & np.asarray(context.roi_mask, dtype=bool) & np.isfinite(dem) & np.isfinite(wet_fraction)
+    out = np.full(dem.shape, np.nan, dtype=float)
+    if not np.any(valid):
+        return out
+
+    valid_elev = dem[valid]
+    band = float(cfg.elevation_band_size_m)
+    low = np.floor(np.nanmin(valid_elev) / band) * band
+    high = np.ceil(np.nanmax(valid_elev) / band) * band
+    if np.isclose(low, high):
+        high = low + band
+    edges = np.arange(low, high + band, band, dtype=float)
+    if edges.size < 2:
+        edges = np.array([low, low + band], dtype=float)
+
+    for idx in range(len(edges) - 1):
+        band_low = float(edges[idx])
+        band_high = float(edges[idx + 1])
+        if idx == len(edges) - 2:
+            band_mask = valid & (dem >= band_low) & (dem <= band_high)
+        else:
+            band_mask = valid & (dem >= band_low) & (dem < band_high)
+        if not np.any(band_mask):
+            continue
+        out[band_mask] = float(np.nanmean(wet_fraction[band_mask]))
+    return out
+
+
+def _observation_array_on_model_grid(context: StaticContext, scene: ObservationScene) -> np.ndarray:
+    arr = np.asarray(scene.array, dtype=float)
+    if arr.shape == context.roi_mask.shape and tuple(scene.transform) == tuple(context.spec.transform):
+        return arr
+    out = np.full(context.roi_mask.shape, np.nan, dtype=float)
+    reproject(
+        source=arr,
+        destination=out,
+        src_transform=scene.transform,
+        src_crs=context.spec.crs,
+        dst_transform=context.spec.transform,
+        dst_crs=context.spec.crs,
+        src_nodata=np.nan,
+        dst_nodata=np.nan,
+        resampling=Resampling.nearest,
+    )
+    return out
+
+
+def _wet_snow_elevation_fraction_array(
+    *,
+    context: StaticContext,
+    source: str | None,
+    date: pd.Timestamp,
+    weights_variable: str,
+    obs_cache,
+    derived_cache: dict[str, np.ndarray] | None,
+    observation_loader: Callable[..., ObservationScene],
+) -> np.ndarray:
+    cache_key = f"wet-snow-elevation-fraction:{weights_variable}:{source or 'observation'}:{pd.Timestamp(date).normalize().isoformat()}"
+    if derived_cache is not None and cache_key in derived_cache:
+        return np.asarray(derived_cache[cache_key], dtype=float)
+
+    if source == "open_loop":
+        classified = _wet_snow_model_classified_array(
+            context=context,
+            source="open_loop",
+            date=date,
+            derived_cache=derived_cache,
+        )
+        valid = np.isclose(classified, float(_WET_SNOW_MODEL_CODES[0]), equal_nan=False) | np.isclose(
+            classified,
+            float(_WET_SNOW_MODEL_CODES[1]),
+            equal_nan=False,
+        )
+        wet_fraction = np.full(classified.shape, np.nan, dtype=float)
+        wet_fraction[valid] = 0.0
+        wet_fraction[np.isclose(classified, float(_WET_SNOW_MODEL_CODES[0]), equal_nan=False)] = 1.0
+    elif source == "posterior":
+        wet_fraction = _posterior_weighted_wet_fraction_array(
+            context=context,
+            date=date,
+            derived_cache=derived_cache,
+            weights_variable=weights_variable,
+        )
+        valid = np.isfinite(wet_fraction)
+    elif source is None:
+        obs_key = ("wet_snow", date)
+        if obs_key not in obs_cache:
+            obs_cache[obs_key] = observation_loader(context.project_dir, context, observation="wet_snow", date=date)
+        scene = obs_cache[obs_key]
+        arr = _observation_array_on_model_grid(context, scene)
+        wet = context.roi_mask & np.isclose(arr, float(_WET_SNOW_MODEL_CODES[0]), equal_nan=False)
+        dry = context.roi_mask & np.isclose(arr, float(_WET_SNOW_MODEL_CODES[1]), equal_nan=False)
+        valid = wet | dry
+        wet_fraction = np.full(arr.shape, np.nan, dtype=float)
+        wet_fraction[dry] = 0.0
+        wet_fraction[wet] = 1.0
+    else:
+        raise ValueError(f"Unsupported wet snow elevation-band source '{source}'")
+
+    out = _elevation_band_fraction_map(context=context, wet_fraction=wet_fraction, valid_mask=valid)
+    if derived_cache is not None:
+        derived_cache[cache_key] = out
+    return out
 
 
 def _classify_wet_snow_fraction_for_wsl(
@@ -1609,7 +1805,7 @@ def _draw_wsl_contour(
     for collection in contour.collections:
         collection.set_path_effects(
             [
-                matplotlib.patheffects.Stroke(linewidth=3.0, foreground="white"),
+                matplotlib.patheffects.Stroke(linewidth=2.2, foreground="white"),
                 matplotlib.patheffects.Normal(),
             ]
         )
@@ -1646,25 +1842,13 @@ def _wet_snow_line_legend_handles(
     *,
     include_model_wsl: bool,
     include_obs_wsl: bool,
-    include_posterior_band: bool = False,
     obs_linestyle: str = "-",
 ) -> list[object]:
     handles = list(base_handles)
     if include_model_wsl:
         handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, label="model WSLA"))
-    if include_posterior_band:
-        handles.append(
-            Line2D(
-                [0],
-                [0],
-                color=_WSL_POSTERIOR_BAND_COLOR,
-                linewidth=0.9,
-                linestyle="-",
-                label="posterior WSLA band (5%/95% contours)",
-            )
-        )
     if include_obs_wsl:
-        handles.append(Line2D([0], [0], color=_WSL_OBS_COLOR, linewidth=1.6, linestyle=obs_linestyle, label="obs WSLA"))
+        handles.append(Line2D([0], [0], color=_WSL_OBS_COLOR, linewidth=1.6, linestyle=obs_linestyle, label="observation WSLA"))
     return handles
 
 
@@ -1690,36 +1874,25 @@ def _draw_inpanel_wsl_legend(ax, handles: list[object]) -> None:
     legend.set_zorder(_ANNOTATION_ZORDER + 1)
 
 
-def _posterior_band_overlay_handle() -> Line2D:
+def _posterior_wsl_overlay_handle() -> Line2D:
     return Line2D(
         [0],
         [0],
-        color=_WSL_POSTERIOR_BAND_COLOR,
-        linewidth=0.9,
+        color=_WSL_MODEL_COLOR,
+        linewidth=1.6,
         linestyle="-",
-        label="5 - 95% posterior WSLA",
+        label="posterior WSLA",
     )
 
 
-def _prior_median_overlay_handle() -> Line2D:
+def _prior_wsf_field_overlay_handle() -> Line2D:
     return Line2D(
         [0],
         [0],
         color=_WSL_PRIOR_MEDIAN_COLOR,
-        linewidth=1.35,
-        linestyle="-",
-        label="prior median WSLA",
-    )
-
-
-def _prior_span_overlay_handle() -> Line2D:
-    return Line2D(
-        [0],
-        [0],
-        color=_WSL_PRIOR_SPAN_COLOR,
-        linewidth=1.0,
+        linewidth=1.45,
         linestyle="--",
-        label="prior min / max WSLA",
+        label="prior WSLA",
     )
 
 
@@ -1730,7 +1903,7 @@ def _obs_overlay_handle() -> Line2D:
         color=_WSL_OBS_COLOR,
         linewidth=1.5,
         linestyle="-",
-        label="obs WSLA",
+        label="observation WSLA",
     )
 
 
@@ -1914,10 +2087,14 @@ def render_wet_snow_line_panel(
         )
         contour_level = obs_contour_level
     else:
-        posterior_band_levels: tuple[float | None, float | None] = (None, None)
-        prior_wsl_summary: dict[str, float | int | None] | None = None
+        prior_wsf_field_wsl: float | None = None
         if str(panel.source) == "posterior":
             wet_fraction = _posterior_weighted_wet_fraction_array(
+                context=context,
+                date=date,
+                derived_cache=derived_cache,
+            )
+            prior_wet_fraction = _prior_wet_fraction_array(
                 context=context,
                 date=date,
                 derived_cache=derived_cache,
@@ -1925,19 +2102,7 @@ def render_wet_snow_line_panel(
             fill = 100.0 * np.asarray(wet_fraction, dtype=float)
             norm = Normalize(vmin=0.0, vmax=100.0)
             contour_level = _wet_snow_line_from_fraction(context=context, wet_fraction=wet_fraction)
-            posterior_band_levels = (
-                _wet_snow_line_from_fraction(
-                    context=context,
-                    wet_fraction=wet_fraction,
-                    threshold=_WSL_POSTERIOR_BAND_HIGH,
-                ),
-                _wet_snow_line_from_fraction(
-                    context=context,
-                    wet_fraction=wet_fraction,
-                    threshold=_WSL_POSTERIOR_BAND_LOW,
-                ),
-            )
-            prior_wsl_summary = _prior_wsl_summary_from_weights(context, date)
+            prior_wsf_field_wsl = _wet_snow_line_from_fraction(context=context, wet_fraction=prior_wet_fraction)
             image = ax.imshow(
                 np.ma.masked_invalid(fill),
                 cmap=_FRACTION_MODEL_CMAP,
@@ -1986,63 +2151,36 @@ def render_wet_snow_line_panel(
                 fallback_codes=list(_WET_SNOW_MODEL_CODES),
             )
 
-    model_contour_drawn = _draw_wsl_contour(
-        ax,
-        context=context,
-        level=contour_level,
-        color=_WSL_OBS_COLOR if panel.source is None else _WSL_MODEL_COLOR,
-        linestyle="-",
-    )
+    model_contour_drawn = False
     posterior_band_drawn = False
-    prior_median_drawn = False
+    prior_wsf_field_drawn = False
     prior_span_drawn = False
     if panel.source == "posterior":
-        for band_level in posterior_band_levels:
-            posterior_band_drawn = (
-                _draw_wsl_contour(
-                    ax,
-                    context=context,
-                    level=band_level,
-                    color=_WSL_POSTERIOR_BAND_COLOR,
-                    linestyle="-",
-                    linewidth=0.9,
-                    zorder=9.5,
-                )
-                or posterior_band_drawn
-            )
-        drawn_prior_levels: list[float] = []
-        if prior_wsl_summary is not None:
-            prior_median_level = prior_wsl_summary.get("median")
-            if prior_median_level is not None and np.isfinite(prior_median_level):
-                prior_median_drawn = _draw_wsl_contour(
-                    ax,
-                    context=context,
-                    level=float(prior_median_level),
-                    color=_WSL_PRIOR_MEDIAN_COLOR,
-                    linestyle="-",
-                    linewidth=1.35,
-                    zorder=9.25,
-                )
-                if prior_median_drawn:
-                    drawn_prior_levels.append(float(prior_median_level))
-            for prior_level in (prior_wsl_summary.get("min"), prior_wsl_summary.get("max")):
-                if prior_level is None or not np.isfinite(prior_level):
-                    continue
-                prior_level = float(prior_level)
-                if any(np.isclose(prior_level, existing) for existing in drawn_prior_levels):
-                    continue
-                current_prior_drawn = _draw_wsl_contour(
-                    ax,
-                    context=context,
-                    level=prior_level,
-                    color=_WSL_PRIOR_SPAN_COLOR,
-                    linestyle="--",
-                    linewidth=1.0,
-                    zorder=9.15,
-                )
-                prior_span_drawn = current_prior_drawn or prior_span_drawn
-                if current_prior_drawn:
-                    drawn_prior_levels.append(prior_level)
+        prior_wsf_field_drawn = _draw_wsl_contour(
+            ax,
+            context=context,
+            level=prior_wsf_field_wsl,
+            color=_WSL_PRIOR_MEDIAN_COLOR,
+            linestyle="--",
+            linewidth=1.45,
+            zorder=9.75,
+        )
+        model_contour_drawn = _draw_wsl_contour(
+            ax,
+            context=context,
+            level=contour_level,
+            color=_WSL_MODEL_COLOR,
+            linestyle="-",
+            zorder=9.5,
+        )
+    else:
+        model_contour_drawn = _draw_wsl_contour(
+            ax,
+            context=context,
+            level=contour_level,
+            color=_WSL_OBS_COLOR if panel.source is None else _WSL_MODEL_COLOR,
+            linestyle="-",
+        )
     obs_contour_drawn = False
     if panel.source is not None:
         obs_contour_drawn = _draw_wsl_contour(
@@ -2085,12 +2223,10 @@ def render_wet_snow_line_panel(
                 ticks=(0, 20, 40, 60, 80, 100),
                 layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True),
             )
-        if posterior_band_drawn:
-            posterior_overlay_handles.append(_posterior_band_overlay_handle())
-        if prior_median_drawn:
-            posterior_overlay_handles.append(_prior_median_overlay_handle())
-        if prior_span_drawn:
-            posterior_overlay_handles.append(_prior_span_overlay_handle())
+        if model_contour_drawn:
+            posterior_overlay_handles.append(_posterior_wsl_overlay_handle())
+        if prior_wsf_field_drawn:
+            posterior_overlay_handles.append(_prior_wsf_field_overlay_handle())
         if obs_contour_drawn:
             posterior_overlay_handles.append(_obs_overlay_handle())
     else:
@@ -2099,7 +2235,7 @@ def render_wet_snow_line_panel(
             _wet_snow_line_legend_handles(
                 list(legend_handles),
                 include_model_wsl=model_contour_drawn and panel.source is not None,
-                include_obs_wsl=panel.source is None or obs_contour_drawn,
+                include_obs_wsl=model_contour_drawn if panel.source is None else obs_contour_drawn,
             ),
             layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default),
         )
@@ -2113,13 +2249,107 @@ def render_wet_snow_line_panel(
         "posterior_overlay_handles": posterior_overlay_handles,
         "wsl": contour_level,
         "obs_wsl": obs_contour_level,
-        "prior_wsl_summary": prior_wsl_summary if panel.source == "posterior" else None,
+        "prior_wsf_field_wsl": prior_wsf_field_wsl if panel.source == "posterior" else None,
         "model_wsl_drawn": model_contour_drawn,
         "posterior_band_drawn": posterior_band_drawn,
-        "prior_median_drawn": prior_median_drawn,
+        "prior_wsf_field_drawn": prior_wsf_field_drawn,
         "prior_span_drawn": prior_span_drawn,
         "obs_wsl_drawn": obs_contour_drawn,
     }
+
+
+def render_wet_snow_elevation_fraction_panel(
+    ax,
+    *,
+    panel: MapPanelSpec,
+    context: StaticContext,
+    extent,
+    label: str | None,
+    defaults: MapDefaults,
+    obs_cache,
+    figure_horizontal_default: bool,
+    derived_cache: dict[str, np.ndarray] | None = None,
+    observation_loader: Callable[..., ObservationScene] = load_observation_scene,
+) -> dict[str, object]:
+    date = panel_date(panel, defaults)
+    if date is None:
+        raise ValueError(f"Panel '{panel.kind}' requires a date (panel '{panel.title or panel.kind}')")
+    date = pd.Timestamp(date).normalize()
+    show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
+    if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
+        hillshade_mode = resolve_hillshade_extent(panel, defaults, builtin="roi")
+        ax.imshow(
+            hillshade_underlay(context, derived_cache=derived_cache)
+            if hillshade_mode == "roi"
+            else hillshade(context, derived_cache=derived_cache),
+            cmap="Greys_r",
+            extent=hillshade_extent(context),
+            origin="upper",
+            interpolation=_HILLSHADE_INTERPOLATION,
+            vmin=0.0,
+            vmax=1.0,
+            zorder=0,
+        )
+
+    values = _wet_snow_elevation_fraction_array(
+        context=context,
+        source=panel.source,
+        date=date,
+        weights_variable=str(panel.variable or "wet_snow_line"),
+        obs_cache=obs_cache,
+        derived_cache=derived_cache,
+        observation_loader=observation_loader,
+    )
+    image = ax.imshow(
+        np.ma.masked_invalid(100.0 * values),
+        cmap=_ELEVATION_BAND_WSF_CMAP,
+        norm=Normalize(vmin=0.0, vmax=100.0),
+        extent=grid_extent(context),
+        origin="upper",
+        interpolation="nearest",
+        alpha=1.0,
+        zorder=5,
+    )
+    wsl_level = _wet_snow_line_from_fraction(context=context, wet_fraction=values)
+    wsl_color = _WSL_OBS_COLOR if panel.source is None else _WSL_MODEL_COLOR
+    wsl_drawn = _draw_wsl_contour(
+        ax,
+        context=context,
+        level=wsl_level,
+        color=wsl_color,
+        linestyle="-",
+        linewidth=1.5,
+        zorder=9.5,
+    )
+    _annotate_wsl_callout(ax, level=wsl_level, color=wsl_color if wsl_drawn else "black")
+    overlay_invalid_inside_roi(ax, inside_roi_invalid_mask(values, context.roi_mask), extent=grid_extent(context))
+    apply_common_overlays(
+        ax,
+        context=context,
+        extent=extent,
+        show_roi=resolve_panel_toggle(panel.show_roi, True),
+        show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
+        show_stations_name=resolve_panel_toggle(panel.show_stations_name, False),
+        show_stations_elev=resolve_panel_toggle(panel.show_stations_elev, False),
+    )
+    apply_map_axis_style(
+        ax,
+        extent,
+        title=panel_title(label, panel_semantic_title(panel)),
+        show_grid=show_grid,
+        show_y_ticklabels=panel.col == 0,
+    )
+    if resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
+        attach_colorbar(
+            ax,
+            image,
+            label="wet snow fraction by elevation band [%]",
+            ticks=(0, 20, 40, 60, 80, 100),
+            layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True),
+    )
+    draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=date, resolve_flag=resolve_flag)
+    draw_map_grid_overlay(ax, show_grid=show_grid)
+    return {"mappable": image, "values": values, "wsl": wsl_level, "wsl_drawn": wsl_drawn}
 
 
 def render_fraction_model_panel(

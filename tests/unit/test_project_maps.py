@@ -1044,8 +1044,8 @@ def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_sup
     ]
     assert [panel.title for panel in scf_panels[:4]] == [
         "open-loop snow cover",
-        "prior snow-cover probability",
-        "posterior snow-cover probability",
+        "prior snow cover",
+        "posterior snow cover",
         "satellite FSC observation",
     ]
 

@@ -9,10 +9,11 @@ import pytest
 
 from openamundsen_da.methods.viz.reports.project_collection_pdf import (
     MissingProjectPdfArtifactsError,
-    _image_physical_size,
+    _fit_rect,
     build_project_collection_pdf,
     cli_main,
     collect_project_pdf_items,
+    collect_project_report_summary,
 )
 
 
@@ -72,14 +73,47 @@ def test_collect_project_pdf_items_orders_front_da_and_appendix(tmp_path: Path) 
         "setup_weights_overview_2023.png",
         "setup_weights_overview_2023_page_02.png",
     ]
-    assert [(item.map_path.name, item.weights_path.name) for item in plan.da_steps] == [
-        ("da_1.png", "DA_01_weights.png"),
-        ("da_2.png", "DA_02_weights.png"),
-    ]
-    assert [item.path.relative_to(project_dir).as_posix() for item in plan.appendix_items] == [
-        "results/maps/custom_map.png",
-        "results/plots/perf/project_perf.png",
-    ]
+    assert [item.map_path.name for item in plan.da_steps] == ["da_1.png", "da_2.png"]
+    assert plan.appendix_items == ()
+    assert plan.page_count == 8
+
+
+def test_collect_project_report_summary_reads_cost_stats(tmp_path: Path) -> None:
+    project_dir = _create_project(tmp_path, event_count=1)
+    (project_dir / "project_2023.log").write_text(
+        "2026-01-01 00:00:00 | INFO | Launching ensemble with max_workers=8\n"
+        "2026-01-01 00:02:03 | INFO | Project processing complete: "
+        "/data/projects/project_2023 (wall-clock 123.4 s, ~0.03 h)\n",
+        encoding="utf-8",
+    )
+    perf_dir = project_dir / "results/plots/perf"
+    perf_dir.mkdir(parents=True, exist_ok=True)
+    (perf_dir / "project_perf_metrics.csv").write_text(
+        "timestamp,cpu_total_pct,mem_used_pct,mem_used_gb,mem_total_gb\n"
+        "2026-01-01T00:00:00,10.0,20.0,2.0,16.0\n"
+        "2026-01-01T00:01:00,99.5,50.0,5.8,16.0\n",
+        encoding="utf-8",
+    )
+
+    summary = collect_project_report_summary(project_dir)
+    cost = next(section for section in summary.sections if section.title == "Computing Cost")
+
+    assert "Max workers/cores: 8" in cost.lines
+    assert "Runtime: 2m 03s (project log)" in cost.lines
+    assert "Peak CPU: 99.5%" in cost.lines
+    assert "Peak RAM: 5.8 GB (50.0%)" in cost.lines
+    assert "Total RAM: 16.0 GB" in cost.lines
+    assert "Perf samples: 2026-01-01 00:00:00 to 2026-01-01 00:01:00" in cost.lines
+
+
+def test_collect_project_report_summary_handles_missing_cost_stats(tmp_path: Path) -> None:
+    project_dir = _create_project(tmp_path, event_count=1)
+
+    summary = collect_project_report_summary(project_dir)
+    cost = next(section for section in summary.sections if section.title == "Computing Cost")
+
+    assert "Max workers/cores: n/a" in cost.lines
+    assert "Runtime: n/a" in cost.lines
 
 
 def test_build_project_collection_pdf_fails_with_all_missing_core_paths(tmp_path: Path) -> None:
@@ -95,7 +129,6 @@ def test_build_project_collection_pdf_fails_with_all_missing_core_paths(tmp_path
     assert "setup_overview.png" in text
     assert "setup_weights_overview_2023.png" in text
     assert "da_1.png" in text
-    assert "DA_01_weights.png" in text
     assert "oa-da-plot-project-plots" in text
     assert "oa-da-plot-project-maps" in text
     assert not output.exists()
@@ -110,7 +143,7 @@ def test_build_project_collection_pdf_writes_expected_page_count(tmp_path: Path)
 
     assert written == output
     assert output.is_file()
-    assert _pdf_page_count(output) == 6
+    assert _pdf_page_count(output) == 5
 
 
 def test_cli_main_writes_project_collection_pdf(tmp_path: Path) -> None:
@@ -123,11 +156,10 @@ def test_cli_main_writes_project_collection_pdf(tmp_path: Path) -> None:
     assert output.is_file()
 
 
-def test_image_physical_size_uses_png_dpi(tmp_path: Path) -> None:
-    path = tmp_path / "image.png"
-    _write_png(path, width=400, height=200)
+def test_fit_rect_preserves_aspect_ratio() -> None:
+    left, bottom, width, height = _fit_rect(400, 200, (0.0, 0.0, 8.0, 8.0))
 
-    width, height = _image_physical_size(path)
-
-    assert width == pytest.approx(2.0, abs=0.01)
-    assert height == pytest.approx(1.0, abs=0.01)
+    assert left == pytest.approx(0.0)
+    assert bottom == pytest.approx(4.0)
+    assert width == pytest.approx(8.0)
+    assert height == pytest.approx(4.0)

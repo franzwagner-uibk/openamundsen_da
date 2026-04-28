@@ -522,12 +522,13 @@ Note: running the setup pipeline (see below) also generates these setup plots au
   # - svf
   # - srf
   # - landcover
-  # - snow_depth               # source: open_loop | ensemble_mean | increment
-  # - swe                      # source: open_loop | ensemble_mean | increment
-  # - liquid_water_content     # source: open_loop | ensemble_mean | increment
-  # - fsc
-  # - wet_snow                  # wet snow fraction (WSF)
-  # - wet_snow_line             # wet snow line altitude (WSLA)
+  # - snow_depth               # source: open_loop | ensemble_mean | analysis_mean | increment | analysis_increment
+  # - swe                      # source: open_loop | ensemble_mean | analysis_mean | increment | analysis_increment
+  # - liquid_water_content     # source: open_loop | ensemble_mean | analysis_mean | increment | analysis_increment
+  # - fsc                      # source: open_loop | ensemble_mean | open_loop_binary | prior_probability | posterior_probability
+  # - wet_snow                 # source: open_loop | ensemble_mean | prior_probability | posterior_probability
+  # - wet_snow_line            # source: open_loop | prior_probability | posterior_probability | posterior
+  # - wet_snow_elevation_fraction # source: open_loop | prior_probability | posterior_probability
   # - legend
   # - colorbar
   # Optional panel keys:
@@ -546,10 +547,10 @@ Note: running the setup pipeline (see below) also generates these setup plots au
   - generated DA-event maps under `results/maps/da_events/`
   - custom YAML maps at the root of `results/maps/`
 
-  Generated snow-depth DA-event rows show `prior mean`, `posterior mean`, and `DA increment`; the increment is `posterior - prior` from the event weights, so positive values mean the DA step added snow. Generated SCF DA-event maps now use a dedicated presentation: `open-loop snow cover (binary)`, `posterior ensemble snow-cover probability`, and `satellite FSC observation`. This probabilistic SCF panel is a map-only diagnostic; it does not replace the scalar SCF likelihood used in DA. Generated `wet_snow` and `wet_snow_line` DA-event maps also add a generated-only spatial elevation-band WSF row: each ROI cell is colored by the raw wet snow fraction of its elevation band, using a fixed white-to-black `0-100%` scale for open loop, posterior, and observation columns.
+  Generated DA-event rows use four consistent columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference columns show `analysis_increment` (`posterior - prior`, so positive values mean DA added snow/water). FSC and wet-snow reference columns show the satellite observation. Generated FSC, WSF, WSLA, and elevation-band WSF rows use spatial prior/posterior probability maps where applicable; WSLA contours are panel-local, so model columns do not overlay observation WSLA. If the event resampling manifest reports skipped resampling, the map title is suffixed with `resampling skipped`.
 
   By default the renderer parallelizes across independent recipe PNGs inside the Docker container and clamps the effective worker count to `min(visible CPUs, selected recipes)`; use `--max-workers 1` to force sequential rendering. `oa-da-project` and merged sub-domain runs also render project maps automatically as a best-effort post-run stage. If a map fails because supporting data are missing, the pipeline logs a rerun command and continues.
-  Project maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`, `wet_snow_line`), and optional support panels (`legend`, `colorbar`). `wet_snow` renders WSF, while `wet_snow_line` renders the wet-snow raster context together with a DEM contour at the diagnosed WSLA. For `posterior`, the panel shows the continuous DA-weighted posterior WSF probability field and compares `50%` WSLA contours from the unweighted prior WSF field, the posterior WSF field, and the observed wet-snow map. The elevation-band WSF row is generated automatically for wet-snow DA events and is not a public `maps.yml` panel kind.
+  Project maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`, `wet_snow_line`, `wet_snow_elevation_fraction`), and optional support panels (`legend`, `colorbar`). `wet_snow` renders WSF, while `wet_snow_line` renders the wet-snow raster context together with a DEM contour at the diagnosed WSLA. `prior_probability` and `posterior_probability` sources render spatial ensemble probability fields; observation overlays are kept in observation/reference panels.
 
 - Project plots (all post-run plots without rerunning DA):
 
@@ -565,9 +566,9 @@ Note: running the setup pipeline (see below) also generates these setup plots au
 
   The command expects an already finished project with step outputs under `<project-dir>/steps/`. It does not rerun openAMUNDSEN or data assimilation; it only regenerates plot artifacts under `results/plots/` and the fraction envelopes under `results/misc/`.
 
-- Project PDF collection (all project plot/map PNGs):
+- Project PDF collection (curated project overview and DA maps):
 
-  Use `oa-da-project-pdf` to assemble existing project PNG outputs into a PDF at `results/reports/project_plots_maps_collection.pdf`. The assembler does not rescale plots or maps: each PDF page uses the source PNG's encoded physical size from its DPI metadata, so the figure dimensions chosen by the plotting code are preserved. It does not regenerate any source plot or map; run `oa-da-plot-project-plots` and `oa-da-plot-project-maps` first when outputs are stale or missing.
+  Use `oa-da-project-pdf` to assemble a compact report summary page, the curated project overview outputs, and DA-event maps into a DIN A4 portrait PDF at `results/reports/project_plots_maps_collection.pdf`. It does not regenerate any source plot or map; run `oa-da-plot-project-plots` and `oa-da-plot-project-maps` first when outputs are stale or missing.
 
   ```powershell
   docker compose run --rm oa `
@@ -575,7 +576,7 @@ Note: running the setup pipeline (see below) also generates these setup plots au
     --project-dir /data/projects/project_2022_2023
   ```
 
-  The PDF starts with `result_overview.png`, optional `result_overview_custom.png`, `setup_overview.png`, and all `setup_weights_overview*.png` pages. DA-event content is then written as consecutive source-size pages: `results/maps/da_events/da_<n>.png` followed by `results/plots/assim/weights/DA_<n>_weights.png`. Remaining PNGs under `results/plots/**` and `results/maps/**` are appended once in path order. Missing required overview, setup map, setup weights overview, DA map, or DA weights outputs cause a fail-fast error listing all paths to regenerate.
+  The PDF starts with a generated one-page project report containing key YAML settings, DA-event counts, and computing-cost stats from project logs and `results/plots/perf/project_perf_metrics.csv` when available. It then includes `result_overview.png`, optional `result_overview_custom.png`, `setup_overview.png`, all `setup_weights_overview*.png` pages, and one DIN A4 page per generated DA-event map under `results/maps/da_events/da_<n>.png`. Standalone per-event weights plots and other remaining plot/map PNGs are not included. Missing required overview, setup map, setup weights overview, or DA map outputs cause a fail-fast error listing all paths to regenerate.
 
 ## Setup Pipeline
 

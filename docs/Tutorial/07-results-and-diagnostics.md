@@ -482,12 +482,12 @@ vars:
 Use `results/grids/da_output_grids.nc` in a GIS software of your choice and visualize raster output.
 
 Recommended map date(s): choose one date with active snow cover and one date near melt season.
-Use the same date across `open_loop`, `ens_mean`, and `increment` maps. Generated DA-event snow-depth maps use `ens_mean` as the prior mean, `analysis_mean` as the event-weighted posterior mean, and `analysis_increment` as `posterior - prior`.
+Use the same date across `open_loop`, `ens_mean`, and `increment` maps. Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-depth maps use `ens_mean` as the prior mean, `analysis_mean` as the event-weighted posterior mean, and `analysis_increment` as `posterior - prior`.
 
 For the shipped examples, project maps are split into generated DA-event maps under `results/maps/da_events/` and custom YAML maps such as `setup_overview` at the root of `results/maps/`. Use `oa-da-plot-project-maps --project-dir /data/rofental/projects/project_2022_2023 --max-workers 4` to rerender the full combined map set in one command. Omit `--max-workers` to let the Docker container auto-select a recipe-level worker count from the visible CPUs. Overview panels use setup-local GISCO GeoJSONs under `env/`; if you want to prefetch them ahead of time, run `oa-da-fetch-overview-geojson --project-dir /data/rofental/projects/project_2022_2023`.
 For `snowdepth_daily`, the map renderer uses the fixed tutorial/reference palette together with a shared linear legend scale per render run. Tick labels are shown in `cm`, cells below `1 cm` stay transparent so only meaningful snow cover is colored, and the top of the snow-depth legend is derived from the plotted maps. Increment panels use a signed diverging palette: negative increments are red, positive increments are blue. In generated DA-event maps, positive `analysis_increment` means the DA event added snow; negative means it removed snow.
 
-To collect all project plot and map PNGs into one review file after plots and maps are current, run `oa-da-project-pdf --project-dir /data/rofental/projects/project_2022_2023`. The default output is `results/reports/project_plots_maps_collection.pdf`, with each page using the source PNG figure size instead of fitting figures into a new page template.
+To collect the project summary page, overview outputs, and DA-event maps into one review file after plots and maps are current, run `oa-da-project-pdf --project-dir /data/rofental/projects/project_2022_2023`. The default output is `results/reports/project_plots_maps_collection.pdf`; standalone per-event weights plots and other remaining plot/map PNGs are not included. The first PDF page summarizes the most important project YAML settings and computing-cost stats from logs and performance metrics when available.
 
 ### data assimilation increment map
 

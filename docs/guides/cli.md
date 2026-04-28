@@ -481,18 +481,21 @@ Typical custom `maps.yml` files still use this panel catalog:
 # - svf
 # - srf
 # - landcover
-# - snow_depth               # source: open_loop | ensemble_mean | increment
-# - swe                      # source: open_loop | ensemble_mean | increment
-# - liquid_water_content     # source: open_loop | ensemble_mean | increment
-# - fsc
-# - wet_snow                  # wet snow fraction (WSF)
-# - wet_snow_line             # wet snow line altitude (WSLA)
+# - snow_depth               # source: open_loop | ensemble_mean | analysis_mean | increment | analysis_increment
+# - swe                      # source: open_loop | ensemble_mean | analysis_mean | increment | analysis_increment
+# - liquid_water_content     # source: open_loop | ensemble_mean | analysis_mean | increment | analysis_increment
+# - fsc                      # source: open_loop | ensemble_mean | open_loop_binary | prior_probability | posterior_probability
+# - wet_snow                 # source: open_loop | ensemble_mean | prior_probability | posterior_probability
+# - wet_snow_line            # source: open_loop | prior_probability | posterior_probability | posterior
+# - wet_snow_elevation_fraction # source: open_loop | prior_probability | posterior_probability
 # - legend
 # - colorbar
 # Optional panel keys:
 # - title, name, date, legend, show_colorbar, show_scalebar, show_grid, show_hillshade, hillshade_extent
 # - show_roi, show_station_marker, show_stations_name, show_stations_elev
 ```
+
+Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference panels show `analysis_increment` (`posterior - prior`); FSC and wet-snow reference panels show the satellite observation. WSLA lines are panel-local and observation WSLA is drawn only in the observation/reference panel. If an event's resampling manifest has `skipped: true`, the generated map title includes `resampling skipped`.
 
 ```bash
 oa-da-plot-project-maps \
@@ -533,9 +536,9 @@ Use this when you changed plotting code, `plots.yml`, or map-independent styling
 
 ### oa-da-project-pdf
 
-**Assemble a source-size project plots/maps PDF**
+**Assemble a DIN A4 project plots/maps PDF**
 
-Collects existing PNG outputs from `results/plots/**` and `results/maps/**` into one PDF without rescaling the source figures. Each PDF page uses the source PNG's encoded physical size from its DPI metadata, so plots and maps keep the figure dimensions chosen by the plotting code. The command does not rerun plots or maps. It fails fast with a complete missing-file list when the required overview, setup map, setup weights overview, generated DA maps, or per-step weights plots are missing.
+Collects a compact report summary page, the curated project overview outputs, and DA-event maps into one DIN A4 portrait PDF. The command does not rerun plots or maps. It fails fast with a complete missing-file list when the required result overview, setup map, setup weights overview, or generated DA maps are missing.
 
 ```bash
 oa-da-project-pdf \
@@ -546,7 +549,7 @@ oa-da-project-pdf \
 **Output:**
 - `results/reports/project_plots_maps_collection.pdf` by default
 
-The PDF starts with `result_overview.png`, optional `result_overview_custom.png`, `setup_overview.png`, and all `setup_weights_overview*.png` pages. DA-event content is then written as consecutive source-size pages: `results/maps/da_events/da_<n>.png` followed by `results/plots/assim/weights/DA_<n>_weights.png`. Remaining PNGs under `results/plots/**` and `results/maps/**` are appended once, in deterministic path order.
+The PDF starts with a generated one-page project report containing key YAML settings, DA-event counts, and computing-cost stats from project logs and `results/plots/perf/project_perf_metrics.csv` when available. It then includes `result_overview.png`, optional `result_overview_custom.png`, `setup_overview.png`, all `setup_weights_overview*.png` pages, and one DIN A4 page per generated DA-event map under `results/maps/da_events/da_<n>.png`. Standalone per-event weights plots and other remaining plot/map PNGs are not included.
 
 ### oa-da-fetch-overview-geojson
 

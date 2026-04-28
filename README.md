@@ -244,7 +244,7 @@ Wet-snow observations use categorical rasters (e.g., Sentinel-1 WSM). `oa-da-wet
 - Per-step observation preparation (`oa-da-scf`, `oa-da-wetsnow-project`) is fail-fast:
   - event date must lie inside the associated step window,
   - the summary CSV must contain a row for each configured event date of that variable.
-- Wet-snow masks/fractions are computed for all members before data assimilation using the project wet-snow threshold; `wet_snow` keeps the scalar WSF update, while `wet_snow_line` derives a scalar WSLA from the **50% wet-fraction crossing elevation** and assimilates it with a Gaussian likelihood in meters.
+- Wet-snow masks/fractions are computed for all members before data assimilation using the project wet-snow classification method. The default `liquid_water_fraction` method keeps the existing ratio threshold, while `liquid_water_amount` classifies cells by summed snowpack liquid water in mm. `wet_snow` keeps the scalar WSF update, while `wet_snow_line` derives a scalar WSLA from the **50% wet-fraction crossing elevation** and assimilates it with a Gaussian likelihood in meters.
 
 ## Per-step forcing plots
 
@@ -329,7 +329,7 @@ docker compose run --rm oa `
 
 Optional flags: `--obs-csv <path>`, `--output <csv>`, `--log-level <LEVEL>`
 
-Fraction DA remains a scalar particle-filter update. For `scf` and `wet_snow`, the model-side scalar is derived on the event-date observation-valid support; `wet_snow` is the WSF scalar. The written weights CSV keeps `value_model` as the assimilated support-aware value and also records `value_model_full_roi`, `value_model_obs_support`, `obs_support_n_valid`, and `obs_support_coverage_ratio`. `wet_snow_line` is the WSLA scalar: it reuses the same scalar PF path, but its residuals and likelihood sigmas live in meters of elevation. In v1 the assimilated WSLA is the support-aware **50% wet-fraction crossing**, while the weights CSV also stores the full-ROI companion diagnostic for envelope-style summaries. If the crossing is undefined the event becomes a no-op update with equal weights; there is no fallback to the retired highest-band WSLA or to `p95`. In the project-map posterior WSLA panel, the raster shows the continuous DA-weighted posterior WSF probability field, the main red contour is the `50%` WSLA from that same field, thinner solid light-red contours show the `5%` and `95%` posterior WSLA band, and the panel also overlays the prior WSLA coverage derived from the exact `weights_wet_snow_line_*.csv` member `value_model` scalars. The observed WSLA is overlaid as a solid purple contour for direct comparison.
+Fraction DA remains a scalar particle-filter update. For `scf` and `wet_snow`, the model-side scalar is derived on the event-date observation-valid support; `wet_snow` is the WSF scalar. The written weights CSV keeps `value_model` as the assimilated support-aware value and also records `value_model_full_roi`, `value_model_obs_support`, `obs_support_n_valid`, and `obs_support_coverage_ratio`. `wet_snow_line` is the WSLA scalar: it reuses the same scalar PF path, but its residuals and likelihood sigmas live in meters of elevation. In v1 the assimilated WSLA is the support-aware **50% wet-fraction crossing**, while the weights CSV also stores the full-ROI companion diagnostic for envelope-style summaries. If the crossing is undefined the event becomes a no-op update with equal weights; there is no fallback to the retired highest-band WSLA or to `p95`. In the project-map posterior WSLA panel, the raster shows the continuous DA-weighted posterior WSF probability field, the main red contour is the `50%` WSLA from that same posterior WSF field, the green contour is the matching `50%` WSLA from the unweighted prior WSF field, and the observed WSLA is overlaid as a solid purple contour for direct comparison.
 
 ### Resampling (posterior ensemble)
 
@@ -546,10 +546,10 @@ Note: running the setup pipeline (see below) also generates these setup plots au
   - generated DA-event maps under `results/maps/da_events/`
   - custom YAML maps at the root of `results/maps/`
 
-  Generated SCF DA-event maps now use a dedicated presentation: `open-loop snow cover (binary)`, `posterior ensemble snow-cover probability`, and `satellite FSC observation`. This probabilistic SCF panel is a map-only diagnostic; it does not replace the scalar SCF likelihood used in DA.
+  Generated snow-depth DA-event rows show `prior mean`, `posterior mean`, and `DA increment`; the increment is `posterior - prior` from the event weights, so positive values mean the DA step added snow. Generated SCF DA-event maps now use a dedicated presentation: `open-loop snow cover (binary)`, `posterior ensemble snow-cover probability`, and `satellite FSC observation`. This probabilistic SCF panel is a map-only diagnostic; it does not replace the scalar SCF likelihood used in DA. Generated `wet_snow` and `wet_snow_line` DA-event maps also add a generated-only spatial elevation-band WSF row: each ROI cell is colored by the raw wet snow fraction of its elevation band, using a fixed white-to-black `0-100%` scale for open loop, posterior, and observation columns.
 
   By default the renderer parallelizes across independent recipe PNGs inside the Docker container and clamps the effective worker count to `min(visible CPUs, selected recipes)`; use `--max-workers 1` to force sequential rendering. `oa-da-project` and merged sub-domain runs also render project maps automatically as a best-effort post-run stage. If a map fails because supporting data are missing, the pipeline logs a rerun command and continues.
-  Project maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`, `wet_snow_line`), and optional support panels (`legend`, `colorbar`). `wet_snow` renders WSF, while `wet_snow_line` renders the wet-snow raster context together with a DEM contour at the diagnosed WSLA. For `posterior`, the panel shows the continuous DA-weighted posterior WSF probability field, uses the `50%` contour of that same field as the representative posterior WSLA, and adds thinner solid light-red `5%` and `95%` contours as a posterior WSLA band.
+  Project maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`, `wet_snow_line`), and optional support panels (`legend`, `colorbar`). `wet_snow` renders WSF, while `wet_snow_line` renders the wet-snow raster context together with a DEM contour at the diagnosed WSLA. For `posterior`, the panel shows the continuous DA-weighted posterior WSF probability field and compares `50%` WSLA contours from the unweighted prior WSF field, the posterior WSF field, and the observed wet-snow map. The elevation-band WSF row is generated automatically for wet-snow DA events and is not a public `maps.yml` panel kind.
 
 - Project plots (all post-run plots without rerunning DA):
 
@@ -564,6 +564,18 @@ Note: running the setup pipeline (see below) also generates these setup plots au
   ```
 
   The command expects an already finished project with step outputs under `<project-dir>/steps/`. It does not rerun openAMUNDSEN or data assimilation; it only regenerates plot artifacts under `results/plots/` and the fraction envelopes under `results/misc/`.
+
+- Project PDF collection (all project plot/map PNGs):
+
+  Use `oa-da-project-pdf` to assemble existing project PNG outputs into a DIN A4 PDF at `results/reports/project_plots_maps_collection.pdf`. It does not regenerate any source plot or map; run `oa-da-plot-project-plots` and `oa-da-plot-project-maps` first when outputs are stale or missing.
+
+  ```powershell
+  docker compose run --rm oa `
+    oa-da-project-pdf `
+    --project-dir /data/projects/project_2022_2023
+  ```
+
+  The PDF starts with `result_overview.png`, optional `result_overview_custom.png`, `setup_overview.png`, and all `setup_weights_overview*.png` pages. It then writes one A4 landscape page per DA event with `results/maps/da_events/da_<n>.png` above `results/plots/assim/weights/DA_<n>_weights.png`, preserving each image's original aspect ratio. Remaining PNGs under `results/plots/**` and `results/maps/**` are appended once in path order. Missing required overview, setup map, setup weights overview, DA map, or DA weights outputs cause a fail-fast error listing all paths to regenerate.
 
 ## Setup Pipeline
 
@@ -588,13 +600,15 @@ Outputs
 - Weights and indices in `<step>/assim/`
 - Rejuvenated next-step prior (members + open_loop with state_pointer.json)
 - Compact data assimilation summary grids in `<project>/results/grids/da_output_grids.nc`
-  - Per variable `<var>`: `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`
-  - `increment_<var>` is defined as `ens_mean_<var> - open_loop_<var>`
+  - Per variable `<var>`: `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`, and event analysis fields `analysis_mean_<var>` / `analysis_increment_<var>` where assimilation weights are available
+  - `increment_<var>` is the open-loop departure: `ens_mean_<var> - open_loop_<var>`
+  - `analysis_increment_<var>` is the DA-event increment: `analysis_mean_<var> - ens_mean_<var>`; positive values mean the event added snow/water to the ensemble mean
   - Time axis spans the full project timeline across all steps (not only the last step)
 - Setup plots under `<setup_dir>/plots/{forcing,results}`
 - Project-level plots under `<project>/results/plots/{results,perf,points,assim/{weights,ess,scores}}`
 - Project-level misc artifacts under `<project>/results/misc`
 - Project maps under `<project>/results/maps`, with generated DA maps under `da_events/` and optional custom YAML maps at the root
+- Project report PDFs under `<project>/results/reports`
 - When model SCF is enabled, daily ROI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_roi.csv`.
 - Full-ROI daily mean SWE and snow depth are written to `<step>/ensembles/prior/<member>/results/point_swe_roi.csv` and `<step>/ensembles/prior/<member>/results/point_snow_depth_roi.csv`.
 - The combined project result overview plot (`results/plots/results/result_overview.png`) now shows SCF, wet-snow, ROI mean SWE, and ROI mean snow depth together.
@@ -768,7 +782,7 @@ Defaults:
 - Each sub-domain run lives under `<subdomain_root>/<subdomain_id>/`.
 - Project-level outputs are written under `<project>/results/`.
 - Compact data assimilation grid output is `<project>/results/grids/da_output_grids.nc`.
-  - Variables in `da_output_grids.nc`: `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`.
+  - Variables in `da_output_grids.nc`: `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`, and event analysis fields `analysis_mean_<var>` / `analysis_increment_<var>` when weights are available.
 - Sub-domain reports are written under `<project>/results/subdomain_*.csv`.
 - Point outputs and plots remain inside each sub-domain project.
 - Station selection uses a 50 km default buffer (`--station-buffer-km`).

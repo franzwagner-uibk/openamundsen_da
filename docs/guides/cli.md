@@ -385,9 +385,11 @@ oa-da-model-wet-snow \
 
 **Optional Arguments:**
 - `--members LIST` - Specific members (default: all)
-- `--threshold PERCENT` - LWC threshold (default: from config)
+- `--classification-method METHOD` - `liquid_water_fraction` or `liquid_water_amount`
+- `--threshold PERCENT` - LWC fraction threshold for `liquid_water_fraction`
+- `--liquid-water-amount-threshold-mm MM` - absolute liquid-water threshold for `liquid_water_amount`
 - `--write-fraction` - Write LWC fraction rasters
-- `--min-depth-mm MM` - Minimum snow depth (default: 10)
+- `--min-depth-mm MM` - Minimum snow depth (default: 5)
 
 **Output:**
 - Per member: `results/wet_snow/wet_snow_mask_*.tif`
@@ -504,6 +506,8 @@ oa-da-plot-project-maps \
 - generated DA-event maps under `results/maps/da_events/*.png`
 - custom YAML maps under `results/maps/*.png`
 
+Generated `wet_snow` and `wet_snow_line` DA-event maps include a generated-only spatial elevation-band WSF row below the primary wet-snow row. Each panel keeps the map footprint, but every valid cell is colored by the raw wet snow fraction of its elevation band on a fixed white-to-black `0-100%` scale for open loop, posterior, and observation columns.
+
 Static context panels (`hillshade`, `dem`, `svf`, `srf`, `landcover`) render the full raster coverage inside the map extent. Model and observation panels remain ROI-masked. When `show_hillshade: true`, `hillshade_extent: roi` limits the hillshade to the ROI mask and `hillshade_extent: full` draws it across the full panel. In the supported Docker workflow, omitted `--max-workers` uses automatic recipe-level multicore rendering with the effective worker count clamped to `min(visible CPUs, selected recipes)`; pass `--max-workers 1` to keep rendering sequential. If one or more maps fail because supporting data are missing, the pipeline logs a rerun command and continues. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
 
 Overview panels use setup-local GISCO GeoJSONs under `<setup>/env/` for country boundaries, regions, and labels. If those files are missing, the overview renderer downloads them once into that directory automatically.
@@ -526,6 +530,23 @@ oa-da-plot-project-plots \
 - refreshed fraction envelopes under `results/misc/point_*_roi_envelope.csv`
 
 Use this when you changed plotting code, `plots.yml`, or map-independent styling and want a clean plot rerender without executing `oa-da-project` again.
+
+### oa-da-project-pdf
+
+**Assemble a source-size project plots/maps PDF**
+
+Collects existing PNG outputs from `results/plots/**` and `results/maps/**` into one PDF without rescaling the source figures. Each PDF page uses the source PNG's encoded physical size from its DPI metadata, so plots and maps keep the figure dimensions chosen by the plotting code. The command does not rerun plots or maps. It fails fast with a complete missing-file list when the required overview, setup map, setup weights overview, generated DA maps, or per-step weights plots are missing.
+
+```bash
+oa-da-project-pdf \
+  --project-dir PATH \
+  [--output PATH]
+```
+
+**Output:**
+- `results/reports/project_plots_maps_collection.pdf` by default
+
+The PDF starts with `result_overview.png`, optional `result_overview_custom.png`, `setup_overview.png`, and all `setup_weights_overview*.png` pages. DA-event content is then written as consecutive source-size pages: `results/maps/da_events/da_<n>.png` followed by `results/plots/assim/weights/DA_<n>_weights.png`. Remaining PNGs under `results/plots/**` and `results/maps/**` are appended once, in deterministic path order.
 
 ### oa-da-fetch-overview-geojson
 

@@ -454,6 +454,16 @@ def project_maps_output_dir(project_dir: str | Path) -> Path:
     return project_maps_root(project_dir)
 
 
+def project_reports_root(project_dir: str | Path) -> Path:
+    """Return the canonical project-level reports directory."""
+    return project_results_root(project_dir) / "reports"
+
+
+def project_plots_maps_collection_pdf_path(project_dir: str | Path) -> Path:
+    """Return the canonical project plots/maps collection PDF path."""
+    return project_reports_root(project_dir) / "project_plots_maps_collection.pdf"
+
+
 def project_benchmark_root(project_dir: str | Path) -> Path:
     """Return the canonical project-level benchmark directory."""
     return project_results_root(project_dir) / "benchmark"

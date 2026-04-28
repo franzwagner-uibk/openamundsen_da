@@ -23,6 +23,7 @@ The most important locations are:
 - `results/plots/assim/`
 - `results/plots/results/`
 - `results/maps/`
+- `results/reports/`
 - `results/misc/`
 - `results/grids/da_output_grids.nc`
 
@@ -420,7 +421,8 @@ PY
 >
 > - open-loop baseline fields
 > - ensemble mean / spread fields
-> - increments (`ens_mean - open_loop`) for configured variables/aggregations
+> - open-loop departure fields (`increment = ens_mean - open_loop`)
+> - DA-event analysis fields (`analysis_increment = analysis_mean - ens_mean`) on event dates with weights
 
 Dimension names in the inspected NetCDF (for example `time1`, `time2`, `snow_layer`, `nbnd`) are typically inherited from the underlying model outputs. Configure **which variables/metrics** are exported in the project YAML under `data_assimilation.output.grids.variables[*]`; see [5. Running the Model]({{ site.baseurl }}{% link Tutorial/06-running-the-project.md %}) for the output-grid configuration note.
 
@@ -463,6 +465,12 @@ vars:
   ens_std_liquid_water_content
   ens_std_snowdepth_daily
   ens_std_swe_daily
+  analysis_increment_liquid_water_content
+  analysis_increment_snowdepth_daily
+  analysis_increment_swe_daily
+  analysis_mean_liquid_water_content
+  analysis_mean_snowdepth_daily
+  analysis_mean_swe_daily
   increment_liquid_water_content
   increment_snowdepth_daily
   increment_swe_daily
@@ -474,16 +482,18 @@ vars:
 Use `results/grids/da_output_grids.nc` in a GIS software of your choice and visualize raster output.
 
 Recommended map date(s): choose one date with active snow cover and one date near melt season.
-Use the same date across `open_loop`, `ens_mean`, and `increment` maps.
+Use the same date across `open_loop`, `ens_mean`, and `increment` maps. Generated DA-event snow-depth maps use `ens_mean` as the prior mean, `analysis_mean` as the event-weighted posterior mean, and `analysis_increment` as `posterior - prior`.
 
 For the shipped examples, project maps are split into generated DA-event maps under `results/maps/da_events/` and custom YAML maps such as `setup_overview` at the root of `results/maps/`. Use `oa-da-plot-project-maps --project-dir /data/rofental/projects/project_2022_2023 --max-workers 4` to rerender the full combined map set in one command. Omit `--max-workers` to let the Docker container auto-select a recipe-level worker count from the visible CPUs. Overview panels use setup-local GISCO GeoJSONs under `env/`; if you want to prefetch them ahead of time, run `oa-da-fetch-overview-geojson --project-dir /data/rofental/projects/project_2022_2023`.
-For `snowdepth_daily`, the map renderer uses the fixed tutorial/reference palette together with a shared linear legend scale per render run. Tick labels are shown in `cm`, cells below `1 cm` stay transparent so only meaningful snow cover is colored, and the top of the snow-depth legend is derived from the plotted maps. Increment panels use a signed diverging palette: negative increments are red, positive increments are blue.
+For `snowdepth_daily`, the map renderer uses the fixed tutorial/reference palette together with a shared linear legend scale per render run. Tick labels are shown in `cm`, cells below `1 cm` stay transparent so only meaningful snow cover is colored, and the top of the snow-depth legend is derived from the plotted maps. Increment panels use a signed diverging palette: negative increments are red, positive increments are blue. In generated DA-event maps, positive `analysis_increment` means the DA event added snow; negative means it removed snow.
+
+To collect all project plot and map PNGs into one review file after plots and maps are current, run `oa-da-project-pdf --project-dir /data/rofental/projects/project_2022_2023`. The default output is `results/reports/project_plots_maps_collection.pdf`.
 
 ### data assimilation increment map
 
-The tutorial also includes a reference increment map above (`increment_snowdepth_daily`, date
-**2023-06-02**). For additional diagnostics, export one or two extra increment dates from
-`da_output_grids.nc` and compare against the same-date open-loop/ensemble-mean maps.
+The tutorial also includes a reference open-loop-departure map above (`increment_snowdepth_daily`, date
+**2023-06-02**). For event-level diagnostics, use generated DA-event maps or export
+`analysis_increment_snowdepth_daily` from `da_output_grids.nc` on an assimilation date and compare it against the same-date prior/posterior mean maps.
 
 {: .references }
 > - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) (data assimilation output variable selection and metrics)

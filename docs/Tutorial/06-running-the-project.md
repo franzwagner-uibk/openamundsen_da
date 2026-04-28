@@ -164,6 +164,7 @@ After a successful run, these paths should exist:
 - `/data/rofental/projects/project_2022_2023/results/misc/point_wet_snow_roi_envelope.csv`
 - `/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc`
 - `/data/rofental/projects/project_2022_2023/results/maps/`
+- `/data/rofental/projects/project_2022_2023/results/reports/project_plots_maps_collection.pdf` after running `oa-da-project-pdf`
 
 Typical result files after a successful run:
 
@@ -206,6 +207,9 @@ results/maps/
     da_1.png
     ...
     da_10.png
+
+results/reports/
+  project_plots_maps_collection.pdf   # written by oa-da-project-pdf
 ```
 
 ![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/project_perf.png)

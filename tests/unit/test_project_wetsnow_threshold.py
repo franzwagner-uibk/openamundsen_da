@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ruamel.yaml import YAML
 
-from openamundsen_da.pipeline.project import _load_wet_snow_threshold_percent
+from openamundsen_da.pipeline.project import _load_wet_snow_classification_config, _load_wet_snow_threshold_percent
 
 
 def _write_yaml(path: Path, payload: dict) -> None:
@@ -37,7 +37,17 @@ class ProjectWetSnowThresholdTests(unittest.TestCase):
                 _load_wet_snow_threshold_percent(project_dir)
             self.assertIn("classification_threshold_percent", str(ctx.exception))
 
+    def test_amount_method_does_not_require_fraction_threshold(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
+            _write_yaml(
+                project_dir / "project_2024_2025.yml",
+                {"data_assimilation": {"wet_snow": {"classification_method": "liquid_water_amount"}}},
+            )
+            cfg = _load_wet_snow_classification_config(project_dir)
+            self.assertEqual(cfg.method, "liquid_water_amount")
+            self.assertEqual(cfg.liquid_water_amount_threshold_mm, 5.0)
+
 
 if __name__ == "__main__":
     unittest.main()
-

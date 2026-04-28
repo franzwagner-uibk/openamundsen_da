@@ -37,6 +37,7 @@ data_assimilation:
       k: 80
 
   wet_snow:
+    classification_method: liquid_water_fraction
     classification_threshold_percent: 0.5
 
   landcover_mask:

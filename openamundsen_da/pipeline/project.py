@@ -66,7 +66,12 @@ from openamundsen_da.methods.pf.assimilate_station import (
 from openamundsen_da.pipeline.cleanup import cleanup_setup_dir, is_cleanup_enabled, state_patterns_from_setup
 from openamundsen_da.methods.h_of_x.model_scf import compute_step_scf_daily_for_all_members
 from openamundsen_da.methods.roi_mean import compute_step_roi_mean_daily_for_all_members
-from openamundsen_da.methods.wet_snow.classify import classify_step_wet_snow
+from openamundsen_da.methods.wet_snow.classify import (
+    CLASSIFICATION_METHOD_AMOUNT,
+    WetSnowClassificationConfig,
+    classify_step_wet_snow,
+    load_wet_snow_classification_config,
+)
 from openamundsen_da.methods.wet_snow.area import compute_step_wet_snow_daily_for_all_members
 from openamundsen_da.methods.pf.rejuvenate import rejuvenate
 from openamundsen_da.methods.pf.resample import resample_from_weights, _read_resampling_from_project
@@ -142,35 +147,14 @@ def _find_roi(setup_dir: Path) -> Path:
     return ensure_setup_roi_vector(Path(setup_dir))
 
 
+def _load_wet_snow_classification_config(project_dir: Path) -> WetSnowClassificationConfig:
+    """Read model wet-snow classification config from project YAML."""
+    return load_wet_snow_classification_config(project_dir)
+
+
 def _load_wet_snow_threshold_percent(project_dir: Path) -> float:
-    """Read wet-snow classification threshold (percent) from project YAML."""
-    project_yaml = find_project_yaml(project_dir)
-    cfg = _read_yaml_file(project_yaml) or {}
-    if not isinstance(cfg, dict):
-        raise ValueError(f"Expected mapping at project YAML root: {project_yaml}")
-    da_cfg = cfg.get("data_assimilation")
-    if not isinstance(da_cfg, dict):
-        raise ValueError(f"Missing required configuration key: {project_yaml} -> data_assimilation")
-    wet_cfg = da_cfg.get("wet_snow")
-    if not isinstance(wet_cfg, dict):
-        raise ValueError(f"Missing required configuration key: {project_yaml} -> data_assimilation.wet_snow")
-    if "classification_threshold_percent" not in wet_cfg:
-        raise ValueError(
-            f"Missing required configuration key: {project_yaml} -> "
-            "data_assimilation.wet_snow.classification_threshold_percent"
-        )
-    raw_value = wet_cfg["classification_threshold_percent"]
-    try:
-        value = float(raw_value)
-    except Exception as exc:
-        raise ValueError(
-            f"Invalid data_assimilation.wet_snow.classification_threshold_percent in {project_yaml}: {raw_value!r}"
-        ) from exc
-    if value < 0:
-        raise ValueError(
-            f"data_assimilation.wet_snow.classification_threshold_percent must be >= 0 in {project_yaml}"
-        )
-    return value
+    """Read wet-snow ratio classification threshold (percent) from project YAML."""
+    return _load_wet_snow_classification_config(project_dir).threshold_percent
 
 
 def _compute_prior_step_diagnostics(
@@ -182,7 +166,7 @@ def _compute_prior_step_diagnostics(
     workers: int,
     scf_enabled: bool,
     wet_snow_enabled: bool,
-    wet_snow_threshold: float,
+    wet_snow_classification: WetSnowClassificationConfig,
 ) -> None:
     """Compute setup-level prior diagnostics that depend on propagated member outputs."""
     step_name = Path(step_dir).name
@@ -218,7 +202,9 @@ def _compute_prior_step_diagnostics(
             classify_step_wet_snow(
                 step_dir=step_dir,
                 members=None,
-                threshold_percent=wet_snow_threshold,
+                threshold_percent=wet_snow_classification.threshold_percent,
+                classification_method=wet_snow_classification.method,
+                liquid_water_amount_threshold_mm=wet_snow_classification.liquid_water_amount_threshold_mm,
                 output_subdir="wet_snow",
                 mask_prefix="wet_snow_mask",
                 fraction_prefix="lwc_fraction",
@@ -483,8 +469,19 @@ def run_project(cfg: OrchestratorConfig) -> None:
         logger.info("Land-cover mask disabled; no land-cover exclusions applied")
 
     # Project/setup metadata for DA and performance monitoring
-    wet_snow_threshold = _load_wet_snow_threshold_percent(cfg.project_dir)
-    logger.info("Wet-snow classification threshold set to {:.3f} % (project YAML)", wet_snow_threshold)
+    wet_snow_classification = _load_wet_snow_classification_config(cfg.project_dir)
+    if wet_snow_classification.method == CLASSIFICATION_METHOD_AMOUNT:
+        logger.info(
+            "Wet-snow classification method={} threshold={:.3f} mm (project YAML)",
+            wet_snow_classification.method,
+            wet_snow_classification.liquid_water_amount_threshold_mm,
+        )
+    else:
+        logger.info(
+            "Wet-snow classification method={} threshold={:.3f} % (project YAML)",
+            wet_snow_classification.method,
+            wet_snow_classification.threshold_percent,
+        )
 
     proj_resolution = None
     proj_timestep = None
@@ -617,7 +614,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
             workers=int(workers),
             scf_enabled=scf_enabled,
             wet_snow_enabled=wet_snow_enabled,
-            wet_snow_threshold=wet_snow_threshold,
+            wet_snow_classification=wet_snow_classification,
         )
 
         # If not the last step: Assimilation -> Resample -> Rejuvenate

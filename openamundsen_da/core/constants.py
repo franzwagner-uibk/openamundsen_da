@@ -78,6 +78,7 @@ LIK_SIGMA_FLOOR = "sigma_floor"
 LIK_SIGMA_CLOUD_SCALE = "sigma_cloud_scale"
 LIK_MIN_SIGMA = "min_sigma"
 LIK_MIN_SUPPORT_COVERAGE_RATIO = "min_support_coverage_ratio"
+LIK_MIN_MODEL_FINITE_FRACTION = "min_model_finite_fraction"
 LIK_MIN_WET_PIXELS_TOTAL = "min_wet_pixels_total"
 LIK_MIN_WET_BANDS = "min_wet_bands"
 

@@ -392,6 +392,163 @@ def test_assimilate_wet_snow_line_writes_uniform_weights_when_obs_gate_triggers(
         assert df["wet_information_gate_reason"].iloc[0] == "no_crossing_fraction"
 
 
+def _run_wet_snow_line_assimilation_with_model_values(
+    *,
+    model_values: list[float | None],
+    min_model_finite_fraction: float | None = None,
+    ess_threshold_ratio: float | None = None,
+) -> pd.DataFrame:
+    with tempfile.TemporaryDirectory() as tmp:
+        setup_dir = Path(tmp) / "setup"
+        project_dir = setup_dir / "projects" / "project_2024_2025"
+        step_dir = project_dir / "steps" / "step_00_init"
+        obs_dir = step_dir / "obs"
+        obs_dir.mkdir(parents=True, exist_ok=True)
+        for idx in range(1, len(model_values) + 1):
+            (step_dir / "ensembles" / "prior" / f"member_{idx:03d}" / "results").mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+        wet_snow_line_likelihood: dict[str, object] = {
+            "obs_sigma": 150.0,
+            "use_binomial": False,
+            "sigma_floor": 25.0,
+            "min_sigma": 25.0,
+            "min_support_coverage_ratio": 0.10,
+            "min_wet_pixels_total": 50,
+            "min_wet_bands": 1,
+        }
+        if min_model_finite_fraction is not None:
+            wet_snow_line_likelihood["min_model_finite_fraction"] = min_model_finite_fraction
+        da_cfg: dict[str, object] = {
+            "likelihood": {
+                "wet_snow_line": wet_snow_line_likelihood,
+            }
+        }
+        if ess_threshold_ratio is not None:
+            da_cfg["resampling"] = {"ess_threshold_ratio": ess_threshold_ratio}
+        _write_yaml(
+            project_dir / "project_2024_2025.yml",
+            {
+                "obs": {"wetsnow": {"product_tag": "SWS"}},
+                "data_assimilation": da_cfg,
+            },
+        )
+
+        pd.DataFrame(
+            [
+                {
+                    "date": "2024-05-11",
+                    "wet_snow_line": 2400.0,
+                    "wet_snow_line_n_wet": 100,
+                    "wet_snow_line_wet_bands": 3,
+                    "wet_snow_line_gate_reason": "",
+                }
+            ]
+        ).to_csv(obs_dir / "obs_wet_snow_line_SWS_20240511.csv", index=False)
+
+        side_effect = [
+            {
+                "wet_snow_line": value,
+                "wet_snow_line_full_roi": value,
+                "n_valid": 4,
+                "n_valid_full_roi": 4,
+                "wet_bands": 3 if value is not None else 0,
+                "wet_snow_line_gate_reason": "" if value is not None else "no_crossing_fraction",
+            }
+            for value in model_values
+        ]
+        with (
+            patch(
+                "openamundsen_da.methods.pf.assimilate_fraction.load_observation_support_mask",
+                return_value=ObservationSupportMask(
+                    mask=np.ones((2, 2), dtype=bool),
+                    eligible_mask=np.ones((2, 2), dtype=bool),
+                    n_valid=4,
+                    n_eligible=4,
+                    coverage_ratio=1.0,
+                ),
+            ),
+            patch(
+                "openamundsen_da.methods.pf.assimilate_fraction.compute_model_wet_snow_line",
+                side_effect=side_effect,
+            ),
+            patch(
+                "openamundsen_da.methods.pf.assimilate_fraction.resolve_landcover_mask",
+                return_value=None,
+            ),
+        ):
+            return assimilate_wet_snow_line_for_date(
+                setup_dir=setup_dir,
+                step_dir=step_dir,
+                ensemble="prior",
+                date=datetime(2024, 5, 11),
+                aoi=Path(tmp) / "roi.gpkg",
+                landcover_cfg=None,
+                obs_csv=None,
+                product="SWS",
+            )
+
+
+def test_assimilate_wet_snow_line_default_requires_all_members_finite() -> None:
+    df = _run_wet_snow_line_assimilation_with_model_values(model_values=[2400.0, None])
+
+    assert list(df["weight"]) == [0.5, 0.5]
+    assert df["sigma"].isna().all()
+    assert df["model_gate_triggered"].all()
+    assert df["model_gate_reason"].iloc[0].startswith("model_finite_fraction<1.0000")
+    assert float(df["model_finite_fraction"].iloc[0]) == 0.5
+    assert float(df["model_finite_fraction_threshold"].iloc[0]) == 1.0
+
+
+def test_assimilate_wet_snow_line_allows_small_missing_member_fraction_when_configured() -> None:
+    model_values: list[float | None] = [2400.0] * 22 + [None]
+
+    df = _run_wet_snow_line_assimilation_with_model_values(
+        model_values=model_values,
+        min_model_finite_fraction=0.90,
+        ess_threshold_ratio=0.99,
+    )
+
+    assert not df["model_gate_triggered"].any()
+    assert not df["sigma"].isna().any()
+    assert float(df["model_finite_fraction"].iloc[0]) == 22 / 23
+    assert float(df["model_finite_fraction_threshold"].iloc[0]) == 0.90
+    missing = df[df["value_model"].isna()].iloc[0]
+    assert float(missing["log_weight"]) == -1.0e12
+    assert float(missing["weight"]) == 0.0
+    assert np.isclose(float(df["weight"].sum()), 1.0)
+    assert np.isclose(float(df["ess"].iloc[0]), 22.0)
+    assert bool(df["ess_below_threshold"].iloc[0])
+
+
+def test_assimilate_wet_snow_line_noops_when_model_finite_fraction_below_threshold() -> None:
+    df = _run_wet_snow_line_assimilation_with_model_values(
+        model_values=[2400.0, 2400.0, None, None],
+        min_model_finite_fraction=0.90,
+    )
+
+    assert list(df["weight"]) == [0.25, 0.25, 0.25, 0.25]
+    assert df["sigma"].isna().all()
+    assert df["model_gate_triggered"].all()
+    assert df["model_gate_reason"].iloc[0].startswith("model_finite_fraction<0.9000")
+    assert float(df["model_finite_member_count"].iloc[0]) == 2
+    assert float(df["model_member_count"].iloc[0]) == 4
+
+
+def test_assimilate_wet_snow_line_noops_when_no_model_members_have_finite_wsla() -> None:
+    df = _run_wet_snow_line_assimilation_with_model_values(
+        model_values=[None, None],
+        min_model_finite_fraction=0.0,
+    )
+
+    assert list(df["weight"]) == [0.5, 0.5]
+    assert df["sigma"].isna().all()
+    assert df["model_gate_triggered"].all()
+    assert df["model_gate_reason"].iloc[0].startswith("model_no_finite_wet_snow_line")
+
+
 def test_compute_member_wet_snow_line_daily_uses_full_roi_outputs() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         setup_dir = Path(tmp) / "setup"

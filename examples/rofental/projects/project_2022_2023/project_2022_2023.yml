@@ -81,6 +81,7 @@ data_assimilation:
     min_station_uncertainty_pct: 10
     single_station_factor: 2.0
   wet_snow:
+    classification_method: liquid_water_fraction
     classification_threshold_percent: 0.4
   wet_snow_line:
     elevation_band_size_m: 100.0
@@ -110,6 +111,7 @@ data_assimilation:
       sigma_floor: 25.0
       min_sigma: 25.0
       min_support_coverage_ratio: 0.1
+      min_model_finite_fraction: 1.0
       min_wet_pixels_total: 50
       min_wet_bands: 1
   uncertainty:

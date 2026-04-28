@@ -31,9 +31,13 @@ from openamundsen_da.core.constants import (
     LIK_SIGMA_CLOUD_SCALE,
     LIK_MIN_SIGMA,
     LIK_MIN_SUPPORT_COVERAGE_RATIO,
+    LIK_MIN_MODEL_FINITE_FRACTION,
     LIK_MIN_WET_BANDS,
     LIK_MIN_WET_PIXELS_TOTAL,
     OBS_DIR_NAME,
+    RESAMPLING_BLOCK,
+    RESAMPLING_ESS_THRESHOLD,
+    RESAMPLING_ESS_THRESHOLD_RATIO,
 )
 from openamundsen_da.io.paths import (
     list_member_dirs,
@@ -67,6 +71,7 @@ class LikelihoodParams:
     sigma_cloud_scale: float = 0.10
     min_sigma: float = 0.03
     min_support_coverage_ratio: float = 0.0
+    min_model_finite_fraction: float = 1.0
     min_wet_pixels_total: int = 0
     min_wet_bands: int = 0
 
@@ -211,6 +216,15 @@ def _read_likelihood_from_project(project_dir: Path, observable: str) -> Likelih
             raise ValueError(
                 f"{lk_path}.{LIK_MIN_SUPPORT_COVERAGE_RATIO} must be within [0, 1]"
             )
+    if LIK_MIN_MODEL_FINITE_FRACTION in lk:
+        params.min_model_finite_fraction = _coerce_float(
+            lk[LIK_MIN_MODEL_FINITE_FRACTION],
+            path=f"{lk_path}.{LIK_MIN_MODEL_FINITE_FRACTION}",
+        )
+        if not (0.0 <= params.min_model_finite_fraction <= 1.0):
+            raise ValueError(
+                f"{lk_path}.{LIK_MIN_MODEL_FINITE_FRACTION} must be within [0, 1]"
+            )
     if LIK_MIN_WET_PIXELS_TOTAL in lk:
         params.min_wet_pixels_total = _coerce_int(
             lk[LIK_MIN_WET_PIXELS_TOTAL],
@@ -226,6 +240,34 @@ def _read_likelihood_from_project(project_dir: Path, observable: str) -> Likelih
         if params.min_wet_bands < 0:
             raise ValueError(f"{lk_path}.{LIK_MIN_WET_BANDS} must be >= 0")
     return params
+
+
+def _read_resampling_ess_threshold_ratio(project_dir: Path) -> float | None:
+    """Return configured resampling ESS threshold ratio for diagnostics."""
+    cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
+    da_cfg_raw = cfg.get("data_assimilation")
+    da_cfg = {} if da_cfg_raw is None else require_mapping(da_cfg_raw, path="project.data_assimilation")
+    resampling_raw = da_cfg.get(RESAMPLING_BLOCK)
+    resampling_path = f"project.data_assimilation.{RESAMPLING_BLOCK}"
+    if resampling_raw is None:
+        resampling_raw = cfg.get(RESAMPLING_BLOCK)
+        resampling_path = f"project.{RESAMPLING_BLOCK}"
+    if resampling_raw is None:
+        return None
+    resampling = require_mapping(resampling_raw, path=resampling_path)
+    ratio_raw = resampling.get(RESAMPLING_ESS_THRESHOLD_RATIO)
+    if ratio_raw is not None:
+        ratio = _coerce_float(ratio_raw, path=f"{resampling_path}.{RESAMPLING_ESS_THRESHOLD_RATIO}")
+        if not (0.0 <= ratio <= 1.0):
+            raise ValueError(f"{resampling_path}.{RESAMPLING_ESS_THRESHOLD_RATIO} must be within [0, 1]")
+        return ratio
+    threshold_raw = resampling.get(RESAMPLING_ESS_THRESHOLD)
+    if threshold_raw is None:
+        return None
+    threshold = _coerce_float(threshold_raw, path=f"{resampling_path}.{RESAMPLING_ESS_THRESHOLD}")
+    if 0.0 < threshold <= 1.0:
+        return threshold
+    return None
 
 
 def _read_obs(csv_path: Path, value_col: str, *, uncertainty_metric: str | None = None) -> dict:
@@ -687,6 +729,7 @@ def assimilate_wet_snow_line_for_date(
                 "obs_support_n_valid": model["n_valid"],
                 "obs_support_coverage_ratio": support_info.coverage_ratio,
                 "min_support_coverage_ratio": float(lk.min_support_coverage_ratio),
+                "min_model_finite_fraction": float(lk.min_model_finite_fraction),
                 "support_gate_triggered": bool(support_gate_triggered),
                 "support_gate_reason": support_gate_reason,
                 "wet_information_gate_triggered": bool(wet_information_gate_triggered),
@@ -697,8 +740,17 @@ def assimilate_wet_snow_line_for_date(
         )
 
     df = pd.DataFrame(rows)
-    model_missing_mask = ~pd.to_numeric(df["value_model"], errors="coerce").notna()
-    model_gate_triggered = bool(model_missing_mask.any())
+    model_finite_mask = pd.to_numeric(df["value_model"], errors="coerce").notna()
+    model_missing_mask = ~model_finite_mask
+    model_member_count = int(len(df))
+    model_finite_member_count = int(model_finite_mask.sum())
+    model_finite_fraction = (
+        float(model_finite_member_count) / float(model_member_count) if model_member_count else 0.0
+    )
+    model_gate_triggered = bool(
+        model_finite_member_count == 0
+        or model_finite_fraction < float(lk.min_model_finite_fraction)
+    )
     model_gate_reasons = sorted(
         {
             str(reason).strip()
@@ -706,9 +758,20 @@ def assimilate_wet_snow_line_for_date(
             if str(reason).strip()
         }
     )
-    model_gate_reason = ";".join(model_gate_reasons) if model_gate_reasons else ("model_no_crossing_fraction" if model_gate_triggered else "")
+    if model_gate_triggered:
+        if model_finite_member_count == 0:
+            finite_support_reason = "model_no_finite_wet_snow_line"
+        else:
+            finite_support_reason = f"model_finite_fraction<{lk.min_model_finite_fraction:.4f}"
+        model_gate_reason = ";".join([finite_support_reason, *model_gate_reasons])
+    else:
+        model_gate_reason = ""
     df["model_gate_triggered"] = model_gate_triggered
     df["model_gate_reason"] = model_gate_reason
+    df["model_finite_member_count"] = model_finite_member_count
+    df["model_member_count"] = model_member_count
+    df["model_finite_fraction"] = model_finite_fraction
+    df["model_finite_fraction_threshold"] = float(lk.min_model_finite_fraction)
     df["sigma"] = sigma
     gate_triggered = support_gate_triggered or wet_information_gate_triggered or model_gate_triggered
     if gate_triggered:
@@ -725,10 +788,29 @@ def assimilate_wet_snow_line_for_date(
     df["wet_snow_line_model"] = df["value_model"]
     df["wet_snow_line_obs"] = df["value_obs"]
     ess = effective_sample_size(w)
+    df["ess"] = ess
+    ess_threshold_ratio = _read_resampling_ess_threshold_ratio(project_dir)
+    df["ess_threshold_ratio"] = np.nan if ess_threshold_ratio is None else float(ess_threshold_ratio)
+    df["ess_below_threshold"] = False
+    if ess_threshold_ratio is not None:
+        ess_threshold = float(ess_threshold_ratio) * float(len(df))
+        ess_below_threshold = bool(ess < ess_threshold)
+        df["ess_below_threshold"] = ess_below_threshold
+        if ess_below_threshold:
+            logger.warning(
+                "wet_snow_line Assimilation | date={} ESS={:.1f} below configured resampling threshold {:.1f} "
+                "(ratio={:.3f}); resampling stage handles resampling",
+                date.strftime("%Y-%m-%d"),
+                ess,
+                ess_threshold,
+                ess_threshold_ratio,
+            )
     logger.info(
-        "wet_snow_line Assimilation | date={} members={} sigma={} support={:.3f} ESS={:.1f} gate={}",
+        "wet_snow_line Assimilation | date={} members={} finite={}/{} sigma={} support={:.3f} ESS={:.1f} gate={}",
         date.strftime("%Y-%m-%d"),
         len(rows),
+        model_finite_member_count,
+        model_member_count,
         "nan" if gate_triggered else f"{sigma:.1f}",
         support_info.coverage_ratio,
         ess,

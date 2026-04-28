@@ -88,6 +88,49 @@ class AssimilateUncertaintyTests(unittest.TestCase):
 
             self.assertAlmostEqual(params.min_support_coverage_ratio, 0.35, places=6)
 
+    def test_likelihood_config_reads_min_model_finite_fraction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
+            _write_project_yaml(
+                project_dir,
+                {
+                    "data_assimilation": {
+                        "likelihood": {
+                            "wet_snow_line": {
+                                "min_model_finite_fraction": 0.9,
+                            }
+                        }
+                    }
+                },
+            )
+
+            params = _read_likelihood_from_project(project_dir, "wet_snow_line")
+
+            self.assertAlmostEqual(params.min_model_finite_fraction, 0.9, places=6)
+
+    def test_likelihood_config_rejects_invalid_min_model_finite_fraction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
+            _write_project_yaml(
+                project_dir,
+                {
+                    "data_assimilation": {
+                        "likelihood": {
+                            "wet_snow_line": {
+                                "min_model_finite_fraction": 1.2,
+                            }
+                        }
+                    }
+                },
+            )
+
+            with self.assertRaises(ValueError) as ctx:
+                _read_likelihood_from_project(project_dir, "wet_snow_line")
+            self.assertIn(
+                "project.data_assimilation.likelihood.wet_snow_line.min_model_finite_fraction",
+                str(ctx.exception),
+            )
+
     def test_likelihood_config_rejects_invalid_min_support_coverage_ratio(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"

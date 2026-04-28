@@ -567,7 +567,7 @@ Note: running the setup pipeline (see below) also generates these setup plots au
 
 - Project PDF collection (all project plot/map PNGs):
 
-  Use `oa-da-project-pdf` to assemble existing project PNG outputs into a DIN A4 PDF at `results/reports/project_plots_maps_collection.pdf`. It does not regenerate any source plot or map; run `oa-da-plot-project-plots` and `oa-da-plot-project-maps` first when outputs are stale or missing.
+  Use `oa-da-project-pdf` to assemble existing project PNG outputs into a PDF at `results/reports/project_plots_maps_collection.pdf`. The assembler does not rescale plots or maps: each PDF page uses the source PNG's encoded physical size from its DPI metadata, so the figure dimensions chosen by the plotting code are preserved. It does not regenerate any source plot or map; run `oa-da-plot-project-plots` and `oa-da-plot-project-maps` first when outputs are stale or missing.
 
   ```powershell
   docker compose run --rm oa `
@@ -575,7 +575,7 @@ Note: running the setup pipeline (see below) also generates these setup plots au
     --project-dir /data/projects/project_2022_2023
   ```
 
-  The PDF starts with `result_overview.png`, optional `result_overview_custom.png`, `setup_overview.png`, and all `setup_weights_overview*.png` pages. It then writes one A4 landscape page per DA event with `results/maps/da_events/da_<n>.png` above `results/plots/assim/weights/DA_<n>_weights.png`, preserving each image's original aspect ratio. Remaining PNGs under `results/plots/**` and `results/maps/**` are appended once in path order. Missing required overview, setup map, setup weights overview, DA map, or DA weights outputs cause a fail-fast error listing all paths to regenerate.
+  The PDF starts with `result_overview.png`, optional `result_overview_custom.png`, `setup_overview.png`, and all `setup_weights_overview*.png` pages. DA-event content is then written as consecutive source-size pages: `results/maps/da_events/da_<n>.png` followed by `results/plots/assim/weights/DA_<n>_weights.png`. Remaining PNGs under `results/plots/**` and `results/maps/**` are appended once in path order. Missing required overview, setup map, setup weights overview, DA map, or DA weights outputs cause a fail-fast error listing all paths to regenerate.
 
 ## Setup Pipeline
 

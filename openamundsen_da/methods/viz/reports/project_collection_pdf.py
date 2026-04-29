@@ -4,7 +4,6 @@ import argparse
 import re
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from textwrap import wrap
 from typing import Any, Iterable
@@ -208,12 +207,6 @@ def _format_float(value: float | None, *, unit: str = "", precision: int = 1) ->
         return _NA
     suffix = unit if unit == "%" else f" {unit}" if unit else ""
     return f"{value:.{precision}f}{suffix}"
-
-
-def _obs_line(label: str, cfg: dict[str, Any], *, include_product: bool = True) -> str:
-    keys = ("product_tag", "dir", "summary_csv") if include_product else ("dir", "summary_csv")
-    labels = {"product_tag": "product", "summary_csv": "summary"}
-    return f"{label}: {_format_mapping_values(cfg, keys, labels=labels)}"
 
 
 def _wet_snow_classification_summary(wet_snow_cfg: dict[str, Any]) -> str:
@@ -856,10 +849,6 @@ def _wrapped_line_sources(
                 return rendered
             rendered.append((piece, line))
     return rendered
-
-
-def _wrapped_lines(lines: Iterable[str], *, width: int, max_lines: int | None) -> list[str]:
-    return [line for line, _source in _wrapped_line_sources(lines, width=width, max_lines=max_lines)]
 
 
 def _summary_line_segments(text: str, *, source: str) -> tuple[tuple[str, bool], ...]:

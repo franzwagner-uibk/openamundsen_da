@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
 
 from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
 from openamundsen_da.util.station_da import (
@@ -13,16 +12,8 @@ from openamundsen_da.util.station_da import (
 )
 from openamundsen_da.util.da_events import AssimilationEvent
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import find_project_yaml, find_setup_yaml, list_member_dirs
+from openamundsen_da.io.paths import find_project_yaml, find_setup_yaml
 from openamundsen_da.observer.summary_paths import resolve_fraction_summary_path
-
-
-def _has_output_pattern(base_dirs: Iterable[Path], patterns: list[str]) -> bool:
-    for root in base_dirs:
-        for patt in patterns:
-            if list(root.glob(patt)):
-                return True
-    return False
 
 
 def validate_assimilation_requirements(

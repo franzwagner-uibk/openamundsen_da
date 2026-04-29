@@ -268,19 +268,6 @@ def _parse_legend_items(value: object, *, context: str) -> tuple[LegendItemSpec,
     return tuple(items)
 
 
-def _parse_date_selector(value: object, *, context: str) -> DateSelector:
-    mapping = _require_mapping(value, context=context)
-    return DateSelector(
-        explicit=_coerce_str_list(mapping.get("explicit"), context=f"{context}.explicit"),
-        assimilation_variables=_coerce_str_list(
-            mapping.get("assimilation_variables"),
-            context=f"{context}.assimilation_variables",
-        ),
-        include_first=bool(_coerce_bool(mapping.get("include_first"), default=False)),
-        include_last=bool(_coerce_bool(mapping.get("include_last"), default=False)),
-    )
-
-
 def _parse_defaults(value: object, *, context: str) -> MapDefaults:
     mapping = _require_mapping(value, context=context)
     if _REMOVED_LAYOUT_KEYS & set(mapping):

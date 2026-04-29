@@ -31,7 +31,6 @@ from openamundsen_da.core.constants import (
     LOGURU_FORMAT,
     DA_BLOCK,
     RESTART_BLOCK,
-    RESTART_DUMP_STATE,
     RESTART_STATE_PATTERN,
     STATE_DEFAULT_NAME,
     STATE_POINTER_JSON,
@@ -86,8 +85,6 @@ def _patch_rasterio_transform() -> None:
     errors for simple, common affine cases used by OA.
     """
     import numpy as np
-    import rasterio.transform as rt
-    from rasterio.transform import guard_transform
 
     if getattr(rt.xy, "__oa_da_patched__", False):
         return

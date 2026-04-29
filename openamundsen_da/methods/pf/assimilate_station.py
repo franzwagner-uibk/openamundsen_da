@@ -16,8 +16,6 @@ from openamundsen_da.util.station_da import (
     load_station_assimilation_config,
     read_station_metadata,
     resolve_station_sigma_base,
-    resolve_station_sigma_abs_floor,
-    resolve_station_uncertainty_pct,
     station_observation_csvs,
     station_variable_spec,
 )
@@ -117,23 +115,6 @@ def _candidate_station_ids(obs_dir: Path, members: list[Path]) -> list[str]:
             f"No overlapping station IDs between observation CSVs in {obs_dir} and model point outputs"
         )
     return station_ids
-
-
-def _resolve_station_uncertainty_pct(
-    station_id: str,
-    metadata_df: pd.DataFrame,
-    config: StationAssimilationConfig,
-) -> tuple[float, str]:
-    return resolve_station_uncertainty_pct(station_id, metadata_df, config)
-
-
-def _resolve_station_sigma_abs_floor(
-    station_id: str,
-    metadata_df: pd.DataFrame,
-    metadata_path: Path,
-    variable: str,
-) -> float:
-    return resolve_station_sigma_abs_floor(station_id, metadata_df, metadata_path, variable)
 
 
 def _build_active_stations(

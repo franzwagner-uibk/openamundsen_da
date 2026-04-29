@@ -12,7 +12,6 @@ from openamundsen_da.io.paths import (
     list_step_dirs,
     project_result_overview_output_path,
 )
-from openamundsen_da.observer.summary_paths import default_fraction_obs_path
 from openamundsen_da.util.ts import concat_series, parse_time_column
 
 

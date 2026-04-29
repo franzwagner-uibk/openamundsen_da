@@ -9,7 +9,6 @@ Description:
 from __future__ import annotations
 
 import argparse
-import concurrent.futures as cf
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -259,7 +258,6 @@ def _collect_lwc_files(results_dir: Path, preferred_format: str | None = None) -
                         continue
                     time_dim = time_dims[0]
                     times = pd.to_datetime(ds[time_dim].values)
-                    bounds = ds.get(f"{time_dim}_bounds")
                     n_layers = da.sizes.get("snow_layer", 0)
                     url = f"NETCDF:{nc_path}:liquid_water_content"
                     with rasterio.open(url) as src:
@@ -382,7 +380,6 @@ def _compute_fraction(
 
     # Within the model domain, we distinguish shallow/no-snow from deeper snow.
     depth_valid = ~depth_invalid
-    shallow = depth_valid & (depth <= min_depth_m)
     deep = depth_valid & (depth > min_depth_m)
 
     # For theta computation we only use "deep" pixels. Shallow/no-snow pixels

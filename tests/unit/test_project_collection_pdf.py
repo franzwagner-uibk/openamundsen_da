@@ -16,7 +16,7 @@ from openamundsen_da.methods.viz.reports.project_collection_pdf import (
     _save_pdf_page,
     _summary_line_segments,
     _wet_snow_classification_summary,
-    _wrapped_lines,
+    _wrapped_line_sources,
     build_project_collection_pdf,
     cli_main,
     collect_project_pdf_items,
@@ -168,7 +168,7 @@ def test_project_pdf_sections_follow_temporal_report_order(tmp_path: Path) -> No
 def test_summary_wrapped_lines_can_render_without_truncation() -> None:
     lines = ["Liquid water content: method=pore_volume_fraction, max=0.03"]
 
-    assert _wrapped_lines(lines, width=24, max_lines=None) == [
+    assert [line for line, _source in _wrapped_line_sources(lines, width=24, max_lines=None)] == [
         "Liquid water content:",
         "method=pore_volume_fraction,",
         "max=0.03",

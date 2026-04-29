@@ -21,7 +21,6 @@ from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import (
     abspath_relative_to,
     find_project_yaml,
-    find_setup_yaml,
     infer_setup_dir_from_project,
     project_da_output_grids_path,
 )

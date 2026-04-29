@@ -23,9 +23,6 @@ from openamundsen_da.methods.viz.maps.annotations import (
     panel_below_item_units as _panel_below_item_units,
     panel_below_items_extra as _panel_below_items_extra,
     panel_below_items_layout as _panel_below_items_layout,
-    panel_date as _panel_date,
-    panel_date_text as _panel_date_text,
-    panel_semantic_title as _panel_semantic_title,
     panel_title as _panel_title,
     scale_bar_length_m as _scale_bar_length_m,
 )

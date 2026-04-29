@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -56,10 +56,8 @@ from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.methods.viz.plots.theme import (
     BAND_ALPHA,
-    COLOR_MEMBER,
     COLOR_MEAN,
     COLOR_OPEN_LOOP,
-    LEGEND_NCOL,
     LEGEND_NCOL_SETUP,
     LW_MEMBER,
     LW_MEAN,
@@ -67,8 +65,6 @@ from openamundsen_da.methods.viz.plots.theme import (
     COLOR_DA_OBS,
     SIZE_DA_OBS,
     LW_DA_OBS,
-    COLOR_OBS_SCF,
-    SIZE_OBS_SCF,
     GRID_LS,
     GRID_LW,
     GRID_ALPHA,
@@ -76,9 +72,7 @@ from openamundsen_da.methods.viz.plots.theme import (
     FS_SUBTITLE,
     COLOR_SUBTITLE,
     FS_ASSIM_LABEL,
-    ASSIM_LABEL_ROT,
     FIGSIZE_FORCING,
-    FIGSIZE_RESULTS,
     da_variable_fill_color,
     da_variable_line_color,
 )
@@ -196,31 +190,6 @@ def _build_member_label_map(steps: Sequence[StepInfo]) -> Dict[str, str]:
     """
     return {}
 
-
-
-def _auto_end_from_swe_zero(member_series: List[pd.Series]) -> Optional[datetime]:
-    """Return autostop = last date where any member SWE>0 + 30 days.
-
-    If no member data or all NaN, returns None.
-    """
-    if not member_series:
-        return None
-    # Build a union index
-    all_idx = pd.DatetimeIndex(sorted({ts for s in member_series for ts in s.index}))
-    if all_idx.empty:
-        return None
-    any_positive = pd.Series(False, index=all_idx)
-    for s in member_series:
-        # Align to union, NaNs treated as not positive
-        ss = s.reindex(all_idx).fillna(0.0)
-        any_positive = any_positive | (ss > 0)
-    if not any_positive.any():
-        # never positive -> return None so caller can decide
-        return None
-    last_pos_idx = any_positive[any_positive].index.max()
-    return (last_pos_idx + timedelta(days=30)).to_pydatetime()
-
-
 def _draw_assim(ax, dates: Sequence[datetime]) -> None:
     """Draw assimilation vlines only; figure-level legend is composed later."""
     draw_assimilation_vlines(ax, dates)
@@ -229,11 +198,6 @@ def _draw_assim(ax, dates: Sequence[datetime]) -> None:
 def _draw_assim_labels(ax, dates: Sequence[datetime]) -> None:
     """Draw per-assimilation labels centered on each vline above the axes."""
     draw_assim_labels(ax, dates, labels=None, max_labels=12, y_offset_pts=3.0, fontsize=FS_ASSIM_LABEL, color="black")
-
-
-def _center_daily_dates(dates: Sequence[datetime]) -> list[datetime]:
-    """Shift day-based assimilation markers to midday for daily plots."""
-    return [d + timedelta(hours=12) for d in dates]
 
 
 def _standalone_assimilation_dates(steps: Sequence[StepInfo], configured_events: Sequence[datetime]) -> list[datetime]:
@@ -372,18 +336,6 @@ def _apply_result_axis_ticks(ax, var_col: str) -> None:
     ax.set_ylim(0.0, upper)
     ax.yaxis.set_major_locator(MultipleLocator(step))
     ax.yaxis.set_minor_locator(MultipleLocator(step / 2.0))
-
-
-def _format_assim_summary(dates: Sequence[datetime]) -> str:
-    """Return multi-line summary DAi: YYYY-MM-DD for assimilation dates."""
-    return "\n".join(f"DA{i}: {d.strftime('%Y-%m-%d')}" for i, d in enumerate(dates, start=1))
-
-
-def _draw_assim_summary_box(fig, ax, dates: Sequence[datetime], base_y: Optional[float] = None) -> None:
-    """Disabled: assimilation date summary box removed to reduce clutter."""
-    return
-
-
 def _plot_stepwise_mean(
     ax,
     mean: pd.Series,
@@ -569,7 +521,6 @@ def plot_setup_forcing(
     stations_df = load_stations_table_from_steps([s.path for s in steps], "prior")
     member_label_map = _build_member_label_map(steps)
     assim_dates = _assimilation_event_dates(setup_dir)
-    assim_date_set = {d.date() for d in assim_dates}
 
     for fname in station_files:
         # Collect series per member across all steps
@@ -718,11 +669,6 @@ def plot_setup_forcing(
                 frameon=False,
                 fontsize=8,
             )
-            # DA date summary box under the right part of the plot area,
-            # sharing the same vertical baseline as the legend.
-            _draw_assim_summary_box(fig, axes[0], assim_dates, base_y=legend_y)
-        else:
-            _draw_assim_summary_box(fig, axes[0], assim_dates)
 
         out_path = out_root / f"setup_forcing_{token}_{setup_id}.png"
         force_figure_text_black(fig, axes)

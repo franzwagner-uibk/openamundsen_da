@@ -32,7 +32,6 @@ from openamundsen_da.util.ts import (
     apply_window,
     resample_and_smooth,
     cumulative_hydro,
-    read_timeseries_csv,
     parse_time_column,
     collapse_duplicates,
 )

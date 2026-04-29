@@ -16,7 +16,6 @@ Logging uses constants.LOGURU_FORMAT (green timestamp | level | message).
 from __future__ import annotations
 
 import argparse
-import os
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
@@ -169,21 +168,6 @@ def _mirror_or_resample(
                 out = {"path": str(src_resolved)}
             (tgt_member / STATE_POINTER_JSON).write_text(json.dumps(out, indent=2), encoding="utf-8")
     return pairs
-
-
-def _symlink_dir(src: Path, dst: Path) -> None:
-    # On Windows, enable junctions for directories if possible
-    if os.name == "nt":
-        try:
-            os.symlink(src, dst, target_is_directory=True)
-            return
-        except OSError:
-            pass
-    os.symlink(src, dst, target_is_directory=True)
-
-
-def _symlink_file(src: Path, dst: Path) -> None:
-    os.symlink(src, dst)
 
 
 def _write_manifest(

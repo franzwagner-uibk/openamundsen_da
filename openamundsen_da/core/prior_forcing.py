@@ -23,10 +23,9 @@ import argparse
 import concurrent.futures as cf
 import sys
 import os
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Iterable, Tuple
 
 import numpy as np
 import pandas as pd
@@ -49,10 +48,6 @@ from openamundsen_da.core.constants import (
     DA_SIGMA_P,
     DA_SIGMA_RH,
     DA_SIGMA_SW,
-    DEFAULT_TIME_COL,
-    DEFAULT_TEMP_COL,
-    DEFAULT_PRECIP_COL,
-    STATIONS_CSV,
     ENSEMBLE_PRIOR,
     START_DATE,
     END_DATE,
@@ -149,85 +144,6 @@ def _read_step_start_and_project_end(step_dir: Path) -> Tuple[pd.Timestamp, pd.T
     return start, end
 
 
-def _list_station_csvs(meteo_dir: Path) -> Tuple[Path, List[Path]]:
-    """Return path to stations.csv and a sorted list of per-station CSV files."""
-    stations = meteo_dir / STATIONS_CSV
-    if not stations.is_file():
-        raise FileNotFoundError(f"Missing stations.csv in {meteo_dir}")
-    csvs = sorted(p for p in meteo_dir.glob("*.csv") if p.name != STATIONS_CSV)
-    if not csvs:
-        raise FileNotFoundError(f"No station CSV files found in {meteo_dir}")
-    return stations, csvs
-
-
-def _strip_timezone(ts: pd.Timestamp) -> pd.Timestamp:
-    """Convert tz-aware timestamps to UTC and drop tz info for safe comparisons."""
-    if getattr(ts, "tzinfo", None) is not None:
-        ts = ts.tz_convert("UTC")
-    try:
-        return ts.tz_localize(None)
-    except Exception:
-        return ts
-
-
-def _normalize_datetime_index(idx: pd.Index) -> pd.DatetimeIndex:
-    """Return a tz-naive DatetimeIndex (converted from UTC if originally tz-aware)."""
-    dt_idx = pd.to_datetime(idx, errors="coerce")
-    if getattr(dt_idx, "tz", None) is not None:
-        dt_idx = dt_idx.tz_convert("UTC").tz_localize(None)
-    return dt_idx
-
-
-def _ensure_schema_and_precip_positive(df: pd.DataFrame, src: Path) -> None:
-    """Ensure no negative precipitation values exist if present.
-
-    - 'temp' and 'precip' are optional; if 'precip' exists it must be non-negative
-    """
-    if DEFAULT_PRECIP_COL in df.columns:
-        p = pd.to_numeric(df[DEFAULT_PRECIP_COL], errors="coerce")
-        if (p.dropna() < 0).any():
-            raise ValueError(f"{src.name}: precipitation contains negative values")
-
-
-def _inclusive_filter(df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-    """Inclusive date filtering on datetime index (first column of the CSV)."""
-    start = _strip_timezone(start)
-    end = _strip_timezone(end)
-    dt_idx = _normalize_datetime_index(df.index)
-    mask = (dt_idx >= start) & (dt_idx <= end)
-    out = df.loc[mask].copy()
-    out.index = dt_idx[mask]
-    return out
-
-
-def _process_and_write(
-    src: Path,
-    start: pd.Timestamp,
-    end: pd.Timestamp,
-    dst: Path,
-    *,
-    delta_t: float | None = None,
-    f_p: float | None = None,
-) -> None:
-    """Read, validate, filter, optionally perturb, then write CSV to dst."""
-    # Use the first column as datetime index (name is flexible)
-    df = pd.read_csv(src, parse_dates=True, index_col=0)
-    time_col = df.index.name or DEFAULT_TIME_COL
-
-    _ensure_schema_and_precip_positive(df, src)
-    df = _inclusive_filter(df, start, end)
-    df.index = _normalize_datetime_index(df.index)
-
-    if (delta_t is not None) and (DEFAULT_TEMP_COL in df.columns):
-        df[DEFAULT_TEMP_COL] = pd.to_numeric(df[DEFAULT_TEMP_COL], errors="coerce") + float(delta_t)
-    if (f_p is not None) and (DEFAULT_PRECIP_COL in df.columns):
-        df[DEFAULT_PRECIP_COL] = pd.to_numeric(df[DEFAULT_PRECIP_COL], errors="coerce") * float(f_p)
-
-    idx_col_name = df.index.name or "index"
-    df_out = df.reset_index().rename(columns={idx_col_name: time_col})
-    _write_csv(df_out, dst)
-
-
 def _make_member_dirs(root: Path) -> Tuple[Path, Path]:
     """Create meteo and results subdirs under the given member/open_loop root."""
     meteo = meteo_dir_for_member(root)
@@ -277,37 +193,6 @@ def _write_info(
         f"  {member_root / 'results'}",
     ]
     info.write_text("\n".join(lines), encoding="utf-8")
-
-
-def _write_csv(df: pd.DataFrame, dst: Path) -> None:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(dst, index=False)
-
-
-def _copy_file_content_only(src: Path, dst: Path) -> None:
-    """Copy file bytes without attempting to preserve metadata.
-
-    On Windows bind mounts (Docker Desktop), preserving metadata (times/mode)
-    may fail with EPERM. This helper ensures content is copied robustly.
-    """
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(src, dst)
-
-
-def _copy_with_metadata_fallback(src: Path, dst: Path) -> None:
-    """Try copy2, fall back to content-only copy when metadata fails.
-
-    copy2 may raise PermissionError on mounted volumes when setting file times
-    or permissions. In that case, copy bytes only and continue.
-    """
-    try:
-        shutil.copy2(src, dst)
-    except PermissionError:
-        _copy_file_content_only(src, dst)
-        logger.warning(
-            "copy2 failed due to permissions; performed content-only copy: {p}",
-            p=str(dst),
-        )
 
 
 def _build_member(
@@ -535,4 +420,3 @@ def main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

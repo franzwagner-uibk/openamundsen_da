@@ -16,14 +16,13 @@ Minimal CLI; defaults handle all formats/columns/behavior without user choices.
 
 from __future__ import annotations
 
-import os
 import shutil
 import threading
 import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from loguru import logger
 import pandas as pd
@@ -53,7 +52,6 @@ from openamundsen_da.util.landcover_mask import (
 from openamundsen_da.util.parallel import pick_max_workers
 from openamundsen_da.util.da_events import load_assimilation_events, AssimilationEvent
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
-from openamundsen_da.util.ts import parse_datetime_opt
 from openamundsen_da.methods.pf.assimilate_fraction import (
     assimilate_scf_for_date,
     assimilate_wet_snow_line_for_date,
@@ -80,8 +78,8 @@ from openamundsen_da.pipeline.plot_tasks import (
     build_fraction_overlay_task,
     build_post_run_plot_tasks,
     custom_overview_needs_benchmark_scores,
-    plot_result_overview_cli,
-    plot_setup_weights_overview,
+    plot_result_overview_cli as plot_result_overview_cli,
+    plot_setup_weights_overview as plot_setup_weights_overview,
     render_project_maps_best_effort,
     render_project_report_best_effort,
     run_live_plots,
@@ -485,46 +483,13 @@ def run_project(cfg: OrchestratorConfig) -> None:
             wet_snow_classification.threshold_percent,
         )
 
-    proj_resolution = None
-    proj_timestep = None
     proj_crs = None
-    setup_days = None
-    ensemble_size = None
     try:
         proj_yaml = find_setup_yaml(cfg.setup_dir)
         proj_cfg = _read_yaml_file(proj_yaml) or {}
-        if "resolution" in proj_cfg:
-            try:
-                proj_resolution = float(proj_cfg.get("resolution"))
-            except Exception:
-                proj_resolution = None
-        if "timestep" in proj_cfg:
-            proj_timestep = str(proj_cfg.get("timestep"))
         proj_crs = proj_cfg.get("crs")
-        setup_yaml = find_project_yaml(cfg.project_dir)
-        setup_cfg = _read_yaml_file(setup_yaml) or {}
-        da_cfg = setup_cfg.get("data_assimilation") or {}
-        pf_cfg = da_cfg.get("prior_forcing") or {}
-        if "ensemble_size" in pf_cfg:
-            try:
-                ensemble_size = int(pf_cfg.get("ensemble_size"))
-            except Exception:
-                ensemble_size = None
     except Exception as exc:
         logger.warning("Perf monitor: failed to read config metadata: {}", exc)
-
-    # Project length (days) from project YAML
-    try:
-        seas_yaml = find_project_yaml(cfg.project_dir)
-        seas_cfg = _read_yaml_file(seas_yaml) or {}
-        start_val = seas_cfg.get("start_date")
-        end_val = seas_cfg.get("end_date")
-        start_dt = parse_datetime_opt(str(start_val)) if start_val is not None else None
-        end_dt = parse_datetime_opt(str(end_val)) if end_val is not None else None
-        if start_dt is not None and end_dt is not None:
-            setup_days = (end_dt.date() - start_dt.date()).days + 1
-    except Exception as exc:
-        logger.warning("Perf monitor: failed to read project dates: {}", exc)
 
     # Approximate AOI area in km2 for performance summary
     roi_area_km2 = None

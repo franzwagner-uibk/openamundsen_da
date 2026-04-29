@@ -336,7 +336,7 @@ def test_fraction_plot_uses_observable_legend_entry_and_sigma_strip(tmp_path: Pa
     plt.close(fig)
 
 
-def test_wet_snow_line_plot_labels_zero_line_and_skipped_event(tmp_path: Path) -> None:
+def test_wet_snow_line_plot_labels_zero_line_and_unavailable_event(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 
     _setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
@@ -372,6 +372,11 @@ def test_wet_snow_line_plot_labels_zero_line_and_skipped_event(tmp_path: Path) -
             },
         ],
     )
+    _write_text(step_dir / "assim" / "resample_manifest_20230523.json", '{"skipped": true}\n')
+    _write_csv(
+        step_dir / "assim" / "resample_indices_20230523.csv",
+        [{"source_member_id": "member_001"}, {"source_member_id": "member_002"}],
+    )
 
     fig = plot_mod._plot(
         csv_path,
@@ -387,8 +392,108 @@ def test_wet_snow_line_plot_labels_zero_line_and_skipped_event(tmp_path: Path) -
 
     assert ax1.get_xlabel() == "wet snow line altitude (WSLA) residual [m]"
     assert any("obs WSLA 3067 m" in text for text in note_texts)
-    assert any("WSLA update skipped" in text for text in note_texts)
+    assert any("WSLA unavailable" in text for text in note_texts)
     assert not any("model range" in text for text in note_texts)
+    plt.close(fig)
+
+
+def test_wet_snow_line_gated_event_shows_unavailable_with_residuals(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
+    csv_path = step_dir / "assim" / "weights_wet_snow_line_20230328.csv"
+    _write_csv(
+        csv_path,
+        [
+            {
+                "member_id": "member_001",
+                "residual": -30.0,
+                "sigma": 150.0,
+                "weight": 1.0,
+                "log_weight": 0.0,
+                "value_obs": 2280.0,
+                "model_gate_triggered": True,
+                "model_gate_reason": "model_finite_fraction<0.9000",
+            },
+            {
+                "member_id": "member_002",
+                "residual": 45.0,
+                "sigma": 150.0,
+                "weight": 1.0,
+                "log_weight": 0.0,
+                "value_obs": 2280.0,
+                "model_gate_triggered": True,
+                "model_gate_reason": "model_finite_fraction<0.9000",
+            },
+        ],
+    )
+    _write_text(step_dir / "assim" / "resample_manifest_20230328.json", '{"skipped": true}\n')
+    _write_csv(
+        step_dir / "assim" / "resample_indices_20230328.csv",
+        [{"source_member_id": "member_001"}, {"source_member_id": "member_002"}],
+    )
+
+    fig = plot_mod._plot(
+        csv_path,
+        plot_mod._load_weights(csv_path),
+        title="wet snow line altitude (WSLA) data assimilation weights",
+        subtitle="DA 7 - 2023-03-28",
+        observable="wet_snow_line",
+        backend="Agg",
+    )
+
+    note_texts = [text.get_text() for text in fig.axes[1].texts]
+
+    assert any("WSLA unavailable" in text for text in note_texts)
+    plt.close(fig)
+
+
+def test_wet_snow_line_skipped_resampling_does_not_show_unavailable_when_not_gated(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
+    csv_path = step_dir / "assim" / "weights_wet_snow_line_20230503.csv"
+    _write_csv(
+        csv_path,
+        [
+            {
+                "member_id": "member_001",
+                "residual": -30.0,
+                "sigma": 150.0,
+                "weight": 1.0,
+                "log_weight": 0.0,
+                "value_obs": 2280.0,
+                "model_gate_triggered": False,
+            },
+            {
+                "member_id": "member_002",
+                "residual": 45.0,
+                "sigma": 150.0,
+                "weight": 1.0,
+                "log_weight": 0.0,
+                "value_obs": 2280.0,
+                "model_gate_triggered": False,
+            },
+        ],
+    )
+    _write_text(step_dir / "assim" / "resample_manifest_20230503.json", '{"skipped": true}\n')
+    _write_csv(
+        step_dir / "assim" / "resample_indices_20230503.csv",
+        [{"source_member_id": "member_001"}, {"source_member_id": "member_002"}],
+    )
+
+    fig = plot_mod._plot(
+        csv_path,
+        plot_mod._load_weights(csv_path),
+        title="wet snow line altitude (WSLA) data assimilation weights",
+        subtitle="DA 10 - 2023-05-03",
+        observable="wet_snow_line",
+        backend="Agg",
+    )
+
+    note_texts = [text.get_text() for text in fig.axes[1].texts]
+
+    assert not any("WSLA unavailable" in text for text in note_texts)
     plt.close(fig)
 
 

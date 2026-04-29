@@ -195,14 +195,18 @@ def _draw_wsl_zero_line_label(ax, df: pd.DataFrame, *, fontsize: float) -> None:
     )
 
 
-def _draw_wsl_skipped_overlay(ax, df: pd.DataFrame, *, fontsize: float) -> None:
-    has_finite_residual = not _finite_numeric_column(df, "residual").empty
-    if has_finite_residual:
+def _draw_wsl_unavailable_overlay(ax, df: pd.DataFrame, *, fontsize: float) -> None:
+    gate_columns = ("support_gate_triggered", "wet_information_gate_triggered", "model_gate_triggered")
+    gate_triggered = any(
+        column in df.columns and df[column].astype(str).str.lower().isin({"true", "1", "yes"}).any()
+        for column in gate_columns
+    )
+    if not gate_triggered and not _finite_numeric_column(df, "residual").empty:
         return
     ax.text(
         0.5,
         0.5,
-        "WSLA update skipped",
+        "WSLA unavailable",
         transform=ax.transAxes,
         ha="center",
         va="center",
@@ -969,7 +973,7 @@ def _draw_weights_event(
         ax1.xaxis.set_minor_locator(AutoMinorLocator(4))
         if observable == "wet_snow_line":
             _draw_wsl_zero_line_label(ax1, ordered_df, fontsize=fs_note)
-            _draw_wsl_skipped_overlay(ax1, ordered_df, fontsize=fs_note)
+            _draw_wsl_unavailable_overlay(ax1, ordered_df, fontsize=fs_note)
     _draw_sigma_strip(ax1, sigma_strip_entries, fontsize=fs_note)
     if residual_xlim is not None:
         ax1.set_xlim(*_expand_xlim(residual_xlim))

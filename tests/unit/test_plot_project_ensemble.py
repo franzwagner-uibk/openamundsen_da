@@ -22,22 +22,24 @@ def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
     pd.DataFrame(rows).to_csv(path, index=False)
 
 
-def _build_project(tmp_path: Path) -> Path:
+def _build_project(tmp_path: Path, *, include_open_loop: bool = True) -> Path:
     project_dir = tmp_path / "projects" / "project_2022_2023"
     step_dir = project_dir / "steps" / "step_00_init"
+    project_lines = [
+        "start_date: '2022-11-01'",
+        "end_date: '2023-06-30'",
+    ]
+    project_lines.extend(
+        [
+            "data_assimilation:",
+            "  assimilation_events:",
+            "    - date: '2022-11-22'",
+            "      variable: station_hs",
+        ]
+    )
     _write_text(
         project_dir / "project_2022_2023.yml",
-        "\n".join(
-            [
-                "start_date: '2022-11-01'",
-                "end_date: '2023-06-30'",
-                "data_assimilation:",
-                "  assimilation_events:",
-                "    - date: '2022-11-22'",
-                "      variable: station_hs",
-            ]
-        )
-        + "\n",
+        "\n".join(project_lines) + "\n",
     )
     _write_text(
         step_dir / "step_00_init.yml",
@@ -49,13 +51,14 @@ def _build_project(tmp_path: Path) -> Path:
         )
         + "\n",
     )
-    _write_csv(
-        step_dir / "ensembles" / "prior" / "open_loop" / "results" / "point_latschbloder.csv",
-        [
-            {"time": "2022-11-01", "swe": 10.0},
-            {"time": "2022-11-02", "swe": 12.0},
-        ],
-    )
+    if include_open_loop:
+        _write_csv(
+            step_dir / "ensembles" / "prior" / "open_loop" / "results" / "point_latschbloder.csv",
+            [
+                {"time": "2022-11-01", "swe": 10.0},
+                {"time": "2022-11-02", "swe": 12.0},
+            ],
+        )
     _write_csv(
         step_dir / "ensembles" / "prior" / "member_001" / "results" / "point_latschbloder.csv",
         [
@@ -124,6 +127,46 @@ def test_plot_setup_results_band_mode_uses_quantile_band(tmp_path: Path) -> None
     finally:
         plt.close = original_close
         original_close("all")
+
+
+def test_plot_setup_results_legend_omits_open_loop_when_not_drawn(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    project_dir = _build_project(tmp_path, include_open_loop=False)
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        plot_setup_results(
+            setup_dir=project_dir,
+            var_col="swe",
+            mode="members",
+            configure_logger=False,
+        )
+        legend_labels = [text.get_text() for text in plt.gcf().legends[0].get_texts()]
+        assert legend_labels == ["data assimilation event"]
+    finally:
+        plt.close = original_close
+        original_close("all")
+
+
+def test_plot_setup_results_legend_omits_da_event_when_not_drawn(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    fig = plt.figure()
+    try:
+        plot_mod._build_station_result_legend(
+            fig,
+            show_open_loop=True,
+            show_station_observation=False,
+            mean_color="#111111",
+            band_color="#999999",
+            show_ensemble_summary=False,
+            show_da_event=False,
+        )
+        legend_labels = [text.get_text() for text in fig.legends[0].get_texts()]
+        assert legend_labels == ["open loop"]
+    finally:
+        plt.close(fig)
 
 
 def test_station_result_colors_use_shared_da_palette() -> None:

@@ -75,6 +75,10 @@ def _panel_axes(fig) -> list:
     return [ax for ax in fig.axes if not ax.get_label().startswith("assimilation_label_axis")]
 
 
+def _figure_legend_labels(fig, index: int = 0) -> list[str]:
+    return [text.get_text() for text in fig.legends[index].get_texts()]
+
+
 def test_default_wsl_overview_env_uses_prior_member_median_minmax_and_preserves_gaps(tmp_path: Path) -> None:
     project_dir = tmp_path / "project"
     member_001 = project_dir / "steps" / "step_00" / "ensembles" / "prior" / "member_001" / "results"
@@ -780,15 +784,19 @@ def test_plot_result_overview_uses_single_figure_legend_labels(tmp_path: Path) -
         )
 
         assert len(plt.gcf().legends) == 1
-        legend_labels = [text.get_text() for text in plt.gcf().legends[0].get_texts()]
-        assert legend_labels == [
-            "observation used for data assimilation",
+        assert _figure_legend_labels(plt.gcf()) == [
             "satellite observation",
             "open loop",
-            "ensemble (min - max, mean)",
-            "data assimilation event",
         ]
-        legend_handles = plot_mod._build_result_overview_legend_handles(show_station_observation=False)
+        legend_handles = plot_mod._build_result_overview_legend_handles(
+            legend_state=plot_mod._ResultOverviewLegendState(
+                da_observation=True,
+                satellite_observation=True,
+                open_loop=True,
+                ensemble_summary=True,
+                da_event=True,
+            )
+        )
         assert legend_handles[0].get_marker() == "x"
         ensemble_handle = legend_handles[3]
         assert ensemble_handle.get_label() == "ensemble (min - max, mean)"
@@ -801,6 +809,67 @@ def test_plot_result_overview_uses_single_figure_legend_labels(tmp_path: Path) -
         assert isinstance(ensemble_handler, plot_mod._EnsembleLegendHandler)
         assert ensemble_handler._line_inset_frac > 0.0
         assert all(ax.get_legend() is None for ax in _panel_axes(plt.gcf()))
+        assert out_path.is_file()
+    finally:
+        plt.close = original_close
+
+
+def test_plot_result_overview_legend_adds_da_observation_only_for_matching_obs(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        out_path = tmp_path / "result_overview.png"
+        plot_result_overview(
+            scf_obs=_frame("scf", [0.2, 0.4]),
+            scf_model=_frame("scf", [0.2, 0.4]),
+            wet_obs=None,
+            wet_model=None,
+            scf_env=None,
+            wet_env=None,
+            output=out_path,
+            assim_events=[
+                plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-01").date(), variable="scf", product="SNOWCOVER"),
+            ],
+        )
+
+        assert _figure_legend_labels(plt.gcf()) == [
+            "observation used for data assimilation",
+            "satellite observation",
+            "open loop",
+            "data assimilation event",
+        ]
+        assert out_path.is_file()
+    finally:
+        plt.close = original_close
+
+
+def test_plot_result_overview_legend_omits_da_observation_when_event_has_no_obs(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        out_path = tmp_path / "result_overview.png"
+        plot_result_overview(
+            scf_obs=_frame("scf", [0.2, 0.4]),
+            scf_model=_frame("scf", [0.2, 0.4]),
+            wet_obs=None,
+            wet_model=None,
+            scf_env=None,
+            wet_env=None,
+            output=out_path,
+            assim_events=[
+                plot_mod.AssimilationEvent(date=pd.Timestamp("2023-02-01").date(), variable="scf", product="SNOWCOVER"),
+            ],
+        )
+
+        assert _figure_legend_labels(plt.gcf()) == [
+            "satellite observation",
+            "open loop",
+            "data assimilation event",
+        ]
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -886,14 +955,10 @@ def test_plot_result_overview_custom_legend_includes_station_observation_when_dr
             strict_panels=True,
         )
 
-        legend_labels = [text.get_text() for text in plt.gcf().legends[0].get_texts()]
-        assert legend_labels == [
-            "observation used for data assimilation",
-            "satellite observation",
+        assert _figure_legend_labels(plt.gcf()) == [
             "open loop",
             "ensemble (min - max, mean)",
             "station observation",
-            "data assimilation event",
         ]
         assert out_path.is_file()
     finally:
@@ -932,13 +997,9 @@ def test_plot_result_overview_custom_legend_omits_station_observation_when_hidde
             strict_panels=True,
         )
 
-        legend_labels = [text.get_text() for text in plt.gcf().legends[0].get_texts()]
-        assert legend_labels == [
-            "observation used for data assimilation",
-            "satellite observation",
+        assert _figure_legend_labels(plt.gcf()) == [
             "open loop",
             "ensemble (min - max, mean)",
-            "data assimilation event",
         ]
         assert out_path.is_file()
     finally:
@@ -1102,7 +1163,7 @@ def test_plot_result_overview_custom_ess_panel_uses_threshold_and_top_tick_only(
         assert list(axes[0].get_yticks()) == [23.5, 47.0]
         assert axes[0].get_legend() is not None
         assert [text.get_text() for text in axes[0].get_legend().get_texts()] == ["ESS threshold"]
-        assert len(plt.gcf().legends) == 1
+        assert len(plt.gcf().legends) == 0
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -1140,13 +1201,13 @@ def test_plot_result_overview_supports_custom_crpss_score_panel(tmp_path: Path) 
         assert axes[0].collections
         assert axes[0].get_legend() is None
         assert len(plt.gcf().legends) == 2
-        overview_labels = [text.get_text() for text in plt.gcf().legends[0].get_texts()]
-        score_labels = [text.get_text() for text in plt.gcf().legends[1].get_texts()]
-        assert "open loop" in overview_labels
+        overview_labels = _figure_legend_labels(plt.gcf(), 0)
+        score_labels = _figure_legend_labels(plt.gcf(), 1)
+        assert overview_labels == ["data assimilation event"]
         assert "prior" in score_labels
         assert "posterior" in score_labels
         assert "assimilation fit" in score_labels
-        assert getattr(plt.gcf().legends[0], "_ncols", None) == 4
+        assert getattr(plt.gcf().legends[0], "_ncols", None) == 1
         assert getattr(plt.gcf().legends[1], "_ncols", None) == 5
         plt.gcf().canvas.draw()
         renderer = plt.gcf().canvas.get_renderer()
@@ -1336,7 +1397,8 @@ def test_plot_result_overview_supports_both_score_panels_and_single_local_legend
         assert axes[0].get_legend() is None
         assert axes[1].get_legend() is None
         assert len(plt.gcf().legends) == 2
-        assert getattr(plt.gcf().legends[0], "_ncols", None) == 4
+        assert _figure_legend_labels(plt.gcf(), 0) == ["data assimilation event"]
+        assert getattr(plt.gcf().legends[0], "_ncols", None) == 1
         assert getattr(plt.gcf().legends[1], "_ncols", None) == 5
         assert out_path.is_file()
     finally:
@@ -1445,7 +1507,8 @@ def test_plot_result_overview_score_panel_keeps_ess_threshold_local(tmp_path: Pa
         assert [text.get_text() for text in axes[0].get_legend().get_texts()] == ["ESS threshold"]
         assert axes[1].get_legend() is None
         assert len(plt.gcf().legends) == 2
-        overview_labels = [text.get_text() for text in plt.gcf().legends[0].get_texts()]
+        overview_labels = _figure_legend_labels(plt.gcf(), 0)
+        assert overview_labels == ["data assimilation event"]
         assert "ESS threshold" not in overview_labels
         assert out_path.is_file()
     finally:

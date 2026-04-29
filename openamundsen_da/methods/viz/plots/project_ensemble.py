@@ -289,15 +289,19 @@ def _apply_result_time_axis_labels(ax) -> None:
 def _build_station_result_legend(
     fig,
     *,
+    show_open_loop: bool,
     show_station_observation: bool,
     mean_color: str,
     band_color: str,
     show_ensemble_summary: bool = True,
+    show_da_event: bool = True,
 ) -> None:
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
 
-    handles = [Line2D([0], [0], color="black", lw=LW_OPEN, label="open loop")]
+    handles = []
+    if show_open_loop:
+        handles.append(Line2D([0], [0], color="black", lw=LW_OPEN, label="open loop"))
     if show_station_observation:
         handles.append(Line2D([0], [0], color=COLOR_DA_OBS, lw=LW_DA_OBS, label="station observation"))
     if show_ensemble_summary:
@@ -307,7 +311,10 @@ def _build_station_result_legend(
                 Patch(facecolor=band_color, edgecolor=band_color, linewidth=1.2, alpha=BAND_ALPHA, label="ensemble"),
             ]
         )
-    handles.append(Line2D([0], [0], color="#666666", lw=1.2, ls="--", label="data assimilation event"))
+    if show_da_event:
+        handles.append(Line2D([0], [0], color="#666666", lw=1.2, ls="--", label="data assimilation event"))
+    if not handles:
+        return
     fig.legend(
         handles=handles,
         loc="lower left",
@@ -895,6 +902,7 @@ def plot_setup_results(
         station_model_color = _station_model_color(var_col)
         station_band_color = _station_band_color(var_col)
         effective_mode = "members" if show_members else mode
+        ensemble_summary_drawn = False
         if effective_mode == "members":
             for series in member_series:
                 ax.plot(
@@ -909,6 +917,7 @@ def plot_setup_results(
         else:
             mean, lo, hi = envelope(member_series, q_low=band_low, q_high=band_high)
             if not mean.empty:
+                ensemble_summary_drawn = True
                 ax.fill_between(
                     mean.index,
                     lo,
@@ -927,9 +936,11 @@ def plot_setup_results(
                     color=station_model_color,
                     zorder=4,
                 )
+        open_loop_drawn = False
         if open_loop:
             ol = concat_series(open_loop)
             if not ol.empty:
+                open_loop_drawn = True
                 ax.plot(ol.index, ol.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open loop (model)", zorder=5)
 
         # Station observations stay visually dominant over all model traces.
@@ -986,10 +997,12 @@ def plot_setup_results(
         fig.subplots_adjust(left=0.11, right=0.965, top=top_margin, bottom=bottom_margin)
         _build_station_result_legend(
             fig,
+            show_open_loop=open_loop_drawn,
             show_station_observation=obs_series is not None and not obs_series.empty,
             mean_color=station_model_color,
             band_color=station_band_color,
-            show_ensemble_summary=effective_mode == "band",
+            show_ensemble_summary=effective_mode == "band" and ensemble_summary_drawn,
+            show_da_event=bool(centered_assim_dates),
         )
 
         out_path = out_root / f"setup_results_{token}_{var_col}_{setup_id}.png"

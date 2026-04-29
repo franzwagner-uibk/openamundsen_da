@@ -30,6 +30,11 @@ from openamundsen_da.io.paths import (
     project_result_overview_custom_output_path,
 )
 from openamundsen_da.methods.viz.station_meta import load_ensemble_station_table_from_steps
+from openamundsen_da.methods.viz.common import (
+    force_figure_text_black,
+    save_figure_png,
+    set_matplotlib_text_black,
+)
 from openamundsen_da.methods.viz.plots.theme import (
     BAND_ALPHA,
     COLOR_DA_OBS,
@@ -48,12 +53,9 @@ from openamundsen_da.methods.viz.plots.common import (
     draw_assim_labels,
     draw_assimilation_markers,
     draw_assimilation_vlines,
-    force_figure_text_black,
     format_station_label,
     result_title_pad,
     result_axis_scale,
-    save_figure_png,
-    set_matplotlib_text_black,
 )
 from openamundsen_da.methods.viz.fraction_series import (
     default_result_overview_output,
@@ -137,8 +139,8 @@ _DEFAULT_PANELS = [
 
 _PANEL_YLABELS = {
     "fSC": "snow cover fraction",
-    "WSF": "wet snow fraction (WSF)",
-    "WSLA": "wet snow line altitude (WSLA) [m a.s.l.]",
+    "WSF": "wet snow fraction",
+    "WSLA": "wet snow line altitude [m]",
     "roi-swe": "swe [mm]",
     "roi-sd": "snow depth [m]",
     "station-sd": "snow depth [m]",

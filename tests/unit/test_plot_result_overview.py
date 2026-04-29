@@ -167,7 +167,7 @@ def test_plot_result_overview_uses_four_panels_when_roi_series_exist(monkeypatch
     axes = _panel_axes(plt.gcf())
     assert [ax.get_ylabel() for ax in axes] == [
         "snow cover fraction",
-        "wet snow fraction (WSF)",
+        "wet snow fraction",
         "swe [mm]",
         "snow depth [m]",
     ]
@@ -248,11 +248,97 @@ def test_plot_result_overview_adds_wsl_panel_when_wsl_series_exist(monkeypatch, 
     axes = _panel_axes(plt.gcf())
     assert [ax.get_ylabel() for ax in axes] == [
         "snow cover fraction",
-        "wet snow fraction (WSF)",
-        "wet snow line altitude (WSLA) [m a.s.l.]",
+        "wet snow fraction",
+        "wet snow line altitude [m]",
     ]
     assert out_path.is_file()
     original_close(plt.gcf())
+
+
+def test_plot_result_overview_ylabels_do_not_overlap_with_stacked_custom_panels(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        out_path = tmp_path / "result_overview_custom.png"
+        plot_result_overview(
+            scf_obs=None,
+            scf_model=_frame("scf", [0.2, 0.4]),
+            wet_obs=None,
+            wet_model=_frame("wet_snow_fraction", [0.1, 0.2]),
+            wsl_obs=None,
+            wsl_model=_frame("wet_snow_line", [2380.0, 2440.0]),
+            scf_env=None,
+            wet_env=None,
+            wsl_env=_frame("value_mean", [2390.0, 2430.0]).assign(
+                value_min=[2360.0, 2400.0],
+                value_max=[2420.0, 2460.0],
+            ),
+            output=out_path,
+            panel_specs=[
+                PanelSpec(panel="fSC"),
+                PanelSpec(panel="WSF"),
+                PanelSpec(panel="WSLA"),
+                PanelSpec(panel="station-sd", station_id="proviantdepot"),
+                PanelSpec(panel="ess"),
+                PanelSpec(panel="scores-crpss"),
+            ],
+            station_panels={
+                ("proviantdepot", "snow_depth"): StationPanelData(
+                    station_id="proviantdepot",
+                    display_name="Proviantdepot",
+                    altitude_m=2659.0,
+                    open_loop=_series([0.4, 0.5]),
+                    members=[_series([0.3, 0.45]), _series([0.35, 0.55])],
+                    obs=_series([0.32, 0.53]),
+                )
+            },
+            ess_panel=plot_mod.EssPanelData(
+                series=pd.DataFrame(
+                    {
+                        "date": pd.to_datetime(["2023-01-01", "2023-01-02"]),
+                        "ess": [22.0, 25.0],
+                    }
+                ),
+                ensemble_size=30,
+                threshold=21.0,
+            ),
+            score_points=_score_points(),
+            assim_events=[
+                plot_mod.AssimilationEvent(
+                    date=pd.Timestamp("2023-01-02").date(),
+                    variable="scf",
+                    product="SNOWCOVER",
+                ),
+                plot_mod.AssimilationEvent(
+                    date=pd.Timestamp("2023-01-03").date(),
+                    variable="station_hs",
+                    product="STATION",
+                ),
+            ],
+            strict_panels=True,
+        )
+
+        fig = plt.gcf()
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        axes = _panel_axes(fig)
+        assert [ax.get_ylabel() for ax in axes] == [
+            "snow cover fraction",
+            "wet snow fraction",
+            "wet snow line altitude [m]",
+            "snow depth [m]",
+            "ESS",
+            "CRPSS",
+        ]
+        ylabel_bboxes = [ax.yaxis.label.get_window_extent(renderer) for ax in axes]
+        for upper_bbox, lower_bbox in zip(ylabel_bboxes, ylabel_bboxes[1:]):
+            assert lower_bbox.y1 <= upper_bbox.y0
+        assert out_path.is_file()
+    finally:
+        plt.close = original_close
+        original_close(plt.gcf())
 
 
 def test_plot_result_overview_marks_wet_snow_line_events_on_wsl_panel(monkeypatch, tmp_path: Path) -> None:

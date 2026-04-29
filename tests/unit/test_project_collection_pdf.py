@@ -13,6 +13,7 @@ from openamundsen_da.methods.viz.reports.project_collection_pdf import (
     _format_page_range,
     _image_size_inches,
     _project_pdf_sections,
+    _save_pdf_page,
     _summary_line_segments,
     _wrapped_lines,
     build_project_collection_pdf,
@@ -20,6 +21,7 @@ from openamundsen_da.methods.viz.reports.project_collection_pdf import (
     collect_project_pdf_items,
     collect_project_report_summary,
 )
+from openamundsen_da.methods.viz.theme import EXPORT_DPI
 
 
 def _write_project_yaml(project_dir: Path, event_count: int = 2) -> None:
@@ -323,3 +325,18 @@ def test_image_size_inches_uses_shared_export_dpi(tmp_path: Path) -> None:
 
     assert width == pytest.approx(2.0)
     assert height == pytest.approx(1.0)
+
+
+def test_save_pdf_page_uses_shared_export_dpi() -> None:
+    class FakePdf:
+        def __init__(self) -> None:
+            self.kwargs = None
+
+        def savefig(self, fig: object, **kwargs: object) -> None:
+            self.kwargs = kwargs
+
+    pdf = FakePdf()
+
+    _save_pdf_page(pdf, object())  # type: ignore[arg-type]
+
+    assert pdf.kwargs == {"dpi": EXPORT_DPI}

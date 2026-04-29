@@ -711,8 +711,12 @@ def _project_pdf_sections(plan: ProjectPdfPlan) -> tuple[PdfSection, ...]:
 def _draw_image(fig: Figure, path: Path, rect: tuple[float, float, float, float]) -> None:
     image = mpimg.imread(path)
     ax = fig.add_axes(rect)
-    ax.imshow(image)
+    ax.imshow(image, interpolation="none", resample=False)
     ax.set_axis_off()
+
+
+def _save_pdf_page(pdf: PdfPages, fig: Figure) -> None:
+    pdf.savefig(fig, dpi=EXPORT_DPI)
 
 
 def _draw_page_number(fig: Figure, *, page_number: int, total_pages: int) -> None:
@@ -751,7 +755,7 @@ def _write_single_image_page(pdf: PdfPages, item: PdfImageItem, *, page_number: 
         top=page_height - IMAGE_TOP_MARGIN_IN,
     )
     _draw_page_number(fig, page_number=page_number, total_pages=total_pages)
-    pdf.savefig(fig)
+    _save_pdf_page(pdf, fig)
     plt.close(fig)
 
 
@@ -777,7 +781,7 @@ def _write_image_group_page(
         )
         row_top -= display_height + IMAGE_ROW_GAP_IN
     _draw_page_number(fig, page_number=page_number, total_pages=total_pages)
-    pdf.savefig(fig)
+    _save_pdf_page(pdf, fig)
     plt.close(fig)
 
 
@@ -806,7 +810,7 @@ def _write_da_steps_pages(
             )
             row_top -= display_height + IMAGE_ROW_GAP_IN
         _draw_page_number(fig, page_number=page_number, total_pages=total_pages)
-        pdf.savefig(fig)
+        _save_pdf_page(pdf, fig)
         plt.close(fig)
         page_number += 1
     return page_number
@@ -1027,7 +1031,7 @@ def _write_project_summary_page(
         va="bottom",
     )
     _draw_page_number(fig, page_number=page_number, total_pages=total_pages)
-    pdf.savefig(fig)
+    _save_pdf_page(pdf, fig)
     plt.close(fig)
 
 

@@ -24,6 +24,7 @@ from typing import List
 from loguru import logger
 from openamundsen_da.io.paths import project_plot_perf_dir
 from openamundsen_da.methods.viz.common import force_figure_text_black, save_figure_png
+from openamundsen_da.methods.viz.theme import FIGHEIGHT_OVERVIEW_ROW, FIGWIDTH_OVERVIEW_PAPER
 
 try:
     import psutil  # type: ignore[import]
@@ -34,6 +35,8 @@ try:
     import matplotlib.pyplot as plt  # type: ignore[import]
 except Exception:  # pragma: no cover
     plt = None  # type: ignore[assignment]
+
+PROJECT_PERF_FIGSIZE = (FIGWIDTH_OVERVIEW_PAPER, FIGHEIGHT_OVERVIEW_ROW * 2.0)
 
 
 @dataclass(frozen=True)
@@ -165,7 +168,7 @@ def _render_plot(
     if not timestamps or plt is None:
         return
 
-    fig, ax1 = plt.subplots(figsize=(9, 5))
+    fig, ax1 = plt.subplots(figsize=PROJECT_PERF_FIGSIZE)
 
     ax1.plot(timestamps, cpu_pct, label="CPU [%]", color="tab:blue")
     ax1.plot(timestamps, mem_pct, label="RAM [%]", color="tab:orange")

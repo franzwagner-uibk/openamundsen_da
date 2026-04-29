@@ -69,7 +69,7 @@ Auto-generated step window configuration.
 - SCF obs CSV: `obs_scf_<PRODUCT>_YYYYMMDD.csv`
 - Wet-snow obs CSV: `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`
 - Weights CSV: `weights_<variable>_YYYYMMDD.csv`
-- Project plots/maps PDF collection: `results/reports/project_plots_maps_collection.pdf`
+- Project plots/maps PDF collection: `results/reports/project_report.pdf`
 - Resampling indices: `indices_YYYYMMDD.csv`
 - Model state default: `model_state.pickle.gz` (configured in project YAML under `data_assimilation.restart`)
 

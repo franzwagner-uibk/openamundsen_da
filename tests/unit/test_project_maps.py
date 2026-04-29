@@ -24,6 +24,7 @@ import openamundsen_da.methods.viz.maps.data as data_module
 import openamundsen_da.methods.viz.maps.generated as generated_module
 import openamundsen_da.methods.viz.maps.overview as overview_module
 import openamundsen_da.methods.viz.maps.panel_renderers as panel_renderers_module
+from openamundsen_da.methods.viz.reports.project_collection_pdf import MissingProjectPdfArtifactsError
 from openamundsen_da.methods.viz.maps.config import (
     DateSelector,
     LayoutSpec,
@@ -999,7 +1000,7 @@ def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, 
     assert recipes[1].figure_title == "DA 2 - 2023-01-02 (wet snow fraction (WSF))"
     assert recipes[0].row_labels == ("station snow depth",)
     assert recipes[0].layout.ncols == 4
-    assert [panel.title for panel in recipes[0].panels] == ["open loop", "prior mean", "posterior mean", "DA increment"]
+    assert [panel.title for panel in recipes[0].panels] == ["open loop", "prior mean", "posterior mean", "posterior - prior"]
     assert [panel.source for panel in recipes[0].panels] == [
         "open_loop",
         "ensemble_mean",
@@ -3588,6 +3589,90 @@ def test_project_pipeline_best_effort_map_render_logs_warning(monkeypatch: pytes
     assert warnings == [
         "Project maps failed: boom",
         f"Rerun project maps with: python -m openamundsen_da.methods.viz.maps.runner --project-dir {project_dir}",
+    ]
+
+
+def test_project_pipeline_best_effort_report_render_logs_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    project_dir = tmp_path / "project_demo"
+    output = project_dir / "results" / "reports" / "project_report.pdf"
+    infos: list[str] = []
+
+    class StubLogger:
+        def info(self, message: str, *args) -> None:
+            infos.append(message.format(*args))
+
+        def warning(self, *_args, **_kwargs) -> None:
+            raise AssertionError("report success should not log warnings")
+
+    def fake_build_project_collection_pdf(**kwargs):
+        assert kwargs == {"project_dir": project_dir}
+        return output
+
+    monkeypatch.setattr(plot_tasks_module, "logger", StubLogger())
+    monkeypatch.setattr(plot_tasks_module, "build_project_collection_pdf", fake_build_project_collection_pdf)
+
+    plot_tasks_module.render_project_report_best_effort(project_dir)
+
+    assert infos == [f"Project report complete -> {output}"]
+
+
+def test_project_pipeline_best_effort_report_render_logs_missing_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "project_demo"
+    missing = project_dir / "results" / "plots" / "results" / "result_overview.png"
+    warnings: list[str] = []
+
+    class StubLogger:
+        def info(self, *_args, **_kwargs) -> None:
+            return None
+
+        def warning(self, message: str, *args) -> None:
+            warnings.append(message.format(*args))
+
+    def fake_build_project_collection_pdf(**_kwargs):
+        raise MissingProjectPdfArtifactsError(project_dir, [missing])
+
+    monkeypatch.setattr(plot_tasks_module, "logger", StubLogger())
+    monkeypatch.setattr(plot_tasks_module, "build_project_collection_pdf", fake_build_project_collection_pdf)
+
+    plot_tasks_module.render_project_report_best_effort(project_dir)
+
+    assert warnings[0].startswith("Project report skipped: Missing required project PDF artifact(s).")
+    assert str(missing) in warnings[0]
+    assert warnings[1] == (
+        "Rerun project report with: "
+        f"python -m openamundsen_da.methods.viz.reports --project-dir {project_dir}"
+    )
+
+
+def test_project_pipeline_best_effort_report_render_logs_unexpected_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "project_demo"
+    warnings: list[str] = []
+
+    class StubLogger:
+        def info(self, *_args, **_kwargs) -> None:
+            return None
+
+        def warning(self, message: str, *args) -> None:
+            warnings.append(message.format(*args))
+
+    monkeypatch.setattr(plot_tasks_module, "logger", StubLogger())
+    monkeypatch.setattr(
+        plot_tasks_module,
+        "build_project_collection_pdf",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    plot_tasks_module.render_project_report_best_effort(project_dir)
+
+    assert warnings == [
+        "Project report failed: boom",
+        f"Rerun project report with: python -m openamundsen_da.methods.viz.reports --project-dir {project_dir}",
     ]
 
 

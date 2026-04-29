@@ -45,7 +45,7 @@ All commands are available as:
 **Main setup pipeline orchestrator**
 
 Runs the complete setup data assimilation cycle: prior forcing → ensemble run → assimilation → resampling → rejuvenation.
-The pipeline now also runs the scientific benchmark stage automatically at the end of every project.
+The pipeline now also runs the scientific benchmark stage automatically at the end of every project, then attempts to assemble the project PDF report.
 
 ```bash
 oa-da-project \
@@ -84,6 +84,11 @@ docker compose run --rm oa oa-da-project \
 - `results/benchmark/tables/update_summary.csv`
 - `results/benchmark/summary.md`
 - `results/plots/assim/scores/performance_scores.png`
+
+**Report output attempted by default:**
+- `results/reports/project_report.pdf`
+
+Report generation is best-effort in `oa-da-project`: missing plots/maps or other PDF assembly errors are logged with a manual rerun command and do not fail the completed model run.
 
 **Benchmark config block (optional benchmark controls):**
 ```yaml
@@ -538,7 +543,7 @@ Use this when you changed plotting code, `plots.yml`, or map-independent styling
 
 **Assemble a DIN A4 project plots/maps PDF**
 
-Collects a compact report summary page, the curated project overview outputs, and DA-event maps into one DIN A4 portrait PDF. The command does not rerun plots or maps. It fails fast with a complete missing-file list when the required result overview, setup map, setup weights overview, or generated DA maps are missing.
+Collects a compact report summary page, the curated project overview outputs, diagnostics, and DA-event maps into one DIN A4 portrait PDF. `oa-da-project` attempts this automatically at the end of the full project pipeline; this command is for manual reruns. The command does not rerun plots or maps. It fails fast with a complete missing-file list when the required result overview, setup map, setup weights overview, or generated DA maps are missing.
 
 ```bash
 oa-da-project-pdf \
@@ -547,9 +552,9 @@ oa-da-project-pdf \
 ```
 
 **Output:**
-- `results/reports/project_plots_maps_collection.pdf` by default
+- `results/reports/project_report.pdf` by default
 
-The PDF starts with a generated one-page project report containing key YAML settings, DA-event counts, and computing-cost stats from project logs and `results/plots/perf/project_perf_metrics.csv` when available. It then includes `result_overview.png`, optional `result_overview_custom.png`, `setup_overview.png`, all `setup_weights_overview*.png` pages, and one DIN A4 page per generated DA-event map under `results/maps/da_events/da_<n>.png`. Standalone per-event weights plots and other remaining plot/map PNGs are not included.
+The PDF starts with a generated one-page project report containing basic setup YAML settings, DA-event counts, computing-cost stats from project logs and `results/plots/perf/project_perf_metrics.csv` when available, plus a bottom `Content` table with page numbers first and section names second. It then includes `result_overview.png`, optional `result_overview_custom.png`, `setup_overview.png`, all `setup_weights_overview*.png` pages, station snow-depth point plots on one page, `performance_scores.png`, `project_perf.png`, and generated DA-event maps under `results/maps/da_events/da_<n>.png` in temporal order. Source PNGs are placed at their shared export-DPI size rather than scaled down to fit a page; consecutive DA maps are packed onto a page only while the reserved bottom gap is preserved. Standalone per-event weights plots and other remaining plot/map PNGs are not included.
 
 ### oa-da-fetch-overview-geojson
 

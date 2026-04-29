@@ -568,15 +568,17 @@ Note: running the setup pipeline (see below) also generates these setup plots au
 
 - Project PDF collection (curated project overview and DA maps):
 
-  Use `oa-da-project-pdf` to assemble a compact report summary page, the curated project overview outputs, and DA-event maps into a DIN A4 portrait PDF at `results/reports/project_plots_maps_collection.pdf`. It does not regenerate any source plot or map; run `oa-da-plot-project-plots` and `oa-da-plot-project-maps` first when outputs are stale or missing.
+  `oa-da-project` attempts this automatically at the end of the project run, after final plots, maps, and benchmark-dependent overview panels are current. It writes `results/reports/project_report.pdf`. Report generation is best-effort inside the project pipeline: if a required plot or map is missing, the run stays successful and the log prints the manual rerun command.
+
+  Use `oa-da-project-pdf` to manually reassemble the compact report summary page, curated project overview outputs, diagnostics, and DA-event maps into a DIN A4 portrait PDF without rerunning the model. It does not regenerate any source plot or map; run `oa-da-plot-project-plots` and `oa-da-plot-project-maps` first when outputs are stale or missing. When running against a mounted source checkout with an older Docker image, use the equivalent `python -m openamundsen_da.methods.viz.reports` entry point so the command is loaded from the checkout.
 
   ```powershell
   docker compose run --rm oa `
-    oa-da-project-pdf `
+    python -m openamundsen_da.methods.viz.reports `
     --project-dir /data/projects/project_2022_2023
   ```
 
-  The PDF starts with a generated one-page project report containing key YAML settings, DA-event counts, and computing-cost stats from project logs and `results/plots/perf/project_perf_metrics.csv` when available. It then includes `result_overview.png`, optional `result_overview_custom.png`, `setup_overview.png`, all `setup_weights_overview*.png` pages, and one DIN A4 page per generated DA-event map under `results/maps/da_events/da_<n>.png`. Standalone per-event weights plots and other remaining plot/map PNGs are not included. Missing required overview, setup map, setup weights overview, or DA map outputs cause a fail-fast error listing all paths to regenerate.
+  The PDF starts with a generated one-page project report containing basic setup YAML settings, DA-event counts, computing-cost stats from project logs and `results/plots/perf/project_perf_metrics.csv` when available, plus a bottom `Content` table with page numbers first and section names second. It then includes `result_overview.png`, optional `result_overview_custom.png`, `setup_overview.png`, all `setup_weights_overview*.png` pages, station snow-depth point plots on one page, `performance_scores.png`, `project_perf.png`, and generated DA-event maps under `results/maps/da_events/da_<n>.png` in temporal order. Source PNGs are placed at their shared export-DPI size rather than scaled down to fit a page; consecutive DA maps are packed onto a page only while the reserved bottom gap is preserved. Standalone per-event weights plots and other remaining plot/map PNGs are not included. Missing required overview, setup map, setup weights overview, or DA map outputs cause a fail-fast error listing all paths to regenerate.
 
 ## Setup Pipeline
 
@@ -696,6 +698,8 @@ docker compose run --rm oa `
 - `results/benchmark/tables/update_summary.csv`
 - `results/benchmark/summary.md`
 - `results/plots/assim/scores/performance_scores.png`
+
+After benchmarking and any benchmark-dependent overview rerender, `oa-da-project` also attempts to assemble `results/reports/project_report.pdf`. Missing report prerequisites are logged as warnings with a rerun command and do not fail the completed project run.
 
 The raw benchmark backend still scores whole-project propagated `da_informed_ensemble` skill against `open_loop` and, on assimilation dates, explicit analysis-time `prior` and weighted `posterior` skill. The headline plot is intentionally narrower: it shows only assimilation-date `prior` and `posterior` skill (`CRPSS`, `NER`) for assimilated and transfer-observed variables on the DA dates themselves, and adds a third station-only `zSkill` panel when sigma-aware station scores are available, while `project_summary.csv` keeps the whole-project propagated view. `wet_snow` is scored as WSF, while `wet_snow_line` is scored as its own WSLA ROI scalar in meters against `wet_snow_line_diagnostics.csv` and `point_wet_snow_line_roi.csv`, not as a WSF proxy. Results are split into `assimilation_fit`, `semi_independent`, and `independent`: `semi_independent` means the exact variable/date pair was not assimilated but is still linked through same-variable reuse elsewhere in the project or through a sister station variable, while `independent` is reserved for benchmark variables never assimilated anywhere in the project and not downgraded by station linkage.
 

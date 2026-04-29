@@ -9,7 +9,11 @@ import pytest
 
 from openamundsen_da.methods.viz.reports.project_collection_pdf import (
     MissingProjectPdfArtifactsError,
-    _fit_rect,
+    _content_rows,
+    _format_page_range,
+    _image_size_inches,
+    _project_pdf_sections,
+    _wrapped_lines,
     build_project_collection_pdf,
     cli_main,
     collect_project_pdf_items,
@@ -42,6 +46,40 @@ def _write_png(path: Path, *, width: int = 80, height: int = 40) -> None:
 
 def _create_project(tmp_path: Path, *, event_count: int = 2) -> Path:
     project_dir = tmp_path / "setup" / "projects" / "project_2023"
+    (tmp_path / "setup").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "setup" / "setup.yml").write_text(
+        "domain: rofental\n"
+        "resolution: 100\n"
+        "timestep: 3H\n"
+        "crs: epsg:25832\n"
+        "meteo:\n"
+        "  interpolation:\n"
+        "    temperature:\n"
+        "      trend_method: fixed\n"
+        "    precipitation:\n"
+        "      trend_method: fractional\n"
+        "    humidity:\n"
+        "      trend_method: fixed\n"
+        "    cloudiness:\n"
+        "      day_method: clear_sky_fraction\n"
+        "      night_method: humidity\n"
+        "    wind_speed:\n"
+        "      trend_method: regression\n"
+        "  precipitation_correction:\n"
+        "    - method: kochendorfer\n"
+        "      gauge: us_un\n"
+        "    - method: srf\n"
+        "snow:\n"
+        "  model: multilayer\n"
+        "  liquid_water_content:\n"
+        "    method: pore_volume_fraction\n"
+        "    max: 0.03\n"
+        "  melt:\n"
+        "    method: energy_balance\n"
+        "canopy:\n"
+        "  enabled: false\n",
+        encoding="utf-8",
+    )
     _write_project_yaml(project_dir, event_count=event_count)
     _write_png(project_dir / "results/plots/results/result_overview.png", width=60, height=90)
     _write_png(project_dir / "results/maps/setup_overview.png", width=90, height=60)
@@ -60,7 +98,11 @@ def test_collect_project_pdf_items_orders_front_da_and_appendix(tmp_path: Path) 
     project_dir = _create_project(tmp_path, event_count=2)
     _write_png(project_dir / "results/plots/results/result_overview_custom.png", width=80, height=80)
     _write_png(project_dir / "results/plots/assim/weights/setup_weights_overview_2023_page_02.png", width=70, height=90)
+    _write_png(project_dir / "results/plots/assim/scores/performance_scores.png", width=90, height=40)
     _write_png(project_dir / "results/plots/perf/project_perf.png", width=90, height=40)
+    _write_png(project_dir / "results/plots/points/setup_results_point_latschbloder_snow_depth_2023.png")
+    _write_png(project_dir / "results/plots/points/setup_results_point_proviantdepot_snow_depth_2023.png")
+    _write_png(project_dir / "results/plots/points/setup_results_point_snow_depth_roi_snow_depth_2023.png")
     _write_png(project_dir / "results/maps/custom_map.png", width=90, height=60)
 
     plan = collect_project_pdf_items(project_dir)
@@ -73,9 +115,57 @@ def test_collect_project_pdf_items_orders_front_da_and_appendix(tmp_path: Path) 
         "setup_weights_overview_2023.png",
         "setup_weights_overview_2023_page_02.png",
     ]
+    assert [item.path.name for item in plan.station_snow_depth_items] == [
+        "setup_results_point_latschbloder_snow_depth_2023.png",
+        "setup_results_point_proviantdepot_snow_depth_2023.png",
+    ]
+    assert plan.performance_scores_item is not None
+    assert plan.performance_scores_item.path.name == "performance_scores.png"
+    assert plan.project_perf_item is not None
+    assert plan.project_perf_item.path.name == "project_perf.png"
     assert [item.map_path.name for item in plan.da_steps] == ["da_1.png", "da_2.png"]
     assert plan.appendix_items == ()
-    assert plan.page_count == 8
+    assert plan.page_count == 10
+
+
+def test_project_pdf_sections_follow_temporal_report_order(tmp_path: Path) -> None:
+    project_dir = _create_project(tmp_path, event_count=2)
+    _write_png(project_dir / "results/plots/assim/scores/performance_scores.png", width=90, height=40)
+    _write_png(project_dir / "results/plots/perf/project_perf.png", width=90, height=40)
+    _write_png(project_dir / "results/plots/points/setup_results_point_latschbloder_snow_depth_2023.png")
+
+    sections = _project_pdf_sections(collect_project_pdf_items(project_dir))
+
+    assert [(section.title, _format_page_range(section.start_page, section.end_page)) for section in sections] == [
+        ("Project summary and setup", "1"),
+        ("result overview", "2"),
+        ("setup overview map", "3"),
+        ("setup weights overview", "4"),
+        ("station snow-depth plots", "5"),
+        ("performance scores", "6"),
+        ("project performance", "7"),
+        ("DA-event maps", "8"),
+    ]
+    assert _content_rows(sections) == (
+        ("1", "Project summary and setup"),
+        ("2", "result overview"),
+        ("3", "setup overview map"),
+        ("4", "setup weights overview"),
+        ("5", "station snow-depth plots"),
+        ("6", "performance scores"),
+        ("7", "project performance"),
+        ("8", "DA-event maps"),
+    )
+
+
+def test_summary_wrapped_lines_can_render_without_truncation() -> None:
+    lines = ["Liquid water content: method=pore_volume_fraction, max=0.03"]
+
+    assert _wrapped_lines(lines, width=24, max_lines=None) == [
+        "Liquid water content:",
+        "method=pore_volume_fraction,",
+        "max=0.03",
+    ]
 
 
 def test_collect_project_report_summary_reads_cost_stats(tmp_path: Path) -> None:
@@ -97,13 +187,22 @@ def test_collect_project_report_summary_reads_cost_stats(tmp_path: Path) -> None
 
     summary = collect_project_report_summary(project_dir)
     cost = next(section for section in summary.sections if section.title == "Computing Cost")
+    setup = next(section for section in summary.sections if section.title == "openAMUNDSEN Setup")
 
     assert "Max workers/cores: 8" in cost.lines
-    assert "Runtime: 2m 03s (project log)" in cost.lines
+    assert "Runtime: 2m 03s" in cost.lines
     assert "Peak CPU: 99.5%" in cost.lines
     assert "Peak RAM: 5.8 GB (50.0%)" in cost.lines
     assert "Total RAM: 16.0 GB" in cost.lines
-    assert "Perf samples: 2026-01-01 00:00:00 to 2026-01-01 00:01:00" in cost.lines
+    assert "Domain: rofental, resolution=100 m, timestep=3H, CRS=epsg:25832" in setup.lines
+    assert (
+        "Meteo interpolation: temp=fixed, precip=fractional, humidity=fixed, "
+        "wind=regression, cloud=clear_sky_fraction/humidity"
+    ) in setup.lines
+    assert "Precip correction: kochendorfer (gauge=us_un), srf" in setup.lines
+    assert "Snow model: multilayer, melt=energy_balance" in setup.lines
+    assert "Liquid water content: method=pore_volume_fraction, max=0.03" in setup.lines
+    assert "Canopy enabled: false" in setup.lines
 
 
 def test_collect_project_report_summary_handles_missing_cost_stats(tmp_path: Path) -> None:
@@ -143,7 +242,20 @@ def test_build_project_collection_pdf_writes_expected_page_count(tmp_path: Path)
 
     assert written == output
     assert output.is_file()
-    assert _pdf_page_count(output) == 5
+    assert _pdf_page_count(output) == 6
+
+
+def test_build_project_collection_pdf_groups_wide_da_maps(tmp_path: Path) -> None:
+    project_dir = _create_project(tmp_path, event_count=4)
+    for idx in range(1, 5):
+        _write_png(project_dir / f"results/maps/da_events/da_{idx}.png", width=4200, height=3000)
+    output = tmp_path / "collection.pdf"
+
+    written = build_project_collection_pdf(project_dir=project_dir, output=output)
+
+    assert written == output
+    assert collect_project_pdf_items(project_dir).page_count == 6
+    assert _pdf_page_count(output) == 6
 
 
 def test_cli_main_writes_project_collection_pdf(tmp_path: Path) -> None:
@@ -156,10 +268,26 @@ def test_cli_main_writes_project_collection_pdf(tmp_path: Path) -> None:
     assert output.is_file()
 
 
-def test_fit_rect_preserves_aspect_ratio() -> None:
-    left, bottom, width, height = _fit_rect(400, 200, (0.0, 0.0, 8.0, 8.0))
+def test_python_module_entry_point_calls_cli_main(monkeypatch: pytest.MonkeyPatch) -> None:
+    from openamundsen_da.methods.viz.reports import __main__ as reports_main
 
-    assert left == pytest.approx(0.0)
-    assert bottom == pytest.approx(4.0)
-    assert width == pytest.approx(8.0)
-    assert height == pytest.approx(4.0)
+    calls = []
+
+    def fake_cli_main() -> int:
+        calls.append(True)
+        return 17
+
+    monkeypatch.setattr(reports_main, "cli_main", fake_cli_main)
+
+    assert reports_main.main() == 17
+    assert calls == [True]
+
+
+def test_image_size_inches_uses_shared_export_dpi(tmp_path: Path) -> None:
+    path = tmp_path / "image.png"
+    _write_png(path, width=1200, height=600)
+
+    width, height = _image_size_inches(path)
+
+    assert width == pytest.approx(2.0)
+    assert height == pytest.approx(1.0)

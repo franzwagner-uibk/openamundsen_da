@@ -148,7 +148,7 @@ def _snow_depth_row(*, row: int, label: str, event_variable: str) -> GeneratedRo
                 row=row,
                 col=3,
                 source="analysis_increment",
-                title="DA increment",
+                title="posterior - prior",
                 show_hillshade=True,
                 variable=event_variable,
             ),

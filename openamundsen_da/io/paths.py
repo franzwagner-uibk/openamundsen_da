@@ -461,7 +461,7 @@ def project_reports_root(project_dir: str | Path) -> Path:
 
 def project_plots_maps_collection_pdf_path(project_dir: str | Path) -> Path:
     """Return the canonical project plots/maps collection PDF path."""
-    return project_reports_root(project_dir) / "project_plots_maps_collection.pdf"
+    return project_reports_root(project_dir) / "project_report.pdf"
 
 
 def project_benchmark_root(project_dir: str | Path) -> Path:

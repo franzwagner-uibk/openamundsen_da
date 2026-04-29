@@ -19,20 +19,28 @@ from PIL import Image
 
 from openamundsen_da.io.paths import (
     find_project_yaml,
+    find_setup_yaml,
+    infer_setup_dir_from_project,
     project_maps_root,
+    project_plot_assim_scores_dir,
     project_plot_perf_dir,
+    project_plot_points_dir,
     project_plots_maps_collection_pdf_path,
     project_plots_root,
     project_result_overview_custom_output_path,
     project_result_overview_output_path,
 )
 from openamundsen_da.methods.viz.maps.generated import GENERATED_DA_MAPS_SUBDIR
+from openamundsen_da.methods.viz.theme import EXPORT_DPI
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.yaml_utils import read_yaml_mapping
 
 
 A4_PORTRAIT_IN = (8.27, 11.69)
+IMAGE_TOP_MARGIN_IN = 0.65
+IMAGE_BOTTOM_GAP_IN = 0.55
+IMAGE_ROW_GAP_IN = 0.18
 _NA = "n/a"
 _WORKER_PATTERNS = (
     re.compile(r"max_workers=(\d+)"),
@@ -55,16 +63,26 @@ class PdfDaStepItem:
 
 
 @dataclass(frozen=True)
+class PdfSection:
+    title: str
+    start_page: int
+    end_page: int
+
+
+@dataclass(frozen=True)
 class ProjectPdfPlan:
     project_dir: Path
     front_items: tuple[PdfImageItem, ...]
+    station_snow_depth_items: tuple[PdfImageItem, ...]
+    performance_scores_item: PdfImageItem | None
+    project_perf_item: PdfImageItem | None
     da_steps: tuple[PdfDaStepItem, ...]
     appendix_items: tuple[PdfImageItem, ...]
     missing_paths: tuple[Path, ...]
 
     @property
     def page_count(self) -> int:
-        return 1 + len(self.front_items) + len(self.da_steps) + len(self.appendix_items)
+        return _plan_page_count(self)
 
 
 @dataclass(frozen=True)
@@ -291,10 +309,8 @@ def _read_perf_stats(project_dir: Path) -> ProjectComputingCostStats:
 
 def _computing_cost_lines(stats: ProjectComputingCostStats) -> tuple[str, ...]:
     runtime = _format_duration(stats.runtime_seconds)
-    if stats.runtime_source:
-        runtime = f"{runtime} ({stats.runtime_source})"
     worker_text = str(stats.max_workers) if stats.max_workers is not None else _NA
-    lines = [
+    return (
         f"Max workers/cores: {worker_text}",
         f"Runtime: {runtime}",
         f"Peak CPU: {_format_float(stats.peak_cpu_pct, unit='%', precision=1)}",
@@ -304,10 +320,71 @@ def _computing_cost_lines(stats: ProjectComputingCostStats) -> tuple[str, ...]:
             f"({_format_float(stats.peak_mem_used_pct, unit='%', precision=1)})"
         ),
         f"Total RAM: {_format_float(stats.mem_total_gb, unit='GB', precision=1)}",
-    ]
-    if stats.perf_sample_start and stats.perf_sample_end:
-        lines.append(f"Perf samples: {stats.perf_sample_start} to {stats.perf_sample_end}")
-    return tuple(lines)
+    )
+
+
+def _setup_yaml_summary_section(project_dir: Path) -> ProjectReportSection:
+    try:
+        setup_dir = infer_setup_dir_from_project(project_dir)
+        setup_yaml = find_setup_yaml(setup_dir)
+        cfg = read_yaml_mapping(setup_yaml, error_cls=RuntimeError, context="Setup YAML root")
+    except Exception as exc:
+        logger.warning("Could not read setup YAML for report summary: {}", exc)
+        return ProjectReportSection("openAMUNDSEN Setup", ("Setup YAML: n/a",))
+
+    meteo_cfg = _as_mapping(cfg.get("meteo"))
+    interp_cfg = _as_mapping(meteo_cfg.get("interpolation"))
+    snow_cfg = _as_mapping(cfg.get("snow"))
+    lwc_cfg = _as_mapping(snow_cfg.get("liquid_water_content"))
+    melt_cfg = _as_mapping(snow_cfg.get("melt"))
+    canopy_cfg = _as_mapping(cfg.get("canopy"))
+
+    interpolation_methods = []
+    for key, label in (
+        ("temperature", "temp"),
+        ("precipitation", "precip"),
+        ("humidity", "humidity"),
+        ("wind_speed", "wind"),
+    ):
+        method = _as_mapping(interp_cfg.get(key)).get("trend_method")
+        if method is not None:
+            interpolation_methods.append(f"{label}={_format_value(method)}")
+    cloud_cfg = _as_mapping(interp_cfg.get("cloudiness"))
+    if cloud_cfg:
+        day = cloud_cfg.get("day_method")
+        night = cloud_cfg.get("night_method")
+        interpolation_methods.append(f"cloud={_format_value(day)}/{_format_value(night)}")
+
+    precip_correction_methods = []
+    for item in meteo_cfg.get("precipitation_correction") or []:
+        if not isinstance(item, dict):
+            continue
+        method = item.get("method")
+        if method is None:
+            continue
+        details = []
+        if item.get("gauge") is not None:
+            details.append(f"gauge={_format_value(item.get('gauge'))}")
+        suffix = f" ({', '.join(details)})" if details else ""
+        precip_correction_methods.append(f"{_format_value(method)}{suffix}")
+
+    return ProjectReportSection(
+        "openAMUNDSEN Setup",
+        (
+            f"Setup YAML: {setup_yaml.name}",
+            (
+                "Domain: "
+                f"{_format_value(cfg.get('domain'))}, resolution={_format_value(cfg.get('resolution'))} m, "
+                f"timestep={_format_value(cfg.get('timestep'))}, CRS={_format_value(cfg.get('crs'))}"
+            ),
+            f"Meteo interpolation: {', '.join(interpolation_methods) if interpolation_methods else _NA}",
+            f"Precip correction: {', '.join(precip_correction_methods) if precip_correction_methods else _NA}",
+            f"Snow model: {_format_value(snow_cfg.get('model'))}, melt={_format_value(melt_cfg.get('method'))}",
+            "Liquid water content: "
+            + _format_mapping_values(lwc_cfg, ("method", "max"), labels={"max": "max"}),
+            f"Canopy enabled: {_format_value(canopy_cfg.get('enabled'))}",
+        ),
+    )
 
 
 def collect_project_report_summary(project_dir: Path) -> ProjectReportSummary:
@@ -315,12 +392,8 @@ def collect_project_report_summary(project_dir: Path) -> ProjectReportSummary:
     project_yaml = find_project_yaml(project_dir)
     cfg = read_yaml_mapping(project_yaml, error_cls=RuntimeError, context="Project YAML root")
     da_cfg = _as_mapping(cfg.get("data_assimilation"))
-    obs_cfg = _as_mapping(cfg.get("obs"))
     events = load_assimilation_events(project_dir)
     event_counter = Counter(event.variable for event in events)
-    product_counter = Counter(event.product for event in events)
-    first_event = events[0].date.isoformat() if events else _NA
-    last_event = events[-1].date.isoformat() if events else _NA
 
     prior_cfg = _as_mapping(da_cfg.get("prior_forcing"))
     h_of_x_cfg = _as_mapping(da_cfg.get("h_of_x"))
@@ -332,8 +405,6 @@ def collect_project_report_summary(project_dir: Path) -> ProjectReportSummary:
     uncertainty_cfg = _as_mapping(da_cfg.get("uncertainty"))
     resampling_cfg = _as_mapping(da_cfg.get("resampling"))
     rejuvenation_cfg = _as_mapping(da_cfg.get("rejuvenation"))
-    restart_cfg = _as_mapping(da_cfg.get("restart"))
-    output_cfg = _as_mapping(da_cfg.get("output"))
     benchmark_cfg = _as_mapping(da_cfg.get("benchmark"))
 
     likelihood_lines = []
@@ -378,21 +449,12 @@ def collect_project_report_summary(project_dir: Path) -> ProjectReportSummary:
                 f"Run mode: {_format_value(cfg.get('run_mode'))}",
             ),
         ),
+        _setup_yaml_summary_section(project_dir),
         ProjectReportSection(
             "DA Events",
             (
                 f"Total: {len(events)}",
                 f"By variable: {_format_counter(event_counter)}",
-                f"Products: {_format_counter(product_counter)}",
-                f"First/last: {first_event} to {last_event}",
-            ),
-        ),
-        ProjectReportSection(
-            "Observations",
-            (
-                _obs_line("Stations", _as_mapping(obs_cfg.get("stations")), include_product=False),
-                _obs_line("Snow cover", _as_mapping(obs_cfg.get("snowcover"))),
-                _obs_line("Wet snow", _as_mapping(obs_cfg.get("wetsnow"))),
             ),
         ),
         ProjectReportSection(
@@ -455,8 +517,6 @@ def collect_project_report_summary(project_dir: Path) -> ProjectReportSummary:
                     rejuvenation_cfg,
                     ("sigma_t", "sigma_p", "sigma_rh", "sigma_sw", "seed", "rebase_open_loop"),
                 ),
-                "Restart: " + _format_mapping_values(restart_cfg, ("use_state", "dump_state", "state_pattern")),
-                "Output: " + _format_mapping_values(output_cfg, ("retention",)),
                 "Benchmark: "
                 + _format_mapping_values(
                     benchmark_cfg,
@@ -477,6 +537,17 @@ def collect_project_report_summary(project_dir: Path) -> ProjectReportSummary:
 
 def _da_map_path(project_dir: Path, index: int) -> Path:
     return project_maps_root(project_dir) / GENERATED_DA_MAPS_SUBDIR / f"da_{index}.png"
+
+
+def _station_snow_depth_plot_paths(project_dir: Path) -> list[Path]:
+    points_dir = project_plot_points_dir(project_dir)
+    if not points_dir.is_dir():
+        return []
+    return [
+        path
+        for path in sorted(points_dir.glob("*snow_depth*.png"), key=_natural_sort_key)
+        if "_roi_" not in path.name
+    ]
 
 
 def collect_project_pdf_items(project_dir: Path) -> ProjectPdfPlan:
@@ -512,6 +583,19 @@ def collect_project_pdf_items(project_dir: Path) -> ProjectPdfPlan:
         if path.is_file():
             front_items.append(PdfImageItem(path, "setup weights overview"))
 
+    station_snow_depth_items = tuple(
+        PdfImageItem(path, "station snow-depth plots")
+        for path in _station_snow_depth_plot_paths(project_dir)
+    )
+    performance_scores_path = optional(project_plot_assim_scores_dir(project_dir) / "performance_scores.png")
+    performance_scores_item = (
+        PdfImageItem(performance_scores_path, "performance scores")
+        if performance_scores_path is not None
+        else None
+    )
+    project_perf_path = optional(project_plot_perf_dir(project_dir) / "project_perf.png")
+    project_perf_item = PdfImageItem(project_perf_path, "project performance") if project_perf_path is not None else None
+
     da_steps: list[PdfDaStepItem] = []
     for index, _event in enumerate(load_assimilation_events(project_dir), start=1):
         map_path = require(_da_map_path(project_dir, index))
@@ -520,6 +604,9 @@ def collect_project_pdf_items(project_dir: Path) -> ProjectPdfPlan:
     return ProjectPdfPlan(
         project_dir=project_dir,
         front_items=tuple(front_items),
+        station_snow_depth_items=station_snow_depth_items,
+        performance_scores_item=performance_scores_item,
+        project_perf_item=project_perf_item,
         da_steps=tuple(da_steps),
         appendix_items=(),
         missing_paths=tuple(sorted(set(missing), key=_natural_sort_key)),
@@ -534,19 +621,87 @@ def _image_size(path: Path) -> tuple[int, int]:
     return int(width), int(height)
 
 
-def _fit_rect(width: int, height: int, box: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-    left, bottom, box_width, box_height = box
-    if width <= 0 or height <= 0:
-        raise ValueError(f"Image dimensions must be positive, got {width}x{height}")
-    scale = min(box_width / float(width), box_height / float(height))
-    display_width = float(width) * scale
-    display_height = float(height) * scale
+def _image_size_inches(path: Path) -> tuple[float, float]:
+    width, height = _image_size(path)
+    return width / float(EXPORT_DPI), height / float(EXPORT_DPI)
+
+
+def _image_height_inches(path: Path) -> float:
+    if not path.is_file():
+        return 0.0
+    _width, height = _image_size_inches(path)
+    return height
+
+
+def _da_step_page_groups(da_steps: Iterable[PdfDaStepItem]) -> tuple[tuple[PdfDaStepItem, ...], ...]:
+    steps = list(da_steps)
+    groups: list[tuple[PdfDaStepItem, ...]] = []
+    current: list[PdfDaStepItem] = []
+    current_height = 0.0
+    available_height = A4_PORTRAIT_IN[1] - IMAGE_TOP_MARGIN_IN - IMAGE_BOTTOM_GAP_IN
+    for item in steps:
+        item_height = _image_height_inches(item.map_path)
+        candidate_height = item_height if not current else current_height + IMAGE_ROW_GAP_IN + item_height
+        if current and candidate_height > available_height:
+            groups.append(tuple(current))
+            current = [item]
+            current_height = item_height
+        else:
+            current.append(item)
+            current_height = candidate_height
+    if current:
+        groups.append(tuple(current))
+    return tuple(groups)
+
+
+def _plan_page_count(plan: ProjectPdfPlan) -> int:
     return (
-        left + (box_width - display_width) / 2.0,
-        bottom + box_height - display_height,
-        display_width,
-        display_height,
+        1
+        + len(plan.front_items)
+        + (1 if plan.station_snow_depth_items else 0)
+        + (1 if plan.performance_scores_item is not None else 0)
+        + (1 if plan.project_perf_item is not None else 0)
+        + len(_da_step_page_groups(plan.da_steps))
+        + len(plan.appendix_items)
     )
+
+
+def _format_page_range(start_page: int, end_page: int) -> str:
+    if start_page == end_page:
+        return str(start_page)
+    return f"{start_page}-{end_page}"
+
+
+def _project_pdf_sections(plan: ProjectPdfPlan) -> tuple[PdfSection, ...]:
+    sections: list[PdfSection] = []
+    page = 1
+
+    def add(title: str, count: int) -> None:
+        nonlocal page
+        if count < 1:
+            return
+        start = page
+        end = page + count - 1
+        sections.append(PdfSection(title=title, start_page=start, end_page=end))
+        page = end + 1
+
+    add("Project summary and setup", 1)
+    idx = 0
+    while idx < len(plan.front_items):
+        label = plan.front_items[idx].label
+        count = 1
+        idx += 1
+        while idx < len(plan.front_items) and plan.front_items[idx].label == label:
+            count += 1
+            idx += 1
+        add(label, count)
+    add("station snow-depth plots", 1 if plan.station_snow_depth_items else 0)
+    add("performance scores", 1 if plan.performance_scores_item is not None else 0)
+    add("project performance", 1 if plan.project_perf_item is not None else 0)
+    add("DA-event maps", len(_da_step_page_groups(plan.da_steps)))
+    for item in plan.appendix_items:
+        add(item.label, 1)
+    return tuple(sections)
 
 
 def _draw_image(fig: Figure, path: Path, rect: tuple[float, float, float, float]) -> None:
@@ -556,33 +711,109 @@ def _draw_image(fig: Figure, path: Path, rect: tuple[float, float, float, float]
     ax.set_axis_off()
 
 
-def _write_single_image_page(pdf: PdfPages, item: PdfImageItem) -> None:
+def _draw_page_number(fig: Figure, *, page_number: int, total_pages: int) -> None:
+    fig.text(
+        0.5,
+        0.018,
+        f"{page_number} / {total_pages}",
+        ha="center",
+        va="bottom",
+        fontsize=7.0,
+        color="#607D8B",
+    )
+
+
+def _draw_image_at_original_size(fig: Figure, path: Path, *, left: float, top: float) -> None:
+    page_width, page_height = fig.get_size_inches()
+    display_width, display_height = _image_size_inches(path)
+    bottom = top - display_height
+    _draw_image(
+        fig,
+        path,
+        (left / page_width, bottom / page_height, display_width / page_width, display_height / page_height),
+    )
+
+
+def _write_single_image_page(pdf: PdfPages, item: PdfImageItem, *, page_number: int, total_pages: int) -> None:
     import matplotlib.pyplot as plt
 
     page_width, page_height = A4_PORTRAIT_IN
-    margin = 0.25
     fig = plt.figure(figsize=(page_width, page_height))
-    width, height = _image_size(item.path)
-    left, bottom, display_width, display_height = _fit_rect(
-        width,
-        height,
-        (margin, margin, page_width - 2 * margin, page_height - 2 * margin),
-    )
-    _draw_image(
+    display_width, _display_height = _image_size_inches(item.path)
+    _draw_image_at_original_size(
         fig,
         item.path,
-        (left / page_width, bottom / page_height, display_width / page_width, display_height / page_height),
+        left=(page_width - display_width) / 2.0,
+        top=page_height - IMAGE_TOP_MARGIN_IN,
     )
+    _draw_page_number(fig, page_number=page_number, total_pages=total_pages)
     pdf.savefig(fig)
     plt.close(fig)
 
 
-def _wrapped_lines(lines: Iterable[str], *, width: int, max_lines: int) -> list[str]:
+def _write_image_group_page(
+    pdf: PdfPages,
+    items: Iterable[PdfImageItem],
+    *,
+    page_number: int,
+    total_pages: int,
+) -> None:
+    import matplotlib.pyplot as plt
+
+    page_width, page_height = A4_PORTRAIT_IN
+    fig = plt.figure(figsize=(page_width, page_height))
+    row_top = page_height - IMAGE_TOP_MARGIN_IN
+    for item in items:
+        display_width, display_height = _image_size_inches(item.path)
+        _draw_image_at_original_size(
+            fig,
+            item.path,
+            left=(page_width - display_width) / 2.0,
+            top=row_top,
+        )
+        row_top -= display_height + IMAGE_ROW_GAP_IN
+    _draw_page_number(fig, page_number=page_number, total_pages=total_pages)
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def _write_da_steps_pages(
+    pdf: PdfPages,
+    da_steps: Iterable[PdfDaStepItem],
+    *,
+    start_page_number: int,
+    total_pages: int,
+) -> int:
+    import matplotlib.pyplot as plt
+
+    page_width, page_height = A4_PORTRAIT_IN
+
+    page_number = start_page_number
+    for group in _da_step_page_groups(da_steps):
+        fig = plt.figure(figsize=(page_width, page_height))
+        row_top = page_height - IMAGE_TOP_MARGIN_IN
+        for item in group:
+            display_width, display_height = _image_size_inches(item.map_path)
+            _draw_image_at_original_size(
+                fig,
+                item.map_path,
+                left=(page_width - display_width) / 2.0,
+                top=row_top,
+            )
+            row_top -= display_height + IMAGE_ROW_GAP_IN
+        _draw_page_number(fig, page_number=page_number, total_pages=total_pages)
+        pdf.savefig(fig)
+        plt.close(fig)
+        page_number += 1
+    return page_number
+
+
+def _wrapped_lines(lines: Iterable[str], *, width: int, max_lines: int | None) -> list[str]:
     rendered: list[str] = []
     for line in lines:
         pieces = wrap(line, width=width, break_long_words=False, break_on_hyphens=False) or [""]
         for piece in pieces:
-            if len(rendered) >= max_lines:
+            if max_lines is not None and len(rendered) >= max_lines:
                 rendered[-1] = f"{rendered[-1].rstrip()} ..."
                 return rendered
             rendered.append(piece)
@@ -597,7 +828,7 @@ def _draw_section(
     x: float,
     y: float,
     width: float,
-    max_lines: int,
+    max_lines: int | None = None,
 ) -> float:
     line_height = 0.0175
     section_gap = 0.013
@@ -611,7 +842,46 @@ def _draw_section(
     return current_y - section_gap
 
 
-def _write_project_summary_page(pdf: PdfPages, summary: ProjectReportSummary) -> None:
+def _content_rows(toc_sections: Iterable[PdfSection]) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        (_format_page_range(section.start_page, section.end_page), section.title)
+        for section in toc_sections
+    )
+
+
+def _draw_content_section(
+    ax: matplotlib.axes.Axes,
+    *,
+    rows: Iterable[tuple[str, str]],
+    x: float,
+    y: float,
+    width: float,
+) -> None:
+    line_height = 0.0175
+    title_y = y
+    ax.text(x, title_y, "CONTENT", fontsize=7.7, fontweight="bold", color="#263238", va="top")
+    ax.plot([x, x + width], [title_y - 0.010, title_y - 0.010], color="#90A4AE", linewidth=0.6)
+
+    page_x = x
+    name_x = x + 0.085
+    current_y = title_y - 0.025
+    ax.text(page_x, current_y, "Page", fontsize=6.7, fontweight="bold", color="#455A64", va="top")
+    ax.text(name_x, current_y, "Section", fontsize=6.7, fontweight="bold", color="#455A64", va="top")
+    current_y -= line_height
+    for page_range, title in rows:
+        ax.text(page_x, current_y, page_range, fontsize=6.9, color="#263238", va="top", family="DejaVu Sans")
+        ax.text(name_x, current_y, title, fontsize=6.9, color="#263238", va="top", family="DejaVu Sans")
+        current_y -= line_height
+
+
+def _write_project_summary_page(
+    pdf: PdfPages,
+    summary: ProjectReportSummary,
+    *,
+    toc_sections: tuple[PdfSection, ...],
+    page_number: int,
+    total_pages: int,
+) -> None:
     import matplotlib.pyplot as plt
 
     page_width, page_height = A4_PORTRAIT_IN
@@ -634,7 +904,7 @@ def _write_project_summary_page(pdf: PdfPages, summary: ProjectReportSummary) ->
     ax.text(
         0.065,
         0.928,
-        f"{summary.project_dir.name} | first page: YAML highlights and computing cost",
+        summary.project_dir.name,
         fontsize=8.3,
         color="#455A64",
         va="top",
@@ -643,8 +913,8 @@ def _write_project_summary_page(pdf: PdfPages, summary: ProjectReportSummary) ->
 
     left_sections = summary.sections[:4]
     right_sections = summary.sections[4:]
-    left_limits = (5, 6, 8, 13)
-    right_limits = (12, 6, 5, 7)
+    left_limits = (None, None, None, None)
+    right_limits = (None, None, None, None)
     y_left = 0.885
     y_right = 0.885
     for section, max_lines in zip(left_sections, left_limits, strict=True):
@@ -668,6 +938,13 @@ def _write_project_summary_page(pdf: PdfPages, summary: ProjectReportSummary) ->
             max_lines=max_lines,
         )
 
+    _draw_content_section(
+        ax,
+        rows=_content_rows(toc_sections),
+        x=0.065,
+        y=0.265,
+        width=0.870,
+    )
     ax.text(
         0.065,
         0.038,
@@ -676,6 +953,7 @@ def _write_project_summary_page(pdf: PdfPages, summary: ProjectReportSummary) ->
         color="#607D8B",
         va="bottom",
     )
+    _draw_page_number(fig, page_number=page_number, total_pages=total_pages)
     pdf.savefig(fig)
     plt.close(fig)
 
@@ -686,14 +964,54 @@ def write_project_pdf_plan(plan: ProjectPdfPlan, output: Path) -> Path:
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     matplotlib.use("Agg", force=True)
+    total_pages = plan.page_count
+    toc_sections = _project_pdf_sections(plan)
+    page_number = 1
     with PdfPages(output) as pdf:
-        _write_project_summary_page(pdf, collect_project_report_summary(plan.project_dir))
+        _write_project_summary_page(
+            pdf,
+            collect_project_report_summary(plan.project_dir),
+            toc_sections=toc_sections,
+            page_number=page_number,
+            total_pages=total_pages,
+        )
+        page_number += 1
         for item in plan.front_items:
-            _write_single_image_page(pdf, item)
-        for item in plan.da_steps:
-            _write_single_image_page(pdf, PdfImageItem(item.map_path, f"DA {item.index} map"))
+            _write_single_image_page(pdf, item, page_number=page_number, total_pages=total_pages)
+            page_number += 1
+        if plan.station_snow_depth_items:
+            _write_image_group_page(
+                pdf,
+                plan.station_snow_depth_items,
+                page_number=page_number,
+                total_pages=total_pages,
+            )
+            page_number += 1
+        if plan.performance_scores_item is not None:
+            _write_single_image_page(
+                pdf,
+                plan.performance_scores_item,
+                page_number=page_number,
+                total_pages=total_pages,
+            )
+            page_number += 1
+        if plan.project_perf_item is not None:
+            _write_single_image_page(
+                pdf,
+                plan.project_perf_item,
+                page_number=page_number,
+                total_pages=total_pages,
+            )
+            page_number += 1
+        page_number = _write_da_steps_pages(
+            pdf,
+            plan.da_steps,
+            start_page_number=page_number,
+            total_pages=total_pages,
+        )
         for item in plan.appendix_items:
-            _write_single_image_page(pdf, item)
+            _write_single_image_page(pdf, item, page_number=page_number, total_pages=total_pages)
+            page_number += 1
     if plan.page_count < 1:
         raise ValueError("No project PNG artifacts found for PDF collection")
     logger.info("Wrote project plots/maps collection PDF {} ({} page(s))", output, plan.page_count)
@@ -718,7 +1036,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        help="Output PDF path (default: <project>/results/reports/project_plots_maps_collection.pdf)",
+        help="Output PDF path (default: <project>/results/reports/project_report.pdf)",
     )
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
     return parser.parse_args(argv)

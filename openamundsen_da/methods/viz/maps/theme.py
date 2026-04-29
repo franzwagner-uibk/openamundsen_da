@@ -102,7 +102,7 @@ _AUTO_TITLE_SOURCE = {
     "prior_probability": "Prior probability",
     "posterior_probability": "Posterior probability",
     "increment": "Increment",
-    "analysis_increment": "DA increment",
+    "analysis_increment": "posterior - prior",
     "open_loop_binary": "Open-loop snow cover",
 }
 _AUTO_TITLE_KIND = {

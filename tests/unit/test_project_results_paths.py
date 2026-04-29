@@ -53,7 +53,7 @@ def test_project_level_results_paths_use_canonical_results_tree(tmp_path: Path) 
     assert project_reports_root(project_dir) == project_dir / "results" / "reports"
     assert (
         project_plots_maps_collection_pdf_path(project_dir)
-        == project_dir / "results" / "reports" / "project_plots_maps_collection.pdf"
+        == project_dir / "results" / "reports" / "project_report.pdf"
     )
     assert project_benchmark_root(project_dir) == project_dir / "results" / "benchmark"
     assert project_benchmark_plots_dir(project_dir) == project_plot_assim_scores_dir(project_dir)

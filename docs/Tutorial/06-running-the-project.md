@@ -164,7 +164,7 @@ After a successful run, these paths should exist:
 - `/data/rofental/projects/project_2022_2023/results/misc/point_wet_snow_roi_envelope.csv`
 - `/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc`
 - `/data/rofental/projects/project_2022_2023/results/maps/`
-- `/data/rofental/projects/project_2022_2023/results/reports/project_plots_maps_collection.pdf` after running `oa-da-project-pdf`
+- `/data/rofental/projects/project_2022_2023/results/reports/project_report.pdf`
 
 Typical result files after a successful run:
 
@@ -209,8 +209,10 @@ results/maps/
     da_10.png
 
 results/reports/
-  project_plots_maps_collection.pdf   # written by oa-da-project-pdf
+  project_report.pdf                  # attempted at the end of oa-da-project
 ```
+
+The report PDF is a best-effort final artifact. Its first page contains the setup/project summary plus a bottom `Content` table with page numbers first and section names second. It then collects the curated overview plots, setup map, setup weights overview pages, station snow-depth point plots, `performance_scores.png`, `project_perf.png`, and generated DA-event maps in temporal order. If report prerequisites are missing, `oa-da-project` logs the missing paths and a manual `python -m openamundsen_da.methods.viz.reports --project-dir ...` rerun command, but the completed model run remains successful.
 
 ![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/project_perf.png)
 

@@ -26,6 +26,10 @@ BENIGN_WARNING_PATTERNS = [
         r"Skipping analysis benchmark for .* on \d{4}-\d{2}-\d{2}: missing observation row",
         re.IGNORECASE,
     ),
+    re.compile(
+        r"Skipping wet_snow_line benchmark case at \d{4}-\d{2}-\d{2}: missing model values",
+        re.IGNORECASE,
+    ),
 ]
 
 

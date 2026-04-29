@@ -48,6 +48,10 @@ _WORKER_PATTERNS = (
     re.compile(r"\busing\s+(\d+)\s+worker\(s\)"),
 )
 _WALL_CLOCK_RE = re.compile(r"wall-clock\s+([0-9]+(?:\.[0-9]+)?)\s+s")
+_SUMMARY_FULL_BOLD_PREFIXES = ("Run mode:", "Total:", "By variable:")
+_SUMMARY_BOLD_VALUE_RE = re.compile(
+    r"(resolution=[^,]+|timestep=[^,]+|ensemble_size=[^,]+|ess_ratio=[^,]+)"
+)
 
 
 @dataclass(frozen=True)
@@ -808,16 +812,77 @@ def _write_da_steps_pages(
     return page_number
 
 
-def _wrapped_lines(lines: Iterable[str], *, width: int, max_lines: int | None) -> list[str]:
-    rendered: list[str] = []
+def _wrapped_line_sources(
+    lines: Iterable[str],
+    *,
+    width: int,
+    max_lines: int | None,
+) -> list[tuple[str, str]]:
+    rendered: list[tuple[str, str]] = []
     for line in lines:
         pieces = wrap(line, width=width, break_long_words=False, break_on_hyphens=False) or [""]
         for piece in pieces:
             if max_lines is not None and len(rendered) >= max_lines:
-                rendered[-1] = f"{rendered[-1].rstrip()} ..."
+                prev_piece, prev_source = rendered[-1]
+                rendered[-1] = (f"{prev_piece.rstrip()} ...", prev_source)
                 return rendered
-            rendered.append(piece)
+            rendered.append((piece, line))
     return rendered
+
+
+def _wrapped_lines(lines: Iterable[str], *, width: int, max_lines: int | None) -> list[str]:
+    return [line for line, _source in _wrapped_line_sources(lines, width=width, max_lines=max_lines)]
+
+
+def _summary_line_segments(text: str, *, source: str) -> tuple[tuple[str, bool], ...]:
+    if source.startswith(_SUMMARY_FULL_BOLD_PREFIXES):
+        return ((text, True),)
+
+    segments: list[tuple[str, bool]] = []
+    pos = 0
+    for match in _SUMMARY_BOLD_VALUE_RE.finditer(text):
+        if match.start() > pos:
+            segments.append((text[pos : match.start()], False))
+        segments.append((match.group(0), True))
+        pos = match.end()
+    if pos < len(text):
+        segments.append((text[pos:], False))
+    return tuple(segments) if segments else ((text, False),)
+
+
+def _data_dx_from_pixel_width(ax: matplotlib.axes.Axes, width_px: float) -> float:
+    origin_px = ax.transData.transform((0.0, 0.0))
+    shifted_data = ax.transData.inverted().transform((origin_px[0] + width_px, origin_px[1]))
+    return float(shifted_data[0])
+
+
+def _draw_summary_line(
+    ax: matplotlib.axes.Axes,
+    *,
+    x: float,
+    y: float,
+    text: str,
+    source: str,
+    fontsize: float,
+    color: str,
+) -> None:
+    current_x = x
+    for segment, is_bold in _summary_line_segments(text, source=source):
+        if not segment:
+            continue
+        artist = ax.text(
+            current_x,
+            y,
+            segment,
+            fontsize=fontsize,
+            color=color,
+            va="top",
+            family="DejaVu Sans",
+            fontweight="bold" if is_bold else "normal",
+        )
+        ax.figure.canvas.draw()
+        renderer = ax.figure.canvas.get_renderer()
+        current_x += _data_dx_from_pixel_width(ax, artist.get_window_extent(renderer=renderer).width)
 
 
 def _draw_section(
@@ -836,8 +901,16 @@ def _draw_section(
     ax.text(x, title_y, title.upper(), fontsize=7.7, fontweight="bold", color="#263238", va="top")
     ax.plot([x, x + width], [title_y - 0.010, title_y - 0.010], color="#90A4AE", linewidth=0.6)
     current_y = title_y - 0.022
-    for line in _wrapped_lines(lines, width=62, max_lines=max_lines):
-        ax.text(x, current_y, line, fontsize=6.9, color="#263238", va="top", family="DejaVu Sans")
+    for line, source in _wrapped_line_sources(lines, width=62, max_lines=max_lines):
+        _draw_summary_line(
+            ax,
+            x=x,
+            y=current_y,
+            text=line,
+            source=source,
+            fontsize=6.9,
+            color="#263238",
+        )
         current_y -= line_height
     return current_y - section_gap
 

@@ -13,6 +13,7 @@ from openamundsen_da.methods.viz.reports.project_collection_pdf import (
     _format_page_range,
     _image_size_inches,
     _project_pdf_sections,
+    _summary_line_segments,
     _wrapped_lines,
     build_project_collection_pdf,
     cli_main,
@@ -166,6 +167,37 @@ def test_summary_wrapped_lines_can_render_without_truncation() -> None:
         "method=pore_volume_fraction,",
         "max=0.03",
     ]
+
+
+def test_summary_line_segments_bold_important_report_values() -> None:
+    assert _summary_line_segments("Run mode: single", source="Run mode: single") == (("Run mode: single", True),)
+    assert _summary_line_segments(
+        "Domain: rofental, resolution=100 m, timestep=3H,",
+        source="Domain: rofental, resolution=100 m, timestep=3H, CRS=epsg:25832",
+    ) == (
+        ("Domain: rofental, ", False),
+        ("resolution=100 m", True),
+        (", ", False),
+        ("timestep=3H", True),
+        (",", False),
+    )
+    assert _summary_line_segments("ensemble_size=30, seed=42", source="Prior forcing: ensemble_size=30, seed=42") == (
+        ("ensemble_size=30", True),
+        (", seed=42", False),
+    )
+    assert _summary_line_segments(
+        "ess_ratio=0.7, seed=42",
+        source="Resampling: algorithm=systematic, ess_ratio=0.7, seed=42",
+    ) == (
+        ("ess_ratio=0.7", True),
+        (", seed=42", False),
+    )
+    assert _summary_line_segments(
+        "station_hs x5, wet_snow_line x5",
+        source="By variable: station_hs x5, wet_snow_line x5",
+    ) == (
+        ("station_hs x5, wet_snow_line x5", True),
+    )
 
 
 def test_collect_project_report_summary_reads_cost_stats(tmp_path: Path) -> None:

@@ -42,6 +42,12 @@ def _variable_label(variable: str) -> str:
     return _VARIABLE_LABELS.get(variable, str(variable).replace("_", " "))
 
 
+def _figure_title_variable_label(variable: str) -> str:
+    if variable == "wet_snow_line":
+        return "wet snow line altitude - WSLA"
+    return _variable_label(variable)
+
+
 def _stream_row_label(variable: str, relation: str | None = None) -> str:
     base = _STREAM_VARIABLE_LABELS.get(variable, _variable_label(variable))
     if relation is None:
@@ -122,7 +128,7 @@ def _resampling_skipped(project_dir: Path, date: pd.Timestamp) -> bool:
 
 
 def _generated_figure_title(index: int, project_dir: Path, event: AssimilationEvent) -> str:
-    title = f"DA {index} - {event.date.isoformat()} ({_variable_label(event.variable)})"
+    title = f"DA {index} - {event.date.isoformat()} ({_figure_title_variable_label(event.variable)})"
     if _resampling_skipped(project_dir, pd.Timestamp(event.date).normalize()):
         title += " - resampling skipped"
     return title

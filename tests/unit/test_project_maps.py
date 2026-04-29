@@ -1075,6 +1075,7 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
 
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
+    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (wet snow line altitude - WSLA)"
     assert recipes[0].row_labels[0] == "wet snow line altitude (WSLA)"
     assert recipes[0].row_labels[1] == "elevation-band WSF"
     assert recipes[0].layout.ncols == 4

@@ -15,6 +15,7 @@ from openamundsen_da.methods.viz.reports.project_collection_pdf import (
     _project_pdf_sections,
     _save_pdf_page,
     _summary_line_segments,
+    _wet_snow_classification_summary,
     _wrapped_lines,
     build_project_collection_pdf,
     cli_main,
@@ -33,6 +34,9 @@ def _write_project_yaml(project_dir: Path, event_count: int = 2) -> None:
         "start_date: '2023-01-01'\n"
         "end_date: '2023-01-31'\n"
         "data_assimilation:\n"
+        "  wet_snow:\n"
+        "    classification_method: liquid_water_amount\n"
+        "    liquid_water_amount_threshold_mm: 2.0\n"
         "  assimilation_events:\n"
         f"{events}\n",
         encoding="utf-8",
@@ -202,6 +206,21 @@ def test_summary_line_segments_bold_important_report_values() -> None:
     )
 
 
+def test_wet_snow_classification_summary_reports_method_specific_threshold() -> None:
+    assert (
+        _wet_snow_classification_summary(
+            {"classification_method": "liquid_water_amount", "liquid_water_amount_threshold_mm": 2.0}
+        )
+        == "method=liquid_water_amount, threshold_abs_mm=2"
+    )
+    assert (
+        _wet_snow_classification_summary(
+            {"classification_method": "liquid_water_fraction", "classification_threshold_percent": 0.4}
+        )
+        == "method=liquid_water_fraction, threshold_pct=0.4"
+    )
+
+
 def test_collect_project_report_summary_reads_cost_stats(tmp_path: Path) -> None:
     project_dir = _create_project(tmp_path, event_count=1)
     (project_dir / "project_2023.log").write_text(
@@ -222,6 +241,7 @@ def test_collect_project_report_summary_reads_cost_stats(tmp_path: Path) -> None
     summary = collect_project_report_summary(project_dir)
     cost = next(section for section in summary.sections if section.title == "Computing Cost")
     setup = next(section for section in summary.sections if section.title == "openAMUNDSEN Setup")
+    core = next(section for section in summary.sections if section.title == "Core DA Settings")
 
     assert "Max workers/cores: 8" in cost.lines
     assert "Runtime: 2m 03s" in cost.lines
@@ -237,6 +257,7 @@ def test_collect_project_report_summary_reads_cost_stats(tmp_path: Path) -> None
     assert "Snow model: multilayer, melt=energy_balance" in setup.lines
     assert "Liquid water content: method=pore_volume_fraction, max=0.03" in setup.lines
     assert "Canopy enabled: false" in setup.lines
+    assert "Wet snow classification: method=liquid_water_amount, threshold_abs_mm=2" in core.lines
 
 
 def test_collect_project_report_summary_handles_missing_cost_stats(tmp_path: Path) -> None:

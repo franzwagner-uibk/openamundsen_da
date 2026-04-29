@@ -216,6 +216,28 @@ def _obs_line(label: str, cfg: dict[str, Any], *, include_product: bool = True) 
     return f"{label}: {_format_mapping_values(cfg, keys, labels=labels)}"
 
 
+def _wet_snow_classification_summary(wet_snow_cfg: dict[str, Any]) -> str:
+    method = wet_snow_cfg.get("classification_method")
+    if method is None and "classification_threshold_percent" in wet_snow_cfg:
+        method = "liquid_water_fraction"
+    parts = [f"method={_format_value(method)}"]
+    method_text = str(method).strip() if method is not None else ""
+    if method_text == "liquid_water_amount":
+        threshold = wet_snow_cfg.get("liquid_water_amount_threshold_mm")
+        parts.append(f"threshold_abs_mm={_format_value(threshold)}")
+    elif method_text == "liquid_water_fraction":
+        threshold = wet_snow_cfg.get("classification_threshold_percent")
+        parts.append(f"threshold_pct={_format_value(threshold)}")
+    else:
+        for key, label in (
+            ("liquid_water_amount_threshold_mm", "threshold_abs_mm"),
+            ("classification_threshold_percent", "threshold_pct"),
+        ):
+            if key in wet_snow_cfg:
+                parts.append(f"{label}={_format_value(wet_snow_cfg[key])}")
+    return ", ".join(parts)
+
+
 def _project_log_paths(project_dir: Path) -> tuple[Path, ...]:
     candidates: set[Path] = set(project_dir.glob("*.log"))
     for rel_dir in ("logs", "results/logs"):
@@ -423,8 +445,15 @@ def collect_project_report_summary(project_dir: Path) -> ProjectReportSummary:
                     "sigma_floor",
                     "min_support_coverage_ratio",
                     "use_binomial",
+                    "min_model_finite_fraction",
+                    "min_wet_pixels_total",
+                    "min_wet_bands",
                 ),
-                labels={"min_support_coverage_ratio": "min_support"},
+                labels={
+                    "min_support_coverage_ratio": "min_support",
+                    "min_model_finite_fraction": "min_model_finite",
+                    "min_wet_pixels_total": "min_wet_px",
+                },
             )
         )
 
@@ -467,12 +496,7 @@ def collect_project_report_summary(project_dir: Path) -> ProjectReportSummary:
                 "H(x): "
                 + _format_mapping_values(h_of_x_cfg, ("method", "variable"))
                 + f", params={_format_mapping_values(_as_mapping(h_of_x_cfg.get('params')), ('h0', 'k'))}",
-                "Wet snow: "
-                + _format_mapping_values(
-                    wet_snow_cfg,
-                    ("classification_threshold_percent",),
-                    labels={"classification_threshold_percent": "threshold_pct"},
-                ),
+                "Wet snow classification: " + _wet_snow_classification_summary(wet_snow_cfg),
                 "WSL: "
                 + _format_mapping_values(
                     wsl_cfg,

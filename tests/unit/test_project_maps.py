@@ -2403,6 +2403,50 @@ def test_wet_snow_elevation_fraction_panel_draws_source_local_wsl(
         plt.close(fig)
 
 
+def test_wet_snow_elevation_fraction_observation_reuses_observed_wsl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    values = np.full(context.roi_mask.shape, np.nan, dtype=float)
+    values[context.roi_mask] = 0.2
+    recorded: list[tuple[float | None, str, str]] = []
+
+    monkeypatch.setattr(panel_renderers_module, "_wet_snow_elevation_fraction_array", lambda **_kwargs: values)
+    monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: 3320.0)
+
+    def _unexpected_fraction_wsl(**_kwargs):
+        raise AssertionError("observation elevation-band WSF panels must reuse diagnostics WSLA")
+
+    monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", _unexpected_fraction_wsl)
+
+    def _record_contour(_ax, *, context, level, color, linestyle, **_kwargs):
+        recorded.append((level, color, linestyle))
+        return True
+
+    monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", _record_contour)
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        artifacts = panel_renderers_module.render_wet_snow_elevation_fraction_panel(
+            ax,
+            panel=MapPanelSpec(kind="wet_snow_elevation_fraction", row=0, col=0, source=None, date="2023-01-02"),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(show_colorbar=False),
+            obs_cache={},
+            figure_horizontal_default=True,
+        )
+
+        assert recorded == [(3320.0, "#9467bd", "-")]
+        assert artifacts["wsl"] == 3320.0
+        assert artifacts["wsl_drawn"] is True
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA 3320 m")
+        assert callout.get_color() == "#9467bd"
+    finally:
+        plt.close(fig)
+
+
 def test_wet_snow_elevation_fraction_panel_annotates_unavailable_wsl(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2412,7 +2456,12 @@ def test_wet_snow_elevation_fraction_panel_annotates_unavailable_wsl(
     values[context.roi_mask] = 0.2
 
     monkeypatch.setattr(panel_renderers_module, "_wet_snow_elevation_fraction_array", lambda **_kwargs: values)
-    monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", lambda **_kwargs: None)
+    monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: None)
+
+    def _unexpected_fraction_wsl(**_kwargs):
+        raise AssertionError("missing observation diagnostics WSLA must not fall back to local recomputation")
+
+    monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", _unexpected_fraction_wsl)
     monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", lambda *_args, **_kwargs: False)
     fig, ax = plt.subplots(figsize=(4, 4))
     try:

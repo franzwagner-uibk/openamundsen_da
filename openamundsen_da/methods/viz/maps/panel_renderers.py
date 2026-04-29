@@ -2290,7 +2290,11 @@ def render_wet_snow_elevation_fraction_panel(
         alpha=1.0,
         zorder=5,
     )
-    wsl_level = _wet_snow_line_from_fraction(context=context, wet_fraction=values)
+    wsl_level = (
+        _observed_wet_snow_line_value(context, date)
+        if panel.source is None
+        else _wet_snow_line_from_fraction(context=context, wet_fraction=values)
+    )
     wsl_color = _WSL_OBS_COLOR if panel.source is None else _WSL_MODEL_COLOR
     wsl_drawn = _draw_wsl_contour(
         ax,

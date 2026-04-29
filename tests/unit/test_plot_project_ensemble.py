@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import matplotlib.colors as mcolors
@@ -163,3 +164,14 @@ def test_station_result_band_uses_shared_fill_color(tmp_path: Path) -> None:
     finally:
         plt.close = original_close
         original_close("all")
+
+
+def test_standalone_result_da_dates_prefer_configured_events_over_step_boundaries() -> None:
+    steps = [
+        plot_mod.StepInfo(Path("step_00_init"), datetime(2022, 10, 1), datetime(2022, 11, 22, 21)),
+        plot_mod.StepInfo(Path("step_01_event"), datetime(2022, 11, 23), datetime(2022, 12, 22, 21)),
+        plot_mod.StepInfo(Path("step_02_final"), datetime(2022, 12, 23), datetime(2023, 1, 31, 0)),
+    ]
+    configured_events = [datetime(2022, 11, 22), datetime(2022, 12, 22)]
+
+    assert plot_mod._standalone_assimilation_dates(steps, configured_events) == configured_events

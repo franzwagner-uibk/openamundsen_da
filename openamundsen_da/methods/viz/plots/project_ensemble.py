@@ -236,10 +236,15 @@ def _center_daily_dates(dates: Sequence[datetime]) -> list[datetime]:
     return [d + timedelta(hours=12) for d in dates]
 
 
-def _standalone_assimilation_dates(steps: Sequence[StepInfo], fallback: Sequence[datetime]) -> list[datetime]:
-    """Use actual step end timestamps for standalone result plots when available."""
-    dates = [st.end for st in steps if st.end is not None]
-    return dates or list(fallback)
+def _standalone_assimilation_dates(steps: Sequence[StepInfo], configured_events: Sequence[datetime]) -> list[datetime]:
+    """Return DA marker dates for standalone result plots.
+
+    Prefer the authoritative project assimilation events. Step end timestamps
+    include the final project boundary, which is not a DA event.
+    """
+    if configured_events:
+        return list(configured_events)
+    return [st.end for st in steps if st.end is not None]
 
 
 def _add_result_label_axis(ax, dates: Sequence[datetime], idx: int = 0):

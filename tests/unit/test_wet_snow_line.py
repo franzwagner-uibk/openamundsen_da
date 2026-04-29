@@ -15,7 +15,7 @@ from ruamel.yaml import YAML
 from openamundsen_da.methods.pf.assimilate_fraction import assimilate_wet_snow_line_for_date
 from openamundsen_da.methods.pf.fraction_support import ObservationSupportMask
 from openamundsen_da.methods.wet_snow.area import compute_member_wet_snow_line_daily, compute_model_wet_snow_line
-from openamundsen_da.methods.wet_snow.wsl import compute_wet_snow_line_from_masks
+from openamundsen_da.methods.wet_snow.wsl import compute_wet_snow_line_from_fraction_grid, compute_wet_snow_line_from_masks
 
 
 def _write_yaml(path: Path, payload: dict) -> None:
@@ -108,6 +108,50 @@ def test_compute_wet_snow_line_from_masks_uses_downward_crossing_fraction() -> N
         assert result.wet_snow_line == 300.0
         assert result.wet_bands == 2
         assert result.gate_reason is None
+
+
+def test_compute_wet_snow_line_from_fraction_grid_uses_shared_profile_logic(tmp_path: Path) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2024_2025"
+    _write_yaml(
+        project_dir / "project_2024_2025.yml",
+        {
+            "data_assimilation": {
+                "wet_snow_line": {
+                    "elevation_band_size_m": 100.0,
+                    "smoothing_window_bands": 1,
+                    "crossing_fraction": 0.5,
+                    "wet_elevation_percentile": 95.0,
+                    "aspect_diagnostics": "off",
+                    "sector_relative_threshold": 0.8,
+                }
+            }
+        },
+    )
+    dem = np.array(
+        [
+            [120.0, 120.0],
+            [220.0, 220.0],
+            [320.0, 320.0],
+        ],
+        dtype=float,
+    )
+    wet_fraction = np.array(
+        [
+            [1.0, 1.0],
+            [0.0, 0.0],
+            [0.0, 0.0],
+        ],
+        dtype=float,
+    )
+
+    result = compute_wet_snow_line_from_fraction_grid(
+        project_dir=project_dir,
+        dem=dem,
+        roi_mask=np.ones_like(dem, dtype=bool),
+        wet_fraction=wet_fraction,
+    )
+
+    assert result == 200.0
 
 
 def test_compute_wet_snow_line_from_masks_exposes_sector_relative_diagnostics() -> None:

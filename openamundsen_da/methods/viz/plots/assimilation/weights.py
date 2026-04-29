@@ -1,7 +1,5 @@
 """Plot per-date assimilation weights and residual summaries.
 
-Plot per-date assimilation weights and residual summaries.
-
 Inputs
 - weights CSV produced by one assimilation workflow with columns:
   member_id, residual, sigma, log_weight, weight
@@ -34,6 +32,7 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.methods.viz.theme import da_variable_line_color
 from openamundsen_da.methods.viz.common import force_figure_text_black, save_figure_png, set_matplotlib_text_black
+from openamundsen_da.methods.viz.wet_snow_fields import finite_numeric_column, first_finite_value
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.da_observables import station_diagnostics_csv_name, weight_plot_title_from_csv_path
 from openamundsen_da.util.loguru_utils import configure_cli_logger
@@ -158,22 +157,8 @@ def _fraction_axis_label(observable: str | None) -> str:
     return "residual"
 
 
-def _finite_numeric_column(df: pd.DataFrame, column: str) -> pd.Series:
-    if column not in df.columns:
-        return pd.Series(dtype=float)
-    return pd.to_numeric(df[column], errors="coerce").dropna()
-
-
-def _first_finite_value(df: pd.DataFrame, columns: list[str]) -> float | None:
-    for column in columns:
-        values = _finite_numeric_column(df, column)
-        if not values.empty:
-            return float(values.iloc[0])
-    return None
-
-
 def _observed_wsl_value(df: pd.DataFrame) -> float | None:
-    return _first_finite_value(df, ["value_obs", "wet_snow_line_obs"])
+    return first_finite_value(df, ["value_obs", "wet_snow_line_obs"])
 
 
 def _draw_wsl_zero_line_label(ax, df: pd.DataFrame, *, fontsize: float) -> None:
@@ -201,7 +186,7 @@ def _draw_wsl_unavailable_overlay(ax, df: pd.DataFrame, *, fontsize: float) -> N
         column in df.columns and df[column].astype(str).str.lower().isin({"true", "1", "yes"}).any()
         for column in gate_columns
     )
-    if not gate_triggered and not _finite_numeric_column(df, "residual").empty:
+    if not gate_triggered and not finite_numeric_column(df, "residual").empty:
         return
     ax.text(
         0.5,
@@ -306,19 +291,6 @@ def _draw_resample_rings(
                 linewidths=(0.9 if ring_idx == 0 else 0.75) * line_scale,
                 zorder=5 + ring_idx * 0.01,
             )
-
-
-def _station_sigma_note(diag: pd.DataFrame) -> str | None:
-    if diag.empty or "station_id" not in diag.columns or "sigma" not in diag.columns:
-        return None
-    lines: list[str] = []
-    for station_id in sorted(diag["station_id"].dropna().astype(str).unique()):
-        station_mask = diag["station_id"].astype(str) == station_id
-        sigma_series = pd.to_numeric(diag.loc[station_mask, "sigma"], errors="coerce").dropna()
-        if sigma_series.empty:
-            continue
-        lines.append(f"{station_id}: sigma = {float(sigma_series.iloc[0]):.2f}")
-    return "\n".join(lines) if lines else None
 
 
 def _station_display_names(csv_path: Path, station_ids: list[str]) -> dict[str, str]:
@@ -1361,7 +1333,7 @@ def _step_date_label_from_path(csv_path: Path) -> str | None:
         return None
     date_str = f"{ds[0:4]}-{ds[4:6]}-{ds[6:8]}"
     try:
-        date_val = pd.to_datetime(date_str).date()
+        pd.to_datetime(date_str).date()
     except Exception:
         return None
 

@@ -9,7 +9,6 @@ from string import ascii_lowercase
 
 import pandas as pd
 from loguru import logger
-import numpy as np
 
 from openamundsen_da.benchmark.pipeline.core import load_benchmark_config
 from openamundsen_da.methods.viz.plots.benchmark.core import (
@@ -41,7 +40,6 @@ from openamundsen_da.methods.viz.plots.theme import (
     FIGHEIGHT_OVERVIEW_ROW,
     FIGWIDTH_OVERVIEW_PAPER,
     OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR,
-    LW_MEMBER,
     LW_MEAN,
     LW_OPEN,
     SIZE_DA_OBS,
@@ -63,15 +61,13 @@ from openamundsen_da.methods.viz.fraction_series import (
     load_member_series,
     load_open_loop_fraction_series,
 )
-from openamundsen_da.methods.viz.maps.panel_renderers import (
-    _wsl_prior_summary_from_weights_df,
-)
 from openamundsen_da.methods.viz.plots.assimilation.ess_timeline import (
     ess_axis_ticks,
     ess_title,
     load_setup_ess_series,
     load_setup_ess_threshold,
 )
+from openamundsen_da.methods.viz.wet_snow_fields import wsl_prior_summary_from_weights_df
 from openamundsen_da.observer.summary_io import load_scf_summary as _load_scf_obs
 from openamundsen_da.observer.summary_paths import resolve_fraction_summary_path
 from openamundsen_da.util.da_events import AssimilationEvent, load_assimilation_events
@@ -646,7 +642,7 @@ def _load_wsl_prior_coverage_frame(project_dir: Path) -> pd.DataFrame | None:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Could not read WSLA weights file {}: {}", weights_path, exc)
                 continue
-            summary = _wsl_prior_summary_from_weights_df(df)
+            summary = wsl_prior_summary_from_weights_df(df)
             if summary is None:
                 continue
             rows.append(
@@ -772,12 +768,6 @@ def _pad_single_day_bounds(bounds: tuple[pd.Timestamp, pd.Timestamp] | None) -> 
         return bounds
     pad = pd.Timedelta(days=3)
     return pd.Timestamp(start) - pad, pd.Timestamp(end) + pad
-
-
-def _series_to_frame(series: pd.Series | None, value_col: str) -> pd.DataFrame | None:
-    if series is None or series.empty:
-        return None
-    return pd.DataFrame({"date": series.index, value_col: series.values})
 
 
 def _band_frame(

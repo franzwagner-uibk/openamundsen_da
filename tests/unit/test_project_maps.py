@@ -56,7 +56,6 @@ from openamundsen_da.methods.viz.maps.render import (
     figure_height_for_extent,
 )
 import openamundsen_da.pipeline.plot_tasks as plot_tasks_module
-from openamundsen_da.pipeline import project as project_pipeline
 from openamundsen_da.methods.viz.maps.runner import project_maps_enabled, render_project_maps
 from openamundsen_da.methods.viz.maps.styles import (
     FSC_OBS_CMAP,
@@ -2676,10 +2675,6 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
         assert recorded_levels == [(2525.0, "#c21f24", "-", 9.5)]
         assert artifacts["wsl"] == 2525.0
         assert artifacts["obs_wsl"] == 2625.0
-        assert artifacts["posterior_band_drawn"] is False
-        assert artifacts["prior_wsf_field_wsl"] is None
-        assert artifacts["prior_wsf_field_drawn"] is False
-        assert artifacts["prior_span_drawn"] is False
         assert [handle.get_label() for handle in artifacts["posterior_overlay_handles"]] == ["posterior WSLA"]
         legend = ax.get_legend()
         assert legend is not None
@@ -2689,27 +2684,6 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
         assert callout.get_color() == "#c21f24"
     finally:
         plt.close(fig)
-
-
-def test_wet_snow_line_overlay_handles_describe_posterior_prior_and_obs_contours() -> None:
-    handles = [
-        panel_renderers_module._posterior_wsl_overlay_handle(),
-        panel_renderers_module._prior_wsf_field_overlay_handle(),
-        panel_renderers_module._obs_overlay_handle(),
-    ]
-
-    assert [handle.get_label() for handle in handles] == [
-        "posterior WSLA",
-        "prior WSLA",
-        "observation WSLA",
-    ]
-    assert handles[0].get_color() == "#c21f24"
-    assert handles[0].get_linestyle() == "-"
-    assert handles[0].get_linewidth() == pytest.approx(1.6)
-    assert handles[1].get_color() == "#2c8a64"
-    assert handles[1].get_linestyle() == "--"
-    assert handles[2].get_color() == "#9467bd"
-
 
 def test_wet_snow_line_panel_annotates_unavailable_wsl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
@@ -2722,11 +2696,6 @@ def test_wet_snow_line_panel_annotates_unavailable_wsl(tmp_path: Path, monkeypat
             panel_renderers_module,
             "_posterior_weighted_wet_fraction_array",
             lambda **kwargs: wet_fraction,
-        )
-        monkeypatch.setattr(
-            panel_renderers_module,
-            "_classify_wet_snow_fraction_for_wsl",
-            lambda **kwargs: np.full(context.roi_mask.shape, float(panel_renderers_module._WET_SNOW_MODEL_CODES[1]), dtype=float),
         )
         monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: None)
         monkeypatch.setattr(panel_renderers_module, "_prior_wet_fraction_array", lambda **kwargs: wet_fraction)

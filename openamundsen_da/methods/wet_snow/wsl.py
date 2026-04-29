@@ -258,6 +258,69 @@ def _find_sector_relative_crossing(profile: pd.DataFrame, relative_threshold: fl
     return None
 
 
+def _build_fraction_profile(
+    *,
+    dem: np.ndarray,
+    valid_mask: np.ndarray,
+    wet_fraction: np.ndarray,
+    cfg: WetSnowLineConfig,
+) -> pd.DataFrame:
+    valid_elev = dem[valid_mask]
+    if valid_elev.size == 0:
+        return pd.DataFrame(columns=["band_mid_m", "f_wet", "f_wet_smooth"])
+
+    band = float(cfg.elevation_band_size_m)
+    low = np.floor(np.nanmin(valid_elev) / band) * band
+    high = np.ceil(np.nanmax(valid_elev) / band) * band
+    if np.isclose(low, high):
+        high = low + band
+    edges = np.arange(low, high + band, band, dtype=float)
+    if edges.size < 2:
+        edges = np.array([low, low + band], dtype=float)
+
+    rows: list[dict[str, float]] = []
+    for idx in range(len(edges) - 1):
+        band_low = float(edges[idx])
+        band_high = float(edges[idx + 1])
+        band_mask = valid_mask & (dem >= band_low) & (dem < band_high)
+        rows.append(
+            {
+                "band_mid_m": band_low + (band / 2.0),
+                "f_wet": float(np.nanmean(wet_fraction[band_mask])) if np.any(band_mask) else np.nan,
+            }
+        )
+
+    profile = pd.DataFrame(rows)
+    profile["f_wet_smooth"] = (
+        profile["f_wet"]
+        .rolling(window=int(cfg.smoothing_window_bands), center=True, min_periods=1)
+        .median()
+    )
+    return profile
+
+
+def compute_wet_snow_line_from_fraction_grid(
+    *,
+    project_dir: Path,
+    dem: np.ndarray,
+    roi_mask: np.ndarray,
+    wet_fraction: np.ndarray,
+    threshold: float | None = None,
+) -> float | None:
+    """Compute WSLA from a gridded wet-snow fraction field on the model grid."""
+
+    cfg = load_wet_snow_line_config(project_dir)
+    dem = np.asarray(dem, dtype=float)
+    wet_fraction = np.asarray(wet_fraction, dtype=float)
+    valid = np.isfinite(wet_fraction) & np.asarray(roi_mask, dtype=bool) & np.isfinite(dem)
+    if not np.any(valid):
+        return None
+
+    profile = _build_fraction_profile(dem=dem, valid_mask=valid, wet_fraction=wet_fraction, cfg=cfg)
+    crossing_threshold = float(cfg.crossing_fraction if threshold is None else threshold)
+    return _find_first_downward_crossing(profile, crossing_threshold)
+
+
 def _evaluate_from_masks(
     *,
     dem: np.ndarray,
@@ -392,6 +455,7 @@ def compute_wet_snow_line_from_masks(
 __all__ = [
     "WetSnowLineConfig",
     "WetSnowLineEvaluation",
+    "compute_wet_snow_line_from_fraction_grid",
     "compute_wet_snow_line_from_masks",
     "load_wet_snow_line_config",
 ]

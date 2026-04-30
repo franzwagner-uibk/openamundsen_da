@@ -721,6 +721,21 @@ def extract_analysis_cases(
                 member_values = _member_values_exact(members_cache[key], timestamp)
                 if open_loop_value is None or not member_values:
                     raise ValueError(f"Missing model values for analysis benchmark {benchmark_variable} on {ctx.event_date}")
+                if benchmark_variable == "wet_snow_line":
+                    missing_member_ids = sorted(
+                        {
+                            str(row.member_id)
+                            for row in weights_df.itertuples(index=False)
+                            if str(row.member_id) not in member_values
+                        }
+                    )
+                    if missing_member_ids:
+                        logger.warning(
+                            "Skipping analysis benchmark for wet_snow_line on {}: missing model values for weighted posterior member(s): {}",
+                            ctx.event_date,
+                            ", ".join(missing_member_ids),
+                        )
+                        continue
                 prior_values = tuple(member_values[mid] for mid in sorted(member_values))
                 posterior_values, posterior_weights = _aligned_posterior(
                     member_values,

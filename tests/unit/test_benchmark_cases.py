@@ -310,7 +310,7 @@ def test_extract_analysis_cases_include_transfer_streams_on_da_dates(tmp_path: P
     cases = extract_analysis_cases(
         project_dir=project_dir,
         setup_dir=setup_dir,
-        variables=("scf", "wet_snow", "station_hs", "station_swe"),
+        variables=("scf", "wet_snow", "wet_snow_line", "station_hs", "station_swe"),
     )
 
     case_lookup = {(case.variable, case.stream, str(case.timestamp), case.obs_id): case for case in cases}
@@ -320,6 +320,42 @@ def test_extract_analysis_cases_include_transfer_streams_on_da_dates(tmp_path: P
     assert ("station_hs", "semi_independent", "2023-01-03 00:00:00", "station_a") in case_lookup
     assert ("scf", "assimilation_fit", "2023-01-03 00:00:00", "roi") in case_lookup
     assert ("wet_snow", "independent", "2023-01-03 00:00:00", "roi") in case_lookup
+    wsl_case = case_lookup[("wet_snow_line", "independent", "2023-01-03 00:00:00", "roi")]
+    assert wsl_case.posterior_values == (2390.0, 2410.0)
+    assert wsl_case.posterior_weights == (0.6, 0.4)
+
+
+def test_extract_analysis_cases_skips_wet_snow_line_transfer_with_missing_weighted_member(tmp_path: Path) -> None:
+    setup_dir, project_dir = _setup_basic_project(
+        tmp_path,
+        events_yaml="""
+            - date: '2023-01-03'
+              variable: station_hs
+        """,
+    )
+    _write_fraction_benchmark_inputs(setup_dir, project_dir)
+    _write_station_benchmark_inputs(project_dir, setup_dir)
+    _write_series_csv(
+        project_dir / "steps" / "step_01_next" / "ensembles" / "prior" / "member_002" / "results" / "point_wet_snow_line_roi.csv",
+        [{"time": "2023-01-03", "wet_snow_line": None}],
+    )
+    _write_series_csv(
+        project_dir / "steps" / "step_00_init" / "assim" / "weights_station_hs_20230103.csv",
+        [
+            {"member_id": "member_001", "weight": 0.25},
+            {"member_id": "member_002", "weight": 0.75},
+        ],
+    )
+
+    cases = extract_analysis_cases(
+        project_dir=project_dir,
+        setup_dir=setup_dir,
+        variables=("wet_snow_line", "station_hs"),
+    )
+
+    case_lookup = {(case.variable, case.stream, str(case.timestamp), case.obs_id): case for case in cases}
+    assert ("wet_snow_line", "independent", "2023-01-03 00:00:00", "roi") not in case_lookup
+    assert ("station_hs", "assimilation_fit", "2023-01-03 00:00:00", "station_a") in case_lookup
 
 
 def test_extract_analysis_cases_skip_transfer_rows_without_same_day_observation(tmp_path: Path) -> None:

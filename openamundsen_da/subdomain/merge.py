@@ -74,7 +74,11 @@ def _load_roi(sub: SubdomainMeta) -> np.ndarray:
         return ds.read(1).astype(bool)
 
 
-def _window_slices(sub: SubdomainMeta, data_shape: Tuple[int, int], global_shape: Tuple[int, int]) -> Tuple[slice, slice]:
+def _window_slices(
+    sub: SubdomainMeta,
+    data_shape: Tuple[int, int],
+    global_shape: Tuple[int, int],
+) -> Tuple[slice, slice]:
     if data_shape == global_shape:
         return slice(0, global_shape[0]), slice(0, global_shape[1])
     return (
@@ -262,6 +266,90 @@ def merge_grids(
                 deleted,
                 bytes_freed / 1_000_000.0,
             )
+    return written
+
+
+def merge_model_grids(
+    *,
+    manifest_path: Path,
+    subdomains: Optional[Iterable[str]] = None,
+    out_dir: Optional[Path] = None,
+    coverage_sliver_tol_px: int = 4,
+) -> List[Path]:
+    """Merge plain openAMUNDSEN model grid outputs from each sub-domain."""
+    manifest = SubdomainManifest.load(manifest_path)
+    if str(getattr(manifest, "run_mode", "")).lower() != "model":
+        raise ValueError(f"Manifest at {manifest_path} is not marked as run_mode='model'.")
+
+    selected_ids = list(subdomains) if subdomains is not None else list(manifest.subdomains.keys())
+    unknown = [sid for sid in selected_ids if sid not in manifest.subdomains]
+    if unknown:
+        raise ValueError(f"Sub-domains not in manifest: {', '.join(unknown)}")
+    if not selected_ids:
+        return []
+
+    global_shape = (manifest.grid_rows, manifest.grid_cols)
+    global_transform = Affine(*manifest.grid_transform)
+    expected_mask = _expected_coverage_mask(manifest, selected_ids, global_shape)
+
+    out_base = out_dir or (manifest.subdomain_root / "results" / "grids")
+    out_base.mkdir(parents=True, exist_ok=True)
+
+    tif_groups: Dict[str, List[Tuple[SubdomainMeta, Path]]] = {}
+    nc_groups: Dict[str, List[Tuple[SubdomainMeta, Path]]] = {}
+    owners_by_name: Dict[str, set[str]] = {}
+    for sid in selected_ids:
+        sub = manifest.subdomains[sid]
+        grid_dir = sub.setup_dir / "results" / "grids"
+        if not grid_dir.is_dir():
+            raise FileNotFoundError(f"Missing model grid output directory for {sid}: {grid_dir}")
+        for tif in sorted([*grid_dir.glob("*.tif"), *grid_dir.glob("*.tiff")]):
+            tif_groups.setdefault(tif.name, []).append((sub, tif))
+            owners_by_name.setdefault(tif.name, set()).add(sid)
+        for nc in sorted(grid_dir.glob("*.nc")):
+            nc_groups.setdefault(nc.name, []).append((sub, nc))
+            owners_by_name.setdefault(nc.name, set()).add(sid)
+
+    all_groups = {**tif_groups, **nc_groups}
+    if not all_groups:
+        raise FileNotFoundError(
+            "No model grid outputs found below selected sub-domain results/grids directories "
+            f"in {manifest.subdomain_root}."
+        )
+
+    selected_set = set(selected_ids)
+    for name, owners in sorted(owners_by_name.items()):
+        missing = sorted(selected_set - owners)
+        if missing:
+            raise FileNotFoundError(
+                f"Model grid output {name!r} is missing for sub-domain(s): {', '.join(missing)}"
+            )
+
+    written: List[Path] = []
+    if tif_groups:
+        written.extend(
+            _merge_tifs(
+                tif_groups=tif_groups,
+                global_shape=global_shape,
+                transform=global_transform,
+                crs=manifest.crs,
+                out_dir=out_base,
+                expected_mask=expected_mask,
+                sliver_tol_px=int(coverage_sliver_tol_px),
+            )
+        )
+    for nc_name, entries in sorted(nc_groups.items()):
+        written.append(
+            _merge_netcdf(
+                output_name=nc_name,
+                nc_paths=entries,
+                global_shape=global_shape,
+                manifest=manifest,
+                out_dir=out_base,
+                expected_mask=expected_mask,
+                sliver_tol_px=int(coverage_sliver_tol_px),
+            )
+        )
     return written
 
 

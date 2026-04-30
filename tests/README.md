@@ -31,6 +31,7 @@ Workflow file: `.github/workflows/ci.yml`
   - Runs unit tests with `pytest` via `scripts/ci/run_unit_tests.sh`
   - Runs full single-domain example integration test via `scripts/ci/run_integration_tests.sh`
   - Runs trimmed sub-domain integration test via `scripts/ci/run_integration_tests_subdomain.sh`
+  - Runs trimmed plain openAMUNDSEN model sub-domain integration test via `scripts/ci/run_integration_tests_model_subdomain.sh`
   - Uploads integration artifacts on failure (log + example setup outputs)
 - Job `Build and Push GHCR Image`:
   - Runs only on push to `main`
@@ -64,8 +65,9 @@ Workflow file: `.github/workflows/ci.yml`
 9. Integration validator checks logs, outputs, plots, scientific benchmark outputs, and weight sanity.
 10. Example-specific diagnostics such as station HS weights and setup weights overview are checked.
 11. Sub-domain integration validator checks manifest status and project-level results outputs.
-12. If integration fails, log and example outputs are uploaded as CI artifacts.
-13. On push to `main` only: publish job builds and pushes GHCR image.
+12. Model sub-domain integration validator checks model manifest status and merged grid output.
+13. If integration fails, log and example outputs are uploaded as CI artifacts.
+14. On push to `main` only: publish job builds and pushes GHCR image.
 
 ### Unit tests
 
@@ -168,6 +170,30 @@ Failure artifacts:
 - integration log and example setup outputs are copied to CI artifact directory when the run fails
 - artifact upload is defined in `.github/workflows/ci.yml`
 
+### Integration regression test (trimmed model sub-domain)
+
+Runner script: `scripts/ci/run_integration_tests_model_subdomain.sh`
+
+What it does:
+- clones `examples/subdomains` into a temp directory
+- shortens setup-level `start_date`/`end_date` in the temp copy
+- runs the plain openAMUNDSEN model sub-domain pipeline (`oa-da-subdomain model-pipeline`) with:
+  - setup: `/data/subdomains` (the copied sub-domain setup root)
+  - regions: `/data/subdomains/env/subdomains.gpkg` (3 non-overlapping subdomains)
+- validates logs and outputs with `scripts/ci/validate_trimmed_model_subdomain.py`
+
+Validation focuses on:
+- no fatal log patterns (`ERROR`, `CRITICAL`, `Traceback`, `Exception`)
+- manifest exists and all sub-domains report `status=success`
+- each sub-domain has a successful `run_manifest.json`
+- each sub-domain writes at least one model grid output under `subdomains/model/<id>/results/grids/`
+- merged model grid output exists under `subdomains/model/results/grids/`
+- generated model sub-domain folders do not contain DA `projects/` directories
+
+Failure artifacts:
+- integration log and model sub-domain outputs are copied to CI artifact directory when the run fails
+- artifact upload is defined in `.github/workflows/ci.yml`
+
 ### Lint gate
 
 Runner script: `scripts/ci/run_lint.sh`
@@ -211,9 +237,11 @@ Main locations:
 - integration run recipes:
   - single-domain full example: `scripts/ci/run_integration_tests.sh`
   - sub-domain trimmed: `scripts/ci/run_integration_tests_subdomain.sh`
+  - model sub-domain trimmed: `scripts/ci/run_integration_tests_model_subdomain.sh`
 - integration validation logic:
   - single-domain: `scripts/ci/validate_trimmed_project.py`
   - sub-domain: `scripts/ci/validate_trimmed_subdomain.py`
+  - model sub-domain: `scripts/ci/validate_trimmed_model_subdomain.py`
 - lint command: `scripts/ci/run_lint.sh`
 - test/lint optional dependencies: `pyproject.toml`
 

@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import rasterio
+from loguru import logger
 from matplotlib.cm import ScalarMappable
 from matplotlib import colormaps
 from matplotlib.colors import BoundaryNorm, LinearSegmentedColormap, ListedColormap, Normalize, TwoSlopeNorm
@@ -830,9 +831,44 @@ def render_overview_panel(
     regions_loader: Callable[..., object] = load_overview_regions,
     labels_loader: Callable[..., object] = load_overview_labels,
 ) -> dict[str, object]:
-    countries = boundaries_loader(setup_dir=context.setup_dir)
-    country_regions = regions_loader(setup_dir=context.setup_dir)
-    country_labels = labels_loader(setup_dir=context.setup_dir)
+    try:
+        countries = boundaries_loader(setup_dir=context.setup_dir)
+        country_regions = regions_loader(setup_dir=context.setup_dir)
+        country_labels = labels_loader(setup_dir=context.setup_dir)
+    except Exception as exc:
+        logger.warning("Overview country layers unavailable; rendering ROI-only overview panel")
+        logger.debug("Overview country layer loading raised {}", type(exc).__name__)
+        target_extent = buffered_extent(context)
+        target_aspect = max(float(target_extent[3] - target_extent[2]), 1e-9) / max(
+            float(target_extent[1] - target_extent[0]), 1e-9
+        )
+        extent = expand_extent_to_target_aspect(
+            overview_extent(ax, context, scale=int(panel.scale or 1)),
+            target_aspect=target_aspect,
+        )
+        apply_map_axis_style(
+            ax,
+            extent,
+            title=panel_title(label, panel_semantic_title(panel)),
+            show_grid=resolve_flag(panel.show_grid, defaults, "show_grid", True),
+            show_y_ticklabels=panel.col == 0,
+            aspect_adjustable="box",
+        )
+        context.roi_gdf.plot(
+            ax=ax,
+            facecolor=_OVERVIEW_ROI_COLOR,
+            edgecolor=_OVERVIEW_ROI_COLOR,
+            linewidth=0.8,
+            zorder=25,
+        )
+        roi_label = overview_roi_label_spec(panel, extent=extent, context=context)
+        if roi_label is not None:
+            draw_overview_label_specs(ax, [roi_label])
+        show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
+        draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=panel_date(panel, defaults), resolve_flag=resolve_flag)
+        draw_map_grid_overlay(ax, show_grid=show_grid)
+        return {"extent": extent}
+
     visible_regions_getter = lambda current_extent: overview_subset_geometries(
         country_regions,
         context=context,

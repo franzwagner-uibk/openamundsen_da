@@ -154,13 +154,16 @@ def _collect_shared_model_vmax(project_dir: Path, recipes: tuple[MapRecipe, ...]
 
 def _render_recipe_worker(project_dir: Path, recipe: MapRecipe, shared_model_vmax: dict[str, float] | None = None) -> RecipeRenderResult:
     project_dir = Path(project_dir).resolve()
-    context = load_static_context(project_dir)
-    return _render_recipe_with_cache(
-        project_dir=project_dir,
-        recipe=recipe,
-        context=context,
-        runtime_cache=RenderRuntimeCache(shared_model_vmax=dict(shared_model_vmax or {})),
-    )
+    try:
+        context = load_static_context(project_dir)
+        return _render_recipe_with_cache(
+            project_dir=project_dir,
+            recipe=recipe,
+            context=context,
+            runtime_cache=RenderRuntimeCache(shared_model_vmax=dict(shared_model_vmax or {})),
+        )
+    except Exception as exc:
+        raise RuntimeError(f"{type(exc).__name__}: {exc}") from None
 
 
 def _output_class(recipe: MapRecipe) -> str:

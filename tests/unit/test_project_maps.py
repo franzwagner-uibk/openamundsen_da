@@ -2842,6 +2842,36 @@ def test_render_overview_panel_adds_country_labels(tmp_path: Path, monkeypatch) 
         plt.close(fig)
 
 
+def test_render_overview_panel_falls_back_to_roi_only_when_country_layers_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+
+    def unavailable(**_kwargs):
+        raise OSError("offline")
+
+    monkeypatch.setattr(render_module, "load_overview_boundaries", unavailable)
+    monkeypatch.setattr(render_module, "load_overview_regions", unavailable)
+    monkeypatch.setattr(render_module, "load_overview_labels", unavailable)
+
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        artifact = render_module._render_overview_panel(
+            ax,
+            panel=MapPanelSpec(kind="overview", row=0, col=0, scale=1_800_000, roi_label="Demo ROI"),
+            context=context,
+            label="a",
+            defaults=MapDefaults(),
+        )
+
+        assert "extent" in artifact
+        assert any(text.get_text() == "Demo ROI" for text in ax.texts)
+    finally:
+        plt.close(fig)
+
+
 def test_overview_extent_with_label_fit_expands_for_border_hugging_labels(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     context = load_static_context(project_dir)

@@ -6,6 +6,14 @@ Inject custom favicon (SVG). Browsers that prefer ICO will fall back to default.
 <link rel="stylesheet" href="{{ '/assets/css/tutorial-code-blocks.css' | relative_url }}">
 
 <style>
+  /* Keep the full project name readable in the Just the Docs side navigation. */
+  .site-title {
+    font-size: 1rem !important;
+    line-height: 1.15;
+    letter-spacing: 0;
+    white-space: nowrap;
+  }
+
   /* Keep the global docs search field clearly visible in the header. */
   .main-header .search {
     flex: 1 1 auto;

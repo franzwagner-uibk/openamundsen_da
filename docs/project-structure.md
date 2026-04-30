@@ -59,10 +59,17 @@ Auto-generated step window configuration.
 - `member`: one ensemble member
 - `run`: execution of a project (event), not a config object
 
+## DA Compact Grid Variables
+- `da_output_grids.nc` stores, per modeled grid variable `<var>`: `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`, `analysis_mean_<var>`, and `analysis_increment_<var>`.
+- `increment_<var>` is the open-loop departure: `ens_mean_<var> - open_loop_<var>`.
+- `analysis_increment_<var>` is the DA-event increment: `analysis_mean_<var> - ens_mean_<var>`, where `analysis_mean` is the event-weighted posterior mean. Positive values mean the event added snow/water to the ensemble mean.
+- Analysis fields are populated on assimilation-event dates with matching weights and remain empty elsewhere on the project timeline.
+
 ## File Naming
 - SCF obs CSV: `obs_scf_<PRODUCT>_YYYYMMDD.csv`
 - Wet-snow obs CSV: `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`
 - Weights CSV: `weights_<variable>_YYYYMMDD.csv`
+- Project plots/maps PDF collection: `results/reports/project_report.pdf`
 - Resampling indices: `indices_YYYYMMDD.csv`
 - Model state default: `model_state.pickle.gz` (configured in project YAML under `data_assimilation.restart`)
 
@@ -70,4 +77,3 @@ Auto-generated step window configuration.
 - [Workflow Overview]({{ site.baseurl }}{% link workflow.md %})
 - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %})
 - [Running Experiments]({{ site.baseurl }}{% link guides/experiments/index.md %})
-

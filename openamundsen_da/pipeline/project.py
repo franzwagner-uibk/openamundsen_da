@@ -16,14 +16,13 @@ Minimal CLI; defaults handle all formats/columns/behavior without user choices.
 
 from __future__ import annotations
 
-import os
 import shutil
 import threading
 import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from loguru import logger
 import pandas as pd
@@ -53,9 +52,9 @@ from openamundsen_da.util.landcover_mask import (
 from openamundsen_da.util.parallel import pick_max_workers
 from openamundsen_da.util.da_events import load_assimilation_events, AssimilationEvent
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
-from openamundsen_da.util.ts import parse_datetime_opt
 from openamundsen_da.methods.pf.assimilate_fraction import (
     assimilate_scf_for_date,
+    assimilate_wet_snow_line_for_date,
     assimilate_wet_snow_for_date,
 )
 from openamundsen_da.methods.pf.assimilate_station import (
@@ -65,7 +64,12 @@ from openamundsen_da.methods.pf.assimilate_station import (
 from openamundsen_da.pipeline.cleanup import cleanup_setup_dir, is_cleanup_enabled, state_patterns_from_setup
 from openamundsen_da.methods.h_of_x.model_scf import compute_step_scf_daily_for_all_members
 from openamundsen_da.methods.roi_mean import compute_step_roi_mean_daily_for_all_members
-from openamundsen_da.methods.wet_snow.classify import classify_step_wet_snow
+from openamundsen_da.methods.wet_snow.classify import (
+    CLASSIFICATION_METHOD_AMOUNT,
+    WetSnowClassificationConfig,
+    classify_step_wet_snow,
+    load_wet_snow_classification_config,
+)
 from openamundsen_da.methods.wet_snow.area import compute_step_wet_snow_daily_for_all_members
 from openamundsen_da.methods.pf.rejuvenate import rejuvenate
 from openamundsen_da.methods.pf.resample import resample_from_weights, _read_resampling_from_project
@@ -74,9 +78,10 @@ from openamundsen_da.pipeline.plot_tasks import (
     build_fraction_overlay_task,
     build_post_run_plot_tasks,
     custom_overview_needs_benchmark_scores,
-    plot_result_overview_cli,
-    plot_setup_weights_overview,
+    plot_result_overview_cli as plot_result_overview_cli,
+    plot_setup_weights_overview as plot_setup_weights_overview,
     render_project_maps_best_effort,
+    render_project_report_best_effort,
     run_live_plots,
     run_plot_tasks_parallel,
 )
@@ -106,6 +111,11 @@ DA_DIAGNOSTICS = {
         "wet_daily": True,
         "wet_plots": True,
     },
+    "wet_snow_line": {
+        "wet_classify": True,
+        "wet_daily": True,
+        "wet_plots": True,
+    },
 }
 
 
@@ -114,6 +124,7 @@ DA_DIAGNOSTICS = {
 _build_post_run_plot_tasks = build_post_run_plot_tasks
 _custom_overview_needs_benchmark_scores = custom_overview_needs_benchmark_scores
 _build_fraction_overlay_task = build_fraction_overlay_task
+_render_project_report_best_effort = render_project_report_best_effort
 
 
 def _list_steps_sorted(project_dir: Path) -> List[Path]:
@@ -136,35 +147,14 @@ def _find_roi(setup_dir: Path) -> Path:
     return ensure_setup_roi_vector(Path(setup_dir))
 
 
+def _load_wet_snow_classification_config(project_dir: Path) -> WetSnowClassificationConfig:
+    """Read model wet-snow classification config from project YAML."""
+    return load_wet_snow_classification_config(project_dir)
+
+
 def _load_wet_snow_threshold_percent(project_dir: Path) -> float:
-    """Read wet-snow classification threshold (percent) from project YAML."""
-    project_yaml = find_project_yaml(project_dir)
-    cfg = _read_yaml_file(project_yaml) or {}
-    if not isinstance(cfg, dict):
-        raise ValueError(f"Expected mapping at project YAML root: {project_yaml}")
-    da_cfg = cfg.get("data_assimilation")
-    if not isinstance(da_cfg, dict):
-        raise ValueError(f"Missing required configuration key: {project_yaml} -> data_assimilation")
-    wet_cfg = da_cfg.get("wet_snow")
-    if not isinstance(wet_cfg, dict):
-        raise ValueError(f"Missing required configuration key: {project_yaml} -> data_assimilation.wet_snow")
-    if "classification_threshold_percent" not in wet_cfg:
-        raise ValueError(
-            f"Missing required configuration key: {project_yaml} -> "
-            "data_assimilation.wet_snow.classification_threshold_percent"
-        )
-    raw_value = wet_cfg["classification_threshold_percent"]
-    try:
-        value = float(raw_value)
-    except Exception as exc:
-        raise ValueError(
-            f"Invalid data_assimilation.wet_snow.classification_threshold_percent in {project_yaml}: {raw_value!r}"
-        ) from exc
-    if value < 0:
-        raise ValueError(
-            f"data_assimilation.wet_snow.classification_threshold_percent must be >= 0 in {project_yaml}"
-        )
-    return value
+    """Read wet-snow ratio classification threshold (percent) from project YAML."""
+    return _load_wet_snow_classification_config(project_dir).threshold_percent
 
 
 def _compute_prior_step_diagnostics(
@@ -176,7 +166,7 @@ def _compute_prior_step_diagnostics(
     workers: int,
     scf_enabled: bool,
     wet_snow_enabled: bool,
-    wet_snow_threshold: float,
+    wet_snow_classification: WetSnowClassificationConfig,
 ) -> None:
     """Compute setup-level prior diagnostics that depend on propagated member outputs."""
     step_name = Path(step_dir).name
@@ -212,7 +202,9 @@ def _compute_prior_step_diagnostics(
             classify_step_wet_snow(
                 step_dir=step_dir,
                 members=None,
-                threshold_percent=wet_snow_threshold,
+                threshold_percent=wet_snow_classification.threshold_percent,
+                classification_method=wet_snow_classification.method,
+                liquid_water_amount_threshold_mm=wet_snow_classification.liquid_water_amount_threshold_mm,
                 output_subdir="wet_snow",
                 mask_prefix="wet_snow_mask",
                 fraction_prefix="lwc_fraction",
@@ -258,6 +250,18 @@ def _run_assimilation_for_event(
     ev: AssimilationEvent,
     assim_dt: datetime,
 ) -> tuple[pd.DataFrame, Path | None]:
+    if ev.variable == "wet_snow_line":
+        weights = assimilate_wet_snow_line_for_date(
+            setup_dir=cfg.setup_dir,
+            step_dir=step_dir,
+            ensemble="prior",
+            date=assim_dt,
+            aoi=roi,
+            landcover_cfg=lc_cfg,
+            obs_csv=None,
+            product=ev.product,
+        )
+        return weights, None
     if ev.variable == "wet_snow":
         weights = assimilate_wet_snow_for_date(
             setup_dir=cfg.setup_dir,
@@ -428,7 +432,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
         logger.warning("More assimilation events ({}) than steps needing DA ({}); extra events will be ignored.", len(events), n_expected)
     vars_used = {getattr(ev, "variable", None) for ev in events if getattr(ev, "variable", None)}
     scf_enabled = "scf" in vars_used
-    wet_snow_enabled = "wet_snow" in vars_used
+    wet_snow_enabled = bool({"wet_snow", "wet_snow_line"} & vars_used)
     if not vars_used:
         logger.info("No assimilation events found; skipping SCF/wet-snow diagnostics (explicit variables only).")
         scf_enabled = False
@@ -436,9 +440,9 @@ def run_project(cfg: OrchestratorConfig) -> None:
     else:
         logger.info("Assimilation variables detected: {}", ", ".join(sorted(vars_used)))
         if wet_snow_enabled:
-            logger.info("Wet-snow diagnostics enabled (wet_snow present in assimilation_events).")
+            logger.info("Wet-snow diagnostics enabled (wet_snow / wet_snow_line present in assimilation_events).")
         else:
-            logger.info("Wet-snow diagnostics disabled (wet_snow not in assimilation_events).")
+            logger.info("Wet-snow diagnostics disabled (wet_snow / wet_snow_line not in assimilation_events).")
         if scf_enabled:
             logger.info("SCF diagnostics enabled (scf present in assimilation_events).")
         else:
@@ -465,49 +469,27 @@ def run_project(cfg: OrchestratorConfig) -> None:
         logger.info("Land-cover mask disabled; no land-cover exclusions applied")
 
     # Project/setup metadata for DA and performance monitoring
-    wet_snow_threshold = _load_wet_snow_threshold_percent(cfg.project_dir)
-    logger.info("Wet-snow classification threshold set to {:.3f} % (project YAML)", wet_snow_threshold)
+    wet_snow_classification = _load_wet_snow_classification_config(cfg.project_dir)
+    if wet_snow_classification.method == CLASSIFICATION_METHOD_AMOUNT:
+        logger.info(
+            "Wet-snow classification method={} threshold={:.3f} mm (project YAML)",
+            wet_snow_classification.method,
+            wet_snow_classification.liquid_water_amount_threshold_mm,
+        )
+    else:
+        logger.info(
+            "Wet-snow classification method={} threshold={:.3f} % (project YAML)",
+            wet_snow_classification.method,
+            wet_snow_classification.threshold_percent,
+        )
 
-    proj_resolution = None
-    proj_timestep = None
     proj_crs = None
-    setup_days = None
-    ensemble_size = None
     try:
         proj_yaml = find_setup_yaml(cfg.setup_dir)
         proj_cfg = _read_yaml_file(proj_yaml) or {}
-        if "resolution" in proj_cfg:
-            try:
-                proj_resolution = float(proj_cfg.get("resolution"))
-            except Exception:
-                proj_resolution = None
-        if "timestep" in proj_cfg:
-            proj_timestep = str(proj_cfg.get("timestep"))
         proj_crs = proj_cfg.get("crs")
-        setup_yaml = find_project_yaml(cfg.project_dir)
-        setup_cfg = _read_yaml_file(setup_yaml) or {}
-        da_cfg = setup_cfg.get("data_assimilation") or {}
-        pf_cfg = da_cfg.get("prior_forcing") or {}
-        if "ensemble_size" in pf_cfg:
-            try:
-                ensemble_size = int(pf_cfg.get("ensemble_size"))
-            except Exception:
-                ensemble_size = None
     except Exception as exc:
         logger.warning("Perf monitor: failed to read config metadata: {}", exc)
-
-    # Project length (days) from project YAML
-    try:
-        seas_yaml = find_project_yaml(cfg.project_dir)
-        seas_cfg = _read_yaml_file(seas_yaml) or {}
-        start_val = seas_cfg.get("start_date")
-        end_val = seas_cfg.get("end_date")
-        start_dt = parse_datetime_opt(str(start_val)) if start_val is not None else None
-        end_dt = parse_datetime_opt(str(end_val)) if end_val is not None else None
-        if start_dt is not None and end_dt is not None:
-            setup_days = (end_dt.date() - start_dt.date()).days + 1
-    except Exception as exc:
-        logger.warning("Perf monitor: failed to read project dates: {}", exc)
 
     # Approximate AOI area in km2 for performance summary
     roi_area_km2 = None
@@ -599,7 +581,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
             workers=int(workers),
             scf_enabled=scf_enabled,
             wet_snow_enabled=wet_snow_enabled,
-            wet_snow_threshold=wet_snow_threshold,
+            wet_snow_classification=wet_snow_classification,
         )
 
         # If not the last step: Assimilation -> Resample -> Rejuvenate
@@ -845,6 +827,8 @@ def run_project(cfg: OrchestratorConfig) -> None:
             run_plot_tasks_parallel([build_fraction_overlay_task(cfg)], cfg.plot_workers, cfg.max_workers)
         except Exception as exc:
             logger.warning("Post-benchmark plotting failed: {}", exc)
+
+    render_project_report_best_effort(cfg.project_dir)
 
     retention_mode = output_retention_mode(cfg.project_dir)
     if retention_mode == "compact":

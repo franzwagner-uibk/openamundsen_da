@@ -213,7 +213,6 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
     out_root = args.output_dir if args.output_dir else (step_dir / "plots" / "results")
     step_name = step_dir.name
     effective_title = f"{args.title} | {step_name}" if args.title else step_name
-    var_label = args.var_label or args.var_col
     var_title = pretty_var_title(args.var_col, args.var_label, args.var_units)
 
     for fname in point_files:

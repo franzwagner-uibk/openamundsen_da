@@ -14,6 +14,8 @@ from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.methods.viz.maps import project_maps_enabled, render_project_maps
 from openamundsen_da.methods.viz.maps.generated import default_project_maps_rerun_command
 from openamundsen_da.methods.viz.maps.runner import ProjectMapRenderError
+from openamundsen_da.methods.viz.reports import build_project_collection_pdf
+from openamundsen_da.methods.viz.reports.project_collection_pdf import MissingProjectPdfArtifactsError
 from openamundsen_da.methods.viz.plots.assimilation import (
     plot_setup_ess_timeline,
     plot_setup_weights_overview,
@@ -66,7 +68,7 @@ def aggregate_fraction_envelopes(
     project_dir: Path,
     project_fraction_envelope_path: Callable[[Path, str], Path],
 ) -> None:
-    """Aggregate SCF and wet-snow envelopes into results/misc."""
+    """Aggregate SCF, WSF, and WSLA envelopes into results/misc."""
     try:
         _aggregate_fraction(
             project_dir=project_dir,
@@ -84,7 +86,16 @@ def aggregate_fraction_envelopes(
             output_path=project_fraction_envelope_path(project_dir, "wet_snow"),
         )
     except Exception as exc:
-        logger.warning("Wet-snow envelope aggregation failed: {}", exc)
+        logger.warning("WSF envelope aggregation failed: {}", exc)
+    try:
+        _aggregate_fraction(
+            project_dir=project_dir,
+            filename="point_wet_snow_line_roi.csv",
+            value_col="wet_snow_line",
+            output_path=project_fraction_envelope_path(project_dir, "wet_snow_line"),
+        )
+    except Exception as exc:
+        logger.warning("WSLA envelope aggregation failed: {}", exc)
 
 
 def run_plot_tasks_parallel(
@@ -257,6 +268,28 @@ def render_project_maps_best_effort(project_dir: Path) -> None:
         )
 
 
+def default_project_report_rerun_command(project_dir: Path) -> str:
+    return f"python -m openamundsen_da.methods.viz.reports --project-dir {Path(project_dir)}"
+
+
+def render_project_report_best_effort(project_dir: Path) -> None:
+    try:
+        output = build_project_collection_pdf(project_dir=Path(project_dir))
+        logger.info("Project report complete -> {}", output)
+    except MissingProjectPdfArtifactsError as exc:
+        logger.warning("Project report skipped: {}", exc)
+        logger.warning(
+            "Rerun project report with: {}",
+            default_project_report_rerun_command(project_dir),
+        )
+    except Exception as exc:
+        logger.warning("Project report failed: {}", exc)
+        logger.warning(
+            "Rerun project report with: {}",
+            default_project_report_rerun_command(project_dir),
+        )
+
+
 def build_post_run_plot_tasks(
     cfg,
     steps: List[Path],
@@ -369,7 +402,9 @@ __all__ = [
     "aggregate_fraction_envelopes",
     "build_post_run_plot_tasks",
     "custom_overview_needs_benchmark_scores",
+    "default_project_report_rerun_command",
     "render_project_maps_best_effort",
+    "render_project_report_best_effort",
     "run_live_plots",
     "run_plot_tasks_parallel",
 ]

@@ -30,7 +30,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Literal, Tuple
-import concurrent.futures as cf
 
 import geopandas as gpd
 import numpy as np
@@ -57,9 +56,6 @@ from openamundsen_da.io.paths import (
     find_project_yaml,
     infer_project_dir,
     infer_setup_dir_from_project,
-    read_step_config,
-    list_member_dirs,
-    open_loop_dir,
     list_step_dirs,
 )
 from openamundsen_da.util.landcover_mask import (
@@ -519,7 +515,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     # Parse date
     try:
         dt = datetime.strptime(args.date, "%Y-%m-%d")
-    except Exception as e:
+    except Exception:
         logger.error(f"Invalid --date format (expected YYYY-MM-DD): {args.date}")
         return 2
 

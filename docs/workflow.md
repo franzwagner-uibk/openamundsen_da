@@ -55,6 +55,18 @@ T_perturbed = T_original + epsilon_T,  epsilon_T ~ N(0, sigma_T^2)
 P_perturbed = P_original * exp(epsilon_P),  epsilon_P ~ N(mu_P, sigma_P^2)
 ```
 
+**Relative humidity**: Additive Gaussian noise with clipping
+
+```
+RH_perturbed = clip(RH_original + epsilon_RH, 0, 100),  epsilon_RH ~ N(0, sigma_RH^2)
+```
+
+**Incoming shortwave radiation**: Multiplicative log-normal noise for daytime values only
+
+```
+SW_perturbed = SW_original * exp(epsilon_SW),  epsilon_SW ~ N(0, sigma_SW^2),  applied only if SW_original > 0
+```
+
 **Command**:
 
 ```bash
@@ -386,9 +398,11 @@ data_assimilation:
   rejuvenation:
     sigma_t: 0.2 # Additive temperature noise (deg C)
     sigma_p: 0.2 # Lognormal sigma for precip factor (mu=0)
+    sigma_rh: 0.0 # Additive relative humidity noise (percentage points)
+    sigma_sw: 0.0 # Lognormal sigma for daytime shortwave factor (mu=0)
 ```
 
-If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas.
+If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas. `sigma_rh` and `sigma_sw` default to `0.0` when omitted.
 
 ### State Propagation
 
@@ -458,6 +472,18 @@ Only state pickle files are removed; `state_pointer.json` files are left in plac
 
 ## Configuration Reference
 
+### Wet-Snow Model Classification
+
+```yaml
+data_assimilation:
+  wet_snow:
+    classification_method: liquid_water_fraction # or liquid_water_amount
+    classification_threshold_percent: 0.4 # used by liquid_water_fraction
+    liquid_water_amount_threshold_mm: 5.0 # used by liquid_water_amount
+```
+
+`liquid_water_fraction` is the existing ratio method. `liquid_water_amount` classifies a model grid cell as wet when summed layer liquid water content reaches the absolute threshold in mm water equivalent.
+
 ### Likelihood Settings
 
 ```yaml
@@ -472,6 +498,13 @@ data_assimilation:
     wet_snow:
       obs_sigma: 0.15
       use_binomial: false
+    wet_snow_line:
+      obs_sigma: 150.0
+      use_binomial: false
+      sigma_floor: 25.0
+      min_sigma: 25.0
+      min_support_coverage_ratio: 0.10
+      min_model_finite_fraction: 1.0 # set 0.90 for WSLA sensitivity experiments
 ```
 
 ### Warm Start Settings

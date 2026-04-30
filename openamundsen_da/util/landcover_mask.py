@@ -11,7 +11,7 @@ import csv
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Iterable, Tuple
+from typing import Any
 
 import numpy as np
 import rasterio

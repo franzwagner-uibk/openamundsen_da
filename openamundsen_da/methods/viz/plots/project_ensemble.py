@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -56,10 +56,8 @@ from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.methods.viz.plots.theme import (
     BAND_ALPHA,
-    COLOR_MEMBER,
     COLOR_MEAN,
     COLOR_OPEN_LOOP,
-    LEGEND_NCOL,
     LEGEND_NCOL_SETUP,
     LW_MEMBER,
     LW_MEAN,
@@ -67,8 +65,6 @@ from openamundsen_da.methods.viz.plots.theme import (
     COLOR_DA_OBS,
     SIZE_DA_OBS,
     LW_DA_OBS,
-    COLOR_OBS_SCF,
-    SIZE_OBS_SCF,
     GRID_LS,
     GRID_LW,
     GRID_ALPHA,
@@ -76,9 +72,7 @@ from openamundsen_da.methods.viz.plots.theme import (
     FS_SUBTITLE,
     COLOR_SUBTITLE,
     FS_ASSIM_LABEL,
-    ASSIM_LABEL_ROT,
     FIGSIZE_FORCING,
-    FIGSIZE_RESULTS,
     da_variable_fill_color,
     da_variable_line_color,
 )
@@ -196,31 +190,6 @@ def _build_member_label_map(steps: Sequence[StepInfo]) -> Dict[str, str]:
     """
     return {}
 
-
-
-def _auto_end_from_swe_zero(member_series: List[pd.Series]) -> Optional[datetime]:
-    """Return autostop = last date where any member SWE>0 + 30 days.
-
-    If no member data or all NaN, returns None.
-    """
-    if not member_series:
-        return None
-    # Build a union index
-    all_idx = pd.DatetimeIndex(sorted({ts for s in member_series for ts in s.index}))
-    if all_idx.empty:
-        return None
-    any_positive = pd.Series(False, index=all_idx)
-    for s in member_series:
-        # Align to union, NaNs treated as not positive
-        ss = s.reindex(all_idx).fillna(0.0)
-        any_positive = any_positive | (ss > 0)
-    if not any_positive.any():
-        # never positive -> return None so caller can decide
-        return None
-    last_pos_idx = any_positive[any_positive].index.max()
-    return (last_pos_idx + timedelta(days=30)).to_pydatetime()
-
-
 def _draw_assim(ax, dates: Sequence[datetime]) -> None:
     """Draw assimilation vlines only; figure-level legend is composed later."""
     draw_assimilation_vlines(ax, dates)
@@ -231,15 +200,15 @@ def _draw_assim_labels(ax, dates: Sequence[datetime]) -> None:
     draw_assim_labels(ax, dates, labels=None, max_labels=12, y_offset_pts=3.0, fontsize=FS_ASSIM_LABEL, color="black")
 
 
-def _center_daily_dates(dates: Sequence[datetime]) -> list[datetime]:
-    """Shift day-based assimilation markers to midday for daily plots."""
-    return [d + timedelta(hours=12) for d in dates]
+def _standalone_assimilation_dates(steps: Sequence[StepInfo], configured_events: Sequence[datetime]) -> list[datetime]:
+    """Return DA marker dates for standalone result plots.
 
-
-def _standalone_assimilation_dates(steps: Sequence[StepInfo], fallback: Sequence[datetime]) -> list[datetime]:
-    """Use actual step end timestamps for standalone result plots when available."""
-    dates = [st.end for st in steps if st.end is not None]
-    return dates or list(fallback)
+    Prefer the authoritative project assimilation events. Step end timestamps
+    include the final project boundary, which is not a DA event.
+    """
+    if configured_events:
+        return list(configured_events)
+    return [st.end for st in steps if st.end is not None]
 
 
 def _add_result_label_axis(ax, dates: Sequence[datetime], idx: int = 0):
@@ -284,15 +253,19 @@ def _apply_result_time_axis_labels(ax) -> None:
 def _build_station_result_legend(
     fig,
     *,
+    show_open_loop: bool,
     show_station_observation: bool,
     mean_color: str,
     band_color: str,
     show_ensemble_summary: bool = True,
+    show_da_event: bool = True,
 ) -> None:
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
 
-    handles = [Line2D([0], [0], color="black", lw=LW_OPEN, label="open loop")]
+    handles = []
+    if show_open_loop:
+        handles.append(Line2D([0], [0], color="black", lw=LW_OPEN, label="open loop"))
     if show_station_observation:
         handles.append(Line2D([0], [0], color=COLOR_DA_OBS, lw=LW_DA_OBS, label="station observation"))
     if show_ensemble_summary:
@@ -302,7 +275,10 @@ def _build_station_result_legend(
                 Patch(facecolor=band_color, edgecolor=band_color, linewidth=1.2, alpha=BAND_ALPHA, label="ensemble"),
             ]
         )
-    handles.append(Line2D([0], [0], color="#666666", lw=1.2, ls="--", label="data assimilation event"))
+    if show_da_event:
+        handles.append(Line2D([0], [0], color="#666666", lw=1.2, ls="--", label="data assimilation event"))
+    if not handles:
+        return
     fig.legend(
         handles=handles,
         loc="lower left",
@@ -360,18 +336,6 @@ def _apply_result_axis_ticks(ax, var_col: str) -> None:
     ax.set_ylim(0.0, upper)
     ax.yaxis.set_major_locator(MultipleLocator(step))
     ax.yaxis.set_minor_locator(MultipleLocator(step / 2.0))
-
-
-def _format_assim_summary(dates: Sequence[datetime]) -> str:
-    """Return multi-line summary DAi: YYYY-MM-DD for assimilation dates."""
-    return "\n".join(f"DA{i}: {d.strftime('%Y-%m-%d')}" for i, d in enumerate(dates, start=1))
-
-
-def _draw_assim_summary_box(fig, ax, dates: Sequence[datetime], base_y: Optional[float] = None) -> None:
-    """Disabled: assimilation date summary box removed to reduce clutter."""
-    return
-
-
 def _plot_stepwise_mean(
     ax,
     mean: pd.Series,
@@ -557,7 +521,6 @@ def plot_setup_forcing(
     stations_df = load_stations_table_from_steps([s.path for s in steps], "prior")
     member_label_map = _build_member_label_map(steps)
     assim_dates = _assimilation_event_dates(setup_dir)
-    assim_date_set = {d.date() for d in assim_dates}
 
     for fname in station_files:
         # Collect series per member across all steps
@@ -706,11 +669,6 @@ def plot_setup_forcing(
                 frameon=False,
                 fontsize=8,
             )
-            # DA date summary box under the right part of the plot area,
-            # sharing the same vertical baseline as the legend.
-            _draw_assim_summary_box(fig, axes[0], assim_dates, base_y=legend_y)
-        else:
-            _draw_assim_summary_box(fig, axes[0], assim_dates)
 
         out_path = out_root / f"setup_forcing_{token}_{setup_id}.png"
         force_figure_text_black(fig, axes)
@@ -890,6 +848,7 @@ def plot_setup_results(
         station_model_color = _station_model_color(var_col)
         station_band_color = _station_band_color(var_col)
         effective_mode = "members" if show_members else mode
+        ensemble_summary_drawn = False
         if effective_mode == "members":
             for series in member_series:
                 ax.plot(
@@ -904,6 +863,7 @@ def plot_setup_results(
         else:
             mean, lo, hi = envelope(member_series, q_low=band_low, q_high=band_high)
             if not mean.empty:
+                ensemble_summary_drawn = True
                 ax.fill_between(
                     mean.index,
                     lo,
@@ -922,9 +882,11 @@ def plot_setup_results(
                     color=station_model_color,
                     zorder=4,
                 )
+        open_loop_drawn = False
         if open_loop:
             ol = concat_series(open_loop)
             if not ol.empty:
+                open_loop_drawn = True
                 ax.plot(ol.index, ol.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open loop (model)", zorder=5)
 
         # Station observations stay visually dominant over all model traces.
@@ -981,10 +943,12 @@ def plot_setup_results(
         fig.subplots_adjust(left=0.11, right=0.965, top=top_margin, bottom=bottom_margin)
         _build_station_result_legend(
             fig,
+            show_open_loop=open_loop_drawn,
             show_station_observation=obs_series is not None and not obs_series.empty,
             mean_color=station_model_color,
             band_color=station_band_color,
-            show_ensemble_summary=effective_mode == "band",
+            show_ensemble_summary=effective_mode == "band" and ensemble_summary_drawn,
+            show_da_event=bool(centered_assim_dates),
         )
 
         out_path = out_root / f"setup_results_{token}_{var_col}_{setup_id}.png"

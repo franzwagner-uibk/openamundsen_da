@@ -7,6 +7,8 @@ Behavior
 - Reads rejuvenation params from project YAML (data_assimilation.rejuvenation):
   - sigma_t: additive temperature noise
   - sigma_p: multiplicative precipitation noise (lognormal with mu=0)
+  - sigma_rh: additive relative humidity noise
+  - sigma_sw: multiplicative shortwave noise (lognormal with mu=0)
 - For each posterior member in the previous step:
   - Determine its source member directory via MEMBER_SOURCE_POINTER
     (or fall back to the posterior member itself if missing)
@@ -24,7 +26,6 @@ This avoids copying large state files and keeps ensembles light.
 from __future__ import annotations
 
 import argparse
-import concurrent.futures as cf
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,10 +40,12 @@ from openamundsen_da.core.constants import (
     REJUVENATION_BLOCK,
     REJ_SIGMA_T,
     REJ_SIGMA_P,
+    REJ_SIGMA_RH,
+    REJ_SIGMA_SW,
     DA_RANDOM_SEED,
+    DA_SIGMA_RH,
+    DA_SIGMA_SW,
     DEFAULT_TIME_COL,
-    DEFAULT_TEMP_COL,
-    DEFAULT_PRECIP_COL,
     MEMBER_PREFIX,
     STATE_POINTER_JSON,
     STATE_DEFAULT_NAME,
@@ -67,14 +70,16 @@ from openamundsen_da.util.meteo import filter_and_write_meteo
 class RejuvenationParams:
     sigma_t: float
     sigma_p: float
+    sigma_rh: float
+    sigma_sw: float
     seed: Optional[int]
 
 
 def _read_rejuvenation_params(setup_dir: Path) -> RejuvenationParams:
     """Read rejuvenation params; reuse prior_forcing sigmas by default.
 
-    If rejuvenation.sigma_t/p are provided, they override; otherwise we fall
-    back to data_assimilation.prior_forcing.{sigma_t,sigma_p}. Seed falls back
+    If rejuvenation sigmas are provided, they override; otherwise we fall
+    back to data_assimilation.prior_forcing sigmas. Seed falls back
     to prior_forcing.random_seed if not set under rejuvenation.
     """
     setup_yaml = find_project_yaml(setup_dir)
@@ -85,10 +90,14 @@ def _read_rejuvenation_params(setup_dir: Path) -> RejuvenationParams:
     # Defaults: reuse prior_forcing
     sigma_t = float(rj.get(REJ_SIGMA_T, prior.get("sigma_t", 0.0)))
     sigma_p = float(rj.get(REJ_SIGMA_P, prior.get("sigma_p", 0.0)))
+    sigma_rh = float(rj.get(REJ_SIGMA_RH, prior.get(DA_SIGMA_RH, 0.0)))
+    sigma_sw = float(rj.get(REJ_SIGMA_SW, prior.get(DA_SIGMA_SW, 0.0)))
     seed = rj.get("seed", prior.get(DA_RANDOM_SEED))
     return RejuvenationParams(
         sigma_t=sigma_t,
         sigma_p=sigma_p,
+        sigma_rh=sigma_rh,
+        sigma_sw=sigma_sw,
         seed=(int(seed) if seed is not None else None),
     )
 
@@ -171,6 +180,8 @@ def _rejuvenate_member_task(
     end: pd.Timestamp,
     dT: float,
     fP: float,
+    dRH: float,
+    fSW: float,
     project_dir: Path,
     source_meteo_dir: Optional[Path],
 ) -> dict:
@@ -189,6 +200,8 @@ def _rejuvenate_member_task(
         end=end,
         delta_t=dT,
         f_p=fP,
+        delta_rh=dRH,
+        f_sw=fSW,
     )
 
     # Copy state pointer if present (support root or results location)
@@ -220,6 +233,8 @@ def _rejuvenate_member_task(
         "source_member": src_member.name,
         "delta_T": dT,
         "f_p": fP,
+        "delta_RH": dRH,
+        "f_sw": fSW,
         "copied_state_pointer": copied_ptr,
         "rebase_open_loop": True,
     }
@@ -251,7 +266,11 @@ def rejuvenate(
         src_member = _source_member_dir(post_member)
         dT = float(rng.normal(0.0, params.sigma_t)) if params.sigma_t else 0.0
         fP = float(rng.lognormal(mean=0.0, sigma=params.sigma_p)) if params.sigma_p else 1.0
-        tasks.append((i, post_member, src_member, tgt_root, start, end, dT, fP, Path(setup_dir), source_meteo_dir))
+        dRH = float(rng.normal(0.0, params.sigma_rh)) if params.sigma_rh else 0.0
+        fSW = float(rng.lognormal(mean=0.0, sigma=params.sigma_sw)) if params.sigma_sw else 1.0
+        tasks.append(
+            (i, post_member, src_member, tgt_root, start, end, dT, fP, dRH, fSW, Path(setup_dir), source_meteo_dir)
+        )
 
     if not tasks:
         return {"members": 0, "copied_state_pointers": 0}
@@ -269,10 +288,12 @@ def rejuvenate(
     copied_pointers = sum(int(r.get("copied_state_pointer")) for r in rows)
     for res in rows:
         logger.info(
-            "[{m}] dT={dt:+.3f} f_p={fp:.3f} state_ptr={sp} rebase=True",
+            "[{m}] dT={dt:+.3f} f_p={fp:.3f} dRH={drh:+.3f} f_sw={fsw:.3f} state_ptr={sp} rebase=True",
             m=res["member"],
             dt=res["delta_T"],
             fp=res["f_p"],
+            drh=res["delta_RH"],
+            fsw=res["f_sw"],
             sp=res["copied_state_pointer"],
         )
 
@@ -292,6 +313,8 @@ def rejuvenate(
         "target_ensemble": target_ensemble,
         "sigma_t": params.sigma_t,
         "sigma_p": params.sigma_p,
+        "sigma_rh": params.sigma_rh,
+        "sigma_sw": params.sigma_sw,
         "seed": (int(params.seed) if params.seed is not None else None),
         "copied_state_pointers": int(copied_pointers),
         "members": rows_sorted,
@@ -384,5 +407,3 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-
-

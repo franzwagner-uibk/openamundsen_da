@@ -11,9 +11,9 @@ import numpy as np
 import pandas as pd
 
 from openamundsen_da.methods.viz.common import (
-    force_figure_text_black,
-    save_figure_png,
-    set_matplotlib_text_black,
+    force_figure_text_black as force_figure_text_black,
+    save_figure_png as save_figure_png,
+    set_matplotlib_text_black as set_matplotlib_text_black,
 )
 from openamundsen_da.methods.viz.plots.theme import (
     CRPSS_AXIS_STEP_CANDIDATES,

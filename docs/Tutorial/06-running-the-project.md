@@ -155,6 +155,7 @@ After a successful run, these paths should exist:
 - `/data/rofental/projects/project_2022_2023/results/plots/assim/ess/setup_ess_timeline_2022_2023.png`
 - `/data/rofental/projects/project_2022_2023/results/plots/assim/scores/performance_scores.png`
 - `/data/rofental/projects/project_2022_2023/results/plots/assim/weights/setup_weights_overview_2022_2023.png`
+  - for projects with many assimilation dates, continuation pages are written as `setup_weights_overview_2022_2023_page_02.png`, `..._page_03.png`, etc.
 - `/data/rofental/projects/project_2022_2023/results/plots/assim/weights/DA_04_weights.png`
 - `/data/rofental/projects/project_2022_2023/results/plots/results/result_overview.png`
 - `/data/rofental/projects/project_2022_2023/results/plots/points/setup_results_point_latschbloder_snow_depth_2022_2023.png`
@@ -163,6 +164,7 @@ After a successful run, these paths should exist:
 - `/data/rofental/projects/project_2022_2023/results/misc/point_wet_snow_roi_envelope.csv`
 - `/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc`
 - `/data/rofental/projects/project_2022_2023/results/maps/`
+- `/data/rofental/projects/project_2022_2023/results/reports/project_report.pdf`
 
 Typical result files after a successful run:
 
@@ -178,6 +180,7 @@ results/plots/assim/weights/
   ...
   DA_10_weights.png
   setup_weights_overview_2022_2023.png
+  setup_weights_overview_2022_2023_page_02.png   # only when the overview spans multiple A4-length pages
 
 results/plots/perf/
   project_perf.png
@@ -204,7 +207,12 @@ results/maps/
     da_1.png
     ...
     da_10.png
+
+results/reports/
+  project_report.pdf                  # attempted at the end of oa-da-project
 ```
+
+The report PDF is a best-effort final artifact. Its first page contains the setup/project summary plus a bottom `Content` table with page numbers first and section names second. It then collects the curated overview plots, setup map, setup weights overview pages, station snow-depth point plots, `performance_scores.png`, `project_perf.png`, and generated DA-event maps in temporal order. If report prerequisites are missing, `oa-da-project` logs the missing paths and a manual `python -m openamundsen_da.methods.viz.reports --project-dir ...` rerun command, but the completed model run remains successful.
 
 ![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/project_perf.png)
 

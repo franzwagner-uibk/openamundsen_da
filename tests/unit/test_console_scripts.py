@@ -54,3 +54,12 @@ def test_fetch_overview_geojson_console_script_is_published():
     assert data["project"]["scripts"]["oa-da-fetch-overview-geojson"] == (
         "openamundsen_da.methods.viz.maps.overview:cli_main"
     )
+
+
+def test_project_pdf_console_script_is_published():
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    data = tomllib.loads(pyproject.read_text())
+
+    assert data["project"]["scripts"]["oa-da-project-pdf"] == (
+        "openamundsen_da.methods.viz.reports:cli_main"
+    )

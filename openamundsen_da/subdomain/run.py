@@ -67,7 +67,7 @@ def _read_summary_dates(csv_path: Path) -> set[date]:
 
 def _normalize_event_variable(value: object) -> str:
     v = str(value or "").strip().lower()
-    if v in {"wet_snow", "wet_snow_fraction"}:
+    if v in {"wet_snow", "wet_snow_fraction", "wet_snow_line"}:
         return "wet_snow"
     return v
 
@@ -154,7 +154,7 @@ def _prepare_obs_for_subdomain(sub, manifest: SubdomainManifest, *, overwrite: b
             end=end,
         )
 
-    if "wet_snow" in variables:
+    if {"wet_snow", "wet_snow_line"} & variables:
         if not manifest.raw_wetsnow_dir.is_dir():
             raise FileNotFoundError(f"Raw wet-snow directory not found: {manifest.raw_wetsnow_dir}")
         wet, valid, exclude = load_wetsnow_classes(sub.project_dir)
@@ -199,7 +199,7 @@ def _prepare_obs_for_subdomain(sub, manifest: SubdomainManifest, *, overwrite: b
             overwrite=overwrite,
         )
 
-    if wet_summary.is_file() and "wet_snow" in variables:
+    if wet_summary.is_file() and ({"wet_snow", "wet_snow_line"} & variables):
         wet_project_obs(
             project_dir=sub.project_dir,
             summary_csv=wet_summary,

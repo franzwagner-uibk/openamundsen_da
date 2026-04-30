@@ -45,7 +45,7 @@ All commands are available as:
 **Main setup pipeline orchestrator**
 
 Runs the complete setup data assimilation cycle: prior forcing → ensemble run → assimilation → resampling → rejuvenation.
-The pipeline now also runs the scientific benchmark stage automatically at the end of every project.
+The pipeline now also runs the scientific benchmark stage automatically at the end of every project, then attempts to assemble the project PDF report.
 
 ```bash
 oa-da-project \
@@ -85,6 +85,11 @@ docker compose run --rm oa oa-da-project \
 - `results/benchmark/summary.md`
 - `results/plots/assim/scores/performance_scores.png`
 
+**Report output attempted by default:**
+- `results/reports/project_report.pdf`
+
+Report generation is best-effort in `oa-da-project`: missing plots/maps or other PDF assembly errors are logged with a manual rerun command and do not fail the completed model run.
+
 **Benchmark config block (optional benchmark controls):**
 ```yaml
 data_assimilation:
@@ -119,7 +124,7 @@ oa-da-benchmark \
 
 **Optional Arguments:**
 - `--setup-dir PATH` - Override setup root (otherwise inferred from `--project-dir`)
-- `--variables NAME [NAME ...]` - Restrict benchmark variables to `scf`, `wet_snow`, `station_hs`, `station_swe`
+- `--variables NAME [NAME ...]` - Restrict benchmark variables to `scf`, `wet_snow`, `wet_snow_line`, `station_hs`, `station_swe`
 - `--output-dir PATH` - Override benchmark results directory
 - `--no-plots` - Skip benchmark plots
 - `--max-workers N` - Override benchmark preprocessing worker count
@@ -130,7 +135,7 @@ oa-da-benchmark \
 ```bash
 docker compose run --rm oa oa-da-benchmark \
   --project-dir /data/projects/project_2019-2020 \
-  --variables scf wet_snow station_swe
+  --variables scf wet_snow_line station_swe
 ```
 
 ---
@@ -152,7 +157,7 @@ oa-da-scf \
 
 **Arguments:**
 - `--project-dir PATH` - Project directory (e.g., `/data/projects/project_2019-2020`)
-- `--summary-csv PATH` - Optional path to `scf_summary.csv` (default: `<setup>/obs/<project>/scf_summary.csv`)
+- `--summary-csv PATH` - Optional path to `scf_summary.csv`; when provided it is recorded in `obs.snowcover.summary_csv` so later maps and benchmarks use the same source. Without this option the command resolves `obs.snowcover.summary_csv`, then legacy defaults under `<setup>/obs/<project>/` and `<setup>/obs/summaries/<project>/`.
 - `--product CODE` - Optional product tag override used in filenames (otherwise read from `project.yml` -> `obs.snowcover.product_tag`)
 - `--overwrite` - Overwrite existing `obs_scf_*.csv` files
 
@@ -385,9 +390,11 @@ oa-da-model-wet-snow \
 
 **Optional Arguments:**
 - `--members LIST` - Specific members (default: all)
-- `--threshold PERCENT` - LWC threshold (default: from config)
+- `--classification-method METHOD` - `liquid_water_fraction` or `liquid_water_amount`
+- `--threshold PERCENT` - LWC fraction threshold for `liquid_water_fraction`
+- `--liquid-water-amount-threshold-mm MM` - absolute liquid-water threshold for `liquid_water_amount`
 - `--write-fraction` - Write LWC fraction rasters
-- `--min-depth-mm MM` - Minimum snow depth (default: 10)
+- `--min-depth-mm MM` - Minimum snow depth (default: 5)
 
 **Output:**
 - Per member: `results/wet_snow/wet_snow_mask_*.tif`
@@ -436,7 +443,7 @@ Output is written next to the wet-snow source rasters (same filename stem plus
 
 **Per-step wet-snow observation CSV generation**
 
-Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` files based on project assimilation events.
+Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_line_<PRODUCT>_YYYYMMDD.csv` files based on project assimilation events. If `--summary-csv` is provided, the path is recorded in `obs.wetsnow.summary_csv` so later maps and WSF benchmarks use the same source; WSLA benchmarks read `wet_snow_line_diagnostics.csv` from the same directory unless `obs.wetsnow.wet_snow_line_diagnostics_csv` is configured explicitly.
 
 ---
 
@@ -446,7 +453,7 @@ Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PR
 
 **Setup result overview**
 
-Plots the combined setup result overview: SCF, wet-snow, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. If `<project-dir>/plots.yml` exists, the pipeline additionally writes `result_overview_custom.png` with the configured panel list. Custom panel configs also support `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
+Plots the combined setup result overview: SCF, WSF, WSLA, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. Figure legends are built from rendered plot elements, so unused observation, ensemble, open-loop, or DA-event entries are omitted. If `<project-dir>/plots.yml` exists, the pipeline additionally writes `result_overview_custom.png` with the configured panel list. Custom panel configs support `WSF`, `WSLA`, `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
 
 ```bash
 oa-da-plot-result-overview \
@@ -479,17 +486,21 @@ Typical custom `maps.yml` files still use this panel catalog:
 # - svf
 # - srf
 # - landcover
-# - snow_depth               # source: open_loop | ensemble_mean | increment
-# - swe                      # source: open_loop | ensemble_mean | increment
-# - liquid_water_content     # source: open_loop | ensemble_mean | increment
-# - fsc
-# - wet_snow
+# - snow_depth               # source: open_loop | ensemble_mean | analysis_mean | increment | analysis_increment
+# - swe                      # source: open_loop | ensemble_mean | analysis_mean | increment | analysis_increment
+# - liquid_water_content     # source: open_loop | ensemble_mean | analysis_mean | increment | analysis_increment
+# - fsc                      # source: open_loop | ensemble_mean | open_loop_binary | prior_probability | posterior_probability
+# - wet_snow                 # source: open_loop | ensemble_mean | prior_probability | posterior_probability
+# - wet_snow_line            # source: open_loop | prior_probability | posterior_probability | posterior
+# - wet_snow_elevation_fraction # source: open_loop | prior_probability | posterior_probability
 # - legend
 # - colorbar
 # Optional panel keys:
 # - title, name, date, legend, show_colorbar, show_scalebar, show_grid, show_hillshade, hillshade_extent
 # - show_roi, show_station_marker, show_stations_name, show_stations_elev
 ```
+
+Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference panels show `analysis_increment` (`posterior - prior`); FSC and wet-snow reference panels show the satellite observation. WSLA lines are panel-local and observation WSLA is drawn only in the observation/reference panel. If an event's resampling manifest has `skipped: true`, the generated map title includes `resampling skipped`.
 
 ```bash
 oa-da-plot-project-maps \
@@ -502,6 +513,8 @@ oa-da-plot-project-maps \
 **Output:**
 - generated DA-event maps under `results/maps/da_events/*.png`
 - custom YAML maps under `results/maps/*.png`
+
+Generated `wet_snow` and `wet_snow_line` DA-event maps include a generated-only spatial elevation-band WSF row below the primary wet-snow row. Each panel keeps the map footprint, but every valid cell is colored by the raw wet snow fraction of its elevation band on a fixed white-to-black `0-100%` scale for open loop, posterior, and observation columns.
 
 Static context panels (`hillshade`, `dem`, `svf`, `srf`, `landcover`) render the full raster coverage inside the map extent. Model and observation panels remain ROI-masked. When `show_hillshade: true`, `hillshade_extent: roi` limits the hillshade to the ROI mask and `hillshade_extent: full` draws it across the full panel. In the supported Docker workflow, omitted `--max-workers` uses automatic recipe-level multicore rendering with the effective worker count clamped to `min(visible CPUs, selected recipes)`; pass `--max-workers 1` to keep rendering sequential. If one or more maps fail because supporting data are missing, the pipeline logs a rerun command and continues. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
 
@@ -525,6 +538,23 @@ oa-da-plot-project-plots \
 - refreshed fraction envelopes under `results/misc/point_*_roi_envelope.csv`
 
 Use this when you changed plotting code, `plots.yml`, or map-independent styling and want a clean plot rerender without executing `oa-da-project` again.
+
+### oa-da-project-pdf
+
+**Assemble a DIN A4 project plots/maps PDF**
+
+Collects a compact report summary page, the curated project overview outputs, diagnostics, and DA-event maps into one DIN A4 portrait PDF. `oa-da-project` attempts this automatically at the end of the full project pipeline; this command is for manual reruns. The command does not rerun plots or maps. It fails fast with a complete missing-file list when the required result overview, setup map, setup weights overview, or generated DA maps are missing.
+
+```bash
+oa-da-project-pdf \
+  --project-dir PATH \
+  [--output PATH]
+```
+
+**Output:**
+- `results/reports/project_report.pdf` by default
+
+The PDF starts with a generated one-page project report containing basic setup YAML settings, wet-snow classification and liquid-water-content settings, DA-event counts, computing-cost stats from project logs and `results/plots/perf/project_perf_metrics.csv` when available, plus a bottom `Content` table with page numbers first and section names second. It then includes `result_overview.png`, optional `result_overview_custom.png`, `setup_overview.png`, all `setup_weights_overview*.png` pages, station snow-depth point plots on one page, `performance_scores.png`, `project_perf.png`, and generated DA-event maps under `results/maps/da_events/da_<n>.png` in temporal order. Source PNGs are placed at their shared export-DPI size rather than scaled down to fit a page; consecutive DA maps are packed onto a page only while the reserved bottom gap is preserved. Standalone per-event weights plots and other remaining plot/map PNGs are not included.
 
 ### oa-da-fetch-overview-geojson
 

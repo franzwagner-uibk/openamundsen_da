@@ -6,8 +6,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from openamundsen_da.benchmark.cases import extract_analysis_cases, extract_continuous_cases
+from openamundsen_da.benchmark.cases import analysis_event_contexts, event_dates_by_variable, extract_analysis_cases, extract_continuous_cases
 from openamundsen_da.benchmark.metrics import build_case_scores
+from openamundsen_da.observer.summary_paths import record_fraction_summary_path
 
 
 def _write_yaml(path: Path, text: str) -> None:
@@ -86,6 +87,12 @@ def _write_fraction_benchmark_inputs(setup_dir: Path, project_dir: Path) -> None
             {"date": "2023-01-03", "wet_snow_fraction": 0.40},
         ],
     )
+    _write_series_csv(
+        summaries_dir / "wet_snow_line_diagnostics.csv",
+        [
+            {"date": "2023-01-03", "wet_snow_line": 2400.0},
+        ],
+    )
 
     for step_name, day in (("step_00_init", "2023-01-02"), ("step_01_next", "2023-01-03")):
         base = project_dir / "steps" / step_name / "ensembles" / "prior"
@@ -113,6 +120,19 @@ def _write_fraction_benchmark_inputs(setup_dir: Path, project_dir: Path) -> None
         _write_series_csv(
             base / "member_002" / "results" / "point_wet_snow_roi.csv",
             [{"time": day, "wet_snow_fraction": 0.05 if day.endswith("02") else 0.35}],
+        )
+
+        _write_series_csv(
+            base / "open_loop" / "results" / "point_wet_snow_line_roi.csv",
+            [{"time": day, "wet_snow_line": 2300.0 if day.endswith("02") else 2350.0}],
+        )
+        _write_series_csv(
+            base / "member_001" / "results" / "point_wet_snow_line_roi.csv",
+            [{"time": day, "wet_snow_line": 2380.0 if day.endswith("02") else 2390.0}],
+        )
+        _write_series_csv(
+            base / "member_002" / "results" / "point_wet_snow_line_roi.csv",
+            [{"time": day, "wet_snow_line": 2420.0 if day.endswith("02") else 2410.0}],
         )
 
 
@@ -196,15 +216,17 @@ def test_extract_continuous_cases_supports_all_benchmark_families(tmp_path: Path
     cases = extract_continuous_cases(
         project_dir=project_dir,
         setup_dir=setup_dir,
-        variables=("scf", "wet_snow", "station_hs", "station_swe"),
+        variables=("scf", "wet_snow", "wet_snow_line", "station_hs", "station_swe"),
     )
 
-    assert {case.variable for case in cases} == {"scf", "wet_snow", "station_hs", "station_swe"}
+    assert {case.variable for case in cases} == {"scf", "wet_snow", "wet_snow_line", "station_hs", "station_swe"}
 
     by_key = {(case.variable, str(case.timestamp), case.obs_id): case for case in cases}
     assert by_key[("scf", "2023-01-02 00:00:00", "roi")].stream == "assimilation_fit"
     assert by_key[("scf", "2023-01-03 00:00:00", "roi")].stream == "semi_independent"
     assert by_key[("wet_snow", "2023-01-03 00:00:00", "roi")].stream == "independent"
+    assert by_key[("wet_snow_line", "2023-01-03 00:00:00", "roi")].stream == "independent"
+    assert by_key[("wet_snow_line", "2023-01-03 00:00:00", "roi")].obs_value == 2400.0
     assert by_key[("station_hs", "2023-01-02 00:00:00", "station_a")].stream == "assimilation_fit"
     assert by_key[("station_hs", "2023-01-03 00:00:00", "station_a")].stream == "semi_independent"
     assert by_key[("station_swe", "2023-01-02 00:00:00", "station_b")].stream == "semi_independent"
@@ -288,7 +310,7 @@ def test_extract_analysis_cases_include_transfer_streams_on_da_dates(tmp_path: P
     cases = extract_analysis_cases(
         project_dir=project_dir,
         setup_dir=setup_dir,
-        variables=("scf", "wet_snow", "station_hs", "station_swe"),
+        variables=("scf", "wet_snow", "wet_snow_line", "station_hs", "station_swe"),
     )
 
     case_lookup = {(case.variable, case.stream, str(case.timestamp), case.obs_id): case for case in cases}
@@ -298,6 +320,42 @@ def test_extract_analysis_cases_include_transfer_streams_on_da_dates(tmp_path: P
     assert ("station_hs", "semi_independent", "2023-01-03 00:00:00", "station_a") in case_lookup
     assert ("scf", "assimilation_fit", "2023-01-03 00:00:00", "roi") in case_lookup
     assert ("wet_snow", "independent", "2023-01-03 00:00:00", "roi") in case_lookup
+    wsl_case = case_lookup[("wet_snow_line", "independent", "2023-01-03 00:00:00", "roi")]
+    assert wsl_case.posterior_values == (2390.0, 2410.0)
+    assert wsl_case.posterior_weights == (0.6, 0.4)
+
+
+def test_extract_analysis_cases_skips_wet_snow_line_transfer_with_missing_weighted_member(tmp_path: Path) -> None:
+    setup_dir, project_dir = _setup_basic_project(
+        tmp_path,
+        events_yaml="""
+            - date: '2023-01-03'
+              variable: station_hs
+        """,
+    )
+    _write_fraction_benchmark_inputs(setup_dir, project_dir)
+    _write_station_benchmark_inputs(project_dir, setup_dir)
+    _write_series_csv(
+        project_dir / "steps" / "step_01_next" / "ensembles" / "prior" / "member_002" / "results" / "point_wet_snow_line_roi.csv",
+        [{"time": "2023-01-03", "wet_snow_line": None}],
+    )
+    _write_series_csv(
+        project_dir / "steps" / "step_00_init" / "assim" / "weights_station_hs_20230103.csv",
+        [
+            {"member_id": "member_001", "weight": 0.25},
+            {"member_id": "member_002", "weight": 0.75},
+        ],
+    )
+
+    cases = extract_analysis_cases(
+        project_dir=project_dir,
+        setup_dir=setup_dir,
+        variables=("wet_snow_line", "station_hs"),
+    )
+
+    case_lookup = {(case.variable, case.stream, str(case.timestamp), case.obs_id): case for case in cases}
+    assert ("wet_snow_line", "independent", "2023-01-03 00:00:00", "roi") not in case_lookup
+    assert ("station_hs", "assimilation_fit", "2023-01-03 00:00:00", "station_a") in case_lookup
 
 
 def test_extract_analysis_cases_skip_transfer_rows_without_same_day_observation(tmp_path: Path) -> None:
@@ -437,6 +495,36 @@ def test_extract_continuous_cases_keep_future_same_variable_events_independent(t
     assert by_time["2023-01-04 00:00:00"] == "semi_independent"
 
 
+def test_extract_continuous_cases_uses_project_configured_summary_path(tmp_path: Path) -> None:
+    setup_dir, project_dir = _setup_basic_project(
+        tmp_path,
+        events_yaml="""
+            - date: '2023-01-03'
+              variable: scf
+              product: SNOWCOVER
+        """,
+    )
+    shared_summary = setup_dir / "obs" / "summaries" / "project_2022_2023_base" / "scf_summary.csv"
+    _write_series_csv(shared_summary, [{"date": "2023-01-03", "scf": 0.60}])
+    record_fraction_summary_path(
+        setup_dir=setup_dir,
+        project_dir=project_dir,
+        filename="scf_summary.csv",
+        summary_csv=shared_summary,
+    )
+
+    base = project_dir / "steps" / "step_01_next" / "ensembles" / "prior"
+    _write_series_csv(base / "open_loop" / "results" / "point_scf_roi.csv", [{"time": "2023-01-03", "scf": 0.5}])
+    _write_series_csv(base / "member_001" / "results" / "point_scf_roi.csv", [{"time": "2023-01-03", "scf": 0.55}])
+    _write_series_csv(base / "member_002" / "results" / "point_scf_roi.csv", [{"time": "2023-01-03", "scf": 0.65}])
+
+    cases = extract_continuous_cases(project_dir=project_dir, setup_dir=setup_dir, variables=("scf",))
+
+    assert len(cases) == 1
+    assert cases[0].variable == "scf"
+    assert cases[0].obs_value == 0.60
+
+
 def test_extract_continuous_station_cases_activate_sister_link_on_first_sister_event(tmp_path: Path) -> None:
     setup_dir, project_dir = _setup_basic_project(
         tmp_path,
@@ -460,3 +548,59 @@ def test_extract_continuous_station_cases_activate_sister_link_on_first_sister_e
     }
     assert by_time["2023-01-02 00:00:00"] == "independent"
     assert by_time["2023-01-03 00:00:00"] == "semi_independent"
+
+
+def test_benchmark_event_contexts_keep_wet_snow_line_distinct(tmp_path: Path) -> None:
+    _setup_basic_project(
+        tmp_path,
+        events_yaml="""
+            - date: '2023-01-03'
+              variable: wet_snow_line
+              product: WETSNOW
+        """,
+    )
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+
+    contexts = analysis_event_contexts(project_dir, variables=("wet_snow",))
+    wsl_contexts = analysis_event_contexts(project_dir, variables=("wet_snow_line",))
+    by_variable = event_dates_by_variable(project_dir)
+
+    assert contexts == []
+    assert len(wsl_contexts) == 1
+    assert wsl_contexts[0].variable == "wet_snow_line"
+    assert by_variable == {"wet_snow_line": {pd.Timestamp("2023-01-03").date()}}
+
+
+def test_extract_analysis_cases_uses_wet_snow_line_prior_and_posterior(tmp_path: Path) -> None:
+    setup_dir, project_dir = _setup_basic_project(
+        tmp_path,
+        events_yaml="""
+            - date: '2023-01-03'
+              variable: wet_snow_line
+              product: WETSNOW
+        """,
+    )
+    _write_fraction_benchmark_inputs(setup_dir, project_dir)
+    _write_series_csv(
+        project_dir / "steps" / "step_00_init" / "assim" / "weights_wet_snow_line_20230103.csv",
+        [
+            {"member_id": "member_001", "value_model": 2360.0, "value_obs": 2375.0, "weight": 0.25},
+            {"member_id": "member_002", "value_model": 2380.0, "value_obs": 2375.0, "weight": 0.75},
+        ],
+    )
+
+    cases = extract_analysis_cases(
+        project_dir=project_dir,
+        setup_dir=setup_dir,
+        variables=("wet_snow_line",),
+    )
+
+    assert len(cases) == 1
+    case = cases[0]
+    assert case.variable == "wet_snow_line"
+    assert case.stream == "assimilation_fit"
+    assert case.obs_value == 2375.0
+    assert case.open_loop_value == 2350.0
+    assert case.prior_values == (2360.0, 2380.0)
+    assert case.posterior_values == (2360.0, 2380.0)
+    assert case.posterior_weights == (0.25, 0.75)

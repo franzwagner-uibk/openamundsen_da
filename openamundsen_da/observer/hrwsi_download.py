@@ -202,7 +202,7 @@ def download_project_event_rasters(
     for ev in events:
         if ev.variable == "scf":
             pcfg = cfg.snowcover
-        elif ev.variable == "wet_snow":
+        elif ev.variable in {"wet_snow", "wet_snow_line"}:
             pcfg = cfg.wetsnow
         else:
             logger.info("Skipping unsupported assimilation variable '{}'", ev.variable)

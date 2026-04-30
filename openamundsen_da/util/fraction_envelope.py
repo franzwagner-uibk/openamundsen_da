@@ -13,7 +13,6 @@ Description:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
 
 import pandas as pd
 from loguru import logger

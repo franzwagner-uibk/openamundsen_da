@@ -162,6 +162,39 @@ def test_benchmark_prerequisites_overwrite_still_forces_recompute(tmp_path, monk
     assert calls == [("scf", True), ("wet_classify", True), ("wet_daily", True)]
 
 
+def test_benchmark_prerequisites_pass_wet_snow_classification_config(tmp_path, monkeypatch) -> None:
+    setup_dir, project_dir, _step_dir = _setup_project(tmp_path)
+    _write_yaml(
+        project_dir / "project_2022_2023.yml",
+        """
+        start_date: '2023-01-01'
+        end_date: '2023-01-02'
+        data_assimilation:
+          wet_snow:
+            classification_method: liquid_water_amount
+            liquid_water_amount_threshold_mm: 5.0
+        """,
+    )
+
+    calls: list[dict] = []
+    monkeypatch.setattr(pipeline_mod, "ensure_setup_roi_vector", lambda _setup_dir: _setup_dir / "env" / "roi.gpkg")
+    monkeypatch.setattr(pipeline_mod, "resolve_landcover_mask", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(pipeline_mod, "classify_step_wet_snow", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(pipeline_mod, "compute_step_wet_snow_daily_for_all_members", lambda **_kwargs: None)
+
+    pipeline_mod.ensure_benchmark_prerequisites(
+        project_dir=project_dir,
+        setup_dir=setup_dir,
+        variables=("wet_snow",),
+        overwrite=True,
+        reuse_existing_prerequisites=False,
+    )
+
+    assert calls
+    assert calls[0]["classification_method"] == "liquid_water_amount"
+    assert calls[0]["liquid_water_amount_threshold_mm"] == pytest.approx(5.0)
+
+
 def test_load_benchmark_config_accepts_performance_score_exclusions(tmp_path: Path) -> None:
     setup_dir, project_dir, _step_dir = _setup_project(tmp_path)
     _write_yaml(
@@ -185,6 +218,11 @@ def test_load_benchmark_config_accepts_performance_score_exclusions(tmp_path: Pa
     assert cfg.independent_variables == ("station_swe",)
     assert cfg.performance_scores_exclude_variables == ("station_swe", "wet_snow")
     assert cfg.score_station_sigma_threshold == pytest.approx(200.0)
+
+
+def test_normalize_variable_keeps_wet_snow_line_distinct() -> None:
+    assert pipeline_mod._normalize_variable("wet_snow_line") == "wet_snow_line"
+    assert pipeline_mod._normalize_variable("wet_snow_fraction") == "wet_snow"
 
 
 def test_load_benchmark_config_rejects_invalid_performance_score_exclusion(tmp_path: Path) -> None:

@@ -107,7 +107,7 @@ Framework/tooling config:
   - required benchmark manifest, long-form tables, wide summary tables, summary, and core timeline plots
   - required model result artifacts (`point_*.csv`, `*.nc`)
   - required ROI mean SWE / snow-depth member CSVs
-  - required plot outputs (forcing, results, assimilation, setup ESS timeline, setup weights overview)
+  - required plot outputs (forcing, results, assimilation, setup ESS timeline, setup weights overview including numbered continuation pages when the overview spans multiple A4-length pages)
   - weight CSV numeric sanity (valid range and sum to 1.0)
 - Integration log contracts:
   - fail on fatal log patterns
@@ -136,7 +136,7 @@ Validation focuses on:
   - SCF weights CSVs
   - wet-snow weights CSVs
   - member SCF point time series
-  - forcing plots, setup result plots, setup ESS timeline, setup weights overview, and assimilation plots
+  - forcing plots, setup result plots, setup ESS timeline, setup weights overview, numbered setup weights continuation pages when present, and assimilation plots
   - benchmark outputs under `results/benchmark/` and the headline skill figure `results/plots/assim/scores/performance_scores.png`
   - project maps under `results/maps/` when `maps.yml` is present
   - shipped semi-independent benchmark view for `station_swe`

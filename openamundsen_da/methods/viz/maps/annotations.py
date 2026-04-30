@@ -8,7 +8,6 @@ from matplotlib.patches import Rectangle
 from openamundsen_da.methods.viz.maps.config import LegendItemSpec, MapDefaults, MapPanelSpec
 from openamundsen_da.methods.viz.maps.layout import (
     axes_date_fontsize,
-    axis_height_inches,
     register_child_axes,
     text_size_in,
 )
@@ -17,7 +16,6 @@ from openamundsen_da.methods.viz.maps.theme import (
     _AUTO_TITLE_KIND,
     _AUTO_TITLE_SOURCE,
     _DATE_CALLOUT_ALPHA,
-    _HORIZONTAL_LEGEND_PATCH_HEIGHT_IN,
     _OVERLAY_LABEL_BBOX_HALO_WIDTH,
     _OVERLAY_LABEL_HALO_COLOR,
     _OVERLAY_LABEL_HALO_WIDTH,

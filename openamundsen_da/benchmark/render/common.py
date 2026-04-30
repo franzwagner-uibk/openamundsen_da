@@ -16,9 +16,15 @@ VARIABLE_STYLES = {
     },
     "wet_snow": {
         **_da_variable_style("wet_snow"),
-        "title": "wet snow fraction benchmark",
-        "ylabel": "wet snow fraction",
-        "label": "wet snow",
+        "title": "wet snow fraction (WSF) benchmark",
+        "ylabel": "wet snow fraction (WSF)",
+        "label": "WSF",
+    },
+    "wet_snow_line": {
+        **_da_variable_style("wet_snow_line"),
+        "title": "wet snow line altitude (WSLA) benchmark",
+        "ylabel": "wet snow line altitude (WSLA) [m a.s.l.]",
+        "label": "WSLA",
     },
     "station_swe": {
         **_da_variable_style("station_swe"),

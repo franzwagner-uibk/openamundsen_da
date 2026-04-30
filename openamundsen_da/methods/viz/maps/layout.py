@@ -35,17 +35,14 @@ from openamundsen_da.methods.viz.maps.theme import (
     _HORIZONTAL_LEGEND_ITEM_GAP_IN,
     _HORIZONTAL_LEGEND_MIN_ITEM_GAP_IN,
     _HORIZONTAL_LEGEND_MIN_TEXT_WIDTH_IN,
-    _HORIZONTAL_LEGEND_PATCH_HEIGHT_IN,
     _HORIZONTAL_LEGEND_ROW_HEIGHT_AXES,
     _HORIZONTAL_LEGEND_SIDE_PAD_IN,
     _HORIZONTAL_LEGEND_TEXT_SIZE,
     _LAYOUT_COL_GAP,
     _LAYOUT_ROW_GAP,
     _LEFT_MARGIN,
-    _MODEL_KIND_TO_VARIABLE,
     _RIGHT_MARGIN,
     _SPINE_WIDTH,
-    _SUPPORT_PANEL_KINDS,
     _TICK_SIZE,
     _TOP_MARGIN,
     _VERTICAL_COLORBAR_BOTTOM_AXES,
@@ -467,7 +464,18 @@ def row_bottom_extras(
     for panel in recipe.panels:
         row = int(panel.row + panel.rowspan - 1)
         extra = 0.0
-        if panel.kind in _CLASSIFIED_PANEL_KINDS:
+        probability_classified_panel = panel.kind in {"wet_snow", "wet_snow_line"} and panel.source in {
+            "prior_probability",
+            "posterior",
+            "posterior_probability",
+        }
+        if probability_classified_panel:
+            if (
+                resolve_flag(panel.show_colorbar, recipe.defaults, "show_colorbar", True)
+                and panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True) == "horizontal"
+            ):
+                extra = _HORIZONTAL_COLORBAR_EXTRA
+        elif panel.kind in _CLASSIFIED_PANEL_KINDS:
             layout = panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default)
             if layout == "horizontal":
                 labels = classified_labels_getter(panel, context=context, defaults=recipe.defaults, obs_cache=obs_cache)

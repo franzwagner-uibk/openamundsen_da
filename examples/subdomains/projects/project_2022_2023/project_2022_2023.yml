@@ -26,6 +26,8 @@ data_assimilation:
     sigma_t: 0.5
     mu_p: 0.0
     sigma_p: 0.5
+    sigma_rh: 0.0
+    sigma_sw: 0.0
 
   h_of_x:
     method: depth_threshold
@@ -35,6 +37,7 @@ data_assimilation:
       k: 80
 
   wet_snow:
+    classification_method: liquid_water_fraction
     classification_threshold_percent: 0.5
 
   landcover_mask:
@@ -63,6 +66,8 @@ data_assimilation:
   rejuvenation:
     sigma_t: 0.5
     sigma_p: 0.5
+    sigma_rh: 0.0
+    sigma_sw: 0.0
     seed: 42
     rebase_open_loop: false
 
@@ -166,4 +171,3 @@ data_assimilation:
   - date: '2023-06-28'
     variable: wet_snow
     product: WETSNOW
-

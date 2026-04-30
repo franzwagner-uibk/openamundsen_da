@@ -7,7 +7,14 @@ from typing import Iterable
 
 import pandas as pd
 
-from openamundsen_da.core.constants import DEFAULT_PRECIP_COL, DEFAULT_TEMP_COL, DEFAULT_TIME_COL, STATIONS_CSV
+from openamundsen_da.core.constants import (
+    DEFAULT_PRECIP_COL,
+    DEFAULT_REL_HUM_COL,
+    DEFAULT_SW_IN_COL,
+    DEFAULT_TEMP_COL,
+    DEFAULT_TIME_COL,
+    STATIONS_CSV,
+)
 
 
 def filter_and_write_meteo(
@@ -18,11 +25,16 @@ def filter_and_write_meteo(
     *,
     delta_t: float = 0.0,
     f_p: float = 1.0,
+    delta_rh: float = 0.0,
+    f_sw: float = 1.0,
 ) -> None:
     """Filter meteo CSVs to [start..end], apply perturbations, and write to dst_dir.
 
     - Uses the first column as datetime index (name flexible).
-    - Applies additive delta_t to temp (if present) and multiplicative f_p to precip (if present).
+    - Applies additive delta_t to temp (if present).
+    - Applies additive delta_rh to rel_hum with clipping to [0, 100] (if present).
+    - Applies multiplicative f_p to positive precip values (if present).
+    - Applies multiplicative f_sw to positive sw_in values only (if present).
     - Copies stations.csv unchanged.
     """
     src_dir = Path(src_dir)
@@ -40,8 +52,19 @@ def filter_and_write_meteo(
         df.index = _normalize_datetime_index(df.index)
         if (delta_t != 0.0) and (DEFAULT_TEMP_COL in df.columns):
             df[DEFAULT_TEMP_COL] = pd.to_numeric(df[DEFAULT_TEMP_COL], errors="coerce") + delta_t
+        if (delta_rh != 0.0) and (DEFAULT_REL_HUM_COL in df.columns):
+            rh = pd.to_numeric(df[DEFAULT_REL_HUM_COL], errors="coerce") + delta_rh
+            df[DEFAULT_REL_HUM_COL] = rh.clip(lower=0.0, upper=100.0)
         if (f_p != 1.0) and (DEFAULT_PRECIP_COL in df.columns):
-            df[DEFAULT_PRECIP_COL] = pd.to_numeric(df[DEFAULT_PRECIP_COL], errors="coerce") * f_p
+            precip = pd.to_numeric(df[DEFAULT_PRECIP_COL], errors="coerce")
+            mask = precip > 0.0
+            precip.loc[mask] = precip.loc[mask] * f_p
+            df[DEFAULT_PRECIP_COL] = precip
+        if (f_sw != 1.0) and (DEFAULT_SW_IN_COL in df.columns):
+            sw_in = pd.to_numeric(df[DEFAULT_SW_IN_COL], errors="coerce")
+            mask = sw_in > 0.0
+            sw_in.loc[mask] = sw_in.loc[mask] * f_sw
+            df[DEFAULT_SW_IN_COL] = sw_in.clip(lower=0.0)
         idx_col_name = df.index.name or "index"
         df_out = df.reset_index().rename(columns={idx_col_name: time_col})
         dst_dir.mkdir(parents=True, exist_ok=True)

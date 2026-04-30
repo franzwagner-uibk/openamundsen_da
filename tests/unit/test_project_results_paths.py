@@ -19,7 +19,9 @@ from openamundsen_da.io.paths import (
     project_plot_perf_dir,
     project_plot_points_dir,
     project_plot_results_dir,
+    project_plots_maps_collection_pdf_path,
     project_plots_root,
+    project_reports_root,
     project_result_overview_custom_output_path,
     project_result_overview_output_path,
     project_results_root,
@@ -48,5 +50,10 @@ def test_project_level_results_paths_use_canonical_results_tree(tmp_path: Path) 
     assert project_da_output_grids_path(project_dir) == project_dir / "results" / "grids" / "da_output_grids.nc"
     assert project_maps_root(project_dir) == project_dir / "results" / "maps"
     assert project_maps_output_dir(project_dir) == project_dir / "results" / "maps"
+    assert project_reports_root(project_dir) == project_dir / "results" / "reports"
+    assert (
+        project_plots_maps_collection_pdf_path(project_dir)
+        == project_dir / "results" / "reports" / "project_report.pdf"
+    )
     assert project_benchmark_root(project_dir) == project_dir / "results" / "benchmark"
     assert project_benchmark_plots_dir(project_dir) == project_plot_assim_scores_dir(project_dir)

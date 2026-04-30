@@ -83,14 +83,27 @@ _STATIC_FIELD_KIND_TO_FIELD = {
     "srf": "srf",
     "landcover": "landcover",
 }
-_CLASSIFIED_PANEL_KINDS = {"landcover", "wet_snow"}
-_CONTINUOUS_COLORBAR_PANEL_KINDS = {"dem", "svf", "srf", "snow_depth", "swe", "liquid_water_content", "fsc"}
+_CLASSIFIED_PANEL_KINDS = {"landcover", "wet_snow", "wet_snow_line"}
+_CONTINUOUS_COLORBAR_PANEL_KINDS = {
+    "dem",
+    "svf",
+    "srf",
+    "snow_depth",
+    "swe",
+    "liquid_water_content",
+    "fsc",
+    "wet_snow_elevation_fraction",
+}
 _AUTO_TITLE_SOURCE = {
     "open_loop": "Open loop",
     "ensemble_mean": "Ensemble mean",
+    "analysis_mean": "Posterior mean",
+    "posterior": "Posterior",
+    "prior_probability": "Prior probability",
+    "posterior_probability": "Posterior probability",
     "increment": "Increment",
+    "analysis_increment": "posterior - prior",
     "open_loop_binary": "Open-loop snow cover",
-    "posterior_probability": "Snow-cover probability",
 }
 _AUTO_TITLE_KIND = {
     "overview": "Overview map",
@@ -104,5 +117,7 @@ _AUTO_TITLE_KIND = {
     "swe": "SWE",
     "liquid_water_content": "liquid water content",
     "fsc": "Sentinel-2 FSC",
-    "wet_snow": "Sentinel-1 wet snow",
+    "wet_snow": "Sentinel-1 wet snow fraction (WSF)",
+    "wet_snow_line": "Wet snow line altitude (WSLA)",
+    "wet_snow_elevation_fraction": "elevation-band WSF",
 }

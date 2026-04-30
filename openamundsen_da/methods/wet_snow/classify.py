@@ -9,7 +9,6 @@ Description:
 from __future__ import annotations
 
 import argparse
-import concurrent.futures as cf
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,12 +27,17 @@ from openamundsen_da.io.paths import (
     infer_project_dir,
     infer_setup_dir_from_project,
     find_setup_yaml,
+    find_project_yaml,
 )
 from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
 
 _RHO_WATER_DEFAULT = 1000.0  # kg m-3
 _MASK_NODATA = np.uint8(255)
 _FRACTION_NODATA = -9999.0
+CLASSIFICATION_METHOD_FRACTION = "liquid_water_fraction"
+CLASSIFICATION_METHOD_AMOUNT = "liquid_water_amount"
+CLASSIFICATION_METHODS = (CLASSIFICATION_METHOD_FRACTION, CLASSIFICATION_METHOD_AMOUNT)
+DEFAULT_LIQUID_WATER_AMOUNT_THRESHOLD_MM = 5.0
 
 _DEPTH_RE = re.compile(r"^snowdepth_daily_(?P<stamp>[^.]+)\.tif$")
 _LWC_RE = re.compile(
@@ -78,6 +82,68 @@ class DepthEntry:
     stamp: str
     data: np.ndarray
     profile: dict
+
+
+@dataclass(frozen=True)
+class WetSnowClassificationConfig:
+    method: str
+    threshold_percent: float
+    liquid_water_amount_threshold_mm: float
+
+
+def _coerce_float(raw: object, *, path: str) -> float:
+    try:
+        return float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{path} must be numeric, got {raw!r}") from exc
+
+
+def load_wet_snow_classification_config(project_dir: Path) -> WetSnowClassificationConfig:
+    """Read model wet-snow classification settings from project YAML."""
+    project_yaml = find_project_yaml(project_dir)
+    cfg = _read_yaml_file(project_yaml) or {}
+    if not isinstance(cfg, dict):
+        raise ValueError(f"Expected mapping at project YAML root: {project_yaml}")
+    da_cfg = cfg.get("data_assimilation")
+    if not isinstance(da_cfg, dict):
+        raise ValueError(f"Missing required configuration key: {project_yaml} -> data_assimilation")
+    wet_cfg = da_cfg.get("wet_snow")
+    if not isinstance(wet_cfg, dict):
+        raise ValueError(f"Missing required configuration key: {project_yaml} -> data_assimilation.wet_snow")
+
+    cfg_path = "project.data_assimilation.wet_snow"
+    method = str(wet_cfg.get("classification_method", CLASSIFICATION_METHOD_FRACTION)).strip()
+    if method not in CLASSIFICATION_METHODS:
+        raise ValueError(
+            f"{cfg_path}.classification_method must be one of {list(CLASSIFICATION_METHODS)}, got {method!r}"
+        )
+
+    threshold_percent = float("nan")
+    if method == CLASSIFICATION_METHOD_FRACTION:
+        if "classification_threshold_percent" not in wet_cfg:
+            raise ValueError(
+                f"Missing required configuration key: {project_yaml} -> "
+                "data_assimilation.wet_snow.classification_threshold_percent"
+            )
+        threshold_percent = _coerce_float(
+            wet_cfg["classification_threshold_percent"],
+            path=f"{cfg_path}.classification_threshold_percent",
+        )
+        if threshold_percent < 0.0:
+            raise ValueError(f"{cfg_path}.classification_threshold_percent must be >= 0")
+
+    amount_threshold = _coerce_float(
+        wet_cfg.get("liquid_water_amount_threshold_mm", DEFAULT_LIQUID_WATER_AMOUNT_THRESHOLD_MM),
+        path=f"{cfg_path}.liquid_water_amount_threshold_mm",
+    )
+    if amount_threshold < 0.0:
+        raise ValueError(f"{cfg_path}.liquid_water_amount_threshold_mm must be >= 0")
+
+    return WetSnowClassificationConfig(
+        method=method,
+        threshold_percent=threshold_percent,
+        liquid_water_amount_threshold_mm=amount_threshold,
+    )
 
 
 def _load_depth_entries(results_dir: Path, preferred_format: str | None = None) -> List[DepthEntry]:
@@ -192,7 +258,6 @@ def _collect_lwc_files(results_dir: Path, preferred_format: str | None = None) -
                         continue
                     time_dim = time_dims[0]
                     times = pd.to_datetime(ds[time_dim].values)
-                    bounds = ds.get(f"{time_dim}_bounds")
                     n_layers = da.sizes.get("snow_layer", 0)
                     url = f"NETCDF:{nc_path}:liquid_water_content"
                     with rasterio.open(url) as src:
@@ -254,6 +319,8 @@ def _compute_fraction(
     depth_entry: DepthEntry,
     lw_arrays: Sequence[np.ndarray],
     threshold_frac: float,
+    classification_method: str,
+    liquid_water_amount_threshold_mm: float,
     out_dir: Path,
     mask_prefix: str,
     fraction_prefix: str,
@@ -270,9 +337,13 @@ def _compute_fraction(
     depth_entry : DepthEntry
         Daily snow depth grid slice (data + profile + timestamp).
     lw_arrays : sequence of arrays or paths
-        Liquid water layers matching the same timestamp (arrays in meters).
+        Liquid water layers matching the same timestamp (kg m-2, equivalent to mm water).
     threshold_frac : float
         Wet classification threshold in fraction (not percent).
+    classification_method : str
+        Wet-snow classification method.
+    liquid_water_amount_threshold_mm : float
+        Absolute liquid-water threshold in mm water equivalent.
     out_dir : Path
         Output directory under the member results.
     mask_prefix : str
@@ -309,7 +380,6 @@ def _compute_fraction(
 
     # Within the model domain, we distinguish shallow/no-snow from deeper snow.
     depth_valid = ~depth_invalid
-    shallow = depth_valid & (depth <= min_depth_m)
     deep = depth_valid & (depth > min_depth_m)
 
     # For theta computation we only use "deep" pixels. Shallow/no-snow pixels
@@ -331,8 +401,14 @@ def _compute_fraction(
     # All depth-valid pixels (shallow or deep) are considered land AOI by
     # default and classified as non-wet (0).
     wet_mask = np.where(depth_valid, 0, wet_mask)
-    # Among deep pixels with a valid theta, mark wet where threshold exceeded.
-    wet_mask = np.where(deep & (theta >= threshold_frac), 1, wet_mask)
+    # Among deep pixels, mark wet according to the configured model-side
+    # observation-operator method.
+    if classification_method == CLASSIFICATION_METHOD_FRACTION:
+        wet_mask = np.where(deep & (theta >= threshold_frac), 1, wet_mask)
+    elif classification_method == CLASSIFICATION_METHOD_AMOUNT:
+        wet_mask = np.where(deep & (lw_total >= float(liquid_water_amount_threshold_mm)), 1, wet_mask)
+    else:
+        raise ValueError(f"Unsupported wet-snow classification method: {classification_method!r}")
 
     mask_profile = profile.copy()
     mask_profile.update(driver="GTiff", dtype="uint8", count=1, nodata=int(_MASK_NODATA), compress="lzw")
@@ -463,6 +539,8 @@ def _process_member(
                 depth_entry=depth,
                 lw_arrays=lw_arrays,
                 threshold_frac=threshold_frac,
+                classification_method=args.classification_method,
+                liquid_water_amount_threshold_mm=args.liquid_water_amount_threshold_mm,
                 out_dir=out_dir,
                 mask_prefix=args.mask_prefix,
                 fraction_prefix=args.fraction_prefix,
@@ -513,7 +591,19 @@ def _build_parser() -> argparse.ArgumentParser:
         "--threshold",
         type=float,
         default=0.1,
-        help="Wet-snow threshold [%] (Rottler et al. 2024 default: 0.1).",
+        help="Wet-snow LWC fraction threshold [%] for classification-method=liquid_water_fraction.",
+    )
+    parser.add_argument(
+        "--classification-method",
+        choices=CLASSIFICATION_METHODS,
+        default=CLASSIFICATION_METHOD_FRACTION,
+        help="Model wet-snow classification method.",
+    )
+    parser.add_argument(
+        "--liquid-water-amount-threshold-mm",
+        type=float,
+        default=DEFAULT_LIQUID_WATER_AMOUNT_THRESHOLD_MM,
+        help="Absolute liquid-water threshold [mm] for classification-method=liquid_water_amount.",
     )
     parser.add_argument(
         "--max-workers",
@@ -547,6 +637,10 @@ def cli_main(argv: Optional[Sequence[str]] = None) -> int:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if float(args.threshold) < 0.0:
+        parser.error("--threshold must be >= 0")
+    if float(args.liquid_water_amount_threshold_mm) < 0.0:
+        parser.error("--liquid-water-amount-threshold-mm must be >= 0")
 
     try:
         step_dirs = _iter_steps(args.setup_dir, args.step_dir)
@@ -562,9 +656,23 @@ def cli_main(argv: Optional[Sequence[str]] = None) -> int:
         overwrite=bool(args.overwrite),
         water_density=float(args.water_density),
         min_depth_mm=float(args.min_depth_mm),
+        classification_method=str(args.classification_method),
+        liquid_water_amount_threshold_mm=float(args.liquid_water_amount_threshold_mm),
     )
 
     threshold_frac = args.threshold / 100.0
+    if args.classification_method == CLASSIFICATION_METHOD_AMOUNT:
+        logger.info(
+            "Wet-snow classification method={} threshold={:.3f} mm",
+            args.classification_method,
+            float(args.liquid_water_amount_threshold_mm),
+        )
+    else:
+        logger.info(
+            "Wet-snow classification method={} threshold={:.3f} %",
+            args.classification_method,
+            float(args.threshold),
+        )
     for step_dir in step_dirs:
         logger.info("Processing step {}", step_dir)
         grid_format = _grid_format_for_step(step_dir)
@@ -582,6 +690,8 @@ def classify_step_wet_snow(
     *,
     members: Optional[Sequence[str]] = None,
     threshold_percent: float = 0.1,
+    classification_method: str = CLASSIFICATION_METHOD_FRACTION,
+    liquid_water_amount_threshold_mm: float = DEFAULT_LIQUID_WATER_AMOUNT_THRESHOLD_MM,
     output_subdir: str = "wet_snow",
     mask_prefix: str = "wet_snow_mask",
     fraction_prefix: str = "lwc_fraction",
@@ -598,6 +708,14 @@ def classify_step_wet_snow(
     for assimilation when required.
     """
     step_dir = Path(step_dir)
+    if classification_method not in CLASSIFICATION_METHODS:
+        raise ValueError(
+            f"classification_method must be one of {list(CLASSIFICATION_METHODS)}, got {classification_method!r}"
+        )
+    if float(threshold_percent) < 0.0:
+        raise ValueError("threshold_percent must be >= 0")
+    if float(liquid_water_amount_threshold_mm) < 0.0:
+        raise ValueError("liquid_water_amount_threshold_mm must be >= 0")
     threshold_frac = float(threshold_percent) / 100.0
 
     args = SimpleNamespace(
@@ -608,9 +726,24 @@ def classify_step_wet_snow(
         overwrite=bool(overwrite),
         water_density=float(water_density),
         min_depth_mm=float(min_depth_mm),
+        classification_method=classification_method,
+        liquid_water_amount_threshold_mm=float(liquid_water_amount_threshold_mm),
     )
 
-    logger.info("Classifying wet snow for step {}", step_dir)
+    if classification_method == CLASSIFICATION_METHOD_AMOUNT:
+        logger.info(
+            "Classifying wet snow for step {} using {} threshold={:.3f} mm",
+            step_dir,
+            classification_method,
+            float(liquid_water_amount_threshold_mm),
+        )
+    else:
+        logger.info(
+            "Classifying wet snow for step {} using {} threshold={:.3f} %",
+            step_dir,
+            classification_method,
+            float(threshold_percent),
+        )
     members_iter = list(_iter_members(step_dir, members))
     if not members_iter:
         logger.warning("No members found under {}; skipping wet-snow classification.", step_dir)

@@ -20,14 +20,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 import re
 import numpy as np
 import pandas as pd
+from pyproj import CRS
 import rasterio
 from loguru import logger
 from rasterio import features
 from rasterio.mask import mask as rio_mask
+from rasterio.warp import Resampling, reproject
 
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import (
@@ -50,7 +52,7 @@ from openamundsen_da.util.landcover_mask import (
     serialize_landcover_mask_config,
 )
 from openamundsen_da.util.roi import read_single_roi
-from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
+from openamundsen_da.util.roi_grid import ensure_setup_roi_vector, load_setup_roi_mask
 from openamundsen_da.observer.class_config import load_wetsnow_classes
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.project_dates import resolve_project_dates
@@ -58,6 +60,7 @@ from openamundsen_da.util.uncertainty_common import (
     assert_same_grid as assert_same_grid_shared,
     normalize_netcdf_times as normalize_netcdf_times_shared,
 )
+from openamundsen_da.methods.wet_snow.wsl import compute_wet_snow_line_from_masks
 
 
 _MODEL_WET = (1,)
@@ -235,7 +238,7 @@ def _read_mask_full_grid(
     raster_path: Path | str,
     aoi_path: Path,
     *,
-    lc_cfg: LandcoverMaskConfig,
+    lc_cfg: LandcoverMaskConfig | None,
     band_index: int = 1,
 ) -> tuple[np.ma.MaskedArray, np.ndarray, rasterio.Affine, float | None, str, object, float | int | None]:
     """Read raster values on the full model grid and mask outside the ROI."""
@@ -265,13 +268,14 @@ def _read_mask_full_grid(
             pixel_area = abs(float(src.transform.a) * float(src.transform.e))
         except AttributeError:
             pass
-        arr, _ = apply_landcover_mask(
-            arr,
-            transform=src.transform,
-            target_crs=src_crs,
-            roi_mask=roi_mask,
-            lc_cfg=lc_cfg,
-        )
+        if lc_cfg is not None and lc_cfg.enabled:
+            arr, _ = apply_landcover_mask(
+                arr,
+                transform=src.transform,
+                target_crs=src_crs,
+                roi_mask=roi_mask,
+                lc_cfg=lc_cfg,
+            )
         return arr, roi_mask, src.transform, pixel_area, region_id, src_crs, src_nodata
 
 
@@ -339,6 +343,84 @@ def _compute_fraction(
         valid_area_m2=valid_area,
         region_id=region_id,
     )
+
+
+def _eligible_setup_mask(
+    *,
+    setup_dir: Path,
+    landcover_cfg: LandcoverMaskConfig | None,
+) -> tuple[np.ndarray, object]:
+    roi_mask, spec, _ = load_setup_roi_mask(setup_dir, ensure_grid=True)
+    arr = np.ma.array(np.ones(roi_mask.shape, dtype=float), mask=~roi_mask, copy=False)
+    if landcover_cfg is not None and landcover_cfg.enabled:
+        target_crs = CRS.from_user_input(spec.crs) if spec.crs is not None else None
+        if target_crs is None:
+            raise ValueError(f"Setup grid CRS is missing for {setup_dir}")
+        arr, _ = apply_landcover_mask(
+            arr,
+            transform=spec.transform,
+            target_crs=target_crs,
+            roi_mask=roi_mask,
+            lc_cfg=landcover_cfg,
+        )
+    eligible = (~np.ma.getmaskarray(arr)) & np.isfinite(np.ma.getdata(arr))
+    return eligible, spec
+
+
+def _project_observation_masks_to_setup_grid(
+    *,
+    setup_dir: Path,
+    project_dir: Path,
+    source_path: Path | str,
+    band_index: int,
+    landcover_cfg: LandcoverMaskConfig | None,
+    wet_values: Sequence[int],
+    valid_values: Sequence[int] | None,
+    exclude_values: Sequence[int] | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    eligible_mask, spec = _eligible_setup_mask(
+        setup_dir=setup_dir,
+        landcover_cfg=landcover_cfg,
+    )
+    with rasterio.open(str(source_path)) as src:
+        data = src.read(band_index).astype(float)
+        mask = ~np.isfinite(data)
+        if src.nodata is not None:
+            mask |= data == src.nodata
+        arr = np.ma.array(data, mask=mask, copy=False)
+        valid_src, wet_src = _compute_valid_and_wet_masks(
+            arr,
+            wet_values=wet_values,
+            valid_values=valid_values,
+            exclude_values=exclude_values,
+        )
+        dst_valid = np.zeros(eligible_mask.shape, dtype=np.uint8)
+        dst_wet = np.zeros(eligible_mask.shape, dtype=np.uint8)
+        reproject(
+            source=valid_src.astype(np.uint8),
+            destination=dst_valid,
+            src_transform=src.transform,
+            src_crs=src.crs,
+            dst_transform=spec.transform,
+            dst_crs=spec.crs,
+            resampling=Resampling.nearest,
+            src_nodata=0,
+            dst_nodata=0,
+        )
+        reproject(
+            source=wet_src.astype(np.uint8),
+            destination=dst_wet,
+            src_transform=src.transform,
+            src_crs=src.crs,
+            dst_transform=spec.transform,
+            dst_crs=spec.crs,
+            resampling=Resampling.nearest,
+            src_nodata=0,
+            dst_nodata=0,
+        )
+    valid_mask = dst_valid.astype(bool) & eligible_mask
+    wet_mask = dst_wet.astype(bool) & valid_mask
+    return valid_mask, wet_mask
 
 
 def compute_wet_snow_fraction_from_raster(
@@ -483,6 +565,89 @@ def compute_model_wet_snow_fraction(
     }
 
 
+def compute_model_wet_snow_line(
+    *,
+    setup_dir: Path,
+    project_dir: Path,
+    results_dir: Path,
+    aoi_path: Path,
+    landcover_cfg: LandcoverMaskConfig | None = None,
+    date: datetime,
+    mask_subdir: str = "wet_snow",
+    mask_prefix: str = "wet_snow_mask",
+    support_mask: np.ndarray | None = None,
+) -> dict:
+    """Compute basin-wide wet-snow line diagnostics for one member/date."""
+
+    if landcover_cfg is not None:
+        lc_cfg = landcover_cfg
+    else:
+        lc_cfg = resolve_landcover_mask(Path(setup_dir), Path(project_dir))
+    raster = _find_mask_raster(Path(results_dir), date, subdir=mask_subdir, prefix=mask_prefix)
+    arr_full, _roi_mask, _transform, _pixel_area, region_id, _src_crs, _src_nodata = _read_mask_full_grid(
+        Path(raster),
+        Path(aoi_path),
+        lc_cfg=None,
+    )
+    arr_support, _roi_mask, _transform, _pixel_area, region_id, _src_crs, _src_nodata = _read_mask_full_grid(
+        Path(raster),
+        Path(aoi_path),
+        lc_cfg=lc_cfg,
+    )
+    valid_full, wet_full = _compute_valid_and_wet_masks(
+        arr_full,
+        wet_values=_MODEL_WET,
+        valid_values=_MODEL_VALID,
+    )
+    support = np.asarray(support_mask, dtype=bool) if support_mask is not None else valid_full.copy()
+    valid_support, wet_support = _compute_valid_and_wet_masks(
+        arr_support,
+        wet_values=_MODEL_WET,
+        valid_values=_MODEL_VALID,
+        support_mask=support,
+    )
+    full_eval = compute_wet_snow_line_from_masks(
+        setup_dir=Path(setup_dir),
+        project_dir=Path(project_dir),
+        valid_mask=valid_full,
+        wet_mask=wet_full,
+    )
+    support_eval = compute_wet_snow_line_from_masks(
+        setup_dir=Path(setup_dir),
+        project_dir=Path(project_dir),
+        valid_mask=valid_support,
+        wet_mask=wet_support,
+    )
+    member_id = member_id_from_results_dir(Path(results_dir))
+    out = {
+        "date": date.strftime("%Y-%m-%d"),
+        "member_id": member_id,
+        "region_id": region_id,
+        "wet_snow_line": support_eval.wet_snow_line,
+        "wet_snow_line_full_roi": full_eval.wet_snow_line,
+        "wet_snow_line_p95": support_eval.wet_elevation_percentile,
+        "wet_snow_line_p95_full_roi": full_eval.wet_elevation_percentile,
+        "n_valid": support_eval.n_valid,
+        "n_wet": support_eval.n_wet,
+        "wet_bands": support_eval.wet_bands,
+        "wet_snow_line_gate_reason": support_eval.gate_reason,
+        "n_valid_full_roi": full_eval.n_valid,
+        "n_wet_full_roi": full_eval.n_wet,
+        "wet_bands_full_roi": full_eval.wet_bands,
+        "wet_snow_line_gate_reason_full_roi": full_eval.gate_reason,
+        "raster": Path(raster).name,
+        "profile": support_eval.profile,
+        "profile_full_roi": full_eval.profile,
+        "sector_relative_profiles": support_eval.sector_relative_profiles,
+        "sector_relative_profiles_full_roi": full_eval.sector_relative_profiles,
+    }
+    for sector, value in support_eval.sector_relative_lines.items():
+        out[f"wet_snow_line_sector_rel_{sector.lower()}"] = value
+    for sector, value in full_eval.sector_relative_lines.items():
+        out[f"wet_snow_line_sector_rel_{sector.lower()}_full_roi"] = value
+    return out
+
+
 def compute_member_wet_snow_daily(
     *,
     setup_dir: Path,
@@ -530,6 +695,84 @@ def compute_member_wet_snow_daily(
     return df.sort_values("time")
 
 
+def compute_member_wet_snow_line_daily(
+    *,
+    setup_dir: Path,
+    project_dir: Path,
+    results_dir: Path,
+    aoi_path: Path,
+    landcover_cfg: LandcoverMaskConfig | None = None,
+    start: datetime,
+    end: datetime,
+    mask_subdir: str = "wet_snow",
+    mask_prefix: str = "wet_snow_mask",
+) -> pd.DataFrame:
+    """Return daily full-ROI wet-snow-line diagnostics for a member."""
+
+    lc_cfg = landcover_cfg or resolve_landcover_mask(Path(setup_dir), Path(project_dir))
+    start_day = datetime(start.year, start.month, start.day)
+    end_day = datetime(end.year, end.month, end.day)
+    if end_day < start_day:
+        return pd.DataFrame(
+            columns=[
+                "time",
+                "wet_snow_line",
+                "wet_snow_line_p95",
+                "n_valid",
+                "n_wet",
+                "wet_bands",
+                "wet_snow_line_gate_reason",
+            ]
+        )
+
+    dates = pd.date_range(start_day, end_day, freq="D").to_pydatetime()
+    rows: list[dict[str, object]] = []
+    for dt in dates:
+        try:
+            wsl = compute_model_wet_snow_line(
+                setup_dir=Path(setup_dir),
+                project_dir=Path(project_dir),
+                results_dir=Path(results_dir),
+                aoi_path=Path(aoi_path),
+                landcover_cfg=lc_cfg,
+                date=dt,
+                mask_subdir=mask_subdir,
+                mask_prefix=mask_prefix,
+                support_mask=None,
+            )
+        except FileNotFoundError:
+            continue
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Wet-snow line daily computation failed for {} {}: {}", results_dir, dt.date(), exc)
+            continue
+        rows.append(
+            {
+                "time": dt,
+                "wet_snow_line": wsl["wet_snow_line_full_roi"],
+                "wet_snow_line_p95": wsl["wet_snow_line_p95_full_roi"],
+                "n_valid": int(wsl["n_valid_full_roi"]),
+                "n_wet": int(wsl["n_wet_full_roi"]),
+                "wet_bands": int(wsl["wet_bands_full_roi"]),
+                "wet_snow_line_gate_reason": wsl["wet_snow_line_gate_reason_full_roi"] or "",
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame(
+            columns=[
+                "time",
+                "wet_snow_line",
+                "wet_snow_line_p95",
+                "n_valid",
+                "n_wet",
+                "wet_bands",
+                "wet_snow_line_gate_reason",
+            ]
+        )
+    df = pd.DataFrame(rows)
+    return df.sort_values("time")
+
+
 def _compute_member_daily_worker(
     results_dir: Path,
     aoi_path: Path,
@@ -546,6 +789,42 @@ def _compute_member_daily_worker(
     setup_dir = Path(extra["setup_dir"])
     project_dir = Path(extra["project_dir"])
     df = compute_member_wet_snow_daily(
+        setup_dir=setup_dir,
+        project_dir=project_dir,
+        results_dir=results_dir,
+        aoi_path=aoi_path,
+        landcover_cfg=lc_cfg,
+        start=start,
+        end=end,
+        mask_subdir=mask_subdir,
+        mask_prefix=mask_prefix,
+    )
+    if df.empty:
+        return False
+    if out_csv.exists() and not overwrite:
+        return False
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out_csv, index=False)
+    return True
+
+
+def _compute_member_wet_snow_line_daily_worker(
+    results_dir: Path,
+    aoi_path: Path,
+    start: datetime,
+    end: datetime,
+    out_csv: Path,
+    overwrite: bool,
+    extra: Dict[str, Any],
+) -> bool:
+    """Worker: compute daily full-ROI wet-snow-line series for one member."""
+
+    mask_subdir = str(extra.get("mask_subdir", "wet_snow"))
+    mask_prefix = str(extra.get("mask_prefix", "wet_snow_mask"))
+    lc_cfg = deserialize_landcover_mask_config(extra.get("landcover_cfg"))
+    setup_dir = Path(extra["setup_dir"])
+    project_dir = Path(extra["project_dir"])
+    df = compute_member_wet_snow_line_daily(
         setup_dir=setup_dir,
         project_dir=project_dir,
         results_dir=results_dir,
@@ -626,6 +905,25 @@ def compute_step_wet_snow_daily_for_all_members(
             "project_dir": str(project_dir),
         },
     )
+    compute_step_daily_series_for_all_members(
+        step_dir=step_dir,
+        aoi_path=aoi_path,
+        start=start,
+        end=end,
+        csv_name="point_wet_snow_line_roi.csv",
+        worker=_compute_member_wet_snow_line_daily_worker,
+        ensemble="prior",
+        include_open_loop=True,
+        max_workers=max_workers,
+        overwrite=overwrite,
+        worker_kwargs={
+            "mask_subdir": mask_subdir,
+            "mask_prefix": mask_prefix,
+            "landcover_cfg": serialize_landcover_mask_config(lc_cfg),
+            "setup_dir": str(setup_dir),
+            "project_dir": str(project_dir),
+        },
+    )
 
 
 def summarize_s1_directory(
@@ -643,6 +941,8 @@ def summarize_s1_directory(
     valid_values: Sequence[int] | None = None,
     exclude_values: Sequence[int] | None = None,
     recursive: bool = False,
+    wsl_diagnostics_csv: Path | None = None,
+    wsl_profile_dir: Path | None = None,
 ) -> Path:
     """Summarize Sentinel-1 wet-snow maps into one CSV (date, fraction)."""
 
@@ -730,6 +1030,18 @@ def summarize_s1_directory(
                         require_uncertainty=True,
                     )
                     if row is not None:
+                        valid_mask, wet_mask = _project_observation_masks_to_setup_grid(
+                            setup_dir=Path(setup_dir),
+                            project_dir=Path(project_dir),
+                            source_path=ws_uri,
+                            band_index=i,
+                            landcover_cfg=lc_cfg,
+                            wet_values=wet_values,
+                            valid_values=valid_values,
+                            exclude_values=exclude_values,
+                        )
+                        row["__wsl_valid_mask"] = valid_mask
+                        row["__wsl_wet_mask"] = wet_mask
                         stats_rows.append(row)
             else:
                 if suffix not in {".tif", ".tiff", ".nc"}:
@@ -782,6 +1094,18 @@ def summarize_s1_directory(
                     require_uncertainty=bool(effective_unc_cfg.enabled),
                 )
                 if row is not None:
+                    valid_mask, wet_mask = _project_observation_masks_to_setup_grid(
+                        setup_dir=Path(setup_dir),
+                        project_dir=Path(project_dir),
+                        source_path=tif,
+                        band_index=1,
+                        landcover_cfg=lc_cfg,
+                        wet_values=wet_values,
+                        valid_values=valid_values,
+                        exclude_values=exclude_values,
+                    )
+                    row["__wsl_valid_mask"] = valid_mask
+                    row["__wsl_wet_mask"] = wet_mask
                     stats_rows.append(row)
 
             accepted = 0
@@ -841,6 +1165,8 @@ def summarize_s1_directory(
                 "n_wet": 0,
                 "source_set": set(),
                 "tile_set": set(),
+                "wsl_valid_mask": None,
+                "wsl_wet_mask": None,
             }
             if uncertainty_cfg.enabled:
                 slot["unc_mean_num"] = 0.0
@@ -852,6 +1178,15 @@ def summarize_s1_directory(
         slot["n_wet"] = int(slot["n_wet"]) + int(row.get("n_wet", 0))
         slot["source_set"].add(str(row.get("source", "")))
         slot["tile_set"].add(str(row.get("tile", "UNKNOWN")))
+        row_valid_mask = row.get("__wsl_valid_mask")
+        row_wet_mask = row.get("__wsl_wet_mask")
+        if isinstance(row_valid_mask, np.ndarray) and isinstance(row_wet_mask, np.ndarray):
+            if slot["wsl_valid_mask"] is None:
+                slot["wsl_valid_mask"] = row_valid_mask.copy()
+                slot["wsl_wet_mask"] = row_wet_mask.copy()
+            else:
+                slot["wsl_valid_mask"] = np.asarray(slot["wsl_valid_mask"], dtype=bool) | row_valid_mask
+                slot["wsl_wet_mask"] = np.asarray(slot["wsl_wet_mask"], dtype=bool) | row_wet_mask
         if uncertainty_cfg.enabled:
             unc_n_valid = int(row.get("unc_n_valid", 0))
             if unc_n_valid > 0:
@@ -861,22 +1196,84 @@ def summarize_s1_directory(
                 slot["unc_min"] = min(float(slot["unc_min"]), float(row["unc_min"]))
                 slot["unc_max"] = max(float(slot["unc_max"]), float(row["unc_max"]))
 
+    diagnostics_rows: list[dict[str, object]] = []
     out_rows: list[dict[str, object]] = []
+    resolved_wsl_diagnostics_csv = (
+        Path(wsl_diagnostics_csv)
+        if wsl_diagnostics_csv is not None
+        else output_csv.parent / "wet_snow_line_diagnostics.csv"
+    )
+    resolved_wsl_profile_dir = (
+        Path(wsl_profile_dir)
+        if wsl_profile_dir is not None
+        else output_csv.parent / "wet_snow_line_profiles"
+    )
     for entry in agg.values():
         n_valid = int(entry["n_valid"])
         n_wet = int(entry["n_wet"])
         frac = (n_wet / n_valid) if n_valid > 0 else 0.0
-        out_rows.append(
-            {
-                "date": entry["date"],
-                "region_id": entry["region_id"],
-                "wet_snow_fraction": round(frac, 4),
-                "n_valid": n_valid,
-                "n_wet": n_wet,
-                "tiles_used": ";".join(sorted(x for x in entry["tile_set"] if x)),
-                "source": ";".join(sorted(x for x in entry["source_set"] if x)),
-            }
+        valid_mask = np.asarray(entry["wsl_valid_mask"], dtype=bool)
+        wet_mask = np.asarray(entry["wsl_wet_mask"], dtype=bool)
+        wsl_eval = compute_wet_snow_line_from_masks(
+            setup_dir=Path(setup_dir),
+            project_dir=Path(project_dir),
+            valid_mask=valid_mask,
+            wet_mask=wet_mask,
         )
+        row_out = {
+            "date": entry["date"],
+            "region_id": entry["region_id"],
+            "wet_snow_fraction": round(frac, 4),
+            "n_valid": n_valid,
+            "n_wet": n_wet,
+            "tiles_used": ";".join(sorted(x for x in entry["tile_set"] if x)),
+            "source": ";".join(sorted(x for x in entry["source_set"] if x)),
+            "wet_snow_line": wsl_eval.wet_snow_line,
+            "wet_snow_line_p95": wsl_eval.wet_elevation_percentile,
+            "wet_snow_line_n_valid": wsl_eval.n_valid,
+            "wet_snow_line_n_wet": wsl_eval.n_wet,
+            "wet_snow_line_wet_bands": wsl_eval.wet_bands,
+            "wet_snow_line_support_coverage_ratio": float(n_valid / max(1, wsl_eval.n_valid)),
+            "wet_snow_line_method": wsl_eval.method,
+            "wet_snow_line_gate_reason": wsl_eval.gate_reason or "",
+        }
+        out_rows.append(row_out)
+        diag_row = {
+            "date": entry["date"],
+            "region_id": entry["region_id"],
+            "wet_snow_line": wsl_eval.wet_snow_line,
+            "wet_snow_line_p95": wsl_eval.wet_elevation_percentile,
+            "wet_snow_line_n_valid": wsl_eval.n_valid,
+            "wet_snow_line_n_wet": wsl_eval.n_wet,
+            "wet_snow_line_wet_bands": wsl_eval.wet_bands,
+            "wet_snow_line_method": wsl_eval.method,
+            "wet_snow_line_gate_reason": wsl_eval.gate_reason or "",
+        }
+        for sector, value in wsl_eval.sector_relative_lines.items():
+            diag_row[f"wet_snow_line_sector_rel_{sector.lower()}"] = value
+        diagnostics_rows.append(diag_row)
+        profile_frames: list[pd.DataFrame] = []
+        if not wsl_eval.profile.empty:
+            profile_df = wsl_eval.profile.copy()
+            profile_df.insert(0, "sector", "")
+            profile_df.insert(0, "scope", "basin")
+            profile_frames.append(profile_df)
+        for sector, sector_profile in wsl_eval.sector_relative_profiles.items():
+            if sector_profile.empty:
+                continue
+            working = sector_profile.copy()
+            working.insert(0, "sector", sector)
+            working.insert(0, "scope", "sector_rel")
+            profile_frames.append(working)
+        if profile_frames:
+            profile_df = pd.concat(profile_frames, ignore_index=True)
+            profile_df.insert(0, "date", entry["date"])
+            profile_df.insert(1, "region_id", entry["region_id"])
+            resolved_wsl_profile_dir.mkdir(parents=True, exist_ok=True)
+            profile_df.to_csv(
+                resolved_wsl_profile_dir / f"wet_snow_line_profile_{str(entry['date']).replace('-', '')}.csv",
+                index=False,
+            )
         if uncertainty_cfg.enabled:
             row_ref = out_rows[-1]
             row_unc_mean_num = float(entry.get("unc_mean_num", 0.0))
@@ -893,6 +1290,8 @@ def summarize_s1_directory(
     df = pd.DataFrame(out_rows).sort_values("date")
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_csv, index=False)
+    if diagnostics_rows:
+        pd.DataFrame(diagnostics_rows).sort_values("date").to_csv(resolved_wsl_diagnostics_csv, index=False)
     logger.info(
         "Sentinel-1 wet-snow summary written: {} ({} day(s), {} raster(s))",
         output_csv,
@@ -1165,7 +1564,9 @@ __all__ = [
     "WetSnowStats",
     "compute_wet_snow_fraction_from_raster",
     "compute_model_wet_snow_fraction",
+    "compute_model_wet_snow_line",
     "compute_member_wet_snow_daily",
+    "compute_member_wet_snow_line_daily",
     "compute_step_wet_snow_daily_for_all_members",
     "summarize_s1_directory",
     "cli_model",

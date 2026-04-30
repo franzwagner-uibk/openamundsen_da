@@ -11,6 +11,7 @@ from loguru import logger
 from openamundsen_da.benchmark.aggregate import aggregate_scores, build_case_scores, enrich_case_scores, reliability_rows
 from openamundsen_da.benchmark.extract import (
     benchmark_supported_variables,
+    normalize_benchmark_variable,
     benchmark_variable_spec,
     extract_analysis_cases,
     extract_continuous_cases,
@@ -33,7 +34,10 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.methods.h_of_x.model_scf import compute_step_scf_daily_for_all_members
 from openamundsen_da.methods.wet_snow.area import compute_step_wet_snow_daily_for_all_members
-from openamundsen_da.methods.wet_snow.classify import classify_step_wet_snow
+from openamundsen_da.methods.wet_snow.classify import (
+    classify_step_wet_snow,
+    load_wet_snow_classification_config,
+)
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.landcover_mask import resolve_landcover_mask
 from openamundsen_da.util.parallel import pick_max_workers
@@ -50,9 +54,7 @@ class BenchmarkConfig:
 
 
 def _normalize_variable(raw: object) -> str:
-    value = str(raw).strip().lower()
-    if value == "wet_snow_fraction":
-        value = "wet_snow"
+    value = normalize_benchmark_variable(str(raw))
     benchmark_variable_spec(value)
     return value
 
@@ -143,18 +145,7 @@ def selected_benchmark_variables(
 
 
 def _load_wet_snow_threshold(project_dir: Path) -> float:
-    cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
-    da_cfg = cfg.get("data_assimilation")
-    if not isinstance(da_cfg, dict):
-        raise ValueError("project.data_assimilation is required for benchmark wet-snow preparation")
-    wet_cfg = da_cfg.get("wet_snow")
-    if not isinstance(wet_cfg, dict):
-        raise ValueError("project.data_assimilation.wet_snow is required for benchmark wet-snow preparation")
-    raw = wet_cfg.get("classification_threshold_percent")
-    try:
-        return float(raw)
-    except Exception as exc:
-        raise ValueError("project.data_assimilation.wet_snow.classification_threshold_percent must be numeric") from exc
+    return load_wet_snow_classification_config(project_dir).threshold_percent
 
 
 def _prior_member_point_series_paths(step_dir: Path, filename: str) -> list[Path]:
@@ -179,13 +170,14 @@ def ensure_benchmark_prerequisites(
     reuse_existing_prerequisites: bool = False,
 ) -> None:
     required = {benchmark_variable_spec(v).variable for v in variables}
-    if not required.intersection({"scf", "wet_snow"}):
+    if not required.intersection({"scf", "wet_snow", "wet_snow_line"}):
         return
 
     roi_path = ensure_setup_roi_vector(setup_dir)
     landcover_cfg = resolve_landcover_mask(setup_dir, project_dir)
     workers = pick_max_workers(max_workers, fallback=4)
-    wet_threshold = _load_wet_snow_threshold(project_dir) if "wet_snow" in required else None
+    needs_wet_snow_masks = bool(required.intersection({"wet_snow", "wet_snow_line"}))
+    wet_classification = load_wet_snow_classification_config(project_dir) if needs_wet_snow_masks else None
     effective_overwrite = bool(overwrite and not reuse_existing_prerequisites)
 
     for step_dir in list_steps_sorted(project_dir):
@@ -205,18 +197,26 @@ def ensure_benchmark_prerequisites(
                     max_workers=workers,
                     overwrite=effective_overwrite,
                 )
-        if "wet_snow" in required:
-            if not effective_overwrite and _prior_member_point_series_complete(step_dir, "point_wet_snow_roi.csv"):
+        if needs_wet_snow_masks:
+            required_wet_files = []
+            if "wet_snow" in required:
+                required_wet_files.append("point_wet_snow_roi.csv")
+            if "wet_snow_line" in required:
+                required_wet_files.append("point_wet_snow_line_roi.csv")
+            complete = all(_prior_member_point_series_complete(step_dir, filename) for filename in required_wet_files)
+            if not effective_overwrite and complete:
                 logger.info(
                     "Wet-snow benchmark prerequisites already present for {} -> reusing existing outputs",
                     step_dir.name,
                 )
                 continue
-            assert wet_threshold is not None
+            assert wet_classification is not None
             classify_step_wet_snow(
                 step_dir=step_dir,
                 members=None,
-                threshold_percent=wet_threshold,
+                threshold_percent=wet_classification.threshold_percent,
+                classification_method=wet_classification.method,
+                liquid_water_amount_threshold_mm=wet_classification.liquid_water_amount_threshold_mm,
                 output_subdir="wet_snow",
                 mask_prefix="wet_snow_mask",
                 fraction_prefix="lwc_fraction",

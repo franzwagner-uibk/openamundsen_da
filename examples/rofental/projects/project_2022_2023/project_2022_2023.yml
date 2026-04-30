@@ -28,6 +28,8 @@ data_assimilation:
     sigma_t: 0.7
     mu_p: 0.0
     sigma_p: 0.8
+    sigma_rh: 0.0
+    sigma_sw: 0.0
   resampling:
     algorithm: systematic
     ess_threshold_ratio: 0.7
@@ -35,6 +37,8 @@ data_assimilation:
   rejuvenation:
     sigma_t: 0.7
     sigma_p: 0.8
+    sigma_rh: 0.0
+    sigma_sw: 0.0
     seed: 42
     rebase_open_loop: false
   restart:
@@ -42,24 +46,22 @@ data_assimilation:
     dump_state: true
     state_pattern: model_state.pickle.gz
   assimilation_events:
-  - date: '2022-11-24'
+  - date: '2022-11-22'
     variable: station_hs
   - date: '2022-12-22'
     variable: station_hs
-  - date: '2023-01-21'
+  - date: '2023-01-31'
     variable: station_hs
   - date: '2023-02-21'
     variable: station_hs
   - date: '2023-03-22'
     variable: station_hs
-  - date: '2023-04-29'
-    variable: wet_snow
+  - date: '2023-03-24'
+    variable: wet_snow_line
     product: WETSNOW
-  - date: '2023-05-03'
-    variable: station_hs
-  - date: '2023-05-23'
-    variable: wet_snow
-    product: WETSNOW
+  - date: '2023-04-26'
+    variable: scf
+    product: SNOWCOVER
   - date: '2023-05-18'
     variable: scf
     product: SNOWCOVER
@@ -77,7 +79,15 @@ data_assimilation:
     min_station_uncertainty_pct: 10
     single_station_factor: 2.0
   wet_snow:
+    classification_method: liquid_water_fraction
     classification_threshold_percent: 0.4
+  wet_snow_line:
+    elevation_band_size_m: 100.0
+    smoothing_window_bands: 3
+    crossing_fraction: 0.5
+    wet_elevation_percentile: 95.0
+    aspect_diagnostics: four_sectors
+    sector_relative_threshold: 0.8
   likelihood:
     scf:
       obs_sigma: 0.1
@@ -93,6 +103,15 @@ data_assimilation:
       sigma_cloud_scale: 0.1
       min_sigma: 0.03
       min_support_coverage_ratio: 0.1
+    wet_snow_line:
+      obs_sigma: 150.0
+      use_binomial: false
+      sigma_floor: 25.0
+      min_sigma: 25.0
+      min_support_coverage_ratio: 0.1
+      min_model_finite_fraction: 1.0
+      min_wet_pixels_total: 50
+      min_wet_bands: 1
   uncertainty:
     scf:
       enabled: true

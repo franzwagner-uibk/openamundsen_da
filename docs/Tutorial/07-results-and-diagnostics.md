@@ -23,6 +23,7 @@ The most important locations are:
 - `results/plots/assim/`
 - `results/plots/results/`
 - `results/maps/`
+- `results/reports/`
 - `results/misc/`
 - `results/grids/da_output_grids.nc`
 
@@ -147,6 +148,7 @@ Reference structure snippet (`results/plots/assim`, typical files)
     ...
     DA_10_weights.png
     setup_weights_overview_2022_2023.png
+    setup_weights_overview_2022_2023_page_02.png
     ...
 ```
 
@@ -181,6 +183,7 @@ Plot files to open:
 - `/data/rofental/projects/project_2022_2023/results/plots/assim/ess/setup_ess_timeline_2022_2023.png`
 - `/data/rofental/projects/project_2022_2023/results/plots/assim/scores/performance_scores.png`
 - `/data/rofental/projects/project_2022_2023/results/plots/assim/weights/setup_weights_overview_2022_2023.png`
+  - if the setup has many assimilation dates, open the numbered continuation pages (`..._page_02.png`, `..._page_03.png`, ...) as well
 - `/data/rofental/projects/project_2022_2023/results/plots/assim/weights/DA_04_weights.png`
 
 Reference ESS plot (tutorial baseline):
@@ -200,6 +203,8 @@ Reference setup weights overview:
 ![Setup weights overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/setup_weights_overview_2022_2023.png)
 
 _Setup-wide comparison of all ten assimilation events, grouped by observable family._
+
+For larger projects, the setup overview is automatically split into multiple A4-length PNG pages that keep the first file name above and add numbered continuation pages.
 
 Reference weights plot (example event):
 
@@ -416,7 +421,8 @@ PY
 >
 > - open-loop baseline fields
 > - ensemble mean / spread fields
-> - increments (`ens_mean - open_loop`) for configured variables/aggregations
+> - open-loop departure fields (`increment = ens_mean - open_loop`)
+> - DA-event analysis fields (`analysis_increment = analysis_mean - ens_mean`) on event dates with weights
 
 Dimension names in the inspected NetCDF (for example `time1`, `time2`, `snow_layer`, `nbnd`) are typically inherited from the underlying model outputs. Configure **which variables/metrics** are exported in the project YAML under `data_assimilation.output.grids.variables[*]`; see [5. Running the Model]({{ site.baseurl }}{% link Tutorial/06-running-the-project.md %}) for the output-grid configuration note.
 
@@ -459,6 +465,12 @@ vars:
   ens_std_liquid_water_content
   ens_std_snowdepth_daily
   ens_std_swe_daily
+  analysis_increment_liquid_water_content
+  analysis_increment_snowdepth_daily
+  analysis_increment_swe_daily
+  analysis_mean_liquid_water_content
+  analysis_mean_snowdepth_daily
+  analysis_mean_swe_daily
   increment_liquid_water_content
   increment_snowdepth_daily
   increment_swe_daily
@@ -470,16 +482,18 @@ vars:
 Use `results/grids/da_output_grids.nc` in a GIS software of your choice and visualize raster output.
 
 Recommended map date(s): choose one date with active snow cover and one date near melt season.
-Use the same date across `open_loop`, `ens_mean`, and `increment` maps.
+Use the same date across `open_loop`, `ens_mean`, and `increment` maps. Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-depth maps use `ens_mean` as the prior mean, `analysis_mean` as the event-weighted posterior mean, and `analysis_increment` as `posterior - prior`.
 
 For the shipped examples, project maps are split into generated DA-event maps under `results/maps/da_events/` and custom YAML maps such as `setup_overview` at the root of `results/maps/`. Use `oa-da-plot-project-maps --project-dir /data/rofental/projects/project_2022_2023 --max-workers 4` to rerender the full combined map set in one command. Omit `--max-workers` to let the Docker container auto-select a recipe-level worker count from the visible CPUs. Overview panels use setup-local GISCO GeoJSONs under `env/`; if you want to prefetch them ahead of time, run `oa-da-fetch-overview-geojson --project-dir /data/rofental/projects/project_2022_2023`.
-For `snowdepth_daily`, the map renderer uses the fixed tutorial/reference palette together with a shared linear legend scale per render run. Tick labels are shown in `cm`, cells below `1 cm` stay transparent so only meaningful snow cover is colored, and the top of the snow-depth legend is derived from the plotted maps. Increment panels use a signed diverging palette: negative increments are red, positive increments are blue.
+For `snowdepth_daily`, the map renderer uses the fixed tutorial/reference palette together with a shared linear legend scale per render run. Tick labels are shown in `cm`, cells below `1 cm` stay transparent so only meaningful snow cover is colored, and the top of the snow-depth legend is derived from the plotted maps. Increment panels use a signed diverging palette: negative increments are red, positive increments are blue. In generated DA-event maps, positive `analysis_increment` means the DA event added snow; negative means it removed snow.
+
+`oa-da-project` attempts to collect the project summary page, overview outputs, diagnostics, and DA-event maps into `results/reports/project_report.pdf` at the end of the run, after plots, maps, and benchmark-dependent overview panels are current. Report generation is best-effort in the pipeline: missing prerequisites are logged with a manual rerun command and do not fail the completed model run. To regenerate only the PDF later, run `oa-da-project-pdf --project-dir /data/rofental/projects/project_2022_2023`. The first PDF page contains basic setup YAML settings, wet-snow classification and liquid-water-content settings, DA-event counts, computing-cost stats, and a bottom `Content` table with page numbers first and section names second. The PDF then includes the overview plots, setup map, setup weights overview pages, station snow-depth point plots on one page, `performance_scores.png`, `project_perf.png`, and generated DA-event maps in temporal order. Source PNGs are placed at their shared export-DPI size rather than scaled down to fit a page; consecutive DA maps are packed onto a page only while the reserved bottom gap is preserved. Standalone per-event weights plots and other remaining plot/map PNGs are not included.
 
 ### data assimilation increment map
 
-The tutorial also includes a reference increment map above (`increment_snowdepth_daily`, date
-**2023-06-02**). For additional diagnostics, export one or two extra increment dates from
-`da_output_grids.nc` and compare against the same-date open-loop/ensemble-mean maps.
+The tutorial also includes a reference open-loop-departure map above (`increment_snowdepth_daily`, date
+**2023-06-02**). For event-level diagnostics, use generated DA-event maps or export
+`analysis_increment_snowdepth_daily` from `da_output_grids.nc` on an assimilation date and compare it against the same-date prior/posterior mean maps.
 
 {: .references }
 > - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) (data assimilation output variable selection and metrics)

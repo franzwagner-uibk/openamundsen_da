@@ -19,10 +19,37 @@ SUPPORTED_PANEL_KINDS = {
     "liquid_water_content",
     "fsc",
     "wet_snow",
+    "wet_snow_line",
+    "wet_snow_elevation_fraction",
     "legend",
     "colorbar",
 }
-SUPPORTED_MODEL_SOURCES = {"open_loop", "ensemble_mean", "increment"}
+SUPPORTED_MODEL_SOURCES = {"open_loop", "ensemble_mean", "analysis_mean", "increment", "analysis_increment"}
+SUPPORTED_FSC_SOURCES = {
+    "open_loop",
+    "ensemble_mean",
+    "open_loop_binary",
+    "prior_probability",
+    "posterior_probability",
+}
+SUPPORTED_WET_SNOW_SOURCES = {
+    "open_loop",
+    "ensemble_mean",
+    "prior_probability",
+    "posterior_probability",
+}
+SUPPORTED_WET_SNOW_LINE_SOURCES = {
+    "open_loop",
+    "prior_probability",
+    "posterior",
+    "posterior_probability",
+}
+SUPPORTED_WET_SNOW_ELEVATION_FRACTION_SOURCES = {
+    "open_loop",
+    "prior_probability",
+    "posterior",
+    "posterior_probability",
+}
 SUPPORTED_LEGEND_ITEM_KINDS = {"heading", "station_symbol", "source_legend", "scale_bar"}
 SUPPORTED_PANEL_LEGEND_LAYOUTS = {"horizontal", "vertical"}
 SUPPORTED_HILLSHADE_EXTENTS = {"full", "roi"}
@@ -91,6 +118,7 @@ class MapPanelSpec:
     show_stations_name: bool | None = None
     show_stations_elev: bool | None = None
     legend: str | None = None
+    variable: str | None = None
 
 
 @dataclass(frozen=True)
@@ -240,19 +268,6 @@ def _parse_legend_items(value: object, *, context: str) -> tuple[LegendItemSpec,
     return tuple(items)
 
 
-def _parse_date_selector(value: object, *, context: str) -> DateSelector:
-    mapping = _require_mapping(value, context=context)
-    return DateSelector(
-        explicit=_coerce_str_list(mapping.get("explicit"), context=f"{context}.explicit"),
-        assimilation_variables=_coerce_str_list(
-            mapping.get("assimilation_variables"),
-            context=f"{context}.assimilation_variables",
-        ),
-        include_first=bool(_coerce_bool(mapping.get("include_first"), default=False)),
-        include_last=bool(_coerce_bool(mapping.get("include_last"), default=False)),
-    )
-
-
 def _parse_defaults(value: object, *, context: str) -> MapDefaults:
     mapping = _require_mapping(value, context=context)
     if _REMOVED_LAYOUT_KEYS & set(mapping):
@@ -347,18 +362,21 @@ def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
         if panel.below_items:
             raise ValueError(f"{context}.below_items is only supported for non-legend panels")
     elif panel.kind == "fsc":
-        if panel.source is not None and panel.source not in {
-            "open_loop",
-            "ensemble_mean",
-            "open_loop_binary",
-            "posterior_probability",
-        }:
-            raise ValueError(
-                f"{context}.source must be one of: ensemble_mean, open_loop, open_loop_binary, posterior_probability"
-            )
+        if panel.source is not None and panel.source not in SUPPORTED_FSC_SOURCES:
+            supported = ", ".join(sorted(SUPPORTED_FSC_SOURCES))
+            raise ValueError(f"{context}.source must be one of: {supported}")
     elif panel.kind == "wet_snow":
-        if panel.source is not None and panel.source not in {"open_loop", "ensemble_mean"}:
-            raise ValueError(f"{context}.source must be one of: ensemble_mean, open_loop")
+        if panel.source is not None and panel.source not in SUPPORTED_WET_SNOW_SOURCES:
+            supported = ", ".join(sorted(SUPPORTED_WET_SNOW_SOURCES))
+            raise ValueError(f"{context}.source must be one of: {supported}")
+    elif panel.kind == "wet_snow_line":
+        if panel.source is not None and panel.source not in SUPPORTED_WET_SNOW_LINE_SOURCES:
+            supported = ", ".join(sorted(SUPPORTED_WET_SNOW_LINE_SOURCES))
+            raise ValueError(f"{context}.source must be one of: {supported}")
+    elif panel.kind == "wet_snow_elevation_fraction":
+        if panel.source is not None and panel.source not in SUPPORTED_WET_SNOW_ELEVATION_FRACTION_SOURCES:
+            supported = ", ".join(sorted(SUPPORTED_WET_SNOW_ELEVATION_FRACTION_SOURCES))
+            raise ValueError(f"{context}.source must be one of: {supported}")
     elif panel.source is not None:
         raise ValueError(f"{context}.source is only valid for model panels, legend panels, and colorbar panels")
 

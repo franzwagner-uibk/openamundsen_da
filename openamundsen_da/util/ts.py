@@ -9,7 +9,7 @@ precipitation.
 
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Iterable, List, Sequence
+from typing import Optional, Dict, List, Sequence
 
 import numpy as np
 import pandas as pd

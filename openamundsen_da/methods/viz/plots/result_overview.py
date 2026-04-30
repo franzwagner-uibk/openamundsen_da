@@ -29,12 +29,17 @@ from openamundsen_da.io.paths import (
     project_result_overview_custom_output_path,
 )
 from openamundsen_da.methods.viz.station_meta import load_ensemble_station_table_from_steps
+from openamundsen_da.methods.viz.common import (
+    force_figure_text_black,
+    save_figure_png,
+    set_matplotlib_text_black,
+)
 from openamundsen_da.methods.viz.plots.theme import (
+    BAND_ALPHA,
     COLOR_DA_OBS,
     FIGHEIGHT_OVERVIEW_ROW,
     FIGWIDTH_OVERVIEW_PAPER,
     OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR,
-    LW_MEMBER,
     LW_MEAN,
     LW_OPEN,
     SIZE_DA_OBS,
@@ -46,15 +51,11 @@ from openamundsen_da.methods.viz.plots.common import (
     draw_assim_labels,
     draw_assimilation_markers,
     draw_assimilation_vlines,
-    force_figure_text_black,
     format_station_label,
     result_title_pad,
     result_axis_scale,
-    save_figure_png,
-    set_matplotlib_text_black,
 )
 from openamundsen_da.methods.viz.fraction_series import (
-    default_fraction_obs_path,
     default_result_overview_output,
     load_fraction_series,
     load_member_series,
@@ -66,7 +67,9 @@ from openamundsen_da.methods.viz.plots.assimilation.ess_timeline import (
     load_setup_ess_series,
     load_setup_ess_threshold,
 )
+from openamundsen_da.methods.viz.wet_snow_fields import wsl_prior_summary_from_weights_df
 from openamundsen_da.observer.summary_io import load_scf_summary as _load_scf_obs
+from openamundsen_da.observer.summary_paths import resolve_fraction_summary_path
 from openamundsen_da.util.da_events import AssimilationEvent, load_assimilation_events
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.station_da import station_observation_csvs
@@ -108,9 +111,20 @@ class EssPanelData:
         return self.series is not None and not self.series.empty
 
 
+@dataclass
+class _ResultOverviewLegendState:
+    da_observation: bool = False
+    satellite_observation: bool = False
+    open_loop: bool = False
+    ensemble_summary: bool = False
+    station_observation: bool = False
+    da_event: bool = False
+
+
 _PANEL_ALIASES = {
     "fsc": "fSC",
-    "fws": "fWS",
+    "wsf": "WSF",
+    "wsla": "WSLA",
     "roi-swe": "roi-swe",
     "roi-sd": "roi-sd",
     "station-sd": "station-sd",
@@ -123,14 +137,16 @@ _PANEL_ALIASES = {
 
 _DEFAULT_PANELS = [
     PanelSpec(panel="fSC"),
-    PanelSpec(panel="fWS"),
+    PanelSpec(panel="WSF"),
+    PanelSpec(panel="WSLA"),
     PanelSpec(panel="roi-swe"),
     PanelSpec(panel="roi-sd"),
 ]
 
 _PANEL_YLABELS = {
     "fSC": "snow cover fraction",
-    "fWS": "wet snow fraction",
+    "WSF": "wet snow fraction",
+    "WSLA": "wet snow line altitude [m]",
     "roi-swe": "swe [mm]",
     "roi-sd": "snow depth [m]",
     "station-sd": "snow depth [m]",
@@ -143,7 +159,8 @@ _PANEL_YLABELS = {
 
 _DEFAULT_TITLES = {
     "fSC": "snow cover fraction (roi) - openAMUNDSEN ensemble and satellite observations",
-    "fWS": "wet snow fraction (roi) - openAMUNDSEN ensemble and satellite observations",
+    "WSF": "wet snow fraction (roi) - openAMUNDSEN ensemble and satellite observations",
+    "WSLA": "wet snow line altitude (roi) - openAMUNDSEN ensemble and satellite observations",
     "roi-swe": "mean swe (roi) - openAMUNDSEN ensemble and open loop",
     "roi-sd": "mean snow depth (roi) - openAMUNDSEN ensemble and open loop",
     "ess": "effective sample size",
@@ -165,7 +182,8 @@ _STATION_PANEL_META = {
 
 _PANEL_VARIABLE_KEYS = {
     "fSC": "scf",
-    "fWS": "wet_snow",
+    "WSF": "wet_snow",
+    "WSLA": "wet_snow_line",
     "roi-swe": "station_swe",
     "roi-sd": "station_hs",
     "station-swe": "station_swe",
@@ -176,6 +194,7 @@ _PANEL_VARIABLE_KEYS = {
 _ASSIM_STYLES = {
     "scf": {"ls": "--"},
     "wet_snow": {"ls": "--"},
+    "wet_snow_line": {"ls": "--"},
     "station_hs": {"ls": "--"},
     "station_swe": {"ls": "--"},
 }
@@ -254,6 +273,9 @@ def _load_scf_obs_series(path: Path) -> pd.DataFrame | None:
 
 def _normalize_panel_name(raw: object) -> str:
     key = str(raw or "").strip().lower()
+    if key in {"fws", "wsl"}:
+        replacement = "WSF" if key == "fws" else "WSLA"
+        raise ValueError(f"Unsupported result_overview panel: {raw!r}. Use {replacement!r} instead.")
     if key not in _PANEL_ALIASES:
         raise ValueError(f"Unsupported result_overview panel: {raw!r}")
     return _PANEL_ALIASES[key]
@@ -567,6 +589,164 @@ def _date_bounds_frames(*frames: pd.DataFrame | None) -> tuple[pd.Timestamp, pd.
     return min(mins), max(maxs)
 
 
+def _wsl_prior_member_env(member_series: list[pd.Series] | None) -> pd.DataFrame | None:
+    if not member_series:
+        return None
+    aligned = pd.concat(member_series, axis=1, join="outer")
+    if aligned.empty:
+        return None
+    n = aligned.count(axis=1)
+    center = aligned.median(axis=1, skipna=True).where(n > 0)
+    value_min = aligned.min(axis=1, skipna=True).where(n > 0)
+    value_max = aligned.max(axis=1, skipna=True).where(n > 0)
+    out = pd.DataFrame(
+        {
+            "date": aligned.index,
+            "value_mean": center.to_numpy(dtype=float),
+            "value_min": value_min.to_numpy(dtype=float),
+            "value_max": value_max.to_numpy(dtype=float),
+            "n": n.to_numpy(dtype=float),
+        }
+    ).sort_values("date")
+    return out if not out.empty else None
+
+
+def _default_wsl_overview_env(project_dir: Path) -> pd.DataFrame | None:
+    return _wsl_prior_member_env(
+        load_member_series(
+            project_dir,
+            "point_wet_snow_line_roi.csv",
+            "wet_snow_line",
+            preserve_missing_values=True,
+        )
+    )
+
+
+def _load_wsl_prior_coverage_frame(project_dir: Path) -> pd.DataFrame | None:
+    rows: list[dict[str, object]] = []
+    steps_dir = Path(project_dir) / "steps"
+    if not steps_dir.is_dir():
+        return None
+    for step_dir in sorted(steps_dir.glob("step_*")):
+        assim_dir = step_dir / "assim"
+        if not assim_dir.is_dir():
+            continue
+        for weights_path in sorted(assim_dir.glob("weights_wet_snow_line_*.csv")):
+            stamp = weights_path.stem.rsplit("_", 1)[-1]
+            date = pd.to_datetime(stamp, format="%Y%m%d", errors="coerce")
+            if pd.isna(date):
+                logger.debug("Skipping WSLA weights file with unreadable date: {}", weights_path)
+                continue
+            try:
+                df = pd.read_csv(weights_path)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Could not read WSLA weights file {}: {}", weights_path, exc)
+                continue
+            summary = wsl_prior_summary_from_weights_df(df)
+            if summary is None:
+                continue
+            rows.append(
+                {
+                    "date": pd.Timestamp(date).normalize(),
+                    "value_mean": summary["median"],
+                    "value_min": summary["min"],
+                    "value_max": summary["max"],
+                    "value_obs": summary["obs"],
+                    "n": summary["n_members"],
+                }
+            )
+    if not rows:
+        return None
+    out = pd.DataFrame(rows).sort_values("date")
+    out = out.drop_duplicates(subset=["date"], keep="last").reset_index(drop=True)
+    return out if not out.empty else None
+
+
+def _draw_wsl_prior_coverage_markers(ax, coverage: pd.DataFrame | None, *, color: str) -> None:
+    if coverage is None or coverage.empty:
+        return
+    working = coverage.copy()
+    working["date"] = pd.to_datetime(working["date"], errors="coerce")
+    for column in ("value_min", "value_mean", "value_max"):
+        working[column] = pd.to_numeric(working[column], errors="coerce")
+    span_mask = working["date"].notna() & working["value_min"].notna() & working["value_max"].notna()
+    if bool(span_mask.any()):
+        ax.vlines(
+            working.loc[span_mask, "date"],
+            working.loc[span_mask, "value_min"],
+            working.loc[span_mask, "value_max"],
+            colors=color,
+            linewidth=1.1,
+            alpha=0.9,
+            zorder=1.7,
+        )
+    center_mask = working["date"].notna() & working["value_mean"].notna()
+    if bool(center_mask.any()):
+        ax.scatter(
+            working.loc[center_mask, "date"],
+            working.loc[center_mask, "value_mean"],
+            color=color,
+            marker="_",
+            s=60.0,
+            linewidths=1.2,
+            zorder=1.8,
+            label="_nolegend_",
+        )
+
+
+def _frame_has_finite_value(frame: pd.DataFrame | None, value_col: str) -> bool:
+    if frame is None or frame.empty or value_col not in frame.columns:
+        return False
+    return bool(pd.to_numeric(frame[value_col], errors="coerce").notna().any())
+
+
+def _series_has_finite_value(series: pd.Series | None) -> bool:
+    if series is None or series.empty:
+        return False
+    return bool(pd.to_numeric(series, errors="coerce").notna().any())
+
+
+def _frame_has_finite_band(frame: pd.DataFrame | None) -> bool:
+    if frame is None or frame.empty:
+        return False
+    return (
+        _frame_has_finite_value(frame, "value_min")
+        or _frame_has_finite_value(frame, "value_mean")
+        or _frame_has_finite_value(frame, "value_max")
+    )
+
+
+def _has_matching_assimilation_observation(
+    dates: list[pd.Timestamp],
+    obs: pd.DataFrame | None,
+    *,
+    value_col: str,
+) -> bool:
+    if obs is None or obs.empty or not dates or value_col not in obs.columns or "date" not in obs.columns:
+        return False
+    try:
+        target = pd.to_datetime(dates).normalize()
+        obs_dates = pd.to_datetime(obs["date"], errors="coerce")
+    except Exception:
+        return False
+    values = pd.to_numeric(obs[value_col], errors="coerce")
+    mask = obs_dates.dt.normalize().isin(target).fillna(False) & values.notna()
+    return bool(mask.any())
+
+
+def _finite_value_points(frame: pd.DataFrame | None, value_col: str) -> pd.DataFrame | None:
+    """Return only rows with finite plotted values while keeping the original frame intact."""
+    if frame is None or frame.empty or value_col not in frame.columns:
+        return None
+    values = pd.to_numeric(frame[value_col], errors="coerce")
+    mask = values.notna()
+    if not mask.any():
+        return None
+    out = frame.loc[mask].copy()
+    out[value_col] = values.loc[mask]
+    return out
+
+
 def _date_bounds_series(*series_items: pd.Series | None) -> tuple[pd.Timestamp, pd.Timestamp] | None:
     mins: list[pd.Timestamp] = []
     maxs: list[pd.Timestamp] = []
@@ -588,12 +768,6 @@ def _pad_single_day_bounds(bounds: tuple[pd.Timestamp, pd.Timestamp] | None) -> 
         return bounds
     pad = pd.Timedelta(days=3)
     return pd.Timestamp(start) - pad, pd.Timestamp(end) + pad
-
-
-def _series_to_frame(series: pd.Series | None, value_col: str) -> pd.DataFrame | None:
-    if series is None or series.empty:
-        return None
-    return pd.DataFrame({"date": series.index, value_col: series.values})
 
 
 def _band_frame(
@@ -715,50 +889,57 @@ def _add_assim_label_axis(ax, events: list[AssimilationEvent], idx: int, *, cent
 
 def _build_result_overview_legend_handles(
     *,
-    show_station_observation: bool,
+    legend_state: _ResultOverviewLegendState,
     show_ess_threshold: bool = False,
 ) -> list:
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
 
-    handles = [
-        Line2D(
-            [0],
-            [0],
-            color=COLOR_DA_OBS,
-            marker="x",
-            linestyle="none",
-            markersize=6.2,
-            markeredgewidth=1.6,
-            label="observation used for data assimilation",
-        ),
-        Line2D(
-            [0],
-            [0],
-            color=COLOR_DA_OBS,
-            marker="o",
-            linestyle="none",
-            markersize=3.2,
-            label="satellite observation",
-        ),
-        Line2D([0], [0], color="black", lw=1.8, label="open loop"),
-        _EnsembleLegendHandle(
-            (
-                Patch(
-                    facecolor="#bfc6cf",
-                    edgecolor="#666666",
-                    linewidth=0.9,
-                    alpha=0.55,
+    handles = []
+    if legend_state.da_observation:
+        handles.append(
+            Line2D(
+                [0],
+                [0],
+                color=COLOR_DA_OBS,
+                marker="x",
+                linestyle="none",
+                markersize=6.2,
+                markeredgewidth=1.6,
+                label="observation used for data assimilation",
+            )
+        )
+    if legend_state.satellite_observation:
+        handles.append(
+            Line2D(
+                [0],
+                [0],
+                color=COLOR_DA_OBS,
+                marker="o",
+                linestyle="none",
+                markersize=3.2,
+                label="satellite observation",
+            )
+        )
+    if legend_state.open_loop:
+        handles.append(Line2D([0], [0], color="black", lw=1.8, label="open loop"))
+    if legend_state.ensemble_summary:
+        handles.append(
+            _EnsembleLegendHandle(
+                (
+                    Patch(
+                        facecolor="#bfc6cf",
+                        edgecolor="#666666",
+                        linewidth=0.9,
+                        alpha=BAND_ALPHA,
+                    ),
+                    Line2D([0], [0], color="#666666", lw=1.2),
                 ),
-                Line2D([0], [0], color="#666666", lw=1.2),
-            ),
-            "ensemble (min - max, mean)",
-        ),
-        Line2D([0], [0], color="#666666", lw=1.2, ls="--", label="data assimilation event"),
-    ]
-    if show_station_observation:
-        handles.insert(
-            4,
+                "ensemble (min - max, mean)",
+            )
+        )
+    if legend_state.station_observation:
+        handles.append(
             Line2D(
                 [0],
                 [0],
@@ -767,6 +948,8 @@ def _build_result_overview_legend_handles(
                 label="station observation",
             ),
         )
+    if legend_state.da_event:
+        handles.append(Line2D([0], [0], color="#666666", lw=1.2, ls="--", label="data assimilation event"))
     return handles
 
 
@@ -779,16 +962,18 @@ def _result_overview_legend_handler_map() -> dict[type, object]:
 def _build_result_overview_legends(
     fig,
     *,
-    show_station_observation: bool,
+    legend_state: _ResultOverviewLegendState,
     score_variables: list[str] | None = None,
     show_ess_threshold: bool = False,
 ) -> list:
     overview_handles = _build_result_overview_legend_handles(
-        show_station_observation=show_station_observation,
+        legend_state=legend_state,
         show_ess_threshold=show_ess_threshold and not score_variables,
     )
 
     if not score_variables:
+        if not overview_handles:
+            return []
         legend = fig.legend(
             handles=overview_handles,
             handler_map=_result_overview_legend_handler_map(),
@@ -808,22 +993,25 @@ def _build_result_overview_legends(
         return [legend]
 
     score_handles = score_legend_handles(score_variables, include_da_event=False)
-    overview_legend = fig.legend(
-        handles=overview_handles,
-        handler_map=_result_overview_legend_handler_map(),
-        loc="lower left",
-        bbox_to_anchor=(0.055, 0.038, 0.865, 0.032),
-        bbox_transform=fig.transFigure,
-        mode="expand",
-        ncol=4,
-        frameon=False,
-        fontsize=6.2,
-        handlelength=2.4,
-        handleheight=1.22,
-        columnspacing=0.8,
-        handletextpad=0.32,
-        borderaxespad=0.0,
-    )
+    legends = []
+    if overview_handles:
+        overview_legend = fig.legend(
+            handles=overview_handles,
+            handler_map=_result_overview_legend_handler_map(),
+            loc="lower left",
+            bbox_to_anchor=(0.055, 0.038, 0.865, 0.032),
+            bbox_transform=fig.transFigure,
+            mode="expand",
+            ncol=min(4, len(overview_handles)),
+            frameon=False,
+            fontsize=6.2,
+            handlelength=2.4,
+            handleheight=1.22,
+            columnspacing=0.8,
+            handletextpad=0.32,
+            borderaxespad=0.0,
+        )
+        legends.append(overview_legend)
     score_legend = fig.legend(
         handles=score_handles,
         handler_map=_result_overview_legend_handler_map(),
@@ -840,7 +1028,8 @@ def _build_result_overview_legends(
         handletextpad=0.62,
         borderaxespad=0.0,
     )
-    return [overview_legend, score_legend]
+    legends.append(score_legend)
+    return legends
 
 
 def _legend_band_bottom(fig, legends: list, *, gap: float = 0.008, minimum: float = 0.04) -> float:
@@ -997,8 +1186,11 @@ def _panel_has_data(
     scf_model: pd.DataFrame | None,
     wet_obs: pd.DataFrame | None,
     wet_model: pd.DataFrame | None,
+    wsl_obs: pd.DataFrame | None,
+    wsl_model: pd.DataFrame | None,
     scf_env: pd.DataFrame | None,
     wet_env: pd.DataFrame | None,
+    wsl_env: pd.DataFrame | None,
     roi_swe_model: pd.DataFrame | None,
     roi_swe_members: list[pd.Series] | None,
     roi_snow_depth_model: pd.DataFrame | None,
@@ -1011,8 +1203,10 @@ def _panel_has_data(
         return not _score_panel_points_for_metric(score_points, spec.panel).empty
     if spec.panel == "fSC":
         return any(frame is not None and not frame.empty for frame in (scf_obs, scf_model, scf_env))
-    if spec.panel == "fWS":
+    if spec.panel == "WSF":
         return any(frame is not None and not frame.empty for frame in (wet_obs, wet_model, wet_env))
+    if spec.panel == "WSLA":
+        return any(frame is not None and not frame.empty for frame in (wsl_obs, wsl_model, wsl_env))
     if spec.panel == "roi-swe":
         return (roi_swe_model is not None and not roi_swe_model.empty) or bool(roi_swe_members)
     if spec.panel == "roi-sd":
@@ -1034,8 +1228,11 @@ def _filter_panel_specs(
     scf_model: pd.DataFrame | None,
     wet_obs: pd.DataFrame | None,
     wet_model: pd.DataFrame | None,
+    wsl_obs: pd.DataFrame | None,
+    wsl_model: pd.DataFrame | None,
     scf_env: pd.DataFrame | None,
     wet_env: pd.DataFrame | None,
+    wsl_env: pd.DataFrame | None,
     roi_swe_model: pd.DataFrame | None,
     roi_swe_members: list[pd.Series] | None,
     roi_snow_depth_model: pd.DataFrame | None,
@@ -1052,8 +1249,11 @@ def _filter_panel_specs(
             scf_model=scf_model,
             wet_obs=wet_obs,
             wet_model=wet_model,
+            wsl_obs=wsl_obs,
+            wsl_model=wsl_model,
             scf_env=scf_env,
             wet_env=wet_env,
+            wsl_env=wsl_env,
             roi_swe_model=roi_swe_model,
             roi_swe_members=roi_swe_members,
             roi_snow_depth_model=roi_snow_depth_model,
@@ -1080,6 +1280,10 @@ def plot_result_overview(
     scf_env: pd.DataFrame | None,
     wet_env: pd.DataFrame | None,
     output: Path,
+    wsl_obs: pd.DataFrame | None = None,
+    wsl_model: pd.DataFrame | None = None,
+    wsl_env: pd.DataFrame | None = None,
+    wsl_prior_coverage: pd.DataFrame | None = None,
     assim_events: list[AssimilationEvent] | None = None,
     mode: str = "band",
     roi_swe_model: pd.DataFrame | None = None,
@@ -1123,8 +1327,11 @@ def plot_result_overview(
         scf_model=scf_model,
         wet_obs=wet_obs,
         wet_model=wet_model,
+        wsl_obs=wsl_obs,
+        wsl_model=wsl_model,
         scf_env=scf_env,
         wet_env=wet_env,
+        wsl_env=wsl_env,
         roi_swe_model=roi_swe_model,
         roi_swe_members=roi_swe_members,
         roi_snow_depth_model=roi_snow_depth_model,
@@ -1164,13 +1371,8 @@ def plot_result_overview(
     )
     data_x_bounds: tuple[pd.Timestamp, pd.Timestamp] | None = None
     label_axes: list[tuple[object, object]] = []
-    show_station_observation = False
-    score_panel_indices = [idx for idx, spec in enumerate(specs) if _is_score_panel(spec.panel)]
-    score_legend_variables = (
-        sorted(score_points["variable"].astype(str).unique(), key=score_variable_sort_key)
-        if score_panel_indices and score_points is not None and not score_points.empty
-        else []
-    )
+    legend_state = _ResultOverviewLegendState()
+    score_legend_variable_names: set[str] = set()
     show_ess_threshold = any(spec.panel == "ess" and ess_panel is not None and ess_panel.threshold is not None for spec in specs)
 
     for idx, (ax, spec) in enumerate(zip(axes, specs)):
@@ -1192,11 +1394,13 @@ def plot_result_overview(
         center_assim = spec.panel in {"roi-swe", "roi-sd", "station-swe", "station-sd"}
         if not _is_score_panel(spec.panel):
             _draw_all_assim(ax, events, center_of_day=center_assim)
+            legend_state.da_event = legend_state.da_event or bool(events)
 
         if _is_score_panel(spec.panel):
             score_metric = _score_metric_for_panel(spec.panel)
             metric_points = _score_panel_points_for_metric(score_points, spec.panel)
             score_variables = sorted(metric_points["variable"].astype(str).unique(), key=score_variable_sort_key)
+            score_legend_variable_names.update(score_variables)
             draw_score_metric_panel(
                 ax,
                 points=metric_points,
@@ -1204,17 +1408,20 @@ def plot_result_overview(
                 variables=score_variables,
                 assimilation_events=events,
             )
+            legend_state.da_event = legend_state.da_event or bool(events)
             ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
             ax.set_ylim(*score_metric_ylim(metric_points, score_metric))
             bounds = _date_bounds_frames(pd.DataFrame({"date": pd.to_datetime(metric_points["assimilation_date"])}))
         elif spec.panel == "fSC":
-            if mode == "band" and scf_env is not None and not scf_env.empty:
+            scf_obs_points = _finite_value_points(scf_obs, "scf")
+            if mode == "band" and _frame_has_finite_band(scf_env):
+                legend_state.ensemble_summary = True
                 ax.fill_between(
                     scf_env["date"],
                     scf_env["value_min"],
                     scf_env["value_max"],
                     color=panel_style["fill"],
-                    alpha=0.6,
+                    alpha=BAND_ALPHA,
                     label="_nolegend_",
                 )
                 ax.plot(
@@ -1226,12 +1433,14 @@ def plot_result_overview(
                     alpha=0.9,
                     label="_nolegend_",
                 )
-            if scf_model is not None and not scf_model.empty:
+            if _frame_has_finite_value(scf_model, "scf"):
+                legend_state.open_loop = True
                 ax.plot(scf_model["date"], scf_model["scf"], "-", color="black", lw=LW_OPEN, label="_nolegend_")
-            if spec.show_obs and scf_obs is not None and not scf_obs.empty:
+            if spec.show_obs and scf_obs_points is not None and not scf_obs_points.empty:
+                legend_state.satellite_observation = True
                 ax.plot(
-                    scf_obs["date"],
-                    scf_obs["scf"],
+                    scf_obs_points["date"],
+                    scf_obs_points["scf"],
                     linestyle="none",
                     marker="o",
                     ms=2.8,
@@ -1240,10 +1449,15 @@ def plot_result_overview(
                 )
                 scf_dates = [pd.to_datetime(ev.date) for ev in events if ev.variable == "scf"]
                 if scf_dates:
+                    legend_state.da_observation = legend_state.da_observation or _has_matching_assimilation_observation(
+                        scf_dates,
+                        scf_obs_points,
+                        value_col="scf",
+                    )
                     draw_assimilation_markers(
                         ax,
                         dates=scf_dates,
-                        obs=scf_obs,
+                        obs=scf_obs_points,
                         value_col="scf",
                         color=COLOR_DA_OBS,
                         label="_nolegend_",
@@ -1256,14 +1470,16 @@ def plot_result_overview(
             apply_fraction_grid(ax, y_step=0.2)
             _apply_fraction_ticks(ax)
             bounds = _date_bounds_frames(scf_obs, scf_model, scf_env)
-        elif spec.panel == "fWS":
-            if mode == "band" and wet_env is not None and not wet_env.empty:
+        elif spec.panel == "WSF":
+            wet_obs_points = _finite_value_points(wet_obs, "wet_snow_fraction")
+            if mode == "band" and _frame_has_finite_band(wet_env):
+                legend_state.ensemble_summary = True
                 ax.fill_between(
                     wet_env["date"],
                     wet_env["value_min"],
                     wet_env["value_max"],
                     color=panel_style["fill"],
-                    alpha=0.6,
+                    alpha=BAND_ALPHA,
                     label="_nolegend_",
                 )
                 ax.plot(
@@ -1275,7 +1491,8 @@ def plot_result_overview(
                     alpha=0.9,
                     label="_nolegend_",
                 )
-            if wet_model is not None and not wet_model.empty:
+            if _frame_has_finite_value(wet_model, "wet_snow_fraction"):
+                legend_state.open_loop = True
                 ax.plot(
                     wet_model["date"],
                     wet_model["wet_snow_fraction"],
@@ -1284,10 +1501,11 @@ def plot_result_overview(
                     lw=LW_OPEN,
                     label="_nolegend_",
                 )
-            if spec.show_obs and wet_obs is not None and not wet_obs.empty:
+            if spec.show_obs and wet_obs_points is not None and not wet_obs_points.empty:
+                legend_state.satellite_observation = True
                 ax.plot(
-                    wet_obs["date"],
-                    wet_obs["wet_snow_fraction"],
+                    wet_obs_points["date"],
+                    wet_obs_points["wet_snow_fraction"],
                     linestyle="none",
                     marker="o",
                     ms=2.8,
@@ -1296,10 +1514,15 @@ def plot_result_overview(
                 )
                 wet_dates = [pd.to_datetime(ev.date) for ev in events if ev.variable == "wet_snow"]
                 if wet_dates:
+                    legend_state.da_observation = legend_state.da_observation or _has_matching_assimilation_observation(
+                        wet_dates,
+                        wet_obs_points,
+                        value_col="wet_snow_fraction",
+                    )
                     draw_assimilation_markers(
                         ax,
                         dates=wet_dates,
-                        obs=wet_obs,
+                        obs=wet_obs_points,
                         value_col="wet_snow_fraction",
                         color=COLOR_DA_OBS,
                         label="_nolegend_",
@@ -1312,14 +1535,81 @@ def plot_result_overview(
             apply_fraction_grid(ax, y_step=0.2)
             _apply_fraction_ticks(ax)
             bounds = _date_bounds_frames(wet_obs, wet_model, wet_env)
+        elif spec.panel == "WSLA":
+            wsl_obs_points = _finite_value_points(wsl_obs, "wet_snow_line")
+            if mode == "band" and _frame_has_finite_band(wsl_env):
+                legend_state.ensemble_summary = True
+                ax.fill_between(
+                    wsl_env["date"],
+                    wsl_env["value_min"],
+                    wsl_env["value_max"],
+                    color=panel_style["fill"],
+                    alpha=BAND_ALPHA,
+                    label="_nolegend_",
+                )
+                ax.plot(
+                    wsl_env["date"],
+                    wsl_env["value_mean"],
+                    "-",
+                    color=panel_style["line"],
+                    lw=LW_MEAN,
+                    alpha=0.95,
+                    label="_nolegend_",
+                )
+            if _frame_has_finite_band(wsl_prior_coverage):
+                legend_state.ensemble_summary = True
+            _draw_wsl_prior_coverage_markers(ax, wsl_prior_coverage, color=panel_style["line"])
+            if _frame_has_finite_value(wsl_model, "wet_snow_line"):
+                legend_state.open_loop = True
+                ax.plot(
+                    wsl_model["date"],
+                    wsl_model["wet_snow_line"],
+                    "-",
+                    color="black",
+                    lw=LW_OPEN,
+                    label="_nolegend_",
+                )
+            if spec.show_obs and wsl_obs_points is not None and not wsl_obs_points.empty:
+                legend_state.satellite_observation = True
+                ax.plot(
+                    wsl_obs_points["date"],
+                    wsl_obs_points["wet_snow_line"],
+                    linestyle="none",
+                    marker="o",
+                    ms=2.8,
+                    color=COLOR_DA_OBS,
+                    label="_nolegend_",
+                )
+                wsl_dates = [pd.to_datetime(ev.date) for ev in events if ev.variable == "wet_snow_line"]
+                if wsl_dates:
+                    legend_state.da_observation = legend_state.da_observation or _has_matching_assimilation_observation(
+                        wsl_dates,
+                        wsl_obs_points,
+                        value_col="wet_snow_line",
+                    )
+                    draw_assimilation_markers(
+                        ax,
+                        dates=wsl_dates,
+                        obs=wsl_obs_points,
+                        value_col="wet_snow_line",
+                        color=COLOR_DA_OBS,
+                        label="_nolegend_",
+                        size=SIZE_DA_OBS * 0.8,
+                        linewidth=LW_DA_OBS,
+                        draw_vlines=False,
+                    )
+            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
+            apply_fraction_grid(ax, y_step=None)
+            bounds = _date_bounds_frames(wsl_obs, wsl_model, wsl_env, wsl_prior_coverage)
         elif spec.panel == "roi-swe":
-            if roi_swe_env is not None and not roi_swe_env.empty:
+            if _frame_has_finite_band(roi_swe_env):
+                legend_state.ensemble_summary = True
                 ax.fill_between(
                     roi_swe_env["date"],
                     roi_swe_env["value_min"],
                     roi_swe_env["value_max"],
                     color=panel_style["fill"],
-                    alpha=0.35,
+                    alpha=BAND_ALPHA,
                     label="_nolegend_",
                 )
                 ax.plot(
@@ -1331,7 +1621,8 @@ def plot_result_overview(
                     alpha=0.95,
                     label="_nolegend_",
                 )
-            if roi_swe_model is not None and not roi_swe_model.empty:
+            if _frame_has_finite_value(roi_swe_model, "swe"):
+                legend_state.open_loop = True
                 ax.plot(
                     roi_swe_model["date"],
                     roi_swe_model["swe"],
@@ -1345,13 +1636,14 @@ def plot_result_overview(
             _apply_shared_result_scale(ax, spec.panel, shared_scales)
             bounds = _date_bounds_frames(roi_swe_model, roi_swe_env)
         elif spec.panel == "roi-sd":
-            if roi_snow_depth_env is not None and not roi_snow_depth_env.empty:
+            if _frame_has_finite_band(roi_snow_depth_env):
+                legend_state.ensemble_summary = True
                 ax.fill_between(
                     roi_snow_depth_env["date"],
                     roi_snow_depth_env["value_min"],
                     roi_snow_depth_env["value_max"],
                     color=panel_style["fill"],
-                    alpha=0.35,
+                    alpha=BAND_ALPHA,
                     label="_nolegend_",
                 )
                 ax.plot(
@@ -1363,7 +1655,8 @@ def plot_result_overview(
                     alpha=0.95,
                     label="_nolegend_",
                 )
-            if roi_snow_depth_model is not None and not roi_snow_depth_model.empty:
+            if _frame_has_finite_value(roi_snow_depth_model, "snow_depth"):
+                legend_state.open_loop = True
                 ax.plot(
                     roi_snow_depth_model["date"],
                     roi_snow_depth_model["snow_depth"],
@@ -1418,13 +1711,14 @@ def plot_result_overview(
             if station_data is None:
                 raise ValueError(f"Missing station panel data for {spec.panel}")
             env_frame = _band_frame(station_data.members, q_low=0.0, q_high=1.0)
-            if env_frame is not None and not env_frame.empty:
+            if _frame_has_finite_band(env_frame):
+                legend_state.ensemble_summary = True
                 ax.fill_between(
                     env_frame["date"],
                     env_frame["value_min"],
                     env_frame["value_max"],
                     color=panel_style["fill"],
-                    alpha=0.35,
+                    alpha=BAND_ALPHA,
                     label="_nolegend_",
                     zorder=2,
                 )
@@ -1438,7 +1732,8 @@ def plot_result_overview(
                     lw=LW_MEAN,
                     zorder=4,
                 )
-            if station_data.open_loop is not None and not station_data.open_loop.empty:
+            if _series_has_finite_value(station_data.open_loop):
+                legend_state.open_loop = True
                 ax.plot(
                     station_data.open_loop.index,
                     station_data.open_loop.values,
@@ -1448,8 +1743,9 @@ def plot_result_overview(
                     label="_nolegend_",
                     zorder=5,
                 )
-            if spec.show_obs and station_data.obs is not None and not station_data.obs.empty:
+            if spec.show_obs and _series_has_finite_value(station_data.obs):
                 value_col = _STATION_PANEL_META[spec.panel]["value_col"]
+                legend_state.station_observation = True
                 ax.plot(
                     station_data.obs.index,
                     station_data.obs.values,
@@ -1471,7 +1767,11 @@ def plot_result_overview(
                     zorder=7,
                     draw_vlines=False,
                 )
-                show_station_observation = True
+                legend_state.da_observation = legend_state.da_observation or _has_matching_assimilation_observation(
+                    _station_assimilation_dates(events, spec.panel),
+                    _station_obs_frame(station_data.obs, value_col=value_col),
+                    value_col=value_col,
+                )
             ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
             apply_fraction_grid(ax, y_step=None)
             _apply_shared_result_scale(ax, spec.panel, shared_scales)
@@ -1521,8 +1821,8 @@ def plot_result_overview(
         title_artist.set_x(x_axes)
     legends = _build_result_overview_legends(
         fig,
-        show_station_observation=show_station_observation,
-        score_variables=score_legend_variables,
+        legend_state=legend_state,
+        score_variables=sorted(score_legend_variable_names, key=score_variable_sort_key),
         show_ess_threshold=show_ess_threshold,
     )
     fig.canvas.draw()
@@ -1559,10 +1859,13 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     parser.add_argument("--setup-dir", type=Path, help="Setup directory (default: project_dir/../..)")
     parser.add_argument("--scf-obs-csv", type=Path, help="Path to scf_summary.csv (obs)")
     parser.add_argument("--wet-obs-csv", type=Path, help="Path to wet_snow_summary.csv (obs)")
+    parser.add_argument("--wsl-obs-csv", type=Path, help="Path to wet_snow_line_diagnostics.csv (obs)")
     parser.add_argument("--scf-model-csv", type=Path, help="Model SCF CSV (date/time + scf)")
-    parser.add_argument("--wet-model-csv", type=Path, help="Model wet-snow CSV (date/time + wet_snow_fraction)")
+    parser.add_argument("--wet-model-csv", type=Path, help="Model WSF CSV (date/time + wet_snow_fraction)")
+    parser.add_argument("--wsl-model-csv", type=Path, help="Model WSLA CSV (date/time + wet_snow_line)")
     parser.add_argument("--scf-env-csv", type=Path, help="SCF envelope CSV (value_min/value_max/value_mean)")
-    parser.add_argument("--wet-env-csv", type=Path, help="Wet-snow envelope CSV (value_min/value_max/value_mean)")
+    parser.add_argument("--wet-env-csv", type=Path, help="WSF envelope CSV (value_min/value_max/value_mean)")
+    parser.add_argument("--wsl-env-csv", type=Path, help="WSLA envelope CSV (value_min/value_max/value_mean)")
     parser.add_argument("--output", type=Path, help="Output PNG path (default: <project>/results/plots/results/result_overview.png)")
     parser.add_argument("--custom-config", type=Path, help="Custom panel YAML (default: <project-dir>/plots.yml)")
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
@@ -1575,21 +1878,38 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
 
     project_dir = Path(args.project_dir)
     setup_dir = Path(args.setup_dir) if args.setup_dir else project_dir.parent.parent
-    project_name = project_dir.name
-
-    scf_obs_path = Path(args.scf_obs_csv) if args.scf_obs_csv else default_fraction_obs_path(setup_dir, project_name, "scf_summary.csv")
-    wet_obs_path = Path(args.wet_obs_csv) if args.wet_obs_csv else default_fraction_obs_path(setup_dir, project_name, "wet_snow_summary.csv")
+    scf_obs_path = Path(args.scf_obs_csv) if args.scf_obs_csv else resolve_fraction_summary_path(setup_dir, project_dir, "scf_summary.csv")
+    wet_obs_path = Path(args.wet_obs_csv) if args.wet_obs_csv else resolve_fraction_summary_path(setup_dir, project_dir, "wet_snow_summary.csv")
+    wsl_obs_path = (
+        Path(args.wsl_obs_csv)
+        if args.wsl_obs_csv
+        else resolve_fraction_summary_path(setup_dir, project_dir, "wet_snow_line_diagnostics.csv")
+    )
     scf_env_path = Path(args.scf_env_csv) if args.scf_env_csv else project_fraction_envelope_path(project_dir, "scf")
     wet_env_path = Path(args.wet_env_csv) if args.wet_env_csv else project_fraction_envelope_path(project_dir, "wet_snow")
+    wsl_env_path = Path(args.wsl_env_csv) if args.wsl_env_csv else project_fraction_envelope_path(project_dir, "wet_snow_line")
 
     scf_obs = _load_scf_obs_series(scf_obs_path)
     wet_obs = load_fraction_series(wet_obs_path, "wet_snow_fraction")
+    wsl_obs = load_fraction_series(wsl_obs_path, "wet_snow_line", preserve_missing_values=True)
     scf_model = load_fraction_series(Path(args.scf_model_csv), "scf") if args.scf_model_csv else None
     wet_model = load_fraction_series(Path(args.wet_model_csv), "wet_snow_fraction") if args.wet_model_csv else None
+    wsl_model = (
+        load_fraction_series(Path(args.wsl_model_csv), "wet_snow_line", preserve_missing_values=True)
+        if args.wsl_model_csv
+        else None
+    )
     if scf_model is None:
         scf_model = load_open_loop_fraction_series(project_dir, "point_scf_roi.csv", "scf")
     if wet_model is None:
         wet_model = load_open_loop_fraction_series(project_dir, "point_wet_snow_roi.csv", "wet_snow_fraction")
+    if wsl_model is None:
+        wsl_model = load_open_loop_fraction_series(
+            project_dir,
+            "point_wet_snow_line_roi.csv",
+            "wet_snow_line",
+            preserve_missing_values=True,
+        )
     roi_swe_model = load_open_loop_fraction_series(project_dir, "point_swe_roi.csv", "swe")
     roi_swe_members = load_member_series(project_dir, "point_swe_roi.csv", "swe")
     roi_snow_depth_model = load_open_loop_fraction_series(project_dir, "point_snow_depth_roi.csv", "snow_depth")
@@ -1600,11 +1920,24 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     wet_env = load_fraction_series(wet_env_path, "value_mean")
     if wet_env is not None and not wet_env.empty and {"value_min", "value_max"}.issubset(wet_env.columns) is False:
         wet_env = None
+    if args.wsl_env_csv:
+        wsl_env = load_fraction_series(wsl_env_path, "value_mean")
+        if wsl_env is not None and not wsl_env.empty and {"value_min", "value_max"}.issubset(wsl_env.columns) is False:
+            wsl_env = None
+    else:
+        try:
+            wsl_env = _default_wsl_overview_env(project_dir)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Prior-member WSLA overview series failed, plotting without ensemble WSLA band: {}", exc)
+            wsl_env = None
+    wsl_prior_coverage = _load_wsl_prior_coverage_frame(project_dir)
 
     if scf_obs is None or scf_obs.empty:
         logger.warning("SCF obs not found at {} - plotting without obs points", scf_obs_path)
     if wet_obs is None or wet_obs.empty:
         logger.warning("Wet-snow obs not found at {} - plotting without obs points", wet_obs_path)
+    if wsl_obs is None or wsl_obs.empty:
+        logger.warning("Wet-snow-line obs not found at {} - plotting without obs points", wsl_obs_path)
 
     try:
         assim_events = load_assimilation_events(project_dir)
@@ -1628,7 +1961,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     if all(
         x is None or x.empty
         for x in (scf_obs, wet_obs, scf_model, wet_model, scf_env, wet_env, roi_swe_model, roi_snow_depth_model, ess_panel.series)
-    ) and not roi_swe_members and not roi_snow_depth_members:
+    ) and all(x is None or x.empty for x in (wsl_obs, wsl_model, wsl_env, wsl_prior_coverage)) and not roi_swe_members and not roi_snow_depth_members:
         logger.error("No data available to plot. Provide at least one obs/model series.")
         return 1
 
@@ -1669,8 +2002,12 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                 scf_model=scf_model,
                 wet_obs=wet_obs,
                 wet_model=wet_model,
+                wsl_obs=wsl_obs,
+                wsl_model=wsl_model,
                 scf_env=scf_env,
                 wet_env=wet_env,
+                wsl_env=wsl_env,
+                wsl_prior_coverage=wsl_prior_coverage,
                 output=custom_output,
                 assim_events=assim_events,
                 mode=str(args.mode or "band"),
@@ -1694,8 +2031,12 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                 scf_model=scf_model,
                 wet_obs=wet_obs,
                 wet_model=wet_model,
+                wsl_obs=wsl_obs,
+                wsl_model=wsl_model,
                 scf_env=scf_env,
                 wet_env=wet_env,
+                wsl_env=wsl_env,
+                wsl_prior_coverage=wsl_prior_coverage,
                 output=default_output,
                 assim_events=assim_events,
                 mode=str(args.mode or "band"),
@@ -1716,8 +2057,12 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                     scf_model=scf_model,
                     wet_obs=wet_obs,
                     wet_model=wet_model,
+                    wsl_obs=wsl_obs,
+                    wsl_model=wsl_model,
                     scf_env=scf_env,
                     wet_env=wet_env,
+                    wsl_env=wsl_env,
+                    wsl_prior_coverage=wsl_prior_coverage,
                     output=custom_output,
                     assim_events=assim_events,
                     mode=str(args.mode or "band"),

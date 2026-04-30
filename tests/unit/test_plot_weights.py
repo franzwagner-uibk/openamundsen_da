@@ -7,6 +7,7 @@ import pytest
 
 from openamundsen_da.methods.pf import plot_weights as plot_mod
 from openamundsen_da.methods.viz.plots.theme import da_variable_style
+from openamundsen_da.util.da_observables import weight_plot_title_from_csv_path
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -47,6 +48,7 @@ def _add_weights_event(
         "station_swe": "weights_station_swe",
         "scf": "weights_scf",
         "wet_snow": "weights_wet_snow",
+        "wet_snow_line": "weights_wet_snow_line",
     }[observable]
     diag_prefix = {
         "station_hs": "station_diagnostics_station_hs",
@@ -71,19 +73,29 @@ def _add_weights_event(
 
 
 def _render_setup_weights_overview_figure(project_dir: Path, monkeypatch) -> object:
-    import matplotlib.pyplot as plt
-
-    saved: dict[str, object] = {}
+    saved: list[dict[str, object]] = []
 
     def _fake_save(fig, out, **kwargs) -> None:
-        saved["fig"] = fig
-        saved["out"] = out
+        saved.append({"fig": fig, "out": out, "kwargs": kwargs})
 
     monkeypatch.setattr(plot_mod, "save_figure_png", _fake_save)
     plot_mod.plot_setup_weights_overview(project_dir, backend="Agg")
-    fig = saved["fig"]
+    fig = saved[0]["fig"]
     fig.canvas.draw()
     return fig
+
+
+def _render_setup_weights_overview_pages(project_dir: Path, monkeypatch) -> list[dict[str, object]]:
+    saved: list[dict[str, object]] = []
+
+    def _fake_save(fig, out, **kwargs) -> None:
+        saved.append({"fig": fig, "out": out, "kwargs": kwargs})
+
+    monkeypatch.setattr(plot_mod, "save_figure_png", _fake_save)
+    plot_mod.plot_setup_weights_overview(project_dir, backend="Agg")
+    for item in saved:
+        item["fig"].canvas.draw()
+    return saved
 
 
 def _axes_with_xlabel(fig, label: str) -> list[object]:
@@ -92,9 +104,19 @@ def _axes_with_xlabel(fig, label: str) -> list[object]:
 
 def test_axis_labels_use_residual_terminology() -> None:
     assert plot_mod._fraction_axis_label("scf") == "snow cover fraction residual"
-    assert plot_mod._fraction_axis_label("wet_snow") == "wet-snow fraction residual"
+    assert plot_mod._fraction_axis_label("wet_snow") == "wet snow fraction (WSF) residual"
+    assert plot_mod._fraction_axis_label("wet_snow_line") == "wet snow line altitude (WSLA) residual [m]"
     assert plot_mod._station_axis_label("station_hs") == "snow depth residual [m]"
     assert plot_mod._station_axis_label("station_swe") == "SWE residual [mm]"
+
+
+def test_wet_snow_line_weights_csv_is_not_misclassified_as_wet_snow(tmp_path: Path) -> None:
+    _setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
+    csv_path = step_dir / "assim" / "weights_wet_snow_line_20230523.csv"
+    _write_csv(csv_path, [{"member_id": "member_001", "residual": 12.0, "sigma": 150.0, "log_weight": -1.0, "weight": 1.0}])
+
+    assert plot_mod._observable_from_csv_path(csv_path) == "wet_snow_line"
+    assert weight_plot_title_from_csv_path(csv_path) == "wet snow line altitude (WSLA) data assimilation weights"
 
 
 def test_nice_axis_extent_uses_quarter_steps_just_above_one() -> None:
@@ -112,6 +134,31 @@ def test_setup_weights_overview_default_output_path_uses_project_weights_dir(tmp
     out = plot_mod._default_setup_weights_overview_output(project_dir)
 
     assert out == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
+
+
+def test_setup_weights_overview_page_output_uses_stable_base_name_for_page_one(tmp_path: Path) -> None:
+    _, project_dir, _ = _build_project_tree(tmp_path)
+    out = plot_mod._default_setup_weights_overview_output(project_dir)
+
+    assert plot_mod._setup_weights_overview_page_output(out, 0) == out
+    assert plot_mod._setup_weights_overview_page_output(out, 1) == out.with_name("setup_weights_overview_2022_2023_page_02.png")
+
+
+def test_remove_stale_setup_weights_overview_pages_keeps_requested_outputs(tmp_path: Path) -> None:
+    _, project_dir, _ = _build_project_tree(tmp_path)
+    out = plot_mod._default_setup_weights_overview_output(project_dir)
+    page_02 = out.with_name("setup_weights_overview_2022_2023_page_02.png")
+    page_03 = out.with_name("setup_weights_overview_2022_2023_page_03.png")
+    page_99 = out.with_name("setup_weights_overview_2022_2023_page_99.png")
+    page_02.write_text("page 2", encoding="utf-8")
+    page_03.write_text("page 3", encoding="utf-8")
+    page_99.write_text("page 99", encoding="utf-8")
+
+    plot_mod._remove_stale_setup_weights_overview_pages(out, [out, page_02])
+
+    assert page_02.exists()
+    assert not page_03.exists()
+    assert not page_99.exists()
 
 
 def test_collect_marker_legend_entries_combines_station_and_fraction_labels(tmp_path: Path) -> None:
@@ -163,7 +210,7 @@ def test_collect_marker_legend_entries_combines_station_and_fraction_labels(tmp_
     assert entries == [
         ("Latschbloder (σ=500%)", "#ff7f0e"),
         ("Proviantdepot (σ=10%)", "#9467bd"),
-        ("wet snow", "#2c8a64"),
+        ("WSF", "#2c8a64"),
         ("SCF", "#2f6fb5"),
     ]
 
@@ -286,6 +333,167 @@ def test_fraction_plot_uses_observable_legend_entry_and_sigma_strip(tmp_path: Pa
         "SCF",
         "redrawn source member (extra rings = repeated draws)",
     ]
+    plt.close(fig)
+
+
+def test_wet_snow_line_plot_labels_zero_line_and_unavailable_event(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
+    csv_path = step_dir / "assim" / "weights_wet_snow_line_20230523.csv"
+    _write_csv(
+        csv_path,
+        [
+            {
+                "member_id": "member_001",
+                "residual": "",
+                "sigma": "",
+                "weight": 0.5,
+                "log_weight": 0.0,
+                "value_obs": 3066.7,
+                "value_model": 2890.0,
+                "wet_information_gate_triggered": True,
+                "wet_information_gate_reason": "no_crossing_fraction",
+                "model_gate_triggered": True,
+                "model_gate_reason": "no_crossing_fraction",
+            },
+            {
+                "member_id": "member_002",
+                "residual": "",
+                "sigma": "",
+                "weight": 0.5,
+                "log_weight": 0.0,
+                "value_obs": 3066.7,
+                "value_model": 3010.0,
+                "wet_information_gate_triggered": True,
+                "wet_information_gate_reason": "no_crossing_fraction",
+                "model_gate_triggered": True,
+                "model_gate_reason": "no_crossing_fraction",
+            },
+        ],
+    )
+    _write_text(step_dir / "assim" / "resample_manifest_20230523.json", '{"skipped": true}\n')
+    _write_csv(
+        step_dir / "assim" / "resample_indices_20230523.csv",
+        [{"source_member_id": "member_001"}, {"source_member_id": "member_002"}],
+    )
+
+    fig = plot_mod._plot(
+        csv_path,
+        plot_mod._load_weights(csv_path),
+        title="wet snow line altitude (WSLA) data assimilation weights",
+        subtitle="DA 13 - 2023-05-23",
+        observable="wet_snow_line",
+        backend="Agg",
+    )
+
+    ax1 = fig.axes[1]
+    note_texts = [text.get_text() for text in ax1.texts]
+
+    assert ax1.get_xlabel() == "wet snow line altitude (WSLA) residual [m]"
+    assert any("obs WSLA 3067 m" in text for text in note_texts)
+    assert any("WSLA unavailable" in text for text in note_texts)
+    assert not any("model range" in text for text in note_texts)
+    plt.close(fig)
+
+
+def test_wet_snow_line_gated_event_shows_unavailable_with_residuals(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
+    csv_path = step_dir / "assim" / "weights_wet_snow_line_20230328.csv"
+    _write_csv(
+        csv_path,
+        [
+            {
+                "member_id": "member_001",
+                "residual": -30.0,
+                "sigma": 150.0,
+                "weight": 1.0,
+                "log_weight": 0.0,
+                "value_obs": 2280.0,
+                "model_gate_triggered": True,
+                "model_gate_reason": "model_finite_fraction<0.9000",
+            },
+            {
+                "member_id": "member_002",
+                "residual": 45.0,
+                "sigma": 150.0,
+                "weight": 1.0,
+                "log_weight": 0.0,
+                "value_obs": 2280.0,
+                "model_gate_triggered": True,
+                "model_gate_reason": "model_finite_fraction<0.9000",
+            },
+        ],
+    )
+    _write_text(step_dir / "assim" / "resample_manifest_20230328.json", '{"skipped": true}\n')
+    _write_csv(
+        step_dir / "assim" / "resample_indices_20230328.csv",
+        [{"source_member_id": "member_001"}, {"source_member_id": "member_002"}],
+    )
+
+    fig = plot_mod._plot(
+        csv_path,
+        plot_mod._load_weights(csv_path),
+        title="wet snow line altitude (WSLA) data assimilation weights",
+        subtitle="DA 7 - 2023-03-28",
+        observable="wet_snow_line",
+        backend="Agg",
+    )
+
+    note_texts = [text.get_text() for text in fig.axes[1].texts]
+
+    assert any("WSLA unavailable" in text for text in note_texts)
+    plt.close(fig)
+
+
+def test_wet_snow_line_skipped_resampling_does_not_show_unavailable_when_not_gated(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
+    csv_path = step_dir / "assim" / "weights_wet_snow_line_20230503.csv"
+    _write_csv(
+        csv_path,
+        [
+            {
+                "member_id": "member_001",
+                "residual": -30.0,
+                "sigma": 150.0,
+                "weight": 1.0,
+                "log_weight": 0.0,
+                "value_obs": 2280.0,
+                "model_gate_triggered": False,
+            },
+            {
+                "member_id": "member_002",
+                "residual": 45.0,
+                "sigma": 150.0,
+                "weight": 1.0,
+                "log_weight": 0.0,
+                "value_obs": 2280.0,
+                "model_gate_triggered": False,
+            },
+        ],
+    )
+    _write_text(step_dir / "assim" / "resample_manifest_20230503.json", '{"skipped": true}\n')
+    _write_csv(
+        step_dir / "assim" / "resample_indices_20230503.csv",
+        [{"source_member_id": "member_001"}, {"source_member_id": "member_002"}],
+    )
+
+    fig = plot_mod._plot(
+        csv_path,
+        plot_mod._load_weights(csv_path),
+        title="wet snow line altitude (WSLA) data assimilation weights",
+        subtitle="DA 10 - 2023-05-03",
+        observable="wet_snow_line",
+        backend="Agg",
+    )
+
+    note_texts = [text.get_text() for text in fig.axes[1].texts]
+
+    assert not any("WSLA unavailable" in text for text in note_texts)
     plt.close(fig)
 
 
@@ -614,7 +822,7 @@ def test_setup_weights_overview_legend_prefers_single_row_until_wrap_is_needed()
     labels = [
         "Latschbloder (σ=500%)",
         "Proviantdepot (σ=10%)",
-        "wet snow",
+        "WSF",
         "redrawn source member (extra rings = repeated draws)",
     ]
     legend_kwargs = dict(
@@ -758,7 +966,7 @@ def test_setup_overview_uses_separate_residual_xlims_per_observable(tmp_path: Pa
     hs_axes = _axes_with_xlabel(fig, "snow depth residual [m]")
     swe_axes = _axes_with_xlabel(fig, "SWE residual [mm]")
     scf_axes = _axes_with_xlabel(fig, "snow cover fraction residual")
-    wet_axes = _axes_with_xlabel(fig, "wet-snow fraction residual")
+    wet_axes = _axes_with_xlabel(fig, "wet snow fraction (WSF) residual")
 
     assert len(hs_axes) == 1
     assert len(swe_axes) == 1
@@ -947,3 +1155,46 @@ def test_setup_overview_uses_sparse_member_ticks_for_high_ensemble_sizes(tmp_pat
     assert len(residual_axes) == 1
     assert len(residual_axes[0].yaxis.get_minorticklocs()) == 0
     plt.close(fig)
+
+
+def test_setup_overview_splits_many_events_across_multiple_pages(tmp_path: Path, monkeypatch) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
+    for step_idx in range(13):
+        day = step_idx + 1
+        _add_weights_event(
+            project_dir,
+            step_idx=step_idx,
+            observable="scf",
+            date_str=f"202305{day:02d}",
+            weights_rows=[
+                {
+                    "member_id": "member_001",
+                    "residual": -0.1,
+                    "sigma": 0.2,
+                    "log_weight": -1.0,
+                    "weight": 0.6,
+                },
+                {
+                    "member_id": "member_002",
+                    "residual": 0.1,
+                    "sigma": 0.2,
+                    "log_weight": -1.2,
+                    "weight": 0.4,
+                },
+            ],
+        )
+
+    saved = _render_setup_weights_overview_pages(project_dir, monkeypatch)
+
+    assert len(saved) == 2
+    assert saved[0]["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
+    assert saved[1]["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023_page_02.png"
+    assert saved[0]["fig"].get_figheight() == pytest.approx(plot_mod._COMPOSITE_ROW_HEIGHT * plot_mod._OVERVIEW_MAX_ROWS_PER_PAGE)
+    assert saved[1]["fig"].get_figheight() == pytest.approx(plot_mod._COMPOSITE_ROW_HEIGHT)
+    assert "page 1/2" in saved[0]["fig"].texts[0].get_text()
+    assert "page 2/2" in saved[1]["fig"].texts[0].get_text()
+
+    for item in saved:
+        plt.close(item["fig"])

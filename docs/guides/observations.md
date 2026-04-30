@@ -205,10 +205,12 @@ Wet snow = LWC > threshold (e.g., 1-3% of SWE)
 ```yaml
 data_assimilation:
   wet_snow:
+    classification_method: liquid_water_fraction
     classification_threshold_percent: 0.5 # threshold in percent (0.5 = 0.5%)
 ```
 
 The classification threshold is interpreted in percent and converted internally to a fraction (`percent / 100`).
+Alternatively, `classification_method: liquid_water_amount` classifies model cells by summed snowpack liquid water in mm using `liquid_water_amount_threshold_mm` (default `5.0`).
 
 ---
 

@@ -49,6 +49,18 @@ def test_check_logs_allows_benchmark_missing_observation_row_warning(tmp_path: P
 
 
 @pytest.mark.parametrize("module", [validate_trimmed_project, validate_trimmed_subdomain])
+def test_check_logs_allows_wsla_continuous_missing_model_values_warning(tmp_path: Path, module):
+    log_file = tmp_path / "integration.log"
+    log_file.write_text(
+        "2026-04-29 14:32:40.609 | WARNING  | "
+        "Skipping wet_snow_line benchmark case at 2023-03-28: missing model values\n",
+        encoding="utf-8",
+    )
+
+    module._check_logs(log_file)
+
+
+@pytest.mark.parametrize("module", [validate_trimmed_project, validate_trimmed_subdomain])
 def test_check_logs_still_rejects_other_missing_warnings(tmp_path: Path, module):
     log_file = tmp_path / "integration.log"
     log_file.write_text(

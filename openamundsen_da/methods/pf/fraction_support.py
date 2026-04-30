@@ -125,7 +125,7 @@ def _observation_valid_pixels(
 ) -> np.ndarray:
     if observable == "scf":
         return _scf_valid_pixels(data, nodata=nodata, project_dir=project_dir)
-    if observable == "wet_snow":
+    if observable in {"wet_snow", "wet_snow_line"}:
         return _wet_snow_valid_pixels(data, nodata=nodata, project_dir=project_dir)
     raise ValueError(f"Unsupported observable for observation support: {observable}")
 

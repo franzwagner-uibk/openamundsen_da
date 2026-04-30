@@ -174,7 +174,7 @@ def _setup_from_project(project_dir: Path | None) -> Path | None:
 def _product_tag_key_for_variable(variable: str) -> str:
     if variable == "scf":
         return "snowcover"
-    if variable == "wet_snow":
+    if variable in {"wet_snow", "wet_snow_line"}:
         return "wetsnow"
     raise ValueError(f"Unsupported assimilation variable for product tag resolution: {variable!r}")
 
@@ -323,4 +323,3 @@ def prepare_project_obs_from_summary(
         skipped_existing,
     )
     return written, skipped_missing, skipped_existing
-

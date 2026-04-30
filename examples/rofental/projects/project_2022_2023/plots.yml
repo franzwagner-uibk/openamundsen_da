@@ -10,7 +10,8 @@
 #
 # Supported panel values:
 # - fSC
-# - fWS
+# - WSF
+# - WSLA
 # - roi-swe
 # - roi-sd
 # - station-swe
@@ -36,9 +37,13 @@ panels:
     show_obs: true
     title: snow cover fraction Rofental catchment - openAMUNDSEN ensemble and satellite data
 
-  - panel: fWS
+  - panel: WSF
     show_obs: true
     title: wet snow fraction Rofental catchment - openAMUNDSEN ensemble and satellite data
+
+  - panel: WSLA
+    show_obs: true
+    title: wet-snow line Rofental catchment - openAMUNDSEN ensemble and satellite data
 
   - panel: station-sd
     station_id: proviantdepot
@@ -51,6 +56,8 @@ panels:
 
 # Additional examples for all supported panel types:
 #  - panel: roi-swe
+#
+#  - panel: WSLA
 #
 #  - panel: station-swe
 #    station_id: proviantdepot

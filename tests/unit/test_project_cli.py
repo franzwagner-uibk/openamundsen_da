@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 from openamundsen_da.pipeline import project as project_cli
@@ -149,3 +150,15 @@ def test_post_run_plot_tasks_can_defer_fraction_overlay_for_score_panels(tmp_pat
         ],
     )
     assert deferred.kwargs == {"configure_logger": False}
+
+
+def test_project_pipeline_runs_report_after_final_artifact_stages() -> None:
+    source = inspect.getsource(project_cli.run_project)
+
+    assert source.index("run_project_benchmark(") < source.index("render_project_report_best_effort(cfg.project_dir)")
+    assert source.index("if score_dependent_fraction_overlay:") < source.index(
+        "render_project_report_best_effort(cfg.project_dir)"
+    )
+    assert source.index("render_project_report_best_effort(cfg.project_dir)") < source.index(
+        "Project processing complete:"
+    )

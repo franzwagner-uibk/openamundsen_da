@@ -420,6 +420,8 @@ def project_fraction_envelope_path(project_dir: str | Path, observable: str) -> 
     token = str(observable).strip().lower()
     if token == "scf":
         name = "point_scf_roi_envelope.csv"
+    elif token == "wet_snow_line":
+        name = "point_wet_snow_line_roi_envelope.csv"
     elif token in {"wet_snow", "wet_snow_fraction"}:
         name = "point_wet_snow_roi_envelope.csv"
     else:
@@ -450,6 +452,16 @@ def project_maps_root(project_dir: str | Path) -> Path:
 def project_maps_output_dir(project_dir: str | Path) -> Path:
     """Return the canonical flat output directory for project maps."""
     return project_maps_root(project_dir)
+
+
+def project_reports_root(project_dir: str | Path) -> Path:
+    """Return the canonical project-level reports directory."""
+    return project_results_root(project_dir) / "reports"
+
+
+def project_plots_maps_collection_pdf_path(project_dir: str | Path) -> Path:
+    """Return the canonical project plots/maps collection PDF path."""
+    return project_reports_root(project_dir) / "project_report.pdf"
 
 
 def project_benchmark_root(project_dir: str | Path) -> Path:

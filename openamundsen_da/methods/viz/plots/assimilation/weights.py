@@ -1,7 +1,5 @@
 """Plot per-date assimilation weights and residual summaries.
 
-Plot per-date assimilation weights and residual summaries.
-
 Inputs
 - weights CSV produced by one assimilation workflow with columns:
   member_id, residual, sigma, log_weight, weight
@@ -34,6 +32,7 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.methods.viz.theme import da_variable_line_color
 from openamundsen_da.methods.viz.common import force_figure_text_black, save_figure_png, set_matplotlib_text_black
+from openamundsen_da.methods.viz.wet_snow_fields import finite_numeric_column, first_finite_value
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.da_observables import station_diagnostics_csv_name, weight_plot_title_from_csv_path
 from openamundsen_da.util.loguru_utils import configure_cli_logger
@@ -43,10 +42,12 @@ _WEIGHTS_FIGSIZE = (7.2876875, 3.013)
 _FRACTION_MISMATCH_COLORS = {
     "scf": da_variable_line_color("scf"),
     "wet_snow": da_variable_line_color("wet_snow"),
+    "wet_snow_line": da_variable_line_color("wet_snow_line"),
 }
 _FRACTION_DISPLAY_LABELS = {
     "scf": "SCF",
-    "wet_snow": "wet snow",
+    "wet_snow": "WSF",
+    "wet_snow_line": "WSLA",
 }
 _STATION_COLOR_CYCLES = {
     "station_hs": [
@@ -71,6 +72,7 @@ _FS_AXIS = 8.6
 _FS_TICK = 8.4
 _FS_NOTE = 7.4
 _COMPOSITE_ROW_HEIGHT = 1.7802
+_A4_PAGE_HEIGHT_INCHES = 11.6929133858
 _STANDALONE_PLOT_WIDTH_SCALE = 0.80
 _STANDALONE_PLOT_HEIGHT_SCALE = 0.70
 _STANDALONE_PLOT_TOP = 0.80
@@ -80,6 +82,7 @@ _STANDALONE_SAVE_PAD_INCHES = 0.02
 _OVERVIEW_PAIR_WSPACE = 0.08
 _OVERVIEW_SHARED_RESIDUAL_PERCENTILE = 90.0
 _AXIS_EDGE_PAD_FRACTION = 0.05
+_OVERVIEW_MAX_ROWS_PER_PAGE = max(1, int(math.floor(_A4_PAGE_HEIGHT_INCHES / _COMPOSITE_ROW_HEIGHT)))
 
 
 def _load_weights(csv_path: Path) -> pd.DataFrame:
@@ -117,13 +120,14 @@ def _member_ticks(n: int) -> list[int]:
 
 def _observable_from_csv_path(csv_path: Path) -> str | None:
     stem = Path(csv_path).stem.lower()
-    prefixes = {
-        "weights_scf_": "scf",
-        "weights_wet_snow_": "wet_snow",
-        "weights_station_hs_": "station_hs",
-        "weights_station_swe_": "station_swe",
-    }
-    for prefix, variable in prefixes.items():
+    prefixes = [
+        ("weights_wet_snow_line_", "wet_snow_line"),
+        ("weights_station_hs_", "station_hs"),
+        ("weights_station_swe_", "station_swe"),
+        ("weights_wet_snow_", "wet_snow"),
+        ("weights_scf_", "scf"),
+    ]
+    for prefix, variable in prefixes:
         if stem.startswith(prefix):
             return variable
     return None
@@ -147,8 +151,55 @@ def _fraction_axis_label(observable: str | None) -> str:
     if observable == "scf":
         return "snow cover fraction residual"
     if observable == "wet_snow":
-        return "wet-snow fraction residual"
+        return "wet snow fraction (WSF) residual"
+    if observable == "wet_snow_line":
+        return "wet snow line altitude (WSLA) residual [m]"
     return "residual"
+
+
+def _observed_wsl_value(df: pd.DataFrame) -> float | None:
+    return first_finite_value(df, ["value_obs", "wet_snow_line_obs"])
+
+
+def _draw_wsl_zero_line_label(ax, df: pd.DataFrame, *, fontsize: float) -> None:
+    obs_value = _observed_wsl_value(df)
+    if obs_value is None:
+        return
+    ax.text(
+        0.0,
+        1.02,
+        f"obs WSLA {obs_value:.0f} m",
+        transform=ax.get_xaxis_transform(),
+        ha="center",
+        va="bottom",
+        fontsize=fontsize,
+        color="#000000",
+        zorder=6,
+        bbox={"boxstyle": "round,pad=0.16", "facecolor": "white", "edgecolor": "none", "alpha": 0.92},
+        clip_on=False,
+    )
+
+
+def _draw_wsl_unavailable_overlay(ax, df: pd.DataFrame, *, fontsize: float) -> None:
+    gate_columns = ("support_gate_triggered", "wet_information_gate_triggered", "model_gate_triggered")
+    gate_triggered = any(
+        column in df.columns and df[column].astype(str).str.lower().isin({"true", "1", "yes"}).any()
+        for column in gate_columns
+    )
+    if not gate_triggered and not finite_numeric_column(df, "residual").empty:
+        return
+    ax.text(
+        0.5,
+        0.5,
+        "WSLA unavailable",
+        transform=ax.transAxes,
+        ha="center",
+        va="center",
+        fontsize=fontsize + 0.3,
+        color="#000000",
+        zorder=6,
+        bbox={"boxstyle": "round,pad=0.24", "facecolor": "white", "edgecolor": "none", "alpha": 0.92},
+    )
 
 
 def _station_axis_label(observable: str | None) -> str:
@@ -240,19 +291,6 @@ def _draw_resample_rings(
                 linewidths=(0.9 if ring_idx == 0 else 0.75) * line_scale,
                 zorder=5 + ring_idx * 0.01,
             )
-
-
-def _station_sigma_note(diag: pd.DataFrame) -> str | None:
-    if diag.empty or "station_id" not in diag.columns or "sigma" not in diag.columns:
-        return None
-    lines: list[str] = []
-    for station_id in sorted(diag["station_id"].dropna().astype(str).unique()):
-        station_mask = diag["station_id"].astype(str) == station_id
-        sigma_series = pd.to_numeric(diag.loc[station_mask, "sigma"], errors="coerce").dropna()
-        if sigma_series.empty:
-            continue
-        lines.append(f"{station_id}: sigma = {float(sigma_series.iloc[0]):.2f}")
-    return "\n".join(lines) if lines else None
 
 
 def _station_display_names(csv_path: Path, station_ids: list[str]) -> dict[str, str]:
@@ -905,6 +943,9 @@ def _draw_weights_event(
             residual_axis_values.extend([-sigma_val, sigma_val])
         ax1.set_xlabel(_fraction_axis_label(observable), fontsize=fs_axis)
         ax1.xaxis.set_minor_locator(AutoMinorLocator(4))
+        if observable == "wet_snow_line":
+            _draw_wsl_zero_line_label(ax1, ordered_df, fontsize=fs_note)
+            _draw_wsl_unavailable_overlay(ax1, ordered_df, fontsize=fs_note)
     _draw_sigma_strip(ax1, sigma_strip_entries, fontsize=fs_note)
     if residual_xlim is not None:
         ax1.set_xlim(*_expand_xlim(residual_xlim))
@@ -1027,30 +1068,38 @@ def _default_setup_weights_overview_output(setup_dir: Path) -> Path:
     return out_dir / f"setup_weights_overview_{_setup_id_from_dir(Path(setup_dir))}.png"
 
 
-def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Path:
-    import matplotlib
+def _setup_weights_overview_page_output(output_path: Path, page_index: int) -> Path:
+    output_path = Path(output_path)
+    if page_index <= 0:
+        return output_path
+    return output_path.with_name(f"{output_path.stem}_page_{page_index + 1:02d}{output_path.suffix}")
 
-    matplotlib.use(backend or "Agg")
-    set_matplotlib_text_black(matplotlib)
+
+def _remove_stale_setup_weights_overview_pages(output_path: Path, keep_paths: list[Path]) -> None:
+    output_path = Path(output_path)
+    keep_set = {Path(path) for path in keep_paths}
+    pattern = re.compile(rf"^{re.escape(output_path.stem)}_page_(\d+){re.escape(output_path.suffix)}$")
+    for candidate in output_path.parent.glob(f"{output_path.stem}_page_*{output_path.suffix}"):
+        if candidate in keep_set:
+            continue
+        if pattern.match(candidate.name):
+            candidate.unlink(missing_ok=True)
+
+
+def _build_setup_weights_overview_page(
+    page_specs: list[dict[str, object]],
+    *,
+    all_csv_paths: list[Path],
+    residual_xlims: dict[str | None, tuple[float, float]],
+    ensemble_size: int,
+    ess_threshold: float | None,
+    page_index: int,
+    total_pages: int,
+):
     import matplotlib.pyplot as plt
     from matplotlib.ticker import NullLocator
 
-    setup_dir = Path(setup_dir)
-    csv_paths = _setup_weights_csvs(setup_dir)
-    if not csv_paths:
-        raise FileNotFoundError(f"No weights_*_*.csv found under steps in {setup_dir}")
-
-    event_specs = [
-        {
-            "csv_path": csv_path,
-            "observable": _observable_from_csv_path(csv_path),
-            "df": _load_weights(csv_path),
-        }
-        for csv_path in csv_paths
-    ]
-    residual_xlims = _overview_residual_xlims(event_specs)
-
-    n_events = len(csv_paths)
+    n_events = len(page_specs)
     n_cols = 2
     n_rows = int(math.ceil(n_events / n_cols))
     fig = plt.figure(figsize=(7.2876875, _COMPOSITE_ROW_HEIGHT * n_rows))
@@ -1058,12 +1107,8 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
 
     axes_for_black: list[object] = []
     font_scale = 0.68
-    first_df = event_specs[0]["df"]
-    ensemble_size = len(first_df)
-    first_manifest = _read_resample_manifest(csv_paths[0])
-    ess_threshold = first_manifest.get("ess_threshold")
-    for idx, spec in enumerate(event_specs):
-        csv_path = spec["csv_path"]
+    for idx, spec in enumerate(page_specs):
+        csv_path = Path(spec["csv_path"])
         observable = spec["observable"]
         df = spec["df"]
         row = idx // n_cols
@@ -1123,6 +1168,8 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
     summary = f"ensemble size = {ensemble_size}"
     if ess_threshold is not None:
         summary = f"{summary}, ESS threshold = {float(ess_threshold):.1f}"
+    if total_pages > 1:
+        summary = f"{summary}, page {page_index + 1}/{total_pages}"
     fig.text(
         0.06,
         0.974,
@@ -1132,7 +1179,7 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
         fontsize=8.6,
         color="#000000",
     )
-    legend_handles, legend_labels, handler_map = _figure_legend_spec(csv_paths)
+    legend_handles, legend_labels, handler_map = _figure_legend_spec(all_csv_paths)
     legend_kwargs = dict(
         loc="lower center",
         bbox_to_anchor=(0.5, 0.052),
@@ -1156,8 +1203,55 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
         **legend_kwargs,
     )
     force_figure_text_black(fig, axes_for_black)
+    return fig
+
+
+def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Path:
+    import matplotlib
+
+    matplotlib.use(backend or "Agg")
+    set_matplotlib_text_black(matplotlib)
+
+    setup_dir = Path(setup_dir)
+    csv_paths = _setup_weights_csvs(setup_dir)
+    if not csv_paths:
+        raise FileNotFoundError(f"No weights_*_*.csv found under steps in {setup_dir}")
+
+    event_specs = [
+        {
+            "csv_path": csv_path,
+            "observable": _observable_from_csv_path(csv_path),
+            "df": _load_weights(csv_path),
+        }
+        for csv_path in csv_paths
+    ]
+    residual_xlims = _overview_residual_xlims(event_specs)
+
+    n_cols = 2
+    n_rows = int(math.ceil(len(csv_paths) / n_cols))
+    first_df = event_specs[0]["df"]
+    ensemble_size = len(first_df)
+    first_manifest = _read_resample_manifest(csv_paths[0])
+    ess_threshold = first_manifest.get("ess_threshold")
     out = _default_setup_weights_overview_output(setup_dir)
-    save_figure_png(fig, out, dpi=600, bbox_inches="tight", pad_inches=0.04)
+    rows_per_page = min(_OVERVIEW_MAX_ROWS_PER_PAGE, max(1, n_rows))
+    events_per_page = rows_per_page * n_cols
+    page_specs = [event_specs[start : start + events_per_page] for start in range(0, len(event_specs), events_per_page)]
+    output_paths: list[Path] = []
+    for page_index, page in enumerate(page_specs):
+        fig = _build_setup_weights_overview_page(
+            page,
+            all_csv_paths=csv_paths,
+            residual_xlims=residual_xlims,
+            ensemble_size=ensemble_size,
+            ess_threshold=ess_threshold,
+            page_index=page_index,
+            total_pages=len(page_specs),
+        )
+        page_out = _setup_weights_overview_page_output(out, page_index)
+        save_figure_png(fig, page_out, dpi=600, bbox_inches="tight", pad_inches=0.04)
+        output_paths.append(page_out)
+    _remove_stale_setup_weights_overview_pages(out, output_paths)
     return out
 
 
@@ -1239,7 +1333,7 @@ def _step_date_label_from_path(csv_path: Path) -> str | None:
         return None
     date_str = f"{ds[0:4]}-{ds[4:6]}-{ds[6:8]}"
     try:
-        date_val = pd.to_datetime(date_str).date()
+        pd.to_datetime(date_str).date()
     except Exception:
         return None
 

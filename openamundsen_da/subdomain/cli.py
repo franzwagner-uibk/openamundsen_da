@@ -15,6 +15,10 @@ def _default_subdomain_root(project_dir: Path) -> Path:
     return Path(project_dir) / "subdomains"
 
 
+def _default_model_subdomain_root(setup_dir: Path) -> Path:
+    return Path(setup_dir) / "subdomains" / "model"
+
+
 def _default_regions_path(setup_dir: Path) -> Path:
     env_dir = Path(setup_dir) / "env"
     preferred = [env_dir / "subdomains.gpkg", env_dir / "roi.gpkg"]
@@ -43,6 +47,25 @@ def _resolve_manifest(
     return cand
 
 
+def _resolve_model_manifest(
+    *,
+    manifest_arg: Optional[Path],
+    setup_dir: Optional[Path],
+    subdomain_root: Optional[Path],
+) -> Path:
+    if manifest_arg is not None:
+        return Path(manifest_arg)
+    root = Path(subdomain_root) if subdomain_root is not None else None
+    if root is None and setup_dir is not None:
+        root = _default_model_subdomain_root(Path(setup_dir))
+    if root is None:
+        raise FileNotFoundError("Manifest not provided. Pass --manifest or --setup-dir (or --subdomain-root).")
+    cand = root / "subdomain_manifest.json"
+    if not cand.is_file():
+        raise FileNotFoundError(f"Manifest not found at {cand}. Run 'oa-da-subdomain model-prepare' first.")
+    return cand
+
+
 def _configure_logger(level: str) -> None:
     configure_cli_logger(level, stream=sys.stderr)
 
@@ -64,14 +87,97 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
     p_prep.add_argument("--subdomain-root", type=Path, help="Output root (default: <project>/subdomains)")
     p_prep.add_argument("--id-field", default="id", help="Field name containing sub-domain id (default: id)")
     p_prep.add_argument("--clip-mode", choices=("window", "roi-symlink"), default="window", help="Grid handling mode")
-    p_prep.add_argument("--station-buffer-km", type=float, default=50.0, help="Station search buffer in km (default: 50)")
+    p_prep.add_argument(
+        "--station-buffer-km",
+        type=float,
+        default=50.0,
+        help="Station search buffer in km (default: 50)",
+    )
     p_prep.add_argument("--roi-buffer-m", type=float, default=0.0, help="Optional ROI buffer in meters")
     p_prep.add_argument("--grid-buffer-m", type=float, help="Grid window buffer in meters (default: station buffer)")
     p_prep.add_argument("--obs-stations-dir", type=Path, help="Override setup obs stations directory")
-    p_prep.add_argument("--overlap-area-tol-m2", type=float, default=100.0, help="Allowed overlap area in m^2 (default: 100)")
-    p_prep.add_argument("--sliver-fix-m", type=float, default=0.0, help="Optional shrink-expand tolerance fix in meters")
+    p_prep.add_argument(
+        "--overlap-area-tol-m2",
+        type=float,
+        default=100.0,
+        help="Allowed overlap area in m^2 (default: 100)",
+    )
+    p_prep.add_argument(
+        "--sliver-fix-m",
+        type=float,
+        default=0.0,
+        help="Optional shrink-expand tolerance fix in meters",
+    )
     p_prep.add_argument("--overwrite", action="store_true", help="Overwrite existing sub-domain setups")
     p_prep.add_argument("--log-level", default="INFO")
+
+    p_model_prep = sub.add_parser("model-prepare", help="Prepare plain openAMUNDSEN sub-domain setups")
+    p_model_prep.add_argument("--setup-dir", required=True, type=Path, help="Setup root directory")
+    p_model_prep.add_argument(
+        "--roi",
+        "--regions",
+        dest="regions",
+        type=Path,
+        help="Sub-domain polygons (default: <setup>/env/subdomains.gpkg, fallback: <setup>/env/roi.gpkg)",
+    )
+    p_model_prep.add_argument("--subdomain-root", type=Path, help="Output root (default: <setup>/subdomains/model)")
+    p_model_prep.add_argument("--id-field", default="id", help="Field name containing sub-domain id (default: id)")
+    p_model_prep.add_argument(
+        "--clip-mode",
+        choices=("window", "roi-symlink"),
+        default="window",
+        help="Grid handling mode",
+    )
+    p_model_prep.add_argument(
+        "--station-buffer-km",
+        type=float,
+        default=50.0,
+        help="Station search buffer in km (default: 50)",
+    )
+    p_model_prep.add_argument("--roi-buffer-m", type=float, default=0.0, help="Optional ROI buffer in meters")
+    p_model_prep.add_argument("--grid-buffer-m", type=float, help="Grid window buffer in meters (default: none)")
+    p_model_prep.add_argument(
+        "--overlap-area-tol-m2",
+        type=float,
+        default=100.0,
+        help="Allowed overlap area in m^2 (default: 100)",
+    )
+    p_model_prep.add_argument(
+        "--sliver-fix-m",
+        type=float,
+        default=0.0,
+        help="Optional shrink-expand tolerance fix in meters",
+    )
+    p_model_prep.add_argument("--overwrite", action="store_true", help="Overwrite existing model sub-domain setups")
+    p_model_prep.add_argument("--log-level", default="INFO")
+
+    p_model_run = sub.add_parser("model-run", help="Run plain openAMUNDSEN sub-domain setups")
+    p_model_run.add_argument("--manifest", type=Path, help="Path to subdomain_manifest.json")
+    p_model_run.add_argument("--setup-dir", type=Path, help="Setup directory (used to resolve manifest)")
+    p_model_run.add_argument("--subdomain-root", type=Path, help="Sub-domain root (used to resolve manifest)")
+    p_model_run.add_argument("--subdomains", nargs="+", help="Optional list of sub-domain ids to run")
+    p_model_run.add_argument("--max-workers", type=int, help="Parallel sub-domain workers")
+    p_model_run.add_argument("--retries", type=int, default=0, help="Retries per sub-domain on failure (default: 0)")
+    p_model_run.add_argument("--overwrite", action="store_true", help="Overwrite existing successful run manifests")
+    p_model_run.add_argument("--log-level", default="INFO")
+
+    p_model_merge = sub.add_parser("model-merge", help="Merge plain openAMUNDSEN grid outputs across sub-domains")
+    p_model_merge.add_argument("--manifest", type=Path, help="Path to subdomain_manifest.json")
+    p_model_merge.add_argument("--setup-dir", type=Path, help="Setup directory (used to resolve manifest)")
+    p_model_merge.add_argument("--subdomain-root", type=Path, help="Sub-domain root (used to resolve manifest)")
+    p_model_merge.add_argument("--subdomains", nargs="+", help="Optional list of sub-domain ids to merge")
+    p_model_merge.add_argument(
+        "--coverage-sliver-tol-px",
+        type=int,
+        default=4,
+        help="Allowed uncovered expected pixels (default: 4)",
+    )
+    p_model_merge.add_argument(
+        "--out-dir",
+        type=Path,
+        help="Override output directory (default: <setup>/subdomains/model/results/grids)",
+    )
+    p_model_merge.add_argument("--log-level", default="INFO")
 
     p_run = sub.add_parser("run", help="Run prepared sub-domains (DA pipeline per sub-domain)")
     p_run.add_argument("--manifest", type=Path, help="Path to subdomain_manifest.json")
@@ -90,7 +196,12 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
     p_merge.add_argument("--project-dir", type=Path, help="Project directory (used to resolve manifest)")
     p_merge.add_argument("--subdomain-root", type=Path, help="Sub-domain root (used to resolve manifest)")
     p_merge.add_argument("--subdomains", nargs="+", help="Optional list of sub-domain ids to merge")
-    p_merge.add_argument("--coverage-sliver-tol-px", type=int, default=4, help="Allowed uncovered expected pixels (default: 4)")
+    p_merge.add_argument(
+        "--coverage-sliver-tol-px",
+        type=int,
+        default=4,
+        help="Allowed uncovered expected pixels (default: 4)",
+    )
     p_merge.add_argument("--out-dir", type=Path, help="Override results output directory (default: <project>/results)")
     p_merge.add_argument("--log-level", default="INFO")
 
@@ -119,16 +230,36 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
     p_pipe.add_argument("--subdomain-root", type=Path, help="Output root (default: <project>/subdomains)")
     p_pipe.add_argument("--id-field", default="id", help="Field name containing sub-domain id (default: id)")
     p_pipe.add_argument("--clip-mode", choices=("window", "roi-symlink"), default="window", help="Grid handling mode")
-    p_pipe.add_argument("--station-buffer-km", type=float, default=50.0, help="Station search buffer in km (default: 50)")
+    p_pipe.add_argument(
+        "--station-buffer-km",
+        type=float,
+        default=50.0,
+        help="Station search buffer in km (default: 50)",
+    )
     p_pipe.add_argument("--roi-buffer-m", type=float, default=0.0, help="Optional ROI buffer in meters")
     p_pipe.add_argument("--grid-buffer-m", type=float, help="Grid window buffer in meters (default: station buffer)")
     p_pipe.add_argument("--obs-stations-dir", type=Path, help="Override setup obs stations directory")
-    p_pipe.add_argument("--overlap-area-tol-m2", type=float, default=100.0, help="Allowed overlap area in m^2 (default: 100)")
-    p_pipe.add_argument("--sliver-fix-m", type=float, default=0.0, help="Optional shrink-expand tolerance fix in meters")
+    p_pipe.add_argument(
+        "--overlap-area-tol-m2",
+        type=float,
+        default=100.0,
+        help="Allowed overlap area in m^2 (default: 100)",
+    )
+    p_pipe.add_argument(
+        "--sliver-fix-m",
+        type=float,
+        default=0.0,
+        help="Optional shrink-expand tolerance fix in meters",
+    )
     p_pipe.add_argument("--max-workers", type=int, help="Parallel sub-domain workers")
     p_pipe.add_argument("--inner-max-workers", type=int, help="Parallel member workers per sub-domain")
     p_pipe.add_argument("--retries", type=int, default=1, help="Retries per sub-domain on failure (default: 1)")
-    p_pipe.add_argument("--coverage-sliver-tol-px", type=int, default=4, help="Allowed uncovered expected pixels (default: 4)")
+    p_pipe.add_argument(
+        "--coverage-sliver-tol-px",
+        type=int,
+        default=4,
+        help="Allowed uncovered expected pixels (default: 4)",
+    )
     p_pipe.add_argument("--var", default="snow_depth", help="Model variable column to plot")
     p_pipe.add_argument("--obs-col", default="snow_depth", help="Observation column name")
     p_pipe.add_argument("--obs-scale", type=float, default=1.0, help="Observation scaling factor")
@@ -138,6 +269,56 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
     p_pipe.add_argument("--overwrite", action="store_true", help="Overwrite existing outputs")
     p_pipe.add_argument("--log-level", default="INFO")
     p_pipe.add_argument("--no-perf-monitor", action="store_true", help="Disable performance monitor")
+
+    p_model_pipe = sub.add_parser("model-pipeline", help="Run model-prepare -> model-run -> model-merge")
+    p_model_pipe.add_argument("--setup-dir", required=True, type=Path, help="Setup root directory")
+    p_model_pipe.add_argument(
+        "--roi",
+        "--regions",
+        dest="regions",
+        type=Path,
+        help="Sub-domain polygons (default: <setup>/env/subdomains.gpkg, fallback: <setup>/env/roi.gpkg)",
+    )
+    p_model_pipe.add_argument("--subdomain-root", type=Path, help="Output root (default: <setup>/subdomains/model)")
+    p_model_pipe.add_argument("--id-field", default="id", help="Field name containing sub-domain id (default: id)")
+    p_model_pipe.add_argument(
+        "--clip-mode",
+        choices=("window", "roi-symlink"),
+        default="window",
+        help="Grid handling mode",
+    )
+    p_model_pipe.add_argument(
+        "--station-buffer-km",
+        type=float,
+        default=50.0,
+        help="Station search buffer in km (default: 50)",
+    )
+    p_model_pipe.add_argument("--roi-buffer-m", type=float, default=0.0, help="Optional ROI buffer in meters")
+    p_model_pipe.add_argument("--grid-buffer-m", type=float, help="Grid window buffer in meters (default: none)")
+    p_model_pipe.add_argument(
+        "--overlap-area-tol-m2",
+        type=float,
+        default=100.0,
+        help="Allowed overlap area in m^2 (default: 100)",
+    )
+    p_model_pipe.add_argument(
+        "--sliver-fix-m",
+        type=float,
+        default=0.0,
+        help="Optional shrink-expand tolerance fix in meters",
+    )
+    p_model_pipe.add_argument("--subdomains", nargs="+", help="Optional list of sub-domain ids to run and merge")
+    p_model_pipe.add_argument("--max-workers", type=int, help="Parallel sub-domain workers")
+    p_model_pipe.add_argument("--retries", type=int, default=0, help="Retries per sub-domain on failure (default: 0)")
+    p_model_pipe.add_argument(
+        "--coverage-sliver-tol-px",
+        type=int,
+        default=4,
+        help="Allowed uncovered expected pixels (default: 4)",
+    )
+    p_model_pipe.add_argument("--no-merge", action="store_true", help="Skip merge stage")
+    p_model_pipe.add_argument("--overwrite", action="store_true", help="Overwrite existing outputs")
+    p_model_pipe.add_argument("--log-level", default="INFO")
 
     args = parser.parse_args(list(argv) if argv is not None else None)
     _configure_logger(args.log_level)
@@ -161,6 +342,59 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
             overlap_area_tol_m2=float(args.overlap_area_tol_m2),
             sliver_fix_m=float(args.sliver_fix_m),
             overwrite=bool(args.overwrite),
+        )
+        return 0
+
+    if args.command == "model-prepare":
+        from openamundsen_da.subdomain.prepare import prepare_model_subdomains
+
+        regions_path = args.regions or _default_regions_path(Path(args.setup_dir))
+        prepare_model_subdomains(
+            setup_dir=args.setup_dir,
+            regions_path=regions_path,
+            subdomain_root=args.subdomain_root or _default_model_subdomain_root(args.setup_dir),
+            id_field=args.id_field,
+            clip_mode=args.clip_mode,
+            station_buffer_m=float(args.station_buffer_km) * 1000.0,
+            roi_buffer_m=float(args.roi_buffer_m),
+            grid_buffer_m=args.grid_buffer_m,
+            overlap_area_tol_m2=float(args.overlap_area_tol_m2),
+            sliver_fix_m=float(args.sliver_fix_m),
+            overwrite=bool(args.overwrite),
+        )
+        return 0
+
+    if args.command == "model-run":
+        from openamundsen_da.subdomain.model import run_model_subdomains
+
+        manifest = _resolve_model_manifest(
+            manifest_arg=args.manifest,
+            setup_dir=args.setup_dir,
+            subdomain_root=args.subdomain_root,
+        )
+        run_model_subdomains(
+            manifest_path=manifest,
+            subdomains=args.subdomains,
+            max_workers=args.max_workers,
+            retries=max(0, int(args.retries)),
+            overwrite=bool(args.overwrite),
+            log_level=args.log_level,
+        )
+        return 0
+
+    if args.command == "model-merge":
+        from openamundsen_da.subdomain.merge import merge_model_grids
+
+        manifest = _resolve_model_manifest(
+            manifest_arg=args.manifest,
+            setup_dir=args.setup_dir,
+            subdomain_root=args.subdomain_root,
+        )
+        merge_model_grids(
+            manifest_path=manifest,
+            subdomains=args.subdomains,
+            out_dir=args.out_dir,
+            coverage_sliver_tol_px=int(args.coverage_sliver_tol_px),
         )
         return 0
 
@@ -252,6 +486,31 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
             overwrite=bool(args.overwrite),
             log_level=args.log_level,
             perf_monitor=not args.no_perf_monitor,
+        )
+        return 0
+
+    if args.command == "model-pipeline":
+        from openamundsen_da.subdomain.model import run_model_pipeline
+
+        regions_path = args.regions or _default_regions_path(Path(args.setup_dir))
+        run_model_pipeline(
+            setup_dir=args.setup_dir,
+            regions_path=regions_path,
+            subdomain_root=args.subdomain_root or _default_model_subdomain_root(args.setup_dir),
+            id_field=args.id_field,
+            clip_mode=args.clip_mode,
+            station_buffer_m=float(args.station_buffer_km) * 1000.0,
+            roi_buffer_m=float(args.roi_buffer_m),
+            grid_buffer_m=args.grid_buffer_m,
+            overlap_area_tol_m2=float(args.overlap_area_tol_m2),
+            sliver_fix_m=float(args.sliver_fix_m),
+            subdomains=args.subdomains,
+            max_workers=args.max_workers,
+            retries=max(0, int(args.retries)),
+            coverage_sliver_tol_px=int(args.coverage_sliver_tol_px),
+            skip_merge=bool(args.no_merge),
+            overwrite=bool(args.overwrite),
+            log_level=args.log_level,
         )
         return 0
 

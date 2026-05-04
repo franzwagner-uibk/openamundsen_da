@@ -3,6 +3,8 @@ resolution: 100 # spatial resolution (m)
 timestep: "3H" # temporal resolution as a pandas-compatible frequency string (e.g., "h", "3h", "D")
 crs: "epsg:25832" # CRS of the input grids
 timezone: 1 # timezone of the model domain (difference to UTC in h)
+start_date: '2022-10-01'
+end_date: '2023-07-31'
 
 # Input data configuration
 input_data:
@@ -472,5 +474,4 @@ land_cover:
       max_height: 1.9
       depletion_fraction: .nan
       rooting_depth: .nan
-
 

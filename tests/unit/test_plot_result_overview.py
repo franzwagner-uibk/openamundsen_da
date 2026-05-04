@@ -339,6 +339,8 @@ def test_plot_result_overview_ylabels_do_not_overlap_with_stacked_custom_panels(
         ylabel_bboxes = [ax.yaxis.label.get_window_extent(renderer) for ax in axes]
         for upper_bbox, lower_bbox in zip(ylabel_bboxes, ylabel_bboxes[1:]):
             assert lower_bbox.y1 <= upper_bbox.y0
+        for ax, ylabel_bbox in zip(axes, ylabel_bboxes):
+            assert not ax._left_title.get_window_extent(renderer).overlaps(ylabel_bbox)
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -557,6 +559,42 @@ def test_plot_result_overview_fraction_panels_use_point_two_y_step(tmp_path: Pat
         wet_ticks = list(axes[1].get_yticks())
         assert scf_ticks == [0.25, 0.5, 0.75, 1.0]
         assert wet_ticks == [0.25, 0.5, 0.75, 1.0]
+        assert out_path.is_file()
+    finally:
+        plt.close = original_close
+
+
+def test_plot_result_overview_wsla_panel_uses_nice_altitude_y_step(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+    import matplotlib.ticker as mticker
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        out_path = tmp_path / "result_overview.png"
+        plot_result_overview(
+            scf_obs=None,
+            scf_model=None,
+            wet_obs=None,
+            wet_model=None,
+            wsl_obs=None,
+            wsl_model=_frame("wet_snow_line", [2100.0, 3600.0]),
+            scf_env=None,
+            wet_env=None,
+            wsl_env=_frame("value_mean", [2300.0, 3400.0]).assign(
+                value_min=[1900.0, 3100.0],
+                value_max=[2600.0, 3700.0],
+            ),
+            output=out_path,
+            panel_specs=[PanelSpec(panel="WSLA")],
+            strict_panels=True,
+        )
+
+        axes = _panel_axes(plt.gcf())
+        locator = axes[0].yaxis.get_major_locator()
+        assert isinstance(locator, mticker.MultipleLocator)
+        ticks = locator.tick_values(*axes[0].get_ylim())
+        assert ticks[1] - ticks[0] == pytest.approx(500.0)
         assert out_path.is_file()
     finally:
         plt.close = original_close

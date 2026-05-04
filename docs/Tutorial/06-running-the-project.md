@@ -60,24 +60,25 @@ data_assimilation:
     ensemble_size: 30
 
   assimilation_events:
-    - date: "2022-11-24"
+    - date: "2022-11-17"
       variable: station_hs
-    - date: "2022-12-22"
+    - date: "2022-12-07"
       variable: station_hs
-    - date: "2023-01-21"
+    - date: "2023-01-01"
+      variable: station_hs
+    - date: "2023-01-31"
       variable: station_hs
     - date: "2023-02-21"
       variable: station_hs
-    - date: "2023-03-22"
-      variable: station_hs
-    - date: "2023-04-29"
-      variable: wet_snow
+    - date: "2023-03-24"
+      variable: wet_snow_line
       product: WETSNOW
-    - date: "2023-05-03"
-      variable: station_hs
-    - date: "2023-05-23"
-      variable: wet_snow
-      product: WETSNOW
+    - date: "2023-04-16"
+      variable: scf
+      product: SNOWCOVER
+    - date: "2023-04-26"
+      variable: scf
+      product: SNOWCOVER
     - date: "2023-05-18"
       variable: scf
       product: SNOWCOVER

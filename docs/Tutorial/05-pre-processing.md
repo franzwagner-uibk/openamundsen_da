@@ -52,6 +52,7 @@ obs:
   snowcover:
     dir: obs/snowcover
     product_tag: SNOWCOVER
+    summary_csv: obs/summaries/project_2022_2023/scf_summary.csv
     classes:
       cloud: [205]
       water: [210]
@@ -59,6 +60,7 @@ obs:
   wetsnow:
     dir: obs/wetsnow
     product_tag: WETSNOW
+    summary_csv: obs/summaries/project_2022_2023/wet_snow_summary.csv
     classes:
       wet: [110]
       valid: [110, 125, 200, 210]
@@ -70,24 +72,25 @@ data_assimilation:
     min_station_uncertainty_pct: 10
     single_station_factor: 2.0
   assimilation_events:
-    - date: "2022-11-24"
+    - date: "2022-11-17"
       variable: station_hs
-    - date: "2022-12-22"
+    - date: "2022-12-07"
       variable: station_hs
-    - date: "2023-01-21"
+    - date: "2023-01-01"
+      variable: station_hs
+    - date: "2023-01-31"
       variable: station_hs
     - date: "2023-02-21"
       variable: station_hs
-    - date: "2023-03-22"
-      variable: station_hs
-    - date: "2023-04-29"
-      variable: wet_snow
+    - date: "2023-03-24"
+      variable: wet_snow_line
       product: WETSNOW
-    - date: "2023-05-03"
-      variable: station_hs
-    - date: "2023-05-23"
-      variable: wet_snow
-      product: WETSNOW
+    - date: "2023-04-16"
+      variable: scf
+      product: SNOWCOVER
+    - date: "2023-04-26"
+      variable: scf
+      product: SNOWCOVER
     - date: "2023-05-18"
       variable: scf
       product: SNOWCOVER
@@ -121,13 +124,16 @@ enabled.
 Conceptual background and best-practice rules are summarized in
 [Workflow: Observation Uncertainty]({{ site.baseurl }}{% link workflow.md %}#observation-uncertainty).
 
-The figure below shows what one tutorial uncertainty layer is meant to represent:
-a continuous field over valid FSC pixels, shaped by the baseline FSC uncertainty
-and local penalties such as land cover. Clouds remain missing observations rather
-than turning into high-uncertainty pixels, and later preprocessing aggregates
-valid-pixel metrics such as `unc_mean` into the summary tables.
+The figure below is rendered with the custom project-map `uncertainty` panel and
+a row-level `row_views` zoom for 2023-04-26. The first row shows the full
+Rofental context, while the second row zooms into the northeastern watershed
+detail where several land-cover classes are visible. The uncertainty layer is a
+continuous field over valid FSC pixels, shaped by the baseline FSC uncertainty
+and local penalties such as land cover. Clouds remain missing observations
+rather than turning into high-uncertainty pixels, and later preprocessing
+aggregates valid-pixel metrics such as `unc_mean` into the summary tables.
 
-![Rofental SCF uncertainty example with land-cover component and local zoom]({{ site.baseurl }}/assets/images/tutorial/rofental_uncertainty.png)
+![Rofental SCF uncertainty example with land-cover context]({{ site.baseurl }}/assets/images/tutorial/rofental_uncertainty.png)
 
 ## Step 1: Summarize snow-cover rasters to `scf_summary.csv`
 
@@ -267,8 +273,8 @@ oa-da-scf \
 ```
 
 After the command, expect one SCF observation CSV per configured SCF event under
-`/data/rofental/projects/project_2022_2023/steps/*/obs/`. A typical file is
-`/data/rofental/projects/project_2022_2023/steps/step_00_init/obs/obs_scf_SNOWCOVER_20230101.csv`.
+`/data/rofental/projects/project_2022_2023/steps/*/obs/`. A typical file name is
+`obs_scf_SNOWCOVER_20230416.csv`.
 This one-row file is the actual SCF input consumed later during data assimilation.
 When uncertainty is enabled and matching layers exist, the generated file also
 contains `unc_mean`, `unc_min`, `unc_max`, and `unc_n_valid`.
@@ -277,14 +283,14 @@ Reference snippet from a generated SCF observation file:
 
 | date | n_valid | n_snow | scf | cloud_fraction | source |
 | --- | --- | --- | --- | --- | --- |
-| 2023-01-01 | 106750 | 106750 | 1.00 | 0.00 | s2_fsc_snowflake_rofental_2023_01_01.tif |
+| 2023-04-16 | 17838 | 17838 | 1.00 | 0.00 | s2_fsc_snowflake_rofental_2023_04_16.tif |
 
 ## Step 5: Create per-step wet-snow observation CSVs
 
 `oa-da-wetsnow-project` applies the same alignment logic to wet-snow events. It
-matches rows from `wet_snow_summary.csv` to the configured wet-snow
-`assimilation_events` and writes one-row `obs_wet_snow_*.csv` files into the
-corresponding `steps/*/obs/` folders.
+matches rows from `wet_snow_summary.csv` to the configured wet-snow-line
+`assimilation_events` and writes one-row `obs_wet_snow_line_*.csv` files into
+the corresponding `steps/*/obs/` folders.
 
 **🟢 Run this command:**
 
@@ -343,7 +349,7 @@ For debugging failed runs, see
 > - `obs/summaries/project_2022_2023/wet_snow_summary.csv`
 > - `projects/project_2022_2023/steps/step_*`
 > - `steps/.../obs/obs_scf_<PRODUCT>_YYYYMMDD.csv`
-> - `steps/.../obs/obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`
+> - `steps/.../obs/obs_wet_snow_line_<PRODUCT>_YYYYMMDD.csv`
 
 These are the direct observation inputs consumed by the data assimilation project
 run in the next chapter.

@@ -208,10 +208,10 @@ def test_collect_marker_legend_entries_combines_station_and_fraction_labels(tmp_
     entries = plot_mod._collect_marker_legend_entries([station_csv, wet_csv, scf_csv])
 
     assert entries == [
-        ("Latschbloder (σ=500%)", "#ff7f0e"),
-        ("Proviantdepot (σ=10%)", "#9467bd"),
-        ("WSF", "#2c8a64"),
-        ("SCF", "#2f6fb5"),
+        ("Latschbloder (σ=500%)", da_variable_style("station_hs")["line"]),
+        ("Proviantdepot (σ=10%)", da_variable_style("station_swe")["line"]),
+        ("WSF", da_variable_style("wet_snow")["line"]),
+        ("SCF", da_variable_style("scf")["line"]),
     ]
 
 
@@ -525,8 +525,8 @@ def test_station_legend_falls_back_to_name_when_metadata_missing(tmp_path: Path)
     entries = plot_mod._collect_marker_legend_entries([station_csv])
 
     assert entries == [
-        ("Latschbloder", "#ff7f0e"),
-        ("Proviantdepot", "#9467bd"),
+        ("Latschbloder", da_variable_style("station_hs")["line"]),
+        ("Proviantdepot", da_variable_style("station_swe")["line"]),
     ]
 
 
@@ -814,10 +814,10 @@ def test_setup_weights_overview_legend_prefers_single_row_until_wrap_is_needed()
     import matplotlib.pyplot as plt
 
     handles = [
-        plot_mod._marker_handle("#ff7f0e"),
-        plot_mod._marker_handle("#9467bd"),
-        plot_mod._marker_handle("#2c8a64"),
-        plot_mod._marker_handle("#2f6fb5"),
+        plot_mod._marker_handle(da_variable_style("station_hs")["line"]),
+        plot_mod._marker_handle(da_variable_style("station_swe")["line"]),
+        plot_mod._marker_handle(da_variable_style("wet_snow")["line"]),
+        plot_mod._marker_handle(da_variable_style("scf")["line"]),
     ]
     labels = [
         "Latschbloder (σ=500%)",

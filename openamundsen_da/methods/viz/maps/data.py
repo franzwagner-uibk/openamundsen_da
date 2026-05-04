@@ -435,7 +435,7 @@ def _observation_dir(project_dir: Path, observation: str) -> Path:
     return Path(abspath_relative_to(setup_dir, Path(str(raw_dir))))
 
 
-def load_observation_scene(project_dir: Path, context: StaticContext, *, observation: str, date: pd.Timestamp) -> ObservationScene:
+def _observation_source_paths(project_dir: Path, observation: str, date: pd.Timestamp) -> tuple[Path, ...]:
     summary = _load_summary(project_dir, observation)
     rows = summary[summary["date"] == pd.Timestamp(date).normalize()]
     if rows.empty:
@@ -456,11 +456,23 @@ def load_observation_scene(project_dir: Path, context: StaticContext, *, observa
         if not source_path.is_file():
             raise FileNotFoundError(f"Observation source raster not found: {source_path}")
         source_paths.append(source_path)
+    return tuple(source_paths)
 
+
+def _roi_geometry_for_context(context: StaticContext) -> gpd.GeoDataFrame:
     roi_geom = context.roi_gdf
     if context.spec.crs and roi_geom.crs is not None:
         roi_geom = roi_geom.to_crs(context.spec.crs)
-    bounds = tuple(float(value) for value in roi_geom.total_bounds)
+    return roi_geom
+
+
+def _merge_observation_rasters(
+    source_paths: tuple[Path, ...],
+    *,
+    context: StaticContext,
+    roi_geom: gpd.GeoDataFrame,
+) -> tuple[np.ndarray, rasterio.Affine, tuple[float, float, float, float], np.ndarray]:
+    merge_bounds = tuple(float(value) for value in roi_geom.total_bounds)
 
     with ExitStack() as stack:
         datasets = []
@@ -473,7 +485,7 @@ def load_observation_scene(project_dir: Path, context: StaticContext, *, observa
             datasets.append(src)
         mosaic, transform = merge(
             datasets,
-            bounds=bounds,
+            bounds=merge_bounds,
             nodata=np.nan,
             method="first",
         )
@@ -484,6 +496,17 @@ def load_observation_scene(project_dir: Path, context: StaticContext, *, observa
         transform=transform,
         invert=True,
     )
+    left, bottom, right, top = rasterio.transform.array_bounds(arr.shape[0], arr.shape[1], transform)
+    return arr, transform, (left, right, bottom, top), roi_mask
+
+
+def _mask_observation_array(
+    arr: np.ndarray,
+    *,
+    project_dir: Path,
+    observation: str,
+    roi_mask: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
     invalid_mask = np.zeros(arr.shape, dtype=bool)
     if observation == "scf":
         classes = load_observation_classes(project_dir, obs_key="snowcover")
@@ -499,15 +522,110 @@ def load_observation_scene(project_dir: Path, context: StaticContext, *, observa
 
     arr[~roi_mask] = np.nan
     invalid_mask &= roi_mask
+    return arr, invalid_mask
+
+
+def _observation_uncertainty_path(source_path: Path) -> Path:
+    if source_path.suffix.lower() not in {".tif", ".tiff"}:
+        raise ValueError(
+            f"Uncertainty map panels currently require GeoTIFF observation sources, got: {source_path}"
+        )
+    uncertainty_path = source_path.parent / f"{source_path.stem}_uncertainty.tif"
+    if not uncertainty_path.is_file():
+        raise FileNotFoundError(f"Observation uncertainty raster not found: {uncertainty_path}")
+    return uncertainty_path
+
+
+def _align_uncertainty_array(
+    arr: np.ndarray,
+    transform: rasterio.Affine,
+    *,
+    scene: ObservationScene,
+    context: StaticContext,
+) -> np.ndarray:
+    if arr.shape == scene.array.shape and tuple(transform) == tuple(scene.transform):
+        return arr
+    if context.spec.crs is None:
+        raise ValueError("Cannot align uncertainty raster to observation grid because the setup CRS is undefined")
+    dst = np.full(scene.array.shape, np.nan, dtype=float)
+    reproject(
+        source=arr,
+        destination=dst,
+        src_transform=transform,
+        src_crs=context.spec.crs,
+        dst_transform=scene.transform,
+        dst_crs=context.spec.crs,
+        resampling=Resampling.nearest,
+        src_nodata=np.nan,
+        dst_nodata=np.nan,
+    )
+    return dst
+
+
+def load_observation_scene(project_dir: Path, context: StaticContext, *, observation: str, date: pd.Timestamp) -> ObservationScene:
+    source_paths = _observation_source_paths(project_dir, observation, date)
+    roi_geom = _roi_geometry_for_context(context)
+    arr, transform, bounds, roi_mask = _merge_observation_rasters(source_paths, context=context, roi_geom=roi_geom)
+    arr, invalid_mask = _mask_observation_array(
+        arr,
+        project_dir=project_dir,
+        observation=observation,
+        roi_mask=roi_mask,
+    )
     coverage_fraction = float(np.isfinite(arr).sum()) / float(max(1, roi_mask.sum()))
-    left, bottom, right, top = rasterio.transform.array_bounds(arr.shape[0], arr.shape[1], transform)
     return ObservationScene(
         date=pd.Timestamp(date).normalize(),
         observation=observation,
         array=arr,
         transform=transform,
-        bounds=(left, right, bottom, top),
+        bounds=bounds,
         coverage_fraction=coverage_fraction,
         roi_mask=roi_mask,
+        invalid_mask=invalid_mask,
+    )
+
+
+def load_observation_uncertainty_scene(
+    project_dir: Path,
+    context: StaticContext,
+    *,
+    observation: str,
+    date: pd.Timestamp,
+) -> ObservationScene:
+    observation_scene = load_observation_scene(project_dir, context, observation=observation, date=date)
+    uncertainty_paths = tuple(
+        _observation_uncertainty_path(source_path)
+        for source_path in _observation_source_paths(project_dir, observation, date)
+    )
+    roi_geom = _roi_geometry_for_context(context)
+    arr, transform, _bounds, _roi_mask = _merge_observation_rasters(
+        uncertainty_paths,
+        context=context,
+        roi_geom=roi_geom,
+    )
+    arr = _align_uncertainty_array(arr, transform, scene=observation_scene, context=context).astype(float, copy=True)
+    valid_observation = observation_scene.roi_mask & np.isfinite(observation_scene.array)
+    missing_on_valid = valid_observation & ~np.isfinite(arr)
+    if np.any(missing_on_valid):
+        raise ValueError(
+            f"Uncertainty raster has missing values on valid {observation} pixels for {pd.Timestamp(date).date()}"
+        )
+    finite_on_valid = valid_observation & np.isfinite(arr)
+    outside_range = finite_on_valid & ((arr < 0.0) | (arr > 100.0))
+    if np.any(outside_range):
+        raise ValueError(
+            f"Uncertainty raster values must be within 0..100 for {observation} on {pd.Timestamp(date).date()}"
+        )
+    arr[~valid_observation] = np.nan
+    invalid_mask = observation_scene.roi_mask & ~valid_observation
+    coverage_fraction = float(np.isfinite(arr).sum()) / float(max(1, observation_scene.roi_mask.sum()))
+    return ObservationScene(
+        date=pd.Timestamp(date).normalize(),
+        observation=observation,
+        array=arr,
+        transform=observation_scene.transform,
+        bounds=observation_scene.bounds,
+        coverage_fraction=coverage_fraction,
+        roi_mask=observation_scene.roi_mask,
         invalid_mask=invalid_mask,
     )

@@ -52,6 +52,20 @@ def _nested_dir(cfg: dict, keys: tuple[str, ...], default_rel: str) -> Path:
     return Path(default_rel)
 
 
+def _find_plain_setup_yaml(setup_dir: Path) -> Path:
+    """Find a setup YAML without requiring a DA `projects/` directory."""
+    preferred = [setup_dir / f"{setup_dir.name}.yml", setup_dir / "setup.yml"]
+    for cand in preferred:
+        if cand.is_file():
+            return cand
+    candidates = sorted(setup_dir.glob("*.yml"))
+    if len(candidates) == 1:
+        return candidates[0]
+    raise FileNotFoundError(
+        f"Missing setup YAML in {setup_dir}: expected {preferred[0].name} or {preferred[1].name}"
+    )
+
+
 def _to_yaml_text(data: dict) -> str:
     import ruamel.yaml as _yaml
 
@@ -336,8 +350,9 @@ def _prepare_grids(
             _copy_or_link(grid_paths.lc, grids_out / f"lc_{new_domain}_{resolution}.asc")
         roi_dst = grids_out / f"roi_{new_domain}_{resolution}.asc"
         if roi_mask.shape != (int(global_shape[0]), int(global_shape[1])):
+            expected_shape = (int(global_shape[0]), int(global_shape[1]))
             raise ValueError(
-                f"ROI mask shape mismatch for roi-symlink mode: {roi_mask.shape} vs {(int(global_shape[0]), int(global_shape[1]))}"
+                f"ROI mask shape mismatch for roi-symlink mode: {roi_mask.shape} vs {expected_shape}"
             )
         _write_roi_mask(roi_mask, roi_dst, global_transform, crs=crs)
         return roi_dst
@@ -496,7 +511,7 @@ def _prepare_obs_station_subset(
 def prepare_subdomains(
     *,
     setup_dir: Path,
-    project_dir: Path,
+    project_dir: Path | None,
     regions_path: Path,
     subdomain_root: Path | None = None,
     id_field: str = "id",
@@ -508,6 +523,7 @@ def prepare_subdomains(
     overlap_area_tol_m2: float = 100.0,
     sliver_fix_m: float = 0.0,
     overwrite: bool = False,
+    model_mode: bool = False,
 ) -> SubdomainManifest:
     """Prepare per-sub-domain setups under `<project>/subdomains/<id>`."""
     logger.debug("Preparing sub-domains for setup={} regions={}", setup_dir, regions_path)
@@ -515,12 +531,31 @@ def prepare_subdomains(
         raise ValueError("clip_mode must be 'window' or 'roi-symlink'")
 
     setup_dir = Path(setup_dir).resolve()
-    project_dir = Path(project_dir).resolve()
-    ensure_run_mode(project_dir, expected="subdomain", write_if_missing=True)
-    setup_yaml = find_setup_yaml(setup_dir)
-    project_yaml = find_project_yaml(project_dir)
+    if model_mode:
+        project_dir = Path(project_dir).resolve() if project_dir is not None else None
+    else:
+        if project_dir is None:
+            raise TypeError("project_dir is required for DA sub-domain preparation")
+        project_dir = Path(project_dir).resolve()
+        ensure_run_mode(project_dir, expected="subdomain", write_if_missing=True)
+    setup_yaml = _find_plain_setup_yaml(setup_dir) if model_mode else find_setup_yaml(setup_dir)
     setup_cfg = read_yaml_mapping(setup_yaml, error_cls=ValueError, context="Setup YAML root")
-    project_cfg = read_yaml_mapping(project_yaml, error_cls=ValueError, context="Project YAML root")
+    if model_mode:
+        missing_dates = [
+            key
+            for key in ("start_date", "end_date")
+            if setup_cfg.get(key) is None or str(setup_cfg.get(key)).strip() == ""
+        ]
+        if missing_dates:
+            raise ValueError(
+                "Model sub-domain mode requires the source setup YAML to define "
+                f"{', '.join(missing_dates)}."
+            )
+        project_yaml = setup_yaml
+        project_cfg: dict = {}
+    else:
+        project_yaml = find_project_yaml(project_dir)
+        project_cfg = read_yaml_mapping(project_yaml, error_cls=ValueError, context="Project YAML root")
 
     grid_buffer_m = float(grid_buffer_m if grid_buffer_m is not None else 0.0)
     station_buffer_m = float(station_buffer_m)
@@ -531,23 +566,31 @@ def prepare_subdomains(
 
     grids_rel = _nested_dir(setup_cfg, ("input_data", "grids", "dir"), "grids")
     meteo_rel = _nested_dir(setup_cfg, ("input_data", "meteo", "dir"), "meteo")
-    obs_station_rel = _nested_dir(project_cfg, ("obs", "stations", "dir"), "obs/stations")
-    raw_snowcover_rel = _nested_dir(project_cfg, ("obs", "snowcover", "dir"), "obs/snowcover")
-    raw_wetsnow_rel = _nested_dir(project_cfg, ("obs", "wetsnow", "dir"), "obs/wetsnow")
+    if model_mode:
+        obs_station_rel = Path("obs/stations")
+        raw_snowcover_rel = Path("obs/snowcover")
+        raw_wetsnow_rel = Path("obs/wetsnow")
+    else:
+        obs_station_rel = _nested_dir(project_cfg, ("obs", "stations", "dir"), "obs/stations")
+        raw_snowcover_rel = _nested_dir(project_cfg, ("obs", "snowcover", "dir"), "obs/snowcover")
+        raw_wetsnow_rel = _nested_dir(project_cfg, ("obs", "wetsnow", "dir"), "obs/wetsnow")
 
     grids_dir = Path(abspath_relative_to(setup_dir, grids_rel))
     meteo_dir = Path(abspath_relative_to(setup_dir, meteo_rel))
     obs_dir = Path(obs_stations_dir) if obs_stations_dir else Path(abspath_relative_to(setup_dir, obs_station_rel))
     raw_snowcover_dir = Path(abspath_relative_to(setup_dir, raw_snowcover_rel))
     raw_wetsnow_dir = Path(abspath_relative_to(setup_dir, raw_wetsnow_rel))
-    logger.info(
-        "Resolved data dirs grids={} meteo={} obs_stations={} snowcover_raw={} wetsnow_raw={}",
-        grids_dir,
-        meteo_dir,
-        obs_dir,
-        raw_snowcover_dir,
-        raw_wetsnow_dir,
-    )
+    if model_mode:
+        logger.info("Resolved model data dirs grids={} meteo={}", grids_dir, meteo_dir)
+    else:
+        logger.info(
+            "Resolved data dirs grids={} meteo={} obs_stations={} snowcover_raw={} wetsnow_raw={}",
+            grids_dir,
+            meteo_dir,
+            obs_dir,
+            raw_snowcover_dir,
+            raw_wetsnow_dir,
+        )
 
     domain = str(setup_cfg["domain"])
     resolution = str(setup_cfg["resolution"])
@@ -585,23 +628,34 @@ def prepare_subdomains(
         raise ValueError("Setup ROI grid transform mismatch with DEM transform")
     logger.info("Using setup ROI grid {}", setup_roi_grid_path)
 
-    subdomain_root = (Path(subdomain_root) if subdomain_root else (project_dir / "subdomains")).resolve()
+    if model_mode:
+        subdomain_root = (Path(subdomain_root) if subdomain_root else (setup_dir / "subdomains" / "model")).resolve()
+        manifest_project_dir = subdomain_root
+        project_name = "model"
+    else:
+        subdomain_root = (Path(subdomain_root) if subdomain_root else (project_dir / "subdomains")).resolve()
+        manifest_project_dir = project_dir
+        project_name = project_dir.name
     if overwrite:
-        for derived_dir in (subdomain_root, project_dir / "results", project_dir / "plots"):
+        derived_dirs = (
+            (subdomain_root,)
+            if model_mode
+            else (subdomain_root, project_dir / "results", project_dir / "plots")
+        )
+        for derived_dir in derived_dirs:
             if derived_dir.is_dir():
                 shutil.rmtree(derived_dir)
     subdomain_root.mkdir(parents=True, exist_ok=True)
 
-    project_name = project_dir.name
     lc_path = _find_grid(grids_dir, "lc", domain, resolution)
     svf_path = _find_grid(grids_dir, "svf", domain, resolution)
     srf_path = _find_grid(grids_dir, "srf", domain, resolution)
     grid_paths = GridPaths(dem=dem_path, svf=svf_path, srf=srf_path, lc=lc_path)
 
     manifest = SubdomainManifest(
-        run_mode="subdomain",
+        run_mode="model" if model_mode else "subdomain",
         setup_dir=setup_dir,
-        project_dir=project_dir,
+        project_dir=manifest_project_dir,
         project_name=project_name,
         setup_yaml=setup_yaml,
         project_yaml=project_yaml,
@@ -723,8 +777,13 @@ def prepare_subdomains(
         meteo_out = sub_setup_dir / "meteo"
         obs_out = sub_setup_dir / "obs" / "stations"
         env_out = sub_setup_dir / "env"
-        project_out = sub_setup_dir / "projects" / project_name
-        for d in (grids_out, meteo_out, obs_out, env_out, project_out):
+        project_out = sub_setup_dir if model_mode else (sub_setup_dir / "projects" / project_name)
+        setup_dirs = (
+            (grids_out, meteo_out, env_out)
+            if model_mode
+            else (grids_out, meteo_out, obs_out, env_out, project_out)
+        )
+        for d in setup_dirs:
             d.mkdir(parents=True, exist_ok=True)
 
         sub_domain = f"{domain}_{clean_id}"
@@ -761,14 +820,15 @@ def prepare_subdomains(
             buffer_m=station_buffer_m,
             crs=crs_str,
         )
-        _prepare_obs_station_subset(
-            obs_dir=obs_dir,
-            out_dir=obs_out,
-            geom=geom,
-            buffer_m=station_buffer_m,
-            crs=crs_str,
-            station_ids=selected_station_ids,
-        )
+        if not model_mode:
+            _prepare_obs_station_subset(
+                obs_dir=obs_dir,
+                out_dir=obs_out,
+                geom=geom,
+                buffer_m=station_buffer_m,
+                crs=crs_str,
+                station_ids=selected_station_ids,
+            )
         roi_vector_path = env_out / "roi.gpkg"
         _write_roi_vector(
             roi_geom=geom_roi,
@@ -784,7 +844,7 @@ def prepare_subdomains(
             grids_dir=grids_out,
             meteo_dir=meteo_out,
         )
-        sub_project_yaml = _copy_project_dir(project_dir, project_out)
+        sub_project_yaml = sub_setup_yaml if model_mode else _copy_project_dir(project_dir, project_out)
 
         manifest.subdomains[clean_id] = SubdomainMeta(
             id=clean_id,
@@ -818,3 +878,36 @@ def prepare_subdomains(
     manifest.save(manifest_path)
     logger.info("Wrote manifest -> {}", manifest_path)
     return manifest
+
+
+def prepare_model_subdomains(
+    *,
+    setup_dir: Path,
+    regions_path: Path,
+    subdomain_root: Path | None = None,
+    id_field: str = "id",
+    clip_mode: str = "window",
+    station_buffer_m: float = 50_000.0,
+    roi_buffer_m: float = 0.0,
+    grid_buffer_m: Optional[float] = None,
+    overlap_area_tol_m2: float = 100.0,
+    sliver_fix_m: float = 0.0,
+    overwrite: bool = False,
+) -> SubdomainManifest:
+    """Prepare plain openAMUNDSEN sub-domain setups under `<setup>/subdomains/model`."""
+    return prepare_subdomains(
+        setup_dir=setup_dir,
+        project_dir=None,
+        regions_path=regions_path,
+        subdomain_root=subdomain_root,
+        id_field=id_field,
+        clip_mode=clip_mode,
+        station_buffer_m=station_buffer_m,
+        roi_buffer_m=roi_buffer_m,
+        grid_buffer_m=grid_buffer_m,
+        obs_stations_dir=None,
+        overlap_area_tol_m2=overlap_area_tol_m2,
+        sliver_fix_m=sliver_fix_m,
+        overwrite=overwrite,
+        model_mode=True,
+    )

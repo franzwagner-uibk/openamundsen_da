@@ -157,6 +157,11 @@ _PANEL_YLABELS = {
     "scores-zskill": "zSkill",
 }
 
+_PANEL_TITLE_X_OFFSET = 0.018
+_PANEL_TITLE_Y_OFFSET = 0.012
+_ALTITUDE_MAJOR_TICK_STEPS_M = (100.0, 200.0, 250.0, 500.0, 1000.0, 2000.0)
+_ALTITUDE_MAX_MAJOR_INTERVALS = 5.0
+
 _DEFAULT_TITLES = {
     "fSC": "snow cover fraction (roi) - openAMUNDSEN ensemble and satellite observations",
     "WSF": "wet snow fraction (roi) - openAMUNDSEN ensemble and satellite observations",
@@ -1042,6 +1047,27 @@ def _legend_band_bottom(fig, legends: list, *, gap: float = 0.008, minimum: floa
         top = max(top, float(bbox.y1))
     return max(minimum, top + gap)
 
+
+def _altitude_major_tick_step(ymin: float, ymax: float) -> float | None:
+    span = abs(float(ymax) - float(ymin))
+    if span <= 0.0:
+        return None
+    for step in _ALTITUDE_MAJOR_TICK_STEPS_M:
+        if span / step <= _ALTITUDE_MAX_MAJOR_INTERVALS:
+            return step
+    return _ALTITUDE_MAJOR_TICK_STEPS_M[-1]
+
+
+def _apply_altitude_y_ticks(ax) -> None:
+    from matplotlib.ticker import MultipleLocator
+
+    step = _altitude_major_tick_step(*ax.get_ylim())
+    if step is None:
+        return
+    ax.yaxis.set_major_locator(MultipleLocator(step))
+    ax.yaxis.set_minor_locator(MultipleLocator(step / 2.0))
+
+
 def _apply_result_y_ticks(ax, panel: str) -> None:
     from matplotlib.ticker import MultipleLocator
 
@@ -1600,6 +1626,7 @@ def plot_result_overview(
                     )
             ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
             apply_fraction_grid(ax, y_step=None)
+            _apply_altitude_y_ticks(ax)
             bounds = _date_bounds_frames(wsl_obs, wsl_model, wsl_env, wsl_prior_coverage)
         elif spec.panel == "roi-swe":
             if _frame_has_finite_band(roi_swe_env):
@@ -1818,7 +1845,8 @@ def plot_result_overview(
         global_left_disp = min(ax.bbox.x0 for ax in axes)
     for ax, title_artist in title_artists:
         x_axes = ax.transAxes.inverted().transform((global_left_disp, ax.bbox.y1))[0]
-        title_artist.set_x(x_axes)
+        title_artist.set_x(x_axes + _PANEL_TITLE_X_OFFSET)
+        title_artist.set_y(1.0 + _PANEL_TITLE_Y_OFFSET)
     legends = _build_result_overview_legends(
         fig,
         legend_state=legend_state,
@@ -1843,7 +1871,8 @@ def plot_result_overview(
         global_left_disp = min(ax.bbox.x0 for ax in axes)
     for ax, title_artist in title_artists:
         x_axes = ax.transAxes.inverted().transform((global_left_disp, ax.bbox.y1))[0]
-        title_artist.set_x(x_axes)
+        title_artist.set_x(x_axes + _PANEL_TITLE_X_OFFSET)
+        title_artist.set_y(1.0 + _PANEL_TITLE_Y_OFFSET)
     force_figure_text_black(fig, axes)
     save_figure_png(fig, output)
     plt.close(fig)

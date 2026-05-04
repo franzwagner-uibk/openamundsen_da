@@ -33,6 +33,7 @@ from openamundsen_da.methods.viz.maps.data import (
     StaticContext,
     load_model_fields,
     load_observation_scene,
+    load_observation_uncertainty_scene,
 )
 from openamundsen_da.methods.viz.maps.hillshade import (
     grid_extent as _grid_extent,
@@ -52,12 +53,14 @@ from openamundsen_da.methods.viz.maps.layout import (
     classified_legend_labels as _classified_legend_labels,
     column_gap_factors as _column_gap_factors,
     draw_map_grid_overlay as _draw_map_grid_overlay,
+    effective_row_height_ratios as _effective_row_height_ratios,
     effective_height_ratios as _effective_height_ratios,
     effective_width_ratios as _effective_width_ratios,
     expanded_grid_ratios as _expanded_grid_ratios,
     figure_height_for_extent,
     figure_prefers_horizontal_legends as _figure_prefers_horizontal_legends,
     figure_size,
+    google_zoom_meters_per_pixel as _google_zoom_meters_per_pixel,
     grid_span as _grid_span,
     horizontal_legend_available_width_in as _horizontal_legend_available_width_in,
     horizontal_legend_bottom_pad as _horizontal_legend_bottom_pad,
@@ -76,6 +79,8 @@ from openamundsen_da.methods.viz.maps.layout import (
     resolve_flag as _resolve_flag,
     resolve_panel_toggle as _resolve_panel_toggle,
     row_bottom_extras,
+    row_extents_for_recipe as _row_extents_for_recipe,
+    row_view_extent as _row_view_extent,
     shift_axes_group as _shift_axes_group,
     text_size_in as _text_size_in,
     text_width_in as _text_width_in,
@@ -107,6 +112,7 @@ from openamundsen_da.methods.viz.maps.panel_renderers import (
     render_overview_panel,
     render_roi_panel as _render_roi_panel,
     render_static_panel,
+    render_uncertainty_panel,
     render_wet_snow_elevation_fraction_panel,
     render_wet_snow_line_panel,
 )
@@ -131,7 +137,9 @@ class RenderRuntimeCache:
     scale_cache: dict[tuple[str, pd.Timestamp], tuple[object, object]] = field(default_factory=dict)
     shared_model_vmax: dict[str, float] = field(default_factory=dict)
     observations: dict[tuple[str, pd.Timestamp], ObservationScene] = field(default_factory=dict)
+    observation_uncertainties: dict[tuple[str, pd.Timestamp], ObservationScene] = field(default_factory=dict)
     derived_arrays: dict[str, np.ndarray] = field(default_factory=dict)
+
 
 def _panel_group_bbox(axes_group: list) -> tuple[float, float] | None:
     if not axes_group:
@@ -213,12 +221,14 @@ def _figure_size(
     *,
     context: StaticContext,
     obs_cache: dict[tuple[str, str], ObservationScene] | None = None,
+    row_extents: dict[int, tuple[float, float, float, float]] | None = None,
 ) -> tuple[float, float]:
     return figure_size(
         extent,
         recipe,
         context=context,
         obs_cache=obs_cache,
+        row_extents=row_extents,
         classified_labels_getter=_classified_display_labels,
         below_items_extra_getter=_panel_below_items_extra,
     )
@@ -329,6 +339,32 @@ def _render_observation_panel(
     )
 
 
+def _render_uncertainty_panel(
+    ax,
+    *,
+    panel,
+    context,
+    extent,
+    label,
+    defaults,
+    uncertainty_cache,
+    figure_horizontal_default,
+    derived_cache=None,
+):
+    return render_uncertainty_panel(
+        ax,
+        panel=panel,
+        context=context,
+        extent=extent,
+        label=label,
+        defaults=defaults,
+        uncertainty_cache=uncertainty_cache,
+        figure_horizontal_default=figure_horizontal_default,
+        derived_cache=derived_cache,
+        uncertainty_loader=load_observation_uncertainty_scene,
+    )
+
+
 def _render_panel(
     *,
     ax,
@@ -407,6 +443,18 @@ def _render_panel(
             figure_horizontal_default=figure_horizontal_default,
             derived_cache=cache.derived_arrays,
         )
+    if panel.kind == "uncertainty":
+        return _render_uncertainty_panel(
+            ax,
+            panel=panel,
+            context=context,
+            extent=extent,
+            label=label,
+            defaults=defaults,
+            uncertainty_cache=cache.observation_uncertainties,
+            figure_horizontal_default=figure_horizontal_default,
+            derived_cache=cache.derived_arrays,
+        )
     if panel.kind == "colorbar":
         raise RuntimeError("Support panels require precomputed artifacts")
     if panel.kind == "legend":
@@ -424,11 +472,20 @@ def render_map_recipe(
 ) -> Path:
     del project_dir
     cache = runtime_cache or RenderRuntimeCache()
-    extent = buffered_extent(context)
+    row_extents = _row_extents_for_recipe(recipe, context)
+    extent = row_extents[0]
     figure_horizontal_default = _figure_prefers_horizontal_legends(recipe)
-    fig = plt.figure(figsize=_figure_size(extent, recipe, context=context, obs_cache=cache.observations))
+    fig = plt.figure(
+        figsize=_figure_size(
+            extent,
+            recipe,
+            context=context,
+            obs_cache=cache.observations,
+            row_extents=row_extents,
+        )
+    )
     width_ratios = _effective_width_ratios(recipe)
-    height_ratios = _effective_height_ratios(recipe)
+    height_ratios = _effective_row_height_ratios(recipe, row_extents=row_extents)
     col_gap_factors = _column_gap_factors(recipe, figure_horizontal_default=figure_horizontal_default)
     row_bottom_extras = _row_bottom_extras(
         recipe,
@@ -437,7 +494,10 @@ def render_map_recipe(
         figure_horizontal_default=figure_horizontal_default,
         obs_cache=cache.observations,
     )
-    row_gap_factors = tuple(_LAYOUT_ROW_GAP + row_bottom_extras[row] for row in range(recipe.layout.nrows - 1))
+    row_gap_factors = tuple(
+        (_LAYOUT_ROW_GAP + row_bottom_extras[row]) * height_ratios[row]
+        for row in range(recipe.layout.nrows - 1)
+    )
     gs = fig.add_gridspec(
         max(1, recipe.layout.nrows * 2 - 1),
         max(1, recipe.layout.ncols * 2 - 1),
@@ -487,7 +547,7 @@ def render_map_recipe(
                 context=context,
                 label=panel_labels[idx],
                 defaults=recipe.defaults,
-                extent=extent,
+                extent=row_extents[int(panel.row)],
                 cache=cache,
                 figure_horizontal_default=figure_horizontal_default,
             )
@@ -554,10 +614,12 @@ __all__ = [
     "_effective_height_ratios",
     "_effective_width_ratios",
     "_expanded_grid_ratios",
+    "_effective_row_height_ratios",
     "_figure_prefers_horizontal_legends",
     "_field_array",
     "_grid_extent",
     "_grid_span",
+    "_google_zoom_meters_per_pixel",
     "_hillshade",
     "_hillshade_extent",
     "_hillshade_underlay",
@@ -592,9 +654,12 @@ __all__ = [
     "_render_overview_panel",
     "_render_roi_panel",
     "_render_static_panel",
+    "_render_uncertainty_panel",
     "_resolve_flag",
     "_resolve_panel_toggle",
     "_row_bottom_extras",
+    "_row_extents_for_recipe",
+    "_row_view_extent",
     "_scale_bar_length_m",
     "_shift_axes_group",
     "_text_size_in",
@@ -604,6 +669,7 @@ __all__ = [
     "figure_height_for_extent",
     "load_model_fields",
     "load_observation_scene",
+    "load_observation_uncertainty_scene",
     "load_overview_boundaries",
     "load_overview_labels",
     "load_overview_regions",

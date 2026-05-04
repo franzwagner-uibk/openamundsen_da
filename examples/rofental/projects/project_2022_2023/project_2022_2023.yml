@@ -8,6 +8,7 @@ obs:
   snowcover:
     dir: obs/snowcover
     product_tag: SNOWCOVER
+    summary_csv: obs/summaries/project_2022_2023/scf_summary.csv
     classes:
       valid: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100]
       cloud: [205]
@@ -16,6 +17,7 @@ obs:
   wetsnow:
     dir: obs/wetsnow
     product_tag: WETSNOW
+    summary_csv: obs/summaries/project_2022_2023/wet_snow_summary.csv
     classes:
       valid: [110, 125, 200, 210]
       wet: [110]
@@ -24,41 +26,44 @@ obs:
 data_assimilation:
   prior_forcing:
     ensemble_size: 30
-    random_seed: 42
-    sigma_t: 0.7
+    random_seed: 113
+    sigma_t: 0.5
     mu_p: 0.0
-    sigma_p: 0.8
-    sigma_rh: 0.0
-    sigma_sw: 0.0
+    sigma_p: 0.5
+    sigma_rh: 0.5
+    sigma_sw: 0.05
   resampling:
     algorithm: systematic
     ess_threshold_ratio: 0.7
-    seed: 42
+    seed: 113
   rejuvenation:
-    sigma_t: 0.7
-    sigma_p: 0.8
-    sigma_rh: 0.0
-    sigma_sw: 0.0
-    seed: 42
+    sigma_t: 0.5
+    sigma_p: 0.5
+    sigma_rh: 0.5
+    sigma_sw: 0.05
+    seed: 113
     rebase_open_loop: false
   restart:
     use_state: true
     dump_state: true
     state_pattern: model_state.pickle.gz
   assimilation_events:
-  - date: '2022-11-22'
+  - date: '2022-11-17'
     variable: station_hs
-  - date: '2022-12-22'
+  - date: '2022-12-07'
+    variable: station_hs
+  - date: '2023-01-01'
     variable: station_hs
   - date: '2023-01-31'
     variable: station_hs
   - date: '2023-02-21'
     variable: station_hs
-  - date: '2023-03-22'
-    variable: station_hs
   - date: '2023-03-24'
     variable: wet_snow_line
     product: WETSNOW
+  - date: '2023-04-16'
+    variable: scf
+    product: SNOWCOVER
   - date: '2023-04-26'
     variable: scf
     product: SNOWCOVER

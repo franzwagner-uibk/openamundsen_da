@@ -909,7 +909,7 @@ def _draw_weights_event(
         ax1.xaxis.set_minor_locator(AutoMinorLocator(4))
     else:
         residual = pd.to_numeric(ordered_df.get("residual"), errors="coerce")
-        frac_color = _FRACTION_MISMATCH_COLORS.get(observable, "#ff7f0e")
+        frac_color = _FRACTION_MISMATCH_COLORS.get(observable, da_variable_line_color("station_hs"))
         valid = residual.notna()
         if valid.any():
             resid_valid = residual.loc[valid]

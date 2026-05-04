@@ -27,6 +27,7 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf_binary_grid, load_hofx_from_project
 from openamundsen_da.methods.viz.fraction_series import load_fraction_series, load_open_loop_fraction_series
+from openamundsen_da.methods.viz.theme import da_variable_line_color
 from openamundsen_da.observer.summary_paths import resolve_fraction_summary_path
 from openamundsen_da.methods.viz.maps.annotations import (
     apply_overlay_label_halo,
@@ -1742,7 +1743,7 @@ def _contour_xy(context: StaticContext) -> tuple[np.ndarray, np.ndarray]:
     return np.meshgrid(xs, ys)
 
 
-_WSL_MODEL_COLOR = "#c21f24"
+_WSL_MODEL_COLOR = da_variable_line_color("wet_snow_line")
 _WSL_OBS_COLOR = "#9467bd"
 
 

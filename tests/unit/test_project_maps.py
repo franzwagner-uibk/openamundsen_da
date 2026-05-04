@@ -2667,7 +2667,7 @@ def test_wet_snow_line_model_panel_draws_wsl_contour(tmp_path: Path, monkeypatch
             figure_horizontal_default=True,
         )
 
-        assert recorded_levels == [(2450.0, "#c21f24", "-")]
+        assert recorded_levels == [(2450.0, panel_renderers_module._WSL_MODEL_COLOR, "-")]
         assert artifacts["wsl"] == 2450.0
         assert artifacts["obs_wsl"] == 2550.0
         legend_labels = [
@@ -2681,7 +2681,7 @@ def test_wet_snow_line_model_panel_draws_wsl_contour(tmp_path: Path, monkeypatch
         assert legend_labels[-1:] == ["model WSLA"]
         assert "WSLA unavailable" not in {text.get_text() for text in ax.texts}
         callout = next(text for text in ax.texts if text.get_text() == "WSLA 2450 m")
-        assert callout.get_color() == "#c21f24"
+        assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
     finally:
         plt.close(fig)
 
@@ -2826,11 +2826,11 @@ def test_wet_snow_elevation_fraction_panel_draws_source_local_wsl(
             figure_horizontal_default=True,
         )
 
-        assert recorded == [(2450.0, "#c21f24", "-")]
+        assert recorded == [(2450.0, panel_renderers_module._WSL_MODEL_COLOR, "-")]
         assert artifacts["wsl"] == 2450.0
         assert artifacts["wsl_drawn"] is True
         callout = next(text for text in ax.texts if text.get_text() == "WSLA 2450 m")
-        assert callout.get_color() == "#c21f24"
+        assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
     finally:
         plt.close(fig)
 
@@ -2870,11 +2870,11 @@ def test_wet_snow_elevation_fraction_observation_reuses_observed_wsl(
             figure_horizontal_default=True,
         )
 
-        assert recorded == [(3320.0, "#9467bd", "-")]
+        assert recorded == [(3320.0, panel_renderers_module._WSL_OBS_COLOR, "-")]
         assert artifacts["wsl"] == 3320.0
         assert artifacts["wsl_drawn"] is True
         callout = next(text for text in ax.texts if text.get_text() == "WSLA 3320 m")
-        assert callout.get_color() == "#9467bd"
+        assert callout.get_color() == panel_renderers_module._WSL_OBS_COLOR
     finally:
         plt.close(fig)
 
@@ -3017,9 +3017,9 @@ def test_wet_snow_line_observation_panel_uses_obs_color_for_callout(
             observation_loader=lambda *_args, **_kwargs: observation,
         )
 
-        assert recorded_levels == [(2550.0, "#9467bd", "-")]
+        assert recorded_levels == [(2550.0, panel_renderers_module._WSL_OBS_COLOR, "-")]
         callout = next(text for text in ax.texts if text.get_text() == "WSLA 2550 m")
-        assert callout.get_color() == "#9467bd"
+        assert callout.get_color() == panel_renderers_module._WSL_OBS_COLOR
         legend = ax.get_legend()
         assert legend is not None
         assert [text.get_text() for text in legend.get_texts()][-1] == "observation WSLA"
@@ -3105,7 +3105,7 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
             figure_horizontal_default=True,
         )
 
-        assert recorded_levels == [(2525.0, "#c21f24", "-", 9.5)]
+        assert recorded_levels == [(2525.0, panel_renderers_module._WSL_MODEL_COLOR, "-", 9.5)]
         assert artifacts["wsl"] == 2525.0
         assert artifacts["obs_wsl"] == 2625.0
         assert [handle.get_label() for handle in artifacts["posterior_overlay_handles"]] == ["posterior WSLA"]
@@ -3114,7 +3114,7 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
         assert [text.get_text() for text in legend.get_texts()] == ["posterior WSLA"]
         assert "WSLA unavailable" not in {text.get_text() for text in ax.texts}
         callout = next(text for text in ax.texts if text.get_text() == "WSLA 2530 m")
-        assert callout.get_color() == "#c21f24"
+        assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
     finally:
         plt.close(fig)
 

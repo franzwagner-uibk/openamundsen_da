@@ -85,13 +85,7 @@ data_assimilation:
     - date: "2023-03-24"
       variable: wet_snow_line
       product: WETSNOW
-    - date: "2023-04-16"
-      variable: scf
-      product: SNOWCOVER
     - date: "2023-04-26"
-      variable: scf
-      product: SNOWCOVER
-    - date: "2023-05-18"
       variable: scf
       product: SNOWCOVER
     - date: "2023-05-26"
@@ -274,7 +268,7 @@ oa-da-scf \
 
 After the command, expect one SCF observation CSV per configured SCF event under
 `/data/rofental/projects/project_2022_2023/steps/*/obs/`. A typical file name is
-`obs_scf_SNOWCOVER_20230416.csv`.
+`obs_scf_SNOWCOVER_20230426.csv`.
 This one-row file is the actual SCF input consumed later during data assimilation.
 When uncertainty is enabled and matching layers exist, the generated file also
 contains `unc_mean`, `unc_min`, `unc_max`, and `unc_n_valid`.
@@ -283,7 +277,7 @@ Reference snippet from a generated SCF observation file:
 
 | date | n_valid | n_snow | scf | cloud_fraction | source |
 | --- | --- | --- | --- | --- | --- |
-| 2023-04-16 | 17838 | 17838 | 1.00 | 0.00 | s2_fsc_snowflake_rofental_2023_04_16.tif |
+| 2023-04-26 | 144345 | 137676 | 0.95 | 0.00 | s2_fsc_snowflake_rofental_2023_04_26.tif |
 
 ## Step 5: Create per-step wet-snow observation CSVs
 

@@ -6,9 +6,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.font_manager import FontProperties
 from matplotlib.textpath import TextPath
+from rasterio.crs import CRS
+from rasterio.warp import transform as transform_coords
 
 from openamundsen_da.methods.viz.theme import FIGWIDTH_OVERVIEW_PAPER
-from openamundsen_da.methods.viz.maps.config import MapDefaults, MapPanelSpec, MapRecipe
+from openamundsen_da.methods.viz.maps.config import MapDefaults, MapPanelSpec, MapRecipe, MapRowViewSpec
 from openamundsen_da.methods.viz.maps.data import ObservationScene, StaticContext
 from openamundsen_da.methods.viz.maps.styles import LANDCOVER_LABELS, WET_SNOW_LABELS
 from openamundsen_da.methods.viz.maps.theme import (
@@ -53,6 +55,10 @@ from openamundsen_da.methods.viz.maps.theme import (
     _VERTICAL_COLORBAR_XOFFSET_AXES,
 )
 
+_GOOGLE_TILE_SIZE_PX = 256.0
+_WEB_MERCATOR_RADIUS_M = 6378137.0
+_WGS84_CRS = "EPSG:4326"
+
 
 def buffered_extent(context: StaticContext) -> tuple[float, float, float, float]:
     minx, miny, maxx, maxy = context.roi_gdf.total_bounds
@@ -62,6 +68,64 @@ def buffered_extent(context: StaticContext) -> tuple[float, float, float, float]
     pad_x = max(dx * _BUFFER_RATIO, 2.0 * cell)
     pad_y = max(dy * _BUFFER_RATIO, 2.0 * cell)
     return (minx - pad_x, maxx + pad_x, miny - pad_y, maxy + pad_y)
+
+
+def google_zoom_meters_per_pixel(latitude_deg: float, zoom: float) -> float:
+    cos_lat = float(np.cos(np.deg2rad(float(latitude_deg))))
+    if cos_lat <= 0.0:
+        raise ValueError(f"Google zoom scale is undefined at latitude {latitude_deg:g}")
+    return cos_lat * 2.0 * np.pi * _WEB_MERCATOR_RADIUS_M / (_GOOGLE_TILE_SIZE_PX * (2.0 ** float(zoom)))
+
+
+def _coerce_crs(value: object, *, context: str) -> CRS:
+    if value is None:
+        raise ValueError(f"{context} is required for row zoom views")
+    try:
+        return CRS.from_user_input(value)
+    except Exception as exc:
+        raise ValueError(f"Invalid CRS for {context}: {value!r}") from exc
+
+
+def _require_meter_projected_setup_crs(context: StaticContext) -> CRS:
+    crs = _coerce_crs(context.spec.crs, context="setup CRS")
+    units = str(getattr(crs, "linear_units", "") or "").lower()
+    if not crs.is_projected or ("metre" not in units and "meter" not in units):
+        raise ValueError(f"Row zoom views require a projected meter-based setup CRS, got {context.spec.crs!r}")
+    return crs
+
+
+def _transform_point(x: float, y: float, *, src_crs: CRS | str, dst_crs: CRS | str) -> tuple[float, float]:
+    src = CRS.from_user_input(src_crs)
+    dst = CRS.from_user_input(dst_crs)
+    if src == dst:
+        return float(x), float(y)
+    xs, ys = transform_coords(src, dst, [float(x)], [float(y)])
+    return float(xs[0]), float(ys[0])
+
+
+def row_view_extent(view: MapRowViewSpec, context: StaticContext) -> tuple[float, float, float, float]:
+    setup_crs = _require_meter_projected_setup_crs(context)
+    center_crs = _coerce_crs(view.center_crs or setup_crs, context=f"row_views[{view.row}].center_crs")
+    center_x, center_y = view.center
+    map_x, map_y = _transform_point(center_x, center_y, src_crs=center_crs, dst_crs=setup_crs)
+    _lon, lat = _transform_point(center_x, center_y, src_crs=center_crs, dst_crs=_WGS84_CRS)
+    meters_per_pixel = google_zoom_meters_per_pixel(lat, view.zoom)
+    width_m = meters_per_pixel * float(view.viewport_px[0])
+    height_m = meters_per_pixel * float(view.viewport_px[1])
+    return (
+        map_x - 0.5 * width_m,
+        map_x + 0.5 * width_m,
+        map_y - 0.5 * height_m,
+        map_y + 0.5 * height_m,
+    )
+
+
+def row_extents_for_recipe(recipe: MapRecipe, context: StaticContext) -> dict[int, tuple[float, float, float, float]]:
+    full_extent = buffered_extent(context)
+    extents = {row: full_extent for row in range(recipe.layout.nrows)}
+    for view in recipe.row_views:
+        extents[int(view.row)] = row_view_extent(view, context)
+    return extents
 
 
 def figure_height_for_extent(extent: tuple[float, float, float, float]) -> float:
@@ -299,6 +363,21 @@ def effective_width_ratios(recipe: MapRecipe) -> tuple[float, ...]:
 
 def effective_height_ratios(recipe: MapRecipe) -> tuple[float, ...]:
     return recipe.layout.height_ratios or tuple(1.0 for _ in range(recipe.layout.nrows))
+
+
+def _extent_aspect(extent: tuple[float, float, float, float]) -> float:
+    width = max(1.0, float(extent[1] - extent[0]))
+    height = max(1.0, float(extent[3] - extent[2]))
+    return height / width
+
+
+def effective_row_height_ratios(
+    recipe: MapRecipe,
+    *,
+    row_extents: dict[int, tuple[float, float, float, float]],
+) -> tuple[float, ...]:
+    height_factors = effective_height_ratios(recipe)
+    return tuple(float(height_factors[row]) * _extent_aspect(row_extents[row]) for row in range(recipe.layout.nrows))
 
 
 def horizontal_legend_item_width_in(label: str) -> float:
@@ -584,13 +663,12 @@ def figure_size(
     *,
     context: StaticContext,
     obs_cache: dict[tuple[str, str], ObservationScene] | None = None,
+    row_extents: dict[int, tuple[float, float, float, float]] | None = None,
     classified_labels_getter,
     below_items_extra_getter,
 ) -> tuple[float, float]:
-    width = max(1.0, float(extent[1] - extent[0]))
-    height = max(1.0, float(extent[3] - extent[2]))
-    aspect = height / width
-    height_factors = effective_height_ratios(recipe)
+    row_extents = row_extents or {row: extent for row in range(recipe.layout.nrows)}
+    row_height_ratios = effective_row_height_ratios(recipe, row_extents=row_extents)
     figure_horizontal_default = figure_prefers_horizontal_legends(recipe)
     panel_width = panel_width_in_for_recipe(recipe, figure_horizontal_default=figure_horizontal_default)
     bottom_extras = row_bottom_extras(
@@ -602,14 +680,13 @@ def figure_size(
         classified_labels_getter=classified_labels_getter,
         below_items_extra_getter=below_items_extra_getter,
     )
-    inter_row_gap_factors = tuple(_LAYOUT_ROW_GAP + bottom_extras[row] for row in range(recipe.layout.nrows - 1))
-    bottom_extra_factor = bottom_extras.get(recipe.layout.nrows - 1, 0.0)
-    panel_height = panel_width * aspect * 1.02
-    inner_height = (
-        panel_height * float(sum(height_factors))
-        + panel_height * float(sum(inter_row_gap_factors))
-        + panel_height * bottom_extra_factor
+    row_heights = tuple(panel_width * float(ratio) * 1.02 for ratio in row_height_ratios)
+    inter_row_gap_heights = tuple(
+        (_LAYOUT_ROW_GAP + bottom_extras[row]) * row_heights[row]
+        for row in range(recipe.layout.nrows - 1)
     )
+    bottom_extra_height = bottom_extras.get(recipe.layout.nrows - 1, 0.0) * row_heights[-1]
+    inner_height = float(sum(row_heights) + sum(inter_row_gap_heights) + bottom_extra_height)
     fig_height = inner_height / max(_TOP_MARGIN - _BOTTOM_MARGIN, 1e-9)
     return FIGWIDTH_OVERVIEW_PAPER, float(np.clip(fig_height, _FIGURE_HEIGHT_MIN, _FIGURE_HEIGHT_MAX))
 

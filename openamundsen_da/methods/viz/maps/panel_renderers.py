@@ -47,6 +47,7 @@ from openamundsen_da.methods.viz.maps.data import (
     StaticContext,
     load_model_fields,
     load_observation_scene,
+    load_observation_uncertainty_scene,
 )
 from openamundsen_da.methods.viz.maps.hillshade import grid_extent, hillshade, hillshade_extent, hillshade_underlay
 from openamundsen_da.methods.viz.maps.layout import (
@@ -1317,6 +1318,92 @@ def render_observation_panel(
     draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=date, resolve_flag=resolve_flag)
     draw_map_grid_overlay(ax, show_grid=show_grid)
     return {"mappable": image, "legend_handles": legend_handles}
+
+
+def render_uncertainty_panel(
+    ax,
+    *,
+    panel: MapPanelSpec,
+    context: StaticContext,
+    extent,
+    label: str | None,
+    defaults: MapDefaults,
+    uncertainty_cache,
+    figure_horizontal_default: bool,
+    derived_cache: dict[str, np.ndarray] | None = None,
+    uncertainty_loader: Callable[..., ObservationScene] = load_observation_uncertainty_scene,
+) -> dict[str, object]:
+    date = panel_date(panel, defaults)
+    if date is None:
+        raise ValueError(f"Panel '{panel.kind}' requires a date (panel '{panel.title or panel.kind}')")
+    observation = str(panel.observation or "").strip()
+    if not observation:
+        raise ValueError("Uncertainty panels require an observation name")
+    cache_key = (observation, date)
+    if cache_key not in uncertainty_cache:
+        uncertainty_cache[cache_key] = uncertainty_loader(
+            context.project_dir,
+            context,
+            observation=observation,
+            date=date,
+        )
+    scene = uncertainty_cache[cache_key]
+    show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
+    if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
+        hillshade_mode = resolve_hillshade_extent(panel, defaults, builtin="full")
+        ax.imshow(
+            hillshade_underlay(context, derived_cache=derived_cache)
+            if hillshade_mode == "roi"
+            else hillshade(context, derived_cache=derived_cache),
+            cmap="Greys_r",
+            extent=hillshade_extent(context),
+            origin="upper",
+            interpolation=_HILLSHADE_INTERPOLATION,
+            vmin=0.0,
+            vmax=1.0,
+            zorder=0,
+        )
+
+    norm = Normalize(vmin=0.0, vmax=100.0)
+    image = ax.imshow(
+        np.ma.masked_invalid(scene.array),
+        cmap=colormaps["YlOrRd"],
+        norm=norm,
+        extent=scene.bounds,
+        origin="upper",
+        interpolation="nearest",
+        zorder=5,
+    )
+    invalid_mask = scene.invalid_mask if scene.invalid_mask is not None else scene.roi_mask & ~np.isfinite(scene.array)
+    overlay_invalid_inside_roi(ax, invalid_mask, extent=scene.bounds)
+    apply_common_overlays(
+        ax,
+        context=context,
+        extent=extent,
+        show_roi=resolve_panel_toggle(panel.show_roi, True),
+        show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
+        show_stations_name=resolve_panel_toggle(panel.show_stations_name, False),
+        show_stations_elev=resolve_panel_toggle(panel.show_stations_elev, False),
+    )
+    apply_map_axis_style(
+        ax,
+        extent,
+        title=panel_title(label, panel_semantic_title(panel)),
+        show_grid=show_grid,
+        show_y_ticklabels=panel.col == 0,
+    )
+    colorbar_style = {"label": "uncertainty [%]", "ticks": (0, 20, 40, 60, 80, 100)}
+    if resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
+        attach_colorbar(
+            ax,
+            image,
+            label=colorbar_style["label"],
+            ticks=colorbar_style["ticks"],
+            layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True),
+        )
+    draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=date, resolve_flag=resolve_flag)
+    draw_map_grid_overlay(ax, show_grid=show_grid)
+    return {"mappable": image, "colorbar_style": colorbar_style}
 
 
 def _fraction_value_column(observation: str) -> str:

@@ -527,13 +527,21 @@ Note: running the setup pipeline (see below) also generates these setup plots au
   # - liquid_water_content     # source: open_loop | ensemble_mean | analysis_mean | increment | analysis_increment
   # - fsc                      # source: open_loop | ensemble_mean | open_loop_binary | prior_probability | posterior_probability
   # - wet_snow                 # source: open_loop | ensemble_mean | prior_probability | posterior_probability
+  # - uncertainty              # observation: scf | wet_snow
   # - wet_snow_line            # source: open_loop | prior_probability | posterior_probability | posterior
   # - wet_snow_elevation_fraction # source: open_loop | prior_probability | posterior_probability
   # - legend
   # - colorbar
   # Optional panel keys:
   # - title, name, date, legend, show_colorbar, show_scalebar, show_grid, show_hillshade, hillshade_extent
-  # - show_roi, show_station_marker, show_stations_name, show_stations_elev
+  # - observation (uncertainty only), show_roi, show_station_marker, show_stations_name, show_stations_elev
+  # Optional recipe-level row zoom views:
+  # row_views:
+  #   - row: 1
+  #     center: [643767, 5191680] # setup/project CRS by default
+  #     zoom: 13                 # Google/Slippy-map zoom
+  #     # center_crs: EPSG:4326
+  #     # viewport_px: [1024, 1024]
   ```
 
   ```powershell
@@ -550,7 +558,7 @@ Note: running the setup pipeline (see below) also generates these setup plots au
   Generated DA-event rows use four consistent columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference columns show `analysis_increment` (`posterior - prior`, so positive values mean DA added snow/water). FSC and wet-snow reference columns show the satellite observation. Generated FSC, WSF, WSLA, and elevation-band WSF rows use spatial prior/posterior probability maps where applicable; WSLA contours are panel-local, so model columns do not overlay observation WSLA. If the event resampling manifest reports skipped resampling, the map title is suffixed with `resampling skipped`.
 
   By default the renderer parallelizes across independent recipe PNGs inside the Docker container and clamps the effective worker count to `min(visible CPUs, selected recipes)`; use `--max-workers 1` to force sequential rendering. `oa-da-project` and merged sub-domain runs also render project maps automatically as a best-effort post-run stage. If a map fails because supporting data are missing, the pipeline logs a rerun command and continues.
-  Project maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`, `wet_snow_line`, `wet_snow_elevation_fraction`), and optional support panels (`legend`, `colorbar`). `wet_snow` renders WSF, while `wet_snow_line` renders the wet-snow raster context together with a DEM contour at the diagnosed WSLA. `prior_probability` and `posterior_probability` sources render spatial ensemble probability fields; observation overlays are kept in observation/reference panels.
+  Project maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`, `uncertainty`, `wet_snow_line`, `wet_snow_elevation_fraction`), and optional support panels (`legend`, `colorbar`). `uncertainty` renders `*_uncertainty.tif` companion rasters for `observation: scf` or `observation: wet_snow` on the valid observation support. Recipe-level `row_views` can assign a shared Google/Slippy-map zoom extent to every panel in a row. `wet_snow` renders WSF, while `wet_snow_line` renders the wet-snow raster context together with a DEM contour at the diagnosed WSLA. `prior_probability` and `posterior_probability` sources render spatial ensemble probability fields; observation overlays are kept in observation/reference panels.
 
 - Project plots (all post-run plots without rerunning DA):
 

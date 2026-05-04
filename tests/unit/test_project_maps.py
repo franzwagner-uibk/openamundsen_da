@@ -31,12 +31,14 @@ from openamundsen_da.methods.viz.maps.config import (
     MapDefaults,
     MapPanelSpec,
     MapRecipe,
+    MapRowViewSpec,
     load_project_maps_config,
 )
 from openamundsen_da.methods.viz.maps.data import (
     ModelFields,
     ObservationScene,
     load_observation_scene,
+    load_observation_uncertainty_scene,
     load_static_context,
     resolve_comparison_dates,
     resolve_observation_context_dates,
@@ -343,7 +345,19 @@ def _build_project_fixture(
         nodata=255.0,
     )
     _write_grid(
+        setup_dir / "obs" / "snowcover" / "scf_partial_uncertainty.tif",
+        np.array([[10, 10], [15, 15], [20, 20], [25, 25]], dtype=np.float32),
+        transform=from_origin(0.0, 400.0, 100.0, 100.0),
+        nodata=255.0,
+    )
+    _write_grid(
         setup_dir / "obs" / "snowcover" / "scf_left.tif",
+        np.array([[10, 20], [10, 20], [10, 20], [10, 20]], dtype=np.float32),
+        transform=from_origin(0.0, 400.0, 100.0, 100.0),
+        nodata=255.0,
+    )
+    _write_grid(
+        setup_dir / "obs" / "snowcover" / "scf_left_uncertainty.tif",
         np.array([[10, 20], [10, 20], [10, 20], [10, 20]], dtype=np.float32),
         transform=from_origin(0.0, 400.0, 100.0, 100.0),
         nodata=255.0,
@@ -355,8 +369,20 @@ def _build_project_fixture(
         nodata=255.0,
     )
     _write_grid(
+        setup_dir / "obs" / "snowcover" / "scf_right_uncertainty.tif",
+        np.array([[30, 40], [30, 40], [30, 40], [30, 40]], dtype=np.float32),
+        transform=from_origin(200.0, 400.0, 100.0, 100.0),
+        nodata=255.0,
+    )
+    _write_grid(
         setup_dir / "obs" / "wetsnow" / "wet_partial.tif",
         np.array([[110, 110], [110, 110], [200, 200], [200, 200]], dtype=np.float32),
+        transform=from_origin(0.0, 400.0, 100.0, 100.0),
+        nodata=255.0,
+    )
+    _write_grid(
+        setup_dir / "obs" / "wetsnow" / "wet_partial_uncertainty.tif",
+        np.array([[20, 20], [30, 30], [40, 40], [50, 50]], dtype=np.float32),
         transform=from_origin(0.0, 400.0, 100.0, 100.0),
         nodata=255.0,
     )
@@ -523,6 +549,250 @@ def test_project_maps_config_loads_keyed_grid_recipes(tmp_path: Path) -> None:
     assert cfg.maps[0].layout.ncols == 3
     assert cfg.maps[0].defaults.date == "2023-01-02"
     assert cfg.maps[0].output_stem == "snowdepth_2023-01-02"
+
+
+def test_project_maps_config_accepts_uncertainty_panel_observation(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          uncertainty_demo:
+            title: uncertainty_demo
+            defaults:
+              date: "2023-01-02"
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: uncertainty
+                observation: scf
+                title: uncertainty
+        """,
+    )
+
+    cfg = load_project_maps_config(config_path)
+
+    panel = cfg.maps[0].panels[0]
+    assert panel.kind == "uncertainty"
+    assert panel.observation == "scf"
+
+
+def test_project_maps_config_accepts_row_views(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          zoom_demo:
+            title: zoom_demo
+            layout:
+              nrows: 2
+              ncols: 1
+            row_views:
+              - row: 1
+                center: [643767, 5191680]
+                zoom: 13
+                center_crs: EPSG:25832
+                viewport_px: [800, 600]
+            panels:
+              - row: 0
+                col: 0
+                kind: roi
+              - row: 1
+                col: 0
+                kind: roi
+        """,
+    )
+
+    cfg = load_project_maps_config(config_path)
+
+    assert cfg.maps[0].row_views == (
+        MapRowViewSpec(
+            row=1,
+            center=(643767.0, 5191680.0),
+            zoom=13.0,
+            center_crs="EPSG:25832",
+            viewport_px=(800, 600),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("row_view_yaml", "match"),
+    [
+        ("row: 2\n                center: [100, 200]\n                zoom: 13", "row must be < 2"),
+        ("row: 1\n                center: [100, 200]\n                zoom: 0", "zoom must be > 0"),
+        ("row: 1\n                center: [100]\n                zoom: 13", "center must contain exactly two numbers"),
+        ("row: 1\n                center: [100, 200]\n                zoom: 13\n                viewport_px: [1024, 0]", "viewport_px\\[1\\] must be >= 1"),
+    ],
+)
+def test_project_maps_config_rejects_invalid_row_views(
+    tmp_path: Path,
+    row_view_yaml: str,
+    match: str,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        f"""
+        maps:
+          zoom_demo:
+            title: zoom_demo
+            layout:
+              nrows: 2
+              ncols: 1
+            row_views:
+              - {row_view_yaml}
+            panels:
+              - row: 0
+                col: 0
+                kind: roi
+              - row: 1
+                col: 0
+                kind: roi
+        """,
+    )
+
+    with pytest.raises(ValueError, match=match):
+        load_project_maps_config(config_path)
+
+
+def test_project_maps_config_rejects_duplicate_row_views(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          zoom_demo:
+            title: zoom_demo
+            layout:
+              nrows: 2
+              ncols: 1
+            row_views:
+              - row: 1
+                center: [100, 200]
+                zoom: 13
+              - row: 1
+                center: [120, 220]
+                zoom: 12
+            panels:
+              - row: 0
+                col: 0
+                kind: roi
+              - row: 1
+                col: 0
+                kind: roi
+        """,
+    )
+
+    with pytest.raises(ValueError, match="duplicate row view"):
+        load_project_maps_config(config_path)
+
+
+def test_project_maps_config_rejects_panel_spanning_different_row_views(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          zoom_demo:
+            title: zoom_demo
+            layout:
+              nrows: 2
+              ncols: 1
+            row_views:
+              - row: 1
+                center: [100, 200]
+                zoom: 13
+            panels:
+              - row: 0
+                col: 0
+                rowspan: 2
+                kind: roi
+        """,
+    )
+
+    with pytest.raises(ValueError, match="spans rows with different row_views"):
+        load_project_maps_config(config_path)
+
+
+def test_project_maps_config_rejects_uncertainty_panel_without_observation(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          uncertainty_demo:
+            title: uncertainty_demo
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: uncertainty
+        """,
+    )
+
+    with pytest.raises(ValueError, match="observation is required for uncertainty panels"):
+        load_project_maps_config(config_path)
+
+
+def test_project_maps_config_rejects_invalid_uncertainty_observation(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          uncertainty_demo:
+            title: uncertainty_demo
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: uncertainty
+                observation: station_hs
+        """,
+    )
+
+    with pytest.raises(ValueError, match="observation must be one of"):
+        load_project_maps_config(config_path)
+
+
+def test_project_maps_config_keeps_observation_key_removed_for_other_panels(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          fsc_demo:
+            title: fsc_demo
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: fsc
+                observation: scf
+        """,
+    )
+
+    with pytest.raises(ValueError, match="removed panel keys: observation"):
+        load_project_maps_config(config_path)
 
 
 def test_project_maps_config_accepts_static_panels_and_legend_items(tmp_path: Path) -> None:
@@ -1307,6 +1577,82 @@ def test_load_observation_scene_keeps_visual_wet_snow_classes(tmp_path: Path) ->
     assert set(np.unique(wet_scene.array[np.isfinite(wet_scene.array)])) == {110.0, 200.0}
 
 
+def test_load_observation_uncertainty_scene_resolves_sidecar_mosaic(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+
+    scene = load_observation_uncertainty_scene(
+        project_dir,
+        context,
+        observation="scf",
+        date=pd.Timestamp("2023-01-02"),
+    )
+
+    assert scene.coverage_fraction == 1.0
+    assert np.isfinite(scene.array).sum() == 16
+    assert scene.array[0, 0] == 10.0
+    assert scene.array[0, 1] == 20.0
+    assert scene.array[0, 2] == 30.0
+    assert scene.array[0, 3] == 40.0
+
+
+def test_load_observation_uncertainty_scene_masks_invalid_observation_pixels(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_summary(
+        setup_dir / "obs" / "summaries" / project_dir.name / "scf_summary.csv",
+        [{"date": "2023-01-03", "source": "scf_cloud.tif"}],
+    )
+    _write_grid(
+        setup_dir / "obs" / "snowcover" / "scf_cloud.tif",
+        np.array(
+            [
+                [20, 205, 40, 50],
+                [20, 255, 40, 50],
+                [20, 20, 40, 50],
+                [20, 20, 40, 50],
+            ],
+            dtype=np.float32,
+        ),
+        transform=from_origin(0.0, 400.0, 100.0, 100.0),
+        nodata=255.0,
+    )
+    _write_grid(
+        setup_dir / "obs" / "snowcover" / "scf_cloud_uncertainty.tif",
+        np.full((4, 4), 35.0, dtype=np.float32),
+        transform=from_origin(0.0, 400.0, 100.0, 100.0),
+        nodata=255.0,
+    )
+    context = load_static_context(project_dir)
+
+    scene = load_observation_uncertainty_scene(
+        project_dir,
+        context,
+        observation="scf",
+        date=pd.Timestamp("2023-01-03"),
+    )
+
+    assert np.isnan(scene.array[0, 1])
+    assert np.isnan(scene.array[1, 1])
+    assert scene.invalid_mask is not None
+    assert scene.invalid_mask[0, 1]
+    assert scene.invalid_mask[1, 1]
+    assert scene.array[0, 0] == 35.0
+
+
+def test_load_observation_uncertainty_scene_requires_sidecars(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    (setup_dir / "obs" / "snowcover" / "scf_right_uncertainty.tif").unlink()
+    context = load_static_context(project_dir)
+
+    with pytest.raises(FileNotFoundError, match="Observation uncertainty raster not found"):
+        load_observation_uncertainty_scene(
+            project_dir,
+            context,
+            observation="scf",
+            date=pd.Timestamp("2023-01-02"),
+        )
+
+
 def test_buffered_extent_and_figure_height_follow_bounds(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     context = load_static_context(project_dir)
@@ -1316,6 +1662,55 @@ def test_buffered_extent_and_figure_height_follow_bounds(tmp_path: Path) -> None
 
     assert extent == (-200.0, 600.0, -200.0, 600.0)
     assert 2.9 <= height <= 4.8
+
+
+def test_google_zoom_meters_per_pixel_uses_slippy_map_scale() -> None:
+    equator_zoom_1 = render_module._google_zoom_meters_per_pixel(0.0, 1.0)
+    latitude_60_zoom_1 = render_module._google_zoom_meters_per_pixel(60.0, 1.0)
+
+    assert equator_zoom_1 == pytest.approx(2.0 * np.pi * 6378137.0 / (256.0 * 2.0))
+    assert latitude_60_zoom_1 == pytest.approx(0.5 * equator_zoom_1)
+
+
+def test_row_view_extent_uses_zoom_center_and_viewport(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    view = MapRowViewSpec(
+        row=1,
+        center=(9.0, 60.0),
+        zoom=10.0,
+        center_crs="EPSG:4326",
+        viewport_px=(512, 256),
+    )
+
+    extent = render_module._row_view_extent(view, context)
+
+    meters_per_pixel = render_module._google_zoom_meters_per_pixel(60.0, 10.0)
+    assert extent[1] - extent[0] == pytest.approx(512.0 * meters_per_pixel)
+    assert extent[3] - extent[2] == pytest.approx(256.0 * meters_per_pixel)
+
+
+def test_row_extents_use_full_extent_unless_row_view_is_configured(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    recipe = MapRecipe(
+        name="zoom_demo",
+        title="zoom_demo",
+        layout=LayoutSpec(nrows=2, ncols=1),
+        panels=(
+            MapPanelSpec(kind="roi", row=0, col=0),
+            MapPanelSpec(kind="roi", row=1, col=0),
+        ),
+        row_views=(MapRowViewSpec(row=1, center=(200.0, 200.0), zoom=19.0, viewport_px=(1024, 512)),),
+    )
+
+    row_extents = render_module._row_extents_for_recipe(recipe, context)
+    row_ratios = render_module._effective_row_height_ratios(recipe, row_extents=row_extents)
+
+    assert row_extents[0] == buffered_extent(context)
+    assert row_extents[1] != row_extents[0]
+    assert row_ratios[0] == pytest.approx(1.0)
+    assert row_ratios[1] == pytest.approx(0.5)
 
 
 def test_comparison_scales_use_zero_centered_diverging_increment_norm() -> None:
@@ -2204,6 +2599,44 @@ def test_wet_snow_legend_handles_only_include_present_classes(tmp_path: Path) ->
         plt.close(fig)
 
 
+def test_uncertainty_panel_uses_fixed_percent_colorbar(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    date = pd.Timestamp("2023-05-03")
+    scene = ObservationScene(
+        date=date,
+        observation="scf",
+        array=np.array([[10.0, np.nan], [50.0, 90.0]], dtype=float),
+        transform=rasterio.Affine.identity(),
+        roi_mask=np.array([[True, True], [True, True]], dtype=bool),
+        invalid_mask=np.array([[False, True], [False, False]], dtype=bool),
+        bounds=(0.0, 2.0, 0.0, 2.0),
+        coverage_fraction=0.75,
+    )
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        artifacts = render_module._render_uncertainty_panel(
+            ax,
+            panel=MapPanelSpec(kind="uncertainty", row=0, col=0, date="2023-05-03", observation="scf"),
+            context=context,
+            extent=buffered_extent(context),
+            label=None,
+            defaults=MapDefaults(),
+            uncertainty_cache={("scf", date): scene},
+            figure_horizontal_default=True,
+        )
+
+        mappable = artifacts["mappable"]
+        assert mappable.norm.vmin == 0.0
+        assert mappable.norm.vmax == 100.0
+        assert artifacts["colorbar_style"] == {
+            "label": "uncertainty [%]",
+            "ticks": (0, 20, 40, 60, 80, 100),
+        }
+    finally:
+        plt.close(fig)
+
+
 def test_wet_snow_line_model_panel_draws_wsl_contour(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     context = load_static_context(project_dir)
@@ -3019,6 +3452,49 @@ def test_render_overview_panel_keeps_country_labels_inside_axes_bounds(tmp_path:
         assert text_bbox.y1 <= ax_bbox.y1 + 1.0
     finally:
         plt.close(fig)
+
+
+def test_render_map_recipe_applies_row_view_extent_to_all_panels_in_row(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    recipe = MapRecipe(
+        name="zoom_demo",
+        title="zoom_demo",
+        layout=LayoutSpec(nrows=2, ncols=2),
+        panels=(
+            MapPanelSpec(kind="roi", row=0, col=0),
+            MapPanelSpec(kind="roi", row=0, col=1),
+            MapPanelSpec(kind="roi", row=1, col=0),
+            MapPanelSpec(kind="roi", row=1, col=1),
+        ),
+        row_views=(MapRowViewSpec(row=1, center=(200.0, 200.0), zoom=19.0, viewport_px=(1024, 512)),),
+    )
+    recorded_extents: dict[tuple[int, int], tuple[float, float, float, float]] = {}
+
+    def record_panel(*, ax, panel, extent, **_kwargs):
+        recorded_extents[(int(panel.row), int(panel.col))] = extent
+        ax.set_xlim(extent[0], extent[1])
+        ax.set_ylim(extent[2], extent[3])
+        return {}
+
+    monkeypatch.setattr(render_module, "_render_panel", record_panel)
+
+    output_path = render_module.render_map_recipe(
+        project_dir=project_dir,
+        context=context,
+        recipe=recipe,
+        output_path=tmp_path / "row_view_demo.png",
+    )
+
+    expected_extents = render_module._row_extents_for_recipe(recipe, context)
+    assert output_path.is_file()
+    assert recorded_extents[(0, 0)] == expected_extents[0]
+    assert recorded_extents[(0, 1)] == expected_extents[0]
+    assert recorded_extents[(1, 0)] == expected_extents[1]
+    assert recorded_extents[(1, 1)] == expected_extents[1]
 
 
 def test_render_overview_panel_keeps_axes_box_aligned_with_sibling_panels(tmp_path: Path, monkeypatch) -> None:

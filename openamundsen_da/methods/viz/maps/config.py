@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 
 from openamundsen_da.core.env import _read_yaml_file
@@ -19,6 +20,7 @@ SUPPORTED_PANEL_KINDS = {
     "liquid_water_content",
     "fsc",
     "wet_snow",
+    "uncertainty",
     "wet_snow_line",
     "wet_snow_elevation_fraction",
     "legend",
@@ -50,6 +52,7 @@ SUPPORTED_WET_SNOW_ELEVATION_FRACTION_SOURCES = {
     "posterior",
     "posterior_probability",
 }
+SUPPORTED_UNCERTAINTY_OBSERVATIONS = {"scf", "wet_snow"}
 SUPPORTED_LEGEND_ITEM_KINDS = {"heading", "station_symbol", "source_legend", "scale_bar"}
 SUPPORTED_PANEL_LEGEND_LAYOUTS = {"horizontal", "vertical"}
 SUPPORTED_HILLSHADE_EXTENTS = {"full", "roi"}
@@ -92,6 +95,15 @@ class LegendItemSpec:
 
 
 @dataclass(frozen=True)
+class MapRowViewSpec:
+    row: int
+    center: tuple[float, float]
+    zoom: float
+    center_crs: str | None = None
+    viewport_px: tuple[int, int] = (1024, 1024)
+
+
+@dataclass(frozen=True)
 class MapPanelSpec:
     kind: str
     row: int
@@ -102,6 +114,7 @@ class MapPanelSpec:
     colspan: int = 1
     date: str | None = None
     source: str | None = None
+    observation: str | None = None
     scale: int | None = None
     label_fit_margin: float | None = None
     roi_label: str | None = None
@@ -131,6 +144,7 @@ class MapRecipe:
     output_subdir: str | None = None
     figure_title: str | None = None
     row_labels: tuple[str, ...] = ()
+    row_views: tuple[MapRowViewSpec, ...] = ()
     defaults: MapDefaults = MapDefaults()
 
     @property
@@ -194,10 +208,32 @@ def _coerce_float_tuple(value: object, *, context: str) -> tuple[float, ...]:
     items: list[float] = []
     for idx, raw in enumerate(value):
         try:
-            items.append(float(raw))
+            parsed = float(raw)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"{context}[{idx}] must be numeric") from exc
+        if not math.isfinite(parsed):
+            raise ValueError(f"{context}[{idx}] must be finite")
+        items.append(parsed)
     return tuple(items)
+
+
+def _coerce_float_pair(value: object, *, context: str) -> tuple[float, float]:
+    items = _coerce_float_tuple(value, context=context)
+    if len(items) != 2:
+        raise ValueError(f"{context} must contain exactly two numbers")
+    return (items[0], items[1])
+
+
+def _coerce_positive_float(value: object, *, context: str) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{context} must be numeric") from exc
+    if not math.isfinite(parsed):
+        raise ValueError(f"{context} must be finite")
+    if parsed <= 0.0:
+        raise ValueError(f"{context} must be > 0")
+    return parsed
 
 
 def _coerce_int(value: object, *, context: str, minimum: int = 0) -> int:
@@ -205,6 +241,21 @@ def _coerce_int(value: object, *, context: str, minimum: int = 0) -> int:
         parsed = int(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{context} must be an integer") from exc
+    if parsed < minimum:
+        raise ValueError(f"{context} must be >= {minimum}")
+    return parsed
+
+
+def _coerce_exact_int(value: object, *, context: str, minimum: int = 0) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{context} must be an integer")
+    try:
+        parsed_float = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{context} must be an integer") from exc
+    if not parsed_float.is_integer():
+        raise ValueError(f"{context} must be an integer")
+    parsed = int(parsed_float)
     if parsed < minimum:
         raise ValueError(f"{context} must be >= {minimum}")
     return parsed
@@ -219,13 +270,17 @@ def _optional_positive_int(value: object, *, context: str) -> int | None:
 def _optional_positive_float(value: object, *, context: str) -> float | None:
     if value is None:
         return None
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{context} must be numeric") from exc
-    if parsed <= 0.0:
-        raise ValueError(f"{context} must be > 0")
-    return parsed
+    return _coerce_positive_float(value, context=context)
+
+
+def _coerce_viewport_px(value: object, *, context: str) -> tuple[int, int]:
+    if value is None:
+        return (1024, 1024)
+    if not isinstance(value, list) or len(value) != 2:
+        raise ValueError(f"{context} must contain exactly two positive integers")
+    width = _coerce_exact_int(value[0], context=f"{context}[0]", minimum=1)
+    height = _coerce_exact_int(value[1], context=f"{context}[1]", minimum=1)
+    return (width, height)
 
 
 def _optional_hillshade_extent(value: object, *, context: str) -> str | None:
@@ -299,13 +354,43 @@ def _parse_layout(value: object, *, context: str) -> LayoutSpec:
     return LayoutSpec(nrows=nrows, ncols=ncols, width_ratios=width_ratios, height_ratios=height_ratios)
 
 
+def _parse_row_views(value: object, *, context: str, nrows: int) -> tuple[MapRowViewSpec, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError(f"{context} must be a list")
+    views: list[MapRowViewSpec] = []
+    seen_rows: set[int] = set()
+    for idx, raw in enumerate(value):
+        mapping = _require_mapping(raw, context=f"{context}[{idx}]")
+        row = _coerce_int(mapping.get("row"), context=f"{context}[{idx}].row", minimum=0)
+        if row >= nrows:
+            raise ValueError(f"{context}[{idx}].row must be < {nrows}")
+        if row in seen_rows:
+            raise ValueError(f"{context}[{idx}].row defines a duplicate row view for row {row}")
+        seen_rows.add(row)
+        views.append(
+            MapRowViewSpec(
+                row=row,
+                center=_coerce_float_pair(mapping.get("center"), context=f"{context}[{idx}].center"),
+                zoom=_coerce_positive_float(mapping.get("zoom"), context=f"{context}[{idx}].zoom"),
+                center_crs=_optional_str(mapping.get("center_crs")),
+                viewport_px=_coerce_viewport_px(mapping.get("viewport_px"), context=f"{context}[{idx}].viewport_px"),
+            )
+        )
+    return tuple(views)
+
+
 def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
     mapping = _require_mapping(value, context=context)
-    removed_keys = (_REMOVED_PANEL_KEYS | {"show_stations", "annotate_stations"}) & set(mapping)
+    kind = _require_str(mapping.get("kind"), context=f"{context}.kind")
+    removed_panel_keys = _REMOVED_PANEL_KEYS
+    if kind == "uncertainty":
+        removed_panel_keys = removed_panel_keys - {"observation"}
+    removed_keys = (removed_panel_keys | {"show_stations", "annotate_stations"}) & set(mapping)
     if removed_keys:
         raise ValueError(f"{context} uses removed panel keys: {', '.join(sorted(removed_keys))}")
 
-    kind = _require_str(mapping.get("kind"), context=f"{context}.kind")
     if kind in _REMOVED_PANEL_KINDS:
         raise ValueError(f"{context}.kind '{kind}' is no longer supported; use the simplified public panel kinds")
     if kind not in SUPPORTED_PANEL_KINDS:
@@ -322,6 +407,7 @@ def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
         colspan=_coerce_int(mapping.get("colspan", 1), context=f"{context}.colspan", minimum=1),
         date=_optional_str(mapping.get("date")),
         source=_optional_str(mapping.get("source")),
+        observation=_optional_str(mapping.get("observation")),
         scale=_optional_positive_int(mapping.get("scale"), context=f"{context}.scale"),
         label_fit_margin=_optional_positive_float(mapping.get("label_fit_margin"), context=f"{context}.label_fit_margin"),
         roi_label=_optional_str(mapping.get("roi_label")),
@@ -369,6 +455,14 @@ def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
         if panel.source is not None and panel.source not in SUPPORTED_WET_SNOW_SOURCES:
             supported = ", ".join(sorted(SUPPORTED_WET_SNOW_SOURCES))
             raise ValueError(f"{context}.source must be one of: {supported}")
+    elif panel.kind == "uncertainty":
+        if panel.observation is None:
+            raise ValueError(f"{context}.observation is required for uncertainty panels")
+        if panel.observation not in SUPPORTED_UNCERTAINTY_OBSERVATIONS:
+            supported = ", ".join(sorted(SUPPORTED_UNCERTAINTY_OBSERVATIONS))
+            raise ValueError(f"{context}.observation must be one of: {supported}")
+        if panel.source is not None:
+            raise ValueError(f"{context}.source is not supported for uncertainty panels")
     elif panel.kind == "wet_snow_line":
         if panel.source is not None and panel.source not in SUPPORTED_WET_SNOW_LINE_SOURCES:
             supported = ", ".join(sorted(SUPPORTED_WET_SNOW_LINE_SOURCES))
@@ -385,11 +479,20 @@ def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
 
 def _validate_panel_layout(recipe: MapRecipe, *, config_path: Path) -> None:
     occupied: set[tuple[int, int]] = set()
+    row_view_by_row = {view.row: view for view in recipe.row_views}
     for panel in recipe.panels:
         if panel.row + panel.rowspan > recipe.layout.nrows:
             raise ValueError(f"Panel '{panel.kind}' exceeds layout rows in {config_path}")
         if panel.col + panel.colspan > recipe.layout.ncols:
             raise ValueError(f"Panel '{panel.kind}' exceeds layout columns in {config_path}")
+        spanned_view_keys = {
+            row_view_by_row[row] if row in row_view_by_row else None
+            for row in range(panel.row, panel.row + panel.rowspan)
+        }
+        if len(spanned_view_keys) > 1:
+            raise ValueError(
+                f"Panel '{panel.kind}' spans rows with different row_views in {config_path}"
+            )
         for row in range(panel.row, panel.row + panel.rowspan):
             for col in range(panel.col, panel.col + panel.colspan):
                 cell = (row, col)
@@ -405,6 +508,7 @@ def _parse_recipe(recipe_name: str, value: object, *, context: str, config_path:
     raw_panels = mapping.get("panels")
     if not isinstance(raw_panels, list) or not raw_panels:
         raise ValueError(f"{context}.panels must be a non-empty list")
+    row_views = _parse_row_views(mapping.get("row_views"), context=f"{context}.row_views", nrows=layout.nrows)
     recipe = MapRecipe(
         name=recipe_name,
         title=title,
@@ -412,6 +516,7 @@ def _parse_recipe(recipe_name: str, value: object, *, context: str, config_path:
         output_subdir=_optional_str(mapping.get("output_subdir")),
         figure_title=_optional_str(mapping.get("figure_title")),
         row_labels=_coerce_str_list(mapping.get("row_labels"), context=f"{context}.row_labels"),
+        row_views=row_views,
         layout=layout,
         defaults=_parse_defaults(mapping.get("defaults"), context=f"{context}.defaults"),
         panels=tuple(_parse_panel(item, context=f"{context}.panels[{idx}]") for idx, item in enumerate(raw_panels)),
@@ -448,8 +553,10 @@ __all__ = [
     "MapDefaults",
     "MapPanelSpec",
     "MapRecipe",
+    "MapRowViewSpec",
     "ProjectMapsConfig",
     "SUPPORTED_MODEL_SOURCES",
+    "SUPPORTED_UNCERTAINTY_OBSERVATIONS",
     "SUPPORTED_PANEL_KINDS",
     "default_project_maps_config_path",
     "load_project_maps_config",

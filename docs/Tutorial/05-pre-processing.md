@@ -121,13 +121,16 @@ enabled.
 Conceptual background and best-practice rules are summarized in
 [Workflow: Observation Uncertainty]({{ site.baseurl }}{% link workflow.md %}#observation-uncertainty).
 
-The figure below shows what one tutorial uncertainty layer is meant to represent:
-a continuous field over valid FSC pixels, shaped by the baseline FSC uncertainty
-and local penalties such as land cover. Clouds remain missing observations rather
-than turning into high-uncertainty pixels, and later preprocessing aggregates
-valid-pixel metrics such as `unc_mean` into the summary tables.
+The figure below is rendered with the custom project-map `uncertainty` panel and
+a row-level `row_views` zoom for 2023-04-26. The first row shows the full
+Rofental context, while the second row zooms into the northeastern watershed
+detail where several land-cover classes are visible. The uncertainty layer is a
+continuous field over valid FSC pixels, shaped by the baseline FSC uncertainty
+and local penalties such as land cover. Clouds remain missing observations
+rather than turning into high-uncertainty pixels, and later preprocessing
+aggregates valid-pixel metrics such as `unc_mean` into the summary tables.
 
-![Rofental SCF uncertainty example with land-cover component and local zoom]({{ site.baseurl }}/assets/images/tutorial/rofental_uncertainty.png)
+![Rofental SCF uncertainty example with land-cover context]({{ site.baseurl }}/assets/images/tutorial/rofental_uncertainty.png)
 
 ## Step 1: Summarize snow-cover rasters to `scf_summary.csv`
 

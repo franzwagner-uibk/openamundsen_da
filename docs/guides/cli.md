@@ -491,13 +491,21 @@ Typical custom `maps.yml` files still use this panel catalog:
 # - liquid_water_content     # source: open_loop | ensemble_mean | analysis_mean | increment | analysis_increment
 # - fsc                      # source: open_loop | ensemble_mean | open_loop_binary | prior_probability | posterior_probability
 # - wet_snow                 # source: open_loop | ensemble_mean | prior_probability | posterior_probability
+# - uncertainty              # observation: scf | wet_snow
 # - wet_snow_line            # source: open_loop | prior_probability | posterior_probability | posterior
 # - wet_snow_elevation_fraction # source: open_loop | prior_probability | posterior_probability
 # - legend
 # - colorbar
 # Optional panel keys:
 # - title, name, date, legend, show_colorbar, show_scalebar, show_grid, show_hillshade, hillshade_extent
-# - show_roi, show_station_marker, show_stations_name, show_stations_elev
+# - observation (uncertainty only), show_roi, show_station_marker, show_stations_name, show_stations_elev
+# Optional recipe-level row zoom views:
+# row_views:
+#   - row: 1
+#     center: [643767, 5191680] # setup/project CRS by default
+#     zoom: 13                 # Google/Slippy-map zoom
+#     # center_crs: EPSG:4326
+#     # viewport_px: [1024, 1024]
 ```
 
 Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference panels show `analysis_increment` (`posterior - prior`); FSC and wet-snow reference panels show the satellite observation. WSLA lines are panel-local and observation WSLA is drawn only in the observation/reference panel. If an event's resampling manifest has `skipped: true`, the generated map title includes `resampling skipped`.
@@ -517,6 +525,10 @@ oa-da-plot-project-maps \
 Generated `wet_snow` and `wet_snow_line` DA-event maps include a generated-only spatial elevation-band WSF row below the primary wet-snow row. Each panel keeps the map footprint, but every valid cell is colored by the raw wet snow fraction of its elevation band on a fixed white-to-black `0-100%` scale for open loop, posterior, and observation columns.
 
 Static context panels (`hillshade`, `dem`, `svf`, `srf`, `landcover`) render the full raster coverage inside the map extent. Model and observation panels remain ROI-masked. When `show_hillshade: true`, `hillshade_extent: roi` limits the hillshade to the ROI mask and `hillshade_extent: full` draws it across the full panel. In the supported Docker workflow, omitted `--max-workers` uses automatic recipe-level multicore rendering with the effective worker count clamped to `min(visible CPUs, selected recipes)`; pass `--max-workers 1` to keep rendering sequential. If one or more maps fail because supporting data are missing, the pipeline logs a rerun command and continues. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
+
+The `uncertainty` panel renders GeoTIFF companion rasters named `<source>_uncertainty.tif` for `observation: scf` or `observation: wet_snow`. Values use the same `0..100 [%]` scale as uncertainty-aware preprocessing, and invalid observation pixels stay masked.
+
+Recipe-level `row_views` assign a shared zoom extent to all panels in a row. Centers are interpreted in the setup/project CRS unless `center_crs` is provided, and `zoom` follows Google/Slippy-map semantics with a default `1024 x 1024 px` viewport.
 
 Overview panels use setup-local GISCO GeoJSONs under `<setup>/env/` for country boundaries, regions, and labels. If those files are missing, the overview renderer downloads them once into that directory automatically.
 

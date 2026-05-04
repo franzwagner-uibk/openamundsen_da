@@ -91,6 +91,7 @@ _CONTINUOUS_COLORBAR_PANEL_KINDS = {
     "snow_depth",
     "swe",
     "liquid_water_content",
+    "uncertainty",
     "fsc",
     "wet_snow_elevation_fraction",
 }
@@ -117,6 +118,7 @@ _AUTO_TITLE_KIND = {
     "swe": "SWE",
     "liquid_water_content": "liquid water content",
     "fsc": "Sentinel-2 FSC",
+    "uncertainty": "observation uncertainty",
     "wet_snow": "Sentinel-1 wet snow fraction (WSF)",
     "wet_snow_line": "Wet snow line altitude (WSLA)",
     "wet_snow_elevation_fraction": "elevation-band WSF",

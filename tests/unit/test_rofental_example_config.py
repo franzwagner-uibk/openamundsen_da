@@ -60,8 +60,6 @@ def test_shipped_rofental_uses_promoted_golden_project_config() -> None:
             "variable": "wet_snow_line",
             "product": "WETSNOW",
         },
-        {"date": "2023-04-16", "variable": "scf", "product": "SNOWCOVER"},
         {"date": "2023-04-26", "variable": "scf", "product": "SNOWCOVER"},
-        {"date": "2023-05-18", "variable": "scf", "product": "SNOWCOVER"},
         {"date": "2023-05-26", "variable": "scf", "product": "SNOWCOVER"},
     ]

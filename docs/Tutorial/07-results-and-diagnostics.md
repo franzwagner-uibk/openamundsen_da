@@ -168,15 +168,15 @@ ESS is a diagnostic, not a simple "good/bad" score. Interpret it together with w
 
 Reference CSV snippet (weights for one station HS event)
 
-File path: `/data/rofental/projects/project_2022_2023/steps/step_03_20230122-20230221/assim/weights_station_hs_20230221.csv`
+File path: `/data/rofental/projects/project_2022_2023/steps/step_04_20230131-20230221/assim/weights_station_hs_20230221.csv`
 
-| member_id | station_id | snow_depth_model | snow_depth_obs | residual | sigma | weight |
+| member_id | value_obs | value_model | residual | sigma | n_stations | weight |
 | --- | --- | --- | --- | --- | --- | --- |
-| member_001 | latschbloder | 0.90 | 1.99 | -1.09 | 0.33 | 0.00 |
-| member_002 | latschbloder | 1.15 | 1.99 | -0.84 | 0.33 | 0.00 |
-| member_003 | latschbloder | 1.38 | 1.99 | -0.61 | 0.33 | 0.01 |
-| member_004 | latschbloder | 1.63 | 1.99 | -0.36 | 0.33 | 0.05 |
-| member_005 | latschbloder | 1.80 | 1.99 | -0.19 | 0.33 | 0.09 |
+| member_001 | 0.22 | 0.47 | -0.25 | 0.20 | 2 | 0.10 |
+| member_002 | 0.22 | 1.28 | -1.06 | 0.20 | 2 | 0.00 |
+| member_003 | 0.22 | 0.70 | -0.48 | 0.20 | 2 | 0.00 |
+| member_004 | 0.22 | 0.56 | -0.34 | 0.20 | 2 | 0.05 |
+| member_005 | 0.22 | 0.48 | -0.26 | 0.20 | 2 | 0.10 |
 
 Plot files to open:
 

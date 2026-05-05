@@ -14,7 +14,9 @@ If psutil is missing, the monitor logs a warning and no files are written.
 
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -191,8 +193,29 @@ def _render_plot(
     fig.tight_layout(rect=(0.005, 0.03, 0.995, 0.91))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     force_figure_text_black(fig, [ax1])
-    save_figure_png(fig, out_path)
+    _save_perf_plot_atomic(fig, out_path)
     plt.close(fig)
+
+
+def _save_perf_plot_atomic(fig, out_path: Path) -> None:
+    """Replace the performance PNG only after a complete image was written."""
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=out_path.parent,
+            prefix=f".{out_path.name}.",
+            suffix=".tmp.png",
+            delete=False,
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+        save_figure_png(fig, tmp_path)
+        os.replace(tmp_path, out_path)
+        tmp_path = None
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
 
 def cli_main(argv: List[str] | None = None) -> int:

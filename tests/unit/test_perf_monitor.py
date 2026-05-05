@@ -33,3 +33,23 @@ def test_project_perf_plot_uses_report_overview_page_width(tmp_path: Path) -> No
 
     assert width == pytest.approx(FIGWIDTH_OVERVIEW_PAPER * EXPORT_DPI, abs=2)
     assert height == pytest.approx(FIGHEIGHT_OVERVIEW_ROW * 1.4 * EXPORT_DPI, abs=2)
+
+
+def test_project_perf_plot_replaces_target_atomically(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    out = tmp_path / "project_perf.png"
+    out.write_text("old", encoding="utf-8")
+    saved_paths: list[Path] = []
+
+    def _fake_save(_fig, path: Path, **_kwargs) -> None:
+        saved_paths.append(Path(path))
+        Path(path).write_text("new", encoding="utf-8")
+
+    monkeypatch.setattr(perf_monitor, "save_figure_png", _fake_save)
+
+    perf_monitor._save_perf_plot_atomic(object(), out)
+
+    assert out.read_text(encoding="utf-8") == "new"
+    assert len(saved_paths) == 1
+    assert saved_paths[0].parent == out.parent
+    assert saved_paths[0].name != out.name
+    assert not saved_paths[0].exists()

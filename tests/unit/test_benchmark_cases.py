@@ -220,7 +220,6 @@ def test_extract_continuous_cases_supports_all_benchmark_families(tmp_path: Path
     )
 
     assert {case.variable for case in cases} == {"scf", "wet_snow", "wet_snow_line", "station_hs", "station_swe"}
-
     by_key = {(case.variable, str(case.timestamp), case.obs_id): case for case in cases}
     assert by_key[("scf", "2023-01-02 00:00:00", "roi")].stream == "assimilation_fit"
     assert by_key[("scf", "2023-01-03 00:00:00", "roi")].stream == "semi_independent"
@@ -237,6 +236,53 @@ def test_extract_continuous_cases_supports_all_benchmark_families(tmp_path: Path
     assert by_key[("station_swe", "2023-01-03 00:00:00", "station_b")].sigma_base == pytest.approx(
         ((12.0 * 0.20) ** 2 + 10.0 ** 2) ** 0.5
     )
+
+
+def test_extract_continuous_cases_respects_station_benchmark_role(tmp_path: Path) -> None:
+    setup_dir, project_dir = _setup_basic_project(
+        tmp_path,
+        events_yaml="""
+            - date: '2023-01-02'
+              variable: station_hs
+        """,
+    )
+    stations_dir = setup_dir / "obs" / "stations"
+    _write_series_csv(
+        stations_dir / "stations_da_metadata.csv",
+        [
+            {
+                "station_id": "station_a",
+                "station_uncertainty_pct": 12.0,
+                "hs_sigma_abs_min": 0.15,
+                "use_for_benchmark": True,
+            },
+            {
+                "station_id": "station_b",
+                "station_uncertainty_pct": 12.0,
+                "hs_sigma_abs_min": 0.15,
+                "use_for_benchmark": False,
+            },
+        ],
+    )
+    for station_id in ("station_a", "station_b"):
+        _write_series_csv(
+            stations_dir / f"{station_id}.csv",
+            [{"time": "2023-01-02 00:00:00", "snow_depth": 1.0}],
+        )
+        base = project_dir / "steps" / "step_00_init" / "ensembles" / "prior"
+        for member_id, value in (("open_loop", 0.9), ("member_001", 1.0), ("member_002", 1.1)):
+            _write_series_csv(
+                base / member_id / "results" / f"point_{station_id}.csv",
+                [{"time": "2023-01-02 00:00:00", "snow_depth": value}],
+            )
+
+    cases = extract_continuous_cases(
+        project_dir=project_dir,
+        setup_dir=setup_dir,
+        variables=("station_hs",),
+    )
+
+    assert {case.obs_id for case in cases} == {"station_a"}
 
 
 def test_extract_analysis_cases_uses_weighted_station_posterior(tmp_path: Path) -> None:

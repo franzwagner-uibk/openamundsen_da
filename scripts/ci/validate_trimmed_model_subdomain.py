@@ -72,8 +72,8 @@ def _check_manifest(subdomain_root: Path) -> dict:
         raise ValueError(f"Manifest run_mode is not 'model': {data.get('run_mode')!r}")
 
     subdomains = data.get("subdomains") or {}
-    if len(subdomains) < 3:
-        raise ValueError(f"Expected at least 3 sub-domains in manifest, got {len(subdomains)}")
+    if len(subdomains) < 8:
+        raise ValueError(f"Expected at least 8 sub-domains in manifest, got {len(subdomains)}")
 
     for sid, meta in subdomains.items():
         status = str(meta.get("status", ""))

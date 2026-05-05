@@ -121,7 +121,7 @@ and naming conventions.
 - Project YAML (`<project-name>.yml`/`project.yml`) must define `data_assimilation` (`h_of_x`, `likelihood`, `resampling`, `rejuvenation`, `restart`, `landcover_mask`, `assimilation_events`; add `station` when using station HS/SWE assimilation) plus `start_date` and `end_date`.
 - `projects/project_X/steps/step_Y/ensembles/prior` is created automatically by the project pipeline (using `${setup}/meteo` forcing).
 - Observations live under `obs/project_X`; the pipeline assumes the per-step CSVs follow `obs_scf_<PRODUCT>_YYYYMMDD.csv`, `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`, and `obs_wet_snow_line_<PRODUCT>_YYYYMMDD.csv` when those observables are active. Configure product tags and summary sources explicitly in project YAML under `obs.*` (`summary_csv` for SCF/wet-snow summaries).
-- Station observations live under `obs/stations`; ROI-based station assimilation uses `assimilation_events` variables `station_hs` and `station_swe` and reads optional per-station uncertainty metadata from `obs/stations/stations_da_metadata.csv`.
+- Station observations live under `obs/stations`; ROI-based station assimilation uses `assimilation_events` variables `station_hs` and `station_swe` and reads optional per-station uncertainty metadata from `obs/stations/stations_da_metadata.csv`. Station metadata may also include `use_for_da` and `use_for_benchmark` flags to keep stations out of assimilation or benchmark scoring without deleting their observation files.
 - The station assimilation method itself is documented in the docs guide: `guides/station-assimilation`.
 - Scientific benchmarking always runs at the end of `oa-da-project` and writes observation-based score tables under `results/benchmark/` plus the headline DA-skill plot `results/plots/assim/scores/performance_scores.png`. Station benchmark rows now also carry sigma-aware `zSkill` based on the configured station uncertainty metadata.
 - data assimilation uses `grids/roi_<domain>_<resolution>.asc` as canonical ROI mask; if missing, it is generated silently from ROI vectors under `env/` (`roi.gpkg` preferred, `subdomains.gpkg` supported).
@@ -810,7 +810,29 @@ DA defaults:
 - `--id-field` must exist in the regions file; there is no automatic fallback to another field name.
 - If `--roi` is omitted in sub-domain prepare/pipeline, `<setup>/env/subdomains.gpkg` is preferred and `<setup>/env/roi.gpkg` is the fallback.
 - Sub-domain runs fail fast if configured assimilation events are not available in the local sub-domain observation summaries.
+- Projects may enable `data_assimilation.subdomain_event_filter` to drop unavailable SCF, wet-snow, or station events per sub-domain after local observation summaries are generated. Dropped events are recorded in each sub-domain run manifest and in `<project>/results/subdomain_dropped_events.csv`.
+- Configured `output_data.timeseries.points` are filtered to the active sub-domain ROI when sub-domain setup YAML files are generated.
 - Default retention is compact (`data_assimilation.output.retention: compact`) and removes heavy member grid artifacts after merge. Set `retention: full` to keep them.
+
+Example sub-domain event filter:
+
+```yaml
+data_assimilation:
+  subdomain_event_filter:
+    enabled: true
+    drop_unavailable: true
+    variables:
+      scf:
+        max_cloud_fraction: 0.20
+      station_hs:
+        min_active_stations: 1
+        max_time_delta_hours: 36
+    subdomains:
+      AT-07-20:
+        variables:
+          scf:
+            max_cloud_fraction: 0.25
+```
 
 ### Plain openAMUNDSEN Model Workflow
 

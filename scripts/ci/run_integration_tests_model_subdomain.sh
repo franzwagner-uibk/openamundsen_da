@@ -77,6 +77,7 @@ echo "[model-subdomain-integration] Running model sub-domain pipeline (max-worke
 compose_run python -m openamundsen_da.subdomain.cli model-pipeline \
   --setup-dir "${SETUP_PATH}" \
   --regions "${SETUP_PATH}/env/subdomains.gpkg" \
+  --station-buffer-km 10 \
   --max-workers "${MAX_WORKERS}" \
   --overwrite \
   --log-level INFO

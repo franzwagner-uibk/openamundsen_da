@@ -151,12 +151,13 @@ Validation focuses on:
 Runner script: `scripts/ci/run_integration_tests_subdomain.sh`
 
 What it does:
-- clones `examples/rofental` and `examples/subdomains` into a temp directory
+- clones `examples/subdomains` into a temp directory
 - writes a trimmed project config (`project_ci_2022_2023`) under the sub-domain setup
 - runs full sub-domain pipeline (`oa-da-subdomain pipeline`) with:
   - setup: `/data/subdomains` (the copied sub-domain setup root)
   - project: `/data/subdomains/projects/project_ci_2022_2023`
-  - regions: `/data/env/subdomains.gpkg` (3 non-overlapping subdomains)
+  - regions: `/data/subdomains/env/subdomains.gpkg` (8 North Tyrol avalanche-report subdomains)
+  - station buffer: `10 km`
 - validates logs and outputs with `scripts/ci/validate_trimmed_subdomain.py`
 
 Validation focuses on:
@@ -179,7 +180,8 @@ What it does:
 - shortens setup-level `start_date`/`end_date` in the temp copy
 - runs the plain openAMUNDSEN model sub-domain pipeline (`oa-da-subdomain model-pipeline`) with:
   - setup: `/data/subdomains` (the copied sub-domain setup root)
-  - regions: `/data/subdomains/env/subdomains.gpkg` (3 non-overlapping subdomains)
+  - regions: `/data/subdomains/env/subdomains.gpkg` (8 North Tyrol avalanche-report subdomains)
+  - station buffer: `10 km`
 - validates logs and outputs with `scripts/ci/validate_trimmed_model_subdomain.py`
 
 Validation focuses on:
@@ -253,8 +255,11 @@ Single-domain example configuration details:
 - trimmed dates, assimilation events, and ensemble sizes are still hard-coded in:
   - `scripts/ci/run_integration_tests_subdomain.sh` (sub-domain)
 - max workers for CI integration runs are set in `.github/workflows/ci.yml` via:
-  - `OA_DA_TEST_MAX_WORKERS` (single-domain, current value: `20`)
-  - `OA_DA_SUBDOMAIN_TEST_MAX_WORKERS` / `OA_DA_SUBDOMAIN_TEST_INNER_WORKERS` (sub-domain)
+  - `OA_DA_TEST_MAX_WORKERS` (single-domain, current value: `8`)
+  - `OA_DA_SUBDOMAIN_TEST_MAX_WORKERS` / `OA_DA_SUBDOMAIN_TEST_INNER_WORKERS` (sub-domain, current values: `8` / `4`)
+  - `OA_DA_MODEL_SUBDOMAIN_TEST_MAX_WORKERS` (model sub-domain, current value: `8`)
+- feature branches are validated through pull requests to avoid duplicate branch-push and PR runs on the self-hosted runner.
+- workflow concurrency is grouped by branch name, so new PR updates cancel stale in-progress checks for older commits.
 
 If you want to change the CI test setup:
 - edit the shipped example project or the relevant script directly:

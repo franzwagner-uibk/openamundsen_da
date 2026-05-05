@@ -27,7 +27,11 @@ from openamundsen_da.methods.pf.assimilate_fraction import (
     assimilate_scf_for_date,
     assimilate_wet_snow_for_date,
 )
-from openamundsen_da.methods.pf.fraction_support import ObservationSupportMask, load_observation_support_mask
+from openamundsen_da.methods.pf.fraction_support import (
+    ObservationSupportMask,
+    _source_dataset_ref,
+    load_observation_support_mask,
+)
 
 
 def _write_project_yaml(project_dir: Path, payload: dict) -> None:
@@ -39,6 +43,29 @@ def _write_project_yaml(project_dir: Path, payload: dict) -> None:
 
 
 class AssimilateUncertaintyTests(unittest.TestCase):
+    def test_source_dataset_ref_selects_scf_variable_from_netcdf(self):
+        class _Container:
+            count = 0
+            subdatasets = (
+                "netcdf:/tmp/scene.nc:uncertainty",
+                "netcdf:/tmp/scene.nc:fsc",
+            )
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_exc):
+                return False
+
+        with patch("openamundsen_da.methods.pf.fraction_support.rasterio.open", return_value=_Container()):
+            ref = _source_dataset_ref(
+                Path("/tmp/scene.nc"),
+                token="scene.nc@2024-04-01T00:00:00Z",
+                observable="scf",
+            )
+
+        self.assertEqual(ref, "netcdf:/tmp/scene.nc:fsc")
+
     def test_likelihood_config_missing_block_uses_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"

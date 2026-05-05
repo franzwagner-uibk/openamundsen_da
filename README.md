@@ -781,6 +781,8 @@ If you rebuilt the image with the latest code, you can replace the `python -m ..
 
 Use `oa-da-subdomain` to split a large setup into non-overlapping sub-domains. There are two workflows:
 
+For a start-to-finish guide, see `docs/guides/subdomain-runbook.md`.
+
 ### Data Assimilation Sub-domain Workflow
 
 This is the existing openAMUNDSEN-DA workflow: one independent data assimilation project per sub-domain, project-level reports, then compact data assimilation grid merge.

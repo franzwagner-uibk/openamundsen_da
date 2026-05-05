@@ -690,7 +690,7 @@ oa-da-subdomain prepare \
 oa-da-subdomain run \
   --project-dir /data/rofental/projects/project_2022_2023
 
-# Merge grids and points
+# Merge grids
 oa-da-subdomain merge \
   --project-dir /data/rofental/projects/project_2022_2023
 

@@ -65,6 +65,7 @@ Choose one path:
 - [Workflow]({{ site.baseurl }}{% link workflow.md %}): conceptual overview of the data assimilation workflow
 - [Configuration]({{ site.baseurl }}{% link guides/configuration.md %}): project and setup YAML reference
 - [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %}): product preprocessing and uncertainty handling
+- [Sub-domain Runbook]({{ site.baseurl }}{% link guides/subdomain-runbook.md %}): end-to-end large-domain processing from Docker image pull to merged output
 
 ## Documentation Structure
 
@@ -75,6 +76,7 @@ Choose one path:
 - [Configuration]({{ site.baseurl }}{% link guides/configuration.md %})
 - [CLI Reference]({{ site.baseurl }}{% link guides/cli.md %})
 - [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %})
+- [Sub-domain Runbook]({{ site.baseurl }}{% link guides/subdomain-runbook.md %})
 - [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %})
 
 ## Current Status

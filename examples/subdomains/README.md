@@ -8,6 +8,7 @@ This shipped example covers the North Tyrol test site as 8 avalanche-report subd
 - Forcing: 158 `openamundsen-v2` stations within the ROI plus 10 km buffer, trimmed to the project window.
 - Station snow depth: 35 ROI stations in `obs/stations`, with `use_for_da` and `use_for_benchmark` role flags.
 - FSC: 18 clipped SnowFLAKES NetCDF files in `obs/snowcover`; selected per subdomain with at most 20% cloud cover, except documented per-subdomain overrides in the project YAML.
+- Maps: `projects/project_2022_2023/maps.yml` adds a setup overview plus focused snow-depth/SWE response maps on selected DA dates. Generated DA-event maps are still rendered automatically from the configured assimilation events.
 
 Run the example with:
 

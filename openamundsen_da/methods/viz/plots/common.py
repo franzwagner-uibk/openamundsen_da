@@ -569,6 +569,31 @@ def plot_haloed_line(
     )
 
 
+def thin_dense_y_tick_labels(ax, *, max_visible_labels: int = 4) -> None:
+    """Hide every second in-range y tick label when a compact axis is too dense."""
+    if max_visible_labels < 2:
+        raise ValueError("max_visible_labels must be at least 2")
+
+    ymin, ymax = sorted(float(value) for value in ax.get_ylim())
+    tol = max(abs(ymax - ymin), 1.0) * 1e-9
+    in_range_ticks = [
+        tick
+        for tick in ax.yaxis.get_major_ticks()
+        if ymin - tol <= float(tick.get_loc()) <= ymax + tol
+    ]
+    if len(in_range_ticks) <= max_visible_labels:
+        return
+
+    keep_positions = set(range(0, len(in_range_ticks), 2))
+    keep_positions.add(len(in_range_ticks) - 1)
+    original_label1_visibility = [tick.label1.get_visible() for tick in in_range_ticks]
+    original_label2_visibility = [tick.label2.get_visible() for tick in in_range_ticks]
+    for pos, tick in enumerate(in_range_ticks):
+        visible = pos in keep_positions
+        tick.label1.set_visible(visible and original_label1_visibility[pos])
+        tick.label2.set_visible(visible and original_label2_visibility[pos])
+
+
 def apply_fraction_grid(ax, *, y_step: float | None = 0.1) -> None:
     """Apply consistent grid styling for result overview plots."""
     from matplotlib.ticker import MultipleLocator

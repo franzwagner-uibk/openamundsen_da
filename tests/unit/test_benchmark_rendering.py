@@ -20,7 +20,7 @@ from openamundsen_da.methods.viz.plots.benchmark.core import (
     compute_event_skill_plot_positions,
 )
 from openamundsen_da.methods.viz.plots.theme import da_variable_style
-from openamundsen_da.methods.viz.plots.common import CRPSS_AXIS_POLICY, bounded_metric_range
+from openamundsen_da.methods.viz.plots.common import CRPSS_AXIS_POLICY, bounded_metric_range, thin_dense_y_tick_labels
 from openamundsen_da.benchmark.render.tables import write_summary_tables
 
 
@@ -533,9 +533,10 @@ def test_write_plots_adds_zskill_third_panel_when_available(tmp_path: Path, monk
     )
 
     assert outputs["performance_scores"].is_file()
+    assert outputs["performance_scores_paper"].is_file()
     assert recorded["nrows"] == 3
     assert recorded["figsize"][1] == pytest.approx(
-        plots_core.FIGHEIGHT_OVERVIEW_ROW * plots_core.STANDALONE_SCORE_FIGURE_ROW_UNITS * 1.5
+        plots_core.FIGHEIGHT_OVERVIEW_ROW * plots_core.STANDALONE_SCORE_PANEL_HEIGHT_FACTOR * 3.0
     )
 
 
@@ -605,8 +606,9 @@ def test_write_plots_can_hide_station_swe_only_from_performance_scores_plot(
     )
 
     assert outputs["performance_scores"].is_file()
+    assert outputs["performance_scores_paper"].is_file()
     assert "station_swe" in set(event_scores["variable"])
-    assert captured == [["scf"]]
+    assert captured == [["scf"], ["scf"]]
 
 
 def test_event_skill_plot_positions_distinguish_same_date_markers(tmp_path: Path) -> None:
@@ -697,12 +699,10 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     )
     reliability = reliability_rows(case_scores, group_cols=("score_set", "variable", "stream"))
 
-    captured: dict[str, object] = {}
+    captured: dict[Path, dict[str, object]] = {}
 
     def _capture(fig, out_path, **kwargs):
-        captured["fig"] = fig
-        captured["path"] = out_path
-        captured["kwargs"] = kwargs
+        captured[Path(out_path)] = {"fig": fig, "kwargs": kwargs}
         fig.savefig(out_path, **kwargs)
 
     monkeypatch.setattr(plots_core, "save_figure_png", _capture)
@@ -715,16 +715,19 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
         project_dir=project_dir,
     )
 
-    fig = captured["fig"]
     assert outputs["performance_scores"].is_file()
+    assert outputs["performance_scores_paper"].is_file()
+    fig = captured[outputs["performance_scores"]]["fig"]
+    paper_fig = captured[outputs["performance_scores_paper"]]["fig"]
+    assert paper_fig._suptitle is None
     assert fig._suptitle is not None
     assert fig._suptitle.get_text() == "Data assimilation performance scores"
     assert fig._suptitle.get_ha() == "left"
     assert fig.get_size_inches()[0] == plots_core.FIGWIDTH_OVERVIEW_PAPER
     assert fig.get_size_inches()[1] == pytest.approx(
-        plots_core.FIGHEIGHT_OVERVIEW_ROW * plots_core.STANDALONE_SCORE_FIGURE_ROW_UNITS
+        plots_core.FIGHEIGHT_OVERVIEW_ROW * plots_core.STANDALONE_SCORE_PANEL_HEIGHT_FACTOR * 2.0
     )
-    assert captured["kwargs"] == {}
+    assert captured[outputs["performance_scores"]]["kwargs"] == {}
     label_axes = [ax for ax in fig.axes if ax.get_label().startswith("assimilation_label_axis_")]
     main_axes = [ax for ax in fig.axes if not ax.get_label().startswith("assimilation_label_axis_")]
     assert len(label_axes) == 2
@@ -860,6 +863,51 @@ def test_score_legend_handles_keep_posterior_above_prior_for_supported_variable_
     prior_idx = labels.index("prior")
     assert posterior_idx % 2 == 0
     assert prior_idx == posterior_idx + 1
+
+
+def test_thin_dense_y_tick_labels_keeps_ticks_but_hides_dense_labels() -> None:
+    fig, ax = plots_core.plt.subplots()
+    ax.set_ylim(-0.25, 1.0)
+    ax.yaxis.set_major_locator(plots_core.MultipleLocator(0.25))
+    fig.canvas.draw()
+
+    in_range_ticks = [
+        tick
+        for tick in ax.yaxis.get_major_ticks()
+        if ax.get_ylim()[0] - 1e-9 <= tick.get_loc() <= ax.get_ylim()[1] + 1e-9
+    ]
+    tick_locations_before = [tick.get_loc() for tick in in_range_ticks]
+
+    thin_dense_y_tick_labels(ax)
+
+    in_range_ticks_after = [
+        tick
+        for tick in ax.yaxis.get_major_ticks()
+        if ax.get_ylim()[0] - 1e-9 <= tick.get_loc() <= ax.get_ylim()[1] + 1e-9
+    ]
+    assert [tick.get_loc() for tick in in_range_ticks_after] == pytest.approx(tick_locations_before)
+    visible_positions = [idx for idx, tick in enumerate(in_range_ticks_after) if tick.label1.get_visible()]
+    assert visible_positions == [0, 2, 4, 5]
+    assert not any(tick.label2.get_visible() for tick in in_range_ticks_after)
+    plots_core.plt.close(fig)
+
+
+def test_thin_dense_y_tick_labels_leaves_sparse_labels_unchanged() -> None:
+    fig, ax = plots_core.plt.subplots()
+    ax.set_ylim(0.0, 1.0)
+    ax.yaxis.set_major_locator(plots_core.MultipleLocator(0.5))
+    fig.canvas.draw()
+
+    thin_dense_y_tick_labels(ax)
+
+    in_range_ticks = [
+        tick
+        for tick in ax.yaxis.get_major_ticks()
+        if ax.get_ylim()[0] - 1e-9 <= tick.get_loc() <= ax.get_ylim()[1] + 1e-9
+    ]
+    assert len(in_range_ticks) == 3
+    assert all(tick.label1.get_visible() for tick in in_range_ticks)
+    plots_core.plt.close(fig)
 
 
 def test_bounded_metric_range_rounds_rofental_like_crpss_to_quarter_steps() -> None:

@@ -355,6 +355,29 @@ def project_results_root(project_dir: str | Path) -> Path:
     return Path(project_dir) / "results"
 
 
+def project_paper_root(project_dir: str | Path) -> Path:
+    """Return the canonical project-level paper-output root."""
+    return project_results_root(project_dir) / "paper"
+
+
+def project_paper_output_path(project_dir: str | Path, output_path: str | Path) -> Path:
+    """Mirror a project results output under ``results/paper``.
+
+    Examples
+    --------
+    ``results/maps/da_events/da_6.png`` becomes
+    ``results/paper/maps/da_events/da_6.png``.
+    """
+    project_dir = Path(project_dir)
+    output_path = Path(output_path)
+    results_root = project_results_root(project_dir)
+    try:
+        relative = output_path.relative_to(results_root)
+    except ValueError:
+        relative = output_path.name
+    return project_paper_root(project_dir) / relative
+
+
 def project_plots_root(project_dir: str | Path) -> Path:
     """Return the canonical project-level plots root."""
     return project_results_root(project_dir) / "plots"

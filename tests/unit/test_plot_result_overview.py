@@ -170,7 +170,7 @@ def test_plot_result_overview_uses_four_panels_when_roi_series_exist(monkeypatch
     assert recorded["nrows"] == 4
     axes = _panel_axes(plt.gcf())
     assert [ax.get_ylabel() for ax in axes] == [
-        "snow cover fraction",
+        "fSC",
         "wet snow fraction",
         "swe [mm]",
         "snow depth [m]",
@@ -187,7 +187,9 @@ def test_plot_result_overview_uses_four_panels_when_roi_series_exist(monkeypatch
     assert sd_ticks[1] - sd_ticks[0] == 0.25
     assert plt.gcf()._suptitle is None
     assert plt.gcf().get_size_inches()[0] == plot_mod.FIGWIDTH_OVERVIEW_PAPER
-    assert plt.gcf().get_size_inches()[1] == pytest.approx(plot_mod.FIGHEIGHT_OVERVIEW_ROW * 4.0)
+    assert plt.gcf().get_size_inches()[1] == pytest.approx(
+        plot_mod.FIGHEIGHT_OVERVIEW_ROW * plot_mod.OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR * 4.0
+    )
     assert len(plt.gcf().legends) == 1
     assert out_path.is_file()
     original_close(plt.gcf())
@@ -251,9 +253,9 @@ def test_plot_result_overview_adds_wsl_panel_when_wsl_series_exist(monkeypatch, 
     assert recorded["nrows"] == 3
     axes = _panel_axes(plt.gcf())
     assert [ax.get_ylabel() for ax in axes] == [
-        "snow cover fraction",
+        "fSC",
         "wet snow fraction",
-        "wet snow line altitude [m]",
+        "wsla [m.a.s.l]",
     ]
     assert out_path.is_file()
     original_close(plt.gcf())
@@ -329,9 +331,9 @@ def test_plot_result_overview_ylabels_do_not_overlap_with_stacked_custom_panels(
         renderer = fig.canvas.get_renderer()
         axes = _panel_axes(fig)
         assert [ax.get_ylabel() for ax in axes] == [
-            "snow cover fraction",
+            "fSC",
             "wet snow fraction",
-            "wet snow line altitude [m]",
+            "wsla [m.a.s.l]",
             "snow depth [m]",
             "ESS",
             "CRPSS",
@@ -1195,7 +1197,7 @@ def test_plot_result_overview_supports_custom_station_panel(tmp_path: Path) -> N
 
         axes = _panel_axes(plt.gcf())
         assert [ax.get_ylabel() for ax in axes] == [
-            "snow cover fraction",
+            "fSC",
             "snow depth [m]",
         ]
         assert axes[1].get_title(loc="left").startswith("(b) snow depth Latschbloder 2919 m")
@@ -1535,13 +1537,17 @@ def test_plot_result_overview_score_panels_use_taller_height_ratios(monkeypatch,
 
     assert recorded["nrows"] == 4
     assert recorded["height_ratios"] == [
-        1.0,
+        plot_mod.OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR,
         0.5,
         plot_mod.OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR,
         plot_mod.OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR,
     ]
     assert recorded["figsize"][0] == plot_mod.FIGWIDTH_OVERVIEW_PAPER
-    expected_height_units = 1.0 + 0.5 + plot_mod.OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR * 2.0
+    expected_height_units = (
+        plot_mod.OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR
+        + 0.5
+        + plot_mod.OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR * 2.0
+    )
     assert recorded["figsize"][1] == pytest.approx(plot_mod.FIGHEIGHT_OVERVIEW_ROW * expected_height_units)
     assert out_path.is_file()
     original_close(plt.gcf())

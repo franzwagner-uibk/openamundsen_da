@@ -37,10 +37,6 @@ panels:
     show_obs: true
     title: snow cover fraction Rofental catchment - openAMUNDSEN ensemble and satellite data
 
-  - panel: WSF
-    show_obs: true
-    title: wet snow fraction Rofental catchment - openAMUNDSEN ensemble and satellite data
-
   - panel: WSLA
     show_obs: true
     title: wet-snow line Rofental catchment - openAMUNDSEN ensemble and satellite data

@@ -9,7 +9,7 @@ on:
       - ".github/workflows/deploy-docs.yml"
   push:
     branches:
-      - "**"
+      - main
     paths-ignore:
       - "docs/**"
       - ".github/workflows/deploy-docs.yml"
@@ -60,7 +60,7 @@ jobs:
       - name: Run integration tests (derived Rofental fast path)
         run: |
           CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
-          OA_DA_TEST_MAX_WORKERS=4 \
+          OA_DA_TEST_MAX_WORKERS=8 \
           OA_DA_TEST_SETUP_RESOLUTION=500 \
           OA_DA_TEST_ENSEMBLE_SIZE=2 \
           CI_ARTIFACT_DIR="${{ github.workspace }}/.ci-artifacts/integration/single-domain" \
@@ -69,15 +69,15 @@ jobs:
       - name: Run integration tests (trimmed North Tyrol sub-domain)
         run: |
           CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
-          OA_DA_SUBDOMAIN_TEST_MAX_WORKERS=3 \
-          OA_DA_SUBDOMAIN_TEST_INNER_WORKERS=2 \
+          OA_DA_SUBDOMAIN_TEST_MAX_WORKERS=8 \
+          OA_DA_SUBDOMAIN_TEST_INNER_WORKERS=4 \
           CI_ARTIFACT_DIR="${{ github.workspace }}/.ci-artifacts/integration/sub-domain" \
           bash scripts/ci/run_integration_tests_subdomain.sh
 
       - name: Run integration tests (trimmed North Tyrol openAMUNDSEN model sub-domain)
         run: |
           CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
-          OA_DA_MODEL_SUBDOMAIN_TEST_MAX_WORKERS=3 \
+          OA_DA_MODEL_SUBDOMAIN_TEST_MAX_WORKERS=8 \
           CI_ARTIFACT_DIR="${{ github.workspace }}/.ci-artifacts/integration/model-sub-domain" \
           bash scripts/ci/run_integration_tests_model_subdomain.sh
 

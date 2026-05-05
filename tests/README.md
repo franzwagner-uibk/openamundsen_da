@@ -255,8 +255,10 @@ Single-domain example configuration details:
 - trimmed dates, assimilation events, and ensemble sizes are still hard-coded in:
   - `scripts/ci/run_integration_tests_subdomain.sh` (sub-domain)
 - max workers for CI integration runs are set in `.github/workflows/ci.yml` via:
-  - `OA_DA_TEST_MAX_WORKERS` (single-domain, current value: `20`)
-  - `OA_DA_SUBDOMAIN_TEST_MAX_WORKERS` / `OA_DA_SUBDOMAIN_TEST_INNER_WORKERS` (sub-domain)
+  - `OA_DA_TEST_MAX_WORKERS` (single-domain, current value: `8`)
+  - `OA_DA_SUBDOMAIN_TEST_MAX_WORKERS` / `OA_DA_SUBDOMAIN_TEST_INNER_WORKERS` (sub-domain, current values: `8` / `4`)
+  - `OA_DA_MODEL_SUBDOMAIN_TEST_MAX_WORKERS` (model sub-domain, current value: `8`)
+- branch pushes do not run duplicate CI; feature-branch validation is expected to happen through pull requests, while pushes to `main` still run the publish-gated workflow.
 
 If you want to change the CI test setup:
 - edit the shipped example project or the relevant script directly:

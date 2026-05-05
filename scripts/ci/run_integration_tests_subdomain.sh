@@ -8,7 +8,6 @@ INNER_WORKERS="${OA_DA_SUBDOMAIN_TEST_INNER_WORKERS:-2}"
 ARTIFACT_DIR="${CI_ARTIFACT_DIR:-}"
 
 TMP_ROOT="$(mktemp -d -t oada-subdomain-ci-XXXXXX)"
-BASE_SETUP_DIR="${TMP_ROOT}/rofental"
 SETUP_DIR="${TMP_ROOT}/subdomains"
 SETUP_PATH="/data/subdomains"
 PROJECT_NAME="project_ci_2022_2023"
@@ -51,7 +50,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cp -a "${ROOT_DIR}/examples/rofental" "${BASE_SETUP_DIR}"
 cp -a "${ROOT_DIR}/examples/subdomains" "${SETUP_DIR}"
 touch "${HOST_LOG_FILE}"
 exec > >(tee -a "${HOST_LOG_FILE}") 2>&1
@@ -68,8 +66,8 @@ echo "[subdomain-integration] Preparing trimmed CI project in ${SETUP_DIR}"
 
 compose_run python - <<'PY'
 from pathlib import Path
+from datetime import datetime, timedelta
 import re
-import shutil
 import yaml
 
 setup_dir = Path("/data/subdomains")
@@ -80,20 +78,41 @@ with source_project_yml.open("r", encoding="utf-8") as f:
 project_dir = setup_dir / "projects" / "project_ci_2022_2023"
 project_dir.mkdir(parents=True, exist_ok=True)
 project_cfg = dict(source_project_cfg)
-project_cfg["start_date"] = "2023-03-12"
-project_cfg["end_date"] = "2023-03-27 21:00:00"
 
 da_cfg = dict(project_cfg.get("data_assimilation") or {})
+source_events = da_cfg.get("assimilation_events") or []
+scf_events = [
+    dict(event)
+    for event in source_events
+    if isinstance(event, dict) and str(event.get("variable", "")).strip().lower() == "scf"
+]
+station_events = [
+    dict(event)
+    for event in source_events
+    if isinstance(event, dict) and str(event.get("variable", "")).strip().lower() == "station_hs"
+]
+if not scf_events:
+    raise RuntimeError("No SCF assimilation event found in shipped sub-domain example")
+if not station_events:
+    raise RuntimeError("No station_hs assimilation event found in shipped sub-domain example")
+
+def event_day(event):
+    return datetime.fromisoformat(str(event["date"])).date()
+
+station_event = sorted(station_events, key=event_day)[len(station_events) // 2]
+station_day = event_day(station_event)
+scf_event = min(scf_events, key=lambda event: abs((event_day(event) - station_day).days))
+scf_day = event_day(scf_event)
+selected_events = sorted([station_event, scf_event], key=lambda event: (str(event["date"]), str(event["variable"])))
+start_day = min(station_day, scf_day) - timedelta(days=5)
+end_day = max(station_day, scf_day) + timedelta(days=10)
+project_cfg["start_date"] = start_day.isoformat()
+project_cfg["end_date"] = f"{end_day.isoformat()} 21:00:00"
+
 prior_cfg = dict(da_cfg.get("prior_forcing") or {})
 prior_cfg["ensemble_size"] = 3
 da_cfg["prior_forcing"] = prior_cfg
-da_cfg["assimilation_events"] = [
-    {
-        "date": "2023-03-17",
-        "variable": "scf",
-        "product": "SNOWCOVER",
-    },
-]
+da_cfg["assimilation_events"] = selected_events
 project_cfg["data_assimilation"] = da_cfg
 
 with (project_dir / "project_ci_2022_2023.yml").open("w", encoding="utf-8") as f:
@@ -104,7 +123,7 @@ if source_maps_cfg.is_file():
     with source_maps_cfg.open("r", encoding="utf-8") as f:
         maps_cfg = yaml.safe_load(f) or {}
 
-    event_date = str(da_cfg["assimilation_events"][0]["date"])
+    event_date = str(scf_event["date"])
     event_title_date = event_date.replace("-", "/")
     rewritten_maps = {}
     for name, spec in (maps_cfg.get("maps") or {}).items():
@@ -130,6 +149,7 @@ compose_run python -m openamundsen_da.subdomain.cli pipeline \
   --setup-dir "${SETUP_PATH}" \
   --project-dir "${PROJECT_PATH}" \
   --regions "${SETUP_PATH}/env/subdomains.gpkg" \
+  --station-buffer-km 10 \
   --max-workers "${MAX_WORKERS}" \
   --inner-max-workers "${INNER_WORKERS}" \
   --overwrite \

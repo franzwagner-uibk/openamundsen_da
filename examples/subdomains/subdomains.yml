@@ -1,477 +1,204 @@
-﻿domain: "rofental"
-resolution: 100 # spatial resolution (m)
-timestep: "3H" # temporal resolution as a pandas-compatible frequency string (e.g., "h", "3h", "D")
-crs: "epsg:25832" # CRS of the input grids
-timezone: 1 # timezone of the model domain (difference to UTC in h)
+domain: north_tyrol
+resolution: 100
+timestep: 3H
+crs: epsg:25832
+timezone: 1
 start_date: '2022-10-01'
-end_date: '2023-07-31'
-
-# Input data configuration
+end_date: '2023-06-30 21:00:00'
 input_data:
   grids:
-    dir: grids # data assimilation uses roi_<domain>_<resolution>.asc (auto-generated from regions/ROI vector if missing)
-
+    dir: grids
   meteo:
     dir: meteo
-    format: csv # input format (csv or netcdf)
-    crs: "epsg:25832" # CRS of the station coordinates (when using CSV format)
+    format: csv
+    crs: epsg:25832
     bounds: grid
     aggregate_when_downsampling: true
-
-# Output data configuration
 output_data:
-  # Time series (point) outputs configuration
   timeseries:
-    format: csv # output format (csv or netcdf)
+    format: csv
     write_freq: D
-    add_default_points: true
+    add_default_points: false
     add_default_variables: true
+    points:
+    - x: 630645.367774723
+      y: 5192467.50100177
+      name: '01890168'
+    - x: 665508.871654596
+      y: 5210506.16027626
+      name: '03545036'
+    - x: 633839.045584638
+      y: 5214616.13758488
+      name: 03994325-1
+    - x: 612577.251195544
+      y: 5214287.58360072
+      name: '06988000'
+    - x: 646395.063422461
+      y: 5192909.46490574
+      name: 07001000-1
+    - x: 630648.385831993
+      y: 5192468.21173867
+      name: '101824'
+    - x: 651906.571165927
+      y: 5230135.87251155
+      name: '103010'
+    - x: 632260.049470077
+      y: 5202225.09878606
+      name: '103259'
+    - x: 630644.985922464
+      y: 5192467.49599555
+      name: '11092014'
+    - x: 664099.366185564
+      y: 5218101.11621229
+      name: '11140943'
+    - x: 613119.028975059
+      y: 5208474.07697048
+      name: '12092014'
+    - x: 620325.562815775
+      y: 5213649.57286768
+      name: '124124'
+    - x: 647583.033523002
+      y: 5197932.23201147
+      name: '16171208'
+    - x: 617708.09740328
+      y: 5191122.60233682
+      name: '17190595'
+    - x: 652550.343235956
+      y: 5224655.92345432
+      name: '197012'
+    - x: 665154.867335519
+      y: 5217438.34732449
+      name: '197014'
+    - x: 643220.103553504
+      y: 5198733.07408976
+      name: '197023'
+    - x: 655815.530932122
+      y: 5191583.22611692
+      name: 20085015-1
+    - x: 653889.093852727
+      y: 5216487.88526613
+      name: '23151011'
+    - x: 618414.033423824
+      y: 5210943.29076504
+      name: 24130782-1
+    - x: 661169.454120826
+      y: 5206770.6664595
+      name: '30181252'
+    - x: 660764.086558876
+      y: 5224403.0913217
+      name: '39080186'
+    - x: 640897.867260462
+      y: 5202671.58204311
+      name: '40120689'
+    - x: 673925.942161663
+      y: 5215850.85753492
+      name: '41151038'
+    - x: 653196.055501778
+      y: 5193163.2246363
+      name: '41151041'
+    - x: 619401.327816913
+      y: 5216122.15853655
+      name: '41221314'
+    - x: 599332.109172868
+      y: 5204060.9547006
+      name: 49080237-2
+    - x: 618417.651613868
+      y: 5195440.69200743
+      name: 50978865-1
+    - x: 619288.065963114
+      y: 5194311.4407526
+      name: 50978865-2
+    - x: 649615.230967643
+      y: 5204039.59908531
+      name: 54508439-1
+    - x: 647426.278193018
+      y: 5199490.2689033
+      name: 54508439-2
+    - x: 650898.96611466
+      y: 5202843.06854391
+      name: 54508439-3
+    - x: 677380.212416025
+      y: 5213619.31532244
+      name: 66795066-1
+    - x: 637854.0
+      y: 5184641.0
+      name: latschbloder
+    - x: 639377.0
+      y: 5187724.0
+      name: proviantdepot
   grids:
     format: netcdf
     compress: true
     variables:
-      # SWE (daily)
-      - var: snow.swe
-        name: swe_daily
-        freq: D
-      # Snow depth (daily)
-      - var: snow.depth
-        name: snowdepth_daily
-        freq: D
-      # Liquid water content (daily)
-      - var: snow.liquid_water_content
-        name: liquid_water_content
-        freq: D
-        agg: mean
-
+    - var: snow.swe
+      name: swe_daily
+      freq: D
+    - var: snow.depth
+      name: snowdepth_daily
+      freq: D
+    - var: snow.liquid_water_content
+      name: liquid_water_content
+      freq: D
+      agg: mean
 meteo:
-  # Spatial interpolation parameters
   interpolation:
     temperature:
-      trend_method: fixed # use fixed monthly temperature lapse rates
+      trend_method: fixed
       extrapolate: true
-      lapse_rate: # (Ã‚Â°C m-1)
-        - -0.0026 # J
-        - -0.0035 # F
-        - -0.0047 # M
-        - -0.0053 # A
-        - -0.0052 # M
-        - -0.0053 # J
-        - -0.0049 # J
-        - -0.0047 # A
-        - -0.0042 # S
-        - -0.0033 # O
-        - -0.0035 # N
-        - -0.0031 # D
-
+      lapse_rate: [-0.0026, -0.0035, -0.0047, -0.0053, -0.0052, -0.0053, -0.0049, -0.0047, -0.0042, -0.0033, -0.0035, -0.0031]
     precipitation:
-      trend_method: fractional # use fixed monthly fractional precipitation gradients
+      trend_method: fractional
       extrapolate: true
-      lapse_rate: # (m-1)
-        - 0.00048 # J
-        - 0.00046 # F
-        - 0.00041 # M
-        - 0.00033 # A
-        - 0.00028 # M
-        - 0.00025 # J
-        - 0.00024 # J
-        - 0.00025 # A
-        - 0.00028 # S
-        - 0.00033 # O
-        - 0.00041 # N
-        - 0.00046 # D
-
+      lapse_rate: [0.00048, 0.00046, 0.00041, 0.00033, 0.00028, 0.00025, 0.00024, 0.00025, 0.00028, 0.00033, 0.00041, 0.00046]
     humidity:
-      trend_method: fixed # use fixed monthly dew point temperature lapse rates
+      trend_method: fixed
       extrapolate: true
-      lapse_rate:
-        - -0.0044 # J
-        - -0.0046 # F
-        - -0.0049 # M
-        - -0.0048 # A
-        - -0.0046 # M
-        - -0.0047 # J
-        - -0.0043 # J
-        - -0.0042 # A
-        - -0.0045 # S
-        - -0.0044 # O
-        - -0.0047 # N
-        - -0.0046 # D
-
+      lapse_rate: [-0.0044, -0.0046, -0.0049, -0.0048, -0.0046, -0.0047, -0.0043, -0.0042, -0.0045, -0.0044, -0.0047, -0.0046]
     cloudiness:
-      day_method: clear_sky_fraction # use the ratio of measured vs. potential shortwave radiation to calculate cloudiness
-      night_method: humidity # "constant" keep the last cloudiness value of the day during nighttime, "humidity" xxx
-      allow_fallback: true # xxx
-
+      day_method: clear_sky_fraction
+      night_method: humidity
+      allow_fallback: true
     wind_speed:
       trend_method: regression
       extrapolate: false
-
-  # Precipitation phase determination parameters
   precipitation_phase:
-    method: wet_bulb_temp # use wet-bulb temperature for precipitation phase determination
-    threshold_temp: 273.65 # threshold temperature (K) in which 50% of precipitation falls as snow
-    temp_range: 1. # temperature range in which mixed precipitation can occur
-
-  # Parameters for adjusting precipitation for wind-induced undercatch and snow redistribution
+    method: wet_bulb_temp
+    threshold_temp: 273.65
+    temp_range: 1.0
   precipitation_correction:
-    #- method: constant_scf
-    #  scf: 1.25
-    #- method: kochendorfer # use the Kochendorfer et al. (2017) transfer functions
-    #  gauge: us_un # gauge-specific transfer function to use according to Kochendorfer et al. (2017, Table 3)
-    #- method: wmo
-    #  gauge: hellmann
-    - method: srf # apply an additional precalculated spatially distributed snow redistribution factor (SRF)
-
-  # Radiation parameters
+  - method: srf
   radiation:
     snow_emissivity: 0.99
     cloud_emissivity: 0.976
     rock_emission_factor: 0.01
     ozone_layer_thickness: 0.0035
-    atmospheric_visibility: 25000.
+    atmospheric_visibility: 25000.0
     single_scattering_albedo: 0.9
     clear_sky_albedo: 0.0685
     num_shadow_sweeps: 1
-
   measurement_height:
-    temperature: 2 # temperature measurement height (m)
-    wind: 10 # wind measurement height (m)
-
-  stability_correction: false # adjust turbulent fluxes for atmospheric stability
-  stability_adjustment_parameter: 5. # adjustment parameter for atmospheric stability correction
-
-# Snow parameters
+    temperature: 2
+    wind: 10
+  stability_correction: false
+  stability_adjustment_parameter: 5.0
 snow:
-  model: multilayer # snow scheme (multilayer or cryolayers)
-  thermal_conductivity: 0.24 # snow thermal conductivity (W m-1 K-1)
-  roughness_length: 0.01 # roughness length of snow-covered ground (m)
-  measurement_height_adjustment: false # adjust the temperature measurement height for snow depth
-  snow_cover_fraction_depth_scale: 1.e-6 # snow cover fraction depth scale (m)
-
-  # # Parameters for the cryo layer model
-  # cryolayers:
-  #   transition:
-  #     old_snow: 200. # new snow -> old snow transition (density, kg m-3)
-  #     firn: 10 # old snow -> firn transition (calendar month)
-  #     ice: 900. # firn -> ice transition (density, kg m-3)
-  #   use_single_snow_albedo: true # xxx
-  #   cold_holding_capacity: 0.05 # cold holding capacity (as a fraction of the layer SWE) and refreezing factor for the cold content approach by Braun (1984)
-  #   refreezing_factor: 1. # fraction of available energy that is used for building up cold content and refreezing liquid water
-  #   surface_heat_flux: -2. # surface heat flux for snow-covered conditions (W m-2)
-
-  # Albedo parameters
+  model: multilayer
+  thermal_conductivity: 0.24
+  roughness_length: 0.01
+  measurement_height_adjustment: false
+  snow_cover_fraction_depth_scale: 1e-06
   albedo:
     method: snow_age
-    min: 0.55 # minimum snow albedo
-    max: 0.85 # maximum snow albedo
-    cold_snow_decay_timescale: 480 # albedo decay timescale for cold (T < 0 Ã‚Â°C) snow (h)
-    melting_snow_decay_timescale: 200 # albedo decay timescale for melting snow (h)
-    decay_timescale_determination_temperature: surface # use surface temperature to distinguish between cold and melting snow
-    refresh_snowfall: 0.5 # snowfall amount for resetting albedo to the maximum value (kg m-2 h-1)
-    refresh_method: binary # binary or continuous
-    firn: 0.4 # firn albedo (constant)
-    ice: 0.2 # ice albedo (constant)
-
-  # Snow compaction parameters
+    min: 0.55
+    max: 0.85
+    cold_snow_decay_timescale: 480
+    melting_snow_decay_timescale: 200
+    decay_timescale_determination_temperature: surface
+    refresh_snowfall: 0.5
+    refresh_method: binary
+    firn: 0.4
+    ice: 0.2
   compaction:
-    method: anderson # anderson or empirical
-
-    # Parameters for method "empirical"
-    timescale: 200 # snow compaction timescale (h)
-    max_cold_density: 300 # maximum density for cold (T < 0 Ã‚Â°C) snow (kg m-3)
-    max_melting_density: 500 # maximum density for melting snow (kg m-3)
-
-  # Liquid water content
-  liquid_water_content:
-    method: pore_volume_fraction # pore_volume_fraction or mass_fraction
-    max: 0.03 # maximum liquid water content as a fraction of the total pore volume or mass
-
-  # Melt parameters
-  melt:
-    method: energy_balance # melt method (energy_balance, temperature_index or enhanced_temperature_index)
-    # threshold_temp: 273.15 # threshold temperature for the temperature index methods (K)
-    # degree_day_factor: 1.2 # degree day factor for the temperature index methods (kg m-2 d-1 K-1)
-    # albedo_factor: 0.1 # albedo factor for the enhanced temperature index method (m2 kg m-2 W-1 d-1)
-
-soil: # Soil parameters for FSM soil module (not used for FAO evapotranspiration)
-  thickness:
-    - 0.1
-    - 0.2
-    - 0.4
-    - 0.8
-  sand_fraction: 0.6
-  clay_fraction: 0.3
-  init_moisture_content: 0.5
-  init_temp: 285
-  saturated_soil_surface_conductance: 0.01
-  roughness_length: 0.1
-  albedo: 0.15
-
-canopy:
-  enabled: false
-  extinction_coefficient: 0.71
-  temperature_scaling_coefficient: 0.8
-  canopy_flow_index_coefficient: 0.9
-  spherical_ice_particle_radius: 500.e-6
-  kinematic_air_viscosity: 1.3e-5
-  max_interception_storage_coefficient: 4.4
-  exposure_coefficient_coefficient: 0.010
-  degree_day_factor: 5.
-
-evapotranspiration:
-  enabled: false
-  min_crop_coefficient: 0.175
-  grass_albedo: 0.23
-  grass_emissivity: 0.985
-  sealed_albedo: 0.4
-  sealed_emissivity: 0.92
-  mean_wind_speed: 2.
-  mean_min_humidity: 45.
-  surface_soil_layer_evaporation_depth: 0.125
-
-land_cover:
-  classes:
-    # Rock
-    1:
-      is_sealed: true
-      is_forest: false
-      max_sealed_interception: 0.935
-      max_height: 1.9
-      depletion_fraction: .nan
-      rooting_depth: .nan
-    # Ice
-    2:
-      is_sealed: true
-      is_forest: false
-      max_sealed_interception: 0.935
-      max_height: 1.9
-      depletion_fraction: .nan
-      rooting_depth: .nan
-    # Water
-    3:
-      is_sealed: false
-      is_forest: false
-      crop_coefficient_type: single
-      crop_coefficients:
-        - 1.25
-        - 0.65
-        - 1.25
-      plant_date: 1
-      growth_stage_lengths:
-        - 0
-        - 183
-        - 0
-        - 183
-      max_height: 0
-      rooting_depth: .nan
-      depletion_fraction: .nan
-      is_water_body: true
-    # Grassland
-    4:
-      is_sealed: false
-      is_forest: false
-      crop_coefficient_type: dual
-      crop_coefficients:
-        - 0.30
-        - 0.90
-        - 0.80
-      plant_date: 60
-      growth_stage_lengths:
-        - 10
-        - 20
-        - 210
-        - 30
-      max_height: 0.225
-      rooting_depth: 0.5
-      depletion_fraction: 0.6
-    # Shrubland
-    5:
-      is_sealed: false
-      is_forest: false
-      crop_coefficient_type: dual
-      crop_coefficients:
-        - 0.95
-        - 0.95
-        - 0.95
-      plant_date: 1
-      growth_stage_lengths:
-        - 0
-        - 0
-        - 366
-        - 0
-      max_height: 3.
-      rooting_depth: 0.5
-      depletion_fraction: 0.5
-      is_sparse: true
-      sparse_vegetation_fraction: 0.25
-      leaf_area_index:
-        min: 0.0
-        max: 0.2
-        effective_add: 0.5
-    # Farmland
-    6:
-      is_sealed: false
-      is_forest: false
-      crop_coefficient_type: dual
-      crop_coefficients:
-        - 0.30
-        - 0.90
-        - 0.80
-      plant_date: 60
-      growth_stage_lengths:
-        - 10
-        - 20
-        - 210
-        - 30
-      max_height: 0.225
-      rooting_depth: 0.5
-      depletion_fraction: 0.6
-    # Transitional zone
-    7:
-      is_sealed: false
-      is_forest: true
-      crop_coefficient_type: dual
-      crop_coefficients:
-        - 0.95
-        - 0.95
-        - 0.95
-      plant_date: 1
-      growth_stage_lengths:
-        - 0
-        - 0
-        - 366
-        - 0
-      max_height: 3.
-      rooting_depth: 0.5
-      depletion_fraction: 0.5
-      is_sparse: true
-      sparse_vegetation_fraction: 0.25
-      leaf_area_index:
-        min: 0.5
-        max: 0.5
-        effective_add: 1
-    # Deciduous forest 30-60%
-    8:
-      is_sealed: false
-      is_forest: true
-      crop_coefficient_type: dual
-      crop_coefficients:
-        - 0.5
-        - 1.05
-        - 0.6
-      plant_date: 60
-      growth_stage_lengths:
-        - 20
-        - 70
-        - 120
-        - 60
-      max_height: 24.8
-      scale_height: false
-      rooting_depth: 2.05
-      depletion_fraction: 0.5
-      leaf_area_index:
-        min: 0.5
-        max: 2.0
-        effective_add: 1.0
-    # Deciduous forest 60-100%
-    9:
-      is_sealed: false
-      is_forest: true
-      crop_coefficient_type: dual
-      crop_coefficients:
-        - 0.5
-        - 1.05
-        - 0.6
-      plant_date: 60
-      growth_stage_lengths:
-        - 20
-        - 70
-        - 120
-        - 60
-      max_height: 24.8
-      scale_height: false
-      rooting_depth: 2.05
-      depletion_fraction: 0.5
-      leaf_area_index:
-        min: 0.5
-        max: 4.0
-        effective_add: 1.0
-    # Mixed forest
-    10:
-      is_sealed: false
-      is_forest: true
-      crop_coefficient_type: dual
-      crop_coefficients:
-        - 0.95
-        - 0.95
-        - 0.95
-      plant_date: 1
-      growth_stage_lengths:
-        - 0
-        - 0
-        - 366
-        - 0
-      max_height: 26.
-      scale_height: false
-      rooting_depth: 1.25
-      depletion_fraction: 0.7
-      leaf_area_index:
-        min: 1.0
-        max: 2.5
-        effective_add: 1.0
-    # Coniferous forest 30-60%
-    11:
-      is_sealed: false
-      is_forest: true
-      crop_coefficient_type: dual
-      crop_coefficients:
-        - 0.95
-        - 0.95
-        - 0.95
-      plant_date: 1
-      growth_stage_lengths:
-        - 0
-        - 0
-        - 366
-        - 0
-      max_height: 26.
-      scale_height: false
-      rooting_depth: 1.25
-      depletion_fraction: 0.7
-      leaf_area_index:
-        min: 1.0
-        max: 1.5
-        effective_add: 2
-    # Coniferous forest 60-100%
-    12:
-      is_sealed: false
-      is_forest: true
-      crop_coefficient_type: dual
-      crop_coefficients:
-        - 0.95
-        - 0.95
-        - 0.95
-      plant_date: 1
-      growth_stage_lengths:
-        - 0
-        - 0
-        - 366
-        - 0
-      max_height: 26.
-      scale_height: false
-      rooting_depth: 1.25
-      depletion_fraction: 0.7
-      leaf_area_index:
-        min: 1.0
-        max: 2.5
-        effective_add: 2
-    # Urban
-    13:
-      is_sealed: true
-      is_forest: false
-      max_sealed_interception: 0.935
-      max_height: 1.9
-      depletion_fraction: .nan
-      rooting_depth: .nan
-
+    method: anderson
+    timescale: 200
+    max_cold_density: 300

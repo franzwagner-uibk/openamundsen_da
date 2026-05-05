@@ -72,8 +72,8 @@ def _check_manifest(subdomain_root: Path) -> dict:
         raise ValueError(f"Manifest run_mode is not 'subdomain': {data.get('run_mode')!r}")
 
     subdomains = data.get("subdomains") or {}
-    if len(subdomains) < 3:
-        raise ValueError(f"Expected at least 3 sub-domains in manifest, got {len(subdomains)}")
+    if len(subdomains) < 8:
+        raise ValueError(f"Expected at least 8 sub-domains in manifest, got {len(subdomains)}")
 
     for sid, meta in subdomains.items():
         status = str(meta.get("status", ""))
@@ -133,6 +133,7 @@ def _check_project_results(subdomain_root: Path) -> None:
     _assert_non_empty(results / "subdomain_overview.csv")
     _assert_non_empty(results / "subdomain_assimilation_stats.csv")
     _assert_non_empty(results / "subdomain_assimilation_aggregate.csv")
+    _assert_non_empty(results / "subdomain_dropped_events.csv")
     if (project_dir / "maps.yml").is_file():
         map_outputs = sorted((results / "maps").glob("*.png"))
         if not map_outputs:

@@ -9,7 +9,7 @@ on:
       - ".github/workflows/deploy-docs.yml"
   push:
     branches:
-      - "**"
+      - main
     paths-ignore:
       - "docs/**"
       - ".github/workflows/deploy-docs.yml"

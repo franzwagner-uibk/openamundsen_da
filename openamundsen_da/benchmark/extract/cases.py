@@ -25,6 +25,7 @@ from openamundsen_da.util.station_da import (
     load_station_assimilation_config,
     read_station_metadata,
     resolve_station_sigma_base,
+    station_ids_disabled_for_role,
     station_observation_csvs,
     station_variable_spec,
 )
@@ -325,9 +326,13 @@ def _station_observation_series(
 ) -> dict[str, pd.Series]:
     spec = station_variable_spec(variable)
     station_cfg = load_station_assimilation_config(setup_dir, project_dir)
+    metadata_df = read_station_metadata(station_cfg.metadata_path)
+    disabled_station_ids = station_ids_disabled_for_role(metadata_df, "benchmark")
     out: dict[str, pd.Series] = {}
     for csv_path in station_observation_csvs(station_cfg.obs_dir):
         station_id = csv_path.stem.strip().lower()
+        if station_id in disabled_station_ids:
+            continue
         try:
             df = read_timeseries_csv(csv_path, "time", [spec.obs_column])
         except Exception:

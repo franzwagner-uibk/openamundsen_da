@@ -16,6 +16,7 @@ from openamundsen_da.util.station_da import (
     load_station_assimilation_config,
     read_station_metadata,
     resolve_station_sigma_base,
+    station_ids_disabled_for_role,
     station_observation_csvs,
     station_variable_spec,
 )
@@ -128,9 +129,13 @@ def _build_active_stations(
     """Resolve active stations with observation values and effective sigmas."""
     spec = station_variable_spec(variable)
     metadata_df = _read_station_metadata(config.metadata_path)
+    disabled_station_ids = station_ids_disabled_for_role(metadata_df, "da")
 
     active: list[ActiveStation] = []
     for station_id in _candidate_station_ids(obs_dir, members):
+        if station_id in disabled_station_ids:
+            logger.debug("Skipping station {} for {}: use_for_da=false", station_id, variable)
+            continue
         obs_csv = obs_dir / f"{station_id}.csv"
         try:
             obs_time, obs_value = _nearest_value(obs_csv, spec.obs_column, date)

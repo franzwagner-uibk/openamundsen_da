@@ -18,6 +18,15 @@ from openamundsen_da.util.config_validators import require_mapping
 from openamundsen_da.util.landcover_mask import LandcoverMaskConfig, apply_landcover_mask
 from openamundsen_da.util.roi_grid import load_setup_roi_mask
 
+_GEOTIFF_SUFFIXES = {".tif", ".tiff"}
+_NETCDF_SUFFIXES = {".nc", ".nc4", ".netcdf"}
+
+_NETCDF_VARIABLES_BY_OBSERVABLE = {
+    "scf": ("fsc", "scf", "snow_cover_fraction", "snowcover"),
+    "wet_snow": ("wet_snow", "wet_snow_fraction", "wet_snow_mask", "wetsnow"),
+    "wet_snow_line": ("wet_snow", "wet_snow_fraction", "wet_snow_mask", "wetsnow"),
+}
+
 
 @dataclass(frozen=True)
 class ObservationSupportMask:
@@ -83,11 +92,50 @@ def _source_path_from_token(obs_dir: Path, token: str, *, fallback_dir: Path | N
             source_path = candidate
     if not source_path.is_file():
         raise FileNotFoundError(f"Observation source raster not found: {source_path}")
-    if source_path.suffix.lower() not in {".tif", ".tiff"}:
+    if source_path.suffix.lower() not in _GEOTIFF_SUFFIXES | _NETCDF_SUFFIXES:
         raise NotImplementedError(
-            f"Observation support masking currently supports GeoTIFF sources only, got: {source_path.name}"
+            f"Observation support masking supports GeoTIFF and NetCDF sources only, got: {source_path.name}"
         )
     return source_path
+
+
+def _subdataset_variable_name(subdataset: str) -> str:
+    return str(subdataset).rsplit(":", 1)[-1].strip().strip('"').strip("'")
+
+
+def _source_dataset_ref(source_path: Path, *, token: str, observable: str) -> str:
+    suffix = source_path.suffix.lower()
+    if suffix in _GEOTIFF_SUFFIXES:
+        return str(source_path)
+    if suffix not in _NETCDF_SUFFIXES:
+        raise NotImplementedError(
+            f"Observation support masking supports GeoTIFF and NetCDF sources only, got: {source_path.name}"
+        )
+
+    preferred_variables = _NETCDF_VARIABLES_BY_OBSERVABLE.get(observable, ())
+    token_suffix = str(token).split("@", 1)[1].strip().lower() if "@" in str(token) else ""
+    if token_suffix in preferred_variables:
+        preferred_variables = (token_suffix,) + tuple(v for v in preferred_variables if v != token_suffix)
+
+    with rasterio.open(source_path) as src:
+        subdatasets = tuple(src.subdatasets)
+        if src.count > 0:
+            return str(source_path)
+
+    if not subdatasets:
+        raise ValueError(f"NetCDF observation source has no raster variables: {source_path}")
+
+    for variable in preferred_variables:
+        for subdataset in subdatasets:
+            if _subdataset_variable_name(subdataset).lower() == variable:
+                return subdataset
+
+    available = ", ".join(_subdataset_variable_name(subdataset) for subdataset in subdatasets)
+    preferred = ", ".join(preferred_variables) or "<none>"
+    raise ValueError(
+        f"Could not select NetCDF raster variable for {observable} in {source_path.name}; "
+        f"preferred [{preferred}], available [{available}]"
+    )
 
 
 def _scf_valid_pixels(data: np.ndarray, *, nodata: float | int | None, project_dir: Path) -> np.ndarray:
@@ -175,7 +223,8 @@ def load_observation_support_mask(
 
     for token in tokens:
         source_path = _source_path_from_token(obs_dir, token, fallback_dir=fallback_dir)
-        with rasterio.open(source_path) as src:
+        dataset_ref = _source_dataset_ref(source_path, token=token, observable=observable)
+        with rasterio.open(dataset_ref) as src:
             data = src.read(1).astype(float)
             valid_src = _observation_valid_pixels(
                 data=data,

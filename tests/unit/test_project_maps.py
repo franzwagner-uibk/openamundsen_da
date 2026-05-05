@@ -1564,6 +1564,22 @@ def test_load_observation_scene_uses_setup_relative_obs_dir_and_reports_partial_
     assert np.isfinite(scene.array).sum() == 8
 
 
+def test_load_observation_scene_ignores_source_timestamp_token(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    summary_path = setup_dir / "obs" / "summaries" / project_dir.name / "scf_summary.csv"
+    pd.DataFrame(
+        [
+            {"date": "2023-01-02", "source": "scf_left.tif@2023-01-02T00:00:00Z; scf_right.tif@2023-01-02T00:00:00Z"},
+        ]
+    ).to_csv(summary_path, index=False)
+    context = load_static_context(project_dir)
+
+    scene = load_observation_scene(project_dir, context, observation="scf", date=pd.Timestamp("2023-01-02"))
+
+    assert scene.coverage_fraction == 1.0
+    assert np.isfinite(scene.array).sum() == 16
+
+
 def test_load_observation_scene_keeps_visual_wet_snow_classes(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     context = load_static_context(project_dir)

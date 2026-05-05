@@ -24,6 +24,11 @@ from openamundsen_da.io.paths import (
     infer_setup_dir_from_project,
     project_da_output_grids_path,
 )
+from openamundsen_da.methods.pf.fraction_support import (
+    _fallback_observation_dir_for_project,
+    _source_dataset_ref,
+    _source_path_from_token,
+)
 from openamundsen_da.methods.viz.maps.config import DateSelector
 from openamundsen_da.methods.viz.station_meta import load_setup_station_table
 from openamundsen_da.observer.class_config import load_observation_classes, load_wetsnow_classes
@@ -448,13 +453,10 @@ def _observation_source_paths(project_dir: Path, observation: str, date: pd.Time
         raise FileNotFoundError(f"No source raster(s) listed for {observation} on {pd.Timestamp(date).date()}")
 
     obs_dir = _observation_dir(project_dir, observation)
+    fallback_dir = _fallback_observation_dir_for_project(project_dir, observable=observation)
     source_paths = []
     for token in source_tokens:
-        source_path = Path(token)
-        if not source_path.is_absolute():
-            source_path = obs_dir / source_path
-        if not source_path.is_file():
-            raise FileNotFoundError(f"Observation source raster not found: {source_path}")
+        source_path = _source_path_from_token(obs_dir, token, fallback_dir=fallback_dir)
         source_paths.append(source_path)
     return tuple(source_paths)
 
@@ -471,13 +473,15 @@ def _merge_observation_rasters(
     *,
     context: StaticContext,
     roi_geom: gpd.GeoDataFrame,
+    observation: str,
 ) -> tuple[np.ndarray, rasterio.Affine, tuple[float, float, float, float], np.ndarray]:
     merge_bounds = tuple(float(value) for value in roi_geom.total_bounds)
 
     with ExitStack() as stack:
         datasets = []
         for source_path in source_paths:
-            src = stack.enter_context(rasterio.open(source_path))
+            dataset_ref = _source_dataset_ref(source_path, token=source_path.name, observable=observation)
+            src = stack.enter_context(rasterio.open(dataset_ref))
             if src.crs is not None and context.spec.crs is not None and str(src.crs).lower() != str(context.spec.crs).lower():
                 src = stack.enter_context(
                     WarpedVRT(src, crs=context.spec.crs, resampling=Resampling.nearest)
@@ -565,7 +569,12 @@ def _align_uncertainty_array(
 def load_observation_scene(project_dir: Path, context: StaticContext, *, observation: str, date: pd.Timestamp) -> ObservationScene:
     source_paths = _observation_source_paths(project_dir, observation, date)
     roi_geom = _roi_geometry_for_context(context)
-    arr, transform, bounds, roi_mask = _merge_observation_rasters(source_paths, context=context, roi_geom=roi_geom)
+    arr, transform, bounds, roi_mask = _merge_observation_rasters(
+        source_paths,
+        context=context,
+        roi_geom=roi_geom,
+        observation=observation,
+    )
     arr, invalid_mask = _mask_observation_array(
         arr,
         project_dir=project_dir,
@@ -602,6 +611,7 @@ def load_observation_uncertainty_scene(
         uncertainty_paths,
         context=context,
         roi_geom=roi_geom,
+        observation=observation,
     )
     arr = _align_uncertainty_array(arr, transform, scene=observation_scene, context=context).astype(float, copy=True)
     valid_observation = observation_scene.roi_mask & np.isfinite(observation_scene.array)

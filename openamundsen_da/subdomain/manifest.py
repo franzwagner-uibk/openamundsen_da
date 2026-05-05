@@ -53,6 +53,7 @@ class SubdomainMeta:
     crs: Optional[str]
     status: str = "pending"
     run_manifest: Optional[Path] = None
+    dropped_events: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         data = asdict(self)
@@ -96,6 +97,7 @@ class SubdomainMeta:
             crs=(data.get("crs") if data.get("crs") not in (None, "None") else None),
             status=str(data.get("status", "pending")),
             run_manifest=(Path(data["run_manifest"]) if data.get("run_manifest") else None),
+            dropped_events=list(data.get("dropped_events") or []),
         )
 
 

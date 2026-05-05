@@ -15,6 +15,11 @@ from openamundsen_da.util.config_validators import require_mapping
 
 
 STATION_DA_METADATA_FILENAME = "stations_da_metadata.csv"
+STATION_SNOW_DEPTH_METADATA_FILENAME = "stations_snow_depth.csv"
+STATION_METADATA_FILENAMES = {
+    STATION_DA_METADATA_FILENAME,
+    STATION_SNOW_DEPTH_METADATA_FILENAME,
+}
 
 
 @dataclass(frozen=True)
@@ -83,8 +88,8 @@ def is_station_variable(variable: str | None) -> bool:
 
 
 def is_station_metadata_file(path: str | Path) -> bool:
-    """Return True when a path points to the station DA metadata CSV."""
-    return Path(path).name == STATION_DA_METADATA_FILENAME
+    """Return True when a path points to known station metadata CSVs."""
+    return Path(path).name in STATION_METADATA_FILENAMES
 
 
 def station_observation_csvs(obs_dir: Path) -> list[Path]:
@@ -96,9 +101,28 @@ def station_observation_csvs(obs_dir: Path) -> list[Path]:
     ]
 
 
+def _parse_role_flag(raw: object, *, column: str, station_id: str, metadata_path: Path) -> bool:
+    if pd.isna(raw) or str(raw).strip() == "":
+        return True
+    if isinstance(raw, (bool, np.bool_)):
+        return bool(raw)
+    text = str(raw).strip().lower()
+    if text in {"1", "true", "t", "yes", "y"}:
+        return True
+    if text in {"0", "false", "f", "no", "n"}:
+        return False
+    raise ValueError(f"Invalid {column} for station {station_id!r} in {metadata_path}: {raw!r}")
+
+
 def read_station_metadata(metadata_path: Path) -> pd.DataFrame:
     """Read station DA metadata keyed by station_id, validating optional sigma columns."""
-    base_columns = ["station_uncertainty_pct", "hs_sigma_abs_min", "swe_sigma_abs_min"]
+    base_columns = [
+        "station_uncertainty_pct",
+        "hs_sigma_abs_min",
+        "swe_sigma_abs_min",
+        "use_for_da",
+        "use_for_benchmark",
+    ]
     if not metadata_path.is_file():
         logger.warning(
             "Station DA metadata file not found: {}. Active station DA will fail until station-wise absolute sigma metadata are provided.",
@@ -148,7 +172,44 @@ def read_station_metadata(metadata_path: Path) -> pd.DataFrame:
                 raise ValueError(f"{col} for station {station_id!r} in {metadata_path} must be > 0")
             normalized.append(float(value))
         out[col] = normalized
+
+    for col in ("use_for_da", "use_for_benchmark"):
+        if col not in out.columns:
+            out[col] = True
+            continue
+        out[col] = [
+            _parse_role_flag(raw, column=col, station_id=station_id, metadata_path=metadata_path)
+            for station_id, raw in zip(out["station_id"], out[col], strict=False)
+        ]
     return out.drop_duplicates(subset=["station_id"], keep="last").set_index("station_id")
+
+
+def station_ids_disabled_for_role(metadata_df: pd.DataFrame, role: str) -> set[str]:
+    """Return station IDs explicitly disabled for a metadata role.
+
+    Missing metadata or missing role columns keep the historical default: a
+    station is usable unless the project metadata explicitly marks it false.
+    """
+    role_key = str(role).strip().lower()
+    if role_key not in {"da", "benchmark"}:
+        raise ValueError(f"Unsupported station role: {role!r}")
+    column = "use_for_da" if role_key == "da" else "use_for_benchmark"
+    if metadata_df.empty or column not in metadata_df.columns:
+        return set()
+    disabled: set[str] = set()
+    for station_id, raw in metadata_df[column].items():
+        if isinstance(raw, (bool, np.bool_)):
+            enabled = bool(raw)
+        else:
+            enabled = _parse_role_flag(
+                raw,
+                column=column,
+                station_id=str(station_id),
+                metadata_path=Path("<metadata>"),
+            )
+        if not enabled:
+            disabled.add(str(station_id).strip().lower())
+    return disabled
 
 
 def resolve_station_uncertainty_pct(

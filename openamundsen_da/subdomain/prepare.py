@@ -17,6 +17,7 @@ import rasterio
 from loguru import logger
 from rasterio.enums import Resampling
 from rasterio import features, windows
+from shapely.geometry import Point
 from shapely.geometry import Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
@@ -30,6 +31,11 @@ from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta,
 from openamundsen_da.util.yaml_utils import read_yaml_mapping
 from openamundsen_da.util.roi_grid import ensure_setup_roi_grid, load_setup_roi_mask
 from openamundsen_da.util.run_mode import ensure_run_mode
+from openamundsen_da.util.station_da import (
+    STATION_DA_METADATA_FILENAME,
+    STATION_SNOW_DEPTH_METADATA_FILENAME,
+    is_station_metadata_file,
+)
 
 
 @dataclass
@@ -288,7 +294,9 @@ def _write_subdomain_setup_yaml(
     domain: str,
     grids_dir: Path,
     meteo_dir: Path,
+    roi_geom: BaseGeometry | None = None,
 ) -> Path:
+    sub_setup_dir.mkdir(parents=True, exist_ok=True)
     cfg = copy.deepcopy(source_cfg)
     cfg["domain"] = domain
     cfg.setdefault("input_data", {}).setdefault("grids", {})
@@ -298,10 +306,64 @@ def _write_subdomain_setup_yaml(
     # Sub-domains may rely on nearby stations outside the clipped grid extent.
     # Use global station bounds to avoid dropping all stations in small tiles.
     cfg["input_data"]["meteo"]["bounds"] = "global"
+    _filter_output_timeseries_points(cfg, roi_geom=roi_geom)
     cfg["results_dir"] = str((sub_setup_dir / "results").resolve())
     out_yaml = sub_setup_dir / f"{sub_setup_dir.name}.yml"
     out_yaml.write_text(_to_yaml_text(cfg), encoding="utf-8")
     return out_yaml
+
+
+def _point_xy(point_cfg: object) -> tuple[float, float] | None:
+    if not isinstance(point_cfg, dict):
+        return None
+    for x_key, y_key in (("x", "y"), ("lon", "lat"), ("longitude", "latitude")):
+        if x_key not in point_cfg or y_key not in point_cfg:
+            continue
+        try:
+            return float(point_cfg[x_key]), float(point_cfg[y_key])
+        except Exception:
+            return None
+    if "coords" in point_cfg:
+        coords = point_cfg.get("coords")
+        if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+            try:
+                return float(coords[0]), float(coords[1])
+            except Exception:
+                return None
+    return None
+
+
+def _normalize_output_point_cfg(point_cfg: object) -> object:
+    if isinstance(point_cfg, dict) and "name" in point_cfg and point_cfg["name"] is not None:
+        point_cfg = copy.deepcopy(point_cfg)
+        point_cfg["name"] = str(point_cfg["name"])
+    return point_cfg
+
+
+def _filter_output_timeseries_points(cfg: dict, *, roi_geom: BaseGeometry | None) -> None:
+    """Keep configured point outputs that fall inside the sub-domain ROI."""
+    if roi_geom is None or roi_geom.is_empty:
+        return
+    timeseries_cfg = ((cfg.get("output_data") or {}).get("timeseries") or {})
+    points = timeseries_cfg.get("points")
+    if not isinstance(points, list):
+        return
+
+    kept: list[object] = []
+    dropped = 0
+    for point_cfg in points:
+        xy = _point_xy(point_cfg)
+        if xy is None:
+            kept.append(_normalize_output_point_cfg(point_cfg))
+            continue
+        if roi_geom.covers(Point(xy)):
+            kept.append(_normalize_output_point_cfg(point_cfg))
+        else:
+            dropped += 1
+
+    timeseries_cfg["points"] = kept
+    if dropped:
+        logger.debug("Dropped {} configured point output(s) outside sub-domain ROI", dropped)
 
 
 def _copy_project_dir(source_project_dir: Path, target_project_dir: Path) -> Path:
@@ -462,7 +524,7 @@ def _prepare_obs_station_subset(
 
     requested_ids = {str(sid) for sid in (station_ids or []) if str(sid)}
     selected_ids: set[str] = set()
-    stations_meta = obs_dir / "stations_snow_depth.csv"
+    stations_meta = obs_dir / STATION_SNOW_DEPTH_METADATA_FILENAME
     if stations_meta.is_file():
         meta_df = pd.read_csv(stations_meta)
         if {"x", "y"}.issubset(meta_df.columns):
@@ -484,11 +546,28 @@ def _prepare_obs_station_subset(
     if not selected_ids and requested_ids:
         selected_ids = set(requested_ids)
 
+    selected_ids_lower = {sid.strip().lower() for sid in selected_ids if sid.strip()}
+
+    da_meta = obs_dir / STATION_DA_METADATA_FILENAME
+    if da_meta.is_file():
+        da_df = pd.read_csv(da_meta)
+        if selected_ids_lower and "station_id" in da_df.columns:
+            keep_mask = da_df["station_id"].astype(str).str.strip().str.lower().isin(selected_ids_lower)
+            da_df = da_df.loc[keep_mask].copy()
+        da_df.to_csv(out_dir / STATION_DA_METADATA_FILENAME, index=False)
+
     if selected_ids:
         for sid in sorted(selected_ids):
             copied = False
             for ext in (".csv", ".nc"):
                 src = obs_dir / f"{sid}{ext}"
+                if not src.exists():
+                    matches = sorted(
+                        p
+                        for p in obs_dir.glob(f"*{ext}")
+                        if p.stem.strip().lower() == sid.strip().lower()
+                    )
+                    src = matches[0] if matches else src
                 if src.exists():
                     _copy_or_link(src, out_dir / src.name)
                     copied = True
@@ -500,7 +579,7 @@ def _prepare_obs_station_subset(
     copied_any = False
     for pattern in ("*.csv", "*.nc"):
         for src in sorted(obs_dir.glob(pattern)):
-            if src.name == "stations_snow_depth.csv":
+            if is_station_metadata_file(src):
                 continue
             _copy_or_link(src, out_dir / src.name)
             copied_any = True
@@ -843,6 +922,7 @@ def prepare_subdomains(
             domain=sub_domain,
             grids_dir=grids_out,
             meteo_dir=meteo_out,
+            roi_geom=geom_roi,
         )
         sub_project_yaml = sub_setup_yaml if model_mode else _copy_project_dir(project_dir, project_out)
 

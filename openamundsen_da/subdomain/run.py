@@ -24,6 +24,7 @@ from openamundsen_da.observer.satellite_wet_snow_s1 import generate_project_from
 from openamundsen_da.observer.snowcover import summarize_snowcover_directory
 from openamundsen_da.pipeline.project import OrchestratorConfig, run_project
 from openamundsen_da.pipeline.project_skeleton import create_project_skeleton
+from openamundsen_da.subdomain.event_filter import filter_project_events_for_subdomain
 from openamundsen_da.subdomain.manifest import SubdomainManifest
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.parallel import pick_max_workers
@@ -41,6 +42,7 @@ class RunResult:
     log_path: Path
     error: Optional[str] = None
     run_manifest: Optional[Path] = None
+    dropped_events: list[dict] | None = None
 
 
 def _project_window(project_yaml: Path) -> tuple[datetime | None, datetime | None]:
@@ -106,6 +108,20 @@ def _write_run_manifest(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def _dropped_events_csv(sub_setup_dir: Path) -> Path:
+    return Path(sub_setup_dir) / "subdomain_dropped_events.csv"
+
+
+def _read_dropped_events(path: Path) -> list[dict]:
+    if not Path(path).is_file():
+        return []
+    try:
+        df = pd.read_csv(path)
+    except Exception:
+        return []
+    return df.fillna("").to_dict(orient="records")
 
 
 def _configure_worker_logger(log_path: Path, log_level: str, root_log_path: Path | None) -> None:
@@ -176,6 +192,16 @@ def _prepare_obs_for_subdomain(sub, manifest: SubdomainManifest, *, overwrite: b
         except RuntimeError as exc:
             logger.warning("No valid wet-snow observations for {}: {}", sub.id, exc)
 
+    filter_project_events_for_subdomain(
+        project_yaml=sub.project_yaml,
+        setup_dir=sub.setup_dir,
+        project_name=sub.project_name,
+        subdomain_id=sub.id,
+        dropped_events_csv=_dropped_events_csv(sub.setup_dir),
+    )
+    events = load_assimilation_events(sub.project_dir)
+    variables = {ev.variable for ev in events}
+
     _validate_project_events_have_obs(
         sub.project_yaml,
         available_by_var={
@@ -235,6 +261,10 @@ def _run_one(
                     setup_dir=sub.setup_dir,
                     log_path=log_path,
                     run_manifest=run_manifest_path,
+                    dropped_events=list(
+                        data.get("dropped_events")
+                        or _read_dropped_events(_dropped_events_csv(sub.setup_dir))
+                    ),
                 )
         except Exception:
             pass
@@ -257,6 +287,7 @@ def _run_one(
         logger.info("START sub-domain={} attempt={}", sub.id, attempt)
         try:
             _prepare_obs_for_subdomain(sub, manifest, overwrite=overwrite)
+            dropped_events = _read_dropped_events(_dropped_events_csv(sub.setup_dir))
             run_project(
                 OrchestratorConfig(
                     project_dir=sub.project_dir,
@@ -275,6 +306,7 @@ def _run_one(
                     "status": "success",
                     "finished": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "duration_seconds": duration,
+                    "dropped_events": dropped_events,
                 }
             )
             _write_run_manifest(run_manifest_path, run_meta)
@@ -286,15 +318,18 @@ def _run_one(
                 setup_dir=sub.setup_dir,
                 log_path=log_path,
                 run_manifest=run_manifest_path,
+                dropped_events=dropped_events,
             )
         except Exception as exc:  # noqa: BLE001
             duration = time.time() - started
+            dropped_events = _read_dropped_events(_dropped_events_csv(sub.setup_dir))
             run_meta.update(
                 {
                     "status": "failed",
                     "finished": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "duration_seconds": duration,
                     "error": repr(exc),
+                    "dropped_events": dropped_events,
                 }
             )
             _write_run_manifest(run_manifest_path, run_meta)
@@ -308,6 +343,7 @@ def _run_one(
                     log_path=log_path,
                     error=repr(exc),
                     run_manifest=run_manifest_path,
+                    dropped_events=dropped_events,
                 )
     return RunResult(
         subdomain_id=sub.id,
@@ -317,7 +353,29 @@ def _run_one(
         log_path=log_path,
         error="unknown",
         run_manifest=run_manifest_path,
+        dropped_events=_read_dropped_events(_dropped_events_csv(sub.setup_dir)),
     )
+
+
+def _write_project_dropped_events(manifest: SubdomainManifest) -> None:
+    rows: list[dict] = []
+    for meta in manifest.subdomains.values():
+        rows.extend(list(meta.dropped_events or []))
+    columns = [
+        "subdomain_id",
+        "date",
+        "variable",
+        "product",
+        "reason",
+        "metric",
+        "value",
+        "threshold",
+        "active_station_ids",
+        "project_yaml",
+    ]
+    out = manifest.project_dir / "results" / "subdomain_dropped_events.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows, columns=columns).to_csv(out, index=False)
 
 
 def run_subdomains(
@@ -402,6 +460,7 @@ def run_subdomains(
             meta.status = res.status
             if res.run_manifest:
                 meta.run_manifest = res.run_manifest
+            meta.dropped_events = list(res.dropped_events or [])
             manifest.save(manifest_path)
             logger.info(
                 "STATUS sub-domain={} status={} duration_s={:.1f}",
@@ -434,6 +493,7 @@ def run_subdomains(
         if failed_id is not None:
             meta.status = "skipped"
     manifest.save(manifest_path)
+    _write_project_dropped_events(manifest)
 
     ok = sum(1 for r in results if r.status == "success")
     fail = sum(1 for r in results if r.status == "failed")

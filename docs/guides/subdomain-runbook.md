@@ -102,7 +102,7 @@ By default, each feature must have an `id` field. Use `--id-field <field>` only 
 run_mode: subdomain
 ```
 
-- configured assimilation events are available in the observation summaries for the local sub-domains.
+- configured assimilation events are available in the observation summaries for the local sub-domains, or `data_assimilation.subdomain_event_filter` is enabled so unavailable local events can be dropped explicitly.
 - the machine has enough disk space for intermediate per-sub-domain projects.
 - `--max-workers` is no larger than the CPU cores available to Docker.
 
@@ -145,6 +145,7 @@ Add these only when the default behavior is not appropriate:
 - `--id-field <field>`: use a sub-domain identifier column other than `id`.
 - `--max-workers <n>`: limit parallel sub-domain workers.
 - `--inner-max-workers <n>`: limit parallel member workers inside each DA sub-domain.
+- `--station-buffer-km <km>`: select meteo and station-observation inputs from each sub-domain plus this buffer distance.
 - `--subdomains sd_01 sd_02`: run or merge only selected sub-domains.
 - `--overwrite`: replace existing prepared or successful outputs.
 - `--no-plot`: skip project map rendering in the one-shot DA pipeline.
@@ -220,7 +221,10 @@ After the one-shot pipeline, also inspect:
 large_setup/projects/project_YYYY-YYYY/results/subdomain_overview.csv
 large_setup/projects/project_YYYY-YYYY/results/subdomain_assimilation_stats.csv
 large_setup/projects/project_YYYY-YYYY/results/subdomain_assimilation_aggregate.csv
+large_setup/projects/project_YYYY-YYYY/results/subdomain_dropped_events.csv
 ```
+
+`subdomain_dropped_events.csv` is written when event filtering is enabled. It records the project-level candidate events that were not assimilated in a specific sub-domain, including the filter reason and threshold.
 
 Each sub-domain keeps its own project under:
 
@@ -280,7 +284,7 @@ Model mode also uses a hard mosaic and only merges matching grid outputs under e
 
 If preparation fails with overlap or uncovered-pixel errors, fix the regions file first. For tiny geometry slivers, the DA commands expose `--overlap-area-tol-m2` and `--sliver-fix-m`, but those options should not hide real overlaps.
 
-If a sub-domain run fails because observations are missing, check that the configured `assimilation_events` are present in the sub-domain observation summaries. Sub-domain mode fails fast when a local sub-domain does not have the required events.
+If a sub-domain run fails because observations are missing, check that the configured `assimilation_events` are present in the sub-domain observation summaries. Without `data_assimilation.subdomain_event_filter`, sub-domain mode fails fast when a local sub-domain does not have the required events. With filtering enabled, inspect `subdomain_dropped_events.csv` to verify which candidate events were skipped locally.
 
 If the machine runs out of memory, reduce `--max-workers`, reduce `--inner-max-workers`, or rerun a subset with `--subdomains`.
 

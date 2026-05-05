@@ -157,6 +157,17 @@ def _load_wet_snow_threshold_percent(project_dir: Path) -> float:
     return _load_wet_snow_classification_config(project_dir).threshold_percent
 
 
+def _resolve_wet_snow_classification_config(
+    project_dir: Path,
+    *,
+    wet_snow_enabled: bool,
+) -> WetSnowClassificationConfig | None:
+    """Read wet-snow config only when wet-snow diagnostics are active."""
+    if not wet_snow_enabled:
+        return None
+    return _load_wet_snow_classification_config(project_dir)
+
+
 def _compute_prior_step_diagnostics(
     *,
     cfg: "OrchestratorConfig",
@@ -166,7 +177,7 @@ def _compute_prior_step_diagnostics(
     workers: int,
     scf_enabled: bool,
     wet_snow_enabled: bool,
-    wet_snow_classification: WetSnowClassificationConfig,
+    wet_snow_classification: WetSnowClassificationConfig | None,
 ) -> None:
     """Compute setup-level prior diagnostics that depend on propagated member outputs."""
     step_name = Path(step_dir).name
@@ -199,6 +210,8 @@ def _compute_prior_step_diagnostics(
 
     try:
         if wet_snow_enabled:
+            if wet_snow_classification is None:
+                raise ValueError("Wet-snow diagnostics are enabled but no classification config was loaded")
             classify_step_wet_snow(
                 step_dir=step_dir,
                 members=None,
@@ -469,19 +482,23 @@ def run_project(cfg: OrchestratorConfig) -> None:
         logger.info("Land-cover mask disabled; no land-cover exclusions applied")
 
     # Project/setup metadata for DA and performance monitoring
-    wet_snow_classification = _load_wet_snow_classification_config(cfg.project_dir)
-    if wet_snow_classification.method == CLASSIFICATION_METHOD_AMOUNT:
-        logger.info(
-            "Wet-snow classification method={} threshold={:.3f} mm (project YAML)",
-            wet_snow_classification.method,
-            wet_snow_classification.liquid_water_amount_threshold_mm,
-        )
-    else:
-        logger.info(
-            "Wet-snow classification method={} threshold={:.3f} % (project YAML)",
-            wet_snow_classification.method,
-            wet_snow_classification.threshold_percent,
-        )
+    wet_snow_classification = _resolve_wet_snow_classification_config(
+        cfg.project_dir,
+        wet_snow_enabled=wet_snow_enabled,
+    )
+    if wet_snow_classification is not None:
+        if wet_snow_classification.method == CLASSIFICATION_METHOD_AMOUNT:
+            logger.info(
+                "Wet-snow classification method={} threshold={:.3f} mm (project YAML)",
+                wet_snow_classification.method,
+                wet_snow_classification.liquid_water_amount_threshold_mm,
+            )
+        else:
+            logger.info(
+                "Wet-snow classification method={} threshold={:.3f} % (project YAML)",
+                wet_snow_classification.method,
+                wet_snow_classification.threshold_percent,
+            )
 
     proj_crs = None
     try:

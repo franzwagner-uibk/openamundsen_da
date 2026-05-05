@@ -167,6 +167,53 @@ class AssimilateStationTests(unittest.TestCase):
             self.assertAlmostEqual(sigma_base, math.hypot(0.10, 0.20), places=6)
             self.assertAlmostEqual(sigma, math.hypot(0.10, 0.20) * 2.0, places=6)
 
+    def test_station_use_for_da_false_is_not_assimilated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            setup_dir = root / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2024_2025"
+            step_dir = project_dir / "steps" / "step_00_init"
+            obs_dir = setup_dir / "obs" / "stations"
+            prior_root = step_dir / "ensembles" / "prior"
+
+            _write_project_config(project_dir)
+            _write_series(
+                obs_dir / "stations_da_metadata.csv",
+                [
+                    {
+                        "station_id": "station_a",
+                        "station_uncertainty_pct": 10,
+                        "hs_sigma_abs_min": 0.20,
+                        "use_for_da": True,
+                    },
+                    {
+                        "station_id": "station_b",
+                        "station_uncertainty_pct": 10,
+                        "hs_sigma_abs_min": 0.20,
+                        "use_for_da": False,
+                    },
+                ],
+            )
+            for station_id in ("station_a", "station_b"):
+                _write_series(
+                    obs_dir / f"{station_id}.csv",
+                    [{"time": "2024-02-01 00:00:00", "snow_depth": 1.0, "swe": 30.0}],
+                )
+                _write_series(
+                    prior_root / "member_001" / "results" / f"point_{station_id}.csv",
+                    [{"time": "2024-02-01 00:00:00", "snow_depth": 1.05, "swe": 28.0}],
+                )
+
+            result = assimilate_station_hs_for_date(
+                setup_dir=setup_dir,
+                step_dir=step_dir,
+                ensemble="prior",
+                date=datetime(2024, 2, 1),
+            )
+
+            self.assertEqual(set(result.diagnostics["station_id"]), {"station_a"})
+            self.assertTrue(result.diagnostics["single_station_inflated"].all())
+
     def test_station_hs_sigma_uses_metadata_abs_floor_combination(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

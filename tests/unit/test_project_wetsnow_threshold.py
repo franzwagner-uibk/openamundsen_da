@@ -6,7 +6,11 @@ from pathlib import Path
 
 from ruamel.yaml import YAML
 
-from openamundsen_da.pipeline.project import _load_wet_snow_classification_config, _load_wet_snow_threshold_percent
+from openamundsen_da.pipeline.project import (
+    _load_wet_snow_classification_config,
+    _load_wet_snow_threshold_percent,
+    _resolve_wet_snow_classification_config,
+)
 
 
 def _write_yaml(path: Path, payload: dict) -> None:
@@ -47,6 +51,27 @@ class ProjectWetSnowThresholdTests(unittest.TestCase):
             cfg = _load_wet_snow_classification_config(project_dir)
             self.assertEqual(cfg.method, "liquid_water_amount")
             self.assertEqual(cfg.liquid_water_amount_threshold_mm, 5.0)
+
+    def test_wet_snow_config_not_required_when_diagnostics_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
+            _write_yaml(
+                project_dir / "project_2024_2025.yml",
+                {"data_assimilation": {"assimilation_events": [{"date": "2024-02-01", "variable": "scf"}]}},
+            )
+            cfg = _resolve_wet_snow_classification_config(project_dir, wet_snow_enabled=False)
+            self.assertIsNone(cfg)
+
+    def test_wet_snow_config_required_when_diagnostics_enabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
+            _write_yaml(
+                project_dir / "project_2024_2025.yml",
+                {"data_assimilation": {"assimilation_events": [{"date": "2024-02-01", "variable": "wet_snow"}]}},
+            )
+            with self.assertRaises(ValueError) as ctx:
+                _resolve_wet_snow_classification_config(project_dir, wet_snow_enabled=True)
+            self.assertIn("data_assimilation.wet_snow", str(ctx.exception))
 
 
 if __name__ == "__main__":

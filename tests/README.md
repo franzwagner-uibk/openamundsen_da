@@ -151,12 +151,13 @@ Validation focuses on:
 Runner script: `scripts/ci/run_integration_tests_subdomain.sh`
 
 What it does:
-- clones `examples/rofental` and `examples/subdomains` into a temp directory
+- clones `examples/subdomains` into a temp directory
 - writes a trimmed project config (`project_ci_2022_2023`) under the sub-domain setup
 - runs full sub-domain pipeline (`oa-da-subdomain pipeline`) with:
   - setup: `/data/subdomains` (the copied sub-domain setup root)
   - project: `/data/subdomains/projects/project_ci_2022_2023`
-  - regions: `/data/env/subdomains.gpkg` (3 non-overlapping subdomains)
+  - regions: `/data/subdomains/env/subdomains.gpkg` (8 North Tyrol avalanche-report subdomains)
+  - station buffer: `10 km`
 - validates logs and outputs with `scripts/ci/validate_trimmed_subdomain.py`
 
 Validation focuses on:
@@ -179,7 +180,8 @@ What it does:
 - shortens setup-level `start_date`/`end_date` in the temp copy
 - runs the plain openAMUNDSEN model sub-domain pipeline (`oa-da-subdomain model-pipeline`) with:
   - setup: `/data/subdomains` (the copied sub-domain setup root)
-  - regions: `/data/subdomains/env/subdomains.gpkg` (3 non-overlapping subdomains)
+  - regions: `/data/subdomains/env/subdomains.gpkg` (8 North Tyrol avalanche-report subdomains)
+  - station buffer: `10 km`
 - validates logs and outputs with `scripts/ci/validate_trimmed_model_subdomain.py`
 
 Validation focuses on:

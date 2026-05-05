@@ -1,0 +1,129 @@
+maps:
+  north_tyrol_setup_overview:
+    title: North Tyrol setup overview
+    output_name: north_tyrol_setup_overview
+    layout:
+      nrows: 2
+      ncols: 3
+    defaults:
+      show_scalebar: true
+    panels:
+      - row: 0
+        col: 0
+        kind: overview
+        title: overview
+        scale: 2500000
+        roi_label: North Tyrol
+      - row: 0
+        col: 1
+        kind: roi
+        title: ROI and stations
+        show_station_marker: true
+        show_stations_name: false
+        show_stations_elev: false
+        below_items:
+          - kind: station_symbol
+            label: Meteo and snow stations
+      - row: 0
+        col: 2
+        kind: dem
+        title: elevation
+      - row: 1
+        col: 0
+        kind: landcover
+        title: land cover
+      - row: 1
+        col: 1
+        kind: hillshade
+        title: terrain shading
+        show_station_marker: true
+        show_stations_name: false
+      - row: 1
+        col: 2
+        kind: srf
+        title: snow redistribution factor
+        show_hillshade: true
+
+  early_season_snow_depth_response:
+    title: Early-season snow-depth response
+    output_name: early_season_snow_depth_response
+    figure_title: North Tyrol snow depth response - 2022-11-12
+    layout:
+      nrows: 1
+      ncols: 3
+    defaults:
+      date: '2022-11-12'
+      show_scalebar: true
+      show_hillshade: true
+    panels:
+      - row: 0
+        col: 0
+        kind: snow_depth
+        source: open_loop
+        title: open loop
+      - row: 0
+        col: 1
+        kind: snow_depth
+        source: ensemble_mean
+        title: ensemble mean
+      - row: 0
+        col: 2
+        kind: snow_depth
+        source: increment
+        title: ensemble mean - open loop
+
+  midwinter_swe_state:
+    title: Midwinter SWE state
+    output_name: midwinter_swe_state
+    figure_title: North Tyrol SWE state - 2023-01-06
+    layout:
+      nrows: 1
+      ncols: 3
+    defaults:
+      date: '2023-01-06'
+      show_scalebar: true
+      show_hillshade: true
+    panels:
+      - row: 0
+        col: 0
+        kind: swe
+        source: open_loop
+        title: open loop
+      - row: 0
+        col: 1
+        kind: swe
+        source: ensemble_mean
+        title: ensemble mean
+      - row: 0
+        col: 2
+        kind: swe
+        source: increment
+        title: ensemble mean - open loop
+
+  spring_snow_depth_response:
+    title: Spring snow-depth response
+    output_name: spring_snow_depth_response
+    figure_title: North Tyrol snow depth response - 2023-03-22
+    layout:
+      nrows: 1
+      ncols: 3
+    defaults:
+      date: '2023-03-22'
+      show_scalebar: true
+      show_hillshade: true
+    panels:
+      - row: 0
+        col: 0
+        kind: snow_depth
+        source: open_loop
+        title: open loop
+      - row: 0
+        col: 1
+        kind: snow_depth
+        source: ensemble_mean
+        title: ensemble mean
+      - row: 0
+        col: 2
+        kind: snow_depth
+        source: increment
+        title: ensemble mean - open loop

@@ -258,7 +258,7 @@ Single-domain example configuration details:
   - `OA_DA_TEST_MAX_WORKERS` (single-domain, current value: `8`)
   - `OA_DA_SUBDOMAIN_TEST_MAX_WORKERS` / `OA_DA_SUBDOMAIN_TEST_INNER_WORKERS` (sub-domain, current values: `8` / `4`)
   - `OA_DA_MODEL_SUBDOMAIN_TEST_MAX_WORKERS` (model sub-domain, current value: `8`)
-- branch pushes do not run duplicate CI; feature-branch validation is expected to happen through pull requests, while pushes to `main` still run the publish-gated workflow.
+- branch and PR runs share a workflow concurrency group by branch name, so new pushes cancel stale in-progress runs for the same branch instead of queueing old commits on the self-hosted runner.
 
 If you want to change the CI test setup:
 - edit the shipped example project or the relevant script directly:

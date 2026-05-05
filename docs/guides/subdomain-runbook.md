@@ -48,7 +48,7 @@ Point outputs and point plots remain inside each sub-domain project. They are no
 
 ## Requirements
 
-Install Docker on the machine that will run the workflow. The commands below use Bash syntax and write files as the current host user with `--user "$(id -u):$(id -g)"`. On Windows PowerShell, replace that argument with a suitable user mapping or omit it and repair file ownership afterwards if needed.
+Install Docker on the machine that will run the workflow. The commands below use Bash syntax and mount the host setup directory at `/data` inside the container.
 
 Pull the image:
 
@@ -56,22 +56,9 @@ Pull the image:
 docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest
 ```
 
-If the GHCR package is private in your environment, log in first:
-
-```bash
-echo "$GHCR_PAT_RO" | docker login ghcr.io -u <github-user> --password-stdin
-docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest
-```
-
-Use a dated or SHA tag instead of `latest` when the run must be exactly reproducible:
-
-```bash
-docker pull ghcr.io/franzwagner-uibk/openamundsen_da:<tag>
-```
-
 ## Host Setup Layout
 
-The colleague needs one complete setup directory on the host, for example:
+A complete setup directory is required on the host, for example:
 
 ```text
 large_setup/
@@ -102,7 +89,7 @@ The regions file must contain at least two non-overlapping polygons:
 large_setup/env/subdomains.gpkg
 ```
 
-By default, each feature must have an `id` field. Use `--id-field <field>` if the identifier column has another name. Keep identifiers short and stable, for example `sd_01`, `sd_02`, `sd_03`.
+By default, each feature must have an `id` field. Use `--id-field <field>` only when the identifier column has another name. Keep identifiers short and stable, for example `sd_01`, `sd_02`, `sd_03`.
 
 ## Pre-run Checklist
 
@@ -132,31 +119,15 @@ IMAGE=ghcr.io/franzwagner-uibk/openamundsen_da:latest
 Run the full sub-domain data assimilation pipeline:
 
 ```bash
-docker run --rm \
-  --user "$(id -u):$(id -g)" \
+docker run \
   -v "${SETUP_HOST}:/data" \
-  --cpus 24 \
-  --memory 64g \
-  -e HOME=/tmp \
-  -e XDG_CACHE_HOME=/tmp/xdg \
-  -e MPLCONFIGDIR=/tmp/mpl \
-  -e OMP_NUM_THREADS=1 \
-  -e OPENBLAS_NUM_THREADS=1 \
-  -e MKL_NUM_THREADS=1 \
-  -e NUMEXPR_NUM_THREADS=1 \
-  -e GPD_USE_PYOGRIO=0 \
   "${IMAGE}" \
   oa-da-subdomain pipeline \
     --setup-dir /data \
-    --project-dir "/data/projects/${PROJECT_NAME}" \
-    --regions /data/env/subdomains.gpkg \
-    --id-field id \
-    --max-workers 24 \
-    --inner-max-workers 2 \
-    --overwrite
+    --project-dir "/data/projects/${PROJECT_NAME}"
 ```
 
-Adjust `--cpus`, `--memory`, `--max-workers`, and `--inner-max-workers` to the machine. For large domains, start conservatively. A useful first setting is one outer worker per physical core group and `--inner-max-workers 1` or `2`.
+This assumes the regions file is available at `/data/env/subdomains.gpkg` and uses the default `id` column.
 
 The pipeline runs:
 
@@ -166,6 +137,22 @@ prepare -> run -> report -> merge -> plot
 
 If plotting inputs are incomplete, map plotting is best effort and the pipeline continues after writing the merged grid output.
 
+## Optional Flags
+
+Add these only when the default behavior is not appropriate:
+
+- `--regions /data/path/to/regions.gpkg`: use a regions file outside `/data/env/subdomains.gpkg`.
+- `--id-field <field>`: use a sub-domain identifier column other than `id`.
+- `--max-workers <n>`: limit parallel sub-domain workers.
+- `--inner-max-workers <n>`: limit parallel member workers inside each DA sub-domain.
+- `--subdomains sd_01 sd_02`: run or merge only selected sub-domains.
+- `--overwrite`: replace existing prepared or successful outputs.
+- `--no-plot`: skip project map rendering in the one-shot DA pipeline.
+- `--rm`: remove the stopped container after the command finishes.
+- `--user "$(id -u):$(id -g)"`: on Linux, write mounted outputs as the current host user.
+
+Docker resource flags such as `--cpus <n>` and `--memory <size>` can be added before the image name when the run should be constrained by Docker.
+
 ## Staged DA Run
 
 Use staged commands when debugging geometry, observations, or a failing sub-domain. The staged sequence below prepares, runs, and merges the grids. The `subdomain_*.csv` report tables are produced by the one-shot pipeline.
@@ -173,55 +160,29 @@ Use staged commands when debugging geometry, observations, or a failing sub-doma
 Prepare sub-domain projects:
 
 ```bash
-docker run --rm \
-  --user "$(id -u):$(id -g)" \
+docker run \
   -v "${SETUP_HOST}:/data" \
-  -e HOME=/tmp \
-  -e XDG_CACHE_HOME=/tmp/xdg \
-  -e MPLCONFIGDIR=/tmp/mpl \
-  -e GPD_USE_PYOGRIO=0 \
   "${IMAGE}" \
   oa-da-subdomain prepare \
     --setup-dir /data \
-    --project-dir "/data/projects/${PROJECT_NAME}" \
-    --regions /data/env/subdomains.gpkg \
-    --id-field id \
-    --overwrite
+    --project-dir "/data/projects/${PROJECT_NAME}"
 ```
 
 Run all prepared sub-domains:
 
 ```bash
-docker run --rm \
-  --user "$(id -u):$(id -g)" \
+docker run \
   -v "${SETUP_HOST}:/data" \
-  --cpus 24 \
-  --memory 64g \
-  -e HOME=/tmp \
-  -e XDG_CACHE_HOME=/tmp/xdg \
-  -e MPLCONFIGDIR=/tmp/mpl \
-  -e OMP_NUM_THREADS=1 \
-  -e OPENBLAS_NUM_THREADS=1 \
-  -e MKL_NUM_THREADS=1 \
-  -e NUMEXPR_NUM_THREADS=1 \
-  -e GPD_USE_PYOGRIO=0 \
   "${IMAGE}" \
   oa-da-subdomain run \
-    --project-dir "/data/projects/${PROJECT_NAME}" \
-    --max-workers 24 \
-    --inner-max-workers 2
+    --project-dir "/data/projects/${PROJECT_NAME}"
 ```
 
 Merge grids:
 
 ```bash
-docker run --rm \
-  --user "$(id -u):$(id -g)" \
+docker run \
   -v "${SETUP_HOST}:/data" \
-  -e HOME=/tmp \
-  -e XDG_CACHE_HOME=/tmp/xdg \
-  -e MPLCONFIGDIR=/tmp/mpl \
-  -e GPD_USE_PYOGRIO=0 \
   "${IMAGE}" \
   oa-da-subdomain merge \
     --project-dir "/data/projects/${PROJECT_NAME}"
@@ -230,13 +191,8 @@ docker run --rm \
 Optionally render station comparison plots:
 
 ```bash
-docker run --rm \
-  --user "$(id -u):$(id -g)" \
+docker run \
   -v "${SETUP_HOST}:/data" \
-  -e HOME=/tmp \
-  -e XDG_CACHE_HOME=/tmp/xdg \
-  -e MPLCONFIGDIR=/tmp/mpl \
-  -e GPD_USE_PYOGRIO=0 \
   "${IMAGE}" \
   oa-da-subdomain plot \
     --project-dir "/data/projects/${PROJECT_NAME}"
@@ -291,32 +247,17 @@ The merge is a hard mosaic. It does not interpolate, blend, or smooth boundaries
 
 ## Plain openAMUNDSEN Model-only Run
 
-If the colleague only wants to split and merge a plain openAMUNDSEN model run without data assimilation, use the `model-*` commands. The setup does not need `projects/` or `obs/`, but the setup YAML must define `start_date`, `end_date`, domain settings, grid and meteo input directories, and desired grid outputs.
+For a split and merged plain openAMUNDSEN model run without data assimilation, use the `model-*` commands. The setup does not need `projects/` or `obs/`, but the setup YAML must define `start_date`, `end_date`, domain settings, grid and meteo input directories, and desired grid outputs.
 
 ```bash
 SETUP_HOST=/absolute/path/to/large_setup
 IMAGE=ghcr.io/franzwagner-uibk/openamundsen_da:latest
 
-docker run --rm \
-  --user "$(id -u):$(id -g)" \
+docker run \
   -v "${SETUP_HOST}:/data" \
-  --cpus 24 \
-  --memory 64g \
-  -e HOME=/tmp \
-  -e XDG_CACHE_HOME=/tmp/xdg \
-  -e MPLCONFIGDIR=/tmp/mpl \
-  -e OMP_NUM_THREADS=1 \
-  -e OPENBLAS_NUM_THREADS=1 \
-  -e MKL_NUM_THREADS=1 \
-  -e NUMEXPR_NUM_THREADS=1 \
-  -e GPD_USE_PYOGRIO=0 \
   "${IMAGE}" \
   oa-da-subdomain model-pipeline \
-    --setup-dir /data \
-    --regions /data/env/subdomains.gpkg \
-    --id-field id \
-    --max-workers 24 \
-    --overwrite
+    --setup-dir /data
 ```
 
 The merged model grid outputs are written to:

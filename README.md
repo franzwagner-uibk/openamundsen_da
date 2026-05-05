@@ -781,7 +781,7 @@ If you rebuilt the image with the latest code, you can replace the `python -m ..
 
 Use `oa-da-subdomain` to split a large setup into non-overlapping sub-domains. There are two workflows:
 
-For a colleague-facing start-to-finish guide, see `docs/guides/subdomain-runbook.md`.
+For a start-to-finish guide, see `docs/guides/subdomain-runbook.md`.
 
 ### Data Assimilation Sub-domain Workflow
 

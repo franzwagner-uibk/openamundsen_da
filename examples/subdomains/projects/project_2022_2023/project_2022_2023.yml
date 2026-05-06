@@ -12,13 +12,6 @@ obs:
       cloud: [210, 215]
       water: []
       nodata: []
-  wetsnow:
-    dir: obs/wetsnow
-    product_tag: WETSNOW
-    classes:
-      wet: [110]
-      valid: [110, 125, 200, 210]
-      exclude: [200, 210]
 data_assimilation:
   prior_forcing:
     ensemble_size: 30

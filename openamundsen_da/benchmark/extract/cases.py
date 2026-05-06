@@ -633,6 +633,8 @@ def extract_analysis_cases(
         weights_df = _weights_for_event(ctx.step_dir, ctx.variable, ctx.assimilation_dt)
 
         for benchmark_variable in sorted(selected):
+            if benchmark_variable != ctx.variable:
+                continue
             spec = benchmark_variable_spec(benchmark_variable)
             stream: str | None = None
 

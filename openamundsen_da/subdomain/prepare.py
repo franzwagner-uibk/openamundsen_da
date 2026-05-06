@@ -516,14 +516,27 @@ def _prepare_obs_station_subset(
     buffer_m: float,
     crs: Optional[str],
     station_ids: Optional[Iterable[str]] = None,
-) -> None:
+) -> dict[str, int]:
+    stats = {
+        "obs_stations_selected": 0,
+        "obs_stations_inside_grid": 0,
+        "obs_stations_da_active": 0,
+        "obs_stations_benchmark_active": 0,
+        "obs_station_series_copied": 0,
+    }
+
+    def role_enabled(raw: object) -> bool:
+        if isinstance(raw, (bool, np.bool_)):
+            return bool(raw)
+        return str(raw).strip().lower() not in {"false", "0", "no", "n", "off"}
     if not obs_dir.is_dir():
         logger.info("Obs directory {} not found; skipping station subset", obs_dir)
-        return
+        return stats
     out_dir.mkdir(parents=True, exist_ok=True)
 
     requested_ids = {str(sid) for sid in (station_ids or []) if str(sid)}
     selected_ids: set[str] = set()
+    inside_grid_ids: set[str] = set()
     stations_meta = obs_dir / STATION_SNOW_DEPTH_METADATA_FILENAME
     if stations_meta.is_file():
         meta_df = pd.read_csv(stations_meta)
@@ -534,19 +547,27 @@ def _prepare_obs_station_subset(
                 crs=crs,
             )
             buffered = geom.buffer(buffer_m) if buffer_m and buffer_m > 0 else geom
+            inside_mask = gdf.geometry.apply(geom.covers)
             meta_df = meta_df.loc[gdf.geometry.within(buffered)].copy()
+            inside_ids = meta_df.loc[inside_mask.reindex(meta_df.index, fill_value=False), "id"] if "id" in meta_df else []
+            inside_grid_ids = {str(sid) for sid in pd.Series(inside_ids).dropna().astype(str)}
         else:
             logger.warning("stations_snow_depth.csv missing x/y columns; skipping spatial filter")
             if requested_ids and "id" in meta_df.columns:
                 meta_df = meta_df.loc[meta_df["id"].astype(str).isin(requested_ids)].copy()
+                inside_grid_ids = set(requested_ids)
         meta_df.to_csv(out_dir / "stations_snow_depth.csv", index=False)
         if "id" in meta_df.columns:
             selected_ids = {str(sid) for sid in meta_df["id"].dropna().astype(str)}
 
     if not selected_ids and requested_ids:
         selected_ids = set(requested_ids)
+        inside_grid_ids = set(requested_ids)
 
     selected_ids_lower = {sid.strip().lower() for sid in selected_ids if sid.strip()}
+    inside_grid_ids_lower = {sid.strip().lower() for sid in inside_grid_ids if sid.strip()}
+    stats["obs_stations_selected"] = len(selected_ids_lower)
+    stats["obs_stations_inside_grid"] = len(inside_grid_ids_lower)
 
     da_meta = obs_dir / STATION_DA_METADATA_FILENAME
     if da_meta.is_file():
@@ -554,6 +575,13 @@ def _prepare_obs_station_subset(
         if selected_ids_lower and "station_id" in da_df.columns:
             keep_mask = da_df["station_id"].astype(str).str.strip().str.lower().isin(selected_ids_lower)
             da_df = da_df.loc[keep_mask].copy()
+            inside_mask = da_df["station_id"].astype(str).str.strip().str.lower().isin(inside_grid_ids_lower)
+            for role_col in ("use_for_da", "use_for_benchmark"):
+                if role_col not in da_df.columns:
+                    da_df[role_col] = True
+                da_df.loc[~inside_mask, role_col] = False
+            stats["obs_stations_da_active"] = sum(role_enabled(value) for value in da_df["use_for_da"])
+            stats["obs_stations_benchmark_active"] = sum(role_enabled(value) for value in da_df["use_for_benchmark"])
         da_df.to_csv(out_dir / STATION_DA_METADATA_FILENAME, index=False)
 
     if selected_ids:
@@ -571,10 +599,11 @@ def _prepare_obs_station_subset(
                 if src.exists():
                     _copy_or_link(src, out_dir / src.name)
                     copied = True
+                    stats["obs_station_series_copied"] += 1
                     break
             if not copied:
                 logger.debug("No station obs series found for id {}", sid)
-        return
+        return stats
 
     copied_any = False
     for pattern in ("*.csv", "*.nc"):
@@ -583,8 +612,10 @@ def _prepare_obs_station_subset(
                 continue
             _copy_or_link(src, out_dir / src.name)
             copied_any = True
+            stats["obs_station_series_copied"] += 1
     if not copied_any:
         logger.info("No station obs files found in {}", obs_dir)
+    return stats
 
 
 def prepare_subdomains(
@@ -900,7 +931,7 @@ def prepare_subdomains(
             crs=crs_str,
         )
         if not model_mode:
-            _prepare_obs_station_subset(
+            station_counts = _prepare_obs_station_subset(
                 obs_dir=obs_dir,
                 out_dir=obs_out,
                 geom=geom,
@@ -908,6 +939,8 @@ def prepare_subdomains(
                 crs=crs_str,
                 station_ids=selected_station_ids,
             )
+        else:
+            station_counts = {}
         roi_vector_path = env_out / "roi.gpkg"
         _write_roi_vector(
             roi_geom=geom_roi,
@@ -944,6 +977,7 @@ def prepare_subdomains(
             bounds=geom.bounds,
             crs=crs_str,
             status="pending",
+            station_counts=station_counts,
         )
         logger.info(
             "Prepared sub-domain {} ({}x{}, window r{} c{})",

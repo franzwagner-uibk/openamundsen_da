@@ -12,6 +12,7 @@ from openamundsen_da.subdomain.prepare import prepare_subdomains
 from openamundsen_da.subdomain.report import write_subdomain_reports
 from openamundsen_da.subdomain.run import run_subdomains
 from openamundsen_da.methods.viz.maps import project_maps_enabled, render_project_maps
+from openamundsen_da.pipeline.plot_tasks import render_project_report_best_effort
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.util.run_mode import ensure_run_mode
 
@@ -144,6 +145,7 @@ def run_pipeline(
                         exc,
                     )
 
+        render_project_report_best_effort(project_dir)
         logger.info("PIPELINE DONE subdomain_root={}", subdomain_root)
     finally:
         logger.remove(sink_id)

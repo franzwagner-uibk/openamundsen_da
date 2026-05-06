@@ -465,7 +465,7 @@ def collect_project_report_summary(project_dir: Path) -> ProjectReportSummary:
             + f", {assim_text}"
         )
 
-    sections = (
+    sections: list[ProjectReportSection] = [
         ProjectReportSection(
             "Project",
             (
@@ -551,9 +551,59 @@ def collect_project_report_summary(project_dir: Path) -> ProjectReportSummary:
         ),
         ProjectReportSection("Likelihood", tuple(likelihood_lines)),
         ProjectReportSection("Uncertainty", tuple(uncertainty_lines)),
-        ProjectReportSection("Computing Cost", _computing_cost_lines(_read_perf_stats(project_dir))),
-    )
-    return ProjectReportSummary(project_dir=project_dir, project_yaml=project_yaml, sections=sections)
+    ]
+    subdomain_section = _subdomain_summary_section(project_dir)
+    if subdomain_section is not None:
+        sections.append(subdomain_section)
+    sections.append(ProjectReportSection("Computing Cost", _computing_cost_lines(_read_perf_stats(project_dir))))
+    return ProjectReportSummary(project_dir=project_dir, project_yaml=project_yaml, sections=tuple(sections))
+
+
+def _subdomain_summary_section(project_dir: Path) -> ProjectReportSection | None:
+    results_dir = Path(project_dir) / "results"
+    overview_path = results_dir / "subdomain_overview.csv"
+    aggregate_path = results_dir / "subdomain_assimilation_aggregate.csv"
+    dropped_path = results_dir / "subdomain_dropped_events.csv"
+    if not overview_path.is_file():
+        return None
+    try:
+        overview = pd.read_csv(overview_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not read sub-domain overview for report summary: {}", exc)
+        return None
+
+    lines: list[str] = []
+    if "status" in overview.columns:
+        status_counts = Counter(str(value) for value in overview["status"].dropna())
+        lines.append(f"Statuses: {_format_counter(status_counts)}")
+    lines.append(f"Subdomains: {len(overview)}")
+    if "duration_seconds" in overview.columns:
+        duration = pd.to_numeric(overview["duration_seconds"], errors="coerce")
+        if duration.notna().any():
+            lines.append(f"Slowest subdomain: {_format_duration(float(duration.max()))}")
+    if aggregate_path.is_file():
+        try:
+            aggregate = pd.read_csv(aggregate_path)
+            if "ess_norm_mean" in aggregate.columns:
+                ess_mean = pd.to_numeric(aggregate["ess_norm_mean"], errors="coerce")
+                if ess_mean.notna().any():
+                    lines.append(f"Mean ESS/n range: {ess_mean.min():.3f} to {ess_mean.max():.3f}")
+            if {"subdomain_id", "ess_norm_min"}.issubset(aggregate.columns):
+                ess_min = pd.to_numeric(aggregate["ess_norm_min"], errors="coerce")
+                if ess_min.notna().any():
+                    idx = ess_min.idxmin()
+                    lines.append(
+                        f"Weakest ESS/n: {aggregate.loc[idx, 'subdomain_id']} = {float(ess_min.loc[idx]):.3f}"
+                    )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not read sub-domain aggregate for report summary: {}", exc)
+    if dropped_path.is_file():
+        try:
+            dropped = pd.read_csv(dropped_path)
+            lines.append(f"Dropped subdomain events: {len(dropped)}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not read dropped sub-domain events for report summary: {}", exc)
+    return ProjectReportSection("Subdomains", tuple(lines))
 
 
 def _da_map_path(project_dir: Path, index: int) -> Path:
@@ -575,32 +625,27 @@ def collect_project_pdf_items(project_dir: Path) -> ProjectPdfPlan:
     project_dir = Path(project_dir)
     missing: list[Path] = []
 
-    def require(path: Path) -> Path:
-        if not path.is_file():
-            missing.append(path)
-        return path
-
     def optional(path: Path) -> Path | None:
         if not path.is_file():
             return None
         return path
 
     front_items: list[PdfImageItem] = []
-    result_overview = require(project_result_overview_output_path(project_dir))
-    front_items.append(PdfImageItem(result_overview, "result overview"))
+    result_overview = optional(project_result_overview_output_path(project_dir))
+    if result_overview is not None:
+        front_items.append(PdfImageItem(result_overview, "result overview"))
 
     custom_overview = optional(project_result_overview_custom_output_path(project_dir))
     if custom_overview is not None:
         front_items.append(PdfImageItem(custom_overview, "custom result overview"))
 
-    setup_overview = require(project_maps_root(project_dir) / "setup_overview.png")
-    front_items.append(PdfImageItem(setup_overview, "setup overview map"))
+    setup_overview = optional(project_maps_root(project_dir) / "setup_overview.png")
+    if setup_overview is None:
+        setup_overview = optional(project_maps_root(project_dir) / "north_tyrol_setup_overview.png")
+    if setup_overview is not None:
+        front_items.append(PdfImageItem(setup_overview, "setup overview map"))
 
     for idx, path in enumerate(_setup_weights_overview_paths(project_dir)):
-        if idx == 0:
-            require(path)
-        else:
-            optional(path)
         if path.is_file():
             front_items.append(PdfImageItem(path, "setup weights overview"))
 
@@ -619,8 +664,11 @@ def collect_project_pdf_items(project_dir: Path) -> ProjectPdfPlan:
 
     da_steps: list[PdfDaStepItem] = []
     for index, _event in enumerate(load_assimilation_events(project_dir), start=1):
-        map_path = require(_da_map_path(project_dir, index))
-        da_steps.append(PdfDaStepItem(index=index, map_path=map_path))
+        map_path = _da_map_path(project_dir, index)
+        if map_path.is_file():
+            da_steps.append(PdfDaStepItem(index=index, map_path=map_path))
+        else:
+            missing.append(map_path)
 
     return ProjectPdfPlan(
         project_dir=project_dir,
@@ -1003,11 +1051,9 @@ def _write_project_summary_page(
 
     left_sections = summary.sections[:4]
     right_sections = summary.sections[4:]
-    left_limits = (None, None, None, None)
-    right_limits = (None, None, None, None)
     y_left = 0.885
     y_right = 0.885
-    for section, max_lines in zip(left_sections, left_limits, strict=True):
+    for section in left_sections:
         y_left = _draw_section(
             ax,
             title=section.title,
@@ -1015,9 +1061,9 @@ def _write_project_summary_page(
             x=0.065,
             y=y_left,
             width=0.405,
-            max_lines=max_lines,
+            max_lines=None,
         )
-    for section, max_lines in zip(right_sections, right_limits, strict=True):
+    for section in right_sections:
         y_right = _draw_section(
             ax,
             title=section.title,
@@ -1025,7 +1071,7 @@ def _write_project_summary_page(
             x=0.530,
             y=y_right,
             width=0.405,
-            max_lines=max_lines,
+            max_lines=None,
         )
 
     _draw_content_section(
@@ -1050,7 +1096,10 @@ def _write_project_summary_page(
 
 def write_project_pdf_plan(plan: ProjectPdfPlan, output: Path) -> Path:
     if plan.missing_paths:
-        raise MissingProjectPdfArtifactsError(plan.project_dir, plan.missing_paths)
+        logger.info(
+            "Project report omitting {} missing optional artifact(s)",
+            len(plan.missing_paths),
+        )
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     matplotlib.use("Agg", force=True)
@@ -1112,8 +1161,6 @@ def build_project_collection_pdf(*, project_dir: Path, output: Path | None = Non
     project_dir = Path(project_dir)
     output_path = Path(output) if output is not None else project_plots_maps_collection_pdf_path(project_dir)
     plan = collect_project_pdf_items(project_dir)
-    if plan.missing_paths:
-        raise MissingProjectPdfArtifactsError(project_dir, plan.missing_paths)
     return write_project_pdf_plan(plan, output_path)
 
 

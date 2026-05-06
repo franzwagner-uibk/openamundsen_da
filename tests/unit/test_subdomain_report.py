@@ -41,6 +41,13 @@ def test_write_subdomain_reports_writes_overview_and_assimilation_stats(tmp_path
         project_dir=sub_project_dir,
         status="success",
         run_manifest=run_manifest_path,
+        station_counts={
+            "obs_stations_selected": 3,
+            "obs_stations_inside_grid": 2,
+            "obs_stations_da_active": 2,
+            "obs_stations_benchmark_active": 1,
+            "obs_station_series_copied": 3,
+        },
     )
     manifest = SimpleNamespace(
         run_mode="subdomain",
@@ -69,6 +76,8 @@ def test_write_subdomain_reports_writes_overview_and_assimilation_stats(tmp_path
     overview_df = pd.read_csv(outputs["overview"])
     assert list(overview_df["subdomain_id"]) == ["sd_01"]
     assert list(overview_df["status"]) == ["success"]
+    assert int(overview_df.loc[0, "obs_stations_selected"]) == 3
+    assert int(overview_df.loc[0, "obs_stations_benchmark_active"]) == 1
 
     stats_df = pd.read_csv(outputs["assimilation_stats"])
     assert list(stats_df["variable"]) == ["scf"]

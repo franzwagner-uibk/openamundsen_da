@@ -12,6 +12,19 @@ from openamundsen_da.methods.viz.plots.theme import da_variable_style
 from openamundsen_da.methods.viz.plots.project_ensemble import plot_setup_results
 
 
+def test_point_file_matches_result_variable_keeps_matching_roi_aggregates() -> None:
+    assert plot_mod._point_file_matches_result_variable("point_swe_roi.csv", "swe")
+    assert plot_mod._point_file_matches_result_variable("point_snow_depth_roi.csv", "snow_depth")
+    assert plot_mod._point_file_matches_result_variable("point_12345.csv", "snow_depth")
+
+
+def test_point_file_matches_result_variable_skips_unrelated_roi_aggregates() -> None:
+    assert not plot_mod._point_file_matches_result_variable("point_scf_roi.csv", "snow_depth")
+    assert not plot_mod._point_file_matches_result_variable("point_wet_snow_roi.csv", "swe")
+    assert not plot_mod._point_file_matches_result_variable("point_wet_snow_line_roi.csv", "swe")
+    assert not plot_mod._point_file_matches_result_variable("point_swe_roi.csv", "snow_depth")
+
+
 def _write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")

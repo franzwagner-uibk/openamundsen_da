@@ -54,6 +54,7 @@ class SubdomainMeta:
     status: str = "pending"
     run_manifest: Optional[Path] = None
     dropped_events: list[dict] = field(default_factory=list)
+    station_counts: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         data = asdict(self)
@@ -98,6 +99,7 @@ class SubdomainMeta:
             status=str(data.get("status", "pending")),
             run_manifest=(Path(data["run_manifest"]) if data.get("run_manifest") else None),
             dropped_events=list(data.get("dropped_events") or []),
+            station_counts={str(k): int(v) for k, v in (data.get("station_counts") or {}).items()},
         )
 
 

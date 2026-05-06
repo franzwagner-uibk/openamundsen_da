@@ -10,7 +10,7 @@
     "scf_zip": "/home/franz/workspace/fram3s/50-eurac/SCF_Eurac_v3.zip",
     "scf_zip_cache": "/home/franz/workspace/.cache/north_tyrol_sources/SCF_Eurac_v3.zip"
   },
-  "domain": "north_tyrol",
+  "domain": "subdomain_example",
   "project": "project_2022_2023",
   "start_date": "2022-10-01",
   "end_date": "2023-06-30 21:00:00",

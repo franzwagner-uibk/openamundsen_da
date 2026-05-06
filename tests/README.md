@@ -156,7 +156,7 @@ What it does:
 - runs full sub-domain pipeline (`oa-da-subdomain pipeline`) with:
   - setup: `/data/subdomains` (the copied sub-domain setup root)
   - project: `/data/subdomains/projects/project_ci_2022_2023`
-  - regions: `/data/subdomains/env/subdomains.gpkg` (8 North Tyrol avalanche-report subdomains)
+  - regions: `/data/subdomains/env/subdomains.gpkg` (8 avalanche-report subdomains)
   - station buffer: `10 km`
 - validates logs and outputs with `scripts/ci/validate_trimmed_subdomain.py`
 
@@ -180,7 +180,7 @@ What it does:
 - shortens setup-level `start_date`/`end_date` in the temp copy
 - runs the plain openAMUNDSEN model sub-domain pipeline (`oa-da-subdomain model-pipeline`) with:
   - setup: `/data/subdomains` (the copied sub-domain setup root)
-  - regions: `/data/subdomains/env/subdomains.gpkg` (8 North Tyrol avalanche-report subdomains)
+  - regions: `/data/subdomains/env/subdomains.gpkg` (8 avalanche-report subdomains)
   - station buffer: `10 km`
 - validates logs and outputs with `scripts/ci/validate_trimmed_model_subdomain.py`
 

@@ -12,6 +12,7 @@ from openamundsen_da.methods.viz.fraction_series import load_fraction_series, lo
 from openamundsen_da.methods.viz.maps.config import LayoutSpec, MapDefaults, MapPanelSpec, MapRecipe
 from openamundsen_da.observer.summary_paths import resolve_fraction_summary_path
 from openamundsen_da.util.da_events import AssimilationEvent, load_assimilation_events
+from openamundsen_da.util.run_mode import read_run_mode
 
 
 GENERATED_DA_MAPS_SUBDIR = "da_events"
@@ -346,12 +347,37 @@ def _generated_rows_for_event(project_dir: Path, event: AssimilationEvent) -> tu
     return tuple(rows)
 
 
+def _is_top_level_subdomain_project(project_dir: Path) -> bool:
+    manifest_path = Path(project_dir) / "subdomains" / "subdomain_manifest.json"
+    return read_run_mode(project_dir) == "subdomain" and manifest_path.is_file()
+
+
+def _use_large_subdomain_snow_layout(project_dir: Path, rows: tuple[GeneratedRow, ...]) -> bool:
+    if len(rows) != 1 or not _is_top_level_subdomain_project(project_dir):
+        return False
+    panels = rows[0].panels
+    return len(panels) == 4 and all(panel.kind == "snow_depth" for panel in panels)
+
+
+def _generated_panel_position(
+    *,
+    row_idx: int,
+    panel_idx: int,
+    panel: MapPanelSpec,
+    large_snow_layout: bool,
+) -> tuple[int, int]:
+    if not large_snow_layout:
+        return row_idx, panel.col
+    return panel_idx // 2, panel_idx % 2
+
+
 def _generated_recipe(index: int, project_dir: Path, event: AssimilationEvent, rows: tuple[GeneratedRow, ...]) -> MapRecipe:
+    use_large_subdomain_snow_layout = _use_large_subdomain_snow_layout(project_dir, rows)
     panels = tuple(
         MapPanelSpec(
             kind=panel.kind,
-            row=row_idx,
-            col=panel.col,
+            row=position[0],
+            col=position[1],
             title=panel.title,
             source=panel.source,
             show_hillshade=panel.show_hillshade,
@@ -359,15 +385,23 @@ def _generated_recipe(index: int, project_dir: Path, event: AssimilationEvent, r
             variable=panel.variable,
         )
         for row_idx, row in enumerate(rows)
-        for panel in row.panels
+        for panel_idx, panel in enumerate(row.panels)
+        for position in (
+            _generated_panel_position(
+                row_idx=row_idx,
+                panel_idx=panel_idx,
+                panel=panel,
+                large_snow_layout=use_large_subdomain_snow_layout,
+            ),
+        )
     )
     return MapRecipe(
         name=f"da_{index}",
         title=f"da_{index}",
         figure_title=_generated_figure_title(index, project_dir, event),
         output_subdir=GENERATED_DA_MAPS_SUBDIR,
-        layout=LayoutSpec(nrows=len(rows), ncols=4),
-        row_labels=tuple(row.label for row in rows),
+        layout=LayoutSpec(nrows=2, ncols=2) if use_large_subdomain_snow_layout else LayoutSpec(nrows=len(rows), ncols=4),
+        row_labels=() if use_large_subdomain_snow_layout else tuple(row.label for row in rows),
         defaults=MapDefaults(date=event.date.isoformat(), show_scalebar=True),
         panels=panels,
     )

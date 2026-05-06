@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from functools import lru_cache
 
 import matplotlib.pyplot as plt
@@ -48,6 +49,7 @@ from openamundsen_da.methods.viz.maps.theme import (
     _LEFT_MARGIN,
     _RIGHT_MARGIN,
     _SPINE_WIDTH,
+    _TICK_LABEL_MIN_GAP_IN,
     _TICK_SIZE,
     _TOP_MARGIN,
     _VERTICAL_COLORBAR_BOTTOM_AXES,
@@ -162,6 +164,16 @@ def coord_label(value: float) -> str:
     return f"{value:g}"
 
 
+def tick_label_stride(ax, ticks: np.ndarray, *, axis: str) -> int:
+    base_stride = 2
+    if len(ticks) <= 1:
+        return 1
+    axis_length_in = axis_width_inches(ax) if axis == "x" else axis_height_inches(ax)
+    max_labels = max(1, int(math.floor(axis_length_in / _TICK_LABEL_MIN_GAP_IN)))
+    physical_stride = int(math.ceil(len(ticks) / max_labels))
+    return max(base_stride, physical_stride)
+
+
 def axis_width_inches(ax) -> float:
     bbox = ax.get_position()
     return float(ax.figure.get_size_inches()[0] * bbox.width)
@@ -245,11 +257,13 @@ def apply_map_axis_style(
 
     xticks = ticks_for_extent(extent[0], extent[1])
     yticks = ticks_for_extent(extent[2], extent[3])
+    x_label_stride = tick_label_stride(ax, xticks, axis="x")
+    y_label_stride = tick_label_stride(ax, yticks, axis="y")
     ax.set_xticks(xticks)
     ax.set_yticks(yticks)
-    ax.set_xticklabels([coord_label(value) if idx % 2 == 0 else "" for idx, value in enumerate(xticks)])
+    ax.set_xticklabels([coord_label(value) if idx % x_label_stride == 0 else "" for idx, value in enumerate(xticks)])
     ax.set_yticklabels(
-        [coord_label(value) if show_y_ticklabels and idx % 2 == 0 else "" for idx, value in enumerate(yticks)]
+        [coord_label(value) if show_y_ticklabels and idx % y_label_stride == 0 else "" for idx, value in enumerate(yticks)]
     )
     ax.tick_params(
         axis="x",

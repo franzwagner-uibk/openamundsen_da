@@ -22,6 +22,7 @@ import openamundsen_da.methods.viz.maps.render as render_module
 import openamundsen_da.methods.viz.maps.runner as runner_module
 import openamundsen_da.methods.viz.maps.data as data_module
 import openamundsen_da.methods.viz.maps.generated as generated_module
+import openamundsen_da.methods.viz.maps.layout as layout_module
 import openamundsen_da.methods.viz.maps.overview as overview_module
 import openamundsen_da.methods.viz.maps.panel_renderers as panel_renderers_module
 from openamundsen_da.methods.viz.reports.project_collection_pdf import MissingProjectPdfArtifactsError
@@ -59,6 +60,7 @@ from openamundsen_da.methods.viz.maps.render import (
     figure_height_for_extent,
 )
 import openamundsen_da.pipeline.plot_tasks as plot_tasks_module
+from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.methods.viz.maps.runner import project_maps_enabled, render_project_maps
 from openamundsen_da.methods.viz.maps.styles import (
     FSC_OBS_CMAP,
@@ -78,6 +80,7 @@ from openamundsen_da.methods.viz.maps.styles import (
     static_field_cmap,
     static_field_colorbar_style,
 )
+from openamundsen_da.util.run_mode import write_run_mode
 
 
 PROJECT_MAPS_FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "project_maps" / "rofental"
@@ -1388,6 +1391,20 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
     assert cfg.maps[0].panels[5].show_hillshade is True
 
 
+def test_shipped_subdomain_project_maps_config_keeps_generic_setup_overview_only() -> None:
+    root = Path(__file__).resolve().parents[2] / "examples/subdomains"
+    config_path = root / "projects/project_2022_2023/maps.yml"
+
+    cfg = load_project_maps_config(config_path)
+
+    assert [recipe.name for recipe in cfg.maps] == ["subdomain_example_setup_overview"]
+    assert [recipe.title for recipe in cfg.maps] == ["Subdomain example setup overview"]
+    assert [recipe.output_stem for recipe in cfg.maps] == ["setup_overview"]
+    assert cfg.maps[0].panels[0].roi_label == "Subdomain ROI"
+    assert _read_yaml_file(root / "subdomains.yml")["domain"] == "subdomain_example"
+    assert (root / "grids/dem_subdomain_example_100.asc").is_file()
+
+
 def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     monkeypatch.setattr(generated_module, "_fraction_model_support_available", lambda *_args, **_kwargs: False)
@@ -1401,6 +1418,29 @@ def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, 
     assert recipes[0].row_labels == ("station snow depth",)
     assert recipes[0].layout.ncols == 4
     assert [panel.title for panel in recipes[0].panels] == ["open loop", "prior mean", "posterior mean", "posterior - prior"]
+    assert [panel.source for panel in recipes[0].panels] == [
+        "open_loop",
+        "ensemble_mean",
+        "analysis_mean",
+        "analysis_increment",
+    ]
+
+
+def test_generated_da_map_recipes_use_two_by_two_for_top_level_subdomain_snow_events(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    write_run_mode(project_dir, "subdomain")
+    monkeypatch.setattr(generated_module, "_fraction_model_support_available", lambda *_args, **_kwargs: False)
+
+    recipes = generated_module.generated_da_map_recipes(project_dir)
+
+    assert recipes[0].layout.nrows == 2
+    assert recipes[0].layout.ncols == 2
+    assert recipes[0].row_labels == ()
+    assert [(panel.row, panel.col) for panel in recipes[0].panels] == [(0, 0), (0, 1), (1, 0), (1, 1)]
     assert [panel.source for panel in recipes[0].panels] == [
         "open_loop",
         "ensemble_mean",
@@ -1709,6 +1749,25 @@ def test_date_resolution_helpers_follow_selectors(tmp_path: Path) -> None:
 
     assert [date.strftime("%Y-%m-%d") for date in comparison_dates] == ["2023-01-01", "2023-01-02"]
     assert [date.strftime("%Y-%m-%d") for date in observation_dates] == ["2023-01-02"]
+
+
+def test_tick_label_stride_keeps_square_panels_at_existing_every_second_behavior() -> None:
+    fig, ax = plt.subplots(figsize=(3.0, 3.0))
+    try:
+        ticks = np.arange(0.0, 5.0)
+        assert layout_module.tick_label_stride(ax, ticks, axis="x") == 2
+        assert layout_module.tick_label_stride(ax, ticks, axis="y") == 2
+    finally:
+        plt.close(fig)
+
+
+def test_tick_label_stride_thins_dense_short_axis_labels() -> None:
+    fig, ax = plt.subplots(figsize=(3.0, 1.0))
+    try:
+        ticks = np.arange(0.0, 8.0)
+        assert layout_module.tick_label_stride(ax, ticks, axis="y") > 2
+    finally:
+        plt.close(fig)
 
 
 def test_load_observation_scene_uses_setup_relative_obs_dir_and_reports_partial_coverage(tmp_path: Path) -> None:

@@ -640,8 +640,6 @@ def collect_project_pdf_items(project_dir: Path) -> ProjectPdfPlan:
         front_items.append(PdfImageItem(custom_overview, "custom result overview"))
 
     setup_overview = optional(project_maps_root(project_dir) / "setup_overview.png")
-    if setup_overview is None:
-        setup_overview = optional(project_maps_root(project_dir) / "north_tyrol_setup_overview.png")
     if setup_overview is not None:
         front_items.append(PdfImageItem(setup_overview, "setup overview map"))
 

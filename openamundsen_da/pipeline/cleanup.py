@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Sequence
@@ -130,38 +129,6 @@ def cleanup_setup_dir(
             logger.debug("Deleted state file {}", f)
         except Exception as exc:
             logger.warning("Could not delete {}: {}", f, exc)
-            failures += 1
-
-    # Sub-domain mode keeps most heavy artifacts under project/subdomains.
-    subdomains_dir = project_dir / "subdomains"
-    if subdomains_dir.is_dir():
-        dir_bytes = 0
-        try:
-            for p in subdomains_dir.rglob("*"):
-                if p.is_file():
-                    try:
-                        dir_bytes += p.stat().st_size
-                    except Exception:
-                        pass
-            shutil.rmtree(subdomains_dir)
-            bytes_freed += dir_bytes
-            logger.debug("Deleted sub-domain workspace {}", subdomains_dir)
-        except Exception as exc:
-            logger.warning("Could not delete sub-domain workspace {}: {}", subdomains_dir, exc)
-            failures += 1
-
-    subdomain_log = project_dir / "subdomain_run.log"
-    if subdomain_log.is_file():
-        try:
-            log_size = subdomain_log.stat().st_size
-        except Exception:
-            log_size = 0
-        try:
-            subdomain_log.unlink()
-            bytes_freed += log_size
-            logger.debug("Deleted sub-domain run log {}", subdomain_log)
-        except Exception as exc:
-            logger.warning("Could not delete {}: {}", subdomain_log, exc)
             failures += 1
 
     return CleanupSummary(

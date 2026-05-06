@@ -1481,6 +1481,32 @@ def test_scf_binary_map_uses_full_roi_without_landcover_mask(
     assert captured["apply_landcover_mask"] is False
 
 
+def test_scf_binary_map_missing_grid_error_mentions_retention(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+
+    def fake_compute_model_scf_binary_grid(**_kwargs):
+        raise FileNotFoundError("No NetCDF grid found for variable 'hs'")
+
+    monkeypatch.setattr(panel_renderers_module, "compute_model_scf_binary_grid", fake_compute_model_scf_binary_grid)
+
+    with pytest.raises(FileNotFoundError, match="compact output retention.*retention: full"):
+        panel_renderers_module._scf_binary_grid_from_results(
+            context=context,
+            results_dir=project_dir
+            / "steps"
+            / "step_01_20230101-20230102"
+            / "ensembles"
+            / "prior"
+            / "open_loop"
+            / "results",
+            date=pd.Timestamp("2023-01-02"),
+        )
+
+
 def test_reference_stream_uses_variable_name_labels(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     target_date = pd.Timestamp("2023-01-02")

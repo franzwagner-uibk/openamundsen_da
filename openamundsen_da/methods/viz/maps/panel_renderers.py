@@ -1863,17 +1863,26 @@ def _scf_binary_grid_from_results(
     _method, variable, params = load_hofx_from_project(context.project_dir)
     lc_cfg = resolve_landcover_mask(context.setup_dir, context.project_dir)
     roi_path = ensure_setup_roi_vector(context.setup_dir)
-    return compute_model_scf_binary_grid(
-        setup_dir=context.setup_dir,
-        project_dir=context.project_dir,
-        results_dir=results_dir,
-        aoi_path=roi_path,
-        landcover_cfg=lc_cfg,
-        apply_landcover_mask=False,
-        date=date.to_pydatetime(),
-        variable=variable,  # type: ignore[arg-type]
-        params=params,
-    )
+    try:
+        return compute_model_scf_binary_grid(
+            setup_dir=context.setup_dir,
+            project_dir=context.project_dir,
+            results_dir=results_dir,
+            aoi_path=roi_path,
+            landcover_cfg=lc_cfg,
+            apply_landcover_mask=False,
+            date=date.to_pydatetime(),
+            variable=variable,  # type: ignore[arg-type]
+            params=params,
+        )
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            "Cannot render spatial SCF DA-event map support for "
+            f"{pd.Timestamp(date).date()} from {results_dir}: {exc}. "
+            "The required step/member grids may have been removed by compact output retention. "
+            "For exact DA-event map regeneration in subdomain runs, run with "
+            "data_assimilation.output.retention: full."
+        ) from exc
 
 
 def _scf_model_probability_array(

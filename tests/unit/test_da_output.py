@@ -200,6 +200,17 @@ def test_output_retention_mode_defaults_to_compact(tmp_path: Path) -> None:
     assert output_retention_mode(project_dir) == "compact"
 
 
+def test_output_retention_mode_defaults_subdomain_to_full(tmp_path: Path) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "project_2022_2023.yml").write_text(
+        "run_mode: subdomain\nstart_date: '2022-10-01'\nend_date: '2022-10-02'\ndata_assimilation: {}\n",
+        encoding="utf-8",
+    )
+
+    assert output_retention_mode(project_dir) == "full"
+
+
 def test_output_retention_mode_reads_full(tmp_path: Path) -> None:
     project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
     project_dir.mkdir(parents=True, exist_ok=True)
@@ -218,3 +229,24 @@ def test_output_retention_mode_reads_full(tmp_path: Path) -> None:
     )
 
     assert output_retention_mode(project_dir) == "full"
+
+
+def test_output_retention_mode_explicit_compact_wins_for_subdomain(tmp_path: Path) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "project_2022_2023.yml").write_text(
+        "\n".join(
+            [
+                "run_mode: subdomain",
+                "start_date: '2022-10-01'",
+                "end_date: '2022-10-02'",
+                "data_assimilation:",
+                "  output:",
+                "    retention: compact",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert output_retention_mode(project_dir) == "compact"

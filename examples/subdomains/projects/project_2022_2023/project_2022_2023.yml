@@ -85,7 +85,7 @@ data_assimilation:
     dump_state: true
     state_pattern: model_state.pickle.gz
   output:
-    retention: compact
+    retention: full
     grids:
       format: netcdf
       compress: true

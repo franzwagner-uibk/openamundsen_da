@@ -625,7 +625,7 @@ Outputs
 - The combined project result overview plot (`results/plots/results/result_overview.png`) now shows SCF, wet-snow, ROI mean SWE, and ROI mean snow depth together.
   Setup results plots now show the ensemble mean, the 90% envelope, and the open loop by default; individual members are hidden unless `--show-members` is passed to the plot CLI. Wet-snow setup plots overlay available observations from `obs/<setup>/wet_snow_summary.csv` automatically.
   At the end of the setup run, per-step weights plots (`step_XX_weights.png`) and the setup ESS timeline (`setup_ess_timeline_<setup_id>.png`) are also generated under `<project_dir>/results/plots/assim/{weights,ess}`.
-  Default retention is compact (`data_assimilation.output.retention: compact`), which prunes heavy member grid artifacts after writing `da_output_grids.nc`. Set `retention: full` to keep all member grid files.
+  Single-domain projects default to compact retention (`data_assimilation.output.retention: compact`), which prunes heavy member grid artifacts after writing `da_output_grids.nc`. Sub-domain projects default to `retention: full` so generated DA-event maps can be regenerated exactly after the run.
 
 ### Backfilling model SCF for an existing setup (optional)
 
@@ -751,30 +751,31 @@ with `Ctrl+C`.
 
 ## State cleanup (free disk space)
 
-- Automatic: set `data_assimilation.restart.cleanup_after_setup: true` (default) in `setup.yml` to delete member state pickle files after a successful setup run.
-- Manual (ignores the toggle): clean one or all setups via Docker Compose.
+- Automatic: set `data_assimilation.restart.cleanup_after_setup: true` (default) in project YAML to delete member state pickle files after a successful project run.
+- Manual (ignores the toggle): clean one or all projects via Docker Compose.
 
-All setups under a project:
+All projects under a setup:
 
 ```powershell
 docker compose run --rm oa \
   python -m openamundsen_da.pipeline.cleanup \
-  --project-dir /data/your_project \
-  --all-setups \
+  --setup-dir /data/your_setup \
+  --all-projects \
   --log-level INFO
 ```
 
-Single setup:
+Single project:
 
 ```powershell
 docker compose run --rm oa \
   python -m openamundsen_da.pipeline.cleanup \
-  --project-dir /data/your_project \
-  --setup-dir /data/your_project/projects/project_YYYY-YYYY \
+  --setup-dir /data/your_setup \
+  --project-dir /data/your_setup/projects/project_YYYY-YYYY \
   --log-level INFO
 ```
 
 If you rebuilt the image with the latest code, you can replace the `python -m ...cleanup` line with the shorter `oa-da-clean-project`.
+Cleanup only removes matching state pickle files. It leaves `state_pointer.json`, grids, maps, reports, manifests, logs, and sub-domain workspaces in place; grid artifact pruning is controlled separately by `data_assimilation.output.retention`.
 
 
 ## Sub-domain Mode
@@ -812,7 +813,7 @@ DA defaults:
 - Sub-domain runs fail fast if configured assimilation events are not available in the local sub-domain observation summaries.
 - Projects may enable `data_assimilation.subdomain_event_filter` to drop unavailable SCF, wet-snow, or station events per sub-domain after local observation summaries are generated. Dropped events are recorded in each sub-domain run manifest and in `<project>/results/subdomain_dropped_events.csv`.
 - Configured `output_data.timeseries.points` are filtered to the active sub-domain ROI when sub-domain setup YAML files are generated.
-- Default retention is compact (`data_assimilation.output.retention: compact`) and removes heavy member grid artifacts after merge. Set `retention: full` to keep them.
+- Sub-domain projects default to full retention (`data_assimilation.output.retention: full`) and keep the sub-domain NC grids needed for exact DA-event map regeneration. Set `retention: compact` only if you knowingly trade away exact spatial DA-event map rerendering for disk savings.
 
 Example sub-domain event filter:
 

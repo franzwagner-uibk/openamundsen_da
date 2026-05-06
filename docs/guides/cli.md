@@ -776,7 +776,7 @@ DA defaults & tips:
 - Merge is hard mosaic only (no interpolation/blending).
 - Visible breaks at sub-domain boundaries are expected and intentional.
 - Merge writes `results/grids/da_output_grids.nc` as the compact data assimilation grid product.
-- Compact retention is the default (`data_assimilation.output.retention: compact`); set `full` to keep all member grid artifacts.
+- Sub-domain DA projects default to full retention (`data_assimilation.output.retention: full`) so DA-event maps can be regenerated exactly. Set `compact` only if you knowingly allow heavy sub-domain grids to be pruned after the merged compact NetCDF is written.
 - Sub-domain mode keeps point outputs and point plots inside each sub-domain project (no project-root point merge).
 
 Model defaults & tips:

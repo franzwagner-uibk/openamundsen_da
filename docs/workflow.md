@@ -470,7 +470,7 @@ Clean one project:
 oa-da-clean-project --setup-dir /data/your_setup --project-dir /data/your_setup/projects/project_YYYY-YYYY --log-level INFO
 ```
 
-Only state pickle files are removed; `state_pointer.json` files are left in place.
+Only state pickle files are removed; `state_pointer.json` files, grid outputs, maps, reports, manifests, and sub-domain workspaces are left in place. Grid artifact deletion is controlled separately by `data_assimilation.output.retention`.
 
 ---
 

@@ -8,6 +8,9 @@ from matplotlib.patches import Rectangle
 from openamundsen_da.methods.viz.maps.config import LegendItemSpec, MapDefaults, MapPanelSpec
 from openamundsen_da.methods.viz.maps.layout import (
     axes_date_fontsize,
+    axis_height_inches,
+    axis_width_inches,
+    horizontal_annotation_gap_axes,
     register_child_axes,
     text_size_in,
 )
@@ -25,6 +28,7 @@ from openamundsen_da.methods.viz.maps.theme import (
     _PANEL_BELOW_ITEMS_DRAW_GAP_BASE_AXES,
     _PANEL_BELOW_ITEMS_DRAW_GAP_PER_HEIGHT_AXES,
     _PANEL_BELOW_ITEMS_GAP_AXES,
+    _PANEL_BELOW_ITEMS_MIN_GAP_IN,
     _PANEL_BELOW_ITEMS_ROW_HEIGHT_AXES,
     _SCALEBAR_BOTTOM_FRACTION,
     _SCALEBAR_RIGHT_PAD_FRACTION,
@@ -177,18 +181,41 @@ def panel_below_item_units(item: LegendItemSpec) -> float:
     return 1.0
 
 
-def panel_below_items_layout(items: tuple[LegendItemSpec, ...]) -> tuple[float, float, float, float]:
+def panel_below_items_layout(
+    items: tuple[LegendItemSpec, ...],
+    *,
+    panel_height_in: float | None = None,
+    panel_aspect: float | None = None,
+) -> tuple[float, float, float, float]:
     row_units = sum(panel_below_item_units(item) for item in items)
     inset_height = max(row_units * _PANEL_BELOW_ITEMS_ROW_HEIGHT_AXES, 1e-9)
-    reserve_extra = _PANEL_BELOW_ITEMS_GAP_AXES + inset_height + _PANEL_BELOW_ITEMS_BOTTOM_PAD_AXES
-    draw_gap = _PANEL_BELOW_ITEMS_DRAW_GAP_BASE_AXES + _PANEL_BELOW_ITEMS_DRAW_GAP_PER_HEIGHT_AXES * inset_height
+    base_gap = max(
+        _PANEL_BELOW_ITEMS_GAP_AXES,
+        _PANEL_BELOW_ITEMS_DRAW_GAP_BASE_AXES + _PANEL_BELOW_ITEMS_DRAW_GAP_PER_HEIGHT_AXES * inset_height,
+    )
+    draw_gap = horizontal_annotation_gap_axes(
+        panel_height_in=panel_height_in,
+        panel_aspect=panel_aspect,
+        base_gap_axes=base_gap,
+        min_gap_in=_PANEL_BELOW_ITEMS_MIN_GAP_IN,
+    )
+    reserve_extra = draw_gap + inset_height + _PANEL_BELOW_ITEMS_BOTTOM_PAD_AXES
     return row_units, inset_height, reserve_extra, draw_gap
 
 
-def panel_below_items_extra(items: tuple[LegendItemSpec, ...]) -> float:
+def panel_below_items_extra(
+    items: tuple[LegendItemSpec, ...],
+    *,
+    panel_height_in: float | None = None,
+    panel_aspect: float | None = None,
+) -> float:
     if not items:
         return 0.0
-    _, _, reserve_extra, _ = panel_below_items_layout(items)
+    _, _, reserve_extra, _ = panel_below_items_layout(
+        items,
+        panel_height_in=panel_height_in,
+        panel_aspect=panel_aspect,
+    )
     return reserve_extra
 
 
@@ -226,7 +253,11 @@ def draw_panel_below_items(
 ) -> None:
     if not panel.below_items:
         return
-    row_units, inset_height, _, draw_gap = panel_below_items_layout(panel.below_items)
+    row_units, inset_height, _, draw_gap = panel_below_items_layout(
+        panel.below_items,
+        panel_height_in=axis_height_inches(ax),
+        panel_aspect=axis_height_inches(ax) / max(axis_width_inches(ax), 1e-9),
+    )
     legend_ax = ax.inset_axes(
         [0.0, -(draw_gap + inset_height), 1.0, inset_height],
         transform=ax.transAxes,

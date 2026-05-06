@@ -27,15 +27,18 @@ from openamundsen_da.methods.viz.maps.theme import (
     _GRID_ZORDER,
     _GRID_STYLE,
     _GRID_WIDTH,
-    _HORIZONTAL_COLORBAR_EXTRA,
+    _HORIZONTAL_ANNOTATION_MIN_GAP_MAX_ASPECT,
     _HORIZONTAL_COLORBAR_GAP_AXES,
     _HORIZONTAL_COLORBAR_HEIGHT_AXES,
+    _HORIZONTAL_COLORBAR_BOTTOM_PAD_AXES,
+    _HORIZONTAL_COLORBAR_MIN_GAP_IN,
     _HORIZONTAL_LEGEND_BOTTOM_PAD_AXES,
     _HORIZONTAL_LEGEND_GAP_AXES,
     _HORIZONTAL_LEGEND_HANDLE_TEXT_PAD_IN,
     _HORIZONTAL_LEGEND_HANDLE_WIDTH_IN,
     _HORIZONTAL_LEGEND_ITEM_GAP_IN,
     _HORIZONTAL_LEGEND_MIN_ITEM_GAP_IN,
+    _HORIZONTAL_LEGEND_MIN_GAP_IN,
     _HORIZONTAL_LEGEND_MIN_TEXT_WIDTH_IN,
     _HORIZONTAL_LEGEND_ROW_HEIGHT_AXES,
     _HORIZONTAL_LEGEND_SIDE_PAD_IN,
@@ -456,11 +459,85 @@ def horizontal_legend_bottom_pad(panel_width_in: float) -> float:
     return _HORIZONTAL_LEGEND_BOTTOM_PAD_AXES
 
 
-def horizontal_legend_total_extra(rows: list[list[str]], *, panel_width_in: float) -> float:
+def horizontal_annotation_gap_axes(
+    *,
+    panel_height_in: float | None,
+    panel_aspect: float | None = None,
+    base_gap_axes: float,
+    min_gap_in: float,
+) -> float:
+    if panel_height_in is None or panel_height_in <= 0.0:
+        return float(base_gap_axes)
+    if panel_aspect is None or panel_aspect >= _HORIZONTAL_ANNOTATION_MIN_GAP_MAX_ASPECT:
+        return float(base_gap_axes)
+    return max(float(base_gap_axes), float(min_gap_in) / float(panel_height_in))
+
+
+def horizontal_annotation_total_extra(
+    *,
+    panel_height_in: float | None,
+    panel_aspect: float | None = None,
+    base_gap_axes: float,
+    min_gap_in: float,
+    content_height_axes: float,
+    bottom_pad_axes: float = 0.0,
+) -> float:
+    gap_axes = horizontal_annotation_gap_axes(
+        panel_height_in=panel_height_in,
+        panel_aspect=panel_aspect,
+        base_gap_axes=base_gap_axes,
+        min_gap_in=min_gap_in,
+    )
+    return gap_axes + float(content_height_axes) + float(bottom_pad_axes)
+
+
+def horizontal_colorbar_gap_axes(ax) -> float:
+    return horizontal_annotation_gap_axes(
+        panel_height_in=axis_height_inches(ax),
+        panel_aspect=axis_height_inches(ax) / max(axis_width_inches(ax), 1e-9),
+        base_gap_axes=_HORIZONTAL_COLORBAR_GAP_AXES,
+        min_gap_in=_HORIZONTAL_COLORBAR_MIN_GAP_IN,
+    )
+
+
+def horizontal_colorbar_total_extra(*, panel_height_in: float | None, panel_aspect: float | None = None) -> float:
+    return horizontal_annotation_total_extra(
+        panel_height_in=panel_height_in,
+        panel_aspect=panel_aspect,
+        base_gap_axes=_HORIZONTAL_COLORBAR_GAP_AXES,
+        min_gap_in=_HORIZONTAL_COLORBAR_MIN_GAP_IN,
+        content_height_axes=_HORIZONTAL_COLORBAR_HEIGHT_AXES,
+        bottom_pad_axes=_HORIZONTAL_COLORBAR_BOTTOM_PAD_AXES,
+    )
+
+
+def horizontal_legend_gap_axes(ax) -> float:
+    return horizontal_annotation_gap_axes(
+        panel_height_in=axis_height_inches(ax),
+        panel_aspect=axis_height_inches(ax) / max(axis_width_inches(ax), 1e-9),
+        base_gap_axes=_HORIZONTAL_LEGEND_GAP_AXES,
+        min_gap_in=_HORIZONTAL_LEGEND_MIN_GAP_IN,
+    )
+
+
+def horizontal_legend_total_extra(
+    rows: list[list[str]],
+    *,
+    panel_width_in: float,
+    panel_height_in: float | None = None,
+    panel_aspect: float | None = None,
+) -> float:
     if not rows:
         return 0.0
     total_row_units = float(sum(horizontal_legend_row_height_factors(rows)))
-    return _HORIZONTAL_LEGEND_GAP_AXES + total_row_units * _HORIZONTAL_LEGEND_ROW_HEIGHT_AXES + horizontal_legend_bottom_pad(panel_width_in)
+    return horizontal_annotation_total_extra(
+        panel_height_in=panel_height_in,
+        panel_aspect=panel_aspect,
+        base_gap_axes=_HORIZONTAL_LEGEND_GAP_AXES,
+        min_gap_in=_HORIZONTAL_LEGEND_MIN_GAP_IN,
+        content_height_axes=total_row_units * _HORIZONTAL_LEGEND_ROW_HEIGHT_AXES,
+        bottom_pad_axes=horizontal_legend_bottom_pad(panel_width_in),
+    )
 
 
 def panel_has_vertical_colorbar(
@@ -534,6 +611,8 @@ def row_bottom_extras(
     *,
     context: StaticContext,
     panel_width_in: float,
+    row_panel_height_in: dict[int, float] | None = None,
+    row_panel_aspect: dict[int, float] | None = None,
     figure_horizontal_default: bool,
     obs_cache: dict[tuple[str, str], ObservationScene] | None = None,
     classified_labels_getter,
@@ -542,6 +621,8 @@ def row_bottom_extras(
     row_extras = {row: 0.0 for row in range(recipe.layout.nrows)}
     for panel in recipe.panels:
         row = int(panel.row + panel.rowspan - 1)
+        panel_height_in = None if row_panel_height_in is None else row_panel_height_in.get(row)
+        panel_aspect = None if row_panel_aspect is None else row_panel_aspect.get(row)
         extra = 0.0
         probability_classified_panel = panel.kind in {"wet_snow", "wet_snow_line"} and panel.source in {
             "prior_probability",
@@ -553,22 +634,31 @@ def row_bottom_extras(
                 resolve_flag(panel.show_colorbar, recipe.defaults, "show_colorbar", True)
                 and panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True) == "horizontal"
             ):
-                extra = _HORIZONTAL_COLORBAR_EXTRA
+                extra = horizontal_colorbar_total_extra(panel_height_in=panel_height_in, panel_aspect=panel_aspect)
         elif panel.kind in _CLASSIFIED_PANEL_KINDS:
             layout = panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default)
             if layout == "horizontal":
                 labels = classified_labels_getter(panel, context=context, defaults=recipe.defaults, obs_cache=obs_cache)
                 rows = pack_horizontal_legend_rows(labels, panel_width_in=panel_width_in)
-                extra = horizontal_legend_total_extra(rows, panel_width_in=panel_width_in)
+                extra = horizontal_legend_total_extra(
+                    rows,
+                    panel_width_in=panel_width_in,
+                    panel_height_in=panel_height_in,
+                    panel_aspect=panel_aspect,
+                )
                 extra = max(extra - panel_empty_below_units(recipe, panel), 0.0)
         elif panel.kind in _CONTINUOUS_COLORBAR_PANEL_KINDS:
             if (
                 resolve_flag(panel.show_colorbar, recipe.defaults, "show_colorbar", True)
                 and panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True) == "horizontal"
             ):
-                extra = _HORIZONTAL_COLORBAR_EXTRA
+                extra = horizontal_colorbar_total_extra(panel_height_in=panel_height_in, panel_aspect=panel_aspect)
         if panel.below_items:
-            below_items_extra = below_items_extra_getter(panel.below_items)
+            below_items_extra = below_items_extra_getter(
+                panel.below_items,
+                panel_height_in=panel_height_in,
+                panel_aspect=panel_aspect,
+            )
             below_items_extra = max(below_items_extra - panel_empty_below_units(recipe, panel), 0.0)
             extra = max(extra, below_items_extra)
         row_extras[row] = max(row_extras.get(row, 0.0), extra)
@@ -599,10 +689,11 @@ def attach_colorbar(
     layout: str,
 ) -> None:
     if layout == "horizontal":
+        gap_axes = horizontal_colorbar_gap_axes(ax)
         cax = ax.inset_axes(
             [
                 0.06,
-                -(_HORIZONTAL_COLORBAR_GAP_AXES + _HORIZONTAL_COLORBAR_HEIGHT_AXES),
+                -(gap_axes + _HORIZONTAL_COLORBAR_HEIGHT_AXES),
                 0.88,
                 _HORIZONTAL_COLORBAR_HEIGHT_AXES,
             ],
@@ -671,16 +762,20 @@ def figure_size(
     row_height_ratios = effective_row_height_ratios(recipe, row_extents=row_extents)
     figure_horizontal_default = figure_prefers_horizontal_legends(recipe)
     panel_width = panel_width_in_for_recipe(recipe, figure_horizontal_default=figure_horizontal_default)
+    row_heights = tuple(panel_width * float(ratio) * 1.02 for ratio in row_height_ratios)
+    row_panel_height_in = {row: row_heights[row] for row in range(recipe.layout.nrows)}
+    row_panel_aspect = {row: float(row_height_ratios[row]) for row in range(recipe.layout.nrows)}
     bottom_extras = row_bottom_extras(
         recipe,
         context=context,
         panel_width_in=panel_width,
+        row_panel_height_in=row_panel_height_in,
+        row_panel_aspect=row_panel_aspect,
         figure_horizontal_default=figure_horizontal_default,
         obs_cache=obs_cache,
         classified_labels_getter=classified_labels_getter,
         below_items_extra_getter=below_items_extra_getter,
     )
-    row_heights = tuple(panel_width * float(ratio) * 1.02 for ratio in row_height_ratios)
     inter_row_gap_heights = tuple(
         (_LAYOUT_ROW_GAP + bottom_extras[row]) * row_heights[row]
         for row in range(recipe.layout.nrows - 1)

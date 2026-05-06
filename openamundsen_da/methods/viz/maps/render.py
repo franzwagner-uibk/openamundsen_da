@@ -62,8 +62,11 @@ from openamundsen_da.methods.viz.maps.layout import (
     figure_size,
     google_zoom_meters_per_pixel as _google_zoom_meters_per_pixel,
     grid_span as _grid_span,
+    horizontal_annotation_gap_axes as _horizontal_annotation_gap_axes,
+    horizontal_colorbar_total_extra as _horizontal_colorbar_total_extra,
     horizontal_legend_available_width_in as _horizontal_legend_available_width_in,
     horizontal_legend_bottom_pad as _horizontal_legend_bottom_pad,
+    horizontal_legend_gap_axes as _horizontal_legend_gap_axes,
     horizontal_legend_item_width_in as _horizontal_legend_item_width_in,
     horizontal_legend_row_height_factors as _horizontal_legend_row_height_factors,
     horizontal_legend_row_layout as _horizontal_legend_row_layout,
@@ -204,10 +207,18 @@ def _row_bottom_extras(
     figure_horizontal_default: bool,
     obs_cache: dict[tuple[str, str], ObservationScene] | None = None,
 ) -> dict[int, float]:
+    height_ratios = _effective_row_height_ratios(recipe, row_extents=_row_extents_for_recipe(recipe, context))
+    row_panel_height_in = {
+        row: panel_width_in * float(height_ratios[row]) * 1.02
+        for row in range(recipe.layout.nrows)
+    }
+    row_panel_aspect = {row: float(height_ratios[row]) for row in range(recipe.layout.nrows)}
     return row_bottom_extras(
         recipe,
         context=context,
         panel_width_in=panel_width_in,
+        row_panel_height_in=row_panel_height_in,
+        row_panel_aspect=row_panel_aspect,
         figure_horizontal_default=figure_horizontal_default,
         obs_cache=obs_cache,
         classified_labels_getter=_classified_display_labels,
@@ -623,8 +634,11 @@ __all__ = [
     "_hillshade",
     "_hillshade_extent",
     "_hillshade_underlay",
+    "_horizontal_annotation_gap_axes",
+    "_horizontal_colorbar_total_extra",
     "_horizontal_legend_available_width_in",
     "_horizontal_legend_bottom_pad",
+    "_horizontal_legend_gap_axes",
     "_horizontal_legend_item_width_in",
     "_horizontal_legend_row_height_factors",
     "_horizontal_legend_row_layout",

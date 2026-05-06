@@ -59,6 +59,7 @@ from openamundsen_da.methods.viz.maps.layout import (
     buffered_extent,
     draw_map_grid_overlay,
     extract_unit_title,
+    horizontal_legend_gap_axes,
     horizontal_legend_row_height_factors,
     horizontal_legend_row_layout,
     pack_horizontal_legend_rows,
@@ -429,9 +430,10 @@ def draw_classified_legend(ax, handles: list[object], *, layout: str) -> None:
         row_height_factors = horizontal_legend_row_height_factors(rows)
         total_row_units = float(sum(row_height_factors))
         inset_height = total_row_units * _HORIZONTAL_LEGEND_ROW_HEIGHT_AXES
+        gap_axes = horizontal_legend_gap_axes(ax)
         legend_height_in = max(axis_height_inches(ax) * inset_height, 1e-9)
         legend_ax = ax.inset_axes(
-            [0.0, -(_HORIZONTAL_LEGEND_GAP_AXES + inset_height), 1.0, inset_height],
+            [0.0, -(gap_axes + inset_height), 1.0, inset_height],
             transform=ax.transAxes,
         )
         register_child_axes(ax, legend_ax)

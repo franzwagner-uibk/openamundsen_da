@@ -27,6 +27,7 @@ import openamundsen_da.methods.viz.maps.panel_renderers as panel_renderers_modul
 from openamundsen_da.methods.viz.reports.project_collection_pdf import MissingProjectPdfArtifactsError
 from openamundsen_da.methods.viz.maps.config import (
     DateSelector,
+    LegendItemSpec,
     LayoutSpec,
     MapDefaults,
     MapPanelSpec,
@@ -2570,6 +2571,44 @@ def test_horizontal_legend_total_extra_is_tighter_for_multirow_classified_legend
 
 def test_horizontal_colorbar_gap_is_tighter_than_legacy_spacing() -> None:
     assert render_module._HORIZONTAL_COLORBAR_GAP_AXES < 0.22
+
+
+def test_horizontal_colorbar_spacing_uses_physical_minimum_for_flat_panels() -> None:
+    base_extra = 0.10 + 0.050 + 0.02
+
+    flat_extra = render_module._horizontal_colorbar_total_extra(panel_height_in=0.70, panel_aspect=0.55)
+    tall_extra = render_module._horizontal_colorbar_total_extra(panel_height_in=2.00, panel_aspect=1.00)
+
+    assert flat_extra > base_extra
+    assert tall_extra == pytest.approx(base_extra)
+
+
+def test_horizontal_legend_spacing_uses_physical_minimum_for_flat_panels() -> None:
+    rows = [["wet", "dry"]]
+    base_extra = _horizontal_legend_total_extra(rows, panel_width_in=2.2)
+
+    flat_extra = _horizontal_legend_total_extra(rows, panel_width_in=2.2, panel_height_in=0.70, panel_aspect=0.55)
+    tall_extra = _horizontal_legend_total_extra(rows, panel_width_in=2.2, panel_height_in=2.00, panel_aspect=1.00)
+
+    assert flat_extra > base_extra
+    assert tall_extra == pytest.approx(base_extra)
+
+
+def test_below_panel_items_reserve_drawn_extent_for_flat_panels() -> None:
+    items = (LegendItemSpec(kind="station_symbol", label="Meteorological stations"),)
+
+    _row_units, inset_height, reserve_extra, draw_gap = render_module._panel_below_items_layout(
+        items,
+        panel_height_in=0.70,
+        panel_aspect=0.55,
+    )
+    default_extra = render_module._panel_below_items_extra(items)
+
+    assert reserve_extra == pytest.approx(draw_gap + inset_height)
+    assert reserve_extra == pytest.approx(
+        render_module._panel_below_items_extra(items, panel_height_in=0.70, panel_aspect=0.55)
+    )
+    assert reserve_extra > default_extra
 
 
 def test_station_entry_is_more_compact() -> None:

@@ -211,25 +211,30 @@ def merge_grids(
                 sliver_tol_px=int(coverage_sliver_tol_px),
             )
         )
+    compact_da_summary_merged = False
     if nc_groups:
         for nc_name, entries in sorted(nc_groups.items()):
-            written.append(
-                _merge_netcdf(
-                    output_name=nc_name,
-                    nc_paths=entries,
-                    global_shape=global_shape,
-                    manifest=manifest,
-                    out_dir=out_base,
-                    expected_mask=expected_mask,
-                    sliver_tol_px=int(coverage_sliver_tol_px),
-                )
+            merged_nc = _merge_netcdf(
+                output_name=nc_name,
+                nc_paths=entries,
+                global_shape=global_shape,
+                manifest=manifest,
+                out_dir=out_base,
+                expected_mask=expected_mask,
+                sliver_tol_px=int(coverage_sliver_tol_px),
             )
+            written.append(merged_nc)
+            if nc_name == "da_output_grids.nc" and merged_nc.is_file():
+                compact_da_summary_merged = True
 
     da_summary_written = False
     da_summary_path = out_base / "da_output_grids.nc"
     open_loop_nc = out_base / "output_grids.nc"
     member_ncs = sorted(out_base.glob("member_*_output_grids.nc"))
-    if da_summary_path.is_file() and (not open_loop_nc.is_file() or not member_ncs):
+    if compact_da_summary_merged and da_summary_path.is_file():
+        da_summary_written = True
+        logger.info("Using merged compact DA output summary {}", da_summary_path)
+    elif da_summary_path.is_file() and (not open_loop_nc.is_file() or not member_ncs):
         da_summary_written = True
         logger.info("Using existing DA output summary {}", da_summary_path)
     else:

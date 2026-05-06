@@ -47,6 +47,7 @@ from openamundsen_da.methods.viz.maps.data import (
     ModelFields,
     ObservationScene,
     StaticContext,
+    load_static_context,
     load_model_fields,
     load_observation_scene,
     load_observation_uncertainty_scene,
@@ -133,6 +134,7 @@ from openamundsen_da.util.landcover_mask import resolve_landcover_mask
 from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
 from openamundsen_da.methods.wet_snow.classify import CLASSIFICATION_METHOD_AMOUNT, load_wet_snow_classification_config
 from openamundsen_da.methods.wet_snow.wsl import compute_wet_snow_line_from_masks
+from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta
 from openamundsen_da.util.da_observables import weights_csv_name
 
 
@@ -278,6 +280,21 @@ def subdomain_dropped_event_regions(
     if selected.empty:
         return None
     return selected
+
+
+def _subdomain_dropped_event_ids(context: StaticContext, *, date: pd.Timestamp, variable: str) -> set[str]:
+    dropped = context.subdomain_dropped_events
+    if dropped is None or dropped.empty:
+        return set()
+    date_key = pd.Timestamp(date).normalize()
+    variable_key = str(variable).strip().lower()
+    rows = dropped[
+        (pd.to_datetime(dropped["date"], errors="coerce").dt.normalize() == date_key)
+        & (dropped["variable"].astype(str).str.strip().str.lower() == variable_key)
+    ]
+    if rows.empty:
+        return set()
+    return {str(value) for value in rows["subdomain_id"].dropna().tolist()}
 
 
 def draw_subdomain_dropped_event_overlay(
@@ -2020,17 +2037,44 @@ def _scf_binary_grid_from_results(
         ) from exc
 
 
-def _scf_model_probability_array(
+def _top_level_subdomain_manifest(context: StaticContext) -> SubdomainManifest | None:
+    manifest_path = Path(context.project_dir) / "subdomains" / "subdomain_manifest.json"
+    if not manifest_path.is_file():
+        return None
+    try:
+        manifest = SubdomainManifest.load(manifest_path)
+    except Exception:
+        return None
+    if str(getattr(manifest, "run_mode", "")).lower() != "subdomain":
+        return None
+    return manifest
+
+
+def _window_slices_for_subdomain(
+    sub: SubdomainMeta,
+    data_shape: tuple[int, int],
+    global_shape: tuple[int, int],
+) -> tuple[slice, slice]:
+    if data_shape == global_shape:
+        return slice(0, global_shape[0]), slice(0, global_shape[1])
+    return (
+        slice(sub.window.row_off, sub.window.row_off + data_shape[0]),
+        slice(sub.window.col_off, sub.window.col_off + data_shape[1]),
+    )
+
+
+def _subdomain_roi_mask(sub: SubdomainMeta) -> np.ndarray:
+    with rasterio.open(sub.roi_raster_path) as src:
+        return src.read(1).astype(bool)
+
+
+def _single_domain_scf_model_probability_array(
     *,
     context: StaticContext,
     source: str,
     date: pd.Timestamp,
     derived_cache: dict[str, np.ndarray] | None,
 ) -> np.ndarray:
-    cache_key = f"scf-model-map:{source}:{pd.Timestamp(date).normalize().isoformat()}"
-    if derived_cache is not None and cache_key in derived_cache:
-        return np.asarray(derived_cache[cache_key], dtype=float)
-
     step_dir = _step_dir_for_date(context.project_dir, date)
     if source == "open_loop_binary":
         classified = _scf_binary_grid_from_results(
@@ -2065,6 +2109,95 @@ def _scf_model_probability_array(
 
     classified = np.asarray(classified, dtype=float)
     classified[~context.roi_mask] = np.nan
+    return classified
+
+
+def _top_level_subdomain_scf_model_probability_array(
+    *,
+    context: StaticContext,
+    source: str,
+    date: pd.Timestamp,
+) -> np.ndarray:
+    manifest = _top_level_subdomain_manifest(context)
+    if manifest is None or not manifest.subdomains:
+        raise FileNotFoundError(
+            f"Cannot render top-level subdomain spatial SCF DA-event map support for {pd.Timestamp(date).date()}: "
+            "subdomain_manifest.json is missing or contains no subdomains."
+        )
+
+    global_shape = tuple(context.roi_mask.shape)
+    mosaic = np.full(global_shape, np.nan, dtype=float)
+    dropped_ids = _subdomain_dropped_event_ids(context, date=date, variable="scf")
+    missing: list[str] = []
+    for sid, sub in manifest.subdomains.items():
+        if str(sid) in dropped_ids:
+            continue
+        try:
+            sub_context = load_static_context(sub.project_dir)
+            local = _single_domain_scf_model_probability_array(
+                context=sub_context,
+                source=source,
+                date=date,
+                derived_cache=None,
+            )
+            roi = _subdomain_roi_mask(sub)
+            sl_r, sl_c = _window_slices_for_subdomain(sub, local.shape, global_shape)
+            mask = roi
+            if mask.shape != local.shape:
+                if mask.shape == global_shape:
+                    mask = mask[sl_r, sl_c]
+                else:
+                    mask = np.ones(local.shape, dtype=bool)
+            local = np.where(mask, local, np.nan)
+        except (FileNotFoundError, RuntimeError, ValueError, KeyError) as exc:
+            missing.append(f"{sid}: {exc}")
+            continue
+
+        dest = mosaic[sl_r, sl_c]
+        replace = np.isnan(dest) & np.isfinite(local)
+        dest[replace] = local[replace]
+        mosaic[sl_r, sl_c] = dest
+
+    if missing:
+        details = "; ".join(missing[:5])
+        if len(missing) > 5:
+            details += f"; ... {len(missing) - 5} more"
+        raise FileNotFoundError(
+            f"Cannot render top-level subdomain spatial SCF DA-event map support for {pd.Timestamp(date).date()}. "
+            "Retained per-subdomain step/member grids are required for exact snow-cover panels, but some support "
+            f"data are missing ({details}). Compact-cleaned runs cannot be rerendered exactly; future subdomain "
+            "runs should use data_assimilation.output.retention: full."
+        )
+
+    mosaic[~context.roi_mask] = np.nan
+    return mosaic
+
+
+def _scf_model_probability_array(
+    *,
+    context: StaticContext,
+    source: str,
+    date: pd.Timestamp,
+    derived_cache: dict[str, np.ndarray] | None,
+) -> np.ndarray:
+    cache_key = f"scf-model-map:{source}:{pd.Timestamp(date).normalize().isoformat()}"
+    if derived_cache is not None and cache_key in derived_cache:
+        return np.asarray(derived_cache[cache_key], dtype=float)
+
+    if _top_level_subdomain_manifest(context) is not None:
+        classified = _top_level_subdomain_scf_model_probability_array(
+            context=context,
+            source=source,
+            date=date,
+        )
+    else:
+        classified = _single_domain_scf_model_probability_array(
+            context=context,
+            source=source,
+            date=date,
+            derived_cache=derived_cache,
+        )
+
     if derived_cache is not None:
         derived_cache[cache_key] = classified
     return classified

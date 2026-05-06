@@ -508,7 +508,7 @@ Typical custom `maps.yml` files still use this panel catalog:
 #     # viewport_px: [1024, 1024]
 ```
 
-Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference panels show `analysis_increment` (`posterior - prior`); FSC and wet-snow reference panels show the satellite observation. WSLA lines are panel-local and observation WSLA is drawn only in the observation/reference panel. If an event's resampling manifest has `skipped: true`, the generated map title includes `resampling skipped`.
+Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference panels show `analysis_increment` (`posterior - prior`); FSC and wet-snow reference panels show the satellite observation. WSLA lines are panel-local and observation WSLA is drawn only in the observation/reference panel. Top-level sub-domain SCF events use a taller same-file layout with a 2x2 snow-cover block above the 2x2 snow-depth response block; exact rerendering requires retained per-sub-domain grids. If an event's resampling manifest has `skipped: true`, the generated map title includes `resampling skipped`.
 
 ```bash
 oa-da-plot-project-maps \

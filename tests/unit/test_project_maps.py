@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shutil
 import textwrap
+from types import SimpleNamespace
 
 import geopandas as gpd
 import matplotlib
@@ -242,6 +243,58 @@ def _write_subdomain_regions_and_manifest(project_dir: Path, setup_dir: Path) ->
         ),
         encoding="utf-8",
     )
+    return manifest_path
+
+
+def _write_runtime_subdomain_manifest(project_dir: Path, setup_dir: Path) -> Path:
+    manifest_path = _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    transform = [100.0, 0.0, 0.0, 0.0, -100.0, 400.0]
+    subdomains = {}
+    specs = {
+        "sd_1": {"window": {"row_off": 0, "col_off": 0, "height": 4, "width": 2}, "bounds": [0.0, 0.0, 200.0, 400.0]},
+        "sd_2": {"window": {"row_off": 0, "col_off": 2, "height": 4, "width": 2}, "bounds": [200.0, 0.0, 400.0, 400.0]},
+    }
+    for sid, spec in specs.items():
+        sub_setup = project_dir / "subdomains" / sid
+        sub_project = sub_setup / "projects" / project_dir.name
+        (sub_project / "steps").mkdir(parents=True, exist_ok=True)
+        _write_summary(
+            sub_setup / "obs" / project_dir.name / "scf_summary.csv",
+            [{"date": "2023-01-02", "source": "scf_left.tif" if sid == "sd_1" else "scf_right.tif"}],
+        )
+        roi_array = np.ones((4, 2), dtype=np.uint8)
+        roi_path = sub_setup / "grids" / f"roi_{sid}.asc"
+        _write_grid(
+            roi_path,
+            roi_array,
+            transform=from_origin(float(spec["bounds"][0]), 400.0, 100.0, 100.0),
+            nodata=0,
+        )
+        subdomains[sid] = {
+            "id": sid,
+            "label": sid,
+            "setup_dir": str(sub_setup),
+            "setup_yaml": str(sub_setup / "setup.yml"),
+            "project_dir": str(sub_project),
+            "project_yaml": str(sub_project / f"{project_dir.name}.yml"),
+            "project_name": project_dir.name,
+            "grids_dir": str(sub_setup / "grids"),
+            "meteo_dir": str(sub_setup / "meteo"),
+            "obs_stations_dir": str(sub_setup / "obs" / "stations"),
+            "roi_raster_path": str(roi_path),
+            "roi_vector_path": str(sub_setup / "env" / "roi.gpkg"),
+            "window": spec["window"],
+            "transform": transform,
+            "bounds": spec["bounds"],
+            "crs": "EPSG:25832",
+            "status": "success",
+            "run_manifest": str(sub_setup / "run_manifest.json"),
+            "dropped_events": [],
+            "station_counts": {},
+        }
+    data["subdomains"] = subdomains
+    manifest_path.write_text(json.dumps(data), encoding="utf-8")
     return manifest_path
 
 
@@ -1517,6 +1570,80 @@ def test_generated_da_map_recipes_use_two_by_two_for_top_level_subdomain_snow_ev
     ]
 
 
+def test_generated_da_map_recipes_use_tall_scf_layout_for_top_level_subdomain_scf_events(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_runtime_subdomain_manifest(project_dir, setup_dir)
+    write_run_mode(project_dir, "subdomain")
+
+    recipes = generated_module.generated_da_map_recipes(project_dir)
+
+    assert recipes[0].layout.nrows == 4
+    assert recipes[0].layout.ncols == 2
+    assert recipes[0].row_labels == ()
+    assert [(panel.kind, panel.source, panel.row, panel.col) for panel in recipes[0].panels] == [
+        ("fsc", "open_loop_binary", 0, 0),
+        ("fsc", "prior_probability", 1, 0),
+        ("fsc", "posterior_probability", 1, 1),
+        ("fsc", None, 0, 1),
+        ("snow_depth", "open_loop", 2, 0),
+        ("snow_depth", "ensemble_mean", 3, 0),
+        ("snow_depth", "analysis_mean", 3, 1),
+        ("snow_depth", "analysis_increment", 2, 1),
+    ]
+
+
+def test_top_level_subdomain_scf_support_detection_uses_subdomain_artifacts(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_runtime_subdomain_manifest(project_dir, setup_dir)
+    write_run_mode(project_dir, "subdomain")
+
+    assert generated_module._top_level_subdomain_fraction_support_available(project_dir, "scf") is True
+    assert generated_module._top_level_subdomain_fraction_support_available(project_dir, "wet_snow") is False
+
+
+def test_top_level_subdomain_scf_mosaic_uses_manifest_windows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_runtime_subdomain_manifest(project_dir, setup_dir)
+    context = load_static_context(project_dir)
+
+    def fake_load_static_context(path):
+        return SimpleNamespace(project_dir=Path(path))
+
+    def fake_single(*, context, source, date, derived_cache):
+        del source, date, derived_cache
+        value = 0.25 if str(context.project_dir).split("/")[-3] == "sd_1" else 0.75
+        return np.full((4, 2), value, dtype=float)
+
+    monkeypatch.setattr(panel_renderers_module, "load_static_context", fake_load_static_context)
+    monkeypatch.setattr(panel_renderers_module, "_single_domain_scf_model_probability_array", fake_single)
+
+    mosaic = panel_renderers_module._top_level_subdomain_scf_model_probability_array(
+        context=context,
+        source="prior_probability",
+        date=pd.Timestamp("2023-01-02"),
+    )
+
+    assert mosaic.shape == (4, 4)
+    assert np.allclose(mosaic[:, :2], 0.25)
+    assert np.allclose(mosaic[:, 2:], 0.75)
+
+
+def test_top_level_subdomain_scf_missing_grids_error_is_clear(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_runtime_subdomain_manifest(project_dir, setup_dir)
+    context = load_static_context(project_dir)
+
+    with pytest.raises(FileNotFoundError, match="retention: full"):
+        panel_renderers_module._top_level_subdomain_scf_model_probability_array(
+            context=context,
+            source="open_loop_binary",
+            date=pd.Timestamp("2023-01-02"),
+        )
+
+
 def test_generated_da_map_title_marks_skipped_resampling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     monkeypatch.setattr(generated_module, "_fraction_model_support_available", lambda *_args, **_kwargs: False)
@@ -1930,6 +2057,26 @@ def test_load_observation_scene_ignores_source_timestamp_token(tmp_path: Path) -
             {"date": "2023-01-02", "source": "scf_left.tif@2023-01-02T00:00:00Z; scf_right.tif@2023-01-02T00:00:00Z"},
         ]
     ).to_csv(summary_path, index=False)
+    context = load_static_context(project_dir)
+
+    scene = load_observation_scene(project_dir, context, observation="scf", date=pd.Timestamp("2023-01-02"))
+
+    assert scene.coverage_fraction == 1.0
+    assert np.isfinite(scene.array).sum() == 16
+
+
+def test_load_observation_scene_falls_back_to_subdomain_scf_summaries(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    (setup_dir / "obs" / "summaries" / project_dir.name / "scf_summary.csv").unlink()
+    _write_summary(
+        project_dir / "subdomains" / "sd_1" / "obs" / project_dir.name / "scf_summary.csv",
+        [{"date": "2023-01-02", "source": "scf_left.tif@2023-01-02T00:00:00Z"}],
+    )
+    _write_summary(
+        project_dir / "subdomains" / "sd_2" / "obs" / project_dir.name / "scf_summary.csv",
+        [{"date": "2023-01-02", "source": "scf_right.tif@2023-01-02T00:00:00Z"}],
+    )
     context = load_static_context(project_dir)
 
     scene = load_observation_scene(project_dir, context, observation="scf", date=pd.Timestamp("2023-01-02"))

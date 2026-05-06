@@ -384,9 +384,13 @@ def _load_summary(project_dir: Path, observation: str) -> pd.DataFrame:
     from openamundsen_da.observer.summary_paths import resolve_fraction_summary_path
 
     summary_path = resolve_fraction_summary_path(infer_setup_dir_from_project(project_dir), Path(project_dir), filename)
-    if not summary_path.is_file():
-        raise FileNotFoundError(f"Observation summary not found: {summary_path}")
-    df = pd.read_csv(summary_path)
+    if summary_path.is_file():
+        df = pd.read_csv(summary_path)
+    else:
+        frames = _load_subdomain_observation_summaries(Path(project_dir), filename)
+        if not frames:
+            raise FileNotFoundError(f"Observation summary not found: {summary_path}")
+        df = pd.concat(frames, ignore_index=True)
     if "date" not in df.columns:
         raise ValueError(f"Observation summary missing 'date' column: {summary_path}")
     if "source" not in df.columns:
@@ -394,6 +398,22 @@ def _load_summary(project_dir: Path, observation: str) -> pd.DataFrame:
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"]).dt.normalize()
     return df.sort_values("date").reset_index(drop=True)
+
+
+def _load_subdomain_observation_summaries(project_dir: Path, filename: str) -> list[pd.DataFrame]:
+    manifest_path = Path(project_dir) / "subdomains" / "subdomain_manifest.json"
+    if not manifest_path.is_file():
+        return []
+    paths = sorted((Path(project_dir) / "subdomains").glob(f"*/obs/*/{filename}"))
+    frames: list[pd.DataFrame] = []
+    for path in paths:
+        try:
+            df = pd.read_csv(path)
+        except Exception:
+            continue
+        if not df.empty:
+            frames.append(df)
+    return frames
 
 
 def resolve_observation_context_dates(

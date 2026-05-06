@@ -53,6 +53,7 @@ class StaticContext:
     hillshade_dem: np.ndarray | None = None
     hillshade_transform: object | None = None
     subdomain_gdf: gpd.GeoDataFrame | None = None
+    subdomain_dropped_events: pd.DataFrame | None = None
 
 
 @dataclass(frozen=True)
@@ -189,7 +190,50 @@ def _load_subdomain_regions(project_dir: Path, setup_dir: Path, crs: str | None)
         return None
     if crs and regions.crs is not None:
         regions = regions.to_crs(crs)
+    if "subdomain_id" not in regions.columns:
+        if manifest.id_field in regions.columns:
+            regions["subdomain_id"] = regions[manifest.id_field].astype(str)
+        elif "id" in regions.columns:
+            regions["subdomain_id"] = regions["id"].astype(str)
     return regions
+
+
+def _load_subdomain_dropped_events(project_dir: Path) -> pd.DataFrame | None:
+    manifest_path = project_dir / "subdomains" / "subdomain_manifest.json"
+    if not manifest_path.is_file():
+        return None
+
+    candidates = [project_dir / "results" / "subdomain_dropped_events.csv"]
+    candidates.extend(sorted((project_dir / "subdomains").glob("*/subdomain_dropped_events.csv")))
+    frames = []
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            df = pd.read_csv(path)
+        except Exception:
+            continue
+        if df.empty:
+            continue
+        frames.append(df)
+    if not frames:
+        return None
+
+    out = pd.concat(frames, ignore_index=True)
+    required = {"subdomain_id", "date", "variable"}
+    if not required.issubset(out.columns):
+        return None
+    out = out.copy()
+    out["subdomain_id"] = out["subdomain_id"].astype(str)
+    out["variable"] = out["variable"].astype(str).str.strip().str.lower()
+    out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.normalize()
+    out = out.dropna(subset=["date", "variable", "subdomain_id"])
+    if out.empty:
+        return None
+    subset = ["subdomain_id", "date", "variable"]
+    if "reason" in out.columns:
+        subset.append("reason")
+    return out.drop_duplicates(subset=subset)
 
 
 @lru_cache(maxsize=16)
@@ -250,6 +294,7 @@ def _load_static_context_cached(project_dir_str: str) -> StaticContext:
     )
     stations = load_setup_station_table(setup_dir)
     subdomain_gdf = _load_subdomain_regions(project_dir, setup_dir, spec.crs)
+    subdomain_dropped_events = _load_subdomain_dropped_events(project_dir)
     return StaticContext(
         project_dir=project_dir,
         setup_dir=setup_dir,
@@ -264,6 +309,7 @@ def _load_static_context_cached(project_dir_str: str) -> StaticContext:
         hillshade_dem=hillshade_dem,
         hillshade_transform=hillshade_transform,
         subdomain_gdf=subdomain_gdf,
+        subdomain_dropped_events=subdomain_dropped_events,
     )
 
 

@@ -99,6 +99,7 @@ from openamundsen_da.methods.viz.maps.panel_renderers import (
     classified_legend_handles as _classified_legend_handles,
     comparison_scales as _comparison_scales,
     draw_classified_legend as _draw_classified_legend,
+    draw_subdomain_dropped_event_overlay as _draw_subdomain_dropped_event_overlay,
     draw_roi as _draw_roi,
     draw_stations_overlay as _draw_stations_overlay,
     field_array as _field_array,
@@ -473,6 +474,46 @@ def _render_panel(
     raise ValueError(f"Unsupported panel kind '{panel.kind}'")
 
 
+def _generated_da_event_variable(recipe: MapRecipe) -> str | None:
+    if recipe.output_subdir != "da_events":
+        return None
+    for panel in recipe.panels:
+        if panel.variable:
+            return str(panel.variable).strip().lower()
+    panel_kinds = {str(panel.kind).strip().lower() for panel in recipe.panels}
+    if "fsc" in panel_kinds:
+        return "scf"
+    if "wet_snow_line" in panel_kinds:
+        return "wet_snow_line"
+    if "wet_snow" in panel_kinds or "wet_snow_elevation_fraction" in panel_kinds:
+        return "wet_snow"
+    return None
+
+
+def _draw_generated_da_event_status_overlay(
+    ax,
+    *,
+    recipe: MapRecipe,
+    panel,
+    context: StaticContext,
+) -> None:
+    if panel.kind in _SUPPORT_PANEL_KINDS:
+        return
+    if recipe.output_subdir != "da_events":
+        return
+    if recipe.defaults.date is None:
+        return
+    variable = _generated_da_event_variable(recipe)
+    if variable is None:
+        return
+    _draw_subdomain_dropped_event_overlay(
+        ax,
+        context,
+        date=pd.Timestamp(recipe.defaults.date).normalize(),
+        variable=variable,
+    )
+
+
 def render_map_recipe(
     *,
     project_dir: Path,
@@ -561,6 +602,12 @@ def render_map_recipe(
                 extent=row_extents[int(panel.row)],
                 cache=cache,
                 figure_horizontal_default=figure_horizontal_default,
+            )
+            _draw_generated_da_event_status_overlay(
+                ax,
+                recipe=recipe,
+                panel=panel,
+                context=context,
             )
 
         if panel.below_items:

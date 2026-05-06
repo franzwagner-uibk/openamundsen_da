@@ -459,8 +459,71 @@ def test_load_static_context_reads_subdomain_regions_from_project_manifest(tmp_p
 
     assert context.subdomain_gdf is not None
     assert list(context.subdomain_gdf["id"]) == ["sd_1", "sd_2"]
+    assert list(context.subdomain_gdf["subdomain_id"]) == ["sd_1", "sd_2"]
     assert context.subdomain_gdf.crs is not None
     assert context.subdomain_gdf.crs.to_string() == "EPSG:25832"
+
+
+def test_load_static_context_reads_subdomain_dropped_events(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path, meteo_format="csv")
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    dropped_csv = project_dir / "results" / "subdomain_dropped_events.csv"
+    dropped_csv.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {
+                "subdomain_id": "sd_2",
+                "date": "2023-01-02",
+                "variable": "station_hs",
+                "reason": "missing_observation_date",
+            }
+        ]
+    ).to_csv(dropped_csv, index=False)
+
+    context = load_static_context(project_dir)
+
+    assert context.subdomain_dropped_events is not None
+    assert list(context.subdomain_dropped_events["subdomain_id"]) == ["sd_2"]
+    assert list(context.subdomain_dropped_events["date"]) == [pd.Timestamp("2023-01-02")]
+
+
+def test_subdomain_dropped_event_regions_selects_event_subdomains(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path, meteo_format="csv")
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    dropped_csv = project_dir / "results" / "subdomain_dropped_events.csv"
+    dropped_csv.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {
+                "subdomain_id": "sd_1",
+                "date": "2023-01-01",
+                "variable": "station_hs",
+                "reason": "missing_observation_date",
+            },
+            {
+                "subdomain_id": "sd_2",
+                "date": "2023-01-02",
+                "variable": "station_hs",
+                "reason": "missing_observation_date",
+            },
+            {
+                "subdomain_id": "sd_1",
+                "date": "2023-01-02",
+                "variable": "scf",
+                "reason": "missing_observation_date",
+            },
+        ]
+    ).to_csv(dropped_csv, index=False)
+    context = load_static_context(project_dir)
+
+    selected = panel_renderers_module.subdomain_dropped_event_regions(
+        context,
+        date=pd.Timestamp("2023-01-02"),
+        variable="station_hs",
+    )
+
+    assert selected is not None
+    assert list(selected["subdomain_id"]) == ["sd_2"]
 
 
 def test_common_map_overlays_draw_subdomain_boundaries_for_subdomain_projects(
@@ -1464,6 +1527,80 @@ def test_generated_da_map_title_marks_skipped_resampling(tmp_path: Path, monkeyp
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
     assert recipes[0].figure_title == "DA 1 - 2023-01-02 (snow cover fraction) - resampling skipped"
+
+
+def test_generated_da_event_status_overlay_uses_dropped_event_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    context = load_static_context(project_dir)
+    calls = []
+
+    def fake_overlay(ax, ctx, *, date, variable):
+        del ax
+        calls.append((ctx, pd.Timestamp(date).normalize(), variable))
+
+    monkeypatch.setattr(render_module, "_draw_subdomain_dropped_event_overlay", fake_overlay)
+    recipe = MapRecipe(
+        name="da_1",
+        title="da_1",
+        output_subdir="da_events",
+        layout=LayoutSpec(nrows=1, ncols=1),
+        defaults=MapDefaults(date="2023-01-02"),
+        panels=(MapPanelSpec(kind="snow_depth", row=0, col=0, variable="station_hs"),),
+    )
+
+    fig, ax = plt.subplots()
+    try:
+        render_module._draw_generated_da_event_status_overlay(
+            ax,
+            recipe=recipe,
+            panel=recipe.panels[0],
+            context=context,
+        )
+    finally:
+        plt.close(fig)
+
+    assert calls == [(context, pd.Timestamp("2023-01-02"), "station_hs")]
+
+
+def test_generated_da_event_status_overlay_ignores_non_generated_maps(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    context = load_static_context(project_dir)
+    calls = 0
+
+    def fake_overlay(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+
+    monkeypatch.setattr(render_module, "_draw_subdomain_dropped_event_overlay", fake_overlay)
+    recipe = MapRecipe(
+        name="custom",
+        title="custom",
+        output_subdir=None,
+        layout=LayoutSpec(nrows=1, ncols=1),
+        defaults=MapDefaults(date="2023-01-02"),
+        panels=(MapPanelSpec(kind="snow_depth", row=0, col=0, variable="station_hs"),),
+    )
+
+    fig, ax = plt.subplots()
+    try:
+        render_module._draw_generated_da_event_status_overlay(
+            ax,
+            recipe=recipe,
+            panel=recipe.panels[0],
+            context=context,
+        )
+    finally:
+        plt.close(fig)
+
+    assert calls == 0
 
 
 def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_support_exists(

@@ -140,6 +140,9 @@ _FRACTION_MODEL_CMAP = colormaps["Greys"]
 _ELEVATION_BAND_WSF_ACCENT_LOW = 0.45
 _ELEVATION_BAND_WSF_ACCENT_HIGH = 0.55
 _ELEVATION_BAND_WSF_ACCENT_COLOR = "#d95f02"
+_SUBDOMAIN_NO_DA_COLOR = "#525252"
+_SUBDOMAIN_NO_DA_HATCH = "////"
+_SUBDOMAIN_NO_DA_LABEL = "no DA"
 _ELEVATION_BAND_WSF_CMAP = LinearSegmentedColormap.from_list(
     "oa_da_elevation_band_wsf",
     (
@@ -245,6 +248,80 @@ def draw_subdomain_boundaries(ax, context: StaticContext) -> None:
                 pe.Stroke(linewidth=_SUBDOMAIN_BOUNDARY_HALO_WIDTH, foreground=_SUBDOMAIN_BOUNDARY_HALO_COLOR),
                 pe.Normal(),
             ]
+        )
+
+
+def subdomain_dropped_event_regions(
+    context: StaticContext,
+    *,
+    date: pd.Timestamp,
+    variable: str,
+) -> pd.DataFrame | None:
+    subdomains = context.subdomain_gdf
+    dropped = context.subdomain_dropped_events
+    if subdomains is None or subdomains.empty or dropped is None or dropped.empty:
+        return None
+    if "subdomain_id" not in subdomains.columns:
+        return None
+
+    date_key = pd.Timestamp(date).normalize()
+    variable_key = str(variable).strip().lower()
+    rows = dropped[
+        (pd.to_datetime(dropped["date"], errors="coerce").dt.normalize() == date_key)
+        & (dropped["variable"].astype(str).str.strip().str.lower() == variable_key)
+    ]
+    if rows.empty:
+        return None
+
+    dropped_ids = {str(value) for value in rows["subdomain_id"].dropna().tolist()}
+    selected = subdomains[subdomains["subdomain_id"].astype(str).isin(dropped_ids)].copy()
+    if selected.empty:
+        return None
+    return selected
+
+
+def draw_subdomain_dropped_event_overlay(
+    ax,
+    context: StaticContext,
+    *,
+    date: pd.Timestamp,
+    variable: str,
+) -> None:
+    selected = subdomain_dropped_event_regions(context, date=date, variable=variable)
+    if selected is None or selected.empty:
+        return
+
+    selected.plot(
+        ax=ax,
+        facecolor="none",
+        edgecolor=_SUBDOMAIN_NO_DA_COLOR,
+        linewidth=0.0,
+        hatch=_SUBDOMAIN_NO_DA_HATCH,
+        zorder=47,
+    )
+    selected.boundary.plot(
+        ax=ax,
+        color=_SUBDOMAIN_NO_DA_COLOR,
+        linewidth=1.05,
+        linestyle=(0, (2.5, 1.8)),
+        zorder=48,
+    )
+    for geom in selected.geometry:
+        if geom is None or geom.is_empty:
+            continue
+        point = geom.representative_point()
+        apply_overlay_label_halo(
+            ax.text(
+                float(point.x),
+                float(point.y),
+                _SUBDOMAIN_NO_DA_LABEL,
+                ha="center",
+                va="center",
+                fontsize=5.7,
+                color=_SUBDOMAIN_NO_DA_COLOR,
+                zorder=_ANNOTATION_ZORDER + 1,
+            ),
+            with_bbox=True,
         )
 
 

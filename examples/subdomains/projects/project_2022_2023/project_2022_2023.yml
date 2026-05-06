@@ -103,28 +103,10 @@ data_assimilation:
     independent_variables: [station_hs]
     performance_scores_exclude_variables: []
   assimilation_events:
-  - date: '2022-10-03'
-    variable: scf
-    product: SNOWCOVER
   - date: '2022-10-05'
     variable: scf
     product: SNOWCOVER
-  - date: '2022-10-13'
-    variable: scf
-    product: SNOWCOVER
-  - date: '2022-10-18'
-    variable: scf
-    product: SNOWCOVER
-  - date: '2022-10-20'
-    variable: scf
-    product: SNOWCOVER
-  - date: '2022-10-25'
-    variable: scf
-    product: SNOWCOVER
   - date: '2022-10-28'
-    variable: scf
-    product: SNOWCOVER
-  - date: '2022-10-30'
     variable: scf
     product: SNOWCOVER
   - date: '2022-11-12'
@@ -154,13 +136,16 @@ data_assimilation:
   - date: '2023-01-31'
     variable: station_hs
     product: STATION
-  - date: '2023-02-12'
-    variable: scf
-    product: SNOWCOVER
+  - date: '2023-02-10'
+    variable: station_hs
+    product: STATION
   - date: '2023-02-15'
     variable: scf
     product: SNOWCOVER
   - date: '2023-02-21'
+    variable: station_hs
+    product: STATION
+  - date: '2023-03-03'
     variable: station_hs
     product: STATION
   - date: '2023-03-07'
@@ -172,9 +157,21 @@ data_assimilation:
   - date: '2023-03-22'
     variable: scf
     product: SNOWCOVER
-  - date: '2023-04-26'
+  - date: '2023-04-03'
+    variable: scf
+    product: SNOWCOVER
+  - date: '2023-04-06'
+    variable: scf
+    product: SNOWCOVER
+  - date: '2023-04-20'
     variable: station_hs
     product: STATION
-  - date: '2023-06-25'
+  - date: '2023-04-26'
+    variable: scf
+    product: SNOWCOVER
+  - date: '2023-05-26'
+    variable: scf
+    product: SNOWCOVER
+  - date: '2023-06-02'
     variable: scf
     product: SNOWCOVER

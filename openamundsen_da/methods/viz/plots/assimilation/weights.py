@@ -1095,6 +1095,7 @@ def _build_setup_weights_overview_page(
     ess_threshold: float | None,
     page_index: int,
     total_pages: int,
+    layout_rows: int | None = None,
 ):
     import matplotlib.pyplot as plt
     from matplotlib.ticker import NullLocator
@@ -1102,8 +1103,9 @@ def _build_setup_weights_overview_page(
     n_events = len(page_specs)
     n_cols = 2
     n_rows = int(math.ceil(n_events / n_cols))
-    fig = plt.figure(figsize=(7.2876875, _COMPOSITE_ROW_HEIGHT * n_rows))
-    outer = fig.add_gridspec(n_rows, n_cols, left=0.06, right=0.99, top=0.91, bottom=0.12, wspace=0.0, hspace=0.95)
+    page_rows = max(n_rows, int(layout_rows or n_rows))
+    fig = plt.figure(figsize=(7.2876875, _COMPOSITE_ROW_HEIGHT * page_rows))
+    outer = fig.add_gridspec(page_rows, n_cols, left=0.06, right=0.99, top=0.91, bottom=0.12, wspace=0.0, hspace=0.95)
 
     axes_for_black: list[object] = []
     font_scale = 0.68
@@ -1247,6 +1249,7 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
             ess_threshold=ess_threshold,
             page_index=page_index,
             total_pages=len(page_specs),
+            layout_rows=rows_per_page if len(page_specs) > 1 else None,
         )
         page_out = _setup_weights_overview_page_output(out, page_index)
         save_figure_png(fig, page_out, dpi=600, bbox_inches="tight", pad_inches=0.04)

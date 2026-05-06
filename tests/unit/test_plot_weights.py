@@ -1192,9 +1192,19 @@ def test_setup_overview_splits_many_events_across_multiple_pages(tmp_path: Path,
     assert saved[0]["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
     assert saved[1]["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023_page_02.png"
     assert saved[0]["fig"].get_figheight() == pytest.approx(plot_mod._COMPOSITE_ROW_HEIGHT * plot_mod._OVERVIEW_MAX_ROWS_PER_PAGE)
-    assert saved[1]["fig"].get_figheight() == pytest.approx(plot_mod._COMPOSITE_ROW_HEIGHT)
+    assert saved[1]["fig"].get_figheight() == pytest.approx(plot_mod._COMPOSITE_ROW_HEIGHT * plot_mod._OVERVIEW_MAX_ROWS_PER_PAGE)
     assert "page 1/2" in saved[0]["fig"].texts[0].get_text()
     assert "page 2/2" in saved[1]["fig"].texts[0].get_text()
+    renderer = saved[1]["fig"].canvas.get_renderer()
+    summary_box = saved[1]["fig"].texts[0].get_window_extent(renderer)
+    event_title_boxes = [
+        text.get_window_extent(renderer)
+        for ax in saved[1]["fig"].axes
+        for text in ax.texts
+        if "snow cover" in text.get_text()
+    ]
+    assert event_title_boxes
+    assert all(not summary_box.overlaps(box) for box in event_title_boxes)
 
     for item in saved:
         plt.close(item["fig"])

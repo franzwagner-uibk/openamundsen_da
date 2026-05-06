@@ -368,7 +368,7 @@ def _generated_panel_position(
 ) -> tuple[int, int]:
     if not large_snow_layout:
         return row_idx, panel.col
-    return panel_idx // 2, panel_idx % 2
+    return ((0, 0), (1, 0), (1, 1), (0, 1))[panel_idx]
 
 
 def _generated_recipe(index: int, project_dir: Path, event: AssimilationEvent, rows: tuple[GeneratedRow, ...]) -> MapRecipe:

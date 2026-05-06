@@ -1440,7 +1440,12 @@ def test_generated_da_map_recipes_use_two_by_two_for_top_level_subdomain_snow_ev
     assert recipes[0].layout.nrows == 2
     assert recipes[0].layout.ncols == 2
     assert recipes[0].row_labels == ()
-    assert [(panel.row, panel.col) for panel in recipes[0].panels] == [(0, 0), (0, 1), (1, 0), (1, 1)]
+    assert [(panel.source, panel.row, panel.col) for panel in recipes[0].panels] == [
+        ("open_loop", 0, 0),
+        ("ensemble_mean", 1, 0),
+        ("analysis_mean", 1, 1),
+        ("analysis_increment", 0, 1),
+    ]
     assert [panel.source for panel in recipes[0].panels] == [
         "open_loop",
         "ensemble_mean",
@@ -3639,6 +3644,35 @@ def test_overview_extent_with_label_fit_keeps_base_extent_when_labels_fit(tmp_pa
         plt.close(fig)
 
 
+def test_overview_country_labels_avoid_roi_text_footprint() -> None:
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        extent = (-1000.0, 1000.0, -1000.0, 1000.0)
+        visible = gpd.GeoDataFrame(
+            {"CNTR_ID": ["A", "B"]},
+            geometry=[box(-100.0, -100.0, 100.0, 100.0), box(500.0, 500.0, 700.0, 700.0)],
+            crs="EPSG:25832",
+        )
+        labels = gpd.GeoDataFrame(
+            {"CNTR_ID": ["A", "B"], "NAME_ENGL": ["On ROI", "Away"]},
+            geometry=[Point(0.0, 0.0), Point(600.0, 600.0)],
+            crs="EPSG:25832",
+        )
+
+        specs = panel_renderers_module.overview_country_label_specs(
+            ax=ax,
+            visible_countries=visible,
+            labels=labels,
+            extent=extent,
+            roi_anchor=None,
+            avoid_geometry=box(-120.0, -120.0, 120.0, 120.0),
+        )
+
+        assert [spec.text for spec in specs] == ["Away"]
+    finally:
+        plt.close(fig)
+
+
 def test_overview_label_fit_margin_scales_out_beyond_automatic_fit(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     context = load_static_context(project_dir)
@@ -3689,14 +3723,14 @@ def test_render_overview_panel_keeps_country_labels_inside_axes_bounds(tmp_path:
         base_extent = render_module._overview_extent(ax, context, scale=1_800_000)
         boundaries = gpd.GeoDataFrame(
             {"CNTR_ID": ["DEMO"]},
-            geometry=[box(base_extent[1] - 500.0, base_extent[2] + 500.0, base_extent[1] - 10.0, base_extent[3] - 500.0)],
+            geometry=[box(base_extent[1] - 500.0, base_extent[3] - 500.0, base_extent[1] - 10.0, base_extent[3] - 10.0)],
             crs="EPSG:25832",
         )
         regions = boundaries.copy()
         label_text = "A very long country label near the right border"
         labels = gpd.GeoDataFrame(
             {"CNTR_ID": ["DEMO"], "NAME_ENGL": [label_text]},
-            geometry=[Point(base_extent[1] - 100.0, 0.5 * (base_extent[2] + base_extent[3]))],
+            geometry=[Point(base_extent[1] - 100.0, base_extent[3] - 100.0)],
             crs="EPSG:25832",
         )
         monkeypatch.setattr(render_module, "load_overview_boundaries", lambda **_kwargs: boundaries)

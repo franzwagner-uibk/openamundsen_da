@@ -599,10 +599,12 @@ def overview_label_point(geometry):
 
 def overview_country_label_specs(
     *,
+    ax,
     visible_countries,
     labels,
     extent: tuple[float, float, float, float],
     roi_anchor: tuple[float, float] | None,
+    avoid_geometry=None,
 ) -> list[OverviewLabelSpec]:
     if visible_countries.empty:
         return []
@@ -639,18 +641,23 @@ def overview_country_label_specs(
             continue
         if any(abs(x - px) < min_dx and abs(y - py) < min_dy for px, py in placed):
             continue
-        placements.append(
-            OverviewLabelSpec(
-                text=str(row.label_name),
-                x=x,
-                y=y,
-                ha="center",
-                va="center",
-                fontsize=_OVERVIEW_LABEL_SIZE,
-                with_bbox=True,
-                zorder=_ANNOTATION_ZORDER - 2,
-            )
+        spec = OverviewLabelSpec(
+            text=str(row.label_name),
+            x=x,
+            y=y,
+            ha="center",
+            va="center",
+            fontsize=_OVERVIEW_LABEL_SIZE,
+            with_bbox=True,
+            zorder=_ANNOTATION_ZORDER - 2,
         )
+        if avoid_geometry is not None and overview_label_data_box(
+            ax,
+            spec,
+            extent=extent,
+        ).intersects(avoid_geometry):
+            continue
+        placements.append(spec)
         placed.append((x, y))
     return placements
 
@@ -688,27 +695,7 @@ def overview_extent_growth_for_labels(
     extra_left = extra_right = extra_bottom = extra_top = 0.0
 
     for spec in label_specs:
-        width_in, height_in = overview_label_box_size_in(spec)
-        half_width = 0.5 * width_in
-        half_height = 0.5 * height_in
-        if spec.ha == "left":
-            left_in = 0.0
-            right_in = width_in
-        elif spec.ha == "right":
-            left_in = width_in
-            right_in = 0.0
-        else:
-            left_in = half_width
-            right_in = half_width
-        if spec.va == "top":
-            bottom_in = height_in
-            top_in = 0.0
-        elif spec.va == "bottom":
-            bottom_in = 0.0
-            top_in = height_in
-        else:
-            bottom_in = half_height
-            top_in = half_height
+        left_in, right_in, bottom_in, top_in = overview_label_overhang_in(spec)
 
         extra_left = max(extra_left, max(left_in * data_per_in_x - (spec.x - extent[0]), 0.0))
         extra_right = max(extra_right, max(right_in * data_per_in_x - (extent[1] - spec.x), 0.0))
@@ -728,6 +715,45 @@ def overview_extent_growth_for_labels(
         extent[1] + extra_right,
         extent[2] - extra_bottom,
         extent[3] + extra_top,
+    )
+
+
+def overview_label_overhang_in(spec: OverviewLabelSpec) -> tuple[float, float, float, float]:
+    width_in, height_in = overview_label_box_size_in(spec)
+    half_width = 0.5 * width_in
+    half_height = 0.5 * height_in
+    if spec.ha == "left":
+        left_in = 0.0
+        right_in = width_in
+    elif spec.ha == "right":
+        left_in = width_in
+        right_in = 0.0
+    else:
+        left_in = half_width
+        right_in = half_width
+    if spec.va == "top":
+        bottom_in = height_in
+        top_in = 0.0
+    elif spec.va == "bottom":
+        bottom_in = 0.0
+        top_in = height_in
+    else:
+        bottom_in = half_height
+        top_in = half_height
+    return left_in, right_in, bottom_in, top_in
+
+
+def overview_label_data_box(ax, spec: OverviewLabelSpec, *, extent: tuple[float, float, float, float]):
+    span_x = max(float(extent[1] - extent[0]), 1e-9)
+    span_y = max(float(extent[3] - extent[2]), 1e-9)
+    data_per_in_x = span_x / max(axis_width_inches(ax), 1e-9)
+    data_per_in_y = span_y / max(axis_height_inches(ax), 1e-9)
+    left_in, right_in, bottom_in, top_in = overview_label_overhang_in(spec)
+    return box(
+        spec.x - left_in * data_per_in_x,
+        spec.y - bottom_in * data_per_in_y,
+        spec.x + right_in * data_per_in_x,
+        spec.y + top_in * data_per_in_y,
     )
 
 
@@ -829,10 +855,12 @@ def overview_extent_with_label_fit(
         roi_label = overview_roi_label_spec(panel, extent=extent, context=context)
         visible_regions = visible_regions_getter(extent)
         label_specs = overview_country_label_specs(
+            ax=ax,
             visible_countries=visible_regions,
             labels=labels,
             extent=extent,
             roi_anchor=(roi_label.x, roi_label.y) if roi_label is not None else None,
+            avoid_geometry=context.roi_gdf.geometry.unary_union,
         )
         if roi_label is not None:
             label_specs.append(roi_label)
@@ -938,10 +966,12 @@ def render_overview_panel(
     draw_subdomain_boundaries(ax, context)
     roi_label = overview_roi_label_spec(panel, extent=extent, context=context)
     label_specs = overview_country_label_specs(
+        ax=ax,
         visible_countries=visible_regions,
         labels=country_labels,
         extent=extent,
         roi_anchor=(roi_label.x, roi_label.y) if roi_label is not None else None,
+        avoid_geometry=context.roi_gdf.geometry.unary_union,
     )
     if roi_label is not None:
         label_specs.append(roi_label)

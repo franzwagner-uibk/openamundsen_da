@@ -455,14 +455,6 @@ def _prepare_grids(
             resampling=Resampling.nearest,
         )
 
-    _mask_grid_outside_mask(dem_out, roi_mask)
-    if grid_paths.svf:
-        _mask_grid_outside_mask(svf_out, roi_mask)
-    if grid_paths.srf:
-        _mask_grid_outside_mask(srf_out, roi_mask)
-    if grid_paths.lc:
-        _mask_grid_outside_mask(lc_out, roi_mask)
-
     roi_dst = grids_out / f"roi_{new_domain}_{resolution}.asc"
     _write_roi_mask(roi_mask, roi_dst, transform, crs=crs)
     return roi_dst

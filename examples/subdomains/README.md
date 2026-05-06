@@ -13,7 +13,7 @@ This shipped example covers the North Tyrol test site as 8 avalanche-report subd
 Run the example with:
 
 ```bash
-oa-da-subdomain pipeline --setup-dir examples/subdomains --project-dir examples/subdomains/projects/project_2022_2023 --regions examples/subdomains/env/subdomains.gpkg --station-buffer-km 10 --max-workers 8 --inner-max-workers 3 --overwrite
+oa-da-subdomain pipeline --setup-dir examples/subdomains --project-dir examples/subdomains/projects/project_2022_2023 --regions examples/subdomains/env/subdomains.gpkg --station-buffer-km 10 --grid-buffer-m 10000 --max-workers 8 --inner-max-workers 3 --overwrite
 ```
 
 The FRAMES-specific build logic is external to `openamundsen_da`:

@@ -71,7 +71,7 @@ data_assimilation:
       fallback_uncertainty: 15.0
   resampling:
     algorithm: systematic
-    ess_threshold_ratio: 0.5
+    ess_threshold_ratio: 0.7
     seed: 42
   rejuvenation:
     sigma_t: 0.5

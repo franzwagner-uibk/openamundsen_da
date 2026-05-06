@@ -80,6 +80,15 @@ def _write_regions(path: Path) -> None:
     ).to_file(path, driver="GPKG")
 
 
+def _write_center_regions(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    gpd.GeoDataFrame(
+        {"id": pd.Series(["sd_01", "sd_02"], dtype="object")},
+        geometry=[box(100, 100, 200, 300), box(200, 100, 300, 300)],
+        crs="EPSG:25832",
+    ).to_file(path, driver="GPKG")
+
+
 def test_prepare_model_subdomains_writes_plain_setup_folders(tmp_path: Path) -> None:
     setup_dir = tmp_path / "setup"
     setup_dir.mkdir()
@@ -112,6 +121,36 @@ def test_prepare_model_subdomains_writes_plain_setup_folders(tmp_path: Path) -> 
     assert cfg["input_data"]["grids"]["dir"] == str((root / "sd_01" / "grids").resolve())
     assert cfg["input_data"]["meteo"]["dir"] == str((root / "sd_01" / "meteo").resolve())
     assert cfg["results_dir"] == str((root / "sd_01" / "results").resolve())
+
+
+def test_prepare_model_subdomains_keeps_buffered_grid_context_outside_roi(tmp_path: Path) -> None:
+    setup_dir = tmp_path / "setup"
+    setup_dir.mkdir()
+    _write_setup_yaml(setup_dir)
+    _write_dem(setup_dir / "grids" / "dem_demo_100.asc")
+    _write_meteo(setup_dir / "meteo")
+    _write_center_regions(setup_dir / "env" / "subdomains.gpkg")
+
+    manifest = prepare_model_subdomains(
+        setup_dir=setup_dir,
+        regions_path=setup_dir / "env" / "subdomains.gpkg",
+        station_buffer_m=200.0,
+        grid_buffer_m=100.0,
+        overwrite=True,
+    )
+
+    sub = manifest.subdomains["sd_01"]
+    dem_path = sub.grids_dir / "dem_demo_sd_01_100.asc"
+    roi_path = sub.roi_raster_path
+    with rasterio.open(dem_path) as dem_ds, rasterio.open(roi_path) as roi_ds:
+        dem = dem_ds.read(1)
+        roi = roi_ds.read(1).astype(bool)
+        nodata = dem_ds.nodata
+
+    assert dem.shape == roi.shape
+    assert np.count_nonzero(~roi) > 0
+    assert np.isfinite(dem[~roi]).all()
+    assert not np.any(np.isclose(dem[~roi], nodata))
 
 
 def test_prepare_model_subdomains_requires_setup_dates(tmp_path: Path) -> None:

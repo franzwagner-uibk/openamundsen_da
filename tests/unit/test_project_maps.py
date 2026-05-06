@@ -197,6 +197,51 @@ def _write_roi_vector(path: Path, *, bounds: tuple[float, float, float, float] =
     gdf.to_file(path, driver="GPKG")
 
 
+def _write_subdomain_regions_and_manifest(project_dir: Path, setup_dir: Path) -> Path:
+    regions_path = setup_dir / "env" / "subdomains.gpkg"
+    regions_path.parent.mkdir(parents=True, exist_ok=True)
+    regions = gpd.GeoDataFrame(
+        {"id": pd.Series(["sd_1", "sd_2"], dtype=object)},
+        geometry=[box(0.0, 0.0, 200.0, 400.0), box(200.0, 0.0, 400.0, 400.0)],
+        crs="EPSG:25832",
+    )
+    regions.to_file(regions_path, driver="GPKG")
+
+    manifest_path = project_dir / "subdomains" / "subdomain_manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "run_mode": "subdomain",
+                "setup_dir": str(setup_dir),
+                "project_dir": str(project_dir),
+                "project_name": project_dir.name,
+                "setup_yaml": str(setup_dir / "setup.yml"),
+                "project_yaml": str(project_dir / f"{project_dir.name}.yml"),
+                "subdomain_root": str(project_dir / "subdomains"),
+                "regions_path": str(regions_path),
+                "id_field": "id",
+                "crs": "EPSG:25832",
+                "grid_rows": 4,
+                "grid_cols": 4,
+                "grid_transform": [100.0, 0.0, 0.0, 0.0, -100.0, 400.0],
+                "grid_resolution": 100.0,
+                "grid_domain": "demo",
+                "clip_mode": "window",
+                "station_buffer_m": 0.0,
+                "roi_buffer_m": 0.0,
+                "grid_buffer_m": 0.0,
+                "raw_snowcover_dir": str(setup_dir / "obs" / "snowcover"),
+                "raw_wetsnow_dir": str(setup_dir / "obs" / "wetsnow"),
+                "created_at": "2026-05-06T00:00:00",
+                "subdomains": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
 def _write_summary(path: Path, rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_csv(path, index=False)
@@ -400,6 +445,91 @@ def test_load_static_context_reads_csv_station_metadata_and_landcover_from_setup
     assert context.svf is not None and context.svf.shape == (4, 4)
     assert context.srf is not None and context.srf.shape == (4, 4)
     assert set(context.stations["id"]) == {"station_a", "station_b"}
+    assert context.subdomain_gdf is None
+
+
+def test_load_static_context_reads_subdomain_regions_from_project_manifest(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path, meteo_format="csv")
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+
+    context = load_static_context(project_dir)
+
+    assert context.subdomain_gdf is not None
+    assert list(context.subdomain_gdf["id"]) == ["sd_1", "sd_2"]
+    assert context.subdomain_gdf.crs is not None
+    assert context.subdomain_gdf.crs.to_string() == "EPSG:25832"
+
+
+def test_common_map_overlays_draw_subdomain_boundaries_for_subdomain_projects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path, meteo_format="csv")
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    context = load_static_context(project_dir)
+    calls = 0
+
+    def fake_draw_subdomain_boundaries(ax, ctx):
+        del ax
+        nonlocal calls
+        assert ctx is context
+        calls += 1
+
+    monkeypatch.setattr(panel_renderers_module, "draw_subdomain_boundaries", fake_draw_subdomain_boundaries)
+
+    fig, ax = plt.subplots()
+    try:
+        panel_renderers_module.apply_common_overlays(
+            ax,
+            context=context,
+            extent=(0.0, 400.0, 0.0, 400.0),
+            show_roi=True,
+            show_station_marker=False,
+            show_stations_name=False,
+            show_stations_elev=False,
+        )
+    finally:
+        plt.close(fig)
+
+    assert calls == 1
+
+
+def test_overview_panel_draws_subdomain_boundaries_for_subdomain_projects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path, meteo_format="csv")
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    context = load_static_context(project_dir)
+    calls = 0
+
+    def fake_draw_subdomain_boundaries(ax, ctx):
+        del ax
+        nonlocal calls
+        assert ctx is context
+        calls += 1
+
+    def unavailable_loader(**_kwargs):
+        raise FileNotFoundError("overview layer missing")
+
+    monkeypatch.setattr(panel_renderers_module, "draw_subdomain_boundaries", fake_draw_subdomain_boundaries)
+
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        panel_renderers_module.render_overview_panel(
+            ax,
+            panel=MapPanelSpec(kind="overview", row=0, col=0, scale=20_000),
+            context=context,
+            label=None,
+            defaults=MapDefaults(),
+            boundaries_loader=unavailable_loader,
+            regions_loader=unavailable_loader,
+            labels_loader=unavailable_loader,
+        )
+    finally:
+        plt.close(fig)
+
+    assert calls == 1
 
 
 def test_load_static_context_reuses_in_process_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

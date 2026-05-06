@@ -6,6 +6,7 @@ from pathlib import Path
 
 import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as pe
 import numpy as np
 import pandas as pd
 import rasterio
@@ -119,6 +120,10 @@ from openamundsen_da.methods.viz.maps.theme import (
     _STATIC_FIELD_KIND_TO_FIELD,
     _STATION_COLOR,
     _STATION_LABEL_RATIO,
+    _SUBDOMAIN_BOUNDARY_COLOR,
+    _SUBDOMAIN_BOUNDARY_HALO_COLOR,
+    _SUBDOMAIN_BOUNDARY_HALO_WIDTH,
+    _SUBDOMAIN_BOUNDARY_WIDTH,
 )
 from openamundsen_da.methods.viz.wet_snow_fields import (
     elevation_band_fraction_map as _elevation_band_fraction_map,
@@ -221,6 +226,26 @@ def draw_roi(ax, context: StaticContext, *, linewidth: float = 0.8, facecolor=No
     if facecolor is not None:
         context.roi_gdf.plot(ax=ax, facecolor=facecolor, edgecolor=facecolor, alpha=alpha if alpha is not None else 1.0, zorder=40)
     context.roi_gdf.boundary.plot(ax=ax, color="black", linewidth=linewidth, zorder=45)
+
+
+def draw_subdomain_boundaries(ax, context: StaticContext) -> None:
+    subdomains = context.subdomain_gdf
+    if subdomains is None or subdomains.empty:
+        return
+    collection_count = len(ax.collections)
+    subdomains.boundary.plot(
+        ax=ax,
+        color=_SUBDOMAIN_BOUNDARY_COLOR,
+        linewidth=_SUBDOMAIN_BOUNDARY_WIDTH,
+        zorder=46,
+    )
+    for collection in ax.collections[collection_count:]:
+        collection.set_path_effects(
+            [
+                pe.Stroke(linewidth=_SUBDOMAIN_BOUNDARY_HALO_WIDTH, foreground=_SUBDOMAIN_BOUNDARY_HALO_COLOR),
+                pe.Normal(),
+            ]
+        )
 
 
 def suppress_station_labels(stations, extent: tuple[float, float, float, float]) -> list[int]:
@@ -516,6 +541,7 @@ def apply_common_overlays(
 ) -> None:
     if show_roi:
         draw_roi(ax, context)
+        draw_subdomain_boundaries(ax, context)
     if show_station_marker:
         draw_stations_overlay(
             ax,
@@ -865,6 +891,7 @@ def render_overview_panel(
             linewidth=0.8,
             zorder=25,
         )
+        draw_subdomain_boundaries(ax, context)
         roi_label = overview_roi_label_spec(panel, extent=extent, context=context)
         if roi_label is not None:
             draw_overview_label_specs(ax, [roi_label])
@@ -908,6 +935,7 @@ def render_overview_panel(
         aspect_adjustable="box",
     )
     context.roi_gdf.plot(ax=ax, facecolor=_OVERVIEW_ROI_COLOR, edgecolor=_OVERVIEW_ROI_COLOR, linewidth=0.8, zorder=25)
+    draw_subdomain_boundaries(ax, context)
     roi_label = overview_roi_label_spec(panel, extent=extent, context=context)
     label_specs = overview_country_label_specs(
         visible_countries=visible_regions,

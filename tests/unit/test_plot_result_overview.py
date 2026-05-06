@@ -733,7 +733,7 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
             ["1", "2", "3", "4"],
             None,
             0.0,
-            [2.0, 8.0],
+            [1.5, 6.5],
             18.0,
             1.0,
             "center",
@@ -744,7 +744,7 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
             ["1", "2", "3", "4"],
             None,
             0.0,
-            [2.0, 8.0],
+            [1.5, 6.5],
             18.0,
             1.0,
             "center",
@@ -755,7 +755,7 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
             ["1", "2", "3"],
             None,
             0.0,
-            [2.0, 8.0],
+            [1.5, 6.5],
             18.0,
             1.0,
             "center",
@@ -766,7 +766,7 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
             ["1", "2", "3"],
             None,
             0.0,
-            [2.0, 8.0],
+            [1.5, 6.5],
             18.0,
             1.0,
             "center",
@@ -1682,6 +1682,15 @@ def test_project_custom_config_path_uses_project_root_file(tmp_path: Path) -> No
 
 def test_project_custom_config_path_returns_none_when_root_file_missing(tmp_path: Path) -> None:
     assert _project_custom_config_path(tmp_path) is None
+
+
+def test_shipped_subdomain_custom_overview_uses_roi_satellite_ess_and_scores_without_station() -> None:
+    cfg = Path(__file__).resolve().parents[2] / "examples/subdomains/projects/project_2022_2023/plots.yml"
+
+    specs = _parse_panel_specs(cfg)
+
+    assert [spec.panel for spec in specs] == ["fSC", "WSF", "WSLA", "ess", "scores-crpss"]
+    assert all(spec.station_id is None for spec in specs)
 
 
 def test_load_station_panel_data_falls_back_to_setup_root_obs_dir(monkeypatch, tmp_path: Path) -> None:

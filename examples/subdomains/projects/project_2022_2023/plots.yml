@@ -1,0 +1,21 @@
+# Custom result overview configuration for subdomain reports.
+#
+# This mirrors the shipped Rofental custom overview structure but omits
+# station panels so every generated subdomain report uses only ROI-level
+# satellite, ESS, and benchmark-score panels.
+panels:
+  - panel: fSC
+    show_obs: true
+    title: snow cover fraction subdomain ROI - openAMUNDSEN ensemble and satellite data
+
+  - panel: WSF
+    show_obs: true
+    title: wet snow fraction subdomain ROI - openAMUNDSEN ensemble and satellite data
+
+  - panel: WSLA
+    show_obs: true
+    title: wet-snow line subdomain ROI - openAMUNDSEN ensemble and satellite data
+
+  - panel: ess
+
+  - panel: scores-crpss

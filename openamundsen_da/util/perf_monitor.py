@@ -36,7 +36,7 @@ try:
 except Exception:  # pragma: no cover
     plt = None  # type: ignore[assignment]
 
-PROJECT_PERF_FIGSIZE = (FIGWIDTH_OVERVIEW_PAPER, FIGHEIGHT_OVERVIEW_ROW * 2.0)
+PROJECT_PERF_FIGSIZE = (FIGWIDTH_OVERVIEW_PAPER, FIGHEIGHT_OVERVIEW_ROW * 1.4)
 
 
 @dataclass(frozen=True)
@@ -186,9 +186,9 @@ def _render_plot(
         f"Elapsed: {elapsed_hhmm}   "
         f"Peak RAM: {max(mem_used_gb or [0]):.2f} / {max(mem_total_gb or [0]):.2f} GB"
     )
-    fig.text(0.5, 0.94, summary, ha="center", va="top", fontsize=9)
+    fig.text(0.5, 0.985, summary, ha="center", va="top", fontsize=9)
 
-    fig.tight_layout(rect=(0.04, 0.06, 0.96, 0.93))
+    fig.tight_layout(rect=(0.005, 0.03, 0.995, 0.91))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     force_figure_text_black(fig, [ax1])
     save_figure_png(fig, out_path)

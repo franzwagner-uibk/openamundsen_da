@@ -32,4 +32,4 @@ def test_project_perf_plot_uses_report_overview_page_width(tmp_path: Path) -> No
         width, height = image.size
 
     assert width == pytest.approx(FIGWIDTH_OVERVIEW_PAPER * EXPORT_DPI, abs=2)
-    assert height == pytest.approx(FIGHEIGHT_OVERVIEW_ROW * 2.0 * EXPORT_DPI, abs=2)
+    assert height == pytest.approx(FIGHEIGHT_OVERVIEW_ROW * 1.4 * EXPORT_DPI, abs=2)

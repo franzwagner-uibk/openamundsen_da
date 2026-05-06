@@ -3957,6 +3957,37 @@ def test_overview_country_labels_avoid_roi_text_footprint() -> None:
         plt.close(fig)
 
 
+def test_overview_country_labels_relocate_when_anchor_overlaps_roi() -> None:
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        extent = (-1000.0, 1000.0, -1000.0, 1000.0)
+        avoid_geometry = box(-140.0, -140.0, 140.0, 140.0)
+        visible = gpd.GeoDataFrame(
+            {"CNTR_ID": ["AT"]},
+            geometry=[box(-800.0, -800.0, 800.0, 800.0)],
+            crs="EPSG:25832",
+        )
+        labels = gpd.GeoDataFrame(
+            {"CNTR_ID": ["AT"], "NAME_ENGL": ["Austria"]},
+            geometry=[Point(0.0, 0.0)],
+            crs="EPSG:25832",
+        )
+
+        specs = panel_renderers_module.overview_country_label_specs(
+            ax=ax,
+            visible_countries=visible,
+            labels=labels,
+            extent=extent,
+            roi_anchor=None,
+            avoid_geometry=avoid_geometry,
+        )
+
+        assert [spec.text for spec in specs] == ["Austria"]
+        assert not panel_renderers_module.overview_label_data_box(ax, specs[0], extent=extent).intersects(avoid_geometry)
+    finally:
+        plt.close(fig)
+
+
 def test_overview_label_fit_margin_scales_out_beyond_automatic_fit(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     context = load_static_context(project_dir)

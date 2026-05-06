@@ -17,7 +17,7 @@ from matplotlib.colors import BoundaryNorm, LinearSegmentedColormap, ListedColor
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Rectangle
 from rasterio.warp import Resampling, reproject
-from shapely.geometry import box
+from shapely.geometry import Point, box
 
 from openamundsen_da.io.paths import (
     list_member_dirs,
@@ -726,17 +726,54 @@ def overview_country_label_specs(
     placements: list[OverviewLabelSpec] = []
 
     for row in working.sort_values(by="label_area", ascending=False).itertuples():
-        point = overview_label_point(row.geometry)
-        if point is None:
+        spec = _overview_country_label_spec_for_geometry(
+            ax=ax,
+            text=str(row.label_name),
+            geometry=row.geometry,
+            extent=extent,
+            avoid_geometry=avoid_geometry,
+            placed=placed,
+            min_dx=min_dx,
+            min_dy=min_dy,
+        )
+        if spec is None:
             continue
-        x = float(point.x)
-        y = float(point.y)
+        placements.append(spec)
+        placed.append((spec.x, spec.y))
+    return placements
+
+
+def _overview_country_label_spec_for_geometry(
+    *,
+    ax,
+    text: str,
+    geometry,
+    extent: tuple[float, float, float, float],
+    avoid_geometry,
+    placed: list[tuple[float, float]],
+    min_dx: float,
+    min_dy: float,
+) -> OverviewLabelSpec | None:
+    visible_extent = box(extent[0], extent[2], extent[1], extent[3])
+    visible_geometry = geometry.intersection(visible_extent)
+    if visible_geometry.is_empty:
+        visible_geometry = geometry
+    base_point = overview_label_point(visible_geometry)
+    if base_point is None:
+        return None
+    base_xy = (float(base_point.x), float(base_point.y))
+
+    candidates = [base_xy]
+    if avoid_geometry is not None:
+        candidates.extend(_overview_country_label_relocation_candidates(visible_geometry, extent=extent, base_xy=base_xy))
+
+    for x, y in candidates:
         if not (extent[0] <= x <= extent[1] and extent[2] <= y <= extent[3]):
             continue
         if any(abs(x - px) < min_dx and abs(y - py) < min_dy for px, py in placed):
             continue
         spec = OverviewLabelSpec(
-            text=str(row.label_name),
+            text=text,
             x=x,
             y=y,
             ha="center",
@@ -745,15 +782,47 @@ def overview_country_label_specs(
             with_bbox=True,
             zorder=_ANNOTATION_ZORDER - 2,
         )
-        if avoid_geometry is not None and overview_label_data_box(
-            ax,
-            spec,
-            extent=extent,
-        ).intersects(avoid_geometry):
+        if avoid_geometry is not None and overview_label_data_box(ax, spec, extent=extent).intersects(avoid_geometry):
             continue
-        placements.append(spec)
-        placed.append((x, y))
-    return placements
+        return spec
+    return None
+
+
+def _overview_country_label_relocation_candidates(
+    geometry,
+    *,
+    extent: tuple[float, float, float, float],
+    base_xy: tuple[float, float],
+) -> list[tuple[float, float]]:
+    minx, miny, maxx, maxy = geometry.bounds
+    minx = max(float(minx), float(extent[0]))
+    maxx = min(float(maxx), float(extent[1]))
+    miny = max(float(miny), float(extent[2]))
+    maxy = min(float(maxy), float(extent[3]))
+    if minx >= maxx or miny >= maxy:
+        return []
+
+    fractions = (0.2, 0.35, 0.5, 0.65, 0.8)
+    candidates: list[tuple[float, float]] = []
+    for fx in fractions:
+        x = minx + fx * (maxx - minx)
+        for fy in fractions:
+            y = miny + fy * (maxy - miny)
+            point = Point(x, y)
+            if geometry.covers(point):
+                candidates.append((float(x), float(y)))
+
+    base_x, base_y = base_xy
+    candidates.sort(key=lambda xy: (xy[0] - base_x) ** 2 + (xy[1] - base_y) ** 2)
+    deduped: list[tuple[float, float]] = []
+    seen: set[tuple[float, float]] = set()
+    for x, y in candidates:
+        key = (round(x, 6), round(y, 6))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append((x, y))
+    return deduped
 
 
 def overview_roi_label_spec(panel: MapPanelSpec, *, extent: tuple[float, float, float, float], context: StaticContext) -> OverviewLabelSpec | None:

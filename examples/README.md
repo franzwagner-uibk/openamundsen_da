@@ -57,6 +57,6 @@ This bundle mirrors the documented setup/project structure and is used by tests 
 
 ## Subdomain Example
 
-`examples/subdomains` is the shipped subdomain setup. It contains 8 avalanche-report subregions from the North Tyrol source data, static grids at 50, 100, 250, and 500 m, `openamundsen-v2` forcing stations selected from the ROI plus a 10 km buffer, ROI station snow-depth observations, clipped SnowFLAKES FSC NetCDF files, a generic setup-overview map recipe, and a station-free custom result overview for subdomain reports.
+`examples/subdomains` is the shipped subdomain setup. It contains 8 avalanche-report subregions from the North Tyrol source data, static grids at 50, 100, 250, and 500 m, `openamundsen-v2` forcing stations selected from the ROI plus a 10 km buffer, ROI station snow-depth observations, clipped SnowFLAKES FSC NetCDF files, a generic setup-overview map recipe, and a station-free SCF/snow-depth/ESS/score custom result overview for subdomain reports.
 
 The project YAML intentionally carries a broad list of candidate DA events. During subdomain preparation and execution, generic `data_assimilation.subdomain_event_filter` settings decide which events each subdomain can assimilate based on local observation availability, FSC cloud fraction, and active station support. Dropped events are written to subdomain manifests and `results/subdomain_dropped_events.csv`; generated DA-event maps use this file to mark affected subdomains as `no DA`.

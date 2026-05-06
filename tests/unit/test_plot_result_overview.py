@@ -1689,7 +1689,7 @@ def test_shipped_subdomain_custom_overview_uses_roi_satellite_ess_and_scores_wit
 
     specs = _parse_panel_specs(cfg)
 
-    assert [spec.panel for spec in specs] == ["fSC", "WSF", "WSLA", "ess", "scores-crpss"]
+    assert [spec.panel for spec in specs] == ["fSC", "roi-sd", "ess", "scores-crpss"]
     assert all(spec.station_id is None for spec in specs)
 
 

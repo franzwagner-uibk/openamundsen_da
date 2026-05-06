@@ -296,7 +296,7 @@ def _run_one(
                     overwrite=overwrite,
                     log_level=log_level,
                     live_plots=False,
-                    plot_workers=None,
+                    plot_workers=int(inner_max_workers),
                     monitor_perf=False,
                 )
             )

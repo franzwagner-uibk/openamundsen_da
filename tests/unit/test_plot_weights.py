@@ -73,6 +73,8 @@ def _add_weights_event(
 
 
 def _render_setup_weights_overview_figure(project_dir: Path, monkeypatch) -> object:
+    import matplotlib.pyplot as plt
+
     saved: list[dict[str, object]] = []
 
     def _fake_save(fig, out, **kwargs) -> None:
@@ -82,6 +84,8 @@ def _render_setup_weights_overview_figure(project_dir: Path, monkeypatch) -> obj
     plot_mod.plot_setup_weights_overview(project_dir, backend="Agg")
     fig = saved[0]["fig"]
     fig.canvas.draw()
+    for item in saved[1:]:
+        plt.close(item["fig"])
     return fig
 
 
@@ -159,6 +163,34 @@ def test_remove_stale_setup_weights_overview_pages_keeps_requested_outputs(tmp_p
     assert page_02.exists()
     assert not page_03.exists()
     assert not page_99.exists()
+
+
+def test_setup_weights_overview_writes_paper_copy_without_figure_title(tmp_path: Path, monkeypatch) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
+    _add_weights_event(
+        project_dir,
+        step_idx=0,
+        observable="scf",
+        date_str="20230501",
+        weights_rows=[
+            {"member_id": "member_001", "residual": -0.1, "sigma": 0.2, "log_weight": -1.0, "weight": 0.6},
+            {"member_id": "member_002", "residual": 0.1, "sigma": 0.2, "log_weight": -1.2, "weight": 0.4},
+        ],
+    )
+
+    saved = _render_setup_weights_overview_pages(project_dir, monkeypatch)
+
+    assert len(saved) == 2
+    normal, paper = saved
+    assert normal["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
+    assert paper["out"] == plot_mod.project_paper_output_path(project_dir, normal["out"])
+    assert any(text.get_text().startswith("data assimilation weights") for text in normal["fig"].texts)
+    assert not any(text.get_text().startswith("data assimilation weights") for text in paper["fig"].texts)
+
+    for item in saved:
+        plt.close(item["fig"])
 
 
 def test_collect_marker_legend_entries_combines_station_and_fraction_labels(tmp_path: Path) -> None:
@@ -1187,19 +1219,35 @@ def test_setup_overview_splits_many_events_across_multiple_pages(tmp_path: Path,
         )
 
     saved = _render_setup_weights_overview_pages(project_dir, monkeypatch)
+    normal_saved = [saved[0], saved[2]]
+    paper_saved = [saved[1], saved[3]]
 
-    assert len(saved) == 2
-    assert saved[0]["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
-    assert saved[1]["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023_page_02.png"
-    assert saved[0]["fig"].get_figheight() == pytest.approx(plot_mod._COMPOSITE_ROW_HEIGHT * plot_mod._OVERVIEW_MAX_ROWS_PER_PAGE)
-    assert saved[1]["fig"].get_figheight() == pytest.approx(plot_mod._COMPOSITE_ROW_HEIGHT * plot_mod._OVERVIEW_MAX_ROWS_PER_PAGE)
-    assert "page 1/2" in saved[0]["fig"].texts[0].get_text()
-    assert "page 2/2" in saved[1]["fig"].texts[0].get_text()
-    renderer = saved[1]["fig"].canvas.get_renderer()
-    summary_box = saved[1]["fig"].texts[0].get_window_extent(renderer)
+    assert len(saved) == 4
+    assert normal_saved[0]["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
+    assert normal_saved[1]["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023_page_02.png"
+    assert paper_saved[0]["out"] == plot_mod.project_paper_output_path(project_dir, normal_saved[0]["out"])
+    assert paper_saved[1]["out"] == plot_mod.project_paper_output_path(project_dir, normal_saved[1]["out"])
+    assert normal_saved[0]["fig"].get_figheight() == pytest.approx(
+        plot_mod._COMPOSITE_ROW_HEIGHT * plot_mod._OVERVIEW_MAX_ROWS_PER_PAGE
+    )
+    assert normal_saved[1]["fig"].get_figheight() == pytest.approx(
+        plot_mod._COMPOSITE_ROW_HEIGHT * plot_mod._OVERVIEW_MAX_ROWS_PER_PAGE
+    )
+    assert paper_saved[0]["fig"].get_figheight() == pytest.approx(
+        plot_mod._COMPOSITE_ROW_HEIGHT * plot_mod._OVERVIEW_MAX_ROWS_PER_PAGE
+    )
+    assert paper_saved[1]["fig"].get_figheight() == pytest.approx(
+        plot_mod._COMPOSITE_ROW_HEIGHT * plot_mod._OVERVIEW_MAX_ROWS_PER_PAGE
+    )
+    assert "page 1/2" in normal_saved[0]["fig"].texts[0].get_text()
+    assert "page 2/2" in normal_saved[1]["fig"].texts[0].get_text()
+    assert not any(text.get_text().startswith("data assimilation weights") for text in paper_saved[0]["fig"].texts)
+    assert not any(text.get_text().startswith("data assimilation weights") for text in paper_saved[1]["fig"].texts)
+    renderer = normal_saved[1]["fig"].canvas.get_renderer()
+    summary_box = normal_saved[1]["fig"].texts[0].get_window_extent(renderer)
     event_title_boxes = [
         text.get_window_extent(renderer)
-        for ax in saved[1]["fig"].axes
+        for ax in normal_saved[1]["fig"].axes
         for text in ax.texts
         if "snow cover" in text.get_text()
     ]

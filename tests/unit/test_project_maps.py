@@ -1969,6 +1969,48 @@ def test_render_project_maps_generates_da_event_maps_under_subdir(tmp_path: Path
     ]
     for output in outputs:
         assert output.is_file()
+        paper_output = project_dir / "results" / "paper" / "maps" / "da_events" / output.name
+        assert paper_output.is_file()
+
+
+def test_render_project_maps_writes_paper_outputs_without_figure_titles(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    recipe = MapRecipe(
+        name="da_1",
+        title="DA 1",
+        figure_title="DA 1 - 2023-01-02 (snow cover fraction)",
+        output_subdir="da_events",
+        layout=LayoutSpec(nrows=1, ncols=1),
+        panels=(MapPanelSpec(kind="hillshade", row=0, col=0, title="open loop"),),
+    )
+    rendered: list[tuple[Path, str | None, str | None]] = []
+
+    def _fake_render_map_recipe(*, project_dir, context, recipe, output_path, runtime_cache=None):
+        del project_dir, context, runtime_cache
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(recipe.figure_title or "", encoding="utf-8")
+        rendered.append((output_path, recipe.figure_title, recipe.panels[0].title))
+        return output_path
+
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: (recipe,))
+    monkeypatch.setattr(runner_module, "load_static_context", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(runner_module, "_collect_shared_model_vmax", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(runner_module, "render_map_recipe", _fake_render_map_recipe)
+
+    outputs = render_project_maps(project_dir=project_dir, max_workers=1)
+
+    normal = project_dir / "results" / "maps" / "da_events" / "da_1.png"
+    paper = project_dir / "results" / "paper" / "maps" / "da_events" / "da_1.png"
+    assert outputs == [normal]
+    assert normal.read_text(encoding="utf-8") == "DA 1 - 2023-01-02 (snow cover fraction)"
+    assert paper.read_text(encoding="utf-8") == ""
+    assert rendered == [
+        (normal, "DA 1 - 2023-01-02 (snow cover fraction)", "open loop"),
+        (paper, None, "open loop"),
+    ]
 
 
 def test_project_maps_config_rejects_overlapping_panels(tmp_path: Path) -> None:
@@ -4687,6 +4729,7 @@ def test_render_project_maps_parallel_logs_recipe_attributed_failure(
                     runner_module.RecipeRenderResult(
                         recipe_name=recipe.name,
                         output_path=Path("/tmp") / f"{recipe.name}.png",
+                        paper_output_path=Path("/tmp") / "paper" / f"{recipe.name}.png",
                     )
                 )
             return future

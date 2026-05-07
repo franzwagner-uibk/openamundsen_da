@@ -4,13 +4,13 @@ import argparse
 import os
 import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
 from loguru import logger
 
-from openamundsen_da.io.paths import project_maps_output_dir, project_maps_root
+from openamundsen_da.io.paths import project_maps_output_dir, project_maps_root, project_paper_output_path
 from openamundsen_da.methods.viz.maps.annotations import panel_date
 from openamundsen_da.methods.viz.maps.config import (
     MapRecipe,
@@ -34,6 +34,7 @@ from openamundsen_da.util.loguru_utils import configure_cli_logger
 class RecipeRenderResult:
     recipe_name: str
     output_path: Path
+    paper_output_path: Path
 
 
 class ProjectMapRenderError(RuntimeError):
@@ -64,6 +65,10 @@ def _recipe_output_path(project_dir: Path, recipe: MapRecipe) -> Path:
     if recipe.output_subdir:
         output_dir = output_dir / recipe.output_subdir
     return output_dir / f"{recipe.output_stem}.png"
+
+
+def _paper_recipe(recipe: MapRecipe) -> MapRecipe:
+    return replace(recipe, figure_title=None)
 
 
 def _positive_int(value: str) -> int:
@@ -118,7 +123,15 @@ def _render_recipe_with_cache(
         output_path=output_path,
         runtime_cache=runtime_cache,
     )
-    return RecipeRenderResult(recipe_name=recipe.name, output_path=rendered_output)
+    paper_output_path = project_paper_output_path(project_dir, rendered_output)
+    rendered_paper_output = render_map_recipe(
+        project_dir=project_dir,
+        context=context,
+        recipe=_paper_recipe(recipe),
+        output_path=paper_output_path,
+        runtime_cache=runtime_cache,
+    )
+    return RecipeRenderResult(recipe_name=recipe.name, output_path=rendered_output, paper_output_path=rendered_paper_output)
 
 
 def _collect_shared_model_vmax(project_dir: Path, recipes: tuple[MapRecipe, ...]) -> dict[str, float]:

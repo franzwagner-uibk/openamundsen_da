@@ -16,11 +16,12 @@ from matplotlib.lines import Line2D
 from matplotlib.legend_handler import HandlerBase
 from matplotlib.ticker import MultipleLocator
 
+from openamundsen_da.io.paths import project_paper_output_path
 from openamundsen_da.methods.viz.plots.theme import (
     FIGHEIGHT_OVERVIEW_ROW,
     FIGWIDTH_OVERVIEW_PAPER,
     LEGEND_NCOL,
-    STANDALONE_SCORE_FIGURE_ROW_UNITS,
+    STANDALONE_SCORE_PANEL_HEIGHT_FACTOR,
 )
 from openamundsen_da.methods.viz.plots.common import (
     CRPSS_AXIS_POLICY,
@@ -29,6 +30,7 @@ from openamundsen_da.methods.viz.plots.common import (
     apply_fraction_grid,
     bounded_metric_range,
     draw_assimilation_vlines,
+    thin_dense_y_tick_labels,
 )
 from openamundsen_da.methods.viz.common import (
     force_figure_text_black,
@@ -628,6 +630,7 @@ def _write_event_skill_figure(
     event_scores: pd.DataFrame,
     project_dir: Path,
     exclude_variables: tuple[str, ...] = (),
+    show_figure_title: bool = True,
 ) -> Path | None:
     points = build_event_skill_plot_data(event_scores, project_dir=project_dir)
     if exclude_variables:
@@ -656,7 +659,7 @@ def _write_event_skill_figure(
         1,
         figsize=(
             FIGWIDTH_OVERVIEW_PAPER,
-            FIGHEIGHT_OVERVIEW_ROW * STANDALONE_SCORE_FIGURE_ROW_UNITS * (len(metrics) / 2.0),
+            FIGHEIGHT_OVERVIEW_ROW * STANDALONE_SCORE_PANEL_HEIGHT_FACTOR * len(metrics),
         ),
         sharex=True,
         squeeze=False,
@@ -703,8 +706,12 @@ def _write_event_skill_figure(
     )
     fig.tight_layout(rect=(-0.015, 0.058, 0.992, 0.998), h_pad=0.72)
     fig.align_ylabels(tuple(metric_axes))
-    fig.suptitle(_FIGURE_TITLE, ha="left", fontsize=10.2)
-    _align_title_to_plot_block(fig, (*metric_axes, *label_axes))
+    fig.canvas.draw()
+    for ax in metric_axes:
+        thin_dense_y_tick_labels(ax)
+    if show_figure_title:
+        fig.suptitle(_FIGURE_TITLE, ha="left", fontsize=10.2)
+        _align_title_to_plot_block(fig, (*metric_axes, *label_axes))
     force_figure_text_black(fig, (*metric_axes, *label_axes))
     ensure_dir(out_path.parent)
     save_figure_png(fig, out_path)
@@ -727,6 +734,13 @@ def write_plots(
 
     outputs: dict[str, Path] = {}
     out_path = plots_dir / "performance_scores.png"
+    paper_written = _write_event_skill_figure(
+        project_paper_output_path(project_dir, out_path),
+        event_scores=event_scores,
+        project_dir=project_dir,
+        exclude_variables=exclude_variables,
+        show_figure_title=False,
+    )
     written = _write_event_skill_figure(
         out_path,
         event_scores=event_scores,
@@ -735,6 +749,8 @@ def write_plots(
     )
     if written is not None:
         outputs["performance_scores"] = written
+    if paper_written is not None:
+        outputs["performance_scores_paper"] = paper_written
     return outputs
 
 

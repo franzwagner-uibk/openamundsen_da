@@ -23,8 +23,10 @@ from openamundsen_da.methods.viz.plots.benchmark.core import (
 from openamundsen_da.io.paths import (
     abspath_relative_to,
     find_project_yaml,
+    infer_project_dir,
     list_member_dirs,
     list_steps_sorted,
+    project_paper_output_path,
     project_fraction_envelope_path,
     project_result_overview_custom_output_path,
 )
@@ -40,6 +42,7 @@ from openamundsen_da.methods.viz.plots.theme import (
     FIGHEIGHT_OVERVIEW_ROW,
     FIGWIDTH_OVERVIEW_PAPER,
     OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR,
+    OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR,
     LW_MEAN,
     LW_OPEN,
     SIZE_DA_OBS,
@@ -144,9 +147,9 @@ _DEFAULT_PANELS = [
 ]
 
 _PANEL_YLABELS = {
-    "fSC": "snow cover fraction",
+    "fSC": "fSC",
     "WSF": "wet snow fraction",
-    "WSLA": "wet snow line altitude [m]",
+    "WSLA": "wsla [m.a.s.l]",
     "roi-swe": "swe [mm]",
     "roi-sd": "snow depth [m]",
     "station-sd": "snow depth [m]",
@@ -211,6 +214,7 @@ _STATION_PANEL_EVENT_VARIABLE = {
 
 _ASSIM_LABEL_ROW_OFFSETS_PTS = [0.35, 6.5]
 _ASSIM_LABEL_MIN_SPACING_DAYS = 18.0
+_PANEL_YLABEL_FONT_SIZE = 8.4
 
 
 class _LabeledLegendTuple(tuple):
@@ -1369,10 +1373,14 @@ def plot_result_overview(
     if not specs:
         raise ValueError("No data available to plot.")
 
-    height_ratios = [
-        0.5 if spec.panel == "ess" else OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR if _is_score_panel(spec.panel) else 1.0
-        for spec in specs
-    ]
+    height_ratios = []
+    for spec in specs:
+        if spec.panel == "ess":
+            height_ratios.append(0.5)
+        elif _is_score_panel(spec.panel):
+            height_ratios.append(OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR)
+        else:
+            height_ratios.append(OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR)
     total_height_units = sum(height_ratios)
     fig, axes = plt.subplots(
         len(specs),
@@ -1435,7 +1443,7 @@ def plot_result_overview(
                 assimilation_events=events,
             )
             legend_state.da_event = legend_state.da_event or bool(events)
-            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
+            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=_PANEL_YLABEL_FONT_SIZE)
             ax.set_ylim(*score_metric_ylim(metric_points, score_metric))
             bounds = _date_bounds_frames(pd.DataFrame({"date": pd.to_datetime(metric_points["assimilation_date"])}))
         elif spec.panel == "fSC":
@@ -1491,7 +1499,7 @@ def plot_result_overview(
                         linewidth=LW_DA_OBS,
                         draw_vlines=False,
                     )
-            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
+            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=_PANEL_YLABEL_FONT_SIZE)
             ax.set_ylim(0, 1)
             apply_fraction_grid(ax, y_step=0.2)
             _apply_fraction_ticks(ax)
@@ -1556,7 +1564,7 @@ def plot_result_overview(
                         linewidth=LW_DA_OBS,
                         draw_vlines=False,
                     )
-            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
+            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=_PANEL_YLABEL_FONT_SIZE)
             ax.set_ylim(0, 1)
             apply_fraction_grid(ax, y_step=0.2)
             _apply_fraction_ticks(ax)
@@ -1624,7 +1632,7 @@ def plot_result_overview(
                         linewidth=LW_DA_OBS,
                         draw_vlines=False,
                     )
-            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
+            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=_PANEL_YLABEL_FONT_SIZE)
             apply_fraction_grid(ax, y_step=None)
             _apply_altitude_y_ticks(ax)
             bounds = _date_bounds_frames(wsl_obs, wsl_model, wsl_env, wsl_prior_coverage)
@@ -1658,7 +1666,7 @@ def plot_result_overview(
                     lw=LW_OPEN,
                     label="_nolegend_",
                 )
-            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
+            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=_PANEL_YLABEL_FONT_SIZE)
             apply_fraction_grid(ax, y_step=None)
             _apply_shared_result_scale(ax, spec.panel, shared_scales)
             bounds = _date_bounds_frames(roi_swe_model, roi_swe_env)
@@ -1692,7 +1700,7 @@ def plot_result_overview(
                     lw=LW_OPEN,
                     label="_nolegend_",
                 )
-            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
+            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=_PANEL_YLABEL_FONT_SIZE)
             apply_fraction_grid(ax, y_step=None)
             _apply_shared_result_scale(ax, spec.panel, shared_scales)
             bounds = _date_bounds_frames(roi_snow_depth_model, roi_snow_depth_env)
@@ -1710,7 +1718,7 @@ def plot_result_overview(
                 color="#000000",
                 zorder=25,
             )
-            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
+            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=_PANEL_YLABEL_FONT_SIZE)
             if current_ess_panel.ensemble_size is not None and current_ess_panel.ensemble_size > 0:
                 ax.set_ylim(0.0, float(current_ess_panel.ensemble_size))
                 _apply_ess_ticks(
@@ -1799,7 +1807,7 @@ def plot_result_overview(
                     _station_obs_frame(station_data.obs, value_col=value_col),
                     value_col=value_col,
                 )
-            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=8.6)
+            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=_PANEL_YLABEL_FONT_SIZE)
             apply_fraction_grid(ax, y_step=None)
             _apply_shared_result_scale(ax, spec.panel, shared_scales)
             bounds = _date_bounds_series(
@@ -1829,7 +1837,7 @@ def plot_result_overview(
         label_axis.set_xlim(ax.get_xlim())
 
     axes[-1].set_xlabel("")
-    fig.tight_layout(rect=(-0.02, 0.04, 0.985, 1.0), h_pad=0.74)
+    fig.tight_layout(rect=(-0.02, 0.04, 0.985, 1.0), h_pad=0.84)
     fig.align_ylabels(axes)
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
@@ -1855,7 +1863,7 @@ def plot_result_overview(
     )
     fig.canvas.draw()
     legend_bottom = _legend_band_bottom(fig, legends, gap=0.008, minimum=0.04)
-    fig.tight_layout(rect=(-0.02, legend_bottom, 0.985, 1.0), h_pad=0.74)
+    fig.tight_layout(rect=(-0.02, legend_bottom, 0.985, 1.0), h_pad=0.84)
     fig.align_ylabels(axes)
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
@@ -1875,6 +1883,14 @@ def plot_result_overview(
         title_artist.set_y(1.0 + _PANEL_TITLE_Y_OFFSET)
     force_figure_text_black(fig, axes)
     save_figure_png(fig, output)
+    try:
+        project_dir = infer_project_dir(output)
+    except FileNotFoundError:
+        project_dir = None
+    if project_dir is not None:
+        paper_output = project_paper_output_path(project_dir, output)
+        paper_output.parent.mkdir(parents=True, exist_ok=True)
+        save_figure_png(fig, paper_output)
     plt.close(fig)
 
 

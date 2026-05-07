@@ -28,6 +28,7 @@ from openamundsen_da.io.paths import (
     infer_project_dir,
     infer_setup_dir,
     list_steps_sorted,
+    project_paper_output_path,
     project_plot_assim_weights_dir,
 )
 from openamundsen_da.methods.viz.theme import da_variable_line_color
@@ -1096,6 +1097,7 @@ def _build_setup_weights_overview_page(
     page_index: int,
     total_pages: int,
     layout_rows: int | None = None,
+    show_figure_title: bool = True,
 ):
     import matplotlib.pyplot as plt
     from matplotlib.ticker import NullLocator
@@ -1172,15 +1174,16 @@ def _build_setup_weights_overview_page(
         summary = f"{summary}, ESS threshold = {float(ess_threshold):.1f}"
     if total_pages > 1:
         summary = f"{summary}, page {page_index + 1}/{total_pages}"
-    fig.text(
-        0.06,
-        0.974,
-        f"data assimilation weights ({summary})",
-        va="top",
-        ha="left",
-        fontsize=8.6,
-        color="#000000",
-    )
+    if show_figure_title:
+        fig.text(
+            0.06,
+            0.974,
+            f"data assimilation weights ({summary})",
+            va="top",
+            ha="left",
+            fontsize=8.6,
+            color="#000000",
+        )
     legend_handles, legend_labels, handler_map = _figure_legend_spec(all_csv_paths)
     legend_kwargs = dict(
         loc="lower center",
@@ -1240,6 +1243,7 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
     events_per_page = rows_per_page * n_cols
     page_specs = [event_specs[start : start + events_per_page] for start in range(0, len(event_specs), events_per_page)]
     output_paths: list[Path] = []
+    paper_output_paths: list[Path] = []
     for page_index, page in enumerate(page_specs):
         fig = _build_setup_weights_overview_page(
             page,
@@ -1254,7 +1258,23 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
         page_out = _setup_weights_overview_page_output(out, page_index)
         save_figure_png(fig, page_out, dpi=600, bbox_inches="tight", pad_inches=0.04)
         output_paths.append(page_out)
+        paper_fig = _build_setup_weights_overview_page(
+            page,
+            all_csv_paths=csv_paths,
+            residual_xlims=residual_xlims,
+            ensemble_size=ensemble_size,
+            ess_threshold=ess_threshold,
+            page_index=page_index,
+            total_pages=len(page_specs),
+            layout_rows=rows_per_page if len(page_specs) > 1 else None,
+            show_figure_title=False,
+        )
+        paper_page_out = project_paper_output_path(setup_dir, page_out)
+        paper_page_out.parent.mkdir(parents=True, exist_ok=True)
+        save_figure_png(paper_fig, paper_page_out, dpi=600, bbox_inches="tight", pad_inches=0.04)
+        paper_output_paths.append(paper_page_out)
     _remove_stale_setup_weights_overview_pages(out, output_paths)
+    _remove_stale_setup_weights_overview_pages(project_paper_output_path(setup_dir, out), paper_output_paths)
     return out
 
 

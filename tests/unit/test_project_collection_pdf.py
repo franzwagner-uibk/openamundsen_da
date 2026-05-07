@@ -163,6 +163,29 @@ def test_project_pdf_sections_follow_temporal_report_order(tmp_path: Path) -> No
     )
 
 
+def test_project_pdf_sections_paginate_many_station_snow_depth_plots(tmp_path: Path) -> None:
+    project_dir = _create_project(tmp_path, event_count=1)
+    for idx in range(1, 7):
+        _write_png(
+            project_dir / f"results/plots/points/setup_results_point_{idx:02d}_snow_depth_2023.png",
+            width=4200,
+            height=1408,
+        )
+
+    plan = collect_project_pdf_items(project_dir)
+    sections = _project_pdf_sections(plan)
+
+    assert plan.page_count == 7
+    assert [(section.title, _format_page_range(section.start_page, section.end_page)) for section in sections] == [
+        ("Project summary and setup", "1"),
+        ("result overview", "2"),
+        ("setup overview map", "3"),
+        ("setup weights overview", "4"),
+        ("station snow-depth plots", "5-6"),
+        ("DA-event maps", "7"),
+    ]
+
+
 def test_summary_wrapped_lines_can_render_without_truncation() -> None:
     lines = ["Liquid water content: method=pore_volume_fraction, max=0.03"]
 
@@ -356,6 +379,23 @@ def test_build_project_collection_pdf_groups_wide_da_maps(tmp_path: Path) -> Non
     assert written == output
     assert collect_project_pdf_items(project_dir).page_count == 6
     assert _pdf_page_count(output) == 6
+
+
+def test_build_project_collection_pdf_paginates_many_station_snow_depth_plots(tmp_path: Path) -> None:
+    project_dir = _create_project(tmp_path, event_count=1)
+    for idx in range(1, 7):
+        _write_png(
+            project_dir / f"results/plots/points/setup_results_point_{idx:02d}_snow_depth_2023.png",
+            width=4200,
+            height=1408,
+        )
+    output = tmp_path / "collection.pdf"
+
+    written = build_project_collection_pdf(project_dir=project_dir, output=output)
+
+    assert written == output
+    assert collect_project_pdf_items(project_dir).page_count == 7
+    assert _pdf_page_count(output) == 7
 
 
 def test_cli_main_writes_project_collection_pdf(tmp_path: Path) -> None:

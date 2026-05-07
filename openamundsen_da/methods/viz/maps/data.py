@@ -32,6 +32,7 @@ from openamundsen_da.methods.pf.fraction_support import (
 from openamundsen_da.methods.viz.maps.config import DateSelector
 from openamundsen_da.methods.viz.station_meta import load_setup_station_table
 from openamundsen_da.observer.class_config import load_observation_classes, load_wetsnow_classes
+from openamundsen_da.subdomain.manifest import SubdomainManifest
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.landcover_mask import resolve_setup_landcover_grid
 from openamundsen_da.util.roi_grid import _find_grid_file, load_setup_roi_mask, resolve_setup_grid_spec
@@ -51,6 +52,8 @@ class StaticContext:
     stations: pd.DataFrame | None
     hillshade_dem: np.ndarray | None = None
     hillshade_transform: object | None = None
+    subdomain_gdf: gpd.GeoDataFrame | None = None
+    subdomain_dropped_events: pd.DataFrame | None = None
 
 
 @dataclass(frozen=True)
@@ -161,6 +164,78 @@ def _load_optional_setup_grid(
     return _read_dataset_array(grid_path, shape=shape, transform=transform, crs=crs)
 
 
+def _load_subdomain_regions(project_dir: Path, setup_dir: Path, crs: str | None) -> gpd.GeoDataFrame | None:
+    manifest_path = project_dir / "subdomains" / "subdomain_manifest.json"
+    if not manifest_path.is_file():
+        return None
+
+    manifest = SubdomainManifest.load(manifest_path)
+    if manifest.run_mode != "subdomain":
+        return None
+
+    regions_path = Path(manifest.regions_path)
+    if not regions_path.is_file():
+        setup_relative = setup_dir / "env" / regions_path.name
+        if setup_relative.is_file():
+            regions_path = setup_relative
+    if not regions_path.is_file():
+        return None
+
+    regions = gpd.read_file(regions_path)
+    if regions.empty:
+        return None
+    regions = regions.loc[regions.geometry.notna()].copy()
+    regions = regions.loc[~regions.geometry.is_empty].copy()
+    if regions.empty:
+        return None
+    if crs and regions.crs is not None:
+        regions = regions.to_crs(crs)
+    if "subdomain_id" not in regions.columns:
+        if manifest.id_field in regions.columns:
+            regions["subdomain_id"] = regions[manifest.id_field].astype(str)
+        elif "id" in regions.columns:
+            regions["subdomain_id"] = regions["id"].astype(str)
+    return regions
+
+
+def _load_subdomain_dropped_events(project_dir: Path) -> pd.DataFrame | None:
+    manifest_path = project_dir / "subdomains" / "subdomain_manifest.json"
+    if not manifest_path.is_file():
+        return None
+
+    candidates = [project_dir / "results" / "subdomain_dropped_events.csv"]
+    candidates.extend(sorted((project_dir / "subdomains").glob("*/subdomain_dropped_events.csv")))
+    frames = []
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            df = pd.read_csv(path)
+        except Exception:
+            continue
+        if df.empty:
+            continue
+        frames.append(df)
+    if not frames:
+        return None
+
+    out = pd.concat(frames, ignore_index=True)
+    required = {"subdomain_id", "date", "variable"}
+    if not required.issubset(out.columns):
+        return None
+    out = out.copy()
+    out["subdomain_id"] = out["subdomain_id"].astype(str)
+    out["variable"] = out["variable"].astype(str).str.strip().str.lower()
+    out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.normalize()
+    out = out.dropna(subset=["date", "variable", "subdomain_id"])
+    if out.empty:
+        return None
+    subset = ["subdomain_id", "date", "variable"]
+    if "reason" in out.columns:
+        subset.append("reason")
+    return out.drop_duplicates(subset=subset)
+
+
 @lru_cache(maxsize=16)
 def _load_static_context_cached(project_dir_str: str) -> StaticContext:
     project_dir = Path(project_dir_str)
@@ -218,6 +293,8 @@ def _load_static_context_cached(project_dir_str: str) -> StaticContext:
         crs=spec.crs,
     )
     stations = load_setup_station_table(setup_dir)
+    subdomain_gdf = _load_subdomain_regions(project_dir, setup_dir, spec.crs)
+    subdomain_dropped_events = _load_subdomain_dropped_events(project_dir)
     return StaticContext(
         project_dir=project_dir,
         setup_dir=setup_dir,
@@ -231,6 +308,8 @@ def _load_static_context_cached(project_dir_str: str) -> StaticContext:
         stations=stations,
         hillshade_dem=hillshade_dem,
         hillshade_transform=hillshade_transform,
+        subdomain_gdf=subdomain_gdf,
+        subdomain_dropped_events=subdomain_dropped_events,
     )
 
 
@@ -305,9 +384,13 @@ def _load_summary(project_dir: Path, observation: str) -> pd.DataFrame:
     from openamundsen_da.observer.summary_paths import resolve_fraction_summary_path
 
     summary_path = resolve_fraction_summary_path(infer_setup_dir_from_project(project_dir), Path(project_dir), filename)
-    if not summary_path.is_file():
-        raise FileNotFoundError(f"Observation summary not found: {summary_path}")
-    df = pd.read_csv(summary_path)
+    if summary_path.is_file():
+        df = pd.read_csv(summary_path)
+    else:
+        frames = _load_subdomain_observation_summaries(Path(project_dir), filename)
+        if not frames:
+            raise FileNotFoundError(f"Observation summary not found: {summary_path}")
+        df = pd.concat(frames, ignore_index=True)
     if "date" not in df.columns:
         raise ValueError(f"Observation summary missing 'date' column: {summary_path}")
     if "source" not in df.columns:
@@ -315,6 +398,22 @@ def _load_summary(project_dir: Path, observation: str) -> pd.DataFrame:
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"]).dt.normalize()
     return df.sort_values("date").reset_index(drop=True)
+
+
+def _load_subdomain_observation_summaries(project_dir: Path, filename: str) -> list[pd.DataFrame]:
+    manifest_path = Path(project_dir) / "subdomains" / "subdomain_manifest.json"
+    if not manifest_path.is_file():
+        return []
+    paths = sorted((Path(project_dir) / "subdomains").glob(f"*/obs/*/{filename}"))
+    frames: list[pd.DataFrame] = []
+    for path in paths:
+        try:
+            df = pd.read_csv(path)
+        except Exception:
+            continue
+        if not df.empty:
+            frames.append(df)
+    return frames
 
 
 def resolve_observation_context_dates(

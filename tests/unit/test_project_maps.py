@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shutil
 import textwrap
+from types import SimpleNamespace
 
 import geopandas as gpd
 import matplotlib
@@ -22,11 +23,13 @@ import openamundsen_da.methods.viz.maps.render as render_module
 import openamundsen_da.methods.viz.maps.runner as runner_module
 import openamundsen_da.methods.viz.maps.data as data_module
 import openamundsen_da.methods.viz.maps.generated as generated_module
+import openamundsen_da.methods.viz.maps.layout as layout_module
 import openamundsen_da.methods.viz.maps.overview as overview_module
 import openamundsen_da.methods.viz.maps.panel_renderers as panel_renderers_module
 from openamundsen_da.methods.viz.reports.project_collection_pdf import MissingProjectPdfArtifactsError
 from openamundsen_da.methods.viz.maps.config import (
     DateSelector,
+    LegendItemSpec,
     LayoutSpec,
     MapDefaults,
     MapPanelSpec,
@@ -58,6 +61,7 @@ from openamundsen_da.methods.viz.maps.render import (
     figure_height_for_extent,
 )
 import openamundsen_da.pipeline.plot_tasks as plot_tasks_module
+from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.methods.viz.maps.runner import project_maps_enabled, render_project_maps
 from openamundsen_da.methods.viz.maps.styles import (
     FSC_OBS_CMAP,
@@ -77,6 +81,7 @@ from openamundsen_da.methods.viz.maps.styles import (
     static_field_cmap,
     static_field_colorbar_style,
 )
+from openamundsen_da.util.run_mode import write_run_mode
 
 
 PROJECT_MAPS_FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "project_maps" / "rofental"
@@ -194,6 +199,103 @@ def _write_roi_vector(path: Path, *, bounds: tuple[float, float, float, float] =
         crs="EPSG:25832",
     )
     gdf.to_file(path, driver="GPKG")
+
+
+def _write_subdomain_regions_and_manifest(project_dir: Path, setup_dir: Path) -> Path:
+    regions_path = setup_dir / "env" / "subdomains.gpkg"
+    regions_path.parent.mkdir(parents=True, exist_ok=True)
+    regions = gpd.GeoDataFrame(
+        {"id": pd.Series(["sd_1", "sd_2"], dtype=object)},
+        geometry=[box(0.0, 0.0, 200.0, 400.0), box(200.0, 0.0, 400.0, 400.0)],
+        crs="EPSG:25832",
+    )
+    regions.to_file(regions_path, driver="GPKG")
+
+    manifest_path = project_dir / "subdomains" / "subdomain_manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "run_mode": "subdomain",
+                "setup_dir": str(setup_dir),
+                "project_dir": str(project_dir),
+                "project_name": project_dir.name,
+                "setup_yaml": str(setup_dir / "setup.yml"),
+                "project_yaml": str(project_dir / f"{project_dir.name}.yml"),
+                "subdomain_root": str(project_dir / "subdomains"),
+                "regions_path": str(regions_path),
+                "id_field": "id",
+                "crs": "EPSG:25832",
+                "grid_rows": 4,
+                "grid_cols": 4,
+                "grid_transform": [100.0, 0.0, 0.0, 0.0, -100.0, 400.0],
+                "grid_resolution": 100.0,
+                "grid_domain": "demo",
+                "clip_mode": "window",
+                "station_buffer_m": 0.0,
+                "roi_buffer_m": 0.0,
+                "grid_buffer_m": 0.0,
+                "raw_snowcover_dir": str(setup_dir / "obs" / "snowcover"),
+                "raw_wetsnow_dir": str(setup_dir / "obs" / "wetsnow"),
+                "created_at": "2026-05-06T00:00:00",
+                "subdomains": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
+def _write_runtime_subdomain_manifest(project_dir: Path, setup_dir: Path) -> Path:
+    manifest_path = _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    transform = [100.0, 0.0, 0.0, 0.0, -100.0, 400.0]
+    subdomains = {}
+    specs = {
+        "sd_1": {"window": {"row_off": 0, "col_off": 0, "height": 4, "width": 2}, "bounds": [0.0, 0.0, 200.0, 400.0]},
+        "sd_2": {"window": {"row_off": 0, "col_off": 2, "height": 4, "width": 2}, "bounds": [200.0, 0.0, 400.0, 400.0]},
+    }
+    for sid, spec in specs.items():
+        sub_setup = project_dir / "subdomains" / sid
+        sub_project = sub_setup / "projects" / project_dir.name
+        (sub_project / "steps").mkdir(parents=True, exist_ok=True)
+        _write_summary(
+            sub_setup / "obs" / project_dir.name / "scf_summary.csv",
+            [{"date": "2023-01-02", "source": "scf_left.tif" if sid == "sd_1" else "scf_right.tif"}],
+        )
+        roi_array = np.ones((4, 2), dtype=np.uint8)
+        roi_path = sub_setup / "grids" / f"roi_{sid}.asc"
+        _write_grid(
+            roi_path,
+            roi_array,
+            transform=from_origin(float(spec["bounds"][0]), 400.0, 100.0, 100.0),
+            nodata=0,
+        )
+        subdomains[sid] = {
+            "id": sid,
+            "label": sid,
+            "setup_dir": str(sub_setup),
+            "setup_yaml": str(sub_setup / "setup.yml"),
+            "project_dir": str(sub_project),
+            "project_yaml": str(sub_project / f"{project_dir.name}.yml"),
+            "project_name": project_dir.name,
+            "grids_dir": str(sub_setup / "grids"),
+            "meteo_dir": str(sub_setup / "meteo"),
+            "obs_stations_dir": str(sub_setup / "obs" / "stations"),
+            "roi_raster_path": str(roi_path),
+            "roi_vector_path": str(sub_setup / "env" / "roi.gpkg"),
+            "window": spec["window"],
+            "transform": transform,
+            "bounds": spec["bounds"],
+            "crs": "EPSG:25832",
+            "status": "success",
+            "run_manifest": str(sub_setup / "run_manifest.json"),
+            "dropped_events": [],
+            "station_counts": {},
+        }
+    data["subdomains"] = subdomains
+    manifest_path.write_text(json.dumps(data), encoding="utf-8")
+    return manifest_path
 
 
 def _write_summary(path: Path, rows: list[dict[str, object]]) -> None:
@@ -399,6 +501,154 @@ def test_load_static_context_reads_csv_station_metadata_and_landcover_from_setup
     assert context.svf is not None and context.svf.shape == (4, 4)
     assert context.srf is not None and context.srf.shape == (4, 4)
     assert set(context.stations["id"]) == {"station_a", "station_b"}
+    assert context.subdomain_gdf is None
+
+
+def test_load_static_context_reads_subdomain_regions_from_project_manifest(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path, meteo_format="csv")
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+
+    context = load_static_context(project_dir)
+
+    assert context.subdomain_gdf is not None
+    assert list(context.subdomain_gdf["id"]) == ["sd_1", "sd_2"]
+    assert list(context.subdomain_gdf["subdomain_id"]) == ["sd_1", "sd_2"]
+    assert context.subdomain_gdf.crs is not None
+    assert context.subdomain_gdf.crs.to_string() == "EPSG:25832"
+
+
+def test_load_static_context_reads_subdomain_dropped_events(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path, meteo_format="csv")
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    dropped_csv = project_dir / "results" / "subdomain_dropped_events.csv"
+    dropped_csv.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {
+                "subdomain_id": "sd_2",
+                "date": "2023-01-02",
+                "variable": "station_hs",
+                "reason": "missing_observation_date",
+            }
+        ]
+    ).to_csv(dropped_csv, index=False)
+
+    context = load_static_context(project_dir)
+
+    assert context.subdomain_dropped_events is not None
+    assert list(context.subdomain_dropped_events["subdomain_id"]) == ["sd_2"]
+    assert list(context.subdomain_dropped_events["date"]) == [pd.Timestamp("2023-01-02")]
+
+
+def test_subdomain_dropped_event_regions_selects_event_subdomains(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path, meteo_format="csv")
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    dropped_csv = project_dir / "results" / "subdomain_dropped_events.csv"
+    dropped_csv.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {
+                "subdomain_id": "sd_1",
+                "date": "2023-01-01",
+                "variable": "station_hs",
+                "reason": "missing_observation_date",
+            },
+            {
+                "subdomain_id": "sd_2",
+                "date": "2023-01-02",
+                "variable": "station_hs",
+                "reason": "missing_observation_date",
+            },
+            {
+                "subdomain_id": "sd_1",
+                "date": "2023-01-02",
+                "variable": "scf",
+                "reason": "missing_observation_date",
+            },
+        ]
+    ).to_csv(dropped_csv, index=False)
+    context = load_static_context(project_dir)
+
+    selected = panel_renderers_module.subdomain_dropped_event_regions(
+        context,
+        date=pd.Timestamp("2023-01-02"),
+        variable="station_hs",
+    )
+
+    assert selected is not None
+    assert list(selected["subdomain_id"]) == ["sd_2"]
+
+
+def test_common_map_overlays_draw_subdomain_boundaries_for_subdomain_projects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path, meteo_format="csv")
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    context = load_static_context(project_dir)
+    calls = 0
+
+    def fake_draw_subdomain_boundaries(ax, ctx):
+        del ax
+        nonlocal calls
+        assert ctx is context
+        calls += 1
+
+    monkeypatch.setattr(panel_renderers_module, "draw_subdomain_boundaries", fake_draw_subdomain_boundaries)
+
+    fig, ax = plt.subplots()
+    try:
+        panel_renderers_module.apply_common_overlays(
+            ax,
+            context=context,
+            extent=(0.0, 400.0, 0.0, 400.0),
+            show_roi=True,
+            show_station_marker=False,
+            show_stations_name=False,
+            show_stations_elev=False,
+        )
+    finally:
+        plt.close(fig)
+
+    assert calls == 1
+
+
+def test_overview_panel_draws_subdomain_boundaries_for_subdomain_projects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path, meteo_format="csv")
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    context = load_static_context(project_dir)
+    calls = 0
+
+    def fake_draw_subdomain_boundaries(ax, ctx):
+        del ax
+        nonlocal calls
+        assert ctx is context
+        calls += 1
+
+    def unavailable_loader(**_kwargs):
+        raise FileNotFoundError("overview layer missing")
+
+    monkeypatch.setattr(panel_renderers_module, "draw_subdomain_boundaries", fake_draw_subdomain_boundaries)
+
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        panel_renderers_module.render_overview_panel(
+            ax,
+            panel=MapPanelSpec(kind="overview", row=0, col=0, scale=20_000),
+            context=context,
+            label=None,
+            defaults=MapDefaults(),
+            boundaries_loader=unavailable_loader,
+            regions_loader=unavailable_loader,
+            labels_loader=unavailable_loader,
+        )
+    finally:
+        plt.close(fig)
+
+    assert calls == 1
 
 
 def test_load_static_context_reuses_in_process_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1257,6 +1507,20 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
     assert cfg.maps[0].panels[5].show_hillshade is True
 
 
+def test_shipped_subdomain_project_maps_config_keeps_generic_setup_overview_only() -> None:
+    root = Path(__file__).resolve().parents[2] / "examples/subdomains"
+    config_path = root / "projects/project_2022_2023/maps.yml"
+
+    cfg = load_project_maps_config(config_path)
+
+    assert [recipe.name for recipe in cfg.maps] == ["subdomain_example_setup_overview"]
+    assert [recipe.title for recipe in cfg.maps] == ["Subdomain example setup overview"]
+    assert [recipe.output_stem for recipe in cfg.maps] == ["setup_overview"]
+    assert cfg.maps[0].panels[0].roi_label == "Subdomain ROI"
+    assert _read_yaml_file(root / "subdomains.yml")["domain"] == "subdomain_example"
+    assert (root / "grids/dem_subdomain_example_100.asc").is_file()
+
+
 def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     monkeypatch.setattr(generated_module, "_fraction_model_support_available", lambda *_args, **_kwargs: False)
@@ -1278,6 +1542,108 @@ def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, 
     ]
 
 
+def test_generated_da_map_recipes_use_two_by_two_for_top_level_subdomain_snow_events(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    write_run_mode(project_dir, "subdomain")
+    monkeypatch.setattr(generated_module, "_fraction_model_support_available", lambda *_args, **_kwargs: False)
+
+    recipes = generated_module.generated_da_map_recipes(project_dir)
+
+    assert recipes[0].layout.nrows == 2
+    assert recipes[0].layout.ncols == 2
+    assert recipes[0].row_labels == ()
+    assert [(panel.source, panel.row, panel.col) for panel in recipes[0].panels] == [
+        ("open_loop", 0, 0),
+        ("ensemble_mean", 1, 0),
+        ("analysis_mean", 1, 1),
+        ("analysis_increment", 0, 1),
+    ]
+    assert [panel.source for panel in recipes[0].panels] == [
+        "open_loop",
+        "ensemble_mean",
+        "analysis_mean",
+        "analysis_increment",
+    ]
+
+
+def test_generated_da_map_recipes_use_tall_scf_layout_for_top_level_subdomain_scf_events(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_runtime_subdomain_manifest(project_dir, setup_dir)
+    write_run_mode(project_dir, "subdomain")
+
+    recipes = generated_module.generated_da_map_recipes(project_dir)
+
+    assert recipes[0].layout.nrows == 4
+    assert recipes[0].layout.ncols == 2
+    assert recipes[0].row_labels == ()
+    assert [(panel.kind, panel.source, panel.row, panel.col) for panel in recipes[0].panels] == [
+        ("fsc", "open_loop_binary", 0, 0),
+        ("fsc", "prior_probability", 1, 0),
+        ("fsc", "posterior_probability", 1, 1),
+        ("fsc", None, 0, 1),
+        ("snow_depth", "open_loop", 2, 0),
+        ("snow_depth", "ensemble_mean", 3, 0),
+        ("snow_depth", "analysis_mean", 3, 1),
+        ("snow_depth", "analysis_increment", 2, 1),
+    ]
+
+
+def test_top_level_subdomain_scf_support_detection_uses_subdomain_artifacts(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_runtime_subdomain_manifest(project_dir, setup_dir)
+    write_run_mode(project_dir, "subdomain")
+
+    assert generated_module._top_level_subdomain_fraction_support_available(project_dir, "scf") is True
+    assert generated_module._top_level_subdomain_fraction_support_available(project_dir, "wet_snow") is False
+
+
+def test_top_level_subdomain_scf_mosaic_uses_manifest_windows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_runtime_subdomain_manifest(project_dir, setup_dir)
+    context = load_static_context(project_dir)
+
+    def fake_load_static_context(path):
+        return SimpleNamespace(project_dir=Path(path))
+
+    def fake_single(*, context, source, date, derived_cache):
+        del source, date, derived_cache
+        value = 0.25 if str(context.project_dir).split("/")[-3] == "sd_1" else 0.75
+        return np.full((4, 2), value, dtype=float)
+
+    monkeypatch.setattr(panel_renderers_module, "load_static_context", fake_load_static_context)
+    monkeypatch.setattr(panel_renderers_module, "_single_domain_scf_model_probability_array", fake_single)
+
+    mosaic = panel_renderers_module._top_level_subdomain_scf_model_probability_array(
+        context=context,
+        source="prior_probability",
+        date=pd.Timestamp("2023-01-02"),
+    )
+
+    assert mosaic.shape == (4, 4)
+    assert np.allclose(mosaic[:, :2], 0.25)
+    assert np.allclose(mosaic[:, 2:], 0.75)
+
+
+def test_top_level_subdomain_scf_missing_grids_error_is_clear(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_runtime_subdomain_manifest(project_dir, setup_dir)
+    context = load_static_context(project_dir)
+
+    with pytest.raises(FileNotFoundError, match="retention: full"):
+        panel_renderers_module._top_level_subdomain_scf_model_probability_array(
+            context=context,
+            source="open_loop_binary",
+            date=pd.Timestamp("2023-01-02"),
+        )
+
+
 def test_generated_da_map_title_marks_skipped_resampling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     monkeypatch.setattr(generated_module, "_fraction_model_support_available", lambda *_args, **_kwargs: False)
@@ -1288,6 +1654,80 @@ def test_generated_da_map_title_marks_skipped_resampling(tmp_path: Path, monkeyp
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
     assert recipes[0].figure_title == "DA 1 - 2023-01-02 (snow cover fraction) - resampling skipped"
+
+
+def test_generated_da_event_status_overlay_uses_dropped_event_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    context = load_static_context(project_dir)
+    calls = []
+
+    def fake_overlay(ax, ctx, *, date, variable):
+        del ax
+        calls.append((ctx, pd.Timestamp(date).normalize(), variable))
+
+    monkeypatch.setattr(render_module, "_draw_subdomain_dropped_event_overlay", fake_overlay)
+    recipe = MapRecipe(
+        name="da_1",
+        title="da_1",
+        output_subdir="da_events",
+        layout=LayoutSpec(nrows=1, ncols=1),
+        defaults=MapDefaults(date="2023-01-02"),
+        panels=(MapPanelSpec(kind="snow_depth", row=0, col=0, variable="station_hs"),),
+    )
+
+    fig, ax = plt.subplots()
+    try:
+        render_module._draw_generated_da_event_status_overlay(
+            ax,
+            recipe=recipe,
+            panel=recipe.panels[0],
+            context=context,
+        )
+    finally:
+        plt.close(fig)
+
+    assert calls == [(context, pd.Timestamp("2023-01-02"), "station_hs")]
+
+
+def test_generated_da_event_status_overlay_ignores_non_generated_maps(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    context = load_static_context(project_dir)
+    calls = 0
+
+    def fake_overlay(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+
+    monkeypatch.setattr(render_module, "_draw_subdomain_dropped_event_overlay", fake_overlay)
+    recipe = MapRecipe(
+        name="custom",
+        title="custom",
+        output_subdir=None,
+        layout=LayoutSpec(nrows=1, ncols=1),
+        defaults=MapDefaults(date="2023-01-02"),
+        panels=(MapPanelSpec(kind="snow_depth", row=0, col=0, variable="station_hs"),),
+    )
+
+    fig, ax = plt.subplots()
+    try:
+        render_module._draw_generated_da_event_status_overlay(
+            ax,
+            recipe=recipe,
+            panel=recipe.panels[0],
+            context=context,
+        )
+    finally:
+        plt.close(fig)
+
+    assert calls == 0
 
 
 def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_support_exists(
@@ -1480,6 +1920,32 @@ def test_scf_binary_map_uses_full_roi_without_landcover_mask(
     assert captured["apply_landcover_mask"] is False
 
 
+def test_scf_binary_map_missing_grid_error_mentions_retention(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+
+    def fake_compute_model_scf_binary_grid(**_kwargs):
+        raise FileNotFoundError("No NetCDF grid found for variable 'hs'")
+
+    monkeypatch.setattr(panel_renderers_module, "compute_model_scf_binary_grid", fake_compute_model_scf_binary_grid)
+
+    with pytest.raises(FileNotFoundError, match="compact output retention.*retention: full"):
+        panel_renderers_module._scf_binary_grid_from_results(
+            context=context,
+            results_dir=project_dir
+            / "steps"
+            / "step_01_20230101-20230102"
+            / "ensembles"
+            / "prior"
+            / "open_loop"
+            / "results",
+            date=pd.Timestamp("2023-01-02"),
+        )
+
+
 def test_reference_stream_uses_variable_name_labels(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     target_date = pd.Timestamp("2023-01-02")
@@ -1554,6 +2020,25 @@ def test_date_resolution_helpers_follow_selectors(tmp_path: Path) -> None:
     assert [date.strftime("%Y-%m-%d") for date in observation_dates] == ["2023-01-02"]
 
 
+def test_tick_label_stride_keeps_square_panels_at_existing_every_second_behavior() -> None:
+    fig, ax = plt.subplots(figsize=(3.0, 3.0))
+    try:
+        ticks = np.arange(0.0, 5.0)
+        assert layout_module.tick_label_stride(ax, ticks, axis="x") == 2
+        assert layout_module.tick_label_stride(ax, ticks, axis="y") == 2
+    finally:
+        plt.close(fig)
+
+
+def test_tick_label_stride_thins_dense_short_axis_labels() -> None:
+    fig, ax = plt.subplots(figsize=(3.0, 1.0))
+    try:
+        ticks = np.arange(0.0, 8.0)
+        assert layout_module.tick_label_stride(ax, ticks, axis="y") > 2
+    finally:
+        plt.close(fig)
+
+
 def test_load_observation_scene_uses_setup_relative_obs_dir_and_reports_partial_coverage(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     context = load_static_context(project_dir)
@@ -1572,6 +2057,26 @@ def test_load_observation_scene_ignores_source_timestamp_token(tmp_path: Path) -
             {"date": "2023-01-02", "source": "scf_left.tif@2023-01-02T00:00:00Z; scf_right.tif@2023-01-02T00:00:00Z"},
         ]
     ).to_csv(summary_path, index=False)
+    context = load_static_context(project_dir)
+
+    scene = load_observation_scene(project_dir, context, observation="scf", date=pd.Timestamp("2023-01-02"))
+
+    assert scene.coverage_fraction == 1.0
+    assert np.isfinite(scene.array).sum() == 16
+
+
+def test_load_observation_scene_falls_back_to_subdomain_scf_summaries(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    _write_subdomain_regions_and_manifest(project_dir, setup_dir)
+    (setup_dir / "obs" / "summaries" / project_dir.name / "scf_summary.csv").unlink()
+    _write_summary(
+        project_dir / "subdomains" / "sd_1" / "obs" / project_dir.name / "scf_summary.csv",
+        [{"date": "2023-01-02", "source": "scf_left.tif@2023-01-02T00:00:00Z"}],
+    )
+    _write_summary(
+        project_dir / "subdomains" / "sd_2" / "obs" / project_dir.name / "scf_summary.csv",
+        [{"date": "2023-01-02", "source": "scf_right.tif@2023-01-02T00:00:00Z"}],
+    )
     context = load_static_context(project_dir)
 
     scene = load_observation_scene(project_dir, context, observation="scf", date=pd.Timestamp("2023-01-02"))
@@ -2572,6 +3077,44 @@ def test_horizontal_colorbar_gap_is_tighter_than_legacy_spacing() -> None:
     assert render_module._HORIZONTAL_COLORBAR_GAP_AXES < 0.22
 
 
+def test_horizontal_colorbar_spacing_uses_physical_minimum_for_flat_panels() -> None:
+    base_extra = 0.10 + 0.050 + 0.02
+
+    flat_extra = render_module._horizontal_colorbar_total_extra(panel_height_in=0.70, panel_aspect=0.55)
+    tall_extra = render_module._horizontal_colorbar_total_extra(panel_height_in=2.00, panel_aspect=1.00)
+
+    assert flat_extra > base_extra
+    assert tall_extra == pytest.approx(base_extra)
+
+
+def test_horizontal_legend_spacing_uses_physical_minimum_for_flat_panels() -> None:
+    rows = [["wet", "dry"]]
+    base_extra = _horizontal_legend_total_extra(rows, panel_width_in=2.2)
+
+    flat_extra = _horizontal_legend_total_extra(rows, panel_width_in=2.2, panel_height_in=0.70, panel_aspect=0.55)
+    tall_extra = _horizontal_legend_total_extra(rows, panel_width_in=2.2, panel_height_in=2.00, panel_aspect=1.00)
+
+    assert flat_extra > base_extra
+    assert tall_extra == pytest.approx(base_extra)
+
+
+def test_below_panel_items_reserve_drawn_extent_for_flat_panels() -> None:
+    items = (LegendItemSpec(kind="station_symbol", label="Meteorological stations"),)
+
+    _row_units, inset_height, reserve_extra, draw_gap = render_module._panel_below_items_layout(
+        items,
+        panel_height_in=0.70,
+        panel_aspect=0.55,
+    )
+    default_extra = render_module._panel_below_items_extra(items)
+
+    assert reserve_extra == pytest.approx(draw_gap + inset_height)
+    assert reserve_extra == pytest.approx(
+        render_module._panel_below_items_extra(items, panel_height_in=0.70, panel_aspect=0.55)
+    )
+    assert reserve_extra > default_extra
+
+
 def test_station_entry_is_more_compact() -> None:
     fig, ax = plt.subplots(figsize=(3, 2))
     try:
@@ -3385,6 +3928,66 @@ def test_overview_extent_with_label_fit_keeps_base_extent_when_labels_fit(tmp_pa
         plt.close(fig)
 
 
+def test_overview_country_labels_avoid_roi_text_footprint() -> None:
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        extent = (-1000.0, 1000.0, -1000.0, 1000.0)
+        visible = gpd.GeoDataFrame(
+            {"CNTR_ID": ["A", "B"]},
+            geometry=[box(-100.0, -100.0, 100.0, 100.0), box(500.0, 500.0, 700.0, 700.0)],
+            crs="EPSG:25832",
+        )
+        labels = gpd.GeoDataFrame(
+            {"CNTR_ID": ["A", "B"], "NAME_ENGL": ["On ROI", "Away"]},
+            geometry=[Point(0.0, 0.0), Point(600.0, 600.0)],
+            crs="EPSG:25832",
+        )
+
+        specs = panel_renderers_module.overview_country_label_specs(
+            ax=ax,
+            visible_countries=visible,
+            labels=labels,
+            extent=extent,
+            roi_anchor=None,
+            avoid_geometry=box(-120.0, -120.0, 120.0, 120.0),
+        )
+
+        assert [spec.text for spec in specs] == ["Away"]
+    finally:
+        plt.close(fig)
+
+
+def test_overview_country_labels_relocate_when_anchor_overlaps_roi() -> None:
+    fig, ax = plt.subplots(figsize=(4, 4))
+    try:
+        extent = (-1000.0, 1000.0, -1000.0, 1000.0)
+        avoid_geometry = box(-140.0, -140.0, 140.0, 140.0)
+        visible = gpd.GeoDataFrame(
+            {"CNTR_ID": ["AT"]},
+            geometry=[box(-800.0, -800.0, 800.0, 800.0)],
+            crs="EPSG:25832",
+        )
+        labels = gpd.GeoDataFrame(
+            {"CNTR_ID": ["AT"], "NAME_ENGL": ["Austria"]},
+            geometry=[Point(0.0, 0.0)],
+            crs="EPSG:25832",
+        )
+
+        specs = panel_renderers_module.overview_country_label_specs(
+            ax=ax,
+            visible_countries=visible,
+            labels=labels,
+            extent=extent,
+            roi_anchor=None,
+            avoid_geometry=avoid_geometry,
+        )
+
+        assert [spec.text for spec in specs] == ["Austria"]
+        assert not panel_renderers_module.overview_label_data_box(ax, specs[0], extent=extent).intersects(avoid_geometry)
+    finally:
+        plt.close(fig)
+
+
 def test_overview_label_fit_margin_scales_out_beyond_automatic_fit(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     context = load_static_context(project_dir)
@@ -3435,14 +4038,14 @@ def test_render_overview_panel_keeps_country_labels_inside_axes_bounds(tmp_path:
         base_extent = render_module._overview_extent(ax, context, scale=1_800_000)
         boundaries = gpd.GeoDataFrame(
             {"CNTR_ID": ["DEMO"]},
-            geometry=[box(base_extent[1] - 500.0, base_extent[2] + 500.0, base_extent[1] - 10.0, base_extent[3] - 500.0)],
+            geometry=[box(base_extent[1] - 500.0, base_extent[3] - 500.0, base_extent[1] - 10.0, base_extent[3] - 10.0)],
             crs="EPSG:25832",
         )
         regions = boundaries.copy()
         label_text = "A very long country label near the right border"
         labels = gpd.GeoDataFrame(
             {"CNTR_ID": ["DEMO"], "NAME_ENGL": [label_text]},
-            geometry=[Point(base_extent[1] - 100.0, 0.5 * (base_extent[2] + base_extent[3]))],
+            geometry=[Point(base_extent[1] - 100.0, base_extent[3] - 100.0)],
             crs="EPSG:25832",
         )
         monkeypatch.setattr(render_module, "load_overview_boundaries", lambda **_kwargs: boundaries)

@@ -733,7 +733,7 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
             ["1", "2", "3", "4"],
             None,
             0.0,
-            [2.0, 8.0],
+            [0.35, 6.5],
             18.0,
             1.0,
             "center",
@@ -744,7 +744,7 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
             ["1", "2", "3", "4"],
             None,
             0.0,
-            [2.0, 8.0],
+            [0.35, 6.5],
             18.0,
             1.0,
             "center",
@@ -755,7 +755,7 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
             ["1", "2", "3"],
             None,
             0.0,
-            [2.0, 8.0],
+            [0.35, 6.5],
             18.0,
             1.0,
             "center",
@@ -766,13 +766,54 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
             ["1", "2", "3"],
             None,
             0.0,
-            [2.0, 8.0],
+            [0.35, 6.5],
             18.0,
             1.0,
             "center",
         ),
     ]
     assert out_path.is_file()
+
+
+def test_plot_result_overview_lower_assimilation_label_row_stays_above_panel(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        dates = pd.date_range("2023-01-01", periods=4, freq="D")
+        frame = pd.DataFrame({"date": dates, "scf": [0.2, 0.3, 0.4, 0.5]})
+        out_path = tmp_path / "result_overview.png"
+        plot_result_overview(
+            scf_obs=frame,
+            scf_model=frame,
+            wet_obs=None,
+            wet_model=None,
+            scf_env=None,
+            wet_env=None,
+            assim_events=[
+                plot_mod.AssimilationEvent(date=pd.Timestamp(date).date(), variable="scf", product="SNOWCOVER")
+                for date in dates
+            ],
+            output=out_path,
+        )
+
+        fig = plt.gcf()
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        main_axes = _panel_axes(fig)
+        label_axes = [ax for ax in fig.axes if ax.get_label().startswith("assimilation_label_axis")]
+
+        assert label_axes
+        for main_ax, label_ax in zip(main_axes, label_axes, strict=True):
+            assert label_ax.texts
+            for text in label_ax.texts:
+                bbox = text.get_window_extent(renderer)
+                assert bbox.y0 >= main_ax.bbox.y1
+        assert out_path.is_file()
+    finally:
+        original_close(plt.gcf())
+        plt.close = original_close
 
 
 def test_plot_result_overview_adds_assimilation_label_axis_to_each_panel_when_events_exist(tmp_path: Path) -> None:
@@ -1682,6 +1723,15 @@ def test_project_custom_config_path_uses_project_root_file(tmp_path: Path) -> No
 
 def test_project_custom_config_path_returns_none_when_root_file_missing(tmp_path: Path) -> None:
     assert _project_custom_config_path(tmp_path) is None
+
+
+def test_shipped_subdomain_custom_overview_uses_roi_satellite_ess_and_scores_without_station() -> None:
+    cfg = Path(__file__).resolve().parents[2] / "examples/subdomains/projects/project_2022_2023/plots.yml"
+
+    specs = _parse_panel_specs(cfg)
+
+    assert [spec.panel for spec in specs] == ["fSC", "roi-sd", "ess", "scores-crpss"]
+    assert all(spec.station_id is None for spec in specs)
 
 
 def test_load_station_panel_data_falls_back_to_setup_root_obs_dir(monkeypatch, tmp_path: Path) -> None:

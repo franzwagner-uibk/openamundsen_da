@@ -6,9 +6,7 @@ from pathlib import Path
 import matplotlib.image as mpimg
 import numpy as np
 import pytest
-
 from openamundsen_da.methods.viz.reports.project_collection_pdf import (
-    MissingProjectPdfArtifactsError,
     _content_rows,
     _format_page_range,
     _image_size_inches,
@@ -270,22 +268,69 @@ def test_collect_project_report_summary_handles_missing_cost_stats(tmp_path: Pat
     assert "Runtime: n/a" in cost.lines
 
 
-def test_build_project_collection_pdf_fails_with_all_missing_core_paths(tmp_path: Path) -> None:
+def test_collect_project_report_summary_includes_subdomain_outputs(tmp_path: Path) -> None:
+    project_dir = _create_project(tmp_path, event_count=1)
+    results = project_dir / "results"
+    (results / "subdomain_overview.csv").write_text(
+        "subdomain_id,status,duration_seconds\nsd_01,success,12\nsd_02,success,18\n",
+        encoding="utf-8",
+    )
+    (results / "subdomain_assimilation_aggregate.csv").write_text(
+        "subdomain_id,ess_norm_mean,ess_norm_min\nsd_01,0.9,0.5\nsd_02,0.7,0.2\n",
+        encoding="utf-8",
+    )
+    (results / "subdomain_dropped_events.csv").write_text(
+        "subdomain_id,date,variable,reason\nsd_02,2023-01-01,scf,cloud\n",
+        encoding="utf-8",
+    )
+
+    summary = collect_project_report_summary(project_dir)
+    subdomains = next(section for section in summary.sections if section.title == "Subdomains")
+
+    assert "Statuses: success x2" in subdomains.lines
+    assert "Subdomains: 2" in subdomains.lines
+    assert "Slowest subdomain: 18s" in subdomains.lines
+    assert "Mean ESS/n range: 0.700 to 0.900" in subdomains.lines
+    assert "Weakest ESS/n: sd_02 = 0.200" in subdomains.lines
+    assert "Dropped subdomain events: 1" in subdomains.lines
+
+
+def test_build_project_collection_pdf_writes_summary_with_missing_artifacts(tmp_path: Path) -> None:
     project_dir = tmp_path / "setup" / "projects" / "project_2023"
     _write_project_yaml(project_dir, event_count=1)
     output = tmp_path / "out.pdf"
 
-    with pytest.raises(MissingProjectPdfArtifactsError) as exc_info:
-        build_project_collection_pdf(project_dir=project_dir, output=output)
+    written = build_project_collection_pdf(project_dir=project_dir, output=output)
 
-    text = str(exc_info.value)
-    assert "result_overview.png" in text
-    assert "setup_overview.png" in text
-    assert "setup_weights_overview_2023.png" in text
-    assert "da_1.png" in text
-    assert "oa-da-plot-project-plots" in text
-    assert "oa-da-plot-project-maps" in text
-    assert not output.exists()
+    assert written == output
+    assert output.is_file()
+    assert _pdf_page_count(output) == 1
+
+
+def test_build_project_collection_pdf_handles_subdomain_summary_section(tmp_path: Path) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2023"
+    _write_project_yaml(project_dir, event_count=1)
+    results = project_dir / "results"
+    results.mkdir(parents=True)
+    (results / "subdomain_overview.csv").write_text(
+        "subdomain_id,status,duration_seconds\nsd_01,success,12\nsd_02,success,18\n",
+        encoding="utf-8",
+    )
+    (results / "subdomain_assimilation_aggregate.csv").write_text(
+        "subdomain_id,ess_norm_mean,ess_norm_min\nsd_01,0.9,0.5\nsd_02,0.7,0.2\n",
+        encoding="utf-8",
+    )
+    (results / "subdomain_dropped_events.csv").write_text(
+        "subdomain_id,date,variable,reason\nsd_02,2023-01-01,scf,cloud\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "out.pdf"
+
+    written = build_project_collection_pdf(project_dir=project_dir, output=output)
+
+    assert written == output
+    assert output.is_file()
+    assert _pdf_page_count(output) == 1
 
 
 def test_build_project_collection_pdf_writes_expected_page_count(tmp_path: Path) -> None:

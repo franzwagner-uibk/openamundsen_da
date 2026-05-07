@@ -508,7 +508,7 @@ Typical custom `maps.yml` files still use this panel catalog:
 #     # viewport_px: [1024, 1024]
 ```
 
-Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference panels show `analysis_increment` (`posterior - prior`); FSC and wet-snow reference panels show the satellite observation. WSLA lines are panel-local and observation WSLA is drawn only in the observation/reference panel. If an event's resampling manifest has `skipped: true`, the generated map title includes `resampling skipped`.
+Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference panels show `analysis_increment` (`posterior - prior`); FSC and wet-snow reference panels show the satellite observation. WSLA lines are panel-local and observation WSLA is drawn only in the observation/reference panel. Top-level sub-domain SCF events use a taller same-file layout with a 2x2 snow-cover block above the 2x2 snow-depth response block; exact rerendering requires retained per-sub-domain grids. If an event's resampling manifest has `skipped: true`, the generated map title includes `resampling skipped`.
 
 ```bash
 oa-da-plot-project-maps \
@@ -524,7 +524,7 @@ oa-da-plot-project-maps \
 
 Generated `wet_snow` and `wet_snow_line` DA-event maps include a generated-only spatial elevation-band WSF row below the primary wet-snow row. Each panel keeps the map footprint, but every valid cell is colored by the raw wet snow fraction of its elevation band on a fixed white-to-black `0-100%` scale for open loop, posterior, and observation columns.
 
-Static context panels (`hillshade`, `dem`, `svf`, `srf`, `landcover`) render the full raster coverage inside the map extent. Model and observation panels remain ROI-masked. When `show_hillshade: true`, `hillshade_extent: roi` limits the hillshade to the ROI mask and `hillshade_extent: full` draws it across the full panel. In the supported Docker workflow, omitted `--max-workers` uses automatic recipe-level multicore rendering with the effective worker count clamped to `min(visible CPUs, selected recipes)`; pass `--max-workers 1` to keep rendering sequential. If one or more maps fail because supporting data are missing, the pipeline logs a rerun command and continues. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
+Static context panels (`hillshade`, `dem`, `svf`, `srf`, `landcover`) render the full raster coverage inside the map extent. Model and observation panels remain ROI-masked. Prepared sub-domain projects automatically draw the configured sub-domain polygons from `subdomain_manifest.json` on top-level ROI-bearing map panels and overview panels. Generated DA-event maps mark a sub-domain as `no DA` only when the event was dropped locally and recorded in `results/subdomain_dropped_events.csv`; events with valid weights are not marked just because posterior resampling was skipped. When `show_hillshade: true`, `hillshade_extent: roi` limits the hillshade to the ROI mask and `hillshade_extent: full` draws it across the full panel. In the supported Docker workflow, omitted `--max-workers` uses automatic recipe-level multicore rendering with the effective worker count clamped to `min(visible CPUs, selected recipes)`; pass `--max-workers 1` to keep rendering sequential. If one or more maps fail because supporting data are missing, the pipeline logs a rerun command and continues. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
 
 The `uncertainty` panel renders GeoTIFF companion rasters named `<source>_uncertainty.tif` for `observation: scf` or `observation: wet_snow`. Values use the same `0..100 [%]` scale as uncertainty-aware preprocessing, and invalid observation pixels stay masked.
 
@@ -776,7 +776,7 @@ DA defaults & tips:
 - Merge is hard mosaic only (no interpolation/blending).
 - Visible breaks at sub-domain boundaries are expected and intentional.
 - Merge writes `results/grids/da_output_grids.nc` as the compact data assimilation grid product.
-- Compact retention is the default (`data_assimilation.output.retention: compact`); set `full` to keep all member grid artifacts.
+- Sub-domain DA projects default to full retention (`data_assimilation.output.retention: full`) so DA-event maps can be regenerated exactly. Set `compact` only if you knowingly allow heavy sub-domain grids to be pruned after the merged compact NetCDF is written.
 - Sub-domain mode keeps point outputs and point plots inside each sub-domain project (no project-root point merge).
 
 Model defaults & tips:

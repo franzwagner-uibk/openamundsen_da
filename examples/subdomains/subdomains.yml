@@ -1,4 +1,4 @@
-domain: north_tyrol
+domain: subdomain_example
 resolution: 100
 timestep: 3H
 crs: epsg:25832

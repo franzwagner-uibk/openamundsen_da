@@ -209,7 +209,7 @@ _STATION_PANEL_EVENT_VARIABLE = {
     "station-swe": "station_swe",
 }
 
-_ASSIM_LABEL_ROW_OFFSETS_PTS = [2.0, 8.0]
+_ASSIM_LABEL_ROW_OFFSETS_PTS = [0.35, 6.5]
 _ASSIM_LABEL_MIN_SPACING_DAYS = 18.0
 
 
@@ -1961,17 +1961,18 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
             wsl_env = None
     wsl_prior_coverage = _load_wsl_prior_coverage_frame(project_dir)
 
-    if scf_obs is None or scf_obs.empty:
-        logger.warning("SCF obs not found at {} - plotting without obs points", scf_obs_path)
-    if wet_obs is None or wet_obs.empty:
-        logger.warning("Wet-snow obs not found at {} - plotting without obs points", wet_obs_path)
-    if wsl_obs is None or wsl_obs.empty:
-        logger.warning("Wet-snow-line obs not found at {} - plotting without obs points", wsl_obs_path)
-
     try:
         assim_events = load_assimilation_events(project_dir)
     except (FileNotFoundError, ValueError):
         assim_events = []
+    event_variables = {event.variable for event in assim_events}
+
+    if scf_obs is None or scf_obs.empty:
+        logger.warning("SCF obs not found at {} - plotting without obs points", scf_obs_path)
+    if "wet_snow" in event_variables and (wet_obs is None or wet_obs.empty):
+        logger.warning("Wet-snow obs not found at {} - plotting without obs points", wet_obs_path)
+    if "wet_snow_line" in event_variables and (wsl_obs is None or wsl_obs.empty):
+        logger.warning("Wet-snow-line obs not found at {} - plotting without obs points", wsl_obs_path)
 
     try:
         ess_df = load_setup_ess_series(project_dir)

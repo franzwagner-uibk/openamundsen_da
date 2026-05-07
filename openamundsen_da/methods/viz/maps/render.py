@@ -62,8 +62,11 @@ from openamundsen_da.methods.viz.maps.layout import (
     figure_size,
     google_zoom_meters_per_pixel as _google_zoom_meters_per_pixel,
     grid_span as _grid_span,
+    horizontal_annotation_gap_axes as _horizontal_annotation_gap_axes,
+    horizontal_colorbar_total_extra as _horizontal_colorbar_total_extra,
     horizontal_legend_available_width_in as _horizontal_legend_available_width_in,
     horizontal_legend_bottom_pad as _horizontal_legend_bottom_pad,
+    horizontal_legend_gap_axes as _horizontal_legend_gap_axes,
     horizontal_legend_item_width_in as _horizontal_legend_item_width_in,
     horizontal_legend_row_height_factors as _horizontal_legend_row_height_factors,
     horizontal_legend_row_layout as _horizontal_legend_row_layout,
@@ -96,6 +99,7 @@ from openamundsen_da.methods.viz.maps.panel_renderers import (
     classified_legend_handles as _classified_legend_handles,
     comparison_scales as _comparison_scales,
     draw_classified_legend as _draw_classified_legend,
+    draw_subdomain_dropped_event_overlay as _draw_subdomain_dropped_event_overlay,
     draw_roi as _draw_roi,
     draw_stations_overlay as _draw_stations_overlay,
     field_array as _field_array,
@@ -204,10 +208,18 @@ def _row_bottom_extras(
     figure_horizontal_default: bool,
     obs_cache: dict[tuple[str, str], ObservationScene] | None = None,
 ) -> dict[int, float]:
+    height_ratios = _effective_row_height_ratios(recipe, row_extents=_row_extents_for_recipe(recipe, context))
+    row_panel_height_in = {
+        row: panel_width_in * float(height_ratios[row]) * 1.02
+        for row in range(recipe.layout.nrows)
+    }
+    row_panel_aspect = {row: float(height_ratios[row]) for row in range(recipe.layout.nrows)}
     return row_bottom_extras(
         recipe,
         context=context,
         panel_width_in=panel_width_in,
+        row_panel_height_in=row_panel_height_in,
+        row_panel_aspect=row_panel_aspect,
         figure_horizontal_default=figure_horizontal_default,
         obs_cache=obs_cache,
         classified_labels_getter=_classified_display_labels,
@@ -462,6 +474,46 @@ def _render_panel(
     raise ValueError(f"Unsupported panel kind '{panel.kind}'")
 
 
+def _generated_da_event_variable(recipe: MapRecipe) -> str | None:
+    if recipe.output_subdir != "da_events":
+        return None
+    for panel in recipe.panels:
+        if panel.variable:
+            return str(panel.variable).strip().lower()
+    panel_kinds = {str(panel.kind).strip().lower() for panel in recipe.panels}
+    if "fsc" in panel_kinds:
+        return "scf"
+    if "wet_snow_line" in panel_kinds:
+        return "wet_snow_line"
+    if "wet_snow" in panel_kinds or "wet_snow_elevation_fraction" in panel_kinds:
+        return "wet_snow"
+    return None
+
+
+def _draw_generated_da_event_status_overlay(
+    ax,
+    *,
+    recipe: MapRecipe,
+    panel,
+    context: StaticContext,
+) -> None:
+    if panel.kind in _SUPPORT_PANEL_KINDS:
+        return
+    if recipe.output_subdir != "da_events":
+        return
+    if recipe.defaults.date is None:
+        return
+    variable = _generated_da_event_variable(recipe)
+    if variable is None:
+        return
+    _draw_subdomain_dropped_event_overlay(
+        ax,
+        context,
+        date=pd.Timestamp(recipe.defaults.date).normalize(),
+        variable=variable,
+    )
+
+
 def render_map_recipe(
     *,
     project_dir: Path,
@@ -551,6 +603,12 @@ def render_map_recipe(
                 cache=cache,
                 figure_horizontal_default=figure_horizontal_default,
             )
+            _draw_generated_da_event_status_overlay(
+                ax,
+                recipe=recipe,
+                panel=panel,
+                context=context,
+            )
 
         if panel.below_items:
             _draw_panel_below_items(ax, panel=panel, artifacts=artifacts)
@@ -623,8 +681,11 @@ __all__ = [
     "_hillshade",
     "_hillshade_extent",
     "_hillshade_underlay",
+    "_horizontal_annotation_gap_axes",
+    "_horizontal_colorbar_total_extra",
     "_horizontal_legend_available_width_in",
     "_horizontal_legend_bottom_pad",
+    "_horizontal_legend_gap_axes",
     "_horizontal_legend_item_width_in",
     "_horizontal_legend_row_height_factors",
     "_horizontal_legend_row_layout",

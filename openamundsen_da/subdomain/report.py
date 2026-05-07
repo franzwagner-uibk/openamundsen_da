@@ -144,6 +144,10 @@ def write_subdomain_reports(
                 "duration_seconds": float(run_manifest.get("duration_seconds", float("nan"))),
                 "n_steps": int(n_steps),
                 "n_assimilation_events": int(n_events),
+                **{
+                    key: int(value)
+                    for key, value in (getattr(sub, "station_counts", None) or {}).items()
+                },
                 "setup_dir": str(sub.setup_dir),
                 "project_dir": str(sub.project_dir),
                 "run_manifest": str(sub.run_manifest or (sub.setup_dir / "run_manifest.json")),
@@ -184,4 +188,3 @@ def write_subdomain_reports(
         logger.warning("No assimilation weight CSV files found for sub-domain report generation.")
 
     return outputs
-

@@ -304,6 +304,18 @@ def _standalone_result_title(token: str, *, var_key: str, station_label: str) ->
     return f"{metric} {station_label} - openAMUNDSEN ensemble and station observation"
 
 
+def _point_file_matches_result_variable(filename: str, var_col: str) -> bool:
+    token = Path(filename).stem
+    var_key = str(var_col or "").strip().lower()
+    if token == "point_swe_roi":
+        return var_key == "swe"
+    if token == "point_snow_depth_roi":
+        return var_key in {"snow_depth", "snowdepth", "hs"}
+    if token in {"point_scf_roi", "point_wet_snow_roi", "point_wet_snow_line_roi"}:
+        return False
+    return True
+
+
 def _station_obs_color(var_col: str) -> str:
     return COLOR_DA_OBS
 
@@ -754,6 +766,7 @@ def plot_setup_results(
     if not point_files:
         raise FileNotFoundError("No point_*.csv files found in any step's results directories")
 
+    point_files = [fname for fname in point_files if _point_file_matches_result_variable(fname, var_col)]
     if stations:
         keep = set(stations)
         point_files = [f for f in point_files if f in keep]

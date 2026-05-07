@@ -155,7 +155,7 @@ data_assimilation:
     output_dir: results/benchmark
 
   output:
-    retention: compact # options: compact | full
+    retention: compact # options: compact | full; sub-domain projects default to full when omitted
 
   landcover_mask:
     enabled: true
@@ -253,6 +253,7 @@ Notes:
   - `input_dir`, `u_min`, `u_max`, `base_uncertainty`, `nodata_value`, and `penalties[]` are used by `oa-da-scf-uncertainty` / `oa-da-wetsnow-uncertainty`.
   - `penalties[].input_dir` is required only for `source: shadow`.
 - `output.retention: compact` writes `results/grids/da_output_grids.nc` and removes heavy member grid artifacts.
+- `run_mode: subdomain` defaults to `output.retention: full` when retention is omitted, preserving the sub-domain NC grids required for exact generated DA-event map rerendering.
 - `results/grids/da_output_grids.nc` is aggregated over all project steps (full project timeline).
 - In `da_output_grids.nc`, `increment_<var>` is the open-loop departure: `ens_mean_<var> - open_loop_<var>`.
 - Event analysis fields `analysis_mean_<var>` and `analysis_increment_<var>` are written where assimilation weights are available; `analysis_increment_<var>` is `analysis_mean_<var> - ens_mean_<var>`.

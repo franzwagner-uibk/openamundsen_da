@@ -20,17 +20,20 @@ def output_retention_mode(project_dir: Path) -> str:
     """Return output retention mode from project YAML, defaulting to compact."""
     try:
         cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+        run_mode = str(cfg.get("run_mode", "")).strip().lower()
+        default_mode = "full" if run_mode == "subdomain" else "compact"
         da_cfg = cfg.get("data_assimilation") or {}
         out_cfg = da_cfg.get("output") or {}
-        mode = str(out_cfg.get("retention", "compact")).strip().lower()
+        mode = str(out_cfg.get("retention", default_mode)).strip().lower()
         if mode in {"compact", "full"}:
             return mode
         logger.warning(
-            "Unknown data_assimilation.output.retention='{}' in {}; using 'compact'",
+            "Unknown data_assimilation.output.retention='{}' in {}; using '{}'",
             mode,
             project_dir,
+            default_mode,
         )
-        return "compact"
+        return default_mode
     except Exception:
         return "compact"
 

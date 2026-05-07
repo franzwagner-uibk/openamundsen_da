@@ -6,6 +6,7 @@ from pathlib import Path
 
 import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as pe
 import numpy as np
 import pandas as pd
 import rasterio
@@ -16,7 +17,7 @@ from matplotlib.colors import BoundaryNorm, LinearSegmentedColormap, ListedColor
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Rectangle
 from rasterio.warp import Resampling, reproject
-from shapely.geometry import box
+from shapely.geometry import Point, box
 
 from openamundsen_da.io.paths import (
     list_member_dirs,
@@ -46,6 +47,7 @@ from openamundsen_da.methods.viz.maps.data import (
     ModelFields,
     ObservationScene,
     StaticContext,
+    load_static_context,
     load_model_fields,
     load_observation_scene,
     load_observation_uncertainty_scene,
@@ -59,6 +61,7 @@ from openamundsen_da.methods.viz.maps.layout import (
     buffered_extent,
     draw_map_grid_overlay,
     extract_unit_title,
+    horizontal_legend_gap_axes,
     horizontal_legend_row_height_factors,
     horizontal_legend_row_layout,
     pack_horizontal_legend_rows,
@@ -118,6 +121,10 @@ from openamundsen_da.methods.viz.maps.theme import (
     _STATIC_FIELD_KIND_TO_FIELD,
     _STATION_COLOR,
     _STATION_LABEL_RATIO,
+    _SUBDOMAIN_BOUNDARY_COLOR,
+    _SUBDOMAIN_BOUNDARY_HALO_COLOR,
+    _SUBDOMAIN_BOUNDARY_HALO_WIDTH,
+    _SUBDOMAIN_BOUNDARY_WIDTH,
 )
 from openamundsen_da.methods.viz.wet_snow_fields import (
     elevation_band_fraction_map as _elevation_band_fraction_map,
@@ -127,6 +134,7 @@ from openamundsen_da.util.landcover_mask import resolve_landcover_mask
 from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
 from openamundsen_da.methods.wet_snow.classify import CLASSIFICATION_METHOD_AMOUNT, load_wet_snow_classification_config
 from openamundsen_da.methods.wet_snow.wsl import compute_wet_snow_line_from_masks
+from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta
 from openamundsen_da.util.da_observables import weights_csv_name
 
 
@@ -134,6 +142,9 @@ _FRACTION_MODEL_CMAP = colormaps["Greys"]
 _ELEVATION_BAND_WSF_ACCENT_LOW = 0.45
 _ELEVATION_BAND_WSF_ACCENT_HIGH = 0.55
 _ELEVATION_BAND_WSF_ACCENT_COLOR = "#d95f02"
+_SUBDOMAIN_NO_DA_COLOR = "#525252"
+_SUBDOMAIN_NO_DA_HATCH = "////"
+_SUBDOMAIN_NO_DA_LABEL = "no DA"
 _ELEVATION_BAND_WSF_CMAP = LinearSegmentedColormap.from_list(
     "oa_da_elevation_band_wsf",
     (
@@ -220,6 +231,115 @@ def draw_roi(ax, context: StaticContext, *, linewidth: float = 0.8, facecolor=No
     if facecolor is not None:
         context.roi_gdf.plot(ax=ax, facecolor=facecolor, edgecolor=facecolor, alpha=alpha if alpha is not None else 1.0, zorder=40)
     context.roi_gdf.boundary.plot(ax=ax, color="black", linewidth=linewidth, zorder=45)
+
+
+def draw_subdomain_boundaries(ax, context: StaticContext) -> None:
+    subdomains = context.subdomain_gdf
+    if subdomains is None or subdomains.empty:
+        return
+    collection_count = len(ax.collections)
+    subdomains.boundary.plot(
+        ax=ax,
+        color=_SUBDOMAIN_BOUNDARY_COLOR,
+        linewidth=_SUBDOMAIN_BOUNDARY_WIDTH,
+        zorder=46,
+    )
+    for collection in ax.collections[collection_count:]:
+        collection.set_path_effects(
+            [
+                pe.Stroke(linewidth=_SUBDOMAIN_BOUNDARY_HALO_WIDTH, foreground=_SUBDOMAIN_BOUNDARY_HALO_COLOR),
+                pe.Normal(),
+            ]
+        )
+
+
+def subdomain_dropped_event_regions(
+    context: StaticContext,
+    *,
+    date: pd.Timestamp,
+    variable: str,
+) -> pd.DataFrame | None:
+    subdomains = context.subdomain_gdf
+    dropped = context.subdomain_dropped_events
+    if subdomains is None or subdomains.empty or dropped is None or dropped.empty:
+        return None
+    if "subdomain_id" not in subdomains.columns:
+        return None
+
+    date_key = pd.Timestamp(date).normalize()
+    variable_key = str(variable).strip().lower()
+    rows = dropped[
+        (pd.to_datetime(dropped["date"], errors="coerce").dt.normalize() == date_key)
+        & (dropped["variable"].astype(str).str.strip().str.lower() == variable_key)
+    ]
+    if rows.empty:
+        return None
+
+    dropped_ids = {str(value) for value in rows["subdomain_id"].dropna().tolist()}
+    selected = subdomains[subdomains["subdomain_id"].astype(str).isin(dropped_ids)].copy()
+    if selected.empty:
+        return None
+    return selected
+
+
+def _subdomain_dropped_event_ids(context: StaticContext, *, date: pd.Timestamp, variable: str) -> set[str]:
+    dropped = context.subdomain_dropped_events
+    if dropped is None or dropped.empty:
+        return set()
+    date_key = pd.Timestamp(date).normalize()
+    variable_key = str(variable).strip().lower()
+    rows = dropped[
+        (pd.to_datetime(dropped["date"], errors="coerce").dt.normalize() == date_key)
+        & (dropped["variable"].astype(str).str.strip().str.lower() == variable_key)
+    ]
+    if rows.empty:
+        return set()
+    return {str(value) for value in rows["subdomain_id"].dropna().tolist()}
+
+
+def draw_subdomain_dropped_event_overlay(
+    ax,
+    context: StaticContext,
+    *,
+    date: pd.Timestamp,
+    variable: str,
+) -> None:
+    selected = subdomain_dropped_event_regions(context, date=date, variable=variable)
+    if selected is None or selected.empty:
+        return
+
+    selected.plot(
+        ax=ax,
+        facecolor="none",
+        edgecolor=_SUBDOMAIN_NO_DA_COLOR,
+        linewidth=0.0,
+        hatch=_SUBDOMAIN_NO_DA_HATCH,
+        zorder=47,
+    )
+    selected.boundary.plot(
+        ax=ax,
+        color=_SUBDOMAIN_NO_DA_COLOR,
+        linewidth=1.05,
+        linestyle=(0, (2.5, 1.8)),
+        zorder=48,
+    )
+    for geom in selected.geometry:
+        if geom is None or geom.is_empty:
+            continue
+        point = geom.representative_point()
+        apply_overlay_label_halo(
+            ax.text(
+                float(point.x),
+                float(point.y),
+                _SUBDOMAIN_NO_DA_LABEL,
+                ha="center",
+                va="center",
+                fontsize=5.7,
+                color=_SUBDOMAIN_NO_DA_COLOR,
+                zorder=_ANNOTATION_ZORDER + 1,
+            ),
+            with_bbox=True,
+        )
 
 
 def suppress_station_labels(stations, extent: tuple[float, float, float, float]) -> list[int]:
@@ -429,9 +549,10 @@ def draw_classified_legend(ax, handles: list[object], *, layout: str) -> None:
         row_height_factors = horizontal_legend_row_height_factors(rows)
         total_row_units = float(sum(row_height_factors))
         inset_height = total_row_units * _HORIZONTAL_LEGEND_ROW_HEIGHT_AXES
+        gap_axes = horizontal_legend_gap_axes(ax)
         legend_height_in = max(axis_height_inches(ax) * inset_height, 1e-9)
         legend_ax = ax.inset_axes(
-            [0.0, -(_HORIZONTAL_LEGEND_GAP_AXES + inset_height), 1.0, inset_height],
+            [0.0, -(gap_axes + inset_height), 1.0, inset_height],
             transform=ax.transAxes,
         )
         register_child_axes(ax, legend_ax)
@@ -514,6 +635,7 @@ def apply_common_overlays(
 ) -> None:
     if show_roi:
         draw_roi(ax, context)
+        draw_subdomain_boundaries(ax, context)
     if show_station_marker:
         draw_stations_overlay(
             ax,
@@ -571,10 +693,12 @@ def overview_label_point(geometry):
 
 def overview_country_label_specs(
     *,
+    ax,
     visible_countries,
     labels,
     extent: tuple[float, float, float, float],
     roi_anchor: tuple[float, float] | None,
+    avoid_geometry=None,
 ) -> list[OverviewLabelSpec]:
     if visible_countries.empty:
         return []
@@ -602,29 +726,103 @@ def overview_country_label_specs(
     placements: list[OverviewLabelSpec] = []
 
     for row in working.sort_values(by="label_area", ascending=False).itertuples():
-        point = overview_label_point(row.geometry)
-        if point is None:
+        spec = _overview_country_label_spec_for_geometry(
+            ax=ax,
+            text=str(row.label_name),
+            geometry=row.geometry,
+            extent=extent,
+            avoid_geometry=avoid_geometry,
+            placed=placed,
+            min_dx=min_dx,
+            min_dy=min_dy,
+        )
+        if spec is None:
             continue
-        x = float(point.x)
-        y = float(point.y)
+        placements.append(spec)
+        placed.append((spec.x, spec.y))
+    return placements
+
+
+def _overview_country_label_spec_for_geometry(
+    *,
+    ax,
+    text: str,
+    geometry,
+    extent: tuple[float, float, float, float],
+    avoid_geometry,
+    placed: list[tuple[float, float]],
+    min_dx: float,
+    min_dy: float,
+) -> OverviewLabelSpec | None:
+    visible_extent = box(extent[0], extent[2], extent[1], extent[3])
+    visible_geometry = geometry.intersection(visible_extent)
+    if visible_geometry.is_empty:
+        visible_geometry = geometry
+    base_point = overview_label_point(visible_geometry)
+    if base_point is None:
+        return None
+    base_xy = (float(base_point.x), float(base_point.y))
+
+    candidates = [base_xy]
+    if avoid_geometry is not None:
+        candidates.extend(_overview_country_label_relocation_candidates(visible_geometry, extent=extent, base_xy=base_xy))
+
+    for x, y in candidates:
         if not (extent[0] <= x <= extent[1] and extent[2] <= y <= extent[3]):
             continue
         if any(abs(x - px) < min_dx and abs(y - py) < min_dy for px, py in placed):
             continue
-        placements.append(
-            OverviewLabelSpec(
-                text=str(row.label_name),
-                x=x,
-                y=y,
-                ha="center",
-                va="center",
-                fontsize=_OVERVIEW_LABEL_SIZE,
-                with_bbox=True,
-                zorder=_ANNOTATION_ZORDER - 2,
-            )
+        spec = OverviewLabelSpec(
+            text=text,
+            x=x,
+            y=y,
+            ha="center",
+            va="center",
+            fontsize=_OVERVIEW_LABEL_SIZE,
+            with_bbox=True,
+            zorder=_ANNOTATION_ZORDER - 2,
         )
-        placed.append((x, y))
-    return placements
+        if avoid_geometry is not None and overview_label_data_box(ax, spec, extent=extent).intersects(avoid_geometry):
+            continue
+        return spec
+    return None
+
+
+def _overview_country_label_relocation_candidates(
+    geometry,
+    *,
+    extent: tuple[float, float, float, float],
+    base_xy: tuple[float, float],
+) -> list[tuple[float, float]]:
+    minx, miny, maxx, maxy = geometry.bounds
+    minx = max(float(minx), float(extent[0]))
+    maxx = min(float(maxx), float(extent[1]))
+    miny = max(float(miny), float(extent[2]))
+    maxy = min(float(maxy), float(extent[3]))
+    if minx >= maxx or miny >= maxy:
+        return []
+
+    fractions = (0.2, 0.35, 0.5, 0.65, 0.8)
+    candidates: list[tuple[float, float]] = []
+    for fx in fractions:
+        x = minx + fx * (maxx - minx)
+        for fy in fractions:
+            y = miny + fy * (maxy - miny)
+            point = Point(x, y)
+            if geometry.covers(point):
+                candidates.append((float(x), float(y)))
+
+    base_x, base_y = base_xy
+    candidates.sort(key=lambda xy: (xy[0] - base_x) ** 2 + (xy[1] - base_y) ** 2)
+    deduped: list[tuple[float, float]] = []
+    seen: set[tuple[float, float]] = set()
+    for x, y in candidates:
+        key = (round(x, 6), round(y, 6))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append((x, y))
+    return deduped
 
 
 def overview_roi_label_spec(panel: MapPanelSpec, *, extent: tuple[float, float, float, float], context: StaticContext) -> OverviewLabelSpec | None:
@@ -660,27 +858,7 @@ def overview_extent_growth_for_labels(
     extra_left = extra_right = extra_bottom = extra_top = 0.0
 
     for spec in label_specs:
-        width_in, height_in = overview_label_box_size_in(spec)
-        half_width = 0.5 * width_in
-        half_height = 0.5 * height_in
-        if spec.ha == "left":
-            left_in = 0.0
-            right_in = width_in
-        elif spec.ha == "right":
-            left_in = width_in
-            right_in = 0.0
-        else:
-            left_in = half_width
-            right_in = half_width
-        if spec.va == "top":
-            bottom_in = height_in
-            top_in = 0.0
-        elif spec.va == "bottom":
-            bottom_in = 0.0
-            top_in = height_in
-        else:
-            bottom_in = half_height
-            top_in = half_height
+        left_in, right_in, bottom_in, top_in = overview_label_overhang_in(spec)
 
         extra_left = max(extra_left, max(left_in * data_per_in_x - (spec.x - extent[0]), 0.0))
         extra_right = max(extra_right, max(right_in * data_per_in_x - (extent[1] - spec.x), 0.0))
@@ -700,6 +878,45 @@ def overview_extent_growth_for_labels(
         extent[1] + extra_right,
         extent[2] - extra_bottom,
         extent[3] + extra_top,
+    )
+
+
+def overview_label_overhang_in(spec: OverviewLabelSpec) -> tuple[float, float, float, float]:
+    width_in, height_in = overview_label_box_size_in(spec)
+    half_width = 0.5 * width_in
+    half_height = 0.5 * height_in
+    if spec.ha == "left":
+        left_in = 0.0
+        right_in = width_in
+    elif spec.ha == "right":
+        left_in = width_in
+        right_in = 0.0
+    else:
+        left_in = half_width
+        right_in = half_width
+    if spec.va == "top":
+        bottom_in = height_in
+        top_in = 0.0
+    elif spec.va == "bottom":
+        bottom_in = 0.0
+        top_in = height_in
+    else:
+        bottom_in = half_height
+        top_in = half_height
+    return left_in, right_in, bottom_in, top_in
+
+
+def overview_label_data_box(ax, spec: OverviewLabelSpec, *, extent: tuple[float, float, float, float]):
+    span_x = max(float(extent[1] - extent[0]), 1e-9)
+    span_y = max(float(extent[3] - extent[2]), 1e-9)
+    data_per_in_x = span_x / max(axis_width_inches(ax), 1e-9)
+    data_per_in_y = span_y / max(axis_height_inches(ax), 1e-9)
+    left_in, right_in, bottom_in, top_in = overview_label_overhang_in(spec)
+    return box(
+        spec.x - left_in * data_per_in_x,
+        spec.y - bottom_in * data_per_in_y,
+        spec.x + right_in * data_per_in_x,
+        spec.y + top_in * data_per_in_y,
     )
 
 
@@ -801,10 +1018,12 @@ def overview_extent_with_label_fit(
         roi_label = overview_roi_label_spec(panel, extent=extent, context=context)
         visible_regions = visible_regions_getter(extent)
         label_specs = overview_country_label_specs(
+            ax=ax,
             visible_countries=visible_regions,
             labels=labels,
             extent=extent,
             roi_anchor=(roi_label.x, roi_label.y) if roi_label is not None else None,
+            avoid_geometry=context.roi_gdf.geometry.unary_union,
         )
         if roi_label is not None:
             label_specs.append(roi_label)
@@ -863,6 +1082,7 @@ def render_overview_panel(
             linewidth=0.8,
             zorder=25,
         )
+        draw_subdomain_boundaries(ax, context)
         roi_label = overview_roi_label_spec(panel, extent=extent, context=context)
         if roi_label is not None:
             draw_overview_label_specs(ax, [roi_label])
@@ -906,12 +1126,15 @@ def render_overview_panel(
         aspect_adjustable="box",
     )
     context.roi_gdf.plot(ax=ax, facecolor=_OVERVIEW_ROI_COLOR, edgecolor=_OVERVIEW_ROI_COLOR, linewidth=0.8, zorder=25)
+    draw_subdomain_boundaries(ax, context)
     roi_label = overview_roi_label_spec(panel, extent=extent, context=context)
     label_specs = overview_country_label_specs(
+        ax=ax,
         visible_countries=visible_regions,
         labels=country_labels,
         extent=extent,
         roi_anchor=(roi_label.x, roi_label.y) if roi_label is not None else None,
+        avoid_geometry=context.roi_gdf.geometry.unary_union,
     )
     if roi_label is not None:
         label_specs.append(roi_label)
@@ -1861,30 +2084,66 @@ def _scf_binary_grid_from_results(
     _method, variable, params = load_hofx_from_project(context.project_dir)
     lc_cfg = resolve_landcover_mask(context.setup_dir, context.project_dir)
     roi_path = ensure_setup_roi_vector(context.setup_dir)
-    return compute_model_scf_binary_grid(
-        setup_dir=context.setup_dir,
-        project_dir=context.project_dir,
-        results_dir=results_dir,
-        aoi_path=roi_path,
-        landcover_cfg=lc_cfg,
-        apply_landcover_mask=False,
-        date=date.to_pydatetime(),
-        variable=variable,  # type: ignore[arg-type]
-        params=params,
+    try:
+        return compute_model_scf_binary_grid(
+            setup_dir=context.setup_dir,
+            project_dir=context.project_dir,
+            results_dir=results_dir,
+            aoi_path=roi_path,
+            landcover_cfg=lc_cfg,
+            apply_landcover_mask=False,
+            date=date.to_pydatetime(),
+            variable=variable,  # type: ignore[arg-type]
+            params=params,
+        )
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            "Cannot render spatial SCF DA-event map support for "
+            f"{pd.Timestamp(date).date()} from {results_dir}: {exc}. "
+            "The required step/member grids may have been removed by compact output retention. "
+            "For exact DA-event map regeneration in subdomain runs, run with "
+            "data_assimilation.output.retention: full."
+        ) from exc
+
+
+def _top_level_subdomain_manifest(context: StaticContext) -> SubdomainManifest | None:
+    manifest_path = Path(context.project_dir) / "subdomains" / "subdomain_manifest.json"
+    if not manifest_path.is_file():
+        return None
+    try:
+        manifest = SubdomainManifest.load(manifest_path)
+    except Exception:
+        return None
+    if str(getattr(manifest, "run_mode", "")).lower() != "subdomain":
+        return None
+    return manifest
+
+
+def _window_slices_for_subdomain(
+    sub: SubdomainMeta,
+    data_shape: tuple[int, int],
+    global_shape: tuple[int, int],
+) -> tuple[slice, slice]:
+    if data_shape == global_shape:
+        return slice(0, global_shape[0]), slice(0, global_shape[1])
+    return (
+        slice(sub.window.row_off, sub.window.row_off + data_shape[0]),
+        slice(sub.window.col_off, sub.window.col_off + data_shape[1]),
     )
 
 
-def _scf_model_probability_array(
+def _subdomain_roi_mask(sub: SubdomainMeta) -> np.ndarray:
+    with rasterio.open(sub.roi_raster_path) as src:
+        return src.read(1).astype(bool)
+
+
+def _single_domain_scf_model_probability_array(
     *,
     context: StaticContext,
     source: str,
     date: pd.Timestamp,
     derived_cache: dict[str, np.ndarray] | None,
 ) -> np.ndarray:
-    cache_key = f"scf-model-map:{source}:{pd.Timestamp(date).normalize().isoformat()}"
-    if derived_cache is not None and cache_key in derived_cache:
-        return np.asarray(derived_cache[cache_key], dtype=float)
-
     step_dir = _step_dir_for_date(context.project_dir, date)
     if source == "open_loop_binary":
         classified = _scf_binary_grid_from_results(
@@ -1919,6 +2178,95 @@ def _scf_model_probability_array(
 
     classified = np.asarray(classified, dtype=float)
     classified[~context.roi_mask] = np.nan
+    return classified
+
+
+def _top_level_subdomain_scf_model_probability_array(
+    *,
+    context: StaticContext,
+    source: str,
+    date: pd.Timestamp,
+) -> np.ndarray:
+    manifest = _top_level_subdomain_manifest(context)
+    if manifest is None or not manifest.subdomains:
+        raise FileNotFoundError(
+            f"Cannot render top-level subdomain spatial SCF DA-event map support for {pd.Timestamp(date).date()}: "
+            "subdomain_manifest.json is missing or contains no subdomains."
+        )
+
+    global_shape = tuple(context.roi_mask.shape)
+    mosaic = np.full(global_shape, np.nan, dtype=float)
+    dropped_ids = _subdomain_dropped_event_ids(context, date=date, variable="scf")
+    missing: list[str] = []
+    for sid, sub in manifest.subdomains.items():
+        if str(sid) in dropped_ids:
+            continue
+        try:
+            sub_context = load_static_context(sub.project_dir)
+            local = _single_domain_scf_model_probability_array(
+                context=sub_context,
+                source=source,
+                date=date,
+                derived_cache=None,
+            )
+            roi = _subdomain_roi_mask(sub)
+            sl_r, sl_c = _window_slices_for_subdomain(sub, local.shape, global_shape)
+            mask = roi
+            if mask.shape != local.shape:
+                if mask.shape == global_shape:
+                    mask = mask[sl_r, sl_c]
+                else:
+                    mask = np.ones(local.shape, dtype=bool)
+            local = np.where(mask, local, np.nan)
+        except (FileNotFoundError, RuntimeError, ValueError, KeyError) as exc:
+            missing.append(f"{sid}: {exc}")
+            continue
+
+        dest = mosaic[sl_r, sl_c]
+        replace = np.isnan(dest) & np.isfinite(local)
+        dest[replace] = local[replace]
+        mosaic[sl_r, sl_c] = dest
+
+    if missing:
+        details = "; ".join(missing[:5])
+        if len(missing) > 5:
+            details += f"; ... {len(missing) - 5} more"
+        raise FileNotFoundError(
+            f"Cannot render top-level subdomain spatial SCF DA-event map support for {pd.Timestamp(date).date()}. "
+            "Retained per-subdomain step/member grids are required for exact snow-cover panels, but some support "
+            f"data are missing ({details}). Compact-cleaned runs cannot be rerendered exactly; future subdomain "
+            "runs should use data_assimilation.output.retention: full."
+        )
+
+    mosaic[~context.roi_mask] = np.nan
+    return mosaic
+
+
+def _scf_model_probability_array(
+    *,
+    context: StaticContext,
+    source: str,
+    date: pd.Timestamp,
+    derived_cache: dict[str, np.ndarray] | None,
+) -> np.ndarray:
+    cache_key = f"scf-model-map:{source}:{pd.Timestamp(date).normalize().isoformat()}"
+    if derived_cache is not None and cache_key in derived_cache:
+        return np.asarray(derived_cache[cache_key], dtype=float)
+
+    if _top_level_subdomain_manifest(context) is not None:
+        classified = _top_level_subdomain_scf_model_probability_array(
+            context=context,
+            source=source,
+            date=date,
+        )
+    else:
+        classified = _single_domain_scf_model_probability_array(
+            context=context,
+            source=source,
+            date=date,
+            derived_cache=derived_cache,
+        )
+
     if derived_cache is not None:
         derived_cache[cache_key] = classified
     return classified

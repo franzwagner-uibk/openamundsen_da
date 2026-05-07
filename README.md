@@ -555,10 +555,10 @@ Note: running the setup pipeline (see below) also generates these setup plots au
   - generated DA-event maps under `results/maps/da_events/`
   - custom YAML maps at the root of `results/maps/`
 
-  Generated DA-event rows use four consistent columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference columns show `analysis_increment` (`posterior - prior`, so positive values mean DA added snow/water). FSC and wet-snow reference columns show the satellite observation. Generated FSC, WSF, WSLA, and elevation-band WSF rows use spatial prior/posterior probability maps where applicable; WSLA contours are panel-local, so model columns do not overlay observation WSLA. If the event resampling manifest reports skipped resampling, the map title is suffixed with `resampling skipped`.
+  Generated DA-event rows use four consistent columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference columns show `analysis_increment` (`posterior - prior`, so positive values mean DA added snow/water). FSC and wet-snow reference columns show the satellite observation. Generated FSC, WSF, WSLA, and elevation-band WSF rows use spatial prior/posterior probability maps where applicable; WSLA contours are panel-local, so model columns do not overlay observation WSLA. Top-level sub-domain SCF events use a taller same-file layout with a 2x2 snow-cover block above the 2x2 snow-depth response block; exact rerendering requires retained per-sub-domain grids. If the event resampling manifest reports skipped resampling, the map title is suffixed with `resampling skipped`.
 
   By default the renderer parallelizes across independent recipe PNGs inside the Docker container and clamps the effective worker count to `min(visible CPUs, selected recipes)`; use `--max-workers 1` to force sequential rendering. `oa-da-project` and merged sub-domain runs also render project maps automatically as a best-effort post-run stage. If a map fails because supporting data are missing, the pipeline logs a rerun command and continues.
-  Project maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`, `uncertainty`, `wet_snow_line`, `wet_snow_elevation_fraction`), and optional support panels (`legend`, `colorbar`). `uncertainty` renders `*_uncertainty.tif` companion rasters for `observation: scf` or `observation: wet_snow` on the valid observation support. Recipe-level `row_views` can assign a shared Google/Slippy-map zoom extent to every panel in a row. `wet_snow` renders WSF, while `wet_snow_line` renders the wet-snow raster context together with a DEM contour at the diagnosed WSLA. `prior_probability` and `posterior_probability` sources render spatial ensemble probability fields; observation overlays are kept in observation/reference panels.
+  Project maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`, `uncertainty`, `wet_snow_line`, `wet_snow_elevation_fraction`), and optional support panels (`legend`, `colorbar`). `uncertainty` renders `*_uncertainty.tif` companion rasters for `observation: scf` or `observation: wet_snow` on the valid observation support. In prepared sub-domain projects, top-level project maps automatically overlay the configured sub-domain polygons from `subdomain_manifest.json` on ROI-bearing map panels and overview panels. Generated DA-event maps additionally mark sub-domain polygons as `no DA` only when that event was dropped for the sub-domain and recorded in `results/subdomain_dropped_events.csv`; healthy events with computed weights are not marked just because resampling was skipped. Recipe-level `row_views` can assign a shared Google/Slippy-map zoom extent to every panel in a row. `wet_snow` renders WSF, while `wet_snow_line` renders the wet-snow raster context together with a DEM contour at the diagnosed WSLA. `prior_probability` and `posterior_probability` sources render spatial ensemble probability fields; observation overlays are kept in observation/reference panels.
 
 - Project plots (all post-run plots without rerunning DA):
 
@@ -625,7 +625,7 @@ Outputs
 - The combined project result overview plot (`results/plots/results/result_overview.png`) now shows SCF, wet-snow, ROI mean SWE, and ROI mean snow depth together.
   Setup results plots now show the ensemble mean, the 90% envelope, and the open loop by default; individual members are hidden unless `--show-members` is passed to the plot CLI. Wet-snow setup plots overlay available observations from `obs/<setup>/wet_snow_summary.csv` automatically.
   At the end of the setup run, per-step weights plots (`step_XX_weights.png`) and the setup ESS timeline (`setup_ess_timeline_<setup_id>.png`) are also generated under `<project_dir>/results/plots/assim/{weights,ess}`.
-  Default retention is compact (`data_assimilation.output.retention: compact`), which prunes heavy member grid artifacts after writing `da_output_grids.nc`. Set `retention: full` to keep all member grid files.
+  Single-domain projects default to compact retention (`data_assimilation.output.retention: compact`), which prunes heavy member grid artifacts after writing `da_output_grids.nc`. Sub-domain projects default to `retention: full` so generated DA-event maps can be regenerated exactly after the run.
 
 ### Backfilling model SCF for an existing setup (optional)
 
@@ -751,30 +751,31 @@ with `Ctrl+C`.
 
 ## State cleanup (free disk space)
 
-- Automatic: set `data_assimilation.restart.cleanup_after_setup: true` (default) in `setup.yml` to delete member state pickle files after a successful setup run.
-- Manual (ignores the toggle): clean one or all setups via Docker Compose.
+- Automatic: set `data_assimilation.restart.cleanup_after_setup: true` (default) in project YAML to delete member state pickle files after a successful project run.
+- Manual (ignores the toggle): clean one or all projects via Docker Compose.
 
-All setups under a project:
+All projects under a setup:
 
 ```powershell
 docker compose run --rm oa \
   python -m openamundsen_da.pipeline.cleanup \
-  --project-dir /data/your_project \
-  --all-setups \
+  --setup-dir /data/your_setup \
+  --all-projects \
   --log-level INFO
 ```
 
-Single setup:
+Single project:
 
 ```powershell
 docker compose run --rm oa \
   python -m openamundsen_da.pipeline.cleanup \
-  --project-dir /data/your_project \
-  --setup-dir /data/your_project/projects/project_YYYY-YYYY \
+  --setup-dir /data/your_setup \
+  --project-dir /data/your_setup/projects/project_YYYY-YYYY \
   --log-level INFO
 ```
 
 If you rebuilt the image with the latest code, you can replace the `python -m ...cleanup` line with the shorter `oa-da-clean-project`.
+Cleanup only removes matching state pickle files. It leaves `state_pointer.json`, grids, maps, reports, manifests, logs, and sub-domain workspaces in place; grid artifact pruning is controlled separately by `data_assimilation.output.retention`.
 
 
 ## Sub-domain Mode
@@ -812,7 +813,7 @@ DA defaults:
 - Sub-domain runs fail fast if configured assimilation events are not available in the local sub-domain observation summaries.
 - Projects may enable `data_assimilation.subdomain_event_filter` to drop unavailable SCF, wet-snow, or station events per sub-domain after local observation summaries are generated. Dropped events are recorded in each sub-domain run manifest and in `<project>/results/subdomain_dropped_events.csv`.
 - Configured `output_data.timeseries.points` are filtered to the active sub-domain ROI when sub-domain setup YAML files are generated.
-- Default retention is compact (`data_assimilation.output.retention: compact`) and removes heavy member grid artifacts after merge. Set `retention: full` to keep them.
+- Sub-domain projects default to full retention (`data_assimilation.output.retention: full`) and keep the sub-domain NC grids needed for exact DA-event map regeneration. Set `retention: compact` only if you knowingly trade away exact spatial DA-event map rerendering for disk savings.
 
 Example sub-domain event filter:
 

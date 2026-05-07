@@ -26,6 +26,7 @@ from openamundsen_da.methods.viz.plots.forcing_ensemble import cli_main as plot_
 from openamundsen_da.methods.viz.plots.project_ensemble import plot_setup_results
 from openamundsen_da.methods.viz.plots.result_overview import cli_main as plot_result_overview_cli
 from openamundsen_da.util.fraction_envelope import aggregate_fraction_envelope
+from openamundsen_da.util.da_events import load_assimilation_events
 
 
 @dataclass(frozen=True)
@@ -68,34 +69,39 @@ def aggregate_fraction_envelopes(
     project_dir: Path,
     project_fraction_envelope_path: Callable[[Path, str], Path],
 ) -> None:
-    """Aggregate SCF, WSF, and WSLA envelopes into results/misc."""
+    """Aggregate configured fraction envelopes into results/misc."""
+    specs = {
+        "scf": ("SCF", "point_scf_roi.csv", "scf"),
+        "wet_snow": ("WSF", "point_wet_snow_roi.csv", "wet_snow_fraction"),
+        "wet_snow_line": ("WSLA", "point_wet_snow_line_roi.csv", "wet_snow_line"),
+    }
     try:
-        _aggregate_fraction(
-            project_dir=project_dir,
-            filename="point_scf_roi.csv",
-            value_col="scf",
-            output_path=project_fraction_envelope_path(project_dir, "scf"),
-        )
+        event_variables = {event.variable for event in load_assimilation_events(project_dir)}
     except Exception as exc:
-        logger.warning("SCF envelope aggregation failed: {}", exc)
-    try:
-        _aggregate_fraction(
-            project_dir=project_dir,
-            filename="point_wet_snow_roi.csv",
-            value_col="wet_snow_fraction",
-            output_path=project_fraction_envelope_path(project_dir, "wet_snow"),
-        )
-    except Exception as exc:
-        logger.warning("WSF envelope aggregation failed: {}", exc)
-    try:
-        _aggregate_fraction(
-            project_dir=project_dir,
-            filename="point_wet_snow_line_roi.csv",
-            value_col="wet_snow_line",
-            output_path=project_fraction_envelope_path(project_dir, "wet_snow_line"),
-        )
-    except Exception as exc:
-        logger.warning("WSLA envelope aggregation failed: {}", exc)
+        logger.debug("Could not load assimilation_events for envelope filtering in {}: {}", project_dir, exc)
+        event_variables = set(specs)
+
+    variables = set()
+    if "scf" in event_variables:
+        variables.add("scf")
+    if "wet_snow" in event_variables or "wet_snow_line" in event_variables:
+        variables.add("wet_snow")
+    if "wet_snow_line" in event_variables:
+        variables.add("wet_snow_line")
+
+    for variable in ("scf", "wet_snow", "wet_snow_line"):
+        if variable not in variables:
+            continue
+        label, filename, value_col = specs[variable]
+        try:
+            _aggregate_fraction(
+                project_dir=project_dir,
+                filename=filename,
+                value_col=value_col,
+                output_path=project_fraction_envelope_path(project_dir, variable),
+            )
+        except Exception as exc:
+            logger.warning("{} envelope aggregation failed: {}", label, exc)
 
 
 def run_plot_tasks_parallel(

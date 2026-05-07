@@ -11,7 +11,9 @@ from openamundsen_da.io.paths import project_fraction_envelope_path
 from openamundsen_da.methods.viz.fraction_series import load_fraction_series, load_open_loop_fraction_series
 from openamundsen_da.methods.viz.maps.config import LayoutSpec, MapDefaults, MapPanelSpec, MapRecipe
 from openamundsen_da.observer.summary_paths import resolve_fraction_summary_path
+from openamundsen_da.subdomain.manifest import SubdomainManifest
 from openamundsen_da.util.da_events import AssimilationEvent, load_assimilation_events
+from openamundsen_da.util.run_mode import read_run_mode
 
 
 GENERATED_DA_MAPS_SUBDIR = "da_events"
@@ -94,6 +96,8 @@ def _relation_for_variable(
 
 
 def _fraction_model_support_available(project_dir: Path, variable: str) -> bool:
+    if _is_top_level_subdomain_project(project_dir):
+        return _top_level_subdomain_fraction_support_available(project_dir, variable)
     if not (project_dir / "steps").is_dir():
         return False
     value_col = "scf" if variable == "scf" else "wet_snow_fraction"
@@ -346,12 +350,94 @@ def _generated_rows_for_event(project_dir: Path, event: AssimilationEvent) -> tu
     return tuple(rows)
 
 
+def _is_top_level_subdomain_project(project_dir: Path) -> bool:
+    manifest_path = Path(project_dir) / "subdomains" / "subdomain_manifest.json"
+    return read_run_mode(project_dir) == "subdomain" and manifest_path.is_file()
+
+
+def _top_level_subdomain_fraction_support_available(project_dir: Path, variable: str) -> bool:
+    if variable != "scf":
+        return False
+    manifest_path = Path(project_dir) / "subdomains" / "subdomain_manifest.json"
+    if not manifest_path.is_file():
+        return False
+    try:
+        manifest = SubdomainManifest.load(manifest_path)
+    except Exception:
+        return False
+    if str(getattr(manifest, "run_mode", "")).lower() != "subdomain":
+        return False
+    if not manifest.subdomains:
+        return False
+    for sub in manifest.subdomains.values():
+        if not (sub.project_dir / "steps").is_dir():
+            return False
+        summary = sub.setup_dir / "obs" / sub.project_name / "scf_summary.csv"
+        if not summary.is_file():
+            return False
+    return True
+
+
+def _use_large_subdomain_snow_layout(project_dir: Path, rows: tuple[GeneratedRow, ...]) -> bool:
+    if len(rows) != 1 or not _is_top_level_subdomain_project(project_dir):
+        return False
+    panels = rows[0].panels
+    return len(panels) == 4 and all(panel.kind == "snow_depth" for panel in panels)
+
+
+def _use_top_level_subdomain_scf_layout(
+    project_dir: Path,
+    event: AssimilationEvent,
+    rows: tuple[GeneratedRow, ...],
+) -> bool:
+    if event.variable != "scf" or not _is_top_level_subdomain_project(project_dir):
+        return False
+    if len(rows) < 2:
+        return False
+    return (
+        len(rows[0].panels) == 4
+        and all(panel.kind == "fsc" for panel in rows[0].panels)
+        and len(rows[1].panels) == 4
+        and all(panel.kind == "snow_depth" for panel in rows[1].panels)
+    )
+
+
+def _generated_panel_position(
+    *,
+    row_idx: int,
+    panel_idx: int,
+    panel: MapPanelSpec,
+    large_snow_layout: bool,
+    top_level_scf_layout: bool,
+) -> tuple[int, int]:
+    if top_level_scf_layout:
+        if row_idx == 0:
+            return ((0, 0), (1, 0), (1, 1), (0, 1))[panel_idx]
+        if row_idx == 1:
+            return ((2, 0), (3, 0), (3, 1), (2, 1))[panel_idx]
+        return row_idx + 2, panel_idx
+    if not large_snow_layout:
+        return row_idx, panel.col
+    return ((0, 0), (1, 0), (1, 1), (0, 1))[panel_idx]
+
+
 def _generated_recipe(index: int, project_dir: Path, event: AssimilationEvent, rows: tuple[GeneratedRow, ...]) -> MapRecipe:
+    use_large_subdomain_snow_layout = _use_large_subdomain_snow_layout(project_dir, rows)
+    use_top_level_subdomain_scf_layout = _use_top_level_subdomain_scf_layout(project_dir, event, rows)
+    if use_top_level_subdomain_scf_layout:
+        layout = LayoutSpec(nrows=4, ncols=2)
+        row_labels = ()
+    elif use_large_subdomain_snow_layout:
+        layout = LayoutSpec(nrows=2, ncols=2)
+        row_labels = ()
+    else:
+        layout = LayoutSpec(nrows=len(rows), ncols=4)
+        row_labels = tuple(row.label for row in rows)
     panels = tuple(
         MapPanelSpec(
             kind=panel.kind,
-            row=row_idx,
-            col=panel.col,
+            row=position[0],
+            col=position[1],
             title=panel.title,
             source=panel.source,
             show_hillshade=panel.show_hillshade,
@@ -359,15 +445,24 @@ def _generated_recipe(index: int, project_dir: Path, event: AssimilationEvent, r
             variable=panel.variable,
         )
         for row_idx, row in enumerate(rows)
-        for panel in row.panels
+        for panel_idx, panel in enumerate(row.panels)
+        for position in (
+            _generated_panel_position(
+                row_idx=row_idx,
+                panel_idx=panel_idx,
+                panel=panel,
+                large_snow_layout=use_large_subdomain_snow_layout,
+                top_level_scf_layout=use_top_level_subdomain_scf_layout,
+            ),
+        )
     )
     return MapRecipe(
         name=f"da_{index}",
         title=f"da_{index}",
         figure_title=_generated_figure_title(index, project_dir, event),
         output_subdir=GENERATED_DA_MAPS_SUBDIR,
-        layout=LayoutSpec(nrows=len(rows), ncols=4),
-        row_labels=tuple(row.label for row in rows),
+        layout=layout,
+        row_labels=row_labels,
         defaults=MapDefaults(date=event.date.isoformat(), show_scalebar=True),
         panels=panels,
     )

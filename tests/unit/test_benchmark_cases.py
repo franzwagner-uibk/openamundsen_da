@@ -325,7 +325,7 @@ def test_extract_analysis_cases_uses_weighted_station_posterior(tmp_path: Path) 
     assert float(posterior["pred_mean"]) == 1.15
 
 
-def test_extract_analysis_cases_use_matching_event_variable_dates(tmp_path: Path) -> None:
+def test_extract_analysis_cases_include_transfer_streams_on_da_dates(tmp_path: Path) -> None:
     setup_dir, project_dir = _setup_basic_project(
         tmp_path,
         events_yaml="""
@@ -361,9 +361,14 @@ def test_extract_analysis_cases_use_matching_event_variable_dates(tmp_path: Path
 
     case_lookup = {(case.variable, case.stream, str(case.timestamp), case.obs_id): case for case in cases}
     assert ("station_hs", "assimilation_fit", "2023-01-02 00:00:00", "station_a") in case_lookup
+    assert ("station_swe", "semi_independent", "2023-01-02 00:00:00", "station_b") in case_lookup
+    assert ("scf", "independent", "2023-01-02 00:00:00", "roi") in case_lookup
+    assert ("station_hs", "semi_independent", "2023-01-03 00:00:00", "station_a") in case_lookup
     assert ("scf", "assimilation_fit", "2023-01-03 00:00:00", "roi") in case_lookup
-    assert all(case.variable == "station_hs" for case in cases if case.timestamp == pd.Timestamp("2023-01-02"))
-    assert all(case.variable == "scf" for case in cases if case.timestamp == pd.Timestamp("2023-01-03"))
+    assert ("wet_snow", "independent", "2023-01-03 00:00:00", "roi") in case_lookup
+    wsl_case = case_lookup[("wet_snow_line", "independent", "2023-01-03 00:00:00", "roi")]
+    assert wsl_case.posterior_values == (2390.0, 2410.0)
+    assert wsl_case.posterior_weights == (0.6, 0.4)
 
 
 def test_extract_analysis_cases_skips_wet_snow_line_transfer_with_missing_weighted_member(tmp_path: Path) -> None:

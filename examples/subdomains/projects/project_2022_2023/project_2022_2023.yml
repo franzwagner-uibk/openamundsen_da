@@ -47,7 +47,7 @@ data_assimilation:
             max_cloud_fraction: 0.25
   landcover_mask:
     enabled: true
-    classes_to_exclude: [2, 3, 8, 9, 10, 11, 12, 13]
+    classes_to_exclude: [2, 3, 13]
   likelihood:
     scf:
       obs_sigma: 0.1
@@ -61,14 +61,20 @@ data_assimilation:
       input_dir: obs/snowcover
       ingest:
         scf_variable: fsc
-        uncertainty_variable: uncertainty
         time_variable: time
+        uncertainty_source: internal
       assimilation:
         sigma_mode: uncertainty_layer
         aggregate_metric: unc_mean
-      u_min: 10.0
+      u_min: 5.0
       u_max: 20.0
-      fallback_uncertainty: 15.0
+      nodata_value: 255.0
+      penalties:
+      - name: forest
+        source: landcover
+        enabled: true
+        classes: [8, 9, 10, 11, 12]
+        penalty: 20.0
   resampling:
     algorithm: systematic
     ess_threshold_ratio: 0.7

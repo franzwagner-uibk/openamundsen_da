@@ -25,6 +25,29 @@ def test_shipped_subdomain_example_uses_current_project_tunes() -> None:
     assert cfg["run_mode"] == "subdomain"
     assert da_cfg["resampling"]["ess_threshold_ratio"] == 0.7
     assert da_cfg["output"]["retention"] == "full"
+    assert da_cfg["landcover_mask"]["classes_to_exclude"] == [2, 3, 13]
+
+    scf_unc = da_cfg["uncertainty"]["scf"]
+    assert scf_unc["ingest"] == {
+        "scf_variable": "fsc",
+        "time_variable": "time",
+        "uncertainty_source": "internal",
+    }
+    assert scf_unc["assimilation"] == {
+        "sigma_mode": "uncertainty_layer",
+        "aggregate_metric": "unc_mean",
+    }
+    assert scf_unc["u_min"] == 5.0
+    assert scf_unc["u_max"] == 20.0
+    assert scf_unc["penalties"] == [
+        {
+            "name": "forest",
+            "source": "landcover",
+            "enabled": True,
+            "classes": [8, 9, 10, 11, 12],
+            "penalty": 20.0,
+        }
+    ]
 
     expected_sigmas = {
         "sigma_t": 0.5,

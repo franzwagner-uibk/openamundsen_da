@@ -69,6 +69,105 @@ class SnowcoverUncertaintyTests(unittest.TestCase):
             self.assertEqual(cfg.scf_variable, "fsc")
             self.assertEqual(cfg.uncertainty_variable, "uncertainty")
             self.assertEqual(cfg.time_variable, "time")
+            self.assertEqual(cfg.uncertainty_source, "product")
+            self.assertIsNone(cfg.internal_config)
+
+    def test_ingest_config_reads_internal_uncertainty_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
+            _write_project_yaml(
+                project_dir,
+                {
+                    "obs": {
+                        "snowcover": {
+                            "dir": "obs/snowcover",
+                            "classes": {
+                                "valid": [0, 50, 100],
+                                "cloud": [205],
+                                "water": [210],
+                                "nodata": [255],
+                            },
+                        }
+                    },
+                    "data_assimilation": {
+                        "uncertainty": {
+                            "scf": {
+                                "enabled": True,
+                                "ingest": {
+                                    "scf_variable": "fsc",
+                                    "time_variable": "time",
+                                    "uncertainty_source": "internal",
+                                },
+                                "u_min": 5.0,
+                                "u_max": 20.0,
+                                "penalties": [
+                                    {
+                                        "name": "forest",
+                                        "source": "landcover",
+                                        "classes": [8, 9, 10, 11, 12],
+                                        "penalty": 20.0,
+                                    }
+                                ],
+                            }
+                        }
+                    },
+                },
+            )
+
+            cfg = _load_uncertainty_ingest_config(project_dir)
+
+            self.assertTrue(cfg.enabled)
+            self.assertEqual(cfg.scf_variable, "fsc")
+            self.assertIsNone(cfg.uncertainty_variable)
+            self.assertEqual(cfg.time_variable, "time")
+            self.assertEqual(cfg.uncertainty_source, "internal")
+            self.assertIsNotNone(cfg.internal_config)
+            assert cfg.internal_config is not None
+            self.assertAlmostEqual(cfg.internal_config.u_min, 5.0, places=6)
+            self.assertAlmostEqual(cfg.internal_config.u_max, 20.0, places=6)
+            self.assertEqual(cfg.internal_config.penalties[0].classes, (8, 9, 10, 11, 12))
+
+    def test_ingest_config_internal_rejects_product_uncertainty_variable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
+            _write_project_yaml(
+                project_dir,
+                {
+                    "obs": {
+                        "snowcover": {
+                            "dir": "obs/snowcover",
+                            "classes": {
+                                "valid": [0, 50, 100],
+                                "cloud": [205],
+                                "water": [],
+                                "nodata": [],
+                            },
+                        }
+                    },
+                    "data_assimilation": {
+                        "uncertainty": {
+                            "scf": {
+                                "enabled": True,
+                                "ingest": {
+                                    "scf_variable": "fsc",
+                                    "uncertainty_variable": "uncertainty",
+                                    "time_variable": "time",
+                                    "uncertainty_source": "internal",
+                                },
+                                "u_min": 5.0,
+                                "u_max": 20.0,
+                                "penalties": [
+                                    {"source": "fsc", "classes": [50], "penalty": 20.0},
+                                ],
+                            }
+                        }
+                    },
+                },
+            )
+
+            with self.assertRaises(ValueError) as ctx:
+                _load_uncertainty_ingest_config(project_dir)
+            self.assertIn("uncertainty_variable must not be set", str(ctx.exception))
 
     def test_duplicate_netcdf_days_raise(self):
         with self.assertRaises(ValueError) as ctx:

@@ -99,7 +99,7 @@ data_assimilation:
       variables:
       - var: snowdepth_daily
         name: snowdepth_daily
-        metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment]
+        metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment, analysis_mean, analysis_increment]
       - var: swe_daily
         name: swe_daily
         metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment]

@@ -359,8 +359,31 @@ def _run_one(
 
 def _write_project_dropped_events(manifest: SubdomainManifest) -> None:
     rows: list[dict] = []
+    event_plan_rows: list[dict] = []
     for meta in manifest.subdomains.values():
-        rows.extend(list(meta.dropped_events or []))
+        dropped = list(meta.dropped_events or [])
+        rows.extend(dropped)
+        for row in dropped:
+            event_plan_rows.append({**row, "status": "dropped"})
+        try:
+            for event in load_assimilation_events(meta.project_dir):
+                event_plan_rows.append(
+                    {
+                        "subdomain_id": meta.id,
+                        "date": event.date.isoformat(),
+                        "variable": event.variable,
+                        "product": event.product or "",
+                        "reason": "",
+                        "metric": "",
+                        "value": "",
+                        "threshold": "",
+                        "active_station_ids": "",
+                        "project_yaml": str(meta.project_yaml),
+                        "status": "kept",
+                    }
+                )
+        except Exception as exc:
+            logger.warning("Could not read final event plan for sub-domain {}: {}", meta.id, exc)
     columns = [
         "subdomain_id",
         "date",
@@ -376,6 +399,15 @@ def _write_project_dropped_events(manifest: SubdomainManifest) -> None:
     out = manifest.project_dir / "results" / "subdomain_dropped_events.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows, columns=columns).to_csv(out, index=False)
+    plan_columns = [*columns, "status"]
+    plan_out = manifest.project_dir / "results" / "event_plan_by_subdomain.csv"
+    if event_plan_rows:
+        plan_df = pd.DataFrame(event_plan_rows, columns=plan_columns).sort_values(
+            ["subdomain_id", "date", "variable", "status"]
+        )
+    else:
+        plan_df = pd.DataFrame(columns=plan_columns)
+    plan_df.to_csv(plan_out, index=False)
 
 
 def run_subdomains(

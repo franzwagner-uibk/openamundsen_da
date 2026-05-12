@@ -612,6 +612,7 @@ Outputs
 - Rejuvenated next-step prior (members + open_loop with state_pointer.json)
 - Compact data assimilation summary grids in `<project>/results/grids/da_output_grids.nc`
   - Per variable `<var>`: `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`, and event analysis fields `analysis_mean_<var>` / `analysis_increment_<var>` where assimilation weights are available
+  - The exported variables and metrics follow `data_assimilation.output.grids.variables[*]`; omitted output-grid config preserves the legacy all-variable/all-metric behavior
   - `increment_<var>` is the open-loop departure: `ens_mean_<var> - open_loop_<var>`
   - `analysis_increment_<var>` is the DA-event increment: `analysis_mean_<var> - ens_mean_<var>`; positive values mean the event added snow/water to the ensemble mean
   - Time axis spans the full project timeline across all steps (not only the last step)
@@ -811,7 +812,8 @@ DA defaults:
 - `--id-field` must exist in the regions file; there is no automatic fallback to another field name.
 - If `--roi` is omitted in sub-domain prepare/pipeline, `<setup>/env/subdomains.gpkg` is preferred and `<setup>/env/roi.gpkg` is the fallback.
 - Sub-domain runs fail fast if configured assimilation events are not available in the local sub-domain observation summaries.
-- Projects may enable `data_assimilation.subdomain_event_filter` to drop unavailable SCF, wet-snow, or station events per sub-domain after local observation summaries are generated. Dropped events are recorded in each sub-domain run manifest and in `<project>/results/subdomain_dropped_events.csv`.
+- Projects may enable `data_assimilation.subdomain_event_filter` to drop unavailable SCF, wet-snow, or station events per sub-domain after local observation summaries are generated. Dropped events are recorded in each sub-domain run manifest and in `<project>/results/subdomain_dropped_events.csv`; the final kept/dropped event table is written to `<project>/results/event_plan_by_subdomain.csv`.
+- Station benchmark variables are pruned from copied sub-domain project YAMLs when the local station subset contains no benchmark-enabled station observations, allowing mixed FSC-only and FSC+station sub-domain projects in one run.
 - Configured `output_data.timeseries.points` are filtered to the active sub-domain ROI when sub-domain setup YAML files are generated.
 - Sub-domain projects default to full retention (`data_assimilation.output.retention: full`) and keep the sub-domain NC grids needed for exact DA-event map regeneration. Set `retention: compact` only if you knowingly trade away exact spatial DA-event map rerendering for disk savings.
 

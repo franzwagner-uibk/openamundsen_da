@@ -175,6 +175,61 @@ def test_subdomain_event_filter_respects_station_da_role(tmp_path: Path) -> None
     assert [event["date"] for event in events] == ["2024-01-10"]
 
 
+def test_subdomain_event_filter_prunes_station_benchmark_for_stationless_subdomain(tmp_path: Path) -> None:
+    setup_dir = tmp_path / "setup"
+    project_yaml = tmp_path / "project" / "project.yml"
+    _write(
+        project_yaml,
+        """
+        data_assimilation:
+          benchmark:
+            enabled: true
+            variables: [scf, station_hs]
+            independent_variables: [station_hs]
+            performance_scores_exclude_variables: [station_hs]
+          subdomain_event_filter:
+            enabled: true
+            drop_unavailable: true
+            variables:
+              scf:
+                max_cloud_fraction: 0.20
+              station_hs:
+                min_active_stations: 1
+          assimilation_events:
+            - date: '2024-01-03'
+              variable: scf
+              product: SNOWCOVER
+            - date: '2024-01-10'
+              variable: station_hs
+              product: STATION
+        """,
+    )
+    summary_dir = setup_dir / "obs" / "project_2024"
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [{"date": "2024-01-03", "scf": 0.5, "cloud_fraction": 0.05}]
+    ).to_csv(summary_dir / "scf_summary.csv", index=False)
+
+    dropped = filter_project_events_for_subdomain(
+        project_yaml=project_yaml,
+        setup_dir=setup_dir,
+        project_name="project_2024",
+        subdomain_id="sd_01",
+        dropped_events_csv=tmp_path / "dropped.csv",
+    )
+
+    assert len(dropped) == 1
+    assert dropped[0]["variable"] == "station_hs"
+    cfg = yaml.safe_load(project_yaml.read_text(encoding="utf-8"))
+    da_cfg = cfg["data_assimilation"]
+    assert da_cfg["assimilation_events"] == [
+        {"date": "2024-01-03", "variable": "scf", "product": "SNOWCOVER"}
+    ]
+    assert da_cfg["benchmark"]["variables"] == ["scf"]
+    assert da_cfg["benchmark"]["independent_variables"] == []
+    assert da_cfg["benchmark"]["performance_scores_exclude_variables"] == []
+
+
 def test_subdomain_event_filter_raises_when_disabled_event_is_unavailable(tmp_path: Path) -> None:
     setup_dir = tmp_path / "setup"
     project_yaml = tmp_path / "project" / "project.yml"

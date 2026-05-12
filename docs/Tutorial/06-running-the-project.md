@@ -125,7 +125,7 @@ The data assimilation output summary NetCDF (`results/grids/da_output_grids.nc`)
 What you can configure directly here:
 
 - `variables[*].var` / `name`: which model grid variables are exported into the data assimilation summary
-- `variables[*].metrics`: which summary metrics are written for each variable (`open_loop`, `ens_mean`, `ens_std`, `ens_min`, `ens_max`, `increment`)
+- `variables[*].metrics`: which summary metrics are written for each variable (`open_loop`, `ens_mean`, `ens_std`, `ens_min`, `ens_max`, `increment`, `analysis_mean`, `analysis_increment`)
 - `format`, `compress`, `retention`
 
 How to interpret the `dims` in the NetCDF inspection output:

@@ -980,6 +980,15 @@ def prepare_subdomains(
             win.col_off,
         )
 
+    if not model_mode:
+        support_rows = [
+            {"subdomain_id": sid, **dict(meta.station_counts or {})}
+            for sid, meta in sorted(manifest.subdomains.items())
+        ]
+        support_path = subdomain_root / "observation_support_by_subdomain.csv"
+        pd.DataFrame(support_rows).to_csv(support_path, index=False)
+        logger.info("Wrote observation support table -> {}", support_path)
+
     manifest_path = subdomain_root / "subdomain_manifest.json"
     manifest.save(manifest_path)
     logger.info("Wrote manifest -> {}", manifest_path)

@@ -15,6 +15,9 @@ from openamundsen_da.io.paths import find_project_yaml, infer_project_dir, read_
 from openamundsen_da.util.da_events import AssimilationEvent, load_assimilation_events
 from openamundsen_da.util.da_observables import weights_csv_name
 
+_DEFAULT_SUMMARY_METRICS = ("open_loop", "ens_mean", "ens_std", "ens_min", "ens_max", "increment")
+_ANALYSIS_SUMMARY_METRICS = ("analysis_mean", "analysis_increment")
+
 
 def output_retention_mode(project_dir: Path) -> str:
     """Return output retention mode from project YAML, defaulting to compact."""
@@ -36,6 +39,42 @@ def output_retention_mode(project_dir: Path) -> str:
         return default_mode
     except Exception:
         return "compact"
+
+
+def _configured_grid_metrics(project_dir: Path | None) -> dict[str, set[str]] | None:
+    """Return configured compact output grid variables/metrics, or None for legacy all-output behavior."""
+    if project_dir is None:
+        return None
+    try:
+        cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+    except Exception:
+        return None
+    da_cfg = cfg.get("data_assimilation") or {}
+    out_cfg = da_cfg.get("output") or {}
+    grids_cfg = out_cfg.get("grids") or {}
+    variables = grids_cfg.get("variables")
+    if not isinstance(variables, list) or not variables:
+        return None
+
+    out: dict[str, set[str]] = {}
+    all_metrics = set(_DEFAULT_SUMMARY_METRICS) | set(_ANALYSIS_SUMMARY_METRICS)
+    for item in variables:
+        if not isinstance(item, dict):
+            continue
+        source_name = str(item.get("name") or item.get("var") or "").strip()
+        if not source_name:
+            continue
+        raw_metrics = item.get("metrics")
+        if raw_metrics is None:
+            metrics = set(all_metrics)
+        elif isinstance(raw_metrics, (list, tuple, set)):
+            metrics = {str(metric).strip() for metric in raw_metrics if str(metric).strip()}
+        else:
+            metrics = {str(raw_metrics).strip()} if str(raw_metrics).strip() else set()
+        if not metrics:
+            metrics = set(all_metrics)
+        out[source_name] = metrics & all_metrics
+    return out or None
 
 
 def _as_nan_array(da: xr.DataArray) -> np.ndarray:
@@ -162,6 +201,7 @@ def _build_da_output_dataset(
     member_ncs: Sequence[Path],
     analysis_weights: dict[pd.Timestamp, pd.Series] | None = None,
     write_analysis_fields: bool = False,
+    grid_metrics: dict[str, set[str]] | None = None,
 ) -> xr.Dataset | None:
     """Build compact DA summary grids for one step from open-loop + members."""
     if not open_loop_nc.is_file():
@@ -180,6 +220,13 @@ def _build_da_output_dataset(
         for var_name, da_ol in ds_ol.data_vars.items():
             if "y" not in da_ol.dims or "x" not in da_ol.dims:
                 continue
+            if grid_metrics is not None and var_name not in grid_metrics:
+                continue
+            metrics = (
+                set(grid_metrics.get(var_name) or ())
+                if grid_metrics is not None
+                else set(_DEFAULT_SUMMARY_METRICS) | set(_ANALYSIS_SUMMARY_METRICS)
+            )
             grid_var_names.append(var_name)
             shape = tuple(int(s) for s in da_ol.shape)
             arr_sum = np.zeros(shape, dtype=np.float64)
@@ -239,112 +286,69 @@ def _build_da_output_dataset(
             dims = da_ol.dims
             coords = {d: ds_ol.coords[d] for d in dims if d in ds_ol.coords}
             base_attrs = dict(da_ol.attrs) if da_ol.attrs is not None else {}
-            out_vars[f"open_loop_{var_name}"] = xr.DataArray(
-                arr_ol.astype(np.float32),
-                dims=dims,
-                coords=coords,
-                attrs={
-                    **base_attrs,
-                    "summary_metric": "open_loop",
-                    "description": "Open-loop baseline output (no assimilation)",
-                },
-            )
-            out_vars[f"ens_mean_{var_name}"] = xr.DataArray(
-                arr_mean.astype(np.float32),
-                dims=dims,
-                coords=coords,
-                attrs={
-                    **base_attrs,
-                    "summary_metric": "ens_mean",
-                    "description": "Posterior ensemble mean",
-                },
-            )
-            out_vars[f"ens_std_{var_name}"] = xr.DataArray(
-                arr_std.astype(np.float32),
-                dims=dims,
-                coords=coords,
-                attrs={
-                    **base_attrs,
-                    "summary_metric": "ens_std",
-                    "description": "Posterior ensemble standard deviation",
-                },
-            )
-            out_vars[f"ens_min_{var_name}"] = xr.DataArray(
-                arr_min.astype(np.float32),
-                dims=dims,
-                coords=coords,
-                attrs={
-                    **base_attrs,
-                    "summary_metric": "ens_min",
-                    "description": "Posterior ensemble minimum",
-                },
-            )
-            out_vars[f"ens_max_{var_name}"] = xr.DataArray(
-                arr_max.astype(np.float32),
-                dims=dims,
-                coords=coords,
-                attrs={
-                    **base_attrs,
-                    "summary_metric": "ens_max",
-                    "description": "Posterior ensemble maximum",
-                },
-            )
-            out_vars[f"increment_{var_name}"] = xr.DataArray(
-                arr_inc.astype(np.float32),
-                dims=dims,
-                coords=coords,
-                attrs={
-                    **base_attrs,
-                    "summary_metric": "increment",
-                    "description": "Posterior ensemble mean minus open-loop baseline",
-                },
-            )
+            created_names: list[str] = []
+            metric_specs = {
+                "open_loop": (arr_ol, "Open-loop baseline output (no assimilation)"),
+                "ens_mean": (arr_mean, "Posterior ensemble mean"),
+                "ens_std": (arr_std, "Posterior ensemble standard deviation"),
+                "ens_min": (arr_min, "Posterior ensemble minimum"),
+                "ens_max": (arr_max, "Posterior ensemble maximum"),
+                "increment": (arr_inc, "Posterior ensemble mean minus open-loop baseline"),
+            }
+            for metric_name in _DEFAULT_SUMMARY_METRICS:
+                if metric_name not in metrics:
+                    continue
+                values, description = metric_specs[metric_name]
+                out_name = f"{metric_name}_{var_name}"
+                out_vars[out_name] = xr.DataArray(
+                    values.astype(np.float32),
+                    dims=dims,
+                    coords=coords,
+                    attrs={
+                        **base_attrs,
+                        "summary_metric": metric_name,
+                        "description": description,
+                    },
+                )
+                created_names.append(out_name)
             if analysis is not None:
                 arr_analysis_mean, arr_analysis_increment = analysis
-                out_vars[f"analysis_mean_{var_name}"] = xr.DataArray(
-                    arr_analysis_mean.astype(np.float32),
-                    dims=dims,
-                    coords=coords,
-                    attrs={
-                        **base_attrs,
-                        "summary_metric": "analysis_mean",
-                        "description": "Event-weighted posterior ensemble mean at assimilation date",
-                    },
-                )
-                out_vars[f"analysis_increment_{var_name}"] = xr.DataArray(
-                    arr_analysis_increment.astype(np.float32),
-                    dims=dims,
-                    coords=coords,
-                    attrs={
-                        **base_attrs,
-                        "summary_metric": "analysis_increment",
-                        "description": "Event-weighted posterior ensemble mean minus prior ensemble mean",
-                    },
-                )
-            for out_name in (
-                f"open_loop_{var_name}",
-                f"ens_mean_{var_name}",
-                f"ens_std_{var_name}",
-                f"ens_min_{var_name}",
-                f"ens_max_{var_name}",
-                f"increment_{var_name}",
-            ):
+                analysis_specs = {
+                    "analysis_mean": (arr_analysis_mean, "Event-weighted posterior ensemble mean at assimilation date"),
+                    "analysis_increment": (
+                        arr_analysis_increment,
+                        "Event-weighted posterior ensemble mean minus prior ensemble mean",
+                    ),
+                }
+                for metric_name in _ANALYSIS_SUMMARY_METRICS:
+                    if metric_name not in metrics:
+                        continue
+                    values, description = analysis_specs[metric_name]
+                    out_name = f"{metric_name}_{var_name}"
+                    out_vars[out_name] = xr.DataArray(
+                        values.astype(np.float32),
+                        dims=dims,
+                        coords=coords,
+                        attrs={
+                            **base_attrs,
+                            "summary_metric": metric_name,
+                            "description": description,
+                        },
+                    )
+                    created_names.append(out_name)
+            for out_name in created_names:
                 encoding[out_name] = {"zlib": True, "complevel": 4, "shuffle": True, "_FillValue": -9999.0}
-            if analysis is not None:
-                for out_name in (
-                    f"analysis_mean_{var_name}",
-                    f"analysis_increment_{var_name}",
-                ):
-                    encoding[out_name] = {"zlib": True, "complevel": 4, "shuffle": True, "_FillValue": -9999.0}
 
         if not out_vars:
             logger.warning("DA output summary skipped: no grid variables with x/y dims in {}", open_loop_nc)
             return None
 
-        summary_variables = ["open_loop", "ens_mean", "ens_std", "ens_min", "ens_max", "increment"]
+        summary_variables = [
+            metric
+            for metric in (*_DEFAULT_SUMMARY_METRICS, *_ANALYSIS_SUMMARY_METRICS)
+            if any(name.startswith(f"{metric}_") for name in out_vars)
+        ]
         has_analysis_fields = any(name.startswith("analysis_mean_") for name in out_vars)
-        if has_analysis_fields:
-            summary_variables.extend(["analysis_mean", "analysis_increment"])
         attrs = {
             **(dict(ds_ol.attrs) if ds_ol.attrs is not None else {}),
             "da_output_version": "2",
@@ -538,6 +542,7 @@ def write_project_da_output_grids(
         except Exception as exc:
             logger.warning("Analysis increment fields skipped: could not infer project directory from {} ({})", step_dirs[0], exc)
     events = _load_project_assimilation_events(project_dir) if project_dir is not None else []
+    grid_metrics = _configured_grid_metrics(project_dir)
 
     for step_dir in step_dirs:
         prior_root = Path(step_dir) / "ensembles" / "prior"
@@ -553,6 +558,7 @@ def write_project_da_output_grids(
             member_ncs=member_ncs,
             analysis_weights=analysis_weights,
             write_analysis_fields=bool(events),
+            grid_metrics=grid_metrics,
         )
         if ds is None:
             continue

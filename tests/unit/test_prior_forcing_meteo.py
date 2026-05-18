@@ -45,6 +45,37 @@ def test_filter_and_write_meteo_applies_four_variable_perturbations_and_guards(t
     assert (dst_dir / "stations.csv").exists()
 
 
+def test_filter_and_write_meteo_perturbs_integer_precip_and_shortwave(tmp_path: Path) -> None:
+    src_dir = tmp_path / "src"
+    dst_dir = tmp_path / "dst"
+    src_dir.mkdir()
+
+    (src_dir / "station.csv").write_text(
+        "\n".join(
+            [
+                "date,temp,precip,rel_hum,sw_in",
+                "2023-01-01T00:00:00,0,0,80,0",
+                "2023-01-01T03:00:00,1,2,85,1",
+                "2023-01-01T06:00:00,2,10,90,10",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    filter_and_write_meteo(
+        src_dir=src_dir,
+        dst_dir=dst_dir,
+        start=pd.Timestamp("2023-01-01T00:00:00"),
+        end=pd.Timestamp("2023-01-01T06:00:00"),
+        f_p=1.25,
+        f_sw=0.992303298,
+    )
+
+    out = pd.read_csv(dst_dir / "station.csv")
+    np.testing.assert_allclose(out["precip"].to_numpy(), [0.0, 2.5, 12.5])
+    np.testing.assert_allclose(out["sw_in"].to_numpy(), [0.0, 0.992303298, 9.92303298])
+
+
 def test_new_prior_and_rejuvenation_sigmas_default_to_zero(tmp_path: Path) -> None:
     setup_dir = tmp_path / "setup"
     project_dir = setup_dir / "projects" / "demo"

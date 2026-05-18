@@ -51,19 +51,19 @@ def filter_and_write_meteo(
         df = _inclusive_filter(df, start, end)
         df.index = _normalize_datetime_index(df.index)
         if (delta_t != 0.0) and (DEFAULT_TEMP_COL in df.columns):
-            df[DEFAULT_TEMP_COL] = pd.to_numeric(df[DEFAULT_TEMP_COL], errors="coerce") + delta_t
+            df[DEFAULT_TEMP_COL] = _numeric_perturbation_series(df[DEFAULT_TEMP_COL]) + delta_t
         if (delta_rh != 0.0) and (DEFAULT_REL_HUM_COL in df.columns):
-            rh = pd.to_numeric(df[DEFAULT_REL_HUM_COL], errors="coerce") + delta_rh
+            rh = _numeric_perturbation_series(df[DEFAULT_REL_HUM_COL]) + delta_rh
             df[DEFAULT_REL_HUM_COL] = rh.clip(lower=0.0, upper=100.0)
         if (f_p != 1.0) and (DEFAULT_PRECIP_COL in df.columns):
-            precip = pd.to_numeric(df[DEFAULT_PRECIP_COL], errors="coerce")
+            precip = _numeric_perturbation_series(df[DEFAULT_PRECIP_COL])
             mask = precip > 0.0
-            precip.loc[mask] = precip.loc[mask] * f_p
+            precip = precip.where(~mask, precip * f_p)
             df[DEFAULT_PRECIP_COL] = precip
         if (f_sw != 1.0) and (DEFAULT_SW_IN_COL in df.columns):
-            sw_in = pd.to_numeric(df[DEFAULT_SW_IN_COL], errors="coerce")
+            sw_in = _numeric_perturbation_series(df[DEFAULT_SW_IN_COL])
             mask = sw_in > 0.0
-            sw_in.loc[mask] = sw_in.loc[mask] * f_sw
+            sw_in = sw_in.where(~mask, sw_in * f_sw)
             df[DEFAULT_SW_IN_COL] = sw_in.clip(lower=0.0)
         idx_col_name = df.index.name or "index"
         df_out = df.reset_index().rename(columns={idx_col_name: time_col})
@@ -79,6 +79,10 @@ def _inclusive_filter(df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) 
     out = df.loc[mask].copy()
     out.index = dt_idx[mask]
     return out
+
+
+def _numeric_perturbation_series(series: pd.Series) -> pd.Series:
+    return pd.to_numeric(series, errors="coerce").astype("float64")
 
 
 def _normalize_datetime_index(idx: Iterable) -> pd.DatetimeIndex:

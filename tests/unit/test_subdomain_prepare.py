@@ -124,6 +124,42 @@ def test_prepare_obs_subset_disables_roles_for_buffer_only_stations(tmp_path: Pa
     assert stats["obs_station_series_copied"] == 2
 
 
+def test_prepare_obs_subset_preserves_leading_zero_station_ids(tmp_path: Path) -> None:
+    obs_dir = tmp_path / "obs"
+    out_dir = tmp_path / "out"
+    obs_dir.mkdir(parents=True, exist_ok=True)
+    (obs_dir / "stations_snow_depth.csv").write_text(
+        "id,x,y\n04140864,1.5,0.5\n",
+        encoding="utf-8",
+    )
+    (obs_dir / "stations_da_metadata.csv").write_text(
+        "station_id,station_uncertainty_pct,hs_sigma_abs_min,use_for_da,use_for_benchmark\n"
+        "04140864,10,0.1,true,true\n",
+        encoding="utf-8",
+    )
+    _write_obs(obs_dir / "04140864.csv")
+
+    stats = _prepare_obs_station_subset(
+        obs_dir=obs_dir,
+        out_dir=out_dir,
+        geom=box(0, 0, 1, 1),
+        buffer_m=1.0,
+        crs=None,
+        station_ids=None,
+    )
+
+    assert (out_dir / "04140864.csv").is_file()
+    snow_metadata = (out_dir / "stations_snow_depth.csv").read_text(encoding="utf-8")
+    assert snow_metadata.splitlines()[1].split(",")[0] == "04140864"
+    da_metadata = (out_dir / "stations_da_metadata.csv").read_text(encoding="utf-8")
+    assert da_metadata.splitlines()[1].split(",")[0] == "04140864"
+    assert stats["obs_stations_selected"] == 1
+    assert stats["obs_stations_inside_grid"] == 0
+    assert stats["obs_stations_da_active"] == 0
+    assert stats["obs_stations_benchmark_active"] == 0
+    assert stats["obs_station_series_copied"] == 1
+
+
 def test_write_subdomain_setup_yaml_filters_configured_points(tmp_path: Path) -> None:
     source_cfg = {
         "domain": "full",

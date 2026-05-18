@@ -101,6 +101,11 @@ def station_observation_csvs(obs_dir: Path) -> list[Path]:
     ]
 
 
+def normalize_station_id_series(series: pd.Series) -> pd.Series:
+    """Return station IDs normalized for matching without losing leading zeros."""
+    return series.astype("string").fillna("").str.strip().str.lower()
+
+
 def _parse_role_flag(raw: object, *, column: str, station_id: str, metadata_path: Path) -> bool:
     if pd.isna(raw) or str(raw).strip() == "":
         return True
@@ -130,7 +135,7 @@ def read_station_metadata(metadata_path: Path) -> pd.DataFrame:
         )
         return pd.DataFrame(columns=base_columns)
 
-    df = pd.read_csv(metadata_path)
+    df = pd.read_csv(metadata_path, dtype={"station_id": "string"})
     if df.empty:
         logger.warning(
             "Station DA metadata file is empty: {}. Active station DA will fail until station-wise absolute sigma metadata are provided.",
@@ -143,7 +148,7 @@ def read_station_metadata(metadata_path: Path) -> pd.DataFrame:
         raise ValueError(f"Station DA metadata file missing required column 'station_uncertainty_pct': {metadata_path}")
 
     out = df.copy()
-    out["station_id"] = out["station_id"].astype(str).str.strip().str.lower()
+    out["station_id"] = normalize_station_id_series(out["station_id"])
     out = out[out["station_id"] != ""].copy()
     if out.empty:
         logger.warning(

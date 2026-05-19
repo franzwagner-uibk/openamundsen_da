@@ -1,12 +1,14 @@
-"""Minimal performance monitor for project runs (CPU / RAM).
+"""Minimal performance monitor for project runs (CPU / RAM / disk).
 
 When enabled, a background thread samples:
 - System CPU percent
 - System RAM percent/GB
+- Filesystem disk usage percent/GB
+- Project directory disk usage GB, throttled to avoid expensive scans
 
 Outputs under `<project_dir>/results/plots/perf/`:
 - `project_perf_metrics.csv`
-- `project_perf.png` (CPU+RAM)
+- `project_perf.png` (CPU+RAM+disk)
 
 Dependencies: psutil (required), matplotlib (optional for plotting).
 If psutil is missing, the monitor logs a warning and no files are written.
@@ -15,6 +17,7 @@ If psutil is missing, the monitor logs a warning and no files are written.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -46,6 +49,7 @@ class PerfMonitorConfig:
     project_dir: Path
     sample_interval_sec: float = 5.0
     plot_interval_sec: float = 30.0
+    disk_scan_interval_sec: float = 300.0
     run_start: datetime | None = None
 
 
@@ -83,12 +87,20 @@ def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> N
     mem_pct: List[float] = []
     mem_used_gb: List[float] = []
     mem_total_gb: List[float] = []
+    disk_fs_used_pct: List[float] = []
+    disk_fs_used_gb: List[float] = []
+    disk_fs_free_gb: List[float] = []
+    disk_fs_total_gb: List[float] = []
+    disk_project_used_gb: List[float] = []
 
     last_plot_ts: float | None = None
+    last_disk_scan_ts: float | None = None
+    last_project_used_gb = 0.0
     run_start = cfg.run_start or datetime.utcnow()
 
     while not stop_event.is_set():
         now = datetime.utcnow()
+        now_ts = now.timestamp()
         try:
             vm = psutil.virtual_memory() if psutil is not None else None  # type: ignore[assignment]
             cpu_val = psutil.cpu_percent(interval=None) if psutil is not None else 0.0  # type: ignore[assignment]
@@ -107,6 +119,18 @@ def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> N
             mem_used_gb.append(0.0)
             mem_total_gb.append(0.0)
 
+        fs_used_pct, fs_used_gb, fs_free_gb, fs_total_gb = _filesystem_disk_usage_gb(cfg.project_dir)
+        disk_fs_used_pct.append(fs_used_pct)
+        disk_fs_used_gb.append(fs_used_gb)
+        disk_fs_free_gb.append(fs_free_gb)
+        disk_fs_total_gb.append(fs_total_gb)
+
+        disk_interval = max(0.0, float(cfg.disk_scan_interval_sec or 0.0))
+        if last_disk_scan_ts is None or (now_ts - last_disk_scan_ts) >= disk_interval:
+            last_project_used_gb = _directory_size_gb(cfg.project_dir)
+            last_disk_scan_ts = now_ts
+        disk_project_used_gb.append(last_project_used_gb)
+
         try:
             _append_csv_row(
                 csv_path,
@@ -115,6 +139,11 @@ def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> N
                 mem_pct[-1],
                 mem_used_gb[-1],
                 mem_total_gb[-1],
+                disk_fs_used_pct[-1],
+                disk_fs_used_gb[-1],
+                disk_fs_free_gb[-1],
+                disk_fs_total_gb[-1],
+                disk_project_used_gb[-1],
             )
         except Exception as exc:  # pragma: no cover
             logger.warning("Performance monitor failed to update CSV {}: {}", csv_path, exc)
@@ -131,12 +160,62 @@ def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> N
                         mem_used_gb,
                         mem_total_gb,
                         run_start,
+                        disk_fs_used_pct=disk_fs_used_pct,
+                        disk_fs_free_gb=disk_fs_free_gb,
+                        disk_project_used_gb=disk_project_used_gb,
                     )
                     last_plot_ts = ts
                 except Exception as exc:  # pragma: no cover
                     logger.warning("Performance monitor failed to update plot: {}", exc)
 
         stop_event.wait(cfg.sample_interval_sec)
+
+
+def _bytes_to_gb(value: float) -> float:
+    return float(value) / (1024.0 * 1024.0 * 1024.0)
+
+
+def _filesystem_disk_usage_gb(path: Path) -> tuple[float, float, float, float]:
+    try:
+        usage = shutil.disk_usage(path)
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Performance monitor disk usage sampling failed for {}: {}", path, exc)
+        return 0.0, 0.0, 0.0, 0.0
+    total_gb = _bytes_to_gb(usage.total)
+    used_gb = _bytes_to_gb(usage.used)
+    free_gb = _bytes_to_gb(usage.free)
+    used_pct = (used_gb / total_gb * 100.0) if total_gb > 0 else 0.0
+    return used_pct, used_gb, free_gb, total_gb
+
+
+def _directory_size_gb(path: Path) -> float:
+    total = 0
+    try:
+        for entry in os.scandir(path):
+            total += _directory_entry_size_bytes(entry)
+    except FileNotFoundError:
+        return 0.0
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Performance monitor project disk scan failed for {}: {}", path, exc)
+        return 0.0
+    return _bytes_to_gb(total)
+
+
+def _directory_entry_size_bytes(entry: os.DirEntry[str]) -> int:
+    try:
+        if entry.is_symlink():
+            return 0
+        if entry.is_file(follow_symlinks=False):
+            return int(entry.stat(follow_symlinks=False).st_size)
+        if entry.is_dir(follow_symlinks=False):
+            total = 0
+            with os.scandir(entry.path) as it:
+                for child in it:
+                    total += _directory_entry_size_bytes(child)
+            return total
+    except (FileNotFoundError, PermissionError):
+        return 0
+    return 0
 
 
 def _append_csv_row(
@@ -146,15 +225,26 @@ def _append_csv_row(
     mem_used_pct: float,
     mem_used_gb: float,
     mem_total_gb: float,
+    disk_fs_used_pct: float = 0.0,
+    disk_fs_used_gb: float = 0.0,
+    disk_fs_free_gb: float = 0.0,
+    disk_fs_total_gb: float = 0.0,
+    disk_project_used_gb: float = 0.0,
 ) -> None:
     is_new = not csv_path.exists()
     line = (
         f"{t.isoformat(timespec='seconds')},{cpu_total_pct:.3f},{mem_used_pct:.3f},"
-        f"{mem_used_gb:.3f},{mem_total_gb:.3f}\n"
+        f"{mem_used_gb:.3f},{mem_total_gb:.3f},"
+        f"{disk_fs_used_pct:.3f},{disk_fs_used_gb:.3f},{disk_fs_free_gb:.3f},"
+        f"{disk_fs_total_gb:.3f},{disk_project_used_gb:.3f}\n"
     )
     with csv_path.open("a", encoding="utf-8") as f:
         if is_new:
-            f.write("timestamp,cpu_total_pct,mem_used_pct,mem_used_gb,mem_total_gb\n")
+            f.write(
+                "timestamp,cpu_total_pct,mem_used_pct,mem_used_gb,mem_total_gb,"
+                "disk_fs_used_pct,disk_fs_used_gb,disk_fs_free_gb,"
+                "disk_fs_total_gb,disk_project_used_gb\n"
+            )
         f.write(line)
 
 
@@ -166,6 +256,9 @@ def _render_plot(
     mem_used_gb: List[float],
     mem_total_gb: List[float],
     run_start: datetime,
+    disk_fs_used_pct: List[float] | None = None,
+    disk_fs_free_gb: List[float] | None = None,
+    disk_project_used_gb: List[float] | None = None,
 ) -> None:
     if not timestamps or plt is None:
         return
@@ -174,25 +267,41 @@ def _render_plot(
 
     ax1.plot(timestamps, cpu_pct, label="CPU [%]", color="tab:blue")
     ax1.plot(timestamps, mem_pct, label="RAM [%]", color="tab:orange")
-    ax1.set_ylabel("CPU / RAM [%]")
+    if disk_fs_used_pct:
+        ax1.plot(timestamps, disk_fs_used_pct, label="Disk used [%]", color="tab:green")
+    ax1.set_ylabel("CPU / RAM / disk used [%]")
+    ax1.set_ylim(bottom=0)
     ax1.grid(True, alpha=0.3)
 
-    ax1.legend(loc="upper left", fontsize=8)
+    ax2 = ax1.twinx()
+    if disk_project_used_gb:
+        ax2.plot(timestamps, disk_project_used_gb, label="Project size [GB]", color="tab:red", linestyle="-")
+    if disk_fs_free_gb:
+        ax2.plot(timestamps, disk_fs_free_gb, label="Disk free [GB]", color="tab:purple", linestyle="--")
+    ax2.set_ylabel("Disk [GB]")
+    ax2.set_ylim(bottom=0)
+
+    lines = [*ax1.get_lines(), *ax2.get_lines()]
+    labels = [line.get_label() for line in lines]
+    ax1.legend(lines, labels, loc="upper left", fontsize=8, ncol=2)
     ax1.set_xlabel("Time")
 
     elapsed_sec = max(0, int((timestamps[-1] - run_start).total_seconds()))
     hh, rem = divmod(elapsed_sec, 3600)
     mm = rem // 60
     elapsed_hhmm = f"{hh:02d}:{mm:02d}"
+    min_disk_free = min(disk_fs_free_gb) if disk_fs_free_gb else 0.0
+    peak_project_size = max(disk_project_used_gb) if disk_project_used_gb else 0.0
     summary = (
         f"Elapsed: {elapsed_hhmm}   "
-        f"Peak RAM: {max(mem_used_gb or [0]):.2f} / {max(mem_total_gb or [0]):.2f} GB"
+        f"Peak RAM: {max(mem_used_gb or [0]):.2f} / {max(mem_total_gb or [0]):.2f} GB   "
+        f"Peak project: {peak_project_size:.2f} GB   Min free disk: {min_disk_free:.2f} GB"
     )
     fig.text(0.5, 0.985, summary, ha="center", va="top", fontsize=9)
 
     fig.tight_layout(rect=(0.005, 0.03, 0.995, 0.91))
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    force_figure_text_black(fig, [ax1])
+    force_figure_text_black(fig, [ax1, ax2])
     _save_perf_plot_atomic(fig, out_path)
     plt.close(fig)
 
@@ -229,6 +338,12 @@ def cli_main(argv: List[str] | None = None) -> int:
     p.add_argument("--project-dir", required=True, type=Path, help="Project directory (contains steps/)")
     p.add_argument("--sample-interval", type=float, default=5.0, help="Sampling interval in seconds (default: 5)")
     p.add_argument("--plot-interval", type=float, default=30.0, help="Plot refresh interval in seconds (default: 30)")
+    p.add_argument(
+        "--disk-scan-interval",
+        type=float,
+        default=300.0,
+        help="Recursive project directory disk scan interval in seconds (default: 300)",
+    )
     p.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
     args = p.parse_args(argv)
 
@@ -247,6 +362,7 @@ def cli_main(argv: List[str] | None = None) -> int:
         project_dir=project_dir,
         sample_interval_sec=float(args.sample_interval or 5.0),
         plot_interval_sec=float(args.plot_interval or 30.0),
+        disk_scan_interval_sec=float(args.disk_scan_interval or 300.0),
         run_start=datetime.utcnow(),
     )
     stop_event = Event()

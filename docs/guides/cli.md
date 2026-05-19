@@ -627,20 +627,21 @@ oa-da-plot-ess --setup-dir PATH  # Setup-wide
 
 **Performance monitoring**
 
-Standalone performance monitor (CPU/RAM% + setup disk size) that can attach to a running setup.
+Standalone performance monitor (CPU/RAM%, filesystem disk pressure, and throttled project directory size) that can attach to a running project.
 
 ```bash
 oa-da-perf-monitor \
-  --setup-dir PATH \
+  --project-dir PATH \
   [--sample-interval SEC] \
-  [--plot-interval SEC]
+  [--plot-interval SEC] \
+  [--disk-scan-interval SEC]
 ```
 
-Suggested intervals: sample every 5–10 seconds; refresh the plot every 30–60 seconds.
+Suggested intervals: sample every 5–10 seconds; refresh the plot every 30–60 seconds; scan recursive project size every 300 seconds or longer for large runs.
 
 **Output:**
 - `results/plots/perf/project_perf_metrics.csv`
-- `results/plots/perf/project_perf.png` (CPU/RAM% left axis, disk GB right axis)
+- `results/plots/perf/project_perf.png` (CPU/RAM/filesystem-used % left axis, project size and free disk GB right axis)
 
 ---
 

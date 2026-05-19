@@ -674,14 +674,14 @@ This creates `step_00_init`, `step_01_*`,  with `start_date`, `end_date`, and `r
 
 The skeleton uses the `timestep` from `project.yml` (e.g. `3H`, `6H`, `1D`) to define step boundaries. For each assimilation date `D_i`, step i runs long enough that openAMUNDSEN produces a daily grid for `D_i` in the preceding step, and step boundaries satisfy `start_{i+1} = end_i + timestep` (no duplicated timesteps). The setup pipeline then assimilates SCF on the calendar date of `start_{i+1}`, which matches `D_i`.
 
-### Performance monitoring (CPU / RAM)
+### Performance monitoring (CPU / RAM / disk)
 
-A minimal monitor samples system CPU% and RAM% (enabled by default for `oa-da-project`).
+A minimal monitor samples system CPU%, RAM%, filesystem disk pressure, and throttled project directory size (enabled by default for `oa-da-project`).
 Outputs under `<project>/results/plots/perf/`:
-- `project_perf_metrics.csv` (timestamp, cpu_total_pct, mem_used_pct, mem_used_gb, mem_total_gb)
-- `project_perf.png` (CPU/RAM%)
+- `project_perf_metrics.csv` (timestamp, CPU/RAM columns, filesystem used/free/total GB, and project size GB)
+- `project_perf.png` (CPU/RAM/filesystem-used % plus project size and free disk GB)
 
-Suggested intervals: sample every 5-10 seconds; refresh the plot every 30-60 seconds.
+Suggested intervals: sample every 5-10 seconds; refresh the plot every 30-60 seconds; scan recursive project size every 300 seconds or longer for large runs.
 
 Project run with default monitoring
 
@@ -741,9 +741,10 @@ $setup = "$project/projects/project_YYYY-YYYY"
 
 docker compose run --rm oa `
   oa-da-perf-monitor `
-  --setup-dir $setup `
+  --project-dir $setup `
   --sample-interval 5 `
-  --plot-interval 30
+  --plot-interval 30 `
+  --disk-scan-interval 300
 ```
 
 This foreground command will keep updating the CSV and plot until interrupted

@@ -157,6 +157,7 @@ def merge_grids(
     subdomains: Optional[Iterable[str]] = None,
     out_dir: Optional[Path] = None,
     coverage_sliver_tol_px: int = 4,
+    defer_compact_cleanup: bool = False,
 ) -> List[Path]:
     """Merge compact grid outputs from latest-step open-loop/member results."""
     manifest = SubdomainManifest.load(manifest_path)
@@ -257,21 +258,54 @@ def merge_grids(
     if retention_mode == "compact":
         if not da_summary_written:
             logger.warning("Skipping compact grid retention because da_output_grids.nc was not written.")
+        elif defer_compact_cleanup:
+            logger.info(
+                "Deferring compact sub-domain grid retention cleanup until top-level map rendering is complete."
+            )
         else:
-            merged_artifacts = [
-                p
-                for p in sorted(out_base.glob("member_*"))
-                if p.is_file()
-            ]
-            merged_artifacts.extend([p for p in sorted(out_base.glob("*.tif")) if p.is_file()])
-            subdomain_artifacts = collect_subdomain_grid_artifacts(manifest.project_dir)
-            deleted, bytes_freed = delete_files([*merged_artifacts, *subdomain_artifacts])
+            deleted, bytes_freed = cleanup_deferred_compact_grid_artifacts(
+                manifest_path=manifest_path,
+                out_dir=out_base,
+            )
             logger.info(
                 "Compact retention: deleted {} sub-domain grid artifact file(s), freed {:.1f} MB",
                 deleted,
                 bytes_freed / 1_000_000.0,
             )
     return written
+
+
+def _merged_compact_grid_artifacts(out_base: Path) -> list[Path]:
+    """Return merged grid artifacts that are transient under compact retention."""
+    artifacts: list[Path] = []
+    for pattern in ("member_*", "*.tif", "output_grids*.nc"):
+        for path in sorted(out_base.glob(pattern)):
+            if path.is_file() and path.name != "da_output_grids.nc":
+                artifacts.append(path)
+    return sorted(set(artifacts))
+
+
+def cleanup_deferred_compact_grid_artifacts(
+    *,
+    manifest_path: Path,
+    out_dir: Optional[Path] = None,
+) -> tuple[int, int]:
+    """Delete compact grid artifacts after downstream top-level maps no longer need them."""
+    manifest = SubdomainManifest.load(manifest_path)
+    retention_mode = output_retention_mode(manifest.project_dir)
+    if retention_mode != "compact":
+        logger.info("Skipping deferred compact grid cleanup because output retention is {}.", retention_mode)
+        return 0, 0
+
+    out_base = out_dir or (manifest.project_dir / "results" / "grids")
+    da_summary_path = out_base / "da_output_grids.nc"
+    if not da_summary_path.is_file():
+        logger.warning("Skipping compact grid retention because da_output_grids.nc was not written.")
+        return 0, 0
+
+    merged_artifacts = _merged_compact_grid_artifacts(out_base)
+    subdomain_artifacts = collect_subdomain_grid_artifacts(manifest.project_dir)
+    return delete_files([*merged_artifacts, *subdomain_artifacts])
 
 
 def merge_model_grids(

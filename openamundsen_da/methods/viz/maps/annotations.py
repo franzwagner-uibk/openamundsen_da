@@ -36,6 +36,19 @@ from openamundsen_da.methods.viz.maps.theme import (
     _STATION_COLOR,
 )
 
+_INSIDE_LEGEND_ANCHOR_PAD = 0.026
+_INSIDE_LEGEND_MIN_WIDTH = 0.26
+_INSIDE_LEGEND_MIN_HEIGHT = 0.075
+_INSIDE_LEGEND_MAX_HEIGHT = 0.36
+_INSIDE_LEGEND_UNIT_HEIGHT = 0.095
+_INSIDE_LEGEND_FACE = (1.0, 1.0, 1.0, 0.88)
+_INSIDE_LEGEND_RIGHT_PAD = 0.020
+_INSIDE_LEGEND_TEXT_WIDTH_SAFETY = 1.03
+_LEGEND_ENTRY_FONT_SIZE = 6.1
+_LEGEND_HEADING_FONT_SIZE = 7.8
+_STATION_LABEL_X = 0.148
+_PATCH_LABEL_X = 0.18
+
 
 def panel_semantic_title(panel: MapPanelSpec) -> str | None:
     if panel.title is not None:
@@ -158,18 +171,18 @@ def draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
 def draw_patch_entry(ax, *, y: float, label: str, facecolor, edgecolor="none") -> float:
     rect = Rectangle((0.02, y - 0.028), 0.12, 0.05, transform=ax.transAxes, facecolor=facecolor, edgecolor=edgecolor, linewidth=1.0)
     ax.add_patch(rect)
-    ax.text(0.18, y, label, transform=ax.transAxes, ha="left", va="center", fontsize=6.1)
+    ax.text(_PATCH_LABEL_X, y, label, transform=ax.transAxes, ha="left", va="center", fontsize=_LEGEND_ENTRY_FONT_SIZE)
     return y - 0.061
 
 
 def draw_station_entry(ax, *, y: float, label: str) -> float:
     ax.scatter([0.070], [y], s=40, marker="v", facecolor=_STATION_COLOR, edgecolor="none", transform=ax.transAxes, clip_on=False)
-    ax.text(0.148, y, label, transform=ax.transAxes, ha="left", va="center", fontsize=6.1)
+    ax.text(_STATION_LABEL_X, y, label, transform=ax.transAxes, ha="left", va="center", fontsize=_LEGEND_ENTRY_FONT_SIZE)
     return y - 0.054
 
 
 def draw_heading(ax, *, y: float, text: str) -> float:
-    ax.text(0.0, y, text, transform=ax.transAxes, ha="left", va="top", fontsize=7.8)
+    ax.text(0.0, y, text, transform=ax.transAxes, ha="left", va="top", fontsize=_LEGEND_HEADING_FONT_SIZE)
     return y - 0.05
 
 
@@ -251,10 +264,11 @@ def draw_panel_below_items(
     artifacts: dict[str, dict[str, object]],
     legend_source_handles_getter,
 ) -> None:
-    if not panel.below_items:
+    items = panel.bottom_legend_items
+    if not items:
         return
     row_units, inset_height, _, draw_gap = panel_below_items_layout(
-        panel.below_items,
+        items,
         panel_height_in=axis_height_inches(ax),
         panel_aspect=axis_height_inches(ax) / max(axis_width_inches(ax), 1e-9),
     )
@@ -265,17 +279,36 @@ def draw_panel_below_items(
     register_child_axes(ax, legend_ax)
     legend_ax.set_axis_off()
     y = 1.0 - (0.4 / max(row_units, 1e-9))
-    for item in panel.below_items:
+    _draw_legend_items_on_axis(
+        legend_ax,
+        items=items,
+        y=y,
+        artifacts=artifacts,
+        legend_source_handles_getter=legend_source_handles_getter,
+        context_label="below-panel",
+    )
+
+
+def _draw_legend_items_on_axis(
+    ax,
+    *,
+    items: tuple[LegendItemSpec, ...],
+    y: float,
+    artifacts: dict[str, dict[str, object]],
+    legend_source_handles_getter,
+    context_label: str,
+) -> float:
+    for item in items:
         if item.kind == "heading":
-            y = draw_heading(legend_ax, y=y, text=str(item.label))
+            y = draw_heading(ax, y=y, text=str(item.label))
         elif item.kind == "station_symbol":
-            y = draw_station_entry(legend_ax, y=y, label=str(item.label))
+            y = draw_station_entry(ax, y=y, label=str(item.label))
         elif item.kind == "source_legend":
             if item.label:
-                y = draw_heading(legend_ax, y=y, text=str(item.label))
+                y = draw_heading(ax, y=y, text=str(item.label))
             for handle in legend_source_handles_getter(item, artifacts):
                 y = draw_patch_entry(
-                    legend_ax,
+                    ax,
                     y=y,
                     label=handle.get_label(),
                     facecolor=handle.get_facecolor(),
@@ -284,7 +317,148 @@ def draw_panel_below_items(
         elif item.kind == "scale_bar":
             continue
         else:
-            raise ValueError(f"Unsupported below-panel legend item kind '{item.kind}'")
+            raise ValueError(f"Unsupported {context_label} legend item kind '{item.kind}'")
+    return y
+
+
+def _legend_label_width_in(label: str | None, *, fontsize: float, text_x: float) -> float:
+    if not label:
+        return 0.0
+    label_width_in, _ = text_size_in(str(label), size=fontsize)
+    available_fraction = max(1.0 - text_x - _INSIDE_LEGEND_RIGHT_PAD, 0.10)
+    return _INSIDE_LEGEND_TEXT_WIDTH_SAFETY * label_width_in / available_fraction
+
+
+def _inside_legend_width(
+    ax,
+    *,
+    items: tuple[LegendItemSpec, ...],
+    artifacts: dict[str, dict[str, object]],
+    legend_source_handles_getter,
+) -> float:
+    required_width_in = 0.0
+    for item in items:
+        if item.kind == "heading":
+            required_width_in = max(
+                required_width_in,
+                _legend_label_width_in(item.label, fontsize=_LEGEND_HEADING_FONT_SIZE, text_x=0.0),
+            )
+        elif item.kind == "station_symbol":
+            required_width_in = max(
+                required_width_in,
+                _legend_label_width_in(item.label, fontsize=_LEGEND_ENTRY_FONT_SIZE, text_x=_STATION_LABEL_X),
+            )
+        elif item.kind == "source_legend":
+            required_width_in = max(
+                required_width_in,
+                _legend_label_width_in(item.label, fontsize=_LEGEND_HEADING_FONT_SIZE, text_x=0.0),
+            )
+            for handle in legend_source_handles_getter(item, artifacts):
+                required_width_in = max(
+                    required_width_in,
+                    _legend_label_width_in(handle.get_label(), fontsize=_LEGEND_ENTRY_FONT_SIZE, text_x=_PATCH_LABEL_X),
+                )
+    parent_width_in = max(axis_width_inches(ax), 1e-9)
+    measured_width = required_width_in / parent_width_in
+    max_width = max(1.0 - 2.0 * _INSIDE_LEGEND_ANCHOR_PAD, _INSIDE_LEGEND_MIN_WIDTH)
+    return min(max(_INSIDE_LEGEND_MIN_WIDTH, measured_width), max_width)
+
+
+def _inside_legend_bounds(
+    ax,
+    anchor: str | None,
+    *,
+    row_units: float,
+    items: tuple[LegendItemSpec, ...],
+    artifacts: dict[str, dict[str, object]],
+    legend_source_handles_getter,
+) -> tuple[float, float, float, float]:
+    width = _inside_legend_width(
+        ax,
+        items=items,
+        artifacts=artifacts,
+        legend_source_handles_getter=legend_source_handles_getter,
+    )
+    height = min(
+        _INSIDE_LEGEND_MAX_HEIGHT,
+        max(_INSIDE_LEGEND_MIN_HEIGHT, row_units * _INSIDE_LEGEND_UNIT_HEIGHT),
+    )
+    token = str(anchor or "top_left")
+    x0 = _INSIDE_LEGEND_ANCHOR_PAD if token.endswith("left") else 1.0 - width - _INSIDE_LEGEND_ANCHOR_PAD
+    y0 = 1.0 - height - _INSIDE_LEGEND_ANCHOR_PAD if token.startswith("top") else _INSIDE_LEGEND_ANCHOR_PAD
+    return x0, y0, width, height
+
+
+def _clip_axis_artists(ax) -> None:
+    for artist in [*ax.texts, *ax.collections, *ax.patches]:
+        artist.set_clip_on(True)
+
+
+def draw_panel_inside_items(
+    ax,
+    *,
+    panel: MapPanelSpec,
+    artifacts: dict[str, dict[str, object]],
+    legend_source_handles_getter,
+) -> None:
+    grouped: dict[str | None, list[LegendItemSpec]] = {}
+    for item in panel.inside_legend_items:
+        grouped.setdefault(item.anchor or "top_left", []).append(item)
+    for anchor, raw_items in grouped.items():
+        items = tuple(raw_items)
+        row_units = sum(panel_below_item_units(item) for item in items)
+        x0, y0, width, height = _inside_legend_bounds(
+            ax,
+            anchor,
+            row_units=row_units,
+            items=items,
+            artifacts=artifacts,
+            legend_source_handles_getter=legend_source_handles_getter,
+        )
+        legend_ax = ax.inset_axes(
+            [x0, y0, width, height],
+            transform=ax.transAxes,
+            zorder=_ANNOTATION_ZORDER + 1,
+        )
+        register_child_axes(ax, legend_ax)
+        legend_ax.set_facecolor(_INSIDE_LEGEND_FACE)
+        legend_ax.set_xticks([])
+        legend_ax.set_yticks([])
+        legend_ax.set_xlim(0.0, 1.0)
+        legend_ax.set_ylim(0.0, 1.0)
+        for spine in legend_ax.spines.values():
+            spine.set_visible(False)
+        y = 0.5 if len(items) == 1 else 0.88
+        _draw_legend_items_on_axis(
+            legend_ax,
+            items=items,
+            y=y,
+            artifacts=artifacts,
+            legend_source_handles_getter=legend_source_handles_getter,
+            context_label="inside-panel",
+        )
+        _clip_axis_artists(legend_ax)
+
+
+def draw_panel_legend_items(
+    ax,
+    *,
+    panel: MapPanelSpec,
+    artifacts: dict[str, dict[str, object]],
+    legend_source_handles_getter,
+) -> None:
+    draw_panel_below_items(
+        ax,
+        panel=panel,
+        artifacts=artifacts,
+        legend_source_handles_getter=legend_source_handles_getter,
+    )
+    draw_panel_inside_items(
+        ax,
+        panel=panel,
+        artifacts=artifacts,
+        legend_source_handles_getter=legend_source_handles_getter,
+    )
 
 
 def draw_panel_extras(

@@ -3,7 +3,7 @@ maps:
     title: setup_overview
     output_name: setup_overview
     layout:
-      nrows: 2
+      nrows: 1
       ncols: 3
     defaults:
       show_scalebar: true
@@ -16,30 +16,18 @@ maps:
         roi_label: Rofental
       - row: 0
         col: 1
-        kind: roi
-        title: region of interest
+        kind: dem
+        title: digital elevation model
         show_station_marker: true
         show_stations_name: true
         show_stations_elev: true
-        below_items:
+        legend_items:
           - kind: station_symbol
             label: Meteorological stations
+            placement: inside
+            anchor: top_left
       - row: 0
         col: 2
-        kind: dem
-        title: digital elevation model
-      - row: 1
-        col: 0
         kind: landcover
-        title: landcover
-      - row: 1
-        col: 1
-        kind: hillshade
-        title: hillshade
-        show_station_marker: true
-        show_stations_name: false
-      - row: 1
-        col: 2
-        kind: srf
-        title: snow redistribution factor
-        show_hillshade: true
+        title: land cover
+        landcover_grouping: broad

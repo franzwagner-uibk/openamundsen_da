@@ -667,9 +667,9 @@ def row_bottom_extras(
                 and panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True) == "horizontal"
             ):
                 extra = horizontal_colorbar_total_extra(panel_height_in=panel_height_in, panel_aspect=panel_aspect)
-        if panel.below_items:
+        if panel.bottom_legend_items:
             below_items_extra = below_items_extra_getter(
-                panel.below_items,
+                panel.bottom_legend_items,
                 panel_height_in=panel_height_in,
                 panel_aspect=panel_aspect,
             )

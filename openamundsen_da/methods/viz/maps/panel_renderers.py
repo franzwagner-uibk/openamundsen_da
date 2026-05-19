@@ -79,11 +79,10 @@ from openamundsen_da.methods.viz.maps.styles import (
     FSC_OBS_CMAP,
     FSC_INVALID_COLOR,
     INCREMENT_CMAP,
-    LANDCOVER_LABELS,
     SNOW_DEPTH_REFERENCE_TICKS_M,
     WET_SNOW_COLORS,
     WET_SNOW_LABELS,
-    landcover_cmap_for_codes,
+    landcover_classes_for_present_codes,
     model_colorbar_style,
     model_map_cmap,
     model_map_norm,
@@ -462,10 +461,13 @@ def classified_display_labels(
     if panel.kind == "landcover":
         masked_landcover = np.ma.masked_array(context.landcover, mask=~context.roi_mask)
         present_codes = {int(value) for value in masked_landcover.compressed() if np.isfinite(value)}
-        active_codes = [code for code in LANDCOVER_LABELS if code in present_codes]
-        if not active_codes:
-            return list(LANDCOVER_LABELS.values())
-        return [LANDCOVER_LABELS[code] for code in active_codes]
+        return [
+            item.label
+            for item in landcover_classes_for_present_codes(
+                present_codes,
+                grouping=panel.landcover_grouping,
+            )
+        ]
 
     if panel.kind in {"wet_snow", "wet_snow_line"}:
         if panel.source in {"prior_probability", "posterior", "posterior_probability"}:
@@ -1188,8 +1190,16 @@ def render_static_panel(
     panel_grid_extent = grid_extent(context)
 
     if panel.kind == "hillshade":
+        shade = hillshade(context, derived_cache=derived_cache)
+        if shade.shape == context.roi_mask.shape:
+            shade = np.ma.masked_array(
+                shade,
+                mask=(~context.roi_mask) | (~np.isfinite(shade)),
+            )
+        else:
+            shade = hillshade_underlay(context, derived_cache=derived_cache)
         ax.imshow(
-            hillshade(context, derived_cache=derived_cache),
+            shade,
             cmap="Greys_r",
             extent=hillshade_extent(context),
             origin="upper",
@@ -1219,15 +1229,22 @@ def render_static_panel(
         return {}
 
     if panel.kind == "landcover":
-        masked_landcover = masked_invalid(field_array(context, "landcover"))
-        present_codes = {int(value) for value in masked_landcover.compressed() if np.isfinite(value)}
-        canonical_codes = sorted(present_codes) if present_codes else [0]
+        masked_landcover = masked(field_array(context, "landcover"), context.roi_mask)
+        present_source_codes = {int(value) for value in masked_landcover.compressed() if np.isfinite(value)}
+        landcover_classes = landcover_classes_for_present_codes(
+            present_source_codes,
+            grouping=panel.landcover_grouping,
+        )
+        canonical_codes = [item.code for item in landcover_classes]
         code_to_index = {code: idx for idx, code in enumerate(canonical_codes)}
+        class_lookup = {item.code: item for item in landcover_classes}
         categorical = np.full(masked_landcover.shape, np.nan, dtype=float)
         filled = masked_landcover.filled(np.nan)
         for code, idx in code_to_index.items():
-            categorical[np.isclose(filled, float(code), equal_nan=False)] = idx
-        cmap = landcover_cmap_for_codes(canonical_codes)
+            source_values = [float(source_code) for source_code in class_lookup[code].source_codes]
+            categorical[np.isin(filled, source_values)] = idx
+        categorical = np.ma.masked_invalid(categorical)
+        cmap = ListedColormap([item.color for item in landcover_classes], name="oa_da_landcover")
         norm = BoundaryNorm(np.arange(-0.5, len(canonical_codes) + 0.5), cmap.N)
         image = ax.imshow(categorical, cmap=cmap, norm=norm, extent=panel_grid_extent, origin="upper", interpolation="nearest", zorder=5)
         apply_common_overlays(
@@ -1248,10 +1265,10 @@ def render_static_panel(
         )
         legend_handles = classified_legend_handles(
             canonical_codes=canonical_codes,
-            present_codes=present_codes,
-            label_lookup=LANDCOVER_LABELS,
-            color_lookup=lambda code: cmap(code_to_index[code]),
-            fallback_codes=[0],
+            present_codes={item.code for item in landcover_classes},
+            label_lookup={item.code: item.label for item in landcover_classes},
+            color_lookup=lambda code: class_lookup[code].color,
+            fallback_codes=canonical_codes,
         )
         draw_classified_legend(ax, legend_handles, layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default))
         draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=panel_date(panel, defaults), resolve_flag=resolve_flag)
@@ -1261,7 +1278,7 @@ def render_static_panel(
     field = _STATIC_FIELD_KIND_TO_FIELD[panel.kind]
     preset = require_static_field_preset(field)
     raw_data = field_array(context, field)
-    data = masked_invalid(raw_data)
+    data = masked(raw_data, context.roi_mask)
     norm = static_field_norm(preset, data.filled(np.nan))
     image = ax.imshow(data, cmap=static_field_cmap(preset), norm=norm, extent=panel_grid_extent, origin="upper", interpolation="nearest", zorder=5)
     overlay_invalid_inside_roi(ax, inside_roi_invalid_mask(raw_data, context.roi_mask), extent=panel_grid_extent)

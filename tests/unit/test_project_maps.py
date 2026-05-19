@@ -1069,6 +1069,11 @@ def test_project_maps_config_accepts_static_panels_and_legend_items(tmp_path: Pa
                 col: 1
                 kind: svf
                 title: Sky view factor
+                legend_items:
+                  - kind: station_symbol
+                    label: Demo stations
+                    placement: inside
+                    anchor: top_left
               - row: 0
                 col: 2
                 kind: legend
@@ -1086,6 +1091,8 @@ def test_project_maps_config_accepts_static_panels_and_legend_items(tmp_path: Pa
     assert cfg.maps[0].panels[0].scale == 1000000
     assert cfg.maps[0].panels[0].label_fit_margin == 0.04
     assert cfg.maps[0].panels[1].kind == "svf"
+    assert cfg.maps[0].panels[1].legend_items[0].placement == "inside"
+    assert cfg.maps[0].panels[1].legend_items[0].anchor == "top_left"
     assert [item.kind for item in cfg.maps[0].panels[2].items] == ["station_symbol", "heading"]
 
 
@@ -1122,6 +1129,62 @@ def test_project_maps_config_accepts_below_panel_legend_items(tmp_path: Path) ->
     assert cfg.maps[0].output_stem == "setup_overview"
     assert [item.kind for item in cfg.maps[0].panels[0].below_items] == ["station_symbol"]
     assert cfg.maps[0].panels[0].below_items[0].label == "Meteorological stations"
+    assert [item.kind for item in cfg.maps[0].panels[0].bottom_legend_items] == ["station_symbol"]
+
+
+def test_project_maps_config_rejects_invalid_panel_legend_placement(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          setup_overview:
+            title: setup_overview
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: dem
+                legend_items:
+                  - kind: station_symbol
+                    label: Meteorological stations
+                    placement: sidebar
+        """,
+    )
+
+    with pytest.raises(ValueError, match="placement must be one of"):
+        load_project_maps_config(config_path)
+
+
+def test_project_maps_config_rejects_invalid_panel_legend_anchor(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          setup_overview:
+            title: setup_overview
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: dem
+                legend_items:
+                  - kind: station_symbol
+                    label: Meteorological stations
+                    placement: inside
+                    anchor: center
+        """,
+    )
+
+    with pytest.raises(ValueError, match="anchor must be one of"):
+        load_project_maps_config(config_path)
 
 
 def test_project_maps_config_accepts_hillshade_extent_on_defaults_and_panels(tmp_path: Path) -> None:
@@ -1213,6 +1276,35 @@ def test_project_maps_config_rejects_below_items_on_legend_panel(tmp_path: Path)
     )
 
     with pytest.raises(ValueError, match="below_items is only supported for non-legend panels"):
+        load_project_maps_config(config_path)
+
+
+def test_project_maps_config_rejects_legend_items_on_legend_panel(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          bad_legend:
+            title: bad_legend
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: legend
+                legend_items:
+                  - kind: station_symbol
+                    label: Demo stations
+                items:
+                  - kind: heading
+                    label: Existing legend
+        """,
+    )
+
+    with pytest.raises(ValueError, match="legend_items is only supported for non-legend panels"):
         load_project_maps_config(config_path)
 
 
@@ -1491,20 +1583,20 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
     assert [recipe.name for recipe in cfg.maps] == ["setup_overview"]
     assert [recipe.title for recipe in cfg.maps] == ["setup_overview"]
     assert [recipe.output_stem for recipe in cfg.maps] == ["setup_overview"]
-    assert cfg.maps[0].layout.nrows == 2
+    assert cfg.maps[0].layout.nrows == 1
     assert cfg.maps[0].layout.ncols == 3
     assert [panel.title for panel in cfg.maps[0].panels] == [
         "overview",
-        "region of interest",
         "digital elevation model",
-        "landcover",
-        "hillshade",
-        "snow redistribution factor",
+        "land cover",
     ]
-    assert [(panel.row, panel.col) for panel in cfg.maps[0].panels] == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
-    assert cfg.maps[0].panels[3].name is None
-    assert cfg.maps[0].panels[1].below_items[0].label == "Meteorological stations"
-    assert cfg.maps[0].panels[5].show_hillshade is True
+    assert [panel.kind for panel in cfg.maps[0].panels] == ["overview", "dem", "landcover"]
+    assert [(panel.row, panel.col) for panel in cfg.maps[0].panels] == [(0, 0), (0, 1), (0, 2)]
+    assert cfg.maps[0].panels[1].show_station_marker is True
+    assert cfg.maps[0].panels[1].show_stations_name is True
+    assert cfg.maps[0].panels[1].show_stations_elev is True
+    assert cfg.maps[0].panels[1].below_items == ()
+    assert cfg.maps[0].panels[2].landcover_grouping == "broad"
 
 
 def test_shipped_subdomain_project_maps_config_keeps_generic_setup_overview_only() -> None:
@@ -2043,6 +2135,54 @@ def test_project_maps_config_rejects_overlapping_panels(tmp_path: Path) -> None:
         raise AssertionError("Expected overlap validation failure")
 
 
+def test_project_maps_config_rejects_invalid_landcover_grouping(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          bad_recipe:
+            title: Bad
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: landcover
+                landcover_grouping: detailed
+        """,
+    )
+
+    with pytest.raises(ValueError, match="landcover_grouping must be one of"):
+        load_project_maps_config(config_path)
+
+
+def test_project_maps_config_rejects_landcover_grouping_on_other_panels(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          bad_recipe:
+            title: Bad
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: dem
+                landcover_grouping: broad
+        """,
+    )
+
+    with pytest.raises(ValueError, match="only supported for landcover panels"):
+        load_project_maps_config(config_path)
+
+
 def test_date_resolution_helpers_follow_selectors(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
 
@@ -2349,7 +2489,7 @@ def test_snowdepth_model_mask_hides_values_below_one_centimeter() -> None:
     assert masked.mask.tolist() == [[True, False, False]]
 
 
-def test_static_panels_keep_context_outside_roi(tmp_path: Path) -> None:
+def test_static_panels_mask_rasters_outside_roi(tmp_path: Path) -> None:
     roi_mask = np.array(
         [
             [0, 0, 0, 0],
@@ -2371,11 +2511,21 @@ def test_static_panels_keep_context_outside_roi(tmp_path: Path) -> None:
     assert not context.roi_mask[0, 0]
     assert np.isfinite(hillshade[0, 0])
 
-    fig, axes = plt.subplots(1, 2, figsize=(6, 3))
+    fig, axes = plt.subplots(1, 3, figsize=(9, 3))
     try:
-        dem_artifact = render_module._render_static_panel(
+        render_module._render_static_panel(
             axes[0],
-            panel=MapPanelSpec(kind="dem", row=0, col=0, show_colorbar=False),
+            panel=MapPanelSpec(kind="hillshade", row=0, col=0),
+            context=context,
+            extent=extent,
+            grid_extent=grid_extent,
+            label=None,
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
+        dem_artifact = render_module._render_static_panel(
+            axes[1],
+            panel=MapPanelSpec(kind="dem", row=0, col=1, show_colorbar=False),
             context=context,
             extent=extent,
             grid_extent=grid_extent,
@@ -2384,8 +2534,8 @@ def test_static_panels_keep_context_outside_roi(tmp_path: Path) -> None:
             figure_horizontal_default=True,
         )
         landcover_artifact = render_module._render_static_panel(
-            axes[1],
-            panel=MapPanelSpec(kind="landcover", row=0, col=0),
+            axes[2],
+            panel=MapPanelSpec(kind="landcover", row=0, col=2),
             context=context,
             extent=extent,
             grid_extent=grid_extent,
@@ -2394,12 +2544,88 @@ def test_static_panels_keep_context_outside_roi(tmp_path: Path) -> None:
             figure_horizontal_default=True,
         )
 
+        hillshade_array = np.ma.asarray(axes[0].images[-1].get_array())
         dem_array = np.ma.asarray(dem_artifact["mappable"].get_array())
         landcover_array = np.ma.asarray(landcover_artifact["mappable"].get_array())
-        assert not np.ma.getmaskarray(dem_array)[0, 0]
-        assert np.isfinite(dem_array[0, 0])
-        assert not np.ma.getmaskarray(landcover_array)[0, 0]
-        assert np.isfinite(landcover_array[0, 0])
+        assert np.ma.getmaskarray(hillshade_array)[0, 0]
+        assert np.ma.getmaskarray(dem_array)[0, 0]
+        assert np.ma.getmaskarray(landcover_array)[0, 0]
+        assert not np.ma.getmaskarray(dem_array)[1, 1]
+        assert not np.ma.getmaskarray(landcover_array)[1, 1]
+    finally:
+        plt.close(fig)
+
+
+def test_landcover_panel_broad_grouping_collapses_native_classes(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    extent = buffered_extent(context)
+    grid_extent = render_module._grid_extent(context)
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        artifact = render_module._render_static_panel(
+            ax,
+            panel=MapPanelSpec(kind="landcover", row=0, col=0, landcover_grouping="broad"),
+            context=context,
+            extent=extent,
+            grid_extent=grid_extent,
+            label=None,
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
+
+        labels = [handle.get_label() for handle in artifact["legend_handles"]]
+        landcover_array = np.ma.asarray(artifact["mappable"].get_array())
+        present_display_values = {int(value) for value in np.unique(landcover_array.compressed())}
+
+        assert labels == [
+            "rock",
+            "ice",
+            "water",
+            "grass/shrub",
+            "farmland/transitional",
+            "forest",
+            "built-up",
+        ]
+        assert present_display_values == set(range(7))
+    finally:
+        plt.close(fig)
+
+
+def test_landcover_panel_legend_uses_roi_present_classes(tmp_path: Path) -> None:
+    roi_mask = np.array(
+        [
+            [0, 0, 0, 0],
+            [0, 1, 1, 0],
+            [0, 1, 1, 0],
+            [0, 0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
+    _setup_dir, project_dir = _build_project_fixture(tmp_path, roi_mask=roi_mask)
+    context = load_static_context(project_dir)
+    extent = buffered_extent(context)
+    grid_extent = render_module._grid_extent(context)
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        artifact = render_module._render_static_panel(
+            ax,
+            panel=MapPanelSpec(kind="landcover", row=0, col=0, landcover_grouping="broad"),
+            context=context,
+            extent=extent,
+            grid_extent=grid_extent,
+            label=None,
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
+
+        labels = [handle.get_label() for handle in artifact["legend_handles"]]
+        landcover_array = np.ma.asarray(artifact["mappable"].get_array())
+        present_display_values = {int(value) for value in np.unique(landcover_array.compressed())}
+
+        assert labels == ["grass/shrub", "forest"]
+        assert present_display_values == {0, 1}
+        assert np.ma.getmaskarray(landcover_array)[0, 0]
     finally:
         plt.close(fig)
 
@@ -3166,6 +3392,51 @@ def test_station_entry_is_more_compact() -> None:
         assert scatter.get_sizes()[0] < 110
         assert text.get_fontsize() < 6.4
         assert y_next > 0.8 - 0.068
+    finally:
+        plt.close(fig)
+
+
+@pytest.mark.parametrize(
+    ("legend_label", "figsize"),
+    [
+        ("Meteorological stations", (3, 2)),
+        ("Meteorological station network", (4, 2)),
+    ],
+)
+def test_inside_panel_station_legend_draws_boxed_inset(legend_label: str, figsize: tuple[int, int]) -> None:
+    panel = MapPanelSpec(
+        kind="dem",
+        row=0,
+        col=0,
+        legend_items=(
+            LegendItemSpec(
+                kind="station_symbol",
+                label=legend_label,
+                placement="inside",
+                anchor="top_left",
+            ),
+        ),
+    )
+    fig, ax = plt.subplots(figsize=figsize)
+    try:
+        render_module._draw_panel_legend_items(ax, panel=panel, artifacts={})
+        fig.canvas.draw()
+        inset_axes = list(ax.child_axes)
+
+        assert len(inset_axes) == 1
+        assert inset_axes[0].texts[-1].get_text() == legend_label
+        bbox = inset_axes[0].get_position()
+        parent_bbox = ax.get_position()
+        assert bbox.x0 < parent_bbox.x0 + 0.25 * parent_bbox.width
+        assert bbox.y1 > parent_bbox.y0 + 0.70 * parent_bbox.height
+        assert all(not spine.get_visible() for spine in inset_axes[0].spines.values())
+        renderer = fig.canvas.get_renderer()
+        inset_display_bbox = inset_axes[0].get_window_extent(renderer=renderer)
+        text_display_bbox = inset_axes[0].texts[-1].get_window_extent(renderer=renderer)
+        assert text_display_bbox.x0 >= inset_display_bbox.x0 - 0.5
+        assert text_display_bbox.x1 <= inset_display_bbox.x1 + 0.5
+        assert text_display_bbox.y0 >= inset_display_bbox.y0 - 0.5
+        assert text_display_bbox.y1 <= inset_display_bbox.y1 + 0.5
     finally:
         plt.close(fig)
 

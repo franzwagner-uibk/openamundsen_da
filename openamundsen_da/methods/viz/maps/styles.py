@@ -43,6 +43,14 @@ class StaticFieldPreset:
     ticklabels: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class LandcoverDisplayClass:
+    code: int
+    label: str
+    color: str
+    source_codes: tuple[int, ...]
+
+
 VARIABLE_PRESETS = {
     "snowdepth_daily": VariablePreset(
         variable="snowdepth_daily",
@@ -163,9 +171,20 @@ LANDCOVER_LABELS = {
     13: "built-up",
 }
 
+UNKNOWN_LANDCOVER_COLOR = "#d9d9d9"
+SUPPORTED_LANDCOVER_GROUPINGS = {"native", "broad"}
+LANDCOVER_BROAD_CLASSES = (
+    LandcoverDisplayClass(1, "rock", LANDCOVER_COLORS[1], (1,)),
+    LandcoverDisplayClass(2, "ice", LANDCOVER_COLORS[2], (2,)),
+    LandcoverDisplayClass(3, "water", LANDCOVER_COLORS[3], (3,)),
+    LandcoverDisplayClass(4, "grass/shrub", LANDCOVER_COLORS[4], (4, 5)),
+    LandcoverDisplayClass(5, "farmland/transitional", LANDCOVER_COLORS[6], (6, 7)),
+    LandcoverDisplayClass(6, "forest", LANDCOVER_COLORS[10], (8, 9, 10, 11, 12)),
+    LandcoverDisplayClass(7, "built-up", LANDCOVER_COLORS[13], (13,)),
+)
+
 FSC_OBS_CMAP = colormaps["Greys"]
 FSC_INVALID_COLOR = "#d8b3b7"
-UNKNOWN_LANDCOVER_COLOR = "#d9d9d9"
 WET_SNOW_COLORS = {
     110: "#000000",
     125: "#d8d8d8",
@@ -256,6 +275,53 @@ def nice_ceiling(value: float, *, step: float, minimum: float) -> float:
     if step <= 0:
         raise ValueError("step must be > 0")
     return max(minimum, math.ceil(float(value) / step) * step)
+
+
+def normalize_landcover_grouping(grouping: str | None) -> str:
+    token = str(grouping or "native").strip().lower()
+    if token not in SUPPORTED_LANDCOVER_GROUPINGS:
+        supported = ", ".join(sorted(SUPPORTED_LANDCOVER_GROUPINGS))
+        raise ValueError(f"Unsupported landcover grouping '{grouping}'. Supported values: {supported}")
+    return token
+
+
+def landcover_classes_for_present_codes(
+    present_source_codes: set[int],
+    *,
+    grouping: str | None,
+) -> tuple[LandcoverDisplayClass, ...]:
+    token = normalize_landcover_grouping(grouping)
+    if token == "broad":
+        classes = [
+            item
+            for item in LANDCOVER_BROAD_CLASSES
+            if not present_source_codes or any(source_code in present_source_codes for source_code in item.source_codes)
+        ]
+        covered_codes = {source_code for item in LANDCOVER_BROAD_CLASSES for source_code in item.source_codes}
+    else:
+        codes = sorted(present_source_codes) if present_source_codes else list(LANDCOVER_LABELS)
+        classes = [
+            LandcoverDisplayClass(
+                int(code),
+                LANDCOVER_LABELS.get(int(code), str(code)),
+                LANDCOVER_COLORS.get(int(code), UNKNOWN_LANDCOVER_COLOR),
+                (int(code),),
+            )
+            for code in codes
+        ]
+        covered_codes = set(present_source_codes)
+
+    unknown_codes = sorted(present_source_codes - covered_codes)
+    classes.extend(
+        LandcoverDisplayClass(
+            int(code),
+            str(code),
+            LANDCOVER_COLORS.get(int(code), UNKNOWN_LANDCOVER_COLOR),
+            (int(code),),
+        )
+        for code in unknown_codes
+    )
+    return tuple(classes)
 
 
 def landcover_cmap_for_codes(codes: list[int]) -> ListedColormap:

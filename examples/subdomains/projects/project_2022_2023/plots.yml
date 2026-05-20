@@ -5,10 +5,10 @@
 panels:
   - panel: fSC
     show_obs: true
-    title: snow cover fraction subdomain ROI - openAMUNDSEN ensemble and satellite data
+    title: Snow cover fraction subdomain ROI - openAMUNDSEN ensemble and satellite data
 
   - panel: roi-sd
-    title: mean snow depth subdomain ROI - openAMUNDSEN ensemble and open loop
+    title: Mean snow depth subdomain ROI - openAMUNDSEN ensemble and open loop
 
   - panel: ess
 

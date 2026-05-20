@@ -1581,14 +1581,14 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
     cfg = load_project_maps_config(config_path)
 
     assert [recipe.name for recipe in cfg.maps] == ["setup_overview"]
-    assert [recipe.title for recipe in cfg.maps] == ["setup_overview"]
+    assert [recipe.title for recipe in cfg.maps] == ["Setup overview"]
     assert [recipe.output_stem for recipe in cfg.maps] == ["setup_overview"]
     assert cfg.maps[0].layout.nrows == 1
     assert cfg.maps[0].layout.ncols == 3
     assert [panel.title for panel in cfg.maps[0].panels] == [
-        "overview",
-        "digital elevation model",
-        "land cover",
+        "Overview",
+        "Digital elevation model",
+        "Land cover",
     ]
     assert [panel.kind for panel in cfg.maps[0].panels] == ["overview", "dem", "landcover"]
     assert [(panel.row, panel.col) for panel in cfg.maps[0].panels] == [(0, 0), (0, 1), (0, 2)]
@@ -1621,11 +1621,11 @@ def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, 
 
     assert [recipe.name for recipe in recipes] == ["da_1", "da_2"]
     assert all(recipe.output_subdir == generated_module.GENERATED_DA_MAPS_SUBDIR for recipe in recipes)
-    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (snow cover fraction)"
-    assert recipes[1].figure_title == "DA 2 - 2023-01-02 (wet snow fraction (WSF))"
-    assert recipes[0].row_labels == ("station snow depth",)
+    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (Snow cover fraction)"
+    assert recipes[1].figure_title == "DA 2 - 2023-01-02 (Wet snow fraction (WSF))"
+    assert recipes[0].row_labels == ("Station snow depth",)
     assert recipes[0].layout.ncols == 4
-    assert [panel.title for panel in recipes[0].panels] == ["open loop", "prior mean", "posterior mean", "posterior - prior"]
+    assert [panel.title for panel in recipes[0].panels] == ["Open loop", "Prior mean", "Posterior mean", "Posterior - prior"]
     assert [panel.source for panel in recipes[0].panels] == [
         "open_loop",
         "ensemble_mean",
@@ -1745,7 +1745,7 @@ def test_generated_da_map_title_marks_skipped_resampling(tmp_path: Path, monkeyp
 
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
-    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (snow cover fraction) - resampling skipped"
+    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (Snow cover fraction) - resampling skipped"
 
 
 def test_generated_da_event_status_overlay_uses_dropped_event_metadata(
@@ -1835,7 +1835,7 @@ def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_sup
 
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
-    assert recipes[0].row_labels[0] == "snow cover"
+    assert recipes[0].row_labels[0] == "Snow cover"
     scf_panels = recipes[0].panels[:8]
     assert recipes[0].layout.ncols == 4
     assert [panel.source for panel in scf_panels[:4]] == [
@@ -1845,10 +1845,10 @@ def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_sup
         None,
     ]
     assert [panel.title for panel in scf_panels[:4]] == [
-        "open-loop snow cover",
-        "prior snow cover",
-        "posterior snow cover",
-        "satellite FSC observation",
+        "Open-loop snow cover",
+        "Prior snow cover",
+        "Posterior snow cover",
+        "Satellite FSC observation",
     ]
 
 
@@ -1876,9 +1876,9 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
 
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
-    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (wet snow line altitude - WSLA)"
-    assert recipes[0].row_labels[0] == "wet snow line altitude (WSLA)"
-    assert recipes[0].row_labels[1] == "elevation-band WSF"
+    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (Wet snow line altitude - WSLA)"
+    assert recipes[0].row_labels[0] == "Wet snow line altitude (WSLA)"
+    assert recipes[0].row_labels[1] == "Elevation-band WSF"
     assert recipes[0].layout.ncols == 4
     assert [panel.kind for panel in recipes[0].panels[:4]] == [
         "wet_snow_line",
@@ -1892,7 +1892,7 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
         "posterior_probability",
         None,
     ]
-    assert [panel.title for panel in recipes[0].panels[:4]] == ["open loop", "prior", "posterior", "observation"]
+    assert [panel.title for panel in recipes[0].panels[:4]] == ["Open loop", "Prior", "Posterior", "Observation"]
     assert [panel.kind for panel in recipes[0].panels[4:8]] == [
         "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
@@ -1927,7 +1927,7 @@ def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
     wet_recipe = recipes[1]
-    assert wet_recipe.row_labels[:2] == ("wet snow fraction (WSF)", "elevation-band WSF")
+    assert wet_recipe.row_labels[:2] == ("Wet snow fraction (WSF)", "Elevation-band WSF")
     assert wet_recipe.layout.ncols == 4
     assert [panel.kind for panel in wet_recipe.panels[:4]] == ["wet_snow", "wet_snow", "wet_snow", "wet_snow"]
     assert [panel.source for panel in wet_recipe.panels[:4]] == [
@@ -2045,7 +2045,7 @@ def test_reference_stream_uses_variable_name_labels(tmp_path: Path, monkeypatch:
     monkeypatch.setattr(generated_module, "_fraction_summary_dates", lambda *_args, **_kwargs: {target_date})
     monkeypatch.setattr(generated_module, "_event_dates_by_variable", lambda *_args, **_kwargs: {"scf": {pd.Timestamp("2023-02-01")}})
 
-    assert generated_module._reference_stream(project_dir, variable="scf", date=target_date) == "snow cover (independent)"
+    assert generated_module._reference_stream(project_dir, variable="scf", date=target_date) == "Snow cover (independent)"
 
 
 def test_render_project_maps_generates_da_event_maps_under_subdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2073,10 +2073,10 @@ def test_render_project_maps_writes_paper_outputs_without_figure_titles(
     recipe = MapRecipe(
         name="da_1",
         title="DA 1",
-        figure_title="DA 1 - 2023-01-02 (snow cover fraction)",
+        figure_title="DA 1 - 2023-01-02 (Snow cover fraction)",
         output_subdir="da_events",
         layout=LayoutSpec(nrows=1, ncols=1),
-        panels=(MapPanelSpec(kind="hillshade", row=0, col=0, title="open loop"),),
+        panels=(MapPanelSpec(kind="hillshade", row=0, col=0, title="Open loop"),),
     )
     rendered: list[tuple[Path, str | None, str | None]] = []
 
@@ -2097,11 +2097,11 @@ def test_render_project_maps_writes_paper_outputs_without_figure_titles(
     normal = project_dir / "results" / "maps" / "da_events" / "da_1.png"
     paper = project_dir / "results" / "paper" / "maps" / "da_events" / "da_1.png"
     assert outputs == [normal]
-    assert normal.read_text(encoding="utf-8") == "DA 1 - 2023-01-02 (snow cover fraction)"
+    assert normal.read_text(encoding="utf-8") == "DA 1 - 2023-01-02 (Snow cover fraction)"
     assert paper.read_text(encoding="utf-8") == ""
     assert rendered == [
-        (normal, "DA 1 - 2023-01-02 (snow cover fraction)", "open loop"),
-        (paper, None, "open loop"),
+        (normal, "DA 1 - 2023-01-02 (Snow cover fraction)", "Open loop"),
+        (paper, None, "Open loop"),
     ]
 
 

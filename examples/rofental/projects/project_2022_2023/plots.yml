@@ -35,15 +35,15 @@
 panels:
   - panel: fSC
     show_obs: true
-    title: snow cover fraction Rofental catchment - openAMUNDSEN ensemble and satellite data
+    title: Snow cover fraction Rofental catchment - openAMUNDSEN ensemble and satellite data
 
   - panel: WSLA
     show_obs: true
-    title: wet-snow line Rofental catchment - openAMUNDSEN ensemble and satellite data
+    title: Wet-snow line Rofental catchment - openAMUNDSEN ensemble and satellite data
 
   - panel: station-sd
     station_id: proviantdepot
-    title: snow depth Proviantdepot 2659 m - openAMUNDSEN ensemble and station observation
+    title: Snow depth Proviantdepot 2659 m - openAMUNDSEN ensemble and station observation
     show_obs: true
 
   - panel: ess

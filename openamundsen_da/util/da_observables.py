@@ -21,28 +21,28 @@ _SPECS = {
     "scf": AssimilationObservableSpec(
         variable="scf",
         weight_prefix="weights_scf",
-        weight_title="snow cover data assimilation weights",
+        weight_title="Snow cover data assimilation weights",
     ),
     "wet_snow": AssimilationObservableSpec(
         variable="wet_snow",
         weight_prefix="weights_wet_snow",
-        weight_title="wet snow fraction (WSF) data assimilation weights",
+        weight_title="Wet snow fraction (WSF) data assimilation weights",
     ),
     "wet_snow_line": AssimilationObservableSpec(
         variable="wet_snow_line",
         weight_prefix="weights_wet_snow_line",
-        weight_title="wet snow line altitude (WSLA) data assimilation weights",
+        weight_title="Wet snow line altitude (WSLA) data assimilation weights",
     ),
     "station_hs": AssimilationObservableSpec(
         variable="station_hs",
         weight_prefix="weights_station_hs",
-        weight_title="station snow depth data assimilation weights",
+        weight_title="Station snow depth data assimilation weights",
         station_diagnostics_prefix="station_diagnostics_station_hs",
     ),
     "station_swe": AssimilationObservableSpec(
         variable="station_swe",
         weight_prefix="weights_station_swe",
-        weight_title="station swe data assimilation weights",
+        weight_title="Station SWE data assimilation weights",
         station_diagnostics_prefix="station_diagnostics_station_swe",
     ),
 }

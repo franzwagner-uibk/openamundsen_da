@@ -54,7 +54,7 @@ class LandcoverDisplayClass:
 VARIABLE_PRESETS = {
     "snowdepth_daily": VariablePreset(
         variable="snowdepth_daily",
-        title="snow depth",
+        title="Snow depth",
         unit_label="snow depth [m]",
         sequential_cmap="YlGnBu",
         model_min=0.0,
@@ -65,7 +65,7 @@ VARIABLE_PRESETS = {
     ),
     "swe_daily": VariablePreset(
         variable="swe_daily",
-        title="snow water equivalent",
+        title="Snow water equivalent",
         unit_label="SWE [mm]",
         sequential_cmap="viridis_r",
         model_min=0.0,
@@ -76,7 +76,7 @@ VARIABLE_PRESETS = {
     ),
     "liquid_water_content": VariablePreset(
         variable="liquid_water_content",
-        title="liquid water content",
+        title="Liquid water content",
         unit_label="liquid water content [-]",
         sequential_cmap="viridis_r",
         model_min=0.0,
@@ -91,7 +91,7 @@ VARIABLE_PRESETS = {
 STATIC_FIELD_PRESETS = {
     "dem": StaticFieldPreset(
         field="dem",
-        title="digital elevation model",
+        title="Digital elevation model",
         unit_label="elevation [m]",
         cmap_name="Greys_r",
         step=250.0,
@@ -99,7 +99,7 @@ STATIC_FIELD_PRESETS = {
     ),
     "svf": StaticFieldPreset(
         field="svf",
-        title="sky view factor",
+        title="Sky view factor",
         unit_label="SVF [-]",
         cmap_name="Greys_r",
         vmin=0.5,
@@ -108,7 +108,7 @@ STATIC_FIELD_PRESETS = {
     ),
     "srf": StaticFieldPreset(
         field="srf",
-        title="snow redistribution factor",
+        title="Snow redistribution factor",
         unit_label="SRF [-]",
         cmap_name="RdBu",
         vmin=0.1,
@@ -118,7 +118,7 @@ STATIC_FIELD_PRESETS = {
     ),
     "landcover": StaticFieldPreset(
         field="landcover",
-        title="landcover",
+        title="Land cover",
         unit_label="landcover",
         cmap_name="oa_da_landcover",
     ),

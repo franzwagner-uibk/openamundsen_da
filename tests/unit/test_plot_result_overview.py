@@ -1200,7 +1200,7 @@ def test_plot_result_overview_supports_custom_station_panel(tmp_path: Path) -> N
             "fSC",
             "snow depth [m]",
         ]
-        assert axes[1].get_title(loc="left").startswith("(b) snow depth Latschbloder 2919 m")
+        assert axes[1].get_title(loc="left").startswith("(b) Snow depth Latschbloder 2919 m")
         line_colors = [line.get_color() for line in axes[1].lines]
         assert da_variable_style("station_hs")["line"] in line_colors
         assert "black" in line_colors

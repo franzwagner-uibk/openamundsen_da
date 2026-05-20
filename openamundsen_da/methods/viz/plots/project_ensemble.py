@@ -297,10 +297,10 @@ def _build_station_result_legend(
 
 def _standalone_result_title(token: str, *, var_key: str, station_label: str) -> str:
     if token == "point_swe_roi":
-        return "mean SWE (roi) - openAMUNDSEN ensemble and open loop"
+        return "Mean SWE (roi) - openAMUNDSEN ensemble and open loop"
     if token == "point_snow_depth_roi":
-        return "mean snow depth (roi) - openAMUNDSEN ensemble and open loop"
-    metric = "SWE" if var_key == "swe" else ("snow depth" if var_key in {"snow_depth", "snowdepth", "hs"} else var_key.replace("_", " "))
+        return "Mean snow depth (roi) - openAMUNDSEN ensemble and open loop"
+    metric = "SWE" if var_key == "swe" else ("Snow depth" if var_key in {"snow_depth", "snowdepth", "hs"} else var_key.replace("_", " ").capitalize())
     return f"{metric} {station_label} - openAMUNDSEN ensemble and station observation"
 
 

@@ -19,14 +19,14 @@ from openamundsen_da.util.run_mode import read_run_mode
 GENERATED_DA_MAPS_SUBDIR = "da_events"
 _FRACTION_REFERENCE_VARIABLES = ("scf", "wet_snow")
 _VARIABLE_LABELS = {
-    "scf": "snow cover fraction",
-    "wet_snow": "wet snow fraction (WSF)",
-    "wet_snow_line": "wet snow line altitude (WSLA)",
-    "station_hs": "station snow depth",
-    "station_swe": "station snow water equivalent",
+    "scf": "Snow cover fraction",
+    "wet_snow": "Wet snow fraction (WSF)",
+    "wet_snow_line": "Wet snow line altitude (WSLA)",
+    "station_hs": "Station snow depth",
+    "station_swe": "Station snow water equivalent",
 }
 _STREAM_VARIABLE_LABELS = {
-    "scf": "snow cover",
+    "scf": "Snow cover",
 }
 
 
@@ -46,7 +46,7 @@ def _variable_label(variable: str) -> str:
 
 def _figure_title_variable_label(variable: str) -> str:
     if variable == "wet_snow_line":
-        return "wet snow line altitude - WSLA"
+        return "Wet snow line altitude - WSLA"
     return _variable_label(variable)
 
 
@@ -142,14 +142,14 @@ def _snow_depth_row(*, row: int, label: str, event_variable: str) -> GeneratedRo
     return GeneratedRow(
         label=label,
         panels=(
-            MapPanelSpec(kind="snow_depth", row=row, col=0, source="open_loop", title="open loop", show_hillshade=True),
-            MapPanelSpec(kind="snow_depth", row=row, col=1, source="ensemble_mean", title="prior mean", show_hillshade=True),
+            MapPanelSpec(kind="snow_depth", row=row, col=0, source="open_loop", title="Open loop", show_hillshade=True),
+            MapPanelSpec(kind="snow_depth", row=row, col=1, source="ensemble_mean", title="Prior mean", show_hillshade=True),
             MapPanelSpec(
                 kind="snow_depth",
                 row=row,
                 col=2,
                 source="analysis_mean",
-                title="posterior mean",
+                title="Posterior mean",
                 show_hillshade=True,
                 variable=event_variable,
             ),
@@ -158,7 +158,7 @@ def _snow_depth_row(*, row: int, label: str, event_variable: str) -> GeneratedRo
                 row=row,
                 col=3,
                 source="analysis_increment",
-                title="posterior - prior",
+                title="Posterior - prior",
                 show_hillshade=True,
                 variable=event_variable,
             ),
@@ -176,7 +176,7 @@ def _fraction_row(*, row: int, kind: str, label: str) -> GeneratedRow:
                     row=row,
                     col=0,
                     source="open_loop_binary",
-                    title="open-loop snow cover",
+                    title="Open-loop snow cover",
                     show_hillshade=True,
                     hillshade_extent="roi",
                 ),
@@ -185,7 +185,7 @@ def _fraction_row(*, row: int, kind: str, label: str) -> GeneratedRow:
                     row=row,
                     col=1,
                     source="prior_probability",
-                    title="prior snow cover",
+                    title="Prior snow cover",
                     show_hillshade=True,
                     hillshade_extent="roi",
                 ),
@@ -194,23 +194,23 @@ def _fraction_row(*, row: int, kind: str, label: str) -> GeneratedRow:
                     row=row,
                     col=2,
                     source="posterior_probability",
-                    title="posterior snow cover",
+                    title="Posterior snow cover",
                     show_hillshade=True,
                     hillshade_extent="roi",
                 ),
-                MapPanelSpec(kind=kind, row=row, col=3, title="satellite FSC observation"),
+                MapPanelSpec(kind=kind, row=row, col=3, title="Satellite FSC observation"),
             ),
         )
     return GeneratedRow(
         label=label,
         panels=(
-            MapPanelSpec(kind=kind, row=row, col=0, source="open_loop", title="open loop", show_hillshade=True, hillshade_extent="roi"),
+            MapPanelSpec(kind=kind, row=row, col=0, source="open_loop", title="Open loop", show_hillshade=True, hillshade_extent="roi"),
             MapPanelSpec(
                 kind=kind,
                 row=row,
                 col=1,
                 source="prior_probability",
-                title="prior WSF",
+                title="Prior WSF",
                 show_hillshade=True,
                 hillshade_extent="roi",
             ),
@@ -219,11 +219,11 @@ def _fraction_row(*, row: int, kind: str, label: str) -> GeneratedRow:
                 row=row,
                 col=2,
                 source="posterior_probability",
-                title="posterior WSF",
+                title="Posterior WSF",
                 show_hillshade=True,
                 hillshade_extent="roi",
             ),
-            MapPanelSpec(kind=kind, row=row, col=3, title="observation"),
+            MapPanelSpec(kind=kind, row=row, col=3, title="Observation"),
         ),
     )
 
@@ -232,13 +232,13 @@ def _wet_snow_line_row(*, row: int, label: str) -> GeneratedRow:
     return GeneratedRow(
         label=label,
         panels=(
-            MapPanelSpec(kind="wet_snow_line", row=row, col=0, source="open_loop", title="open loop", show_hillshade=True, hillshade_extent="roi"),
+            MapPanelSpec(kind="wet_snow_line", row=row, col=0, source="open_loop", title="Open loop", show_hillshade=True, hillshade_extent="roi"),
             MapPanelSpec(
                 kind="wet_snow_line",
                 row=row,
                 col=1,
                 source="prior_probability",
-                title="prior",
+                title="Prior",
                 show_hillshade=True,
                 hillshade_extent="roi",
             ),
@@ -247,26 +247,26 @@ def _wet_snow_line_row(*, row: int, label: str) -> GeneratedRow:
                 row=row,
                 col=2,
                 source="posterior_probability",
-                title="posterior",
+                title="Posterior",
                 show_hillshade=True,
                 hillshade_extent="roi",
             ),
-            MapPanelSpec(kind="wet_snow_line", row=row, col=3, title="observation"),
+            MapPanelSpec(kind="wet_snow_line", row=row, col=3, title="Observation"),
         ),
     )
 
 
 def _wet_snow_elevation_fraction_row(*, row: int, variable: str) -> GeneratedRow:
     return GeneratedRow(
-        label="elevation-band WSF",
+        label="Elevation-band WSF",
         panels=(
-            MapPanelSpec(kind="wet_snow_elevation_fraction", row=row, col=0, source="open_loop", title="open loop", variable=variable),
+            MapPanelSpec(kind="wet_snow_elevation_fraction", row=row, col=0, source="open_loop", title="Open loop", variable=variable),
             MapPanelSpec(
                 kind="wet_snow_elevation_fraction",
                 row=row,
                 col=1,
                 source="prior_probability",
-                title="prior",
+                title="Prior",
                 variable=variable,
             ),
             MapPanelSpec(
@@ -274,10 +274,10 @@ def _wet_snow_elevation_fraction_row(*, row: int, variable: str) -> GeneratedRow
                 row=row,
                 col=2,
                 source="posterior_probability",
-                title="posterior",
+                title="Posterior",
                 variable=variable,
             ),
-            MapPanelSpec(kind="wet_snow_elevation_fraction", row=row, col=3, title="observation", variable=variable),
+            MapPanelSpec(kind="wet_snow_elevation_fraction", row=row, col=3, title="Observation", variable=variable),
         ),
     )
 
@@ -458,7 +458,7 @@ def _generated_recipe(index: int, project_dir: Path, event: AssimilationEvent, r
     )
     return MapRecipe(
         name=f"da_{index}",
-        title=f"da_{index}",
+        title=f"DA {index}",
         figure_title=_generated_figure_title(index, project_dir, event),
         output_subdir=GENERATED_DA_MAPS_SUBDIR,
         layout=layout,

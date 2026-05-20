@@ -1178,7 +1178,7 @@ def _build_setup_weights_overview_page(
         fig.text(
             0.06,
             0.974,
-            f"data assimilation weights ({summary})",
+            f"Data assimilation weights ({summary})",
             va="top",
             ha="left",
             fontsize=8.6,

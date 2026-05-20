@@ -166,12 +166,12 @@ _ALTITUDE_MAJOR_TICK_STEPS_M = (100.0, 200.0, 250.0, 500.0, 1000.0, 2000.0)
 _ALTITUDE_MAX_MAJOR_INTERVALS = 5.0
 
 _DEFAULT_TITLES = {
-    "fSC": "snow cover fraction (roi) - openAMUNDSEN ensemble and satellite observations",
-    "WSF": "wet snow fraction (roi) - openAMUNDSEN ensemble and satellite observations",
-    "WSLA": "wet snow line altitude (roi) - openAMUNDSEN ensemble and satellite observations",
-    "roi-swe": "mean swe (roi) - openAMUNDSEN ensemble and open loop",
-    "roi-sd": "mean snow depth (roi) - openAMUNDSEN ensemble and open loop",
-    "ess": "effective sample size",
+    "fSC": "Snow cover fraction (roi) - openAMUNDSEN ensemble and satellite observations",
+    "WSF": "Wet snow fraction (roi) - openAMUNDSEN ensemble and satellite observations",
+    "WSLA": "Wet snow line altitude (roi) - openAMUNDSEN ensemble and satellite observations",
+    "roi-swe": "Mean SWE (roi) - openAMUNDSEN ensemble and open loop",
+    "roi-sd": "Mean snow depth (roi) - openAMUNDSEN ensemble and open loop",
+    "ess": "Effective sample size",
     "scores-crpss": "CRPSS",
     "scores-ner": "NER",
     "scores-zskill": "zSkill",
@@ -529,7 +529,7 @@ def _station_assimilation_dates(events: list[AssimilationEvent], panel: str) -> 
 def _station_title(spec: PanelSpec, station_data: StationPanelData) -> str:
     if spec.title:
         return spec.title
-    metric = "snow depth" if spec.panel == "station-sd" else "swe"
+    metric = "Snow depth" if spec.panel == "station-sd" else "SWE"
     alt_text = f" {int(station_data.altitude_m)} m" if station_data.altitude_m is not None else ""
     return (
         f"{metric} {station_data.display_name}{alt_text} - openAMUNDSEN ensemble "

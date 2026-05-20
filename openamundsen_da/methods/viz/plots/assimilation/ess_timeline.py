@@ -43,9 +43,9 @@ from openamundsen_da.methods.viz.common import (
 _RE_DATE = re.compile(r"weights_.+_(\d{8})\.csv$", re.IGNORECASE)
 _ESS_PANEL_FIGSIZE = (7.2876875, 2.28)
 def ess_title(*, ensemble_size: int | None, normalized: bool = False) -> str:
-    base = "effective sample size"
+    base = "Effective sample size"
     if normalized:
-        base = "effective sample size ratio"
+        base = "Effective sample size ratio"
     if ensemble_size is None or ensemble_size <= 0:
         return base
     return f"{base} (ensemble size = {ensemble_size})"

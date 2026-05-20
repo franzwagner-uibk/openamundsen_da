@@ -1,6 +1,6 @@
 maps:
   setup_overview:
-    title: setup_overview
+    title: Setup overview
     output_name: setup_overview
     layout:
       nrows: 1
@@ -11,13 +11,13 @@ maps:
       - row: 0
         col: 0
         kind: overview
-        title: overview
+        title: Overview
         scale: 2500000
         roi_label: Rofental
       - row: 0
         col: 1
         kind: dem
-        title: digital elevation model
+        title: Digital elevation model
         show_station_marker: true
         show_stations_name: true
         show_stations_elev: true
@@ -29,5 +29,5 @@ maps:
       - row: 0
         col: 2
         kind: landcover
-        title: land cover
+        title: Land cover
         landcover_grouping: broad

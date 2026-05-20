@@ -120,7 +120,7 @@ def test_wet_snow_line_weights_csv_is_not_misclassified_as_wet_snow(tmp_path: Pa
     _write_csv(csv_path, [{"member_id": "member_001", "residual": 12.0, "sigma": 150.0, "log_weight": -1.0, "weight": 1.0}])
 
     assert plot_mod._observable_from_csv_path(csv_path) == "wet_snow_line"
-    assert weight_plot_title_from_csv_path(csv_path) == "wet snow line altitude (WSLA) data assimilation weights"
+    assert weight_plot_title_from_csv_path(csv_path) == "Wet snow line altitude (WSLA) data assimilation weights"
 
 
 def test_nice_axis_extent_uses_quarter_steps_just_above_one() -> None:
@@ -186,8 +186,8 @@ def test_setup_weights_overview_writes_paper_copy_without_figure_title(tmp_path:
     normal, paper = saved
     assert normal["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
     assert paper["out"] == plot_mod.project_paper_output_path(project_dir, normal["out"])
-    assert any(text.get_text().startswith("data assimilation weights") for text in normal["fig"].texts)
-    assert not any(text.get_text().startswith("data assimilation weights") for text in paper["fig"].texts)
+    assert any(text.get_text().startswith("Data assimilation weights") for text in normal["fig"].texts)
+    assert not any(text.get_text().startswith("Data assimilation weights") for text in paper["fig"].texts)
 
     for item in saved:
         plt.close(item["fig"])
@@ -1241,15 +1241,15 @@ def test_setup_overview_splits_many_events_across_multiple_pages(tmp_path: Path,
     )
     assert "page 1/2" in normal_saved[0]["fig"].texts[0].get_text()
     assert "page 2/2" in normal_saved[1]["fig"].texts[0].get_text()
-    assert not any(text.get_text().startswith("data assimilation weights") for text in paper_saved[0]["fig"].texts)
-    assert not any(text.get_text().startswith("data assimilation weights") for text in paper_saved[1]["fig"].texts)
+    assert not any(text.get_text().startswith("Data assimilation weights") for text in paper_saved[0]["fig"].texts)
+    assert not any(text.get_text().startswith("Data assimilation weights") for text in paper_saved[1]["fig"].texts)
     renderer = normal_saved[1]["fig"].canvas.get_renderer()
     summary_box = normal_saved[1]["fig"].texts[0].get_window_extent(renderer)
     event_title_boxes = [
         text.get_window_extent(renderer)
         for ax in normal_saved[1]["fig"].axes
         for text in ax.texts
-        if "snow cover" in text.get_text()
+        if "Snow cover" in text.get_text()
     ]
     assert event_title_boxes
     assert all(not summary_box.overlaps(box) for box in event_title_boxes)

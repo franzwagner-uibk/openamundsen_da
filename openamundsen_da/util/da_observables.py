@@ -31,7 +31,7 @@ _SPECS = {
     "wet_snow_line": AssimilationObservableSpec(
         variable="wet_snow_line",
         weight_prefix="weights_wet_snow_line",
-        weight_title="Wet snow line altitude (WSLA) data assimilation weights",
+        weight_title="Wet snow line data assimilation weights",
     ),
     "station_hs": AssimilationObservableSpec(
         variable="station_hs",

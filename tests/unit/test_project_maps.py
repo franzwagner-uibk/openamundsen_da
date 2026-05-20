@@ -67,6 +67,8 @@ from openamundsen_da.methods.viz.maps.styles import (
     FSC_OBS_CMAP,
     FSC_INVALID_COLOR,
     INCREMENT_CMAP,
+    LANDCOVER_BROAD_CLASSES,
+    LANDCOVER_COLORS,
     SNOW_DEPTH_REFERENCE_TICKS_M,
     WET_SNOW_COLORS,
     WET_SNOW_LABELS,
@@ -81,6 +83,7 @@ from openamundsen_da.methods.viz.maps.styles import (
     static_field_cmap,
     static_field_colorbar_style,
 )
+from openamundsen_da.methods.viz.maps.theme import _OVERVIEW_ROI_COLOR, _STATION_COLOR
 from openamundsen_da.util.run_mode import write_run_mode
 
 
@@ -1623,9 +1626,14 @@ def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, 
     assert all(recipe.output_subdir == generated_module.GENERATED_DA_MAPS_SUBDIR for recipe in recipes)
     assert recipes[0].figure_title == "DA 1 - 2023-01-02 (Snow cover fraction)"
     assert recipes[1].figure_title == "DA 2 - 2023-01-02 (Wet snow fraction (WSF))"
-    assert recipes[0].row_labels == ("Station snow depth",)
+    assert recipes[0].row_labels == ()
     assert recipes[0].layout.ncols == 4
-    assert [panel.title for panel in recipes[0].panels] == ["Open loop", "Prior mean", "Posterior mean", "Posterior - prior"]
+    assert [panel.title for panel in recipes[0].panels] == [
+        "Open-loop snow depth",
+        "Prior snow depth",
+        "Posterior snow depth",
+        "Snow-depth increment",
+    ]
     assert [panel.source for panel in recipes[0].panels] == [
         "open_loop",
         "ensemble_mean",
@@ -1835,7 +1843,7 @@ def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_sup
 
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
-    assert recipes[0].row_labels[0] == "Snow cover"
+    assert recipes[0].row_labels == ()
     scf_panels = recipes[0].panels[:8]
     assert recipes[0].layout.ncols == 4
     assert [panel.source for panel in scf_panels[:4]] == [
@@ -1846,9 +1854,15 @@ def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_sup
     ]
     assert [panel.title for panel in scf_panels[:4]] == [
         "Open-loop snow cover",
-        "Prior snow cover",
-        "Posterior snow cover",
+        "Prior snow-cover probability",
+        "Posterior snow-cover probability",
         "Satellite FSC observation",
+    ]
+    assert [panel.title for panel in scf_panels[4:8]] == [
+        "Open-loop snow depth",
+        "Prior snow depth",
+        "Posterior snow depth",
+        "Snow-depth increment",
     ]
 
 
@@ -1876,9 +1890,8 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
 
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
-    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (Wet snow line altitude - WSLA)"
-    assert recipes[0].row_labels[0] == "Wet snow line altitude (WSLA)"
-    assert recipes[0].row_labels[1] == "Elevation-band WSF"
+    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (Wet snow line - WSLA)"
+    assert recipes[0].row_labels == ()
     assert recipes[0].layout.ncols == 4
     assert [panel.kind for panel in recipes[0].panels[:4]] == [
         "wet_snow_line",
@@ -1892,7 +1905,12 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
         "posterior_probability",
         None,
     ]
-    assert [panel.title for panel in recipes[0].panels[:4]] == ["Open loop", "Prior", "Posterior", "Observation"]
+    assert [panel.title for panel in recipes[0].panels[:4]] == [
+        "Open-loop wet snow line",
+        "Prior wet snow line",
+        "Posterior wet snow line",
+        "Observed wet snow line",
+    ]
     assert [panel.kind for panel in recipes[0].panels[4:8]] == [
         "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
@@ -1911,6 +1929,66 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
         "wet_snow_line",
         "wet_snow_line",
     ]
+    assert [panel.title for panel in recipes[0].panels[4:8]] == [
+        "Open-loop elevation-band WSF",
+        "Prior elevation-band WSF",
+        "Posterior elevation-band WSF",
+        "Observed elevation-band WSF",
+    ]
+
+
+def test_paper_recipe_compacts_wet_snow_line_da_maps(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(
+        generated_module,
+        "load_assimilation_events",
+        lambda _project_dir: (
+            generated_module.AssimilationEvent(
+                date=pd.Timestamp("2023-01-02").date(),
+                variable="wet_snow_line",
+                product="WETSNOW",
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        generated_module,
+        "_fraction_model_support_available",
+        lambda _project_dir, variable: variable == "wet_snow",
+    )
+
+    full_recipe = generated_module.generated_da_map_recipes(project_dir)[0]
+    paper_recipe = runner_module._paper_recipe(full_recipe)
+
+    assert full_recipe.layout.nrows == 3
+    assert full_recipe.row_labels == ()
+    assert paper_recipe.figure_title is None
+    assert paper_recipe.layout.nrows == 2
+    assert paper_recipe.row_labels == ()
+    assert {panel.row for panel in paper_recipe.panels} == {0, 1}
+    assert [panel.kind for panel in paper_recipe.panels[:4]] == [
+        "wet_snow_elevation_fraction",
+        "wet_snow_elevation_fraction",
+        "wet_snow_elevation_fraction",
+        "wet_snow_elevation_fraction",
+    ]
+    assert [panel.kind for panel in paper_recipe.panels[4:]] == ["snow_depth", "snow_depth", "snow_depth", "snow_depth"]
+    assert [panel.title for panel in paper_recipe.panels[:4]] == [
+        "Open-loop elevation-band WSF",
+        "Prior elevation-band WSF",
+        "Posterior elevation-band WSF",
+        "Observed elevation-band WSF",
+    ]
+    assert [panel.title for panel in paper_recipe.panels[4:]] == [
+        "Open-loop snow depth",
+        "Prior snow depth",
+        "Posterior snow depth",
+        "Snow-depth increment",
+    ]
+    assert {panel.row for panel in paper_recipe.panels[:4]} == {0}
+    assert {panel.row for panel in paper_recipe.panels[4:]} == {1}
 
 
 def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events(
@@ -1927,7 +2005,7 @@ def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
     wet_recipe = recipes[1]
-    assert wet_recipe.row_labels[:2] == ("Wet snow fraction (WSF)", "Elevation-band WSF")
+    assert wet_recipe.row_labels == ()
     assert wet_recipe.layout.ncols == 4
     assert [panel.kind for panel in wet_recipe.panels[:4]] == ["wet_snow", "wet_snow", "wet_snow", "wet_snow"]
     assert [panel.source for panel in wet_recipe.panels[:4]] == [
@@ -1935,6 +2013,12 @@ def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events
         "prior_probability",
         "posterior_probability",
         None,
+    ]
+    assert [panel.title for panel in wet_recipe.panels[:4]] == [
+        "Open-loop WSF",
+        "Prior WSF",
+        "Posterior WSF",
+        "Wet-snow observation",
     ]
     assert [panel.kind for panel in wet_recipe.panels[4:8]] == [
         "wet_snow_elevation_fraction",
@@ -1947,6 +2031,12 @@ def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events
         "prior_probability",
         "posterior_probability",
         None,
+    ]
+    assert [panel.title for panel in wet_recipe.panels[4:8]] == [
+        "Open-loop elevation-band WSF",
+        "Prior elevation-band WSF",
+        "Posterior elevation-band WSF",
+        "Observed elevation-band WSF",
     ]
     assert [panel.variable for panel in wet_recipe.panels[4:8]] == ["wet_snow", "wet_snow", "wet_snow", "wet_snow"]
 
@@ -3142,11 +3232,49 @@ def test_static_field_palettes_follow_reference_style() -> None:
     srf_low = srf_cmap(0.0)
     srf_high = srf_cmap(1.0)
 
+    assert dem_cmap.name == "viridis"
+    assert svf_cmap.name == "viridis"
+    assert srf_cmap.name == "RdBu"
     assert sum(dem_high[:3]) > sum(dem_low[:3])
     assert sum(svf_high[:3]) > sum(svf_low[:3])
     assert srf_low[0] > srf_low[2]
     assert srf_high[2] > srf_high[0]
     assert srf_style.ticks == (0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8)
+
+
+def test_landcover_reference_colors_use_categorical_palette() -> None:
+    assert LANDCOVER_COLORS == {
+        1: "#b7b1a8",
+        2: "#d9f2ff",
+        3: "#5ba3d0",
+        4: "#b7d36b",
+        5: "#8db255",
+        6: "#d1b45a",
+        7: "#c8a16c",
+        8: "#92b97b",
+        9: "#608f56",
+        10: "#3a6b44",
+        11: "#2e5b39",
+        12: "#1f4a31",
+        13: "#7a6d6a",
+    }
+    assert [item.color for item in LANDCOVER_BROAD_CLASSES] == [
+        LANDCOVER_COLORS[1],
+        LANDCOVER_COLORS[2],
+        LANDCOVER_COLORS[3],
+        LANDCOVER_COLORS[4],
+        LANDCOVER_COLORS[6],
+        LANDCOVER_COLORS[10],
+        LANDCOVER_COLORS[13],
+    ]
+
+
+def test_overview_roi_polygon_uses_reference_red() -> None:
+    assert _OVERVIEW_ROI_COLOR == "#c21f24"
+
+
+def test_map_station_marker_uses_reference_red() -> None:
+    assert _STATION_COLOR == "#d94801"
 
 
 def test_wet_snow_reference_colors_follow_example_palette() -> None:
@@ -3652,20 +3780,17 @@ def test_wet_snow_elevation_fraction_prior_probability_aggregates_raw_bands(
     assert np.allclose(values[high_band], 0.5)
 
 
-def test_elevation_band_wsf_cmap_accents_fifty_percent() -> None:
-    low = panel_renderers_module._ELEVATION_BAND_WSF_CMAP(0.25)
+def test_elevation_band_wsf_cmap_uses_grayscale_without_fifty_percent_accent() -> None:
     lower_accent = panel_renderers_module._ELEVATION_BAND_WSF_CMAP(0.46)
     midpoint = panel_renderers_module._ELEVATION_BAND_WSF_CMAP(0.5)
     upper_accent = panel_renderers_module._ELEVATION_BAND_WSF_CMAP(0.54)
-    high = panel_renderers_module._ELEVATION_BAND_WSF_CMAP(0.75)
 
-    assert midpoint[0] > midpoint[1]
-    assert midpoint[0] > midpoint[2]
-    assert np.allclose(lower_accent[:3], midpoint[:3], atol=0.02)
-    assert np.allclose(upper_accent[:3], midpoint[:3], atol=0.02)
+    assert panel_renderers_module._ELEVATION_BAND_WSF_CMAP is panel_renderers_module._FRACTION_MODEL_CMAP
+    assert panel_renderers_module._FRACTION_MODEL_CMAP.name == "Greys"
+    assert matplotlib.colors.to_hex(midpoint) == matplotlib.colors.to_hex(panel_renderers_module._FRACTION_MODEL_CMAP(0.5))
+    assert not np.allclose(lower_accent[:3], midpoint[:3], atol=0.02)
+    assert not np.allclose(upper_accent[:3], midpoint[:3], atol=0.02)
     assert midpoint[3] == pytest.approx(1.0)
-    assert not np.allclose(midpoint[:3], low[:3])
-    assert not np.allclose(midpoint[:3], high[:3])
 
 
 def test_wet_snow_elevation_fraction_panel_draws_source_local_wsl(
@@ -3742,11 +3867,11 @@ def test_wet_snow_elevation_fraction_observation_reuses_observed_wsl(
             figure_horizontal_default=True,
         )
 
-        assert recorded == [(3320.0, panel_renderers_module._WSL_OBS_COLOR, "-")]
+        assert recorded == [(3320.0, panel_renderers_module._WSL_MODEL_COLOR, "-")]
         assert artifacts["wsl"] == 3320.0
         assert artifacts["wsl_drawn"] is True
         callout = next(text for text in ax.texts if text.get_text() == "WSLA 3320 m")
-        assert callout.get_color() == panel_renderers_module._WSL_OBS_COLOR
+        assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
     finally:
         plt.close(fig)
 
@@ -3889,9 +4014,9 @@ def test_wet_snow_line_observation_panel_uses_obs_color_for_callout(
             observation_loader=lambda *_args, **_kwargs: observation,
         )
 
-        assert recorded_levels == [(2550.0, panel_renderers_module._WSL_OBS_COLOR, "-")]
+        assert recorded_levels == [(2550.0, panel_renderers_module._WSL_MODEL_COLOR, "-")]
         callout = next(text for text in ax.texts if text.get_text() == "WSLA 2550 m")
-        assert callout.get_color() == panel_renderers_module._WSL_OBS_COLOR
+        assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
         legend = ax.get_legend()
         assert legend is not None
         assert [text.get_text() for text in legend.get_texts()][-1] == "observation WSLA"

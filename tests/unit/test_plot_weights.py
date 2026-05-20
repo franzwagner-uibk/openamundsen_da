@@ -34,6 +34,19 @@ def _build_project_tree(tmp_path: Path) -> tuple[Path, Path, Path]:
     return setup_dir, project_dir, step_dir
 
 
+def test_da_variable_styles_use_viridis_option_c_colors() -> None:
+    expected = {
+        "wet_snow_line": "#482475",
+        "scf": "#23898e",
+        "station_swe": "#2c738e",
+        "wet_snow": "#1f9a8a",
+        "station_hs": "#4ec36b",
+    }
+
+    for variable, color in expected.items():
+        assert da_variable_style(variable) == {"fill": color, "line": color}
+
+
 def _add_weights_event(
     project_dir: Path,
     *,
@@ -106,12 +119,25 @@ def _axes_with_xlabel(fig, label: str) -> list[object]:
     return [ax for ax in fig.axes if ax.get_xlabel() == label]
 
 
+def _overview_axis_pairs(fig) -> list[tuple[object, object]]:
+    axes = [ax for ax in fig.axes if ax.get_xlabel() in {"weight", "residual [-]", "residual [m]", "residual [mm]"}]
+    return list(zip(axes[0::2], axes[1::2]))
+
+
+def _residual_axes_for_title(fig, title_fragment: str) -> list[object]:
+    axes: list[object] = []
+    for weight_ax, residual_ax in _overview_axis_pairs(fig):
+        if any(title_fragment in text.get_text() for text in weight_ax.texts):
+            axes.append(residual_ax)
+    return axes
+
+
 def test_axis_labels_use_residual_terminology() -> None:
-    assert plot_mod._fraction_axis_label("scf") == "snow cover fraction residual"
-    assert plot_mod._fraction_axis_label("wet_snow") == "wet snow fraction (WSF) residual"
-    assert plot_mod._fraction_axis_label("wet_snow_line") == "wet snow line altitude (WSLA) residual [m]"
-    assert plot_mod._station_axis_label("station_hs") == "snow depth residual [m]"
-    assert plot_mod._station_axis_label("station_swe") == "SWE residual [mm]"
+    assert plot_mod._fraction_axis_label("scf") == "residual [-]"
+    assert plot_mod._fraction_axis_label("wet_snow") == "residual [-]"
+    assert plot_mod._fraction_axis_label("wet_snow_line") == "residual [m]"
+    assert plot_mod._station_axis_label("station_hs") == "residual [m]"
+    assert plot_mod._station_axis_label("station_swe") == "residual [mm]"
 
 
 def test_wet_snow_line_weights_csv_is_not_misclassified_as_wet_snow(tmp_path: Path) -> None:
@@ -120,7 +146,7 @@ def test_wet_snow_line_weights_csv_is_not_misclassified_as_wet_snow(tmp_path: Pa
     _write_csv(csv_path, [{"member_id": "member_001", "residual": 12.0, "sigma": 150.0, "log_weight": -1.0, "weight": 1.0}])
 
     assert plot_mod._observable_from_csv_path(csv_path) == "wet_snow_line"
-    assert weight_plot_title_from_csv_path(csv_path) == "Wet snow line altitude (WSLA) data assimilation weights"
+    assert weight_plot_title_from_csv_path(csv_path) == "Wet snow line data assimilation weights"
 
 
 def test_nice_axis_extent_uses_quarter_steps_just_above_one() -> None:
@@ -258,7 +284,75 @@ def test_weights_color_sources_follow_shared_da_palette() -> None:
     }
 
 
-def test_station_plot_uses_right_aligned_sigma_strip_and_shared_bottom_legend(tmp_path: Path) -> None:
+def test_station_color_config_resolves_aliases_and_skips_reserved_colors(tmp_path: Path) -> None:
+    _setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
+    _write_text(
+        project_dir / "plots.yml",
+        "\n".join(
+            [
+                "weights:",
+                "  station_colors:",
+                "    station_hs:",
+                "      proviantdepot: station_hs",
+                "    station_swe:",
+                "      station_b: '#123456'",
+            ]
+        )
+        + "\n",
+    )
+
+    config = plot_mod._load_weights_station_color_config(project_dir)
+    color_map = plot_mod._station_color_map(
+        ["latschbloder", "proviantdepot"],
+        observable="station_hs",
+        station_color_config=config,
+    )
+
+    assert config == {
+        "station_hs": {"proviantdepot": da_variable_style("station_hs")["line"]},
+        "station_swe": {"station_b": "#123456"},
+    }
+    assert color_map == {
+        "latschbloder": da_variable_style("station_swe")["line"],
+        "proviantdepot": da_variable_style("station_hs")["line"],
+    }
+
+
+def test_marker_legend_entries_use_configured_station_colors(tmp_path: Path) -> None:
+    setup_dir, project_dir, step_dir = _build_project_tree(tmp_path)
+    _write_csv(
+        setup_dir / "meteo" / "stations.csv",
+        [
+            {"id": "latschbloder", "name": "Latschbloder"},
+            {"id": "proviantdepot", "name": "Proviantdepot"},
+        ],
+    )
+    _write_text(
+        project_dir / "plots.yml",
+        "weights:\n  station_colors:\n    station_hs:\n      proviantdepot: station_hs\n",
+    )
+    station_csv = step_dir / "assim" / "weights_station_hs_20221122.csv"
+    _write_csv(
+        station_csv,
+        [{"member_id": "member_001", "residual": -0.1, "sigma": 0.29, "log_weight": -1.0, "weight": 0.7}],
+    )
+    _write_csv(
+        step_dir / "assim" / "station_diagnostics_station_hs_20221122.csv",
+        [
+            {"station_id": "latschbloder", "member_id": "member_001", "residual": -0.1, "sigma": 0.29},
+            {"station_id": "proviantdepot", "member_id": "member_001", "residual": -0.05, "sigma": 0.05},
+        ],
+    )
+
+    entries = plot_mod._collect_marker_legend_entries([station_csv])
+
+    assert entries == [
+        ("Latschbloder", da_variable_style("station_swe")["line"]),
+        ("Proviantdepot", da_variable_style("station_hs")["line"]),
+    ]
+
+
+def test_station_plot_uses_inside_sigma_strip_and_shared_bottom_legend(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 
     setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
@@ -312,16 +406,74 @@ def test_station_plot_uses_right_aligned_sigma_strip_and_shared_bottom_legend(tm
     sigma_bbox = sigma_legend.get_window_extent(renderer=renderer)
     ax_bbox = ax1.get_window_extent(renderer=renderer)
 
-    assert ax1.get_xlabel() == "snow depth residual [m]"
+    assert ax1.get_xlabel() == "residual [m]"
     assert sigma_labels == ["σ=0.29", "σ=0.05"]
     assert sigma_legend._legend_box.align == "right"
-    assert abs(sigma_bbox.x1 - ax_bbox.x1) <= 2.0
-    assert 0.5 < (sigma_bbox.y0 - ax_bbox.y1) < 18.0
+    assert sigma_legend._loc == 1
+    assert ax_bbox.x0 <= sigma_bbox.x0
+    assert ax_bbox.x1 - 8.0 <= sigma_bbox.x1 <= ax_bbox.x1
+    assert sigma_bbox.y1 <= ax_bbox.y1 - 0.03 * ax_bbox.height
+    assert sigma_bbox.y0 >= ax_bbox.y0 - 2.0
     assert bottom_labels == [
         "Latschbloder (σ=500%)",
         "Proviantdepot (σ=10%)",
         "redrawn source member (extra rings = repeated draws)",
     ]
+    plt.close(fig)
+
+
+def test_station_plot_with_many_sigma_entries_uses_above_panel_strip(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
+    _write_csv(
+        setup_dir / "meteo" / "stations.csv",
+        [
+            {"id": "station_a", "name": "Station A"},
+            {"id": "station_b", "name": "Station B"},
+            {"id": "station_c", "name": "Station C"},
+        ],
+    )
+    csv_path = step_dir / "assim" / "weights_station_hs_20221122.csv"
+    _write_csv(
+        csv_path,
+        [
+            {"member_id": "member_001", "residual": -0.1, "sigma": 0.17, "log_weight": -1.0, "weight": 0.7},
+            {"member_id": "member_002", "residual": 0.2, "sigma": 0.17, "log_weight": -2.0, "weight": 0.3},
+        ],
+    )
+    _write_csv(
+        step_dir / "assim" / "station_diagnostics_station_hs_20221122.csv",
+        [
+            {"station_id": "station_a", "member_id": "member_001", "residual": -0.1, "sigma": 0.29},
+            {"station_id": "station_b", "member_id": "member_001", "residual": -0.05, "sigma": 0.05},
+            {"station_id": "station_c", "member_id": "member_001", "residual": 0.08, "sigma": 0.11},
+            {"station_id": "station_a", "member_id": "member_002", "residual": 0.2, "sigma": 0.29},
+            {"station_id": "station_b", "member_id": "member_002", "residual": 0.1, "sigma": 0.05},
+            {"station_id": "station_c", "member_id": "member_002", "residual": -0.04, "sigma": 0.11},
+        ],
+    )
+
+    fig = plot_mod._plot(
+        csv_path,
+        plot_mod._load_weights(csv_path),
+        title="station snow depth data assimilation weights",
+        subtitle="DA 1 - 2022-11-22",
+        observable="station_hs",
+        backend="Agg",
+    )
+
+    ax1 = fig.axes[1]
+    sigma_legend = ax1.get_legend()
+    sigma_labels = [text.get_text() for text in sigma_legend.get_texts()]
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    sigma_bbox = sigma_legend.get_window_extent(renderer=renderer)
+    ax_bbox = ax1.get_window_extent(renderer=renderer)
+
+    assert sigma_labels == ["σ=0.29", "σ=0.05", "σ=0.11"]
+    assert sigma_legend._loc == 4
+    assert sigma_bbox.y0 >= ax_bbox.y1
     plt.close(fig)
 
 
@@ -356,11 +508,14 @@ def test_fraction_plot_uses_observable_legend_entry_and_sigma_strip(tmp_path: Pa
     sigma_bbox = sigma_legend.get_window_extent(renderer=renderer)
     ax_bbox = ax1.get_window_extent(renderer=renderer)
 
-    assert ax1.get_xlabel() == "snow cover fraction residual"
+    assert ax1.get_xlabel() == "residual [-]"
     assert sigma_labels == ["σ=0.10"]
     assert sigma_legend._legend_box.align == "right"
-    assert abs(sigma_bbox.x1 - ax_bbox.x1) <= 2.0
-    assert 0.5 < (sigma_bbox.y0 - ax_bbox.y1) < 18.0
+    assert sigma_legend._loc == 1
+    assert ax_bbox.x0 <= sigma_bbox.x0
+    assert ax_bbox.x1 - 8.0 <= sigma_bbox.x1 <= ax_bbox.x1
+    assert sigma_bbox.y1 <= ax_bbox.y1 - 0.03 * ax_bbox.height
+    assert sigma_bbox.y0 >= ax_bbox.y0 - 2.0
     assert bottom_labels == [
         "SCF",
         "redrawn source member (extra rings = repeated draws)",
@@ -368,7 +523,7 @@ def test_fraction_plot_uses_observable_legend_entry_and_sigma_strip(tmp_path: Pa
     plt.close(fig)
 
 
-def test_wet_snow_line_plot_labels_zero_line_and_unavailable_event(tmp_path: Path) -> None:
+def test_wet_snow_line_plot_omits_zero_line_label_and_shows_unavailable_event(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 
     _setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
@@ -413,7 +568,7 @@ def test_wet_snow_line_plot_labels_zero_line_and_unavailable_event(tmp_path: Pat
     fig = plot_mod._plot(
         csv_path,
         plot_mod._load_weights(csv_path),
-        title="wet snow line altitude (WSLA) data assimilation weights",
+        title="Wet snow line data assimilation weights",
         subtitle="DA 13 - 2023-05-23",
         observable="wet_snow_line",
         backend="Agg",
@@ -422,9 +577,9 @@ def test_wet_snow_line_plot_labels_zero_line_and_unavailable_event(tmp_path: Pat
     ax1 = fig.axes[1]
     note_texts = [text.get_text() for text in ax1.texts]
 
-    assert ax1.get_xlabel() == "wet snow line altitude (WSLA) residual [m]"
-    assert any("obs WSLA 3067 m" in text for text in note_texts)
-    assert any("WSLA unavailable" in text for text in note_texts)
+    assert ax1.get_xlabel() == "residual [m]"
+    assert not any("obs wet snow line" in text for text in note_texts)
+    assert any("Wet snow line unavailable" in text for text in note_texts)
     assert not any("model range" in text for text in note_texts)
     plt.close(fig)
 
@@ -468,7 +623,7 @@ def test_wet_snow_line_gated_event_shows_unavailable_with_residuals(tmp_path: Pa
     fig = plot_mod._plot(
         csv_path,
         plot_mod._load_weights(csv_path),
-        title="wet snow line altitude (WSLA) data assimilation weights",
+        title="Wet snow line data assimilation weights",
         subtitle="DA 7 - 2023-03-28",
         observable="wet_snow_line",
         backend="Agg",
@@ -476,7 +631,7 @@ def test_wet_snow_line_gated_event_shows_unavailable_with_residuals(tmp_path: Pa
 
     note_texts = [text.get_text() for text in fig.axes[1].texts]
 
-    assert any("WSLA unavailable" in text for text in note_texts)
+    assert any("Wet snow line unavailable" in text for text in note_texts)
     plt.close(fig)
 
 
@@ -517,7 +672,7 @@ def test_wet_snow_line_skipped_resampling_does_not_show_unavailable_when_not_gat
     fig = plot_mod._plot(
         csv_path,
         plot_mod._load_weights(csv_path),
-        title="wet snow line altitude (WSLA) data assimilation weights",
+        title="Wet snow line data assimilation weights",
         subtitle="DA 10 - 2023-05-03",
         observable="wet_snow_line",
         backend="Agg",
@@ -525,7 +680,7 @@ def test_wet_snow_line_skipped_resampling_does_not_show_unavailable_when_not_gat
 
     note_texts = [text.get_text() for text in fig.axes[1].texts]
 
-    assert not any("WSLA unavailable" in text for text in note_texts)
+    assert not any("Wet snow line unavailable" in text for text in note_texts)
     plt.close(fig)
 
 
@@ -596,7 +751,7 @@ def test_axes_subplot_titles_bold_da_prefix_and_use_lower_anchor(tmp_path: Path)
     plt.close(fig)
 
 
-def test_metrics_label_is_left_aligned_and_overview_enables_it(tmp_path: Path) -> None:
+def test_metrics_label_is_inside_weight_panel_bottom_right(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 
     _setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
@@ -625,8 +780,9 @@ def test_metrics_label_is_left_aligned_and_overview_enables_it(tmp_path: Path) -
     )
 
     metrics_text = next(text for text in ax0.texts if text.get_text().startswith("ESS ="))
-    assert metrics_text.get_position() == (0.0, 1.02)
-    assert metrics_text.get_ha() == "left"
+    assert metrics_text.get_position() == (0.97, 0.04)
+    assert metrics_text.get_ha() == "right"
+    assert metrics_text.get_va() == "bottom"
     assert metrics_text.get_text() == "ESS = 1.9"
     plt.close(fig)
 
@@ -671,8 +827,8 @@ def test_standalone_metrics_label_includes_threshold(tmp_path: Path) -> None:
 def test_scale_axes_group_shrinks_standalone_axes_and_keeps_them_high() -> None:
     import matplotlib.pyplot as plt
 
-    fig = plt.figure(figsize=(7.2876875, 3.013))
-    gs = fig.add_gridspec(1, 2, width_ratios=[1.575, 3.425])
+    fig = plt.figure(figsize=plot_mod._WEIGHTS_FIGSIZE)
+    gs = fig.add_gridspec(1, 2, width_ratios=plot_mod._WEIGHTS_PANEL_WIDTH_RATIOS)
     ax0 = fig.add_subplot(gs[0, 0])
     ax1 = fig.add_subplot(gs[0, 1])
     fig.subplots_adjust(left=0.095, right=0.965, top=0.78, bottom=0.30, wspace=0.30)
@@ -703,6 +859,9 @@ def test_scale_axes_group_shrinks_standalone_axes_and_keeps_them_high() -> None:
         (original_top - original_bottom) * plot_mod._STANDALONE_PLOT_HEIGHT_SCALE
     )
     assert scaled_top == pytest.approx(plot_mod._STANDALONE_PLOT_TOP)
+    assert ax1.get_position().width / ax0.get_position().width == pytest.approx(
+        plot_mod._WEIGHTS_PANEL_WIDTH_RATIOS[1] / plot_mod._WEIGHTS_PANEL_WIDTH_RATIOS[0]
+    )
     plt.close(fig)
 
 
@@ -732,10 +891,12 @@ def test_standalone_plot_uses_lower_title_anchor(tmp_path: Path) -> None:
     legend = fig.legends[0]
     legend_anchor = legend.get_bbox_to_anchor().transformed(fig.transFigure.inverted())
     ax0 = fig.axes[0]
+    ax1 = fig.axes[1]
     assert title_text.get_position() == (0.11, plot_mod._STANDALONE_TITLE_Y)
     assert legend_anchor.y0 == pytest.approx(plot_mod._STANDALONE_LEGEND_Y)
-    assert list(ax0.get_xticks()) == [0.2, 0.4, 0.6, 0.8, 1.0]
-    assert [tick.get_text() for tick in ax0.get_xticklabels()] == ["0.2", "0.4", "0.6", "0.8", "1"]
+    assert ax1.get_position().width / ax0.get_position().width > 2.6
+    assert list(ax0.get_xticks()) == plot_mod._WEIGHT_AXIS_TICKS
+    assert [tick.get_text() for tick in ax0.get_xticklabels()] == plot_mod._WEIGHT_AXIS_TICK_LABELS
     xlim = ax0.get_xlim()
     assert xlim[0] < 0.0
     assert xlim[1] > 1.0
@@ -926,7 +1087,7 @@ def test_setup_overview_shares_residual_xlim_within_same_observable(tmp_path: Pa
     )
 
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
-    residual_axes = _axes_with_xlabel(fig, "snow depth residual [m]")
+    residual_axes = _axes_with_xlabel(fig, "residual [m]")
     expected_xlim = plot_mod._expand_xlim((-0.5, 0.5))
 
     assert residual_axes[0].get_xlim() == pytest.approx(expected_xlim)
@@ -995,10 +1156,10 @@ def test_setup_overview_uses_separate_residual_xlims_per_observable(tmp_path: Pa
     )
 
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
-    hs_axes = _axes_with_xlabel(fig, "snow depth residual [m]")
-    swe_axes = _axes_with_xlabel(fig, "SWE residual [mm]")
-    scf_axes = _axes_with_xlabel(fig, "snow cover fraction residual")
-    wet_axes = _axes_with_xlabel(fig, "wet snow fraction (WSF) residual")
+    hs_axes = _residual_axes_for_title(fig, "Station snow depth")
+    swe_axes = _residual_axes_for_title(fig, "Station SWE")
+    scf_axes = _residual_axes_for_title(fig, "Snow cover")
+    wet_axes = _residual_axes_for_title(fig, "Wet snow fraction")
 
     assert len(hs_axes) == 1
     assert len(swe_axes) == 1
@@ -1037,7 +1198,7 @@ def test_setup_overview_residual_xlim_respects_sigma_when_residuals_are_narrow(t
     )
 
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
-    residual_axes = _axes_with_xlabel(fig, "snow cover fraction residual")
+    residual_axes = _axes_with_xlabel(fig, "residual [-]")
     expected_xlim = plot_mod._expand_xlim((-0.4, 0.4))
 
     assert residual_axes[0].get_xlim() == pytest.approx(expected_xlim)
@@ -1090,7 +1251,7 @@ def test_setup_overview_robust_shared_xlim_keeps_extreme_residual_visible(tmp_pa
     )
 
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
-    residual_axes = _axes_with_xlabel(fig, "snow depth residual [m]")
+    residual_axes = _axes_with_xlabel(fig, "residual [m]")
     expected_xlim = plot_mod._expand_xlim((-2.0, 2.0))
 
     assert len(residual_axes) == 2
@@ -1146,7 +1307,7 @@ def test_setup_overview_robust_shared_xlim_ignores_single_sigma_outlier(tmp_path
     )
 
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
-    residual_axes = _axes_with_xlabel(fig, "snow depth residual [m]")
+    residual_axes = _axes_with_xlabel(fig, "residual [m]")
     expected_xlim = plot_mod._expand_xlim((-0.25, 0.25))
 
     assert len(residual_axes) == 2
@@ -1179,7 +1340,7 @@ def test_setup_overview_uses_sparse_member_ticks_for_high_ensemble_sizes(tmp_pat
 
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
     weight_axes = _axes_with_xlabel(fig, "weight")
-    residual_axes = _axes_with_xlabel(fig, "snow cover fraction residual")
+    residual_axes = _axes_with_xlabel(fig, "residual [-]")
 
     assert len(weight_axes) == 1
     assert [int(tick) for tick in weight_axes[0].get_yticks()] == [1, 10, 20, 30, 40]
@@ -1189,11 +1350,39 @@ def test_setup_overview_uses_sparse_member_ticks_for_high_ensemble_sizes(tmp_pat
     plt.close(fig)
 
 
+def test_setup_overview_hides_right_column_y_tick_labels(tmp_path: Path, monkeypatch) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
+    for step_idx, date_str in enumerate(("20230518", "20230526")):
+        _add_weights_event(
+            project_dir,
+            step_idx=step_idx,
+            observable="scf",
+            date_str=date_str,
+            weights_rows=[
+                {"member_id": "member_001", "residual": -0.1, "sigma": 0.2, "log_weight": -1.0, "weight": 0.6},
+                {"member_id": "member_002", "residual": 0.1, "sigma": 0.2, "log_weight": -1.2, "weight": 0.4},
+            ],
+        )
+
+    fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
+    pairs = _overview_axis_pairs(fig)
+    left_weight_ax, left_residual_ax = pairs[0]
+    right_weight_ax, right_residual_ax = pairs[1]
+
+    assert any(tick.label1.get_visible() for tick in left_weight_ax.yaxis.get_major_ticks())
+    assert all(not tick.label1.get_visible() for tick in left_residual_ax.yaxis.get_major_ticks())
+    assert all(not tick.label1.get_visible() for tick in right_weight_ax.yaxis.get_major_ticks())
+    assert all(not tick.label1.get_visible() for tick in right_residual_ax.yaxis.get_major_ticks())
+    plt.close(fig)
+
+
 def test_setup_overview_splits_many_events_across_multiple_pages(tmp_path: Path, monkeypatch) -> None:
     import matplotlib.pyplot as plt
 
     _setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
-    for step_idx in range(13):
+    for step_idx in range(15):
         day = step_idx + 1
         _add_weights_event(
             project_dir,

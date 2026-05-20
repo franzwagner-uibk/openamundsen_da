@@ -22,8 +22,8 @@ VARIABLE_STYLES = {
     },
     "wet_snow_line": {
         **_da_variable_style("wet_snow_line"),
-        "title": "Wet snow line altitude (WSLA) benchmark",
-        "ylabel": "wet snow line altitude (WSLA) [m a.s.l.]",
+        "title": "Wet snow line (WSLA) benchmark",
+        "ylabel": "wet snow line (WSLA) [m a.s.l.]",
         "label": "WSLA",
     },
     "station_swe": {

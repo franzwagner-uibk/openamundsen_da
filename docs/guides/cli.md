@@ -473,7 +473,7 @@ oa-da-plot-result-overview \
 **Publication-style project maps**
 
 Renders generated DA-event maps plus optional custom project maps from the compact project summary grid, setup grids, ROI, stations, and project observation summaries. By default the command generates one `da_*` map per assimilation event from the project YAML. `<project-dir>/maps.yml` is now reserved for custom maps such as `setup_overview`, and those custom maps are rendered together with the generated DA-event set in one command. The same workflow is also used for best-effort post-run pipeline rendering.
-Map panels use the example-map visual grammar by default: boxed axes, coordinate ticks and grid lines, subplot labels like `(a)`, and attached vertical colorbars. Snow-depth model maps use the fixed reference palette with a shared linear colorbar scale per render run, `cm` tick labels, and transparent cells below `1 cm`. Increment maps use a signed diverging palette with negative changes in red and positive changes in blue.
+Map panels use the example-map visual grammar by default: boxed axes, coordinate ticks and grid lines, subplot labels like `(a)`, and attached vertical colorbars. Continuous sequential model and observation maps use the viridis palette; snow-depth maps keep a shared linear colorbar scale per render run, `cm` tick labels, and transparent cells below `1 cm`. Increment maps and SRF maps use a signed red-blue diverging palette, with negative increments in red and positive increments in blue.
 
 Typical custom `maps.yml` files still use this panel catalog:
 
@@ -538,7 +538,7 @@ Overview panels use setup-local GISCO GeoJSONs under `<setup>/env/` for country 
 
 **Recreate all project plots from existing outputs**
 
-Runs the same post-run plot orchestration used by the project pipeline, but without rerunning the DA workflow itself. The command expects an already finished project with populated `steps/step_*/.../results` outputs. Before plotting, it rebuilds the ROI fraction envelopes in `results/misc/`, then renders forcing plots, setup point-result plots, assimilation weights, ESS timeline, and the result overview panels.
+Runs the same post-run plot orchestration used by the project pipeline, but without rerunning the DA workflow itself. The command expects an already finished project with populated `steps/step_*/.../results` outputs. Before plotting, it rebuilds the ROI fraction envelopes in `results/misc/`, then renders forcing plots, setup point-result plots, assimilation weights, ESS timeline, and the result overview panels. Weights plots use short `Wet snow line` labels, compact `residual [unit]` residual-axis labels, adaptive sigma labels, and optional station marker color overrides from `plots.yml` under `weights.station_colors.<observable>.<station_id>`.
 
 ```bash
 oa-da-plot-project-plots \

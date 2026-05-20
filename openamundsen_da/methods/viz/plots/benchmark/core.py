@@ -30,7 +30,6 @@ from openamundsen_da.methods.viz.plots.common import (
     apply_fraction_grid,
     bounded_metric_range,
     draw_assimilation_vlines,
-    thin_dense_y_tick_labels,
 )
 from openamundsen_da.methods.viz.common import (
     force_figure_text_black,
@@ -63,6 +62,7 @@ _METRIC_PANEL_LABELS = {
 _FIGURE_TITLE = "Data assimilation performance scores"
 _MARKER_EDGE_COLOR = "#000000"
 _MARKER_EDGE_WIDTH = 0.5
+_DA_EVENT_STANDARD_COLOR = "#777777"
 class _LabeledLegendTuple(tuple):
     def __new__(cls, artists, label: str):
         obj = super().__new__(cls, artists)
@@ -309,14 +309,6 @@ def _apply_result_like_time_axis_labels(axes, x_bounds: tuple[pd.Timestamp, pd.T
     axes[-1].tick_params(axis="x", labelsize=8.4)
 
 
-def _assim_style(variable: str) -> dict[str, str]:
-    token = str(variable or "").strip().lower()
-    if token in {"scf", "wet_snow", "wet_snow_line", "station_hs", "station_swe"}:
-        style = variable_style(token)
-        return {"variable_key": token, "color": style["line"], "ls": "--"}
-    return {"variable_key": token, "color": "#777777", "ls": "--"}
-
-
 def _date_half_span(assimilation_dates: list[pd.Timestamp], idx: int) -> pd.Timedelta:
     gaps: list[pd.Timedelta] = []
     if idx > 0:
@@ -424,13 +416,12 @@ def _draw_metric_panel(
     _apply_score_axis(ax, points, metric)
     ax.axhline(0.0, color="#6f6f6f", lw=0.9, ls="--", zorder=1)
     for event in assimilation_events:
-        meta = _assim_style(str(event.variable))
         draw_assimilation_vlines(
             ax,
             [pd.Timestamp(event.date).normalize()],
-            color=str(meta["color"]),
-            ls=str(meta["ls"]),
-            lw=1.2,
+            color=_DA_EVENT_STANDARD_COLOR,
+            ls="--",
+            lw=1.0,
             alpha=0.95,
             label="_nolegend_",
             zorder=2,
@@ -474,6 +465,22 @@ def _apply_score_axis(ax, points: pd.DataFrame, metric: str) -> None:
     ax.set_ylim(lower, upper)
     ax.yaxis.set_major_locator(MultipleLocator(step))
     apply_fraction_grid(ax, y_step=None)
+    apply_score_tick_labels(ax)
+
+
+def apply_score_tick_labels(ax) -> None:
+    from matplotlib.ticker import FuncFormatter
+
+    def _format_score_tick(value: float, _pos: int) -> str:
+        if np.isclose(value, 0.0):
+            return "0"
+        if np.isclose(value, 0.5):
+            return "0.5"
+        if np.isclose(value, 1.0):
+            return "1"
+        return ""
+
+    ax.yaxis.set_major_formatter(FuncFormatter(_format_score_tick))
 
 
 def draw_score_metric_panel(
@@ -533,7 +540,7 @@ def _da_event_legend_handle() -> Line2D:
     return Line2D(
         [0],
         [0],
-        color="#777777",
+        color=_DA_EVENT_STANDARD_COLOR,
         lw=1.2,
         ls="--",
         label="data assimilation event",
@@ -683,8 +690,8 @@ def _write_event_skill_figure(
     _apply_result_like_time_axis_labels(tuple(metric_axes), (x_min, x_max))
 
     label_axes = []
-    for idx, ax in enumerate(metric_axes):
-        label_axis = _add_assim_label_axis(ax, assimilation_dates, idx)
+    if metric_axes:
+        label_axis = _add_assim_label_axis(metric_axes[0], assimilation_dates, 0)
         if label_axis is not None:
             label_axes.append(label_axis)
 
@@ -693,7 +700,7 @@ def _write_event_skill_figure(
         handles=legend_handles,
         handler_map=score_legend_handler_map(),
         loc="lower left",
-        bbox_to_anchor=(0.055, 0.006, 0.88, 0.052),
+        bbox_to_anchor=(0.055, 0.012, 0.88, 0.052),
         bbox_transform=fig.transFigure,
         mode="expand",
         ncol=min(max(4, LEGEND_NCOL + 1), len(legend_handles)),
@@ -704,11 +711,9 @@ def _write_event_skill_figure(
         handletextpad=0.45,
         borderaxespad=0.0,
     )
-    fig.tight_layout(rect=(-0.015, 0.058, 0.992, 0.998), h_pad=0.72)
+    fig.tight_layout(rect=(-0.015, 0.07, 0.992, 0.998), h_pad=0.28)
     fig.align_ylabels(tuple(metric_axes))
     fig.canvas.draw()
-    for ax in metric_axes:
-        thin_dense_y_tick_labels(ax)
     if show_figure_title:
         fig.suptitle(_FIGURE_TITLE, ha="left", fontsize=10.2)
         _align_title_to_plot_block(fig, (*metric_axes, *label_axes))
@@ -760,6 +765,7 @@ __all__ = [
     "build_event_skill_plot_data",
     "clean_plot_outputs",
     "compute_event_skill_plot_positions",
+    "apply_score_tick_labels",
     "draw_score_metric_panel",
     "score_legend_handles",
     "score_legend_handler_map",

@@ -33,13 +33,15 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.methods.viz.theme import da_variable_line_color
 from openamundsen_da.methods.viz.common import force_figure_text_black, save_figure_png, set_matplotlib_text_black
-from openamundsen_da.methods.viz.wet_snow_fields import finite_numeric_column, first_finite_value
+from openamundsen_da.methods.viz.wet_snow_fields import finite_numeric_column
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.da_observables import station_diagnostics_csv_name, weight_plot_title_from_csv_path
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.stats import effective_sample_size
+from openamundsen_da.util.yaml_utils import read_yaml_mapping
 
-_WEIGHTS_FIGSIZE = (7.2876875, 3.013)
+_WEIGHTS_FIGSIZE = (7.2876875, 2.82)
+_WEIGHTS_PANEL_WIDTH_RATIOS = (1.15, 3.85)
 _FRACTION_MISMATCH_COLORS = {
     "scf": da_variable_line_color("scf"),
     "wet_snow": da_variable_line_color("wet_snow"),
@@ -54,25 +56,25 @@ _STATION_COLOR_CYCLES = {
     "station_hs": [
         da_variable_line_color("station_hs"),
         da_variable_line_color("station_swe"),
-        "#8c564b",
-        "#e377c2",
-        "#bcbd22",
-        "#17becf",
+        "#482475",
+        "#3c4f8a",
+        "#1f9a8a",
+        "#a2da37",
     ],
     "station_swe": [
         da_variable_line_color("station_swe"),
         da_variable_line_color("station_hs"),
-        "#8c564b",
-        "#e377c2",
-        "#bcbd22",
-        "#17becf",
+        "#482475",
+        "#3c4f8a",
+        "#1f9a8a",
+        "#a2da37",
     ],
 }
 _FS_TITLE = 9.4
 _FS_AXIS = 8.6
 _FS_TICK = 8.4
 _FS_NOTE = 7.4
-_COMPOSITE_ROW_HEIGHT = 1.7802
+_COMPOSITE_ROW_HEIGHT = 1.62
 _A4_PAGE_HEIGHT_INCHES = 11.6929133858
 _STANDALONE_PLOT_WIDTH_SCALE = 0.80
 _STANDALONE_PLOT_HEIGHT_SCALE = 0.70
@@ -81,9 +83,13 @@ _STANDALONE_TITLE_Y = 0.958
 _STANDALONE_LEGEND_Y = 0.21
 _STANDALONE_SAVE_PAD_INCHES = 0.02
 _OVERVIEW_PAIR_WSPACE = 0.08
+_OVERVIEW_PAIR_SPACER_RATIO = 0.20
+_OVERVIEW_ROW_HSPACE = 0.60
 _OVERVIEW_SHARED_RESIDUAL_PERCENTILE = 90.0
 _AXIS_EDGE_PAD_FRACTION = 0.05
 _OVERVIEW_MAX_ROWS_PER_PAGE = max(1, int(math.floor(_A4_PAGE_HEIGHT_INCHES / _COMPOSITE_ROW_HEIGHT)))
+_WEIGHT_AXIS_TICKS = [0.0, 0.5, 1.0]
+_WEIGHT_AXIS_TICK_LABELS = ["0", "0.5", "1"]
 
 
 def _load_weights(csv_path: Path) -> pd.DataFrame:
@@ -149,36 +155,11 @@ def _weights_date_from_csv_path(csv_path: Path) -> datetime | None:
 
 
 def _fraction_axis_label(observable: str | None) -> str:
-    if observable == "scf":
-        return "snow cover fraction residual"
-    if observable == "wet_snow":
-        return "wet snow fraction (WSF) residual"
+    if observable in {"scf", "wet_snow"}:
+        return "residual [-]"
     if observable == "wet_snow_line":
-        return "wet snow line altitude (WSLA) residual [m]"
+        return "residual [m]"
     return "residual"
-
-
-def _observed_wsl_value(df: pd.DataFrame) -> float | None:
-    return first_finite_value(df, ["value_obs", "wet_snow_line_obs"])
-
-
-def _draw_wsl_zero_line_label(ax, df: pd.DataFrame, *, fontsize: float) -> None:
-    obs_value = _observed_wsl_value(df)
-    if obs_value is None:
-        return
-    ax.text(
-        0.0,
-        1.02,
-        f"obs WSLA {obs_value:.0f} m",
-        transform=ax.get_xaxis_transform(),
-        ha="center",
-        va="bottom",
-        fontsize=fontsize,
-        color="#000000",
-        zorder=6,
-        bbox={"boxstyle": "round,pad=0.16", "facecolor": "white", "edgecolor": "none", "alpha": 0.92},
-        clip_on=False,
-    )
 
 
 def _draw_wsl_unavailable_overlay(ax, df: pd.DataFrame, *, fontsize: float) -> None:
@@ -192,7 +173,7 @@ def _draw_wsl_unavailable_overlay(ax, df: pd.DataFrame, *, fontsize: float) -> N
     ax.text(
         0.5,
         0.5,
-        "WSLA unavailable",
+        "Wet snow line unavailable",
         transform=ax.transAxes,
         ha="center",
         va="center",
@@ -205,10 +186,10 @@ def _draw_wsl_unavailable_overlay(ax, df: pd.DataFrame, *, fontsize: float) -> N
 
 def _station_axis_label(observable: str | None) -> str:
     if observable == "station_hs":
-        return "snow depth residual [m]"
+        return "residual [m]"
     if observable == "station_swe":
-        return "SWE residual [mm]"
-    return "station residual"
+        return "residual [mm]"
+    return "residual"
 
 
 def _station_diagnostics_path(csv_path: Path, observable: str | None) -> Path | None:
@@ -355,15 +336,97 @@ def _station_metadata_uncertainty_pct(csv_path: Path, station_ids: list[str]) ->
     return mapping
 
 
-def _station_color_map(station_ids: list[str], *, observable: str | None = None) -> dict[str, str]:
+def _project_dir_for_weights_csv(csv_path: Path) -> Path | None:
+    if Path(csv_path).parent.name != "assim":
+        return None
+    try:
+        return infer_project_dir(Path(csv_path).parent.parent)
+    except Exception:
+        return None
+
+
+def _resolve_station_plot_color(value: object, *, context: str) -> str:
+    from matplotlib.colors import is_color_like
+
+    color_value = str(value).strip()
+    if not color_value:
+        raise ValueError(f"{context} must not be empty")
+    color_alias = color_value.lower()
+    if color_alias in _FRACTION_MISMATCH_COLORS or color_alias in _STATION_COLOR_CYCLES:
+        return da_variable_line_color(color_alias)
+    if is_color_like(color_value):
+        return color_value
+    raise ValueError(f"{context} must be a DA variable alias or matplotlib color, got {value!r}")
+
+
+def _load_weights_station_color_config(project_dir: Path | None) -> dict[str, dict[str, str]]:
+    if project_dir is None:
+        return {}
+    config_path = Path(project_dir) / "plots.yml"
+    if not config_path.is_file():
+        return {}
+    config = read_yaml_mapping(config_path, error_cls=RuntimeError, context="plots.yml root")
+    weights_cfg = config.get("weights") or {}
+    if not isinstance(weights_cfg, dict):
+        raise ValueError(f"weights config in {config_path} must be a mapping")
+    station_colors = weights_cfg.get("station_colors") or {}
+    if not isinstance(station_colors, dict):
+        raise ValueError(f"weights.station_colors in {config_path} must be a mapping")
+
+    parsed: dict[str, dict[str, str]] = {}
+    for observable_raw, station_mapping in station_colors.items():
+        observable = str(observable_raw).strip().lower()
+        if observable not in {"station_hs", "station_swe"}:
+            raise ValueError(f"weights.station_colors only supports station_hs/station_swe, got {observable_raw!r}")
+        if not isinstance(station_mapping, dict):
+            raise ValueError(f"weights.station_colors.{observable} in {config_path} must be a mapping")
+        parsed[observable] = {}
+        for station_id_raw, color_raw in station_mapping.items():
+            station_id = str(station_id_raw).strip().lower()
+            if not station_id:
+                raise ValueError(f"weights.station_colors.{observable} station id in {config_path} must not be empty")
+            parsed[observable][station_id] = _resolve_station_plot_color(
+                color_raw,
+                context=f"weights.station_colors.{observable}.{station_id} in {config_path}",
+            )
+    return parsed
+
+
+def _station_color_config_for_csv(csv_path: Path) -> dict[str, dict[str, str]]:
+    return _load_weights_station_color_config(_project_dir_for_weights_csv(csv_path))
+
+
+def _station_color_map(
+    station_ids: list[str],
+    *,
+    observable: str | None = None,
+    station_color_config: dict[str, dict[str, str]] | None = None,
+) -> dict[str, str]:
+    observable_key = str(observable or "").strip().lower()
     color_cycle = _STATION_COLOR_CYCLES.get(
-        str(observable or "").strip().lower(),
+        observable_key,
         _STATION_COLOR_CYCLES["station_hs"],
     )
-    return {
-        station_id: color_cycle[idx % len(color_cycle)]
-        for idx, station_id in enumerate(station_ids)
+    configured = {
+        station_id: color
+        for station_id in station_ids
+        if (
+            color := (station_color_config or {})
+            .get(observable_key, {})
+            .get(str(station_id).strip().lower())
+        )
     }
+    reserved_colors = {color.lower() for color in configured.values()}
+    fallback_cycle = [color for color in color_cycle if color.lower() not in reserved_colors] or color_cycle
+    color_map: dict[str, str] = {}
+    fallback_idx = 0
+    for station_id in station_ids:
+        if station_id in configured:
+            color_map[station_id] = configured[station_id]
+            continue
+        color_map[station_id] = fallback_cycle[fallback_idx % len(fallback_cycle)]
+        fallback_idx += 1
+    return color_map
 
 
 def _marker_handle(
@@ -389,7 +452,12 @@ def _marker_handle(
     )
 
 
-def _marker_legend_entries_for_csv(csv_path: Path, observable: str | None) -> list[tuple[str, str]]:
+def _marker_legend_entries_for_csv(
+    csv_path: Path,
+    observable: str | None,
+    *,
+    station_color_config: dict[str, dict[str, str]] | None = None,
+) -> list[tuple[str, str]]:
     if observable in {"station_hs", "station_swe"}:
         diag_path = _station_diagnostics_path(csv_path, observable)
         diag = pd.read_csv(diag_path) if diag_path is not None and diag_path.is_file() else pd.DataFrame()
@@ -398,7 +466,11 @@ def _marker_legend_entries_for_csv(csv_path: Path, observable: str | None) -> li
         station_ids = sorted(diag["station_id"].dropna().astype(str).unique())
         station_display_names = _station_display_names(csv_path, station_ids)
         station_sigma_meta = _station_metadata_uncertainty_pct(csv_path, station_ids)
-        station_color_map = _station_color_map(station_ids, observable=observable)
+        station_color_map = _station_color_map(
+            station_ids,
+            observable=observable,
+            station_color_config=station_color_config,
+        )
         entries: list[tuple[str, str]] = []
         for station_id in station_ids:
             display_name = station_display_names.get(station_id, station_id)
@@ -416,11 +488,16 @@ def _marker_legend_entries_for_csv(csv_path: Path, observable: str | None) -> li
     return []
 
 
-def _collect_marker_legend_entries(csv_paths: list[Path]) -> list[tuple[str, str]]:
+def _collect_marker_legend_entries(
+    csv_paths: list[Path],
+    *,
+    station_color_config: dict[str, dict[str, str]] | None = None,
+) -> list[tuple[str, str]]:
     entries: dict[str, str] = {}
     for csv_path in csv_paths:
         observable = _observable_from_csv_path(csv_path)
-        for label, color in _marker_legend_entries_for_csv(csv_path, observable):
+        config = station_color_config if station_color_config is not None else _station_color_config_for_csv(csv_path)
+        for label, color in _marker_legend_entries_for_csv(csv_path, observable, station_color_config=config):
             entries.setdefault(label, color)
     return list(entries.items())
 
@@ -430,17 +507,22 @@ def _draw_sigma_strip(ax, entries: list[tuple[str, str]], *, fontsize: float) ->
         return
     handles = [_marker_handle(color, size=4.8, markeredgewidth=0.8) for color, _label in entries]
     labels = [label for _color, label in entries]
+    inside_panel = len(labels) <= 2
+    loc = "upper right" if inside_panel else "lower right"
+    bbox_to_anchor = (0.99, 0.93) if inside_panel else (1.0, 1.05)
     legend = ax.legend(
         handles,
         labels,
-        loc="lower right",
-        bbox_to_anchor=(1.0, 1.05),
+        loc=loc,
+        bbox_to_anchor=bbox_to_anchor,
         ncol=len(labels),
         frameon=False,
         fontsize=fontsize,
         handlelength=0.8,
         handletextpad=0.25,
         columnspacing=0.8,
+        labelspacing=0.2,
+        borderpad=0.0,
         borderaxespad=0.0,
     )
     legend._legend_box.align = "right"
@@ -526,10 +608,14 @@ def _resample_legend_artists():
     return [redraw_handle], labels, {tuple: HandlerTuple(ndivide=1)}
 
 
-def _figure_legend_spec(csv_paths: list[Path]):
+def _figure_legend_spec(
+    csv_paths: list[Path],
+    *,
+    station_color_config: dict[str, dict[str, str]] | None = None,
+):
     handles = []
     labels = []
-    for label, color in _collect_marker_legend_entries(csv_paths):
+    for label, color in _collect_marker_legend_entries(csv_paths, station_color_config=station_color_config):
         handles.append(_marker_handle(color, size=5.8, markeredgewidth=0.9))
         labels.append(label)
     resample_handles, resample_labels, handler_map = _resample_legend_artists()
@@ -762,6 +848,7 @@ def _draw_weights_event(
     figure_title_y: float = 0.972,
     residual_xlim: tuple[float, float] | None = None,
     y_ticks: list[int] | None = None,
+    station_color_config: dict[str, dict[str, str]] | None = None,
 ) -> None:
     from matplotlib.ticker import AutoMinorLocator, MultipleLocator, NullLocator
 
@@ -825,14 +912,16 @@ def _draw_weights_event(
         metrics_label = f"{metrics_label} (threshold={float(threshold):.1f})"
     if show_metrics_label:
         ax0.text(
-            0.0,
-            1.02,
+            0.97,
+            0.04,
             metrics_label,
             transform=ax0.transAxes,
-            ha="left",
+            ha="right",
             va="bottom",
             fontsize=fs_note,
             color="#000000",
+            bbox={"boxstyle": "round,pad=0.16", "facecolor": "white", "edgecolor": "none", "alpha": 0.88},
+            zorder=8,
         )
 
     sigma_strip_entries: list[tuple[str, str]] = []
@@ -856,7 +945,12 @@ def _draw_weights_event(
             if not diag.empty and "station_id" in diag.columns
             else []
         )
-        station_color_map = _station_color_map(station_ids, observable=observable)
+        config = station_color_config if station_color_config is not None else _station_color_config_for_csv(csv_path)
+        station_color_map = _station_color_map(
+            station_ids,
+            observable=observable,
+            station_color_config=config,
+        )
         for station_id in station_ids:
             station_mask = diag["station_id"].astype(str) == station_id
             sdf = diag.loc[station_mask].copy()
@@ -945,7 +1039,6 @@ def _draw_weights_event(
         ax1.set_xlabel(_fraction_axis_label(observable), fontsize=fs_axis)
         ax1.xaxis.set_minor_locator(AutoMinorLocator(4))
         if observable == "wet_snow_line":
-            _draw_wsl_zero_line_label(ax1, ordered_df, fontsize=fs_note)
             _draw_wsl_unavailable_overlay(ax1, ordered_df, fontsize=fs_note)
     _draw_sigma_strip(ax1, sigma_strip_entries, fontsize=fs_note)
     if residual_xlim is not None:
@@ -995,10 +1088,11 @@ def _plot(
     import matplotlib.pyplot as plt
     from matplotlib.ticker import NullLocator
     fig = plt.figure(figsize=_WEIGHTS_FIGSIZE)
-    gs = fig.add_gridspec(1, 2, width_ratios=[1.575, 3.425])
+    gs = fig.add_gridspec(1, 2, width_ratios=_WEIGHTS_PANEL_WIDTH_RATIOS)
 
     ax0 = fig.add_subplot(gs[0, 0])
     ax1 = fig.add_subplot(gs[0, 1])
+    station_color_config = _station_color_config_for_csv(csv_path)
     _draw_weights_event(
         fig,
         ax0,
@@ -1011,9 +1105,10 @@ def _plot(
         title_mode="figure",
         font_scale=1.0,
         figure_title_y=_STANDALONE_TITLE_Y,
+        station_color_config=station_color_config,
     )
-    ax0.set_xticks([0.2, 0.4, 0.6, 0.8, 1.0])
-    ax0.set_xticklabels(["0.2", "0.4", "0.6", "0.8", "1"])
+    ax0.set_xticks(_WEIGHT_AXIS_TICKS)
+    ax0.set_xticklabels(_WEIGHT_AXIS_TICK_LABELS)
     ax0.xaxis.set_minor_locator(NullLocator())
 
     bottom_margin = 0.30
@@ -1026,7 +1121,10 @@ def _plot(
         height_scale=_STANDALONE_PLOT_HEIGHT_SCALE,
         top_anchor=_STANDALONE_PLOT_TOP,
     )
-    legend_handles, legend_labels, handler_map = _figure_legend_spec([csv_path])
+    legend_handles, legend_labels, handler_map = _figure_legend_spec(
+        [csv_path],
+        station_color_config=station_color_config,
+    )
     fig.legend(
         legend_handles,
         legend_labels,
@@ -1098,6 +1196,7 @@ def _build_setup_weights_overview_page(
     total_pages: int,
     layout_rows: int | None = None,
     show_figure_title: bool = True,
+    station_color_config: dict[str, dict[str, str]] | None = None,
 ):
     import matplotlib.pyplot as plt
     from matplotlib.ticker import NullLocator
@@ -1107,7 +1206,16 @@ def _build_setup_weights_overview_page(
     n_rows = int(math.ceil(n_events / n_cols))
     page_rows = max(n_rows, int(layout_rows or n_rows))
     fig = plt.figure(figsize=(7.2876875, _COMPOSITE_ROW_HEIGHT * page_rows))
-    outer = fig.add_gridspec(page_rows, n_cols, left=0.06, right=0.99, top=0.91, bottom=0.12, wspace=0.0, hspace=0.95)
+    outer = fig.add_gridspec(
+        page_rows,
+        n_cols,
+        left=0.06,
+        right=0.99,
+        top=0.91,
+        bottom=0.12,
+        wspace=0.0,
+        hspace=_OVERVIEW_ROW_HSPACE,
+    )
 
     axes_for_black: list[object] = []
     font_scale = 0.68
@@ -1117,18 +1225,11 @@ def _build_setup_weights_overview_page(
         df = spec["df"]
         row = idx // n_cols
         col = idx % n_cols
-        left_ratio = 1.15 * 0.8 * 0.8 * 0.6 * 0.8
-        right_ratio = 2.16 * 0.75 * 0.7 * 0.6 * 0.8
-        left_plot_ratio = left_ratio * 0.7
-        right_plot_ratio = right_ratio * 0.7
-        new_left_plot_ratio = left_plot_ratio * 0.7
-        new_right_plot_ratio = right_plot_ratio + (left_plot_ratio - new_left_plot_ratio)
-        spacer_ratio = 0.06 * (new_left_plot_ratio + new_right_plot_ratio)
         sub = outer[row, col].subgridspec(
             2,
             3,
             height_ratios=[1.0, 0.045],
-            width_ratios=[new_left_plot_ratio, new_right_plot_ratio, spacer_ratio],
+            width_ratios=[*_WEIGHTS_PANEL_WIDTH_RATIOS, _OVERVIEW_PAIR_SPACER_RATIO],
             wspace=_OVERVIEW_PAIR_WSPACE,
             hspace=0.0,
         )
@@ -1160,13 +1261,16 @@ def _build_setup_weights_overview_page(
             ring_line_scale=0.72,
             marker_scale=0.8,
             font_size_bump=1.0,
-            axes_title_y=1.18,
+            axes_title_y=1.10,
             residual_xlim=residual_xlims.get(observable),
             y_ticks=_member_ticks(len(df.index)),
+            station_color_config=station_color_config,
         )
-        ax0.set_xticks([0.2, 0.4, 0.6, 0.8, 1.0])
-        ax0.set_xticklabels(["0.2", "0.4", "0.6", "0.8", "1"])
+        ax0.set_xticks(_WEIGHT_AXIS_TICKS)
+        ax0.set_xticklabels(_WEIGHT_AXIS_TICK_LABELS)
         ax0.xaxis.set_minor_locator(NullLocator())
+        if col != 0:
+            ax0.tick_params(axis="y", labelleft=False)
         ax1.tick_params(axis="y", labelleft=False)
 
     summary = f"ensemble size = {ensemble_size}"
@@ -1184,7 +1288,10 @@ def _build_setup_weights_overview_page(
             fontsize=8.6,
             color="#000000",
         )
-    legend_handles, legend_labels, handler_map = _figure_legend_spec(all_csv_paths)
+    legend_handles, legend_labels, handler_map = _figure_legend_spec(
+        all_csv_paths,
+        station_color_config=station_color_config,
+    )
     legend_kwargs = dict(
         loc="lower center",
         bbox_to_anchor=(0.5, 0.052),
@@ -1221,6 +1328,7 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
     csv_paths = _setup_weights_csvs(setup_dir)
     if not csv_paths:
         raise FileNotFoundError(f"No weights_*_*.csv found under steps in {setup_dir}")
+    station_color_config = _load_weights_station_color_config(setup_dir)
 
     event_specs = [
         {
@@ -1254,6 +1362,7 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
             page_index=page_index,
             total_pages=len(page_specs),
             layout_rows=rows_per_page if len(page_specs) > 1 else None,
+            station_color_config=station_color_config,
         )
         page_out = _setup_weights_overview_page_output(out, page_index)
         save_figure_png(fig, page_out, dpi=600, bbox_inches="tight", pad_inches=0.04)
@@ -1268,6 +1377,7 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
             total_pages=len(page_specs),
             layout_rows=rows_per_page if len(page_specs) > 1 else None,
             show_figure_title=False,
+            station_color_config=station_color_config,
         )
         paper_page_out = project_paper_output_path(setup_dir, page_out)
         paper_page_out.parent.mkdir(parents=True, exist_ok=True)

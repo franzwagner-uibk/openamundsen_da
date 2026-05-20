@@ -129,6 +129,6 @@ _AUTO_TITLE_KIND = {
     "fsc": "Sentinel-2 FSC",
     "uncertainty": "Observation uncertainty",
     "wet_snow": "Sentinel-1 wet snow fraction (WSF)",
-    "wet_snow_line": "Wet snow line altitude (WSLA)",
+    "wet_snow_line": "Wet snow line (WSLA)",
     "wet_snow_elevation_fraction": "Elevation-band WSF",
 }

@@ -94,7 +94,7 @@ def plot_station_variable(
     var_title = pretty_var_title(var_col, var_label, var_units)
 
     fig, ax = plt.subplots(figsize=(8.5, 4.2))
-    ax.plot(series.index, series.values, color="#1f77b4", lw=1.8)
+    ax.plot(series.index, series.values, color="#3c4f8a", lw=1.8)
     ax.set_xlabel("Time")
     ax.set_ylabel(var_title)
     ax.grid(True, linestyle=":", linewidth=0.6, alpha=0.7)

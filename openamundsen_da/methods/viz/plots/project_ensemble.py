@@ -87,10 +87,10 @@ from openamundsen_da.util.ts import (
 from openamundsen_da.methods.viz.plots.common import (
     add_assim_label_axis,
     apply_fraction_grid,
+    draw_adaptive_assim_labels,
     draw_assimilation_vlines,
     dedupe_legend,
     draw_assimilation_markers,
-    draw_assim_labels,
     force_figure_text_black,
     format_station_label,
     pretty_var_title,
@@ -197,7 +197,16 @@ def _draw_assim(ax, dates: Sequence[datetime]) -> None:
 
 def _draw_assim_labels(ax, dates: Sequence[datetime]) -> None:
     """Draw per-assimilation labels centered on each vline above the axes."""
-    draw_assim_labels(ax, dates, labels=None, max_labels=12, y_offset_pts=3.0, fontsize=FS_ASSIM_LABEL, color="black")
+    draw_adaptive_assim_labels(
+        ax,
+        dates,
+        labels=None,
+        avoid_artists=[ax._left_title],
+        max_labels=12,
+        y_offset_pts=3.0,
+        fontsize=FS_ASSIM_LABEL,
+        color="black",
+    )
 
 
 def _standalone_assimilation_dates(steps: Sequence[StepInfo], configured_events: Sequence[datetime]) -> list[datetime]:

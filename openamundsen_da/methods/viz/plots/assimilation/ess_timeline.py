@@ -43,25 +43,22 @@ from openamundsen_da.methods.viz.common import (
 _RE_DATE = re.compile(r"weights_.+_(\d{8})\.csv$", re.IGNORECASE)
 _ESS_PANEL_FIGSIZE = (7.2876875, 2.28)
 def ess_title(*, ensemble_size: int | None, normalized: bool = False) -> str:
-    base = "Effective sample size"
     if normalized:
-        base = "Effective sample size ratio"
-    if ensemble_size is None or ensemble_size <= 0:
-        return base
-    return f"{base} (ensemble size = {ensemble_size})"
+        return "Effective sample size ratio"
+    return "Effective sample size"
 
 
 def ess_axis_ticks(ensemble_size: int | None, *, threshold: float | None = None) -> list[float]:
     if ensemble_size is None or ensemble_size <= 0:
         return []
-    ticks = [float(int(ensemble_size))]
-    if threshold is not None:
-        try:
-            threshold_value = float(threshold)
-        except (TypeError, ValueError):
-            threshold_value = None
-        if threshold_value is not None and 0.0 < threshold_value < float(ensemble_size):
-            ticks.insert(0, threshold_value)
+    upper = float(ensemble_size)
+    step = next((candidate for candidate in (1.0, 2.0, 5.0, 10.0, 20.0, 25.0, 50.0, 100.0) if np.ceil(upper / candidate) <= 5.0), 100.0)
+    ticks = [0.0]
+    current = step
+    while current < upper:
+        ticks.append(float(current))
+        current += step
+    ticks.append(upper)
     return sorted(set(ticks))
 
 
@@ -171,6 +168,23 @@ def _apply_ess_ticks(ax, ensemble_size: int | None, *, threshold: float | None =
         ax.set_yticks(ticks)
 
 
+def _add_ess_threshold_legend(ax) -> None:
+    from matplotlib.lines import Line2D
+
+    legend = ax.legend(
+        handles=[Line2D([0], [0], color="#d62728", lw=0.9, ls="--", label="ESS threshold")],
+        loc="upper right",
+        frameon=False,
+        fontsize=6.2,
+        handlelength=1.8,
+        handletextpad=0.35,
+        labelspacing=0.2,
+        borderpad=0.0,
+        borderaxespad=0.35,
+    )
+    legend.set_zorder(40)
+
+
 def load_setup_ess_threshold(setup_dir: Path, *, ensemble_size: int | None) -> float | None:
     if ensemble_size is None or ensemble_size <= 0:
         return None
@@ -222,7 +236,6 @@ def _plot(
     matplotlib.use(backend or "Agg")
     set_matplotlib_text_black(matplotlib)
     import matplotlib.pyplot as plt
-    from matplotlib.lines import Line2D
 
     ycol = "ess_norm" if normalized else "ess"
     fig, ax = plt.subplots(figsize=_ESS_PANEL_FIGSIZE)
@@ -242,16 +255,7 @@ def _plot(
     ax.tick_params(axis="y", labelsize=8.4)
     if threshold is not None:
         ax.axhline(threshold, color="#d62728", lw=0.9, ls="--")
-        ax.legend(
-            [Line2D([0], [0], color="#d62728", lw=0.9, ls="--")],
-            ["ESS threshold" if not normalized else "ESS/N threshold"],
-            loc="lower right",
-            bbox_to_anchor=(1.0, 1.24),
-            frameon=False,
-            fontsize=7.4,
-            handlelength=1.9,
-            borderaxespad=0.0,
-        )
+        _add_ess_threshold_legend(ax)
     if assim_dates:
         draw_assimilation_vlines(ax, assim_dates, color="#777777", ls="--", lw=1.0, alpha=0.9, label="_nolegend_", zorder=20)
         _add_assim_label_axis(ax, assim_dates)

@@ -30,25 +30,31 @@
 # - YAML order is preserved in the plot.
 # - Station ids must match the station metadata table for the project setup.
 # - Observation markers/lines are only shown when show_obs is true.
+# - weights.station_colors can pin optional weights-plot station colors.
 #
 # Current active example:
 panels:
   - panel: fSC
     show_obs: true
-    title: Snow cover fraction Rofental catchment - openAMUNDSEN ensemble and satellite data
+    title: Snow cover fraction Rofental catchment
 
   - panel: WSLA
     show_obs: true
-    title: Wet-snow line Rofental catchment - openAMUNDSEN ensemble and satellite data
+    title: Wet-snow line Rofental catchment
 
   - panel: station-sd
     station_id: proviantdepot
-    title: Snow depth Proviantdepot 2659 m - openAMUNDSEN ensemble and station observation
+    title: Snow depth Proviantdepot 2659 m
     show_obs: true
 
   - panel: ess
 
   - panel: scores-crpss
+
+weights:
+  station_colors:
+    station_hs:
+      proviantdepot: station_hs
 
 # Additional examples for all supported panel types:
 #  - panel: roi-swe

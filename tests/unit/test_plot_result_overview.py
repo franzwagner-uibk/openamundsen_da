@@ -79,6 +79,20 @@ def _figure_legend_labels(fig, index: int = 0) -> list[str]:
     return [text.get_text() for text in fig.legends[index].get_texts()]
 
 
+def _assert_figure_legends_clear_axes(fig) -> None:
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    legend_bboxes = [
+        legend.get_window_extent(renderer=renderer).transformed(fig.transFigure.inverted())
+        for legend in fig.legends
+    ]
+    axes_bboxes = [ax.get_position() for ax in _panel_axes(fig)]
+    for legend_bbox in legend_bboxes:
+        assert all(not legend_bbox.overlaps(ax_bbox) for ax_bbox in axes_bboxes)
+    for idx, legend_bbox in enumerate(legend_bboxes):
+        assert all(not legend_bbox.overlaps(other_bbox) for other_bbox in legend_bboxes[idx + 1 :])
+
+
 def test_default_wsl_overview_env_uses_prior_member_median_minmax_and_preserves_gaps(tmp_path: Path) -> None:
     project_dir = tmp_path / "project"
     member_001 = project_dir / "steps" / "step_00" / "ensembles" / "prior" / "member_001" / "results"
@@ -169,14 +183,9 @@ def test_plot_result_overview_uses_four_panels_when_roi_series_exist(monkeypatch
 
     assert recorded["nrows"] == 4
     axes = _panel_axes(plt.gcf())
-    assert [ax.get_ylabel() for ax in axes] == [
-        "fSC",
-        "wet snow fraction",
-        "swe [mm]",
-        "snow depth [m]",
-    ]
-    assert axes[0].get_title(loc="left").startswith("(a) ")
-    assert axes[1].get_title(loc="left").startswith("(b) ")
+    assert [ax.get_ylabel() for ax in axes] == ["", "", "", ""]
+    assert axes[0].get_title(loc="left") == "(a) Snow cover fraction (roi)"
+    assert axes[1].get_title(loc="left") == "(b) Wet snow fraction (roi)"
     assert axes[2].lines[0].get_color() == da_variable_style("station_swe")["line"]
     assert axes[3].lines[0].get_color() == da_variable_style("station_hs")["line"]
     assert isinstance(axes[2].yaxis.get_major_locator(), mticker.MultipleLocator)
@@ -252,11 +261,7 @@ def test_plot_result_overview_adds_wsl_panel_when_wsl_series_exist(monkeypatch, 
 
     assert recorded["nrows"] == 3
     axes = _panel_axes(plt.gcf())
-    assert [ax.get_ylabel() for ax in axes] == [
-        "fSC",
-        "wet snow fraction",
-        "wsla [m.a.s.l]",
-    ]
+    assert [ax.get_ylabel() for ax in axes] == ["", "", ""]
     assert out_path.is_file()
     original_close(plt.gcf())
 
@@ -330,19 +335,19 @@ def test_plot_result_overview_ylabels_do_not_overlap_with_stacked_custom_panels(
         fig.canvas.draw()
         renderer = fig.canvas.get_renderer()
         axes = _panel_axes(fig)
-        assert [ax.get_ylabel() for ax in axes] == [
-            "fSC",
-            "wet snow fraction",
-            "wsla [m.a.s.l]",
-            "snow depth [m]",
-            "ESS",
-            "CRPSS",
+        assert [ax.get_ylabel() for ax in axes] == ["", "", "", "", "", ""]
+        ytick_bboxes = [
+            bbox
+            for ax in axes
+            for label in ax.get_yticklabels()
+            if label.get_text() and label.get_visible() and (bbox := label.get_window_extent(renderer)).width > 0
         ]
-        ylabel_bboxes = [ax.yaxis.label.get_window_extent(renderer) for ax in axes]
-        for upper_bbox, lower_bbox in zip(ylabel_bboxes, ylabel_bboxes[1:]):
-            assert lower_bbox.y1 <= upper_bbox.y0
-        for ax, ylabel_bbox in zip(axes, ylabel_bboxes):
-            assert not ax._left_title.get_window_extent(renderer).overlaps(ylabel_bbox)
+        for upper_bbox, lower_bbox in zip(ytick_bboxes, ytick_bboxes[1:]):
+            assert not upper_bbox.overlaps(lower_bbox)
+        for ax in axes:
+            for label in ax.get_yticklabels():
+                if label.get_text() and label.get_visible():
+                    assert not ax._left_title.get_window_extent(renderer).overlaps(label.get_window_extent(renderer))
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -559,8 +564,10 @@ def test_plot_result_overview_fraction_panels_use_point_two_y_step(tmp_path: Pat
         axes = _panel_axes(plt.gcf())
         scf_ticks = list(axes[0].get_yticks())
         wet_ticks = list(axes[1].get_yticks())
-        assert scf_ticks == [0.25, 0.5, 0.75, 1.0]
-        assert wet_ticks == [0.25, 0.5, 0.75, 1.0]
+        assert scf_ticks == [0.0, 0.25, 0.5, 0.75, 1.0]
+        assert wet_ticks == [0.0, 0.25, 0.5, 0.75, 1.0]
+        assert [label.get_text() for label in axes[0].get_yticklabels() if label.get_text()] == ["0.5", "1"]
+        assert [label.get_text() for label in axes[1].get_yticklabels() if label.get_text()] == ["0.5", "1"]
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -580,12 +587,12 @@ def test_plot_result_overview_wsla_panel_uses_nice_altitude_y_step(tmp_path: Pat
             wet_obs=None,
             wet_model=None,
             wsl_obs=None,
-            wsl_model=_frame("wet_snow_line", [2100.0, 3600.0]),
+            wsl_model=_frame("wet_snow_line", [2100.0, 3900.0]),
             scf_env=None,
             wet_env=None,
             wsl_env=_frame("value_mean", [2300.0, 3400.0]).assign(
                 value_min=[1900.0, 3100.0],
-                value_max=[2600.0, 3700.0],
+                value_max=[2600.0, 4100.0],
             ),
             output=out_path,
             panel_specs=[PanelSpec(panel="WSLA")],
@@ -597,9 +604,50 @@ def test_plot_result_overview_wsla_panel_uses_nice_altitude_y_step(tmp_path: Pat
         assert isinstance(locator, mticker.MultipleLocator)
         ticks = locator.tick_values(*axes[0].get_ylim())
         assert ticks[1] - ticks[0] == pytest.approx(500.0)
+        assert [label.get_text() for label in axes[0].get_yticklabels() if label.get_text()] == ["2000", "3000"]
         assert out_path.is_file()
     finally:
         plt.close = original_close
+
+
+def test_plot_result_overview_wsla_labels_lower_clean_1000m_ticks_only() -> None:
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MultipleLocator
+
+    fig, ax = plt.subplots()
+    try:
+        ax.set_ylim(1900.0, 4100.0)
+        ax.yaxis.set_major_locator(MultipleLocator(500.0))
+
+        plot_mod._label_lower_clean_1000m_y_ticks(ax)
+        fig.canvas.draw()
+
+        labels = [label.get_text() for label in ax.get_yticklabels()]
+        assert [label for label in labels if label] == ["2000", "3000"]
+        assert "2500" not in labels
+        assert "3500" not in labels
+        assert "4000" not in labels
+    finally:
+        plt.close(fig)
+
+
+def test_plot_result_overview_roi_swe_dense_labels_start_from_bottom() -> None:
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MultipleLocator
+
+    fig, ax = plt.subplots()
+    try:
+        ax.set_ylim(0.0, 200.0)
+        ax.yaxis.set_major_locator(MultipleLocator(50.0))
+
+        plot_mod._label_every_second_dense_y_ticks_from_bottom(ax, max_visible_labels=4)
+        fig.canvas.draw()
+
+        labels = [label.get_text() for label in ax.get_yticklabels()]
+        assert [label for label in labels if label] == ["0", "100"]
+        assert "200" not in labels
+    finally:
+        plt.close(fig)
 
 
 def test_plot_result_overview_roi_band_excludes_open_loop_and_plots_it_separately(
@@ -647,14 +695,14 @@ def test_plot_result_overview_roi_band_excludes_open_loop_and_plots_it_separatel
 
 def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch, tmp_path: Path) -> None:
     marker_calls: list[list[pd.Timestamp]] = []
-    vline_calls: list[tuple[list[pd.Timestamp], str | None]] = []
+    vline_calls: list[tuple[list[pd.Timestamp], str | None, str | None, float | None]] = []
     label_calls: list[tuple[str, list[pd.Timestamp], list[str], object, float | None, list[float] | None, float | None, float | None, str | None]] = []
 
     def _record_markers(ax, *, dates, **kwargs) -> None:
         marker_calls.append(list(pd.to_datetime(dates)))
 
     def _record_vlines(ax, dates, **kwargs) -> None:
-        vline_calls.append((list(pd.to_datetime(dates)), kwargs.get("color")))
+        vline_calls.append((list(pd.to_datetime(dates)), kwargs.get("color"), kwargs.get("ls"), kwargs.get("lw")))
 
     def _record_labels(ax, dates, **kwargs) -> None:
         label_calls.append(
@@ -673,7 +721,7 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
 
     monkeypatch.setattr(plot_mod, "draw_assimilation_markers", _record_markers)
     monkeypatch.setattr(plot_mod, "draw_assimilation_vlines", _record_vlines)
-    monkeypatch.setattr(plot_mod, "draw_assim_labels", _record_labels)
+    monkeypatch.setattr(plot_mod, "draw_adaptive_assim_labels", _record_labels)
 
     scf_date = pd.Timestamp("2023-01-01")
     wet_date = pd.Timestamp("2023-01-02")
@@ -720,52 +768,18 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
     wet_midday = wet_date + pd.Timedelta(hours=12)
     hs_midday = hs_date + pd.Timedelta(hours=12)
     swe_midday = swe_date + pd.Timedelta(hours=12)
-    assert sum(1 for dates, color in vline_calls if dates == [scf_date] and color == da_variable_style("scf")["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [scf_midday] and color == da_variable_style("scf")["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [wet_date] and color == da_variable_style("wet_snow")["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [wet_midday] and color == da_variable_style("wet_snow")["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [hs_date] and color == da_variable_style("station_hs")["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [hs_midday] and color == da_variable_style("station_hs")["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [swe_date] and color == da_variable_style("station_swe")["line"]) == 2
-    assert sum(1 for dates, color in vline_calls if dates == [swe_midday] and color == da_variable_style("station_swe")["line"]) == 2
+    assert {color for _dates, color, _ls, _lw in vline_calls} == {"#000000", "#777777"}
+    assert {ls for _dates, _color, ls, _lw in vline_calls} == {"--"}
+    matched_calls = [(dates, lw) for dates, color, _ls, lw in vline_calls if color == "#000000"]
+    standard_calls = [(dates, lw) for dates, color, _ls, lw in vline_calls if color == "#777777"]
+    assert matched_calls == [([scf_date], 1.8), ([wet_date], 1.8), ([swe_midday], 1.8), ([hs_midday], 1.8)]
+    assert len(standard_calls) == 12
+    assert all(lw == 1.0 for _dates, lw in standard_calls)
     assert label_calls == [
         (
             "assimilation_label_axis_0",
             [scf_date, wet_date, hs_date, swe_date],
             ["1", "2", "3", "4"],
-            None,
-            0.0,
-            [0.35, 6.5],
-            18.0,
-            1.0,
-            "center",
-        ),
-        (
-            "assimilation_label_axis_1",
-            [scf_date, wet_date, hs_date, swe_date],
-            ["1", "2", "3", "4"],
-            None,
-            0.0,
-            [0.35, 6.5],
-            18.0,
-            1.0,
-            "center",
-        ),
-        (
-            "assimilation_label_axis_2",
-            [scf_midday, wet_midday, hs_midday],
-            ["1", "2", "3"],
-            None,
-            0.0,
-            [0.35, 6.5],
-            18.0,
-            1.0,
-            "center",
-        ),
-        (
-            "assimilation_label_axis_3",
-            [scf_midday, wet_midday, hs_midday],
-            ["1", "2", "3"],
             None,
             0.0,
             [0.35, 6.5],
@@ -806,19 +820,19 @@ def test_plot_result_overview_lower_assimilation_label_row_stays_above_panel(tmp
         main_axes = _panel_axes(fig)
         label_axes = [ax for ax in fig.axes if ax.get_label().startswith("assimilation_label_axis")]
 
-        assert label_axes
-        for main_ax, label_ax in zip(main_axes, label_axes, strict=True):
-            assert label_ax.texts
-            for text in label_ax.texts:
-                bbox = text.get_window_extent(renderer)
-                assert bbox.y0 >= main_ax.bbox.y1
+        assert len(label_axes) == 1
+        assert label_axes[0].get_label() == "assimilation_label_axis_0"
+        assert label_axes[0].texts
+        for text in label_axes[0].texts:
+            bbox = text.get_window_extent(renderer)
+            assert bbox.y0 >= main_axes[0].bbox.y1
         assert out_path.is_file()
     finally:
         original_close(plt.gcf())
         plt.close = original_close
 
 
-def test_plot_result_overview_adds_assimilation_label_axis_to_each_panel_when_events_exist(tmp_path: Path) -> None:
+def test_plot_result_overview_adds_assimilation_label_axis_to_top_panel_when_events_exist(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 
     original_close = plt.close
@@ -840,8 +854,41 @@ def test_plot_result_overview_adds_assimilation_label_axis_to_each_panel_when_ev
         )
 
         label_axes = [ax for ax in plt.gcf().axes if ax.get_label().startswith("assimilation_label_axis")]
-        assert len(label_axes) == 2
+        assert len(label_axes) == 1
+        assert label_axes[0].get_label() == "assimilation_label_axis_0"
+        assert [text.get_text() for text in label_axes[0].texts] == ["DA 1", "DA 2"]
         assert len(_panel_axes(plt.gcf())) == 2
+        assert out_path.is_file()
+    finally:
+        plt.close = original_close
+
+
+def test_plot_result_overview_dense_assimilation_labels_fall_back_to_numbers(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        dates = pd.date_range("2023-01-01", periods=20, freq="D")
+        frame = pd.DataFrame({"date": dates, "scf": [0.2] * len(dates)})
+        out_path = tmp_path / "result_overview.png"
+        plot_result_overview(
+            scf_obs=frame,
+            scf_model=frame,
+            wet_obs=None,
+            wet_model=None,
+            scf_env=None,
+            wet_env=None,
+            output=out_path,
+            assim_events=[
+                plot_mod.AssimilationEvent(date=pd.Timestamp(date).date(), variable="scf", product="SNOWCOVER")
+                for date in dates
+            ],
+        )
+
+        label_axes = [ax for ax in plt.gcf().axes if ax.get_label().startswith("assimilation_label_axis")]
+        assert len(label_axes) == 1
+        assert [text.get_text() for text in label_axes[0].texts] == [str(i) for i in range(1, 21)]
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -879,6 +926,9 @@ def test_plot_result_overview_uses_single_figure_legend_labels(tmp_path: Path) -
             )
         )
         assert legend_handles[0].get_marker() == "x"
+        assert legend_handles[0].get_color() == "#d62728"
+        assert legend_handles[1].get_color() == "#d62728"
+        assert legend_handles[-1].get_color() == "#777777"
         ensemble_handle = legend_handles[3]
         assert ensemble_handle.get_label() == "ensemble (min - max, mean)"
         assert isinstance(ensemble_handle, tuple)
@@ -1196,14 +1246,12 @@ def test_plot_result_overview_supports_custom_station_panel(tmp_path: Path) -> N
         )
 
         axes = _panel_axes(plt.gcf())
-        assert [ax.get_ylabel() for ax in axes] == [
-            "fSC",
-            "snow depth [m]",
-        ]
+        assert [ax.get_ylabel() for ax in axes] == ["", ""]
         assert axes[1].get_title(loc="left").startswith("(b) Snow depth Latschbloder 2919 m")
         line_colors = [line.get_color() for line in axes[1].lines]
         assert da_variable_style("station_hs")["line"] in line_colors
         assert "black" in line_colors
+        assert plot_mod.COLOR_DA_OBS == "#d62728"
         assert plot_mod.COLOR_DA_OBS in line_colors
         assert axes[1].collections
         assert out_path.is_file()
@@ -1241,9 +1289,15 @@ def test_plot_result_overview_custom_ess_panel_uses_threshold_and_top_tick_only(
         )
 
         axes = _panel_axes(plt.gcf())
-        assert list(axes[0].get_yticks()) == [23.5, 47.0]
+        assert axes[0].get_title(loc="left") == "(a) Effective sample size"
+        assert list(axes[0].get_yticks()) == [0.0, 10.0, 20.0, 30.0, 40.0, 47.0]
+        assert 23.5 not in axes[0].get_yticks()
+        assert axes[0].get_ylim()[1] == 47.0
         assert axes[0].get_legend() is not None
+        assert axes[0].get_legend()._loc == 1
+        assert not axes[0].get_legend().get_frame().get_visible()
         assert [text.get_text() for text in axes[0].get_legend().get_texts()] == ["ESS threshold"]
+        assert any(line.get_color() == "#d62728" and line.get_linestyle() == "--" for line in axes[0].lines)
         assert len(plt.gcf().legends) == 0
         assert out_path.is_file()
     finally:
@@ -1276,11 +1330,19 @@ def test_plot_result_overview_supports_custom_crpss_score_panel(tmp_path: Path) 
 
         axes = _panel_axes(plt.gcf())
         assert len(axes) == 1
-        assert axes[0].get_title(loc="left").endswith("CRPSS")
-        assert axes[0].get_ylabel() == "CRPSS"
+        assert axes[0].get_title(loc="left") == "(a) Continuous ranked probability skill score (CRPSS)"
+        assert axes[0].get_ylabel() == ""
         assert 0.5 in list(axes[0].get_yticks())
+        assert set(label.get_text() for label in axes[0].get_yticklabels() if label.get_text()) <= {"0", "0.5", "1"}
         assert axes[0].collections
         assert axes[0].get_legend() is None
+        event_lines = []
+        for line in axes[0].lines:
+            xdata = pd.to_datetime(line.get_xdata())
+            if len(xdata) >= 2 and all(ts == xdata[0] for ts in xdata):
+                event_lines.append((xdata[0].normalize(), line.get_color(), line.get_linestyle(), line.get_linewidth()))
+        assert (pd.Timestamp("2023-01-02"), "#777777", "--", 1.0) in event_lines
+        assert (pd.Timestamp("2023-01-03"), "#777777", "--", 1.0) in event_lines
         assert len(plt.gcf().legends) == 2
         overview_labels = _figure_legend_labels(plt.gcf(), 0)
         score_labels = _figure_legend_labels(plt.gcf(), 1)
@@ -1294,6 +1356,7 @@ def test_plot_result_overview_supports_custom_crpss_score_panel(tmp_path: Path) 
         renderer = plt.gcf().canvas.get_renderer()
         score_texts = {text.get_text(): text for text in plt.gcf().legends[1].get_texts() if text.get_text()}
         assert score_texts["posterior"].get_window_extent(renderer).y0 > score_texts["prior"].get_window_extent(renderer).y0
+        _assert_figure_legends_clear_axes(plt.gcf())
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -1403,7 +1466,7 @@ def test_plot_result_overview_supports_custom_ner_score_panel(tmp_path: Path) ->
         axes = _panel_axes(plt.gcf())
         assert len(axes) == 1
         assert axes[0].get_title(loc="left").endswith("NER")
-        assert axes[0].get_ylabel() == "NER"
+        assert axes[0].get_ylabel() == ""
         assert 0.5 in list(axes[0].get_yticks())
         assert axes[0].collections
         assert out_path.is_file()
@@ -1438,7 +1501,7 @@ def test_plot_result_overview_supports_custom_zskill_score_panel(tmp_path: Path)
         axes = _panel_axes(plt.gcf())
         assert len(axes) == 1
         assert axes[0].get_title(loc="left").endswith("zSkill")
-        assert axes[0].get_ylabel() == "zSkill"
+        assert axes[0].get_ylabel() == ""
         assert axes[0].collections
         assert out_path.is_file()
     finally:
@@ -1470,9 +1533,9 @@ def test_plot_result_overview_supports_both_score_panels_and_single_local_legend
         )
 
         axes = _panel_axes(plt.gcf())
-        assert axes[0].get_title(loc="left").endswith("CRPSS")
+        assert axes[0].get_title(loc="left") == "(a) Continuous ranked probability skill score (CRPSS)"
         assert axes[1].get_title(loc="left").endswith("NER")
-        assert [ax.get_ylabel() for ax in axes] == ["CRPSS", "NER"]
+        assert [ax.get_ylabel() for ax in axes] == ["", ""]
         assert 0.5 in list(axes[0].get_yticks())
         assert 0.5 in list(axes[1].get_yticks())
         assert axes[0].get_legend() is None
@@ -1481,12 +1544,13 @@ def test_plot_result_overview_supports_both_score_panels_and_single_local_legend
         assert _figure_legend_labels(plt.gcf(), 0) == ["data assimilation event"]
         assert getattr(plt.gcf().legends[0], "_ncols", None) == 1
         assert getattr(plt.gcf().legends[1], "_ncols", None) == 5
+        _assert_figure_legends_clear_axes(plt.gcf())
         assert out_path.is_file()
     finally:
         plt.close = original_close
 
 
-def test_plot_result_overview_score_panels_use_taller_height_ratios(monkeypatch, tmp_path: Path) -> None:
+def test_plot_result_overview_uses_uniform_panel_height_ratios(monkeypatch, tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 
     recorded: dict[str, object] = {}
@@ -1538,16 +1602,12 @@ def test_plot_result_overview_score_panels_use_taller_height_ratios(monkeypatch,
     assert recorded["nrows"] == 4
     assert recorded["height_ratios"] == [
         plot_mod.OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR,
-        0.5,
-        plot_mod.OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR,
-        plot_mod.OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR,
+        plot_mod.OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR,
+        plot_mod.OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR,
+        plot_mod.OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR,
     ]
     assert recorded["figsize"][0] == plot_mod.FIGWIDTH_OVERVIEW_PAPER
-    expected_height_units = (
-        plot_mod.OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR
-        + 0.5
-        + plot_mod.OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR * 2.0
-    )
+    expected_height_units = plot_mod.OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR * 4.0
     assert recorded["figsize"][1] == pytest.approx(plot_mod.FIGHEIGHT_OVERVIEW_ROW * expected_height_units)
     assert out_path.is_file()
     original_close(plt.gcf())
@@ -1589,12 +1649,19 @@ def test_plot_result_overview_score_panel_keeps_ess_threshold_local(tmp_path: Pa
 
         axes = _panel_axes(plt.gcf())
         assert axes[0].get_legend() is not None
+        assert axes[0].get_legend()._loc == 1
+        assert not axes[0].get_legend().get_frame().get_visible()
         assert [text.get_text() for text in axes[0].get_legend().get_texts()] == ["ESS threshold"]
+        assert axes[0].get_title(loc="left") == "(a) Effective sample size"
+        assert 23.5 not in axes[0].get_yticks()
+        assert axes[0].get_ylim()[1] == 47.0
+        assert any(line.get_color() == "#d62728" and line.get_linestyle() == "--" for line in axes[0].lines)
         assert axes[1].get_legend() is None
         assert len(plt.gcf().legends) == 2
         overview_labels = _figure_legend_labels(plt.gcf(), 0)
         assert overview_labels == ["data assimilation event"]
         assert "ESS threshold" not in overview_labels
+        _assert_figure_legends_clear_axes(plt.gcf())
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -1672,6 +1739,26 @@ def test_plot_result_overview_shares_absolute_y_scale_between_roi_and_station_pa
         assert axes[0].get_ylim() == axes[1].get_ylim()
         assert axes[2].get_ylim() == axes[3].get_ylim()
         assert axes[2].get_ylim() == (0.0, 1.75)
+
+        def _visible_in_range_y_labels(ax) -> list[str]:
+            ymin, ymax = ax.get_ylim()
+            return [
+                tick.label1.get_text()
+                for tick in ax.yaxis.get_major_ticks()
+                if ymin - 1e-9 <= tick.get_loc() <= ymax + 1e-9 and tick.label1.get_visible() and tick.label1.get_text()
+            ]
+
+        assert _visible_in_range_y_labels(axes[0]) == [
+            "0",
+            "100",
+        ]
+        assert _visible_in_range_y_labels(axes[1]) == [
+            "0",
+            "50",
+            "100",
+            "150",
+            "200",
+        ]
         assert out_path.is_file()
     finally:
         plt.close = original_close

@@ -33,11 +33,11 @@ _DA_VARIABLE_ALIASES = {
 }
 
 DA_VARIABLE_STYLES = {
-    "scf": {"fill": "#9ad1f0", "line": "#0072B2"},
-    "wet_snow": {"fill": "#9de0ca", "line": "#009E73"},
-    "wet_snow_line": {"fill": "#efbad4", "line": "#CC79A7"},
-    "station_hs": {"fill": "#f2b38d", "line": "#D55E00"},
-    "station_swe": {"fill": "#a9d8f0", "line": "#56B4E9"},
+    "scf": {"fill": "#23898e", "line": "#23898e"},
+    "wet_snow": {"fill": "#1f9a8a", "line": "#1f9a8a"},
+    "wet_snow_line": {"fill": "#482475", "line": "#482475"},
+    "station_hs": {"fill": "#4ec36b", "line": "#4ec36b"},
+    "station_swe": {"fill": "#2c738e", "line": "#2c738e"},
 }
 
 

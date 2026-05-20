@@ -13,7 +13,7 @@ import rasterio
 from loguru import logger
 from matplotlib.cm import ScalarMappable
 from matplotlib import colormaps
-from matplotlib.colors import BoundaryNorm, LinearSegmentedColormap, ListedColormap, Normalize, TwoSlopeNorm
+from matplotlib.colors import BoundaryNorm, ListedColormap, Normalize, TwoSlopeNorm
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Rectangle
 from rasterio.warp import Resampling, reproject
@@ -138,24 +138,10 @@ from openamundsen_da.util.da_observables import weights_csv_name
 
 
 _FRACTION_MODEL_CMAP = colormaps["Greys"]
-_ELEVATION_BAND_WSF_ACCENT_LOW = 0.45
-_ELEVATION_BAND_WSF_ACCENT_HIGH = 0.55
-_ELEVATION_BAND_WSF_ACCENT_COLOR = "#d95f02"
 _SUBDOMAIN_NO_DA_COLOR = "#525252"
 _SUBDOMAIN_NO_DA_HATCH = "////"
 _SUBDOMAIN_NO_DA_LABEL = "no DA"
-_ELEVATION_BAND_WSF_CMAP = LinearSegmentedColormap.from_list(
-    "oa_da_elevation_band_wsf",
-    (
-        (0.00, "#ffffff"),
-        (_ELEVATION_BAND_WSF_ACCENT_LOW, "#b8b8b8"),
-        (_ELEVATION_BAND_WSF_ACCENT_LOW + 0.0001, _ELEVATION_BAND_WSF_ACCENT_COLOR),
-        (0.50, _ELEVATION_BAND_WSF_ACCENT_COLOR),
-        (_ELEVATION_BAND_WSF_ACCENT_HIGH - 0.0001, _ELEVATION_BAND_WSF_ACCENT_COLOR),
-        (_ELEVATION_BAND_WSF_ACCENT_HIGH, "#8f8f8f"),
-        (1.00, "#000000"),
-    ),
-)
+_ELEVATION_BAND_WSF_CMAP = _FRACTION_MODEL_CMAP
 _WET_SNOW_MODEL_CODES = (110, 125)
 _SCF_BINARY_CMAP = ListedColormap(["#efefef", "#111111"], name="scf_binary")
 
@@ -1608,7 +1594,7 @@ def render_uncertainty_panel(
     norm = Normalize(vmin=0.0, vmax=100.0)
     image = ax.imshow(
         np.ma.masked_invalid(scene.array),
-        cmap=colormaps["YlOrRd"],
+        cmap=colormaps["viridis"],
         norm=norm,
         extent=scene.bounds,
         origin="upper",
@@ -1854,7 +1840,7 @@ def _posterior_weighted_wet_fraction_array(
             member_weights.append(1.0)
 
     if not member_masks:
-        raise FileNotFoundError(f"Missing weighted posterior members for wet snow line altitude (WSLA) map in {step_dir}")
+        raise FileNotFoundError(f"Missing weighted posterior members for wet snow line (WSLA) map in {step_dir}")
 
     stack = np.stack(member_masks, axis=0)
     weight_arr = np.asarray(member_weights, dtype=float)
@@ -1984,7 +1970,6 @@ def _contour_xy(context: StaticContext) -> tuple[np.ndarray, np.ndarray]:
 
 
 _WSL_MODEL_COLOR = da_variable_line_color("wet_snow_line")
-_WSL_OBS_COLOR = "#9467bd"
 
 
 def _draw_wsl_contour(
@@ -2066,7 +2051,7 @@ def _wet_snow_line_legend_handles(
     if include_model_wsl:
         handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, label="model WSLA"))
     if include_obs_wsl:
-        handles.append(Line2D([0], [0], color=_WSL_OBS_COLOR, linewidth=1.6, linestyle=obs_linestyle, label="observation WSLA"))
+        handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, linestyle=obs_linestyle, label="observation WSLA"))
     return handles
 
 
@@ -2467,14 +2452,14 @@ def render_wet_snow_line_panel(
         ax,
         context=context,
         level=contour_level,
-        color=_WSL_OBS_COLOR if panel.source is None else _WSL_MODEL_COLOR,
+        color=_WSL_MODEL_COLOR,
         linestyle="-",
         zorder=9.5 if panel.source is not None else 9,
     )
     obs_contour_drawn = False
     callout_color = "black"
     if contour_level is not None and np.isfinite(contour_level):
-        callout_color = _WSL_OBS_COLOR if panel.source is None else _WSL_MODEL_COLOR
+        callout_color = _WSL_MODEL_COLOR
     _annotate_wsl_callout(ax, level=contour_level, color=callout_color)
 
     apply_common_overlays(
@@ -2589,7 +2574,7 @@ def render_wet_snow_elevation_fraction_panel(
         if panel.source is None
         else _wet_snow_line_from_fraction(context=context, wet_fraction=values)
     )
-    wsl_color = _WSL_OBS_COLOR if panel.source is None else _WSL_MODEL_COLOR
+    wsl_color = _WSL_MODEL_COLOR
     wsl_drawn = _draw_wsl_contour(
         ax,
         context=context,

@@ -23,7 +23,7 @@ maps:
         show_stations_elev: true
         legend_items:
           - kind: station_symbol
-            label: Meteorological stations
+            label: AWS
             placement: inside
             anchor: top_left
       - row: 0

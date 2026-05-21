@@ -1599,6 +1599,7 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
     assert cfg.maps[0].panels[1].show_stations_name is True
     assert cfg.maps[0].panels[1].show_stations_elev is True
     assert cfg.maps[0].panels[1].below_items == ()
+    assert cfg.maps[0].panels[1].inside_legend_items[0].label == "AWS"
     assert cfg.maps[0].panels[2].landcover_grouping == "broad"
 
 
@@ -3220,7 +3221,10 @@ def test_scf_observation_palette_uses_greys_for_example_map_style() -> None:
 
 
 def test_static_field_palettes_follow_reference_style() -> None:
-    dem_cmap = static_field_cmap(require_static_field_preset("dem"))
+    dem_preset = require_static_field_preset("dem")
+    assert dem_preset.cmap_name == "Greys_r"
+
+    dem_cmap = static_field_cmap(dem_preset)
     svf_cmap = static_field_cmap(require_static_field_preset("svf"))
     srf_cmap = static_field_cmap(require_static_field_preset("srf"))
     srf_style = static_field_colorbar_style(require_static_field_preset("srf"))
@@ -3232,7 +3236,14 @@ def test_static_field_palettes_follow_reference_style() -> None:
     srf_low = srf_cmap(0.0)
     srf_high = srf_cmap(1.0)
 
-    assert dem_cmap.name == "viridis"
+    assert dem_cmap.name == "Greys_r"
+    assert static_field_colorbar_style(dem_preset, np.array([1905.0, 3695.0])).ticks == (
+        2000.0,
+        2500.0,
+        3000.0,
+        3500.0,
+    )
+    assert static_field_colorbar_style(dem_preset, np.array([450.0, 1670.0])).ticks == (500.0, 1000.0, 1500.0)
     assert svf_cmap.name == "viridis"
     assert srf_cmap.name == "RdBu"
     assert sum(dem_high[:3]) > sum(dem_low[:3])
@@ -3473,6 +3484,34 @@ def test_horizontal_colorbar_gap_is_tighter_than_legacy_spacing() -> None:
     assert render_module._HORIZONTAL_COLORBAR_GAP_AXES < 0.22
 
 
+def test_horizontal_colorbar_combined_width_matches_panel_box() -> None:
+    fig, ax = plt.subplots(figsize=(4, 3))
+    try:
+        image = ax.imshow(np.array([[0.0, 1.0], [2.0, 3.0]], dtype=float))
+
+        render_module._attach_colorbar(ax, image, label="elevation [m]", ticks=(0.0, 3.0), layout="horizontal")
+        fig.canvas.draw()
+
+        container_ax, colorbar_ax = getattr(ax, "_oa_child_axes")[-2:]
+        panel_bbox = ax.get_position()
+        container_bbox = container_ax.get_position()
+        colorbar_bbox = colorbar_ax.get_position()
+        assert container_bbox.x0 == pytest.approx(panel_bbox.x0)
+        assert container_bbox.x1 == pytest.approx(panel_bbox.x1)
+        assert colorbar_bbox.x0 == pytest.approx(panel_bbox.x0)
+
+        unit_text = container_ax.texts[-1]
+        assert unit_text.get_text() == "[m]"
+        assert unit_text.get_ha() == "right"
+
+        renderer = fig.canvas.get_renderer()
+        text_bbox = unit_text.get_window_extent(renderer).transformed(fig.transFigure.inverted())
+        assert text_bbox.x1 == pytest.approx(panel_bbox.x1, abs=0.002)
+        assert colorbar_bbox.x1 < text_bbox.x0
+    finally:
+        plt.close(fig)
+
+
 def test_horizontal_colorbar_spacing_uses_physical_minimum_for_flat_panels() -> None:
     base_extra = 0.10 + 0.050 + 0.02
 
@@ -3557,6 +3596,7 @@ def test_inside_panel_station_legend_draws_boxed_inset(legend_label: str, figsiz
         parent_bbox = ax.get_position()
         assert bbox.x0 < parent_bbox.x0 + 0.25 * parent_bbox.width
         assert bbox.y1 > parent_bbox.y0 + 0.70 * parent_bbox.height
+        assert inset_axes[0].get_facecolor()[3] == pytest.approx(0.70)
         assert all(not spine.get_visible() for spine in inset_axes[0].spines.values())
         renderer = fig.canvas.get_renderer()
         inset_display_bbox = inset_axes[0].get_window_extent(renderer=renderer)

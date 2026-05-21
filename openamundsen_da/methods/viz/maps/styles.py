@@ -93,7 +93,7 @@ STATIC_FIELD_PRESETS = {
         field="dem",
         title="Digital elevation model",
         unit_label="elevation [m]",
-        cmap_name="viridis",
+        cmap_name="Greys_r",
         step=250.0,
         floor=500.0,
     ),
@@ -397,5 +397,22 @@ def static_field_norm(preset: StaticFieldPreset, values: np.ndarray) -> Normaliz
     return Normalize(vmin=vmin, vmax=vmax, clip=False)
 
 
-def static_field_colorbar_style(preset: StaticFieldPreset) -> ColorbarStyle:
+def _dem_colorbar_ticks(values: np.ndarray | None, *, step: float = 500.0) -> tuple[float, ...]:
+    if values is None:
+        return ()
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return ()
+    low = math.ceil(float(finite.min()) / step) * step
+    high = math.floor(float(finite.max()) / step) * step
+    if high < low:
+        return ()
+    count = int(round((high - low) / step)) + 1
+    return tuple(float(low + idx * step) for idx in range(count))
+
+
+def static_field_colorbar_style(preset: StaticFieldPreset, values: np.ndarray | None = None) -> ColorbarStyle:
+    if preset.field == "dem" and not preset.ticks:
+        return ColorbarStyle(label=preset.unit_label, ticks=_dem_colorbar_ticks(values), ticklabels=preset.ticklabels)
     return ColorbarStyle(label=preset.unit_label, ticks=preset.ticks, ticklabels=preset.ticklabels)

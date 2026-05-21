@@ -704,15 +704,23 @@ def attach_colorbar(
 ) -> None:
     if layout == "horizontal":
         gap_axes = horizontal_colorbar_gap_axes(ax)
-        cax = ax.inset_axes(
+        title = extract_unit_title(label)
+        panel_width_in = axis_width_inches(ax)
+        unit_pad_in = 0.035 if title else 0.0
+        reserved_width_in = text_width_in(title, size=_COLORBAR_TITLE_SIZE) + unit_pad_in if title else 0.0
+        colorbar_width = 1.0 if not title else max(0.55, 1.0 - reserved_width_in / max(panel_width_in, 1e-9))
+        container_ax = ax.inset_axes(
             [
-                0.06,
+                0.0,
                 -(gap_axes + _HORIZONTAL_COLORBAR_HEIGHT_AXES),
-                0.88,
+                1.0,
                 _HORIZONTAL_COLORBAR_HEIGHT_AXES,
             ],
             transform=ax.transAxes,
         )
+        container_ax.set_axis_off()
+        cax = container_ax.inset_axes([0.0, 0.0, colorbar_width, 1.0], transform=container_ax.transAxes)
+        register_child_axes(ax, container_ax)
         register_child_axes(ax, cax)
         cbar = plt.colorbar(mappable, cax=cax, orientation="horizontal")
         if ticks:
@@ -720,9 +728,16 @@ def attach_colorbar(
         if ticklabels:
             cbar.set_ticklabels(ticklabels)
         cbar.ax.tick_params(labelsize=_COLORBAR_TICK_SIZE, length=2.0, width=0.65)
-        title = extract_unit_title(label)
         if title:
-            cbar.ax.text(1.01, 0.5, title, transform=cbar.ax.transAxes, ha="left", va="center", fontsize=_COLORBAR_TITLE_SIZE)
+            container_ax.text(
+                1.0,
+                0.5,
+                title,
+                transform=container_ax.transAxes,
+                ha="right",
+                va="center",
+                fontsize=_COLORBAR_TITLE_SIZE,
+            )
         elif label:
             cbar.set_label(label, fontsize=_COLORBAR_TITLE_SIZE)
         return

@@ -1284,7 +1284,7 @@ def render_static_panel(
         show_grid=show_grid,
         show_y_ticklabels=panel.col == 0,
     )
-    colorbar_style = static_field_colorbar_style(preset)
+    colorbar_style = static_field_colorbar_style(preset, data.filled(np.nan))
     if resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
         attach_colorbar(
             ax,

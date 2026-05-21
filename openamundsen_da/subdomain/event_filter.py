@@ -260,6 +260,44 @@ def _station_availability(
     return Availability(True, active_station_ids=tuple(active))
 
 
+def _station_benchmark_supported(obs_dir: Path) -> bool:
+    """Return whether local station observations contain at least one benchmark-enabled station."""
+    metadata_df = read_station_metadata(obs_dir / STATION_DA_METADATA_FILENAME)
+    if metadata_df.empty or "station_id" not in metadata_df.columns:
+        return False
+    if "use_for_benchmark" in metadata_df.columns:
+        enabled = ~metadata_df["use_for_benchmark"].astype(str).str.strip().str.lower().isin(
+            {"false", "0", "no", "n", "off"}
+        )
+        metadata_df = metadata_df.loc[enabled].copy()
+    available_ids = {path.stem.strip().lower() for path in station_observation_csvs(obs_dir)}
+    benchmark_ids = {str(sid).strip().lower() for sid in metadata_df["station_id"].dropna()}
+    return bool(available_ids & benchmark_ids)
+
+
+def _drop_station_benchmark_variables_if_unsupported(da_cfg: dict, obs_dir: Path) -> bool:
+    """Prune station benchmark variables for stationless sub-domains."""
+    benchmark_cfg = da_cfg.get("benchmark")
+    if not isinstance(benchmark_cfg, dict):
+        return False
+    if _station_benchmark_supported(obs_dir):
+        return False
+
+    station_vars = {"station_hs", "station_swe"}
+    changed = False
+    for key in ("variables", "independent_variables", "performance_scores_exclude_variables"):
+        raw = benchmark_cfg.get(key)
+        if not isinstance(raw, list):
+            continue
+        filtered = [item for item in raw if str(item).strip().lower() not in station_vars]
+        if filtered != raw:
+            benchmark_cfg[key] = filtered
+            changed = True
+    if changed:
+        logger.info("Pruned station benchmark variables for stationless sub-domain")
+    return changed
+
+
 def _var_cfg(filter_cfg: dict, variable: str, subdomain_id: str) -> dict:
     variables_cfg = filter_cfg.get("variables") if isinstance(filter_cfg, dict) else {}
     cfg = variables_cfg.get(variable) if isinstance(variables_cfg, dict) else None
@@ -386,10 +424,12 @@ def filter_project_events_for_subdomain(
             f"Configured assimilation events are unavailable in sub-domain {subdomain_id}: "
             + "; ".join(unavailable)
         )
+    benchmark_changed = _drop_station_benchmark_variables_if_unsupported(da_cfg, station_obs_dir)
     if enabled and drop_unavailable:
         da_cfg["assimilation_events"] = kept
         if not kept:
             raise ValueError(f"All assimilation events were dropped for sub-domain {subdomain_id}")
+    if (enabled and drop_unavailable) or benchmark_changed:
         _write_project_yaml(project_yaml, cfg)
     return dropped
 

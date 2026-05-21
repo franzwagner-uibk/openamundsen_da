@@ -67,6 +67,8 @@ from openamundsen_da.methods.viz.maps.styles import (
     FSC_OBS_CMAP,
     FSC_INVALID_COLOR,
     INCREMENT_CMAP,
+    LANDCOVER_BROAD_CLASSES,
+    LANDCOVER_COLORS,
     SNOW_DEPTH_REFERENCE_TICKS_M,
     WET_SNOW_COLORS,
     WET_SNOW_LABELS,
@@ -81,6 +83,7 @@ from openamundsen_da.methods.viz.maps.styles import (
     static_field_cmap,
     static_field_colorbar_style,
 )
+from openamundsen_da.methods.viz.maps.theme import _OVERVIEW_ROI_COLOR, _STATION_COLOR
 from openamundsen_da.util.run_mode import write_run_mode
 
 
@@ -1069,6 +1072,11 @@ def test_project_maps_config_accepts_static_panels_and_legend_items(tmp_path: Pa
                 col: 1
                 kind: svf
                 title: Sky view factor
+                legend_items:
+                  - kind: station_symbol
+                    label: Demo stations
+                    placement: inside
+                    anchor: top_left
               - row: 0
                 col: 2
                 kind: legend
@@ -1086,6 +1094,8 @@ def test_project_maps_config_accepts_static_panels_and_legend_items(tmp_path: Pa
     assert cfg.maps[0].panels[0].scale == 1000000
     assert cfg.maps[0].panels[0].label_fit_margin == 0.04
     assert cfg.maps[0].panels[1].kind == "svf"
+    assert cfg.maps[0].panels[1].legend_items[0].placement == "inside"
+    assert cfg.maps[0].panels[1].legend_items[0].anchor == "top_left"
     assert [item.kind for item in cfg.maps[0].panels[2].items] == ["station_symbol", "heading"]
 
 
@@ -1122,6 +1132,62 @@ def test_project_maps_config_accepts_below_panel_legend_items(tmp_path: Path) ->
     assert cfg.maps[0].output_stem == "setup_overview"
     assert [item.kind for item in cfg.maps[0].panels[0].below_items] == ["station_symbol"]
     assert cfg.maps[0].panels[0].below_items[0].label == "Meteorological stations"
+    assert [item.kind for item in cfg.maps[0].panels[0].bottom_legend_items] == ["station_symbol"]
+
+
+def test_project_maps_config_rejects_invalid_panel_legend_placement(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          setup_overview:
+            title: setup_overview
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: dem
+                legend_items:
+                  - kind: station_symbol
+                    label: Meteorological stations
+                    placement: sidebar
+        """,
+    )
+
+    with pytest.raises(ValueError, match="placement must be one of"):
+        load_project_maps_config(config_path)
+
+
+def test_project_maps_config_rejects_invalid_panel_legend_anchor(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          setup_overview:
+            title: setup_overview
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: dem
+                legend_items:
+                  - kind: station_symbol
+                    label: Meteorological stations
+                    placement: inside
+                    anchor: center
+        """,
+    )
+
+    with pytest.raises(ValueError, match="anchor must be one of"):
+        load_project_maps_config(config_path)
 
 
 def test_project_maps_config_accepts_hillshade_extent_on_defaults_and_panels(tmp_path: Path) -> None:
@@ -1213,6 +1279,35 @@ def test_project_maps_config_rejects_below_items_on_legend_panel(tmp_path: Path)
     )
 
     with pytest.raises(ValueError, match="below_items is only supported for non-legend panels"):
+        load_project_maps_config(config_path)
+
+
+def test_project_maps_config_rejects_legend_items_on_legend_panel(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          bad_legend:
+            title: bad_legend
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: legend
+                legend_items:
+                  - kind: station_symbol
+                    label: Demo stations
+                items:
+                  - kind: heading
+                    label: Existing legend
+        """,
+    )
+
+    with pytest.raises(ValueError, match="legend_items is only supported for non-legend panels"):
         load_project_maps_config(config_path)
 
 
@@ -1489,22 +1584,23 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
     cfg = load_project_maps_config(config_path)
 
     assert [recipe.name for recipe in cfg.maps] == ["setup_overview"]
-    assert [recipe.title for recipe in cfg.maps] == ["setup_overview"]
+    assert [recipe.title for recipe in cfg.maps] == ["Setup overview"]
     assert [recipe.output_stem for recipe in cfg.maps] == ["setup_overview"]
-    assert cfg.maps[0].layout.nrows == 2
+    assert cfg.maps[0].layout.nrows == 1
     assert cfg.maps[0].layout.ncols == 3
     assert [panel.title for panel in cfg.maps[0].panels] == [
-        "overview",
-        "region of interest",
-        "digital elevation model",
-        "landcover",
-        "hillshade",
-        "snow redistribution factor",
+        "Overview",
+        "Digital elevation model",
+        "Land cover",
     ]
-    assert [(panel.row, panel.col) for panel in cfg.maps[0].panels] == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
-    assert cfg.maps[0].panels[3].name is None
-    assert cfg.maps[0].panels[1].below_items[0].label == "Meteorological stations"
-    assert cfg.maps[0].panels[5].show_hillshade is True
+    assert [panel.kind for panel in cfg.maps[0].panels] == ["overview", "dem", "landcover"]
+    assert [(panel.row, panel.col) for panel in cfg.maps[0].panels] == [(0, 0), (0, 1), (0, 2)]
+    assert cfg.maps[0].panels[1].show_station_marker is True
+    assert cfg.maps[0].panels[1].show_stations_name is True
+    assert cfg.maps[0].panels[1].show_stations_elev is True
+    assert cfg.maps[0].panels[1].below_items == ()
+    assert cfg.maps[0].panels[1].inside_legend_items[0].label == "AWS"
+    assert cfg.maps[0].panels[2].landcover_grouping == "broad"
 
 
 def test_shipped_subdomain_project_maps_config_keeps_generic_setup_overview_only() -> None:
@@ -1529,11 +1625,16 @@ def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, 
 
     assert [recipe.name for recipe in recipes] == ["da_1", "da_2"]
     assert all(recipe.output_subdir == generated_module.GENERATED_DA_MAPS_SUBDIR for recipe in recipes)
-    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (snow cover fraction)"
-    assert recipes[1].figure_title == "DA 2 - 2023-01-02 (wet snow fraction (WSF))"
-    assert recipes[0].row_labels == ("station snow depth",)
+    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (Snow cover fraction)"
+    assert recipes[1].figure_title == "DA 2 - 2023-01-02 (Wet snow fraction (WSF))"
+    assert recipes[0].row_labels == ()
     assert recipes[0].layout.ncols == 4
-    assert [panel.title for panel in recipes[0].panels] == ["open loop", "prior mean", "posterior mean", "posterior - prior"]
+    assert [panel.title for panel in recipes[0].panels] == [
+        "Open-loop snow depth",
+        "Prior snow depth",
+        "Posterior snow depth",
+        "Snow-depth increment",
+    ]
     assert [panel.source for panel in recipes[0].panels] == [
         "open_loop",
         "ensemble_mean",
@@ -1653,7 +1754,7 @@ def test_generated_da_map_title_marks_skipped_resampling(tmp_path: Path, monkeyp
 
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
-    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (snow cover fraction) - resampling skipped"
+    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (Snow cover fraction) - resampling skipped"
 
 
 def test_generated_da_event_status_overlay_uses_dropped_event_metadata(
@@ -1743,7 +1844,7 @@ def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_sup
 
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
-    assert recipes[0].row_labels[0] == "snow cover"
+    assert recipes[0].row_labels == ()
     scf_panels = recipes[0].panels[:8]
     assert recipes[0].layout.ncols == 4
     assert [panel.source for panel in scf_panels[:4]] == [
@@ -1753,10 +1854,16 @@ def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_sup
         None,
     ]
     assert [panel.title for panel in scf_panels[:4]] == [
-        "open-loop snow cover",
-        "prior snow cover",
-        "posterior snow cover",
-        "satellite FSC observation",
+        "Open-loop snow cover",
+        "Prior snow-cover probability",
+        "Posterior snow-cover probability",
+        "Satellite FSC observation",
+    ]
+    assert [panel.title for panel in scf_panels[4:8]] == [
+        "Open-loop snow depth",
+        "Prior snow depth",
+        "Posterior snow depth",
+        "Snow-depth increment",
     ]
 
 
@@ -1784,9 +1891,8 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
 
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
-    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (wet snow line altitude - WSLA)"
-    assert recipes[0].row_labels[0] == "wet snow line altitude (WSLA)"
-    assert recipes[0].row_labels[1] == "elevation-band WSF"
+    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (Wet snow line - WSLA)"
+    assert recipes[0].row_labels == ()
     assert recipes[0].layout.ncols == 4
     assert [panel.kind for panel in recipes[0].panels[:4]] == [
         "wet_snow_line",
@@ -1800,7 +1906,12 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
         "posterior_probability",
         None,
     ]
-    assert [panel.title for panel in recipes[0].panels[:4]] == ["open loop", "prior", "posterior", "observation"]
+    assert [panel.title for panel in recipes[0].panels[:4]] == [
+        "Open-loop wet snow line",
+        "Prior wet snow line",
+        "Posterior wet snow line",
+        "Observed wet snow line",
+    ]
     assert [panel.kind for panel in recipes[0].panels[4:8]] == [
         "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
@@ -1819,6 +1930,66 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
         "wet_snow_line",
         "wet_snow_line",
     ]
+    assert [panel.title for panel in recipes[0].panels[4:8]] == [
+        "Open-loop elevation-band WSF",
+        "Prior elevation-band WSF",
+        "Posterior elevation-band WSF",
+        "Observed elevation-band WSF",
+    ]
+
+
+def test_paper_recipe_compacts_wet_snow_line_da_maps(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    monkeypatch.setattr(
+        generated_module,
+        "load_assimilation_events",
+        lambda _project_dir: (
+            generated_module.AssimilationEvent(
+                date=pd.Timestamp("2023-01-02").date(),
+                variable="wet_snow_line",
+                product="WETSNOW",
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        generated_module,
+        "_fraction_model_support_available",
+        lambda _project_dir, variable: variable == "wet_snow",
+    )
+
+    full_recipe = generated_module.generated_da_map_recipes(project_dir)[0]
+    paper_recipe = runner_module._paper_recipe(full_recipe)
+
+    assert full_recipe.layout.nrows == 3
+    assert full_recipe.row_labels == ()
+    assert paper_recipe.figure_title is None
+    assert paper_recipe.layout.nrows == 2
+    assert paper_recipe.row_labels == ()
+    assert {panel.row for panel in paper_recipe.panels} == {0, 1}
+    assert [panel.kind for panel in paper_recipe.panels[:4]] == [
+        "wet_snow_elevation_fraction",
+        "wet_snow_elevation_fraction",
+        "wet_snow_elevation_fraction",
+        "wet_snow_elevation_fraction",
+    ]
+    assert [panel.kind for panel in paper_recipe.panels[4:]] == ["snow_depth", "snow_depth", "snow_depth", "snow_depth"]
+    assert [panel.title for panel in paper_recipe.panels[:4]] == [
+        "Open-loop elevation-band WSF",
+        "Prior elevation-band WSF",
+        "Posterior elevation-band WSF",
+        "Observed elevation-band WSF",
+    ]
+    assert [panel.title for panel in paper_recipe.panels[4:]] == [
+        "Open-loop snow depth",
+        "Prior snow depth",
+        "Posterior snow depth",
+        "Snow-depth increment",
+    ]
+    assert {panel.row for panel in paper_recipe.panels[:4]} == {0}
+    assert {panel.row for panel in paper_recipe.panels[4:]} == {1}
 
 
 def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events(
@@ -1835,7 +2006,7 @@ def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
     wet_recipe = recipes[1]
-    assert wet_recipe.row_labels[:2] == ("wet snow fraction (WSF)", "elevation-band WSF")
+    assert wet_recipe.row_labels == ()
     assert wet_recipe.layout.ncols == 4
     assert [panel.kind for panel in wet_recipe.panels[:4]] == ["wet_snow", "wet_snow", "wet_snow", "wet_snow"]
     assert [panel.source for panel in wet_recipe.panels[:4]] == [
@@ -1843,6 +2014,12 @@ def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events
         "prior_probability",
         "posterior_probability",
         None,
+    ]
+    assert [panel.title for panel in wet_recipe.panels[:4]] == [
+        "Open-loop WSF",
+        "Prior WSF",
+        "Posterior WSF",
+        "Wet-snow observation",
     ]
     assert [panel.kind for panel in wet_recipe.panels[4:8]] == [
         "wet_snow_elevation_fraction",
@@ -1855,6 +2032,12 @@ def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events
         "prior_probability",
         "posterior_probability",
         None,
+    ]
+    assert [panel.title for panel in wet_recipe.panels[4:8]] == [
+        "Open-loop elevation-band WSF",
+        "Prior elevation-band WSF",
+        "Posterior elevation-band WSF",
+        "Observed elevation-band WSF",
     ]
     assert [panel.variable for panel in wet_recipe.panels[4:8]] == ["wet_snow", "wet_snow", "wet_snow", "wet_snow"]
 
@@ -1953,7 +2136,7 @@ def test_reference_stream_uses_variable_name_labels(tmp_path: Path, monkeypatch:
     monkeypatch.setattr(generated_module, "_fraction_summary_dates", lambda *_args, **_kwargs: {target_date})
     monkeypatch.setattr(generated_module, "_event_dates_by_variable", lambda *_args, **_kwargs: {"scf": {pd.Timestamp("2023-02-01")}})
 
-    assert generated_module._reference_stream(project_dir, variable="scf", date=target_date) == "snow cover (independent)"
+    assert generated_module._reference_stream(project_dir, variable="scf", date=target_date) == "Snow cover (independent)"
 
 
 def test_render_project_maps_generates_da_event_maps_under_subdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1981,10 +2164,10 @@ def test_render_project_maps_writes_paper_outputs_without_figure_titles(
     recipe = MapRecipe(
         name="da_1",
         title="DA 1",
-        figure_title="DA 1 - 2023-01-02 (snow cover fraction)",
+        figure_title="DA 1 - 2023-01-02 (Snow cover fraction)",
         output_subdir="da_events",
         layout=LayoutSpec(nrows=1, ncols=1),
-        panels=(MapPanelSpec(kind="hillshade", row=0, col=0, title="open loop"),),
+        panels=(MapPanelSpec(kind="hillshade", row=0, col=0, title="Open loop"),),
     )
     rendered: list[tuple[Path, str | None, str | None]] = []
 
@@ -2005,11 +2188,11 @@ def test_render_project_maps_writes_paper_outputs_without_figure_titles(
     normal = project_dir / "results" / "maps" / "da_events" / "da_1.png"
     paper = project_dir / "results" / "paper" / "maps" / "da_events" / "da_1.png"
     assert outputs == [normal]
-    assert normal.read_text(encoding="utf-8") == "DA 1 - 2023-01-02 (snow cover fraction)"
+    assert normal.read_text(encoding="utf-8") == "DA 1 - 2023-01-02 (Snow cover fraction)"
     assert paper.read_text(encoding="utf-8") == ""
     assert rendered == [
-        (normal, "DA 1 - 2023-01-02 (snow cover fraction)", "open loop"),
-        (paper, None, "open loop"),
+        (normal, "DA 1 - 2023-01-02 (Snow cover fraction)", "Open loop"),
+        (paper, None, "Open loop"),
     ]
 
 
@@ -2041,6 +2224,54 @@ def test_project_maps_config_rejects_overlapping_panels(tmp_path: Path) -> None:
         assert "Overlapping panel placement" in str(exc)
     else:
         raise AssertionError("Expected overlap validation failure")
+
+
+def test_project_maps_config_rejects_invalid_landcover_grouping(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          bad_recipe:
+            title: Bad
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: landcover
+                landcover_grouping: detailed
+        """,
+    )
+
+    with pytest.raises(ValueError, match="landcover_grouping must be one of"):
+        load_project_maps_config(config_path)
+
+
+def test_project_maps_config_rejects_landcover_grouping_on_other_panels(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    config_path = project_dir / "maps.yml"
+    _write_yaml(
+        config_path,
+        """
+        maps:
+          bad_recipe:
+            title: Bad
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: dem
+                landcover_grouping: broad
+        """,
+    )
+
+    with pytest.raises(ValueError, match="only supported for landcover panels"):
+        load_project_maps_config(config_path)
 
 
 def test_date_resolution_helpers_follow_selectors(tmp_path: Path) -> None:
@@ -2227,6 +2458,15 @@ def test_buffered_extent_and_figure_height_follow_bounds(tmp_path: Path) -> None
     assert 2.9 <= height <= 4.8
 
 
+def test_buffered_extent_uses_five_percent_roi_padding_when_cell_minimum_does_not_dominate() -> None:
+    context = SimpleNamespace(
+        roi_gdf=SimpleNamespace(total_bounds=np.array([100.0, 200.0, 1100.0, 1200.0])),
+        spec=SimpleNamespace(transform=from_origin(0.0, 0.0, 10.0, 10.0)),
+    )
+
+    assert buffered_extent(context) == pytest.approx((50.0, 1150.0, 150.0, 1250.0))
+
+
 def test_google_zoom_meters_per_pixel_uses_slippy_map_scale() -> None:
     equator_zoom_1 = render_module._google_zoom_meters_per_pixel(0.0, 1.0)
     latitude_60_zoom_1 = render_module._google_zoom_meters_per_pixel(60.0, 1.0)
@@ -2349,7 +2589,7 @@ def test_snowdepth_model_mask_hides_values_below_one_centimeter() -> None:
     assert masked.mask.tolist() == [[True, False, False]]
 
 
-def test_static_panels_keep_context_outside_roi(tmp_path: Path) -> None:
+def test_static_panels_mask_rasters_outside_roi(tmp_path: Path) -> None:
     roi_mask = np.array(
         [
             [0, 0, 0, 0],
@@ -2371,11 +2611,21 @@ def test_static_panels_keep_context_outside_roi(tmp_path: Path) -> None:
     assert not context.roi_mask[0, 0]
     assert np.isfinite(hillshade[0, 0])
 
-    fig, axes = plt.subplots(1, 2, figsize=(6, 3))
+    fig, axes = plt.subplots(1, 3, figsize=(9, 3))
     try:
-        dem_artifact = render_module._render_static_panel(
+        render_module._render_static_panel(
             axes[0],
-            panel=MapPanelSpec(kind="dem", row=0, col=0, show_colorbar=False),
+            panel=MapPanelSpec(kind="hillshade", row=0, col=0),
+            context=context,
+            extent=extent,
+            grid_extent=grid_extent,
+            label=None,
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
+        dem_artifact = render_module._render_static_panel(
+            axes[1],
+            panel=MapPanelSpec(kind="dem", row=0, col=1, show_colorbar=False),
             context=context,
             extent=extent,
             grid_extent=grid_extent,
@@ -2384,8 +2634,8 @@ def test_static_panels_keep_context_outside_roi(tmp_path: Path) -> None:
             figure_horizontal_default=True,
         )
         landcover_artifact = render_module._render_static_panel(
-            axes[1],
-            panel=MapPanelSpec(kind="landcover", row=0, col=0),
+            axes[2],
+            panel=MapPanelSpec(kind="landcover", row=0, col=2),
             context=context,
             extent=extent,
             grid_extent=grid_extent,
@@ -2394,12 +2644,88 @@ def test_static_panels_keep_context_outside_roi(tmp_path: Path) -> None:
             figure_horizontal_default=True,
         )
 
+        hillshade_array = np.ma.asarray(axes[0].images[-1].get_array())
         dem_array = np.ma.asarray(dem_artifact["mappable"].get_array())
         landcover_array = np.ma.asarray(landcover_artifact["mappable"].get_array())
-        assert not np.ma.getmaskarray(dem_array)[0, 0]
-        assert np.isfinite(dem_array[0, 0])
-        assert not np.ma.getmaskarray(landcover_array)[0, 0]
-        assert np.isfinite(landcover_array[0, 0])
+        assert np.ma.getmaskarray(hillshade_array)[0, 0]
+        assert np.ma.getmaskarray(dem_array)[0, 0]
+        assert np.ma.getmaskarray(landcover_array)[0, 0]
+        assert not np.ma.getmaskarray(dem_array)[1, 1]
+        assert not np.ma.getmaskarray(landcover_array)[1, 1]
+    finally:
+        plt.close(fig)
+
+
+def test_landcover_panel_broad_grouping_collapses_native_classes(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    extent = buffered_extent(context)
+    grid_extent = render_module._grid_extent(context)
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        artifact = render_module._render_static_panel(
+            ax,
+            panel=MapPanelSpec(kind="landcover", row=0, col=0, landcover_grouping="broad"),
+            context=context,
+            extent=extent,
+            grid_extent=grid_extent,
+            label=None,
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
+
+        labels = [handle.get_label() for handle in artifact["legend_handles"]]
+        landcover_array = np.ma.asarray(artifact["mappable"].get_array())
+        present_display_values = {int(value) for value in np.unique(landcover_array.compressed())}
+
+        assert labels == [
+            "rock",
+            "ice",
+            "water",
+            "grass/shrub",
+            "farmland/transitional",
+            "forest",
+            "built-up",
+        ]
+        assert present_display_values == set(range(7))
+    finally:
+        plt.close(fig)
+
+
+def test_landcover_panel_legend_uses_roi_present_classes(tmp_path: Path) -> None:
+    roi_mask = np.array(
+        [
+            [0, 0, 0, 0],
+            [0, 1, 1, 0],
+            [0, 1, 1, 0],
+            [0, 0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
+    _setup_dir, project_dir = _build_project_fixture(tmp_path, roi_mask=roi_mask)
+    context = load_static_context(project_dir)
+    extent = buffered_extent(context)
+    grid_extent = render_module._grid_extent(context)
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        artifact = render_module._render_static_panel(
+            ax,
+            panel=MapPanelSpec(kind="landcover", row=0, col=0, landcover_grouping="broad"),
+            context=context,
+            extent=extent,
+            grid_extent=grid_extent,
+            label=None,
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
+
+        labels = [handle.get_label() for handle in artifact["legend_handles"]]
+        landcover_array = np.ma.asarray(artifact["mappable"].get_array())
+        present_display_values = {int(value) for value in np.unique(landcover_array.compressed())}
+
+        assert labels == ["grass/shrub", "forest"]
+        assert present_display_values == {0, 1}
+        assert np.ma.getmaskarray(landcover_array)[0, 0]
     finally:
         plt.close(fig)
 
@@ -2904,7 +3230,10 @@ def test_scf_observation_palette_uses_greys_for_example_map_style() -> None:
 
 
 def test_static_field_palettes_follow_reference_style() -> None:
-    dem_cmap = static_field_cmap(require_static_field_preset("dem"))
+    dem_preset = require_static_field_preset("dem")
+    assert dem_preset.cmap_name == "Greys_r"
+
+    dem_cmap = static_field_cmap(dem_preset)
     svf_cmap = static_field_cmap(require_static_field_preset("svf"))
     srf_cmap = static_field_cmap(require_static_field_preset("srf"))
     srf_style = static_field_colorbar_style(require_static_field_preset("srf"))
@@ -2916,11 +3245,56 @@ def test_static_field_palettes_follow_reference_style() -> None:
     srf_low = srf_cmap(0.0)
     srf_high = srf_cmap(1.0)
 
+    assert dem_cmap.name == "Greys_r"
+    assert static_field_colorbar_style(dem_preset, np.array([1905.0, 3695.0])).ticks == (
+        2000.0,
+        2500.0,
+        3000.0,
+        3500.0,
+    )
+    assert static_field_colorbar_style(dem_preset, np.array([450.0, 1670.0])).ticks == (500.0, 1000.0, 1500.0)
+    assert svf_cmap.name == "viridis"
+    assert srf_cmap.name == "RdBu"
     assert sum(dem_high[:3]) > sum(dem_low[:3])
     assert sum(svf_high[:3]) > sum(svf_low[:3])
     assert srf_low[0] > srf_low[2]
     assert srf_high[2] > srf_high[0]
     assert srf_style.ticks == (0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8)
+
+
+def test_landcover_reference_colors_use_categorical_palette() -> None:
+    assert LANDCOVER_COLORS == {
+        1: "#b7b1a8",
+        2: "#d9f2ff",
+        3: "#5ba3d0",
+        4: "#b7d36b",
+        5: "#8db255",
+        6: "#d1b45a",
+        7: "#c8a16c",
+        8: "#92b97b",
+        9: "#608f56",
+        10: "#3a6b44",
+        11: "#2e5b39",
+        12: "#1f4a31",
+        13: "#7a6d6a",
+    }
+    assert [item.color for item in LANDCOVER_BROAD_CLASSES] == [
+        LANDCOVER_COLORS[1],
+        LANDCOVER_COLORS[2],
+        LANDCOVER_COLORS[3],
+        LANDCOVER_COLORS[4],
+        LANDCOVER_COLORS[6],
+        LANDCOVER_COLORS[10],
+        LANDCOVER_COLORS[13],
+    ]
+
+
+def test_overview_roi_polygon_uses_reference_red() -> None:
+    assert _OVERVIEW_ROI_COLOR == "#c21f24"
+
+
+def test_map_station_marker_uses_reference_red() -> None:
+    assert _STATION_COLOR == "#d94801"
 
 
 def test_wet_snow_reference_colors_follow_example_palette() -> None:
@@ -3119,6 +3493,34 @@ def test_horizontal_colorbar_gap_is_tighter_than_legacy_spacing() -> None:
     assert render_module._HORIZONTAL_COLORBAR_GAP_AXES < 0.22
 
 
+def test_horizontal_colorbar_combined_width_matches_panel_box() -> None:
+    fig, ax = plt.subplots(figsize=(4, 3))
+    try:
+        image = ax.imshow(np.array([[0.0, 1.0], [2.0, 3.0]], dtype=float))
+
+        render_module._attach_colorbar(ax, image, label="elevation [m]", ticks=(0.0, 3.0), layout="horizontal")
+        fig.canvas.draw()
+
+        container_ax, colorbar_ax = getattr(ax, "_oa_child_axes")[-2:]
+        panel_bbox = ax.get_position()
+        container_bbox = container_ax.get_position()
+        colorbar_bbox = colorbar_ax.get_position()
+        assert container_bbox.x0 == pytest.approx(panel_bbox.x0)
+        assert container_bbox.x1 == pytest.approx(panel_bbox.x1)
+        assert colorbar_bbox.x0 == pytest.approx(panel_bbox.x0)
+
+        unit_text = container_ax.texts[-1]
+        assert unit_text.get_text() == "[m]"
+        assert unit_text.get_ha() == "right"
+
+        renderer = fig.canvas.get_renderer()
+        text_bbox = unit_text.get_window_extent(renderer).transformed(fig.transFigure.inverted())
+        assert text_bbox.x1 == pytest.approx(panel_bbox.x1, abs=0.002)
+        assert colorbar_bbox.x1 < text_bbox.x0
+    finally:
+        plt.close(fig)
+
+
 def test_horizontal_colorbar_spacing_uses_physical_minimum_for_flat_panels() -> None:
     base_extra = 0.10 + 0.050 + 0.02
 
@@ -3166,6 +3568,52 @@ def test_station_entry_is_more_compact() -> None:
         assert scatter.get_sizes()[0] < 110
         assert text.get_fontsize() < 6.4
         assert y_next > 0.8 - 0.068
+    finally:
+        plt.close(fig)
+
+
+@pytest.mark.parametrize(
+    ("legend_label", "figsize"),
+    [
+        ("Meteorological stations", (3, 2)),
+        ("Meteorological station network", (4, 2)),
+    ],
+)
+def test_inside_panel_station_legend_draws_boxed_inset(legend_label: str, figsize: tuple[int, int]) -> None:
+    panel = MapPanelSpec(
+        kind="dem",
+        row=0,
+        col=0,
+        legend_items=(
+            LegendItemSpec(
+                kind="station_symbol",
+                label=legend_label,
+                placement="inside",
+                anchor="top_left",
+            ),
+        ),
+    )
+    fig, ax = plt.subplots(figsize=figsize)
+    try:
+        render_module._draw_panel_legend_items(ax, panel=panel, artifacts={})
+        fig.canvas.draw()
+        inset_axes = list(ax.child_axes)
+
+        assert len(inset_axes) == 1
+        assert inset_axes[0].texts[-1].get_text() == legend_label
+        bbox = inset_axes[0].get_position()
+        parent_bbox = ax.get_position()
+        assert bbox.x0 < parent_bbox.x0 + 0.25 * parent_bbox.width
+        assert bbox.y1 > parent_bbox.y0 + 0.70 * parent_bbox.height
+        assert inset_axes[0].get_facecolor()[3] == pytest.approx(0.70)
+        assert all(not spine.get_visible() for spine in inset_axes[0].spines.values())
+        renderer = fig.canvas.get_renderer()
+        inset_display_bbox = inset_axes[0].get_window_extent(renderer=renderer)
+        text_display_bbox = inset_axes[0].texts[-1].get_window_extent(renderer=renderer)
+        assert text_display_bbox.x0 >= inset_display_bbox.x0 - 0.5
+        assert text_display_bbox.x1 <= inset_display_bbox.x1 + 0.5
+        assert text_display_bbox.y0 >= inset_display_bbox.y0 - 0.5
+        assert text_display_bbox.y1 <= inset_display_bbox.y1 + 0.5
     finally:
         plt.close(fig)
 
@@ -3257,11 +3705,12 @@ def test_wet_snow_line_model_panel_draws_wsl_contour(tmp_path: Path, monkeypatch
 
         monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", _record_contour)
 
+        extent = buffered_extent(context)
         artifacts = panel_renderers_module.render_wet_snow_line_panel(
             ax,
             panel=MapPanelSpec(kind="wet_snow_line", row=0, col=0, source="open_loop", date="2023-01-02"),
             context=context,
-            extent=buffered_extent(context),
+            extent=extent,
             label=None,
             defaults=MapDefaults(),
             obs_cache={},
@@ -3283,6 +3732,12 @@ def test_wet_snow_line_model_panel_draws_wsl_contour(tmp_path: Path, monkeypatch
         assert "WSLA unavailable" not in {text.get_text() for text in ax.texts}
         callout = next(text for text in ax.texts if text.get_text() == "WSLA 2450 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
+        assert callout.get_position() == pytest.approx((0.02, 0.045))
+        assert callout.get_ha() == "left"
+        assert callout.get_va() == "bottom"
+        padded_extent = panel_renderers_module._padded_wsl_panel_extent(extent)
+        assert ax.get_xlim() == pytest.approx((padded_extent[0], padded_extent[1]))
+        assert ax.get_ylim() == pytest.approx((padded_extent[2], padded_extent[3]))
     finally:
         plt.close(fig)
 
@@ -3381,20 +3836,17 @@ def test_wet_snow_elevation_fraction_prior_probability_aggregates_raw_bands(
     assert np.allclose(values[high_band], 0.5)
 
 
-def test_elevation_band_wsf_cmap_accents_fifty_percent() -> None:
-    low = panel_renderers_module._ELEVATION_BAND_WSF_CMAP(0.25)
+def test_elevation_band_wsf_cmap_uses_grayscale_without_fifty_percent_accent() -> None:
     lower_accent = panel_renderers_module._ELEVATION_BAND_WSF_CMAP(0.46)
     midpoint = panel_renderers_module._ELEVATION_BAND_WSF_CMAP(0.5)
     upper_accent = panel_renderers_module._ELEVATION_BAND_WSF_CMAP(0.54)
-    high = panel_renderers_module._ELEVATION_BAND_WSF_CMAP(0.75)
 
-    assert midpoint[0] > midpoint[1]
-    assert midpoint[0] > midpoint[2]
-    assert np.allclose(lower_accent[:3], midpoint[:3], atol=0.02)
-    assert np.allclose(upper_accent[:3], midpoint[:3], atol=0.02)
+    assert panel_renderers_module._ELEVATION_BAND_WSF_CMAP is panel_renderers_module._FRACTION_MODEL_CMAP
+    assert panel_renderers_module._FRACTION_MODEL_CMAP.name == "Greys"
+    assert matplotlib.colors.to_hex(midpoint) == matplotlib.colors.to_hex(panel_renderers_module._FRACTION_MODEL_CMAP(0.5))
+    assert not np.allclose(lower_accent[:3], midpoint[:3], atol=0.02)
+    assert not np.allclose(upper_accent[:3], midpoint[:3], atol=0.02)
     assert midpoint[3] == pytest.approx(1.0)
-    assert not np.allclose(midpoint[:3], low[:3])
-    assert not np.allclose(midpoint[:3], high[:3])
 
 
 def test_wet_snow_elevation_fraction_panel_draws_source_local_wsl(
@@ -3471,11 +3923,11 @@ def test_wet_snow_elevation_fraction_observation_reuses_observed_wsl(
             figure_horizontal_default=True,
         )
 
-        assert recorded == [(3320.0, panel_renderers_module._WSL_OBS_COLOR, "-")]
+        assert recorded == [(3320.0, panel_renderers_module._WSL_MODEL_COLOR, "-")]
         assert artifacts["wsl"] == 3320.0
         assert artifacts["wsl_drawn"] is True
         callout = next(text for text in ax.texts if text.get_text() == "WSLA 3320 m")
-        assert callout.get_color() == panel_renderers_module._WSL_OBS_COLOR
+        assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
     finally:
         plt.close(fig)
 
@@ -3618,9 +4070,9 @@ def test_wet_snow_line_observation_panel_uses_obs_color_for_callout(
             observation_loader=lambda *_args, **_kwargs: observation,
         )
 
-        assert recorded_levels == [(2550.0, panel_renderers_module._WSL_OBS_COLOR, "-")]
+        assert recorded_levels == [(2550.0, panel_renderers_module._WSL_MODEL_COLOR, "-")]
         callout = next(text for text in ax.texts if text.get_text() == "WSLA 2550 m")
-        assert callout.get_color() == panel_renderers_module._WSL_OBS_COLOR
+        assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
         legend = ax.get_legend()
         assert legend is not None
         assert [text.get_text() for text in legend.get_texts()][-1] == "observation WSLA"
@@ -3749,7 +4201,9 @@ def test_wet_snow_line_panel_annotates_unavailable_wsl(tmp_path: Path, monkeypat
 
         assert "WSLA unavailable" in {text.get_text() for text in ax.texts}
         callout = next(text for text in ax.texts if text.get_text() == "WSLA unavailable")
-        assert callout.get_position() == pytest.approx((0.98, 0.955))
+        assert callout.get_position() == pytest.approx((0.02, 0.045))
+        assert callout.get_ha() == "left"
+        assert callout.get_va() == "bottom"
         assert callout.get_color() == "black"
     finally:
         plt.close(fig)

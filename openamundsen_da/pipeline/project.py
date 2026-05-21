@@ -340,6 +340,7 @@ class OrchestratorConfig:
     monitor_perf: bool = False
     perf_sample_interval: float = 5.0
     perf_plot_interval: float = 30.0
+    defer_compact_grid_cleanup: bool = False
 
 
 def _setup_logger(project_dir: Path, log_level: str) -> None:
@@ -408,6 +409,33 @@ def _setup_log_path(project_dir: Path) -> Path:
         # fall back to directory name
         pass
     return project_dir / f"{label}.log"
+
+
+def _apply_project_compact_grid_retention(
+    *,
+    cfg: OrchestratorConfig,
+    retention_mode: str,
+    member_failures: bool,
+    da_summary_written: bool,
+) -> None:
+    if retention_mode != "compact":
+        return
+    if member_failures:
+        logger.info("Skipping compact grid retention because some member runs failed.")
+    elif not da_summary_written:
+        logger.warning("Skipping compact grid retention because da_output_grids.nc was not written.")
+    elif cfg.defer_compact_grid_cleanup:
+        logger.info(
+            "Deferring compact grid retention cleanup until downstream sub-domain map rendering is complete."
+        )
+    else:
+        artifacts = collect_project_grid_artifacts(cfg.project_dir)
+        deleted, bytes_freed = delete_files(artifacts)
+        logger.info(
+            "Compact retention: deleted {} grid artifact file(s), freed {:.1f} MB",
+            deleted,
+            bytes_freed / 1_000_000.0,
+        )
 
 
 def run_project(cfg: OrchestratorConfig) -> None:
@@ -848,19 +876,12 @@ def run_project(cfg: OrchestratorConfig) -> None:
     render_project_report_best_effort(cfg.project_dir)
 
     retention_mode = output_retention_mode(cfg.project_dir)
-    if retention_mode == "compact":
-        if member_failures:
-            logger.info("Skipping compact grid retention because some member runs failed.")
-        elif not da_summary_written:
-            logger.warning("Skipping compact grid retention because da_output_grids.nc was not written.")
-        else:
-            artifacts = collect_project_grid_artifacts(cfg.project_dir)
-            deleted, bytes_freed = delete_files(artifacts)
-            logger.info(
-                "Compact retention: deleted {} grid artifact file(s), freed {:.1f} MB",
-                deleted,
-                bytes_freed / 1_000_000.0,
-            )
+    _apply_project_compact_grid_retention(
+        cfg=cfg,
+        retention_mode=retention_mode,
+        member_failures=member_failures,
+        da_summary_written=da_summary_written,
+    )
 
     # Cleanup state files if configured and no member failures occurred
     try:

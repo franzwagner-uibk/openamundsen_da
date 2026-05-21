@@ -62,8 +62,8 @@ def _plot(df: pd.DataFrame, title: str | None = None, subtitle: str | None = Non
 
     # Use manual layout reservation for title/subtitle to avoid clipping
     fig, ax = plt.subplots(figsize=(10, 4.3))
-    ax.plot(df["date"], df["scf"], color="#1f77b4", linewidth=1.8)
-    ax.scatter(df["date"], df["scf"], s=10, color="#1f77b4", alpha=0.8)
+    ax.plot(df["date"], df["scf"], color="#3c4f8a", linewidth=1.8)
+    ax.scatter(df["date"], df["scf"], s=10, color="#3c4f8a", alpha=0.8)
     ax.set_ylim(0, 1)
     ax.set_ylabel("SCF")
     ax.set_xlabel("Date")

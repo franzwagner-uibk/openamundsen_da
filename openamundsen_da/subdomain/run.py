@@ -250,10 +250,12 @@ def _run_one(
     run_manifest_path = sub.setup_dir / "run_manifest.json"
     log_path = sub.setup_dir / "run.log"
 
+    previous_status: str | None = None
     if run_manifest_path.is_file() and not overwrite:
         try:
             data = json.loads(run_manifest_path.read_text(encoding="utf-8"))
-            if str(data.get("status", "")).lower() == "success":
+            previous_status = str(data.get("status", "")).lower()
+            if previous_status == "success":
                 return RunResult(
                     subdomain_id=sub.id,
                     status="skipped",
@@ -268,6 +270,9 @@ def _run_one(
                 )
         except Exception:
             pass
+
+    rebuild_partial = bool(previous_status and previous_status != "success" and not overwrite)
+    effective_overwrite = bool(overwrite or rebuild_partial)
 
     _configure_worker_logger(log_path, log_level, root_log_path)
 
@@ -286,18 +291,19 @@ def _run_one(
         _write_run_manifest(run_manifest_path, run_meta)
         logger.info("START sub-domain={} attempt={}", sub.id, attempt)
         try:
-            _prepare_obs_for_subdomain(sub, manifest, overwrite=overwrite)
+            _prepare_obs_for_subdomain(sub, manifest, overwrite=effective_overwrite)
             dropped_events = _read_dropped_events(_dropped_events_csv(sub.setup_dir))
             run_project(
                 OrchestratorConfig(
                     project_dir=sub.project_dir,
                     setup_dir=sub.setup_dir,
                     max_workers=int(inner_max_workers),
-                    overwrite=overwrite,
+                    overwrite=effective_overwrite,
                     log_level=log_level,
                     live_plots=False,
                     plot_workers=int(inner_max_workers),
                     monitor_perf=False,
+                    defer_compact_grid_cleanup=True,
                 )
             )
             duration = time.time() - started
@@ -359,8 +365,31 @@ def _run_one(
 
 def _write_project_dropped_events(manifest: SubdomainManifest) -> None:
     rows: list[dict] = []
+    event_plan_rows: list[dict] = []
     for meta in manifest.subdomains.values():
-        rows.extend(list(meta.dropped_events or []))
+        dropped = list(meta.dropped_events or [])
+        rows.extend(dropped)
+        for row in dropped:
+            event_plan_rows.append({**row, "status": "dropped"})
+        try:
+            for event in load_assimilation_events(meta.project_dir):
+                event_plan_rows.append(
+                    {
+                        "subdomain_id": meta.id,
+                        "date": event.date.isoformat(),
+                        "variable": event.variable,
+                        "product": event.product or "",
+                        "reason": "",
+                        "metric": "",
+                        "value": "",
+                        "threshold": "",
+                        "active_station_ids": "",
+                        "project_yaml": str(meta.project_yaml),
+                        "status": "kept",
+                    }
+                )
+        except Exception as exc:
+            logger.warning("Could not read final event plan for sub-domain {}: {}", meta.id, exc)
     columns = [
         "subdomain_id",
         "date",
@@ -376,6 +405,15 @@ def _write_project_dropped_events(manifest: SubdomainManifest) -> None:
     out = manifest.project_dir / "results" / "subdomain_dropped_events.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows, columns=columns).to_csv(out, index=False)
+    plan_columns = [*columns, "status"]
+    plan_out = manifest.project_dir / "results" / "event_plan_by_subdomain.csv"
+    if event_plan_rows:
+        plan_df = pd.DataFrame(event_plan_rows, columns=plan_columns).sort_values(
+            ["subdomain_id", "date", "variable", "status"]
+        )
+    else:
+        plan_df = pd.DataFrame(columns=plan_columns)
+    plan_df.to_csv(plan_out, index=False)
 
 
 def run_subdomains(

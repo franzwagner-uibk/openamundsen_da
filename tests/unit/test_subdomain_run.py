@@ -1,10 +1,14 @@
+import json
 from pathlib import Path
 
+import pytest
+
+from openamundsen_da.subdomain import manifest as manifest_mod
 from openamundsen_da.subdomain import run as run_mod
 from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta, WindowSpec
 
 
-def test_run_one_caps_project_plot_workers_to_inner_workers(tmp_path, monkeypatch):
+def _single_subdomain_manifest(tmp_path: Path) -> tuple[SubdomainManifest, Path]:
     setup_dir = tmp_path / "subdomains" / "S1"
     project_dir = setup_dir / "projects" / "project_2022_2023"
     setup_dir.mkdir(parents=True)
@@ -58,6 +62,31 @@ def test_run_one_caps_project_plot_workers_to_inner_workers(tmp_path, monkeypatc
     )
     manifest_path = tmp_path / "manifest.json"
     manifest.save(manifest_path)
+    return manifest, manifest_path
+
+
+def test_manifest_save_preserves_existing_file_when_new_write_fails(tmp_path, monkeypatch):
+    manifest, manifest_path = _single_subdomain_manifest(tmp_path)
+    original = manifest_path.read_text(encoding="utf-8")
+
+    manifest.subdomains["S1"].status = "success"
+
+    def _fail_dump(*_args, **_kwargs):
+        raise RuntimeError("interrupted manifest write")
+
+    monkeypatch.setattr(manifest_mod.json, "dump", _fail_dump)
+
+    with pytest.raises(RuntimeError, match="interrupted manifest write"):
+        manifest.save(manifest_path)
+
+    assert manifest_path.read_text(encoding="utf-8") == original
+    loaded = SubdomainManifest.load(manifest_path)
+    assert loaded.subdomains["S1"].status == "pending"
+    assert not list(manifest_path.parent.glob(f".{manifest_path.name}.*.tmp"))
+
+
+def test_run_one_caps_project_plot_workers_to_inner_workers(tmp_path, monkeypatch):
+    _, manifest_path = _single_subdomain_manifest(tmp_path)
 
     captured = {}
 
@@ -77,3 +106,35 @@ def test_run_one_caps_project_plot_workers_to_inner_workers(tmp_path, monkeypatc
     assert result.status == "success"
     assert captured["cfg"].max_workers == 6
     assert captured["cfg"].plot_workers == 6
+    assert captured["cfg"].defer_compact_grid_cleanup is True
+
+
+def test_run_one_rebuilds_failed_partial_subdomain_on_resume(tmp_path, monkeypatch):
+    _, manifest_path = _single_subdomain_manifest(tmp_path)
+    run_manifest = tmp_path / "subdomains" / "S1" / "run_manifest.json"
+    run_manifest.write_text(json.dumps({"status": "failed"}), encoding="utf-8")
+
+    captured = {}
+
+    def _prepare(*args, **kwargs):
+        captured["prepare_overwrite"] = kwargs["overwrite"]
+
+    def _run_project(cfg):
+        captured["project_overwrite"] = cfg.overwrite
+
+    monkeypatch.setattr(run_mod, "_prepare_obs_for_subdomain", _prepare)
+    monkeypatch.setattr(run_mod, "run_project", _run_project)
+
+    result = run_mod._run_one(
+        "S1",
+        manifest_path,
+        inner_max_workers=6,
+        overwrite=False,
+        retries=0,
+        log_level="INFO",
+        root_log_path=None,
+    )
+
+    assert result.status == "success"
+    assert captured["prepare_overwrite"] is True
+    assert captured["project_overwrite"] is True

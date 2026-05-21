@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -14,10 +15,16 @@ import rasterio
 from loguru import logger
 from rasterio import features
 from rasterio.mask import mask as rio_mask
+from rasterio.warp import Resampling, reproject
 
 from openamundsen_da.core.constants import OBS_DIR_NAME
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml
+from openamundsen_da.observer.scf_uncertainty import (
+    ScfUncertaintyConfig,
+    _build_uncertainty as build_internal_scf_uncertainty,
+    _load_project_config as load_internal_scf_uncertainty_config,
+)
 from openamundsen_da.util.config_validators import require_mapping, require_nonempty_str
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.landcover_mask import LandcoverMaskConfig, apply_landcover_mask, resolve_landcover_mask
@@ -45,6 +52,8 @@ class ScfUncertaintyIngestConfig:
     scf_variable: str | None
     uncertainty_variable: str | None
     time_variable: str | None
+    uncertainty_source: str | None
+    internal_config: ScfUncertaintyConfig | None
 
 
 def _require_int_list(
@@ -93,6 +102,8 @@ def _load_uncertainty_ingest_config(project_dir: Path) -> ScfUncertaintyIngestCo
             scf_variable=None,
             uncertainty_variable=None,
             time_variable=None,
+            uncertainty_source=None,
+            internal_config=None,
         )
     unc_cfg = require_mapping(unc_root, path="project.data_assimilation.uncertainty")
     scf_unc_raw = unc_cfg.get("scf")
@@ -102,6 +113,8 @@ def _load_uncertainty_ingest_config(project_dir: Path) -> ScfUncertaintyIngestCo
             scf_variable=None,
             uncertainty_variable=None,
             time_variable=None,
+            uncertainty_source=None,
+            internal_config=None,
         )
     scf_unc = require_mapping(scf_unc_raw, path="project.data_assimilation.uncertainty.scf")
     enabled = bool(scf_unc.get("enabled", False))
@@ -111,6 +124,8 @@ def _load_uncertainty_ingest_config(project_dir: Path) -> ScfUncertaintyIngestCo
             scf_variable=None,
             uncertainty_variable=None,
             time_variable=None,
+            uncertainty_source=None,
+            internal_config=None,
         )
 
     ingest = require_mapping(
@@ -119,14 +134,36 @@ def _load_uncertainty_ingest_config(project_dir: Path) -> ScfUncertaintyIngestCo
     )
     ingest_path = "project.data_assimilation.uncertainty.scf.ingest"
     scf_variable = require_nonempty_str(ingest, "scf_variable", path=ingest_path)
-    uncertainty_variable = require_nonempty_str(ingest, "uncertainty_variable", path=ingest_path)
     time_variable = require_nonempty_str(ingest, "time_variable", path=ingest_path)
+    source_raw = ingest.get("uncertainty_source")
+    if source_raw is None:
+        uncertainty_source = "product"
+    else:
+        uncertainty_source = str(source_raw).strip().lower()
+    if uncertainty_source not in {"product", "internal"}:
+        raise ValueError(f"{ingest_path}.uncertainty_source must be one of: product, internal")
+
+    uncertainty_variable: str | None = None
+    internal_config: ScfUncertaintyConfig | None = None
+    if uncertainty_source == "product":
+        uncertainty_variable = require_nonempty_str(ingest, "uncertainty_variable", path=ingest_path)
+    else:
+        if "uncertainty_variable" in ingest:
+            raise ValueError(
+                f"{ingest_path}.uncertainty_variable must not be set when uncertainty_source is 'internal'"
+            )
+        for key in ("u_min", "u_max"):
+            if key not in scf_unc:
+                raise ValueError(f"Missing required configuration key: project.data_assimilation.uncertainty.scf.{key}")
+        internal_config, _ = load_internal_scf_uncertainty_config(project_dir)
 
     return ScfUncertaintyIngestConfig(
         enabled=True,
         scf_variable=scf_variable,
         uncertainty_variable=uncertainty_variable,
         time_variable=time_variable,
+        uncertainty_source=uncertainty_source,
+        internal_config=internal_config,
     )
 
 
@@ -136,6 +173,8 @@ def _disabled_uncertainty_ingest_config() -> ScfUncertaintyIngestConfig:
         scf_variable=None,
         uncertainty_variable=None,
         time_variable=None,
+        uncertainty_source=None,
+        internal_config=None,
     )
 
 
@@ -181,7 +220,7 @@ def _mask_band(
     band_index: int,
     gdf,
     lc_cfg: LandcoverMaskConfig,
-) -> tuple[np.ndarray, np.ndarray, float | int | None, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, float | int | None, np.ndarray, np.ndarray, object]:
     data, transform = rio_mask(
         src,
         gdf.geometry,
@@ -208,7 +247,61 @@ def _mask_band(
     arr = np.ma.array(band, copy=False)
     source_mask = np.ma.getmaskarray(arr)
     arr, _ = apply_landcover_mask(arr, transform=transform, target_crs=src.crs, roi_mask=roi_mask, lc_cfg=lc_cfg)
-    return np.ma.getdata(arr), np.ma.getmaskarray(arr), src.nodata, roi_mask, source_mask
+    return np.ma.getdata(arr), np.ma.getmaskarray(arr), src.nodata, roi_mask, source_mask, transform
+
+
+def _resample_landcover_to_masked_grid(
+    *,
+    lc_cfg: LandcoverMaskConfig,
+    template: rasterio.DatasetReader,
+    transform,
+    shape: tuple[int, int],
+) -> np.ndarray | None:
+    if not lc_cfg.enabled or lc_cfg.path is None:
+        return None
+    if template.crs is None:
+        raise ValueError("Raster has no CRS; cannot align land-cover uncertainty penalties")
+    dst = np.full(shape, np.nan, dtype=np.float32)
+    with rasterio.open(lc_cfg.path) as src:
+        src_crs = src.crs if src.crs is not None else lc_cfg.project_crs
+        reproject(
+            source=rasterio.band(src, 1),
+            destination=dst,
+            src_transform=src.transform,
+            src_crs=src_crs,
+            dst_transform=transform,
+            dst_crs=template.crs,
+            resampling=Resampling.nearest,
+            src_nodata=src.nodata,
+            dst_nodata=np.nan,
+        )
+    return dst
+
+
+def _compute_internal_uncertainty(
+    *,
+    data: np.ndarray,
+    lc_cfg: LandcoverMaskConfig,
+    template: rasterio.DatasetReader,
+    transform,
+    uncertainty_cfg: ScfUncertaintyIngestConfig,
+) -> tuple[np.ndarray, np.ndarray, float]:
+    if uncertainty_cfg.internal_config is None:
+        raise ValueError("Internal SCF uncertainty configuration is missing")
+    landcover = _resample_landcover_to_masked_grid(
+        lc_cfg=lc_cfg,
+        template=template,
+        transform=transform,
+        shape=data.shape,
+    )
+    unc, _fractions = build_internal_scf_uncertainty(
+        fsc=data.astype(np.float32, copy=False),
+        landcover_resampled=landcover,
+        shadow_by_rule={},
+        cfg=uncertainty_cfg.internal_config,
+    )
+    unc_mask = unc == float(uncertainty_cfg.internal_config.nodata_value)
+    return unc, unc_mask, float(uncertainty_cfg.internal_config.nodata_value)
 
 
 def _assert_same_grid(src: rasterio.DatasetReader, other: rasterio.DatasetReader, *, left: Path, right: Path) -> None:
@@ -338,24 +431,33 @@ def _compute_tif_stats(
         if src.crs is None:
             raise ValueError(f"Raster {raster_path} has no CRS; cannot align AOI/land cover")
         gdf, region_id = read_single_roi(aoi_path, required_field=region_field, to_crs=src.crs)
-        data, mask, nodata, roi_mask, source_mask = _mask_band(src, band_index=1, gdf=gdf, lc_cfg=lc_cfg)
+        data, mask, nodata, roi_mask, source_mask, transform = _mask_band(src, band_index=1, gdf=gdf, lc_cfg=lc_cfg)
 
         unc_data: np.ndarray | None = None
         unc_mask: np.ndarray | None = None
         unc_nodata: float | int | None = None
         require_uncertainty = bool(uncertainty_cfg.enabled)
         if uncertainty_cfg.enabled:
-            unc_path = raster_path.parent / f"{raster_path.stem}_uncertainty.tif"
-            if not unc_path.is_file():
-                raise _missing_uncertainty_companion_error(raster_path)
-            with rasterio.open(unc_path) as src_unc:
-                _assert_same_grid(src, src_unc, left=raster_path, right=unc_path)
-                unc_data, unc_mask, unc_nodata, _unc_roi_mask, _unc_source_mask = _mask_band(
-                    src_unc,
-                    band_index=1,
-                    gdf=gdf,
+            if uncertainty_cfg.uncertainty_source == "internal":
+                unc_data, unc_mask, unc_nodata = _compute_internal_uncertainty(
+                    data=data,
                     lc_cfg=lc_cfg,
+                    template=src,
+                    transform=transform,
+                    uncertainty_cfg=uncertainty_cfg,
                 )
+            else:
+                unc_path = raster_path.parent / f"{raster_path.stem}_uncertainty.tif"
+                if not unc_path.is_file():
+                    raise _missing_uncertainty_companion_error(raster_path)
+                with rasterio.open(unc_path) as src_unc:
+                    _assert_same_grid(src, src_unc, left=raster_path, right=unc_path)
+                    unc_data, unc_mask, unc_nodata, _unc_roi_mask, _unc_source_mask, _unc_transform = _mask_band(
+                        src_unc,
+                        band_index=1,
+                        gdf=gdf,
+                        lc_cfg=lc_cfg,
+                    )
 
     return _build_stats_row(
         date_key=_extract_date(raster_path).strftime("%Y-%m-%d"),
@@ -384,7 +486,7 @@ def _compute_netcdf_product_stats(
     classes: SnowcoverClasses,
     uncertainty_cfg: ScfUncertaintyIngestConfig,
 ) -> list[dict[str, object]]:
-    if uncertainty_cfg.scf_variable is None or uncertainty_cfg.uncertainty_variable is None or uncertainty_cfg.time_variable is None:
+    if uncertainty_cfg.scf_variable is None or uncertainty_cfg.time_variable is None:
         raise ValueError("Missing required NetCDF ingest variable names for snow-cover uncertainty")
 
     try:
@@ -397,10 +499,13 @@ def _compute_netcdf_product_stats(
             raise ValueError(
                 f"Variable '{uncertainty_cfg.scf_variable}' not found in {raster_path.name}"
             )
-        if uncertainty_cfg.uncertainty_variable not in ds:
-            raise ValueError(
-                f"Variable '{uncertainty_cfg.uncertainty_variable}' not found in {raster_path.name}"
-            )
+        if uncertainty_cfg.uncertainty_source == "product":
+            if uncertainty_cfg.uncertainty_variable is None:
+                raise ValueError("Missing required NetCDF uncertainty variable name")
+            if uncertainty_cfg.uncertainty_variable not in ds:
+                raise ValueError(
+                    f"Variable '{uncertainty_cfg.uncertainty_variable}' not found in {raster_path.name}"
+                )
         if uncertainty_cfg.time_variable not in ds:
             raise ValueError(
                 f"Time variable '{uncertainty_cfg.time_variable}' not found in {raster_path.name}"
@@ -411,17 +516,24 @@ def _compute_netcdf_product_stats(
         )
 
     scf_uri = f"NETCDF:{raster_path}:{uncertainty_cfg.scf_variable}"
-    unc_uri = f"NETCDF:{raster_path}:{uncertainty_cfg.uncertainty_variable}"
+    unc_uri = (
+        f"NETCDF:{raster_path}:{uncertainty_cfg.uncertainty_variable}"
+        if uncertainty_cfg.uncertainty_source == "product"
+        else None
+    )
     rows: list[dict[str, object]] = []
-    with rasterio.open(scf_uri) as src, rasterio.open(unc_uri) as src_unc:
-        _assert_same_grid(src, src_unc, left=raster_path, right=raster_path)
+    with ExitStack() as stack:
+        src = stack.enter_context(rasterio.open(scf_uri))
+        src_unc = stack.enter_context(rasterio.open(unc_uri)) if unc_uri is not None else None
+        if src_unc is not None:
+            _assert_same_grid(src, src_unc, left=raster_path, right=raster_path)
+            if src_unc.count != len(times):
+                raise ValueError(
+                    f"Band/time mismatch in {raster_path.name}: uncertainty bands={src_unc.count} but time steps={len(times)}"
+                )
         if src.count != len(times):
             raise ValueError(
                 f"Band/time mismatch in {raster_path.name}: SCF bands={src.count} but time steps={len(times)}"
-            )
-        if src_unc.count != len(times):
-            raise ValueError(
-                f"Band/time mismatch in {raster_path.name}: uncertainty bands={src_unc.count} but time steps={len(times)}"
             )
         if src.crs is None:
             raise ValueError(f"Raster {raster_path} has no CRS; cannot align AOI/land cover")
@@ -429,13 +541,22 @@ def _compute_netcdf_product_stats(
         tile = _extract_tile(raster_path)
 
         for i, ts in enumerate(times, start=1):
-            data, mask, nodata, roi_mask, source_mask = _mask_band(src, band_index=i, gdf=gdf, lc_cfg=lc_cfg)
-            unc_data, unc_mask, unc_nodata, _unc_roi_mask, _unc_source_mask = _mask_band(
-                src_unc,
-                band_index=i,
-                gdf=gdf,
-                lc_cfg=lc_cfg,
-            )
+            data, mask, nodata, roi_mask, source_mask, transform = _mask_band(src, band_index=i, gdf=gdf, lc_cfg=lc_cfg)
+            if src_unc is None:
+                unc_data, unc_mask, unc_nodata = _compute_internal_uncertainty(
+                    data=data,
+                    lc_cfg=lc_cfg,
+                    template=src,
+                    transform=transform,
+                    uncertainty_cfg=uncertainty_cfg,
+                )
+            else:
+                unc_data, unc_mask, unc_nodata, _unc_roi_mask, _unc_source_mask, _unc_transform = _mask_band(
+                    src_unc,
+                    band_index=i,
+                    gdf=gdf,
+                    lc_cfg=lc_cfg,
+                )
             source_name = f"{raster_path.name}@{ts.strftime('%Y-%m-%dT%H:%M:%SZ')}"
             row = _build_stats_row(
                 date_key=ts.date().isoformat(),

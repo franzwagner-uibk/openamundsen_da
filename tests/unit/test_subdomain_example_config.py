@@ -25,6 +25,29 @@ def test_shipped_subdomain_example_uses_current_project_tunes() -> None:
     assert cfg["run_mode"] == "subdomain"
     assert da_cfg["resampling"]["ess_threshold_ratio"] == 0.7
     assert da_cfg["output"]["retention"] == "full"
+    assert da_cfg["landcover_mask"]["classes_to_exclude"] == [2, 3, 13]
+
+    scf_unc = da_cfg["uncertainty"]["scf"]
+    assert scf_unc["ingest"] == {
+        "scf_variable": "fsc",
+        "time_variable": "time",
+        "uncertainty_source": "internal",
+    }
+    assert scf_unc["assimilation"] == {
+        "sigma_mode": "uncertainty_layer",
+        "aggregate_metric": "unc_mean",
+    }
+    assert scf_unc["u_min"] == 5.0
+    assert scf_unc["u_max"] == 20.0
+    assert scf_unc["penalties"] == [
+        {
+            "name": "forest",
+            "source": "landcover",
+            "enabled": True,
+            "classes": [8, 9, 10, 11, 12],
+            "penalty": 20.0,
+        }
+    ]
 
     expected_sigmas = {
         "sigma_t": 0.5,
@@ -41,17 +64,28 @@ def test_shipped_subdomain_example_uses_retuned_da_event_schedule() -> None:
     events = cfg["data_assimilation"]["assimilation_events"]
 
     expected_station_dates = [
-        "2022-11-17",
-        "2022-12-07",
-        "2023-01-01",
+        "2022-11-12",
+        "2022-12-17",
+        "2022-12-29",
         "2023-01-31",
-        "2023-02-10",
+        "2023-02-15",
         "2023-02-21",
         "2023-03-03",
-        "2023-03-17",
+        "2023-03-22",
         "2023-04-20",
     ]
     expected_scf_dates = [
+        "2022-10-05",
+        "2022-10-28",
+        "2022-11-27",
+        "2023-01-06",
+        "2023-03-07",
+        "2023-04-06",
+        "2023-04-26",
+        "2023-05-26",
+        "2023-06-02",
+    ]
+    snowflakes_dates = [
         "2022-10-05",
         "2022-10-28",
         "2022-11-12",
@@ -72,22 +106,23 @@ def test_shipped_subdomain_example_uses_retuned_da_event_schedule() -> None:
     station_dates = [event["date"] for event in events if event["variable"] == "station_hs"]
     scf_dates = [event["date"] for event in events if event["variable"] == "scf"]
 
-    assert len(events) == 24
+    assert len(events) == 18
     assert station_dates == expected_station_dates
     assert scf_dates == expected_scf_dates
     assert set(station_dates).isdisjoint(scf_dates)
+    assert len(set(station_dates) & set(snowflakes_dates)) == 5
     assert [event["date"] for event in events] == sorted(event["date"] for event in events)
 
     snowcover_dir = SUBDOMAIN_ROOT / "obs" / "snowcover"
     assert sorted(path.name for path in snowcover_dir.glob("SnowFLAKES_*_subdomain_example.nc")) == [
         f"SnowFLAKES_{date.replace('-', '')}_v3_eurac_subdomain_example.nc"
-        for date in expected_scf_dates
+        for date in snowflakes_dates
     ]
 
     quality = snowcover_dir / "selected_scf_quality.csv"
     rows = quality.read_text(encoding="utf-8").splitlines()
-    assert len(rows) == 1 + len(expected_scf_dates) * 8
-    assert {line.split(",", 1)[0] for line in rows[1:]} == set(expected_scf_dates)
+    assert len(rows) == 1 + len(snowflakes_dates) * 8
+    assert {line.split(",", 1)[0] for line in rows[1:]} == set(snowflakes_dates)
 
 
 def test_shipped_subdomain_example_configs_are_generic_and_minimal() -> None:

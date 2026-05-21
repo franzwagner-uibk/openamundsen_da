@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from textwrap import wrap
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable, TypeVar
 
 import matplotlib
 import matplotlib.image as mpimg
@@ -51,6 +51,7 @@ _SUMMARY_FULL_BOLD_PREFIXES = ("Run mode:", "Total:", "By variable:")
 _SUMMARY_BOLD_VALUE_RE = re.compile(
     r"(resolution=[^,]+|timestep=[^,]+|ensemble_size=[^,]+|ess_ratio=[^,]+)"
 )
+_T = TypeVar("_T")
 
 
 @dataclass(frozen=True)
@@ -700,14 +701,17 @@ def _image_height_inches(path: Path) -> float:
     return height
 
 
-def _da_step_page_groups(da_steps: Iterable[PdfDaStepItem]) -> tuple[tuple[PdfDaStepItem, ...], ...]:
-    steps = list(da_steps)
-    groups: list[tuple[PdfDaStepItem, ...]] = []
-    current: list[PdfDaStepItem] = []
+def _height_limited_page_groups(
+    items: Iterable[_T],
+    *,
+    path_getter: Callable[[_T], Path],
+) -> tuple[tuple[_T, ...], ...]:
+    groups: list[tuple[_T, ...]] = []
+    current: list[_T] = []
     current_height = 0.0
     available_height = A4_PORTRAIT_IN[1] - IMAGE_TOP_MARGIN_IN - IMAGE_BOTTOM_GAP_IN
-    for item in steps:
-        item_height = _image_height_inches(item.map_path)
+    for item in items:
+        item_height = _image_height_inches(path_getter(item))
         candidate_height = item_height if not current else current_height + IMAGE_ROW_GAP_IN + item_height
         if current and candidate_height > available_height:
             groups.append(tuple(current))
@@ -721,11 +725,19 @@ def _da_step_page_groups(da_steps: Iterable[PdfDaStepItem]) -> tuple[tuple[PdfDa
     return tuple(groups)
 
 
+def _station_snow_depth_page_groups(items: Iterable[PdfImageItem]) -> tuple[tuple[PdfImageItem, ...], ...]:
+    return _height_limited_page_groups(items, path_getter=lambda item: item.path)
+
+
+def _da_step_page_groups(da_steps: Iterable[PdfDaStepItem]) -> tuple[tuple[PdfDaStepItem, ...], ...]:
+    return _height_limited_page_groups(da_steps, path_getter=lambda item: item.map_path)
+
+
 def _plan_page_count(plan: ProjectPdfPlan) -> int:
     return (
         1
         + len(plan.front_items)
-        + (1 if plan.station_snow_depth_items else 0)
+        + len(_station_snow_depth_page_groups(plan.station_snow_depth_items))
         + (1 if plan.performance_scores_item is not None else 0)
         + (1 if plan.project_perf_item is not None else 0)
         + len(_da_step_page_groups(plan.da_steps))
@@ -762,7 +774,7 @@ def _project_pdf_sections(plan: ProjectPdfPlan) -> tuple[PdfSection, ...]:
             count += 1
             idx += 1
         add(label, count)
-    add("station snow-depth plots", 1 if plan.station_snow_depth_items else 0)
+    add("station snow-depth plots", len(_station_snow_depth_page_groups(plan.station_snow_depth_items)))
     add("performance scores", 1 if plan.performance_scores_item is not None else 0)
     add("project performance", 1 if plan.project_perf_item is not None else 0)
     add("DA-event maps", len(_da_step_page_groups(plan.da_steps)))
@@ -1116,10 +1128,10 @@ def write_project_pdf_plan(plan: ProjectPdfPlan, output: Path) -> Path:
         for item in plan.front_items:
             _write_single_image_page(pdf, item, page_number=page_number, total_pages=total_pages)
             page_number += 1
-        if plan.station_snow_depth_items:
+        for group in _station_snow_depth_page_groups(plan.station_snow_depth_items):
             _write_image_group_page(
                 pdf,
-                plan.station_snow_depth_items,
+                group,
                 page_number=page_number,
                 total_pages=total_pages,
             )

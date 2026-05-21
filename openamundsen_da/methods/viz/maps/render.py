@@ -16,6 +16,7 @@ from openamundsen_da.methods.viz.maps.annotations import (
     draw_heading as _draw_heading,
     draw_overview_label_specs as _draw_overview_label_specs,
     draw_panel_below_items,
+    draw_panel_legend_items,
     draw_panel_date as _draw_panel_date,
     draw_patch_entry as _draw_patch_entry,
     draw_scale_bar as _draw_scale_bar,
@@ -248,6 +249,15 @@ def _figure_size(
 
 def _draw_panel_below_items(ax, *, panel, artifacts: dict[str, dict[str, object]]) -> None:
     draw_panel_below_items(
+        ax,
+        panel=panel,
+        artifacts=artifacts,
+        legend_source_handles_getter=_legend_source_handles,
+    )
+
+
+def _draw_panel_legend_items(ax, *, panel, artifacts: dict[str, dict[str, object]]) -> None:
+    draw_panel_legend_items(
         ax,
         panel=panel,
         artifacts=artifacts,
@@ -610,8 +620,8 @@ def render_map_recipe(
                 context=context,
             )
 
-        if panel.below_items:
-            _draw_panel_below_items(ax, panel=panel, artifacts=artifacts)
+        if panel.bottom_legend_items or panel.inside_legend_items:
+            _draw_panel_legend_items(ax, panel=panel, artifacts=artifacts)
 
     _tighten_panel_row_gaps(fig, row_axes)
     if recipe.row_labels:
@@ -663,7 +673,9 @@ __all__ = [
     "_draw_heading",
     "_draw_map_grid_overlay",
     "_draw_overview_label_specs",
+    "_draw_panel_below_items",
     "_draw_panel_date",
+    "_draw_panel_legend_items",
     "_draw_patch_entry",
     "_draw_roi",
     "_draw_scale_bar",

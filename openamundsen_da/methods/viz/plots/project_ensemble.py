@@ -87,10 +87,10 @@ from openamundsen_da.util.ts import (
 from openamundsen_da.methods.viz.plots.common import (
     add_assim_label_axis,
     apply_fraction_grid,
+    draw_adaptive_assim_labels,
     draw_assimilation_vlines,
     dedupe_legend,
     draw_assimilation_markers,
-    draw_assim_labels,
     force_figure_text_black,
     format_station_label,
     pretty_var_title,
@@ -197,7 +197,16 @@ def _draw_assim(ax, dates: Sequence[datetime]) -> None:
 
 def _draw_assim_labels(ax, dates: Sequence[datetime]) -> None:
     """Draw per-assimilation labels centered on each vline above the axes."""
-    draw_assim_labels(ax, dates, labels=None, max_labels=12, y_offset_pts=3.0, fontsize=FS_ASSIM_LABEL, color="black")
+    draw_adaptive_assim_labels(
+        ax,
+        dates,
+        labels=None,
+        avoid_artists=[ax._left_title],
+        max_labels=12,
+        y_offset_pts=3.0,
+        fontsize=FS_ASSIM_LABEL,
+        color="black",
+    )
 
 
 def _standalone_assimilation_dates(steps: Sequence[StepInfo], configured_events: Sequence[datetime]) -> list[datetime]:
@@ -297,10 +306,10 @@ def _build_station_result_legend(
 
 def _standalone_result_title(token: str, *, var_key: str, station_label: str) -> str:
     if token == "point_swe_roi":
-        return "mean SWE (roi) - openAMUNDSEN ensemble and open loop"
+        return "Mean SWE (roi) - openAMUNDSEN ensemble and open loop"
     if token == "point_snow_depth_roi":
-        return "mean snow depth (roi) - openAMUNDSEN ensemble and open loop"
-    metric = "SWE" if var_key == "swe" else ("snow depth" if var_key in {"snow_depth", "snowdepth", "hs"} else var_key.replace("_", " "))
+        return "Mean snow depth (roi) - openAMUNDSEN ensemble and open loop"
+    metric = "SWE" if var_key == "swe" else ("Snow depth" if var_key in {"snow_depth", "snowdepth", "hs"} else var_key.replace("_", " ").capitalize())
     return f"{metric} {station_label} - openAMUNDSEN ensemble and station observation"
 
 

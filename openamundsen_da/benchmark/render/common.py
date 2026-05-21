@@ -10,31 +10,31 @@ from openamundsen_da.methods.viz.theme import da_variable_style as _da_variable_
 VARIABLE_STYLES = {
     "scf": {
         **_da_variable_style("scf"),
-        "title": "snow cover fraction benchmark",
+        "title": "Snow cover fraction benchmark",
         "ylabel": "snow cover fraction",
         "label": "SCF",
     },
     "wet_snow": {
         **_da_variable_style("wet_snow"),
-        "title": "wet snow fraction (WSF) benchmark",
+        "title": "Wet snow fraction (WSF) benchmark",
         "ylabel": "wet snow fraction (WSF)",
         "label": "WSF",
     },
     "wet_snow_line": {
         **_da_variable_style("wet_snow_line"),
-        "title": "wet snow line altitude (WSLA) benchmark",
-        "ylabel": "wet snow line altitude (WSLA) [m a.s.l.]",
+        "title": "Wet snow line (WSLA) benchmark",
+        "ylabel": "wet snow line (WSLA) [m a.s.l.]",
         "label": "WSLA",
     },
     "station_swe": {
         **_da_variable_style("station_swe"),
-        "title": "station SWE benchmark",
+        "title": "Station SWE benchmark",
         "ylabel": "swe [mm]",
         "label": "station SWE",
     },
     "station_hs": {
         **_da_variable_style("station_hs"),
-        "title": "station snow-depth benchmark",
+        "title": "Station snow-depth benchmark",
         "ylabel": "snow depth [m]",
         "label": "station HS",
     },

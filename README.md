@@ -234,7 +234,7 @@ docker compose run --rm oa `
 
 Optional flags: `--step-dir <path>` (mutually exclusive with `--setup-dir`), `--members member_001 ...`, `--threshold <percent>`, `--write-fraction`, `--min-depth-mm <mm>`. Outputs land under each member's `results/<output-subdir>` (default `wet_snow`): `wet_snow_mask_<timestamp>.tif` and `lwc_fraction_<timestamp>.tif` when `--write-fraction` is set.
 
-Wet-snow observations use categorical rasters (e.g., Sentinel-1 WSM). `oa-da-wetsnow` clips rasters to the ROI, applies land-cover exclusions, and writes `wet_snow_summary.csv` for wet snow fraction (WSF). That summary now also carries basin-wide wet snow line altitude (WSLA) diagnostics based on the **50% wet-fraction crossing** plus companion `wet_snow_line_diagnostics.csv` / `wet_snow_line_profile_YYYYMMDD.csv` outputs when the project defines `data_assimilation.wet_snow_line`. The same diagnostics surface also stores separate aspect-sector relative-threshold WSLA diagnostics for analysis only. The project helper converts summary rows into per-step `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_line_<PRODUCT>_YYYYMMDD.csv`.
+Wet-snow observations use categorical rasters (e.g., Sentinel-1 WSM). `oa-da-wetsnow` clips rasters to the ROI, applies land-cover exclusions, and writes `wet_snow_summary.csv` for wet snow fraction (WSF). That summary now also carries basin-wide wet snow line (WSLA) diagnostics based on the **50% wet-fraction crossing** plus companion `wet_snow_line_diagnostics.csv` / `wet_snow_line_profile_YYYYMMDD.csv` outputs when the project defines `data_assimilation.wet_snow_line`. The same diagnostics surface also stores separate aspect-sector relative-threshold WSLA diagnostics for analysis only. The project helper converts summary rows into per-step `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_line_<PRODUCT>_YYYYMMDD.csv`.
 
 ## Wet-snow assimilation workflow
 
@@ -287,7 +287,7 @@ docker compose run --rm oa `
   --project-dir $project
 ```
 
-Defaults read obs from `obs/summaries/<setup>/scf_summary.csv`, `wet_snow_summary.csv`, and `wet_snow_line_diagnostics.csv`, use the canonical project envelopes under `results/misc/` for SCF / WSF / WSLA, and write `results/plots/results/result_overview.png`. The default setup overview expands to a 5-panel layout when WSLA data are available: SCF, wet snow fraction (WSF), wet snow line altitude (WSLA), ROI mean SWE, and ROI mean snow depth. The WSLA panel uses the daily `open_loop` scalar from `point_wet_snow_line_roi.csv`, while the ensemble WSLA line / band is built from stitched prior-member `point_wet_snow_line_roi.csv` series: the center line is the daily prior **median** and the band is the daily prior **min-max** span. On `wet_snow_line` assimilation dates the panel also draws compact event-date coverage bars from `weights_wet_snow_line_YYYYMMDD.csv`, using the exact support-aware PF `value_model` scalars for the min / median / max spread at that event. In v1 those `wet_snow_line` values represent the basin-wide **50% wet-fraction crossing**, while the aspect-aware relative-threshold WSLA remains a diagnostics-only companion written to the same seasonal/profile CSV family. When that `50%` crossing is undefined, the overview keeps a true gap in the WSLA model and ensemble lines and omits observation dots / assimilation `x` markers for that date instead of falling back to `p95`. Observation `x` markers are only drawn on the panel for the actually assimilated variable, so `wet_snow_line` events do not mark the WSF panel unless `wet_snow` itself is assimilated. Add `--scf-model-csv` / `--wet-model-csv` / `--wsl-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` / `--wsl-env-csv` to use custom envelopes. Plot mode can be switched with `--mode band|members` (pipeline default: `band`). When `<project-dir>/plots.yml` exists, the project pipeline also writes `results/plots/results/result_overview_custom.png` using the requested panel order and station panels from that YAML; custom panels now support `WSF`, `WSLA`, `scores-crpss`, `scores-ner`, and station-only `scores-zskill`.
+Defaults read obs from `obs/summaries/<setup>/scf_summary.csv`, `wet_snow_summary.csv`, and `wet_snow_line_diagnostics.csv`, use the canonical project envelopes under `results/misc/` for SCF / WSF / WSLA, and write `results/plots/results/result_overview.png`. The default setup overview expands to a 5-panel layout when WSLA data are available: SCF, wet snow fraction (WSF), wet snow line (WSLA), ROI mean SWE, and ROI mean snow depth. The WSLA panel uses the daily `open_loop` scalar from `point_wet_snow_line_roi.csv`, while the ensemble WSLA line / band is built from stitched prior-member `point_wet_snow_line_roi.csv` series: the center line is the daily prior **median** and the band is the daily prior **min-max** span. On `wet_snow_line` assimilation dates the panel also draws compact event-date coverage bars from `weights_wet_snow_line_YYYYMMDD.csv`, using the exact support-aware PF `value_model` scalars for the min / median / max spread at that event. In v1 those `wet_snow_line` values represent the basin-wide **50% wet-fraction crossing**, while the aspect-aware relative-threshold WSLA remains a diagnostics-only companion written to the same seasonal/profile CSV family. When that `50%` crossing is undefined, the overview keeps a true gap in the WSLA model and ensemble lines and omits observation dots / assimilation `x` markers for that date instead of falling back to `p95`. Observation `x` markers are only drawn on the panel for the actually assimilated variable, so `wet_snow_line` events do not mark the WSF panel unless `wet_snow` itself is assimilated. Add `--scf-model-csv` / `--wet-model-csv` / `--wsl-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` / `--wsl-env-csv` to use custom envelopes. Plot mode can be switched with `--mode band|members` (pipeline default: `band`). When `<project-dir>/plots.yml` exists, the project pipeline also writes `results/plots/results/result_overview_custom.png` using the requested panel order and station panels from that YAML; custom panels now support `WSF`, `WSLA`, `scores-crpss`, `scores-ner`, and station-only `scores-zskill`.
 
 ## Setup point results (SWE / snow depth, member mode)
 
@@ -533,8 +533,10 @@ Note: running the setup pipeline (see below) also generates these setup plots au
   # - legend
   # - colorbar
   # Optional panel keys:
-  # - title, name, date, legend, show_colorbar, show_scalebar, show_grid, show_hillshade, hillshade_extent
+  # - title, name, date, legend, legend_items, below_items
+  # - show_colorbar, show_scalebar, show_grid, show_hillshade, hillshade_extent
   # - observation (uncertainty only), show_roi, show_station_marker, show_stations_name, show_stations_elev
+  # - landcover_grouping: broad # landcover panels only; omitted/native keeps source classes
   # Optional recipe-level row zoom views:
   # row_views:
   #   - row: 1
@@ -558,11 +560,11 @@ Note: running the setup pipeline (see below) also generates these setup plots au
   Generated DA-event rows use four consistent columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference columns show `analysis_increment` (`posterior - prior`, so positive values mean DA added snow/water). FSC and wet-snow reference columns show the satellite observation. Generated FSC, WSF, WSLA, and elevation-band WSF rows use spatial prior/posterior probability maps where applicable; WSLA contours are panel-local, so model columns do not overlay observation WSLA. Top-level sub-domain SCF events use a taller same-file layout with a 2x2 snow-cover block above the 2x2 snow-depth response block; exact rerendering requires retained per-sub-domain grids. If the event resampling manifest reports skipped resampling, the map title is suffixed with `resampling skipped`.
 
   By default the renderer parallelizes across independent recipe PNGs inside the Docker container and clamps the effective worker count to `min(visible CPUs, selected recipes)`; use `--max-workers 1` to force sequential rendering. `oa-da-project` and merged sub-domain runs also render project maps automatically as a best-effort post-run stage. If a map fails because supporting data are missing, the pipeline logs a rerun command and continues.
-  Project maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`, `uncertainty`, `wet_snow_line`, `wet_snow_elevation_fraction`), and optional support panels (`legend`, `colorbar`). `uncertainty` renders `*_uncertainty.tif` companion rasters for `observation: scf` or `observation: wet_snow` on the valid observation support. In prepared sub-domain projects, top-level project maps automatically overlay the configured sub-domain polygons from `subdomain_manifest.json` on ROI-bearing map panels and overview panels. Generated DA-event maps additionally mark sub-domain polygons as `no DA` only when that event was dropped for the sub-domain and recorded in `results/subdomain_dropped_events.csv`; healthy events with computed weights are not marked just because resampling was skipped. Recipe-level `row_views` can assign a shared Google/Slippy-map zoom extent to every panel in a row. `wet_snow` renders WSF, while `wet_snow_line` renders the wet-snow raster context together with a DEM contour at the diagnosed WSLA. `prior_probability` and `posterior_probability` sources render spatial ensemble probability fields; observation overlays are kept in observation/reference panels.
+  Project maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`, `uncertainty`, `wet_snow_line`, `wet_snow_elevation_fraction`), and optional support panels (`legend`, `colorbar`). Static context rasters are masked to the ROI; `landcover` panels can set `landcover_grouping: broad` to merge detailed vegetation/forest classes into broad manuscript-friendly classes, and their legend only lists classes present inside the ROI. Non-legend panels can use `legend_items` with `placement: below` or `placement: inside` (`anchor: top_left|top_right|bottom_left|bottom_right`) for compact layer legends such as station symbols; legacy `below_items` remains supported. `uncertainty` renders `*_uncertainty.tif` companion rasters for `observation: scf` or `observation: wet_snow` on the valid observation support. In prepared sub-domain projects, top-level project maps automatically overlay the configured sub-domain polygons from `subdomain_manifest.json` on ROI-bearing map panels and overview panels. Generated DA-event maps additionally mark sub-domain polygons as `no DA` only when that event was dropped for the sub-domain and recorded in `results/subdomain_dropped_events.csv`; healthy events with computed weights are not marked just because resampling was skipped. Recipe-level `row_views` can assign a shared Google/Slippy-map zoom extent to every panel in a row. `wet_snow` renders WSF, while `wet_snow_line` renders the wet-snow raster context together with a DEM contour at the diagnosed WSLA. `prior_probability` and `posterior_probability` sources render spatial ensemble probability fields; observation overlays are kept in observation/reference panels.
 
 - Project plots (all post-run plots without rerunning DA):
 
-  Use `oa-da-plot-project-plots` to recreate the full `results/plots/` tree from existing project outputs. The command reuses the same post-run plot orchestration as the project pipeline: forcing plots, setup point-result plots, weights, ESS timeline, and the result overview. It also rebuilds the ROI fraction envelopes in `results/misc/` first, because the overview plots depend on them. `wet_snow_line` weights plots use meter residuals, carry dedicated WSLA title/legend labels, and annotate skipped updates with the gate reason plus available model/observation WSLA context.
+  Use `oa-da-plot-project-plots` to recreate the full `results/plots/` tree from existing project outputs. The command reuses the same post-run plot orchestration as the project pipeline: forcing plots, setup point-result plots, weights, ESS timeline, and the result overview. It also rebuilds the ROI fraction envelopes in `results/misc/` first, because the overview plots depend on them. `wet_snow_line` weights plots use meter residuals and short `Wet snow line` labels; weights residual axes use compact `residual [unit]` labels and adaptive sigma labels. Project `plots.yml` can set optional weights-plot station colors with `weights.station_colors.<observable>.<station_id>`, using DA variable color aliases such as `station_hs` or explicit matplotlib colors.
 
   ```powershell
   docker compose run --rm oa `
@@ -612,6 +614,7 @@ Outputs
 - Rejuvenated next-step prior (members + open_loop with state_pointer.json)
 - Compact data assimilation summary grids in `<project>/results/grids/da_output_grids.nc`
   - Per variable `<var>`: `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`, and event analysis fields `analysis_mean_<var>` / `analysis_increment_<var>` where assimilation weights are available
+  - The exported variables and metrics follow `data_assimilation.output.grids.variables[*]`; omitted output-grid config preserves the legacy all-variable/all-metric behavior
   - `increment_<var>` is the open-loop departure: `ens_mean_<var> - open_loop_<var>`
   - `analysis_increment_<var>` is the DA-event increment: `analysis_mean_<var> - ens_mean_<var>`; positive values mean the event added snow/water to the ensemble mean
   - Time axis spans the full project timeline across all steps (not only the last step)
@@ -673,14 +676,14 @@ This creates `step_00_init`, `step_01_*`,  with `start_date`, `end_date`, and `r
 
 The skeleton uses the `timestep` from `project.yml` (e.g. `3H`, `6H`, `1D`) to define step boundaries. For each assimilation date `D_i`, step i runs long enough that openAMUNDSEN produces a daily grid for `D_i` in the preceding step, and step boundaries satisfy `start_{i+1} = end_i + timestep` (no duplicated timesteps). The setup pipeline then assimilates SCF on the calendar date of `start_{i+1}`, which matches `D_i`.
 
-### Performance monitoring (CPU / RAM)
+### Performance monitoring (CPU / RAM / disk)
 
-A minimal monitor samples system CPU% and RAM% (enabled by default for `oa-da-project`).
+A minimal monitor samples system CPU%, RAM%, filesystem disk pressure, and throttled project directory size (enabled by default for `oa-da-project`).
 Outputs under `<project>/results/plots/perf/`:
-- `project_perf_metrics.csv` (timestamp, cpu_total_pct, mem_used_pct, mem_used_gb, mem_total_gb)
-- `project_perf.png` (CPU/RAM%)
+- `project_perf_metrics.csv` (timestamp, CPU/RAM columns, filesystem used/free/total GB, and project size GB)
+- `project_perf.png` (CPU/RAM/filesystem-used % plus project size and free disk GB)
 
-Suggested intervals: sample every 5-10 seconds; refresh the plot every 30-60 seconds.
+Suggested intervals: sample every 5-10 seconds; refresh the plot every 30-60 seconds; scan recursive project size every 300 seconds or longer for large runs.
 
 Project run with default monitoring
 
@@ -709,7 +712,7 @@ docker compose run --rm oa `
 
 After benchmarking and any benchmark-dependent overview rerender, `oa-da-project` also attempts to assemble `results/reports/project_report.pdf`. Missing report prerequisites are logged as warnings with a rerun command and do not fail the completed project run.
 
-The raw benchmark backend still scores whole-project propagated `da_informed_ensemble` skill against `open_loop` and, on assimilation dates, explicit analysis-time `prior` and weighted `posterior` skill. The headline plot is intentionally narrower: it shows only assimilation-date `prior` and `posterior` skill (`CRPSS`, `NER`) for assimilated and transfer-observed variables on the DA dates themselves, and adds a third station-only `zSkill` panel when sigma-aware station scores are available, while `project_summary.csv` keeps the whole-project propagated view. `wet_snow` is scored as WSF, while `wet_snow_line` is scored as its own WSLA ROI scalar in meters against `wet_snow_line_diagnostics.csv` and `point_wet_snow_line_roi.csv`, not as a WSF proxy. Results are split into `assimilation_fit`, `semi_independent`, and `independent`: `semi_independent` means the exact variable/date pair was not assimilated but is still linked through same-variable reuse elsewhere in the project or through a sister station variable, while `independent` is reserved for benchmark variables never assimilated anywhere in the project and not downgraded by station linkage.
+The raw benchmark backend still scores whole-project propagated `da_informed_ensemble` skill against `open_loop` and, on assimilation dates, explicit analysis-time `prior` and weighted `posterior` skill. The headline plot is intentionally narrower: it shows only assimilation-date `prior` and `posterior` skill (`CRPSS`, `NER`) for assimilated and transfer-observed variables on the DA dates themselves, and adds a third station-only `zSkill` panel when sigma-aware station scores are available, while `project_summary.csv` keeps the whole-project propagated view. `wet_snow` is scored as WSF, while `wet_snow_line` is scored as its own WSLA ROI scalar in meters against `wet_snow_line_diagnostics.csv` and `point_wet_snow_line_roi.csv`, not as a WSF proxy. Results are split into `assimilation_fit`, `semi_independent`, and `independent`: `semi_independent` means the exact variable/date pair was not assimilated, but a same-variable or sister-station assimilation has already happened by that date, while `independent` means no same-variable assimilation has happened yet by that date and no active sister-station linkage applies.
 
 You can add extra independent benchmark families from the current DA-supported set (`scf`, `wet_snow`, `wet_snow_line`, `station_hs`, `station_swe`) in project YAML:
 
@@ -740,9 +743,10 @@ $setup = "$project/projects/project_YYYY-YYYY"
 
 docker compose run --rm oa `
   oa-da-perf-monitor `
-  --setup-dir $setup `
+  --project-dir $setup `
   --sample-interval 5 `
-  --plot-interval 30
+  --plot-interval 30 `
+  --disk-scan-interval 300
 ```
 
 This foreground command will keep updating the CSV and plot until interrupted
@@ -811,7 +815,8 @@ DA defaults:
 - `--id-field` must exist in the regions file; there is no automatic fallback to another field name.
 - If `--roi` is omitted in sub-domain prepare/pipeline, `<setup>/env/subdomains.gpkg` is preferred and `<setup>/env/roi.gpkg` is the fallback.
 - Sub-domain runs fail fast if configured assimilation events are not available in the local sub-domain observation summaries.
-- Projects may enable `data_assimilation.subdomain_event_filter` to drop unavailable SCF, wet-snow, or station events per sub-domain after local observation summaries are generated. Dropped events are recorded in each sub-domain run manifest and in `<project>/results/subdomain_dropped_events.csv`.
+- Projects may enable `data_assimilation.subdomain_event_filter` to drop unavailable SCF, wet-snow, or station events per sub-domain after local observation summaries are generated. Dropped events are recorded in each sub-domain run manifest and in `<project>/results/subdomain_dropped_events.csv`; the final kept/dropped event table is written to `<project>/results/event_plan_by_subdomain.csv`.
+- Station benchmark variables are pruned from copied sub-domain project YAMLs when the local station subset contains no benchmark-enabled station observations, allowing mixed FSC-only and FSC+station sub-domain projects in one run.
 - Configured `output_data.timeseries.points` are filtered to the active sub-domain ROI when sub-domain setup YAML files are generated.
 - Sub-domain projects default to full retention (`data_assimilation.output.retention: full`) and keep the sub-domain NC grids needed for exact DA-event map regeneration. Set `retention: compact` only if you knowingly trade away exact spatial DA-event map rerendering for disk savings.
 

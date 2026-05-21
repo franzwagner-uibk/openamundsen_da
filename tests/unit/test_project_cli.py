@@ -67,6 +67,65 @@ def test_cli_disables_perf_monitor_with_flag(monkeypatch, tmp_path: Path) -> Non
     assert called["cfg"].monitor_perf is False
 
 
+def test_orchestrator_config_does_not_defer_compact_grid_cleanup_by_default(tmp_path: Path) -> None:
+    cfg = project_cli.OrchestratorConfig(
+        project_dir=tmp_path / "project",
+        setup_dir=tmp_path / "setup",
+    )
+
+    assert cfg.defer_compact_grid_cleanup is False
+
+
+def test_project_compact_grid_retention_deletes_by_default(monkeypatch, tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    artifact = project_dir / "steps" / "step_01" / "ensembles" / "prior" / "member_001" / "results" / "output_grids.nc"
+    cfg = project_cli.OrchestratorConfig(project_dir=project_dir, setup_dir=tmp_path / "setup")
+    calls: dict = {}
+
+    def _fake_collect(path):
+        calls["collect"] = path
+        return [artifact]
+
+    monkeypatch.setattr(project_cli, "collect_project_grid_artifacts", _fake_collect)
+
+    def _fake_delete_files(paths):
+        calls["delete"] = list(paths)
+        return len(calls["delete"]), 123
+
+    monkeypatch.setattr(project_cli, "delete_files", _fake_delete_files)
+
+    project_cli._apply_project_compact_grid_retention(
+        cfg=cfg,
+        retention_mode="compact",
+        member_failures=False,
+        da_summary_written=True,
+    )
+
+    assert calls["collect"] == project_dir
+    assert calls["delete"] == [artifact]
+
+
+def test_project_compact_grid_retention_can_defer_grid_cleanup(monkeypatch, tmp_path: Path) -> None:
+    cfg = project_cli.OrchestratorConfig(
+        project_dir=tmp_path / "project",
+        setup_dir=tmp_path / "setup",
+        defer_compact_grid_cleanup=True,
+    )
+    calls: list[str] = []
+
+    monkeypatch.setattr(project_cli, "collect_project_grid_artifacts", lambda path: calls.append("collect") or [])
+    monkeypatch.setattr(project_cli, "delete_files", lambda paths: calls.append("delete") or (0, 0))
+
+    project_cli._apply_project_compact_grid_retention(
+        cfg=cfg,
+        retention_mode="compact",
+        member_failures=False,
+        da_summary_written=True,
+    )
+
+    assert calls == []
+
+
 def test_post_run_plot_tasks_include_setup_weights_overview(tmp_path: Path) -> None:
     setup_dir = tmp_path / "setup"
     project_dir = setup_dir / "projects" / "project_2022_2023"

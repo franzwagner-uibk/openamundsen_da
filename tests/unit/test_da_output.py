@@ -189,6 +189,68 @@ def test_write_project_da_output_grids_adds_weighted_analysis_increment(tmp_path
         assert ds.attrs.get("increment_definition") == "increment_<var> = ens_mean_<var> - open_loop_<var>"
 
 
+def test_write_project_da_output_grids_honors_configured_metrics(tmp_path: Path) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2023"
+    step_00 = project_dir / "steps" / "step_00_init"
+    out_nc = project_dir / "results" / "grids" / "da_output_grids.nc"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "project_2023.yml").write_text(
+        "\n".join(
+            [
+                "start_date: '2023-01-01'",
+                "end_date: '2023-01-01'",
+                "data_assimilation:",
+                "  output:",
+                "    grids:",
+                "      variables:",
+                "        - var: snowdepth_daily",
+                "          name: snowdepth_daily",
+                "          metrics: [open_loop, ens_mean, analysis_mean]",
+                "  assimilation_events:",
+                "    - date: '2023-01-01'",
+                "      variable: station_hs",
+                "      product: STATION",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    step_00.mkdir(parents=True, exist_ok=True)
+    (step_00 / "step_00.yml").write_text("start_date: '2023-01-01'\nend_date: '2023-01-01'\n", encoding="utf-8")
+    _write_step_member_ncs(
+        step_00,
+        np.array([[[1.0, 1.0], [1.0, 1.0]]], dtype=np.float32),
+        [
+            np.array([[[2.0, 2.0], [2.0, 2.0]]], dtype=np.float32),
+            np.array([[[10.0, 10.0], [10.0, 10.0]]], dtype=np.float32),
+        ],
+        "2023-01-01",
+    )
+    assim_dir = step_00 / "assim"
+    assim_dir.mkdir(parents=True, exist_ok=True)
+    (assim_dir / "weights_station_hs_20230101.csv").write_text(
+        "member_id,weight\nmember_001,0.25\nmember_002,0.75\n",
+        encoding="utf-8",
+    )
+
+    written = write_project_da_output_grids(
+        step_dirs=[step_00],
+        output_nc=out_nc,
+    )
+
+    assert written == out_nc
+    with xr.open_dataset(out_nc) as ds:
+        assert "open_loop_snowdepth_daily" in ds.data_vars
+        assert "ens_mean_snowdepth_daily" in ds.data_vars
+        assert "analysis_mean_snowdepth_daily" in ds.data_vars
+        assert "ens_std_snowdepth_daily" not in ds.data_vars
+        assert "ens_min_snowdepth_daily" not in ds.data_vars
+        assert "ens_max_snowdepth_daily" not in ds.data_vars
+        assert "increment_snowdepth_daily" not in ds.data_vars
+        assert "analysis_increment_snowdepth_daily" not in ds.data_vars
+        assert ds.attrs.get("summary_variables") == "open_loop,ens_mean,analysis_mean"
+
+
 def test_output_retention_mode_defaults_to_compact(tmp_path: Path) -> None:
     project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
     project_dir.mkdir(parents=True, exist_ok=True)

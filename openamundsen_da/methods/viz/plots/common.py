@@ -366,7 +366,7 @@ def draw_assim_labels(
     axes_y: float = 1.0,
     ha: str = "center",
     x_offset_pts: float = 0.0,
-) -> None:
+) -> list:
     """Draw decimated assimilation labels aligned to dates near the top of the axes."""
     dates = list(pd.to_datetime(dates))
     label_list = list(labels) if labels is not None else None
@@ -376,7 +376,7 @@ def draw_assim_labels(
     if color_list is not None and len(color_list) != len(dates):
         color_list = None
     if not dates:
-        return
+        return []
     step = max(1, math.ceil(len(dates) / max(1, int(max_labels))))
     display_items: list[tuple[pd.Timestamp, str, str]] = []
     for i, d in enumerate(dates, start=1):
@@ -397,6 +397,7 @@ def draw_assim_labels(
         min_row_spacing_days = 5.0
 
     row_last_dates: list[pd.Timestamp | None] = [None] * len(row_offsets)
+    artists = []
     for d, text, text_color in display_items:
         row_idx = 0
         if len(row_offsets) > 1:
@@ -416,7 +417,7 @@ def draw_assim_labels(
                 )
             row_idx = chosen_idx
         row_last_dates[row_idx] = d
-        ax.annotate(
+        artist = ax.annotate(
             text,
             xy=(d, axes_y),
             xycoords=("data", "axes fraction"),
@@ -430,6 +431,74 @@ def draw_assim_labels(
             rotation_mode="anchor",
             clip_on=False,
         )
+        artists.append(artist)
+    return artists
+
+
+def _da_prefixed_labels(labels: Iterable[str]) -> list[str]:
+    return [label if str(label).startswith("DA ") else f"DA {label}" for label in labels]
+
+
+def _visible_text_bboxes(text_artists: Iterable, renderer) -> list:
+    bboxes = []
+    for artist in text_artists:
+        if artist is None or not artist.get_visible():
+            continue
+        if hasattr(artist, "get_text") and not artist.get_text():
+            continue
+        try:
+            bbox = artist.get_window_extent(renderer=renderer)
+        except Exception:
+            continue
+        if bbox.width > 0 and bbox.height > 0:
+            bboxes.append(bbox)
+    return bboxes
+
+
+def _assim_label_bboxes_overlap(label_artists: Iterable, *, avoid_artists: Iterable | None = None) -> bool:
+    label_artists = list(label_artists or [])
+    if not label_artists:
+        return False
+    fig = label_artists[0].figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    label_bboxes = _visible_text_bboxes(label_artists, renderer)
+    for idx, bbox in enumerate(label_bboxes):
+        for other in label_bboxes[idx + 1 :]:
+            if bbox.overlaps(other):
+                return True
+    avoid_bboxes = _visible_text_bboxes(list(avoid_artists or []), renderer)
+    return any(bbox.overlaps(avoid_bbox) for bbox in label_bboxes for avoid_bbox in avoid_bboxes)
+
+
+def draw_adaptive_assim_labels(
+    ax,
+    dates: Iterable,
+    *,
+    labels: Iterable[str] | None = None,
+    avoid_artists: Iterable | None = None,
+    **kwargs,
+) -> list:
+    """Draw DA labels as ``DA n`` when they fit, otherwise redraw compact numeric labels."""
+    date_list = list(pd.to_datetime(dates))
+    numeric_labels = list(labels) if labels is not None else [str(i) for i in range(1, len(date_list) + 1)]
+    prefixed_labels = _da_prefixed_labels(numeric_labels)
+    artists = draw_assim_labels(ax, date_list, labels=prefixed_labels, **kwargs)
+    if not _assim_label_bboxes_overlap(artists, avoid_artists=avoid_artists):
+        return artists
+    for artist in artists:
+        artist.remove()
+    return draw_assim_labels(ax, date_list, labels=numeric_labels, **kwargs)
+
+
+def _title_avoid_artists(ax) -> list:
+    artists = [
+        getattr(ax, "title", None),
+        getattr(ax, "_left_title", None),
+        getattr(ax, "_right_title", None),
+        getattr(ax.figure, "_suptitle", None),
+    ]
+    return [artist for artist in artists if artist is not None]
 
 
 def add_assim_label_axis(
@@ -476,10 +545,11 @@ def add_assim_label_axis(
     for spine in label_axis.spines.values():
         spine.set_visible(False)
 
-    draw_assim_labels(
+    draw_adaptive_assim_labels(
         label_axis,
         [item[0] for item in visible_items],
         labels=[item[1] for item in visible_items],
+        avoid_artists=_title_avoid_artists(ax),
         max_labels=max(1, len(visible_items)),
         y_offset_pts=y_offset_pts,
         fontsize=fontsize,
@@ -576,11 +646,12 @@ def thin_dense_y_tick_labels(ax, *, max_visible_labels: int = 4) -> None:
 
     ymin, ymax = sorted(float(value) for value in ax.get_ylim())
     tol = max(abs(ymax - ymin), 1.0) * 1e-9
-    in_range_ticks = [
-        tick
-        for tick in ax.yaxis.get_major_ticks()
-        if ymin - tol <= float(tick.get_loc()) <= ymax + tol
-    ]
+    all_ticks = ax.yaxis.get_major_ticks()
+    in_range_ticks = [tick for tick in all_ticks if ymin - tol <= float(tick.get_loc()) <= ymax + tol]
+    for tick in all_ticks:
+        if tick not in in_range_ticks:
+            tick.label1.set_visible(False)
+            tick.label2.set_visible(False)
     if len(in_range_ticks) <= max_visible_labels:
         return
 

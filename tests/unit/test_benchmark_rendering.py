@@ -730,7 +730,8 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     assert captured[outputs["performance_scores"]]["kwargs"] == {}
     label_axes = [ax for ax in fig.axes if ax.get_label().startswith("assimilation_label_axis_")]
     main_axes = [ax for ax in fig.axes if not ax.get_label().startswith("assimilation_label_axis_")]
-    assert len(label_axes) == 2
+    assert len(label_axes) == 1
+    assert label_axes[0].get_label() == "assimilation_label_axis_0"
     assert len(main_axes) == 2
     ax_crpss, ax_ner = main_axes
     x_title, y_title = fig._suptitle.get_position()
@@ -774,15 +775,24 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     assert len(ax_ner.collections) > 0
     assert ax_crpss.lines
     assert max(line.get_zorder() for line in ax_crpss.lines) < min(c.get_zorder() for c in ax_crpss.collections)
-    vline_colors = []
+    event_lines = []
     for line in ax_crpss.lines:
         xdata = pd.to_datetime(line.get_xdata())
         if len(xdata) >= 2 and all(ts == xdata[0] for ts in xdata):
-            vline_colors.append(mcolors.to_hex(line.get_color()).lower())
-    assert plots_core.variable_style("scf")["line"].lower() in vline_colors
-    assert plots_core.variable_style("station_hs")["line"].lower() in vline_colors
-    assert {text.get_text() for ax in label_axes for text in ax.texts} >= {"1", "2"}
-    assert fig.subplotpars.bottom < 0.25
+            event_lines.append(
+                (
+                    xdata[0].normalize(),
+                    mcolors.to_hex(line.get_color()).lower(),
+                    line.get_linestyle(),
+                    line.get_linewidth(),
+                )
+            )
+    assert (pd.Timestamp("2023-01-02"), "#777777", "--", 1.0) in event_lines
+    assert (pd.Timestamp("2023-01-03"), "#777777", "--", 1.0) in event_lines
+    assert set(label.get_text() for label in ax_crpss.get_yticklabels() if label.get_text()) <= {"0", "0.5", "1"}
+    assert set(label.get_text() for label in ax_ner.get_yticklabels() if label.get_text()) <= {"0", "0.5", "1"}
+    assert {text.get_text() for ax in label_axes for text in ax.texts} >= {"DA 1", "DA 2"}
+    assert fig.subplotpars.bottom < 0.28
     saw_prior = False
     saw_posterior = False
     for collection in (*ax_crpss.collections, *ax_ner.collections):

@@ -190,6 +190,8 @@ data_assimilation:
         - ens_min
         - ens_max
         - increment
+        - analysis_mean
+        - analysis_increment
       - var: swe_daily
         name: swe_daily
         metrics:

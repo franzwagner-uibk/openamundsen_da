@@ -86,12 +86,12 @@ data_assimilation:
       format: netcdf
       variables:
         - var: snowdepth_daily
-          metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment]
+          metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment, analysis_mean, analysis_increment]
         - var: swe_daily
           metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment]
 ```
 
-This snippet shows the three project settings that most visibly change runtime and outputs in the tutorial: ensemble size, number/timing of events, and which grid-summary variables/metrics are exported.
+This snippet shows the three project settings that most visibly change runtime and outputs in the tutorial: ensemble size, number/timing of events, and which grid-summary variables/metrics are exported. Generated DA-event maps need `analysis_mean` and `analysis_increment` for `snowdepth_daily`.
 
 ### Benchmark outputs written by the project run
 
@@ -125,7 +125,7 @@ The data assimilation output summary NetCDF (`results/grids/da_output_grids.nc`)
 What you can configure directly here:
 
 - `variables[*].var` / `name`: which model grid variables are exported into the data assimilation summary
-- `variables[*].metrics`: which summary metrics are written for each variable (`open_loop`, `ens_mean`, `ens_std`, `ens_min`, `ens_max`, `increment`)
+- `variables[*].metrics`: which summary metrics are written for each variable (`open_loop`, `ens_mean`, `ens_std`, `ens_min`, `ens_max`, `increment`, `analysis_mean`, `analysis_increment`)
 - `format`, `compress`, `retention`
 
 How to interpret the `dims` in the NetCDF inspection output:

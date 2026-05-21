@@ -35,6 +35,7 @@ from openamundsen_da.util.station_da import (
     STATION_DA_METADATA_FILENAME,
     STATION_SNOW_DEPTH_METADATA_FILENAME,
     is_station_metadata_file,
+    normalize_station_id_series,
 )
 
 
@@ -526,12 +527,16 @@ def _prepare_obs_station_subset(
         return stats
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    requested_ids = {str(sid) for sid in (station_ids or []) if str(sid)}
+    requested_ids = {
+        sid
+        for sid in normalize_station_id_series(pd.Series(list(station_ids or [])))
+        if sid
+    }
     selected_ids: set[str] = set()
     inside_grid_ids: set[str] = set()
     stations_meta = obs_dir / STATION_SNOW_DEPTH_METADATA_FILENAME
     if stations_meta.is_file():
-        meta_df = pd.read_csv(stations_meta)
+        meta_df = pd.read_csv(stations_meta, dtype={"id": "string"})
         if {"x", "y"}.issubset(meta_df.columns):
             gdf = gpd.GeoDataFrame(
                 meta_df,
@@ -542,11 +547,15 @@ def _prepare_obs_station_subset(
             inside_mask = gdf.geometry.apply(geom.covers)
             meta_df = meta_df.loc[gdf.geometry.within(buffered)].copy()
             inside_ids = meta_df.loc[inside_mask.reindex(meta_df.index, fill_value=False), "id"] if "id" in meta_df else []
-            inside_grid_ids = {str(sid) for sid in pd.Series(inside_ids).dropna().astype(str)}
+            inside_grid_ids = {
+                sid
+                for sid in normalize_station_id_series(pd.Series(inside_ids))
+                if sid
+            }
         else:
             logger.warning("stations_snow_depth.csv missing x/y columns; skipping spatial filter")
             if requested_ids and "id" in meta_df.columns:
-                meta_df = meta_df.loc[meta_df["id"].astype(str).isin(requested_ids)].copy()
+                meta_df = meta_df.loc[normalize_station_id_series(meta_df["id"]).isin(requested_ids)].copy()
                 inside_grid_ids = set(requested_ids)
         meta_df.to_csv(out_dir / "stations_snow_depth.csv", index=False)
         if "id" in meta_df.columns:
@@ -563,11 +572,12 @@ def _prepare_obs_station_subset(
 
     da_meta = obs_dir / STATION_DA_METADATA_FILENAME
     if da_meta.is_file():
-        da_df = pd.read_csv(da_meta)
+        da_df = pd.read_csv(da_meta, dtype={"station_id": "string"})
         if selected_ids_lower and "station_id" in da_df.columns:
-            keep_mask = da_df["station_id"].astype(str).str.strip().str.lower().isin(selected_ids_lower)
+            station_keys = normalize_station_id_series(da_df["station_id"])
+            keep_mask = station_keys.isin(selected_ids_lower)
             da_df = da_df.loc[keep_mask].copy()
-            inside_mask = da_df["station_id"].astype(str).str.strip().str.lower().isin(inside_grid_ids_lower)
+            inside_mask = normalize_station_id_series(da_df["station_id"]).isin(inside_grid_ids_lower)
             for role_col in ("use_for_da", "use_for_benchmark"):
                 if role_col not in da_df.columns:
                     da_df[role_col] = True
@@ -979,6 +989,15 @@ def prepare_subdomains(
             win.row_off,
             win.col_off,
         )
+
+    if not model_mode:
+        support_rows = [
+            {"subdomain_id": sid, **dict(meta.station_counts or {})}
+            for sid, meta in sorted(manifest.subdomains.items())
+        ]
+        support_path = subdomain_root / "observation_support_by_subdomain.csv"
+        pd.DataFrame(support_rows).to_csv(support_path, index=False)
+        logger.info("Wrote observation support table -> {}", support_path)
 
     manifest_path = subdomain_root / "subdomain_manifest.json"
     manifest.save(manifest_path)

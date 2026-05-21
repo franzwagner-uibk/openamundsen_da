@@ -3,7 +3,7 @@ from __future__ import annotations
 
 _FIGURE_HEIGHT_MIN = 2.9
 _FIGURE_HEIGHT_MAX = 16.5
-_BUFFER_RATIO = 0.03
+_BUFFER_RATIO = 0.05
 _STATION_LABEL_RATIO = 0.04
 _GRID_COLOR = "#666666"
 _GRID_STYLE = (0, (4, 4))
@@ -112,7 +112,7 @@ _AUTO_TITLE_SOURCE = {
     "prior_probability": "Prior probability",
     "posterior_probability": "Posterior probability",
     "increment": "Increment",
-    "analysis_increment": "posterior - prior",
+    "analysis_increment": "Posterior - prior",
     "open_loop_binary": "Open-loop snow cover",
 }
 _AUTO_TITLE_KIND = {
@@ -122,13 +122,13 @@ _AUTO_TITLE_KIND = {
     "dem": "Digital elevation model",
     "svf": "Sky view factor",
     "srf": "Snow redistribution factor",
-    "landcover": "Landcover",
-    "snow_depth": "snow depth",
+    "landcover": "Land cover",
+    "snow_depth": "Snow depth",
     "swe": "SWE",
-    "liquid_water_content": "liquid water content",
+    "liquid_water_content": "Liquid water content",
     "fsc": "Sentinel-2 FSC",
-    "uncertainty": "observation uncertainty",
+    "uncertainty": "Observation uncertainty",
     "wet_snow": "Sentinel-1 wet snow fraction (WSF)",
-    "wet_snow_line": "Wet snow line altitude (WSLA)",
-    "wet_snow_elevation_fraction": "elevation-band WSF",
+    "wet_snow_line": "Wet snow line (WSLA)",
+    "wet_snow_elevation_fraction": "Elevation-band WSF",
 }

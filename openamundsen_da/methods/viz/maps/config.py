@@ -54,8 +54,11 @@ SUPPORTED_WET_SNOW_ELEVATION_FRACTION_SOURCES = {
 }
 SUPPORTED_UNCERTAINTY_OBSERVATIONS = {"scf", "wet_snow"}
 SUPPORTED_LEGEND_ITEM_KINDS = {"heading", "station_symbol", "source_legend", "scale_bar"}
+SUPPORTED_LEGEND_ITEM_PLACEMENTS = {"below", "inside"}
+SUPPORTED_LEGEND_ITEM_ANCHORS = {"top_left", "top_right", "bottom_left", "bottom_right"}
 SUPPORTED_PANEL_LEGEND_LAYOUTS = {"horizontal", "vertical"}
 SUPPORTED_HILLSHADE_EXTENTS = {"full", "roi"}
+SUPPORTED_LANDCOVER_GROUPINGS = {"native", "broad"}
 _REMOVED_PANEL_KEYS = {"variable", "metric", "observation", "field", "style", "legend_inside"}
 _REMOVED_LAYOUT_KEYS = {"wspace", "hspace"}
 _REMOVED_PANEL_KINDS = {"stations", "static_field", "model_field", "increment_field", "observation_field", "roi_overview", "text"}
@@ -92,6 +95,8 @@ class LegendItemSpec:
     kind: str
     label: str | None = None
     source: str | None = None
+    placement: str | None = None
+    anchor: str | None = None
 
 
 @dataclass(frozen=True)
@@ -121,6 +126,7 @@ class MapPanelSpec:
     lines: tuple[str, ...] = ()
     items: tuple[LegendItemSpec, ...] = ()
     below_items: tuple[LegendItemSpec, ...] = ()
+    legend_items: tuple[LegendItemSpec, ...] = ()
     show_colorbar: bool | None = None
     show_scalebar: bool | None = None
     show_grid: bool | None = None
@@ -131,7 +137,18 @@ class MapPanelSpec:
     show_stations_name: bool | None = None
     show_stations_elev: bool | None = None
     legend: str | None = None
+    landcover_grouping: str | None = None
     variable: str | None = None
+
+    @property
+    def bottom_legend_items(self) -> tuple[LegendItemSpec, ...]:
+        return self.below_items + tuple(
+            item for item in self.legend_items if str(item.placement or "below") == "below"
+        )
+
+    @property
+    def inside_legend_items(self) -> tuple[LegendItemSpec, ...]:
+        return tuple(item for item in self.legend_items if str(item.placement or "below") == "inside")
 
 
 @dataclass(frozen=True)
@@ -301,7 +318,13 @@ def _coerce_str_list(value: object, *, context: str) -> tuple[str, ...]:
     return tuple(_require_str(item, context=f"{context}[]") for item in value)
 
 
-def _parse_legend_items(value: object, *, context: str) -> tuple[LegendItemSpec, ...]:
+def _parse_legend_items(
+    value: object,
+    *,
+    context: str,
+    allow_placement: bool = False,
+    default_placement: str | None = None,
+) -> tuple[LegendItemSpec, ...]:
     if value is None:
         return ()
     if not isinstance(value, list):
@@ -319,7 +342,26 @@ def _parse_legend_items(value: object, *, context: str) -> tuple[LegendItemSpec,
             raise ValueError(f"{context}[{idx}].source is required for source_legend items")
         if kind in {"heading", "station_symbol"} and label is None:
             raise ValueError(f"{context}[{idx}].label is required for {kind}")
-        items.append(LegendItemSpec(kind=kind, label=label, source=source))
+        placement = default_placement
+        anchor = None
+        if allow_placement:
+            placement = _optional_str(mapping.get("placement")) or default_placement
+            if placement is not None:
+                placement = placement.lower()
+                if placement not in SUPPORTED_LEGEND_ITEM_PLACEMENTS:
+                    supported = ", ".join(sorted(SUPPORTED_LEGEND_ITEM_PLACEMENTS))
+                    raise ValueError(f"{context}[{idx}].placement must be one of: {supported}")
+            anchor = _optional_str(mapping.get("anchor"))
+            if anchor is not None:
+                anchor = anchor.lower()
+                if anchor not in SUPPORTED_LEGEND_ITEM_ANCHORS:
+                    supported = ", ".join(sorted(SUPPORTED_LEGEND_ITEM_ANCHORS))
+                    raise ValueError(f"{context}[{idx}].anchor must be one of: {supported}")
+            if anchor is not None and placement != "inside":
+                raise ValueError(f"{context}[{idx}].anchor is only supported when placement is inside")
+        elif "placement" in mapping or "anchor" in mapping:
+            raise ValueError(f"{context}[{idx}].placement and anchor are only supported for legend_items")
+        items.append(LegendItemSpec(kind=kind, label=label, source=source, placement=placement, anchor=anchor))
     return tuple(items)
 
 
@@ -384,6 +426,9 @@ def _parse_row_views(value: object, *, context: str, nrows: int) -> tuple[MapRow
 def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
     mapping = _require_mapping(value, context=context)
     kind = _require_str(mapping.get("kind"), context=f"{context}.kind")
+    landcover_grouping = _optional_str(mapping.get("landcover_grouping"))
+    if landcover_grouping is not None:
+        landcover_grouping = landcover_grouping.lower()
     removed_panel_keys = _REMOVED_PANEL_KEYS
     if kind == "uncertainty":
         removed_panel_keys = removed_panel_keys - {"observation"}
@@ -413,7 +458,17 @@ def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
         roi_label=_optional_str(mapping.get("roi_label")),
         lines=_coerce_str_list(mapping.get("lines"), context=f"{context}.lines"),
         items=_parse_legend_items(mapping.get("items"), context=f"{context}.items"),
-        below_items=_parse_legend_items(mapping.get("below_items"), context=f"{context}.below_items"),
+        below_items=_parse_legend_items(
+            mapping.get("below_items"),
+            context=f"{context}.below_items",
+            default_placement="below",
+        ),
+        legend_items=_parse_legend_items(
+            mapping.get("legend_items"),
+            context=f"{context}.legend_items",
+            allow_placement=True,
+            default_placement="below",
+        ),
         show_colorbar=_coerce_bool(mapping.get("show_colorbar"), default=None),
         show_scalebar=_coerce_bool(mapping.get("show_scalebar"), default=None),
         show_grid=_coerce_bool(mapping.get("show_grid"), default=None),
@@ -424,11 +479,18 @@ def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
         show_stations_name=_coerce_bool(mapping.get("show_stations_name"), default=None),
         show_stations_elev=_coerce_bool(mapping.get("show_stations_elev"), default=None),
         legend=_optional_str(mapping.get("legend")),
+        landcover_grouping=landcover_grouping,
     )
 
     if panel.legend is not None and panel.legend not in SUPPORTED_PANEL_LEGEND_LAYOUTS:
         supported = ", ".join(sorted(SUPPORTED_PANEL_LEGEND_LAYOUTS))
         raise ValueError(f"{context}.legend must be one of: {supported}")
+    if panel.landcover_grouping is not None:
+        if panel.kind != "landcover":
+            raise ValueError(f"{context}.landcover_grouping is only supported for landcover panels")
+        if panel.landcover_grouping not in SUPPORTED_LANDCOVER_GROUPINGS:
+            supported = ", ".join(sorted(SUPPORTED_LANDCOVER_GROUPINGS))
+            raise ValueError(f"{context}.landcover_grouping must be one of: {supported}")
 
     if panel.kind in {"snow_depth", "swe", "liquid_water_content"}:
         if panel.source is None:
@@ -447,6 +509,8 @@ def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
             raise ValueError(f"{context} must define items, source, or lines for legend panels")
         if panel.below_items:
             raise ValueError(f"{context}.below_items is only supported for non-legend panels")
+        if panel.legend_items:
+            raise ValueError(f"{context}.legend_items is only supported for non-legend panels")
     elif panel.kind == "fsc":
         if panel.source is not None and panel.source not in SUPPORTED_FSC_SOURCES:
             supported = ", ".join(sorted(SUPPORTED_FSC_SOURCES))

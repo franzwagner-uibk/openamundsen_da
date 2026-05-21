@@ -89,13 +89,13 @@ Reference CSV snippet (performance metrics)
 
 File path: `/data/rofental/projects/project_2022_2023/results/plots/perf/project_perf_metrics.csv`
 
-| timestamp | cpu_total_pct | mem_used_pct | mem_used_gb | mem_total_gb |
-| --- | --- | --- | --- | --- |
-| 2026-02-21T21:28:14 | 0.00 | 4.10 | 1.01 | 24.45 |
-| 2026-02-21T21:28:19 | 40.90 | 14.10 | 3.44 | 24.45 |
-| 2026-02-21T21:28:24 | 53.30 | 16.00 | 3.91 | 24.45 |
-| 2026-02-21T21:28:29 | 52.50 | 17.70 | 4.32 | 24.45 |
-| 2026-02-21T21:28:34 | 61.90 | 19.40 | 4.74 | 24.45 |
+| timestamp | cpu_total_pct | mem_used_pct | mem_used_gb | mem_total_gb | disk_fs_used_pct | disk_fs_free_gb | disk_project_used_gb |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-02-21T21:28:14 | 0.00 | 4.10 | 1.01 | 24.45 | 30.10 | 2500.00 | 0.82 |
+| 2026-02-21T21:28:19 | 40.90 | 14.10 | 3.44 | 24.45 | 30.10 | 2499.80 | 0.82 |
+| 2026-02-21T21:28:24 | 53.30 | 16.00 | 3.91 | 24.45 | 30.11 | 2499.70 | 0.82 |
+| 2026-02-21T21:28:29 | 52.50 | 17.70 | 4.32 | 24.45 | 30.11 | 2499.55 | 0.82 |
+| 2026-02-21T21:28:34 | 61.90 | 19.40 | 4.74 | 24.45 | 30.11 | 2499.40 | 0.82 |
 
 Plot file to open:
 
@@ -109,8 +109,8 @@ _`project_perf.png` from the Rofental tutorial reference run (`100 m`, `ensemble
 
 What to read in the plot:
 
-- **CPU utilization panel/curve**: look for sustained utilization during step processing and drops during lighter phases (I/O, orchestration).
-- **Memory usage panel/curve**: check whether memory stays within a stable range and does not continuously climb (which can indicate a leak or runaway buffering).
+- **Relative utilization curves**: look for sustained CPU use during step processing, stable RAM use, and filesystem-used percentage that stays below critical disk pressure.
+- **Absolute disk curves**: compare project directory growth against free filesystem space. Project size is scanned at a throttled interval, so it can update in steps rather than every sample.
 - **Timing structure**: repeated patterns often correspond to repeated step execution.
 
 {: .references }
@@ -485,7 +485,7 @@ Recommended map date(s): choose one date with active snow cover and one date nea
 Use the same date across `open_loop`, `ens_mean`, and `increment` maps. Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-depth maps use `ens_mean` as the prior mean, `analysis_mean` as the event-weighted posterior mean, and `analysis_increment` as `posterior - prior`.
 
 For the shipped examples, project maps are split into generated DA-event maps under `results/maps/da_events/` and custom YAML maps such as `setup_overview` at the root of `results/maps/`. Use `oa-da-plot-project-maps --project-dir /data/rofental/projects/project_2022_2023 --max-workers 4` to rerender the full combined map set in one command. Omit `--max-workers` to let the Docker container auto-select a recipe-level worker count from the visible CPUs. Overview panels use setup-local GISCO GeoJSONs under `env/`; if you want to prefetch them ahead of time, run `oa-da-fetch-overview-geojson --project-dir /data/rofental/projects/project_2022_2023`.
-For `snowdepth_daily`, the map renderer uses the fixed tutorial/reference palette together with a shared linear legend scale per render run. Tick labels are shown in `cm`, cells below `1 cm` stay transparent so only meaningful snow cover is colored, and the top of the snow-depth legend is derived from the plotted maps. Increment panels use a signed diverging palette: negative increments are red, positive increments are blue. In generated DA-event maps, positive `analysis_increment` means the DA event added snow; negative means it removed snow.
+For `snowdepth_daily`, the map renderer uses the viridis palette together with a shared linear legend scale per render run. Tick labels are shown in `cm`, cells below `1 cm` stay transparent so only meaningful snow cover is colored, and the top of the snow-depth legend is derived from the plotted maps. Increment panels use a signed red-blue diverging palette: negative increments are red, positive increments are blue. In generated DA-event maps, positive `analysis_increment` means the DA event added snow; negative means it removed snow.
 
 `oa-da-project` attempts to collect the project summary page, overview outputs, diagnostics, and DA-event maps into `results/reports/project_report.pdf` at the end of the run, after plots, maps, and benchmark-dependent overview panels are current. Report generation is best-effort in the pipeline: missing prerequisites are logged with a manual rerun command and do not fail the completed model run. To regenerate only the PDF later, run `oa-da-project-pdf --project-dir /data/rofental/projects/project_2022_2023`. The first PDF page contains basic setup YAML settings, wet-snow classification and liquid-water-content settings, DA-event counts, computing-cost stats, and a bottom `Content` table with page numbers first and section names second. The PDF then includes the overview plots, setup map, setup weights overview pages, station snow-depth point plots on one page, `performance_scores.png`, `project_perf.png`, and generated DA-event maps in temporal order. Source PNGs are placed at their shared export-DPI size rather than scaled down to fit a page; consecutive DA maps are packed onto a page only while the reserved bottom gap is preserved. Standalone per-event weights plots and other remaining plot/map PNGs are not included.
 

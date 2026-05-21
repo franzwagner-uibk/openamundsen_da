@@ -47,7 +47,7 @@ data_assimilation:
             max_cloud_fraction: 0.25
   landcover_mask:
     enabled: true
-    classes_to_exclude: [2, 3, 8, 9, 10, 11, 12, 13]
+    classes_to_exclude: [2, 3, 13]
   likelihood:
     scf:
       obs_sigma: 0.1
@@ -61,14 +61,20 @@ data_assimilation:
       input_dir: obs/snowcover
       ingest:
         scf_variable: fsc
-        uncertainty_variable: uncertainty
         time_variable: time
+        uncertainty_source: internal
       assimilation:
         sigma_mode: uncertainty_layer
         aggregate_metric: unc_mean
-      u_min: 10.0
+      u_min: 5.0
       u_max: 20.0
-      fallback_uncertainty: 15.0
+      nodata_value: 255.0
+      penalties:
+      - name: forest
+        source: landcover
+        enabled: true
+        classes: [8, 9, 10, 11, 12]
+        penalty: 20.0
   resampling:
     algorithm: systematic
     ess_threshold_ratio: 0.7
@@ -93,7 +99,7 @@ data_assimilation:
       variables:
       - var: snowdepth_daily
         name: snowdepth_daily
-        metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment]
+        metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment, analysis_mean, analysis_increment]
       - var: swe_daily
         name: swe_daily
         metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment]
@@ -110,24 +116,15 @@ data_assimilation:
     variable: scf
     product: SNOWCOVER
   - date: '2022-11-12'
-    variable: scf
-    product: SNOWCOVER
-  - date: '2022-11-17'
     variable: station_hs
     product: STATION
   - date: '2022-11-27'
     variable: scf
     product: SNOWCOVER
-  - date: '2022-12-07'
+  - date: '2022-12-17'
     variable: station_hs
     product: STATION
-  - date: '2022-12-17'
-    variable: scf
-    product: SNOWCOVER
   - date: '2022-12-29'
-    variable: scf
-    product: SNOWCOVER
-  - date: '2023-01-01'
     variable: station_hs
     product: STATION
   - date: '2023-01-06'
@@ -136,12 +133,9 @@ data_assimilation:
   - date: '2023-01-31'
     variable: station_hs
     product: STATION
-  - date: '2023-02-10'
+  - date: '2023-02-15'
     variable: station_hs
     product: STATION
-  - date: '2023-02-15'
-    variable: scf
-    product: SNOWCOVER
   - date: '2023-02-21'
     variable: station_hs
     product: STATION
@@ -151,15 +145,9 @@ data_assimilation:
   - date: '2023-03-07'
     variable: scf
     product: SNOWCOVER
-  - date: '2023-03-17'
+  - date: '2023-03-22'
     variable: station_hs
     product: STATION
-  - date: '2023-03-22'
-    variable: scf
-    product: SNOWCOVER
-  - date: '2023-04-03'
-    variable: scf
-    product: SNOWCOVER
   - date: '2023-04-06'
     variable: scf
     product: SNOWCOVER

@@ -159,7 +159,7 @@ def merge_grids(
     coverage_sliver_tol_px: int = 4,
     defer_compact_cleanup: bool = False,
 ) -> List[Path]:
-    """Merge compact grid outputs from latest-step open-loop/member results."""
+    """Merge sub-domain grid outputs into global hard mosaics."""
     manifest = SubdomainManifest.load(manifest_path)
     if str(getattr(manifest, "run_mode", "")).lower() != "subdomain":
         raise ValueError(f"Manifest at {manifest_path} is not marked as run_mode='subdomain'.")
@@ -176,17 +176,64 @@ def merge_grids(
     out_base = out_dir or (manifest.project_dir / "results" / "grids")
     out_base.mkdir(parents=True, exist_ok=True)
 
+    compact_entries: list[tuple[SubdomainMeta, Path]] = []
+    missing_compact_ids: list[str] = []
+    for sid in selected_ids:
+        sub = manifest.subdomains[sid]
+        compact_da = _compact_da_summary(sub)
+        if compact_da is None:
+            missing_compact_ids.append(sid)
+        else:
+            compact_entries.append((sub, compact_da))
+
+    written: List[Path] = []
+    if compact_entries:
+        if missing_compact_ids:
+            raise FileNotFoundError(
+                "Compact DA output summary da_output_grids.nc is missing for sub-domain(s): "
+                f"{', '.join(missing_compact_ids)}"
+            )
+        merged_nc = _merge_netcdf(
+            output_name="da_output_grids.nc",
+            nc_paths=compact_entries,
+            global_shape=global_shape,
+            manifest=manifest,
+            out_dir=out_base,
+            expected_mask=expected_mask,
+            sliver_tol_px=int(coverage_sliver_tol_px),
+        )
+        written.append(merged_nc)
+        da_summary_written = merged_nc.is_file()
+        if da_summary_written:
+            logger.info("Using merged compact DA output summary {}", merged_nc)
+
+        retention_mode = output_retention_mode(manifest.project_dir)
+        if retention_mode == "compact":
+            if not da_summary_written:
+                logger.warning("Skipping compact grid retention because da_output_grids.nc was not written.")
+            elif defer_compact_cleanup:
+                logger.info(
+                    "Deferring compact sub-domain grid retention cleanup until top-level map rendering is complete."
+                )
+            else:
+                deleted, bytes_freed = cleanup_deferred_compact_grid_artifacts(
+                    manifest_path=manifest_path,
+                    out_dir=out_base,
+                )
+                logger.info(
+                    "Compact retention: deleted {} sub-domain grid artifact file(s), freed {:.1f} MB",
+                    deleted,
+                    bytes_freed / 1_000_000.0,
+                )
+        return written
+
     tif_groups: Dict[str, List[Tuple[SubdomainMeta, Path]]] = {}
     nc_groups: Dict[str, List[Tuple[SubdomainMeta, Path]]] = {}
     for sid in selected_ids:
         sub = manifest.subdomains[sid]
         sources = _result_sources(sub)
-        compact_da = _compact_da_summary(sub)
-        if compact_da is not None:
-            nc_groups.setdefault("da_output_grids.nc", []).append((sub, compact_da))
         if not sources:
-            if compact_da is None:
-                logger.warning("No compact result sources discovered for {} under {}", sid, sub.project_dir)
+            logger.warning("No compact result sources discovered for {} under {}", sid, sub.project_dir)
             continue
         for source_label, res_dir in sources:
             prefix = "" if source_label == "open_loop" else f"{source_label}_"
@@ -195,7 +242,6 @@ def merge_grids(
             for nc in sorted(res_dir.glob("*.nc")):
                 nc_groups.setdefault(f"{prefix}{nc.name}", []).append((sub, nc))
 
-    written: List[Path] = []
     if not tif_groups and not nc_groups:
         logger.warning("No compact grid outputs found to merge in selected sub-domains.")
         return written

@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from openamundsen_da.subdomain import merge as merge_mod
 
@@ -62,7 +63,7 @@ def test_merge_grids_uses_compact_da_summary(monkeypatch, tmp_path: Path) -> Non
     assert write_calls == []
 
 
-def test_merge_grids_keeps_merged_compact_da_summary_when_latest_member_outputs_exist(
+def test_merge_grids_skips_latest_member_outputs_when_compact_summary_exists(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -110,8 +111,10 @@ def test_merge_grids_keeps_merged_compact_da_summary_when_latest_member_outputs_
 
     write_calls: list[dict] = []
     monkeypatch.setattr(merge_mod, "write_da_output_grids", lambda **kwargs: write_calls.append(kwargs))
+    merge_calls: list[str] = []
 
     def _fake_merge_netcdf(*, output_name: str, out_dir: Path, **kwargs):
+        merge_calls.append(output_name)
         out_path = Path(out_dir) / output_name
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(f"merged {output_name}".encode("utf-8"))
@@ -122,9 +125,113 @@ def test_merge_grids_keeps_merged_compact_da_summary_when_latest_member_outputs_
     merge_mod.merge_grids(manifest_path=tmp_path / "manifest.json")
 
     assert (project_dir / "results" / "grids" / "da_output_grids.nc").read_bytes() == b"merged da_output_grids.nc"
-    assert (project_dir / "results" / "grids" / "output_grids.nc").is_file()
-    assert (project_dir / "results" / "grids" / "member_001_output_grids.nc").is_file()
+    assert not (project_dir / "results" / "grids" / "output_grids.nc").exists()
+    assert not (project_dir / "results" / "grids" / "member_001_output_grids.nc").exists()
+    assert merge_calls == ["da_output_grids.nc"]
     assert write_calls == []
+
+
+def test_merge_grids_does_not_inspect_raw_latest_steps_when_compact_summaries_exist(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "projects" / "project_2022_2023"
+    subdomains = {}
+    compact_paths = []
+    for sid in ("sd_01", "sd_02"):
+        sub_project_dir = project_dir / "subdomains" / sid / "projects" / "project_2022_2023"
+        compact_da = sub_project_dir / "results" / "grids" / "da_output_grids.nc"
+        compact_da.parent.mkdir(parents=True, exist_ok=True)
+        compact_da.write_bytes(f"compact {sid}".encode("utf-8"))
+        compact_paths.append(compact_da)
+        subdomains[sid] = SimpleNamespace(id=sid, project_dir=sub_project_dir)
+
+    manifest = SimpleNamespace(
+        run_mode="subdomain",
+        project_dir=project_dir,
+        subdomains=subdomains,
+        grid_rows=1,
+        grid_cols=1,
+        grid_transform=(1.0, 0.0, 0.0, 0.0, -1.0, 1.0),
+        crs="EPSG:31254",
+    )
+
+    monkeypatch.setattr(
+        merge_mod.SubdomainManifest,
+        "load",
+        classmethod(lambda cls, path: manifest),
+    )
+    monkeypatch.setattr(merge_mod, "ensure_run_mode", lambda *args, **kwargs: "subdomain")
+    monkeypatch.setattr(
+        merge_mod,
+        "_expected_coverage_mask",
+        lambda *_args, **_kwargs: np.zeros((1, 1), dtype=bool),
+    )
+    monkeypatch.setattr(merge_mod, "output_retention_mode", lambda *_args, **_kwargs: "full")
+    monkeypatch.setattr(
+        merge_mod,
+        "_result_sources",
+        lambda _sub: (_ for _ in ()).throw(AssertionError("raw latest steps should not be inspected")),
+    )
+    monkeypatch.setattr(merge_mod, "write_da_output_grids", lambda **_kwargs: None)
+
+    calls: list[tuple[str, list[Path]]] = []
+
+    def _fake_merge_netcdf(*, output_name: str, nc_paths, out_dir: Path, **kwargs):
+        del kwargs
+        source_paths = [Path(path) for _, path in nc_paths]
+        calls.append((output_name, source_paths))
+        out_path = Path(out_dir) / output_name
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"merged")
+        return out_path
+
+    monkeypatch.setattr(merge_mod, "_merge_netcdf", _fake_merge_netcdf)
+
+    written = merge_mod.merge_grids(manifest_path=tmp_path / "manifest.json")
+
+    assert written == [project_dir / "results" / "grids" / "da_output_grids.nc"]
+    assert calls == [("da_output_grids.nc", compact_paths)]
+
+
+def test_merge_grids_rejects_partial_compact_da_summary_availability(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "projects" / "project_2022_2023"
+    sub_01_project = project_dir / "subdomains" / "sd_01" / "projects" / "project_2022_2023"
+    sub_02_project = project_dir / "subdomains" / "sd_02" / "projects" / "project_2022_2023"
+    compact_da = sub_01_project / "results" / "grids" / "da_output_grids.nc"
+    compact_da.parent.mkdir(parents=True, exist_ok=True)
+    compact_da.write_bytes(b"compact")
+
+    manifest = SimpleNamespace(
+        run_mode="subdomain",
+        project_dir=project_dir,
+        subdomains={
+            "sd_01": SimpleNamespace(id="sd_01", project_dir=sub_01_project),
+            "sd_02": SimpleNamespace(id="sd_02", project_dir=sub_02_project),
+        },
+        grid_rows=1,
+        grid_cols=1,
+        grid_transform=(1.0, 0.0, 0.0, 0.0, -1.0, 1.0),
+        crs="EPSG:31254",
+    )
+
+    monkeypatch.setattr(
+        merge_mod.SubdomainManifest,
+        "load",
+        classmethod(lambda cls, path: manifest),
+    )
+    monkeypatch.setattr(merge_mod, "ensure_run_mode", lambda *args, **kwargs: "subdomain")
+    monkeypatch.setattr(
+        merge_mod,
+        "_expected_coverage_mask",
+        lambda *_args, **_kwargs: np.zeros((1, 1), dtype=bool),
+    )
+
+    with pytest.raises(FileNotFoundError, match="sd_02"):
+        merge_mod.merge_grids(manifest_path=tmp_path / "manifest.json")
 
 
 def test_merge_grids_recomputes_da_summary_when_no_compact_da_summary_exists(

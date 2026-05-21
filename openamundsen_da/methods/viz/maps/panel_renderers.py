@@ -1970,6 +1970,14 @@ def _contour_xy(context: StaticContext) -> tuple[np.ndarray, np.ndarray]:
 
 
 _WSL_MODEL_COLOR = da_variable_line_color("wet_snow_line")
+_WSL_PANEL_EXTENT_PAD_RATIO = 0.02
+
+
+def _padded_wsl_panel_extent(extent: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    xmin, xmax, ymin, ymax = (float(value) for value in extent)
+    dx = (xmax - xmin) * _WSL_PANEL_EXTENT_PAD_RATIO
+    dy = (ymax - ymin) * _WSL_PANEL_EXTENT_PAD_RATIO
+    return (xmin - dx, xmax + dx, ymin - dy, ymax + dy)
 
 
 def _draw_wsl_contour(
@@ -2025,12 +2033,12 @@ def _wsl_callout_text(level: float | None) -> str:
 def _annotate_wsl_callout(ax, *, level: float | None, color: str = "black") -> None:
     apply_overlay_label_halo(
         ax.text(
-            0.98,
-            0.955,
+            0.02,
+            0.045,
             _wsl_callout_text(level),
             transform=ax.transAxes,
-            ha="right",
-            va="top",
+            ha="left",
+            va="bottom",
             fontsize=6.0,
             color=color,
             zorder=_ANNOTATION_ZORDER + 2,
@@ -2326,6 +2334,7 @@ def render_wet_snow_line_panel(
     if date is None:
         raise ValueError(f"Panel '{panel.kind}' requires a date (panel '{panel.title or panel.kind}')")
     date = pd.Timestamp(date).normalize()
+    display_extent = _padded_wsl_panel_extent(extent)
     show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
     if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
         hillshade_mode = resolve_hillshade_extent(panel, defaults, builtin="roi")
@@ -2465,7 +2474,7 @@ def render_wet_snow_line_panel(
     apply_common_overlays(
         ax,
         context=context,
-        extent=extent,
+        extent=display_extent,
         show_roi=resolve_panel_toggle(panel.show_roi, True),
         show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
         show_stations_name=resolve_panel_toggle(panel.show_stations_name, False),
@@ -2473,7 +2482,7 @@ def render_wet_snow_line_panel(
     )
     apply_map_axis_style(
         ax,
-        extent,
+        display_extent,
         title=panel_title(label, panel_semantic_title(panel)),
         show_grid=show_grid,
         show_y_ticklabels=panel.col == 0,
@@ -2502,7 +2511,7 @@ def render_wet_snow_line_panel(
             ),
             layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default),
         )
-    draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=date, resolve_flag=resolve_flag)
+    draw_panel_extras(ax, panel=panel, defaults=defaults, extent=display_extent, date=date, resolve_flag=resolve_flag)
     if probability_panel:
         _draw_inpanel_wsl_legend(ax, posterior_overlay_handles)
     draw_map_grid_overlay(ax, show_grid=show_grid)

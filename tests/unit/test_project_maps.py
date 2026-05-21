@@ -3696,11 +3696,12 @@ def test_wet_snow_line_model_panel_draws_wsl_contour(tmp_path: Path, monkeypatch
 
         monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", _record_contour)
 
+        extent = buffered_extent(context)
         artifacts = panel_renderers_module.render_wet_snow_line_panel(
             ax,
             panel=MapPanelSpec(kind="wet_snow_line", row=0, col=0, source="open_loop", date="2023-01-02"),
             context=context,
-            extent=buffered_extent(context),
+            extent=extent,
             label=None,
             defaults=MapDefaults(),
             obs_cache={},
@@ -3722,6 +3723,12 @@ def test_wet_snow_line_model_panel_draws_wsl_contour(tmp_path: Path, monkeypatch
         assert "WSLA unavailable" not in {text.get_text() for text in ax.texts}
         callout = next(text for text in ax.texts if text.get_text() == "WSLA 2450 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
+        assert callout.get_position() == pytest.approx((0.02, 0.045))
+        assert callout.get_ha() == "left"
+        assert callout.get_va() == "bottom"
+        padded_extent = panel_renderers_module._padded_wsl_panel_extent(extent)
+        assert ax.get_xlim() == pytest.approx((padded_extent[0], padded_extent[1]))
+        assert ax.get_ylim() == pytest.approx((padded_extent[2], padded_extent[3]))
     finally:
         plt.close(fig)
 
@@ -4185,7 +4192,9 @@ def test_wet_snow_line_panel_annotates_unavailable_wsl(tmp_path: Path, monkeypat
 
         assert "WSLA unavailable" in {text.get_text() for text in ax.texts}
         callout = next(text for text in ax.texts if text.get_text() == "WSLA unavailable")
-        assert callout.get_position() == pytest.approx((0.98, 0.955))
+        assert callout.get_position() == pytest.approx((0.02, 0.045))
+        assert callout.get_ha() == "left"
+        assert callout.get_va() == "bottom"
         assert callout.get_color() == "black"
     finally:
         plt.close(fig)

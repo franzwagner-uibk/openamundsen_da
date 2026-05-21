@@ -450,7 +450,7 @@ def test_station_plot_uses_inside_sigma_strip_and_shared_bottom_legend(tmp_path:
     plt.close(fig)
 
 
-def test_station_plot_with_three_sigma_entries_stacks_inside_panel(tmp_path: Path) -> None:
+def test_station_plot_with_five_sigma_entries_stacks_inside_panel(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 
     setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
@@ -460,6 +460,8 @@ def test_station_plot_with_three_sigma_entries_stacks_inside_panel(tmp_path: Pat
             {"id": "station_a", "name": "Station A"},
             {"id": "station_b", "name": "Station B"},
             {"id": "station_c", "name": "Station C"},
+            {"id": "station_d", "name": "Station D"},
+            {"id": "station_e", "name": "Station E"},
         ],
     )
     csv_path = step_dir / "assim" / "weights_station_hs_20221122.csv"
@@ -476,9 +478,13 @@ def test_station_plot_with_three_sigma_entries_stacks_inside_panel(tmp_path: Pat
             {"station_id": "station_a", "member_id": "member_001", "residual": -0.1, "sigma": 0.29},
             {"station_id": "station_b", "member_id": "member_001", "residual": -0.05, "sigma": 0.05},
             {"station_id": "station_c", "member_id": "member_001", "residual": 0.08, "sigma": 0.11},
+            {"station_id": "station_d", "member_id": "member_001", "residual": 0.03, "sigma": 0.13},
+            {"station_id": "station_e", "member_id": "member_001", "residual": -0.02, "sigma": 0.19},
             {"station_id": "station_a", "member_id": "member_002", "residual": 0.2, "sigma": 0.29},
             {"station_id": "station_b", "member_id": "member_002", "residual": 0.1, "sigma": 0.05},
             {"station_id": "station_c", "member_id": "member_002", "residual": -0.04, "sigma": 0.11},
+            {"station_id": "station_d", "member_id": "member_002", "residual": 0.06, "sigma": 0.13},
+            {"station_id": "station_e", "member_id": "member_002", "residual": -0.06, "sigma": 0.19},
         ],
     )
 
@@ -499,7 +505,7 @@ def test_station_plot_with_three_sigma_entries_stacks_inside_panel(tmp_path: Pat
     sigma_bbox = sigma_legend.get_window_extent(renderer=renderer)
     ax_bbox = ax1.get_window_extent(renderer=renderer)
 
-    assert sigma_labels == ["σ=0.29", "σ=0.05", "σ=0.11"]
+    assert sigma_labels == ["σ=0.29", "σ=0.05", "σ=0.11", "σ=0.13", "σ=0.19"]
     assert sigma_legend._loc == 1
     assert getattr(sigma_legend, "_ncols", None) == 1
     assert ax_bbox.x0 <= sigma_bbox.x0
@@ -507,7 +513,7 @@ def test_station_plot_with_three_sigma_entries_stacks_inside_panel(tmp_path: Pat
     assert sigma_bbox.y1 <= ax_bbox.y1 - 0.03 * ax_bbox.height
     assert sigma_bbox.y0 >= ax_bbox.y0 - 2.0
     sigma_text_bboxes = [text.get_window_extent(renderer=renderer) for text in sigma_legend.get_texts()]
-    assert sigma_text_bboxes[0].y0 > sigma_text_bboxes[1].y0 > sigma_text_bboxes[2].y0
+    assert all(upper.y0 > lower.y0 for upper, lower in zip(sigma_text_bboxes, sigma_text_bboxes[1:], strict=True))
     plt.close(fig)
 
 
@@ -663,9 +669,12 @@ def test_wet_snow_line_gated_event_shows_unavailable_with_residuals(tmp_path: Pa
         backend="Agg",
     )
 
-    note_texts = [text.get_text() for text in fig.axes[1].texts]
+    ax1 = fig.axes[1]
+    note_texts = [text.get_text() for text in ax1.texts]
+    sigma_labels = [text.get_text() for text in ax1.get_legend().get_texts()]
 
     assert any("Wet snow line unavailable" in text for text in note_texts)
+    assert sigma_labels == ["σ=150"]
     plt.close(fig)
 
 

@@ -507,7 +507,7 @@ def _draw_sigma_strip(ax, entries: list[tuple[str, str]], *, fontsize: float) ->
         return
     handles = [_marker_handle(color, size=4.8, markeredgewidth=0.8) for color, _label in entries]
     labels = [label for _color, label in entries]
-    inside_panel = len(labels) <= 3
+    inside_panel = len(labels) <= 5
     loc = "upper right" if inside_panel else "lower right"
     bbox_to_anchor = (0.99, 0.93) if inside_panel else (1.0, 1.05)
     ncol = 1 if inside_panel else len(labels)
@@ -527,6 +527,12 @@ def _draw_sigma_strip(ax, entries: list[tuple[str, str]], *, fontsize: float) ->
         borderaxespad=0.0,
     )
     legend._legend_box.align = "right"
+
+
+def _format_sigma_strip_label(sigma: float) -> str:
+    if np.isclose(sigma, round(sigma), rtol=1e-9, atol=1e-12):
+        return f"\u03c3={round(sigma):.0f}"
+    return f"\u03c3={sigma:.2f}"
 
 
 def _shared_station_sigma_groups(diag: pd.DataFrame) -> list[tuple[float, list[str]]]:
@@ -990,7 +996,7 @@ def _draw_weights_event(
             sigma_val: float | None = None
             if not sigma_series.empty:
                 sigma_val = float(sigma_series.iloc[0])
-                sigma_strip_entries.append((color, f"\u03c3={sigma_val:.2f}"))
+                sigma_strip_entries.append((color, _format_sigma_strip_label(sigma_val)))
                 residual_axis_values.extend([-sigma_val, sigma_val])
             if not sigma_series.empty and station_id not in shared_sigma_station_ids:
                 ax1.axvline(-sigma_val, color=color, lw=1.0, ls="-", alpha=0.9, zorder=2)
@@ -1035,7 +1041,7 @@ def _draw_weights_event(
             sigma_val = float(sigma.iloc[0])
             ax1.axvline(-sigma_val, color=frac_color, lw=1.0, ls="-", alpha=0.9, zorder=2)
             ax1.axvline(sigma_val, color=frac_color, lw=1.0, ls="-", alpha=0.9, zorder=2)
-            sigma_strip_entries.append((frac_color, f"\u03c3={sigma_val:.2f}"))
+            sigma_strip_entries.append((frac_color, _format_sigma_strip_label(sigma_val)))
             residual_axis_values.extend([-sigma_val, sigma_val])
         ax1.set_xlabel(_fraction_axis_label(observable), fontsize=fs_axis)
         ax1.xaxis.set_minor_locator(AutoMinorLocator(4))

@@ -187,7 +187,14 @@ def test_plot_result_overview_uses_four_panels_when_roi_series_exist(monkeypatch
     assert axes[0].get_title(loc="left") == "(a) Snow cover fraction (roi)"
     assert axes[1].get_title(loc="left") == "(b) Wet snow fraction (roi)"
     assert axes[2].lines[0].get_color() == da_variable_style("station_swe")["line"]
+    assert axes[2].lines[0].get_linewidth() == pytest.approx(plot_mod._RESULT_OVERVIEW_DATA_LW)
+    assert axes[2].lines[1].get_color() == "black"
+    assert axes[2].lines[1].get_linewidth() == pytest.approx(plot_mod._RESULT_OVERVIEW_DATA_LW)
     assert axes[3].lines[0].get_color() == da_variable_style("station_hs")["line"]
+    assert axes[3].lines[0].get_linewidth() == pytest.approx(plot_mod._RESULT_OVERVIEW_DATA_LW)
+    for ax in axes:
+        assert ax._left_title.get_position()[0] == pytest.approx(0.0)
+        assert ax._left_title.get_position()[1] == pytest.approx(1.0)
     assert isinstance(axes[2].yaxis.get_major_locator(), mticker.MultipleLocator)
     assert isinstance(axes[3].yaxis.get_major_locator(), mticker.MultipleLocator)
     swe_ticks = axes[2].yaxis.get_major_locator().tick_values(0.0, 200.0)
@@ -1253,6 +1260,8 @@ def test_plot_result_overview_supports_custom_station_panel(tmp_path: Path) -> N
         assert "black" in line_colors
         assert plot_mod.COLOR_DA_OBS == "#d62728"
         assert plot_mod.COLOR_DA_OBS in line_colors
+        for line in axes[1].lines[:3]:
+            assert line.get_linewidth() == pytest.approx(plot_mod._RESULT_OVERVIEW_DATA_LW)
         assert axes[1].collections
         assert out_path.is_file()
     finally:
@@ -1297,7 +1306,8 @@ def test_plot_result_overview_custom_ess_panel_uses_threshold_and_top_tick_only(
         assert axes[0].get_legend()._loc == 1
         assert not axes[0].get_legend().get_frame().get_visible()
         assert [text.get_text() for text in axes[0].get_legend().get_texts()] == ["ESS threshold"]
-        assert any(line.get_color() == "#d62728" and line.get_linestyle() == "--" for line in axes[0].lines)
+        assert axes[0].get_legend().legend_handles[0].get_color() == "black"
+        assert any(line.get_color() == "black" and line.get_linestyle() == "--" for line in axes[0].lines)
         assert len(plt.gcf().legends) == 0
         assert out_path.is_file()
     finally:
@@ -1655,7 +1665,8 @@ def test_plot_result_overview_score_panel_keeps_ess_threshold_local(tmp_path: Pa
         assert axes[0].get_title(loc="left") == "(a) Effective sample size"
         assert 23.5 not in axes[0].get_yticks()
         assert axes[0].get_ylim()[1] == 47.0
-        assert any(line.get_color() == "#d62728" and line.get_linestyle() == "--" for line in axes[0].lines)
+        assert axes[0].get_legend().legend_handles[0].get_color() == "black"
+        assert any(line.get_color() == "black" and line.get_linestyle() == "--" for line in axes[0].lines)
         assert axes[1].get_legend() is None
         assert len(plt.gcf().legends) == 2
         overview_labels = _figure_legend_labels(plt.gcf(), 0)

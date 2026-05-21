@@ -2458,6 +2458,15 @@ def test_buffered_extent_and_figure_height_follow_bounds(tmp_path: Path) -> None
     assert 2.9 <= height <= 4.8
 
 
+def test_buffered_extent_uses_five_percent_roi_padding_when_cell_minimum_does_not_dominate() -> None:
+    context = SimpleNamespace(
+        roi_gdf=SimpleNamespace(total_bounds=np.array([100.0, 200.0, 1100.0, 1200.0])),
+        spec=SimpleNamespace(transform=from_origin(0.0, 0.0, 10.0, 10.0)),
+    )
+
+    assert buffered_extent(context) == pytest.approx((50.0, 1150.0, 150.0, 1250.0))
+
+
 def test_google_zoom_meters_per_pixel_uses_slippy_map_scale() -> None:
     equator_zoom_1 = render_module._google_zoom_meters_per_pixel(0.0, 1.0)
     latitude_60_zoom_1 = render_module._google_zoom_meters_per_pixel(60.0, 1.0)

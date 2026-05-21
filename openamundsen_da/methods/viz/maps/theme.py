@@ -3,7 +3,7 @@ from __future__ import annotations
 
 _FIGURE_HEIGHT_MIN = 2.9
 _FIGURE_HEIGHT_MAX = 16.5
-_BUFFER_RATIO = 0.03
+_BUFFER_RATIO = 0.05
 _STATION_LABEL_RATIO = 0.04
 _GRID_COLOR = "#666666"
 _GRID_STYLE = (0, (4, 4))

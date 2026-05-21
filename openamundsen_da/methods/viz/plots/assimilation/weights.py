@@ -507,15 +507,16 @@ def _draw_sigma_strip(ax, entries: list[tuple[str, str]], *, fontsize: float) ->
         return
     handles = [_marker_handle(color, size=4.8, markeredgewidth=0.8) for color, _label in entries]
     labels = [label for _color, label in entries]
-    inside_panel = len(labels) <= 2
+    inside_panel = len(labels) <= 3
     loc = "upper right" if inside_panel else "lower right"
     bbox_to_anchor = (0.99, 0.93) if inside_panel else (1.0, 1.05)
+    ncol = 1 if inside_panel else len(labels)
     legend = ax.legend(
         handles,
         labels,
         loc=loc,
         bbox_to_anchor=bbox_to_anchor,
-        ncol=len(labels),
+        ncol=ncol,
         frameon=False,
         fontsize=fontsize,
         handlelength=0.8,
@@ -1261,7 +1262,7 @@ def _build_setup_weights_overview_page(
             ring_line_scale=0.72,
             marker_scale=0.8,
             font_size_bump=1.0,
-            axes_title_y=1.10,
+            axes_title_y=1.055,
             residual_xlim=residual_xlims.get(observable),
             y_ticks=_member_ticks(len(df.index)),
             station_color_config=station_color_config,

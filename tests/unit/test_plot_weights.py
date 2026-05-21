@@ -219,6 +219,31 @@ def test_setup_weights_overview_writes_paper_copy_without_figure_title(tmp_path:
         plt.close(item["fig"])
 
 
+def test_setup_weights_overview_places_event_title_close_to_panel(tmp_path: Path, monkeypatch) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
+    _add_weights_event(
+        project_dir,
+        step_idx=0,
+        observable="scf",
+        date_str="20230501",
+        weights_rows=[
+            {"member_id": "member_001", "residual": -0.1, "sigma": 0.2, "log_weight": -1.0, "weight": 0.6},
+            {"member_id": "member_002", "residual": 0.1, "sigma": 0.2, "log_weight": -1.2, "weight": 0.4},
+        ],
+    )
+
+    fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
+    weight_ax = _overview_axis_pairs(fig)[0][0]
+    title_text = next(text for text in weight_ax.texts if "2023-05-01" in text.get_text())
+
+    assert title_text.get_position()[1] == pytest.approx(1.055)
+    assert title_text.get_ha() == "left"
+    assert title_text.get_va() == "bottom"
+    plt.close(fig)
+
+
 def test_collect_marker_legend_entries_combines_station_and_fraction_labels(tmp_path: Path) -> None:
     setup_dir, project_dir, step_dir = _build_project_tree(tmp_path)
     _write_csv(
@@ -410,10 +435,13 @@ def test_station_plot_uses_inside_sigma_strip_and_shared_bottom_legend(tmp_path:
     assert sigma_labels == ["σ=0.29", "σ=0.05"]
     assert sigma_legend._legend_box.align == "right"
     assert sigma_legend._loc == 1
+    assert getattr(sigma_legend, "_ncols", None) == 1
     assert ax_bbox.x0 <= sigma_bbox.x0
     assert ax_bbox.x1 - 8.0 <= sigma_bbox.x1 <= ax_bbox.x1
     assert sigma_bbox.y1 <= ax_bbox.y1 - 0.03 * ax_bbox.height
     assert sigma_bbox.y0 >= ax_bbox.y0 - 2.0
+    sigma_text_bboxes = [text.get_window_extent(renderer=renderer) for text in sigma_legend.get_texts()]
+    assert sigma_text_bboxes[0].y0 > sigma_text_bboxes[1].y0
     assert bottom_labels == [
         "Latschbloder (σ=500%)",
         "Proviantdepot (σ=10%)",
@@ -422,7 +450,7 @@ def test_station_plot_uses_inside_sigma_strip_and_shared_bottom_legend(tmp_path:
     plt.close(fig)
 
 
-def test_station_plot_with_many_sigma_entries_uses_above_panel_strip(tmp_path: Path) -> None:
+def test_station_plot_with_three_sigma_entries_stacks_inside_panel(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 
     setup_dir, _project_dir, step_dir = _build_project_tree(tmp_path)
@@ -472,8 +500,14 @@ def test_station_plot_with_many_sigma_entries_uses_above_panel_strip(tmp_path: P
     ax_bbox = ax1.get_window_extent(renderer=renderer)
 
     assert sigma_labels == ["σ=0.29", "σ=0.05", "σ=0.11"]
-    assert sigma_legend._loc == 4
-    assert sigma_bbox.y0 >= ax_bbox.y1
+    assert sigma_legend._loc == 1
+    assert getattr(sigma_legend, "_ncols", None) == 1
+    assert ax_bbox.x0 <= sigma_bbox.x0
+    assert ax_bbox.x1 - 8.0 <= sigma_bbox.x1 <= ax_bbox.x1
+    assert sigma_bbox.y1 <= ax_bbox.y1 - 0.03 * ax_bbox.height
+    assert sigma_bbox.y0 >= ax_bbox.y0 - 2.0
+    sigma_text_bboxes = [text.get_window_extent(renderer=renderer) for text in sigma_legend.get_texts()]
+    assert sigma_text_bboxes[0].y0 > sigma_text_bboxes[1].y0 > sigma_text_bboxes[2].y0
     plt.close(fig)
 
 

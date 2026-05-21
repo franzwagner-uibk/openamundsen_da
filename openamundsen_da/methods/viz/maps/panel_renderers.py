@@ -13,7 +13,7 @@ import rasterio
 from loguru import logger
 from matplotlib.cm import ScalarMappable
 from matplotlib import colormaps
-from matplotlib.colors import BoundaryNorm, LinearSegmentedColormap, ListedColormap, Normalize, TwoSlopeNorm
+from matplotlib.colors import BoundaryNorm, ListedColormap, Normalize, TwoSlopeNorm
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Rectangle
 from rasterio.warp import Resampling, reproject
@@ -79,11 +79,10 @@ from openamundsen_da.methods.viz.maps.styles import (
     FSC_OBS_CMAP,
     FSC_INVALID_COLOR,
     INCREMENT_CMAP,
-    LANDCOVER_LABELS,
     SNOW_DEPTH_REFERENCE_TICKS_M,
     WET_SNOW_COLORS,
     WET_SNOW_LABELS,
-    landcover_cmap_for_codes,
+    landcover_classes_for_present_codes,
     model_colorbar_style,
     model_map_cmap,
     model_map_norm,
@@ -139,24 +138,10 @@ from openamundsen_da.util.da_observables import weights_csv_name
 
 
 _FRACTION_MODEL_CMAP = colormaps["Greys"]
-_ELEVATION_BAND_WSF_ACCENT_LOW = 0.45
-_ELEVATION_BAND_WSF_ACCENT_HIGH = 0.55
-_ELEVATION_BAND_WSF_ACCENT_COLOR = "#d95f02"
 _SUBDOMAIN_NO_DA_COLOR = "#525252"
 _SUBDOMAIN_NO_DA_HATCH = "////"
 _SUBDOMAIN_NO_DA_LABEL = "no DA"
-_ELEVATION_BAND_WSF_CMAP = LinearSegmentedColormap.from_list(
-    "oa_da_elevation_band_wsf",
-    (
-        (0.00, "#ffffff"),
-        (_ELEVATION_BAND_WSF_ACCENT_LOW, "#b8b8b8"),
-        (_ELEVATION_BAND_WSF_ACCENT_LOW + 0.0001, _ELEVATION_BAND_WSF_ACCENT_COLOR),
-        (0.50, _ELEVATION_BAND_WSF_ACCENT_COLOR),
-        (_ELEVATION_BAND_WSF_ACCENT_HIGH - 0.0001, _ELEVATION_BAND_WSF_ACCENT_COLOR),
-        (_ELEVATION_BAND_WSF_ACCENT_HIGH, "#8f8f8f"),
-        (1.00, "#000000"),
-    ),
-)
+_ELEVATION_BAND_WSF_CMAP = _FRACTION_MODEL_CMAP
 _WET_SNOW_MODEL_CODES = (110, 125)
 _SCF_BINARY_CMAP = ListedColormap(["#efefef", "#111111"], name="scf_binary")
 
@@ -462,10 +447,13 @@ def classified_display_labels(
     if panel.kind == "landcover":
         masked_landcover = np.ma.masked_array(context.landcover, mask=~context.roi_mask)
         present_codes = {int(value) for value in masked_landcover.compressed() if np.isfinite(value)}
-        active_codes = [code for code in LANDCOVER_LABELS if code in present_codes]
-        if not active_codes:
-            return list(LANDCOVER_LABELS.values())
-        return [LANDCOVER_LABELS[code] for code in active_codes]
+        return [
+            item.label
+            for item in landcover_classes_for_present_codes(
+                present_codes,
+                grouping=panel.landcover_grouping,
+            )
+        ]
 
     if panel.kind in {"wet_snow", "wet_snow_line"}:
         if panel.source in {"prior_probability", "posterior", "posterior_probability"}:
@@ -1188,8 +1176,16 @@ def render_static_panel(
     panel_grid_extent = grid_extent(context)
 
     if panel.kind == "hillshade":
+        shade = hillshade(context, derived_cache=derived_cache)
+        if shade.shape == context.roi_mask.shape:
+            shade = np.ma.masked_array(
+                shade,
+                mask=(~context.roi_mask) | (~np.isfinite(shade)),
+            )
+        else:
+            shade = hillshade_underlay(context, derived_cache=derived_cache)
         ax.imshow(
-            hillshade(context, derived_cache=derived_cache),
+            shade,
             cmap="Greys_r",
             extent=hillshade_extent(context),
             origin="upper",
@@ -1219,15 +1215,22 @@ def render_static_panel(
         return {}
 
     if panel.kind == "landcover":
-        masked_landcover = masked_invalid(field_array(context, "landcover"))
-        present_codes = {int(value) for value in masked_landcover.compressed() if np.isfinite(value)}
-        canonical_codes = sorted(present_codes) if present_codes else [0]
+        masked_landcover = masked(field_array(context, "landcover"), context.roi_mask)
+        present_source_codes = {int(value) for value in masked_landcover.compressed() if np.isfinite(value)}
+        landcover_classes = landcover_classes_for_present_codes(
+            present_source_codes,
+            grouping=panel.landcover_grouping,
+        )
+        canonical_codes = [item.code for item in landcover_classes]
         code_to_index = {code: idx for idx, code in enumerate(canonical_codes)}
+        class_lookup = {item.code: item for item in landcover_classes}
         categorical = np.full(masked_landcover.shape, np.nan, dtype=float)
         filled = masked_landcover.filled(np.nan)
         for code, idx in code_to_index.items():
-            categorical[np.isclose(filled, float(code), equal_nan=False)] = idx
-        cmap = landcover_cmap_for_codes(canonical_codes)
+            source_values = [float(source_code) for source_code in class_lookup[code].source_codes]
+            categorical[np.isin(filled, source_values)] = idx
+        categorical = np.ma.masked_invalid(categorical)
+        cmap = ListedColormap([item.color for item in landcover_classes], name="oa_da_landcover")
         norm = BoundaryNorm(np.arange(-0.5, len(canonical_codes) + 0.5), cmap.N)
         image = ax.imshow(categorical, cmap=cmap, norm=norm, extent=panel_grid_extent, origin="upper", interpolation="nearest", zorder=5)
         apply_common_overlays(
@@ -1248,10 +1251,10 @@ def render_static_panel(
         )
         legend_handles = classified_legend_handles(
             canonical_codes=canonical_codes,
-            present_codes=present_codes,
-            label_lookup=LANDCOVER_LABELS,
-            color_lookup=lambda code: cmap(code_to_index[code]),
-            fallback_codes=[0],
+            present_codes={item.code for item in landcover_classes},
+            label_lookup={item.code: item.label for item in landcover_classes},
+            color_lookup=lambda code: class_lookup[code].color,
+            fallback_codes=canonical_codes,
         )
         draw_classified_legend(ax, legend_handles, layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default))
         draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=panel_date(panel, defaults), resolve_flag=resolve_flag)
@@ -1261,7 +1264,7 @@ def render_static_panel(
     field = _STATIC_FIELD_KIND_TO_FIELD[panel.kind]
     preset = require_static_field_preset(field)
     raw_data = field_array(context, field)
-    data = masked_invalid(raw_data)
+    data = masked(raw_data, context.roi_mask)
     norm = static_field_norm(preset, data.filled(np.nan))
     image = ax.imshow(data, cmap=static_field_cmap(preset), norm=norm, extent=panel_grid_extent, origin="upper", interpolation="nearest", zorder=5)
     overlay_invalid_inside_roi(ax, inside_roi_invalid_mask(raw_data, context.roi_mask), extent=panel_grid_extent)
@@ -1281,7 +1284,7 @@ def render_static_panel(
         show_grid=show_grid,
         show_y_ticklabels=panel.col == 0,
     )
-    colorbar_style = static_field_colorbar_style(preset)
+    colorbar_style = static_field_colorbar_style(preset, data.filled(np.nan))
     if resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
         attach_colorbar(
             ax,
@@ -1591,7 +1594,7 @@ def render_uncertainty_panel(
     norm = Normalize(vmin=0.0, vmax=100.0)
     image = ax.imshow(
         np.ma.masked_invalid(scene.array),
-        cmap=colormaps["YlOrRd"],
+        cmap=colormaps["viridis"],
         norm=norm,
         extent=scene.bounds,
         origin="upper",
@@ -1837,7 +1840,7 @@ def _posterior_weighted_wet_fraction_array(
             member_weights.append(1.0)
 
     if not member_masks:
-        raise FileNotFoundError(f"Missing weighted posterior members for wet snow line altitude (WSLA) map in {step_dir}")
+        raise FileNotFoundError(f"Missing weighted posterior members for wet snow line (WSLA) map in {step_dir}")
 
     stack = np.stack(member_masks, axis=0)
     weight_arr = np.asarray(member_weights, dtype=float)
@@ -1967,7 +1970,14 @@ def _contour_xy(context: StaticContext) -> tuple[np.ndarray, np.ndarray]:
 
 
 _WSL_MODEL_COLOR = da_variable_line_color("wet_snow_line")
-_WSL_OBS_COLOR = "#9467bd"
+_WSL_PANEL_EXTENT_PAD_RATIO = 0.02
+
+
+def _padded_wsl_panel_extent(extent: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    xmin, xmax, ymin, ymax = (float(value) for value in extent)
+    dx = (xmax - xmin) * _WSL_PANEL_EXTENT_PAD_RATIO
+    dy = (ymax - ymin) * _WSL_PANEL_EXTENT_PAD_RATIO
+    return (xmin - dx, xmax + dx, ymin - dy, ymax + dy)
 
 
 def _draw_wsl_contour(
@@ -2023,12 +2033,12 @@ def _wsl_callout_text(level: float | None) -> str:
 def _annotate_wsl_callout(ax, *, level: float | None, color: str = "black") -> None:
     apply_overlay_label_halo(
         ax.text(
-            0.98,
-            0.955,
+            0.02,
+            0.045,
             _wsl_callout_text(level),
             transform=ax.transAxes,
-            ha="right",
-            va="top",
+            ha="left",
+            va="bottom",
             fontsize=6.0,
             color=color,
             zorder=_ANNOTATION_ZORDER + 2,
@@ -2049,7 +2059,7 @@ def _wet_snow_line_legend_handles(
     if include_model_wsl:
         handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, label="model WSLA"))
     if include_obs_wsl:
-        handles.append(Line2D([0], [0], color=_WSL_OBS_COLOR, linewidth=1.6, linestyle=obs_linestyle, label="observation WSLA"))
+        handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, linestyle=obs_linestyle, label="observation WSLA"))
     return handles
 
 
@@ -2324,6 +2334,7 @@ def render_wet_snow_line_panel(
     if date is None:
         raise ValueError(f"Panel '{panel.kind}' requires a date (panel '{panel.title or panel.kind}')")
     date = pd.Timestamp(date).normalize()
+    display_extent = _padded_wsl_panel_extent(extent)
     show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
     if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
         hillshade_mode = resolve_hillshade_extent(panel, defaults, builtin="roi")
@@ -2450,20 +2461,20 @@ def render_wet_snow_line_panel(
         ax,
         context=context,
         level=contour_level,
-        color=_WSL_OBS_COLOR if panel.source is None else _WSL_MODEL_COLOR,
+        color=_WSL_MODEL_COLOR,
         linestyle="-",
         zorder=9.5 if panel.source is not None else 9,
     )
     obs_contour_drawn = False
     callout_color = "black"
     if contour_level is not None and np.isfinite(contour_level):
-        callout_color = _WSL_OBS_COLOR if panel.source is None else _WSL_MODEL_COLOR
+        callout_color = _WSL_MODEL_COLOR
     _annotate_wsl_callout(ax, level=contour_level, color=callout_color)
 
     apply_common_overlays(
         ax,
         context=context,
-        extent=extent,
+        extent=display_extent,
         show_roi=resolve_panel_toggle(panel.show_roi, True),
         show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
         show_stations_name=resolve_panel_toggle(panel.show_stations_name, False),
@@ -2471,7 +2482,7 @@ def render_wet_snow_line_panel(
     )
     apply_map_axis_style(
         ax,
-        extent,
+        display_extent,
         title=panel_title(label, panel_semantic_title(panel)),
         show_grid=show_grid,
         show_y_ticklabels=panel.col == 0,
@@ -2500,7 +2511,7 @@ def render_wet_snow_line_panel(
             ),
             layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default),
         )
-    draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=date, resolve_flag=resolve_flag)
+    draw_panel_extras(ax, panel=panel, defaults=defaults, extent=display_extent, date=date, resolve_flag=resolve_flag)
     if probability_panel:
         _draw_inpanel_wsl_legend(ax, posterior_overlay_handles)
     draw_map_grid_overlay(ax, show_grid=show_grid)
@@ -2572,7 +2583,7 @@ def render_wet_snow_elevation_fraction_panel(
         if panel.source is None
         else _wet_snow_line_from_fraction(context=context, wet_fraction=values)
     )
-    wsl_color = _WSL_OBS_COLOR if panel.source is None else _WSL_MODEL_COLOR
+    wsl_color = _WSL_MODEL_COLOR
     wsl_drawn = _draw_wsl_contour(
         ax,
         context=context,

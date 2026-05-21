@@ -12,6 +12,7 @@ from loguru import logger
 
 from openamundsen_da.benchmark.pipeline.core import load_benchmark_config
 from openamundsen_da.methods.viz.plots.benchmark.core import (
+    apply_score_tick_labels,
     build_event_skill_plot_data,
     compute_event_skill_plot_positions,
     draw_score_metric_panel,
@@ -41,21 +42,17 @@ from openamundsen_da.methods.viz.plots.theme import (
     COLOR_DA_OBS,
     FIGHEIGHT_OVERVIEW_ROW,
     FIGWIDTH_OVERVIEW_PAPER,
-    OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR,
     OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR,
-    LW_MEAN,
-    LW_OPEN,
     SIZE_DA_OBS,
     LW_DA_OBS,
     da_variable_style,
 )
 from openamundsen_da.methods.viz.plots.common import (
     apply_fraction_grid,
-    draw_assim_labels,
+    draw_adaptive_assim_labels,
     draw_assimilation_markers,
     draw_assimilation_vlines,
     format_station_label,
-    result_title_pad,
     result_axis_scale,
 )
 from openamundsen_da.methods.viz.fraction_series import (
@@ -160,19 +157,26 @@ _PANEL_YLABELS = {
     "scores-zskill": "zSkill",
 }
 
-_PANEL_TITLE_X_OFFSET = 0.018
-_PANEL_TITLE_Y_OFFSET = 0.012
+_PANEL_TITLE_X = 0.0
+_PANEL_TITLE_Y_OFFSET = 0.0
+_PANEL_TITLE_Y_OFFSET_WITH_ASSIM_LABELS = 0.007
+_PANEL_TITLE_PAD = 2.0
+_PANEL_TITLE_PAD_WITH_ASSIM_LABELS = 9.0
+_RESULT_OVERVIEW_DATA_LW = 1.35
+_RESULT_OVERVIEW_MATCHED_EVENT_LW = 1.35
+_ESS_THRESHOLD_COLOR = "black"
+_ESS_THRESHOLD_LW = 0.9
 _ALTITUDE_MAJOR_TICK_STEPS_M = (100.0, 200.0, 250.0, 500.0, 1000.0, 2000.0)
 _ALTITUDE_MAX_MAJOR_INTERVALS = 5.0
 
 _DEFAULT_TITLES = {
-    "fSC": "snow cover fraction (roi) - openAMUNDSEN ensemble and satellite observations",
-    "WSF": "wet snow fraction (roi) - openAMUNDSEN ensemble and satellite observations",
-    "WSLA": "wet snow line altitude (roi) - openAMUNDSEN ensemble and satellite observations",
-    "roi-swe": "mean swe (roi) - openAMUNDSEN ensemble and open loop",
-    "roi-sd": "mean snow depth (roi) - openAMUNDSEN ensemble and open loop",
-    "ess": "effective sample size",
-    "scores-crpss": "CRPSS",
+    "fSC": "Snow cover fraction (roi)",
+    "WSF": "Wet snow fraction (roi)",
+    "WSLA": "Wet snow line (roi)",
+    "roi-swe": "Mean SWE (roi)",
+    "roi-sd": "Mean snow depth (roi)",
+    "ess": "Effective sample size",
+    "scores-crpss": "Continuous ranked probability skill score (CRPSS)",
     "scores-ner": "NER",
     "scores-zskill": "zSkill",
 }
@@ -206,6 +210,8 @@ _ASSIM_STYLES = {
     "station_hs": {"ls": "--"},
     "station_swe": {"ls": "--"},
 }
+_DA_EVENT_STANDARD_COLOR = "#777777"
+_DA_EVENT_MATCHED_COLOR = "#000000"
 
 _STATION_PANEL_EVENT_VARIABLE = {
     "station-sd": "station_hs",
@@ -529,12 +535,9 @@ def _station_assimilation_dates(events: list[AssimilationEvent], panel: str) -> 
 def _station_title(spec: PanelSpec, station_data: StationPanelData) -> str:
     if spec.title:
         return spec.title
-    metric = "snow depth" if spec.panel == "station-sd" else "swe"
+    metric = "Snow depth" if spec.panel == "station-sd" else "SWE"
     alt_text = f" {int(station_data.altitude_m)} m" if station_data.altitude_m is not None else ""
-    return (
-        f"{metric} {station_data.display_name}{alt_text} - openAMUNDSEN ensemble "
-        "and station observation"
-    )
+    return f"{metric} {station_data.display_name}{alt_text}"
 
 
 def _panel_title(spec: PanelSpec, station_data: StationPanelData | None = None) -> str:
@@ -807,9 +810,8 @@ def _panel_style(panel: str) -> dict[str, str]:
 def _assim_style(variable: str) -> dict[str, str]:
     meta = _ASSIM_STYLES.get(variable)
     if meta is None:
-        return {"variable_key": variable, "color": "#777777", "ls": "--"}
-    style = da_variable_style(variable)
-    return {"variable_key": variable, "color": style["line"], "ls": str(meta["ls"])}
+        return {"variable_key": variable}
+    return {"variable_key": variable, "ls": str(meta["ls"])}
 
 
 def _assim_labels(events: list[AssimilationEvent]) -> tuple[list[pd.Timestamp], list[str]]:
@@ -826,16 +828,24 @@ def _center_assim_event_times(events: list[AssimilationEvent]) -> list[pd.Timest
     return [pd.to_datetime(event.date) + pd.Timedelta(hours=12) for event in events]
 
 
-def _draw_all_assim(ax, events: list[AssimilationEvent], *, center_of_day: bool = False) -> None:
+def _draw_all_assim(
+    ax,
+    events: list[AssimilationEvent],
+    *,
+    center_of_day: bool = False,
+    matched_variable: str | None = None,
+) -> None:
     draw_dates = _center_assim_event_times(events) if center_of_day else [pd.to_datetime(event.date) for event in events]
+    matched_token = str(matched_variable).strip().lower() if matched_variable is not None else None
     for event, draw_date in zip(events, draw_dates):
         meta = _assim_style(event.variable)
+        is_matching_panel_event = matched_token is not None and str(meta["variable_key"]).strip().lower() == matched_token
         draw_assimilation_vlines(
             ax,
             [draw_date],
-            color=str(meta["color"]),
-            ls=str(meta["ls"]),
-            lw=1.2,
+            color=_DA_EVENT_MATCHED_COLOR if is_matching_panel_event else _DA_EVENT_STANDARD_COLOR,
+            ls="--",
+            lw=_RESULT_OVERVIEW_MATCHED_EVENT_LW if is_matching_panel_event else 1.0,
             alpha=0.95,
             label="_nolegend_",
         )
@@ -879,10 +889,11 @@ def _add_assim_label_axis(ax, events: list[AssimilationEvent], idx: int, *, cent
     for spine in label_axis.spines.values():
         spine.set_visible(False)
 
-    draw_assim_labels(
+    draw_adaptive_assim_labels(
         label_axis,
         [item[0] for item in visible_items],
         labels=[item[1] for item in visible_items],
+        avoid_artists=[ax._left_title],
         max_labels=max(1, len(visible_items)),
         y_offset_pts=_ASSIM_LABEL_ROW_OFFSETS_PTS[0],
         rotation=0.0,
@@ -913,8 +924,8 @@ def _build_result_overview_legend_handles(
                 color=COLOR_DA_OBS,
                 marker="x",
                 linestyle="none",
-                markersize=6.2,
-                markeredgewidth=1.6,
+                markersize=5.6,
+                markeredgewidth=1.45,
                 label="observation used for data assimilation",
             )
         )
@@ -931,7 +942,7 @@ def _build_result_overview_legend_handles(
             )
         )
     if legend_state.open_loop:
-        handles.append(Line2D([0], [0], color="black", lw=1.8, label="open loop"))
+        handles.append(Line2D([0], [0], color="black", lw=_RESULT_OVERVIEW_DATA_LW, label="open loop"))
     if legend_state.ensemble_summary:
         handles.append(
             _EnsembleLegendHandle(
@@ -942,7 +953,7 @@ def _build_result_overview_legend_handles(
                         linewidth=0.9,
                         alpha=BAND_ALPHA,
                     ),
-                    Line2D([0], [0], color="#666666", lw=1.2),
+                    Line2D([0], [0], color="#666666", lw=_RESULT_OVERVIEW_DATA_LW),
                 ),
                 "ensemble (min - max, mean)",
             )
@@ -953,12 +964,14 @@ def _build_result_overview_legend_handles(
                 [0],
                 [0],
                 color=COLOR_DA_OBS,
-                lw=LW_DA_OBS,
+                lw=_RESULT_OVERVIEW_DATA_LW,
                 label="station observation",
             ),
         )
     if legend_state.da_event:
-        handles.append(Line2D([0], [0], color="#666666", lw=1.2, ls="--", label="data assimilation event"))
+        handles.append(
+            Line2D([0], [0], color=_DA_EVENT_STANDARD_COLOR, lw=1.2, ls="--", label="data assimilation event")
+        )
     return handles
 
 
@@ -987,7 +1000,7 @@ def _build_result_overview_legends(
             handles=overview_handles,
             handler_map=_result_overview_legend_handler_map(),
             loc="lower left",
-            bbox_to_anchor=(0.055, 0.008, 0.865, 0.06),
+            bbox_to_anchor=(0.055, 0.018, 0.865, 0.06),
             bbox_transform=fig.transFigure,
             mode="expand",
             ncol=3,
@@ -1008,7 +1021,7 @@ def _build_result_overview_legends(
             handles=overview_handles,
             handler_map=_result_overview_legend_handler_map(),
             loc="lower left",
-            bbox_to_anchor=(0.055, 0.038, 0.865, 0.032),
+            bbox_to_anchor=(0.055, 0.054, 0.865, 0.032),
             bbox_transform=fig.transFigure,
             mode="expand",
             ncol=min(4, len(overview_handles)),
@@ -1025,7 +1038,7 @@ def _build_result_overview_legends(
         handles=score_handles,
         handler_map=_result_overview_legend_handler_map(),
         loc="lower left",
-        bbox_to_anchor=(0.055, 0.007, 0.865, 0.032),
+        bbox_to_anchor=(0.055, 0.018, 0.865, 0.032),
         bbox_transform=fig.transFigure,
         mode="expand",
         ncol=5,
@@ -1038,6 +1051,12 @@ def _build_result_overview_legends(
         borderaxespad=0.0,
     )
     legends.append(score_legend)
+    if overview_handles:
+        fig.canvas.draw()
+        score_bbox = score_legend.get_window_extent(renderer=fig.canvas.get_renderer()).transformed(
+            fig.transFigure.inverted()
+        )
+        overview_legend.set_bbox_to_anchor((0.055, float(score_bbox.y1) + 0.008, 0.865, 0.032), transform=fig.transFigure)
     return legends
 
 
@@ -1070,6 +1089,53 @@ def _apply_altitude_y_ticks(ax) -> None:
         return
     ax.yaxis.set_major_locator(MultipleLocator(step))
     ax.yaxis.set_minor_locator(MultipleLocator(step / 2.0))
+
+
+def _label_lower_clean_1000m_y_ticks(ax) -> None:
+    from matplotlib.ticker import FuncFormatter
+
+    ymin, ymax = sorted(float(value) for value in ax.get_ylim())
+    tol = max(abs(ymax - ymin), 1.0) * 1e-9
+    ticks = [float(tick) for tick in ax.get_yticks() if ymin - tol <= float(tick) <= ymax + tol]
+    if not ticks:
+        return
+    candidates = [
+        tick
+        for tick in ticks
+        if abs(tick % 1000.0) <= tol or abs((tick % 1000.0) - 1000.0) <= tol
+    ]
+    if len(candidates) > 2:
+        candidates = candidates[:2]
+    selected = set(candidates)
+
+    def _format_tick(value: float, _pos: int) -> str:
+        return f"{value:g}" if any(abs(float(value) - tick) <= tol for tick in selected) else ""
+
+    ax.yaxis.set_major_formatter(FuncFormatter(_format_tick))
+
+
+def _label_every_second_dense_y_ticks_from_bottom(ax, *, max_visible_labels: int = 4) -> None:
+    from matplotlib.ticker import FuncFormatter
+
+    if max_visible_labels < 2:
+        raise ValueError("max_visible_labels must be at least 2")
+    ymin, ymax = sorted(float(value) for value in ax.get_ylim())
+    tol = max(abs(ymax - ymin), 1.0) * 1e-9
+    ticks = [float(tick) for tick in ax.get_yticks() if ymin - tol <= float(tick) <= ymax + tol]
+    if len(ticks) <= max_visible_labels:
+        selected_ticks = ticks
+    else:
+        selected_ticks = ticks[0::2][:max_visible_labels]
+    if len(selected_ticks) > 2 and abs(selected_ticks[-1] - ymax) <= tol:
+        selected_ticks = selected_ticks[:-1]
+    selected = set(selected_ticks)
+
+    def _format_tick(value: float, _pos: int) -> str:
+        if not any(abs(float(value) - tick) <= tol for tick in selected):
+            return ""
+        return f"{value:g}"
+
+    ax.yaxis.set_major_formatter(FuncFormatter(_format_tick))
 
 
 def _apply_result_y_ticks(ax, panel: str) -> None:
@@ -1171,13 +1237,62 @@ def _apply_shared_result_scale(ax, panel: str, shared_scales: dict[str, tuple[fl
 
 
 def _apply_fraction_ticks(ax) -> None:
-    ax.set_yticks([0.25, 0.5, 0.75, 1.0])
+    ax.set_yticks([0.0, 0.25, 0.5, 0.75, 1.0], labels=["", "", "0.5", "", "1"])
 
 
 def _apply_ess_ticks(ax, ensemble_size: int | None, *, threshold: float | None = None) -> None:
     ticks = ess_axis_ticks(ensemble_size, threshold=threshold)
     if ticks:
         ax.set_yticks(ticks)
+
+
+def _add_ess_threshold_legend(ax) -> None:
+    from matplotlib.lines import Line2D
+
+    legend = ax.legend(
+        handles=[
+            Line2D(
+                [0],
+                [0],
+                color=_ESS_THRESHOLD_COLOR,
+                lw=_ESS_THRESHOLD_LW,
+                ls="--",
+                label="ESS threshold",
+            )
+        ],
+        loc="upper right",
+        frameon=False,
+        fontsize=6.2,
+        handlelength=1.8,
+        handletextpad=0.35,
+        labelspacing=0.2,
+        borderpad=0.0,
+        borderaxespad=0.35,
+    )
+    legend.set_zorder(40)
+
+
+def _align_panel_titles_to_axes(title_artists: list[tuple[object, object, bool]]) -> None:
+    for _ax, title_artist, has_top_assim_labels in title_artists:
+        title_artist.set_x(_PANEL_TITLE_X)
+        title_offset = _PANEL_TITLE_Y_OFFSET_WITH_ASSIM_LABELS if has_top_assim_labels else _PANEL_TITLE_Y_OFFSET
+        title_artist.set_y(1.0 + title_offset)
+
+
+def _hide_title_overlapping_y_tick_labels(fig, title_artists: list[tuple[object, object, bool]]) -> None:
+    renderer = fig.canvas.get_renderer()
+    for ax, title_artist, _has_top_assim_labels in title_artists:
+        title_bbox = title_artist.get_window_extent(renderer)
+        for tick in ax.yaxis.get_major_ticks():
+            for label in (tick.label1, tick.label2):
+                if label.get_text() and label.get_visible() and title_bbox.overlaps(label.get_window_extent(renderer)):
+                    label.set_visible(False)
+
+
+def _thin_final_result_y_tick_labels(axes, specs: list[PanelSpec]) -> None:
+    for ax, spec in zip(axes, specs, strict=True):
+        if spec.panel == "roi-swe":
+            _label_every_second_dense_y_ticks_from_bottom(ax, max_visible_labels=4)
 
 
 def _apply_time_axis_labels(axes, x_bounds: tuple[pd.Timestamp, pd.Timestamp] | None) -> None:
@@ -1373,14 +1488,7 @@ def plot_result_overview(
     if not specs:
         raise ValueError("No data available to plot.")
 
-    height_ratios = []
-    for spec in specs:
-        if spec.panel == "ess":
-            height_ratios.append(0.5)
-        elif _is_score_panel(spec.panel):
-            height_ratios.append(OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR)
-        else:
-            height_ratios.append(OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR)
+    height_ratios = [OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR for _spec in specs]
     total_height_units = sum(height_ratios)
     fig, axes = plt.subplots(
         len(specs),
@@ -1391,7 +1499,7 @@ def plot_result_overview(
     )
     if len(specs) == 1:
         axes = [axes]
-    title_artists: list[tuple[object, object]] = []
+    title_artists: list[tuple[object, object, bool]] = []
 
     roi_swe_env = _band_frame(roi_swe_members)
     roi_snow_depth_env = _band_frame(roi_snow_depth_members)
@@ -1418,16 +1526,18 @@ def plot_result_overview(
             station_data = station_panels[(spec.station_id.lower(), value_col)]
         panel_style = None if _is_score_panel(spec.panel) else _panel_style(spec.panel)
 
+        has_top_assim_labels = bool(events) and idx == 0
         title_artist = ax.set_title(
             f"({letter}) {(_ess_panel_title(spec, current_ess_panel) if spec.panel == 'ess' else _panel_title(spec, station_data))}",
             loc="left",
             fontsize=9.4,
-            pad=result_title_pad(bool(events)),
+            pad=_PANEL_TITLE_PAD_WITH_ASSIM_LABELS if has_top_assim_labels else _PANEL_TITLE_PAD,
         )
-        title_artists.append((ax, title_artist))
+        title_artists.append((ax, title_artist, has_top_assim_labels))
         center_assim = spec.panel in {"roi-swe", "roi-sd", "station-swe", "station-sd"}
         if not _is_score_panel(spec.panel):
-            _draw_all_assim(ax, events, center_of_day=center_assim)
+            matched_variable = _PANEL_VARIABLE_KEYS.get(spec.panel) if spec.panel != "ess" else None
+            _draw_all_assim(ax, events, center_of_day=center_assim, matched_variable=matched_variable)
             legend_state.da_event = legend_state.da_event or bool(events)
 
         if _is_score_panel(spec.panel):
@@ -1443,8 +1553,9 @@ def plot_result_overview(
                 assimilation_events=events,
             )
             legend_state.da_event = legend_state.da_event or bool(events)
-            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=_PANEL_YLABEL_FONT_SIZE)
+            ax.set_ylabel("")
             ax.set_ylim(*score_metric_ylim(metric_points, score_metric))
+            apply_score_tick_labels(ax)
             bounds = _date_bounds_frames(pd.DataFrame({"date": pd.to_datetime(metric_points["assimilation_date"])}))
         elif spec.panel == "fSC":
             scf_obs_points = _finite_value_points(scf_obs, "scf")
@@ -1463,13 +1574,13 @@ def plot_result_overview(
                     scf_env["value_mean"],
                     "-",
                     color=panel_style["line"],
-                    lw=LW_MEAN,
+                    lw=_RESULT_OVERVIEW_DATA_LW,
                     alpha=0.9,
                     label="_nolegend_",
                 )
             if _frame_has_finite_value(scf_model, "scf"):
                 legend_state.open_loop = True
-                ax.plot(scf_model["date"], scf_model["scf"], "-", color="black", lw=LW_OPEN, label="_nolegend_")
+                ax.plot(scf_model["date"], scf_model["scf"], "-", color="black", lw=_RESULT_OVERVIEW_DATA_LW, label="_nolegend_")
             if spec.show_obs and scf_obs_points is not None and not scf_obs_points.empty:
                 legend_state.satellite_observation = True
                 ax.plot(
@@ -1499,9 +1610,9 @@ def plot_result_overview(
                         linewidth=LW_DA_OBS,
                         draw_vlines=False,
                     )
-            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=_PANEL_YLABEL_FONT_SIZE)
+            ax.set_ylabel("")
             ax.set_ylim(0, 1)
-            apply_fraction_grid(ax, y_step=0.2)
+            apply_fraction_grid(ax, y_step=0.25)
             _apply_fraction_ticks(ax)
             bounds = _date_bounds_frames(scf_obs, scf_model, scf_env)
         elif spec.panel == "WSF":
@@ -1521,7 +1632,7 @@ def plot_result_overview(
                     wet_env["value_mean"],
                     "-",
                     color=panel_style["line"],
-                    lw=LW_MEAN,
+                    lw=_RESULT_OVERVIEW_DATA_LW,
                     alpha=0.9,
                     label="_nolegend_",
                 )
@@ -1532,7 +1643,7 @@ def plot_result_overview(
                     wet_model["wet_snow_fraction"],
                     "-",
                     color="black",
-                    lw=LW_OPEN,
+                    lw=_RESULT_OVERVIEW_DATA_LW,
                     label="_nolegend_",
                 )
             if spec.show_obs and wet_obs_points is not None and not wet_obs_points.empty:
@@ -1564,9 +1675,9 @@ def plot_result_overview(
                         linewidth=LW_DA_OBS,
                         draw_vlines=False,
                     )
-            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=_PANEL_YLABEL_FONT_SIZE)
+            ax.set_ylabel("")
             ax.set_ylim(0, 1)
-            apply_fraction_grid(ax, y_step=0.2)
+            apply_fraction_grid(ax, y_step=0.25)
             _apply_fraction_ticks(ax)
             bounds = _date_bounds_frames(wet_obs, wet_model, wet_env)
         elif spec.panel == "WSLA":
@@ -1586,7 +1697,7 @@ def plot_result_overview(
                     wsl_env["value_mean"],
                     "-",
                     color=panel_style["line"],
-                    lw=LW_MEAN,
+                    lw=_RESULT_OVERVIEW_DATA_LW,
                     alpha=0.95,
                     label="_nolegend_",
                 )
@@ -1600,7 +1711,7 @@ def plot_result_overview(
                     wsl_model["wet_snow_line"],
                     "-",
                     color="black",
-                    lw=LW_OPEN,
+                    lw=_RESULT_OVERVIEW_DATA_LW,
                     label="_nolegend_",
                 )
             if spec.show_obs and wsl_obs_points is not None and not wsl_obs_points.empty:
@@ -1632,9 +1743,10 @@ def plot_result_overview(
                         linewidth=LW_DA_OBS,
                         draw_vlines=False,
                     )
-            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=_PANEL_YLABEL_FONT_SIZE)
+            ax.set_ylabel("")
             apply_fraction_grid(ax, y_step=None)
             _apply_altitude_y_ticks(ax)
+            _label_lower_clean_1000m_y_ticks(ax)
             bounds = _date_bounds_frames(wsl_obs, wsl_model, wsl_env, wsl_prior_coverage)
         elif spec.panel == "roi-swe":
             if _frame_has_finite_band(roi_swe_env):
@@ -1652,7 +1764,7 @@ def plot_result_overview(
                     roi_swe_env["value_mean"],
                     "-",
                     color=panel_style["line"],
-                    lw=LW_MEAN,
+                    lw=_RESULT_OVERVIEW_DATA_LW,
                     alpha=0.95,
                     label="_nolegend_",
                 )
@@ -1663,12 +1775,13 @@ def plot_result_overview(
                     roi_swe_model["swe"],
                     "-",
                     color="black",
-                    lw=LW_OPEN,
+                    lw=_RESULT_OVERVIEW_DATA_LW,
                     label="_nolegend_",
                 )
-            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=_PANEL_YLABEL_FONT_SIZE)
+            ax.set_ylabel("")
             apply_fraction_grid(ax, y_step=None)
             _apply_shared_result_scale(ax, spec.panel, shared_scales)
+            _label_every_second_dense_y_ticks_from_bottom(ax, max_visible_labels=4)
             bounds = _date_bounds_frames(roi_swe_model, roi_swe_env)
         elif spec.panel == "roi-sd":
             if _frame_has_finite_band(roi_snow_depth_env):
@@ -1686,7 +1799,7 @@ def plot_result_overview(
                     roi_snow_depth_env["value_mean"],
                     "-",
                     color=panel_style["line"],
-                    lw=LW_MEAN,
+                    lw=_RESULT_OVERVIEW_DATA_LW,
                     alpha=0.95,
                     label="_nolegend_",
                 )
@@ -1697,10 +1810,10 @@ def plot_result_overview(
                     roi_snow_depth_model["snow_depth"],
                     "-",
                     color="black",
-                    lw=LW_OPEN,
+                    lw=_RESULT_OVERVIEW_DATA_LW,
                     label="_nolegend_",
                 )
-            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=_PANEL_YLABEL_FONT_SIZE)
+            ax.set_ylabel("")
             apply_fraction_grid(ax, y_step=None)
             _apply_shared_result_scale(ax, spec.panel, shared_scales)
             bounds = _date_bounds_frames(roi_snow_depth_model, roi_snow_depth_env)
@@ -1718,7 +1831,7 @@ def plot_result_overview(
                 color="#000000",
                 zorder=25,
             )
-            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=_PANEL_YLABEL_FONT_SIZE)
+            ax.set_ylabel("")
             if current_ess_panel.ensemble_size is not None and current_ess_panel.ensemble_size > 0:
                 ax.set_ylim(0.0, float(current_ess_panel.ensemble_size))
                 _apply_ess_ticks(
@@ -1727,19 +1840,14 @@ def plot_result_overview(
                     threshold=current_ess_panel.threshold,
                 )
             if current_ess_panel.threshold is not None:
-                from matplotlib.lines import Line2D
-
-                ax.axhline(current_ess_panel.threshold, color="#d62728", lw=0.9, ls="--", zorder=10)
-                ax.legend(
-                    [Line2D([0], [0], color="#d62728", lw=0.9, ls="--")],
-                    ["ESS threshold"],
-                    loc="lower right",
-                    bbox_to_anchor=(1.0, 1.28),
-                    frameon=False,
-                    fontsize=7.0,
-                    handlelength=1.8,
-                    borderaxespad=0.0,
+                ax.axhline(
+                    current_ess_panel.threshold,
+                    color=_ESS_THRESHOLD_COLOR,
+                    lw=_ESS_THRESHOLD_LW,
+                    ls="--",
+                    zorder=10,
                 )
+                _add_ess_threshold_legend(ax)
             apply_fraction_grid(ax, y_step=None)
             bounds = _date_bounds_frames(ess_series)
         else:
@@ -1764,7 +1872,7 @@ def plot_result_overview(
                     color=panel_style["line"],
                     alpha=0.95,
                     label="_nolegend_",
-                    lw=LW_MEAN,
+                    lw=_RESULT_OVERVIEW_DATA_LW,
                     zorder=4,
                 )
             if _series_has_finite_value(station_data.open_loop):
@@ -1774,7 +1882,7 @@ def plot_result_overview(
                     station_data.open_loop.values,
                     "-",
                     color="black",
-                    lw=LW_OPEN,
+                    lw=_RESULT_OVERVIEW_DATA_LW,
                     label="_nolegend_",
                     zorder=5,
                 )
@@ -1786,7 +1894,7 @@ def plot_result_overview(
                     station_data.obs.values,
                     "-",
                     color=COLOR_DA_OBS,
-                    lw=LW_DA_OBS,
+                    lw=_RESULT_OVERVIEW_DATA_LW,
                     label="_nolegend_",
                     zorder=6,
                 )
@@ -1807,7 +1915,7 @@ def plot_result_overview(
                     _station_obs_frame(station_data.obs, value_col=value_col),
                     value_col=value_col,
                 )
-            ax.set_ylabel(_PANEL_YLABELS[spec.panel], fontsize=_PANEL_YLABEL_FONT_SIZE)
+            ax.set_ylabel("")
             apply_fraction_grid(ax, y_step=None)
             _apply_shared_result_scale(ax, spec.panel, shared_scales)
             bounds = _date_bounds_series(
@@ -1826,35 +1934,20 @@ def plot_result_overview(
     if effective_x_bounds is not None:
         for ax in axes:
             ax.set_xlim(*effective_x_bounds)
-    if events:
-        for idx, ax in enumerate(axes):
-            center_assim = specs[idx].panel in {"roi-swe", "roi-sd", "station-swe", "station-sd"}
-            label_axis = _add_assim_label_axis(ax, events, idx, center_of_day=center_assim)
-            if label_axis is not None:
-                label_axes.append((ax, label_axis))
+    if events and len(axes) > 0:
+        center_assim = specs[0].panel in {"roi-swe", "roi-sd", "station-swe", "station-sd"}
+        label_axis = _add_assim_label_axis(axes[0], events, 0, center_of_day=center_assim)
+        if label_axis is not None:
+            label_axes.append((axes[0], label_axis))
     _apply_time_axis_labels(axes, effective_x_bounds)
     for ax, label_axis in label_axes:
         label_axis.set_xlim(ax.get_xlim())
 
     axes[-1].set_xlabel("")
-    fig.tight_layout(rect=(-0.02, 0.04, 0.985, 1.0), h_pad=0.84)
+    fig.tight_layout(rect=(-0.02, 0.04, 0.985, 1.0), h_pad=0.32)
     fig.align_ylabels(axes)
     fig.canvas.draw()
-    renderer = fig.canvas.get_renderer()
-    global_left_disp: float | None = None
-    for ax, _title_artist in title_artists:
-        tick_labels = [label for label in ax.get_yticklabels() if label.get_text()]
-        if not tick_labels:
-            continue
-        left_disp = min(label.get_window_extent(renderer).x0 for label in tick_labels) - 6.0
-        if global_left_disp is None or left_disp < global_left_disp:
-            global_left_disp = left_disp
-    if global_left_disp is None:
-        global_left_disp = min(ax.bbox.x0 for ax in axes)
-    for ax, title_artist in title_artists:
-        x_axes = ax.transAxes.inverted().transform((global_left_disp, ax.bbox.y1))[0]
-        title_artist.set_x(x_axes + _PANEL_TITLE_X_OFFSET)
-        title_artist.set_y(1.0 + _PANEL_TITLE_Y_OFFSET)
+    _align_panel_titles_to_axes(title_artists)
     legends = _build_result_overview_legends(
         fig,
         legend_state=legend_state,
@@ -1862,25 +1955,15 @@ def plot_result_overview(
         show_ess_threshold=show_ess_threshold,
     )
     fig.canvas.draw()
-    legend_bottom = _legend_band_bottom(fig, legends, gap=0.008, minimum=0.04)
-    fig.tight_layout(rect=(-0.02, legend_bottom, 0.985, 1.0), h_pad=0.84)
+    legend_bottom = _legend_band_bottom(fig, legends, gap=0.008, minimum=0.016)
+    fig.tight_layout(rect=(-0.02, legend_bottom, 0.985, 1.0), h_pad=0.32)
     fig.align_ylabels(axes)
     fig.canvas.draw()
-    renderer = fig.canvas.get_renderer()
-    global_left_disp = None
-    for ax, _title_artist in title_artists:
-        tick_labels = [label for label in ax.get_yticklabels() if label.get_text()]
-        if not tick_labels:
-            continue
-        left_disp = min(label.get_window_extent(renderer).x0 for label in tick_labels) - 6.0
-        if global_left_disp is None or left_disp < global_left_disp:
-            global_left_disp = left_disp
-    if global_left_disp is None:
-        global_left_disp = min(ax.bbox.x0 for ax in axes)
-    for ax, title_artist in title_artists:
-        x_axes = ax.transAxes.inverted().transform((global_left_disp, ax.bbox.y1))[0]
-        title_artist.set_x(x_axes + _PANEL_TITLE_X_OFFSET)
-        title_artist.set_y(1.0 + _PANEL_TITLE_Y_OFFSET)
+    _align_panel_titles_to_axes(title_artists)
+    fig.canvas.draw()
+    _thin_final_result_y_tick_labels(axes, specs)
+    _hide_title_overlapping_y_tick_labels(fig, title_artists)
+    fig.canvas.draw()
     force_figure_text_black(fig, axes)
     save_figure_png(fig, output)
     try:

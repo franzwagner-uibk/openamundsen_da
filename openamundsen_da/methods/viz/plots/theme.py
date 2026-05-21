@@ -14,7 +14,7 @@ from openamundsen_da.methods.viz.theme import (
     da_variable_style,
 )
 
-COLOR_MEAN = "#120fb6"
+COLOR_MEAN = "#3c4f8a"
 COLOR_OPEN_LOOP = "black"
 COLOR_MEMBER = "#9a9a9a"
 # One shared ensemble-band opacity across plot modules and legend swatches.
@@ -30,7 +30,7 @@ LEGEND_NCOL_SETUP = 6
 # Use a distinct color from COLOR_OPEN_LOOP ("black") so open-loop and
 # observations are clearly distinguishable in results plots.
 COLOR_DA_OBS = "#d62728"
-SIZE_DA_OBS = 100
+SIZE_DA_OBS = 80
 LW_DA_OBS = 1.8
 COLOR_OBS_SCF = "#d62728"
 SIZE_OBS_SCF = 10
@@ -58,9 +58,9 @@ CRPSS_AXIS_UPPER_CAP = 1.0
 # Figure sizes
 FIGSIZE_FORCING = (12.0, 6.0)
 FIGSIZE_RESULTS = (10.2, 5.2)
-OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR = 0.85
+OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR = 0.64
 OVERVIEW_SCORE_PANEL_HEIGHT_FACTOR = 1.428
-STANDALONE_SCORE_PANEL_HEIGHT_FACTOR = 0.935
+STANDALONE_SCORE_PANEL_HEIGHT_FACTOR = 0.748
 
 __all__ = [
     "ASSIM_LABEL_ROT",

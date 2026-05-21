@@ -265,19 +265,19 @@ def _render_plot(
 
     fig, ax1 = plt.subplots(figsize=PROJECT_PERF_FIGSIZE)
 
-    ax1.plot(timestamps, cpu_pct, label="CPU [%]", color="tab:blue")
-    ax1.plot(timestamps, mem_pct, label="RAM [%]", color="tab:orange")
+    ax1.plot(timestamps, cpu_pct, label="CPU [%]", color="#46307e")
+    ax1.plot(timestamps, mem_pct, label="RAM [%]", color="#355f8d")
     if disk_fs_used_pct:
-        ax1.plot(timestamps, disk_fs_used_pct, label="Disk used [%]", color="tab:green")
+        ax1.plot(timestamps, disk_fs_used_pct, label="Disk used [%]", color="#24868e")
     ax1.set_ylabel("CPU / RAM / disk used [%]")
     ax1.set_ylim(bottom=0)
     ax1.grid(True, alpha=0.3)
 
     ax2 = ax1.twinx()
     if disk_project_used_gb:
-        ax2.plot(timestamps, disk_project_used_gb, label="Project size [GB]", color="tab:red", linestyle="-")
+        ax2.plot(timestamps, disk_project_used_gb, label="Project size [GB]", color="#26ad81", linestyle="-")
     if disk_fs_free_gb:
-        ax2.plot(timestamps, disk_fs_free_gb, label="Disk free [GB]", color="tab:purple", linestyle="--")
+        ax2.plot(timestamps, disk_fs_free_gb, label="Disk free [GB]", color="#6ece58", linestyle="--")
     ax2.set_ylabel("Disk [GB]")
     ax2.set_ylim(bottom=0)
 

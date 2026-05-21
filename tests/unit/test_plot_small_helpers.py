@@ -5,7 +5,11 @@ from pathlib import Path
 import pandas as pd
 
 import openamundsen_da.methods.viz.plots.assimilation.ess_timeline as ess_mod
-from openamundsen_da.methods.viz.plots.common import result_axis_scale
+from openamundsen_da.methods.viz.plots.common import (
+    add_assim_label_axis,
+    draw_adaptive_assim_labels,
+    result_axis_scale,
+)
 from openamundsen_da.methods.viz.plots.result_overview import plot_result_overview
 
 
@@ -59,11 +63,75 @@ def test_plot_ess_timeline_renders_subtitle() -> None:
     plt.close(fig)
 
 
-def test_ess_axis_ticks_only_show_threshold_and_ensemble_size() -> None:
-    assert ess_mod.ess_axis_ticks(47, threshold=23.5) == [23.5, 47.0]
+def test_ess_title_omits_ensemble_size_and_threshold_details() -> None:
+    assert ess_mod.ess_title(ensemble_size=30, normalized=False) == "Effective sample size"
+    assert ess_mod.ess_title(ensemble_size=30, normalized=True) == "Effective sample size ratio"
 
 
-def test_plot_ess_timeline_uses_sparse_threshold_and_top_y_ticks() -> None:
+def test_ess_axis_ticks_use_regular_scale_with_ensemble_size_top_bound() -> None:
+    assert ess_mod.ess_axis_ticks(30, threshold=21.0) == [0.0, 10.0, 20.0, 30.0]
+    assert ess_mod.ess_axis_ticks(47, threshold=23.5) == [0.0, 10.0, 20.0, 30.0, 40.0, 47.0]
+
+
+def test_adaptive_da_labels_use_prefix_when_sparse() -> None:
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(5.0, 2.0))
+    dates = pd.to_datetime(["2023-01-01", "2023-02-01", "2023-03-01"])
+    ax.set_xlim(pd.Timestamp("2022-12-15"), pd.Timestamp("2023-03-15"))
+    label_axis = add_assim_label_axis(ax, dates, row_y_offsets_pts=(2.0,), min_row_spacing_days=0.0)
+    fig.canvas.draw()
+
+    assert label_axis is not None
+    assert [text.get_text() for text in label_axis.texts] == ["DA 1", "DA 2", "DA 3"]
+    plt.close(fig)
+
+
+def test_adaptive_da_labels_fall_back_when_dense() -> None:
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(1.8, 2.0))
+    dates = pd.date_range("2023-01-01", periods=12, freq="D")
+    ax.set_xlim(dates.min() - pd.Timedelta(days=1), dates.max() + pd.Timedelta(days=1))
+    label_axis = add_assim_label_axis(ax, dates, row_y_offsets_pts=(2.0,), min_row_spacing_days=0.0)
+    fig.canvas.draw()
+
+    assert label_axis is not None
+    assert [text.get_text() for text in label_axis.texts] == [str(i) for i in range(1, 13)]
+    plt.close(fig)
+
+
+def test_adaptive_da_labels_fall_back_when_prefixed_label_hits_title() -> None:
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(4.0, 2.0))
+    date = pd.Timestamp("2023-01-01")
+    ax.set_xlim(date - pd.Timedelta(days=1), date + pd.Timedelta(days=1))
+    blocker = ax.annotate(
+        "DA 1",
+        xy=(date, 1.0),
+        xycoords=("data", "axes fraction"),
+        xytext=(0.0, 3.0),
+        textcoords="offset points",
+        ha="center",
+        va="bottom",
+    )
+    artists = draw_adaptive_assim_labels(
+        ax,
+        [date],
+        labels=["1"],
+        avoid_artists=[blocker],
+        y_offset_pts=3.0,
+        row_y_offsets_pts=(3.0,),
+        min_row_spacing_days=0.0,
+    )
+    fig.canvas.draw()
+
+    assert [artist.get_text() for artist in artists] == ["1"]
+    plt.close(fig)
+
+
+def test_plot_ess_timeline_uses_regular_y_ticks_without_threshold_label() -> None:
     import matplotlib.pyplot as plt
 
     df = pd.DataFrame(
@@ -84,7 +152,16 @@ def test_plot_ess_timeline_uses_sparse_threshold_and_top_y_ticks() -> None:
         backend="Agg",
     )
 
-    assert list(fig.axes[0].get_yticks()) == [23.5, 47.0]
+    ax = fig.axes[0]
+    assert ax.get_title(loc="left") == "ESS title"
+    assert list(ax.get_yticks()) == [0.0, 10.0, 20.0, 30.0, 40.0, 47.0]
+    assert 23.5 not in ax.get_yticks()
+    assert ax.get_ylim()[1] == 47.0
+    assert ax.get_legend() is not None
+    assert ax.get_legend()._loc == 1
+    assert not ax.get_legend().get_frame().get_visible()
+    assert [text.get_text() for text in ax.get_legend().get_texts()] == ["ESS threshold"]
+    assert any(line.get_color() == "#d62728" and line.get_linestyle() == "--" for line in ax.lines)
     plt.close(fig)
 
 

@@ -43,12 +43,20 @@ class StaticFieldPreset:
     ticklabels: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class LandcoverDisplayClass:
+    code: int
+    label: str
+    color: str
+    source_codes: tuple[int, ...]
+
+
 VARIABLE_PRESETS = {
     "snowdepth_daily": VariablePreset(
         variable="snowdepth_daily",
-        title="snow depth",
+        title="Snow depth",
         unit_label="snow depth [m]",
-        sequential_cmap="YlGnBu",
+        sequential_cmap="viridis",
         model_min=0.0,
         max_step=0.25,
         max_floor=0.5,
@@ -57,9 +65,9 @@ VARIABLE_PRESETS = {
     ),
     "swe_daily": VariablePreset(
         variable="swe_daily",
-        title="snow water equivalent",
+        title="Snow water equivalent",
         unit_label="SWE [mm]",
-        sequential_cmap="viridis_r",
+        sequential_cmap="viridis",
         model_min=0.0,
         max_step=25.0,
         max_floor=50.0,
@@ -68,9 +76,9 @@ VARIABLE_PRESETS = {
     ),
     "liquid_water_content": VariablePreset(
         variable="liquid_water_content",
-        title="liquid water content",
+        title="Liquid water content",
         unit_label="liquid water content [-]",
-        sequential_cmap="viridis_r",
+        sequential_cmap="viridis",
         model_min=0.0,
         max_step=0.005,
         max_floor=0.01,
@@ -83,7 +91,7 @@ VARIABLE_PRESETS = {
 STATIC_FIELD_PRESETS = {
     "dem": StaticFieldPreset(
         field="dem",
-        title="digital elevation model",
+        title="Digital elevation model",
         unit_label="elevation [m]",
         cmap_name="Greys_r",
         step=250.0,
@@ -91,16 +99,16 @@ STATIC_FIELD_PRESETS = {
     ),
     "svf": StaticFieldPreset(
         field="svf",
-        title="sky view factor",
+        title="Sky view factor",
         unit_label="SVF [-]",
-        cmap_name="Greys_r",
+        cmap_name="viridis",
         vmin=0.5,
         vmax=1.0,
         ticks=(0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
     ),
     "srf": StaticFieldPreset(
         field="srf",
-        title="snow redistribution factor",
+        title="Snow redistribution factor",
         unit_label="SRF [-]",
         cmap_name="RdBu",
         vmin=0.1,
@@ -110,7 +118,7 @@ STATIC_FIELD_PRESETS = {
     ),
     "landcover": StaticFieldPreset(
         field="landcover",
-        title="landcover",
+        title="Land cover",
         unit_label="landcover",
         cmap_name="oa_da_landcover",
     ),
@@ -120,14 +128,14 @@ STATIC_FIELD_PRESETS = {
 SNOW_DEPTH_REFERENCE_TICKS_M = (0.01, 0.10, 0.25, 0.50, 1.0, 2.0, 3.0, 4.0)
 SNOW_DEPTH_REFERENCE_TICKLABELS_CM = ("1", "10", "25", "50", "100", "200", "300", "400+")
 SNOW_DEPTH_REFERENCE_COLORS = (
-    "#ffffb2",
-    "#b0ffbc",
-    "#8cffff",
-    "#19cdff",
-    "#1982ff",
-    "#0f5abe",
-    "#784bff",
-    "#cd0feb",
+    "#440154",
+    "#46327e",
+    "#365c8d",
+    "#277f8e",
+    "#1fa187",
+    "#4ac16d",
+    "#a0da39",
+    "#fde725",
 )
 
 
@@ -163,9 +171,20 @@ LANDCOVER_LABELS = {
     13: "built-up",
 }
 
+UNKNOWN_LANDCOVER_COLOR = "#d9d9d9"
+SUPPORTED_LANDCOVER_GROUPINGS = {"native", "broad"}
+LANDCOVER_BROAD_CLASSES = (
+    LandcoverDisplayClass(1, "rock", LANDCOVER_COLORS[1], (1,)),
+    LandcoverDisplayClass(2, "ice", LANDCOVER_COLORS[2], (2,)),
+    LandcoverDisplayClass(3, "water", LANDCOVER_COLORS[3], (3,)),
+    LandcoverDisplayClass(4, "grass/shrub", LANDCOVER_COLORS[4], (4, 5)),
+    LandcoverDisplayClass(5, "farmland/transitional", LANDCOVER_COLORS[6], (6, 7)),
+    LandcoverDisplayClass(6, "forest", LANDCOVER_COLORS[10], (8, 9, 10, 11, 12)),
+    LandcoverDisplayClass(7, "built-up", LANDCOVER_COLORS[13], (13,)),
+)
+
 FSC_OBS_CMAP = colormaps["Greys"]
 FSC_INVALID_COLOR = "#d8b3b7"
-UNKNOWN_LANDCOVER_COLOR = "#d9d9d9"
 WET_SNOW_COLORS = {
     110: "#000000",
     125: "#d8d8d8",
@@ -258,6 +277,53 @@ def nice_ceiling(value: float, *, step: float, minimum: float) -> float:
     return max(minimum, math.ceil(float(value) / step) * step)
 
 
+def normalize_landcover_grouping(grouping: str | None) -> str:
+    token = str(grouping or "native").strip().lower()
+    if token not in SUPPORTED_LANDCOVER_GROUPINGS:
+        supported = ", ".join(sorted(SUPPORTED_LANDCOVER_GROUPINGS))
+        raise ValueError(f"Unsupported landcover grouping '{grouping}'. Supported values: {supported}")
+    return token
+
+
+def landcover_classes_for_present_codes(
+    present_source_codes: set[int],
+    *,
+    grouping: str | None,
+) -> tuple[LandcoverDisplayClass, ...]:
+    token = normalize_landcover_grouping(grouping)
+    if token == "broad":
+        classes = [
+            item
+            for item in LANDCOVER_BROAD_CLASSES
+            if not present_source_codes or any(source_code in present_source_codes for source_code in item.source_codes)
+        ]
+        covered_codes = {source_code for item in LANDCOVER_BROAD_CLASSES for source_code in item.source_codes}
+    else:
+        codes = sorted(present_source_codes) if present_source_codes else list(LANDCOVER_LABELS)
+        classes = [
+            LandcoverDisplayClass(
+                int(code),
+                LANDCOVER_LABELS.get(int(code), str(code)),
+                LANDCOVER_COLORS.get(int(code), UNKNOWN_LANDCOVER_COLOR),
+                (int(code),),
+            )
+            for code in codes
+        ]
+        covered_codes = set(present_source_codes)
+
+    unknown_codes = sorted(present_source_codes - covered_codes)
+    classes.extend(
+        LandcoverDisplayClass(
+            int(code),
+            str(code),
+            LANDCOVER_COLORS.get(int(code), UNKNOWN_LANDCOVER_COLOR),
+            (int(code),),
+        )
+        for code in unknown_codes
+    )
+    return tuple(classes)
+
+
 def landcover_cmap_for_codes(codes: list[int]) -> ListedColormap:
     return ListedColormap(
         [LANDCOVER_COLORS.get(int(code), UNKNOWN_LANDCOVER_COLOR) for code in codes],
@@ -331,5 +397,22 @@ def static_field_norm(preset: StaticFieldPreset, values: np.ndarray) -> Normaliz
     return Normalize(vmin=vmin, vmax=vmax, clip=False)
 
 
-def static_field_colorbar_style(preset: StaticFieldPreset) -> ColorbarStyle:
+def _dem_colorbar_ticks(values: np.ndarray | None, *, step: float = 500.0) -> tuple[float, ...]:
+    if values is None:
+        return ()
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return ()
+    low = math.ceil(float(finite.min()) / step) * step
+    high = math.floor(float(finite.max()) / step) * step
+    if high < low:
+        return ()
+    count = int(round((high - low) / step)) + 1
+    return tuple(float(low + idx * step) for idx in range(count))
+
+
+def static_field_colorbar_style(preset: StaticFieldPreset, values: np.ndarray | None = None) -> ColorbarStyle:
+    if preset.field == "dem" and not preset.ticks:
+        return ColorbarStyle(label=preset.unit_label, ticks=_dem_colorbar_ticks(values), ticklabels=preset.ticklabels)
     return ColorbarStyle(label=preset.unit_label, ticks=preset.ticks, ticklabels=preset.ticklabels)

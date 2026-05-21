@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import shutil
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -13,7 +14,12 @@ import xarray as xr
 from affine import Affine
 from loguru import logger
 
-from openamundsen_da.io.paths import list_steps_sorted
+from openamundsen_da.io.paths import (
+    list_steps_sorted,
+    project_maps_root,
+    project_plots_maps_collection_pdf_path,
+)
+from openamundsen_da.methods.viz.maps.generated import GENERATED_DA_MAPS_SUBDIR
 from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta
 from openamundsen_da.util.da_output import (
     collect_subdomain_grid_artifacts,
@@ -21,8 +27,16 @@ from openamundsen_da.util.da_output import (
     output_retention_mode,
     write_da_output_grids,
 )
+from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.roi_grid import load_setup_roi_mask
 from openamundsen_da.util.run_mode import ensure_run_mode
+
+
+COMPACT_CLEANUP_LOCK_NAME = "artifact_cleanup_allowed"
+
+
+class CompactCleanupSafetyError(RuntimeError):
+    """Raised when compact cleanup would remove files before artifacts are complete."""
 
 
 def _latest_step_dir(sub: SubdomainMeta) -> Path | None:
@@ -158,8 +172,10 @@ def merge_grids(
     out_dir: Optional[Path] = None,
     coverage_sliver_tol_px: int = 4,
     defer_compact_cleanup: bool = False,
+    cleanup_compact_artifacts: bool = False,
+    compact_cleanup_archive_dir: Optional[Path] = None,
 ) -> List[Path]:
-    """Merge compact grid outputs from latest-step open-loop/member results."""
+    """Merge sub-domain grid outputs into global hard mosaics."""
     manifest = SubdomainManifest.load(manifest_path)
     if str(getattr(manifest, "run_mode", "")).lower() != "subdomain":
         raise ValueError(f"Manifest at {manifest_path} is not marked as run_mode='subdomain'.")
@@ -176,17 +192,70 @@ def merge_grids(
     out_base = out_dir or (manifest.project_dir / "results" / "grids")
     out_base.mkdir(parents=True, exist_ok=True)
 
+    compact_entries: list[tuple[SubdomainMeta, Path]] = []
+    missing_compact_ids: list[str] = []
+    for sid in selected_ids:
+        sub = manifest.subdomains[sid]
+        compact_da = _compact_da_summary(sub)
+        if compact_da is None:
+            missing_compact_ids.append(sid)
+        else:
+            compact_entries.append((sub, compact_da))
+
+    written: List[Path] = []
+    if compact_entries:
+        if missing_compact_ids:
+            raise FileNotFoundError(
+                "Compact DA output summary da_output_grids.nc is missing for sub-domain(s): "
+                f"{', '.join(missing_compact_ids)}"
+            )
+        merged_nc = _merge_netcdf(
+            output_name="da_output_grids.nc",
+            nc_paths=compact_entries,
+            global_shape=global_shape,
+            manifest=manifest,
+            out_dir=out_base,
+            expected_mask=expected_mask,
+            sliver_tol_px=int(coverage_sliver_tol_px),
+        )
+        written.append(merged_nc)
+        da_summary_written = merged_nc.is_file()
+        if da_summary_written:
+            logger.info("Using merged compact DA output summary {}", merged_nc)
+
+        retention_mode = output_retention_mode(manifest.project_dir)
+        if retention_mode == "compact":
+            if not da_summary_written:
+                logger.warning("Skipping compact grid retention because da_output_grids.nc was not written.")
+            elif defer_compact_cleanup:
+                logger.info(
+                    "Deferring compact sub-domain grid retention cleanup until top-level map rendering is complete."
+                )
+            elif not cleanup_compact_artifacts:
+                logger.info(
+                    "Compact sub-domain grid retention cleanup not requested; leaving raw grid support files in place."
+                )
+            else:
+                archived, bytes_staged = _cleanup_after_artifact_validation(
+                    manifest_path=manifest_path,
+                    project_dir=manifest.project_dir,
+                    out_dir=out_base,
+                    archive_dir=compact_cleanup_archive_dir,
+                )
+                logger.info(
+                    "Compact retention: archived {} sub-domain grid artifact file(s), staged {:.1f} MB",
+                    archived,
+                    bytes_staged / 1_000_000.0,
+                )
+        return written
+
     tif_groups: Dict[str, List[Tuple[SubdomainMeta, Path]]] = {}
     nc_groups: Dict[str, List[Tuple[SubdomainMeta, Path]]] = {}
     for sid in selected_ids:
         sub = manifest.subdomains[sid]
         sources = _result_sources(sub)
-        compact_da = _compact_da_summary(sub)
-        if compact_da is not None:
-            nc_groups.setdefault("da_output_grids.nc", []).append((sub, compact_da))
         if not sources:
-            if compact_da is None:
-                logger.warning("No compact result sources discovered for {} under {}", sid, sub.project_dir)
+            logger.warning("No compact result sources discovered for {} under {}", sid, sub.project_dir)
             continue
         for source_label, res_dir in sources:
             prefix = "" if source_label == "open_loop" else f"{source_label}_"
@@ -195,7 +264,6 @@ def merge_grids(
             for nc in sorted(res_dir.glob("*.nc")):
                 nc_groups.setdefault(f"{prefix}{nc.name}", []).append((sub, nc))
 
-    written: List[Path] = []
     if not tif_groups and not nc_groups:
         logger.warning("No compact grid outputs found to merge in selected sub-domains.")
         return written
@@ -262,15 +330,19 @@ def merge_grids(
             logger.info(
                 "Deferring compact sub-domain grid retention cleanup until top-level map rendering is complete."
             )
+        elif not cleanup_compact_artifacts:
+            logger.info("Compact sub-domain grid retention cleanup not requested; leaving raw grid support files in place.")
         else:
-            deleted, bytes_freed = cleanup_deferred_compact_grid_artifacts(
+            archived, bytes_staged = _cleanup_after_artifact_validation(
                 manifest_path=manifest_path,
+                project_dir=manifest.project_dir,
                 out_dir=out_base,
+                archive_dir=compact_cleanup_archive_dir,
             )
             logger.info(
-                "Compact retention: deleted {} sub-domain grid artifact file(s), freed {:.1f} MB",
-                deleted,
-                bytes_freed / 1_000_000.0,
+                "Compact retention: archived {} sub-domain grid artifact file(s), staged {:.1f} MB",
+                archived,
+                bytes_staged / 1_000_000.0,
             )
     return written
 
@@ -285,12 +357,159 @@ def _merged_compact_grid_artifacts(out_base: Path) -> list[Path]:
     return sorted(set(artifacts))
 
 
+def _cleanup_after_artifact_validation(
+    *,
+    manifest_path: Path,
+    project_dir: Path,
+    out_dir: Path,
+    archive_dir: Optional[Path],
+) -> tuple[int, int]:
+    lock_path = mark_compact_cleanup_artifacts_ready(project_dir=project_dir, out_dir=out_dir)
+    logger.info("Compact cleanup readiness lock written: {}", lock_path)
+    return cleanup_deferred_compact_grid_artifacts(
+        manifest_path=manifest_path,
+        out_dir=out_dir,
+        archive_dir=archive_dir,
+    )
+
+
+def _project_setup_dir(project_dir: Path) -> Path:
+    project_dir = Path(project_dir)
+    if project_dir.parent.name == "projects":
+        return project_dir.parent.parent
+    return project_dir.parent
+
+
+def compact_cleanup_ready_lock_path(project_dir: Path) -> Path:
+    """Return the run-status lock that permits compact raw-grid cleanup."""
+    return _project_setup_dir(project_dir) / "status" / COMPACT_CLEANUP_LOCK_NAME
+
+
+def _planned_da_map_paths(project_dir: Path) -> list[Path]:
+    maps_root = project_maps_root(project_dir) / GENERATED_DA_MAPS_SUBDIR
+    return [maps_root / f"da_{idx}.png" for idx, _event in enumerate(load_assimilation_events(project_dir), start=1)]
+
+
+def _missing_compact_cleanup_artifacts(project_dir: Path, out_base: Path) -> list[Path | str]:
+    missing: list[Path | str] = []
+    da_summary_path = out_base / "da_output_grids.nc"
+    if not da_summary_path.is_file():
+        missing.append(da_summary_path)
+
+    report_path = project_plots_maps_collection_pdf_path(project_dir)
+    if not report_path.is_file():
+        missing.append(report_path)
+
+    try:
+        missing.extend(path for path in _planned_da_map_paths(project_dir) if not path.is_file())
+    except Exception as exc:
+        missing.append(f"assimilation event map plan could not be checked: {exc}")
+
+    return missing
+
+
+def validate_compact_cleanup_artifacts_ready(
+    *,
+    project_dir: Path,
+    out_dir: Optional[Path] = None,
+    require_ready_lock: bool = True,
+) -> None:
+    """Fail unless merged grids, planned maps, report, and status lock are present."""
+    project_dir = Path(project_dir)
+    out_base = Path(out_dir) if out_dir is not None else (project_dir / "results" / "grids")
+    missing: list[Path | str] = []
+
+    if require_ready_lock:
+        lock_path = compact_cleanup_ready_lock_path(project_dir)
+        if not lock_path.is_file():
+            missing.append(lock_path)
+
+    missing.extend(_missing_compact_cleanup_artifacts(project_dir, out_base))
+    if missing:
+        formatted = "\n".join(f"- {item}" for item in missing)
+        raise CompactCleanupSafetyError(
+            "Compact grid cleanup refused because required generated artifacts are missing:\n"
+            f"{formatted}\n"
+            "Regenerate maps/report first, or keep raw grid support files in place."
+        )
+
+
+def mark_compact_cleanup_artifacts_ready(
+    *,
+    project_dir: Path,
+    out_dir: Optional[Path] = None,
+) -> Path:
+    """Write the run-status lock after generated artifacts are complete."""
+    validate_compact_cleanup_artifacts_ready(
+        project_dir=project_dir,
+        out_dir=out_dir,
+        require_ready_lock=False,
+    )
+    lock_path = compact_cleanup_ready_lock_path(project_dir)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    checked_at = datetime.now(timezone.utc).isoformat()
+    lock_path.write_text(
+        "\n".join(
+            [
+                f"checked_at={checked_at}",
+                f"project_dir={Path(project_dir)}",
+                f"grids_dir={Path(out_dir) if out_dir is not None else Path(project_dir) / 'results' / 'grids'}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return lock_path
+
+
+def _default_compact_cleanup_archive_dir(project_dir: Path) -> Path:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return _project_setup_dir(project_dir) / "archive" / "compact_grid_artifacts" / Path(project_dir).name / stamp
+
+
+def _archive_files(paths: Iterable[Path], *, project_dir: Path, archive_dir: Optional[Path] = None) -> tuple[int, int]:
+    archive_root = Path(archive_dir) if archive_dir is not None else _default_compact_cleanup_archive_dir(project_dir)
+    moved = 0
+    bytes_staged = 0
+    seen: set[Path] = set()
+    for raw in paths:
+        path = Path(raw)
+        if path in seen or not path.is_file():
+            continue
+        seen.add(path)
+        try:
+            size = path.stat().st_size
+        except Exception:
+            size = 0
+        try:
+            rel = path.relative_to(project_dir)
+        except ValueError:
+            rel = Path(path.name)
+        target = archive_root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.move(str(path), str(target))
+            moved += 1
+            bytes_staged += size
+        except Exception as exc:
+            logger.warning("Could not archive {} to {}: {}", path, target, exc)
+    return moved, bytes_staged
+
+
 def cleanup_deferred_compact_grid_artifacts(
     *,
     manifest_path: Path,
     out_dir: Optional[Path] = None,
+    archive_dir: Optional[Path] = None,
+    permanently_delete: bool = False,
+    require_ready_lock: bool = True,
 ) -> tuple[int, int]:
-    """Delete compact grid artifacts after downstream top-level maps no longer need them."""
+    """Archive compact grid artifacts after downstream artifacts are verified.
+
+    Permanent deletion is intentionally opt-in for callers that have a separate
+    confirmation workflow. The default moves raw grid support files to a
+    recoverable archive under the setup root.
+    """
     manifest = SubdomainManifest.load(manifest_path)
     retention_mode = output_retention_mode(manifest.project_dir)
     if retention_mode != "compact":
@@ -298,14 +517,18 @@ def cleanup_deferred_compact_grid_artifacts(
         return 0, 0
 
     out_base = out_dir or (manifest.project_dir / "results" / "grids")
-    da_summary_path = out_base / "da_output_grids.nc"
-    if not da_summary_path.is_file():
-        logger.warning("Skipping compact grid retention because da_output_grids.nc was not written.")
-        return 0, 0
+    validate_compact_cleanup_artifacts_ready(
+        project_dir=manifest.project_dir,
+        out_dir=out_base,
+        require_ready_lock=require_ready_lock,
+    )
 
     merged_artifacts = _merged_compact_grid_artifacts(out_base)
     subdomain_artifacts = collect_subdomain_grid_artifacts(manifest.project_dir)
-    return delete_files([*merged_artifacts, *subdomain_artifacts])
+    artifacts = [*merged_artifacts, *subdomain_artifacts]
+    if permanently_delete:
+        return delete_files(artifacts)
+    return _archive_files(artifacts, project_dir=manifest.project_dir, archive_dir=archive_dir)
 
 
 def merge_model_grids(

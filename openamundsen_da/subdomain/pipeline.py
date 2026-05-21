@@ -7,7 +7,12 @@ from typing import Optional
 
 from loguru import logger
 
-from openamundsen_da.subdomain.merge import cleanup_deferred_compact_grid_artifacts, merge_grids
+from openamundsen_da.subdomain.merge import (
+    CompactCleanupSafetyError,
+    cleanup_deferred_compact_grid_artifacts,
+    mark_compact_cleanup_artifacts_ready,
+    merge_grids,
+)
 from openamundsen_da.subdomain.prepare import prepare_subdomains
 from openamundsen_da.subdomain.report import write_subdomain_reports
 from openamundsen_da.subdomain.run import run_subdomains
@@ -115,7 +120,7 @@ def run_pipeline(
         logger.info("REPORT OK")
 
         cleanup_deferred = False
-        cleanup_allowed = False
+        maps_complete = False
         if skip_merge:
             logger.info("MERGE skipped")
         else:
@@ -130,18 +135,17 @@ def run_pipeline(
 
         if skip_plot:
             logger.info("PLOT skipped")
-            cleanup_allowed = cleanup_deferred
         else:
             if skip_merge:
                 logger.info("PLOT skipped in subdomain pipeline: merged project maps require merge_grids output.")
             elif not project_maps_enabled(project_dir):
                 logger.info("PLOT skipped in subdomain pipeline: no maps.yml found under {}", project_dir)
-                cleanup_allowed = cleanup_deferred
+                maps_complete = True
             else:
                 try:
                     outputs = render_project_maps(project_dir=project_dir)
                     logger.info("PLOT OK (project maps, {} output(s))", len(outputs))
-                    cleanup_allowed = cleanup_deferred
+                    maps_complete = True
                 except Exception as exc:
                     logger.warning(
                         "PLOT failed in subdomain pipeline after merge (variable={}, obs_col={}, obs_scale={}, stations={}): {}",
@@ -155,18 +159,29 @@ def run_pipeline(
                         "Deferred compact grid cleanup skipped so top-level maps can be rerendered after fixing the plot issue."
                     )
 
-        if cleanup_allowed:
-            deleted, bytes_freed = cleanup_deferred_compact_grid_artifacts(
-                manifest_path=manifest_path,
-                out_dir=results_root / "grids",
-            )
-            logger.info(
-                "Deferred compact grid retention cleanup: deleted {} file(s), freed {:.1f} MB",
-                deleted,
-                bytes_freed / 1_000_000.0,
-            )
-
         render_project_report_best_effort(project_dir)
+
+        if cleanup_deferred and maps_complete:
+            try:
+                lock_path = mark_compact_cleanup_artifacts_ready(
+                    project_dir=project_dir,
+                    out_dir=results_root / "grids",
+                )
+                logger.info("Compact cleanup readiness lock written: {}", lock_path)
+                archived, bytes_staged = cleanup_deferred_compact_grid_artifacts(
+                    manifest_path=manifest_path,
+                    out_dir=results_root / "grids",
+                )
+                logger.info(
+                    "Deferred compact grid retention cleanup: archived {} file(s), staged {:.1f} MB",
+                    archived,
+                    bytes_staged / 1_000_000.0,
+                )
+            except CompactCleanupSafetyError as exc:
+                logger.warning("Deferred compact grid cleanup skipped: {}", exc)
+        elif cleanup_deferred:
+            logger.info("Deferred compact grid cleanup skipped because top-level maps were not completed.")
+
         logger.info("PIPELINE DONE subdomain_root={}", subdomain_root)
     finally:
         logger.remove(sink_id)

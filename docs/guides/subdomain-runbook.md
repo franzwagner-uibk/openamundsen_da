@@ -189,6 +189,25 @@ docker run \
     --project-dir "/data/projects/${PROJECT_NAME}"
 ```
 
+Standalone merge only writes merged grids. It does not remove or move raw grid
+support files. If compact retention is enabled and you want to stage raw support
+files out of the active tree, run cleanup explicitly after maps and the top-level
+report exist:
+
+```bash
+docker run \
+  -v "${SETUP_HOST}:/data" \
+  "${IMAGE}" \
+  oa-da-subdomain merge \
+    --project-dir "/data/projects/${PROJECT_NAME}" \
+    --cleanup-compact-artifacts \
+    --confirm-delete-raw-grid-support
+```
+
+Cleanup is refused unless the merged grid, all planned DA-event maps, and the
+top-level report are present. Approved cleanup writes a run-status readiness lock
+and archives files under the setup archive instead of permanently deleting them.
+
 Optionally render station comparison plots:
 
 ```bash

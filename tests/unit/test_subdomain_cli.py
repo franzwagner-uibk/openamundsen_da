@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from openamundsen_da.subdomain import cli as subdomain_cli
 
 
@@ -213,6 +215,59 @@ def test_merge_uses_default_output_layout(monkeypatch, tmp_path: Path) -> None:
 
     assert rc == 0
     assert called_grids["out_dir"] == project_dir / "results" / "grids"
+    assert called_grids["cleanup_compact_artifacts"] is False
+
+
+def test_merge_cleanup_requires_confirmation(tmp_path: Path) -> None:
+    setup_dir = tmp_path / "rofental"
+    project_dir = setup_dir / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir)
+
+    with pytest.raises(SystemExit) as excinfo:
+        subdomain_cli.cli(
+            [
+                "merge",
+                "--project-dir",
+                str(project_dir),
+                "--cleanup-compact-artifacts",
+            ]
+        )
+
+    assert excinfo.value.code == 2
+
+
+def test_merge_passes_explicit_cleanup_flag(monkeypatch, tmp_path: Path) -> None:
+    setup_dir = tmp_path / "rofental"
+    project_dir = setup_dir / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir)
+    manifest = project_dir / "subdomains" / "subdomain_manifest.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text("{}", encoding="utf-8")
+
+    called_grids: dict = {}
+
+    def _fake_merge_grids(**kwargs):
+        called_grids.update(kwargs)
+        return []
+
+    monkeypatch.setattr("openamundsen_da.subdomain.merge.merge_grids", _fake_merge_grids)
+    monkeypatch.setattr(
+        "openamundsen_da.subdomain.manifest.SubdomainManifest.load",
+        lambda _path: type("M", (), {"project_dir": project_dir})(),
+    )
+
+    rc = subdomain_cli.cli(
+        [
+            "merge",
+            "--project-dir",
+            str(project_dir),
+            "--cleanup-compact-artifacts",
+            "--confirm-delete-raw-grid-support",
+        ]
+    )
+
+    assert rc == 0
+    assert called_grids["cleanup_compact_artifacts"] is True
 
 
 def test_model_merge_resolves_manifest_from_setup_dir(monkeypatch, tmp_path: Path) -> None:

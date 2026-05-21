@@ -628,7 +628,7 @@ Outputs
 - The combined project result overview plot (`results/plots/results/result_overview.png`) now shows SCF, wet-snow, ROI mean SWE, and ROI mean snow depth together.
   Setup results plots now show the ensemble mean, the 90% envelope, and the open loop by default; individual members are hidden unless `--show-members` is passed to the plot CLI. Wet-snow setup plots overlay available observations from `obs/<setup>/wet_snow_summary.csv` automatically.
   At the end of the setup run, per-step weights plots (`step_XX_weights.png`) and the setup ESS timeline (`setup_ess_timeline_<setup_id>.png`) are also generated under `<project_dir>/results/plots/assim/{weights,ess}`.
-  Single-domain projects default to compact retention (`data_assimilation.output.retention: compact`), which prunes heavy member grid artifacts after writing `da_output_grids.nc`. Sub-domain projects default to `retention: full` so generated DA-event maps can be regenerated exactly after the run.
+  Single-domain projects default to compact retention (`data_assimilation.output.retention: compact`), which prunes heavy member grid artifacts after writing `da_output_grids.nc`. Sub-domain projects default to `retention: full` so generated DA-event maps can be regenerated exactly after the run. If compact retention is enabled for a sub-domain project, raw grid support files are only archived after the merged grid, all planned DA maps, and the top-level report are present.
 
 ### Backfilling model SCF for an existing setup (optional)
 
@@ -807,6 +807,7 @@ DA defaults:
 - Project-level outputs are written under `<project>/results/`.
 - Compact data assimilation grid output is `<project>/results/grids/da_output_grids.nc`.
   - Variables in `da_output_grids.nc`: `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`, and event analysis fields `analysis_mean_<var>` / `analysis_increment_<var>` when weights are available.
+- Standalone `oa-da-subdomain merge` does not clean or move raw compact grid support files by default. Cleanup is an explicit post-artifact step and requires `--cleanup-compact-artifacts --confirm-delete-raw-grid-support`; even then it only archives files after the generated maps/report readiness checks pass.
 - Sub-domain reports are written under `<project>/results/subdomain_*.csv`.
 - Point outputs and plots remain inside each sub-domain project.
 - Station selection uses a 50 km default buffer (`--station-buffer-km`).

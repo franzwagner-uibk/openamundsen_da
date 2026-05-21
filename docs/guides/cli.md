@@ -697,6 +697,12 @@ oa-da-subdomain run \
 oa-da-subdomain merge \
   --project-dir /data/rofental/projects/project_2022_2023
 
+# Optional cleanup is explicit and guarded; merge alone never removes raw grid support files.
+oa-da-subdomain merge \
+  --project-dir /data/rofental/projects/project_2022_2023 \
+  --cleanup-compact-artifacts \
+  --confirm-delete-raw-grid-support
+
 # Plot station comparisons
 oa-da-subdomain plot \
   --project-dir /data/rofental/projects/project_2022_2023

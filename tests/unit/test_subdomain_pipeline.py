@@ -68,11 +68,25 @@ def test_subdomain_pipeline_defers_cleanup_until_after_top_level_maps(monkeypatc
         "cleanup_deferred_compact_grid_artifacts",
         lambda **kwargs: order.append("cleanup") or (3, 1000),
     )
+    monkeypatch.setattr(
+        pipeline_mod,
+        "mark_compact_cleanup_artifacts_ready",
+        lambda **kwargs: order.append("cleanup_ready") or (Path(kwargs["project_dir"]).parent.parent / "status" / "artifact_cleanup_allowed"),
+    )
 
     pipeline_mod.run_pipeline(**paths, perf_monitor=False)
 
     assert merge_kwargs["defer_compact_cleanup"] is True
-    assert order == ["prepare", "run", "subdomain_reports", "merge", "maps", "cleanup", "report"]
+    assert order == [
+        "prepare",
+        "run",
+        "subdomain_reports",
+        "merge",
+        "maps",
+        "report",
+        "cleanup_ready",
+        "cleanup",
+    ]
 
 
 def test_subdomain_pipeline_keeps_deferred_grids_when_top_level_maps_fail(
@@ -102,7 +116,7 @@ def test_subdomain_pipeline_keeps_deferred_grids_when_top_level_maps_fail(
     assert order == ["prepare", "run", "subdomain_reports", "merge", "maps", "report"]
 
 
-def test_subdomain_pipeline_runs_final_cleanup_when_plotting_is_explicitly_skipped(
+def test_subdomain_pipeline_keeps_deferred_grids_when_plotting_is_explicitly_skipped(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -119,9 +133,14 @@ def test_subdomain_pipeline_runs_final_cleanup_when_plotting_is_explicitly_skipp
     monkeypatch.setattr(
         pipeline_mod,
         "cleanup_deferred_compact_grid_artifacts",
-        lambda **kwargs: order.append("cleanup") or (3, 1000),
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("cleanup should require completed maps")),
+    )
+    monkeypatch.setattr(
+        pipeline_mod,
+        "mark_compact_cleanup_artifacts_ready",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("cleanup lock should require completed maps")),
     )
 
     pipeline_mod.run_pipeline(**paths, skip_plot=True, perf_monitor=False)
 
-    assert order == ["prepare", "run", "subdomain_reports", "merge", "cleanup", "report"]
+    assert order == ["prepare", "run", "subdomain_reports", "merge", "report"]

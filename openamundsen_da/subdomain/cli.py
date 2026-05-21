@@ -203,6 +203,19 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
         help="Allowed uncovered expected pixels (default: 4)",
     )
     p_merge.add_argument("--out-dir", type=Path, help="Override results output directory (default: <project>/results)")
+    p_merge.add_argument(
+        "--cleanup-compact-artifacts",
+        action="store_true",
+        help=(
+            "After merge, archive compact raw grid support files only if generated maps/report "
+            "are present; writes the cleanup readiness lock after validation."
+        ),
+    )
+    p_merge.add_argument(
+        "--confirm-delete-raw-grid-support",
+        action="store_true",
+        help="Required with --cleanup-compact-artifacts to acknowledge raw grid support files leave the active tree.",
+    )
     p_merge.add_argument("--log-level", default="INFO")
 
     p_plot = sub.add_parser("plot", help="Plot station obs vs consolidated model point outputs")
@@ -323,6 +336,12 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
     args = parser.parse_args(list(argv) if argv is not None else None)
     _configure_logger(args.log_level)
 
+    if args.command == "merge":
+        if args.cleanup_compact_artifacts and not args.confirm_delete_raw_grid_support:
+            parser.error("--cleanup-compact-artifacts requires --confirm-delete-raw-grid-support")
+        if args.confirm_delete_raw_grid_support and not args.cleanup_compact_artifacts:
+            parser.error("--confirm-delete-raw-grid-support is only valid with --cleanup-compact-artifacts")
+
     if args.command == "prepare":
         from openamundsen_da.subdomain.prepare import prepare_subdomains
 
@@ -433,6 +452,7 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
             subdomains=args.subdomains,
             out_dir=results_root / "grids",
             coverage_sliver_tol_px=int(args.coverage_sliver_tol_px),
+            cleanup_compact_artifacts=bool(args.cleanup_compact_artifacts),
         )
         return 0
 

@@ -238,7 +238,7 @@ def test_setup_weights_overview_places_event_title_close_to_panel(tmp_path: Path
     weight_ax = _overview_axis_pairs(fig)[0][0]
     title_text = next(text for text in weight_ax.texts if "2023-05-01" in text.get_text())
 
-    assert title_text.get_position()[1] == pytest.approx(1.055)
+    assert title_text.get_position()[1] == pytest.approx(1.035)
     assert title_text.get_ha() == "left"
     assert title_text.get_va() == "bottom"
     plt.close(fig)

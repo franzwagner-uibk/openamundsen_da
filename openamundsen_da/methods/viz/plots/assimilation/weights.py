@@ -1268,7 +1268,7 @@ def _build_setup_weights_overview_page(
             ring_line_scale=0.72,
             marker_scale=0.8,
             font_size_bump=1.0,
-            axes_title_y=1.055,
+            axes_title_y=1.035,
             residual_xlim=residual_xlims.get(observable),
             y_ticks=_member_ticks(len(df.index)),
             station_color_config=station_color_config,

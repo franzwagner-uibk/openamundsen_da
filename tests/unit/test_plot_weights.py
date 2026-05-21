@@ -513,7 +513,7 @@ def test_station_plot_with_five_sigma_entries_stacks_inside_panel(tmp_path: Path
     assert sigma_bbox.y1 <= ax_bbox.y1 - 0.03 * ax_bbox.height
     assert sigma_bbox.y0 >= ax_bbox.y0 - 2.0
     sigma_text_bboxes = [text.get_window_extent(renderer=renderer) for text in sigma_legend.get_texts()]
-    assert all(upper.y0 > lower.y0 for upper, lower in zip(sigma_text_bboxes, sigma_text_bboxes[1:], strict=True))
+    assert all(upper.y0 > lower.y0 for upper, lower in zip(sigma_text_bboxes, sigma_text_bboxes[1:]))
     plt.close(fig)
 
 

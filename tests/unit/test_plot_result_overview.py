@@ -779,7 +779,12 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
     assert {ls for _dates, _color, ls, _lw in vline_calls} == {"--"}
     matched_calls = [(dates, lw) for dates, color, _ls, lw in vline_calls if color == "#000000"]
     standard_calls = [(dates, lw) for dates, color, _ls, lw in vline_calls if color == "#777777"]
-    assert matched_calls == [([scf_date], 1.8), ([wet_date], 1.8), ([swe_midday], 1.8), ([hs_midday], 1.8)]
+    assert matched_calls == [
+        ([scf_date], plot_mod._RESULT_OVERVIEW_MATCHED_EVENT_LW),
+        ([wet_date], plot_mod._RESULT_OVERVIEW_MATCHED_EVENT_LW),
+        ([swe_midday], plot_mod._RESULT_OVERVIEW_MATCHED_EVENT_LW),
+        ([hs_midday], plot_mod._RESULT_OVERVIEW_MATCHED_EVENT_LW),
+    ]
     assert len(standard_calls) == 12
     assert all(lw == 1.0 for _dates, lw in standard_calls)
     assert label_calls == [
@@ -863,7 +868,7 @@ def test_plot_result_overview_adds_assimilation_label_axis_to_top_panel_when_eve
         label_axes = [ax for ax in plt.gcf().axes if ax.get_label().startswith("assimilation_label_axis")]
         assert len(label_axes) == 1
         assert label_axes[0].get_label() == "assimilation_label_axis_0"
-        assert [text.get_text() for text in label_axes[0].texts] == ["DA 1", "DA 2"]
+        assert [text.get_text() for text in label_axes[0].texts] == ["1", "2"]
         assert len(_panel_axes(plt.gcf())) == 2
         assert out_path.is_file()
     finally:

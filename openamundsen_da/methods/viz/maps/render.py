@@ -144,6 +144,7 @@ class RenderRuntimeCache:
     observations: dict[tuple[str, pd.Timestamp], ObservationScene] = field(default_factory=dict)
     observation_uncertainties: dict[tuple[str, pd.Timestamp], ObservationScene] = field(default_factory=dict)
     derived_arrays: dict[str, np.ndarray] = field(default_factory=dict)
+    model_loader: object | None = None
 
 
 def _panel_group_bbox(axes_group: list) -> tuple[float, float] | None:
@@ -317,6 +318,7 @@ def _render_model_panel(
     shared_model_vmax=None,
     figure_horizontal_default,
     derived_cache=None,
+    model_loader=None,
 ):
     del grid_extent
     return render_model_panel(
@@ -331,7 +333,7 @@ def _render_model_panel(
         shared_model_vmax=shared_model_vmax,
         figure_horizontal_default=figure_horizontal_default,
         derived_cache=derived_cache,
-        model_loader=load_model_fields,
+        model_loader=model_loader or load_model_fields,
     )
 
 
@@ -452,6 +454,7 @@ def _render_panel(
             shared_model_vmax=cache.shared_model_vmax,
             figure_horizontal_default=figure_horizontal_default,
             derived_cache=cache.derived_arrays,
+            model_loader=cache.model_loader,
         )
     if panel.kind in _OBSERVATION_KIND_TO_NAME:
         return _render_observation_panel(

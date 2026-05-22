@@ -59,8 +59,16 @@ def _nested_dir(cfg: dict, keys: tuple[str, ...], default_rel: str) -> Path:
     return Path(default_rel)
 
 
-def _find_plain_setup_yaml(setup_dir: Path) -> Path:
+def _find_plain_setup_yaml(setup_dir: Path, setup_yaml: Path | None = None) -> Path:
     """Find a setup YAML without requiring a DA `projects/` directory."""
+    if setup_yaml is not None:
+        setup_yaml = Path(setup_yaml)
+        if not setup_yaml.is_absolute():
+            setup_yaml = Path(setup_dir) / setup_yaml
+        if not setup_yaml.is_file():
+            raise FileNotFoundError(f"Setup YAML not found: {setup_yaml}")
+        return setup_yaml.resolve()
+
     preferred = [setup_dir / f"{setup_dir.name}.yml", setup_dir / "setup.yml"]
     for cand in preferred:
         if cand.is_file():
@@ -636,6 +644,7 @@ def prepare_subdomains(
     sliver_fix_m: float = 0.0,
     overwrite: bool = False,
     model_mode: bool = False,
+    setup_yaml: Path | None = None,
 ) -> SubdomainManifest:
     """Prepare per-sub-domain setups under `<project>/subdomains/<id>`."""
     logger.debug("Preparing sub-domains for setup={} regions={}", setup_dir, regions_path)
@@ -650,8 +659,8 @@ def prepare_subdomains(
             raise TypeError("project_dir is required for DA sub-domain preparation")
         project_dir = Path(project_dir).resolve()
         ensure_run_mode(project_dir, expected="subdomain", write_if_missing=True)
-    setup_yaml = _find_plain_setup_yaml(setup_dir) if model_mode else find_setup_yaml(setup_dir)
-    setup_cfg = read_yaml_mapping(setup_yaml, error_cls=ValueError, context="Setup YAML root")
+    source_setup_yaml = _find_plain_setup_yaml(setup_dir, setup_yaml) if model_mode else find_setup_yaml(setup_dir)
+    setup_cfg = read_yaml_mapping(source_setup_yaml, error_cls=ValueError, context="Setup YAML root")
     if model_mode:
         missing_dates = [
             key
@@ -663,7 +672,7 @@ def prepare_subdomains(
                 "Model sub-domain mode requires the source setup YAML to define "
                 f"{', '.join(missing_dates)}."
             )
-        project_yaml = setup_yaml
+        project_yaml = source_setup_yaml
         project_cfg: dict = {}
     else:
         project_yaml = find_project_yaml(project_dir)
@@ -730,8 +739,12 @@ def prepare_subdomains(
             f"Sub-domain mode requires at least 2 polygons in {regions_path} (got {len(gdf)})."
         )
     _check_no_overlap(gdf.geometry, area_tol=float(overlap_area_tol_m2))
-    ensure_setup_roi_grid(setup_dir, roi_vector_path=regions_path, overwrite=True)
-    setup_roi_mask, roi_spec, setup_roi_grid_path = load_setup_roi_mask(setup_dir, ensure_grid=False)
+    ensure_setup_roi_grid(setup_dir, roi_vector_path=regions_path, setup_yaml=source_setup_yaml, overwrite=True)
+    setup_roi_mask, roi_spec, setup_roi_grid_path = load_setup_roi_mask(
+        setup_dir,
+        ensure_grid=False,
+        setup_yaml=source_setup_yaml,
+    )
     if (roi_spec.rows, roi_spec.cols) != (rows, cols):
         raise ValueError(
             f"Setup ROI grid shape mismatch: {(roi_spec.rows, roi_spec.cols)} vs DEM {(rows, cols)}"
@@ -769,7 +782,7 @@ def prepare_subdomains(
         setup_dir=setup_dir,
         project_dir=manifest_project_dir,
         project_name=project_name,
-        setup_yaml=setup_yaml,
+        setup_yaml=source_setup_yaml,
         project_yaml=project_yaml,
         subdomain_root=subdomain_root,
         regions_path=regions_path.resolve(),
@@ -1009,6 +1022,7 @@ def prepare_model_subdomains(
     *,
     setup_dir: Path,
     regions_path: Path,
+    setup_yaml: Path | None = None,
     subdomain_root: Path | None = None,
     id_field: str = "id",
     clip_mode: str = "window",
@@ -1022,6 +1036,7 @@ def prepare_model_subdomains(
     """Prepare plain openAMUNDSEN sub-domain setups under `<setup>/subdomains/model`."""
     return prepare_subdomains(
         setup_dir=setup_dir,
+        setup_yaml=setup_yaml,
         project_dir=None,
         regions_path=regions_path,
         subdomain_root=subdomain_root,

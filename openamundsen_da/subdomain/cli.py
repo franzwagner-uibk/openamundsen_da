@@ -114,6 +114,11 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
     p_model_prep = sub.add_parser("model-prepare", help="Prepare plain openAMUNDSEN sub-domain setups")
     p_model_prep.add_argument("--setup-dir", required=True, type=Path, help="Setup root directory")
     p_model_prep.add_argument(
+        "--setup-yaml",
+        type=Path,
+        help="Plain openAMUNDSEN setup YAML to use (default: auto-detect setup.yml)",
+    )
+    p_model_prep.add_argument(
         "--roi",
         "--regions",
         dest="regions",
@@ -178,6 +183,19 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
         help="Override output directory (default: <setup>/subdomains/model/results/grids)",
     )
     p_model_merge.add_argument("--log-level", default="INFO")
+
+    p_model_plot = sub.add_parser("model-plot", help="Plot plain openAMUNDSEN model sub-domain outputs")
+    p_model_plot.add_argument("--manifest", type=Path, help="Path to subdomain_manifest.json")
+    p_model_plot.add_argument("--setup-dir", type=Path, help="Setup directory (used to resolve manifest)")
+    p_model_plot.add_argument("--subdomain-root", type=Path, help="Sub-domain root (used to resolve manifest)")
+    p_model_plot.add_argument("--subdomains", nargs="+", help="Optional list of sub-domain ids to plot")
+    p_model_plot.add_argument(
+        "--config",
+        type=Path,
+        help="Optional model plot config YAML; when it contains a maps mapping it is used as the model maps config",
+    )
+    p_model_plot.add_argument("--backend", default="Agg", help="Matplotlib backend (default: Agg)")
+    p_model_plot.add_argument("--log-level", default="INFO")
 
     p_run = sub.add_parser("run", help="Run prepared sub-domains (DA pipeline per sub-domain)")
     p_run.add_argument("--manifest", type=Path, help="Path to subdomain_manifest.json")
@@ -286,6 +304,11 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
     p_model_pipe = sub.add_parser("model-pipeline", help="Run model-prepare -> model-run -> model-merge")
     p_model_pipe.add_argument("--setup-dir", required=True, type=Path, help="Setup root directory")
     p_model_pipe.add_argument(
+        "--setup-yaml",
+        type=Path,
+        help="Plain openAMUNDSEN setup YAML to use (default: auto-detect setup.yml)",
+    )
+    p_model_pipe.add_argument(
         "--roi",
         "--regions",
         dest="regions",
@@ -370,6 +393,7 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
         regions_path = args.regions or _default_regions_path(Path(args.setup_dir))
         prepare_model_subdomains(
             setup_dir=args.setup_dir,
+            setup_yaml=args.setup_yaml,
             regions_path=regions_path,
             subdomain_root=args.subdomain_root or _default_model_subdomain_root(args.setup_dir),
             id_field=args.id_field,
@@ -414,6 +438,22 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
             subdomains=args.subdomains,
             out_dir=args.out_dir,
             coverage_sliver_tol_px=int(args.coverage_sliver_tol_px),
+        )
+        return 0
+
+    if args.command == "model-plot":
+        from openamundsen_da.subdomain.model_plot import plot_model_subdomains
+
+        manifest = _resolve_model_manifest(
+            manifest_arg=args.manifest,
+            setup_dir=args.setup_dir,
+            subdomain_root=args.subdomain_root,
+        )
+        plot_model_subdomains(
+            manifest_path=manifest,
+            subdomains=args.subdomains,
+            config_path=args.config,
+            backend=args.backend,
         )
         return 0
 
@@ -515,6 +555,7 @@ def cli(argv: Optional[Iterable[str]] = None) -> int:
         regions_path = args.regions or _default_regions_path(Path(args.setup_dir))
         run_model_pipeline(
             setup_dir=args.setup_dir,
+            setup_yaml=args.setup_yaml,
             regions_path=regions_path,
             subdomain_root=args.subdomain_root or _default_model_subdomain_root(args.setup_dir),
             id_field=args.id_field,

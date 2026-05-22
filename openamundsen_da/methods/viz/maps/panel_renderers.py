@@ -80,6 +80,7 @@ from openamundsen_da.methods.viz.maps.styles import (
     FSC_INVALID_COLOR,
     INCREMENT_CMAP,
     SNOW_DEPTH_REFERENCE_TICKS_M,
+    SWE_REFERENCE_MIN_MM,
     WET_SNOW_COLORS,
     WET_SNOW_LABELS,
     landcover_classes_for_present_codes,
@@ -192,6 +193,8 @@ def masked_model(arr: np.ndarray, roi_mask: np.ndarray, *, preset) -> np.ma.Mask
     masked_array = masked(arr, roi_mask)
     if preset.variable == "snowdepth_daily":
         masked_array = np.ma.masked_less(masked_array, SNOW_DEPTH_REFERENCE_TICKS_M[0])
+    elif preset.variable == "swe_daily":
+        masked_array = np.ma.masked_less(masked_array, SWE_REFERENCE_MIN_MM)
     return masked_array
 
 

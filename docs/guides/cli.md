@@ -719,22 +719,30 @@ Plain openAMUNDSEN model workflow:
 ```bash
 # Prepare plain model sub-domain setups
 oa-da-subdomain model-prepare \
-  --setup-dir /data/subdomains \
-  --regions /data/subdomains/env/subdomains.gpkg
+  --setup-dir /data \
+  --setup-yaml /data/setup_100m.yml \
+  --subdomain-root /data/subdomains/model_r100 \
+  --regions /data/env/subdomains.gpkg
 
 # Run all model sub-domains in parallel
 oa-da-subdomain model-run \
-  --setup-dir /data/subdomains \
+  --manifest /data/subdomains/model_r100/subdomain_manifest.json \
   --max-workers 24
 
 # Merge model grid outputs
 oa-da-subdomain model-merge \
-  --setup-dir /data/subdomains
+  --manifest /data/subdomains/model_r100/subdomain_manifest.json
+
+# Plot model-only monthly maps and station SWE comparisons
+oa-da-subdomain model-plot \
+  --manifest /data/subdomains/model_r100/subdomain_manifest.json
 
 # One-shot model pipeline
 oa-da-subdomain model-pipeline \
-  --setup-dir /data/subdomains \
-  --regions /data/subdomains/env/subdomains.gpkg \
+  --setup-dir /data \
+  --setup-yaml /data/setup_100m.yml \
+  --subdomain-root /data/subdomains/model_r100 \
+  --regions /data/env/subdomains.gpkg \
   --max-workers 24 \
   --overwrite
 ```
@@ -792,10 +800,14 @@ Model defaults & tips:
 - If `--subdomain-root` is omitted, `<setup>/subdomains/model` is used.
 - If `--manifest` is omitted in `model-run`/`model-merge`, it resolves to `<setup>/subdomains/model/subdomain_manifest.json`.
 - If `--regions`/`--roi` is omitted in `model-prepare`/`model-pipeline`, `<setup>/env/subdomains.gpkg` is preferred and `<setup>/env/roi.gpkg` is the fallback.
+- Use `--setup-yaml` with `model-prepare` or `model-pipeline` to run a non-default plain setup YAML such as `setup_100m.yml`; combine it with `--subdomain-root` so outputs for different resolutions do not collide.
 - The source setup YAML must define `start_date` and `end_date`.
 - Generated model sub-domain setup YAMLs remain plain openAMUNDSEN configs.
 - `model-run` launches `openamundsen <subdomain_setup.yml>` once per selected sub-domain and writes `<subdomain>/run.log` plus `<subdomain>/run_manifest.json`.
 - `model-merge` reads matching `.nc`, `.tif`, and `.tiff` outputs from each `<subdomain>/results/grids/`.
+- `model-plot` writes DA-style model maps to `<setup>/subdomains/model/results/maps/monthly/` and station SWE comparison plots to `<setup>/subdomains/model/results/plots/stations/`.
+- If `<setup>/maps.yml` or `<setup>/maps.yaml` exists, model maps are rendered from that config. Standard `maps:` recipes are supported, and model-only `model_maps:` templates can expand dates from the setup window, for example `date_rule: first_day_of_month` with `variables: [snowdepth_daily, swe_daily]`. Use `{subdomain_id}` or `{subdomain_label}` plus `{variable_token}`, `{variable_title}`, and `{date}` in templates.
+- Without a maps config, `model-plot` falls back to monthly snow-depth and SWE panels with snow-observation station overlays from `obs/stations/stations_snow_depth.csv`.
 - Model merge is hard mosaic only; point/timeseries outputs are not merged in v1.
 - For large domains, keep `--max-workers` at or below the CPU cores available to Docker/the host.
 

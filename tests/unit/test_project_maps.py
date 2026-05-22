@@ -70,10 +70,12 @@ from openamundsen_da.methods.viz.maps.styles import (
     LANDCOVER_BROAD_CLASSES,
     LANDCOVER_COLORS,
     SNOW_DEPTH_REFERENCE_TICKS_M,
+    SWE_REFERENCE_MIN_MM,
     WET_SNOW_COLORS,
     WET_SNOW_LABELS,
     model_colorbar_style,
     model_map_cmap,
+    model_map_norm,
     require_static_field_preset,
     require_variable_preset,
     snow_depth_colorbar_labels_cm,
@@ -3212,6 +3214,22 @@ def test_snowdepth_colorbar_ticks_keep_reference_style_with_dynamic_top_bin() ->
     assert snow_depth_colorbar_labels_cm(vmax) == (1.0, 50.0, 100.0, 150.0, 200.0, 225.0)
     assert len(snow_depth_colorbar_ticks(vmax)) == 6
     assert snow_depth_colorbar_ticklabels(vmax) == ("1", "50", "100", "150", "200", "225")
+
+
+def test_swe_model_map_hides_values_below_one_mm() -> None:
+    preset = require_variable_preset("swe_daily")
+
+    masked = _masked_model(
+        np.array([[0.0, 0.5, 1.0, 2.0]]),
+        np.array([[True, True, True, True]]),
+        preset=preset,
+    )
+    norm = model_map_norm(preset, vmax=50.0)
+    cmap = model_map_cmap(preset)
+
+    assert np.ma.getmaskarray(masked).tolist() == [[True, True, False, False]]
+    assert norm.vmin == SWE_REFERENCE_MIN_MM
+    assert cmap(norm(0.0))[3] == 0.0
 
 
 def test_increment_cmap_runs_from_negative_red_to_positive_blue() -> None:

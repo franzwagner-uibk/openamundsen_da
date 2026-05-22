@@ -862,6 +862,8 @@ Docker usage:
 PROJ=/absolute/path/to/setup docker compose run --rm oa \
   oa-da-subdomain model-pipeline \
   --setup-dir /data \
+  --setup-yaml /data/setup_100m.yml \
+  --subdomain-root /data/subdomains/model_r100 \
   --regions /data/env/subdomains.gpkg \
   --max-workers 24 \
   --overwrite
@@ -888,10 +890,21 @@ The setup YAML must define the normal openAMUNDSEN domain settings (`domain`, `r
 
 Model defaults and outputs:
 - Source setup YAML must define `start_date` and `end_date`.
+- Use `--setup-yaml` with `model-prepare` or `model-pipeline` to select a non-default plain setup YAML such as `setup_100m.yml`.
 - Sub-domain root is `<setup>/subdomains/model` (override with `--subdomain-root`).
 - Each generated sub-domain setup remains a plain openAMUNDSEN config with sub-domain `domain`, grid/meteo dirs, `results_dir`, and ROI grid.
 - Per-subdomain model outputs are written to `<setup>/subdomains/model/<id>/results/`.
 - Merged grid outputs are written to `<setup>/subdomains/model/results/grids/`.
+- Model-only plots can be rendered after successful sub-domain runs with `oa-da-subdomain model-plot --setup-dir /data`.
+  They are written to `<setup>/subdomains/model/results/maps/monthly/` and
+  `<setup>/subdomains/model/results/plots/stations/`. If `<setup>/maps.yml` or `<setup>/maps.yaml` exists, model
+  maps are rendered from that config. Standard `maps:` recipes are supported, and model-only `model_maps:` templates
+  can expand dates from the setup window, for example `date_rule: first_day_of_month` with
+  `variables: [snowdepth_daily, swe_daily]`. Use `{subdomain_id}` or `{subdomain_label}` plus
+  `{variable_token}`, `{variable_title}`, and `{date}` in templates. Without a maps config, monthly maps use the
+  existing project-map renderer and are written as `<subdomain_id>_snowdepth_monthly.png` and
+  `<subdomain_id>_swe_monthly.png`, with snow-observation station markers and labels overlaid when
+  `obs/stations/stations_snow_depth.csv` is available.
 - Only grid outputs under each `<id>/results/grids/` are merged in v1; point/timeseries outputs are left per sub-domain.
 - Merge is hard mosaic only (no interpolation, blending, or boundary smoothing).
 - Per-subdomain run diagnostics are written to `<setup>/subdomains/model/<id>/run.log` and `<setup>/subdomains/model/<id>/run_manifest.json`.

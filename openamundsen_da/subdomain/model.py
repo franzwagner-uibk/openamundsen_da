@@ -346,6 +346,7 @@ def run_model_pipeline(
     *,
     setup_dir: Path,
     regions_path: Path,
+    setup_yaml: Path | None = None,
     subdomain_root: Path,
     id_field: str = "id",
     clip_mode: str = "window",
@@ -386,6 +387,7 @@ def run_model_pipeline(
     try:
         prepare_model_subdomains(
             setup_dir=setup_dir,
+            setup_yaml=setup_yaml,
             regions_path=regions_path,
             subdomain_root=subdomain_root,
             id_field=id_field,

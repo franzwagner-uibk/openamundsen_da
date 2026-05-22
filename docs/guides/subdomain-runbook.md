@@ -105,6 +105,7 @@ run_mode: subdomain
 - configured assimilation events are available in the observation summaries for the local sub-domains, or `data_assimilation.subdomain_event_filter` is enabled so unavailable local events can be dropped explicitly.
 - the machine has enough disk space for intermediate per-sub-domain projects.
 - `--max-workers` is no larger than the CPU cores available to Docker.
+- for model-only multi-resolution runs, pass the selected setup YAML with `--setup-yaml` and use a distinct `--subdomain-root` for each resolution.
 
 ## One-shot DA Run
 
@@ -289,6 +290,17 @@ The merged model grid outputs are written to:
 large_setup/subdomains/model/results/grids/
 ```
 
+After successful model runs, render model-only DA-style monthly snow-depth and SWE
+maps plus station SWE comparison plots with:
+
+```bash
+docker run \
+  -v "${SETUP_HOST}:/data" \
+  "${IMAGE}" \
+  oa-da-subdomain model-plot \
+    --setup-dir /data
+```
+
 Per-subdomain model outputs and diagnostics remain under:
 
 ```text
@@ -297,7 +309,7 @@ large_setup/subdomains/model/<subdomain_id>/run.log
 large_setup/subdomains/model/<subdomain_id>/run_manifest.json
 ```
 
-Model mode also uses a hard mosaic and only merges matching grid outputs under each sub-domain `results/grids/` directory.
+Model mode also uses a hard mosaic and only merges matching grid outputs under each sub-domain `results/grids/` directory. Model plots are written under `large_setup/subdomains/model/results/maps/monthly/` and `large_setup/subdomains/model/results/plots/stations/`. If `large_setup/maps.yml` or `large_setup/maps.yaml` exists, model maps are rendered from that config. Standard `maps:` recipes are supported, and model-only `model_maps:` templates can expand dates from the setup window, for example `date_rule: first_day_of_month` with `variables: [snowdepth_daily, swe_daily]`. Use `{subdomain_id}` or `{subdomain_label}` plus `{variable_token}`, `{variable_title}`, and `{date}` in templates. Without a maps config, monthly maps use the existing project-map renderer and are written as `<subdomain_id>_snowdepth_monthly.png` and `<subdomain_id>_swe_monthly.png`, with snow-observation station markers and labels overlaid when `obs/stations/stations_snow_depth.csv` is available.
 
 ## Common Problems
 

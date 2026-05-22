@@ -12,6 +12,7 @@ import xarray as xr
 
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import abspath_relative_to, find_setup_yaml, list_member_dirs
+from openamundsen_da.util.station_da import STATION_SNOW_DEPTH_METADATA_FILENAME
 
 
 def _transform_coords(x, y, src_crs: str | None, dst_crs: str | None):
@@ -21,9 +22,23 @@ def _transform_coords(x, y, src_crs: str | None, dst_crs: str | None):
     return transformer.transform(np.asarray(x), np.asarray(y))
 
 
+def _find_setup_yaml_lenient(setup_dir: Path) -> Path | None:
+    try:
+        return find_setup_yaml(setup_dir)
+    except FileNotFoundError as exc:
+        if "missing projects/" not in str(exc):
+            raise
+        candidates = [Path(setup_dir) / f"{Path(setup_dir).name}.yml", Path(setup_dir) / "setup.yml"]
+        candidates.extend(sorted(Path(setup_dir).glob("*.yml")))
+        return next((path for path in candidates if path.is_file()), None)
+
+
 def load_setup_station_table(setup_dir: Path) -> pd.DataFrame | None:
     """Load setup-level station metadata from the configured meteo source."""
-    setup_cfg = _read_yaml_file(find_setup_yaml(setup_dir)) or {}
+    setup_yaml = _find_setup_yaml_lenient(Path(setup_dir))
+    if setup_yaml is None:
+        return None
+    setup_cfg = _read_yaml_file(setup_yaml) or {}
     if not isinstance(setup_cfg, dict):
         return None
     input_data = (setup_cfg.get("input_data") or {}) if isinstance(setup_cfg.get("input_data"), dict) else {}
@@ -74,6 +89,62 @@ def load_setup_station_table(setup_dir: Path) -> pd.DataFrame | None:
     return None
 
 
+def load_setup_snow_depth_station_table(
+    setup_dir: Path,
+    *,
+    obs_stations_dirs: Sequence[Path] = (),
+    grid_crs: str | None = None,
+) -> pd.DataFrame | None:
+    """Load setup-level snow-observation station metadata."""
+    setup_dir = Path(setup_dir)
+    if grid_crs is None:
+        setup_yaml = _find_setup_yaml_lenient(setup_dir)
+        if setup_yaml is not None:
+            setup_cfg = _read_yaml_file(setup_yaml) or {}
+            if isinstance(setup_cfg, dict):
+                grid_crs = setup_cfg.get("crs")
+
+    candidate_dirs: list[Path] = []
+    for obs_dir in obs_stations_dirs:
+        path = Path(obs_dir)
+        if path not in candidate_dirs:
+            candidate_dirs.append(path)
+    default_dir = setup_dir / "obs" / "stations"
+    if default_dir not in candidate_dirs:
+        candidate_dirs.append(default_dir)
+
+    for obs_dir in candidate_dirs:
+        metadata_path = obs_dir / STATION_SNOW_DEPTH_METADATA_FILENAME
+        if not metadata_path.is_file():
+            continue
+        stations = pd.read_csv(metadata_path)
+        if "id" not in stations.columns:
+            raise ValueError(f"Snow observation station metadata missing required column 'id': {metadata_path}")
+        out = stations.copy()
+        out["id"] = out["id"].astype(str)
+        if "name" not in out.columns:
+            out["name"] = out["id"]
+        if {"x", "y"}.issubset(out.columns):
+            out["x"] = pd.to_numeric(out["x"], errors="coerce")
+            out["y"] = pd.to_numeric(out["y"], errors="coerce")
+        elif {"lon", "lat"}.issubset(out.columns):
+            if grid_crs is None:
+                raise ValueError(
+                    f"Snow observation station metadata has lon/lat but setup CRS is unavailable: {metadata_path}"
+                )
+            xs, ys = _transform_coords(out["lon"], out["lat"], "epsg:4326", grid_crs)
+            out["x"] = xs
+            out["y"] = ys
+        else:
+            raise ValueError(f"Snow observation station metadata must contain x/y or lon/lat: {metadata_path}")
+        if "alt" in out.columns:
+            out["alt"] = pd.to_numeric(out["alt"], errors="coerce")
+        finite_xy = np.isfinite(out["x"].astype(float)) & np.isfinite(out["y"].astype(float))
+        out = out.loc[finite_xy].copy()
+        return out if not out.empty else None
+    return None
+
+
 def load_ensemble_station_table(step_dir: Path, ensemble: str) -> Optional[pd.DataFrame]:
     """Load per-step station metadata from open_loop or first member meteo dir."""
     base = Path(step_dir) / "ensembles" / str(ensemble)
@@ -102,5 +173,6 @@ def load_ensemble_station_table_from_steps(step_dirs: Sequence[Path], ensemble: 
 __all__ = [
     "load_ensemble_station_table",
     "load_ensemble_station_table_from_steps",
+    "load_setup_snow_depth_station_table",
     "load_setup_station_table",
 ]

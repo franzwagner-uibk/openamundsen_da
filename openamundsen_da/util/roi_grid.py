@@ -78,7 +78,15 @@ def _find_grid_file(grids_dir: Path, prefix: str, domain: str, resolution: str) 
     )
 
 
-def _find_setup_yaml_for_roi(setup_dir: Path) -> Path:
+def _find_setup_yaml_for_roi(setup_dir: Path, setup_yaml: Path | None = None) -> Path:
+    if setup_yaml is not None:
+        setup_yaml = Path(setup_yaml)
+        if not setup_yaml.is_absolute():
+            setup_yaml = Path(setup_dir) / setup_yaml
+        if not setup_yaml.is_file():
+            raise FileNotFoundError(f"Setup YAML not found: {setup_yaml}")
+        return setup_yaml.resolve()
+
     try:
         return find_setup_yaml(setup_dir)
     except FileNotFoundError as exc:
@@ -96,17 +104,17 @@ def _find_setup_yaml_for_roi(setup_dir: Path) -> Path:
     )
 
 
-def resolve_setup_grid_spec(setup_dir: Path) -> SetupGridSpec:
+def resolve_setup_grid_spec(setup_dir: Path, *, setup_yaml: Path | None = None) -> SetupGridSpec:
     setup_dir = Path(setup_dir).resolve()
-    setup_yaml = _find_setup_yaml_for_roi(setup_dir)
-    cfg = _read_yaml_file(setup_yaml) or {}
+    setup_yaml_path = _find_setup_yaml_for_roi(setup_dir, setup_yaml=setup_yaml)
+    cfg = _read_yaml_file(setup_yaml_path) or {}
 
     domain = cfg.get("domain")
     resolution_raw = cfg.get("resolution")
     if not domain:
-        raise ValueError(f"{setup_yaml} missing required key 'domain'")
+        raise ValueError(f"{setup_yaml_path} missing required key 'domain'")
     if resolution_raw is None:
-        raise ValueError(f"{setup_yaml} missing required key 'resolution'")
+        raise ValueError(f"{setup_yaml_path} missing required key 'resolution'")
 
     resolution = _format_resolution(resolution_raw)
     grids_rel = (((cfg.get("input_data") or {}).get("grids") or {}).get("dir")) or "grids"
@@ -210,9 +218,10 @@ def ensure_setup_roi_grid(
     setup_dir: Path,
     *,
     roi_vector_path: Optional[Path] = None,
+    setup_yaml: Path | None = None,
     overwrite: bool = False,
 ) -> Path:
-    spec = resolve_setup_grid_spec(setup_dir)
+    spec = resolve_setup_grid_spec(setup_dir, setup_yaml=setup_yaml)
     roi_grid_path = spec.roi_grid_path
 
     if roi_grid_path.is_file() and not overwrite:
@@ -248,11 +257,12 @@ def load_setup_roi_mask(
     *,
     ensure_grid: bool = False,
     roi_vector_path: Optional[Path] = None,
+    setup_yaml: Path | None = None,
 ) -> tuple[np.ndarray, SetupGridSpec, Path]:
-    spec = resolve_setup_grid_spec(setup_dir)
+    spec = resolve_setup_grid_spec(setup_dir, setup_yaml=setup_yaml)
     roi_grid_path = spec.roi_grid_path
     if ensure_grid:
-        roi_grid_path = ensure_setup_roi_grid(setup_dir, roi_vector_path=roi_vector_path)
+        roi_grid_path = ensure_setup_roi_grid(setup_dir, roi_vector_path=roi_vector_path, setup_yaml=setup_yaml)
     if not roi_grid_path.is_file():
         raise FileNotFoundError(f"ROI grid not found: {roi_grid_path}")
     mask = _read_mask_from_grid(roi_grid_path, spec)

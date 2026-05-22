@@ -127,6 +127,7 @@ STATIC_FIELD_PRESETS = {
 
 SNOW_DEPTH_REFERENCE_TICKS_M = (0.01, 0.10, 0.25, 0.50, 1.0, 2.0, 3.0, 4.0)
 SNOW_DEPTH_REFERENCE_TICKLABELS_CM = ("1", "10", "25", "50", "100", "200", "300", "400+")
+SWE_REFERENCE_MIN_MM = 1.0
 SNOW_DEPTH_REFERENCE_COLORS = (
     "#440154",
     "#46327e",
@@ -216,6 +217,9 @@ def _snow_depth_reference_cmap() -> LinearSegmentedColormap:
 SNOW_DEPTH_CMAP = _snow_depth_reference_cmap()
 INCREMENT_CMAP = colormaps["RdBu"]
 SNOW_DEPTH_COLORBAR_STEPS_CM = (5.0, 10.0, 25.0, 50.0, 100.0)
+SWE_CMAP = colormaps["viridis"].copy()
+SWE_CMAP.set_under((1.0, 1.0, 1.0, 0.0))
+SWE_CMAP.set_bad((1.0, 1.0, 1.0, 0.0))
 
 
 def snow_depth_scale_ticks(vmax: float) -> tuple[float, ...]:
@@ -334,12 +338,17 @@ def landcover_cmap_for_codes(codes: list[int]) -> ListedColormap:
 def model_map_cmap(preset: VariablePreset):
     if preset.variable == "snowdepth_daily":
         return SNOW_DEPTH_CMAP
+    if preset.variable == "swe_daily":
+        return SWE_CMAP
     return colormaps[preset.sequential_cmap]
 
 
 def model_map_norm(preset: VariablePreset, *, vmax: float) -> Normalize:
     if preset.variable == "snowdepth_daily":
         return _snow_depth_reference_norm(vmax)
+    if preset.variable == "swe_daily":
+        high = max(float(vmax), SWE_REFERENCE_MIN_MM)
+        return Normalize(vmin=SWE_REFERENCE_MIN_MM, vmax=high, clip=False)
     return Normalize(vmin=preset.model_min, vmax=vmax, clip=False)
 
 

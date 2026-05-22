@@ -109,7 +109,11 @@ def _expected_coverage_mask(
     selected_ids = list(selected_ids)
     if set(selected_ids) == set(manifest.subdomains.keys()):
         try:
-            roi_mask, _, roi_path = load_setup_roi_mask(manifest.setup_dir, ensure_grid=False)
+            roi_mask, _, roi_path = load_setup_roi_mask(
+                manifest.setup_dir,
+                ensure_grid=False,
+                setup_yaml=manifest.setup_yaml,
+            )
             if roi_mask.shape == global_shape:
                 logger.info("Using setup ROI grid coverage mask {}", roi_path)
                 return roi_mask

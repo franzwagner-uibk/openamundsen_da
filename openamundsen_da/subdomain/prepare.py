@@ -543,7 +543,8 @@ def _prepare_obs_station_subset(
     selected_ids: set[str] = set()
     inside_grid_ids: set[str] = set()
     stations_meta = obs_dir / STATION_SNOW_DEPTH_METADATA_FILENAME
-    if stations_meta.is_file():
+    has_stations_meta = stations_meta.is_file()
+    if has_stations_meta:
         meta_df = pd.read_csv(stations_meta, dtype={"id": "string"})
         if {"x", "y"}.issubset(meta_df.columns):
             gdf = gpd.GeoDataFrame(
@@ -560,16 +561,25 @@ def _prepare_obs_station_subset(
                 for sid in normalize_station_id_series(pd.Series(inside_ids))
                 if sid
             }
+            if meta_df.empty and requested_ids:
+                logger.info(
+                    "No station obs metadata rows found within buffered subdomain; "
+                    "not falling back to requested meteo station ids"
+                )
         else:
             logger.warning("stations_snow_depth.csv missing x/y columns; skipping spatial filter")
             if requested_ids and "id" in meta_df.columns:
                 meta_df = meta_df.loc[normalize_station_id_series(meta_df["id"]).isin(requested_ids)].copy()
-                inside_grid_ids = set(requested_ids)
+                inside_grid_ids = {
+                    sid
+                    for sid in normalize_station_id_series(meta_df["id"])
+                    if sid
+                }
         meta_df.to_csv(out_dir / "stations_snow_depth.csv", index=False)
         if "id" in meta_df.columns:
             selected_ids = {str(sid) for sid in meta_df["id"].dropna().astype(str)}
 
-    if not selected_ids and requested_ids:
+    if not selected_ids and requested_ids and not has_stations_meta:
         selected_ids = set(requested_ids)
         inside_grid_ids = set(requested_ids)
 
@@ -592,6 +602,8 @@ def _prepare_obs_station_subset(
                 da_df.loc[~inside_mask, role_col] = False
             stats["obs_stations_da_active"] = sum(role_enabled(value) for value in da_df["use_for_da"])
             stats["obs_stations_benchmark_active"] = sum(role_enabled(value) for value in da_df["use_for_benchmark"])
+        elif has_stations_meta:
+            da_df = da_df.iloc[0:0].copy()
         da_df.to_csv(out_dir / STATION_DA_METADATA_FILENAME, index=False)
 
     if selected_ids:
@@ -613,6 +625,9 @@ def _prepare_obs_station_subset(
                     break
             if not copied:
                 logger.debug("No station obs series found for id {}", sid)
+        return stats
+
+    if has_stations_meta:
         return stats
 
     copied_any = False

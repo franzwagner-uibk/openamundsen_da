@@ -84,6 +84,44 @@ def test_prepare_obs_subset_filters_station_metadata_files(tmp_path: Path) -> No
     assert (out_dir / "stations_da_metadata.csv").read_text(encoding="utf-8").count("\n") == 2
 
 
+def test_prepare_obs_subset_does_not_count_requested_meteo_ids_when_metadata_selects_no_obs(
+    tmp_path: Path,
+) -> None:
+    obs_dir = tmp_path / "obs"
+    out_dir = tmp_path / "out"
+    obs_dir.mkdir(parents=True, exist_ok=True)
+    (obs_dir / "stations_snow_depth.csv").write_text(
+        "id,x,y\nobs_station,10,10\n",
+        encoding="utf-8",
+    )
+    (obs_dir / "stations_da_metadata.csv").write_text(
+        "station_id,station_uncertainty_pct,hs_sigma_abs_min,use_for_da,use_for_benchmark\n"
+        "obs_station,10,0.1,true,true\n",
+        encoding="utf-8",
+    )
+    _write_obs(obs_dir / "AT_Geosphere.Lienz.csv")
+    _write_obs(obs_dir / "obs_station.csv")
+
+    stats = _prepare_obs_station_subset(
+        obs_dir=obs_dir,
+        out_dir=out_dir,
+        geom=box(0, 0, 1, 1),
+        buffer_m=0.0,
+        crs=None,
+        station_ids=["AT_Geosphere.Lienz"],
+    )
+
+    assert not (out_dir / "AT_Geosphere.Lienz.csv").exists()
+    assert not (out_dir / "obs_station.csv").exists()
+    assert (out_dir / "stations_snow_depth.csv").read_text(encoding="utf-8").count("\n") == 1
+    assert (out_dir / "stations_da_metadata.csv").read_text(encoding="utf-8").count("\n") == 1
+    assert stats["obs_stations_selected"] == 0
+    assert stats["obs_stations_inside_grid"] == 0
+    assert stats["obs_stations_da_active"] == 0
+    assert stats["obs_stations_benchmark_active"] == 0
+    assert stats["obs_station_series_copied"] == 0
+
+
 def test_prepare_obs_subset_disables_roles_for_buffer_only_stations(tmp_path: Path) -> None:
     obs_dir = tmp_path / "obs"
     out_dir = tmp_path / "out"

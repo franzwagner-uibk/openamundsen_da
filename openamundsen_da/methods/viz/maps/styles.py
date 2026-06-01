@@ -216,6 +216,29 @@ def _snow_depth_reference_cmap() -> LinearSegmentedColormap:
 SNOW_DEPTH_CMAP = _snow_depth_reference_cmap()
 INCREMENT_CMAP = colormaps["RdBu"]
 SNOW_DEPTH_COLORBAR_STEPS_CM = (5.0, 10.0, 25.0, 50.0, 100.0)
+ASPECT_COLORBAR_TICKS_RAD = (0.0, 1.0, 2.0, math.pi, 4.0, 5.0, 6.0)
+ASPECT_COLORBAR_TICKLABELS = ("0", "1", "2", "3.14", "4", "5", "6")
+
+
+def _aspect_reference_cmap() -> LinearSegmentedColormap:
+    colors = (
+        (0.00, "#202963"),
+        (0.85 / (2.0 * math.pi), "#3f8cba"),
+        (0.50 * math.pi / (2.0 * math.pi), "#ffffff"),
+        (2.26 / (2.0 * math.pi), "#c56c4f"),
+        (0.50, "#560c1d"),
+        (3.67 / (2.0 * math.pi), "#a21f25"),
+        (4.38 / (2.0 * math.pi), "#d8a897"),
+        (5.09 / (2.0 * math.pi), "#9cbbc7"),
+        (5.79 / (2.0 * math.pi), "#1158b8"),
+        (1.00, "#121534"),
+    )
+    cmap = LinearSegmentedColormap.from_list("oa_da_aspect_reference_rad", colors, N=512)
+    cmap.set_bad((1.0, 1.0, 1.0, 0.0))
+    return cmap
+
+
+ASPECT_CMAP = _aspect_reference_cmap()
 
 
 def snow_depth_scale_ticks(vmax: float) -> tuple[float, ...]:
@@ -364,6 +387,18 @@ def static_field_cmap(preset: StaticFieldPreset):
     if preset.field == "landcover":
         raise ValueError("Landcover colors are derived from present codes")
     return colormaps[preset.cmap_name]
+
+
+def aspect_norm() -> Normalize:
+    return Normalize(vmin=0.0, vmax=2.0 * math.pi, clip=False)
+
+
+def aspect_cmap() -> LinearSegmentedColormap:
+    return ASPECT_CMAP
+
+
+def aspect_colorbar_style() -> ColorbarStyle:
+    return ColorbarStyle(label="[rad]", ticks=ASPECT_COLORBAR_TICKS_RAD, ticklabels=ASPECT_COLORBAR_TICKLABELS)
 
 
 def static_field_range(preset: StaticFieldPreset, values: np.ndarray) -> tuple[float, float]:

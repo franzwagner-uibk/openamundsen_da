@@ -20,6 +20,9 @@ from openamundsen_da.methods.viz.plots.theme import (
     CRPSS_AXIS_UPPER_CAP,
     FIGURE_TITLE_CLEARANCE_PTS,
     FIGURE_TITLE_TOP_MARGIN_PTS,
+    GRID_ALPHA,
+    GRID_LS,
+    GRID_LW,
     METRIC_AXIS_MAX_INTERVALS,
     METRIC_AXIS_MIN_INTERVALS,
     TITLE_PAD_DEFAULT,
@@ -665,6 +668,12 @@ def thin_dense_y_tick_labels(ax, *, max_visible_labels: int = 4) -> None:
         tick.label2.set_visible(visible and original_label2_visibility[pos])
 
 
+def apply_plot_grid(ax, *, axis: str = "both", which: str = "major") -> None:
+    """Apply the shared light dotted grid style for diagnostic plots."""
+    ax.set_axisbelow(True)
+    ax.grid(True, axis=axis, which=which, alpha=GRID_ALPHA, linestyle=GRID_LS, linewidth=GRID_LW)
+
+
 def apply_fraction_grid(ax, *, y_step: float | None = 0.1) -> None:
     """Apply consistent grid styling for result overview plots."""
     from matplotlib.ticker import MultipleLocator
@@ -674,4 +683,4 @@ def apply_fraction_grid(ax, *, y_step: float | None = 0.1) -> None:
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
     if y_step is not None:
         ax.yaxis.set_major_locator(MultipleLocator(y_step))
-    ax.grid(True, axis="both", alpha=0.5, linestyle="--", linewidth=0.8)
+    apply_plot_grid(ax)

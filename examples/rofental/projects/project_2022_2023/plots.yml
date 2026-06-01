@@ -36,15 +36,19 @@
 panels:
   - panel: fSC
     show_obs: true
-    title: Snow cover fraction Rofental catchment
+    title: Snow cover fraction
+
+  - panel: WSF
+    show_obs: true
+    title: Wet snow fraction
 
   - panel: WSLA
     show_obs: true
-    title: Wet-snow line Rofental catchment
+    title: Wet snow line
 
   - panel: station-sd
     station_id: proviantdepot
-    title: Snow depth Proviantdepot 2659 m
+    title: Snow depth (Proviantdepot 2659 m)
     show_obs: true
 
   - panel: ess

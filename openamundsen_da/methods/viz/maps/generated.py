@@ -223,7 +223,7 @@ def _fraction_row(*, row: int, kind: str, label: str) -> GeneratedRow:
                 show_hillshade=True,
                 hillshade_extent="roi",
             ),
-            MapPanelSpec(kind=kind, row=row, col=3, title="Wet-snow observation"),
+            MapPanelSpec(kind=kind, row=row, col=3, title="Wet snow observation"),
         ),
     )
 

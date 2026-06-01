@@ -33,6 +33,8 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.methods.viz.theme import da_variable_line_color
 from openamundsen_da.methods.viz.common import force_figure_text_black, save_figure_png, set_matplotlib_text_black
+from openamundsen_da.methods.viz.plots.common import apply_plot_grid
+from openamundsen_da.methods.viz.plots.theme import OVERVIEW_XTICK_SIZE, OVERVIEW_YTICK_SIZE
 from openamundsen_da.methods.viz.wet_snow_fields import finite_numeric_column
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.da_observables import station_diagnostics_csv_name, weight_plot_title_from_csv_path
@@ -42,6 +44,12 @@ from openamundsen_da.util.yaml_utils import read_yaml_mapping
 
 _WEIGHTS_FIGSIZE = (7.2876875, 2.82)
 _WEIGHTS_PANEL_WIDTH_RATIOS = (1.15, 3.85)
+_OVERVIEW_WEIGHT_AXIS_WIDTH_SCALE = 0.85
+_OVERVIEW_WEIGHTS_PANEL_WIDTH_RATIOS = (
+    _WEIGHTS_PANEL_WIDTH_RATIOS[0] * _OVERVIEW_WEIGHT_AXIS_WIDTH_SCALE,
+    _WEIGHTS_PANEL_WIDTH_RATIOS[1] + _WEIGHTS_PANEL_WIDTH_RATIOS[0] * (1.0 - _OVERVIEW_WEIGHT_AXIS_WIDTH_SCALE),
+)
+_OVERVIEW_STATION_LEGEND_MARKER_SIZE = 4.3
 _FRACTION_MISMATCH_COLORS = {
     "scf": da_variable_line_color("scf"),
     "wet_snow": da_variable_line_color("wet_snow"),
@@ -70,10 +78,16 @@ _STATION_COLOR_CYCLES = {
         "#a2da37",
     ],
 }
-_FS_TITLE = 9.4
+_FS_TITLE = 8.8
 _FS_AXIS = 8.6
 _FS_TICK = 8.4
 _FS_NOTE = 7.4
+_OVERVIEW_MEMBER_TICK_SIZE_DELTA = -0.7
+_OVERVIEW_WEIGHTS_AXIS_LABEL_SIZE = 6.6
+_OVERVIEW_XLABEL_PAD = 0.2
+_OVERVIEW_XTICK_PAD = 0.6
+_OVERVIEW_YLABEL_PAD = 0.3
+_OVERVIEW_YTICK_PAD = 1.0
 _COMPOSITE_ROW_HEIGHT = 1.62
 _A4_PAGE_HEIGHT_INCHES = 11.6929133858
 _STANDALONE_PLOT_WIDTH_SCALE = 0.80
@@ -102,7 +116,7 @@ def _load_weights(csv_path: Path) -> pd.DataFrame:
 
 
 def _apply_grid(ax) -> None:
-    ax.grid(True, axis="both", which="major", alpha=0.5, linestyle="--", linewidth=0.8)
+    apply_plot_grid(ax)
 
 
 def _member_ticks(n: int) -> list[int]:
@@ -452,11 +466,19 @@ def _marker_handle(
     )
 
 
+def _station_metadata_label(display_name: str, sigma_meta: float | None, *, ascii_sigma: bool = False) -> str:
+    if sigma_meta is None:
+        return display_name
+    sigma_token = "sigma" if ascii_sigma else "\u03c3"
+    return f"{display_name} ({sigma_token}={sigma_meta:.0f}%)"
+
+
 def _marker_legend_entries_for_csv(
     csv_path: Path,
     observable: str | None,
     *,
     station_color_config: dict[str, dict[str, str]] | None = None,
+    station_ascii_sigma: bool = False,
 ) -> list[tuple[str, str]]:
     if observable in {"station_hs", "station_swe"}:
         diag_path = _station_diagnostics_path(csv_path, observable)
@@ -475,10 +497,7 @@ def _marker_legend_entries_for_csv(
         for station_id in station_ids:
             display_name = station_display_names.get(station_id, station_id)
             sigma_meta = station_sigma_meta.get(station_id.strip().lower())
-            if sigma_meta is not None:
-                label = f"{display_name} (\u03c3={sigma_meta:.0f}%)"
-            else:
-                label = display_name
+            label = _station_metadata_label(display_name, sigma_meta, ascii_sigma=station_ascii_sigma)
             entries.append((label, station_color_map[station_id]))
         return entries
 
@@ -502,14 +521,17 @@ def _collect_marker_legend_entries(
     return list(entries.items())
 
 
-def _draw_sigma_strip(ax, entries: list[tuple[str, str]], *, fontsize: float) -> None:
+def _draw_sigma_strip(ax, entries: list[tuple[str, str]], *, fontsize: float, anchor_y: float = 0.93) -> None:
     if not entries:
         return
-    handles = [_marker_handle(color, size=4.8, markeredgewidth=0.8) for color, _label in entries]
+    handles = [
+        _marker_handle(color, size=_OVERVIEW_STATION_LEGEND_MARKER_SIZE, markeredgewidth=0.75)
+        for color, _label in entries
+    ]
     labels = [label for _color, label in entries]
     inside_panel = len(labels) <= 5
     loc = "upper right" if inside_panel else "lower right"
-    bbox_to_anchor = (0.99, 0.93) if inside_panel else (1.0, 1.05)
+    bbox_to_anchor = (0.99, anchor_y) if inside_panel else (1.0, 1.05)
     ncol = 1 if inside_panel else len(labels)
     legend = ax.legend(
         handles,
@@ -527,6 +549,36 @@ def _draw_sigma_strip(ax, entries: list[tuple[str, str]], *, fontsize: float) ->
         borderaxespad=0.0,
     )
     legend._legend_box.align = "right"
+
+
+def _draw_station_identity_legend(ax, entries: list[tuple[str, str]], *, fontsize: float) -> None:
+    if not entries:
+        return
+    handles = [
+        _marker_handle(color, size=_OVERVIEW_STATION_LEGEND_MARKER_SIZE, markeredgewidth=0.75)
+        for label, color in entries
+    ]
+    labels = [label for label, color in entries]
+    legend = ax.legend(
+        handles,
+        labels,
+        loc="upper left",
+        bbox_to_anchor=(0.015, 0.985),
+        ncol=1,
+        frameon=True,
+        fontsize=fontsize,
+        handlelength=0.8,
+        handletextpad=0.25,
+        labelspacing=0.15,
+        borderpad=0.16,
+        borderaxespad=0.0,
+    )
+    frame = legend.get_frame()
+    frame.set_facecolor("white")
+    frame.set_edgecolor("none")
+    frame.set_alpha(0.86)
+    legend._legend_box.align = "left"
+    ax.add_artist(legend)
 
 
 def _format_sigma_strip_label(sigma: float) -> str:
@@ -851,6 +903,13 @@ def _draw_weights_event(
     ring_line_scale: float = 1.0,
     marker_scale: float = 1.0,
     font_size_bump: float = 0.0,
+    member_tick_size_delta: float = 0.0,
+    rotate_member_tick_labels: bool = False,
+    capitalize_axis_labels: bool = False,
+    x_labelpad: float | None = None,
+    show_station_identity_legend: bool = False,
+    bold_axes_da_prefix: bool = True,
+    sigma_strip_anchor_y: float = 0.93,
     axes_title_y: float = 1.18,
     figure_title_y: float = 0.972,
     residual_xlim: tuple[float, float] | None = None,
@@ -903,8 +962,10 @@ def _draw_weights_event(
         ring_step=11.0 * ring_step_scale,
         line_scale=ring_line_scale,
     )
-    ax0.set_xlabel("weight", fontsize=fs_axis)
-    ax0.set_ylabel("sorted member" if show_left_ylabel else "", fontsize=fs_axis)
+    weight_axis_label = "Weight" if capitalize_axis_labels else "weight"
+    sorted_member_label = "Sorted member" if capitalize_axis_labels else "sorted member"
+    ax0.set_xlabel(weight_axis_label, fontsize=fs_axis, labelpad=x_labelpad)
+    ax0.set_ylabel(sorted_member_label if show_left_ylabel else "", fontsize=fs_axis)
     _apply_grid(ax0)
     ax0.set_xlim(*_expand_xlim((0.0, 1.0)))
     ax0.set_yticks(member_ticks)
@@ -913,6 +974,12 @@ def _draw_weights_event(
     ax0.xaxis.set_minor_locator(MultipleLocator(0.05))
     ax0.yaxis.set_minor_locator(NullLocator())
     ax0.tick_params(axis="both", labelsize=fs_tick)
+    if rotate_member_tick_labels or member_tick_size_delta:
+        ax0.tick_params(
+            axis="y",
+            labelsize=max(1.0, fs_tick + member_tick_size_delta),
+            labelrotation=90 if rotate_member_tick_labels else 0,
+        )
     threshold = resample_manifest.get("ess_threshold")
     metrics_label = f"ESS = {ess:.1f}"
     if show_metrics_threshold and threshold is not None:
@@ -934,7 +1001,7 @@ def _draw_weights_event(
     sigma_strip_entries: list[tuple[str, str]] = []
     residual_axis_values: list[float] = [0.0]
     ax1.axvline(0.0, color="black", lw=1.0, zorder=3)
-    ax1.set_ylabel("sorted member" if show_right_ylabel else "", fontsize=fs_axis)
+    ax1.set_ylabel(sorted_member_label if show_right_ylabel else "", fontsize=fs_axis)
     ax1.set_yticks(member_ticks)
     ax1.set_ylim(n + 0.5, 0.5)
     ax1.yaxis.set_minor_locator(NullLocator())
@@ -952,12 +1019,23 @@ def _draw_weights_event(
             if not diag.empty and "station_id" in diag.columns
             else []
         )
+        station_identity_entries: list[tuple[str, str]] = []
         config = station_color_config if station_color_config is not None else _station_color_config_for_csv(csv_path)
         station_color_map = _station_color_map(
             station_ids,
             observable=observable,
             station_color_config=config,
         )
+        if show_station_identity_legend:
+            station_display_names = _station_display_names(csv_path, station_ids)
+            station_identity_entries = [
+                (
+                    station_display_names.get(station_id, station_id),
+                    station_color_map[station_id],
+                )
+                for station_id in station_ids
+                if station_id in station_color_map
+            ]
         for station_id in station_ids:
             station_mask = diag["station_id"].astype(str) == station_id
             sdf = diag.loc[station_mask].copy()
@@ -1007,8 +1085,12 @@ def _draw_weights_event(
             colors = [station_color_map[station_id] for station_id in sigma_station_ids if station_id in station_color_map]
             _draw_alternating_sigma_line(ax1, -sigma_val, y_min, y_max, colors, lw=1.0, alpha=0.9, zorder=2)
             _draw_alternating_sigma_line(ax1, sigma_val, y_min, y_max, colors, lw=1.0, alpha=0.9, zorder=2)
-        ax1.set_xlabel(_station_axis_label(observable), fontsize=fs_axis)
+        residual_label = _station_axis_label(observable)
+        if capitalize_axis_labels:
+            residual_label = _capitalize_axis_label(residual_label)
+        ax1.set_xlabel(residual_label, fontsize=fs_axis, labelpad=x_labelpad)
         ax1.xaxis.set_minor_locator(AutoMinorLocator(4))
+        _draw_station_identity_legend(ax1, station_identity_entries, fontsize=max(1.0, fs_note - 0.25))
     else:
         residual = pd.to_numeric(ordered_df.get("residual"), errors="coerce")
         frac_color = _FRACTION_MISMATCH_COLORS.get(observable, da_variable_line_color("station_hs"))
@@ -1043,17 +1125,26 @@ def _draw_weights_event(
             ax1.axvline(sigma_val, color=frac_color, lw=1.0, ls="-", alpha=0.9, zorder=2)
             sigma_strip_entries.append((frac_color, _format_sigma_strip_label(sigma_val)))
             residual_axis_values.extend([-sigma_val, sigma_val])
-        ax1.set_xlabel(_fraction_axis_label(observable), fontsize=fs_axis)
+        residual_label = _fraction_axis_label(observable)
+        if capitalize_axis_labels:
+            residual_label = _capitalize_axis_label(residual_label)
+        ax1.set_xlabel(residual_label, fontsize=fs_axis, labelpad=x_labelpad)
         ax1.xaxis.set_minor_locator(AutoMinorLocator(4))
         if observable == "wet_snow_line":
             _draw_wsl_unavailable_overlay(ax1, ordered_df, fontsize=fs_note)
-    _draw_sigma_strip(ax1, sigma_strip_entries, fontsize=fs_note)
+    _draw_sigma_strip(ax1, sigma_strip_entries, fontsize=fs_note, anchor_y=sigma_strip_anchor_y)
     if residual_xlim is not None:
         ax1.set_xlim(*_expand_xlim(residual_xlim))
     elif residual_axis_values:
         ax1.set_xlim(*_expand_xlim((min(residual_axis_values), max(residual_axis_values))))
     _apply_grid(ax1)
     ax1.tick_params(axis="both", labelsize=fs_tick)
+    if rotate_member_tick_labels or member_tick_size_delta:
+        ax1.tick_params(
+            axis="y",
+            labelsize=max(1.0, fs_tick + member_tick_size_delta),
+            labelrotation=90 if rotate_member_tick_labels else 0,
+        )
 
     header = title
     if subtitle:
@@ -1062,7 +1153,7 @@ def _draw_weights_event(
         else:
             header = f"{title} - {subtitle}" if title else subtitle
     if title_mode == "axes":
-        header = _format_axes_subplot_title(header)
+        header = _format_axes_subplot_title(header, bold_da_prefix=bold_axes_da_prefix)
     if header:
         if title_mode == "figure":
             fig.text(0.11, figure_title_y, header, ha="left", va="top", fontsize=fs_title, color="#000000")
@@ -1230,25 +1321,26 @@ def _build_setup_weights_overview_page(
         csv_path = Path(spec["csv_path"])
         observable = spec["observable"]
         df = spec["df"]
+        panel_index = int(spec.get("panel_index", idx))
         row = idx // n_cols
         col = idx % n_cols
         sub = outer[row, col].subgridspec(
             2,
             3,
             height_ratios=[1.0, 0.045],
-            width_ratios=[*_WEIGHTS_PANEL_WIDTH_RATIOS, _OVERVIEW_PAIR_SPACER_RATIO],
+            width_ratios=[*_OVERVIEW_WEIGHTS_PANEL_WIDTH_RATIOS, _OVERVIEW_PAIR_SPACER_RATIO],
             wspace=_OVERVIEW_PAIR_WSPACE,
             hspace=0.0,
         )
         ax0 = fig.add_subplot(sub[0, 0])
         ax1 = fig.add_subplot(sub[0, 1])
         axes_for_black.extend([ax0, ax1])
-        subtitle = _step_date_label_from_path(csv_path)
+        subtitle = _overview_da_date_label(csv_path, panel_index=panel_index)
         base_title = _compact_subplot_title(_title_from_path(csv_path))
         if subtitle:
-            title = f"{subtitle} - {base_title}"
+            title = f"{_panel_label(panel_index)} {subtitle} - {base_title}"
         else:
-            title = base_title
+            title = f"{_panel_label(panel_index)} {base_title}"
         _draw_weights_event(
             fig,
             ax0,
@@ -1264,10 +1356,17 @@ def _build_setup_weights_overview_page(
             show_metrics_threshold=False,
             show_left_ylabel=(col == 0),
             show_right_ylabel=False,
-            ring_step_scale=0.72,
+            ring_step_scale=0.66,
             ring_line_scale=0.72,
-            marker_scale=0.8,
+            marker_scale=0.72,
             font_size_bump=1.0,
+            member_tick_size_delta=_OVERVIEW_MEMBER_TICK_SIZE_DELTA,
+            rotate_member_tick_labels=True,
+            capitalize_axis_labels=True,
+            x_labelpad=_OVERVIEW_XLABEL_PAD,
+            show_station_identity_legend=True,
+            bold_axes_da_prefix=False,
+            sigma_strip_anchor_y=0.965,
             axes_title_y=1.035,
             residual_xlim=residual_xlims.get(observable),
             y_ticks=_member_ticks(len(df.index)),
@@ -1279,6 +1378,16 @@ def _build_setup_weights_overview_page(
         if col != 0:
             ax0.tick_params(axis="y", labelleft=False)
         ax1.tick_params(axis="y", labelleft=False)
+        ax0.tick_params(axis="x", labelsize=OVERVIEW_XTICK_SIZE, pad=_OVERVIEW_XTICK_PAD)
+        ax1.tick_params(axis="x", labelsize=OVERVIEW_XTICK_SIZE, pad=_OVERVIEW_XTICK_PAD)
+        ax0.tick_params(axis="y", labelsize=OVERVIEW_YTICK_SIZE, pad=_OVERVIEW_YTICK_PAD)
+        ax1.tick_params(axis="y", labelsize=OVERVIEW_YTICK_SIZE, pad=_OVERVIEW_YTICK_PAD)
+        ax0.xaxis.label.set_size(_OVERVIEW_WEIGHTS_AXIS_LABEL_SIZE)
+        ax1.xaxis.label.set_size(_OVERVIEW_WEIGHTS_AXIS_LABEL_SIZE)
+        ax0.yaxis.label.set_size(_OVERVIEW_WEIGHTS_AXIS_LABEL_SIZE)
+        ax1.yaxis.label.set_size(_OVERVIEW_WEIGHTS_AXIS_LABEL_SIZE)
+        ax0.yaxis.labelpad = _OVERVIEW_YLABEL_PAD
+        ax1.yaxis.labelpad = _OVERVIEW_YLABEL_PAD
 
     summary = f"ensemble size = {ensemble_size}"
     if ess_threshold is not None:
@@ -1292,35 +1401,9 @@ def _build_setup_weights_overview_page(
             f"Data assimilation weights ({summary})",
             va="top",
             ha="left",
-            fontsize=8.6,
+            fontsize=8.0,
             color="#000000",
         )
-    legend_handles, legend_labels, handler_map = _figure_legend_spec(
-        all_csv_paths,
-        station_color_config=station_color_config,
-    )
-    legend_kwargs = dict(
-        loc="lower center",
-        bbox_to_anchor=(0.5, 0.052),
-        frameon=False,
-        fontsize=6.2,
-        handletextpad=0.35,
-        columnspacing=0.9,
-        borderaxespad=0.0,
-    )
-    fig.legend(
-        legend_handles,
-        legend_labels,
-        handler_map=handler_map,
-        ncol=_best_figure_legend_ncol(
-            fig,
-            legend_handles,
-            legend_labels,
-            handler_map=handler_map,
-            **legend_kwargs,
-        ),
-        **legend_kwargs,
-    )
     force_figure_text_black(fig, axes_for_black)
     return fig
 
@@ -1342,8 +1425,9 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
             "csv_path": csv_path,
             "observable": _observable_from_csv_path(csv_path),
             "df": _load_weights(csv_path),
+            "panel_index": idx,
         }
-        for csv_path in csv_paths
+        for idx, csv_path in enumerate(csv_paths)
     ]
     residual_xlims = _overview_residual_xlims(event_specs)
 
@@ -1498,6 +1582,16 @@ def _step_date_label_from_path(csv_path: Path) -> str | None:
     return None
 
 
+def _overview_da_date_label(csv_path: Path, *, panel_index: int) -> str | None:
+    dt = _weights_date_from_csv_path(csv_path)
+    if dt is None:
+        return None
+    da_index = _step_da_index_from_path(csv_path)
+    if da_index is None:
+        da_index = panel_index + 1
+    return f"DA {da_index} - {dt.strftime('%Y-%m-%d')}"
+
+
 def _title_from_path(csv_path: Path) -> str:
     return weight_plot_title_from_csv_path(csv_path)
 
@@ -1510,16 +1604,30 @@ def _compact_subplot_title(title: str) -> str:
     return compact
 
 
-def _format_axes_subplot_title(title: str) -> str:
+def _format_axes_subplot_title(title: str, *, bold_da_prefix: bool = True) -> str:
     compact = str(title or "").strip()
     if not compact:
         return compact
-    match = re.match(r"^(DA \d+)(.*)$", compact)
+    match = re.match(r"^(\([a-z]\)\s+)?(DA \d+)(.*)$", compact)
     if not match:
         return compact
-    prefix, suffix = match.groups()
-    prefix_math = prefix.replace(" ", r"\ ")
-    return rf"$\mathbf{{{prefix_math}}}$" + suffix
+    panel_prefix, da_prefix, suffix = match.groups()
+    if not bold_da_prefix:
+        return f"{panel_prefix or ''}{da_prefix}{suffix}"
+    prefix_math = da_prefix.replace(" ", r"\ ")
+    return f"{panel_prefix or ''}" + rf"$\mathbf{{{prefix_math}}}$" + suffix
+
+
+def _panel_label(index: int) -> str:
+    if 0 <= index < 26:
+        return f"({chr(ord('a') + index)})"
+    return f"({index + 1})"
+
+
+def _capitalize_axis_label(label: str) -> str:
+    if not label:
+        return label
+    return label[0].upper() + label[1:]
 
 
 def plot_weights_for_csv(

@@ -19,7 +19,7 @@ from openamundsen_da.methods.viz.plots.benchmark.core import (
     build_event_skill_plot_data,
     compute_event_skill_plot_positions,
 )
-from openamundsen_da.methods.viz.plots.theme import da_variable_style
+from openamundsen_da.methods.viz.plots.theme import GRID_LS, GRID_LW, da_variable_style
 from openamundsen_da.methods.viz.plots.common import CRPSS_AXIS_POLICY, bounded_metric_range, thin_dense_y_tick_labels
 from openamundsen_da.benchmark.render.tables import write_summary_tables
 
@@ -839,8 +839,8 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     assert tuple(stage_handler._x_fracs) == (0.04, 0.5, 0.96)
     grid_lines = [line for line in ax_crpss.get_xgridlines() if line.get_visible()]
     assert grid_lines
-    assert grid_lines[0].get_linestyle() == "--"
-    assert grid_lines[0].get_linewidth() == pytest.approx(0.8)
+    assert grid_lines[0].get_linestyle() == GRID_LS
+    assert grid_lines[0].get_linewidth() == pytest.approx(GRID_LW)
     assert fig.legends
     legend = fig.legends[0]
     assert getattr(legend, "_loc", None) == 3

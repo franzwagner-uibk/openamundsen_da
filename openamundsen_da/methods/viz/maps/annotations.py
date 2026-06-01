@@ -46,7 +46,10 @@ _INSIDE_LEGEND_RIGHT_PAD = 0.020
 _INSIDE_LEGEND_TEXT_WIDTH_SAFETY = 1.03
 _LEGEND_ENTRY_FONT_SIZE = 6.1
 _LEGEND_HEADING_FONT_SIZE = 7.8
-_STATION_LABEL_X = 0.148
+_STATION_LEGEND_FONT_SIZE = 5.8
+_STATION_LEGEND_MARKER_SIZE = 26
+_STATION_MARKER_X = 0.095
+_STATION_LABEL_X = 0.225
 _PATCH_LABEL_X = 0.18
 
 
@@ -157,8 +160,8 @@ def draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
             zorder=_ANNOTATION_ZORDER,
         ))
     apply_overlay_label_halo(ax.text(
-        x0 + 0.72 * total_length,
-        y0 - 0.45 * tick_height,
+        x0 + 0.50 * total_length,
+        y0 - 0.95 * tick_height,
         "km",
         ha="center",
         va="top",
@@ -176,8 +179,8 @@ def draw_patch_entry(ax, *, y: float, label: str, facecolor, edgecolor="none") -
 
 
 def draw_station_entry(ax, *, y: float, label: str) -> float:
-    ax.scatter([0.070], [y], s=40, marker="v", facecolor=_STATION_COLOR, edgecolor="none", transform=ax.transAxes, clip_on=False)
-    ax.text(_STATION_LABEL_X, y, label, transform=ax.transAxes, ha="left", va="center", fontsize=_LEGEND_ENTRY_FONT_SIZE)
+    ax.scatter([_STATION_MARKER_X], [y], s=_STATION_LEGEND_MARKER_SIZE, marker="^", facecolor=_STATION_COLOR, edgecolor="none", linewidth=0.0, transform=ax.transAxes, clip_on=False)
+    ax.text(_STATION_LABEL_X, y, label, transform=ax.transAxes, ha="left", va="center", fontsize=_STATION_LEGEND_FONT_SIZE)
     return y - 0.054
 
 
@@ -346,7 +349,7 @@ def _inside_legend_width(
         elif item.kind == "station_symbol":
             required_width_in = max(
                 required_width_in,
-                _legend_label_width_in(item.label, fontsize=_LEGEND_ENTRY_FONT_SIZE, text_x=_STATION_LABEL_X),
+                _legend_label_width_in(item.label, fontsize=_STATION_LEGEND_FONT_SIZE, text_x=_STATION_LABEL_X),
             )
         elif item.kind == "source_legend":
             required_width_in = max(

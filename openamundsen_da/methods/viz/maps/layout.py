@@ -204,14 +204,14 @@ def text_size_in(text: str, *, size: float) -> tuple[float, float]:
 def axes_title_fontsize(ax) -> float:
     width_in = axis_width_inches(ax)
     if width_in < 1.45:
-        return 6.4
+        return 5.8
     if width_in < 1.8:
-        return 7.0
+        return 6.4
     if width_in < 2.35:
-        return 7.8
+        return 7.2
     if width_in < 2.8:
-        return 8.6
-    return 9.4
+        return 8.0
+    return 8.8
 
 
 def axes_date_fontsize(ax) -> float:
@@ -273,7 +273,7 @@ def apply_map_axis_style(
         labeltop=False,
         labelbottom=True,
         labelsize=_TICK_SIZE,
-        length=3.0,
+        length=2.2,
         width=0.75,
         pad=1.6,
     )
@@ -285,7 +285,7 @@ def apply_map_axis_style(
         labelleft=show_y_ticklabels,
         labelright=False,
         labelsize=_TICK_SIZE,
-        length=3.0,
+        length=2.2,
         width=0.75,
         pad=3.2 if show_y_ticklabels else 1.0,
     )
@@ -727,7 +727,7 @@ def attach_colorbar(
             cbar.set_ticks(ticks)
         if ticklabels:
             cbar.set_ticklabels(ticklabels)
-        cbar.ax.tick_params(labelsize=_COLORBAR_TICK_SIZE, length=2.0, width=0.65)
+        cbar.ax.tick_params(labelsize=_COLORBAR_TICK_SIZE, length=2.0, width=0.65, pad=1.0)
         if title:
             container_ax.text(
                 1.0,
@@ -756,7 +756,7 @@ def attach_colorbar(
         cbar.set_ticks(ticks)
     if ticklabels:
         cbar.set_ticklabels(ticklabels)
-    cbar.ax.tick_params(labelsize=_COLORBAR_TICK_SIZE, length=2.2, width=0.7)
+    cbar.ax.tick_params(labelsize=_COLORBAR_TICK_SIZE, length=2.2, width=0.7, pad=1.0)
     for tick in cbar.ax.get_yticklabels():
         tick.set_rotation(90)
         tick.set_va("center")

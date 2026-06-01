@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from openamundsen_da.methods.pf import plot_weights as plot_mod
-from openamundsen_da.methods.viz.plots.theme import da_variable_style
+from openamundsen_da.methods.viz.plots.theme import GRID_ALPHA, GRID_LS, GRID_LW, da_variable_style
 from openamundsen_da.util.da_observables import weight_plot_title_from_csv_path
 
 
@@ -120,7 +120,21 @@ def _axes_with_xlabel(fig, label: str) -> list[object]:
 
 
 def _overview_axis_pairs(fig) -> list[tuple[object, object]]:
-    axes = [ax for ax in fig.axes if ax.get_xlabel() in {"weight", "residual [-]", "residual [m]", "residual [mm]"}]
+    axes = [
+        ax
+        for ax in fig.axes
+        if ax.get_xlabel()
+        in {
+            "Weight",
+            "Residual [-]",
+            "Residual [m]",
+            "Residual [mm]",
+            "weight",
+            "residual [-]",
+            "residual [m]",
+            "residual [mm]",
+        }
+    ]
     return list(zip(axes[0::2], axes[1::2]))
 
 
@@ -130,6 +144,12 @@ def _residual_axes_for_title(fig, title_fragment: str) -> list[object]:
         if any(title_fragment in text.get_text() for text in weight_ax.texts):
             axes.append(residual_ax)
     return axes
+
+
+def _axis_legends(ax) -> list[object]:
+    from matplotlib.legend import Legend
+
+    return [child for child in ax.get_children() if isinstance(child, Legend)]
 
 
 def test_axis_labels_use_residual_terminology() -> None:
@@ -212,8 +232,11 @@ def test_setup_weights_overview_writes_paper_copy_without_figure_title(tmp_path:
     normal, paper = saved
     assert normal["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
     assert paper["out"] == plot_mod.project_paper_output_path(project_dir, normal["out"])
-    assert any(text.get_text().startswith("Data assimilation weights") for text in normal["fig"].texts)
+    normal_title = next(text for text in normal["fig"].texts if text.get_text().startswith("Data assimilation weights"))
+    assert normal_title.get_fontsize() == pytest.approx(8.0)
+    assert normal["fig"].legends == []
     assert not any(text.get_text().startswith("Data assimilation weights") for text in paper["fig"].texts)
+    assert paper["fig"].legends == []
 
     for item in saved:
         plt.close(item["fig"])
@@ -238,9 +261,143 @@ def test_setup_weights_overview_places_event_title_close_to_panel(tmp_path: Path
     weight_ax = _overview_axis_pairs(fig)[0][0]
     title_text = next(text for text in weight_ax.texts if "2023-05-01" in text.get_text())
 
+    assert title_text.get_text() == "(a) DA 1 - 2023-05-01 - Snow cover"
     assert title_text.get_position()[1] == pytest.approx(1.035)
     assert title_text.get_ha() == "left"
     assert title_text.get_va() == "bottom"
+    assert title_text.get_fontsize() > plot_mod._OVERVIEW_WEIGHTS_AXIS_LABEL_SIZE
+    plt.close(fig)
+
+
+def test_setup_weights_overview_capitalizes_labels_and_rotates_member_ticks(tmp_path: Path, monkeypatch) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
+    _add_weights_event(
+        project_dir,
+        step_idx=0,
+        observable="scf",
+        date_str="20230501",
+        weights_rows=[
+            {"member_id": "member_001", "residual": -0.1, "sigma": 0.2, "log_weight": -1.0, "weight": 0.6},
+            {"member_id": "member_002", "residual": 0.1, "sigma": 0.2, "log_weight": -1.2, "weight": 0.4},
+        ],
+    )
+
+    fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
+    weight_ax, residual_ax = _overview_axis_pairs(fig)[0]
+
+    assert weight_ax.get_xlabel() == "Weight"
+    assert weight_ax.get_ylabel() == "Sorted member"
+    assert residual_ax.get_xlabel() == "Residual [-]"
+    assert weight_ax.xaxis.labelpad == pytest.approx(plot_mod._OVERVIEW_XLABEL_PAD)
+    assert residual_ax.xaxis.labelpad == pytest.approx(plot_mod._OVERVIEW_XLABEL_PAD)
+    assert weight_ax.xaxis.majorTicks[0].get_pad() == pytest.approx(plot_mod._OVERVIEW_XTICK_PAD)
+    assert residual_ax.xaxis.majorTicks[0].get_pad() == pytest.approx(plot_mod._OVERVIEW_XTICK_PAD)
+    assert weight_ax.xaxis.label.get_fontsize() == pytest.approx(plot_mod._OVERVIEW_WEIGHTS_AXIS_LABEL_SIZE)
+    assert residual_ax.xaxis.label.get_fontsize() == pytest.approx(plot_mod._OVERVIEW_WEIGHTS_AXIS_LABEL_SIZE)
+    assert weight_ax.yaxis.label.get_fontsize() == pytest.approx(plot_mod._OVERVIEW_WEIGHTS_AXIS_LABEL_SIZE)
+    assert weight_ax.yaxis.labelpad == pytest.approx(plot_mod._OVERVIEW_YLABEL_PAD)
+    assert weight_ax.yaxis.majorTicks[0].get_pad() == pytest.approx(plot_mod._OVERVIEW_YTICK_PAD)
+    assert {label.get_fontsize() for label in weight_ax.get_xticklabels() if label.get_text()} == {
+        plot_mod.OVERVIEW_XTICK_SIZE
+    }
+    assert {label.get_fontsize() for label in residual_ax.get_xticklabels() if label.get_text()} == {
+        plot_mod.OVERVIEW_XTICK_SIZE
+    }
+    visible_y_labels = [label for label in weight_ax.get_yticklabels() if label.get_visible()]
+    assert visible_y_labels
+    assert {label.get_rotation() for label in visible_y_labels} == {90.0}
+    assert {label.get_fontsize() for label in visible_y_labels if label.get_text()} == {plot_mod.OVERVIEW_YTICK_SIZE}
+    assert all(label.get_fontsize() < residual_ax.get_xticklabels()[0].get_fontsize() for label in visible_y_labels)
+    assert weight_ax.collections[0].get_sizes()[0] == pytest.approx(13.0 * 0.72)
+    assert residual_ax.collections[0].get_sizes()[0] == pytest.approx(20.0 * 0.72)
+    plt.close(fig)
+
+
+def test_setup_weights_overview_uses_moderately_narrower_weight_axis(tmp_path: Path, monkeypatch) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
+    _add_weights_event(
+        project_dir,
+        step_idx=0,
+        observable="scf",
+        date_str="20230501",
+        weights_rows=[
+            {"member_id": "member_001", "residual": -0.2, "sigma": 0.1, "log_weight": -1.0, "weight": 0.6},
+            {"member_id": "member_002", "residual": 0.3, "sigma": 0.1, "log_weight": -1.2, "weight": 0.4},
+        ],
+    )
+
+    fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
+    weight_ax, residual_ax = _overview_axis_pairs(fig)[0]
+    expected_ratio = plot_mod._OVERVIEW_WEIGHTS_PANEL_WIDTH_RATIOS[0] / plot_mod._OVERVIEW_WEIGHTS_PANEL_WIDTH_RATIOS[1]
+
+    assert weight_ax.get_position().width / residual_ax.get_position().width == pytest.approx(expected_ratio)
+    assert plot_mod._OVERVIEW_WEIGHTS_PANEL_WIDTH_RATIOS[0] == pytest.approx(
+        plot_mod._WEIGHTS_PANEL_WIDTH_RATIOS[0] * plot_mod._OVERVIEW_WEIGHT_AXIS_WIDTH_SCALE
+    )
+    assert plot_mod._OVERVIEW_WEIGHT_AXIS_WIDTH_SCALE == pytest.approx(0.85)
+    plt.close(fig)
+
+
+def test_setup_weights_overview_uses_panel_local_station_legend_and_sigma_strip(tmp_path: Path, monkeypatch) -> None:
+    import matplotlib.pyplot as plt
+
+    setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
+    _write_csv(
+        setup_dir / "meteo" / "stations.csv",
+        [
+            {"id": "latschbloder", "name": "Latschbloder"},
+            {"id": "proviantdepot", "name": "Proviantdepot"},
+        ],
+    )
+    _write_csv(
+        project_dir / "obs" / "stations" / "stations_da_metadata.csv",
+        [
+            {"station_id": "latschbloder", "station_uncertainty_pct": 500},
+            {"station_id": "proviantdepot", "station_uncertainty_pct": 10},
+        ],
+    )
+    _add_weights_event(
+        project_dir,
+        step_idx=0,
+        observable="station_hs",
+        date_str="20221122",
+        weights_rows=[
+            {"member_id": "member_001", "residual": -0.1, "sigma": 0.17, "log_weight": -1.0, "weight": 0.7},
+            {"member_id": "member_002", "residual": 0.2, "sigma": 0.17, "log_weight": -2.0, "weight": 0.3},
+        ],
+        diag_rows=[
+            {"station_id": "latschbloder", "member_id": "member_001", "residual": -0.1, "sigma": 0.29},
+            {"station_id": "latschbloder", "member_id": "member_002", "residual": 0.2, "sigma": 0.29},
+            {"station_id": "proviantdepot", "member_id": "member_001", "residual": -0.05, "sigma": 0.05},
+            {"station_id": "proviantdepot", "member_id": "member_002", "residual": 0.1, "sigma": 0.05},
+        ],
+    )
+
+    fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
+    _weight_ax, residual_ax = _overview_axis_pairs(fig)[0]
+    legends = _axis_legends(residual_ax)
+    legend_label_sets = [[text.get_text() for text in legend.get_texts()] for legend in legends]
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    station_legend = next(legend for legend in legends if [text.get_text() for text in legend.get_texts()] == ["Latschbloder", "Proviantdepot"])
+    sigma_legend = next(legend for legend in legends if [text.get_text() for text in legend.get_texts()] == ["σ=0.29", "σ=0.05"])
+
+    assert ["Latschbloder", "Proviantdepot"] in legend_label_sets
+    assert ["σ=0.29", "σ=0.05"] in legend_label_sets
+    station_first_text_y = station_legend.get_texts()[0].get_window_extent(renderer=renderer).y0
+    sigma_first_text_y = sigma_legend.get_texts()[0].get_window_extent(renderer=renderer).y0
+    assert sigma_first_text_y == pytest.approx(
+        station_first_text_y,
+        abs=3.0,
+    )
+    station_marker_size = station_legend.legend_handles[0].get_markersize()
+    assert station_marker_size == pytest.approx(plot_mod._OVERVIEW_STATION_LEGEND_MARKER_SIZE)
+    assert all(handle.get_markersize() == pytest.approx(station_marker_size) for handle in sigma_legend.legend_handles)
+    assert fig.legends == []
     plt.close(fig)
 
 
@@ -307,6 +464,20 @@ def test_weights_color_sources_follow_shared_da_palette() -> None:
     assert plot_mod._station_color_map(["station_b"], observable="station_swe") == {
         "station_b": da_variable_style("station_swe")["line"],
     }
+
+
+def test_weights_grid_uses_shared_plot_style() -> None:
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots()
+    try:
+        plot_mod._apply_grid(ax)
+        gridline = ax.xaxis.get_gridlines()[0]
+        assert gridline.get_linestyle() == GRID_LS
+        assert gridline.get_linewidth() == pytest.approx(GRID_LW)
+        assert gridline.get_alpha() == pytest.approx(GRID_ALPHA)
+    finally:
+        plt.close(fig)
 
 
 def test_station_color_config_resolves_aliases_and_skips_reserved_colors(tmp_path: Path) -> None:
@@ -936,6 +1107,7 @@ def test_standalone_plot_uses_lower_title_anchor(tmp_path: Path) -> None:
     ax0 = fig.axes[0]
     ax1 = fig.axes[1]
     assert title_text.get_position() == (0.11, plot_mod._STANDALONE_TITLE_Y)
+    assert title_text.get_fontsize() == pytest.approx(plot_mod._FS_TITLE)
     assert legend_anchor.y0 == pytest.approx(plot_mod._STANDALONE_LEGEND_Y)
     assert ax1.get_position().width / ax0.get_position().width > 2.6
     assert list(ax0.get_xticks()) == plot_mod._WEIGHT_AXIS_TICKS
@@ -1130,7 +1302,7 @@ def test_setup_overview_shares_residual_xlim_within_same_observable(tmp_path: Pa
     )
 
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
-    residual_axes = _axes_with_xlabel(fig, "residual [m]")
+    residual_axes = _axes_with_xlabel(fig, "Residual [m]")
     expected_xlim = plot_mod._expand_xlim((-0.5, 0.5))
 
     assert residual_axes[0].get_xlim() == pytest.approx(expected_xlim)
@@ -1241,7 +1413,7 @@ def test_setup_overview_residual_xlim_respects_sigma_when_residuals_are_narrow(t
     )
 
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
-    residual_axes = _axes_with_xlabel(fig, "residual [-]")
+    residual_axes = _axes_with_xlabel(fig, "Residual [-]")
     expected_xlim = plot_mod._expand_xlim((-0.4, 0.4))
 
     assert residual_axes[0].get_xlim() == pytest.approx(expected_xlim)
@@ -1294,7 +1466,7 @@ def test_setup_overview_robust_shared_xlim_keeps_extreme_residual_visible(tmp_pa
     )
 
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
-    residual_axes = _axes_with_xlabel(fig, "residual [m]")
+    residual_axes = _axes_with_xlabel(fig, "Residual [m]")
     expected_xlim = plot_mod._expand_xlim((-2.0, 2.0))
 
     assert len(residual_axes) == 2
@@ -1350,7 +1522,7 @@ def test_setup_overview_robust_shared_xlim_ignores_single_sigma_outlier(tmp_path
     )
 
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
-    residual_axes = _axes_with_xlabel(fig, "residual [m]")
+    residual_axes = _axes_with_xlabel(fig, "Residual [m]")
     expected_xlim = plot_mod._expand_xlim((-0.25, 0.25))
 
     assert len(residual_axes) == 2
@@ -1382,8 +1554,8 @@ def test_setup_overview_uses_sparse_member_ticks_for_high_ensemble_sizes(tmp_pat
     )
 
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
-    weight_axes = _axes_with_xlabel(fig, "weight")
-    residual_axes = _axes_with_xlabel(fig, "residual [-]")
+    weight_axes = _axes_with_xlabel(fig, "Weight")
+    residual_axes = _axes_with_xlabel(fig, "Residual [-]")
 
     assert len(weight_axes) == 1
     assert [int(tick) for tick in weight_axes[0].get_yticks()] == [1, 10, 20, 30, 40]
@@ -1413,7 +1585,11 @@ def test_setup_overview_hides_right_column_y_tick_labels(tmp_path: Path, monkeyp
     pairs = _overview_axis_pairs(fig)
     left_weight_ax, left_residual_ax = pairs[0]
     right_weight_ax, right_residual_ax = pairs[1]
+    left_title = next(text.get_text() for text in left_weight_ax.texts if "2023-05-18" in text.get_text())
+    right_title = next(text.get_text() for text in right_weight_ax.texts if "2023-05-26" in text.get_text())
 
+    assert left_title.startswith("(a) DA 1")
+    assert right_title.startswith("(b) DA 2")
     assert any(tick.label1.get_visible() for tick in left_weight_ax.yaxis.get_major_ticks())
     assert all(not tick.label1.get_visible() for tick in left_residual_ax.yaxis.get_major_ticks())
     assert all(not tick.label1.get_visible() for tick in right_weight_ax.yaxis.get_major_ticks())

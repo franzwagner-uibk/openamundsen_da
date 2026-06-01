@@ -539,7 +539,7 @@ Overview panels use setup-local GISCO GeoJSONs under `<setup>/env/` for country 
 
 **Recreate all project plots from existing outputs**
 
-Runs the same post-run plot orchestration used by the project pipeline, but without rerunning the DA workflow itself. The command expects an already finished project with populated `steps/step_*/.../results` outputs. Before plotting, it rebuilds the ROI fraction envelopes in `results/misc/`, then renders forcing plots, setup point-result plots, assimilation weights, ESS timeline, and the result overview panels. Weights plots use short `Wet snow line` labels, compact `residual [unit]` residual-axis labels, adaptive sigma labels, and optional station marker color overrides from `plots.yml` under `weights.station_colors.<observable>.<station_id>`.
+Runs the same post-run plot orchestration used by the project pipeline, but without rerunning the DA workflow itself. The command expects an already finished project with populated `steps/step_*/.../results` outputs. Before plotting, it rebuilds the ROI fraction envelopes in `results/misc/`, then renders forcing plots, setup point-result plots, assimilation weights, ESS timeline, and the result overview panels. Weights plots use short `Wet snow line` labels, compact residual-unit labels, adaptive sigma labels, and optional station marker color overrides from `plots.yml` under `weights.station_colors.<observable>.<station_id>`. Setup weights overviews include `(a)`, `(b)`, ... panel labels in the DA-event headers and panel-local station legends; standalone per-event weights plots keep their compact bottom legend.
 
 ```bash
 oa-da-plot-project-plots \

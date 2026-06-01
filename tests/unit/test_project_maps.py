@@ -2041,7 +2041,7 @@ def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events
         "Open-loop WSF",
         "Prior WSF",
         "Posterior WSF",
-        "Wet-snow observation",
+        "Wet snow observation",
     ]
     assert [panel.kind for panel in wet_recipe.panels[4:8]] == [
         "wet_snow_elevation_fraction",

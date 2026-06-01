@@ -940,7 +940,7 @@ def plot_setup_results(
         ax.set_title(
             _standalone_result_title(token, var_key=vv, station_label=station_label),
             loc="left",
-            fontsize=9.4,
+            fontsize=8.8,
             pad=result_title_pad(bool(centered_assim_dates)),
         )
         ax.set_ylabel(var_title, fontsize=8.6)

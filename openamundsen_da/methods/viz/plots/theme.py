@@ -18,7 +18,7 @@ COLOR_MEAN = "#3c4f8a"
 COLOR_OPEN_LOOP = "black"
 COLOR_MEMBER = "#9a9a9a"
 # One shared ensemble-band opacity across plot modules and legend swatches.
-BAND_ALPHA = 0.45
+BAND_ALPHA = 0.32
 # Use one shared linewidth across all plotted data lines.
 LW_MEMBER = 1.8
 LW_MEAN = 1.8
@@ -37,11 +37,11 @@ SIZE_OBS_SCF = 10
 
 # Grid style
 GRID_LS = ":"
-GRID_LW = 0.6
-GRID_ALPHA = 0.7
+GRID_LW = 0.7
+GRID_ALPHA = 0.72
 
 # Titles / text
-FS_TITLE = 12
+FS_TITLE = 11.4
 FS_SUBTITLE = 10
 COLOR_SUBTITLE = COLOR_TEXT
 FS_ASSIM_LABEL = 9

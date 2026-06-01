@@ -204,14 +204,14 @@ def text_size_in(text: str, *, size: float) -> tuple[float, float]:
 def axes_title_fontsize(ax) -> float:
     width_in = axis_width_inches(ax)
     if width_in < 1.45:
-        return 6.4
+        return 5.8
     if width_in < 1.8:
-        return 7.0
+        return 6.4
     if width_in < 2.35:
-        return 7.8
+        return 7.2
     if width_in < 2.8:
-        return 8.6
-    return 9.4
+        return 8.0
+    return 8.8
 
 
 def axes_date_fontsize(ax) -> float:

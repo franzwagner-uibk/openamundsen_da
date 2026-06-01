@@ -20,6 +20,8 @@ from openamundsen_da.methods.viz.plots.benchmark.core import (
     score_legend_handler_map,
     score_metric_ylim,
     score_variable_sort_key,
+    score_variable_color,
+    variable_label,
 )
 from openamundsen_da.io.paths import (
     abspath_relative_to,
@@ -144,17 +146,17 @@ _DEFAULT_PANELS = [
 ]
 
 _PANEL_YLABELS = {
-    "fSC": "fSC",
-    "WSF": "wet snow fraction",
-    "WSLA": "wsla [m.a.s.l]",
-    "roi-swe": "swe [mm]",
-    "roi-sd": "snow depth [m]",
-    "station-sd": "snow depth [m]",
-    "station-swe": "swe [mm]",
+    "fSC": "SCF",
+    "WSF": "WSF",
+    "WSLA": "Elevation [m]",
+    "roi-swe": "SWE [mm]",
+    "roi-sd": "Snow depth [m]",
+    "station-sd": "Snow depth [m]",
+    "station-swe": "SWE [mm]",
     "ess": "ESS",
     "scores-crpss": "CRPSS",
-    "scores-ner": "NER",
-    "scores-zskill": "zSkill",
+    "scores-ner": "NER [-]",
+    "scores-zskill": "zSkill [-]",
 }
 
 _PANEL_TITLE_X = 0.0
@@ -164,17 +166,25 @@ _PANEL_TITLE_PAD = 2.0
 _PANEL_TITLE_PAD_WITH_ASSIM_LABELS = 9.0
 _RESULT_OVERVIEW_DATA_LW = 1.35
 _RESULT_OVERVIEW_MATCHED_EVENT_LW = 1.35
+_RESULT_OVERVIEW_TITLE_SIZE = 8.0
+_RESULT_OVERVIEW_LABEL_SIZE = 7.6
+_RESULT_OVERVIEW_TICK_SIZE = 7.0
+_RESULT_OVERVIEW_XTICK_SIZE = 7.2
+_RESULT_OVERVIEW_LEGEND_SIZE = 5.4
+_RESULT_OVERVIEW_SCORE_LEGEND_SIZE = 4.8
+_RESULT_OVERVIEW_LEGEND_FRAME_ALPHA = 0.88
+_RESULT_OVERVIEW_SAVE_PAD_INCHES = 0.015
 _ESS_THRESHOLD_COLOR = "black"
 _ESS_THRESHOLD_LW = 0.9
 _ALTITUDE_MAJOR_TICK_STEPS_M = (100.0, 200.0, 250.0, 500.0, 1000.0, 2000.0)
 _ALTITUDE_MAX_MAJOR_INTERVALS = 5.0
 
 _DEFAULT_TITLES = {
-    "fSC": "Snow cover fraction (roi)",
-    "WSF": "Wet snow fraction (roi)",
-    "WSLA": "Wet snow line (roi)",
-    "roi-swe": "Mean SWE (roi)",
-    "roi-sd": "Mean snow depth (roi)",
+    "fSC": "Snow cover fraction",
+    "WSF": "Wet snow fraction",
+    "WSLA": "Wet snow line",
+    "roi-swe": "Mean SWE",
+    "roi-sd": "Mean snow depth",
     "ess": "Effective sample size",
     "scores-crpss": "Continuous ranked probability skill score (CRPSS)",
     "scores-ner": "NER",
@@ -537,7 +547,7 @@ def _station_title(spec: PanelSpec, station_data: StationPanelData) -> str:
         return spec.title
     metric = "Snow depth" if spec.panel == "station-sd" else "SWE"
     alt_text = f" {int(station_data.altitude_m)} m" if station_data.altitude_m is not None else ""
-    return f"{metric} {station_data.display_name}{alt_text}"
+    return f"{metric} ({station_data.display_name}{alt_text})"
 
 
 def _panel_title(spec: PanelSpec, station_data: StationPanelData | None = None) -> str:
@@ -759,6 +769,243 @@ def _finite_value_points(frame: pd.DataFrame | None, value_col: str) -> pd.DataF
     return out
 
 
+def _ensemble_legend_handle(panel_style: dict[str, str]):
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+
+    return _EnsembleLegendHandle(
+        (
+            Patch(facecolor=panel_style["fill"], edgecolor="none", linewidth=0.0, alpha=BAND_ALPHA),
+            Line2D([0], [0], color=panel_style["line"], lw=_RESULT_OVERVIEW_DATA_LW),
+        ),
+        "ensemble",
+    )
+
+
+def _open_loop_legend_handle():
+    from matplotlib.lines import Line2D
+
+    return Line2D([0], [0], color="black", lw=_RESULT_OVERVIEW_DATA_LW, label="open loop")
+
+
+def _satellite_obs_legend_handle():
+    from matplotlib.lines import Line2D
+
+    return Line2D(
+        [0],
+        [0],
+        color=COLOR_DA_OBS,
+        marker="o",
+        linestyle="none",
+        markersize=3.2,
+        label="satellite observation",
+    )
+
+
+def _station_obs_legend_handle():
+    from matplotlib.lines import Line2D
+
+    return Line2D([0], [0], color=COLOR_DA_OBS, lw=_RESULT_OVERVIEW_DATA_LW, label="station observation")
+
+
+def _add_panel_local_legend(ax, handles: list, *, loc: str = "upper left") -> None:
+    if not handles:
+        return
+    legend = ax.legend(
+        handles=handles,
+        handler_map=_result_overview_legend_handler_map(),
+        loc=loc,
+        ncol=1,
+        frameon=True,
+        facecolor="white",
+        edgecolor="none",
+        framealpha=_RESULT_OVERVIEW_LEGEND_FRAME_ALPHA,
+        fontsize=_RESULT_OVERVIEW_LEGEND_SIZE,
+        handlelength=1.7,
+        handleheight=1.0,
+        handletextpad=0.35,
+        columnspacing=0.7,
+        labelspacing=0.18,
+        borderaxespad=0.35,
+    )
+    legend.get_frame().set_linewidth(0.0)
+    legend.set_zorder(50)
+
+
+def _add_ess_threshold_inline_label(ax, threshold: float) -> None:
+    ymin, ymax = ax.get_ylim()
+    offset = 0.035 * max(abs(ymax - ymin), 1.0)
+    y = max(ymin, float(threshold) - offset)
+    ax.text(
+        0.02,
+        y,
+        "ESS threshold",
+        transform=ax.get_yaxis_transform(),
+        ha="left",
+        va="top",
+        fontsize=_RESULT_OVERVIEW_LEGEND_SIZE,
+        color=_ESS_THRESHOLD_COLOR,
+        zorder=50,
+    )
+
+
+def _add_score_panel_legend(ax, variables: list[str]) -> None:
+    if not variables:
+        return
+    from matplotlib.lines import Line2D
+
+    handles = [
+        Line2D(
+            [0],
+            [0],
+            linestyle="none",
+            marker="o",
+            markersize=4.2,
+            markerfacecolor=score_variable_color(variable),
+            markeredgecolor=score_variable_color(variable),
+            color=score_variable_color(variable),
+            label=variable_label(variable),
+        )
+        for variable in variables
+    ]
+    handles.extend(
+        [
+            Line2D(
+                [0],
+                [0],
+                linestyle="none",
+                marker="o",
+                markersize=4.2,
+                markerfacecolor="#000000",
+                markeredgecolor="#000000",
+                color="#000000",
+                label="posterior",
+            ),
+            Line2D(
+                [0],
+                [0],
+                linestyle="none",
+                marker="o",
+                markersize=4.2,
+                markerfacecolor="white",
+                markeredgecolor="#000000",
+                color="#000000",
+                label="prior",
+            ),
+            Line2D(
+                [0],
+                [0],
+                linestyle="none",
+                marker="o",
+                markersize=4.2,
+                markerfacecolor="white",
+                markeredgecolor="#000000",
+                color="#000000",
+                label="assimilation fit",
+            ),
+            Line2D(
+                [0],
+                [0],
+                linestyle="none",
+                marker="s",
+                markersize=4.2,
+                markerfacecolor="white",
+                markeredgecolor="#000000",
+                color="#000000",
+                label="semi-independent",
+            ),
+            Line2D(
+                [0],
+                [0],
+                linestyle="none",
+                marker="^",
+                markersize=4.2,
+                markerfacecolor="white",
+                markeredgecolor="#000000",
+                color="#000000",
+                label="independent",
+            ),
+        ]
+    )
+    legend = ax.legend(
+        handles=handles,
+        loc="upper left",
+        ncol=1,
+        frameon=True,
+        facecolor="white",
+        edgecolor="none",
+        framealpha=_RESULT_OVERVIEW_LEGEND_FRAME_ALPHA,
+        fontsize=_RESULT_OVERVIEW_SCORE_LEGEND_SIZE,
+        handlelength=1.2,
+        handleheight=1.0,
+        handletextpad=0.3,
+        columnspacing=0.55,
+        labelspacing=0.12,
+        borderaxespad=0.35,
+    )
+    legend.get_frame().set_linewidth(0.0)
+    legend.set_zorder(50)
+
+
+def _apply_result_axis_text(axes, specs: list[PanelSpec]) -> None:
+    for ax, spec in zip(axes, specs, strict=True):
+        ax.set_ylabel(_PANEL_YLABELS.get(spec.panel, ""), fontsize=_RESULT_OVERVIEW_LABEL_SIZE, labelpad=2.0)
+        ax.tick_params(axis="y", labelsize=_RESULT_OVERVIEW_TICK_SIZE, pad=4.0)
+        for label in ax.get_yticklabels():
+            label.set_rotation(90)
+            label.set_rotation_mode("anchor")
+            label.set_ha("center")
+            label.set_va("center")
+
+
+def _add_in_panel_assim_labels(ax, events: list[AssimilationEvent], *, center_of_day: bool = False) -> None:
+    if not events:
+        return
+    import matplotlib.dates as mdates
+
+    dates = _center_assim_event_times(events) if center_of_day else [pd.to_datetime(event.date) for event in events]
+    x_min, x_max = ax.get_xlim()
+    x_min_dt = pd.Timestamp(mdates.num2date(x_min)).tz_localize(None)
+    x_max_dt = pd.Timestamp(mdates.num2date(x_max)).tz_localize(None)
+    placed: list[pd.Timestamp] = []
+    y_levels = [0.13, 0.24, 0.35]
+    span_days = max((x_max_dt - x_min_dt).total_seconds() / 86400.0, 1.0)
+    shift = pd.Timedelta(days=min(2.0, max(0.1, span_days * 0.015)))
+    edge_guard = pd.Timedelta(days=min(9.0, max(0.2, span_days * 0.12)))
+    for idx, date in enumerate(pd.to_datetime(dates), start=1):
+        date = pd.Timestamp(date).tz_localize(None)
+        if not (x_min_dt <= date <= x_max_dt):
+            continue
+        close_count = sum(abs((date - previous).days) < 14 for previous in placed)
+        y_axes = y_levels[close_count % len(y_levels)]
+        placed.append(date)
+        if date + edge_guard <= x_max_dt:
+            x_date = date + shift
+            ha = "left"
+        else:
+            x_date = max(date - shift, x_min_dt)
+            ha = "right"
+        ax.text(
+            x_date,
+            y_axes,
+            f"DA {idx}",
+            transform=ax.get_xaxis_transform(),
+            ha=ha,
+            va="center",
+            fontsize=5.5,
+            color="#000000",
+            bbox={
+                "boxstyle": "round,pad=0.18",
+                "facecolor": "white",
+                "edgecolor": _DA_EVENT_STANDARD_COLOR,
+                "linewidth": 0.55,
+                "alpha": 0.92,
+            },
+            zorder=55,
+            clip_on=True,
+        )
+
+
 def _date_bounds_series(*series_items: pd.Series | None) -> tuple[pd.Timestamp, pd.Timestamp] | None:
     mins: list[pd.Timestamp] = []
     maxs: list[pd.Timestamp] = []
@@ -819,7 +1066,7 @@ def _assim_labels(events: list[AssimilationEvent]) -> tuple[list[pd.Timestamp], 
     labels: list[str] = []
     for idx, event in enumerate(events, start=1):
         dates.append(pd.to_datetime(event.date))
-        labels.append(str(idx))
+        labels.append(f"DA {idx}")
     return dates, labels
 
 
@@ -858,7 +1105,7 @@ def _add_assim_label_axis(ax, events: list[AssimilationEvent], idx: int, *, cent
 
     if center_of_day:
         dates = _center_assim_event_times(events)
-        labels = [str(i) for i in range(1, len(events) + 1)]
+        labels = [f"DA {i}" for i in range(1, len(events) + 1)]
     else:
         dates, labels = _assim_labels(events)
 
@@ -901,6 +1148,7 @@ def _add_assim_label_axis(ax, events: list[AssimilationEvent], idx: int, *, cent
         min_row_spacing_days=_ASSIM_LABEL_MIN_SPACING_DAYS,
         axes_y=1.0,
         ha="center",
+        fontsize=_RESULT_OVERVIEW_LEGEND_SIZE,
     )
     if label_axis is not None:
         label_axis.set_zorder(ax.get_zorder() + 1)
@@ -1321,7 +1569,7 @@ def _apply_time_axis_labels(axes, x_bounds: tuple[pd.Timestamp, pd.Timestamp] | 
         prev_year = tick_dt.year
     axes[-1].set_xticks(tick_values)
     axes[-1].set_xticklabels(labels)
-    axes[-1].tick_params(axis="x", labelsize=8.4)
+    axes[-1].tick_params(axis="x", labelsize=_RESULT_OVERVIEW_XTICK_SIZE)
 
 
 def _panel_has_data(
@@ -1512,10 +1760,7 @@ def plot_result_overview(
         station_panels=station_panels,
     )
     data_x_bounds: tuple[pd.Timestamp, pd.Timestamp] | None = None
-    label_axes: list[tuple[object, object]] = []
     legend_state = _ResultOverviewLegendState()
-    score_legend_variable_names: set[str] = set()
-    show_ess_threshold = any(spec.panel == "ess" and ess_panel is not None and ess_panel.threshold is not None for spec in specs)
 
     for idx, (ax, spec) in enumerate(zip(axes, specs)):
         letter = ascii_lowercase[idx] if idx < len(ascii_lowercase) else str(idx + 1)
@@ -1526,11 +1771,11 @@ def plot_result_overview(
             station_data = station_panels[(spec.station_id.lower(), value_col)]
         panel_style = None if _is_score_panel(spec.panel) else _panel_style(spec.panel)
 
-        has_top_assim_labels = bool(events) and idx == 0
+        has_top_assim_labels = idx == 0 and bool(events)
         title_artist = ax.set_title(
             f"({letter}) {(_ess_panel_title(spec, current_ess_panel) if spec.panel == 'ess' else _panel_title(spec, station_data))}",
             loc="left",
-            fontsize=9.4,
+            fontsize=_RESULT_OVERVIEW_TITLE_SIZE,
             pad=_PANEL_TITLE_PAD_WITH_ASSIM_LABELS if has_top_assim_labels else _PANEL_TITLE_PAD,
         )
         title_artists.append((ax, title_artist, has_top_assim_labels))
@@ -1544,7 +1789,6 @@ def plot_result_overview(
             score_metric = _score_metric_for_panel(spec.panel)
             metric_points = _score_panel_points_for_metric(score_points, spec.panel)
             score_variables = sorted(metric_points["variable"].astype(str).unique(), key=score_variable_sort_key)
-            score_legend_variable_names.update(score_variables)
             draw_score_metric_panel(
                 ax,
                 points=metric_points,
@@ -1552,6 +1796,7 @@ def plot_result_overview(
                 variables=score_variables,
                 assimilation_events=events,
             )
+            _add_score_panel_legend(ax, score_variables)
             legend_state.da_event = legend_state.da_event or bool(events)
             ax.set_ylabel("")
             ax.set_ylim(*score_metric_ylim(metric_points, score_metric))
@@ -1559,14 +1804,20 @@ def plot_result_overview(
             bounds = _date_bounds_frames(pd.DataFrame({"date": pd.to_datetime(metric_points["assimilation_date"])}))
         elif spec.panel == "fSC":
             scf_obs_points = _finite_value_points(scf_obs, "scf")
+            local_has_ensemble = False
+            local_has_open_loop = False
+            local_has_satellite_obs = False
             if mode == "band" and _frame_has_finite_band(scf_env):
                 legend_state.ensemble_summary = True
+                local_has_ensemble = True
                 ax.fill_between(
                     scf_env["date"],
                     scf_env["value_min"],
                     scf_env["value_max"],
                     color=panel_style["fill"],
                     alpha=BAND_ALPHA,
+                    edgecolor="none",
+                    linewidth=0.0,
                     label="_nolegend_",
                 )
                 ax.plot(
@@ -1580,9 +1831,11 @@ def plot_result_overview(
                 )
             if _frame_has_finite_value(scf_model, "scf"):
                 legend_state.open_loop = True
+                local_has_open_loop = True
                 ax.plot(scf_model["date"], scf_model["scf"], "-", color="black", lw=_RESULT_OVERVIEW_DATA_LW, label="_nolegend_")
             if spec.show_obs and scf_obs_points is not None and not scf_obs_points.empty:
                 legend_state.satellite_observation = True
+                local_has_satellite_obs = True
                 ax.plot(
                     scf_obs_points["date"],
                     scf_obs_points["scf"],
@@ -1614,17 +1867,32 @@ def plot_result_overview(
             ax.set_ylim(0, 1)
             apply_fraction_grid(ax, y_step=0.25)
             _apply_fraction_ticks(ax)
+            _add_panel_local_legend(
+                ax,
+                [
+                    *([_open_loop_legend_handle()] if local_has_open_loop else []),
+                    *([_ensemble_legend_handle(panel_style)] if local_has_ensemble else []),
+                    *([_satellite_obs_legend_handle()] if local_has_satellite_obs else []),
+                ],
+                loc="upper left",
+            )
             bounds = _date_bounds_frames(scf_obs, scf_model, scf_env)
         elif spec.panel == "WSF":
             wet_obs_points = _finite_value_points(wet_obs, "wet_snow_fraction")
+            local_has_ensemble = False
+            local_has_open_loop = False
+            local_has_satellite_obs = False
             if mode == "band" and _frame_has_finite_band(wet_env):
                 legend_state.ensemble_summary = True
+                local_has_ensemble = True
                 ax.fill_between(
                     wet_env["date"],
                     wet_env["value_min"],
                     wet_env["value_max"],
                     color=panel_style["fill"],
                     alpha=BAND_ALPHA,
+                    edgecolor="none",
+                    linewidth=0.0,
                     label="_nolegend_",
                 )
                 ax.plot(
@@ -1638,6 +1906,7 @@ def plot_result_overview(
                 )
             if _frame_has_finite_value(wet_model, "wet_snow_fraction"):
                 legend_state.open_loop = True
+                local_has_open_loop = True
                 ax.plot(
                     wet_model["date"],
                     wet_model["wet_snow_fraction"],
@@ -1648,6 +1917,7 @@ def plot_result_overview(
                 )
             if spec.show_obs and wet_obs_points is not None and not wet_obs_points.empty:
                 legend_state.satellite_observation = True
+                local_has_satellite_obs = True
                 ax.plot(
                     wet_obs_points["date"],
                     wet_obs_points["wet_snow_fraction"],
@@ -1679,17 +1949,32 @@ def plot_result_overview(
             ax.set_ylim(0, 1)
             apply_fraction_grid(ax, y_step=0.25)
             _apply_fraction_ticks(ax)
+            _add_panel_local_legend(
+                ax,
+                [
+                    *([_open_loop_legend_handle()] if local_has_open_loop else []),
+                    *([_ensemble_legend_handle(panel_style)] if local_has_ensemble else []),
+                    *([_satellite_obs_legend_handle()] if local_has_satellite_obs else []),
+                ],
+                loc="upper left",
+            )
             bounds = _date_bounds_frames(wet_obs, wet_model, wet_env)
         elif spec.panel == "WSLA":
             wsl_obs_points = _finite_value_points(wsl_obs, "wet_snow_line")
+            local_has_ensemble = False
+            local_has_open_loop = False
+            local_has_satellite_obs = False
             if mode == "band" and _frame_has_finite_band(wsl_env):
                 legend_state.ensemble_summary = True
+                local_has_ensemble = True
                 ax.fill_between(
                     wsl_env["date"],
                     wsl_env["value_min"],
                     wsl_env["value_max"],
                     color=panel_style["fill"],
                     alpha=BAND_ALPHA,
+                    edgecolor="none",
+                    linewidth=0.0,
                     label="_nolegend_",
                 )
                 ax.plot(
@@ -1703,9 +1988,11 @@ def plot_result_overview(
                 )
             if _frame_has_finite_band(wsl_prior_coverage):
                 legend_state.ensemble_summary = True
+                local_has_ensemble = True
             _draw_wsl_prior_coverage_markers(ax, wsl_prior_coverage, color=panel_style["line"])
             if _frame_has_finite_value(wsl_model, "wet_snow_line"):
                 legend_state.open_loop = True
+                local_has_open_loop = True
                 ax.plot(
                     wsl_model["date"],
                     wsl_model["wet_snow_line"],
@@ -1716,6 +2003,7 @@ def plot_result_overview(
                 )
             if spec.show_obs and wsl_obs_points is not None and not wsl_obs_points.empty:
                 legend_state.satellite_observation = True
+                local_has_satellite_obs = True
                 ax.plot(
                     wsl_obs_points["date"],
                     wsl_obs_points["wet_snow_line"],
@@ -1747,6 +2035,15 @@ def plot_result_overview(
             apply_fraction_grid(ax, y_step=None)
             _apply_altitude_y_ticks(ax)
             _label_lower_clean_1000m_y_ticks(ax)
+            _add_panel_local_legend(
+                ax,
+                [
+                    *([_open_loop_legend_handle()] if local_has_open_loop else []),
+                    *([_ensemble_legend_handle(panel_style)] if local_has_ensemble else []),
+                    *([_satellite_obs_legend_handle()] if local_has_satellite_obs else []),
+                ],
+                loc="lower left",
+            )
             bounds = _date_bounds_frames(wsl_obs, wsl_model, wsl_env, wsl_prior_coverage)
         elif spec.panel == "roi-swe":
             if _frame_has_finite_band(roi_swe_env):
@@ -1757,6 +2054,8 @@ def plot_result_overview(
                     roi_swe_env["value_max"],
                     color=panel_style["fill"],
                     alpha=BAND_ALPHA,
+                    edgecolor="none",
+                    linewidth=0.0,
                     label="_nolegend_",
                 )
                 ax.plot(
@@ -1792,6 +2091,8 @@ def plot_result_overview(
                     roi_snow_depth_env["value_max"],
                     color=panel_style["fill"],
                     alpha=BAND_ALPHA,
+                    edgecolor="none",
+                    linewidth=0.0,
                     label="_nolegend_",
                 )
                 ax.plot(
@@ -1847,21 +2148,27 @@ def plot_result_overview(
                     ls="--",
                     zorder=10,
                 )
-                _add_ess_threshold_legend(ax)
+                _add_ess_threshold_inline_label(ax, current_ess_panel.threshold)
             apply_fraction_grid(ax, y_step=None)
             bounds = _date_bounds_frames(ess_series)
         else:
             if station_data is None:
                 raise ValueError(f"Missing station panel data for {spec.panel}")
             env_frame = _band_frame(station_data.members, q_low=0.0, q_high=1.0)
+            local_has_ensemble = False
+            local_has_open_loop = False
+            local_has_station_obs = False
             if _frame_has_finite_band(env_frame):
                 legend_state.ensemble_summary = True
+                local_has_ensemble = True
                 ax.fill_between(
                     env_frame["date"],
                     env_frame["value_min"],
                     env_frame["value_max"],
                     color=panel_style["fill"],
                     alpha=BAND_ALPHA,
+                    edgecolor="none",
+                    linewidth=0.0,
                     label="_nolegend_",
                     zorder=2,
                 )
@@ -1877,6 +2184,7 @@ def plot_result_overview(
                 )
             if _series_has_finite_value(station_data.open_loop):
                 legend_state.open_loop = True
+                local_has_open_loop = True
                 ax.plot(
                     station_data.open_loop.index,
                     station_data.open_loop.values,
@@ -1889,6 +2197,7 @@ def plot_result_overview(
             if spec.show_obs and _series_has_finite_value(station_data.obs):
                 value_col = _STATION_PANEL_META[spec.panel]["value_col"]
                 legend_state.station_observation = True
+                local_has_station_obs = True
                 ax.plot(
                     station_data.obs.index,
                     station_data.obs.values,
@@ -1918,6 +2227,15 @@ def plot_result_overview(
             ax.set_ylabel("")
             apply_fraction_grid(ax, y_step=None)
             _apply_shared_result_scale(ax, spec.panel, shared_scales)
+            _add_panel_local_legend(
+                ax,
+                [
+                    *([_open_loop_legend_handle()] if local_has_open_loop else []),
+                    *([_ensemble_legend_handle(panel_style)] if local_has_ensemble else []),
+                    *([_station_obs_legend_handle()] if local_has_station_obs else []),
+                ],
+                loc="upper left",
+            )
             bounds = _date_bounds_series(
                 station_data.open_loop,
                 station_data.obs,
@@ -1936,36 +2254,26 @@ def plot_result_overview(
             ax.set_xlim(*effective_x_bounds)
     if events and len(axes) > 0:
         center_assim = specs[0].panel in {"roi-swe", "roi-sd", "station-swe", "station-sd"}
-        label_axis = _add_assim_label_axis(axes[0], events, 0, center_of_day=center_assim)
-        if label_axis is not None:
-            label_axes.append((axes[0], label_axis))
+        _add_assim_label_axis(axes[0], events, 0, center_of_day=center_assim)
     _apply_time_axis_labels(axes, effective_x_bounds)
-    for ax, label_axis in label_axes:
-        label_axis.set_xlim(ax.get_xlim())
 
     axes[-1].set_xlabel("")
-    fig.tight_layout(rect=(-0.02, 0.04, 0.985, 1.0), h_pad=0.32)
+    fig.tight_layout(rect=(0.0, 0.025, 0.985, 1.0), h_pad=0.32)
     fig.align_ylabels(axes)
     fig.canvas.draw()
     _align_panel_titles_to_axes(title_artists)
-    legends = _build_result_overview_legends(
-        fig,
-        legend_state=legend_state,
-        score_variables=sorted(score_legend_variable_names, key=score_variable_sort_key),
-        show_ess_threshold=show_ess_threshold,
-    )
-    fig.canvas.draw()
-    legend_bottom = _legend_band_bottom(fig, legends, gap=0.008, minimum=0.016)
-    fig.tight_layout(rect=(-0.02, legend_bottom, 0.985, 1.0), h_pad=0.32)
+    del legend_state
+    fig.tight_layout(rect=(0.0, 0.025, 0.985, 1.0), h_pad=0.32)
     fig.align_ylabels(axes)
     fig.canvas.draw()
     _align_panel_titles_to_axes(title_artists)
     fig.canvas.draw()
     _thin_final_result_y_tick_labels(axes, specs)
+    _apply_result_axis_text(axes, specs)
     _hide_title_overlapping_y_tick_labels(fig, title_artists)
     fig.canvas.draw()
     force_figure_text_black(fig, axes)
-    save_figure_png(fig, output)
+    save_figure_png(fig, output, bbox_inches="tight", pad_inches=_RESULT_OVERVIEW_SAVE_PAD_INCHES)
     try:
         project_dir = infer_project_dir(output)
     except FileNotFoundError:
@@ -1973,7 +2281,7 @@ def plot_result_overview(
     if project_dir is not None:
         paper_output = project_paper_output_path(project_dir, output)
         paper_output.parent.mkdir(parents=True, exist_ok=True)
-        save_figure_png(fig, paper_output)
+        save_figure_png(fig, paper_output, bbox_inches="tight", pad_inches=_RESULT_OVERVIEW_SAVE_PAD_INCHES)
     plt.close(fig)
 
 

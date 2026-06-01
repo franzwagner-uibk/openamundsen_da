@@ -8,7 +8,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 import openamundsen_da.methods.viz.plots.result_overview as plot_mod
-from openamundsen_da.methods.viz.plots.theme import BAND_ALPHA, da_variable_style
+from openamundsen_da.methods.viz.plots.theme import BAND_ALPHA, GRID_ALPHA, GRID_LS, GRID_LW, da_variable_style
 from openamundsen_da.methods.viz.plots.result_overview import (
     PanelSpec,
     StationPanelData,
@@ -75,8 +75,33 @@ def _panel_axes(fig) -> list:
     return [ax for ax in fig.axes if not ax.get_label().startswith("assimilation_label_axis")]
 
 
+def _assim_label_axes(fig) -> list:
+    return [ax for ax in fig.axes if ax.get_label().startswith("assimilation_label_axis")]
+
+
+def _axis_assim_label_texts(fig) -> list[str]:
+    return [text.get_text() for ax in _assim_label_axes(fig) for text in ax.texts if text.get_text().startswith("DA ")]
+
+
 def _figure_legend_labels(fig, index: int = 0) -> list[str]:
     return [text.get_text() for text in fig.legends[index].get_texts()]
+
+
+def _axis_legend_labels(ax) -> list[str]:
+    legend = ax.get_legend()
+    if legend is None:
+        return []
+    return [text.get_text() for text in legend.get_texts()]
+
+
+def _assert_panel_legend_style(ax, *, loc: int) -> None:
+    legend = ax.get_legend()
+    assert legend is not None
+    assert getattr(legend, "_ncols", None) == 1
+    assert legend._loc == loc
+    frame = legend.get_frame()
+    assert frame.get_alpha() == pytest.approx(plot_mod._RESULT_OVERVIEW_LEGEND_FRAME_ALPHA)
+    assert frame.get_linewidth() == pytest.approx(0.0)
 
 
 def _assert_figure_legends_clear_axes(fig) -> None:
@@ -183,9 +208,20 @@ def test_plot_result_overview_uses_four_panels_when_roi_series_exist(monkeypatch
 
     assert recorded["nrows"] == 4
     axes = _panel_axes(plt.gcf())
-    assert [ax.get_ylabel() for ax in axes] == ["", "", "", ""]
-    assert axes[0].get_title(loc="left") == "(a) Snow cover fraction (roi)"
-    assert axes[1].get_title(loc="left") == "(b) Wet snow fraction (roi)"
+    assert [ax.get_ylabel() for ax in axes] == ["SCF", "WSF", "SWE [mm]", "Snow depth [m]"]
+    assert axes[0].get_title(loc="left") == "(a) Snow cover fraction"
+    assert axes[0]._left_title.get_fontsize() == pytest.approx(plot_mod._RESULT_OVERVIEW_TITLE_SIZE)
+    assert axes[1].get_title(loc="left") == "(b) Wet snow fraction"
+    assert axes[0].get_axisbelow() is True
+    gridline = axes[0].xaxis.get_gridlines()[0]
+    assert gridline.get_linestyle() == GRID_LS
+    assert gridline.get_linewidth() == pytest.approx(GRID_LW)
+    assert gridline.get_alpha() == pytest.approx(GRID_ALPHA)
+    assert all(label.get_rotation() == 90.0 for label in axes[0].get_yticklabels() if label.get_text())
+    assert axes[0].yaxis.get_major_ticks()[0].get_pad() == pytest.approx(4.0)
+    assert {label.get_fontsize() for label in axes[-1].get_xticklabels() if label.get_text()} == {
+        plot_mod._RESULT_OVERVIEW_XTICK_SIZE
+    }
     assert axes[2].lines[0].get_color() == da_variable_style("station_swe")["line"]
     assert axes[2].lines[0].get_linewidth() == pytest.approx(plot_mod._RESULT_OVERVIEW_DATA_LW)
     assert axes[2].lines[1].get_color() == "black"
@@ -206,7 +242,7 @@ def test_plot_result_overview_uses_four_panels_when_roi_series_exist(monkeypatch
     assert plt.gcf().get_size_inches()[1] == pytest.approx(
         plot_mod.FIGHEIGHT_OVERVIEW_ROW * plot_mod.OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR * 4.0
     )
-    assert len(plt.gcf().legends) == 1
+    assert len(plt.gcf().legends) == 0
     assert out_path.is_file()
     original_close(plt.gcf())
 
@@ -268,7 +304,8 @@ def test_plot_result_overview_adds_wsl_panel_when_wsl_series_exist(monkeypatch, 
 
     assert recorded["nrows"] == 3
     axes = _panel_axes(plt.gcf())
-    assert [ax.get_ylabel() for ax in axes] == ["", "", ""]
+    assert [ax.get_ylabel() for ax in axes] == ["SCF", "WSF", "Elevation [m]"]
+    _assert_panel_legend_style(axes[2], loc=3)
     assert out_path.is_file()
     original_close(plt.gcf())
 
@@ -342,7 +379,14 @@ def test_plot_result_overview_ylabels_do_not_overlap_with_stacked_custom_panels(
         fig.canvas.draw()
         renderer = fig.canvas.get_renderer()
         axes = _panel_axes(fig)
-        assert [ax.get_ylabel() for ax in axes] == ["", "", "", "", "", ""]
+        assert [ax.get_ylabel() for ax in axes] == [
+            "SCF",
+            "WSF",
+            "Elevation [m]",
+            "Snow depth [m]",
+            "ESS",
+            "CRPSS",
+        ]
         ytick_bboxes = [
             bbox
             for ax in axes
@@ -703,7 +747,20 @@ def test_plot_result_overview_roi_band_excludes_open_loop_and_plots_it_separatel
 def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch, tmp_path: Path) -> None:
     marker_calls: list[list[pd.Timestamp]] = []
     vline_calls: list[tuple[list[pd.Timestamp], str | None, str | None, float | None]] = []
-    label_calls: list[tuple[str, list[pd.Timestamp], list[str], object, float | None, list[float] | None, float | None, float | None, str | None]] = []
+    label_calls: list[
+        tuple[
+            str,
+            list[pd.Timestamp],
+            list[str],
+            object,
+            float | None,
+            list[float] | None,
+            float | None,
+            float | None,
+            str | None,
+            float | None,
+        ]
+    ] = []
 
     def _record_markers(ax, *, dates, **kwargs) -> None:
         marker_calls.append(list(pd.to_datetime(dates)))
@@ -723,6 +780,7 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
                 kwargs.get("min_row_spacing_days"),
                 kwargs.get("axes_y"),
                 kwargs.get("ha"),
+                kwargs.get("fontsize"),
             )
         )
 
@@ -791,19 +849,20 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
         (
             "assimilation_label_axis_0",
             [scf_date, wet_date, hs_date, swe_date],
-            ["1", "2", "3", "4"],
+            ["DA 1", "DA 2", "DA 3", "DA 4"],
             None,
             0.0,
-            [0.35, 6.5],
-            18.0,
+            plot_mod._ASSIM_LABEL_ROW_OFFSETS_PTS,
+            plot_mod._ASSIM_LABEL_MIN_SPACING_DAYS,
             1.0,
             "center",
-        ),
+            plot_mod._RESULT_OVERVIEW_LEGEND_SIZE,
+        )
     ]
     assert out_path.is_file()
 
 
-def test_plot_result_overview_lower_assimilation_label_row_stays_above_panel(tmp_path: Path) -> None:
+def test_plot_result_overview_above_panel_assimilation_labels_stay_inside_top_panel(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 
     original_close = plt.close
@@ -829,22 +888,23 @@ def test_plot_result_overview_lower_assimilation_label_row_stays_above_panel(tmp
         fig = plt.gcf()
         fig.canvas.draw()
         renderer = fig.canvas.get_renderer()
-        main_axes = _panel_axes(fig)
-        label_axes = [ax for ax in fig.axes if ax.get_label().startswith("assimilation_label_axis")]
+        main_axis = _panel_axes(fig)[0]
+        label_axis = _assim_label_axes(fig)[0]
+        label_texts = [text for text in label_axis.texts if text.get_text().startswith("DA ")]
 
-        assert len(label_axes) == 1
-        assert label_axes[0].get_label() == "assimilation_label_axis_0"
-        assert label_axes[0].texts
-        for text in label_axes[0].texts:
+        assert [text.get_text() for text in label_texts] == ["DA 1", "DA 2", "DA 3", "DA 4"]
+        for text in label_texts:
             bbox = text.get_window_extent(renderer)
-            assert bbox.y0 >= main_axes[0].bbox.y1
+            assert bbox.y0 >= main_axis.bbox.y1 - 1.0
+            assert fig.bbox.contains(bbox.x0, bbox.y0)
+            assert fig.bbox.contains(bbox.x1, bbox.y1)
         assert out_path.is_file()
     finally:
         original_close(plt.gcf())
         plt.close = original_close
 
 
-def test_plot_result_overview_adds_assimilation_label_axis_to_top_panel_when_events_exist(tmp_path: Path) -> None:
+def test_plot_result_overview_adds_above_panel_assimilation_labels_when_events_exist(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 
     original_close = plt.close
@@ -865,17 +925,16 @@ def test_plot_result_overview_adds_assimilation_label_axis_to_top_panel_when_eve
             ],
         )
 
-        label_axes = [ax for ax in plt.gcf().axes if ax.get_label().startswith("assimilation_label_axis")]
-        assert len(label_axes) == 1
-        assert label_axes[0].get_label() == "assimilation_label_axis_0"
-        assert [text.get_text() for text in label_axes[0].texts] == ["1", "2"]
-        assert len(_panel_axes(plt.gcf())) == 2
+        axes = _panel_axes(plt.gcf())
+        assert _axis_assim_label_texts(plt.gcf()) == ["DA 1", "DA 2"]
+        assert _assim_label_axes(plt.gcf())
+        assert len(axes) == 2
         assert out_path.is_file()
     finally:
         plt.close = original_close
 
 
-def test_plot_result_overview_dense_assimilation_labels_fall_back_to_numbers(tmp_path: Path) -> None:
+def test_plot_result_overview_dense_assimilation_labels_use_da_prefix_and_adaptive_rows(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 
     original_close = plt.close
@@ -898,15 +957,15 @@ def test_plot_result_overview_dense_assimilation_labels_fall_back_to_numbers(tmp
             ],
         )
 
-        label_axes = [ax for ax in plt.gcf().axes if ax.get_label().startswith("assimilation_label_axis")]
-        assert len(label_axes) == 1
-        assert [text.get_text() for text in label_axes[0].texts] == [str(i) for i in range(1, 21)]
+        labels = [text for ax in _assim_label_axes(plt.gcf()) for text in ax.texts if text.get_text().startswith("DA ")]
+        assert [text.get_text() for text in labels] == [f"DA {i}" for i in range(1, 21)]
+        assert len({round(text.get_position()[1], 2) for text in labels}) > 1
         assert out_path.is_file()
     finally:
         plt.close = original_close
 
 
-def test_plot_result_overview_uses_single_figure_legend_labels(tmp_path: Path) -> None:
+def test_plot_result_overview_uses_panel_local_legend_labels(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 
     original_close = plt.close
@@ -923,11 +982,18 @@ def test_plot_result_overview_uses_single_figure_legend_labels(tmp_path: Path) -
             output=out_path,
         )
 
-        assert len(plt.gcf().legends) == 1
-        assert _figure_legend_labels(plt.gcf()) == [
-            "satellite observation",
+        assert len(plt.gcf().legends) == 0
+        axes = _panel_axes(plt.gcf())
+        assert _axis_legend_labels(axes[0]) == [
             "open loop",
+            "satellite observation",
         ]
+        assert _axis_legend_labels(axes[1]) == [
+            "open loop",
+            "satellite observation",
+        ]
+        _assert_panel_legend_style(axes[0], loc=2)
+        _assert_panel_legend_style(axes[1], loc=2)
         legend_handles = plot_mod._build_result_overview_legend_handles(
             legend_state=plot_mod._ResultOverviewLegendState(
                 da_observation=True,
@@ -951,7 +1017,6 @@ def test_plot_result_overview_uses_single_figure_legend_labels(tmp_path: Path) -
         ensemble_handler = handler_map[type(ensemble_handle)]
         assert isinstance(ensemble_handler, plot_mod._EnsembleLegendHandler)
         assert ensemble_handler._line_inset_frac > 0.0
-        assert all(ax.get_legend() is None for ax in _panel_axes(plt.gcf()))
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -977,12 +1042,12 @@ def test_plot_result_overview_legend_adds_da_observation_only_for_matching_obs(t
             ],
         )
 
-        assert _figure_legend_labels(plt.gcf()) == [
-            "observation used for data assimilation",
-            "satellite observation",
+        assert len(plt.gcf().legends) == 0
+        assert _axis_legend_labels(_panel_axes(plt.gcf())[0]) == [
             "open loop",
-            "data assimilation event",
+            "satellite observation",
         ]
+        assert _axis_assim_label_texts(plt.gcf()) == ["DA 1"]
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -1008,11 +1073,12 @@ def test_plot_result_overview_legend_omits_da_observation_when_event_has_no_obs(
             ],
         )
 
-        assert _figure_legend_labels(plt.gcf()) == [
-            "satellite observation",
+        assert len(plt.gcf().legends) == 0
+        assert _axis_legend_labels(_panel_axes(plt.gcf())[0]) == [
             "open loop",
-            "data assimilation event",
+            "satellite observation",
         ]
+        assert _axis_assim_label_texts(plt.gcf()) == []
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -1025,10 +1091,14 @@ def test_plot_result_overview_uses_shared_band_alpha_on_fraction_and_station_pan
     import matplotlib.axes
 
     captured_alphas: list[float | None] = []
+    captured_edgecolors: list[object] = []
+    captured_linewidths: list[object] = []
     original_fill_between = matplotlib.axes.Axes.fill_between
 
     def _spy_fill_between(self, x, y1, y2, *args, **kwargs):
         captured_alphas.append(kwargs.get("alpha"))
+        captured_edgecolors.append(kwargs.get("edgecolor"))
+        captured_linewidths.append(kwargs.get("linewidth"))
         return original_fill_between(self, x, y1, y2, *args, **kwargs)
 
     monkeypatch.setattr(matplotlib.axes.Axes, "fill_between", _spy_fill_between)
@@ -1063,6 +1133,8 @@ def test_plot_result_overview_uses_shared_band_alpha_on_fraction_and_station_pan
     )
 
     assert captured_alphas == [BAND_ALPHA, BAND_ALPHA, BAND_ALPHA, BAND_ALPHA]
+    assert captured_edgecolors == ["none", "none", "none", "none"]
+    assert captured_linewidths == [0.0, 0.0, 0.0, 0.0]
     assert out_path.is_file()
 
 
@@ -1098,11 +1170,14 @@ def test_plot_result_overview_custom_legend_includes_station_observation_when_dr
             strict_panels=True,
         )
 
-        assert _figure_legend_labels(plt.gcf()) == [
+        axes = _panel_axes(plt.gcf())
+        assert len(plt.gcf().legends) == 0
+        assert _axis_legend_labels(axes[1]) == [
             "open loop",
-            "ensemble (min - max, mean)",
+            "ensemble",
             "station observation",
         ]
+        _assert_panel_legend_style(axes[1], loc=2)
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -1140,10 +1215,13 @@ def test_plot_result_overview_custom_legend_omits_station_observation_when_hidde
             strict_panels=True,
         )
 
-        assert _figure_legend_labels(plt.gcf()) == [
+        axes = _panel_axes(plt.gcf())
+        assert len(plt.gcf().legends) == 0
+        assert _axis_legend_labels(axes[1]) == [
             "open loop",
-            "ensemble (min - max, mean)",
+            "ensemble",
         ]
+        _assert_panel_legend_style(axes[1], loc=2)
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -1258,8 +1336,8 @@ def test_plot_result_overview_supports_custom_station_panel(tmp_path: Path) -> N
         )
 
         axes = _panel_axes(plt.gcf())
-        assert [ax.get_ylabel() for ax in axes] == ["", ""]
-        assert axes[1].get_title(loc="left").startswith("(b) Snow depth Latschbloder 2919 m")
+        assert [ax.get_ylabel() for ax in axes] == ["SCF", "Snow depth [m]"]
+        assert axes[1].get_title(loc="left").startswith("(b) Snow depth (Latschbloder 2919 m)")
         line_colors = [line.get_color() for line in axes[1].lines]
         assert da_variable_style("station_hs")["line"] in line_colors
         assert "black" in line_colors
@@ -1307,11 +1385,8 @@ def test_plot_result_overview_custom_ess_panel_uses_threshold_and_top_tick_only(
         assert list(axes[0].get_yticks()) == [0.0, 10.0, 20.0, 30.0, 40.0, 47.0]
         assert 23.5 not in axes[0].get_yticks()
         assert axes[0].get_ylim()[1] == 47.0
-        assert axes[0].get_legend() is not None
-        assert axes[0].get_legend()._loc == 1
-        assert not axes[0].get_legend().get_frame().get_visible()
-        assert [text.get_text() for text in axes[0].get_legend().get_texts()] == ["ESS threshold"]
-        assert axes[0].get_legend().legend_handles[0].get_color() == "black"
+        assert axes[0].get_legend() is None
+        assert any(text.get_text() == "ESS threshold" for text in axes[0].texts)
         assert any(line.get_color() == "black" and line.get_linestyle() == "--" for line in axes[0].lines)
         assert len(plt.gcf().legends) == 0
         assert out_path.is_file()
@@ -1346,11 +1421,12 @@ def test_plot_result_overview_supports_custom_crpss_score_panel(tmp_path: Path) 
         axes = _panel_axes(plt.gcf())
         assert len(axes) == 1
         assert axes[0].get_title(loc="left") == "(a) Continuous ranked probability skill score (CRPSS)"
-        assert axes[0].get_ylabel() == ""
+        assert axes[0].get_ylabel() == "CRPSS"
         assert 0.5 in list(axes[0].get_yticks())
         assert set(label.get_text() for label in axes[0].get_yticklabels() if label.get_text()) <= {"0", "0.5", "1"}
         assert axes[0].collections
-        assert axes[0].get_legend() is None
+        assert axes[0].get_legend() is not None
+        _assert_panel_legend_style(axes[0], loc=2)
         event_lines = []
         for line in axes[0].lines:
             xdata = pd.to_datetime(line.get_xdata())
@@ -1358,20 +1434,11 @@ def test_plot_result_overview_supports_custom_crpss_score_panel(tmp_path: Path) 
                 event_lines.append((xdata[0].normalize(), line.get_color(), line.get_linestyle(), line.get_linewidth()))
         assert (pd.Timestamp("2023-01-02"), "#777777", "--", 1.0) in event_lines
         assert (pd.Timestamp("2023-01-03"), "#777777", "--", 1.0) in event_lines
-        assert len(plt.gcf().legends) == 2
-        overview_labels = _figure_legend_labels(plt.gcf(), 0)
-        score_labels = _figure_legend_labels(plt.gcf(), 1)
-        assert overview_labels == ["data assimilation event"]
+        assert len(plt.gcf().legends) == 0
+        score_labels = _axis_legend_labels(axes[0])
         assert "prior" in score_labels
         assert "posterior" in score_labels
         assert "assimilation fit" in score_labels
-        assert getattr(plt.gcf().legends[0], "_ncols", None) == 1
-        assert getattr(plt.gcf().legends[1], "_ncols", None) == 5
-        plt.gcf().canvas.draw()
-        renderer = plt.gcf().canvas.get_renderer()
-        score_texts = {text.get_text(): text for text in plt.gcf().legends[1].get_texts() if text.get_text()}
-        assert score_texts["posterior"].get_window_extent(renderer).y0 > score_texts["prior"].get_window_extent(renderer).y0
-        _assert_figure_legends_clear_axes(plt.gcf())
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -1481,7 +1548,7 @@ def test_plot_result_overview_supports_custom_ner_score_panel(tmp_path: Path) ->
         axes = _panel_axes(plt.gcf())
         assert len(axes) == 1
         assert axes[0].get_title(loc="left").endswith("NER")
-        assert axes[0].get_ylabel() == ""
+        assert axes[0].get_ylabel() == "NER [-]"
         assert 0.5 in list(axes[0].get_yticks())
         assert axes[0].collections
         assert out_path.is_file()
@@ -1516,7 +1583,7 @@ def test_plot_result_overview_supports_custom_zskill_score_panel(tmp_path: Path)
         axes = _panel_axes(plt.gcf())
         assert len(axes) == 1
         assert axes[0].get_title(loc="left").endswith("zSkill")
-        assert axes[0].get_ylabel() == ""
+        assert axes[0].get_ylabel() == "zSkill [-]"
         assert axes[0].collections
         assert out_path.is_file()
     finally:
@@ -1550,16 +1617,14 @@ def test_plot_result_overview_supports_both_score_panels_and_single_local_legend
         axes = _panel_axes(plt.gcf())
         assert axes[0].get_title(loc="left") == "(a) Continuous ranked probability skill score (CRPSS)"
         assert axes[1].get_title(loc="left").endswith("NER")
-        assert [ax.get_ylabel() for ax in axes] == ["", ""]
+        assert [ax.get_ylabel() for ax in axes] == ["CRPSS", "NER [-]"]
         assert 0.5 in list(axes[0].get_yticks())
         assert 0.5 in list(axes[1].get_yticks())
-        assert axes[0].get_legend() is None
-        assert axes[1].get_legend() is None
-        assert len(plt.gcf().legends) == 2
-        assert _figure_legend_labels(plt.gcf(), 0) == ["data assimilation event"]
-        assert getattr(plt.gcf().legends[0], "_ncols", None) == 1
-        assert getattr(plt.gcf().legends[1], "_ncols", None) == 5
-        _assert_figure_legends_clear_axes(plt.gcf())
+        assert axes[0].get_legend() is not None
+        assert axes[1].get_legend() is not None
+        _assert_panel_legend_style(axes[0], loc=2)
+        _assert_panel_legend_style(axes[1], loc=2)
+        assert len(plt.gcf().legends) == 0
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -1628,6 +1693,40 @@ def test_plot_result_overview_uses_uniform_panel_height_ratios(monkeypatch, tmp_
     original_close(plt.gcf())
 
 
+def test_plot_result_overview_saves_with_tight_export_padding(monkeypatch, tmp_path: Path) -> None:
+    saved: list[dict[str, object]] = []
+
+    def _fake_save(fig, output, **kwargs) -> None:
+        saved.append({"output": output, "kwargs": kwargs})
+        Path(output).parent.mkdir(parents=True, exist_ok=True)
+        Path(output).write_text("saved", encoding="utf-8")
+
+    monkeypatch.setattr(plot_mod, "save_figure_png", _fake_save)
+
+    out_path = tmp_path / "result_overview_custom.png"
+    plot_result_overview(
+        scf_obs=None,
+        scf_model=_frame("scf", [0.2, 0.4]),
+        wet_obs=None,
+        wet_model=None,
+        scf_env=None,
+        wet_env=None,
+        output=out_path,
+        panel_specs=[PanelSpec(panel="fSC")],
+        strict_panels=True,
+    )
+
+    assert saved == [
+        {
+            "output": out_path,
+            "kwargs": {
+                "bbox_inches": "tight",
+                "pad_inches": plot_mod._RESULT_OVERVIEW_SAVE_PAD_INCHES,
+            },
+        }
+    ]
+
+
 def test_plot_result_overview_score_panel_keeps_ess_threshold_local(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 
@@ -1663,21 +1762,15 @@ def test_plot_result_overview_score_panel_keeps_ess_threshold_local(tmp_path: Pa
         )
 
         axes = _panel_axes(plt.gcf())
-        assert axes[0].get_legend() is not None
-        assert axes[0].get_legend()._loc == 1
-        assert not axes[0].get_legend().get_frame().get_visible()
-        assert [text.get_text() for text in axes[0].get_legend().get_texts()] == ["ESS threshold"]
+        assert axes[0].get_legend() is None
+        assert any(text.get_text() == "ESS threshold" for text in axes[0].texts)
         assert axes[0].get_title(loc="left") == "(a) Effective sample size"
         assert 23.5 not in axes[0].get_yticks()
         assert axes[0].get_ylim()[1] == 47.0
-        assert axes[0].get_legend().legend_handles[0].get_color() == "black"
         assert any(line.get_color() == "black" and line.get_linestyle() == "--" for line in axes[0].lines)
-        assert axes[1].get_legend() is None
-        assert len(plt.gcf().legends) == 2
-        overview_labels = _figure_legend_labels(plt.gcf(), 0)
-        assert overview_labels == ["data assimilation event"]
-        assert "ESS threshold" not in overview_labels
-        _assert_figure_legends_clear_axes(plt.gcf())
+        assert axes[1].get_legend() is not None
+        assert len(plt.gcf().legends) == 0
+        assert "ESS threshold" not in _axis_legend_labels(axes[1])
         assert out_path.is_file()
     finally:
         plt.close = original_close

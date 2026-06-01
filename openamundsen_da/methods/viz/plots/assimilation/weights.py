@@ -33,6 +33,7 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.methods.viz.theme import da_variable_line_color
 from openamundsen_da.methods.viz.common import force_figure_text_black, save_figure_png, set_matplotlib_text_black
+from openamundsen_da.methods.viz.plots.common import apply_plot_grid
 from openamundsen_da.methods.viz.wet_snow_fields import finite_numeric_column
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.da_observables import station_diagnostics_csv_name, weight_plot_title_from_csv_path
@@ -70,7 +71,7 @@ _STATION_COLOR_CYCLES = {
         "#a2da37",
     ],
 }
-_FS_TITLE = 9.4
+_FS_TITLE = 8.8
 _FS_AXIS = 8.6
 _FS_TICK = 8.4
 _FS_NOTE = 7.4
@@ -102,7 +103,7 @@ def _load_weights(csv_path: Path) -> pd.DataFrame:
 
 
 def _apply_grid(ax) -> None:
-    ax.grid(True, axis="both", which="major", alpha=0.5, linestyle="--", linewidth=0.8)
+    apply_plot_grid(ax)
 
 
 def _member_ticks(n: int) -> list[int]:
@@ -1292,7 +1293,7 @@ def _build_setup_weights_overview_page(
             f"Data assimilation weights ({summary})",
             va="top",
             ha="left",
-            fontsize=8.6,
+            fontsize=8.0,
             color="#000000",
         )
     legend_handles, legend_labels, handler_map = _figure_legend_spec(

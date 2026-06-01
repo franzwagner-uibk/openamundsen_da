@@ -3428,6 +3428,8 @@ def test_map_axis_style_places_title_above_axes_and_can_hide_nonfirstcolumn_ylab
         assert all(tick.tick1line.get_markersize() == pytest.approx(2.2) for tick in ax.xaxis.get_major_ticks())
         assert all(tick.tick1line.get_markersize() == pytest.approx(2.2) for tick in ax.yaxis.get_major_ticks())
         assert ax.get_title(loc="left") == "Demo"
+        assert ax._left_title.get_fontsize() == pytest.approx(layout_module.axes_title_fontsize(ax))
+        assert layout_module.axes_title_fontsize(ax) == pytest.approx(8.0)
         assert title_bbox.y0 >= axes_bbox.y1
         assert all(not tick.label2.get_visible() for tick in ax.xaxis.get_major_ticks())
         assert all(not tick.label2.get_visible() for tick in ax.yaxis.get_major_ticks())

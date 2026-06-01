@@ -575,7 +575,7 @@ def render_map_recipe(
     fig.subplots_adjust(left=left_margin, right=_RIGHT_MARGIN, bottom=_BOTTOM_MARGIN, top=top_margin)
     title_artist = None
     if recipe.figure_title:
-        title_artist = fig.suptitle(recipe.figure_title, y=0.988, fontsize=9.2)
+        title_artist = fig.suptitle(recipe.figure_title, y=0.988, fontsize=8.6)
 
     title_letters = iter(ascii_lowercase)
     panel_labels: list[str | None] = [

@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from openamundsen_da.methods.pf import plot_weights as plot_mod
-from openamundsen_da.methods.viz.plots.theme import da_variable_style
+from openamundsen_da.methods.viz.plots.theme import GRID_ALPHA, GRID_LS, GRID_LW, da_variable_style
 from openamundsen_da.util.da_observables import weight_plot_title_from_csv_path
 
 
@@ -212,7 +212,8 @@ def test_setup_weights_overview_writes_paper_copy_without_figure_title(tmp_path:
     normal, paper = saved
     assert normal["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
     assert paper["out"] == plot_mod.project_paper_output_path(project_dir, normal["out"])
-    assert any(text.get_text().startswith("Data assimilation weights") for text in normal["fig"].texts)
+    normal_title = next(text for text in normal["fig"].texts if text.get_text().startswith("Data assimilation weights"))
+    assert normal_title.get_fontsize() == pytest.approx(8.0)
     assert not any(text.get_text().startswith("Data assimilation weights") for text in paper["fig"].texts)
 
     for item in saved:
@@ -307,6 +308,20 @@ def test_weights_color_sources_follow_shared_da_palette() -> None:
     assert plot_mod._station_color_map(["station_b"], observable="station_swe") == {
         "station_b": da_variable_style("station_swe")["line"],
     }
+
+
+def test_weights_grid_uses_shared_plot_style() -> None:
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots()
+    try:
+        plot_mod._apply_grid(ax)
+        gridline = ax.xaxis.get_gridlines()[0]
+        assert gridline.get_linestyle() == GRID_LS
+        assert gridline.get_linewidth() == pytest.approx(GRID_LW)
+        assert gridline.get_alpha() == pytest.approx(GRID_ALPHA)
+    finally:
+        plt.close(fig)
 
 
 def test_station_color_config_resolves_aliases_and_skips_reserved_colors(tmp_path: Path) -> None:
@@ -936,6 +951,7 @@ def test_standalone_plot_uses_lower_title_anchor(tmp_path: Path) -> None:
     ax0 = fig.axes[0]
     ax1 = fig.axes[1]
     assert title_text.get_position() == (0.11, plot_mod._STANDALONE_TITLE_Y)
+    assert title_text.get_fontsize() == pytest.approx(plot_mod._FS_TITLE)
     assert legend_anchor.y0 == pytest.approx(plot_mod._STANDALONE_LEGEND_Y)
     assert ax1.get_position().width / ax0.get_position().width > 2.6
     assert list(ax0.get_xticks()) == plot_mod._WEIGHT_AXIS_TICKS

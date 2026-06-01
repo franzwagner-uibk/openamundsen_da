@@ -8,6 +8,35 @@ from rasterio.transform import array_bounds
 from openamundsen_da.methods.viz.maps.data import StaticContext
 
 
+def _filled_dem(dem: np.ndarray) -> np.ndarray:
+    filled = np.asarray(dem, dtype=float).copy()
+    if np.isfinite(filled).any():
+        filled[~np.isfinite(filled)] = float(np.nanmedian(filled))
+    else:
+        filled[:] = 0.0
+    return filled
+
+
+def _hillshade_from_dem(dem: np.ndarray, transform) -> np.ndarray:
+    filled = _filled_dem(dem)
+    dx = abs(float(transform.a))
+    dy = abs(float(transform.e))
+    shades = []
+    weights = np.array([0.40, 0.27, 0.20, 0.13], dtype=float)
+    for azdeg in (315, 45, 270, 135):
+        light = LightSource(azdeg=azdeg, altdeg=45)
+        shades.append(
+            light.hillshade(
+                filled,
+                vert_exag=1.3,
+                dx=dx,
+                dy=dy,
+            )
+        )
+    shade = np.average(np.stack(shades, axis=0), axis=0, weights=weights)
+    return np.clip(shade, 0.0, 1.0)
+
+
 def grid_extent(context: StaticContext) -> tuple[float, float, float, float]:
     left, bottom, right, top = array_bounds(
         int(context.roi_mask.shape[0]),
@@ -32,32 +61,40 @@ def hillshade(context: StaticContext, *, derived_cache: dict[str, np.ndarray] | 
     if derived_cache is not None and "hillshade" in derived_cache:
         return derived_cache["hillshade"]
     dem_source = context.hillshade_dem if context.hillshade_dem is not None else context.dem
-    dem = np.asarray(dem_source, dtype=float)
-    filled = dem.copy()
-    if np.isfinite(filled).any():
-        filled[~np.isfinite(filled)] = float(np.nanmedian(filled))
-    else:
-        filled[:] = 0.0
     transform = context.hillshade_transform if context.hillshade_transform is not None else context.spec.transform
-    dx = float(transform.a)
-    dy = float(transform.e)
-    shades = []
-    weights = np.array([0.40, 0.27, 0.20, 0.13], dtype=float)
-    for azdeg in (315, 45, 270, 135):
-        light = LightSource(azdeg=azdeg, altdeg=45)
-        shades.append(
-            light.hillshade(
-                filled,
-                vert_exag=1.3,
-                dx=dx,
-                dy=dy,
-            )
-        )
-    shade = np.average(np.stack(shades, axis=0), axis=0, weights=weights)
-    shade = np.clip(shade, 0.0, 1.0)
+    shade = _hillshade_from_dem(np.asarray(dem_source, dtype=float), transform)
     if derived_cache is not None:
         derived_cache["hillshade"] = shade
     return shade
+
+
+def aspect_hillshade(context: StaticContext, *, derived_cache: dict[str, np.ndarray] | None = None) -> np.ndarray:
+    cache_key = "aspect_hillshade"
+    if derived_cache is not None and cache_key in derived_cache:
+        return derived_cache[cache_key]
+    shade = _hillshade_from_dem(np.asarray(context.dem, dtype=float), context.spec.transform)
+    if derived_cache is not None:
+        derived_cache[cache_key] = shade
+    return shade
+
+
+def terrain_aspect(context: StaticContext, *, derived_cache: dict[str, np.ndarray] | None = None) -> np.ndarray:
+    cache_key = "aspect"
+    if derived_cache is not None and cache_key in derived_cache:
+        return derived_cache[cache_key]
+
+    dem = np.asarray(context.dem, dtype=float)
+    filled = _filled_dem(dem)
+    res_x = abs(float(context.spec.transform.a))
+    res_y = abs(float(context.spec.transform.e))
+    grad_y, grad_x = np.gradient(filled, res_y, res_x)
+    slope = np.hypot(grad_x, grad_y)
+    aspect = 90.0 - np.degrees(np.arctan2(grad_y, -grad_x))
+    aspect = np.mod(aspect + 360.0, 360.0)
+    aspect[(slope <= 1e-9) | (~np.isfinite(dem))] = np.nan
+    if derived_cache is not None:
+        derived_cache[cache_key] = aspect
+    return aspect
 
 
 def hillshade_underlay(

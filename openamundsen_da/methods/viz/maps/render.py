@@ -402,7 +402,7 @@ def _render_panel(
         return _render_overview_panel(ax, panel=panel, context=context, label=label, defaults=defaults)
     if panel.kind == "roi":
         return _render_roi_panel(ax, panel=panel, context=context, extent=extent, label=label, defaults=defaults)
-    if panel.kind in {"hillshade", "dem", "svf", "srf", "landcover"}:
+    if panel.kind in {"hillshade", "dem", "aspect", "svf", "srf", "landcover"}:
         return _render_static_panel(
             ax,
             panel=panel,

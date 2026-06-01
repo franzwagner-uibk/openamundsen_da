@@ -52,7 +52,7 @@ from openamundsen_da.methods.viz.maps.data import (
     load_observation_scene,
     load_observation_uncertainty_scene,
 )
-from openamundsen_da.methods.viz.maps.hillshade import grid_extent, hillshade, hillshade_extent, hillshade_underlay
+from openamundsen_da.methods.viz.maps.hillshade import aspect_hillshade, grid_extent, hillshade, hillshade_extent, hillshade_underlay, terrain_aspect
 from openamundsen_da.methods.viz.maps.layout import (
     apply_map_axis_style,
     attach_colorbar,
@@ -82,6 +82,9 @@ from openamundsen_da.methods.viz.maps.styles import (
     SNOW_DEPTH_REFERENCE_TICKS_M,
     WET_SNOW_COLORS,
     WET_SNOW_LABELS,
+    aspect_cmap,
+    aspect_colorbar_style,
+    aspect_norm,
     landcover_classes_for_present_codes,
     model_colorbar_style,
     model_map_cmap,
@@ -369,11 +372,11 @@ def draw_stations_overlay(
         ax.scatter(
             ordered["x"].astype(float),
             ordered["y"].astype(float),
-            marker="v",
+            marker="^",
             s=26,
             facecolor=_STATION_COLOR,
-            edgecolor="white",
-            linewidth=0.45,
+            edgecolor="none",
+            linewidth=0.0,
             zorder=_GRID_ZORDER + 4,
             clip_on=True,
         )
@@ -388,7 +391,7 @@ def draw_stations_overlay(
         row = ordered.iloc[idx]
         label = str(row.get("name") or row.get("id") or "").strip()
         if show_stations_elev and "alt" in row and np.isfinite(float(row["alt"])):
-            label = f"{label} ({int(round(float(row['alt'])))} m)"
+            label = f"{label}\n({int(round(float(row['alt'])))} m)"
         apply_overlay_label_halo(ax.text(
             float(row["x"]) + dx,
             float(row["y"]) + dy,
@@ -1260,6 +1263,49 @@ def render_static_panel(
         draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=panel_date(panel, defaults), resolve_flag=resolve_flag)
         draw_map_grid_overlay(ax, show_grid=show_grid)
         return {"mappable": image, "legend_handles": legend_handles}
+
+    if panel.kind == "aspect":
+        aspect = np.deg2rad(terrain_aspect(context, derived_cache=derived_cache))
+        mask = (~context.roi_mask.astype(bool)) | (~np.isfinite(aspect))
+        norm = aspect_norm()
+        cmap = aspect_cmap()
+        rgba = cmap(norm(np.where(mask, 0.0, aspect)))
+        shade = aspect_hillshade(context, derived_cache=derived_cache)
+        modulation = 0.58 + 0.42 * np.clip(shade, 0.0, 1.0)
+        rgba[..., :3] = np.clip(rgba[..., :3] * modulation[..., None], 0.0, 1.0)
+        rgba[..., 3] = np.where(mask, 0.0, 1.0)
+        image = ax.imshow(rgba, extent=panel_grid_extent, origin="upper", interpolation="nearest", zorder=5)
+        apply_common_overlays(
+            ax,
+            context=context,
+            extent=extent,
+            show_roi=show_roi,
+            show_station_marker=show_station_marker,
+            show_stations_name=show_stations_name,
+            show_stations_elev=show_stations_elev,
+        )
+        apply_map_axis_style(
+            ax,
+            extent,
+            title=panel_title(label, panel_semantic_title(panel)),
+            show_grid=show_grid,
+            show_y_ticklabels=panel.col == 0,
+        )
+        colorbar_style = aspect_colorbar_style()
+        if resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
+            colorbar_mappable = ScalarMappable(norm=norm, cmap=cmap)
+            colorbar_mappable.set_array([])
+            attach_colorbar(
+                ax,
+                colorbar_mappable,
+                label=colorbar_style.label,
+                ticks=colorbar_style.ticks,
+                ticklabels=colorbar_style.ticklabels,
+                layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True),
+            )
+        draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=panel_date(panel, defaults), resolve_flag=resolve_flag)
+        draw_map_grid_overlay(ax, show_grid=show_grid)
+        return {"mappable": image, "colorbar_style": colorbar_style, "aspect": np.ma.masked_array(aspect, mask=mask)}
 
     field = _STATIC_FIELD_KIND_TO_FIELD[panel.kind]
     preset = require_static_field_preset(field)
@@ -2961,7 +3007,7 @@ def render_colorbar_panel(ax, *, panel: MapPanelSpec, artifacts: dict[str, dict[
         cbar.set_ticks(ticks)
     if ticklabels:
         cbar.set_ticklabels(ticklabels)
-    cbar.ax.tick_params(labelsize=_COLORBAR_TICK_SIZE)
+    cbar.ax.tick_params(labelsize=_COLORBAR_TICK_SIZE, pad=1.0)
     title = extract_unit_title(label)
     if title:
         cbar.ax.text(0.5, 1.02, title, transform=cbar.ax.transAxes, ha="center", va="top", fontsize=_COLORBAR_TITLE_SIZE)

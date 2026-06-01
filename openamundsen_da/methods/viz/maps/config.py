@@ -12,6 +12,7 @@ SUPPORTED_PANEL_KINDS = {
     "roi",
     "hillshade",
     "dem",
+    "aspect",
     "svf",
     "srf",
     "landcover",

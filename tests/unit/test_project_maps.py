@@ -16,9 +16,12 @@ import pandas as pd
 import pytest
 import rasterio
 import xarray as xr
+from matplotlib.colors import to_rgba
+from matplotlib.markers import MarkerStyle
 from rasterio.transform import from_origin
 from shapely.geometry import Point, box
 
+import openamundsen_da.methods.viz.maps.annotations as annotations_module
 import openamundsen_da.methods.viz.maps.render as render_module
 import openamundsen_da.methods.viz.maps.runner as runner_module
 import openamundsen_da.methods.viz.maps.data as data_module
@@ -72,6 +75,7 @@ from openamundsen_da.methods.viz.maps.styles import (
     SNOW_DEPTH_REFERENCE_TICKS_M,
     WET_SNOW_COLORS,
     WET_SNOW_LABELS,
+    aspect_colorbar_style,
     model_colorbar_style,
     model_map_cmap,
     require_static_field_preset,
@@ -83,11 +87,21 @@ from openamundsen_da.methods.viz.maps.styles import (
     static_field_cmap,
     static_field_colorbar_style,
 )
-from openamundsen_da.methods.viz.maps.theme import _OVERVIEW_ROI_COLOR, _STATION_COLOR
+from openamundsen_da.methods.viz.maps.theme import _COLORBAR_TICK_SIZE, _OVERVIEW_ROI_COLOR, _STATION_COLOR, _TICK_SIZE
 from openamundsen_da.util.run_mode import write_run_mode
 
 
 PROJECT_MAPS_FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "project_maps" / "rofental"
+
+
+def _assert_upright_station_marker(collection) -> None:
+    expected_marker = MarkerStyle("^")
+    expected_path = expected_marker.get_path().transformed(expected_marker.get_transform())
+    np.testing.assert_allclose(collection.get_paths()[0].vertices, expected_path.vertices)
+    np.testing.assert_allclose(collection.get_facecolors()[0], to_rgba(_STATION_COLOR))
+    edgecolors = collection.get_edgecolors()
+    assert edgecolors.size == 0 or np.all(edgecolors[:, 3] == 0.0)
+    assert collection.get_sizes()[0] == pytest.approx(26.0)
 
 
 def _write_yaml(path: Path, text: str) -> None:
@@ -1059,7 +1073,7 @@ def test_project_maps_config_accepts_static_panels_and_legend_items(tmp_path: Pa
             title: Setup map
             layout:
               nrows: 1
-              ncols: 3
+              ncols: 4
             panels:
               - row: 0
                 col: 0
@@ -1079,6 +1093,10 @@ def test_project_maps_config_accepts_static_panels_and_legend_items(tmp_path: Pa
                     anchor: top_left
               - row: 0
                 col: 2
+                kind: aspect
+                title: Aspect
+              - row: 0
+                col: 3
                 kind: legend
                 items:
                   - kind: station_symbol
@@ -1096,7 +1114,9 @@ def test_project_maps_config_accepts_static_panels_and_legend_items(tmp_path: Pa
     assert cfg.maps[0].panels[1].kind == "svf"
     assert cfg.maps[0].panels[1].legend_items[0].placement == "inside"
     assert cfg.maps[0].panels[1].legend_items[0].anchor == "top_left"
-    assert [item.kind for item in cfg.maps[0].panels[2].items] == ["station_symbol", "heading"]
+    assert cfg.maps[0].panels[2].kind == "aspect"
+    assert cfg.maps[0].panels[2].title == "Aspect"
+    assert [item.kind for item in cfg.maps[0].panels[3].items] == ["station_symbol", "heading"]
 
 
 def test_project_maps_config_accepts_below_panel_legend_items(tmp_path: Path) -> None:
@@ -1587,20 +1607,22 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
     assert [recipe.title for recipe in cfg.maps] == ["Setup overview"]
     assert [recipe.output_stem for recipe in cfg.maps] == ["setup_overview"]
     assert cfg.maps[0].layout.nrows == 1
-    assert cfg.maps[0].layout.ncols == 3
+    assert cfg.maps[0].layout.ncols == 4
     assert [panel.title for panel in cfg.maps[0].panels] == [
         "Overview",
         "Digital elevation model",
         "Land cover",
+        "Aspect",
     ]
-    assert [panel.kind for panel in cfg.maps[0].panels] == ["overview", "dem", "landcover"]
-    assert [(panel.row, panel.col) for panel in cfg.maps[0].panels] == [(0, 0), (0, 1), (0, 2)]
+    assert [panel.kind for panel in cfg.maps[0].panels] == ["overview", "dem", "landcover", "aspect"]
+    assert [(panel.row, panel.col) for panel in cfg.maps[0].panels] == [(0, 0), (0, 1), (0, 2), (0, 3)]
     assert cfg.maps[0].panels[1].show_station_marker is True
     assert cfg.maps[0].panels[1].show_stations_name is True
     assert cfg.maps[0].panels[1].show_stations_elev is True
     assert cfg.maps[0].panels[1].below_items == ()
     assert cfg.maps[0].panels[1].inside_legend_items[0].label == "AWS"
     assert cfg.maps[0].panels[2].landcover_grouping == "broad"
+    assert cfg.maps[0].panels[3].legend == "horizontal"
 
 
 def test_shipped_subdomain_project_maps_config_keeps_generic_setup_overview_only() -> None:
@@ -2611,7 +2633,7 @@ def test_static_panels_mask_rasters_outside_roi(tmp_path: Path) -> None:
     assert not context.roi_mask[0, 0]
     assert np.isfinite(hillshade[0, 0])
 
-    fig, axes = plt.subplots(1, 3, figsize=(9, 3))
+    fig, axes = plt.subplots(1, 4, figsize=(12, 3))
     try:
         render_module._render_static_panel(
             axes[0],
@@ -2643,15 +2665,92 @@ def test_static_panels_mask_rasters_outside_roi(tmp_path: Path) -> None:
             defaults=MapDefaults(),
             figure_horizontal_default=True,
         )
+        aspect_artifact = render_module._render_static_panel(
+            axes[3],
+            panel=MapPanelSpec(kind="aspect", row=0, col=3, show_colorbar=False),
+            context=context,
+            extent=extent,
+            grid_extent=grid_extent,
+            label=None,
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
 
         hillshade_array = np.ma.asarray(axes[0].images[-1].get_array())
         dem_array = np.ma.asarray(dem_artifact["mappable"].get_array())
         landcover_array = np.ma.asarray(landcover_artifact["mappable"].get_array())
+        aspect_rgba = np.asarray(aspect_artifact["mappable"].get_array())
+        aspect_array = np.ma.asarray(aspect_artifact["aspect"])
         assert np.ma.getmaskarray(hillshade_array)[0, 0]
         assert np.ma.getmaskarray(dem_array)[0, 0]
         assert np.ma.getmaskarray(landcover_array)[0, 0]
+        assert np.ma.getmaskarray(aspect_array)[0, 0]
+        assert aspect_rgba[0, 0, 3] == pytest.approx(0.0)
         assert not np.ma.getmaskarray(dem_array)[1, 1]
         assert not np.ma.getmaskarray(landcover_array)[1, 1]
+        assert not np.ma.getmaskarray(aspect_array)[1, 1]
+        assert aspect_rgba[1, 1, 3] == pytest.approx(1.0)
+    finally:
+        plt.close(fig)
+
+
+def test_aspect_panel_masks_flat_no_aspect_cells(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    transform = from_origin(0.0, 400.0, 100.0, 100.0)
+    _write_grid(
+        setup_dir / "custom_grids" / "dem_demo_100.asc",
+        np.full((4, 4), 2800.0, dtype=np.float32),
+        transform=transform,
+    )
+    context = load_static_context(project_dir)
+    extent = buffered_extent(context)
+    grid_extent = render_module._grid_extent(context)
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        artifact = render_module._render_static_panel(
+            ax,
+            panel=MapPanelSpec(kind="aspect", row=0, col=0, show_colorbar=False),
+            context=context,
+            extent=extent,
+            grid_extent=grid_extent,
+            label=None,
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
+
+        aspect_array = np.ma.asarray(artifact["aspect"])
+        aspect_rgba = np.asarray(artifact["mappable"].get_array())
+        assert np.ma.getmaskarray(aspect_array).all()
+        assert np.all(aspect_rgba[..., 3] == 0.0)
+    finally:
+        plt.close(fig)
+
+
+def test_aspect_panel_uses_horizontal_radian_colorbar(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    extent = buffered_extent(context)
+    grid_extent = render_module._grid_extent(context)
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        artifact = render_module._render_static_panel(
+            ax,
+            panel=MapPanelSpec(kind="aspect", row=0, col=0, legend="horizontal"),
+            context=context,
+            extent=extent,
+            grid_extent=grid_extent,
+            label="a",
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
+
+        assert artifact["colorbar_style"] == aspect_colorbar_style()
+        colorbar_container, colorbar_ax = getattr(ax, "_oa_child_axes")[-2:]
+        assert [tick.get_text() for tick in colorbar_ax.get_xticklabels()] == ["0", "1", "2", "3.14", "4", "5", "6"]
+        assert all(tick.get_fontsize() == pytest.approx(_COLORBAR_TICK_SIZE) for tick in colorbar_ax.get_xticklabels())
+        assert colorbar_ax.xaxis.majorTicks[0].get_pad() == pytest.approx(1.0)
+        assert [text.get_text() for text in colorbar_container.texts] == ["[rad]"]
+        assert ax.get_title(loc="left") == "(a) Aspect"
     finally:
         plt.close(fig)
 
@@ -3294,7 +3393,7 @@ def test_overview_roi_polygon_uses_reference_red() -> None:
 
 
 def test_map_station_marker_uses_reference_red() -> None:
-    assert _STATION_COLOR == "#d94801"
+    assert _STATION_COLOR == _OVERVIEW_ROI_COLOR
 
 
 def test_wet_snow_reference_colors_follow_example_palette() -> None:
@@ -3325,6 +3424,9 @@ def test_map_axis_style_places_title_above_axes_and_can_hide_nonfirstcolumn_ylab
         assert any(label.get_text() == "" for label in xlabels)
         assert all(label.get_text() == "" for label in ylabels)
         assert {label.get_rotation() for label in xlabels if label.get_text()} == {0.0}
+        assert {label.get_fontsize() for label in xlabels if label.get_text()} == {_TICK_SIZE}
+        assert all(tick.tick1line.get_markersize() == pytest.approx(2.2) for tick in ax.xaxis.get_major_ticks())
+        assert all(tick.tick1line.get_markersize() == pytest.approx(2.2) for tick in ax.yaxis.get_major_ticks())
         assert ax.get_title(loc="left") == "Demo"
         assert title_bbox.y0 >= axes_bbox.y1
         assert all(not tick.label2.get_visible() for tick in ax.xaxis.get_major_ticks())
@@ -3366,6 +3468,7 @@ def test_draw_scale_bar_adds_reference_style_annotations() -> None:
         bar = ax.lines[0]
         km_text = next(text for text in ax.texts if text.get_text() == "km")
         zero_text = next(text for text in ax.texts if text.get_text() == "0")
+        assert km_text.get_position()[0] == pytest.approx(float(np.mean(bar.get_xdata())))
         assert any(effect.__class__.__name__ == "Stroke" for effect in bar.get_path_effects())
         assert any(effect.__class__.__name__ == "Stroke" for effect in km_text.get_path_effects())
         halo = next(effect for effect in km_text.get_path_effects() if isinstance(effect, pe.Stroke))
@@ -3373,7 +3476,9 @@ def test_draw_scale_bar_adds_reference_style_annotations() -> None:
         assert halo._gc["foreground"] == "white"
         assert halo._gc["linewidth"] == pytest.approx(2.0)
         assert zero_halo._gc["linewidth"] == pytest.approx(2.0)
-        assert km_text.get_position()[1] < min(line.get_ydata()[0] for line in ax.lines)
+        scalebar_y = min(line.get_ydata()[0] for line in ax.lines)
+        tick_height = max(line.get_ydata()[1] - line.get_ydata()[0] for line in ax.lines[1:])
+        assert km_text.get_position()[1] == pytest.approx(scalebar_y - 0.95 * tick_height)
     finally:
         plt.close(fig)
 
@@ -4679,7 +4784,7 @@ def test_draw_stations_overlay_supports_marker_only_and_explicit_labels(tmp_path
             extent,
             show_station_marker=True,
             show_stations_name=True,
-            show_stations_elev=False,
+            show_stations_elev=True,
         )
         _draw_stations_overlay(
             axes[2],
@@ -4691,9 +4796,12 @@ def test_draw_stations_overlay_supports_marker_only_and_explicit_labels(tmp_path
         )
 
         assert len(axes[0].collections) == 1
+        _assert_upright_station_marker(axes[0].collections[0])
         assert len(axes[0].texts) == 0
         assert len(axes[1].collections) == 1
+        _assert_upright_station_marker(axes[1].collections[0])
         assert all("Station" in text.get_text() for text in axes[1].texts)
+        assert all("\n(" in text.get_text() and text.get_text().endswith(" m)") for text in axes[1].texts)
         expected_dx = 0.026 * (extent[1] - extent[0])
         expected_dy = 0.013 * (extent[3] - extent[2])
         for text, (_, row) in zip(axes[1].texts, ordered.iterrows()):
@@ -4705,6 +4813,20 @@ def test_draw_stations_overlay_supports_marker_only_and_explicit_labels(tmp_path
             assert halo._gc["linewidth"] == pytest.approx(2.0)
         assert len(axes[2].collections) == 0
         assert len(axes[2].texts) == 0
+    finally:
+        plt.close(fig)
+
+
+def test_station_symbol_legend_uses_upright_outline_free_marker() -> None:
+    fig, ax = plt.subplots(figsize=(2, 1))
+    try:
+        annotations_module.draw_station_entry(ax, y=0.5, label="AWS")
+        assert len(ax.collections) == 1
+        _assert_upright_station_marker(ax.collections[0])
+        np.testing.assert_allclose(ax.collections[0].get_offsets()[0], [annotations_module._STATION_MARKER_X, 0.5])
+        assert ax.texts[0].get_position() == (annotations_module._STATION_LABEL_X, 0.5)
+        assert ax.texts[0].get_fontsize() == pytest.approx(5.8)
+        assert annotations_module._STATION_LABEL_X - annotations_module._STATION_MARKER_X >= 0.12
     finally:
         plt.close(fig)
 

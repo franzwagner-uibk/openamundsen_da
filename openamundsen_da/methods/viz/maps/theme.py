@@ -9,14 +9,14 @@ _GRID_COLOR = "#666666"
 _GRID_STYLE = (0, (4, 4))
 _GRID_WIDTH = 0.74
 _SPINE_WIDTH = 0.85
-_TICK_SIZE = 6.6
+_TICK_SIZE = 6.0
 _TICK_LABEL_MIN_GAP_IN = 0.42
 _COLORBAR_TICK_SIZE = 6.0
 _COLORBAR_TITLE_SIZE = 6.6
 _SUPPORT_PANEL_KINDS = {"colorbar", "legend"}
-_STATION_COLOR = "#d94801"
 _ROI_FILL = "#efefef"
 _OVERVIEW_ROI_COLOR = "#c21f24"
+_STATION_COLOR = _OVERVIEW_ROI_COLOR
 _SUBDOMAIN_BOUNDARY_COLOR = "#222222"
 _SUBDOMAIN_BOUNDARY_HALO_COLOR = "white"
 _SUBDOMAIN_BOUNDARY_WIDTH = 0.58
@@ -34,7 +34,7 @@ _TOP_MARGIN = 0.992
 _DATE_CALLOUT_ALPHA = 1.0
 _SCALEBAR_TARGET_FRACTION = 0.27
 _SCALEBAR_RIGHT_PAD_FRACTION = 0.04
-_SCALEBAR_BOTTOM_FRACTION = 0.060
+_SCALEBAR_BOTTOM_FRACTION = 0.070
 _OVERVIEW_FRAGMENT_RATIO = 0.018
 _VERTICAL_COLORBAR_GAP_EXTRA = 0.11
 _VERTICAL_COLORBAR_OUTER_EXTRA = 0.09
@@ -95,6 +95,7 @@ _STATIC_FIELD_KIND_TO_FIELD = {
 _CLASSIFIED_PANEL_KINDS = {"landcover", "wet_snow", "wet_snow_line"}
 _CONTINUOUS_COLORBAR_PANEL_KINDS = {
     "dem",
+    "aspect",
     "svf",
     "srf",
     "snow_depth",
@@ -120,6 +121,7 @@ _AUTO_TITLE_KIND = {
     "roi": "Region of interest",
     "hillshade": "Hillshade",
     "dem": "Digital elevation model",
+    "aspect": "Aspect",
     "svf": "Sky view factor",
     "srf": "Snow redistribution factor",
     "landcover": "Land cover",

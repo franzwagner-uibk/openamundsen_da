@@ -80,7 +80,7 @@ from openamundsen_da.methods.viz.maps.styles import (
     model_map_cmap,
     require_static_field_preset,
     require_variable_preset,
-    snow_depth_colorbar_labels_cm,
+    snow_depth_colorbar_labels_m,
     snow_depth_colorbar_ticklabels,
     snow_depth_colorbar_ticks,
     snow_depth_scale_ticks,
@@ -1493,7 +1493,7 @@ def test_project_maps_config_accepts_wet_snow_line_panel_kind(tmp_path: Path) ->
         """
         maps:
           wsl_demo:
-            title: WSLA demo
+            title: WSL demo
             defaults:
               date: "2023-01-02"
             layout:
@@ -1877,8 +1877,8 @@ def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_sup
     ]
     assert [panel.title for panel in scf_panels[:4]] == [
         "Open-loop snow cover",
-        "Prior snow-cover probability",
-        "Posterior snow-cover probability",
+        "Prior snow cover probability",
+        "Posterior snow cover probability",
         "Satellite FSC observation",
     ]
     assert [panel.title for panel in scf_panels[4:8]] == [
@@ -1913,9 +1913,10 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
 
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
-    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (Wet snow line - WSLA)"
+    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (Wet snow line - WSL)"
     assert recipes[0].row_labels == ()
     assert recipes[0].layout.ncols == 4
+    assert recipes[0].layout.nrows == 3
     assert [panel.kind for panel in recipes[0].panels[:4]] == [
         "wet_snow_line",
         "wet_snow_line",
@@ -1953,10 +1954,17 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
         "wet_snow_line",
     ]
     assert [panel.title for panel in recipes[0].panels[4:8]] == [
-        "Open-loop elevation-band WSF",
-        "Prior elevation-band WSF",
-        "Posterior elevation-band WSF",
-        "Observed elevation-band WSF",
+        "Open-loop elevation band WSF",
+        "Prior elevation band WSF",
+        "Posterior elevation band WSF",
+        "Observed elevation band WSF",
+    ]
+    assert [panel.kind for panel in recipes[0].panels[8:12]] == ["snow_depth", "snow_depth", "snow_depth", "snow_depth"]
+    assert [panel.title for panel in recipes[0].panels[8:12]] == [
+        "Open-loop snow depth",
+        "Prior snow depth",
+        "Posterior snow depth",
+        "Snow-depth increment",
     ]
 
 
@@ -1989,6 +1997,7 @@ def test_paper_recipe_compacts_wet_snow_line_da_maps(
     assert full_recipe.row_labels == ()
     assert paper_recipe.figure_title is None
     assert paper_recipe.layout.nrows == 2
+    assert paper_recipe.layout.ncols == 4
     assert paper_recipe.row_labels == ()
     assert {panel.row for panel in paper_recipe.panels} == {0, 1}
     assert [panel.kind for panel in paper_recipe.panels[:4]] == [
@@ -1999,10 +2008,10 @@ def test_paper_recipe_compacts_wet_snow_line_da_maps(
     ]
     assert [panel.kind for panel in paper_recipe.panels[4:]] == ["snow_depth", "snow_depth", "snow_depth", "snow_depth"]
     assert [panel.title for panel in paper_recipe.panels[:4]] == [
-        "Open-loop elevation-band WSF",
-        "Prior elevation-band WSF",
-        "Posterior elevation-band WSF",
-        "Observed elevation-band WSF",
+        "Open-loop elevation band WSF",
+        "Prior elevation band WSF",
+        "Posterior elevation band WSF",
+        "Observed elevation band WSF",
     ]
     assert [panel.title for panel in paper_recipe.panels[4:]] == [
         "Open-loop snow depth",
@@ -2056,10 +2065,10 @@ def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events
         None,
     ]
     assert [panel.title for panel in wet_recipe.panels[4:8]] == [
-        "Open-loop elevation-band WSF",
-        "Prior elevation-band WSF",
-        "Posterior elevation-band WSF",
-        "Observed elevation-band WSF",
+        "Open-loop elevation band WSF",
+        "Prior elevation band WSF",
+        "Posterior elevation band WSF",
+        "Observed elevation band WSF",
     ]
     assert [panel.variable for panel in wet_recipe.panels[4:8]] == ["wet_snow", "wet_snow", "wet_snow", "wet_snow"]
 
@@ -3296,7 +3305,7 @@ def test_snowdepth_model_palette_uses_dynamic_ticks_and_transparent_under_range(
     colorbar_style = model_colorbar_style(preset, vmax=vmax)
     cmap = model_map_cmap(preset)
 
-    assert colorbar_style.label == "snow depth [cm]"
+    assert colorbar_style.label == "snow depth [m]"
     assert colorbar_style.ticks == snow_depth_colorbar_ticks(vmax)
     assert colorbar_style.ticklabels == snow_depth_colorbar_ticklabels(vmax)
     assert colorbar_style.ticks[0] == SNOW_DEPTH_REFERENCE_TICKS_M[0]
@@ -3308,9 +3317,9 @@ def test_snowdepth_colorbar_ticks_keep_reference_style_with_dynamic_top_bin() ->
     vmax = 2.25
 
     assert snow_depth_scale_ticks(vmax)[-1] == vmax
-    assert snow_depth_colorbar_labels_cm(vmax) == (1.0, 50.0, 100.0, 150.0, 200.0, 225.0)
+    assert snow_depth_colorbar_labels_m(vmax) == (0.01, 0.5, 1.0, 1.5, 2.0, 2.25)
     assert len(snow_depth_colorbar_ticks(vmax)) == 6
-    assert snow_depth_colorbar_ticklabels(vmax) == ("1", "50", "100", "150", "200", "225")
+    assert snow_depth_colorbar_ticklabels(vmax) == ("0.01", "0.5", "1", "1.5", "2", "2.25")
 
 
 def test_increment_cmap_runs_from_negative_red_to_positive_blue() -> None:
@@ -3835,9 +3844,9 @@ def test_wet_snow_line_model_panel_draws_wsl_contour(tmp_path: Path, monkeypatch
                 include_obs_wsl=False,
             )
         ]
-        assert legend_labels[-1:] == ["model WSLA"]
-        assert "WSLA unavailable" not in {text.get_text() for text in ax.texts}
-        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2450 m")
+        assert legend_labels[-1:] == ["model WSL"]
+        assert "WSL unavailable" not in {text.get_text() for text in ax.texts}
+        callout = next(text for text in ax.texts if text.get_text() == "WSL 2450 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
         assert callout.get_position() == pytest.approx((0.02, 0.045))
         assert callout.get_ha() == "left"
@@ -3989,7 +3998,7 @@ def test_wet_snow_elevation_fraction_panel_draws_source_local_wsl(
         assert recorded == [(2450.0, panel_renderers_module._WSL_MODEL_COLOR, "-")]
         assert artifacts["wsl"] == 2450.0
         assert artifacts["wsl_drawn"] is True
-        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2450 m")
+        callout = next(text for text in ax.texts if text.get_text() == "WSL 2450 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
     finally:
         plt.close(fig)
@@ -4008,7 +4017,7 @@ def test_wet_snow_elevation_fraction_observation_reuses_observed_wsl(
     monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: 3320.0)
 
     def _unexpected_fraction_wsl(**_kwargs):
-        raise AssertionError("observation elevation-band WSF panels must reuse diagnostics WSLA")
+        raise AssertionError("observation elevation band WSF panels must reuse diagnostics WSL")
 
     monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", _unexpected_fraction_wsl)
 
@@ -4033,7 +4042,7 @@ def test_wet_snow_elevation_fraction_observation_reuses_observed_wsl(
         assert recorded == [(3320.0, panel_renderers_module._WSL_MODEL_COLOR, "-")]
         assert artifacts["wsl"] == 3320.0
         assert artifacts["wsl_drawn"] is True
-        callout = next(text for text in ax.texts if text.get_text() == "WSLA 3320 m")
+        callout = next(text for text in ax.texts if text.get_text() == "WSL 3320 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
     finally:
         plt.close(fig)
@@ -4051,7 +4060,7 @@ def test_wet_snow_elevation_fraction_panel_annotates_unavailable_wsl(
     monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: None)
 
     def _unexpected_fraction_wsl(**_kwargs):
-        raise AssertionError("missing observation diagnostics WSLA must not fall back to local recomputation")
+        raise AssertionError("missing observation diagnostics WSL must not fall back to local recomputation")
 
     monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", _unexpected_fraction_wsl)
     monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", lambda *_args, **_kwargs: False)
@@ -4070,7 +4079,7 @@ def test_wet_snow_elevation_fraction_panel_annotates_unavailable_wsl(
 
         assert artifacts["wsl"] is None
         assert artifacts["wsl_drawn"] is False
-        callout = next(text for text in ax.texts if text.get_text() == "WSLA unavailable")
+        callout = next(text for text in ax.texts if text.get_text() == "WSL unavailable")
         assert callout.get_color() == "black"
     finally:
         plt.close(fig)
@@ -4178,11 +4187,11 @@ def test_wet_snow_line_observation_panel_uses_obs_color_for_callout(
         )
 
         assert recorded_levels == [(2550.0, panel_renderers_module._WSL_MODEL_COLOR, "-")]
-        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2550 m")
+        callout = next(text for text in ax.texts if text.get_text() == "WSL 2550 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
         legend = ax.get_legend()
         assert legend is not None
-        assert [text.get_text() for text in legend.get_texts()][-1] == "observation WSLA"
+        assert [text.get_text() for text in legend.get_texts()][-1] == "observation WSL"
     finally:
         plt.close(fig)
 
@@ -4219,10 +4228,10 @@ def test_wet_snow_line_observation_panel_annotates_unavailable_without_wsl_legen
             observation_loader=lambda *_args, **_kwargs: observation,
         )
 
-        assert "WSLA unavailable" in {text.get_text() for text in ax.texts}
+        assert "WSL unavailable" in {text.get_text() for text in ax.texts}
         legend = ax.get_legend()
         assert legend is not None
-        assert "observation WSLA" not in {text.get_text() for text in legend.get_texts()}
+        assert "observation WSL" not in {text.get_text() for text in legend.get_texts()}
     finally:
         plt.close(fig)
 
@@ -4244,7 +4253,7 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
         monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: 2625.0)
 
         def _unexpected_raster_wsl(**_kwargs):
-            raise AssertionError("posterior panel should not derive its WSLA from the classified raster helper")
+            raise AssertionError("posterior panel should not derive its WSL from the classified raster helper")
 
         monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_classified", _unexpected_raster_wsl)
 
@@ -4268,12 +4277,12 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
         assert recorded_levels == [(2525.0, panel_renderers_module._WSL_MODEL_COLOR, "-", 9.5)]
         assert artifacts["wsl"] == 2525.0
         assert artifacts["obs_wsl"] == 2625.0
-        assert [handle.get_label() for handle in artifacts["posterior_overlay_handles"]] == ["posterior WSLA"]
+        assert [handle.get_label() for handle in artifacts["posterior_overlay_handles"]] == ["posterior WSL"]
         legend = ax.get_legend()
         assert legend is not None
-        assert [text.get_text() for text in legend.get_texts()] == ["posterior WSLA"]
-        assert "WSLA unavailable" not in {text.get_text() for text in ax.texts}
-        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2530 m")
+        assert [text.get_text() for text in legend.get_texts()] == ["posterior WSL"]
+        assert "WSL unavailable" not in {text.get_text() for text in ax.texts}
+        callout = next(text for text in ax.texts if text.get_text() == "WSL 2530 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
     finally:
         plt.close(fig)
@@ -4306,8 +4315,8 @@ def test_wet_snow_line_panel_annotates_unavailable_wsl(tmp_path: Path, monkeypat
             figure_horizontal_default=True,
         )
 
-        assert "WSLA unavailable" in {text.get_text() for text in ax.texts}
-        callout = next(text for text in ax.texts if text.get_text() == "WSLA unavailable")
+        assert "WSL unavailable" in {text.get_text() for text in ax.texts}
+        callout = next(text for text in ax.texts if text.get_text() == "WSL unavailable")
         assert callout.get_position() == pytest.approx((0.02, 0.045))
         assert callout.get_ha() == "left"
         assert callout.get_va() == "bottom"
@@ -5087,6 +5096,68 @@ def test_render_project_maps_name_filter_limits_outputs(tmp_path: Path, monkeypa
     outputs = render_project_maps(project_dir=project_dir, names={"setup_map"}, max_workers=8)
 
     assert outputs == [project_dir / "results" / "maps" / "setup_map.png"]
+
+
+def test_render_project_maps_selected_generated_maps_share_range_across_all_generated_recipes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    generated_recipes = (
+        MapRecipe(
+            name="da_1",
+            title="DA 1",
+            output_subdir=runner_module.GENERATED_DA_MAPS_SUBDIR,
+            layout=LayoutSpec(nrows=1, ncols=1),
+            defaults=MapDefaults(date="2023-01-01"),
+            panels=(MapPanelSpec(kind="snow_depth", row=0, col=0, source="open_loop"),),
+        ),
+        MapRecipe(
+            name="da_2",
+            title="DA 2",
+            output_subdir=runner_module.GENERATED_DA_MAPS_SUBDIR,
+            layout=LayoutSpec(nrows=1, ncols=1),
+            defaults=MapDefaults(date="2023-01-02"),
+            panels=(MapPanelSpec(kind="snow_depth", row=0, col=0, source="analysis_mean"),),
+        ),
+    )
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: generated_recipes)
+    _write_yaml(
+        project_dir / "maps.yml",
+        """
+        maps:
+          setup_map:
+            title: Demo setup
+            layout:
+              nrows: 1
+              ncols: 1
+            panels:
+              - row: 0
+                col: 0
+                kind: hillshade
+        """,
+    )
+
+    captured: dict[str, tuple[str, ...]] = {}
+
+    def fake_render_project_maps_sequential(
+        project_dir_arg: Path,
+        recipes: tuple[MapRecipe, ...],
+        *,
+        shared_range_recipes: tuple[MapRecipe, ...] | None = None,
+    ) -> list[Path]:
+        assert project_dir_arg == project_dir
+        captured["selected"] = tuple(recipe.name for recipe in recipes)
+        captured["shared_range"] = tuple(recipe.name for recipe in shared_range_recipes or ())
+        return [project_dir / "results" / "maps" / "da_events" / f"{recipes[0].output_stem}.png"]
+
+    monkeypatch.setattr(runner_module, "_render_project_maps_sequential", fake_render_project_maps_sequential)
+
+    outputs = render_project_maps(project_dir=project_dir, names={"da_1"}, max_workers=1)
+
+    assert outputs == [project_dir / "results" / "maps" / "da_events" / "da_1.png"]
+    assert captured["selected"] == ("da_1",)
+    assert captured["shared_range"] == ("da_1", "da_2")
 
 
 def test_render_project_maps_logs_batch_and_per_map_progress(

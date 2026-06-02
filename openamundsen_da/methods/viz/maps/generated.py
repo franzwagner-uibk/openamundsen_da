@@ -21,7 +21,7 @@ _FRACTION_REFERENCE_VARIABLES = ("scf", "wet_snow")
 _VARIABLE_LABELS = {
     "scf": "Snow cover fraction",
     "wet_snow": "Wet snow fraction (WSF)",
-    "wet_snow_line": "Wet snow line (WSLA)",
+    "wet_snow_line": "Wet snow line (WSL)",
     "station_hs": "Station snow depth",
     "station_swe": "Station snow water equivalent",
 }
@@ -46,7 +46,7 @@ def _variable_label(variable: str) -> str:
 
 def _figure_title_variable_label(variable: str) -> str:
     if variable == "wet_snow_line":
-        return "Wet snow line - WSLA"
+        return "Wet snow line - WSL"
     return _variable_label(variable)
 
 
@@ -185,7 +185,7 @@ def _fraction_row(*, row: int, kind: str, label: str) -> GeneratedRow:
                     row=row,
                     col=1,
                     source="prior_probability",
-                    title="Prior snow-cover probability",
+                    title="Prior snow cover probability",
                     show_hillshade=True,
                     hillshade_extent="roi",
                 ),
@@ -194,7 +194,7 @@ def _fraction_row(*, row: int, kind: str, label: str) -> GeneratedRow:
                     row=row,
                     col=2,
                     source="posterior_probability",
-                    title="Posterior snow-cover probability",
+                    title="Posterior snow cover probability",
                     show_hillshade=True,
                     hillshade_extent="roi",
                 ),
@@ -266,14 +266,14 @@ def _wet_snow_line_row(*, row: int, label: str) -> GeneratedRow:
 
 def _wet_snow_elevation_fraction_row(*, row: int, variable: str) -> GeneratedRow:
     return GeneratedRow(
-        label="Elevation-band WSF",
+        label="Elevation band WSF",
         panels=(
             MapPanelSpec(
                 kind="wet_snow_elevation_fraction",
                 row=row,
                 col=0,
                 source="open_loop",
-                title="Open-loop elevation-band WSF",
+                title="Open-loop elevation band WSF",
                 variable=variable,
             ),
             MapPanelSpec(
@@ -281,7 +281,7 @@ def _wet_snow_elevation_fraction_row(*, row: int, variable: str) -> GeneratedRow
                 row=row,
                 col=1,
                 source="prior_probability",
-                title="Prior elevation-band WSF",
+                title="Prior elevation band WSF",
                 variable=variable,
             ),
             MapPanelSpec(
@@ -289,10 +289,10 @@ def _wet_snow_elevation_fraction_row(*, row: int, variable: str) -> GeneratedRow
                 row=row,
                 col=2,
                 source="posterior_probability",
-                title="Posterior elevation-band WSF",
+                title="Posterior elevation band WSF",
                 variable=variable,
             ),
-            MapPanelSpec(kind="wet_snow_elevation_fraction", row=row, col=3, title="Observed elevation-band WSF", variable=variable),
+            MapPanelSpec(kind="wet_snow_elevation_fraction", row=row, col=3, title="Observed elevation band WSF", variable=variable),
         ),
     )
 

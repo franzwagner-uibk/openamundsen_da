@@ -19,7 +19,7 @@ data_assimilation:
     sigma_t: 0.5
     mu_p: 0.0
     sigma_p: 0.5
-    humidity_perturbation_method: dew_point
+    humidity_perturbation_method: relative_humidity
     sigma_rh: 0.5
     sigma_sw: 0.05
   h_of_x:
@@ -83,7 +83,7 @@ data_assimilation:
   rejuvenation:
     sigma_t: 0.5
     sigma_p: 0.5
-    humidity_perturbation_method: dew_point
+    humidity_perturbation_method: relative_humidity
     sigma_rh: 0.5
     sigma_sw: 0.05
     seed: 42

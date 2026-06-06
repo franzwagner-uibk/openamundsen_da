@@ -13,8 +13,11 @@ from openamundsen_da.core.constants import (
     DEFAULT_SW_IN_COL,
     DEFAULT_TEMP_COL,
     DEFAULT_TIME_COL,
+    HUMIDITY_METHOD_DEW_POINT,
+    HUMIDITY_METHOD_RELATIVE_HUMIDITY,
     STATIONS_CSV,
 )
+from openamundsen_da.util.humidity import perturb_relative_humidity_via_dew_point
 
 
 def filter_and_write_meteo(
@@ -27,12 +30,13 @@ def filter_and_write_meteo(
     f_p: float = 1.0,
     delta_rh: float = 0.0,
     f_sw: float = 1.0,
+    humidity_perturbation_method: str = HUMIDITY_METHOD_DEW_POINT,
 ) -> None:
     """Filter meteo CSVs to [start..end], apply perturbations, and write to dst_dir.
 
     - Uses the first column as datetime index (name flexible).
     - Applies additive delta_t to temp (if present).
-    - Applies additive delta_rh to rel_hum with clipping to [0, 100] (if present).
+    - Applies humidity perturbation using dew-point space by default.
     - Applies multiplicative f_p to positive precip values (if present).
     - Applies multiplicative f_sw to positive sw_in values only (if present).
     - Copies stations.csv unchanged.
@@ -50,11 +54,29 @@ def filter_and_write_meteo(
         time_col = df.index.name or DEFAULT_TIME_COL
         df = _inclusive_filter(df, start, end)
         df.index = _normalize_datetime_index(df.index)
-        if (delta_t != 0.0) and (DEFAULT_TEMP_COL in df.columns):
-            df[DEFAULT_TEMP_COL] = _numeric_perturbation_series(df[DEFAULT_TEMP_COL]) + delta_t
+        temp = None
+        if DEFAULT_TEMP_COL in df.columns:
+            temp = _numeric_perturbation_series(df[DEFAULT_TEMP_COL])
+        if (delta_t != 0.0) and (temp is not None):
+            df[DEFAULT_TEMP_COL] = temp + delta_t
         if (delta_rh != 0.0) and (DEFAULT_REL_HUM_COL in df.columns):
-            rh = _numeric_perturbation_series(df[DEFAULT_REL_HUM_COL]) + delta_rh
-            df[DEFAULT_REL_HUM_COL] = rh.clip(lower=0.0, upper=100.0)
+            rh = _numeric_perturbation_series(df[DEFAULT_REL_HUM_COL])
+            if humidity_perturbation_method == HUMIDITY_METHOD_DEW_POINT:
+                if temp is None:
+                    raise ValueError(
+                        f"{src} contains '{DEFAULT_REL_HUM_COL}' but no '{DEFAULT_TEMP_COL}'; "
+                        "dew-point humidity perturbation requires air temperature"
+                    )
+                df[DEFAULT_REL_HUM_COL] = perturb_relative_humidity_via_dew_point(
+                    temp.to_numpy(),
+                    rh.to_numpy(),
+                    delta_rh,
+                    delta_t=delta_t,
+                )
+            elif humidity_perturbation_method == HUMIDITY_METHOD_RELATIVE_HUMIDITY:
+                df[DEFAULT_REL_HUM_COL] = (rh + delta_rh).clip(lower=0.0, upper=100.0)
+            else:
+                raise ValueError(f"Unsupported humidity perturbation method: {humidity_perturbation_method!r}")
         if (f_p != 1.0) and (DEFAULT_PRECIP_COL in df.columns):
             precip = _numeric_perturbation_series(df[DEFAULT_PRECIP_COL])
             mask = precip > 0.0

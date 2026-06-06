@@ -47,6 +47,13 @@ DA_MU_P = "mu_p"
 DA_SIGMA_P = "sigma_p"
 DA_SIGMA_RH = "sigma_rh"
 DA_SIGMA_SW = "sigma_sw"
+DA_HUMIDITY_PERTURBATION_METHOD = "humidity_perturbation_method"
+HUMIDITY_METHOD_DEW_POINT = "dew_point"
+HUMIDITY_METHOD_RELATIVE_HUMIDITY = "relative_humidity"
+HUMIDITY_PERTURBATION_METHODS = (
+    HUMIDITY_METHOD_DEW_POINT,
+    HUMIDITY_METHOD_RELATIVE_HUMIDITY,
+)
 
 # Observation processing (satellite SCF)
 OBS_DIR_NAME = "obs"

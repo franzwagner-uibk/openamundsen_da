@@ -55,11 +55,15 @@ T_perturbed = T_original + epsilon_T,  epsilon_T ~ N(0, sigma_T^2)
 P_perturbed = P_original * exp(epsilon_P),  epsilon_P ~ N(mu_P, sigma_P^2)
 ```
 
-**Relative humidity**: Additive Gaussian noise with clipping
+**Relative humidity**: Dew-point-temperature perturbation by default
 
 ```
-RH_perturbed = clip(RH_original + epsilon_RH, 0, 100),  epsilon_RH ~ N(0, sigma_RH^2)
+Tdew = f(T_original, RH_original)
+Tdew_perturbed = min(Tdew + epsilon_RH, T_perturbed)
+RH_perturbed = g(T_perturbed, Tdew_perturbed),  epsilon_RH ~ N(0, sigma_RH^2)
 ```
+
+With `humidity_perturbation_method: dew_point` (default), `sigma_rh` is interpreted as a dew-point-temperature perturbation scale in K. The legacy `humidity_perturbation_method: relative_humidity` applies raw additive RH noise in percentage points and clips to `[0, 100]`.
 
 **Incoming shortwave radiation**: Multiplicative log-normal noise for daytime values only
 
@@ -402,11 +406,12 @@ data_assimilation:
   rejuvenation:
     sigma_t: 0.2 # Additive temperature noise (deg C)
     sigma_p: 0.2 # Lognormal sigma for precip factor (mu=0)
-    sigma_rh: 0.0 # Additive relative humidity noise (percentage points)
+    humidity_perturbation_method: dew_point # dew_point | relative_humidity
+    sigma_rh: 0.0 # Dew-point perturbation scale (K) for dew_point
     sigma_sw: 0.0 # Lognormal sigma for daytime shortwave factor (mu=0)
 ```
 
-If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas. `sigma_rh` and `sigma_sw` default to `0.0` when omitted.
+If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas. `humidity_perturbation_method` defaults to `dew_point`; `sigma_rh` and `sigma_sw` default to `0.0` when omitted.
 
 ### State Propagation
 

@@ -33,6 +33,8 @@ def test_shipped_rofental_uses_promoted_golden_project_config() -> None:
     assert da_cfg["prior_forcing"]["random_seed"] == 113
     assert da_cfg["resampling"]["seed"] == 113
     assert da_cfg["rejuvenation"]["seed"] == 113
+    assert da_cfg["prior_forcing"]["humidity_perturbation_method"] == "dew_point"
+    assert da_cfg["rejuvenation"]["humidity_perturbation_method"] == "dew_point"
 
     expected_sigmas = {
         "sigma_t": 0.5,

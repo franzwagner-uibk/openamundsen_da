@@ -94,6 +94,7 @@ data_assimilation:
     sigma_t: 0.5
     mu_p: 0.0
     sigma_p: 0.5
+    humidity_perturbation_method: dew_point
     sigma_rh: 0.0
     sigma_sw: 0.0
 
@@ -139,6 +140,7 @@ data_assimilation:
   rejuvenation:
     sigma_t: 0.2
     sigma_p: 0.2
+    humidity_perturbation_method: dew_point
     sigma_rh: 0.0
     sigma_sw: 0.0
 
@@ -238,9 +240,9 @@ Notes:
 - `data_assimilation.benchmark` does not enable or disable benchmarking; the project pipeline always runs it. This block extends the benchmark scope and controls benchmark output location and plot writing. The benchmark presentation itself is fixed and lean: one assimilation-date skill plot plus two compact summary tables.
 - `independent_variables` may currently list only the DA-supported families: `scf`, WSF (`wet_snow`), WSLA (`wet_snow_line`), `station_hs`, `station_swe`.
 - `score_station_sigma_threshold` optionally excludes high-uncertainty station rows from non-sigma-aware benchmark metrics (`CRPSS`, `NER`) while leaving sigma-aware `zSkill` unchanged. The threshold is compared against the resolved station uncertainty percent from `obs/stations/stations_da_metadata.csv`.
-- `prior_forcing.sigma_rh` adds an additive `rel_hum` perturbation in percentage points and clips perturbed values to `[0, 100]`.
+- `prior_forcing.humidity_perturbation_method` controls humidity perturbations. Prior forcing and rejuvenation must use the same humidity perturbation method. The default `dew_point` converts `temp` and `rel_hum` to dew-point temperature, applies `sigma_rh` as a K-scale additive dew-point perturbation, caps dew point at perturbed air temperature and converts back to `rel_hum`. The legacy `relative_humidity` method applies `sigma_rh` as raw percentage-point RH noise and clips to `[0, 100]`.
 - `prior_forcing.sigma_sw` adds a multiplicative `sw_in` perturbation using a positive factor; it is applied only for positive daytime shortwave values, so nighttime `sw_in` remains unchanged.
-- If `sigma_rh` or `sigma_sw` are omitted, they default to `0.0` and the corresponding perturbation is disabled.
+- If `humidity_perturbation_method` is omitted, it defaults to `dew_point`. If `sigma_rh` or `sigma_sw` are omitted, they default to `0.0` and the corresponding perturbation is disabled.
 - Output stream labels are derived by benchmark semantics, not by config naming alone: a configured extra family can still appear as `semi_independent` in outputs, but only from the first same-variable or sister-station assimilation date onward.
 - Land-cover mask uses `grids/lc_<domain>_<resolution>.asc` from setup-level paths and data assimilation mask classes from project YAML.
 - For SCF uncertainty:

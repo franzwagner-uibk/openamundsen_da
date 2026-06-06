@@ -158,10 +158,10 @@ Current forcing perturbations are:
 
 - additive `temp` offset (`sigma_t`)
 - multiplicative precipitation factor (`mu_p`, `sigma_p`)
-- additive relative humidity offset (`sigma_rh`)
+- humidity-state perturbation (`sigma_rh`) using `humidity_perturbation_method: dew_point` by default
 - multiplicative shortwave factor (`sigma_sw`)
 
-`sigma_rh` and `sigma_sw` default to `0.0` when omitted, which preserves the previous two-variable behavior.
+`humidity_perturbation_method` accepts `dew_point` (default) and `relative_humidity`. Prior forcing and rejuvenation must use the same method. With `dew_point`, `sigma_rh` is a dew-point-temperature perturbation scale in K; with `relative_humidity`, it is the legacy raw RH perturbation in percentage points with clipping. `sigma_rh` and `sigma_sw` default to `0.0` when omitted, which preserves the previous two-variable behavior.
 
 ### Run Ensemble
 
@@ -376,6 +376,7 @@ data_assimilation:
   rejuvenation:
     sigma_t: 0.2
     sigma_p: 0.2
+    humidity_perturbation_method: dew_point
     sigma_rh: 0.0
     sigma_sw: 0.0
 ```

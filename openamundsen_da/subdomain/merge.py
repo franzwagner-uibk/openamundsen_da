@@ -30,6 +30,7 @@ from openamundsen_da.util.da_output import (
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.roi_grid import load_setup_roi_mask
 from openamundsen_da.util.run_mode import ensure_run_mode
+from openamundsen_da.util.storage_policy import da_summary_netcdf_encoding, preserved_netcdf_encoding
 
 
 COMPACT_CLEANUP_LOCK_NAME = "artifact_cleanup_allowed"
@@ -720,6 +721,7 @@ def _merge_netcdf(
                 "dims": da.dims,
                 "attrs": da.attrs,
                 "dtype": da.dtype,
+                "encoding": preserved_netcdf_encoding(da.encoding),
                 "y_idx": None,
                 "x_idx": None,
             }
@@ -736,6 +738,7 @@ def _merge_netcdf(
             "dims": da.dims,
             "attrs": da.attrs,
             "dtype": da.dtype,
+            "encoding": preserved_netcdf_encoding(da.encoding),
             "y_idx": y_idx,
             "x_idx": x_idx,
         }
@@ -808,13 +811,20 @@ def _merge_netcdf(
         out_vars[name] = xr.DataArray(arr.astype(info["dtype"]), dims=info["dims"], attrs=info["attrs"])
 
     merged = xr.Dataset(data_vars=out_vars, coords=coords, attrs=ds_template.attrs)
+    encoding: dict[str, dict] = {}
     for name, info in data_vars.items():
+        source_encoding = info.get("encoding")
+        if isinstance(source_encoding, dict):
+            encoding[name] = source_encoding
         fill_val = info["fill"]
-        if not (isinstance(fill_val, float) and np.isnan(fill_val)):
-            merged[name].encoding["_FillValue"] = fill_val
+        if not (isinstance(fill_val, float) and np.isnan(fill_val)) and "_FillValue" not in encoding.get(name, {}):
+            encoding.setdefault(name, {})["_FillValue"] = fill_val
+
+    if output_name == "da_output_grids.nc":
+        encoding.update(da_summary_netcdf_encoding(merged))
 
     out_path = out_dir / output_name
-    merged.to_netcdf(out_path)
+    merged.to_netcdf(out_path, encoding=encoding)
     ds_template.close()
     logger.info("Wrote merged NetCDF {}", out_path)
     return out_path

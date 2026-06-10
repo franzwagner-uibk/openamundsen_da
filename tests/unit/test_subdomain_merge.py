@@ -5,8 +5,28 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import rasterio
+import xarray as xr
+from rasterio.transform import from_origin
 
 from openamundsen_da.subdomain import merge as merge_mod
+from openamundsen_da.subdomain.manifest import WindowSpec
+from openamundsen_da.util.storage_policy import da_summary_netcdf_encoding
+
+
+def _write_roi(path: Path, data: np.ndarray) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=data.shape[0],
+        width=data.shape[1],
+        count=1,
+        dtype="uint8",
+        transform=from_origin(0.0, float(data.shape[0]), 1.0, 1.0),
+    ) as dst:
+        dst.write(data.astype(np.uint8), 1)
 
 
 def test_merge_grids_uses_compact_da_summary(monkeypatch, tmp_path: Path) -> None:
@@ -192,6 +212,52 @@ def test_merge_grids_does_not_inspect_raw_latest_steps_when_compact_summaries_ex
 
     assert written == [project_dir / "results" / "grids" / "da_output_grids.nc"]
     assert calls == [("da_output_grids.nc", compact_paths)]
+
+
+def test_merge_netcdf_reapplies_compact_da_summary_encoding(tmp_path: Path) -> None:
+    roi_path = tmp_path / "roi.tif"
+    _write_roi(roi_path, np.ones((1, 2), dtype=np.uint8))
+    source_nc = tmp_path / "sub" / "da_output_grids.nc"
+    source_nc.parent.mkdir(parents=True)
+    source = xr.Dataset(
+        data_vars={
+            "ens_mean_snowdepth_daily": xr.DataArray(
+                np.array([[[1.234, 2.345]]], dtype=np.float32),
+                dims=("time", "y", "x"),
+                coords={"time": [np.datetime64("2023-01-01")], "y": [0.0], "x": [0.0, 1.0]},
+            )
+        },
+        coords={"y": [0.0], "x": [0.0, 1.0]},
+    )
+    source.to_netcdf(source_nc, encoding=da_summary_netcdf_encoding(source))
+    sub = SimpleNamespace(
+        id="sd_01",
+        roi_raster_path=roi_path,
+        window=WindowSpec(row_off=0, col_off=0, height=1, width=2),
+    )
+    manifest = SimpleNamespace(grid_transform=(1.0, 0.0, 0.0, 0.0, -1.0, 1.0))
+    out_dir = tmp_path / "merged"
+    out_dir.mkdir()
+
+    out = merge_mod._merge_netcdf(
+        output_name="da_output_grids.nc",
+        nc_paths=[(sub, source_nc)],
+        global_shape=(1, 2),
+        manifest=manifest,
+        out_dir=out_dir,
+        expected_mask=np.ones((1, 2), dtype=bool),
+        sliver_tol_px=0,
+    )
+
+    with xr.open_dataset(out) as ds:
+        np.testing.assert_allclose(ds["ens_mean_snowdepth_daily"].values, [[[1.234, 2.345]]], atol=0.001)
+    with xr.open_dataset(out, decode_cf=False) as raw:
+        var = raw["ens_mean_snowdepth_daily"]
+        assert var.dtype == np.dtype("int16")
+        assert var.attrs["scale_factor"] == np.float32(0.001)
+        assert var.attrs["_FillValue"] == np.int16(-32768)
+        assert var.encoding.get("zlib") is True
+        assert var.encoding.get("shuffle") is True
 
 
 def test_merge_grids_rejects_partial_compact_da_summary_availability(

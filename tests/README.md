@@ -143,7 +143,8 @@ Validation focuses on:
   - project maps under `results/maps/` when `maps.yml` is present
   - shipped semi-independent benchmark view for `station_swe`
   - persistent point outputs (`point_*.csv`)
-  - compact data assimilation grid output (`results/grids/da_output_grids.nc`)
+  - compact data assimilation grid output (`results/grids/da_output_grids.nc`) with expected compressed integer storage encodings for DA-owned snow grids
+  - generated meteo CSV precision and retained member grid storage dtypes
 - minimal weight sanity (weights exist, numeric, sum to `1.0`)
 
 ### Integration regression test (trimmed sub-domain)

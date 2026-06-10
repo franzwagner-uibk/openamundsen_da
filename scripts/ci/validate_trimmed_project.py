@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import yaml
 
+from openamundsen_da.util.storage_policy import DA_SUMMARY_NC_FILL_VALUE, METEO_CSV_DECIMALS
 from openamundsen_da.util.da_observables import (
     station_diagnostics_glob_pattern,
     weights_glob_pattern,
@@ -189,6 +190,90 @@ def _check_openamundsen_outputs(steps_dir: Path) -> None:
 def _check_da_output_grid(project_dir: Path) -> None:
     da_output = project_dir / "results" / "grids" / "da_output_grids.nc"
     _assert_non_empty(da_output)
+    import numpy as np
+    import xarray as xr
+
+    expected_scales = {
+        "snowdepth_daily": np.float32(0.001),
+        "swe_daily": np.float32(1.0),
+        "liquid_water_content": np.float32(1.0),
+    }
+    with xr.open_dataset(da_output, decode_cf=False) as raw:
+        grid_vars = [name for name, da in raw.data_vars.items() if "y" in da.dims and "x" in da.dims]
+        if not grid_vars:
+            raise ValueError(f"{da_output} contains no grid payload variables")
+        for name in grid_vars:
+            var = raw[name]
+            matched_scale = None
+            for suffix, scale in expected_scales.items():
+                if name == suffix or name.endswith(f"_{suffix}"):
+                    matched_scale = scale
+                    break
+            if matched_scale is None:
+                if var.dtype == np.dtype("float64"):
+                    raise ValueError(f"{da_output}:{name} is float64; expected compact storage")
+                continue
+            if var.dtype != np.dtype("int16"):
+                raise ValueError(f"{da_output}:{name} stored as {var.dtype}; expected int16")
+            if var.attrs.get("_FillValue") != DA_SUMMARY_NC_FILL_VALUE:
+                raise ValueError(f"{da_output}:{name} has unexpected _FillValue {var.attrs.get('_FillValue')!r}")
+            scale_factor = var.attrs.get("scale_factor")
+            if scale_factor is None or abs(float(scale_factor) - float(matched_scale)) > 1e-12:
+                raise ValueError(f"{da_output}:{name} has unexpected scale_factor {var.attrs.get('scale_factor')!r}")
+            if var.encoding.get("zlib") is not True or var.encoding.get("shuffle") is not True:
+                raise ValueError(f"{da_output}:{name} is missing zlib/shuffle compression")
+
+
+def _check_member_grid_storage(steps_dir: Path) -> None:
+    import numpy as np
+    import xarray as xr
+
+    member_grids = sorted(steps_dir.glob("step_*/ensembles/prior/member_*/results/grids/output_grids.nc"))
+    if not member_grids:
+        member_grids = sorted(steps_dir.glob("step_*/ensembles/prior/member_*/results/output_grids.nc"))
+    if not member_grids:
+        raise FileNotFoundError("No member output_grids.nc found for storage validation")
+
+    with xr.open_dataset(member_grids[0], decode_cf=False) as raw:
+        grid_vars = [name for name, da in raw.data_vars.items() if "y" in da.dims and "x" in da.dims]
+        if not grid_vars:
+            raise ValueError(f"{member_grids[0]} contains no grid payload variables")
+        for name in grid_vars:
+            dtype = raw[name].dtype
+            if dtype != np.dtype("float32"):
+                raise ValueError(f"{member_grids[0]}:{name} stored as {dtype}; expected float32")
+
+
+def _check_meteo_csv_precision(steps_dir: Path) -> None:
+    meteo_files = sorted(p for p in steps_dir.glob("step_*/ensembles/prior/member_*/meteo/*.csv") if p.name != "stations.csv")
+    if not meteo_files:
+        raise FileNotFoundError("No generated member meteo CSV files found for precision validation")
+    rows = _read_csv_rows(meteo_files[0])
+    if not rows:
+        raise ValueError(f"Generated meteo CSV has no rows: {meteo_files[0]}")
+    row = rows[0]
+    for column, decimals in METEO_CSV_DECIMALS.items():
+        value = row.get(column)
+        if value in (None, ""):
+            continue
+        pattern = r"^-?\d+$" if decimals == 0 else rf"^-?\d+\.\d{{{decimals}}}$"
+        if re.match(pattern, value) is None:
+            raise ValueError(
+                f"{meteo_files[0]}:{column} value {value!r} does not match expected {decimals}-decimal storage precision"
+            )
+
+
+def _check_wet_snow_mask_storage(steps_dir: Path) -> None:
+    import rasterio
+
+    masks = sorted(steps_dir.glob("step_*/ensembles/prior/member_*/results/**/wet_snow_mask_*.tif"))
+    if not masks:
+        return
+    with rasterio.open(masks[0]) as src:
+        if src.dtypes[0] != "uint8":
+            raise ValueError(f"{masks[0]} stored as {src.dtypes[0]}; expected uint8")
+        if src.nodata != 255:
+            raise ValueError(f"{masks[0]} has nodata={src.nodata}; expected 255")
 
 
 def _read_csv_rows(path: Path) -> list[dict[str, str]]:
@@ -444,6 +529,9 @@ def validate_project(project_dir: Path, log_file: Path) -> None:
     _check_plot_outputs(project_dir)
     _check_openamundsen_outputs(steps_dir)
     _check_da_output_grid(project_dir)
+    _check_member_grid_storage(steps_dir)
+    _check_meteo_csv_precision(steps_dir)
+    _check_wet_snow_mask_storage(steps_dir)
     _check_benchmark_outputs(project_dir)
     _check_minimal_weight_sanity(steps_dir)
 

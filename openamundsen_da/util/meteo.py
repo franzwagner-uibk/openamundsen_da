@@ -18,6 +18,7 @@ from openamundsen_da.core.constants import (
     STATIONS_CSV,
 )
 from openamundsen_da.util.humidity import perturb_relative_humidity_via_dew_point
+from openamundsen_da.util.storage_policy import apply_meteo_csv_precision
 
 
 def filter_and_write_meteo(
@@ -89,6 +90,7 @@ def filter_and_write_meteo(
             df[DEFAULT_SW_IN_COL] = sw_in.clip(lower=0.0)
         idx_col_name = df.index.name or "index"
         df_out = df.reset_index().rename(columns={idx_col_name: time_col})
+        df_out = apply_meteo_csv_precision(df_out)
         dst_dir.mkdir(parents=True, exist_ok=True)
         df_out.to_csv(dst_dir / src.name, index=False)
 

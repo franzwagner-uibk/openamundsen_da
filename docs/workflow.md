@@ -138,6 +138,7 @@ openAMUNDSEN-DA supports three uncertainty handling patterns, selected per produ
 
 All uncertainty values are expected on a `0..100` scale, and uncertainty-enabled preprocessing is strict fail-fast on missing/invalid inputs.
 In openAMUNDSEN-DA generation mode, per-pixel uncertainty is built from a baseline plus additive penalties from multiple configured class sources (for example forest land cover and shadow masks).
+Generated uncertainty sidecar rasters are written as compact `uint8` percent rasters with `255` as nodata.
 
 The example below shows this logic for a Rofental SCF scene. The left panel is the observed snow-cover fraction, the middle panel is the resulting uncertainty field, and the right panel shows the land-cover driver. The zoomed row makes the penalty structure visible: uncertainty remains spatially continuous on valid observation pixels and increases where configured covariates such as forest classes apply. Gaps such as cloud-covered pixels are not turned into "high-uncertainty observations"; they remain missing data.
 

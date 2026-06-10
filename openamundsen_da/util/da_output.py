@@ -14,6 +14,7 @@ from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml, infer_project_dir, read_step_config
 from openamundsen_da.util.da_events import AssimilationEvent, load_assimilation_events
 from openamundsen_da.util.da_observables import weights_csv_name
+from openamundsen_da.util.storage_policy import da_summary_netcdf_encoding
 
 _DEFAULT_SUMMARY_METRICS = ("open_loop", "ens_mean", "ens_std", "ens_min", "ens_max", "increment")
 _ANALYSIS_SUMMARY_METRICS = ("analysis_mean", "analysis_increment")
@@ -214,7 +215,6 @@ def _build_da_output_dataset(
 
     with xr.open_dataset(open_loop_nc) as ds_ol:
         out_vars: dict[str, xr.DataArray] = {}
-        encoding: dict[str, dict] = {}
         n_members = int(len(member_files))
         grid_var_names = []
         for var_name, da_ol in ds_ol.data_vars.items():
@@ -336,9 +336,6 @@ def _build_da_output_dataset(
                         },
                     )
                     created_names.append(out_name)
-            for out_name in created_names:
-                encoding[out_name] = {"zlib": True, "complevel": 4, "shuffle": True, "_FillValue": -9999.0}
-
         if not out_vars:
             logger.warning("DA output summary skipped: no grid variables with x/y dims in {}", open_loop_nc)
             return None
@@ -367,8 +364,6 @@ def _build_da_output_dataset(
             coords=ds_ol.coords,
             attrs=attrs,
         )
-        for out_name, enc in encoding.items():
-            out_ds[out_name].encoding.update(enc)
         return out_ds
 
 
@@ -465,7 +460,7 @@ def write_da_output_grids(
     if out_ds is None:
         return None
     output_nc.parent.mkdir(parents=True, exist_ok=True)
-    out_ds.to_netcdf(output_nc)
+    out_ds.to_netcdf(output_nc, encoding=da_summary_netcdf_encoding(out_ds))
     logger.info("Wrote DA output summary NetCDF {}", output_nc)
     return output_nc
 
@@ -577,7 +572,7 @@ def write_project_da_output_grids(
         }
     )
     output_nc.parent.mkdir(parents=True, exist_ok=True)
-    combined.to_netcdf(output_nc)
+    combined.to_netcdf(output_nc, encoding=da_summary_netcdf_encoding(combined))
     logger.info("Wrote DA output summary NetCDF {} ({} step(s))", output_nc, len(step_summaries))
     return output_nc
 

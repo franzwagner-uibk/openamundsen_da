@@ -48,7 +48,7 @@ def test_filter_and_write_meteo_applies_dew_point_humidity_perturbation(tmp_path
     )
 
     out = pd.read_csv(dst_dir / "station.csv")
-    np.testing.assert_allclose(out["temp"].to_numpy(), [274.65, 275.65])
+    np.testing.assert_allclose(out["temp"].to_numpy(), [274.6, 275.6])
     assert out["precip"].tolist() == [0.0, 4.0]
     assert out["rel_hum"].between(0.0, 100.0).all()
     assert not np.isclose(out["rel_hum"].iloc[0], 100.0)
@@ -113,7 +113,35 @@ def test_filter_and_write_meteo_perturbs_integer_precip_and_shortwave(tmp_path: 
 
     out = pd.read_csv(dst_dir / "station.csv")
     np.testing.assert_allclose(out["precip"].to_numpy(), [0.0, 2.5, 12.5])
-    np.testing.assert_allclose(out["sw_in"].to_numpy(), [0.0, 0.992303298, 9.92303298])
+    np.testing.assert_allclose(out["sw_in"].to_numpy(), [0.0, 1.0, 10.0])
+
+
+def test_filter_and_write_meteo_formats_known_columns_to_storage_precision(tmp_path: Path) -> None:
+    src_dir = tmp_path / "src"
+    dst_dir = tmp_path / "dst"
+    src_dir.mkdir()
+
+    (src_dir / "station.csv").write_text(
+        "\n".join(
+            [
+                "date,temp,precip,sw_in,rel_hum,wind_speed,wind_dir,unknown",
+                "2023-01-01T03:00:00,273.154,0.0149,122.6,88.124,1.234,359.94,1.23456789",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    filter_and_write_meteo(
+        src_dir=src_dir,
+        dst_dir=dst_dir,
+        start=pd.Timestamp("2023-01-01T03:00:00"),
+        end=pd.Timestamp("2023-01-01T03:00:00"),
+    )
+
+    assert (dst_dir / "station.csv").read_text(encoding="utf-8").splitlines() == [
+        "date,temp,precip,sw_in,rel_hum,wind_speed,wind_dir,unknown",
+        "2023-01-01 03:00:00,273.2,0.01,123,88.12,1.23,359.9,1.23456789",
+    ]
 
 
 def test_new_prior_and_rejuvenation_sigmas_default_to_zero(tmp_path: Path) -> None:

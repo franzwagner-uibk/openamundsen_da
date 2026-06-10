@@ -22,6 +22,7 @@ from openamundsen_da.io.paths import find_project_yaml
 from openamundsen_da.util.config_validators import require_mapping
 from openamundsen_da.util.landcover_mask import resolve_landcover_mask
 from openamundsen_da.util.loguru_utils import configure_cli_logger
+from openamundsen_da.util.storage_policy import PERCENT_UINT8_NODATA, percent_to_uint8_nodata
 
 
 @dataclass(frozen=True)
@@ -498,16 +499,16 @@ def generate_uncertainty_layers(*, setup_dir: Path, project_label: str, overwrit
 
             profile = src.profile.copy()
             profile.update(
-                dtype="float32",
-                nodata=cfg.nodata_value,
+                dtype="uint8",
+                nodata=int(PERCENT_UINT8_NODATA),
                 compress="deflate",
-                predictor=3,
+                predictor=2,
                 tiled=True,
                 blockxsize=256,
                 blockysize=256,
             )
             with rasterio.open(out_path, "w", **profile) as dst:
-                dst.write(unc.astype(np.float32), 1)
+                dst.write(percent_to_uint8_nodata(unc, nodata_value=cfg.nodata_value), 1)
                 dst.set_band_description(1, "uncertainty_percent")
                 dst.update_tags(
                     1,

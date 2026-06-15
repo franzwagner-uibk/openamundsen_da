@@ -42,9 +42,9 @@ All commands are available as:
 
 ### oa-da-project
 
-**Main setup pipeline orchestrator**
+**Main project pipeline orchestrator**
 
-Runs the complete setup data assimilation cycle: prior forcing → ensemble run → assimilation → resampling → rejuvenation.
+Runs the complete project data assimilation cycle: prior forcing → ensemble run → assimilation → resampling → rejuvenation.
 The pipeline now also runs the scientific benchmark stage automatically at the end of every project, then attempts to assemble the project PDF report.
 
 ```bash
@@ -157,7 +157,7 @@ oa-da-scf \
 
 **Arguments:**
 - `--project-dir PATH` - Project directory (e.g., `/data/projects/project_2019-2020`)
-- `--summary-csv PATH` - Optional path to `scf_summary.csv`; when provided it is recorded in `obs.snowcover.summary_csv` so later maps and benchmarks use the same source. Without this option the command resolves `obs.snowcover.summary_csv`, then legacy defaults under `<setup>/obs/<project>/` and `<setup>/obs/summaries/<project>/`.
+- `--summary-csv PATH` - Optional path to `scf_summary.csv`; when provided it is recorded in `obs.snowcover.summary_csv` so later maps and benchmarks use the same source. Without this option the command resolves `obs.snowcover.summary_csv`, then supported v1 compatibility defaults under `<setup>/obs/<project>/` and `<setup>/obs/summaries/<project>/`.
 - `--product CODE` - Optional product tag override used in filenames (otherwise read from `project.yml` -> `obs.snowcover.product_tag`)
 - `--overwrite` - Overwrite existing `obs_scf_*.csv` files
 
@@ -329,7 +329,6 @@ Performs systematic resampling based on particle weights.
 
 ```bash
 oa-da-resample \
-  --project-dir PATH \
   --step-dir PATH \
   --ensemble prior \
   --weights PATH \
@@ -338,7 +337,6 @@ oa-da-resample \
 ```
 
 **Required Arguments:**
-- `--project-dir PATH` - Project root
 - `--step-dir PATH` - Step directory
 - `--ensemble {prior,posterior}` - Source ensemble
 - `--weights PATH` - Weights CSV file
@@ -361,7 +359,6 @@ oa-da-resample \
 **Example:**
 ```bash
 oa-da-resample \
-  --project-dir /data \
   --step-dir /data/projects/project_2019-2020/steps/step_01_* \
   --ensemble prior \
   --weights assim/weights_scf_20191122.csv \
@@ -679,6 +676,7 @@ Similar to `oa-da-model-scf-project-daily` but for wet snow classification.
 ### oa-da-subdomain
 
 Split a setup into non-overlapping sub-domains. The CLI supports the existing openAMUNDSEN-DA workflow and a plain openAMUNDSEN model workflow.
+The data assimilation workflow creates independent regional DA projects and merges their compact grids; it is not a formal particle-filter localization scheme.
 
 Data assimilation workflow:
 
@@ -781,7 +779,7 @@ DA defaults & tips:
 - `--id-field` must exist in the regions file; there is no automatic fallback to another field.
 - Sub-domain mode requires at least two polygons in the ROI file.
 - Sub-domain runs fail fast if configured assimilation events are not available in local sub-domain summaries.
-- openAMUNDSEN-DA requires `grids/roi_<domain>_<resolution>.asc`; it is generated silently from ROI/regions vector input when missing.
+- openAMUNDSEN-DA requires `grids/roi_<domain>_<resolution>.asc`; it is generated from ROI/regions vector input when missing and then used as the canonical mask.
 - Use `--max-workers` to control parallelism; BLAS/OMP threads are pinned to 1 inside the image.
 - Merge is hard mosaic only (no interpolation/blending).
 - Visible breaks at sub-domain boundaries are expected and intentional.

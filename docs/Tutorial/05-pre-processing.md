@@ -37,7 +37,7 @@ The same YAML-driven setup map used earlier in the tutorial is a useful referenc
 while checking ROI coverage, station locations, and the static land-cover context
 that later influences preprocessing:
 
-![Rofental tutorial setup map (ROI, stations, and land-cover context)]({{ site.baseurl }}/assets/images/tutorial/rofental_setup_map.png)
+![Rofental tutorial setup overview map (ROI, stations, and land-cover context)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_overview.png)
 
 Selected sections from
 `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`:
@@ -114,6 +114,12 @@ the uncertainty rasters still available for inspection and experimentation.
 openAMUNDSEN-DA expects uncertainty values on a `0..100` scale and treats missing
 or invalid uncertainty inputs as an error when uncertainty-aware preprocessing is
 enabled.
+
+Station HS assimilation also uses station metadata from
+`obs/stations/stations_da_metadata.csv`. The tutorial keeps `latschbloder` as a
+high-uncertainty station (`station_uncertainty_pct: 500`,
+`hs_sigma_abs_min: 0.30 m`) and `proviantdepot` as the tighter station
+(`station_uncertainty_pct: 10`, `hs_sigma_abs_min: 0.10 m`).
 
 Conceptual background and best-practice rules are summarized in
 [Workflow: Observation Uncertainty]({{ site.baseurl }}{% link workflow.md %}#observation-uncertainty).
@@ -228,16 +234,14 @@ The first folders in the tutorial project look like this:
 
 ```text
 step_00_init
-step_01_20221122-20221222
-step_02_20221222-20230122
-step_03_20230122-20230221
-step_04_20230221-20230322
-step_05_20230322-20230426
-step_06_20230426-20230503
-step_07_20230503-20230518
-step_08_20230518-20230523
-step_09_20230523-20230526
-step_10_20230526-20230630
+step_01_20221117-20221207
+step_02_20221207-20230101
+step_03_20230101-20230131
+step_04_20230131-20230221
+step_05_20230221-20230324
+step_06_20230324-20230426
+step_07_20230426-20230526
+step_08_20230526-20230630
 ```
 
 Read that structure as a direct translation of the project period plus the

@@ -1,6 +1,6 @@
 ---
 layout: default
-title: Moved: Framework
+title: "Moved: Framework"
 parent: How to Use
 nav_exclude: true
 permalink: /tutorial/framework/

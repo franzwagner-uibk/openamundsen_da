@@ -173,7 +173,7 @@ results/plots/assim/scores/
 results/plots/assim/weights/
   DA_01_weights.png
   ...
-  DA_10_weights.png
+  DA_08_weights.png
   setup_weights_overview_2022_2023.png
   setup_weights_overview_2022_2023_page_02.png   # only when the overview spans multiple A4-length pages
 
@@ -201,7 +201,7 @@ results/maps/
   da_events/
     da_1.png
     ...
-    da_10.png
+    da_8.png
 
 results/reports/
   project_report.pdf                  # attempted at the end of oa-da-project
@@ -209,9 +209,9 @@ results/reports/
 
 The report PDF is a best-effort final artifact. Its first page contains the setup/project summary plus a bottom `Content` table with page numbers first and section names second. It then collects the curated overview plots, setup map, setup weights overview pages, station snow-depth point plots, `performance_scores.png`, `project_perf.png`, and generated DA-event maps in temporal order. If report prerequisites are missing, `oa-da-project` logs the missing paths and a manual `python -m openamundsen_da.methods.viz.reports --project-dir ...` rerun command, but the completed model run remains successful.
 
-![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/project_perf.png)
+![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/project_perf.png)
 
-![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/result_overview.png)
+![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/result_overview.png)
 
 Detailed interpretation of these plots is covered in [7. Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}).
 
@@ -220,11 +220,11 @@ Before continuing, verify that the project log ends with a completion message an
 If you later change only visualization code or `plots.yml`, you can rerender the finished project plots without rerunning the DA pipeline:
 
 ```bash
-oa-da-plot-project-plots --project-dir /data/projects/project_2022_2023
+oa-da-plot-project-plots --project-dir /data/rofental/projects/project_2022_2023
 ```
 
 And you can rerender the full project-map catalog separately with:
 
 ```bash
-oa-da-plot-project-maps --project-dir /data/projects/project_2022_2023
+oa-da-plot-project-maps --project-dir /data/rofental/projects/project_2022_2023
 ```

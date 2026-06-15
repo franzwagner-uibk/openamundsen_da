@@ -1,6 +1,6 @@
 ---
 layout: default
-title: 3. Example Data: Rofental
+title: "3. Example Data: Rofental"
 parent: How to Use
 nav_order: 3
 permalink: /tutorial/example-data-rofental/
@@ -12,7 +12,7 @@ The tutorial uses the bundled Rofental setup as one concrete, reproducible examp
 This page describes that example once so later chapters do not need to repeat the same
 context.
 
-![Rofental tutorial setup map (domain, forcing stations, and land cover layer)]({{ site.baseurl }}/assets/images/tutorial/rofental_setup_map.png)
+![Rofental tutorial setup overview map (domain, forcing stations, and land-cover layer)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_overview.png)
 
 *Rofental tutorial setup map rendered from `projects/project_2022_2023/maps.yml`, showing the model domain, forcing stations, and land-cover context used throughout the tutorial.*
 

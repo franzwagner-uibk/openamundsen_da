@@ -86,7 +86,7 @@ Total RAM needed ~ N_workers x Memory_per_member + ~2GB overhead
 
 Higher resolution = more computation. Consider your science goals:
 
-| Resolution | Grid cells (100 kmÂ²) | Typical runtime (30 members) |
+| Resolution | Grid cells (100 km2) | Typical runtime (30 members) |
 |:-----------|:---------------------|:-----------------------------|
 | 1000m | 10,000 | Fast (minutes) |
 | 500m | 40,000 | Moderate (hours) |
@@ -254,7 +254,7 @@ python -m pstats profile.stats
 - **RAM**: 8 GB
 - **Storage**: 100 GB SSD
 
-**Typical runtime** (30 members, 100 kmÂ², 10 steps): 4-8 hours
+**Typical runtime** (30 members, 100 km2, 10 steps): 4-8 hours
 
 ### Recommended Configuration
 
@@ -336,6 +336,5 @@ Performance optimization checklist:
 - [Troubleshooting Guide]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) - Common issues
 - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) - Optimize settings
 - [Running Experiments]({{ site.baseurl }}{% link guides/experiments/index.md %}) - Complete workflow
-
 
 

@@ -55,11 +55,18 @@ T_perturbed = T_original + epsilon_T,  epsilon_T ~ N(0, sigma_T^2)
 P_perturbed = P_original * exp(epsilon_P),  epsilon_P ~ N(mu_P, sigma_P^2)
 ```
 
-**Relative humidity**: Additive Gaussian noise with clipping
+**Relative humidity**: Dew-point Gaussian noise with saturation capping
 
 ```
-RH_perturbed = clip(RH_original + epsilon_RH, 0, 100),  epsilon_RH ~ N(0, sigma_RH^2)
+Td = Magnus(T_original, RH_original)
+Td_perturbed = min(Td + epsilon_Td, T_original + epsilon_T)
+RH_perturbed = 100 * es(Td_perturbed) / es(T_original + epsilon_T)
+epsilon_Td ~ N(0, sigma_RH^2)
 ```
+
+The Magnus transform uses air temperature in degrees Celsius internally; forcing
+temperature is stored in Kelvin, and additive temperature offsets have the same
+numerical value in Kelvin and degrees Celsius.
 
 **Incoming shortwave radiation**: Multiplicative log-normal noise for daytime values only
 
@@ -402,7 +409,7 @@ data_assimilation:
   rejuvenation:
     sigma_t: 0.2 # Additive temperature noise (deg C)
     sigma_p: 0.2 # Lognormal sigma for precip factor (mu=0)
-    sigma_rh: 0.0 # Additive relative humidity noise (percentage points)
+    sigma_rh: 0.0 # Additive dew-point temperature noise
     sigma_sw: 0.0 # Lognormal sigma for daytime shortwave factor (mu=0)
 ```
 
@@ -418,9 +425,9 @@ step_N/ensembles/posterior/member_i/ -> step_N+1/ensembles/prior/member_j/
 
 ---
 
-## Setup Pipeline
+## Project Pipeline
 
-The setup pipeline automates all phases:
+The project pipeline automates all phases:
 
 ```bash
 docker compose run --rm oa \
@@ -449,7 +456,7 @@ Optional: `--overwrite`, `--live-plots`, `--log-level <LEVEL>` (`--live-plots` e
 - Per-step runs in `<step>/ensembles/{prior,posterior}`
 - Weights and indices in `<step>/assim/`
 - Rejuvenated next-step prior with `state_pointer.json`
-- Setup plots under `<setup_dir>/plots/{forcing,results}`
+- Project plots under `<project_dir>/results/plots/`
 
 ---
 

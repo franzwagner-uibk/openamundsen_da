@@ -1,4 +1,4 @@
-﻿# Examples bundle
+# Examples bundle
 
 This folder contains ready-to-use example data and setup layouts for `openamundsen_da`.
 

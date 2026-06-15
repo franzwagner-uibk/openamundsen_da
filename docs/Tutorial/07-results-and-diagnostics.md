@@ -101,11 +101,11 @@ Plot file to open:
 
 - `/data/rofental/projects/project_2022_2023/results/plots/perf/project_perf.png`
 
-Reference plot (tutorial baseline, `ens=15`):
+Reference plot (tutorial baseline, `ensemble_size=30`):
 
-![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/project_perf.png)
+![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/project_perf.png)
 
-_`project_perf.png` from the Rofental tutorial reference run (`100 m`, `ensemble_size=15`)._
+_`project_perf.png` from the Rofental tutorial reference run (`100 m`, `ensemble_size=30`)._
 
 What to read in the plot:
 
@@ -143,11 +143,11 @@ Reference structure snippet (`results/plots/assim`, typical files)
     setup_ess_timeline_2022_2023.png
   scores/
     performance_scores.png
-  weights/
-    DA_01_weights.png
-    ...
-    DA_10_weights.png
-    setup_weights_overview_2022_2023.png
+	weights/
+	  DA_01_weights.png
+	  ...
+	  DA_08_weights.png
+	  setup_weights_overview_2022_2023.png
     setup_weights_overview_2022_2023_page_02.png
     ...
 ```
@@ -188,7 +188,7 @@ Plot files to open:
 
 Reference ESS plot (tutorial baseline):
 
-![ESS timeline plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/setup_ess_timeline_2022_2023.png)
+![ESS timeline plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_ess_timeline_2022_2023.png)
 
 _ESS timeline (`setup_ess_timeline_2022_2023.png`) from the tutorial reference run._
 
@@ -200,15 +200,15 @@ What to read in the ESS plot:
 
 Reference setup weights overview:
 
-![Setup weights overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/setup_weights_overview_2022_2023.png)
+![Setup weights overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_weights_overview_2022_2023.png)
 
-_Setup-wide comparison of all ten assimilation events, grouped by observable family._
+_Setup-wide comparison of all eight assimilation events, grouped by observable family._
 
 For larger projects, the setup overview is automatically split into multiple A4-length PNG pages that keep the first file name above and add numbered continuation pages.
 
 Reference weights plot (example event):
 
-![Weights plot for one assimilation event (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/DA_04_weights.png)
+![Weights plot for one assimilation event (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/DA_04_weights.png)
 
 _Weights plot for `DA_04` (`station_hs` on `2023-02-21`)._
 
@@ -228,7 +228,7 @@ Exact weights differ between runs because the ensemble is stochastic. Focus on t
 
 ## 4. Point plots (`results/plots/points`)
 
-This directory contains the stitched station and ROI point plots for the setup.
+This directory contains the stitched station and ROI point plots for the project.
 
 Typical files include:
 
@@ -323,7 +323,7 @@ Recommended plot files to inspect (Rofental tutorial run):
 
 Result overview:
 
-![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/result_overview.png)
+![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/result_overview.png)
 
 _`result_overview.png`: check observation dates, SCF/wet-snow event timing, ROI mean SWE / snow-depth behavior, and gross model-vs-observation behavior._
 
@@ -336,7 +336,7 @@ What to read in this plot:
 
 Station snow depth example (`latschbloder`):
 
-![Latschbloder snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/setup_results_point_latschbloder_snow_depth_2022_2023.png)
+![Latschbloder snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_latschbloder_snow_depth_2022_2023.png)
 
 _Snow depth comparison at `latschbloder` (open loop + ensemble + observations)._
 
@@ -348,7 +348,7 @@ What to read in this plot:
 
 Station SWE example (`proviantdepot`):
 
-![Proviantdepot SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/setup_results_point_proviantdepot_swe_2022_2023.png)
+![Proviantdepot SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_proviantdepot_swe_2022_2023.png)
 
 _SWE comparison at `proviantdepot` (remember: station SWE observations are expected in **mm** in this tutorial setup)._
 
@@ -363,11 +363,11 @@ What to read in this plot:
 
 `proviantdepot` snow depth:
 
-![Proviantdepot snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/setup_results_point_proviantdepot_snow_depth_2022_2023.png)
+![Proviantdepot snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_proviantdepot_snow_depth_2022_2023.png)
 
 `latschbloder` SWE:
 
-![Latschbloder SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_ens15/setup_results_point_latschbloder_swe_2022_2023.png)
+![Latschbloder SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_latschbloder_swe_2022_2023.png)
 
 </details>
 
@@ -429,24 +429,23 @@ Dimension names in the inspected NetCDF (for example `time1`, `time2`, `snow_lay
 ### Raster output
 
 {: .checks }
-> Key raster comparison from `results/grids/da_output_grids.nc`:
-> - `open_loop_snowdepth_daily`
-> - `ens_mean_snowdepth_daily`
->
-> Date shown in the reference map: **2023-06-02**
+> Generated map examples from the Rofental paper reference run:
+> - `results/maps/da_events/da_6.png`: WSL/WSLA update on **2023-03-24**
+> - `results/maps/da_events/da_8.png`: SCF update on **2023-05-26**
 
-![Snow depth map pair for 2023-06-02 (open loop vs ensemble mean)]({{ site.baseurl }}/assets/images/tutorial/rofental_tutorial_snow_depth_2023_06_02.png)
+![Generated DA-event map for the WSL update on 2023-03-24]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_06_wsla_2023_03_24.png)
 
-_`open_loop_snowdepth_daily` (left) vs `ens_mean_snowdepth_daily` (middle) on **2023-06-02**. Use the same color classes for both maps for direct interpretation._
+_`da_6.png`: open loop, prior, posterior and observed elevation-band wet snow fraction / wet snow line diagnostics plus corresponding snow-depth fields for the **2023-03-24** `wet_snow_line` update._
 
-![Snow depth increment map for 2023-06-02 (ensemble mean minus open loop)]({{ site.baseurl }}/assets/images/tutorial/rofental_tutorial_snow_depth_increment_2023_06_02.png)
+![Generated DA-event map for the SCF update on 2023-05-26]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_08_scf_2023_05_26.png)
 
-_`increment_snowdepth_daily` on **2023-06-02** (`ens_mean_snowdepth_daily - open_loop_snowdepth_daily`)._
+_`da_8.png`: open loop, prior, posterior and observed snow-cover diagnostics plus corresponding snow-depth fields for the **2023-05-26** `scf` update._
 
 {: .checks }
 > Note on raster workflow:
 > - all output grids are stored in one NetCDF file: `results/grids/da_output_grids.nc` (see [5. data assimilation output summary NetCDF (`da_output_grids.nc`)](#da-output-summary-netcdf))
-> - extract the layers/time slices you need in the GIS tool of your choice before styling or export
+> - generated DA-event maps use event dates with available particle-filter weights
+> - for non-event dates, extract the layers/time slices you need in the GIS tool of your choice before styling or export
 
 Reference snippet (NetCDF inspection, tutorial reference run):
 
@@ -481,7 +480,7 @@ vars:
 
 Use `results/grids/da_output_grids.nc` in a GIS software of your choice and visualize raster output.
 
-Recommended map date(s): choose one date with active snow cover and one date near melt season.
+Recommended manual map date(s): choose one date with active snow cover and one date near melt season.
 Use the same date across `open_loop`, `ens_mean`, and `increment` maps. Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-depth maps use `ens_mean` as the prior mean, `analysis_mean` as the event-weighted posterior mean, and `analysis_increment` as `posterior - prior`.
 
 For the shipped examples, project maps are split into generated DA-event maps under `results/maps/da_events/` and custom YAML maps such as `setup_overview` at the root of `results/maps/`. Use `oa-da-plot-project-maps --project-dir /data/rofental/projects/project_2022_2023 --max-workers 4` to rerender the full combined map set in one command. Omit `--max-workers` to let the Docker container auto-select a recipe-level worker count from the visible CPUs. Overview panels use setup-local GISCO GeoJSONs under `env/`; if you want to prefetch them ahead of time, run `oa-da-fetch-overview-geojson --project-dir /data/rofental/projects/project_2022_2023`.
@@ -491,8 +490,7 @@ For `snowdepth_daily`, the map renderer uses the viridis palette together with a
 
 ### data assimilation increment map
 
-The tutorial also includes a reference open-loop-departure map above (`increment_snowdepth_daily`, date
-**2023-06-02**). For event-level diagnostics, use generated DA-event maps or export
+The tutorial includes generated DA-event maps above. For event-level diagnostics, use these maps or export
 `analysis_increment_snowdepth_daily` from `da_output_grids.nc` on an assimilation date and compare it against the same-date prior/posterior mean maps.
 
 {: .references }
@@ -575,15 +573,15 @@ Interpretation:
 
 ---
 
-## 8. Season cleanup (optional)
+## 8. Project cleanup (optional)
 
-openAMUDNSEN-DA contains a module that cleans up heavy files that are used within the data assimilation workflow and not needed anymore after running a project. The cleanup is wired into the project pipeline and activated by default.
+openAMUNDSEN-DA contains a module that cleans up heavy files that are used within the data assimilation workflow and not needed anymore after running a project. The cleanup is wired into the project pipeline and activated by default.
 
 {: .checks }
 > Automatic cleanup is enabled by default via `data_assimilation.restart.cleanup_after_setup: true`.
-> Use manual cleanup if you disabled automatic cleanup or if older seasons still contain state files.
+> Use manual cleanup if you disabled automatic cleanup or if older projects still contain state files.
 
-Clean one season (`project_2022_2023`):
+Clean one project (`project_2022_2023`):
 
 **🟢 Run this command:**
 
@@ -594,7 +592,7 @@ oa-da-clean-project \
   --log-level INFO
 ```
 
-Clean all seasons under the same setup:
+Clean all projects under the same setup:
 
 **🟢 Run this command:**
 

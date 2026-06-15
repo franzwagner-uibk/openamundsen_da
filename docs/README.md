@@ -56,19 +56,15 @@ cache to `/tmp` inside WSL, which reduces lag and stale preview issues without u
 If you still see stale pages while editing under `/mnt/c`, switch to the **WSL Live Sync**
 task/script above. It is designed specifically to keep the preview in sync with markdown edits.
 
-## GitHub Pages Deployment
+## Cloudflare Pages Deployment
 
-This documentation is configured for GitHub Pages deployment:
+Live documentation is deployed to Cloudflare Pages at:
 
-1. Go to your repository's Settings -> Pages
-2. Set Source to "Deploy from a branch"
-3. Set Branch to "main" and folder to "/docs"
-4. Click Save
-
-GitHub will automatically build and deploy the site to:
 ```
-https://franzwagner-uibk.github.io/openamundsen_da/
+https://openamundsen-da.pages.dev/
 ```
+
+Treat the workflow files as the authoritative deployment source.
 
 ## Structure
 
@@ -82,19 +78,19 @@ docs/
 |-- workflow.md              # data assimilation workflow
 |-- guides/                  # User guides
 |   |-- index.md             # Guides section index
-|   |-- cli.md               # CLI reference (16 commands) [done]
+|   |-- cli.md               # CLI reference [done]
 |   |-- configuration.md     # YAML configuration guide [done]
 |   |-- observations.md      # Satellite observation processing [done]
 |   `-- experiments.md       # End-to-end walkthrough [done]
 |-- reference/               # Technical reference
 |   |-- index.md             # Reference section index [done]
-|   |-- package-structure.md # (TODO)
-|   |-- api.md               # (TODO)
-|   `-- da-methods.md        # (TODO)
+|   |-- package-structure.md # Package map [done]
+|   |-- api.md               # API quick reference [done]
+|   `-- da-methods.md        # Particle-filter methods [done]
 `-- advanced/                # Advanced topics
     |-- index.md             # Advanced section index [done]
     |-- troubleshooting.md   # Common issues and solutions [done]
-    `-- performance.md       # (TODO)
+    `-- performance.md       # Performance notes [done]
 ```
 
 ## Writing Documentation
@@ -154,49 +150,16 @@ Edit `_config.yml` to customize:
 - Installation guide (Docker and native)
 - Project structure documentation
 - Workflow overview with mermaid diagrams
-- Complete CLI reference (all 16 commands)
+- Complete CLI reference
 - Configuration reference (comprehensive YAML guide)
 - Observation processing guide (snow-cover incl. MODIS via converted rasters, Sentinel-2, Sentinel-1)
 - Running experiments guide (end-to-end walkthrough)
 - Troubleshooting guide (common issues and solutions)
 - Section index pages (Guides, Reference, Advanced)
 
-## TODOs
-
-### High Priority
-
-- [ ] Replace franzwagner-uibk with actual GitHub username in:
-  - [ ] `_config.yml` (url and aux_links)
-  - [ ] `index.md` (GitHub button link)
-  - [ ] `installation.md` (clone command)
-
-### Reference Pages
-
-- [ ] `reference/api.md` - Python API documentation
-- [ ] `reference/da-methods.md` - Particle filter implementation details
-- [ ] `reference/package-structure.md` - Module architecture and design
-
-### Advanced Pages
-
-- [ ] `advanced/performance.md` - Optimization strategies
-  - Ensemble size tuning
-  - Parallelization best practices
-  - Memory optimization
-  - Disk I/O optimization
-
-### General
-
-- [ ] `contributing.md` - Contributing guidelines
-  - Code style
-  - Testing requirements
-  - PR process
-- [ ] Consider adding API documentation generation (Sphinx autodoc integration?)
-- [ ] Add example notebooks/tutorials?
-- [ ] Add search configuration tuning if needed
-
 ## Notes
 
 - All core user-facing documentation is complete and ready for use
-- Reference section is stubbed for future technical API docs
-- The site is fully functional for GitHub Pages deployment
-- Consider integrating Sphinx for automated API docs from docstrings
+- Reference pages are maintained as hand-written quick references
+- The site is deployed through Cloudflare Pages
+- API documentation generation can be reconsidered later if direct Python API usage becomes a supported public surface

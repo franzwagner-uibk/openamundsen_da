@@ -7,7 +7,7 @@ Behavior
 - Reads rejuvenation params from project YAML (data_assimilation.rejuvenation):
   - sigma_t: additive temperature noise
   - sigma_p: multiplicative precipitation noise (lognormal with mu=0)
-  - sigma_rh: additive relative humidity noise
+  - sigma_rh: additive dew-point temperature noise
   - sigma_sw: multiplicative shortwave noise (lognormal with mu=0)
 - For each posterior member in the previous step:
   - Determine its source member directory via MEMBER_SOURCE_POINTER
@@ -75,15 +75,15 @@ class RejuvenationParams:
     seed: Optional[int]
 
 
-def _read_rejuvenation_params(setup_dir: Path) -> RejuvenationParams:
+def _read_rejuvenation_params(project_dir: Path) -> RejuvenationParams:
     """Read rejuvenation params; reuse prior_forcing sigmas by default.
 
     If rejuvenation sigmas are provided, they override; otherwise we fall
     back to data_assimilation.prior_forcing sigmas. Seed falls back
     to prior_forcing.random_seed if not set under rejuvenation.
     """
-    setup_yaml = find_project_yaml(setup_dir)
-    cfg = _read_yaml_file(setup_yaml) or {}
+    project_yaml = find_project_yaml(project_dir)
+    cfg = _read_yaml_file(project_yaml) or {}
     da = cfg.get(DA_BLOCK) or {}
     rj = da.get(REJUVENATION_BLOCK) or {}
     prior = (da.get("prior_forcing") or {})
@@ -127,16 +127,16 @@ def _read_next_step_dates(next_step_dir: Path) -> tuple[pd.Timestamp, pd.Timesta
         start = pd.to_datetime(step_cfg["start_date"])  # type: ignore[index]
     except Exception as e:
         raise ValueError(f"Missing or invalid start_date in {step_yaml}") from e
-    # Prefer setup end; fallback to step end_date
+    # Prefer project end; fallback to step end_date.
     try:
-        seas_yaml = find_project_yaml(infer_project_dir(next_step_dir))
-        seas_cfg = _read_yaml_file(seas_yaml) or {}
-        end = pd.to_datetime(seas_cfg["end_date"])  # type: ignore[index]
+        project_yaml = find_project_yaml(infer_project_dir(next_step_dir))
+        project_cfg = _read_yaml_file(project_yaml) or {}
+        end = pd.to_datetime(project_cfg["end_date"])  # type: ignore[index]
     except Exception:
         try:
             end = pd.to_datetime(step_cfg["end_date"])  # type: ignore[index]
         except Exception as e:
-            raise ValueError("Could not determine end_date from setup/step config") from e
+            raise ValueError("Could not determine end_date from project/step config") from e
     return start, end
 
 
@@ -180,9 +180,9 @@ def _rejuvenate_member_task(
     end: pd.Timestamp,
     dT: float,
     fP: float,
-    dRH: float,
+    dTd: float,
     fSW: float,
-    project_dir: Path,
+    setup_dir: Path,
     source_meteo_dir: Optional[Path],
 ) -> dict:
     """Worker: rebase one member's meteo and copy state pointer."""
@@ -192,7 +192,7 @@ def _rejuvenate_member_task(
     tgt_meteo.mkdir(parents=True, exist_ok=True)
 
     # Choose meteo source and write perturbed window
-    src_meteo = Path(source_meteo_dir) if source_meteo_dir is not None else (Path(project_dir) / "meteo")
+    src_meteo = Path(source_meteo_dir) if source_meteo_dir is not None else (Path(setup_dir) / "meteo")
     filter_and_write_meteo(
         src_dir=src_meteo,
         dst_dir=tgt_meteo,
@@ -200,7 +200,7 @@ def _rejuvenate_member_task(
         end=end,
         delta_t=dT,
         f_p=fP,
-        delta_rh=dRH,
+        delta_rh=dTd,
         f_sw=fSW,
     )
 
@@ -233,7 +233,7 @@ def _rejuvenate_member_task(
         "source_member": src_member.name,
         "delta_T": dT,
         "f_p": fP,
-        "delta_RH": dRH,
+        "delta_dew_point": dTd,
         "f_sw": fSW,
         "copied_state_pointer": copied_ptr,
         "rebase_open_loop": True,
@@ -266,10 +266,10 @@ def rejuvenate(
         src_member = _source_member_dir(post_member)
         dT = float(rng.normal(0.0, params.sigma_t)) if params.sigma_t else 0.0
         fP = float(rng.lognormal(mean=0.0, sigma=params.sigma_p)) if params.sigma_p else 1.0
-        dRH = float(rng.normal(0.0, params.sigma_rh)) if params.sigma_rh else 0.0
+        dTd = float(rng.normal(0.0, params.sigma_rh)) if params.sigma_rh else 0.0
         fSW = float(rng.lognormal(mean=0.0, sigma=params.sigma_sw)) if params.sigma_sw else 1.0
         tasks.append(
-            (i, post_member, src_member, tgt_root, start, end, dT, fP, dRH, fSW, Path(setup_dir), source_meteo_dir)
+            (i, post_member, src_member, tgt_root, start, end, dT, fP, dTd, fSW, Path(setup_dir), source_meteo_dir)
         )
 
     if not tasks:
@@ -288,11 +288,11 @@ def rejuvenate(
     copied_pointers = sum(int(r.get("copied_state_pointer")) for r in rows)
     for res in rows:
         logger.info(
-            "[{m}] dT={dt:+.3f} f_p={fp:.3f} dRH={drh:+.3f} f_sw={fsw:.3f} state_ptr={sp} rebase=True",
+            "[{m}] dT={dt:+.3f} f_p={fp:.3f} dTd={dtd:+.3f} f_sw={fsw:.3f} state_ptr={sp} rebase=True",
             m=res["member"],
             dt=res["delta_T"],
             fp=res["f_p"],
-            drh=res["delta_RH"],
+            dtd=res["delta_dew_point"],
             fsw=res["f_sw"],
             sp=res["copied_state_pointer"],
         )

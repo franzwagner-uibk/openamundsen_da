@@ -177,36 +177,8 @@ def _clean_plot_dir(plots_dir: Path) -> None:
                 stale.unlink()
 
 
-def _remove_dir_if_present(path: Path) -> None:
-    if path.exists():
-        if path.is_dir():
-            shutil.rmtree(path)
-        else:
-            path.unlink()
-
-
-def _remove_empty_legacy_plot_parents(project_dir: Path) -> None:
-    for candidate in (
-        project_dir / "plots" / "assim",
-        project_dir / "plots",
-    ):
-        if candidate.is_dir():
-            try:
-                candidate.rmdir()
-            except OSError:
-                pass
-
-
 def clean_plot_outputs(project_dir: Path, plots_dir: Path) -> None:
     _clean_plot_dir(plots_dir)
-    legacy_roots = (
-        project_dir / "results" / "benchmark" / "plots",
-        project_dir / "plots" / "benchmark",
-        project_dir / "plots" / "assim" / "scores",
-    )
-    for legacy_root in legacy_roots:
-        _remove_dir_if_present(legacy_root)
-    _remove_empty_legacy_plot_parents(project_dir)
 
 
 def _normalized_date_series(frame: pd.DataFrame) -> pd.Series:

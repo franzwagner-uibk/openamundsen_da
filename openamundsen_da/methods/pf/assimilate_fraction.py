@@ -167,20 +167,13 @@ def _coerce_int(raw: object, *, path: str) -> int:
 
 
 def _read_likelihood_from_project(project_dir: Path, observable: str) -> LikelihoodParams:
-    """Read likelihood settings from project YAML for a given observable if available.
-
-    The config may either be flat under ``likelihood`` (legacy) or nested
-    as ``likelihood.<observable>`` (preferred for multiple observables).
-    """
+    """Read likelihood settings from project YAML for a given observable if available."""
     cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
     da_cfg_raw = cfg.get("data_assimilation")
     da_cfg = {} if da_cfg_raw is None else require_mapping(da_cfg_raw, path="project.data_assimilation")
 
     lk_root_raw = da_cfg.get(LIKELIHOOD_BLOCK)
     lk_root_path = f"project.data_assimilation.{LIKELIHOOD_BLOCK}"
-    if lk_root_raw is None:
-        lk_root_raw = cfg.get(LIKELIHOOD_BLOCK)
-        lk_root_path = f"project.{LIKELIHOOD_BLOCK}"
     if lk_root_raw is None:
         return LikelihoodParams()
 

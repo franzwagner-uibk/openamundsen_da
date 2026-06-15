@@ -658,9 +658,5 @@ def cli_project_daily(argv: list[str] | None = None) -> int:
     return 0
 
 
-# Backward-compatible alias for transitional references.
-cli_setup_daily = cli_project_daily
-
-
 if __name__ == "__main__":
     sys.exit(cli_main())

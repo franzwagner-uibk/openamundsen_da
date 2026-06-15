@@ -829,8 +829,6 @@ def test_plot_result_overview_draws_all_assim_events_on_every_panel(monkeypatch,
 
     assert marker_calls == [[scf_date], [wet_date]]
     assert len(vline_calls) == 16
-    scf_midday = scf_date + pd.Timedelta(hours=12)
-    wet_midday = wet_date + pd.Timedelta(hours=12)
     hs_midday = hs_date + pd.Timedelta(hours=12)
     swe_midday = swe_date + pd.Timedelta(hours=12)
     assert {color for _dates, color, _ls, _lw in vline_calls} == {"#000000", "#777777"}

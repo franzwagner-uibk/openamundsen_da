@@ -16,7 +16,6 @@ Minimal CLI; defaults handle all formats/columns/behavior without user choices.
 
 from __future__ import annotations
 
-import shutil
 import threading
 import sys
 from dataclasses import dataclass
@@ -443,10 +442,6 @@ def run_project(cfg: OrchestratorConfig) -> None:
     # Console + file log under project root.
     _setup_logger(cfg.project_dir, cfg.log_level)
     live_plot_threads: list[threading.Thread] = []
-    legacy_plots_root = cfg.project_dir / "plots"
-    if legacy_plots_root.is_dir():
-        shutil.rmtree(legacy_plots_root)
-        logger.info("Removed legacy project-level plots root {}", legacy_plots_root)
 
     steps = _list_steps_sorted(cfg.project_dir)
     if not steps:

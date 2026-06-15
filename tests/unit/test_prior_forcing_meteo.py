@@ -5,7 +5,10 @@ import pandas as pd
 
 from openamundsen_da.core.prior_forcing import _read_prior_params
 from openamundsen_da.methods.pf.rejuvenate import _read_rejuvenation_params
-from openamundsen_da.util.meteo import filter_and_write_meteo
+from openamundsen_da.util.meteo import (
+    filter_and_write_meteo,
+    perturb_relative_humidity_via_dew_point,
+)
 from openamundsen_da.util.stats import sample_shortwave_factor
 
 
@@ -19,8 +22,8 @@ def test_filter_and_write_meteo_applies_four_variable_perturbations_and_guards(t
         "\n".join(
             [
                 "date,temp,precip,rel_hum,sw_in",
-                "2023-01-01T00:00:00,0.0,0.0,95.0,0.0",
-                "2023-01-01T03:00:00,1.0,2.0,10.0,10.0",
+                "2023-01-01T00:00:00,273.15,0.0,95.0,0.0",
+                "2023-01-01T03:00:00,278.15,2.0,10.0,10.0",
             ]
         ),
         encoding="utf-8",
@@ -38,11 +41,29 @@ def test_filter_and_write_meteo_applies_four_variable_perturbations_and_guards(t
     )
 
     out = pd.read_csv(dst_dir / "station.csv")
-    assert out["temp"].tolist() == [1.5, 2.5]
-    assert out["precip"].tolist() == [0.0, 4.0]
-    assert out["rel_hum"].tolist() == [100.0, 20.0]
-    assert out["sw_in"].tolist() == [0.0, 30.0]
+    np.testing.assert_allclose(out["temp"].to_numpy(), [274.65, 279.65])
+    np.testing.assert_allclose(out["precip"].to_numpy(), [0.0, 4.0])
+    np.testing.assert_allclose(out["rel_hum"].to_numpy(), [100.0, 21.191555068819333])
+    np.testing.assert_allclose(out["sw_in"].to_numpy(), [0.0, 30.0])
     assert (dst_dir / "stations.csv").exists()
+
+
+def test_dew_point_humidity_transform_changes_with_temperature_and_caps() -> None:
+    warmed = perturb_relative_humidity_via_dew_point(
+        pd.Series([273.15]),
+        pd.Series([80.0]),
+        delta_t=2.0,
+        delta_dew_point=0.0,
+    )
+    saturated = perturb_relative_humidity_via_dew_point(
+        pd.Series([273.15]),
+        pd.Series([95.0]),
+        delta_t=-5.0,
+        delta_dew_point=20.0,
+    )
+
+    np.testing.assert_allclose(warmed.to_numpy(), [69.28720908942724])
+    np.testing.assert_allclose(saturated.to_numpy(), [100.0])
 
 
 def test_filter_and_write_meteo_perturbs_integer_precip_and_shortwave(tmp_path: Path) -> None:

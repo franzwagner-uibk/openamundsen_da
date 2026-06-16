@@ -10,6 +10,8 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 import rasterio
+import xarray as xr
+from pyproj import CRS
 from rasterio.transform import from_origin
 from ruamel.yaml import YAML
 
@@ -40,6 +42,37 @@ def _write_project_yaml(project_dir: Path, payload: dict) -> None:
     y = YAML()
     with yml.open("w", encoding="utf-8") as f:
         y.dump(payload, f)
+
+
+def _write_two_slice_eurac_scf(path: Path) -> None:
+    ds = xr.Dataset(
+        {
+            "fsc": (
+                ("band", "y", "x"),
+                np.array(
+                    [
+                        [[205.0, 205.0], [205.0, 205.0]],
+                        [[100.0, 205.0], [0.0, 255.0]],
+                    ],
+                    dtype=np.float32,
+                ),
+            ),
+        },
+        coords={
+            "band": [1, 2],
+            "x": np.array([50.0, 150.0], dtype=np.float32),
+            "y": np.array([150.0, 50.0], dtype=np.float32),
+            "time": [
+                np.datetime64("2024-04-01T00:00:00"),
+                np.datetime64("2024-04-02T00:00:00"),
+            ],
+        },
+    )
+    ds["spatial_ref"] = xr.DataArray(0)
+    ds["spatial_ref"].attrs["crs_wkt"] = CRS.from_epsg(25832).to_wkt()
+    ds["spatial_ref"].attrs["spatial_ref"] = CRS.from_epsg(25832).to_wkt()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ds.to_netcdf(path)
 
 
 class AssimilateUncertaintyTests(unittest.TestCase):
@@ -610,6 +643,114 @@ class AssimilateUncertaintyTests(unittest.TestCase):
             np.testing.assert_array_equal(
                 support.mask.astype(np.uint8),
                 np.array([[1, 1], [0, 0]], dtype=np.uint8),
+            )
+
+    def test_load_observation_support_mask_reads_timestamped_eurac_netcdf_slice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            setup_dir = root / "setup"
+            project_dir = setup_dir / "projects" / "project_2024_2025"
+            obs_dir = setup_dir / "obs" / "snowcover"
+            grid_dir = setup_dir / "grids"
+            obs_csv = project_dir / "steps" / "step_00_init" / "obs" / "obs_scf_SNOWCOVER_20240402.csv"
+
+            obs_dir.mkdir(parents=True, exist_ok=True)
+            grid_dir.mkdir(parents=True, exist_ok=True)
+            obs_csv.parent.mkdir(parents=True, exist_ok=True)
+            y = YAML()
+            with (setup_dir / "setup.yml").open("w", encoding="utf-8") as f:
+                y.dump(
+                    {
+                        "domain": "demo",
+                        "resolution": 100,
+                        "crs": "EPSG:25832",
+                        "input_data": {"grids": {"dir": "grids"}},
+                    },
+                    f,
+                )
+            _write_project_yaml(
+                project_dir,
+                {
+                    "obs": {
+                        "snowcover": {
+                            "dir": "obs/snowcover",
+                            "classes": {
+                                "valid": [0, 100],
+                                "cloud": [205, 255],
+                                "water": [210],
+                                "nodata": [215],
+                            },
+                        }
+                    },
+                    "data_assimilation": {
+                        "uncertainty": {
+                            "scf": {
+                                "enabled": True,
+                                "ingest": {
+                                    "scf_variable": "fsc",
+                                    "uncertainty_variable": "uncertainty",
+                                    "time_variable": "time",
+                                },
+                            }
+                        }
+                    },
+                },
+            )
+
+            transform = from_origin(0.0, 200.0, 100.0, 100.0)
+            with rasterio.open(
+                grid_dir / "dem_demo_100.tif",
+                "w",
+                driver="GTiff",
+                width=2,
+                height=2,
+                count=1,
+                dtype="float32",
+                crs="EPSG:25832",
+                transform=transform,
+                nodata=-9999.0,
+            ) as dst:
+                dst.write(np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32), 1)
+            with rasterio.open(
+                grid_dir / "roi_demo_100.asc",
+                "w",
+                driver="AAIGrid",
+                width=2,
+                height=2,
+                count=1,
+                dtype="uint8",
+                crs="EPSG:25832",
+                transform=transform,
+                nodata=0,
+            ) as dst:
+                dst.write(np.ones((2, 2), dtype=np.uint8), 1)
+
+            nc_path = obs_dir / "SnowFLAKES_20240402_v3_eurac.nc"
+            _write_two_slice_eurac_scf(nc_path)
+            pd.DataFrame(
+                [
+                    {
+                        "date": "2024-04-02",
+                        "scf": 0.5,
+                        "n_valid": 2,
+                        "source": f"{nc_path.name}@2024-04-02T00:00:00Z",
+                    }
+                ]
+            ).to_csv(obs_csv, index=False)
+
+            support = load_observation_support_mask(
+                setup_dir=setup_dir,
+                project_dir=project_dir,
+                obs_csv=obs_csv,
+                observable="scf",
+                landcover_cfg=None,
+            )
+
+            self.assertEqual(support.n_valid, 2)
+            self.assertEqual(support.n_eligible, 4)
+            np.testing.assert_array_equal(
+                support.mask.astype(np.uint8),
+                np.array([[1, 0], [1, 0]], dtype=np.uint8),
             )
 
 

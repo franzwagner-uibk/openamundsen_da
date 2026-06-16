@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 import rasterio
 import xarray as xr
+import yaml
 from matplotlib.colors import to_rgba
 from matplotlib.markers import MarkerStyle
 from rasterio.transform import from_origin
@@ -172,6 +173,37 @@ def _write_da_output(path: Path) -> None:
         },
         coords={"time": times, "snow_layer": np.arange(3), "y": np.arange(4), "x": np.arange(4)},
     )
+    ds.to_netcdf(path)
+
+
+def _write_eurac_observation_netcdf(path: Path) -> None:
+    data = np.array(
+        [
+            [
+                [100.0, 90.0, 50.0, 0.0],
+                [100.0, 205.0, 50.0, 0.0],
+                [100.0, 90.0, 255.0, 0.0],
+                [100.0, 90.0, 50.0, 0.0],
+            ]
+        ],
+        dtype=np.float32,
+    )
+    ds = xr.Dataset(
+        {
+            "fsc": (("band", "y", "x"), data),
+            "uncertainty": (("band", "y", "x"), np.full(data.shape, 25.0, dtype=np.float32)),
+        },
+        coords={
+            "band": [1],
+            "x": np.array([50.0, 150.0, 250.0, 350.0], dtype=np.float32),
+            "y": np.array([350.0, 250.0, 150.0, 50.0], dtype=np.float32),
+            "time": [np.datetime64("2023-01-03T00:00:00")],
+        },
+    )
+    ds["spatial_ref"] = xr.DataArray(0)
+    ds["spatial_ref"].attrs["crs_wkt"] = "EPSG:25832"
+    ds["spatial_ref"].attrs["spatial_ref"] = "EPSG:25832"
+    path.parent.mkdir(parents=True, exist_ok=True)
     ds.to_netcdf(path)
 
 
@@ -2462,6 +2494,47 @@ def test_load_observation_uncertainty_scene_masks_invalid_observation_pixels(tmp
     assert scene.invalid_mask[0, 1]
     assert scene.invalid_mask[1, 1]
     assert scene.array[0, 0] == 35.0
+
+
+def test_load_observation_scene_reads_eurac_netcdf_uncertainty_variable(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    project_yaml = project_dir / "project_demo.yml"
+    cfg = _read_yaml_file(project_yaml)
+    cfg["data_assimilation"]["uncertainty"] = {
+        "scf": {
+            "enabled": True,
+            "ingest": {
+                "scf_variable": "fsc",
+                "uncertainty_variable": "uncertainty",
+                "time_variable": "time",
+            },
+        }
+    }
+    project_yaml.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+    _write_summary(
+        setup_dir / "obs" / "summaries" / project_dir.name / "scf_summary.csv",
+        [{"date": "2023-01-03", "source": "SnowFLAKES_20230103_v3_eurac.nc@2023-01-03T00:00:00Z"}],
+    )
+    _write_eurac_observation_netcdf(setup_dir / "obs" / "snowcover" / "SnowFLAKES_20230103_v3_eurac.nc")
+    context = load_static_context(project_dir)
+
+    scene = load_observation_scene(project_dir, context, observation="scf", date=pd.Timestamp("2023-01-03"))
+    unc_scene = load_observation_uncertainty_scene(
+        project_dir,
+        context,
+        observation="scf",
+        date=pd.Timestamp("2023-01-03"),
+    )
+
+    assert scene.coverage_fraction == pytest.approx(14.0 / 16.0)
+    assert np.isfinite(scene.array).sum() == 14
+    assert scene.invalid_mask is not None
+    assert scene.invalid_mask[1, 1]
+    assert scene.invalid_mask[2, 2]
+    assert unc_scene.coverage_fraction == pytest.approx(14.0 / 16.0)
+    assert unc_scene.array[0, 0] == 25.0
+    assert np.isnan(unc_scene.array[1, 1])
+    assert np.isnan(unc_scene.array[2, 2])
 
 
 def test_load_observation_uncertainty_scene_requires_sidecars(tmp_path: Path) -> None:

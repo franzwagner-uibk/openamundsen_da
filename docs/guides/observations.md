@@ -91,6 +91,7 @@ Notes:
 - ROI defaults to a vector auto-resolved under `/data/env` (or generated from `grids/roi_<domain>_<resolution>.asc` if no vector exists); land-cover masking uses `grids/lc_<domain>_<resolution>.asc` and `data_assimilation.landcover_mask.classes_to_exclude`.
 - Acquisition date is parsed from tokens like `YYYY_MM_DD` or `YYYYMMDD`.
 - Supports `.tif/.tiff/.nc`; use `--recursive` for nested folders.
+- NetCDF SCF products may provide CRS metadata through a CF `crs` variable or a `spatial_ref` variable with `crs_wkt`/`spatial_ref` attributes. This supports products such as EURAC SnowFLAKES v3 where GDAL subdatasets do not expose CRS directly. NetCDF products still require explicit `data_assimilation.uncertainty.scf.ingest.scf_variable`, `uncertainty_variable` and `time_variable` names when uncertainty ingest is enabled.
 
 ### Creating per-step observation CSVs (for assimilation)
 

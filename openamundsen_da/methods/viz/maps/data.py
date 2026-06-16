@@ -26,6 +26,8 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.methods.pf.fraction_support import (
     _fallback_observation_dir_for_project,
+    _netcdf_time_variable,
+    _netcdf_variable_from_ref,
     _source_dataset_ref,
     _source_path_from_token,
 )
@@ -35,6 +37,11 @@ from openamundsen_da.observer.class_config import load_observation_classes, load
 from openamundsen_da.subdomain.manifest import SubdomainManifest
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.landcover_mask import resolve_setup_landcover_grid
+from openamundsen_da.util.observation_raster import (
+    is_netcdf_path,
+    netcdf_band_index_for_token,
+    open_netcdf_variable_raster,
+)
 from openamundsen_da.util.roi_grid import _find_grid_file, load_setup_roi_mask, resolve_setup_grid_spec
 
 
@@ -76,6 +83,13 @@ class ObservationScene:
     coverage_fraction: float
     roi_mask: np.ndarray
     invalid_mask: np.ndarray | None = None
+
+
+@dataclass(frozen=True)
+class ObservationRasterSource:
+    path: Path
+    token: str
+    variable: str | None = None
 
 
 def _normalize_dates(values: object) -> tuple[pd.Timestamp, ...]:
@@ -539,7 +553,7 @@ def _observation_dir(project_dir: Path, observation: str) -> Path:
     return Path(abspath_relative_to(setup_dir, Path(str(raw_dir))))
 
 
-def _observation_source_paths(project_dir: Path, observation: str, date: pd.Timestamp) -> tuple[Path, ...]:
+def _observation_source_refs(project_dir: Path, observation: str, date: pd.Timestamp) -> tuple[ObservationRasterSource, ...]:
     summary = _load_summary(project_dir, observation)
     rows = summary[summary["date"] == pd.Timestamp(date).normalize()]
     if rows.empty:
@@ -553,11 +567,11 @@ def _observation_source_paths(project_dir: Path, observation: str, date: pd.Time
 
     obs_dir = _observation_dir(project_dir, observation)
     fallback_dir = _fallback_observation_dir_for_project(project_dir, observable=observation)
-    source_paths = []
+    source_refs = []
     for token in source_tokens:
         source_path = _source_path_from_token(obs_dir, token, fallback_dir=fallback_dir)
-        source_paths.append(source_path)
-    return tuple(source_paths)
+        source_refs.append(ObservationRasterSource(path=source_path, token=token))
+    return tuple(source_refs)
 
 
 def _roi_geometry_for_context(context: StaticContext) -> gpd.GeoDataFrame:
@@ -568,7 +582,7 @@ def _roi_geometry_for_context(context: StaticContext) -> gpd.GeoDataFrame:
 
 
 def _merge_observation_rasters(
-    source_paths: tuple[Path, ...],
+    source_refs: tuple[ObservationRasterSource, ...],
     *,
     context: StaticContext,
     roi_geom: gpd.GeoDataFrame,
@@ -578,9 +592,37 @@ def _merge_observation_rasters(
 
     with ExitStack() as stack:
         datasets = []
-        for source_path in source_paths:
-            dataset_ref = _source_dataset_ref(source_path, token=source_path.name, observable=observation)
-            src = stack.enter_context(rasterio.open(dataset_ref))
+        for source_ref in source_refs:
+            if is_netcdf_path(source_ref.path):
+                if source_ref.variable is None:
+                    dataset_ref = _source_dataset_ref(
+                        source_ref.path,
+                        token=source_ref.token,
+                        observable=observation,
+                    )
+                    variable = _netcdf_variable_from_ref(
+                        dataset_ref,
+                        source_path=source_ref.path,
+                        observable=observation,
+                    )
+                else:
+                    variable = source_ref.variable
+                time_variable = _netcdf_time_variable(context.project_dir, observable=observation)
+                band_index = netcdf_band_index_for_token(
+                    source_ref.path,
+                    token=source_ref.token,
+                    time_variable=time_variable,
+                )
+                src = stack.enter_context(
+                    open_netcdf_variable_raster(
+                        source_ref.path,
+                        variable=variable,
+                        band_index=band_index,
+                    )
+                )
+            else:
+                dataset_ref = _source_dataset_ref(source_ref.path, token=source_ref.token, observable=observation)
+                src = stack.enter_context(rasterio.open(dataset_ref))
             if src.crs is not None and context.spec.crs is not None and str(src.crs).lower() != str(context.spec.crs).lower():
                 src = stack.enter_context(
                     WarpedVRT(src, crs=context.spec.crs, resampling=Resampling.nearest)
@@ -628,15 +670,46 @@ def _mask_observation_array(
     return arr, invalid_mask
 
 
-def _observation_uncertainty_path(source_path: Path) -> Path:
-    if source_path.suffix.lower() not in {".tif", ".tiff"}:
+def _observation_uncertainty_variable(project_dir: Path, observation: str) -> str:
+    cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+    if not isinstance(cfg, dict):
+        raise ValueError(f"Expected project YAML mapping in {project_dir}")
+    da_cfg = cfg.get("data_assimilation")
+    if not isinstance(da_cfg, dict):
+        raise ValueError(f"Missing data_assimilation block in {find_project_yaml(project_dir)}")
+    unc_cfg = da_cfg.get("uncertainty")
+    if not isinstance(unc_cfg, dict):
+        raise ValueError(f"Missing data_assimilation.uncertainty block in {find_project_yaml(project_dir)}")
+    key = "scf" if observation == "scf" else "wet_snow"
+    obs_unc = unc_cfg.get(key)
+    if not isinstance(obs_unc, dict):
+        raise ValueError(f"Missing data_assimilation.uncertainty.{key} block in {find_project_yaml(project_dir)}")
+    ingest = obs_unc.get("ingest")
+    if not isinstance(ingest, dict):
+        raise ValueError(f"Missing data_assimilation.uncertainty.{key}.ingest block in {find_project_yaml(project_dir)}")
+    raw = ingest.get("uncertainty_variable")
+    if raw is None or not str(raw).strip():
         raise ValueError(
-            f"Uncertainty map panels currently require GeoTIFF observation sources, got: {source_path}"
+            f"NetCDF uncertainty map panels require data_assimilation.uncertainty.{key}.ingest.uncertainty_variable"
         )
-    uncertainty_path = source_path.parent / f"{source_path.stem}_uncertainty.tif"
+    return str(raw).strip()
+
+
+def _observation_uncertainty_ref(
+    project_dir: Path,
+    observation: str,
+    source_ref: ObservationRasterSource,
+) -> ObservationRasterSource:
+    if is_netcdf_path(source_ref.path):
+        return ObservationRasterSource(
+            path=source_ref.path,
+            token=source_ref.token,
+            variable=_observation_uncertainty_variable(project_dir, observation),
+        )
+    uncertainty_path = source_ref.path.parent / f"{source_ref.path.stem}_uncertainty.tif"
     if not uncertainty_path.is_file():
         raise FileNotFoundError(f"Observation uncertainty raster not found: {uncertainty_path}")
-    return uncertainty_path
+    return ObservationRasterSource(path=uncertainty_path, token=uncertainty_path.name)
 
 
 def _align_uncertainty_array(
@@ -666,10 +739,10 @@ def _align_uncertainty_array(
 
 
 def load_observation_scene(project_dir: Path, context: StaticContext, *, observation: str, date: pd.Timestamp) -> ObservationScene:
-    source_paths = _observation_source_paths(project_dir, observation, date)
+    source_refs = _observation_source_refs(project_dir, observation, date)
     roi_geom = _roi_geometry_for_context(context)
     arr, transform, bounds, roi_mask = _merge_observation_rasters(
-        source_paths,
+        source_refs,
         context=context,
         roi_geom=roi_geom,
         observation=observation,
@@ -702,8 +775,8 @@ def load_observation_uncertainty_scene(
 ) -> ObservationScene:
     observation_scene = load_observation_scene(project_dir, context, observation=observation, date=date)
     uncertainty_paths = tuple(
-        _observation_uncertainty_path(source_path)
-        for source_path in _observation_source_paths(project_dir, observation, date)
+        _observation_uncertainty_ref(project_dir, observation, source_ref)
+        for source_ref in _observation_source_refs(project_dir, observation, date)
     )
     roi_geom = _roi_geometry_for_context(context)
     arr, transform, _bounds, _roi_mask = _merge_observation_rasters(

@@ -196,6 +196,7 @@ docker compose run --rm oa `
 ```
 
 Classes and product tags are read from project YAML `obs.snowcover`.
+NetCDF SCF products can provide georeferencing through CF `crs` metadata or a `spatial_ref` variable with `crs_wkt`/`spatial_ref` attributes; configure exact value, uncertainty and time variable names under `data_assimilation.uncertainty.scf.ingest`.
 
 - Wet-snow summary (categorical rasters -> `wet_snow_summary.csv`):
 

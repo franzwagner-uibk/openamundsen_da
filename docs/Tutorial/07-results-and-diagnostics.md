@@ -397,6 +397,7 @@ This file is designed for:
 - exporting selected variables in one merged file.
 
 In the current tutorial configuration, `data_assimilation.output.retention: full` is enabled, so this summary NetCDF is written and the heavier member-grid artifacts are retained as well.
+The summary NetCDF uses compact internal storage for DA-owned snow grids: snow depth is stored at 0.001 m resolution, while SWE and liquid-water content are stored at integer millimeter resolution. Normal CF-aware readers such as xarray return decoded physical values.
 
 Reference output file path (data assimilation summary NetCDF):
 

@@ -55,7 +55,7 @@ T_perturbed = T_original + epsilon_T,  epsilon_T ~ N(0, sigma_T^2)
 P_perturbed = P_original * exp(epsilon_P),  epsilon_P ~ N(mu_P, sigma_P^2)
 ```
 
-**Relative humidity**: Dew-point Gaussian noise with saturation capping
+**Relative humidity**: Dew-point-temperature perturbation by default
 
 ```
 Td = Magnus(T_original, RH_original)
@@ -63,6 +63,8 @@ Td_perturbed = min(Td + epsilon_Td, T_original + epsilon_T)
 RH_perturbed = 100 * es(Td_perturbed) / es(T_original + epsilon_T)
 epsilon_Td ~ N(0, sigma_RH^2)
 ```
+
+`sigma_rh` is interpreted as a dew-point-temperature perturbation scale in K.
 
 The Magnus transform uses air temperature in degrees Celsius internally; forcing
 temperature is stored in Kelvin, and additive temperature offsets have the same
@@ -141,6 +143,7 @@ openAMUNDSEN-DA supports three uncertainty handling patterns, selected per produ
 
 All uncertainty values are expected on a `0..100` scale, and uncertainty-enabled preprocessing is strict fail-fast on missing/invalid inputs.
 In openAMUNDSEN-DA generation mode, per-pixel uncertainty is built from a baseline plus additive penalties from multiple configured class sources (for example forest land cover and shadow masks).
+Generated uncertainty sidecar rasters are written as compact `uint8` percent rasters with `255` as nodata.
 
 The example below shows this logic for a Rofental SCF scene. The left panel is the observed snow-cover fraction, the middle panel is the resulting uncertainty field, and the right panel shows the land-cover driver. The zoomed row makes the penalty structure visible: uncertainty remains spatially continuous on valid observation pixels and increases where configured covariates such as forest classes apply. Gaps such as cloud-covered pixels are not turned into "high-uncertainty observations"; they remain missing data.
 
@@ -409,7 +412,7 @@ data_assimilation:
   rejuvenation:
     sigma_t: 0.2 # Additive temperature noise (deg C)
     sigma_p: 0.2 # Lognormal sigma for precip factor (mu=0)
-    sigma_rh: 0.0 # Additive dew-point temperature noise
+    sigma_rh: 0.0 # Dew-point perturbation scale (K)
     sigma_sw: 0.0 # Lognormal sigma for daytime shortwave factor (mu=0)
 ```
 

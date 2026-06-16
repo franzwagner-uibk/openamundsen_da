@@ -161,7 +161,7 @@ Current forcing perturbations are:
 - additive dew-point temperature offset (`sigma_rh`, applied before recalculating `rel_hum`)
 - multiplicative shortwave factor (`sigma_sw`)
 
-`sigma_rh` and `sigma_sw` default to `0.0` when omitted. Humidity perturbation requires both `temp` and `rel_hum` in a station CSV; temperature perturbations also update `rel_hum` through the dew-point transform when both columns are available.
+`sigma_rh` and `sigma_sw` default to `0.0` when omitted. Humidity perturbation requires both `temp` and `rel_hum` in station CSVs. Temperature perturbations also update `rel_hum` through the dew-point transform when both columns are available.
 
 ### Run Ensemble
 
@@ -618,6 +618,8 @@ Outputs
   - `increment_<var>` is the open-loop departure: `ens_mean_<var> - open_loop_<var>`
   - `analysis_increment_<var>` is the DA-event increment: `analysis_mean_<var> - ens_mean_<var>`; positive values mean the event added snow/water to the ensemble mean
   - Time axis spans the full project timeline across all steps (not only the last step)
+  - DA-owned snow summary grids use compact NetCDF storage: snow depth is stored at 0.001 m resolution, SWE and liquid-water content at integer millimeter resolution, with CF scale factors preserving decoded physical values
+- Setup plots under `<setup_dir>/plots/{forcing,results}`
 - Project-level plots under `<project>/results/plots/{results,perf,points,assim/{weights,ess,scores}}`
 - Project-level misc artifacts under `<project>/results/misc`
 - Project maps under `<project>/results/maps`, with generated DA maps under `da_events/` and optional custom YAML maps at the root
@@ -808,6 +810,7 @@ DA defaults:
 - Project-level outputs are written under `<project>/results/`.
 - Compact data assimilation grid output is `<project>/results/grids/da_output_grids.nc`.
   - Variables in `da_output_grids.nc`: `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`, and event analysis fields `analysis_mean_<var>` / `analysis_increment_<var>` when weights are available.
+  - Merged compact DA grids preserve the same compressed storage policy as single-domain `da_output_grids.nc`.
 - Standalone `oa-da-subdomain merge` does not clean or move raw compact grid support files by default. Cleanup is an explicit post-artifact step and requires `--cleanup-compact-artifacts --confirm-delete-raw-grid-support`; even then it only archives files after the generated maps/report readiness checks pass.
 - Sub-domain reports are written under `<project>/results/subdomain_*.csv`.
 - Point outputs and plots remain inside each sub-domain project.

@@ -10,7 +10,7 @@ Design
 - Inputs: explicit input meteo dir, project dir, and step dir
 - Dates: inclusive [start_date..end_date] read from the step YAML
 - Params: read from project YAML under data_assimilation.prior_forcing
-- Perturbations: additive temperature and dew-point temperature offsets plus
+- Perturbations: additive temperature and humidity-state offsets plus
   multiplicative precipitation and shortwave factors, constant per member
   across stations and time
 - Schema: first column must be datetime (name is flexible); 'temp', 'precip',
@@ -92,6 +92,7 @@ def _read_prior_params(project_dir: Path) -> PriorParams:
     project_yaml = find_project_yaml(project_dir)
     cfg = _read_yaml_file(project_yaml) or {}
     da = (cfg.get(DA_BLOCK) or {}).get(DA_PRIOR_BLOCK) or {}
+    _reject_removed_humidity_method_option(da, f"{DA_BLOCK}.{DA_PRIOR_BLOCK}")
     try:
         cfg_seed = int(da[DA_RANDOM_SEED])
         seed = resolve_base_seed(cfg_seed)
@@ -112,6 +113,15 @@ def _read_prior_params(project_dir: Path) -> PriorParams:
             f"Missing prior parameter in project YAML:{' ' + missing} under "
             f"{DA_BLOCK}.{DA_PRIOR_BLOCK}"
         ) from e
+
+
+def _reject_removed_humidity_method_option(block: dict, path: str) -> None:
+    if "humidity_perturbation_method" not in block:
+        return
+    raise ValueError(
+        f"{path}.humidity_perturbation_method was removed; "
+        f"{DA_SIGMA_RH} always applies an additive dew-point temperature perturbation"
+    )
 
 
 def _read_step_start_and_project_end(step_dir: Path) -> Tuple[pd.Timestamp, pd.Timestamp]:

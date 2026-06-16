@@ -527,7 +527,10 @@ def collect_project_report_summary(project_dir: Path) -> ProjectReportSummary:
                 "Prior forcing: "
                 + _format_mapping_values(prior_cfg, ("ensemble_size", "random_seed"), labels={"random_seed": "seed"}),
                 "Prior sigmas: "
-                + _format_mapping_values(prior_cfg, ("sigma_t", "mu_p", "sigma_p", "sigma_rh", "sigma_sw")),
+                + _format_mapping_values(
+                    prior_cfg,
+                    ("sigma_t", "mu_p", "sigma_p", "sigma_rh", "sigma_sw"),
+                ),
                 "Resampling: "
                 + _format_mapping_values(
                     resampling_cfg,
@@ -537,7 +540,14 @@ def collect_project_report_summary(project_dir: Path) -> ProjectReportSummary:
                 "Rejuvenation: "
                 + _format_mapping_values(
                     rejuvenation_cfg,
-                    ("sigma_t", "sigma_p", "sigma_rh", "sigma_sw", "seed", "rebase_open_loop"),
+                    (
+                        "sigma_t",
+                        "sigma_p",
+                        "sigma_rh",
+                        "sigma_sw",
+                        "seed",
+                        "rebase_open_loop",
+                    ),
                 ),
                 "Benchmark: "
                 + _format_mapping_values(

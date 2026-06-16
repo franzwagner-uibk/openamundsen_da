@@ -238,9 +238,23 @@ def _output_class(recipe: MapRecipe) -> str:
     return "generated" if recipe.output_subdir == GENERATED_DA_MAPS_SUBDIR else "custom"
 
 
-def _render_project_maps_sequential(project_dir: Path, recipes: tuple[MapRecipe, ...]) -> list[Path]:
+def _shared_range_recipes_for_selection(
+    selected_recipes: tuple[MapRecipe, ...],
+    all_recipes: tuple[MapRecipe, ...],
+) -> tuple[MapRecipe, ...]:
+    if any(recipe.output_subdir == GENERATED_DA_MAPS_SUBDIR for recipe in selected_recipes):
+        return tuple(recipe for recipe in all_recipes if recipe.output_subdir == GENERATED_DA_MAPS_SUBDIR)
+    return selected_recipes
+
+
+def _render_project_maps_sequential(
+    project_dir: Path,
+    recipes: tuple[MapRecipe, ...],
+    *,
+    shared_range_recipes: tuple[MapRecipe, ...] | None = None,
+) -> list[Path]:
     context = load_static_context(project_dir)
-    runtime_cache = RenderRuntimeCache(shared_model_vmax=_collect_shared_model_vmax(project_dir, recipes))
+    runtime_cache = RenderRuntimeCache(shared_model_vmax=_collect_shared_model_vmax(project_dir, shared_range_recipes or recipes))
     outputs: list[Path] = []
     for recipe in recipes:
         logger.info("Starting {} map {}", _output_class(recipe), recipe.name)
@@ -259,9 +273,15 @@ def _render_project_maps_sequential(project_dir: Path, recipes: tuple[MapRecipe,
     return outputs
 
 
-def _render_project_maps_parallel(project_dir: Path, recipes: tuple[MapRecipe, ...], *, max_workers: int) -> list[Path]:
+def _render_project_maps_parallel(
+    project_dir: Path,
+    recipes: tuple[MapRecipe, ...],
+    *,
+    max_workers: int,
+    shared_range_recipes: tuple[MapRecipe, ...] | None = None,
+) -> list[Path]:
     output_by_name: dict[str, Path] = {}
-    shared_model_vmax = _collect_shared_model_vmax(project_dir, recipes)
+    shared_model_vmax = _collect_shared_model_vmax(project_dir, shared_range_recipes or recipes)
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         future_by_recipe = {}
         for recipe in recipes:
@@ -298,6 +318,7 @@ def render_project_maps(
     filtered = _filtered_names(config, names=names)
     if not filtered.maps:
         raise ValueError("Project maps selection resolved to no recipes")
+    shared_range_recipes = _shared_range_recipes_for_selection(filtered.maps, config.maps)
     effective_workers = _resolve_effective_max_workers(max_workers, recipe_count=len(filtered.maps))
     logger.info(
         "Rendering {} project map(s) from generated events + {} with {} worker(s) ...",
@@ -306,8 +327,13 @@ def render_project_maps(
         effective_workers,
     )
     if effective_workers == 1:
-        return _render_project_maps_sequential(project_dir, filtered.maps)
-    return _render_project_maps_parallel(project_dir, filtered.maps, max_workers=effective_workers)
+        return _render_project_maps_sequential(project_dir, filtered.maps, shared_range_recipes=shared_range_recipes)
+    return _render_project_maps_parallel(
+        project_dir,
+        filtered.maps,
+        max_workers=effective_workers,
+        shared_range_recipes=shared_range_recipes,
+    )
 
 
 def cli_main(argv: list[str] | None = None) -> int:

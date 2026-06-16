@@ -30,10 +30,11 @@ from openamundsen_da.io.paths import (
     find_project_yaml,
 )
 from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
+from openamundsen_da.util.storage_policy import PERCENT_UINT8_NODATA, percent_to_uint8_nodata
 
 _RHO_WATER_DEFAULT = 1000.0  # kg m-3
 _MASK_NODATA = np.uint8(255)
-_FRACTION_NODATA = -9999.0
+_FRACTION_NODATA = float(PERCENT_UINT8_NODATA)
 CLASSIFICATION_METHOD_FRACTION = "liquid_water_fraction"
 CLASSIFICATION_METHOD_AMOUNT = "liquid_water_amount"
 CLASSIFICATION_METHODS = (CLASSIFICATION_METHOD_FRACTION, CLASSIFICATION_METHOD_AMOUNT)
@@ -421,9 +422,9 @@ def _compute_fraction(
         theta_percent = theta * 100.0
         frac_array = np.where(np.isfinite(theta_percent), theta_percent, _FRACTION_NODATA)
         frac_profile = profile.copy()
-        frac_profile.update(driver="GTiff", dtype="float32", count=1, nodata=_FRACTION_NODATA, compress="lzw")
+        frac_profile.update(driver="GTiff", dtype="uint8", count=1, nodata=int(PERCENT_UINT8_NODATA), compress="lzw")
         with rasterio.open(frac_path, "w", **frac_profile) as dst:
-            dst.write(frac_array.astype(np.float32), 1)
+            dst.write(percent_to_uint8_nodata(frac_array, nodata_value=_FRACTION_NODATA), 1)
         logger.info("Wrote LWC fraction {}", frac_path)
 
 

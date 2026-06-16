@@ -126,7 +126,7 @@ STATIC_FIELD_PRESETS = {
 
 
 SNOW_DEPTH_REFERENCE_TICKS_M = (0.01, 0.10, 0.25, 0.50, 1.0, 2.0, 3.0, 4.0)
-SNOW_DEPTH_REFERENCE_TICKLABELS_CM = ("1", "10", "25", "50", "100", "200", "300", "400+")
+SNOW_DEPTH_REFERENCE_TICKLABELS_M = ("0.01", "0.1", "0.25", "0.5", "1", "2", "3", "4+")
 SNOW_DEPTH_REFERENCE_COLORS = (
     "#440154",
     "#46327e",
@@ -215,7 +215,7 @@ def _snow_depth_reference_cmap() -> LinearSegmentedColormap:
 
 SNOW_DEPTH_CMAP = _snow_depth_reference_cmap()
 INCREMENT_CMAP = colormaps["RdBu"]
-SNOW_DEPTH_COLORBAR_STEPS_CM = (5.0, 10.0, 25.0, 50.0, 100.0)
+SNOW_DEPTH_COLORBAR_STEPS_M = (0.05, 0.10, 0.25, 0.50, 1.0)
 ASPECT_COLORBAR_TICKS_RAD = (0.0, 1.0, 2.0, math.pi, 4.0, 5.0, 6.0)
 ASPECT_COLORBAR_TICKLABELS = ("0", "1", "2", "3.14", "4", "5", "6")
 
@@ -247,27 +247,38 @@ def snow_depth_scale_ticks(vmax: float) -> tuple[float, ...]:
     return tuple(float(value) for value in np.linspace(low, high, len(SNOW_DEPTH_REFERENCE_TICKS_M)))
 
 
-def snow_depth_colorbar_labels_cm(vmax: float) -> tuple[float, ...]:
-    vmax_cm = max(float(vmax) * 100.0, 1.0)
-    for step in SNOW_DEPTH_COLORBAR_STEPS_CM:
-        labels = [1.0]
+def _format_snow_depth_meter_label(value: float) -> str:
+    value = float(value)
+    if value < 0.1:
+        return f"{value:.2f}"
+    if value < 1.0:
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+    if abs(value - round(value)) < 1e-9:
+        return str(int(round(value)))
+    return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
+def snow_depth_colorbar_labels_m(vmax: float) -> tuple[float, ...]:
+    vmax_m = max(float(vmax), float(SNOW_DEPTH_REFERENCE_TICKS_M[0]))
+    for step in SNOW_DEPTH_COLORBAR_STEPS_M:
+        labels = [float(SNOW_DEPTH_REFERENCE_TICKS_M[0])]
         current = step
-        while current < vmax_cm - 1e-9:
+        while current < vmax_m - 1e-9:
             labels.append(float(current))
             current += step
-        if abs(labels[-1] - vmax_cm) > 1e-9:
-            labels.append(float(vmax_cm))
+        if abs(labels[-1] - vmax_m) > 1e-9:
+            labels.append(float(vmax_m))
         if len(labels) <= 7:
             return tuple(labels)
-    return (1.0, float(vmax_cm))
+    return (float(SNOW_DEPTH_REFERENCE_TICKS_M[0]), float(vmax_m))
 
 
 def snow_depth_colorbar_ticks(vmax: float) -> tuple[float, ...]:
-    return tuple(float(value) / 100.0 for value in snow_depth_colorbar_labels_cm(vmax))
+    return snow_depth_colorbar_labels_m(vmax)
 
 
 def snow_depth_colorbar_ticklabels(vmax: float) -> tuple[str, ...]:
-    return tuple(str(int(round(value))) for value in snow_depth_colorbar_labels_cm(vmax))
+    return tuple(_format_snow_depth_meter_label(value) for value in snow_depth_colorbar_labels_m(vmax))
 
 
 def _snow_depth_reference_norm(vmax: float) -> Normalize:
@@ -370,13 +381,13 @@ def model_colorbar_style(preset: VariablePreset, *, vmax: float | None = None) -
     if preset.variable == "snowdepth_daily":
         if vmax is None:
             return ColorbarStyle(
-                label="snow depth [cm]",
+                label="snow depth [m]",
                 ticks=SNOW_DEPTH_REFERENCE_TICKS_M,
-                ticklabels=SNOW_DEPTH_REFERENCE_TICKLABELS_CM,
+                ticklabels=SNOW_DEPTH_REFERENCE_TICKLABELS_M,
             )
         ticks = snow_depth_colorbar_ticks(vmax if vmax is not None else SNOW_DEPTH_REFERENCE_TICKS_M[-1])
         return ColorbarStyle(
-            label="snow depth [cm]",
+            label="snow depth [m]",
             ticks=ticks,
             ticklabels=snow_depth_colorbar_ticklabels(vmax),
         )

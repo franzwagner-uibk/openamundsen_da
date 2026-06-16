@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 import xarray as xr
 
 from openamundsen_da.util.da_output import (
@@ -77,6 +78,51 @@ def test_write_da_output_grids_creates_expected_variables(tmp_path: Path) -> Non
         assert np.allclose(inc_vals, np.array([[[2.0, 3.0], [4.0, 5.0]]], dtype=np.float32))
         assert ds["increment_snowdepth_daily"].attrs.get("summary_metric") == "increment"
         assert ds.attrs.get("increment_definition") == "increment_<var> = ens_mean_<var> - open_loop_<var>"
+
+
+def test_write_da_output_grids_stores_compact_int16_payloads(tmp_path: Path) -> None:
+    open_loop = tmp_path / "output_grids.nc"
+    member_1 = tmp_path / "member_001_output_grids.nc"
+    member_2 = tmp_path / "member_002_output_grids.nc"
+    out_nc = tmp_path / "da_output_grids.nc"
+
+    _write_nc(open_loop, np.array([[[1.2344, 2.3456], [3.4567, 4.5678]]], dtype=np.float32))
+    _write_nc(member_1, np.array([[[2.2344, 4.3456], [6.4567, 8.5678]]], dtype=np.float32))
+    _write_nc(member_2, np.array([[[4.2344, 6.3456], [8.4567, 10.5678]]], dtype=np.float32))
+
+    write_da_output_grids(
+        open_loop_nc=open_loop,
+        member_ncs=[member_1, member_2],
+        output_nc=out_nc,
+    )
+
+    with xr.open_dataset(out_nc) as ds:
+        np.testing.assert_allclose(ds["ens_mean_snowdepth_daily"].values[0, 0, 0], 3.234, atol=0.001)
+    with xr.open_dataset(out_nc, decode_cf=False) as raw:
+        var = raw["ens_mean_snowdepth_daily"]
+        assert var.dtype == np.dtype("int16")
+        assert var.attrs["_FillValue"] == np.int16(-32768)
+        assert var.attrs["scale_factor"] == np.float32(0.001)
+        assert var.attrs["add_offset"] == np.float32(0.0)
+        assert var.encoding.get("zlib") is True
+        assert var.encoding.get("shuffle") is True
+        assert var.encoding.get("complevel") == 4
+
+
+def test_write_da_output_grids_rejects_scaled_int16_overflow(tmp_path: Path) -> None:
+    open_loop = tmp_path / "output_grids.nc"
+    member = tmp_path / "member_001_output_grids.nc"
+    out_nc = tmp_path / "da_output_grids.nc"
+
+    _write_nc(open_loop, np.array([[[40.0, 1.0], [1.0, 1.0]]], dtype=np.float32))
+    _write_nc(member, np.array([[[40.0, 1.0], [1.0, 1.0]]], dtype=np.float32))
+
+    with pytest.raises(ValueError, match="exceeds compact int16 NetCDF storage range"):
+        write_da_output_grids(
+            open_loop_nc=open_loop,
+            member_ncs=[member],
+            output_nc=out_nc,
+        )
 
 
 def test_write_project_da_output_grids_spans_all_steps(tmp_path: Path) -> None:

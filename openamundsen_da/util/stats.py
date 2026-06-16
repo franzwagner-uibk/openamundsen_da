@@ -25,7 +25,7 @@ def sample_delta_t(rng: Generator, sigma_t: float) -> float:
 
 
 def sample_delta_rh(rng: Generator, sigma_rh: float) -> float:
-    """Sample an additive dew-point temperature offset ΔTd ~ N(0, sigma_rh^2)."""
+    """Sample an additive dew-point temperature offset from N(0, sigma_rh^2)."""
     return float(rng.normal(0.0, sigma_rh))
 
 

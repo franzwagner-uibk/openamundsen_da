@@ -87,6 +87,8 @@ def _read_rejuvenation_params(project_dir: Path) -> RejuvenationParams:
     da = cfg.get(DA_BLOCK) or {}
     rj = da.get(REJUVENATION_BLOCK) or {}
     prior = (da.get("prior_forcing") or {})
+    _reject_removed_humidity_method_option(prior, f"{DA_BLOCK}.prior_forcing")
+    _reject_removed_humidity_method_option(rj, f"{DA_BLOCK}.{REJUVENATION_BLOCK}")
     # Defaults: reuse prior_forcing
     sigma_t = float(rj.get(REJ_SIGMA_T, prior.get("sigma_t", 0.0)))
     sigma_p = float(rj.get(REJ_SIGMA_P, prior.get("sigma_p", 0.0)))
@@ -99,6 +101,15 @@ def _read_rejuvenation_params(project_dir: Path) -> RejuvenationParams:
         sigma_rh=sigma_rh,
         sigma_sw=sigma_sw,
         seed=(int(seed) if seed is not None else None),
+    )
+
+
+def _reject_removed_humidity_method_option(block: dict, path: str) -> None:
+    if "humidity_perturbation_method" not in block:
+        return
+    raise ValueError(
+        f"{path}.humidity_perturbation_method was removed; "
+        f"{REJ_SIGMA_RH} always applies an additive dew-point temperature perturbation"
     )
 
 

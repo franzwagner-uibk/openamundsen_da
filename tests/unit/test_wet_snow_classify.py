@@ -122,3 +122,34 @@ def test_absolute_liquid_water_method_classifies_without_depth_normalization(tmp
         [1, 0],
         [0, 255],
     ]
+
+
+def test_wet_snow_fraction_raster_is_uint8_percent(tmp_path: Path) -> None:
+    out_dir = tmp_path / "wet_snow"
+    depth = np.array([[1.0, 1.0], [0.001, -9999.0]], dtype=np.float32)
+    lw_total_mm = np.array([[1.0, 0.5], [10.0, 10.0]], dtype=np.float32)
+
+    _compute_fraction(
+        depth_entry=_depth_entry(depth),
+        lw_arrays=[lw_total_mm],
+        threshold_frac=0.005,
+        classification_method=CLASSIFICATION_METHOD_FRACTION,
+        liquid_water_amount_threshold_mm=5.0,
+        out_dir=out_dir,
+        mask_prefix="wet_snow_mask",
+        fraction_prefix="lwc_fraction",
+        write_fraction=True,
+        overwrite=True,
+        rho_water=1000.0,
+        min_depth_m=0.005,
+    )
+
+    with rasterio.open(out_dir / "lwc_fraction_2024-05-01T0000.tif") as src:
+        fraction = src.read(1)
+        assert src.dtypes[0] == "uint8"
+        assert src.nodata == 255
+
+    assert fraction.tolist() == [
+        [0, 0],
+        [255, 255],
+    ]

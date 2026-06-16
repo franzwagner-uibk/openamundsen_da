@@ -1885,7 +1885,7 @@ def _posterior_weighted_wet_fraction_array(
             member_weights.append(1.0)
 
     if not member_masks:
-        raise FileNotFoundError(f"Missing weighted posterior members for wet snow line (WSLA) map in {step_dir}")
+        raise FileNotFoundError(f"Missing weighted posterior members for wet snow line (WSL) map in {step_dir}")
 
     stack = np.stack(member_masks, axis=0)
     weight_arr = np.asarray(member_weights, dtype=float)
@@ -1980,7 +1980,7 @@ def _wet_snow_elevation_fraction_array(
         wet_fraction[dry] = 0.0
         wet_fraction[wet] = 1.0
     else:
-        raise ValueError(f"Unsupported wet snow elevation-band source '{source}'")
+        raise ValueError(f"Unsupported wet snow elevation band source '{source}'")
 
     out = _elevation_band_fraction_map(context=context, wet_fraction=wet_fraction, valid_mask=valid)
     if derived_cache is not None:
@@ -2070,9 +2070,9 @@ def _draw_wsl_contour(
 
 def _wsl_callout_text(level: float | None) -> str:
     if level is None or not np.isfinite(level):
-        return "WSLA unavailable"
+        return "WSL unavailable"
     rounded = int(10.0 * np.floor((float(level) / 10.0) + 0.5))
-    return f"WSLA {rounded} m"
+    return f"WSL {rounded} m"
 
 
 def _annotate_wsl_callout(ax, *, level: float | None, color: str = "black") -> None:
@@ -2102,9 +2102,9 @@ def _wet_snow_line_legend_handles(
 ) -> list[object]:
     handles = list(base_handles)
     if include_model_wsl:
-        handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, label="model WSLA"))
+        handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, label="model WSL"))
     if include_obs_wsl:
-        handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, linestyle=obs_linestyle, label="observation WSLA"))
+        handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, linestyle=obs_linestyle, label="observation WSL"))
     return handles
 
 
@@ -2544,7 +2544,7 @@ def render_wet_snow_line_panel(
                 layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True),
             )
         if model_contour_drawn:
-            label_text = "posterior WSLA" if str(panel.source) in {"posterior", "posterior_probability"} else "prior WSLA"
+            label_text = "posterior WSL" if str(panel.source) in {"posterior", "posterior_probability"} else "prior WSL"
             posterior_overlay_handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, linestyle="-", label=label_text))
     else:
         draw_classified_legend(
@@ -2749,9 +2749,9 @@ def render_fraction_model_panel(
         )
         if resolve_flag(panel.show_colorbar, defaults, "show_colorbar", True):
             if str(panel.source) == "prior_probability":
-                colorbar_label = "prior snow-cover probability [%]"
+                colorbar_label = "prior snow cover probability [%]"
             elif str(panel.source) == "posterior_probability":
-                colorbar_label = "posterior snow-cover probability [%]"
+                colorbar_label = "posterior snow cover probability [%]"
             else:
                 colorbar_label = "binary snow cover [%]"
             ticks = (0, 20, 40, 60, 80, 100) if is_probability else (0, 1)

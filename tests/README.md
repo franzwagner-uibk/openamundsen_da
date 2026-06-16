@@ -1,4 +1,4 @@
-﻿# Testing and CI Runbook
+# Testing and CI Runbook
 
 This folder documents the current regression-testing setup for `openamundsen_da`.
 
@@ -23,7 +23,7 @@ Workflow file: `.github/workflows/ci.yml`
   - Pushes to any branch (except docs-only changes)
   - Manual dispatch (`workflow_dispatch`)
 - Job `Ruff Lint`:
-  - Runs fast fatal lint checks before tests
+  - Runs fast fatal and stale-code lint checks before tests
   - Script: `scripts/ci/run_lint.sh`
 - Job `Unit and Integration Tests`:
   - Runs on self-hosted runner labels: `self-hosted, linux, x64, oa-da`
@@ -90,6 +90,7 @@ Framework/tooling config:
 
 - Lint gate:
   - fatal syntax/logic lint classes (`E9`, `F63`, `F7`, `F82`)
+  - stale-code checks for unused imports (`F401`), unused local variables (`F841`) and commented-out Python (`ERA001`)
 - Unit logic:
   - config merge behavior
   - assimilation event parsing
@@ -97,7 +98,7 @@ Framework/tooling config:
   - setup skeleton basics
   - statistics helpers
   - assimilation requirement validation prechecks
-- Integration scenario behavior:
+- Integration project behavior:
   - full `examples/rofental` orchestration on a temp clone
   - station HS, SCF, and wet-snow assimilation events from the shipped example
   - ensemble propagation, assimilation, resampling/rejuvenation path
@@ -125,7 +126,7 @@ What it does:
 - uses the shipped `project_2022_2023` configuration directly
 - generates setup skeleton
 - distributes SCF and wet-snow observations
-- runs full setup pipeline
+- runs full project pipeline
 - validates logs and outputs with `scripts/ci/validate_trimmed_project.py`
 
 Validation focuses on:
@@ -201,7 +202,8 @@ Failure artifacts:
 Runner script: `scripts/ci/run_lint.sh`
 
 What it checks:
-- ruff fatal classes only (`E9`, `F63`, `F7`, `F82`) as a fast quality gate
+- ruff fatal classes (`E9`, `F63`, `F7`, `F82`)
+- stale-code classes that are clean enough to enforce for v1.0 (`F401`, `F841`, `ERA001`)
 
 ## Self-Hosted Runner Setup (Ubuntu Test Machine)
 

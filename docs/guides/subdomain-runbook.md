@@ -11,6 +11,10 @@ nav_order: 6
 Run a large openAMUNDSEN-DA setup as independent sub-domains and merge the grid output.
 {: .fs-6 .fw-300 }
 
+Sub-domain mode is a regional decomposition workflow: each polygon is prepared and
+assimilated as an independent project before compact grid outputs are merged. It
+is not a particle-filter localization scheme.
+
 <details markdown="block">
   <summary>
     Table of contents
@@ -266,7 +270,7 @@ analysis_increment_<var>
 
 `analysis_*` variables are present when event weights are available.
 
-The merge is a hard mosaic. It does not interpolate, blend, or smooth boundaries. Visible breaks at sub-domain boundaries can therefore be expected.
+The merge is a hard mosaic. It does not interpolate, blend, smooth boundaries, or exchange particles across sub-domains. Visible breaks at sub-domain boundaries can therefore be expected.
 
 ## Plain openAMUNDSEN Model-only Run
 

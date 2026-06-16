@@ -333,12 +333,6 @@ def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path:
         project_scores=project_scores,
         reliability=reliability,
     )
-    legacy_results_plot_dir = project_dir / "results" / "benchmark" / "plots"
-    legacy_results_plot_dir.mkdir(parents=True, exist_ok=True)
-    (legacy_results_plot_dir / "performance_scores.png").write_text("stale", encoding="utf-8")
-    legacy_project_plot_dir = project_dir / "plots" / "benchmark"
-    legacy_project_plot_dir.mkdir(parents=True, exist_ok=True)
-
     plot_outputs = write_plots(
         project_plot_assim_scores_dir(project_dir),
         case_scores=case_scores,
@@ -359,9 +353,6 @@ def test_benchmark_render_outputs_write_single_plot_and_curated_tables(tmp_path:
     assert not any(tables_dir.glob("*.md"))
 
     assert plot_path.is_file()
-    assert not legacy_results_plot_dir.exists()
-    assert not legacy_project_plot_dir.exists()
-    assert not (project_dir / "plots").exists()
 
     project_summary = tables["project_summary"]
     update_summary = tables["update_summary"]

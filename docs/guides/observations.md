@@ -51,7 +51,7 @@ Snow-cover rasters (GeoTIFF/NetCDF) encoded as 0..100% with configurable cloud/w
 
 ### Creating per-step observation CSVs (for assimilation)
 
-After `scf_summary.csv` is created, generate per-step one-row observation CSVs (the setup pipeline expects these under each step's `obs/` directory):
+After `scf_summary.csv` is created, generate per-step one-row observation CSVs (the project pipeline expects these under each step's `obs/` directory):
 
 ```bash
 docker compose run --rm oa oa-da-scf \\

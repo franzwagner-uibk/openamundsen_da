@@ -10,7 +10,7 @@ Design
 - Inputs: explicit input meteo dir, project dir, and step dir
 - Dates: inclusive [start_date..end_date] read from the step YAML
 - Params: read from project YAML under data_assimilation.prior_forcing
-- Perturbations: additive temperature and relative humidity offsets plus
+- Perturbations: additive temperature and dew-point temperature offsets plus
   multiplicative precipitation and shortwave factors, constant per member
   across stations and time
 - Schema: first column must be datetime (name is flexible); 'temp', 'precip',
@@ -121,7 +121,7 @@ def _read_step_start_and_project_end(step_dir: Path) -> Tuple[pd.Timestamp, pd.T
     - step start_date is mandatory (from step YAML)
     - project end_date is mandatory (from project YAML)
     """
-    # Step: start (required)
+    # Read the required step start.
     step_yaml = find_step_yaml(step_dir)
     step_cfg = _read_yaml_file(step_yaml) or {}
     try:
@@ -131,7 +131,7 @@ def _read_step_start_and_project_end(step_dir: Path) -> Tuple[pd.Timestamp, pd.T
     if pd.isna(start):
         raise ValueError(f"Invalid {START_DATE} in {step_yaml}")
 
-    # Project: end (required)
+    # Read the required project end.
     project_dir = infer_project_dir(step_dir)
     project_yaml = find_project_yaml(project_dir)
     project_cfg = _read_yaml_file(project_yaml) or {}
@@ -174,7 +174,7 @@ def _write_info(
         "Perturbations (constant per member):",
         f"  delta_T (additive): {delta_t:+.3f}",
         f"  precip factor f_p:  {f_p:.3f}",
-        f"  delta_RH (additive): {delta_rh:+.3f}",
+        f"  delta_Td (dew point additive): {delta_rh:+.3f}",
         f"  shortwave factor f_sw: {f_sw:.3f}",
         "",
         "Date filter (inclusive):",
@@ -307,7 +307,7 @@ def build_prior_ensemble(
         delta_rh = sample_delta_rh(rng, params.sigma_rh)
         f_sw = sample_shortwave_factor(rng, params.sigma_sw)
         logger.info(
-            "[{m}] delta_T={dt:+.3f}  f_p={fp:.3f}  delta_RH={drh:+.3f}  f_sw={fsw:.3f}",
+            "[{m}] delta_T={dt:+.3f}  f_p={fp:.3f}  delta_Td={drh:+.3f}  f_sw={fsw:.3f}",
             m=member_name,
             dt=delta_t,
             fp=f_p,

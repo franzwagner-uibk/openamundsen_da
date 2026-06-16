@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from openamundsen_da.methods.pf import plot_weights as plot_mod
+from openamundsen_da.methods.viz.plots.assimilation import weights as plot_mod
 from openamundsen_da.methods.viz.plots.theme import GRID_ALPHA, GRID_LS, GRID_LW, da_variable_style
 from openamundsen_da.util.da_observables import weight_plot_title_from_csv_path
 

@@ -1335,11 +1335,6 @@ def _parse_s1_timestamp(name: str) -> datetime:
     raise ValueError(f"Cannot parse date from {name}")
 
 
-def _load_obs_wetsnow_classes(project_dir: Path) -> tuple[list[int], list[int], list[int]]:
-    # Kept as thin wrapper for backward-compatible imports in tests/callers.
-    return load_wetsnow_classes(project_dir)
-
-
 def cli_model(argv: list[str] | None = None) -> int:
     """CLI entry point mirroring oa-da-model-scf but for wet-snow area."""
 
@@ -1533,7 +1528,7 @@ def cli_s1_summary(argv: list[str] | None = None) -> int:
         logger.error("Cannot resolve project for land-cover config. Provide --project-dir or --project-label.")
         return 1
     lc_cfg = resolve_landcover_mask(setup_root, project_dir_for_lc)
-    wet_values, valid_values, exclude_values = _load_obs_wetsnow_classes(project_dir_for_lc)
+    wet_values, valid_values, exclude_values = load_wetsnow_classes(project_dir_for_lc)
 
     project_dates = resolve_project_dates(setup_root, project_label) if project_label else None
 
@@ -1573,10 +1568,6 @@ __all__ = [
     "cli_model_project",
     "cli_s1_summary",
 ]
-
-
-# Backward-compatible alias for transitional references.
-cli_model_setup = cli_model_project
 
 
 if __name__ == "__main__":  # pragma: no cover

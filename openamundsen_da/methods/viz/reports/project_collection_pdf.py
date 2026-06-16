@@ -529,8 +529,7 @@ def collect_project_report_summary(project_dir: Path) -> ProjectReportSummary:
                 "Prior sigmas: "
                 + _format_mapping_values(
                     prior_cfg,
-                    ("sigma_t", "mu_p", "sigma_p", "sigma_rh", "sigma_sw", "humidity_perturbation_method"),
-                    labels={"humidity_perturbation_method": "humidity_method"},
+                    ("sigma_t", "mu_p", "sigma_p", "sigma_rh", "sigma_sw"),
                 ),
                 "Resampling: "
                 + _format_mapping_values(
@@ -546,11 +545,9 @@ def collect_project_report_summary(project_dir: Path) -> ProjectReportSummary:
                         "sigma_p",
                         "sigma_rh",
                         "sigma_sw",
-                        "humidity_perturbation_method",
                         "seed",
                         "rebase_open_loop",
                     ),
-                    labels={"humidity_perturbation_method": "humidity_method"},
                 ),
                 "Benchmark: "
                 + _format_mapping_values(

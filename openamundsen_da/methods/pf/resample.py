@@ -58,8 +58,7 @@ def _read_resampling_from_project(project_dir: Path) -> ResamplingConfig:
     try:
         project_yaml = find_project_yaml(project_dir)
         cfg = _read_yaml_file(project_yaml) or {}
-        # Prefer nested under data_assimilation.resampling; fallback to top-level resampling
-        r = ((cfg.get(DA_BLOCK) or {}).get(RESAMPLING_BLOCK) or (cfg.get(RESAMPLING_BLOCK) or {}))
+        r = ((cfg.get(DA_BLOCK) or {}).get(RESAMPLING_BLOCK) or {})
         seed = r.get("seed")
         if seed is None:
             seed = cfg.get("data_assimilation", {}).get("prior_forcing", {}).get(DA_RANDOM_SEED)
@@ -337,7 +336,6 @@ def resample_from_weights(
 
 def cli_main(argv: Iterable[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="oa-da-resample", description="Systematic resampling to form a posterior ensemble (no duplication; uses pointers for state)")
-    p.add_argument("--project-dir", type=Path, help="Unused for config lookup (kept for CLI compatibility).")
     p.add_argument("--step-dir", required=True, type=Path)
     p.add_argument("--ensemble", required=True, choices=("prior", "posterior"), help="Source ensemble")
     p.add_argument("--weights", required=True, type=Path, help="Path to weights CSV (single date)")
@@ -393,7 +391,3 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-
-
-# Backward-compatible alias for transitional references.
-_read_resampling_from_setup = _read_resampling_from_project

@@ -1,4 +1,4 @@
-﻿domain: "rofental"
+domain: "rofental"
 resolution: 250 # spatial resolution (m)
 timestep: "3H" # temporal resolution as a pandas-compatible frequency string (e.g., "h", "3h", "D")
 crs: "epsg:25832" # CRS of the input grids
@@ -48,7 +48,7 @@ meteo:
     temperature:
       trend_method: fixed # use fixed monthly temperature lapse rates
       extrapolate: true
-      lapse_rate: # (Â°C m-1)
+      lapse_rate: # (deg C m-1)
         - -0.0026 # J
         - -0.0035 # F
         - -0.0047 # M
@@ -163,7 +163,7 @@ snow:
     method: snow_age
     min: 0.55 # minimum snow albedo
     max: 0.85 # maximum snow albedo
-    cold_snow_decay_timescale: 480 # albedo decay timescale for cold (T < 0 Â°C) snow (h)
+    cold_snow_decay_timescale: 480 # albedo decay timescale for cold (T < 0 deg C) snow (h)
     melting_snow_decay_timescale: 200 # albedo decay timescale for melting snow (h)
     decay_timescale_determination_temperature: surface # use surface temperature to distinguish between cold and melting snow
     refresh_snowfall: 0.5 # snowfall amount for resetting albedo to the maximum value (kg m-2 h-1)
@@ -177,7 +177,7 @@ snow:
 
     # Parameters for method "empirical"
     timescale: 200 # snow compaction timescale (h)
-    max_cold_density: 300 # maximum density for cold (T < 0 Â°C) snow (kg m-3)
+    max_cold_density: 300 # maximum density for cold (T < 0 deg C) snow (kg m-3)
     max_melting_density: 500 # maximum density for melting snow (kg m-3)
 
   # Liquid water content
@@ -472,4 +472,3 @@ land_cover:
       max_height: 1.9
       depletion_fraction: .nan
       rooting_depth: .nan
-

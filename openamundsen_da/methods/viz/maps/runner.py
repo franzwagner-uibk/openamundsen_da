@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -10,7 +9,7 @@ from pathlib import Path
 import numpy as np
 from loguru import logger
 
-from openamundsen_da.io.paths import project_maps_output_dir, project_maps_root, project_paper_output_path
+from openamundsen_da.io.paths import project_maps_output_dir, project_paper_output_path
 from openamundsen_da.methods.viz.maps.annotations import panel_date
 from openamundsen_da.methods.viz.maps.config import (
     MapRecipe,
@@ -306,26 +305,6 @@ def _render_project_maps_parallel(
     return [output_by_name[recipe.name] for recipe in recipes]
 
 
-def _clean_legacy_project_map_outputs(project_dir: Path) -> None:
-    legacy_maps_root = project_dir / "plots" / "maps"
-    if legacy_maps_root.is_dir():
-        logger.info("Removing legacy project map outputs under {}", legacy_maps_root)
-        shutil.rmtree(legacy_maps_root)
-    legacy_plots_root = project_dir / "plots"
-    if legacy_plots_root.is_dir():
-        try:
-            legacy_plots_root.rmdir()
-        except OSError:
-            pass
-
-    results_maps_root = project_maps_root(project_dir)
-    for subdir_name in ("overview", "comparison", "observation_context"):
-        legacy_family_dir = results_maps_root / subdir_name
-        if legacy_family_dir.is_dir():
-            logger.info("Removing legacy project map family directory {}", legacy_family_dir)
-            shutil.rmtree(legacy_family_dir)
-
-
 def render_project_maps(
     *,
     project_dir: Path,
@@ -334,7 +313,6 @@ def render_project_maps(
     max_workers: int | None = None,
 ) -> list[Path]:
     project_dir = Path(project_dir).resolve()
-    _clean_legacy_project_map_outputs(project_dir)
     target_config = (Path(config_path) if config_path is not None else default_project_maps_config_path(project_dir)).resolve()
     config = _effective_project_maps_config(project_dir, target_config)
     filtered = _filtered_names(config, names=names)

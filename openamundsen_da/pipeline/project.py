@@ -16,7 +16,6 @@ Minimal CLI; defaults handle all formats/columns/behavior without user choices.
 
 from __future__ import annotations
 
-import shutil
 import threading
 import sys
 from dataclasses import dataclass
@@ -443,10 +442,6 @@ def run_project(cfg: OrchestratorConfig) -> None:
     # Console + file log under project root.
     _setup_logger(cfg.project_dir, cfg.log_level)
     live_plot_threads: list[threading.Thread] = []
-    legacy_plots_root = cfg.project_dir / "plots"
-    if legacy_plots_root.is_dir():
-        shutil.rmtree(legacy_plots_root)
-        logger.info("Removed legacy project-level plots root {}", legacy_plots_root)
 
     steps = _list_steps_sorted(cfg.project_dir)
     if not steps:
@@ -954,13 +949,13 @@ def cli(argv: Optional[List[str]] = None) -> int:
         "--monitor-perf",
         dest="monitor_perf",
         action="store_true",
-        help="Enable background performance monitor (CPU/RAM) during the project run (default).",
+        help="Enable background performance monitor (CPU/RAM/disk and optional CPU temperature) during the project run (default).",
     )
     p.add_argument(
         "--no-monitor-perf",
         dest="monitor_perf",
         action="store_false",
-        help="Disable background performance monitor (CPU/RAM) during the project run.",
+        help="Disable background performance monitor (CPU/RAM/disk and optional CPU temperature) during the project run.",
     )
     p.add_argument(
         "--perf-sample-interval",

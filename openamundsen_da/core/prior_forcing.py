@@ -48,11 +48,7 @@ from openamundsen_da.core.constants import (
     DA_SIGMA_P,
     DA_SIGMA_RH,
     DA_SIGMA_SW,
-    DA_HUMIDITY_PERTURBATION_METHOD,
     ENSEMBLE_PRIOR,
-    HUMIDITY_METHOD_DEW_POINT,
-    HUMIDITY_METHOD_RELATIVE_HUMIDITY,
-    HUMIDITY_PERTURBATION_METHODS,
     START_DATE,
     END_DATE,
     LOGURU_FORMAT,
@@ -89,7 +85,6 @@ class PriorParams:
     sigma_p: float
     sigma_rh: float
     sigma_sw: float
-    humidity_perturbation_method: str
 
 
 def _read_prior_params(project_dir: Path) -> PriorParams:
@@ -97,6 +92,7 @@ def _read_prior_params(project_dir: Path) -> PriorParams:
     project_yaml = find_project_yaml(project_dir)
     cfg = _read_yaml_file(project_yaml) or {}
     da = (cfg.get(DA_BLOCK) or {}).get(DA_PRIOR_BLOCK) or {}
+    _reject_removed_humidity_method_option(da, f"{DA_BLOCK}.{DA_PRIOR_BLOCK}")
     try:
         cfg_seed = int(da[DA_RANDOM_SEED])
         seed = resolve_base_seed(cfg_seed)
@@ -110,7 +106,6 @@ def _read_prior_params(project_dir: Path) -> PriorParams:
             sigma_p=float(da[DA_SIGMA_P]),
             sigma_rh=float(da.get(DA_SIGMA_RH, 0.0)),
             sigma_sw=float(da.get(DA_SIGMA_SW, 0.0)),
-            humidity_perturbation_method=_read_humidity_perturbation_method(da),
         )
     except KeyError as e:
         missing = str(e).strip("'")
@@ -120,15 +115,13 @@ def _read_prior_params(project_dir: Path) -> PriorParams:
         ) from e
 
 
-def _read_humidity_perturbation_method(cfg: dict) -> str:
-    method = str(cfg.get(DA_HUMIDITY_PERTURBATION_METHOD, HUMIDITY_METHOD_DEW_POINT))
-    if method not in HUMIDITY_PERTURBATION_METHODS:
-        allowed = ", ".join(HUMIDITY_PERTURBATION_METHODS)
-        raise ValueError(
-            f"Invalid {DA_HUMIDITY_PERTURBATION_METHOD}: {method!r}; "
-            f"expected one of: {allowed}"
-        )
-    return method
+def _reject_removed_humidity_method_option(block: dict, path: str) -> None:
+    if "humidity_perturbation_method" not in block:
+        return
+    raise ValueError(
+        f"{path}.humidity_perturbation_method was removed; "
+        f"{DA_SIGMA_RH} always applies an additive dew-point temperature perturbation"
+    )
 
 
 def _read_step_start_and_project_end(step_dir: Path) -> Tuple[pd.Timestamp, pd.Timestamp]:
@@ -138,7 +131,7 @@ def _read_step_start_and_project_end(step_dir: Path) -> Tuple[pd.Timestamp, pd.T
     - step start_date is mandatory (from step YAML)
     - project end_date is mandatory (from project YAML)
     """
-    # Step: start (required)
+    # Read the required step start.
     step_yaml = find_step_yaml(step_dir)
     step_cfg = _read_yaml_file(step_yaml) or {}
     try:
@@ -148,7 +141,7 @@ def _read_step_start_and_project_end(step_dir: Path) -> Tuple[pd.Timestamp, pd.T
     if pd.isna(start):
         raise ValueError(f"Invalid {START_DATE} in {step_yaml}")
 
-    # Project: end (required)
+    # Read the required project end.
     project_dir = infer_project_dir(step_dir)
     project_yaml = find_project_yaml(project_dir)
     project_cfg = _read_yaml_file(project_yaml) or {}
@@ -178,7 +171,6 @@ def _write_info(
     f_p: float,
     delta_rh: float,
     f_sw: float,
-    humidity_perturbation_method: str,
     start: pd.Timestamp,
     end: pd.Timestamp,
     input_dir: Path,
@@ -192,8 +184,7 @@ def _write_info(
         "Perturbations (constant per member):",
         f"  delta_T (additive): {delta_t:+.3f}",
         f"  precip factor f_p:  {f_p:.3f}",
-        f"  {_humidity_delta_label(humidity_perturbation_method)}: {delta_rh:+.3f}",
-        f"  humidity method: {humidity_perturbation_method}",
+        f"  delta_Td (dew point additive): {delta_rh:+.3f}",
         f"  shortwave factor f_sw: {f_sw:.3f}",
         "",
         "Date filter (inclusive):",
@@ -223,7 +214,6 @@ def _build_member(
     f_p: float,
     delta_rh: float,
     f_sw: float,
-    humidity_perturbation_method: str,
     random_seed: int,
     input_meteo_dir: Path,
 ) -> None:
@@ -238,7 +228,6 @@ def _build_member(
         f_p=f_p,
         delta_rh=delta_rh,
         f_sw=f_sw,
-        humidity_perturbation_method=humidity_perturbation_method,
     )
     _write_info(
         member_root,
@@ -248,27 +237,10 @@ def _build_member(
         f_p=f_p,
         delta_rh=delta_rh,
         f_sw=f_sw,
-        humidity_perturbation_method=humidity_perturbation_method,
         start=start,
         end=end,
         input_dir=input_meteo_dir,
     )
-
-
-def _humidity_delta_label(humidity_perturbation_method: str) -> str:
-    if humidity_perturbation_method == HUMIDITY_METHOD_DEW_POINT:
-        return "delta_Tdew (additive, K)"
-    if humidity_perturbation_method == HUMIDITY_METHOD_RELATIVE_HUMIDITY:
-        return "delta_RH (additive, percentage points)"
-    return "delta_humidity"
-
-
-def _humidity_log_label(humidity_perturbation_method: str) -> str:
-    if humidity_perturbation_method == HUMIDITY_METHOD_DEW_POINT:
-        return "delta_Tdew"
-    if humidity_perturbation_method == HUMIDITY_METHOD_RELATIVE_HUMIDITY:
-        return "delta_RH"
-    return "delta_humidity"
 
 
 def build_prior_ensemble(
@@ -329,7 +301,6 @@ def build_prior_ensemble(
             f_p=1.0,
             delta_rh=0.0,
             f_sw=1.0,
-            humidity_perturbation_method=params.humidity_perturbation_method,
         )
         logger.info("Open-loop written: {p}", p=str(open_loop_root))
 
@@ -346,11 +317,10 @@ def build_prior_ensemble(
         delta_rh = sample_delta_rh(rng, params.sigma_rh)
         f_sw = sample_shortwave_factor(rng, params.sigma_sw)
         logger.info(
-            "[{m}] delta_T={dt:+.3f}  f_p={fp:.3f}  {hlabel}={drh:+.3f}  f_sw={fsw:.3f}",
+            "[{m}] delta_T={dt:+.3f}  f_p={fp:.3f}  delta_Td={drh:+.3f}  f_sw={fsw:.3f}",
             m=member_name,
             dt=delta_t,
             fp=f_p,
-            hlabel=_humidity_log_label(params.humidity_perturbation_method),
             drh=delta_rh,
             fsw=f_sw,
         )
@@ -375,7 +345,6 @@ def build_prior_ensemble(
                 f_p=f_p,
                 delta_rh=delta_rh,
                 f_sw=f_sw,
-                humidity_perturbation_method=params.humidity_perturbation_method,
                 random_seed=params.random_seed,
                 input_meteo_dir=src_dir,
             )
@@ -392,7 +361,6 @@ def build_prior_ensemble(
                     f_p,
                     delta_rh,
                     f_sw,
-                    params.humidity_perturbation_method,
                     params.random_seed,
                     src_dir,
                 ): f"member_{i:03d}"

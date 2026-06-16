@@ -1,6 +1,6 @@
 ---
 layout: default
-title: Moved: Workflow
+title: "Moved: Workflow"
 parent: How to Use
 nav_exclude: true
 permalink: /tutorial/workflow/

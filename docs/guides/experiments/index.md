@@ -9,19 +9,19 @@ permalink: /guides/experiments/
 # Running Experiments
 {: .no_toc }
 
-Fast path to run one setup in a project.
+Fast path to run one data assimilation project inside a setup.
 {: .fs-6 .fw-300 }
 
 ## Overview
-1. Prepare the project folder and ROI.
+1. Prepare the setup folder and ROI.
 2. Add meteo forcing and observations.
-3. Configure `project.yml` and `setup.yml`.
+3. Configure setup YAML and project YAML.
 4. Preprocess observations.
-5. Build setup skeleton and distribute obs.
-6. Run the setup pipeline.
+5. Build the project skeleton and distribute observations.
+6. Run the project pipeline.
 
-## 1) Prepare Project
-Copy the template project:
+## 1) Prepare Setup
+Copy the template setup:
 
 ```bash
 cp -r templates/project /path/to/your/project
@@ -30,13 +30,13 @@ cp -r templates/project /path/to/your/project
 Core layout:
 
 ```text
-project/
-|-- project.yml
+setup/
+|-- setup.yml
 |-- env/roi.gpkg
 |-- grids/lc_<domain>_<resolution>.asc
 |-- meteo/stations.csv
 |-- obs/
-|-- projects/project_YYYY-YYYY/setup.yml
+|-- projects/project_YYYY-YYYY/project_YYYY-YYYY.yml
 ```
 
 ## 2) Data Inputs
@@ -46,15 +46,17 @@ project/
 
 ## 3) Configure
 Use the split explicitly:
-- `project.yml`: project-wide, pure openAMUNDSEN config.
-- `setup.yml`: data assimilation config under `data_assimilation` plus `start_date`/`end_date`.
+- setup YAML (`setup.yml` or `<setup-name>.yml`): shared, pure openAMUNDSEN config.
+- project YAML (`project_YYYY-YYYY.yml` or `project.yml`): data assimilation config, observation mapping, project dates and assimilation events.
 
-Essentials in `project.yml`:
+Essentials in setup YAML:
 - Domain/CRS/resolution/timestep.
 - Required output variables for data assimilation (`swe`, `hs`, `lwc` daily grids).
-- Observation class mappings and product tags under `obs.*`.
+- Shared input paths such as grids and meteo forcing.
 
-Essentials in `setup.yml`:
+Essentials in project YAML:
+- `start_date` and `end_date`.
+- Observation class mappings, product tags and summary paths under `obs.*`.
 - `data_assimilation.prior_forcing.ensemble_size` and perturbation sigmas.
 - `data_assimilation.h_of_x` configuration.
 - `data_assimilation.likelihood`, `resampling`, `rejuvenation`, `restart`, `landcover_mask`.
@@ -80,7 +82,7 @@ docker compose run --rm oa oa-da-wetsnow \
   --output-root /data/obs
 ```
 
-## 5) Build Setup Skeleton
+## 5) Build Project Skeleton
 
 ```bash
 docker compose run --rm oa \
@@ -105,7 +107,7 @@ docker compose run --rm oa oa-da-wetsnow-project \
   --overwrite
 ```
 
-## 7) Run Setup Pipeline
+## 7) Run Project Pipeline
 
 ```bash
 docker compose run --rm oa \
@@ -115,8 +117,6 @@ docker compose run --rm oa \
   --max-workers 8
 ```
 
-Key outputs: per-step `assim/weights_*.csv`, optional `indices_*.csv`, and plots under `projects/<setup>/plots/`.
-
-
+Key outputs: per-step `assim/weights_*.csv`, optional `indices_*.csv`, compact grids under `results/grids/`, plots under `results/plots/`, maps under `results/maps/` and the optional PDF report under `results/reports/`.
 
 

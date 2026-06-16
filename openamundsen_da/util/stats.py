@@ -7,7 +7,7 @@ Compact statistical helpers used across DA modules.
 Includes:
 - Prior forcing perturbation samplers
   - Temperature offset: Normal(0, sigma_t^2)
-  - Humidity-state offset: Normal(0, sigma_rh^2)
+  - Dew-point temperature offset: Normal(0, sigma_rh^2)
   - Precipitation factor: LogNormal(mu_p, sigma_p^2)
   - Shortwave factor: LogNormal(0, sigma_sw^2)
 - Core math utilities
@@ -25,7 +25,7 @@ def sample_delta_t(rng: Generator, sigma_t: float) -> float:
 
 
 def sample_delta_rh(rng: Generator, sigma_rh: float) -> float:
-    """Sample an additive humidity-state offset from N(0, sigma_rh^2)."""
+    """Sample an additive dew-point temperature offset from N(0, sigma_rh^2)."""
     return float(rng.normal(0.0, sigma_rh))
 
 

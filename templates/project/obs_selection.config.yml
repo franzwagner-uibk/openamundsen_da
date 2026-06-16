@@ -1,4 +1,4 @@
-﻿# Usage:
+# Usage:
 # - Pass this file via --config or place it in the project root so it is auto-picked up.
 # - CLI flags remain as defaults; values here override per variable.
 # - prefer_variables controls which variable wins if multiple candidates fall within spacing_days.

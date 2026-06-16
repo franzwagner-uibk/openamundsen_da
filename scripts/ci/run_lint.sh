@@ -9,4 +9,4 @@ docker run --rm \
   -v "${ROOT_DIR}:/work" \
   -w /work \
   ghcr.io/astral-sh/ruff:0.8.4 \
-  check --no-cache --select E9,F63,F7,F82 openamundsen_da scripts tests
+  check --no-cache --select E9,F63,F7,F82,F401,F841,ERA001 openamundsen_da scripts tests

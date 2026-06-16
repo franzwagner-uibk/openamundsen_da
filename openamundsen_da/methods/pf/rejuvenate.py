@@ -7,7 +7,7 @@ Behavior
 - Reads rejuvenation params from project YAML (data_assimilation.rejuvenation):
   - sigma_t: additive temperature noise
   - sigma_p: multiplicative precipitation noise (lognormal with mu=0)
-  - sigma_rh: humidity-state noise
+  - sigma_rh: additive dew-point temperature noise
   - sigma_sw: multiplicative shortwave noise (lognormal with mu=0)
 - For each posterior member in the previous step:
   - Determine its source member directory via MEMBER_SOURCE_POINTER
@@ -45,11 +45,7 @@ from openamundsen_da.core.constants import (
     DA_RANDOM_SEED,
     DA_SIGMA_RH,
     DA_SIGMA_SW,
-    DA_HUMIDITY_PERTURBATION_METHOD,
     DEFAULT_TIME_COL,
-    HUMIDITY_METHOD_DEW_POINT,
-    HUMIDITY_METHOD_RELATIVE_HUMIDITY,
-    HUMIDITY_PERTURBATION_METHODS,
     MEMBER_PREFIX,
     STATE_POINTER_JSON,
     STATE_DEFAULT_NAME,
@@ -76,63 +72,45 @@ class RejuvenationParams:
     sigma_p: float
     sigma_rh: float
     sigma_sw: float
-    humidity_perturbation_method: str
     seed: Optional[int]
 
 
-def _read_rejuvenation_params(setup_dir: Path) -> RejuvenationParams:
+def _read_rejuvenation_params(project_dir: Path) -> RejuvenationParams:
     """Read rejuvenation params; reuse prior_forcing sigmas by default.
 
     If rejuvenation sigmas are provided, they override; otherwise we fall
     back to data_assimilation.prior_forcing sigmas. Seed falls back
     to prior_forcing.random_seed if not set under rejuvenation.
     """
-    setup_yaml = find_project_yaml(setup_dir)
-    cfg = _read_yaml_file(setup_yaml) or {}
+    project_yaml = find_project_yaml(project_dir)
+    cfg = _read_yaml_file(project_yaml) or {}
     da = cfg.get(DA_BLOCK) or {}
     rj = da.get(REJUVENATION_BLOCK) or {}
     prior = (da.get("prior_forcing") or {})
+    _reject_removed_humidity_method_option(prior, f"{DA_BLOCK}.prior_forcing")
+    _reject_removed_humidity_method_option(rj, f"{DA_BLOCK}.{REJUVENATION_BLOCK}")
     # Defaults: reuse prior_forcing
     sigma_t = float(rj.get(REJ_SIGMA_T, prior.get("sigma_t", 0.0)))
     sigma_p = float(rj.get(REJ_SIGMA_P, prior.get("sigma_p", 0.0)))
     sigma_rh = float(rj.get(REJ_SIGMA_RH, prior.get(DA_SIGMA_RH, 0.0)))
     sigma_sw = float(rj.get(REJ_SIGMA_SW, prior.get(DA_SIGMA_SW, 0.0)))
-    humidity_perturbation_method = _read_humidity_perturbation_method(rj, prior)
     seed = rj.get("seed", prior.get(DA_RANDOM_SEED))
     return RejuvenationParams(
         sigma_t=sigma_t,
         sigma_p=sigma_p,
         sigma_rh=sigma_rh,
         sigma_sw=sigma_sw,
-        humidity_perturbation_method=humidity_perturbation_method,
         seed=(int(seed) if seed is not None else None),
     )
 
 
-def _read_humidity_perturbation_method(rejuvenation: dict, prior: dict) -> str:
-    prior_method = _validate_humidity_perturbation_method(
-        str(prior.get(DA_HUMIDITY_PERTURBATION_METHOD, HUMIDITY_METHOD_DEW_POINT))
+def _reject_removed_humidity_method_option(block: dict, path: str) -> None:
+    if "humidity_perturbation_method" not in block:
+        return
+    raise ValueError(
+        f"{path}.humidity_perturbation_method was removed; "
+        f"{REJ_SIGMA_RH} always applies an additive dew-point temperature perturbation"
     )
-    method = _validate_humidity_perturbation_method(
-        str(rejuvenation.get(DA_HUMIDITY_PERTURBATION_METHOD, prior_method))
-    )
-    if method != prior_method:
-        raise ValueError(
-            f"data_assimilation.rejuvenation.{DA_HUMIDITY_PERTURBATION_METHOD} "
-            f"({method!r}) must match data_assimilation.prior_forcing."
-            f"{DA_HUMIDITY_PERTURBATION_METHOD} ({prior_method!r})"
-        )
-    return method
-
-
-def _validate_humidity_perturbation_method(method: str) -> str:
-    if method not in HUMIDITY_PERTURBATION_METHODS:
-        allowed = ", ".join(HUMIDITY_PERTURBATION_METHODS)
-        raise ValueError(
-            f"Invalid {DA_HUMIDITY_PERTURBATION_METHOD}: {method!r}; "
-            f"expected one of: {allowed}"
-        )
-    return method
 
 
 def _strip_timezone(ts: pd.Timestamp) -> pd.Timestamp:
@@ -160,16 +138,16 @@ def _read_next_step_dates(next_step_dir: Path) -> tuple[pd.Timestamp, pd.Timesta
         start = pd.to_datetime(step_cfg["start_date"])  # type: ignore[index]
     except Exception as e:
         raise ValueError(f"Missing or invalid start_date in {step_yaml}") from e
-    # Prefer setup end; fallback to step end_date
+    # Prefer project end; fallback to step end_date.
     try:
-        seas_yaml = find_project_yaml(infer_project_dir(next_step_dir))
-        seas_cfg = _read_yaml_file(seas_yaml) or {}
-        end = pd.to_datetime(seas_cfg["end_date"])  # type: ignore[index]
+        project_yaml = find_project_yaml(infer_project_dir(next_step_dir))
+        project_cfg = _read_yaml_file(project_yaml) or {}
+        end = pd.to_datetime(project_cfg["end_date"])  # type: ignore[index]
     except Exception:
         try:
             end = pd.to_datetime(step_cfg["end_date"])  # type: ignore[index]
         except Exception as e:
-            raise ValueError("Could not determine end_date from setup/step config") from e
+            raise ValueError("Could not determine end_date from project/step config") from e
     return start, end
 
 
@@ -213,10 +191,9 @@ def _rejuvenate_member_task(
     end: pd.Timestamp,
     dT: float,
     fP: float,
-    dRH: float,
+    dTd: float,
     fSW: float,
-    humidity_perturbation_method: str,
-    project_dir: Path,
+    setup_dir: Path,
     source_meteo_dir: Optional[Path],
 ) -> dict:
     """Worker: rebase one member's meteo and copy state pointer."""
@@ -226,7 +203,7 @@ def _rejuvenate_member_task(
     tgt_meteo.mkdir(parents=True, exist_ok=True)
 
     # Choose meteo source and write perturbed window
-    src_meteo = Path(source_meteo_dir) if source_meteo_dir is not None else (Path(project_dir) / "meteo")
+    src_meteo = Path(source_meteo_dir) if source_meteo_dir is not None else (Path(setup_dir) / "meteo")
     filter_and_write_meteo(
         src_dir=src_meteo,
         dst_dir=tgt_meteo,
@@ -234,9 +211,8 @@ def _rejuvenate_member_task(
         end=end,
         delta_t=dT,
         f_p=fP,
-        delta_rh=dRH,
+        delta_rh=dTd,
         f_sw=fSW,
-        humidity_perturbation_method=humidity_perturbation_method,
     )
 
     # Copy state pointer if present (support root or results location)
@@ -268,20 +244,11 @@ def _rejuvenate_member_task(
         "source_member": src_member.name,
         "delta_T": dT,
         "f_p": fP,
-        _humidity_delta_key(humidity_perturbation_method): dRH,
-        "humidity_perturbation_method": humidity_perturbation_method,
+        "delta_dew_point": dTd,
         "f_sw": fSW,
         "copied_state_pointer": copied_ptr,
         "rebase_open_loop": True,
     }
-
-
-def _humidity_delta_key(humidity_perturbation_method: str) -> str:
-    if humidity_perturbation_method == HUMIDITY_METHOD_DEW_POINT:
-        return "delta_Tdew"
-    if humidity_perturbation_method == HUMIDITY_METHOD_RELATIVE_HUMIDITY:
-        return "delta_RH"
-    return "delta_humidity"
 
 
 def rejuvenate(
@@ -310,24 +277,10 @@ def rejuvenate(
         src_member = _source_member_dir(post_member)
         dT = float(rng.normal(0.0, params.sigma_t)) if params.sigma_t else 0.0
         fP = float(rng.lognormal(mean=0.0, sigma=params.sigma_p)) if params.sigma_p else 1.0
-        dRH = float(rng.normal(0.0, params.sigma_rh)) if params.sigma_rh else 0.0
+        dTd = float(rng.normal(0.0, params.sigma_rh)) if params.sigma_rh else 0.0
         fSW = float(rng.lognormal(mean=0.0, sigma=params.sigma_sw)) if params.sigma_sw else 1.0
         tasks.append(
-            (
-                i,
-                post_member,
-                src_member,
-                tgt_root,
-                start,
-                end,
-                dT,
-                fP,
-                dRH,
-                fSW,
-                params.humidity_perturbation_method,
-                Path(setup_dir),
-                source_meteo_dir,
-            )
+            (i, post_member, src_member, tgt_root, start, end, dT, fP, dTd, fSW, Path(setup_dir), source_meteo_dir)
         )
 
     if not tasks:
@@ -345,16 +298,12 @@ def rejuvenate(
     )
     copied_pointers = sum(int(r.get("copied_state_pointer")) for r in rows)
     for res in rows:
-        humidity_key = _humidity_delta_key(
-            str(res.get("humidity_perturbation_method", HUMIDITY_METHOD_DEW_POINT))
-        )
         logger.info(
-            "[{m}] dT={dt:+.3f} f_p={fp:.3f} {hkey}={drh:+.3f} f_sw={fsw:.3f} state_ptr={sp} rebase=True",
+            "[{m}] dT={dt:+.3f} f_p={fp:.3f} dTd={dtd:+.3f} f_sw={fsw:.3f} state_ptr={sp} rebase=True",
             m=res["member"],
             dt=res["delta_T"],
             fp=res["f_p"],
-            hkey=humidity_key,
-            drh=res[humidity_key],
+            dtd=res["delta_dew_point"],
             fsw=res["f_sw"],
             sp=res["copied_state_pointer"],
         )
@@ -377,7 +326,6 @@ def rejuvenate(
         "sigma_p": params.sigma_p,
         "sigma_rh": params.sigma_rh,
         "sigma_sw": params.sigma_sw,
-        "humidity_perturbation_method": params.humidity_perturbation_method,
         "seed": (int(params.seed) if params.seed is not None else None),
         "copied_state_pointers": int(copied_pointers),
         "members": rows_sorted,

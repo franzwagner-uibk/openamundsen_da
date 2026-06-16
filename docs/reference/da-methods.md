@@ -27,8 +27,8 @@ openAMUNDSEN-DA implements a bootstrap particle filter (SIR) for snow data assim
 - `openamundsen_da.methods.wet_snow.area`
 
 ## Configuration hooks
-- `project.yml`: openAMUNDSEN base config and observation product/class mappings (for example `obs.snowcover.*`, `obs.wetsnow.*`).
-- `setup.yml`: data assimilation config under `data_assimilation`.
+- Setup YAML (`<setup-name>.yml` or `setup.yml`) contains pure openAMUNDSEN settings and shared setup data.
+- Project YAML (`<project-name>.yml` or `project.yml`) owns observation product/class mappings and data assimilation config under `data_assimilation`.
   - `prior_forcing`
   - `h_of_x`
   - `likelihood`
@@ -38,11 +38,18 @@ openAMUNDSEN-DA implements a bootstrap particle filter (SIR) for snow data assim
   - `landcover_mask`
   - `assimilation_events`
 
+## Prior forcing perturbations
+
+- `sigma_t` samples an additive air-temperature offset.
+- `mu_p` and `sigma_p` sample a multiplicative precipitation factor.
+- `sigma_rh` samples an additive dew-point temperature offset. When forcing files contain both `temp` and `rel_hum`, openAMUNDSEN-DA converts air temperature and relative humidity to dew point, applies the sampled dew-point offset, caps dew point at the perturbed air temperature, and recalculates relative humidity.
+- `sigma_sw` samples a positive multiplicative shortwave factor and applies it only to positive daytime `sw_in` values.
+
 ## Outputs
-- Per-step weights and indices: `<setup>/steps/step_*/assim/`
+- Per-step weights and indices: `<project>/steps/step_*/assim/`
 - Station DA diagnostics: `station_diagnostics_station_hs_*.csv` / `station_diagnostics_station_swe_*.csv`
-- ESS timeline and assimilation plots: `<setup>/plots/assim/`
-- Posterior members: `<setup>/steps/step_*/ensembles/posterior/`
+- ESS timeline and assimilation plots: `<project>/results/plots/assim/`
+- Posterior members: `<project>/steps/step_*/ensembles/posterior/`
 
 ## Prior, Posterior, And Increment Diagnostics
 - `open_loop` is the unperturbed baseline and is not resampled by DA.
@@ -53,7 +60,14 @@ openAMUNDSEN-DA implements a bootstrap particle filter (SIR) for snow data assim
 
 ## Observation families
 
-- `scf` and `wet_snow` use ROI fraction observations against ROI-scale `H(x)` values.
-- `station_hs` and `station_swe` use station point observations against model point outputs at station locations.
+- `scf` and `wet_snow` compare satellite fractions on the event-date valid observation support. The full-ROI companion values are diagnostic context, not the assimilated scalar when support differs.
+- `wet_snow_line` assimilates the support-aware 50% wet-fraction crossing as a scalar elevation value in meters.
+- `station_hs` and `station_swe` use station point observations against model point outputs at station locations. They are local evidence for reweighting whole-ROI particles, not basin-mean observations.
+
+Missing or invalid configured observations fail before the particle-filter update unless a sub-domain event filter explicitly drops a local event.
 
 For the station method, see the dedicated [Station Assimilation]({{ site.baseurl }}{% link guides/station-assimilation.md %}) guide.
+
+## Sub-domain mode
+
+Sub-domain mode runs independent regional data assimilation projects and hard-mosaics their compact grid outputs. It is not a formal localization scheme for one shared particle filter, and boundary discontinuities can be expected.

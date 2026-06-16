@@ -26,8 +26,6 @@ def test_shipped_subdomain_example_uses_current_project_tunes() -> None:
     assert da_cfg["resampling"]["ess_threshold_ratio"] == 0.7
     assert da_cfg["output"]["retention"] == "full"
     assert da_cfg["landcover_mask"]["classes_to_exclude"] == [2, 3, 13]
-    assert da_cfg["prior_forcing"]["humidity_perturbation_method"] == "relative_humidity"
-    assert da_cfg["rejuvenation"]["humidity_perturbation_method"] == "relative_humidity"
 
     scf_unc = da_cfg["uncertainty"]["scf"]
     assert scf_unc["ingest"] == {

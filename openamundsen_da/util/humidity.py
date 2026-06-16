@@ -12,7 +12,7 @@ _MAGNUS_B = 243.12
 def relative_humidity_to_dew_point(temp_k, rel_hum):
     """Return dew-point temperature in deg C from air temperature in K and RH in percent."""
     temp_k_arr, rh_arr = _broadcast_float_arrays(temp_k, rel_hum)
-    _validate_relative_humidity(rh_arr)
+    rh_arr = _clip_relative_humidity(rh_arr)
     temp_c = temp_k_arr - _KELVIN_OFFSET
     gamma = np.log(rh_arr / 100.0) + (_MAGNUS_A * temp_c) / (_MAGNUS_B + temp_c)
     dew_point_c = (_MAGNUS_B * gamma) / (_MAGNUS_A - gamma)
@@ -52,15 +52,8 @@ def _broadcast_float_arrays(left, right) -> tuple[np.ndarray, np.ndarray]:
     return np.broadcast_arrays(left_arr, right_arr)
 
 
-def _validate_relative_humidity(rel_hum: np.ndarray) -> None:
-    finite = np.isfinite(rel_hum)
-    invalid = finite & ((rel_hum <= 0.0) | (rel_hum > 100.0))
-    if np.any(invalid):
-        sample = rel_hum[invalid][:5]
-        raise ValueError(
-            "Relative humidity values must be within (0, 100] for dew-point "
-            f"perturbation; invalid sample: {sample.tolist()}"
-        )
+def _clip_relative_humidity(rel_hum: np.ndarray) -> np.ndarray:
+    return np.clip(rel_hum, 1e-6, 100.0)
 
 
 def _finite_pair(left: np.ndarray, right: np.ndarray) -> np.ndarray:

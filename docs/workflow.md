@@ -58,12 +58,17 @@ P_perturbed = P_original * exp(epsilon_P),  epsilon_P ~ N(mu_P, sigma_P^2)
 **Relative humidity**: Dew-point-temperature perturbation by default
 
 ```
-Tdew = f(T_original, RH_original)
-Tdew_perturbed = min(Tdew + epsilon_RH, T_perturbed)
-RH_perturbed = g(T_perturbed, Tdew_perturbed),  epsilon_RH ~ N(0, sigma_RH^2)
+Td = Magnus(T_original, RH_original)
+Td_perturbed = min(Td + epsilon_Td, T_original + epsilon_T)
+RH_perturbed = 100 * es(Td_perturbed) / es(T_original + epsilon_T)
+epsilon_Td ~ N(0, sigma_RH^2)
 ```
 
-With `humidity_perturbation_method: dew_point` (default), `sigma_rh` is interpreted as a dew-point-temperature perturbation scale in K. The legacy `humidity_perturbation_method: relative_humidity` applies raw additive RH noise in percentage points and clips to `[0, 100]`.
+`sigma_rh` is interpreted as a dew-point-temperature perturbation scale in K.
+
+The Magnus transform uses air temperature in degrees Celsius internally; forcing
+temperature is stored in Kelvin, and additive temperature offsets have the same
+numerical value in Kelvin and degrees Celsius.
 
 **Incoming shortwave radiation**: Multiplicative log-normal noise for daytime values only
 
@@ -407,12 +412,11 @@ data_assimilation:
   rejuvenation:
     sigma_t: 0.2 # Additive temperature noise (deg C)
     sigma_p: 0.2 # Lognormal sigma for precip factor (mu=0)
-    humidity_perturbation_method: dew_point # dew_point | relative_humidity
-    sigma_rh: 0.0 # Dew-point perturbation scale (K) for dew_point
+    sigma_rh: 0.0 # Dew-point perturbation scale (K)
     sigma_sw: 0.0 # Lognormal sigma for daytime shortwave factor (mu=0)
 ```
 
-If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas. `humidity_perturbation_method` defaults to `dew_point`; `sigma_rh` and `sigma_sw` default to `0.0` when omitted.
+If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas. `sigma_rh` and `sigma_sw` default to `0.0` when omitted.
 
 ### State Propagation
 
@@ -424,9 +428,9 @@ step_N/ensembles/posterior/member_i/ -> step_N+1/ensembles/prior/member_j/
 
 ---
 
-## Setup Pipeline
+## Project Pipeline
 
-The setup pipeline automates all phases:
+The project pipeline automates all phases:
 
 ```bash
 docker compose run --rm oa \
@@ -455,7 +459,7 @@ Optional: `--overwrite`, `--live-plots`, `--log-level <LEVEL>` (`--live-plots` e
 - Per-step runs in `<step>/ensembles/{prior,posterior}`
 - Weights and indices in `<step>/assim/`
 - Rejuvenated next-step prior with `state_pointer.json`
-- Setup plots under `<setup_dir>/plots/{forcing,results}`
+- Project plots under `<project_dir>/results/plots/`
 
 ---
 

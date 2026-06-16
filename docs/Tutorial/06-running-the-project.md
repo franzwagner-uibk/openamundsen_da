@@ -209,6 +209,8 @@ results/reports/
 
 The report PDF is a best-effort final artifact. Its first page contains the setup/project summary plus a bottom `Content` table with page numbers first and section names second. It then collects the curated overview plots, setup map, setup weights overview pages, station snow-depth point plots, `performance_scores.png`, `project_perf.png`, and generated DA-event maps in temporal order. If report prerequisites are missing, `oa-da-project` logs the missing paths and a manual `python -m openamundsen_da.methods.viz.reports --project-dir ...` rerun command, but the completed model run remains successful.
 
+The performance plot shows CPU, RAM, filesystem-used percentage, project size, and CPU temperature when sensors are readable.
+
 ![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/project_perf.png)
 
 ![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/result_overview.png)

@@ -627,7 +627,7 @@ oa-da-plot-ess --setup-dir PATH  # Setup-wide
 
 **Performance monitoring**
 
-Standalone performance monitor (CPU/RAM%, filesystem disk pressure, and throttled project directory size) that can attach to a running project.
+Standalone performance monitor (CPU/RAM%, filesystem disk pressure, throttled project directory size, and optional CPU temperature) that can attach to a running project.
 
 ```bash
 oa-da-perf-monitor \
@@ -641,7 +641,9 @@ Suggested intervals: sample every 5–10 seconds; refresh the plot every 30–60
 
 **Output:**
 - `results/plots/perf/project_perf_metrics.csv`
-- `results/plots/perf/project_perf.png` (CPU/RAM/filesystem-used % left axis, project size and free disk GB right axis)
+- `results/plots/perf/project_perf.png` (CPU/RAM/filesystem-used % left axis, project size GB right axis, and CPU temperature when available)
+
+CPU temperature sampling is optional and fail-soft. If sensors are unavailable in a container or virtualized environment, `cpu_temp_c` stays blank and the temperature line is omitted. For Docker runs that expose host sensors at a custom path, set `OA_DA_THERMAL_SYSFS_ROOT` to the mounted `hwmon` directory.
 
 ---
 

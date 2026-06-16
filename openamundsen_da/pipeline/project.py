@@ -949,13 +949,13 @@ def cli(argv: Optional[List[str]] = None) -> int:
         "--monitor-perf",
         dest="monitor_perf",
         action="store_true",
-        help="Enable background performance monitor (CPU/RAM) during the project run (default).",
+        help="Enable background performance monitor (CPU/RAM/disk and optional CPU temperature) during the project run (default).",
     )
     p.add_argument(
         "--no-monitor-perf",
         dest="monitor_perf",
         action="store_false",
-        help="Disable background performance monitor (CPU/RAM) during the project run.",
+        help="Disable background performance monitor (CPU/RAM/disk and optional CPU temperature) during the project run.",
     )
     p.add_argument(
         "--perf-sample-interval",

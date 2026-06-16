@@ -675,12 +675,14 @@ This creates `step_00_init`, `step_01_*`,  with `start_date`, `end_date`, and `r
 
 The skeleton uses the `timestep` from the setup YAML (e.g. `3H`, `6H`, `1D`) to define step boundaries. For each assimilation date `D_i`, step i runs long enough that openAMUNDSEN produces a daily grid for `D_i` in the preceding step, and step boundaries satisfy `start_{i+1} = end_i + timestep` (no duplicated timesteps). The project pipeline then assimilates SCF on the calendar date of `start_{i+1}`, which matches `D_i`.
 
-### Performance monitoring (CPU / RAM / disk)
+### Performance monitoring (CPU / RAM / disk / thermal)
 
-A minimal monitor samples system CPU%, RAM%, filesystem disk pressure, and throttled project directory size (enabled by default for `oa-da-project`).
+A minimal monitor samples system CPU%, RAM%, filesystem disk pressure, throttled project directory size, and CPU temperature when host sensors are exposed (enabled by default for `oa-da-project`).
 Outputs under `<project>/results/plots/perf/`:
-- `project_perf_metrics.csv` (timestamp, CPU/RAM columns, filesystem used/free/total GB, and project size GB)
-- `project_perf.png` (CPU/RAM/filesystem-used % plus project size and free disk GB)
+- `project_perf_metrics.csv` (timestamp, CPU/RAM columns, filesystem used/free/total GB, project size GB, and optional CPU temperature columns)
+- `project_perf.png` (CPU/RAM/filesystem-used %, project size GB, and optional CPU temperature)
+
+Thermal sampling is fail-soft. On systems without readable sensors, including some containers and virtualized environments, the thermal CSV columns stay blank and the plot omits the CPU temperature line. If a host exposes sensors through a non-default mount, set `OA_DA_THERMAL_SYSFS_ROOT` to the mounted `hwmon` directory, for example `/host-sys/class/hwmon`.
 
 Suggested intervals: sample every 5-10 seconds; refresh the plot every 30-60 seconds; scan recursive project size every 300 seconds or longer for large runs.
 

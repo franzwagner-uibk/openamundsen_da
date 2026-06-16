@@ -89,13 +89,15 @@ Reference CSV snippet (performance metrics)
 
 File path: `/data/rofental/projects/project_2022_2023/results/plots/perf/project_perf_metrics.csv`
 
-| timestamp | cpu_total_pct | mem_used_pct | mem_used_gb | mem_total_gb | disk_fs_used_pct | disk_fs_free_gb | disk_project_used_gb |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 2026-02-21T21:28:14 | 0.00 | 4.10 | 1.01 | 24.45 | 30.10 | 2500.00 | 0.82 |
-| 2026-02-21T21:28:19 | 40.90 | 14.10 | 3.44 | 24.45 | 30.10 | 2499.80 | 0.82 |
-| 2026-02-21T21:28:24 | 53.30 | 16.00 | 3.91 | 24.45 | 30.11 | 2499.70 | 0.82 |
-| 2026-02-21T21:28:29 | 52.50 | 17.70 | 4.32 | 24.45 | 30.11 | 2499.55 | 0.82 |
-| 2026-02-21T21:28:34 | 61.90 | 19.40 | 4.74 | 24.45 | 30.11 | 2499.40 | 0.82 |
+| timestamp | cpu_total_pct | mem_used_pct | mem_used_gb | mem_total_gb | disk_fs_used_pct | disk_project_used_gb | cpu_temp_c | cpu_temp_source | thermal_sample_ok |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-02-21T21:28:14 | 0.00 | 4.10 | 1.01 | 24.45 | 30.10 | 0.82 | 48.2 | psutil:k10temp:Tctl | true |
+| 2026-02-21T21:28:19 | 40.90 | 14.10 | 3.44 | 24.45 | 30.10 | 0.82 | 66.4 | psutil:k10temp:Tctl | true |
+| 2026-02-21T21:28:24 | 53.30 | 16.00 | 3.91 | 24.45 | 30.11 | 0.82 | 72.8 | psutil:k10temp:Tctl | true |
+| 2026-02-21T21:28:29 | 52.50 | 17.70 | 4.32 | 24.45 | 30.11 | 0.82 | 74.1 | psutil:k10temp:Tctl | true |
+| 2026-02-21T21:28:34 | 61.90 | 19.40 | 4.74 | 24.45 | 30.11 | 0.82 | 76.0 | psutil:k10temp:Tctl | true |
+
+The CSV also keeps absolute filesystem used/free/total columns (`disk_fs_used_gb`, `disk_fs_free_gb`, `disk_fs_total_gb`) and optional critical-temperature metadata. If thermal sensors are unavailable, `cpu_temp_c` and `cpu_temp_crit_c` are blank and `thermal_sample_ok` is `false`.
 
 Plot file to open:
 
@@ -110,7 +112,8 @@ _`project_perf.png` from the Rofental tutorial reference run (`100 m`, `ensemble
 What to read in the plot:
 
 - **Relative utilization curves**: look for sustained CPU use during step processing, stable RAM use, and filesystem-used percentage that stays below critical disk pressure.
-- **Absolute disk curves**: compare project directory growth against free filesystem space. Project size is scanned at a throttled interval, so it can update in steps rather than every sample.
+- **Project-size curve**: compare project directory growth against filesystem-used percentage. Project size is scanned at a throttled interval, so it can update in steps rather than every sample.
+- **Thermal curve**: when host sensors are readable, CPU temperature is plotted on its own axis. Missing thermal data is expected in some containers and does not invalidate the CPU/RAM/disk diagnostics.
 - **Timing structure**: repeated patterns often correspond to repeated step execution.
 
 {: .references }

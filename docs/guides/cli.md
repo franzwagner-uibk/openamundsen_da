@@ -24,7 +24,7 @@ Complete reference for all CLI commands.
 
 ## Overview
 
-The package provides **19 CLI entry points** for workflow automation, organized into 5 categories:
+The package provides **20 CLI entry points** for workflow automation, organized into 5 categories:
 
 1. **Core Workflow** - Main pipeline commands
 2. **Data Assimilation** - data assimilation-specific operations
@@ -147,6 +147,55 @@ oa-da-merge-project-grids \
 - time-like dimensions inherited from openAMUNDSEN outputs, such as `time1` and `time2`, are concatenated independently
 
 The output keeps normal DA summary variable names and stores merge provenance in global NetCDF attributes.
+
+---
+
+### oa-da-plot-multi-project-snow
+
+**Plot multi-project snow station and ROI time series**
+
+Creates a small snow-plot bundle from completed projects by stitching per-step point-result CSVs across projects. This is intended for adjacent annual projects that share one setup and should be delivered as one continuous multi-year product.
+
+Use setup-relative project names:
+
+```bash
+oa-da-plot-multi-project-snow \
+  --setup /data/rofental \
+  --project project_2020_2021 \
+  --project project_2021_2022 \
+  --project project_2022_2023
+```
+
+Or pass project directories directly:
+
+```bash
+oa-da-plot-multi-project-snow \
+  --project-dir /data/rofental/projects/project_2020_2021 \
+  --project-dir /data/rofental/projects/project_2021_2022 \
+  --output-dir /data/rofental/results/plots/multi_year_snow
+```
+
+**Required Arguments:**
+- Either `--setup PATH` with repeated `--project NAME`, or repeated `--project-dir PATH`
+
+**Optional Arguments:**
+- `--output-dir PATH` - Output directory; defaults to `<setup>/results/plots/multi_year_snow` when a setup can be inferred
+- `--station ID` - Station id to plot; repeatable, defaults to `latschbloder` and `proviantdepot`
+- `--variable NAME` - Snow variable to plot; repeatable, supports `snow_depth` and `swe`
+- `--overwrite` - Replace existing output PNGs
+- `--backend NAME` - Matplotlib backend, default `Agg`
+- `--log-level LEVEL` - Logging level
+
+**Output behavior:**
+- station plots show open loop, ensemble mean, the 5-95% member envelope and station observations where available
+- ROI plots show open loop, ensemble mean and the 5-95% member envelope
+- station model and station observations are aggregated to daily means; ROI result CSVs are used at their native daily cadence
+- negative station observations are masked before daily aggregation
+- missing observations do not fail a plot; the station plot is written model-only
+- no DA-event markers are drawn
+- if a source project has `results/maps/setup_overview.png`, it is copied to `context_map.png`
+
+The default Rofental bundle writes PNGs such as `station_latschbloder_snow_depth_2020_2024.png`, `station_proviantdepot_swe_2020_2024.png`, `roi_mean_snow_depth_2020_2024.png` and `context_map.png`.
 
 ---
 

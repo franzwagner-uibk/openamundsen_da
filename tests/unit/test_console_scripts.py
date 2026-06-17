@@ -72,3 +72,12 @@ def test_merge_project_grids_console_script_is_published():
     assert data["project"]["scripts"]["oa-da-merge-project-grids"] == (
         "openamundsen_da.pipeline.merge_project_grids:cli_main"
     )
+
+
+def test_multi_project_snow_console_script_is_published():
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    data = tomllib.loads(pyproject.read_text())
+
+    assert data["project"]["scripts"]["oa-da-plot-multi-project-snow"] == (
+        "openamundsen_da.methods.viz.plots.multi_project_snow:cli_main"
+    )

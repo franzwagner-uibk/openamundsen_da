@@ -416,6 +416,19 @@ oa-da-merge-project-grids \
 
 The merge command fails if variables, static coordinates, grid metadata or timestamps are incompatible. It preserves the usual DA summary variable names and records source-project provenance in global NetCDF attributes.
 
+For adjacent completed projects, the snow point-result CSVs can also be stitched into a compact multi-year snow-plot bundle:
+
+```bash
+oa-da-plot-multi-project-snow \
+  --setup /data/rofental \
+  --project project_2020_2021 \
+  --project project_2021_2022 \
+  --project project_2022_2023 \
+  --project project_2023_2024
+```
+
+By default, this writes station and ROI PNGs to `results/plots/multi_year_snow`. The plots show open loop, ensemble mean and the 5-95% member envelope; station observations are added where available. Station model and observation series are shown as daily means, negative station observations are masked and no DA-event markers are drawn. If `results/maps/setup_overview.png` exists in a source project, it is copied into the bundle as `context_map.png`.
+
 Optional variable/dimension inspection (Python in the container).
 
 **🟢 Run this command:**

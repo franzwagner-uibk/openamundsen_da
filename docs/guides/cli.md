@@ -24,7 +24,7 @@ Complete reference for all CLI commands.
 
 ## Overview
 
-The package provides **18 CLI entry points** for workflow automation, organized into 5 categories:
+The package provides **19 CLI entry points** for workflow automation, organized into 5 categories:
 
 1. **Core Workflow** - Main pipeline commands
 2. **Data Assimilation** - data assimilation-specific operations
@@ -104,6 +104,49 @@ data_assimilation:
 Configured extra benchmark families can still appear as `semi_independent` in outputs, but only from the first same-variable or sister-station assimilation date onward.
 `score_station_sigma_threshold` optionally excludes station rows with high resolved `station_uncertainty_pct` from non-sigma-aware benchmark metrics (`CRPSS`, `NER`) while leaving sigma-aware `zSkill` unchanged.
 The headline plot shows only DA-date `prior` and `posterior` skill for assimilated and transfer-observed variables; whole-project propagated skill remains in `project_summary.csv`. Station-point rows also carry sigma-aware `zSkill`, and the headline plot adds a third `zSkill` panel whenever those station scores are available.
+
+---
+
+### oa-da-merge-project-grids
+
+**Merge completed project DA summary NetCDFs**
+
+Concatenates multiple completed project `results/grids/da_output_grids.nc` files along their time-like dimensions and writes one normal DA summary NetCDF. This is intended for adjacent annual projects that share the same domain, grid, CRS, variables and compact NetCDF encoding.
+
+Use setup-relative project names:
+
+```bash
+oa-da-merge-project-grids \
+  --setup /data/rofental \
+  --project project_2020_2021 \
+  --project project_2021_2022 \
+  --output-nc /data/rofental/results/grids/da_output_grids_2020_2022.nc
+```
+
+Or pass project directories directly:
+
+```bash
+oa-da-merge-project-grids \
+  --project-dir /data/rofental/projects/project_2020_2021 \
+  --project-dir /data/rofental/projects/project_2021_2022 \
+  --output-nc /data/rofental/results/grids/da_output_grids_2020_2022.nc
+```
+
+**Required Arguments:**
+- `--output-nc PATH` - Merged output NetCDF path
+- Either `--setup PATH` with repeated `--project NAME`, or repeated `--project-dir PATH`
+
+**Optional Arguments:**
+- `--overwrite` - Replace an existing output file
+- `--log-level LEVEL` - Logging level
+
+**Validation behavior (fail-fast):**
+- input projects must already contain `results/grids/da_output_grids.nc`
+- all inputs must have identical variables, static coordinates, x/y grid, CRS and compatible NetCDF encoding
+- duplicate timestamps on any time-like dimension are rejected
+- time-like dimensions inherited from openAMUNDSEN outputs, such as `time1` and `time2`, are concatenated independently
+
+The output keeps normal DA summary variable names and stores merge provenance in global NetCDF attributes.
 
 ---
 

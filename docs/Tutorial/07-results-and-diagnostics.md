@@ -403,6 +403,18 @@ Reference output file path (data assimilation summary NetCDF):
 
 - `/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc`
 
+Adjacent completed projects with the same domain, grid, CRS, variables and compact encoding can be merged into one time-concatenated DA summary NetCDF:
+
+```bash
+oa-da-merge-project-grids \
+  --setup /data/rofental \
+  --project project_2020_2021 \
+  --project project_2021_2022 \
+  --project project_2022_2023 \
+  --output-nc /data/rofental/results/grids/da_output_grids_2020_2023.nc
+```
+
+The merge command fails if variables, static coordinates, grid metadata or timestamps are incompatible. It preserves the usual DA summary variable names and records source-project provenance in global NetCDF attributes.
 
 Optional variable/dimension inspection (Python in the container).
 

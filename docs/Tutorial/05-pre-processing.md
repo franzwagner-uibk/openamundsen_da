@@ -34,10 +34,10 @@ required station metadata are missing, preprocessing or the later project run
 fails instead of guessing.
 
 The same YAML-driven setup map used earlier in the tutorial is a useful reference
-while checking ROI coverage, station locations, and the static land-cover context
-that later influences preprocessing:
+while checking ROI coverage, station locations, static land-cover context and
+the snow redistribution factor (SRF):
 
-![Rofental tutorial setup overview map (ROI, stations, and land-cover context)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_overview.png)
+![Rofental tutorial setup overview map with DEM, forcing stations, land cover, aspect and SRF]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_overview.png)
 
 Selected sections from
 `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`:

@@ -10,12 +10,6 @@ maps:
     panels:
       - row: 0
         col: 0
-        kind: overview
-        title: Overview
-        scale: 2500000
-        roi_label: Rofental
-      - row: 0
-        col: 1
         kind: dem
         title: Digital elevation model
         show_station_marker: true
@@ -27,12 +21,18 @@ maps:
             placement: inside
             anchor: top_left
       - row: 0
-        col: 2
+        col: 1
         kind: landcover
         title: Land cover
-        landcover_grouping: broad
+        # Paper figure grouping: merge minor classes into model-relevant Rofental classes.
+        landcover_grouping: rofental_manuscript
       - row: 0
-        col: 3
+        col: 2
         kind: aspect
         title: Aspect
         legend: horizontal
+      - row: 0
+        col: 3
+        kind: srf
+        title: Snow redistribution factor
+        show_hillshade: true

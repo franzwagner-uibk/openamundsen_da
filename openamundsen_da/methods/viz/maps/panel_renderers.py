@@ -1311,7 +1311,26 @@ def render_static_panel(
     raw_data = field_array(context, field)
     data = masked(raw_data, context.roi_mask)
     norm = static_field_norm(preset, data.filled(np.nan))
-    image = ax.imshow(data, cmap=static_field_cmap(preset), norm=norm, extent=panel_grid_extent, origin="upper", interpolation="nearest", zorder=5)
+    alpha = 1.0
+    if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
+        hillshade_mode = resolve_hillshade_extent(panel, defaults, builtin="roi")
+        underlay = (
+            hillshade_underlay(context, derived_cache=derived_cache)
+            if hillshade_mode == "roi"
+            else hillshade(context, derived_cache=derived_cache)
+        )
+        ax.imshow(
+            underlay,
+            cmap="Greys_r",
+            extent=hillshade_extent(context),
+            origin="upper",
+            interpolation=_HILLSHADE_INTERPOLATION,
+            vmin=0.0,
+            vmax=1.0,
+            zorder=0,
+        )
+        alpha = 0.86
+    image = ax.imshow(data, cmap=static_field_cmap(preset), norm=norm, extent=panel_grid_extent, origin="upper", interpolation="nearest", alpha=alpha, zorder=5)
     overlay_invalid_inside_roi(ax, inside_roi_invalid_mask(raw_data, context.roi_mask), extent=panel_grid_extent)
     apply_common_overlays(
         ax,

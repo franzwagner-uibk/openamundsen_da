@@ -73,6 +73,7 @@ from openamundsen_da.methods.viz.maps.styles import (
     INCREMENT_CMAP,
     LANDCOVER_BROAD_CLASSES,
     LANDCOVER_COLORS,
+    LANDCOVER_ROFENTAL_MANUSCRIPT_CLASSES,
     SNOW_DEPTH_REFERENCE_TICKS_M,
     WET_SNOW_COLORS,
     WET_SNOW_LABELS,
@@ -88,7 +89,7 @@ from openamundsen_da.methods.viz.maps.styles import (
     static_field_cmap,
     static_field_colorbar_style,
 )
-from openamundsen_da.methods.viz.maps.theme import _COLORBAR_TICK_SIZE, _OVERVIEW_ROI_COLOR, _STATION_COLOR, _TICK_SIZE
+from openamundsen_da.methods.viz.maps.theme import _COLORBAR_TICK_SIZE, _GRID_COLOR, _GRID_WIDTH, _OVERVIEW_ROI_COLOR, _STATION_COLOR, _TICK_SIZE
 from openamundsen_da.util.run_mode import write_run_mode
 
 
@@ -1641,20 +1642,21 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
     assert cfg.maps[0].layout.nrows == 1
     assert cfg.maps[0].layout.ncols == 4
     assert [panel.title for panel in cfg.maps[0].panels] == [
-        "Overview",
         "Digital elevation model",
         "Land cover",
         "Aspect",
+        "Snow redistribution factor",
     ]
-    assert [panel.kind for panel in cfg.maps[0].panels] == ["overview", "dem", "landcover", "aspect"]
+    assert [panel.kind for panel in cfg.maps[0].panels] == ["dem", "landcover", "aspect", "srf"]
     assert [(panel.row, panel.col) for panel in cfg.maps[0].panels] == [(0, 0), (0, 1), (0, 2), (0, 3)]
-    assert cfg.maps[0].panels[1].show_station_marker is True
-    assert cfg.maps[0].panels[1].show_stations_name is True
-    assert cfg.maps[0].panels[1].show_stations_elev is True
-    assert cfg.maps[0].panels[1].below_items == ()
-    assert cfg.maps[0].panels[1].inside_legend_items[0].label == "AWS"
-    assert cfg.maps[0].panels[2].landcover_grouping == "broad"
-    assert cfg.maps[0].panels[3].legend == "horizontal"
+    assert cfg.maps[0].panels[0].show_station_marker is True
+    assert cfg.maps[0].panels[0].show_stations_name is True
+    assert cfg.maps[0].panels[0].show_stations_elev is True
+    assert cfg.maps[0].panels[0].below_items == ()
+    assert cfg.maps[0].panels[0].inside_legend_items[0].label == "AWS"
+    assert cfg.maps[0].panels[1].landcover_grouping == "rofental_manuscript"
+    assert cfg.maps[0].panels[2].legend == "horizontal"
+    assert cfg.maps[0].panels[3].show_hillshade is True
 
 
 def test_shipped_subdomain_project_maps_config_keeps_generic_setup_overview_only() -> None:
@@ -2808,6 +2810,59 @@ def test_aspect_panel_masks_flat_no_aspect_cells(tmp_path: Path) -> None:
         plt.close(fig)
 
 
+def test_static_continuous_panel_can_use_hillshade_underlay(tmp_path: Path) -> None:
+    roi_mask = np.array(
+        [
+            [0, 0, 0, 0],
+            [0, 1, 1, 0],
+            [0, 1, 1, 0],
+            [0, 0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
+    _setup_dir, project_dir = _build_project_fixture(
+        tmp_path,
+        roi_mask=roi_mask,
+        roi_bounds=(100.0, 100.0, 300.0, 300.0),
+    )
+    context = load_static_context(project_dir)
+    extent = buffered_extent(context)
+    grid_extent = render_module._grid_extent(context)
+    fig_plain, ax_plain = plt.subplots(figsize=(3, 3))
+    fig_shaded, ax_shaded = plt.subplots(figsize=(3, 3))
+    try:
+        render_module._render_static_panel(
+            ax_plain,
+            panel=MapPanelSpec(kind="srf", row=0, col=0, show_colorbar=False),
+            context=context,
+            extent=extent,
+            grid_extent=grid_extent,
+            label=None,
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
+        render_module._render_static_panel(
+            ax_shaded,
+            panel=MapPanelSpec(kind="srf", row=0, col=0, show_colorbar=False, show_hillshade=True),
+            context=context,
+            extent=extent,
+            grid_extent=grid_extent,
+            label=None,
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
+
+        assert len(ax_plain.images) == 1
+        assert len(ax_shaded.images) == 2
+        underlay = np.ma.asarray(ax_shaded.images[0].get_array())
+        assert np.ma.getmaskarray(underlay)[0, 0]
+        assert not np.ma.getmaskarray(underlay)[1, 1]
+        assert ax_shaded.images[1].get_alpha() == pytest.approx(0.86)
+    finally:
+        plt.close(fig_plain)
+        plt.close(fig_shaded)
+
+
 def test_aspect_panel_uses_horizontal_radian_colorbar(tmp_path: Path) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     context = load_static_context(project_dir)
@@ -3395,12 +3450,21 @@ def test_snowdepth_colorbar_ticks_keep_reference_style_with_dynamic_top_bin() ->
     assert snow_depth_colorbar_ticklabels(vmax) == ("0.01", "0.5", "1", "1.5", "2", "2.25")
 
 
-def test_increment_cmap_runs_from_negative_red_to_positive_blue() -> None:
+def test_increment_cmap_uses_compact_neutral_negative_red_positive_blue() -> None:
     low = INCREMENT_CMAP(0.0)
+    near_low = INCREMENT_CMAP(0.46)
+    center = INCREMENT_CMAP(0.5)
+    near_high = INCREMENT_CMAP(0.54)
     high = INCREMENT_CMAP(1.0)
 
+    assert INCREMENT_CMAP.name == "oa_da_diverging_compact"
     assert low[0] > low[2]
+    assert near_low[0] > near_low[2]
+    assert min(center[:3]) > 0.98
+    assert near_high[2] > near_high[0]
     assert high[2] > high[0]
+    assert sum(1.0 - value for value in near_low[:3]) > 0.20
+    assert sum(1.0 - value for value in near_high[:3]) > 0.12
 
 
 def test_scf_observation_palette_uses_greys_for_example_map_style() -> None:
@@ -3416,8 +3480,9 @@ def test_static_field_palettes_follow_reference_style() -> None:
 
     dem_cmap = static_field_cmap(dem_preset)
     svf_cmap = static_field_cmap(require_static_field_preset("svf"))
-    srf_cmap = static_field_cmap(require_static_field_preset("srf"))
-    srf_style = static_field_colorbar_style(require_static_field_preset("srf"))
+    srf_preset = require_static_field_preset("srf")
+    srf_cmap = static_field_cmap(srf_preset)
+    srf_style = static_field_colorbar_style(srf_preset)
 
     dem_low = dem_cmap(0.0)
     dem_high = dem_cmap(1.0)
@@ -3435,7 +3500,8 @@ def test_static_field_palettes_follow_reference_style() -> None:
     )
     assert static_field_colorbar_style(dem_preset, np.array([450.0, 1670.0])).ticks == (500.0, 1000.0, 1500.0)
     assert svf_cmap.name == "viridis"
-    assert srf_cmap.name == "RdBu"
+    assert srf_preset.cmap_name == "oa_da_diverging_compact"
+    assert srf_cmap is INCREMENT_CMAP
     assert sum(dem_high[:3]) > sum(dem_low[:3])
     assert sum(svf_high[:3]) > sum(svf_low[:3])
     assert srf_low[0] > srf_low[2]
@@ -3467,6 +3533,12 @@ def test_landcover_reference_colors_use_categorical_palette() -> None:
         LANDCOVER_COLORS[6],
         LANDCOVER_COLORS[10],
         LANDCOVER_COLORS[13],
+    ]
+    assert [(item.label, item.source_codes) for item in LANDCOVER_ROFENTAL_MANUSCRIPT_CLASSES] == [
+        ("rock", (1, 13)),
+        ("ice", (2, 3)),
+        ("grass/shrub", (4, 5, 6, 7)),
+        ("forest", (8, 9, 10, 11, 12)),
     ]
 
 
@@ -3517,6 +3589,8 @@ def test_map_axis_style_places_title_above_axes_and_can_hide_nonfirstcolumn_ylab
         assert all(not tick.label2.get_visible() for tick in ax.yaxis.get_major_ticks())
         assert grid_lines
         assert all(line.get_zorder() == 120 for line in grid_lines)
+        assert all(line.get_color() == _GRID_COLOR for line in grid_lines)
+        assert all(line.get_linewidth() == pytest.approx(_GRID_WIDTH) for line in grid_lines)
     finally:
         plt.close(fig)
 

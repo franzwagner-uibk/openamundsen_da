@@ -12,9 +12,9 @@ The tutorial uses the bundled Rofental setup as one concrete, reproducible examp
 This page describes that example once so later chapters do not need to repeat the same
 context.
 
-![Rofental tutorial setup overview map (domain, forcing stations, and land-cover layer)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_overview.png)
+![Rofental tutorial setup overview map with DEM, forcing stations, land cover, aspect and SRF]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_overview.png)
 
-*Rofental tutorial setup map rendered from `projects/project_2022_2023/maps.yml`, showing the model domain, forcing stations, and land-cover context used throughout the tutorial.*
+*Rofental tutorial setup map rendered from `projects/project_2022_2023/maps.yml`, showing the DEM with forcing stations, the Rofental manuscript land-cover grouping, aspect and the snow redistribution factor (SRF).*
 
 ## What Is Included
 

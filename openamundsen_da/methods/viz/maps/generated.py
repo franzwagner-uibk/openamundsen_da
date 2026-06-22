@@ -21,7 +21,7 @@ _FRACTION_REFERENCE_VARIABLES = ("scf", "wet_snow")
 _VARIABLE_LABELS = {
     "scf": "Snow cover fraction",
     "wet_snow": "Wet snow fraction (WSF)",
-    "wet_snow_line": "Wet snow line (WSL)",
+    "wet_snow_line": "Wet snow line altitude (WSLA)",
     "station_hs": "Station snow depth",
     "station_swe": "Station snow water equivalent",
 }
@@ -46,7 +46,7 @@ def _variable_label(variable: str) -> str:
 
 def _figure_title_variable_label(variable: str) -> str:
     if variable == "wet_snow_line":
-        return "Wet snow line - WSL"
+        return "Wet snow line altitude (WSLA)"
     return _variable_label(variable)
 
 
@@ -142,7 +142,7 @@ def _snow_depth_row(*, row: int, label: str, event_variable: str) -> GeneratedRo
     return GeneratedRow(
         label=label,
         panels=(
-            MapPanelSpec(kind="snow_depth", row=row, col=0, source="open_loop", title="Open-loop snow depth", show_hillshade=True),
+            MapPanelSpec(kind="snow_depth", row=row, col=0, source="open_loop", title="Open loop snow depth", show_hillshade=True),
             MapPanelSpec(kind="snow_depth", row=row, col=1, source="ensemble_mean", title="Prior snow depth", show_hillshade=True),
             MapPanelSpec(
                 kind="snow_depth",
@@ -158,7 +158,7 @@ def _snow_depth_row(*, row: int, label: str, event_variable: str) -> GeneratedRo
                 row=row,
                 col=3,
                 source="analysis_increment",
-                title="Snow-depth increment",
+                title="Snow depth increment",
                 show_hillshade=True,
                 variable=event_variable,
             ),
@@ -176,7 +176,7 @@ def _fraction_row(*, row: int, kind: str, label: str) -> GeneratedRow:
                     row=row,
                     col=0,
                     source="open_loop_binary",
-                    title="Open-loop snow cover",
+                    title="Open loop snow cover",
                     show_hillshade=True,
                     hillshade_extent="roi",
                 ),
@@ -204,7 +204,7 @@ def _fraction_row(*, row: int, kind: str, label: str) -> GeneratedRow:
     return GeneratedRow(
         label=label,
         panels=(
-            MapPanelSpec(kind=kind, row=row, col=0, source="open_loop", title="Open-loop WSF", show_hillshade=True, hillshade_extent="roi"),
+            MapPanelSpec(kind=kind, row=row, col=0, source="open_loop", title="Open loop WSF", show_hillshade=True, hillshade_extent="roi"),
             MapPanelSpec(
                 kind=kind,
                 row=row,
@@ -237,7 +237,7 @@ def _wet_snow_line_row(*, row: int, label: str) -> GeneratedRow:
                 row=row,
                 col=0,
                 source="open_loop",
-                title="Open-loop wet snow line",
+                title="Open loop WSLA",
                 show_hillshade=True,
                 hillshade_extent="roi",
             ),
@@ -246,7 +246,7 @@ def _wet_snow_line_row(*, row: int, label: str) -> GeneratedRow:
                 row=row,
                 col=1,
                 source="prior_probability",
-                title="Prior wet snow line",
+                title="Prior WSLA",
                 show_hillshade=True,
                 hillshade_extent="roi",
             ),
@@ -255,11 +255,11 @@ def _wet_snow_line_row(*, row: int, label: str) -> GeneratedRow:
                 row=row,
                 col=2,
                 source="posterior_probability",
-                title="Posterior wet snow line",
+                title="Posterior WSLA",
                 show_hillshade=True,
                 hillshade_extent="roi",
             ),
-            MapPanelSpec(kind="wet_snow_line", row=row, col=3, title="Observed wet snow line"),
+            MapPanelSpec(kind="wet_snow_line", row=row, col=3, title="Observed WSLA"),
         ),
     )
 
@@ -273,7 +273,7 @@ def _wet_snow_elevation_fraction_row(*, row: int, variable: str) -> GeneratedRow
                 row=row,
                 col=0,
                 source="open_loop",
-                title="Open-loop elevation band WSF",
+                title="Open loop elevation band WSF",
                 variable=variable,
             ),
             MapPanelSpec(

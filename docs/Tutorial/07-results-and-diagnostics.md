@@ -459,10 +459,10 @@ Dimension names in the inspected NetCDF (for example `time1`, `time2`, `snow_lay
 
 {: .checks }
 > Generated map examples from the Rofental paper reference run:
-> - `results/maps/da_events/da_6.png`: WSL/WSLA update on **2023-03-24**
+> - `results/maps/da_events/da_6.png`: WSLA update on **2023-03-24**
 > - `results/maps/da_events/da_8.png`: SCF update on **2023-05-26**
 
-![Generated DA-event map for the WSL update on 2023-03-24]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_06_wsla_2023_03_24.png)
+![Generated DA-event map for the WSLA update on 2023-03-24]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_06_wsla_2023_03_24.png)
 
 _`da_6.png`: open loop, prior, posterior and observed elevation-band wet snow fraction / wet snow line diagnostics plus corresponding snow-depth fields for the **2023-03-24** `wet_snow_line` update._
 
@@ -510,7 +510,7 @@ vars:
 Use `results/grids/da_output_grids.nc` in a GIS software of your choice and visualize raster output.
 
 Recommended manual map date(s): choose one date with active snow cover and one date near melt season.
-Use the same date across `open_loop`, `ens_mean`, and `increment` maps. Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-depth maps use `ens_mean` as the prior mean, `analysis_mean` as the event-weighted posterior mean, and `analysis_increment` as `posterior - prior`.
+Use the same date across `open_loop`, `ens_mean`, and `increment` maps. Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow depth maps use `ens_mean` as the prior mean, `analysis_mean` as the event-weighted posterior mean, and `analysis_increment` as `posterior - prior`.
 
 For the shipped examples, project maps are split into generated DA-event maps under `results/maps/da_events/` and custom YAML maps such as `setup_overview` at the root of `results/maps/`. Use `oa-da-plot-project-maps --project-dir /data/rofental/projects/project_2022_2023 --max-workers 4` to rerender the full combined map set in one command. Omit `--max-workers` to let the Docker container auto-select a recipe-level worker count from the visible CPUs. Overview panels use setup-local GISCO GeoJSONs under `env/`; if you want to prefetch them ahead of time, run `oa-da-fetch-overview-geojson --project-dir /data/rofental/projects/project_2022_2023`.
 For `snowdepth_daily`, the map renderer uses the viridis palette together with a shared linear legend scale per render run. Tick labels are shown in `cm`, cells below `1 cm` stay transparent so only meaningful snow cover is colored, and the top of the snow-depth legend is derived from the plotted maps. Increment panels use a signed red-blue diverging palette: negative increments are red, positive increments are blue. In generated DA-event maps, positive `analysis_increment` means the DA event added snow; negative means it removed snow.

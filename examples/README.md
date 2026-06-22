@@ -44,7 +44,7 @@ examples/subdomains/
 - Observation data and prepared summaries.
 - `snowcover/`: snow-cover raster products.
 - `wetsnow/`: Sentinel-1 wet-snow raster products.
-- `summaries/project_*/`: project-level summaries (`scf_summary.csv`, `wet_snow_summary.csv`) plus optional `wet_snow_line_diagnostics.csv` and per-date WSL profile CSVs after wet-snow summarization. In v1 the primary `wet_snow_line` values are 50% wet-fraction crossings, while sector-relative WSL diagnostics are stored as companion analysis fields in the same diagnostics/profile family.
+- `summaries/project_*/`: project-level summaries (`scf_summary.csv`, `wet_snow_summary.csv`) plus optional `wet_snow_line_diagnostics.csv` and per-date WSLA profile CSVs after wet-snow summarization. In v1 the primary `wet_snow_line` values are 50% wet-fraction crossings, while sector-relative WSLA diagnostics are stored as companion analysis fields in the same diagnostics/profile family.
 
 ### `projects/`
 - Project runtime configuration/output roots.

@@ -114,7 +114,7 @@ _AUTO_TITLE_SOURCE = {
     "posterior_probability": "Posterior probability",
     "increment": "Increment",
     "analysis_increment": "Posterior - prior",
-    "open_loop_binary": "Open-loop snow cover",
+    "open_loop_binary": "Open loop snow cover",
 }
 _AUTO_TITLE_KIND = {
     "overview": "Overview map",
@@ -131,6 +131,6 @@ _AUTO_TITLE_KIND = {
     "fsc": "Sentinel-2 FSC",
     "uncertainty": "Observation uncertainty",
     "wet_snow": "Sentinel-1 wet snow fraction (WSF)",
-    "wet_snow_line": "Wet snow line (WSL)",
+    "wet_snow_line": "Wet snow line altitude (WSLA)",
     "wet_snow_elevation_fraction": "Elevation band WSF",
 }

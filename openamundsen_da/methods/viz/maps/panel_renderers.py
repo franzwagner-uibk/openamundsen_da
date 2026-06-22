@@ -1885,7 +1885,7 @@ def _posterior_weighted_wet_fraction_array(
             member_weights.append(1.0)
 
     if not member_masks:
-        raise FileNotFoundError(f"Missing weighted posterior members for wet snow line (WSL) map in {step_dir}")
+        raise FileNotFoundError(f"Missing weighted posterior members for wet snow line altitude (WSLA) map in {step_dir}")
 
     stack = np.stack(member_masks, axis=0)
     weight_arr = np.asarray(member_weights, dtype=float)
@@ -2070,9 +2070,9 @@ def _draw_wsl_contour(
 
 def _wsl_callout_text(level: float | None) -> str:
     if level is None or not np.isfinite(level):
-        return "WSL unavailable"
+        return "WSLA unavailable"
     rounded = int(10.0 * np.floor((float(level) / 10.0) + 0.5))
-    return f"WSL {rounded} m"
+    return f"WSLA {rounded} m"
 
 
 def _annotate_wsl_callout(ax, *, level: float | None, color: str = "black") -> None:
@@ -2102,9 +2102,9 @@ def _wet_snow_line_legend_handles(
 ) -> list[object]:
     handles = list(base_handles)
     if include_model_wsl:
-        handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, label="model WSL"))
+        handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, label="model WSLA"))
     if include_obs_wsl:
-        handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, linestyle=obs_linestyle, label="observation WSL"))
+        handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, linestyle=obs_linestyle, label="observation WSLA"))
     return handles
 
 
@@ -2544,7 +2544,7 @@ def render_wet_snow_line_panel(
                 layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True),
             )
         if model_contour_drawn:
-            label_text = "posterior WSL" if str(panel.source) in {"posterior", "posterior_probability"} else "prior WSL"
+            label_text = "posterior WSLA" if str(panel.source) in {"posterior", "posterior_probability"} else "prior WSLA"
             posterior_overlay_handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, linestyle="-", label=label_text))
     else:
         draw_classified_legend(

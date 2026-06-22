@@ -1525,7 +1525,7 @@ def test_project_maps_config_accepts_wet_snow_line_panel_kind(tmp_path: Path) ->
         """
         maps:
           wsl_demo:
-            title: WSL demo
+            title: WSLA demo
             defaults:
               date: "2023-01-02"
             layout:
@@ -1684,10 +1684,10 @@ def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, 
     assert recipes[0].row_labels == ()
     assert recipes[0].layout.ncols == 4
     assert [panel.title for panel in recipes[0].panels] == [
-        "Open-loop snow depth",
+        "Open loop snow depth",
         "Prior snow depth",
         "Posterior snow depth",
-        "Snow-depth increment",
+        "Snow depth increment",
     ]
     assert [panel.source for panel in recipes[0].panels] == [
         "open_loop",
@@ -1908,16 +1908,16 @@ def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_sup
         None,
     ]
     assert [panel.title for panel in scf_panels[:4]] == [
-        "Open-loop snow cover",
+        "Open loop snow cover",
         "Prior snow cover probability",
         "Posterior snow cover probability",
         "Satellite FSC observation",
     ]
     assert [panel.title for panel in scf_panels[4:8]] == [
-        "Open-loop snow depth",
+        "Open loop snow depth",
         "Prior snow depth",
         "Posterior snow depth",
-        "Snow-depth increment",
+        "Snow depth increment",
     ]
 
 
@@ -1945,7 +1945,7 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
 
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
-    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (Wet snow line - WSL)"
+    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (Wet snow line altitude (WSLA))"
     assert recipes[0].row_labels == ()
     assert recipes[0].layout.ncols == 4
     assert recipes[0].layout.nrows == 3
@@ -1962,10 +1962,10 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
         None,
     ]
     assert [panel.title for panel in recipes[0].panels[:4]] == [
-        "Open-loop wet snow line",
-        "Prior wet snow line",
-        "Posterior wet snow line",
-        "Observed wet snow line",
+        "Open loop WSLA",
+        "Prior WSLA",
+        "Posterior WSLA",
+        "Observed WSLA",
     ]
     assert [panel.kind for panel in recipes[0].panels[4:8]] == [
         "wet_snow_elevation_fraction",
@@ -1986,17 +1986,17 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
         "wet_snow_line",
     ]
     assert [panel.title for panel in recipes[0].panels[4:8]] == [
-        "Open-loop elevation band WSF",
+        "Open loop elevation band WSF",
         "Prior elevation band WSF",
         "Posterior elevation band WSF",
         "Observed elevation band WSF",
     ]
     assert [panel.kind for panel in recipes[0].panels[8:12]] == ["snow_depth", "snow_depth", "snow_depth", "snow_depth"]
     assert [panel.title for panel in recipes[0].panels[8:12]] == [
-        "Open-loop snow depth",
+        "Open loop snow depth",
         "Prior snow depth",
         "Posterior snow depth",
-        "Snow-depth increment",
+        "Snow depth increment",
     ]
 
 
@@ -2040,16 +2040,16 @@ def test_paper_recipe_compacts_wet_snow_line_da_maps(
     ]
     assert [panel.kind for panel in paper_recipe.panels[4:]] == ["snow_depth", "snow_depth", "snow_depth", "snow_depth"]
     assert [panel.title for panel in paper_recipe.panels[:4]] == [
-        "Open-loop elevation band WSF",
+        "Open loop elevation band WSF",
         "Prior elevation band WSF",
         "Posterior elevation band WSF",
         "Observed elevation band WSF",
     ]
     assert [panel.title for panel in paper_recipe.panels[4:]] == [
-        "Open-loop snow depth",
+        "Open loop snow depth",
         "Prior snow depth",
         "Posterior snow depth",
-        "Snow-depth increment",
+        "Snow depth increment",
     ]
     assert {panel.row for panel in paper_recipe.panels[:4]} == {0}
     assert {panel.row for panel in paper_recipe.panels[4:]} == {1}
@@ -2079,7 +2079,7 @@ def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events
         None,
     ]
     assert [panel.title for panel in wet_recipe.panels[:4]] == [
-        "Open-loop WSF",
+        "Open loop WSF",
         "Prior WSF",
         "Posterior WSF",
         "Wet snow observation",
@@ -2097,7 +2097,7 @@ def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events
         None,
     ]
     assert [panel.title for panel in wet_recipe.panels[4:8]] == [
-        "Open-loop elevation band WSF",
+        "Open loop elevation band WSF",
         "Prior elevation band WSF",
         "Posterior elevation band WSF",
         "Observed elevation band WSF",
@@ -3917,9 +3917,9 @@ def test_wet_snow_line_model_panel_draws_wsl_contour(tmp_path: Path, monkeypatch
                 include_obs_wsl=False,
             )
         ]
-        assert legend_labels[-1:] == ["model WSL"]
-        assert "WSL unavailable" not in {text.get_text() for text in ax.texts}
-        callout = next(text for text in ax.texts if text.get_text() == "WSL 2450 m")
+        assert legend_labels[-1:] == ["model WSLA"]
+        assert "WSLA unavailable" not in {text.get_text() for text in ax.texts}
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2450 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
         assert callout.get_position() == pytest.approx((0.02, 0.045))
         assert callout.get_ha() == "left"
@@ -4071,7 +4071,7 @@ def test_wet_snow_elevation_fraction_panel_draws_source_local_wsl(
         assert recorded == [(2450.0, panel_renderers_module._WSL_MODEL_COLOR, "-")]
         assert artifacts["wsl"] == 2450.0
         assert artifacts["wsl_drawn"] is True
-        callout = next(text for text in ax.texts if text.get_text() == "WSL 2450 m")
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2450 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
     finally:
         plt.close(fig)
@@ -4090,7 +4090,7 @@ def test_wet_snow_elevation_fraction_observation_reuses_observed_wsl(
     monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: 3320.0)
 
     def _unexpected_fraction_wsl(**_kwargs):
-        raise AssertionError("observation elevation band WSF panels must reuse diagnostics WSL")
+        raise AssertionError("observation elevation band WSF panels must reuse diagnostics WSLA")
 
     monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", _unexpected_fraction_wsl)
 
@@ -4115,7 +4115,7 @@ def test_wet_snow_elevation_fraction_observation_reuses_observed_wsl(
         assert recorded == [(3320.0, panel_renderers_module._WSL_MODEL_COLOR, "-")]
         assert artifacts["wsl"] == 3320.0
         assert artifacts["wsl_drawn"] is True
-        callout = next(text for text in ax.texts if text.get_text() == "WSL 3320 m")
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA 3320 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
     finally:
         plt.close(fig)
@@ -4133,7 +4133,7 @@ def test_wet_snow_elevation_fraction_panel_annotates_unavailable_wsl(
     monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: None)
 
     def _unexpected_fraction_wsl(**_kwargs):
-        raise AssertionError("missing observation diagnostics WSL must not fall back to local recomputation")
+        raise AssertionError("missing observation diagnostics WSLA must not fall back to local recomputation")
 
     monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", _unexpected_fraction_wsl)
     monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", lambda *_args, **_kwargs: False)
@@ -4152,7 +4152,7 @@ def test_wet_snow_elevation_fraction_panel_annotates_unavailable_wsl(
 
         assert artifacts["wsl"] is None
         assert artifacts["wsl_drawn"] is False
-        callout = next(text for text in ax.texts if text.get_text() == "WSL unavailable")
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA unavailable")
         assert callout.get_color() == "black"
     finally:
         plt.close(fig)
@@ -4260,11 +4260,11 @@ def test_wet_snow_line_observation_panel_uses_obs_color_for_callout(
         )
 
         assert recorded_levels == [(2550.0, panel_renderers_module._WSL_MODEL_COLOR, "-")]
-        callout = next(text for text in ax.texts if text.get_text() == "WSL 2550 m")
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2550 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
         legend = ax.get_legend()
         assert legend is not None
-        assert [text.get_text() for text in legend.get_texts()][-1] == "observation WSL"
+        assert [text.get_text() for text in legend.get_texts()][-1] == "observation WSLA"
     finally:
         plt.close(fig)
 
@@ -4301,10 +4301,10 @@ def test_wet_snow_line_observation_panel_annotates_unavailable_without_wsl_legen
             observation_loader=lambda *_args, **_kwargs: observation,
         )
 
-        assert "WSL unavailable" in {text.get_text() for text in ax.texts}
+        assert "WSLA unavailable" in {text.get_text() for text in ax.texts}
         legend = ax.get_legend()
         assert legend is not None
-        assert "observation WSL" not in {text.get_text() for text in legend.get_texts()}
+        assert "observation WSLA" not in {text.get_text() for text in legend.get_texts()}
     finally:
         plt.close(fig)
 
@@ -4326,7 +4326,7 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
         monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: 2625.0)
 
         def _unexpected_raster_wsl(**_kwargs):
-            raise AssertionError("posterior panel should not derive its WSL from the classified raster helper")
+            raise AssertionError("posterior panel should not derive its WSLA from the classified raster helper")
 
         monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_classified", _unexpected_raster_wsl)
 
@@ -4350,12 +4350,12 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
         assert recorded_levels == [(2525.0, panel_renderers_module._WSL_MODEL_COLOR, "-", 9.5)]
         assert artifacts["wsl"] == 2525.0
         assert artifacts["obs_wsl"] == 2625.0
-        assert [handle.get_label() for handle in artifacts["posterior_overlay_handles"]] == ["posterior WSL"]
+        assert [handle.get_label() for handle in artifacts["posterior_overlay_handles"]] == ["posterior WSLA"]
         legend = ax.get_legend()
         assert legend is not None
-        assert [text.get_text() for text in legend.get_texts()] == ["posterior WSL"]
-        assert "WSL unavailable" not in {text.get_text() for text in ax.texts}
-        callout = next(text for text in ax.texts if text.get_text() == "WSL 2530 m")
+        assert [text.get_text() for text in legend.get_texts()] == ["posterior WSLA"]
+        assert "WSLA unavailable" not in {text.get_text() for text in ax.texts}
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2530 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
     finally:
         plt.close(fig)
@@ -4388,8 +4388,8 @@ def test_wet_snow_line_panel_annotates_unavailable_wsl(tmp_path: Path, monkeypat
             figure_horizontal_default=True,
         )
 
-        assert "WSL unavailable" in {text.get_text() for text in ax.texts}
-        callout = next(text for text in ax.texts if text.get_text() == "WSL unavailable")
+        assert "WSLA unavailable" in {text.get_text() for text in ax.texts}
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA unavailable")
         assert callout.get_position() == pytest.approx((0.02, 0.045))
         assert callout.get_ha() == "left"
         assert callout.get_va() == "bottom"

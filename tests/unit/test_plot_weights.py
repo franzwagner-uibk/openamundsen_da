@@ -166,7 +166,7 @@ def test_wet_snow_line_weights_csv_is_not_misclassified_as_wet_snow(tmp_path: Pa
     _write_csv(csv_path, [{"member_id": "member_001", "residual": 12.0, "sigma": 150.0, "log_weight": -1.0, "weight": 1.0}])
 
     assert plot_mod._observable_from_csv_path(csv_path) == "wet_snow_line"
-    assert weight_plot_title_from_csv_path(csv_path) == "Wet snow line data assimilation weights"
+    assert weight_plot_title_from_csv_path(csv_path) == "WSLA data assimilation weights"
 
 
 def test_nice_axis_extent_uses_quarter_steps_just_above_one() -> None:
@@ -261,7 +261,7 @@ def test_setup_weights_overview_places_event_title_close_to_panel(tmp_path: Path
     weight_ax = _overview_axis_pairs(fig)[0][0]
     title_text = next(text for text in weight_ax.texts if "2023-05-01" in text.get_text())
 
-    assert title_text.get_text() == "(a) DA 1 - 2023-05-01 - Snow cover"
+    assert title_text.get_text() == "(a) DA 1 - 2023-05-01 - fSCA"
     assert title_text.get_position()[1] == pytest.approx(1.035)
     assert title_text.get_ha() == "left"
     assert title_text.get_va() == "bottom"
@@ -779,7 +779,7 @@ def test_wet_snow_line_plot_omits_zero_line_label_and_shows_unavailable_event(tm
     fig = plot_mod._plot(
         csv_path,
         plot_mod._load_weights(csv_path),
-        title="Wet snow line data assimilation weights",
+        title="WSLA data assimilation weights",
         subtitle="DA 13 - 2023-05-23",
         observable="wet_snow_line",
         backend="Agg",
@@ -834,7 +834,7 @@ def test_wet_snow_line_gated_event_shows_unavailable_with_residuals(tmp_path: Pa
     fig = plot_mod._plot(
         csv_path,
         plot_mod._load_weights(csv_path),
-        title="Wet snow line data assimilation weights",
+        title="WSLA data assimilation weights",
         subtitle="DA 7 - 2023-03-28",
         observable="wet_snow_line",
         backend="Agg",
@@ -886,7 +886,7 @@ def test_wet_snow_line_skipped_resampling_does_not_show_unavailable_when_not_gat
     fig = plot_mod._plot(
         csv_path,
         plot_mod._load_weights(csv_path),
-        title="Wet snow line data assimilation weights",
+        title="WSLA data assimilation weights",
         subtitle="DA 10 - 2023-05-03",
         observable="wet_snow_line",
         backend="Agg",
@@ -1373,7 +1373,7 @@ def test_setup_overview_uses_separate_residual_xlims_per_observable(tmp_path: Pa
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
     hs_axes = _residual_axes_for_title(fig, "Station snow depth")
     swe_axes = _residual_axes_for_title(fig, "Station SWE")
-    scf_axes = _residual_axes_for_title(fig, "Snow cover")
+    scf_axes = _residual_axes_for_title(fig, "fSCA")
     wet_axes = _residual_axes_for_title(fig, "Wet snow fraction")
 
     assert len(hs_axes) == 1
@@ -1657,7 +1657,7 @@ def test_setup_overview_splits_many_events_across_multiple_pages(tmp_path: Path,
         text.get_window_extent(renderer)
         for ax in normal_saved[1]["fig"].axes
         for text in ax.texts
-        if "Snow cover" in text.get_text()
+        if "fSCA" in text.get_text()
     ]
     assert event_title_boxes
     assert all(not summary_box.overlaps(box) for box in event_title_boxes)

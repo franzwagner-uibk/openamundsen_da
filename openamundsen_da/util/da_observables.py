@@ -21,7 +21,7 @@ _SPECS = {
     "scf": AssimilationObservableSpec(
         variable="scf",
         weight_prefix="weights_scf",
-        weight_title="Snow cover data assimilation weights",
+        weight_title="fSCA data assimilation weights",
     ),
     "wet_snow": AssimilationObservableSpec(
         variable="wet_snow",
@@ -31,7 +31,7 @@ _SPECS = {
     "wet_snow_line": AssimilationObservableSpec(
         variable="wet_snow_line",
         weight_prefix="weights_wet_snow_line",
-        weight_title="Wet snow line data assimilation weights",
+        weight_title="WSLA data assimilation weights",
     ),
     "station_hs": AssimilationObservableSpec(
         variable="station_hs",

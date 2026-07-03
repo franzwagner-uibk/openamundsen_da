@@ -14,14 +14,14 @@ without scattering the same explanations across later pages.
 openAMUNDSEN-DA is built around a simple idea: use snow-observation products to update an
 ensemble of openAMUNDSEN model realizations in a step-wise data assimilation workflow.
 The tutorial uses the single-domain Rofental example and focuses on a mixed workflow with
-station snow-depth, snow-cover fraction, and wet-snow observations.
+station snow-depth, fractional snow covered area (fSCA), and wet-snow observations.
 
 ## The Workflow In One Paragraph
 
 A setup contains the openAMUNDSEN model configuration, input grids, forcing, and
 observation files. Inside that setup, a project YAML defines the time period,
 observation mappings, data assimilation events, and data assimilation settings.
-The shipped Rofental example already includes baseline SCF and wet-snow summary
+The shipped Rofental example already includes baseline fSCA (`scf`) and wet-snow summary
 tables under `obs/summaries/`, while station observations and station DA metadata
 live under `obs/stations/`. Observation rasters can still be reprocessed into
 project summaries and per-step observation CSVs. The project pipeline then runs

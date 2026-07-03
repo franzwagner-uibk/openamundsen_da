@@ -235,7 +235,7 @@ This directory contains the stitched station and ROI point plots for the project
 
 Typical files include:
 
-- `result_overview.png` (SCF, wet-snow, ROI mean SWE, and ROI mean snow depth over time)
+- `result_overview.png` (fSCA, wet-snow, ROI mean SWE, and ROI mean snow depth over time)
 - station snow depth plots
 - station SWE plots
 - ROI envelope exports and land-cover masking report
@@ -258,14 +258,14 @@ Reference structure snippet (`results/plots/points`, typical files)
 - observation dates actually used,
 - model-vs-observation fraction behavior,
 - ROI mean SWE and snow-depth evolution relative to the open loop,
-- whether SCF and wet-snow observations are present where expected.
+- whether fSCA and wet-snow observations are present where expected.
 
-The ROI SWE and snow-depth panels use the full ROI footprint rather than the land-cover-masked ROI used for SCF and wet-snow summaries.
+The ROI SWE and snow-depth panels use the full ROI footprint rather than the land-cover-masked ROI used for fSCA and wet-snow summaries.
 
 What to inspect:
 
 - are observation markers present at the configured data assimilation dates?
-- do SCF and wet-snow events appear in the expected seasonal phases?
+- do fSCA and wet-snow events appear in the expected seasonal phases?
 - are there obvious missing events or suspicious gaps?
 
 ### Station plots (snow depth / SWE)
@@ -282,7 +282,7 @@ What to inspect:
 In this tutorial setup, station SWE observations are expected in **mm** (see project config comment).
 If a curve appears near zero against model SWE, check units first.
 
-Land-cover masking affects how much of the ROI contributes to SCF/wet-snow summaries and
+Land-cover masking affects how much of the ROI contributes to fSCA/wet-snow summaries and
 fractions. This report is useful here because it explains the masking context behind the
 result plots and ROI envelope values shown in this chapter.
 
@@ -302,7 +302,7 @@ How to use this table:
 
 - confirm that excluded/retained classes look plausible for the tutorial ROI
 - check whether `percent_of_roi` suggests over-masking (unexpectedly little usable area)
-- use it as context when SCF/wet-snow fractions look unexpectedly low/high
+- use it as context when fSCA/wet-snow fractions look unexpectedly low/high
 
 Recommended plot files to inspect (Rofental tutorial run):
 
@@ -328,12 +328,12 @@ Result overview:
 
 ![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/result_overview.png)
 
-_`result_overview.png`: check observation dates, SCF/wet-snow event timing, ROI mean SWE / snow-depth behavior, and gross model-vs-observation behavior._
+_`result_overview.png`: check observation dates, fSCA/wet-snow event timing, ROI mean SWE / snow-depth behavior, and gross model-vs-observation behavior._
 
 What to read in this plot:
 
 - whether observation markers exist at the configured data assimilation dates,
-- whether SCF events cluster in snow-cover relevant periods and wet-snow events in melt-season periods,
+- whether fSCA events cluster in snow-cover relevant periods and wet-snow events in melt-season periods,
 - whether ROI mean SWE and snow depth shift away from or back toward the open loop during the season,
 - whether data assimilation moves the ensemble envelope in the expected direction relative to the open loop.
 
@@ -458,17 +458,17 @@ Dimension names in the inspected NetCDF (for example `time1`, `time2`, `snow_lay
 ### Raster output
 
 {: .checks }
-> Generated map examples from the Rofental paper reference run:
+> Generated map examples from the Rofental tutorial reference run:
 > - `results/maps/da_events/da_6.png`: WSLA update on **2023-03-24**
-> - `results/maps/da_events/da_8.png`: SCF update on **2023-05-26**
+> - `results/maps/da_events/da_8.png`: fSCA (`scf`) update on **2023-05-26**
 
 ![Generated DA-event map for the WSLA update on 2023-03-24]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_06_wsla_2023_03_24.png)
 
-_`da_6.png`: open loop, prior, posterior and observed elevation-band wet snow fraction / wet snow line diagnostics plus corresponding snow-depth fields for the **2023-03-24** `wet_snow_line` update._
+_`da_6.png`: open loop, prior, posterior and observed wet snow fraction maps with WSLA contours, elevation-band wet snow fraction maps, and corresponding snow-depth fields for the **2023-03-24** `wet_snow_line` update._
 
-![Generated DA-event map for the SCF update on 2023-05-26]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_08_scf_2023_05_26.png)
+![Generated DA-event map for the fSCA update on 2023-05-26]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_08_scf_2023_05_26.png)
 
-_`da_8.png`: open loop, prior, posterior and observed snow-cover diagnostics plus corresponding snow-depth fields for the **2023-05-26** `scf` update._
+_`da_8.png`: open loop, prior, posterior and observed fSCA diagnostics plus corresponding snow-depth fields for the **2023-05-26** `scf` update._
 
 {: .checks }
 > Note on raster workflow:

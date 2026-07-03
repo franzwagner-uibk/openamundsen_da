@@ -25,7 +25,7 @@ container shell at `/data/rofental`.
 The Rofental example provides three observation groups: `obs/snowcover/` for
 snow-cover fraction rasters, `obs/wetsnow/` for wet-snow masks, and
 `obs/stations/` for station observations plus station-specific DA metadata in
-`stations_da_metadata.csv`. Baseline SCF and wet-snow summaries are shipped under
+`stations_da_metadata.csv`. Baseline fSCA (`scf`) and wet-snow summaries are shipped under
 `obs/summaries/project_2022_2023/`. All preprocessing commands are driven by the
 project YAML. The most important parts are `obs.snowcover`, `obs.wetsnow`,
 `data_assimilation.station`, `data_assimilation.landcover_mask`, and
@@ -252,12 +252,12 @@ step skeleton before regenerating per-step observation CSVs.
 > Rerun `oa-da-project-skeleton --overwrite` every time you change
 > `assimilation_events`. Step windows and observation dates must stay aligned.
 
-## Step 4: Create per-step SCF observation CSVs
+## Step 4: Create per-step fSCA (`scf`) observation CSVs
 
-`oa-da-scf` matches rows from `scf_summary.csv` to the configured SCF events and
+`oa-da-scf` matches rows from `scf_summary.csv` to the configured fSCA (`scf`) events and
 writes one-row `obs_scf_*.csv` files into the matching `steps/*/obs/` folders.
 This is more than a file copy: it validates that the event date exists in the
-summary, belongs to the expected step window, and matches the configured SCF
+summary, belongs to the expected step window, and matches the configured fSCA (`scf`)
 product tag.
 
 **🟢 Run this command:**
@@ -270,14 +270,14 @@ oa-da-scf \
   --log-level INFO
 ```
 
-After the command, expect one SCF observation CSV per configured SCF event under
+After the command, expect one fSCA (`scf`) observation CSV per configured event under
 `/data/rofental/projects/project_2022_2023/steps/*/obs/`. A typical file name is
 `obs_scf_SNOWCOVER_20230426.csv`.
-This one-row file is the actual SCF input consumed later during data assimilation.
+This one-row file is the actual fSCA (`scf`) input consumed later during data assimilation.
 When uncertainty is enabled and matching layers exist, the generated file also
 contains `unc_mean`, `unc_min`, `unc_max`, and `unc_n_valid`.
 
-Reference snippet from a generated SCF observation file:
+Reference snippet from a generated fSCA (`scf`) observation file:
 
 | date | n_valid | n_snow | scf | cloud_fraction | source |
 | --- | --- | --- | --- | --- | --- |
@@ -314,7 +314,7 @@ station files and metadata you already reviewed above.
 
 ![Preprocessing observation flow diagram]({{ site.baseurl }}/assets/images/tutorial/diagrams/preprocessing-observation-flow.svg)
 
-_Flow from input SCF and wet-snow rasters to project summary CSVs, then to the
+_Flow from input fSCA and wet-snow rasters to project summary CSVs, then to the
 per-step observation CSVs consumed by each data assimilation step._
 
 Reference snippet from a generated wet-snow observation file:

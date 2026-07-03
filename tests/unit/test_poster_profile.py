@@ -677,13 +677,14 @@ def test_poster_wet_snow_line_event_uses_paper_compacting_before_dropping_open_l
 
     poster_recipe = poster_da_event_recipe(recipe, PosterDaEventsConfig(enabled=True))
 
-    assert poster_recipe.layout.nrows == 2
+    assert poster_recipe.layout.nrows == 3
     assert poster_recipe.layout.ncols == 3
     assert {panel.kind for panel in poster_recipe.panels} == {
+        "wet_snow_line",
         "wet_snow_elevation_fraction",
         "snow_depth",
     }
-    assert {panel.row for panel in poster_recipe.panels} == {0, 1}
+    assert {panel.row for panel in poster_recipe.panels} == {0, 1, 2}
     assert {panel.col for panel in poster_recipe.panels} == {0, 1, 2}
     assert all(panel.source != "open_loop" for panel in poster_recipe.panels)
 

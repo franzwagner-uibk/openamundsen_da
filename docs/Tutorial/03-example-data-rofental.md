@@ -16,7 +16,7 @@ The shipped Rofental forcing is a prepared illustrative baseline. Station precip
 has been deliberately reduced to create a controlled mismatch, so the tutorial can show
 particle weighting, resampling and posterior updates clearly.
 
-![Rofental tutorial setup overview map with DEM, forcing stations, land cover, aspect and SRF]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_overview.png)
+![Rofental tutorial setup overview map with DEM, forcing stations, land cover, aspect and SRF]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_overview.png?v=20260703)
 
 *Rofental tutorial setup map rendered from `projects/project_2022_2023/maps.yml`, showing the DEM with forcing stations, the Rofental manuscript land-cover grouping, aspect and the snow redistribution factor (SRF).*
 

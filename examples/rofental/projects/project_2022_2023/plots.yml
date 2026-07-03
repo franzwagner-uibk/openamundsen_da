@@ -36,7 +36,7 @@
 panels:
   - panel: fSC
     show_obs: true
-    title: Snow cover fraction
+    title: Fractional snow covered area (fSCA)
 
   - panel: WSF
     show_obs: true
@@ -44,7 +44,7 @@ panels:
 
   - panel: WSLA
     show_obs: true
-    title: Wet snow line
+    title: Wet snow line altitude
 
   - panel: station-sd
     station_id: proviantdepot

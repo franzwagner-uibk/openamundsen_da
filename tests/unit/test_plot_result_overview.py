@@ -208,8 +208,8 @@ def test_plot_result_overview_uses_four_panels_when_roi_series_exist(monkeypatch
 
     assert recorded["nrows"] == 4
     axes = _panel_axes(plt.gcf())
-    assert [ax.get_ylabel() for ax in axes] == ["SCF", "WSF", "SWE [mm]", "Snow depth [m]"]
-    assert axes[0].get_title(loc="left") == "(a) Snow cover fraction"
+    assert [ax.get_ylabel() for ax in axes] == ["", "", "SWE [mm]", "Snow depth [m]"]
+    assert axes[0].get_title(loc="left") == "(a) Fractional snow covered area (fSCA)"
     assert axes[0]._left_title.get_fontsize() == pytest.approx(plot_mod._RESULT_OVERVIEW_TITLE_SIZE)
     assert axes[1].get_title(loc="left") == "(b) Wet snow fraction"
     assert axes[0].get_axisbelow() is True
@@ -219,7 +219,7 @@ def test_plot_result_overview_uses_four_panels_when_roi_series_exist(monkeypatch
     assert gridline.get_alpha() == pytest.approx(GRID_ALPHA)
     assert all(label.get_rotation() == 90.0 for label in axes[0].get_yticklabels() if label.get_text())
     assert axes[0].yaxis.get_major_ticks()[0].get_pad() == pytest.approx(4.0)
-    assert {label.get_fontsize() for label in axes[-1].get_xticklabels() if label.get_text()} == {
+    assert {label.get_fontsize() for label in axes[-1].get_xticklabels(minor=True) if label.get_text()} == {
         plot_mod._RESULT_OVERVIEW_XTICK_SIZE
     }
     assert axes[2].lines[0].get_color() == da_variable_style("station_swe")["line"]
@@ -304,7 +304,7 @@ def test_plot_result_overview_adds_wsl_panel_when_wsl_series_exist(monkeypatch, 
 
     assert recorded["nrows"] == 3
     axes = _panel_axes(plt.gcf())
-    assert [ax.get_ylabel() for ax in axes] == ["SCF", "WSF", "Elevation [m]"]
+    assert [ax.get_ylabel() for ax in axes] == ["", "", "Elevation [m]"]
     _assert_panel_legend_style(axes[2], loc=3)
     assert out_path.is_file()
     original_close(plt.gcf())
@@ -380,12 +380,12 @@ def test_plot_result_overview_ylabels_do_not_overlap_with_stacked_custom_panels(
         renderer = fig.canvas.get_renderer()
         axes = _panel_axes(fig)
         assert [ax.get_ylabel() for ax in axes] == [
-            "SCF",
-            "WSF",
+            "",
+            "",
             "Elevation [m]",
             "Snow depth [m]",
-            "ESS",
-            "CRPSS",
+            "",
+            "",
         ]
         ytick_bboxes = [
             bbox
@@ -983,12 +983,12 @@ def test_plot_result_overview_uses_panel_local_legend_labels(tmp_path: Path) -> 
         assert len(plt.gcf().legends) == 0
         axes = _panel_axes(plt.gcf())
         assert _axis_legend_labels(axes[0]) == [
-            "open loop",
             "satellite observation",
+            "open loop",
         ]
         assert _axis_legend_labels(axes[1]) == [
-            "open loop",
             "satellite observation",
+            "open loop",
         ]
         _assert_panel_legend_style(axes[0], loc=2)
         _assert_panel_legend_style(axes[1], loc=2)
@@ -1002,6 +1002,7 @@ def test_plot_result_overview_uses_panel_local_legend_labels(tmp_path: Path) -> 
             )
         )
         assert legend_handles[0].get_marker() == "x"
+        assert legend_handles[0].get_label() == "assimilated observation"
         assert legend_handles[0].get_color() == "#d62728"
         assert legend_handles[1].get_color() == "#d62728"
         assert legend_handles[-1].get_color() == "#777777"
@@ -1042,8 +1043,9 @@ def test_plot_result_overview_legend_adds_da_observation_only_for_matching_obs(t
 
         assert len(plt.gcf().legends) == 0
         assert _axis_legend_labels(_panel_axes(plt.gcf())[0]) == [
-            "open loop",
             "satellite observation",
+            "assimilated observation",
+            "open loop",
         ]
         assert _axis_assim_label_texts(plt.gcf()) == ["DA 1"]
         assert out_path.is_file()
@@ -1073,8 +1075,8 @@ def test_plot_result_overview_legend_omits_da_observation_when_event_has_no_obs(
 
         assert len(plt.gcf().legends) == 0
         assert _axis_legend_labels(_panel_axes(plt.gcf())[0]) == [
-            "open loop",
             "satellite observation",
+            "open loop",
         ]
         assert _axis_assim_label_texts(plt.gcf()) == []
         assert out_path.is_file()
@@ -1246,11 +1248,11 @@ def test_plot_result_overview_bottom_axis_shows_year_on_first_tick_and_year_chan
             output=out_path,
         )
 
-        tick_labels = [tick.get_text() for tick in plt.gcf().axes[-1].get_xticklabels()]
+        tick_labels = [tick.get_text() for tick in plt.gcf().axes[-1].get_xticklabels(minor=True)]
         assert "Dec\n2022" in tick_labels
         assert "Jan\n2023" in tick_labels
         assert "Feb" in tick_labels
-        assert plt.gcf().axes[-1].get_xticklabels()[0].get_ha() == "center"
+        assert plt.gcf().axes[-1].get_xticklabels(minor=True)[0].get_ha() == "center"
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -1278,7 +1280,12 @@ def test_plot_result_overview_can_left_align_first_x_tick(tmp_path: Path) -> Non
             align_first_xtick_left=True,
         )
 
-        first_label = plt.gcf().axes[-1].get_xticklabels()[0]
+        axes = _panel_axes(plt.gcf())
+        major_labels = [label.get_text() for label in axes[-1].get_xticklabels(minor=False)]
+        minor_labels = [label.get_text() for label in axes[-1].get_xticklabels(minor=True)]
+        assert not any(major_labels)
+        assert minor_labels[:3] == ["Oct\n2022", "Nov", "Dec"]
+        first_label = axes[-1].get_xticklabels(minor=True)[0]
         assert first_label.get_text() == "Oct\n2022"
         assert first_label.get_ha() == "left"
         assert out_path.is_file()
@@ -1365,7 +1372,7 @@ def test_plot_result_overview_supports_custom_station_panel(tmp_path: Path) -> N
         )
 
         axes = _panel_axes(plt.gcf())
-        assert [ax.get_ylabel() for ax in axes] == ["SCF", "Snow depth [m]"]
+        assert [ax.get_ylabel() for ax in axes] == ["", "Snow depth [m]"]
         assert axes[1].get_title(loc="left").startswith("(b) Snow depth (Latschbloder 2919 m)")
         line_colors = [line.get_color() for line in axes[1].lines]
         assert da_variable_style("station_hs")["line"] in line_colors
@@ -1450,11 +1457,13 @@ def test_plot_result_overview_supports_custom_crpss_score_panel(tmp_path: Path) 
         axes = _panel_axes(plt.gcf())
         assert len(axes) == 1
         assert axes[0].get_title(loc="left") == "(a) Continuous ranked probability skill score (CRPSS)"
-        assert axes[0].get_ylabel() == "CRPSS"
+        assert axes[0].get_ylabel() == ""
         assert 0.5 in list(axes[0].get_yticks())
         assert set(label.get_text() for label in axes[0].get_yticklabels() if label.get_text()) <= {"0", "0.5", "1"}
         assert axes[0].collections
         assert axes[0].get_legend() is not None
+        assert "fSCA" in _axis_legend_labels(axes[0])
+        assert "SCF" not in _axis_legend_labels(axes[0])
         _assert_panel_legend_style(axes[0], loc=2)
         event_lines = []
         for line in axes[0].lines:
@@ -1577,7 +1586,7 @@ def test_plot_result_overview_supports_custom_ner_score_panel(tmp_path: Path) ->
         axes = _panel_axes(plt.gcf())
         assert len(axes) == 1
         assert axes[0].get_title(loc="left").endswith("NER")
-        assert axes[0].get_ylabel() == "NER [-]"
+        assert axes[0].get_ylabel() == ""
         assert 0.5 in list(axes[0].get_yticks())
         assert axes[0].collections
         assert out_path.is_file()
@@ -1612,7 +1621,7 @@ def test_plot_result_overview_supports_custom_zskill_score_panel(tmp_path: Path)
         axes = _panel_axes(plt.gcf())
         assert len(axes) == 1
         assert axes[0].get_title(loc="left").endswith("zSkill")
-        assert axes[0].get_ylabel() == "zSkill [-]"
+        assert axes[0].get_ylabel() == ""
         assert axes[0].collections
         assert out_path.is_file()
     finally:
@@ -1646,7 +1655,7 @@ def test_plot_result_overview_supports_both_score_panels_and_single_local_legend
         axes = _panel_axes(plt.gcf())
         assert axes[0].get_title(loc="left") == "(a) Continuous ranked probability skill score (CRPSS)"
         assert axes[1].get_title(loc="left").endswith("NER")
-        assert [ax.get_ylabel() for ax in axes] == ["CRPSS", "NER [-]"]
+        assert [ax.get_ylabel() for ax in axes] == ["", ""]
         assert 0.5 in list(axes[0].get_yticks())
         assert 0.5 in list(axes[1].get_yticks())
         assert axes[0].get_legend() is not None

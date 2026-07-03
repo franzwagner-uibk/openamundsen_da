@@ -156,17 +156,17 @@ _DEFAULT_PANELS = [
 ]
 
 _PANEL_YLABELS = {
-    "fSC": "SCF",
-    "WSF": "WSF",
+    "fSC": "",
+    "WSF": "",
     "WSLA": "Elevation [m]",
     "roi-swe": "SWE [mm]",
     "roi-sd": "Snow depth [m]",
     "station-sd": "Snow depth [m]",
     "station-swe": "SWE [mm]",
-    "ess": "ESS",
-    "scores-crpss": "CRPSS",
-    "scores-ner": "NER [-]",
-    "scores-zskill": "zSkill [-]",
+    "ess": "",
+    "scores-crpss": "",
+    "scores-ner": "",
+    "scores-zskill": "",
 }
 
 _PANEL_TITLE_X = 0.0
@@ -186,7 +186,7 @@ _RESULT_OVERVIEW_FIGURE_LEGEND_SIZE = 8.0
 _RESULT_OVERVIEW_SPLIT_FIGURE_LEGEND_SIZE = 6.2
 _RESULT_OVERVIEW_DA_LABEL_SIZE = 5.5
 _RESULT_OVERVIEW_PANEL_BOX_LW: float | None = None
-_RESULT_OVERVIEW_LEGEND_FRAME_ALPHA = 0.88
+_RESULT_OVERVIEW_LEGEND_FRAME_ALPHA = 0.74
 _RESULT_OVERVIEW_SAVE_PAD_INCHES = 0.015
 _RESULT_OVERVIEW_OBS_MARKER_SIZE = 2.8
 _RESULT_OVERVIEW_ESS_MARKER_SIZE = 3.2
@@ -196,9 +196,9 @@ _ALTITUDE_MAJOR_TICK_STEPS_M = (100.0, 200.0, 250.0, 500.0, 1000.0, 2000.0)
 _ALTITUDE_MAX_MAJOR_INTERVALS = 5.0
 
 _DEFAULT_TITLES = {
-    "fSC": "Snow cover fraction",
+    "fSC": "Fractional snow covered area (fSCA)",
     "WSF": "Wet snow fraction",
-    "WSLA": "Wet snow line",
+    "WSLA": "Wet snow line altitude",
     "roi-swe": "Mean SWE",
     "roi-sd": "Mean snow depth",
     "ess": "Effective sample size",
@@ -868,6 +868,21 @@ def _satellite_obs_legend_handle():
     )
 
 
+def _assimilated_obs_legend_handle():
+    from matplotlib.lines import Line2D
+
+    return Line2D(
+        [0],
+        [0],
+        color=COLOR_DA_OBS,
+        marker="x",
+        linestyle="none",
+        markersize=5.2,
+        markeredgewidth=1.35,
+        label="assimilated observation",
+    )
+
+
 def _station_obs_legend_handle():
     from matplotlib.lines import Line2D
 
@@ -920,6 +935,11 @@ def _add_score_panel_legend(ax, variables: list[str]) -> None:
         return
     from matplotlib.lines import Line2D
 
+    def _score_variable_label(variable: str) -> str:
+        if str(variable) == "scf":
+            return "fSCA"
+        return variable_label(variable)
+
     handles = [
         Line2D(
             [0],
@@ -930,7 +950,7 @@ def _add_score_panel_legend(ax, variables: list[str]) -> None:
             markerfacecolor=score_variable_color(variable),
             markeredgecolor=score_variable_color(variable),
             color=score_variable_color(variable),
-            label=variable_label(variable),
+            label=_score_variable_label(variable),
         )
         for variable in variables
     ]
@@ -1243,7 +1263,7 @@ def _build_result_overview_legend_handles(
                 linestyle="none",
                 markersize=5.6,
                 markeredgewidth=1.45,
-                label="observation used for data assimilation",
+                label="assimilated observation",
             )
         )
     if legend_state.satellite_observation:
@@ -1619,35 +1639,44 @@ def _apply_time_axis_labels(
     align_first_xtick_left: bool = False,
 ) -> None:
     import matplotlib.dates as mdates
+    from matplotlib.ticker import NullFormatter
 
     locator = mdates.MonthLocator()
-    formatter = mdates.DateFormatter("%b")
     for ax in axes:
         ax.xaxis.set_major_locator(locator)
-        ax.xaxis.set_major_formatter(formatter)
+        ax.xaxis.set_major_formatter(NullFormatter())
     if x_bounds is None:
         return
 
-    tick_values = locator.tick_values(x_bounds[0].to_pydatetime(), x_bounds[1].to_pydatetime())
-    tick_dates = [pd.Timestamp(mdates.num2date(val)).tz_localize(None) for val in tick_values]
-    if not tick_dates:
+    start = pd.Timestamp(x_bounds[0]).normalize().replace(day=1)
+    end = pd.Timestamp(x_bounds[1]).normalize().replace(day=1) + pd.DateOffset(months=1)
+    month_starts = list(pd.date_range(start, end, freq="MS"))
+    if len(month_starts) < 2:
         return
 
+    tick_values = [mdates.date2num(date.to_pydatetime()) for date in month_starts]
+    mid_values: list[float] = []
     labels: list[str] = []
     prev_year: int | None = None
-    for idx, tick_dt in enumerate(tick_dates):
-        if idx == 0 or tick_dt.year != prev_year:
-            labels.append(tick_dt.strftime("%b\n%Y"))
+    for left, right in zip(month_starts[:-1], month_starts[1:], strict=True):
+        midpoint = left + (right - left) / 2
+        mid_values.append(mdates.date2num(midpoint.to_pydatetime()))
+        if prev_year is None or left.year != prev_year:
+            labels.append(left.strftime("%b\n%Y"))
         else:
-            labels.append(tick_dt.strftime("%b"))
-        prev_year = tick_dt.year
+            labels.append(left.strftime("%b"))
+        prev_year = left.year
     axes[-1].set_xticks(tick_values)
-    axes[-1].set_xticklabels(labels)
+    axes[-1].set_xticklabels([""] * len(tick_values))
+    axes[-1].set_xticks(mid_values, labels, minor=True)
+    for ax in axes:
+        ax.set_xlim(*x_bounds)
     if align_first_xtick_left:
-        xtick_labels = axes[-1].get_xticklabels()
+        xtick_labels = axes[-1].get_xticklabels(minor=True)
         if xtick_labels:
             xtick_labels[0].set_ha("left")
-    axes[-1].tick_params(axis="x", labelsize=_RESULT_OVERVIEW_XTICK_SIZE)
+    axes[-1].tick_params(axis="x", which="major", labelbottom=False)
+    axes[-1].tick_params(axis="x", which="minor", length=0, labelsize=_RESULT_OVERVIEW_XTICK_SIZE)
 
 
 def _panel_has_data(
@@ -1933,6 +1962,7 @@ def plot_result_overview(
             local_has_ensemble = False
             local_has_open_loop = False
             local_has_satellite_obs = False
+            local_has_assimilated_obs = False
             if mode == "band" and _frame_has_finite_band(scf_env):
                 legend_state.ensemble_summary = True
                 local_has_ensemble = True
@@ -1973,11 +2003,12 @@ def plot_result_overview(
                 )
                 scf_dates = [pd.to_datetime(ev.date) for ev in events if ev.variable == "scf"]
                 if scf_dates:
-                    legend_state.da_observation = legend_state.da_observation or _has_matching_assimilation_observation(
+                    local_has_assimilated_obs = _has_matching_assimilation_observation(
                         scf_dates,
                         scf_obs_points,
                         value_col="scf",
                     )
+                    legend_state.da_observation = legend_state.da_observation or local_has_assimilated_obs
                     draw_assimilation_markers(
                         ax,
                         dates=scf_dates,
@@ -1996,9 +2027,10 @@ def plot_result_overview(
             _add_panel_local_legend(
                 ax,
                 [
+                    *([_satellite_obs_legend_handle()] if local_has_satellite_obs else []),
+                    *([_assimilated_obs_legend_handle()] if local_has_assimilated_obs else []),
                     *([_open_loop_legend_handle()] if local_has_open_loop else []),
                     *([_ensemble_legend_handle(panel_style)] if local_has_ensemble else []),
-                    *([_satellite_obs_legend_handle()] if local_has_satellite_obs else []),
                 ],
                 loc="upper left",
             )
@@ -2008,6 +2040,7 @@ def plot_result_overview(
             local_has_ensemble = False
             local_has_open_loop = False
             local_has_satellite_obs = False
+            local_has_assimilated_obs = False
             if mode == "band" and _frame_has_finite_band(wet_env):
                 legend_state.ensemble_summary = True
                 local_has_ensemble = True
@@ -2055,11 +2088,12 @@ def plot_result_overview(
                 )
                 wet_dates = [pd.to_datetime(ev.date) for ev in events if ev.variable == "wet_snow"]
                 if wet_dates:
-                    legend_state.da_observation = legend_state.da_observation or _has_matching_assimilation_observation(
+                    local_has_assimilated_obs = _has_matching_assimilation_observation(
                         wet_dates,
                         wet_obs_points,
                         value_col="wet_snow_fraction",
                     )
+                    legend_state.da_observation = legend_state.da_observation or local_has_assimilated_obs
                     draw_assimilation_markers(
                         ax,
                         dates=wet_dates,
@@ -2078,9 +2112,10 @@ def plot_result_overview(
             _add_panel_local_legend(
                 ax,
                 [
+                    *([_satellite_obs_legend_handle()] if local_has_satellite_obs else []),
+                    *([_assimilated_obs_legend_handle()] if local_has_assimilated_obs else []),
                     *([_open_loop_legend_handle()] if local_has_open_loop else []),
                     *([_ensemble_legend_handle(panel_style)] if local_has_ensemble else []),
-                    *([_satellite_obs_legend_handle()] if local_has_satellite_obs else []),
                 ],
                 loc="upper left",
             )
@@ -2090,6 +2125,7 @@ def plot_result_overview(
             local_has_ensemble = False
             local_has_open_loop = False
             local_has_satellite_obs = False
+            local_has_assimilated_obs = False
             if mode == "band" and _frame_has_finite_band(wsl_env):
                 legend_state.ensemble_summary = True
                 local_has_ensemble = True
@@ -2141,11 +2177,12 @@ def plot_result_overview(
                 )
                 wsl_dates = [pd.to_datetime(ev.date) for ev in events if ev.variable == "wet_snow_line"]
                 if wsl_dates:
-                    legend_state.da_observation = legend_state.da_observation or _has_matching_assimilation_observation(
+                    local_has_assimilated_obs = _has_matching_assimilation_observation(
                         wsl_dates,
                         wsl_obs_points,
                         value_col="wet_snow_line",
                     )
+                    legend_state.da_observation = legend_state.da_observation or local_has_assimilated_obs
                     draw_assimilation_markers(
                         ax,
                         dates=wsl_dates,
@@ -2167,6 +2204,7 @@ def plot_result_overview(
                     *([_open_loop_legend_handle()] if local_has_open_loop else []),
                     *([_ensemble_legend_handle(panel_style)] if local_has_ensemble else []),
                     *([_satellite_obs_legend_handle()] if local_has_satellite_obs else []),
+                    *([_assimilated_obs_legend_handle()] if local_has_assimilated_obs else []),
                 ],
                 loc="lower left",
             )
@@ -2284,6 +2322,7 @@ def plot_result_overview(
             local_has_ensemble = False
             local_has_open_loop = False
             local_has_station_obs = False
+            local_has_assimilated_obs = False
             if _frame_has_finite_band(env_frame):
                 legend_state.ensemble_summary = True
                 local_has_ensemble = True
@@ -2345,11 +2384,12 @@ def plot_result_overview(
                     zorder=7,
                     draw_vlines=False,
                 )
-                legend_state.da_observation = legend_state.da_observation or _has_matching_assimilation_observation(
+                local_has_assimilated_obs = _has_matching_assimilation_observation(
                     _station_assimilation_dates(events, spec.panel),
                     _station_obs_frame(station_data.obs, value_col=value_col),
                     value_col=value_col,
                 )
+                legend_state.da_observation = legend_state.da_observation or local_has_assimilated_obs
             ax.set_ylabel("")
             apply_fraction_grid(ax, y_step=None)
             _apply_shared_result_scale(ax, spec.panel, shared_scales)
@@ -2359,6 +2399,7 @@ def plot_result_overview(
                     *([_open_loop_legend_handle()] if local_has_open_loop else []),
                     *([_ensemble_legend_handle(panel_style)] if local_has_ensemble else []),
                     *([_station_obs_legend_handle()] if local_has_station_obs else []),
+                    *([_assimilated_obs_legend_handle()] if local_has_assimilated_obs else []),
                 ],
                 loc="upper left",
             )

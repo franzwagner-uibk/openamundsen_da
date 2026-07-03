@@ -643,6 +643,73 @@ oa-da-plot-project-plots \
 
 Use this when you changed plotting code, `plots.yml`, or map-independent styling and want a clean plot rerender without executing `oa-da-project` again.
 
+### oa-da-plot-poster
+
+**Render configured poster-profile assets**
+
+Reads `<project-dir>/poster.yml` and writes selected poster-ready variants under `results/poster/` without rerunning the model or DA workflow. `oa-da-project` also runs this renderer automatically near the end of a project run when `poster.yml` exists, after maps, plots and benchmark-dependent overview panels are current.
+
+```bash
+oa-da-plot-poster \
+  --project-dir PATH \
+  [--config PATH] \
+  [--max-workers N]
+```
+
+**Output:**
+- poster maps under `results/poster/maps/**`
+- poster plots under `results/poster/plots/**`
+
+The first supported poster profile is a paper-baseline transform. `setup_overview` can keep or drop selected map panel kinds and reflow them to a chosen column count, generated DA-event maps can drop the first/open-loop column, and `result_overview_custom` can use its own reduced `panels` list. Optional `target_size_mm: [width, height]` values render PNGs at their intended physical poster size while keeping paper typography and line-width constants unchanged. Optional `theme.scale` applies a poster-local multiplier, while `theme.typography` and `theme.linework` can pin exact poster text sizes and panel-border width:
+
+```yaml
+theme:
+  scale: 1.4
+  typography:
+    title_pt: 14.2
+    label_pt: 12.0
+    support_pt: 10.0
+  linework:
+    panel_box_pt: 0.45
+maps:
+  setup_overview:
+    enabled: true
+    target_size_mm: [75.220833, 178.40262]
+    keep_panel_kinds: [dem, landcover]
+    layout:
+      ncols: 1
+  da_events:
+    enabled: true
+    drop_first_column: true
+    target_size_mm: [250.78568, 156.94586]
+plots:
+  result_overview_custom:
+    enabled: true
+    target_size_mm: [429.34836, 186.90407]
+    panels:
+      - panel: fSC
+        title: Snow cover fraction
+      - panel: WSLA
+        title: Wet snow line
+      - panel: station-sd
+        station_id: proviantdepot
+        title: Snow depth (Proviantdepot 2659 m)
+```
+
+### oa-da-poster-measure
+
+**Measure poster-profile asset sizes from an Inkscape SVG**
+
+Matches embedded current `results/poster` PNGs in an Inkscape SVG by hash, or linked `results/poster` PNGs by file path, and writes their measured physical placement sizes back to `poster.yml` as `target_size_mm`.
+
+```bash
+oa-da-poster-measure \
+  --project-dir PATH \
+  --svg PATH \
+  [--config PATH] \
+  [--write]
+```
+
 ### oa-da-project-pdf
 
 **Assemble a DIN A4 project plots/maps PDF**

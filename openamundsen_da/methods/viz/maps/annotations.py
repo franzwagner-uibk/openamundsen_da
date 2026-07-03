@@ -48,9 +48,11 @@ _LEGEND_ENTRY_FONT_SIZE = 6.1
 _LEGEND_HEADING_FONT_SIZE = 7.8
 _STATION_LEGEND_FONT_SIZE = 5.8
 _STATION_LEGEND_MARKER_SIZE = 26
+_SCALEBAR_FONT_SIZE = 5.8
 _STATION_MARKER_X = 0.095
 _STATION_LABEL_X = 0.225
 _PATCH_LABEL_X = 0.18
+_STYLE_SCALE = 1.0
 
 
 def panel_semantic_title(panel: MapPanelSpec) -> str | None:
@@ -138,11 +140,25 @@ def draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
     y0 = extent[2] + _SCALEBAR_BOTTOM_FRACTION * span_y
     tick_height = 0.016 * span_y
     label_y = y0 + 1.15 * tick_height
-    line_halo = [pe.Stroke(linewidth=2.2, foreground="white"), pe.Normal()]
-    bar = ax.plot([x0, x0 + total_length], [y0, y0], color="black", linewidth=0.8, zorder=_ANNOTATION_ZORDER, solid_capstyle="butt")[0]
+    line_halo = [pe.Stroke(linewidth=2.2 * _STYLE_SCALE, foreground="white"), pe.Normal()]
+    bar = ax.plot(
+        [x0, x0 + total_length],
+        [y0, y0],
+        color="black",
+        linewidth=0.8 * _STYLE_SCALE,
+        zorder=_ANNOTATION_ZORDER,
+        solid_capstyle="butt",
+    )[0]
     bar.set_path_effects(line_halo)
     for xpos in (x0, x0 + half_length, x0 + total_length):
-        tick = ax.plot([xpos, xpos], [y0, y0 + tick_height], color="black", linewidth=0.8, zorder=_ANNOTATION_ZORDER, solid_capstyle="butt")[0]
+        tick = ax.plot(
+            [xpos, xpos],
+            [y0, y0 + tick_height],
+            color="black",
+            linewidth=0.8 * _STYLE_SCALE,
+            zorder=_ANNOTATION_ZORDER,
+            solid_capstyle="butt",
+        )[0]
         tick.set_path_effects(line_halo)
     for xpos, label in (
         (x0, "0"),
@@ -155,7 +171,7 @@ def draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
             label,
             ha="center",
             va="bottom",
-            fontsize=5.8,
+            fontsize=_SCALEBAR_FONT_SIZE,
             color="black",
             zorder=_ANNOTATION_ZORDER,
         ))
@@ -165,14 +181,22 @@ def draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
         "km",
         ha="center",
         va="top",
-        fontsize=5.8,
+        fontsize=_SCALEBAR_FONT_SIZE,
         color="black",
         zorder=_ANNOTATION_ZORDER,
     ))
 
 
 def draw_patch_entry(ax, *, y: float, label: str, facecolor, edgecolor="none") -> float:
-    rect = Rectangle((0.02, y - 0.028), 0.12, 0.05, transform=ax.transAxes, facecolor=facecolor, edgecolor=edgecolor, linewidth=1.0)
+    rect = Rectangle(
+        (0.02, y - 0.028),
+        0.12,
+        0.05,
+        transform=ax.transAxes,
+        facecolor=facecolor,
+        edgecolor=edgecolor,
+        linewidth=1.0 * _STYLE_SCALE,
+    )
     ax.add_patch(rect)
     ax.text(_PATCH_LABEL_X, y, label, transform=ax.transAxes, ha="left", va="center", fontsize=_LEGEND_ENTRY_FONT_SIZE)
     return y - 0.061

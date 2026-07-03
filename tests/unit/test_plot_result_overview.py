@@ -1250,6 +1250,37 @@ def test_plot_result_overview_bottom_axis_shows_year_on_first_tick_and_year_chan
         assert "Dec\n2022" in tick_labels
         assert "Jan\n2023" in tick_labels
         assert "Feb" in tick_labels
+        assert plt.gcf().axes[-1].get_xticklabels()[0].get_ha() == "center"
+        assert out_path.is_file()
+    finally:
+        plt.close = original_close
+
+
+def test_plot_result_overview_can_left_align_first_x_tick(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        dates = pd.to_datetime(["2022-10-01", "2022-11-01", "2022-12-01"])
+        scf_model = pd.DataFrame({"date": dates, "scf": [0.2, 0.5, 0.3]})
+
+        out_path = tmp_path / "result_overview.png"
+        plot_result_overview(
+            scf_obs=None,
+            scf_model=scf_model,
+            wet_obs=None,
+            wet_model=None,
+            scf_env=None,
+            wet_env=None,
+            output=out_path,
+            x_bounds=(pd.Timestamp("2022-10-01"), pd.Timestamp("2022-12-01")),
+            align_first_xtick_left=True,
+        )
+
+        first_label = plt.gcf().axes[-1].get_xticklabels()[0]
+        assert first_label.get_text() == "Oct\n2022"
+        assert first_label.get_ha() == "left"
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -1691,6 +1722,64 @@ def test_plot_result_overview_uses_uniform_panel_height_ratios(monkeypatch, tmp_
     original_close(plt.gcf())
 
 
+def test_plot_result_overview_applies_panel_height_factor(monkeypatch, tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    recorded: dict[str, object] = {}
+    original_subplots = plt.subplots
+    original_close = plt.close
+
+    def _spy_subplots(nrows, *args, **kwargs):
+        recorded["nrows"] = nrows
+        recorded["figsize"] = kwargs.get("figsize")
+        recorded["height_ratios"] = kwargs.get("gridspec_kw", {}).get("height_ratios")
+        return original_subplots(nrows, *args, **kwargs)
+
+    monkeypatch.setattr(plt, "subplots", _spy_subplots)
+    monkeypatch.setattr(plt, "close", lambda fig=None: None)
+
+    out_path = tmp_path / "result_overview_custom.png"
+    plot_result_overview(
+        scf_obs=None,
+        scf_model=_frame("scf", [0.2, 0.4]),
+        wet_obs=None,
+        wet_model=None,
+        scf_env=None,
+        wet_env=None,
+        output=out_path,
+        panel_specs=[
+            PanelSpec(panel="fSC"),
+            PanelSpec(panel="ess"),
+            PanelSpec(panel="scores-crpss"),
+        ],
+        score_points=_score_points(),
+        assim_events=[
+            plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-02").date(), variable="scf", product="SNOWCOVER"),
+            plot_mod.AssimilationEvent(date=pd.Timestamp("2023-01-03").date(), variable="station_hs", product="STATION"),
+        ],
+        ess_panel=plot_mod.EssPanelData(
+            series=pd.DataFrame(
+                {
+                    "date": pd.to_datetime(["2023-01-01", "2023-02-01"]),
+                    "ess": [22.0, 31.0],
+                }
+            ),
+            ensemble_size=47,
+            threshold=23.5,
+        ),
+        strict_panels=True,
+        panel_height_factor=0.8,
+    )
+
+    expected_panel_height = plot_mod.OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR * 0.8
+    assert recorded["nrows"] == 3
+    assert recorded["height_ratios"] == pytest.approx([expected_panel_height, expected_panel_height, expected_panel_height])
+    assert recorded["figsize"][0] == plot_mod.FIGWIDTH_OVERVIEW_PAPER
+    assert recorded["figsize"][1] == pytest.approx(plot_mod.FIGHEIGHT_OVERVIEW_ROW * expected_panel_height * 3.0)
+    assert out_path.is_file()
+    original_close(plt.gcf())
+
+
 def test_plot_result_overview_saves_with_tight_export_padding(monkeypatch, tmp_path: Path) -> None:
     saved: list[dict[str, object]] = []
 
@@ -1720,6 +1809,7 @@ def test_plot_result_overview_saves_with_tight_export_padding(monkeypatch, tmp_p
             "kwargs": {
                 "bbox_inches": "tight",
                 "pad_inches": plot_mod._RESULT_OVERVIEW_SAVE_PAD_INCHES,
+                "target_size_in": None,
             },
         }
     ]

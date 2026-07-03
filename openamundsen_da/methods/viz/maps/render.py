@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from string import ascii_lowercase
@@ -11,7 +12,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from openamundsen_da.methods.viz.common import force_figure_text_black, save_figure_png
+from openamundsen_da.methods.viz.common import (
+    PosterRenderStyle,
+    force_figure_text_black,
+    save_figure_png,
+    scaled_module_attributes,
+    temporary_module_attributes,
+)
+import openamundsen_da.methods.viz.maps.annotations as _annotations_module
 from openamundsen_da.methods.viz.maps.annotations import (
     draw_heading as _draw_heading,
     draw_overview_label_specs as _draw_overview_label_specs,
@@ -27,6 +35,7 @@ from openamundsen_da.methods.viz.maps.annotations import (
     panel_title as _panel_title,
     scale_bar_length_m as _scale_bar_length_m,
 )
+import openamundsen_da.methods.viz.maps.layout as _layout_module
 from openamundsen_da.methods.viz.maps.config import MapRecipe
 from openamundsen_da.methods.viz.maps.data import (
     ModelFields,
@@ -95,6 +104,7 @@ from openamundsen_da.methods.viz.maps.overview import (
     load_overview_labels,
     load_overview_regions,
 )
+import openamundsen_da.methods.viz.maps.panel_renderers as _panel_renderers_module
 from openamundsen_da.methods.viz.maps.panel_renderers import (
     classified_display_labels,
     classified_legend_handles as _classified_legend_handles,
@@ -144,6 +154,115 @@ class RenderRuntimeCache:
     observations: dict[tuple[str, pd.Timestamp], ObservationScene] = field(default_factory=dict)
     observation_uncertainties: dict[tuple[str, pd.Timestamp], ObservationScene] = field(default_factory=dict)
     derived_arrays: dict[str, np.ndarray] = field(default_factory=dict)
+
+
+@contextmanager
+def _scaled_map_style(style: PosterRenderStyle | float):
+    if isinstance(style, (int, float)):
+        style = PosterRenderStyle(scale=float(style))
+    scale = style.scale
+    if scale == 1.0 and style.typography is None and style.linework is None:
+        yield
+        return
+    with ExitStack() as stack:
+        stack.enter_context(
+            scaled_module_attributes(
+                _layout_module,
+                (
+                    "_STYLE_SCALE",
+                    "_GRID_WIDTH",
+                    "_SPINE_WIDTH",
+                    "_TICK_SIZE",
+                    "_COLORBAR_TICK_SIZE",
+                    "_COLORBAR_TICK_PAD",
+                    "_COLORBAR_TITLE_SIZE",
+                    "_HORIZONTAL_LEGEND_TEXT_SIZE",
+                ),
+                scale,
+            )
+        )
+        stack.enter_context(
+            scaled_module_attributes(
+                _annotations_module,
+                (
+                    "_STYLE_SCALE",
+                    "_LEGEND_ENTRY_FONT_SIZE",
+                    "_LEGEND_HEADING_FONT_SIZE",
+                    "_STATION_LEGEND_FONT_SIZE",
+                    "_STATION_LEGEND_MARKER_SIZE",
+                    "_SCALEBAR_FONT_SIZE",
+                ),
+                scale,
+            )
+        )
+        stack.enter_context(
+            scaled_module_attributes(
+                _panel_renderers_module,
+                (
+                    "_COLORBAR_TICK_SIZE",
+                    "_COLORBAR_TITLE_SIZE",
+                    "_HORIZONTAL_LEGEND_TEXT_SIZE",
+                    "_OVERVIEW_LABEL_SIZE",
+                    "_OVERVIEW_ROI_LABEL_SIZE",
+                    "_OVERLAY_LABEL_HALO_WIDTH",
+                    "_OVERLAY_LABEL_BBOX_HALO_WIDTH",
+                    "_SUBDOMAIN_BOUNDARY_WIDTH",
+                    "_SUBDOMAIN_BOUNDARY_HALO_WIDTH",
+                    "_MAP_SUPPORT_TEXT_SIZE",
+                ),
+                scale,
+            )
+        )
+        layout_overrides: dict[str, object] = {}
+        annotations_overrides: dict[str, object] = {}
+        panel_renderer_overrides: dict[str, object] = {}
+        if style.typography is not None:
+            typography = style.typography
+            layout_overrides.update(
+                {
+                    "_TITLE_SIZE_OVERRIDE": typography.title_pt,
+                    "_TITLE_PAD_OVERRIDE": 8.0,
+                    "_LABEL_SIZE_OVERRIDE": typography.label_pt,
+                    "_DATE_SIZE_OVERRIDE": typography.support_pt,
+                    "_Y_TICK_LABEL_STRIDE_MULTIPLIER": 2,
+                    "_TICK_SIZE": typography.support_pt,
+                    "_COLORBAR_TICK_SIZE": typography.support_pt,
+                    "_COLORBAR_TICK_PAD": 8.0,
+                    "_COLORBAR_TITLE_SIZE": typography.label_pt,
+                    "_HORIZONTAL_LEGEND_TEXT_SIZE": typography.support_pt,
+                    "_POSTER_VERTICAL_COLORBAR_TICKS_ENABLED": True,
+                    "_POSTER_VERTICAL_COLORBAR_UNIT_HEADER_ENABLED": True,
+                }
+            )
+            annotations_overrides.update(
+                {
+                    "_LEGEND_ENTRY_FONT_SIZE": typography.support_pt,
+                    "_LEGEND_HEADING_FONT_SIZE": typography.label_pt,
+                    "_STATION_LEGEND_FONT_SIZE": typography.support_pt,
+                    "_SCALEBAR_FONT_SIZE": typography.support_pt,
+                }
+            )
+            panel_renderer_overrides.update(
+                {
+                    "_COLORBAR_TICK_SIZE": typography.support_pt,
+                    "_COLORBAR_TITLE_SIZE": typography.label_pt,
+                    "_HORIZONTAL_LEGEND_TEXT_SIZE": typography.support_pt,
+                    "_OVERVIEW_LABEL_SIZE": typography.support_pt,
+                    "_OVERVIEW_ROI_LABEL_SIZE": typography.support_pt,
+                    "_MAP_SUPPORT_TEXT_SIZE": typography.support_pt,
+                    "_COLORBAR_PANEL_UNIT_HEADER_ENABLED": True,
+                    "_COLORBAR_PANEL_POSTER_TICKS_ENABLED": True,
+                }
+            )
+        if style.linework is not None:
+            layout_overrides["_SPINE_WIDTH"] = style.linework.panel_box_pt
+        if layout_overrides:
+            stack.enter_context(temporary_module_attributes(_layout_module, layout_overrides))
+        if annotations_overrides:
+            stack.enter_context(temporary_module_attributes(_annotations_module, annotations_overrides))
+        if panel_renderer_overrides:
+            stack.enter_context(temporary_module_attributes(_panel_renderers_module, panel_renderer_overrides))
+        yield
 
 
 def _panel_group_bbox(axes_group: list) -> tuple[float, float] | None:
@@ -531,7 +650,24 @@ def render_map_recipe(
     recipe: MapRecipe,
     output_path: Path,
     runtime_cache: RenderRuntimeCache | None = None,
+    target_size_in: tuple[float, float] | None = None,
+    style_scale: float = 1.0,
+    poster_style: PosterRenderStyle | None = None,
 ) -> Path:
+    style = poster_style or PosterRenderStyle(scale=style_scale)
+    if style.scale != 1.0 or style.typography is not None or style.linework is not None:
+        with _scaled_map_style(style):
+            return render_map_recipe(
+                project_dir=project_dir,
+                context=context,
+                recipe=recipe,
+                output_path=output_path,
+                runtime_cache=runtime_cache,
+                target_size_in=target_size_in,
+                style_scale=1.0,
+                poster_style=PosterRenderStyle(),
+            )
+
     del project_dir
     cache = runtime_cache or RenderRuntimeCache()
     row_extents = _row_extents_for_recipe(recipe, context)
@@ -575,7 +711,8 @@ def render_map_recipe(
     fig.subplots_adjust(left=left_margin, right=_RIGHT_MARGIN, bottom=_BOTTOM_MARGIN, top=top_margin)
     title_artist = None
     if recipe.figure_title:
-        title_artist = fig.suptitle(recipe.figure_title, y=0.988, fontsize=8.6)
+        figure_title_size = _layout_module._TITLE_SIZE_OVERRIDE or 8.6 * _layout_module._STYLE_SCALE
+        title_artist = fig.suptitle(recipe.figure_title, y=0.988, fontsize=figure_title_size)
 
     title_letters = iter(ascii_lowercase)
     panel_labels: list[str | None] = [
@@ -639,7 +776,7 @@ def render_map_recipe(
                 rotation=90,
                 ha="center",
                 va="center",
-                fontsize=8.0,
+                fontsize=_layout_module._LABEL_SIZE_OVERRIDE or 8.0 * _layout_module._STYLE_SCALE,
             )
     if title_artist is not None:
         populated_axes = [ax for axes_group in row_axes.values() for ax in axes_group]
@@ -648,7 +785,7 @@ def render_map_recipe(
             title_artist.set_y(min(1.03, top_row + _figure_title_gap(fig, populated_axes)))
     force_figure_text_black(fig, axes)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    save_figure_png(fig, output_path, bbox_inches="tight", pad_inches=0.0)
+    save_figure_png(fig, output_path, bbox_inches="tight", pad_inches=0.0, target_size_in=target_size_in)
     plt.close(fig)
     return output_path
 

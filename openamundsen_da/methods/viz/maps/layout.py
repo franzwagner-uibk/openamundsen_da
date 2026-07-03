@@ -20,6 +20,7 @@ from openamundsen_da.methods.viz.maps.theme import (
     _BUFFER_RATIO,
     _CLASSIFIED_PANEL_KINDS,
     _COLORBAR_TICK_SIZE,
+    _COLORBAR_TICK_PAD,
     _COLORBAR_TITLE_SIZE,
     _CONTINUOUS_COLORBAR_PANEL_KINDS,
     _FIGURE_HEIGHT_MAX,
@@ -49,6 +50,7 @@ from openamundsen_da.methods.viz.maps.theme import (
     _LEFT_MARGIN,
     _RIGHT_MARGIN,
     _SPINE_WIDTH,
+    _SUPPORT_PANEL_KINDS,
     _TICK_LABEL_MIN_GAP_IN,
     _TICK_SIZE,
     _TOP_MARGIN,
@@ -63,6 +65,27 @@ from openamundsen_da.methods.viz.maps.theme import (
 _GOOGLE_TILE_SIZE_PX = 256.0
 _WEB_MERCATOR_RADIUS_M = 6378137.0
 _WGS84_CRS = "EPSG:4326"
+_STYLE_SCALE = 1.0
+_TITLE_SIZE_OVERRIDE: float | None = None
+_TITLE_PAD_OVERRIDE: float | None = None
+_LABEL_SIZE_OVERRIDE: float | None = None
+_DATE_SIZE_OVERRIDE: float | None = None
+_Y_TICK_LABEL_STRIDE_MULTIPLIER = 1
+_POSTER_VERTICAL_COLORBAR_TICKS_ENABLED = False
+_POSTER_VERTICAL_COLORBAR_UNIT_HEADER_ENABLED = False
+_POSTER_VERTICAL_COLORBAR_CONTAINER_BOTTOM_AXES = 0.0
+_POSTER_VERTICAL_COLORBAR_CONTAINER_HEIGHT_AXES = 1.0
+_POSTER_VERTICAL_COLORBAR_UNIT_HEADER_HEIGHT_AXES = 0.09
+_POSTER_VERTICAL_COLORBAR_UNIT_HEADER_GAP_AXES = 0.03
+_ONE_COLUMN_PANEL_WIDTH_REFERENCE_NCOLS = 3
+_ONE_COLUMN_RASTER_PANEL_SCALE = 1.20
+_ONE_COLUMN_RASTER_PANEL_KINDS = frozenset(
+    {
+        "hillshade",
+        *_CLASSIFIED_PANEL_KINDS,
+        *_CONTINUOUS_COLORBAR_PANEL_KINDS,
+    }
+)
 
 
 def buffered_extent(context: StaticContext) -> tuple[float, float, float, float]:
@@ -201,38 +224,49 @@ def text_size_in(text: str, *, size: float) -> tuple[float, float]:
     return float(bounds.width) / 72.0, float(bounds.height) / 72.0
 
 
-def axes_title_fontsize(ax) -> float:
+def axes_title_fontsize(ax, title: str | None = None) -> float:
+    if _TITLE_SIZE_OVERRIDE is not None:
+        return _TITLE_SIZE_OVERRIDE
     width_in = axis_width_inches(ax)
     if width_in < 1.45:
-        return 5.8
-    if width_in < 1.8:
-        return 6.4
-    if width_in < 2.35:
-        return 7.2
-    if width_in < 2.8:
-        return 8.0
-    return 8.8
+        fontsize = 5.8 * _STYLE_SCALE
+    elif width_in < 1.8:
+        fontsize = 6.4 * _STYLE_SCALE
+    elif width_in < 2.35:
+        fontsize = 7.2 * _STYLE_SCALE
+    elif width_in < 2.8:
+        fontsize = 8.0 * _STYLE_SCALE
+    else:
+        fontsize = 8.8 * _STYLE_SCALE
+    if title and _STYLE_SCALE != 1.0:
+        text_width = text_width_in(title, size=fontsize)
+        available_width = max(0.1, 0.74 * width_in)
+        if text_width > available_width:
+            fontsize *= available_width / text_width
+    return fontsize
 
 
 def axes_date_fontsize(ax) -> float:
+    if _DATE_SIZE_OVERRIDE is not None:
+        return _DATE_SIZE_OVERRIDE
     width_in = axis_width_inches(ax)
     if width_in < 1.45:
-        return 5.8
+        return 5.8 * _STYLE_SCALE
     if width_in < 1.8:
-        return 6.2
+        return 6.2 * _STYLE_SCALE
     if width_in < 2.35:
-        return 6.8
+        return 6.8 * _STYLE_SCALE
     if width_in < 2.8:
-        return 7.4
-    return 8.0
+        return 7.4 * _STYLE_SCALE
+    return 8.0 * _STYLE_SCALE
 
 
 def draw_axes_title(ax, title: str) -> None:
     ax.set_title(
         title,
         loc="left",
-        pad=2.8,
-        fontsize=axes_title_fontsize(ax),
+        pad=_TITLE_PAD_OVERRIDE if _TITLE_PAD_OVERRIDE is not None else 2.8,
+        fontsize=axes_title_fontsize(ax, title=title),
         color="black",
     )
 
@@ -258,7 +292,7 @@ def apply_map_axis_style(
     xticks = ticks_for_extent(extent[0], extent[1])
     yticks = ticks_for_extent(extent[2], extent[3])
     x_label_stride = tick_label_stride(ax, xticks, axis="x")
-    y_label_stride = tick_label_stride(ax, yticks, axis="y")
+    y_label_stride = tick_label_stride(ax, yticks, axis="y") * _Y_TICK_LABEL_STRIDE_MULTIPLIER
     ax.set_xticks(xticks)
     ax.set_yticks(yticks)
     ax.set_xticklabels([coord_label(value) if idx % x_label_stride == 0 else "" for idx, value in enumerate(xticks)])
@@ -567,13 +601,78 @@ def panel_has_vertical_colorbar(
     return panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True) == "vertical"
 
 
-def column_gap_factors(
+def _thin_vertical_colorbar_ticklabels(cbar) -> None:
+    labels = cbar.ax.get_yticklabels()
+    if _COLORBAR_TICK_SIZE < 10.0 or len(labels) <= 2:
+        return
+    visible_labels = [label.get_text() for label in labels if label.get_text()]
+    if not visible_labels:
+        return
+    axis_height_in = axis_height_inches(cbar.ax)
+    label_height_in = max(text_width_in(label, size=_COLORBAR_TICK_SIZE) for label in visible_labels)
+    min_gap_in = max(label_height_in * 1.12, _COLORBAR_TICK_SIZE / 72.0 * 1.25)
+    max_labels = max(2, int(math.floor(axis_height_in / max(min_gap_in, 1e-9))))
+    if len(labels) <= max_labels:
+        return
+    stride = max(2, int(math.ceil((len(labels) - 1) / max(max_labels - 1, 1))))
+    last_idx = len(labels) - 1
+    for idx, label in enumerate(labels):
+        label.set_visible(idx == 0 or idx == last_idx or idx % stride == 0)
+
+
+def _format_poster_colorbar_tick(value: float) -> str:
+    value = float(value)
+    if abs(value) < 5e-10:
+        value = 0.0
+    if abs(value - round(value)) < 1e-9:
+        return str(int(round(value)))
+    return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
+def _poster_percent_colorbar_ticks(label: str | None, ticks: tuple[float, ...]) -> tuple[tuple[float, ...], tuple[str, ...]]:
+    if ticks and extract_unit_title(label) == "[%]" and len(ticks) > 5 and min(ticks) >= 0.0 and max(ticks) <= 100.0:
+        values = (0.0, 25.0, 50.0, 75.0, 100.0)
+        return values, tuple(str(int(value)) for value in values)
+    return (), ()
+
+
+def _poster_diverging_colorbar_ticks(cbar, ticks: tuple[float, ...]) -> tuple[tuple[float, ...], tuple[str, ...]]:
+    if ticks:
+        return (), ()
+    norm = getattr(cbar.mappable, "norm", None)
+    vmin = getattr(norm, "vmin", None)
+    vmax = getattr(norm, "vmax", None)
+    if vmin is None or vmax is None:
+        return (), ()
+    vmin = float(vmin)
+    vmax = float(vmax)
+    if vmin < 0.0 < vmax and abs(abs(vmin) - abs(vmax)) < 1e-9:
+        values = (vmin, 0.5 * vmin, 0.0, 0.5 * vmax, vmax)
+        return values, tuple(_format_poster_colorbar_tick(value) for value in values)
+    return (), ()
+
+
+def _apply_poster_vertical_colorbar_ticks(cbar, *, label: str | None, ticks: tuple[float, ...]) -> bool:
+    if not _POSTER_VERTICAL_COLORBAR_TICKS_ENABLED:
+        return False
+    poster_ticks, poster_labels = _poster_percent_colorbar_ticks(label, ticks)
+    if not poster_ticks:
+        poster_ticks, poster_labels = _poster_diverging_colorbar_ticks(cbar, ticks)
+    if not poster_ticks:
+        return False
+    cbar.set_ticks(poster_ticks)
+    cbar.set_ticklabels(poster_labels)
+    return True
+
+
+def _column_gap_factors_for_ncols(
     recipe: MapRecipe,
     *,
     figure_horizontal_default: bool,
+    ncols: int,
 ) -> tuple[float, ...]:
     gap_factors: list[float] = []
-    for col in range(recipe.layout.ncols - 1):
+    for col in range(ncols - 1):
         extra = 0.0
         for panel in recipe.panels:
             end_col = int(panel.col + panel.colspan - 1)
@@ -585,13 +684,26 @@ def column_gap_factors(
     return tuple(gap_factors)
 
 
-def outer_right_factor(
+def column_gap_factors(
     recipe: MapRecipe,
     *,
     figure_horizontal_default: bool,
+) -> tuple[float, ...]:
+    return _column_gap_factors_for_ncols(
+        recipe,
+        figure_horizontal_default=figure_horizontal_default,
+        ncols=recipe.layout.ncols,
+    )
+
+
+def _outer_right_factor_for_ncols(
+    recipe: MapRecipe,
+    *,
+    figure_horizontal_default: bool,
+    ncols: int,
 ) -> float:
     outer_extra = 0.0
-    last_col = recipe.layout.ncols - 1
+    last_col = ncols - 1
     for panel in recipe.panels:
         end_col = int(panel.col + panel.colspan - 1)
         if end_col != last_col:
@@ -599,6 +711,57 @@ def outer_right_factor(
         if panel_has_vertical_colorbar(panel, defaults=recipe.defaults, figure_horizontal_default=figure_horizontal_default):
             outer_extra = max(outer_extra, _VERTICAL_COLORBAR_OUTER_EXTRA)
     return outer_extra
+
+
+def outer_right_factor(
+    recipe: MapRecipe,
+    *,
+    figure_horizontal_default: bool,
+) -> float:
+    return _outer_right_factor_for_ncols(
+        recipe,
+        figure_horizontal_default=figure_horizontal_default,
+        ncols=recipe.layout.ncols,
+    )
+
+
+def _width_units_for_ncols(
+    recipe: MapRecipe,
+    *,
+    figure_horizontal_default: bool,
+    ncols: int,
+) -> float:
+    width_ratios = (
+        effective_width_ratios(recipe)
+        if ncols == recipe.layout.ncols
+        else tuple(1.0 for _ in range(ncols))
+    )
+    col_gap = _column_gap_factors_for_ncols(
+        recipe,
+        figure_horizontal_default=figure_horizontal_default,
+        ncols=ncols,
+    )
+    outer_extra = _outer_right_factor_for_ncols(
+        recipe,
+        figure_horizontal_default=figure_horizontal_default,
+        ncols=ncols,
+    )
+    return float(sum(width_ratios)) + float(sum(col_gap)) + outer_extra
+
+
+def _panel_width_reference_ncols(recipe: MapRecipe) -> int:
+    if recipe.layout.ncols == 1:
+        return _ONE_COLUMN_PANEL_WIDTH_REFERENCE_NCOLS
+    return recipe.layout.ncols
+
+
+def _one_column_panel_width_scale(recipe: MapRecipe) -> float:
+    if recipe.layout.ncols != 1:
+        return 1.0
+    data_panels = tuple(panel for panel in recipe.panels if panel.kind not in _SUPPORT_PANEL_KINDS)
+    if data_panels and all(panel.kind in _ONE_COLUMN_RASTER_PANEL_KINDS for panel in data_panels):
+        return _ONE_COLUMN_RASTER_PANEL_SCALE
+    return 1.0
 
 
 def panel_empty_below_units(recipe: MapRecipe, panel: MapPanelSpec) -> float:
@@ -742,39 +905,89 @@ def attach_colorbar(
             cbar.set_label(label, fontsize=_COLORBAR_TITLE_SIZE)
         return
 
-    cax = ax.inset_axes(
-        [
-            1.0 + _VERTICAL_COLORBAR_XOFFSET_AXES,
-            _VERTICAL_COLORBAR_BOTTOM_AXES,
-            _VERTICAL_COLORBAR_WIDTH_AXES,
-            _VERTICAL_COLORBAR_HEIGHT_AXES,
-        ],
-        transform=ax.transAxes,
-    )
+    title = extract_unit_title(label)
+    container_ax = None
+    if title and _POSTER_VERTICAL_COLORBAR_UNIT_HEADER_ENABLED:
+        container_ax = ax.inset_axes(
+            [
+                1.0 + _VERTICAL_COLORBAR_XOFFSET_AXES,
+                _POSTER_VERTICAL_COLORBAR_CONTAINER_BOTTOM_AXES,
+                _VERTICAL_COLORBAR_WIDTH_AXES,
+                _POSTER_VERTICAL_COLORBAR_CONTAINER_HEIGHT_AXES,
+            ],
+            transform=ax.transAxes,
+        )
+        container_ax.set_axis_off()
+        header_height = _POSTER_VERTICAL_COLORBAR_UNIT_HEADER_HEIGHT_AXES
+        header_gap = _POSTER_VERTICAL_COLORBAR_UNIT_HEADER_GAP_AXES
+        cax = container_ax.inset_axes(
+            [0.0, 0.0, 1.0, max(1.0 - header_height - header_gap, 0.1)],
+            transform=container_ax.transAxes,
+        )
+        register_child_axes(ax, container_ax)
+        register_child_axes(ax, cax)
+    else:
+        cax = ax.inset_axes(
+            [
+                1.0 + _VERTICAL_COLORBAR_XOFFSET_AXES,
+                _VERTICAL_COLORBAR_BOTTOM_AXES,
+                _VERTICAL_COLORBAR_WIDTH_AXES,
+                _VERTICAL_COLORBAR_HEIGHT_AXES,
+            ],
+            transform=ax.transAxes,
+        )
+        register_child_axes(ax, cax)
     cbar = plt.colorbar(mappable, cax=cax, orientation="vertical")
     if ticks:
         cbar.set_ticks(ticks)
     if ticklabels:
         cbar.set_ticklabels(ticklabels)
-    cbar.ax.tick_params(labelsize=_COLORBAR_TICK_SIZE, length=2.2, width=0.7, pad=1.0)
-    for tick in cbar.ax.get_yticklabels():
+    poster_ticks_applied = _apply_poster_vertical_colorbar_ticks(cbar, label=label, ticks=ticks)
+    cbar.ax.tick_params(labelsize=_COLORBAR_TICK_SIZE, length=2.2, width=0.7, pad=_COLORBAR_TICK_PAD)
+    tick_labels = cbar.ax.get_yticklabels()
+    for tick in tick_labels:
         tick.set_rotation(90)
         tick.set_va("center")
         tick.set_ha("center")
-    title = extract_unit_title(label)
-    if title:
+    if not poster_ticks_applied:
+        _thin_vertical_colorbar_ticklabels(cbar)
+    if title and container_ax is not None:
+        cbar.ax.get_yticklabels()[-1].set_visible(False)
+    if title and container_ax is not None:
+        container_ax.text(
+            0.0,
+            1.0,
+            title,
+            transform=container_ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=_COLORBAR_TITLE_SIZE,
+        )
+    elif title:
         cbar.ax.text(0.5, 1.02, title, transform=cbar.ax.transAxes, ha="center", va="bottom", fontsize=_COLORBAR_TITLE_SIZE)
     elif label:
         cbar.set_label(label, fontsize=_COLORBAR_TITLE_SIZE)
 
 
 def panel_width_in_for_recipe(recipe: MapRecipe, *, figure_horizontal_default: bool) -> float:
-    width_factors = effective_width_ratios(recipe)
-    col_gap = column_gap_factors(recipe, figure_horizontal_default=figure_horizontal_default)
-    outer_extra = outer_right_factor(recipe, figure_horizontal_default=figure_horizontal_default)
     inner_width_in = FIGWIDTH_OVERVIEW_PAPER * (_RIGHT_MARGIN - _LEFT_MARGIN)
-    width_units = float(sum(width_factors)) + float(sum(col_gap)) + outer_extra
-    return inner_width_in / max(width_units, 1.0)
+    width_units = _width_units_for_ncols(
+        recipe,
+        figure_horizontal_default=figure_horizontal_default,
+        ncols=_panel_width_reference_ncols(recipe),
+    )
+    return (inner_width_in / max(width_units, 1.0)) * _one_column_panel_width_scale(recipe)
+
+
+def figure_width_for_recipe(recipe: MapRecipe, *, figure_horizontal_default: bool) -> float:
+    panel_width = panel_width_in_for_recipe(recipe, figure_horizontal_default=figure_horizontal_default)
+    width_units = _width_units_for_ncols(
+        recipe,
+        figure_horizontal_default=figure_horizontal_default,
+        ncols=recipe.layout.ncols,
+    )
+    inner_width = panel_width * width_units
+    return inner_width / max(_RIGHT_MARGIN - _LEFT_MARGIN, 1e-9)
 
 
 def figure_size(
@@ -812,7 +1025,8 @@ def figure_size(
     bottom_extra_height = bottom_extras.get(recipe.layout.nrows - 1, 0.0) * row_heights[-1]
     inner_height = float(sum(row_heights) + sum(inter_row_gap_heights) + bottom_extra_height)
     fig_height = inner_height / max(_TOP_MARGIN - _BOTTOM_MARGIN, 1e-9)
-    return FIGWIDTH_OVERVIEW_PAPER, float(np.clip(fig_height, _FIGURE_HEIGHT_MIN, _FIGURE_HEIGHT_MAX))
+    fig_width = figure_width_for_recipe(recipe, figure_horizontal_default=figure_horizontal_default)
+    return fig_width, float(np.clip(fig_height, _FIGURE_HEIGHT_MIN, _FIGURE_HEIGHT_MAX))
 
 
 def expanded_grid_ratios(data_ratios: tuple[float, ...], gap_factors: tuple[float, ...]) -> list[float]:

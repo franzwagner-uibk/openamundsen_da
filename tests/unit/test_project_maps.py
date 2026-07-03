@@ -2622,6 +2622,161 @@ def test_row_extents_use_full_extent_unless_row_view_is_configured(tmp_path: Pat
     assert row_ratios[1] == pytest.approx(0.5)
 
 
+def test_one_column_non_raster_map_uses_three_column_panel_width() -> None:
+    one_col = MapRecipe(
+        name="one_col",
+        title="one_col",
+        layout=LayoutSpec(nrows=1, ncols=1),
+        panels=(MapPanelSpec(kind="roi", row=0, col=0),),
+    )
+    three_col = MapRecipe(
+        name="three_col",
+        title="three_col",
+        layout=LayoutSpec(nrows=1, ncols=3),
+        panels=tuple(MapPanelSpec(kind="roi", row=0, col=col) for col in range(3)),
+    )
+    figure_horizontal_default = layout_module.figure_prefers_horizontal_legends(one_col)
+
+    one_col_panel_width = layout_module.panel_width_in_for_recipe(
+        one_col,
+        figure_horizontal_default=figure_horizontal_default,
+    )
+    three_col_panel_width = layout_module.panel_width_in_for_recipe(
+        three_col,
+        figure_horizontal_default=layout_module.figure_prefers_horizontal_legends(three_col),
+    )
+    one_col_figure_width = layout_module.figure_width_for_recipe(
+        one_col,
+        figure_horizontal_default=figure_horizontal_default,
+    )
+
+    assert one_col_panel_width == pytest.approx(three_col_panel_width)
+    assert one_col_figure_width == pytest.approx(
+        layout_module.FIGWIDTH_OVERVIEW_PAPER / (3.0 + 2.0 * layout_module._LAYOUT_COL_GAP)
+    )
+    assert one_col_figure_width < layout_module.FIGWIDTH_OVERVIEW_PAPER
+
+
+def test_one_column_raster_map_uses_scaled_compact_panel_width() -> None:
+    one_col = MapRecipe(
+        name="one_col",
+        title="one_col",
+        layout=LayoutSpec(nrows=1, ncols=1),
+        panels=(MapPanelSpec(kind="dem", row=0, col=0),),
+    )
+    figure_horizontal_default = layout_module.figure_prefers_horizontal_legends(one_col)
+    inner_width_in = layout_module.FIGWIDTH_OVERVIEW_PAPER * (
+        layout_module._RIGHT_MARGIN - layout_module._LEFT_MARGIN
+    )
+    compact_reference_units = (
+        3.0
+        + 2.0 * layout_module._LAYOUT_COL_GAP
+        + layout_module._VERTICAL_COLORBAR_GAP_EXTRA
+    )
+    expected_panel_width = (
+        inner_width_in
+        / compact_reference_units
+        * layout_module._ONE_COLUMN_RASTER_PANEL_SCALE
+    )
+    actual_width_units = 1.0 + layout_module._VERTICAL_COLORBAR_OUTER_EXTRA
+    expected_figure_width = expected_panel_width * actual_width_units / (
+        layout_module._RIGHT_MARGIN - layout_module._LEFT_MARGIN
+    )
+
+    one_col_panel_width = layout_module.panel_width_in_for_recipe(
+        one_col,
+        figure_horizontal_default=figure_horizontal_default,
+    )
+    one_col_figure_width = layout_module.figure_width_for_recipe(
+        one_col,
+        figure_horizontal_default=figure_horizontal_default,
+    )
+
+    assert one_col_panel_width == pytest.approx(expected_panel_width)
+    assert one_col_figure_width == pytest.approx(expected_figure_width)
+    assert one_col_figure_width < layout_module.FIGWIDTH_OVERVIEW_PAPER
+
+
+def test_one_column_support_only_map_keeps_compact_panel_width() -> None:
+    one_col = MapRecipe(
+        name="one_col",
+        title="one_col",
+        layout=LayoutSpec(nrows=1, ncols=1),
+        panels=(MapPanelSpec(kind="legend", row=0, col=0),),
+    )
+    three_col = MapRecipe(
+        name="three_col",
+        title="three_col",
+        layout=LayoutSpec(nrows=1, ncols=3),
+        panels=tuple(MapPanelSpec(kind="legend", row=0, col=col) for col in range(3)),
+    )
+
+    one_col_panel_width = layout_module.panel_width_in_for_recipe(
+        one_col,
+        figure_horizontal_default=layout_module.figure_prefers_horizontal_legends(one_col),
+    )
+    three_col_panel_width = layout_module.panel_width_in_for_recipe(
+        three_col,
+        figure_horizontal_default=layout_module.figure_prefers_horizontal_legends(three_col),
+    )
+
+    assert one_col_panel_width == pytest.approx(three_col_panel_width)
+
+
+def test_multi_column_map_widths_stay_full_paper_width() -> None:
+    for ncols in (2, 3, 4):
+        recipe = MapRecipe(
+            name=f"{ncols}_col",
+            title=f"{ncols}_col",
+            layout=LayoutSpec(nrows=1, ncols=ncols),
+            panels=tuple(MapPanelSpec(kind="roi", row=0, col=col) for col in range(ncols)),
+        )
+
+        assert layout_module.figure_width_for_recipe(
+            recipe,
+            figure_horizontal_default=layout_module.figure_prefers_horizontal_legends(recipe),
+        ) == pytest.approx(layout_module.FIGWIDTH_OVERVIEW_PAPER)
+
+
+def test_two_by_one_raster_map_uses_scaled_compact_canvas_and_sane_height(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    recipe = MapRecipe(
+        name="two_by_one",
+        title="two_by_one",
+        layout=LayoutSpec(nrows=2, ncols=1),
+        panels=(
+            MapPanelSpec(kind="dem", row=0, col=0),
+            MapPanelSpec(kind="landcover", row=1, col=0),
+        ),
+    )
+    compact_non_raster_recipe = MapRecipe(
+        name="two_by_one_roi",
+        title="two_by_one_roi",
+        layout=LayoutSpec(nrows=2, ncols=1),
+        panels=(
+            MapPanelSpec(kind="roi", row=0, col=0),
+            MapPanelSpec(kind="roi", row=1, col=0),
+        ),
+    )
+
+    fig_width, fig_height = render_module._figure_size(
+        buffered_extent(context),
+        recipe,
+        context=context,
+    )
+    compact_fig_width, _compact_fig_height = render_module._figure_size(
+        buffered_extent(context),
+        compact_non_raster_recipe,
+        context=context,
+    )
+
+    assert fig_width == pytest.approx(compact_fig_width * layout_module._ONE_COLUMN_RASTER_PANEL_SCALE)
+    assert fig_width < layout_module.FIGWIDTH_OVERVIEW_PAPER
+    assert fig_height > fig_width
+    assert fig_height / fig_width < 3.0
+
+
 def test_comparison_scales_use_zero_centered_diverging_increment_norm() -> None:
     preset = require_variable_preset("snowdepth_daily")
     fields = [

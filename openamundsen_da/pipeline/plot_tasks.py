@@ -14,6 +14,11 @@ from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.methods.viz.maps import project_maps_enabled, render_project_maps
 from openamundsen_da.methods.viz.maps.generated import default_project_maps_rerun_command
 from openamundsen_da.methods.viz.maps.runner import ProjectMapRenderError
+from openamundsen_da.methods.viz.poster import (
+    default_project_poster_rerun_command,
+    poster_profile_enabled,
+    render_poster_profile,
+)
 from openamundsen_da.methods.viz.reports import build_project_collection_pdf
 from openamundsen_da.methods.viz.reports.project_collection_pdf import MissingProjectPdfArtifactsError
 from openamundsen_da.methods.viz.plots.assimilation import (
@@ -274,6 +279,18 @@ def render_project_maps_best_effort(project_dir: Path) -> None:
         )
 
 
+def render_project_poster_best_effort(project_dir: Path, *, max_workers: int | None = None) -> None:
+    if not poster_profile_enabled(project_dir):
+        logger.info("Poster rendering skipped: no poster.yml found under {}", project_dir)
+        return
+    try:
+        outputs = render_poster_profile(project_dir=project_dir, max_workers=max_workers)
+        logger.info("Poster rendering complete -> {} output(s)", len(outputs))
+    except Exception as exc:
+        logger.warning("Poster rendering failed: {}", exc)
+        logger.warning("Rerun poster rendering with: {}", default_project_poster_rerun_command(project_dir))
+
+
 def default_project_report_rerun_command(project_dir: Path) -> str:
     return f"python -m openamundsen_da.methods.viz.reports --project-dir {Path(project_dir)}"
 
@@ -410,6 +427,7 @@ __all__ = [
     "custom_overview_needs_benchmark_scores",
     "default_project_report_rerun_command",
     "render_project_maps_best_effort",
+    "render_project_poster_best_effort",
     "render_project_report_best_effort",
     "run_live_plots",
     "run_plot_tasks_parallel",

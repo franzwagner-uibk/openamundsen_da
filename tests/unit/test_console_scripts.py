@@ -38,6 +38,24 @@ def test_project_maps_console_script_is_published():
     )
 
 
+def test_poster_console_script_is_published():
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    data = tomllib.loads(pyproject.read_text())
+
+    assert data["project"]["scripts"]["oa-da-plot-poster"] == (
+        "openamundsen_da.methods.viz.poster:cli_main"
+    )
+
+
+def test_poster_measure_console_script_is_published():
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    data = tomllib.loads(pyproject.read_text())
+
+    assert data["project"]["scripts"]["oa-da-poster-measure"] == (
+        "openamundsen_da.methods.viz.poster:measure_cli_main"
+    )
+
+
 def test_project_plots_console_script_is_published():
     pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
     data = tomllib.loads(pyproject.read_text())

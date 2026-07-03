@@ -14,6 +14,8 @@ from openamundsen_da.io.paths import (
     project_obs_selection_plot_path,
     project_paper_output_path,
     project_paper_root,
+    project_poster_output_path,
+    project_poster_root,
     project_plot_assim_dir,
     project_plot_assim_ess_dir,
     project_plot_assim_scores_dir,
@@ -35,6 +37,7 @@ def test_project_level_results_paths_use_canonical_results_tree(tmp_path: Path) 
 
     assert project_results_root(project_dir) == project_dir / "results"
     assert project_paper_root(project_dir) == project_dir / "results" / "paper"
+    assert project_poster_root(project_dir) == project_dir / "results" / "poster"
     assert project_plots_root(project_dir) == project_dir / "results" / "plots"
     assert project_plot_results_dir(project_dir) == project_dir / "results" / "plots" / "results"
     assert project_plot_assim_dir(project_dir) == project_dir / "results" / "plots" / "assim"
@@ -71,3 +74,9 @@ def test_project_level_results_paths_use_canonical_results_tree(tmp_path: Path) 
         )
         == project_dir / "results" / "paper" / "plots" / "assim" / "weights" / "setup_weights_overview_project_2022_2023.png"
     )
+    assert (
+        project_poster_output_path(project_dir, project_dir / "results" / "maps" / "da_events" / "da_6.png")
+        == project_dir / "results" / "poster" / "maps" / "da_events" / "da_6.png"
+    )
+    poster_output = project_dir / "results" / "poster" / "plots" / "results" / "result_overview_custom.png"
+    assert project_poster_output_path(project_dir, poster_output) == poster_output

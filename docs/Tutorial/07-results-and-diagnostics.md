@@ -105,7 +105,7 @@ Plot file to open:
 
 Reference plot (tutorial baseline, `ensemble_size=30`):
 
-![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/project_perf.png)
+![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/project_perf.png?v=20260703)
 
 _`project_perf.png` from the Rofental tutorial reference run (`100 m`, `ensemble_size=30`)._
 
@@ -191,7 +191,7 @@ Plot files to open:
 
 Reference ESS plot (tutorial baseline):
 
-![ESS timeline plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_ess_timeline_2022_2023.png)
+![ESS timeline plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_ess_timeline_2022_2023.png?v=20260703)
 
 _ESS timeline (`setup_ess_timeline_2022_2023.png`) from the tutorial reference run._
 
@@ -203,7 +203,7 @@ What to read in the ESS plot:
 
 Reference setup weights overview:
 
-![Setup weights overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_weights_overview_2022_2023.png)
+![Setup weights overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_weights_overview_2022_2023.png?v=20260703)
 
 _Setup-wide comparison of all eight assimilation events, grouped by observable family._
 
@@ -211,7 +211,7 @@ For larger projects, the setup overview is automatically split into multiple A4-
 
 Reference weights plot (example event):
 
-![Weights plot for one assimilation event (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/DA_04_weights.png)
+![Weights plot for one assimilation event (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/DA_04_weights.png?v=20260703)
 
 _Weights plot for `DA_04` (`station_hs` on `2023-02-21`)._
 
@@ -326,7 +326,7 @@ Recommended plot files to inspect (Rofental tutorial run):
 
 Result overview:
 
-![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/result_overview.png)
+![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/result_overview.png?v=20260703)
 
 _`result_overview.png`: check observation dates, fSCA/wet-snow event timing, ROI mean SWE / snow-depth behavior, and gross model-vs-observation behavior._
 
@@ -339,7 +339,7 @@ What to read in this plot:
 
 Station snow depth example (`latschbloder`):
 
-![Latschbloder snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_latschbloder_snow_depth_2022_2023.png)
+![Latschbloder snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_latschbloder_snow_depth_2022_2023.png?v=20260703)
 
 _Snow depth comparison at `latschbloder` (open loop + ensemble + observations)._
 
@@ -351,7 +351,7 @@ What to read in this plot:
 
 Station SWE example (`proviantdepot`):
 
-![Proviantdepot SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_proviantdepot_swe_2022_2023.png)
+![Proviantdepot SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_proviantdepot_swe_2022_2023.png?v=20260703)
 
 _SWE comparison at `proviantdepot` (remember: station SWE observations are expected in **mm** in this tutorial setup)._
 
@@ -366,11 +366,11 @@ What to read in this plot:
 
 `proviantdepot` snow depth:
 
-![Proviantdepot snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_proviantdepot_snow_depth_2022_2023.png)
+![Proviantdepot snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_proviantdepot_snow_depth_2022_2023.png?v=20260703)
 
 `latschbloder` SWE:
 
-![Latschbloder SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_latschbloder_swe_2022_2023.png)
+![Latschbloder SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_latschbloder_swe_2022_2023.png?v=20260703)
 
 </details>
 
@@ -462,11 +462,11 @@ Dimension names in the inspected NetCDF (for example `time1`, `time2`, `snow_lay
 > - `results/maps/da_events/da_6.png`: WSLA update on **2023-03-24**
 > - `results/maps/da_events/da_8.png`: fSCA (`scf`) update on **2023-05-26**
 
-![Generated DA-event map for the WSLA update on 2023-03-24]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_06_wsla_2023_03_24.png)
+![Generated DA-event map for the WSLA update on 2023-03-24]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_06_wsla_2023_03_24.png?v=20260703)
 
 _`da_6.png`: open loop, prior, posterior and observed wet snow fraction maps with WSLA contours, elevation-band wet snow fraction maps, and corresponding snow-depth fields for the **2023-03-24** `wet_snow_line` update._
 
-![Generated DA-event map for the fSCA update on 2023-05-26]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_08_scf_2023_05_26.png)
+![Generated DA-event map for the fSCA update on 2023-05-26]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_08_scf_2023_05_26.png?v=20260703)
 
 _`da_8.png`: open loop, prior, posterior and observed fSCA diagnostics plus corresponding snow-depth fields for the **2023-05-26** `scf` update._
 

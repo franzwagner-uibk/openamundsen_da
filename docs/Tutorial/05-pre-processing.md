@@ -37,7 +37,7 @@ The same YAML-driven setup map used earlier in the tutorial is a useful referenc
 while checking ROI coverage, station locations, static land-cover context and
 the snow redistribution factor (SRF):
 
-![Rofental tutorial setup overview map with DEM, forcing stations, land cover, aspect and SRF]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_overview.png)
+![Rofental tutorial setup overview map with DEM, forcing stations, land cover, aspect and SRF]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_overview.png?v=20260703)
 
 Selected sections from
 `/data/rofental/projects/project_2022_2023/project_2022_2023.yml`:

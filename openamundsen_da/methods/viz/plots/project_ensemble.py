@@ -87,6 +87,7 @@ from openamundsen_da.util.ts import (
 from openamundsen_da.methods.viz.plots.common import (
     add_assim_label_axis,
     apply_fraction_grid,
+    apply_month_interval_axis_labels,
     draw_adaptive_assim_labels,
     draw_assimilation_vlines,
     dedupe_legend,
@@ -233,30 +234,7 @@ def _add_result_label_axis(ax, dates: Sequence[datetime], idx: int = 0):
 
 
 def _apply_result_time_axis_labels(ax) -> None:
-    import matplotlib.dates as mdates
-
-    locator = mdates.MonthLocator()
-    formatter = mdates.DateFormatter("%b")
-    ax.xaxis.set_major_locator(locator)
-    ax.xaxis.set_major_formatter(formatter)
-
-    x_min, x_max = sorted(ax.get_xlim())
-    tick_values = locator.tick_values(mdates.num2date(x_min), mdates.num2date(x_max))
-    tick_dates = [pd.Timestamp(mdates.num2date(val)).tz_localize(None) for val in tick_values]
-    if not tick_dates:
-        return
-
-    labels: list[str] = []
-    prev_year: int | None = None
-    for idx, tick_dt in enumerate(tick_dates):
-        if idx == 0 or tick_dt.year != prev_year:
-            labels.append(tick_dt.strftime("%b\n%Y"))
-        else:
-            labels.append(tick_dt.strftime("%b"))
-        prev_year = tick_dt.year
-    ax.set_xticks(tick_values)
-    ax.set_xticklabels(labels)
-    ax.tick_params(axis="x", labelsize=8.4)
+    apply_month_interval_axis_labels(ax)
 
 
 def _build_station_result_legend(
@@ -281,7 +259,13 @@ def _build_station_result_legend(
         handles.extend(
             [
                 Line2D([0], [0], color=mean_color, lw=LW_MEAN, label="ensemble mean"),
-                Patch(facecolor=band_color, edgecolor=band_color, linewidth=1.2, alpha=BAND_ALPHA, label="ensemble"),
+                Patch(
+                    facecolor=band_color,
+                    edgecolor=band_color,
+                    linewidth=1.2,
+                    alpha=BAND_ALPHA,
+                    label="5-95% range",
+                ),
             ]
         )
     if show_da_event:

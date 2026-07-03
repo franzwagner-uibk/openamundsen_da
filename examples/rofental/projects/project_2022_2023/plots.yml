@@ -1,9 +1,10 @@
-# Custom result overview configuration.
+# Result overview configuration.
 #
 # Discovery:
 # - Keep this file in the project root directory.
-# - When present, the pipeline writes results/plots/results/result_overview_custom.png.
-# - When absent, no custom overview is written.
+# - When present, the pipeline uses this panel list for
+#   results/plots/results/result_overview.png.
+# - When absent, the built-in default result overview panel list is used.
 #
 # Structure:
 # - panels: ordered list from top to bottom

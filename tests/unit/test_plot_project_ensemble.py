@@ -136,7 +136,7 @@ def test_plot_setup_results_band_mode_uses_quantile_band(tmp_path: Path) -> None
         assert len(ax.collections) == 1
         assert len(ax.lines) == 3
         legend_labels = [text.get_text() for text in fig.legends[0].get_texts()]
-        assert legend_labels == ["open loop", "ensemble mean", "ensemble", "data assimilation event"]
+        assert legend_labels == ["open loop", "ensemble mean", "5-95% range", "data assimilation event"]
     finally:
         plt.close = original_close
         original_close("all")

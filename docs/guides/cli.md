@@ -542,7 +542,7 @@ Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PR
 
 **Setup result overview**
 
-Plots the combined setup result overview: fSCA, WSF, WSLA, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. Figure legends are built from rendered plot elements, so unused observation, ensemble, open-loop, or DA-event entries are omitted. Observation `x` markers identify assimilated observations, and month labels are centered between month-boundary ticks. If `<project-dir>/plots.yml` exists, the pipeline additionally writes `result_overview_custom.png` with the configured panel list. Custom panel configs support `WSF`, `WSLA`, `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
+Plots the combined setup result overview: fSCA, WSF, WSLA, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. Figure legends are built from rendered plot elements, so unused observation, ensemble, open-loop, or DA-event entries are omitted. Observation `x` markers identify assimilated observations, and month labels are centered between month-boundary ticks. If `<project-dir>/plots.yml` exists, the configured panel list is used for the standard `result_overview.png`. Configured panels support `WSF`, `WSLA`, `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
 
 ```bash
 oa-da-plot-result-overview \
@@ -553,7 +553,6 @@ oa-da-plot-result-overview \
 
 **Output:**
 - `results/plots/results/result_overview.png`
-- `results/plots/results/result_overview_custom.png` when `<project-dir>/plots.yml` is present
 
 ---
 
@@ -660,7 +659,7 @@ oa-da-plot-poster \
 - poster maps under `results/poster/maps/**`
 - poster plots under `results/poster/plots/**`
 
-The first supported poster profile is a paper-baseline transform. `setup_overview` can keep or drop selected map panel kinds and reflow them to a chosen column count, generated DA-event maps can drop the first/open-loop column, and `result_overview_custom` can use its own reduced `panels` list. Optional `target_size_mm: [width, height]` values render PNGs at their intended physical poster size while keeping paper typography and line-width constants unchanged. Optional `theme.scale` applies a poster-local multiplier, while `theme.typography` and `theme.linework` can pin exact poster text sizes and panel-border width:
+The first supported poster profile is a paper-baseline transform. `setup_overview` can keep or drop selected map panel kinds and reflow them to a chosen column count, generated DA-event maps can drop the first/open-loop column, and the poster `result_overview_custom` asset can use its own reduced `panels` list. Optional `target_size_mm: [width, height]` values render PNGs at their intended physical poster size while keeping paper typography and line-width constants unchanged. Optional `theme.scale` applies a poster-local multiplier, while `theme.typography` and `theme.linework` can pin exact poster text sizes and panel-border width:
 
 ```yaml
 theme:
@@ -725,7 +724,7 @@ oa-da-project-pdf \
 **Output:**
 - `results/reports/project_report.pdf` by default
 
-The PDF starts with a generated one-page project report containing basic setup YAML settings, wet-snow classification and liquid-water-content settings, DA-event counts, computing-cost stats from project logs and `results/plots/perf/project_perf_metrics.csv` when available, plus a bottom `Content` table with page numbers first and section names second. It then includes `result_overview.png`, optional `result_overview_custom.png`, `setup_overview.png`, all `setup_weights_overview*.png` pages, station snow-depth point plots on one page, `performance_scores.png`, `project_perf.png`, and generated DA-event maps under `results/maps/da_events/da_<n>.png` in temporal order. Source PNGs are placed at their shared export-DPI size rather than scaled down to fit a page; consecutive DA maps are packed onto a page only while the reserved bottom gap is preserved. Standalone per-event weights plots and other remaining plot/map PNGs are not included.
+The PDF starts with a generated one-page project report containing basic setup YAML settings, wet-snow classification and liquid-water-content settings, DA-event counts, computing-cost stats from project logs and `results/plots/perf/project_perf_metrics.csv` when available, plus a bottom `Content` table with page numbers first and section names second. It then includes `result_overview.png`, `setup_overview.png`, all `setup_weights_overview*.png` pages, station snow-depth point plots on one page, `performance_scores.png`, `project_perf.png`, and generated DA-event maps under `results/maps/da_events/da_<n>.png` in temporal order. Source PNGs are placed at their shared export-DPI size rather than scaled down to fit a page; consecutive DA maps are packed onto a page only while the reserved bottom gap is preserved. Standalone per-event weights plots and other remaining plot/map PNGs are not included.
 
 ### oa-da-fetch-overview-geojson
 

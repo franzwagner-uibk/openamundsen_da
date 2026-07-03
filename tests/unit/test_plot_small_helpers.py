@@ -5,8 +5,10 @@ from pathlib import Path
 import pandas as pd
 
 import openamundsen_da.methods.viz.plots.assimilation.ess_timeline as ess_mod
+import openamundsen_da.methods.viz.plots.observer.scf_summary as scf_summary_mod
 from openamundsen_da.methods.viz.plots.common import (
     add_assim_label_axis,
+    apply_month_interval_axis_labels,
     draw_adaptive_assim_labels,
     result_axis_scale,
 )
@@ -38,6 +40,53 @@ def test_result_axis_scale_reuses_shared_swe_and_snow_depth_rules() -> None:
     assert result_axis_scale("station-swe", 90.0, shared=True) == (50.0, 100.0)
 
 
+def test_month_interval_axis_labels_center_labels_between_month_boundaries() -> None:
+    import matplotlib.dates as mdates
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(4.0, 2.0))
+    bounds = (pd.Timestamp("2022-12-15"), pd.Timestamp("2023-02-20"))
+    apply_month_interval_axis_labels(ax, bounds)
+
+    major_tick_dates = [pd.Timestamp(mdates.num2date(value)).tz_localize(None).date() for value in ax.get_xticks(minor=False)]
+    minor_tick_dates = [pd.Timestamp(mdates.num2date(value)).tz_localize(None).date() for value in ax.get_xticks(minor=True)]
+    minor_labels = [label.get_text() for label in ax.get_xticklabels(minor=True)]
+
+    assert major_tick_dates == [
+        pd.Timestamp("2022-12-01").date(),
+        pd.Timestamp("2023-01-01").date(),
+        pd.Timestamp("2023-02-01").date(),
+        pd.Timestamp("2023-03-01").date(),
+    ]
+    assert minor_tick_dates == [
+        pd.Timestamp("2022-12-16").date(),
+        pd.Timestamp("2023-01-16").date(),
+        pd.Timestamp("2023-02-15").date(),
+    ]
+    assert minor_labels == ["Dec\n2022", "Jan\n2023", "Feb"]
+    assert all(label.get_text() == "" for label in ax.get_xticklabels(minor=False))
+    plt.close(fig)
+
+
+def test_month_interval_axis_labels_survive_top_assimilation_label_axis() -> None:
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(4.0, 2.0))
+    bounds = (pd.Timestamp("2022-10-01"), pd.Timestamp("2023-07-01"))
+    ax.set_xlim(*bounds)
+    apply_month_interval_axis_labels(ax, bounds)
+    add_assim_label_axis(ax, pd.to_datetime(["2022-11-17", "2022-12-07"]))
+    fig.canvas.draw()
+
+    visible_minor_labels = [
+        label.get_text() for label in ax.get_xticklabels(minor=True) if label.get_visible() and label.get_text()
+    ]
+
+    assert visible_minor_labels[:4] == ["Oct\n2022", "Nov", "Dec", "Jan\n2023"]
+    assert all(label.get_text() == "" for label in ax.get_xticklabels(minor=False))
+    plt.close(fig)
+
+
 def test_plot_ess_timeline_renders_subtitle() -> None:
     import matplotlib.pyplot as plt
 
@@ -60,6 +109,23 @@ def test_plot_ess_timeline_renders_subtitle() -> None:
     )
     texts = [text.get_text() for text in fig.texts]
     assert "Subtitle text" in texts
+    plt.close(fig)
+
+
+def test_observer_scf_summary_uses_centered_month_labels() -> None:
+    import matplotlib.pyplot as plt
+
+    df = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2023-01-01", "2023-02-01"]),
+            "scf": [0.4, 0.6],
+        }
+    )
+    fig = scf_summary_mod._plot(df, backend="Agg")
+    ax = fig.axes[0]
+
+    assert any(label.get_text() == "Jan\n2023" for label in ax.get_xticklabels(minor=True))
+    assert all(label.get_text() == "" for label in ax.get_xticklabels(minor=False))
     plt.close(fig)
 
 

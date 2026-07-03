@@ -30,6 +30,7 @@ from openamundsen_da.util.yaml_utils import read_yaml_mapping
 from openamundsen_da.methods.viz.plots.common import (
     add_assim_label_axis,
     apply_fraction_grid,
+    apply_month_interval_axis_labels,
     draw_assimilation_vlines,
     result_title_pad,
 )
@@ -136,30 +137,7 @@ def _add_assim_label_axis(ax, dates: list[pd.Timestamp]) -> None:
 
 
 def _apply_result_like_time_axis_labels(ax) -> None:
-    import matplotlib.dates as mdates
-
-    locator = mdates.MonthLocator()
-    formatter = mdates.DateFormatter("%b")
-    ax.xaxis.set_major_locator(locator)
-    ax.xaxis.set_major_formatter(formatter)
-
-    x_min, x_max = sorted(ax.get_xlim())
-    tick_values = locator.tick_values(mdates.num2date(x_min), mdates.num2date(x_max))
-    tick_dates = [pd.Timestamp(mdates.num2date(val)).tz_localize(None) for val in tick_values]
-    if not tick_dates:
-        return
-
-    labels: list[str] = []
-    prev_year: int | None = None
-    for idx, tick_dt in enumerate(tick_dates):
-        if idx == 0 or tick_dt.year != prev_year:
-            labels.append(tick_dt.strftime("%b\n%Y"))
-        else:
-            labels.append(tick_dt.strftime("%b"))
-        prev_year = tick_dt.year
-    ax.set_xticks(tick_values)
-    ax.set_xticklabels(labels)
-    ax.tick_params(axis="x", labelsize=8.4)
+    apply_month_interval_axis_labels(ax)
 
 
 def _apply_ess_ticks(ax, ensemble_size: int | None, *, threshold: float | None = None) -> None:

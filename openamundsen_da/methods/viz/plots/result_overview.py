@@ -61,6 +61,7 @@ from openamundsen_da.methods.viz.plots.theme import (
 )
 from openamundsen_da.methods.viz.plots.common import (
     apply_fraction_grid,
+    apply_month_interval_axis_labels,
     draw_adaptive_assim_labels,
     draw_assimilation_markers,
     draw_assimilation_vlines,
@@ -415,17 +416,19 @@ def _parse_panel_specs(config_path: Path) -> list[PanelSpec]:
     return specs
 
 
-def _project_custom_config_path(project_dir: Path) -> Path | None:
+def _project_panel_config_path(project_dir: Path) -> Path | None:
     candidate = (project_dir / "plots.yml").resolve()
     if not candidate.is_file():
         return None
     return candidate
 
 
-def _default_custom_output(project_dir: Path) -> Path:
-    out_path = project_result_overview_custom_output_path(project_dir)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    return out_path
+def _remove_legacy_custom_outputs(project_dir: Path) -> None:
+    custom_output = project_result_overview_custom_output_path(project_dir)
+    for path in (custom_output, project_paper_output_path(project_dir, custom_output)):
+        if path.is_file():
+            path.unlink()
+            logger.info("Removed legacy custom result overview: {}", path)
 
 
 def _project_time_bounds(project_dir: Path) -> tuple[pd.Timestamp, pd.Timestamp] | None:
@@ -442,15 +445,15 @@ def _project_time_bounds(project_dir: Path) -> tuple[pd.Timestamp, pd.Timestamp]
     return start, end
 
 
-def _custom_overview_needs_score_points(specs: list[PanelSpec] | None) -> bool:
+def _configured_overview_needs_score_points(specs: list[PanelSpec] | None) -> bool:
     return any(_is_score_panel(spec.panel) for spec in (specs or []))
 
 
-def _load_score_points_for_custom_overview(project_dir: Path) -> pd.DataFrame:
+def _load_score_points_for_configured_overview(project_dir: Path) -> pd.DataFrame:
     score_path = project_dir / "results" / "benchmark" / "scores" / "event_scores.csv"
     if not score_path.is_file():
         raise FileNotFoundError(
-            f"Missing benchmark event scores for custom score panel(s): {score_path}. "
+            f"Missing benchmark event scores for configured score panel(s): {score_path}. "
             "Run the benchmark stage before requesting scores-crpss, scores-ner, or scores-zskill."
         )
 
@@ -684,9 +687,9 @@ def _wsl_prior_member_env(member_series: list[pd.Series] | None) -> pd.DataFrame
     if aligned.empty:
         return None
     n = aligned.count(axis=1)
-    center = aligned.median(axis=1, skipna=True).where(n > 0)
-    value_min = aligned.min(axis=1, skipna=True).where(n > 0)
-    value_max = aligned.max(axis=1, skipna=True).where(n > 0)
+    center = aligned.mean(axis=1, skipna=True).where(n > 0)
+    value_min = aligned.quantile(0.05, axis=1, numeric_only=True).where(n > 0)
+    value_max = aligned.quantile(0.95, axis=1, numeric_only=True).where(n > 0)
     out = pd.DataFrame(
         {
             "date": aligned.index,
@@ -736,9 +739,9 @@ def _load_wsl_prior_coverage_frame(project_dir: Path) -> pd.DataFrame | None:
             rows.append(
                 {
                     "date": pd.Timestamp(date).normalize(),
-                    "value_mean": summary["median"],
-                    "value_min": summary["min"],
-                    "value_max": summary["max"],
+                    "value_mean": summary["mean"],
+                    "value_min": summary["q05"],
+                    "value_max": summary["q95"],
                     "value_obs": summary["obs"],
                     "n": summary["n_members"],
                 }
@@ -844,7 +847,7 @@ def _ensemble_legend_handle(panel_style: dict[str, str]):
             Patch(facecolor=panel_style["fill"], edgecolor="none", linewidth=0.0, alpha=BAND_ALPHA),
             Line2D([0], [0], color=panel_style["line"], lw=_RESULT_OVERVIEW_DATA_LW),
         ),
-        "ensemble",
+        "ensemble mean + 5-95% range",
     )
 
 
@@ -1292,7 +1295,7 @@ def _build_result_overview_legend_handles(
                     ),
                     Line2D([0], [0], color="#666666", lw=_RESULT_OVERVIEW_DATA_LW),
                 ),
-                "ensemble (min - max, mean)",
+                "ensemble mean + 5-95% range",
             )
         )
     if legend_state.station_observation:
@@ -1638,45 +1641,12 @@ def _apply_time_axis_labels(
     *,
     align_first_xtick_left: bool = False,
 ) -> None:
-    import matplotlib.dates as mdates
-    from matplotlib.ticker import NullFormatter
-
-    locator = mdates.MonthLocator()
-    for ax in axes:
-        ax.xaxis.set_major_locator(locator)
-        ax.xaxis.set_major_formatter(NullFormatter())
-    if x_bounds is None:
-        return
-
-    start = pd.Timestamp(x_bounds[0]).normalize().replace(day=1)
-    end = pd.Timestamp(x_bounds[1]).normalize().replace(day=1) + pd.DateOffset(months=1)
-    month_starts = list(pd.date_range(start, end, freq="MS"))
-    if len(month_starts) < 2:
-        return
-
-    tick_values = [mdates.date2num(date.to_pydatetime()) for date in month_starts]
-    mid_values: list[float] = []
-    labels: list[str] = []
-    prev_year: int | None = None
-    for left, right in zip(month_starts[:-1], month_starts[1:], strict=True):
-        midpoint = left + (right - left) / 2
-        mid_values.append(mdates.date2num(midpoint.to_pydatetime()))
-        if prev_year is None or left.year != prev_year:
-            labels.append(left.strftime("%b\n%Y"))
-        else:
-            labels.append(left.strftime("%b"))
-        prev_year = left.year
-    axes[-1].set_xticks(tick_values)
-    axes[-1].set_xticklabels([""] * len(tick_values))
-    axes[-1].set_xticks(mid_values, labels, minor=True)
-    for ax in axes:
-        ax.set_xlim(*x_bounds)
-    if align_first_xtick_left:
-        xtick_labels = axes[-1].get_xticklabels(minor=True)
-        if xtick_labels:
-            xtick_labels[0].set_ha("left")
-    axes[-1].tick_params(axis="x", which="major", labelbottom=False)
-    axes[-1].tick_params(axis="x", which="minor", length=0, labelsize=_RESULT_OVERVIEW_XTICK_SIZE)
+    apply_month_interval_axis_labels(
+        axes,
+        x_bounds,
+        labelsize=_RESULT_OVERVIEW_XTICK_SIZE,
+        align_first_label_left=align_first_xtick_left,
+    )
 
 
 def _panel_has_data(
@@ -2318,7 +2288,7 @@ def plot_result_overview(
         else:
             if station_data is None:
                 raise ValueError(f"Missing station panel data for {spec.panel}")
-            env_frame = _band_frame(station_data.members, q_low=0.0, q_high=1.0)
+            env_frame = _band_frame(station_data.members)
             local_has_ensemble = False
             local_has_open_loop = False
             local_has_station_obs = False
@@ -2480,7 +2450,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     parser.add_argument("--wet-env-csv", type=Path, help="WSF envelope CSV (value_min/value_max/value_mean)")
     parser.add_argument("--wsl-env-csv", type=Path, help="WSLA envelope CSV (value_min/value_max/value_mean)")
     parser.add_argument("--output", type=Path, help="Output PNG path (default: <project>/results/plots/results/result_overview.png)")
-    parser.add_argument("--custom-config", type=Path, help="Custom panel YAML (default: <project-dir>/plots.yml)")
+    parser.add_argument("--custom-config", type=Path, help="Panel YAML (default: <project-dir>/plots.yml)")
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
     parser.add_argument("--mode", choices=["band", "members"], default="band", help="Plot mode: band (default) or members")
     parser.add_argument("--backend", default="Agg", help="Matplotlib backend (default: Agg)")
@@ -2631,141 +2601,71 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
         logger.error("No data available to plot. Provide at least one obs/model series.")
         return 1
 
-    custom_config_path = (
+    panel_config_path = (
         Path(abspath_relative_to(project_dir, args.custom_config)).resolve()
         if args.custom_config
-        else _project_custom_config_path(project_dir)
+        else _project_panel_config_path(project_dir)
     )
-    custom_specs: list[PanelSpec] | None = None
-    custom_station_panels: dict[tuple[str, str], StationPanelData] = {}
-    custom_score_points: pd.DataFrame | None = None
-    if custom_config_path is not None:
+    configured_specs: list[PanelSpec] | None = None
+    configured_station_panels: dict[tuple[str, str], StationPanelData] = {}
+    configured_score_points: pd.DataFrame | None = None
+    if panel_config_path is not None:
         try:
-            custom_specs = _parse_panel_specs(custom_config_path)
-            _validate_station_ids(custom_specs, stations_df)
+            configured_specs = _parse_panel_specs(panel_config_path)
+            _validate_station_ids(configured_specs, stations_df)
             requested_station_keys = {
                 (spec.station_id.lower(), _STATION_PANEL_META[spec.panel]["value_col"])
-                for spec in custom_specs
+                for spec in configured_specs
                 if spec.station_id is not None and spec.panel in _STATION_PANEL_META
             }
-            custom_station_panels = {
+            configured_station_panels = {
                 key: _load_station_panel_data(project_dir, key[0], value_col=key[1], stations_df=stations_df)
                 for key in sorted(requested_station_keys)
             }
-            if _custom_overview_needs_score_points(custom_specs):
-                custom_score_points = _load_score_points_for_custom_overview(project_dir)
+            if _configured_overview_needs_score_points(configured_specs):
+                configured_score_points = _load_score_points_for_configured_overview(project_dir)
         except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to load custom result overview config {}: {}", custom_config_path, exc)
+            logger.error("Failed to load result overview config {}: {}", panel_config_path, exc)
             return 1
 
     try:
-        if args.custom_config is not None:
-            if custom_specs is None:
-                raise ValueError(f"Custom config could not be loaded: {custom_config_path}")
-            custom_output = args.output if args.output is not None else _default_custom_output(project_dir)
-            plot_result_overview(
-                scf_obs=scf_obs,
-                scf_model=scf_model,
-                wet_obs=wet_obs,
-                wet_model=wet_model,
-                wsl_obs=wsl_obs,
-                wsl_model=wsl_model,
-                scf_env=scf_env,
-                wet_env=wet_env,
-                wsl_env=wsl_env,
-                wsl_prior_coverage=wsl_prior_coverage,
-                output=custom_output,
-                assim_events=assim_events,
-                mode=str(args.mode or "band"),
-                roi_swe_model=roi_swe_model,
-                roi_swe_members=roi_swe_members,
-                roi_snow_depth_model=roi_snow_depth_model,
-                roi_snow_depth_members=roi_snow_depth_members,
-                panel_specs=custom_specs,
-                station_panels=custom_station_panels,
-                ess_panel=ess_panel,
-                score_points=custom_score_points,
-                strict_panels=True,
-                x_bounds=project_time_bounds,
-                backend=args.backend,
-                write_paper_copy=not args.no_paper_mirror,
-                target_size_in=target_size_in,
-                poster_style=poster_style,
-                layout_h_pad=float(args.poster_h_pad),
-                layout_hspace=float(args.poster_hspace) if args.poster_hspace is not None else None,
-                panel_height_factor=float(args.poster_panel_height_factor),
-                align_first_xtick_left=bool(args.poster_align_first_xtick_left),
-            )
-            logger.info("Wrote custom plot: {}", custom_output)
-        else:
-            default_output = default_result_overview_output(project_dir, args.output)
-            plot_result_overview(
-                scf_obs=scf_obs,
-                scf_model=scf_model,
-                wet_obs=wet_obs,
-                wet_model=wet_model,
-                wsl_obs=wsl_obs,
-                wsl_model=wsl_model,
-                scf_env=scf_env,
-                wet_env=wet_env,
-                wsl_env=wsl_env,
-                wsl_prior_coverage=wsl_prior_coverage,
-                output=default_output,
-                assim_events=assim_events,
-                mode=str(args.mode or "band"),
-                roi_swe_model=roi_swe_model,
-                roi_swe_members=roi_swe_members,
-                roi_snow_depth_model=roi_snow_depth_model,
-                roi_snow_depth_members=roi_snow_depth_members,
-                ess_panel=ess_panel,
-                x_bounds=project_time_bounds,
-                backend=args.backend,
-                write_paper_copy=not args.no_paper_mirror,
-                target_size_in=target_size_in,
-                poster_style=poster_style,
-                layout_h_pad=float(args.poster_h_pad),
-                layout_hspace=float(args.poster_hspace) if args.poster_hspace is not None else None,
-                panel_height_factor=float(args.poster_panel_height_factor),
-                align_first_xtick_left=bool(args.poster_align_first_xtick_left),
-            )
-            logger.info("Wrote plot: {}", default_output)
-
-            if custom_specs is not None:
-                custom_output = _default_custom_output(project_dir)
-                plot_result_overview(
-                    scf_obs=scf_obs,
-                    scf_model=scf_model,
-                    wet_obs=wet_obs,
-                    wet_model=wet_model,
-                    wsl_obs=wsl_obs,
-                    wsl_model=wsl_model,
-                    scf_env=scf_env,
-                    wet_env=wet_env,
-                    wsl_env=wsl_env,
-                    wsl_prior_coverage=wsl_prior_coverage,
-                    output=custom_output,
-                    assim_events=assim_events,
-                    mode=str(args.mode or "band"),
-                    roi_swe_model=roi_swe_model,
-                    roi_swe_members=roi_swe_members,
-                    roi_snow_depth_model=roi_snow_depth_model,
-                    roi_snow_depth_members=roi_snow_depth_members,
-                    panel_specs=custom_specs,
-                    station_panels=custom_station_panels,
-                    ess_panel=ess_panel,
-                    score_points=custom_score_points,
-                    strict_panels=True,
-                    x_bounds=project_time_bounds,
-                    backend=args.backend,
-                    write_paper_copy=not args.no_paper_mirror,
-                    target_size_in=target_size_in,
-                    poster_style=poster_style,
-                    layout_h_pad=float(args.poster_h_pad),
-                    layout_hspace=float(args.poster_hspace) if args.poster_hspace is not None else None,
-                    panel_height_factor=float(args.poster_panel_height_factor),
-                    align_first_xtick_left=bool(args.poster_align_first_xtick_left),
-                )
-                logger.info("Wrote custom plot: {}", custom_output)
+        output = default_result_overview_output(project_dir, args.output)
+        plot_result_overview(
+            scf_obs=scf_obs,
+            scf_model=scf_model,
+            wet_obs=wet_obs,
+            wet_model=wet_model,
+            wsl_obs=wsl_obs,
+            wsl_model=wsl_model,
+            scf_env=scf_env,
+            wet_env=wet_env,
+            wsl_env=wsl_env,
+            wsl_prior_coverage=wsl_prior_coverage,
+            output=output,
+            assim_events=assim_events,
+            mode=str(args.mode or "band"),
+            roi_swe_model=roi_swe_model,
+            roi_swe_members=roi_swe_members,
+            roi_snow_depth_model=roi_snow_depth_model,
+            roi_snow_depth_members=roi_snow_depth_members,
+            panel_specs=configured_specs,
+            station_panels=configured_station_panels,
+            ess_panel=ess_panel,
+            score_points=configured_score_points,
+            strict_panels=configured_specs is not None,
+            x_bounds=project_time_bounds,
+            backend=args.backend,
+            write_paper_copy=not args.no_paper_mirror,
+            target_size_in=target_size_in,
+            poster_style=poster_style,
+            layout_h_pad=float(args.poster_h_pad),
+            layout_hspace=float(args.poster_hspace) if args.poster_hspace is not None else None,
+            panel_height_factor=float(args.poster_panel_height_factor),
+            align_first_xtick_left=bool(args.poster_align_first_xtick_left),
+        )
+        logger.info("Wrote plot: {}", output)
+        if args.output is None:
+            _remove_legacy_custom_outputs(project_dir)
     except ModuleNotFoundError as exc:
         logger.error("matplotlib is required to plot: {}", exc)
         return 1

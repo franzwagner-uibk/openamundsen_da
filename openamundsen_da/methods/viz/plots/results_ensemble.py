@@ -104,7 +104,7 @@ def _plot_point_station(
                 hi,
                 color=COLOR_MEAN,
                 alpha=BAND_ALPHA,
-                label="ensemble",
+                label="5-95% ensemble range",
                 zorder=2,
             )
             ax.plot(mean.index, mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean", zorder=4)

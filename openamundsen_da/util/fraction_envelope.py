@@ -7,7 +7,8 @@ Description:
 
     Looks for member CSVs (e.g., point_scf_roi.csv or point_wet_snow_roi.csv)
     under <setup>/steps/step_*/ensembles/prior/*/results and writes an envelope CSV
-    with date, value_mean, value_min, value_max, n.
+    with date, value_mean, value_min, value_max, n. The envelope bounds are
+    the 5th and 95th percentiles of finite member values.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ def _find_series_files(setup_dir: Path, filename: str) -> list[Path]:
     files: list[Path] = []
     for step_dir in list_step_dirs(setup_dir):
         pattern = "ensembles/prior/*/results/" + filename
-        files.extend(p for p in step_dir.glob(pattern) if p.is_file())
+        files.extend(p for p in step_dir.glob(pattern) if p.is_file() and p.parent.parent.name != "open_loop")
     return sorted(files)
 
 
@@ -100,8 +101,8 @@ def aggregate_fraction_envelope(
         {
             "date": grp.mean().index,
             "value_mean": grp.mean().values,
-            "value_min": grp.min().values,
-            "value_max": grp.max().values,
+            "value_min": grp.quantile(0.05).values,
+            "value_max": grp.quantile(0.95).values,
             "n": grp.count().values,
         }
     ).sort_values("date")

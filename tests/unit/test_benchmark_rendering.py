@@ -761,7 +761,7 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     assert x0 < first < last < x1
     assert x0 <= plots_core.mdates.date2num(pd.Timestamp("2022-12-31"))
     assert x1 >= plots_core.mdates.date2num(pd.Timestamp("2023-01-05"))
-    assert any("\n2023" in label.get_text() for label in ax_ner.get_xticklabels())
+    assert any("\n2023" in label.get_text() for label in ax_ner.get_xticklabels(minor=True))
     assert len(ax_crpss.collections) > 0
     assert len(ax_ner.collections) > 0
     assert ax_crpss.lines

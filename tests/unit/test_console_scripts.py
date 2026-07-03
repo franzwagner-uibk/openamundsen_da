@@ -38,6 +38,24 @@ def test_project_maps_console_script_is_published():
     )
 
 
+def test_poster_console_script_is_published():
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    data = tomllib.loads(pyproject.read_text())
+
+    assert data["project"]["scripts"]["oa-da-plot-poster"] == (
+        "openamundsen_da.methods.viz.poster:cli_main"
+    )
+
+
+def test_poster_measure_console_script_is_published():
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    data = tomllib.loads(pyproject.read_text())
+
+    assert data["project"]["scripts"]["oa-da-poster-measure"] == (
+        "openamundsen_da.methods.viz.poster:measure_cli_main"
+    )
+
+
 def test_project_plots_console_script_is_published():
     pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
     data = tomllib.loads(pyproject.read_text())
@@ -62,4 +80,22 @@ def test_project_pdf_console_script_is_published():
 
     assert data["project"]["scripts"]["oa-da-project-pdf"] == (
         "openamundsen_da.methods.viz.reports:cli_main"
+    )
+
+
+def test_merge_project_grids_console_script_is_published():
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    data = tomllib.loads(pyproject.read_text())
+
+    assert data["project"]["scripts"]["oa-da-merge-project-grids"] == (
+        "openamundsen_da.pipeline.merge_project_grids:cli_main"
+    )
+
+
+def test_multi_project_snow_console_script_is_published():
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    data = tomllib.loads(pyproject.read_text())
+
+    assert data["project"]["scripts"]["oa-da-plot-multi-project-snow"] == (
+        "openamundsen_da.methods.viz.plots.multi_project_snow:cli_main"
     )

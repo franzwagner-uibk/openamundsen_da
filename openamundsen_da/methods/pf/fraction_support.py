@@ -16,6 +16,11 @@ from openamundsen_da.observer.class_config import load_observation_classes, load
 from openamundsen_da.subdomain.manifest import SubdomainManifest
 from openamundsen_da.util.config_validators import require_mapping
 from openamundsen_da.util.landcover_mask import LandcoverMaskConfig, apply_landcover_mask
+from openamundsen_da.util.observation_raster import (
+    is_netcdf_path,
+    netcdf_band_index_for_token,
+    open_netcdf_variable_raster,
+)
 from openamundsen_da.util.roi_grid import load_setup_roi_mask
 
 _GEOTIFF_SUFFIXES = {".tif", ".tiff"}
@@ -138,6 +143,51 @@ def _source_dataset_ref(source_path: Path, *, token: str, observable: str) -> st
     )
 
 
+def _netcdf_time_variable(project_dir: Path, *, observable: str) -> str | None:
+    cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
+    da_cfg = cfg.get("data_assimilation")
+    if not isinstance(da_cfg, dict):
+        return None
+    unc_cfg = da_cfg.get("uncertainty")
+    if not isinstance(unc_cfg, dict):
+        return None
+    key = "scf" if observable == "scf" else "wet_snow"
+    obs_unc = unc_cfg.get(key)
+    if not isinstance(obs_unc, dict):
+        return None
+    ingest = obs_unc.get("ingest")
+    if not isinstance(ingest, dict):
+        return None
+    raw = ingest.get("time_variable")
+    return str(raw).strip() if raw is not None and str(raw).strip() else None
+
+
+def _netcdf_variable_from_ref(
+    dataset_ref: str,
+    *,
+    source_path: Path | None = None,
+    observable: str | None = None,
+) -> str:
+    variable = _subdataset_variable_name(dataset_ref)
+    if source_path is not None and Path(str(variable)) == Path(source_path):
+        variable = ""
+    if variable.lower().endswith(tuple(_NETCDF_SUFFIXES)):
+        variable = ""
+    if not variable and source_path is not None and observable is not None:
+        try:
+            import xarray as xr
+        except Exception as exc:  # pragma: no cover - dependency guard
+            raise RuntimeError("xarray is required to infer NetCDF observation variables") from exc
+        preferred_variables = _NETCDF_VARIABLES_BY_OBSERVABLE.get(observable, ())
+        with xr.open_dataset(source_path) as ds:
+            for preferred in preferred_variables:
+                if preferred in ds:
+                    return preferred
+    if not variable:
+        raise ValueError(f"Could not determine NetCDF variable from dataset reference: {dataset_ref}")
+    return variable
+
+
 def _scf_valid_pixels(data: np.ndarray, *, nodata: float | int | None, project_dir: Path) -> np.ndarray:
     classes = load_observation_classes(project_dir, obs_key="snowcover")
     valid = np.isfinite(data)
@@ -224,7 +274,22 @@ def load_observation_support_mask(
     for token in tokens:
         source_path = _source_path_from_token(obs_dir, token, fallback_dir=fallback_dir)
         dataset_ref = _source_dataset_ref(source_path, token=token, observable=observable)
-        with rasterio.open(dataset_ref) as src:
+        if is_netcdf_path(source_path):
+            variable = _netcdf_variable_from_ref(
+                dataset_ref,
+                source_path=source_path,
+                observable=observable,
+            )
+            time_variable = _netcdf_time_variable(project_dir, observable=observable)
+            band_index = netcdf_band_index_for_token(
+                source_path,
+                token=token,
+                time_variable=time_variable,
+            )
+            src_context = open_netcdf_variable_raster(source_path, variable=variable, band_index=band_index)
+        else:
+            src_context = rasterio.open(dataset_ref)
+        with src_context as src:
             data = src.read(1).astype(float)
             valid_src = _observation_valid_pixels(
                 data=data,

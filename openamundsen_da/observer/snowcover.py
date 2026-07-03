@@ -28,6 +28,10 @@ from openamundsen_da.observer.scf_uncertainty import (
 from openamundsen_da.util.config_validators import require_mapping, require_nonempty_str
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.landcover_mask import LandcoverMaskConfig, apply_landcover_mask, resolve_landcover_mask
+from openamundsen_da.util.observation_raster import (
+    netcdf_variable_slice_count,
+    open_netcdf_variable_raster,
+)
 from openamundsen_da.util.project_dates import resolve_project_dates
 from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
@@ -515,47 +519,64 @@ def _compute_netcdf_product_stats(
             source_name=raster_path.name,
         )
 
-    scf_uri = f"NETCDF:{raster_path}:{uncertainty_cfg.scf_variable}"
-    unc_uri = (
-        f"NETCDF:{raster_path}:{uncertainty_cfg.uncertainty_variable}"
-        if uncertainty_cfg.uncertainty_source == "product"
+    scf_count = netcdf_variable_slice_count(raster_path, uncertainty_cfg.scf_variable)
+    unc_count = (
+        netcdf_variable_slice_count(raster_path, uncertainty_cfg.uncertainty_variable)
+        if uncertainty_cfg.uncertainty_source == "product" and uncertainty_cfg.uncertainty_variable is not None
         else None
     )
-    rows: list[dict[str, object]] = []
-    with ExitStack() as stack:
-        src = stack.enter_context(rasterio.open(scf_uri))
-        src_unc = stack.enter_context(rasterio.open(unc_uri)) if unc_uri is not None else None
-        if src_unc is not None:
-            _assert_same_grid(src, src_unc, left=raster_path, right=raster_path)
-            if src_unc.count != len(times):
-                raise ValueError(
-                    f"Band/time mismatch in {raster_path.name}: uncertainty bands={src_unc.count} but time steps={len(times)}"
-                )
-        if src.count != len(times):
-            raise ValueError(
-                f"Band/time mismatch in {raster_path.name}: SCF bands={src.count} but time steps={len(times)}"
-            )
-        if src.crs is None:
-            raise ValueError(f"Raster {raster_path} has no CRS; cannot align AOI/land cover")
-        gdf, region_id = read_single_roi(aoi_path, required_field=region_field, to_crs=src.crs)
-        tile = _extract_tile(raster_path)
+    if unc_count is not None and unc_count != len(times):
+        raise ValueError(
+            f"Band/time mismatch in {raster_path.name}: uncertainty bands={unc_count} but time steps={len(times)}"
+        )
+    if scf_count != len(times):
+        raise ValueError(
+            f"Band/time mismatch in {raster_path.name}: SCF bands={scf_count} but time steps={len(times)}"
+        )
 
-        for i, ts in enumerate(times, start=1):
-            data, mask, nodata, roi_mask, source_mask, transform = _mask_band(src, band_index=i, gdf=gdf, lc_cfg=lc_cfg)
-            if src_unc is None:
+    rows: list[dict[str, object]] = []
+    tile = _extract_tile(raster_path)
+    for i, ts in enumerate(times, start=1):
+        with ExitStack() as stack:
+            src = stack.enter_context(
+                open_netcdf_variable_raster(
+                    raster_path,
+                    variable=uncertainty_cfg.scf_variable,
+                    band_index=i,
+                )
+            )
+            if src.crs is None:
+                raise ValueError(f"Raster {raster_path} has no CRS; cannot align AOI/land cover")
+            gdf, region_id = read_single_roi(aoi_path, required_field=region_field, to_crs=src.crs)
+            data, mask, nodata, roi_mask, source_mask, transform = _mask_band(
+                src,
+                band_index=1,
+                gdf=gdf,
+                lc_cfg=lc_cfg,
+            )
+            if uncertainty_cfg.uncertainty_source == "product":
+                assert uncertainty_cfg.uncertainty_variable is not None
+                src_unc = stack.enter_context(
+                    open_netcdf_variable_raster(
+                        raster_path,
+                        variable=uncertainty_cfg.uncertainty_variable,
+                        band_index=i,
+                    )
+                )
+                _assert_same_grid(src, src_unc, left=raster_path, right=raster_path)
+                unc_data, unc_mask, unc_nodata, _unc_roi_mask, _unc_source_mask, _unc_transform = _mask_band(
+                    src_unc,
+                    band_index=1,
+                    gdf=gdf,
+                    lc_cfg=lc_cfg,
+                )
+            else:
                 unc_data, unc_mask, unc_nodata = _compute_internal_uncertainty(
                     data=data,
                     lc_cfg=lc_cfg,
                     template=src,
                     transform=transform,
                     uncertainty_cfg=uncertainty_cfg,
-                )
-            else:
-                unc_data, unc_mask, unc_nodata, _unc_roi_mask, _unc_source_mask, _unc_transform = _mask_band(
-                    src_unc,
-                    band_index=i,
-                    gdf=gdf,
-                    lc_cfg=lc_cfg,
                 )
             source_name = f"{raster_path.name}@{ts.strftime('%Y-%m-%dT%H:%M:%SZ')}"
             row = _build_stats_row(

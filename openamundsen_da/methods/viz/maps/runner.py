@@ -66,63 +66,7 @@ def _recipe_output_path(project_dir: Path, recipe: MapRecipe) -> Path:
     return output_dir / f"{recipe.output_stem}.png"
 
 
-def _compact_wet_snow_line_paper_recipe(recipe: MapRecipe) -> MapRecipe:
-    rows = sorted({int(panel.row) for panel in recipe.panels})
-    panels_by_row = {
-        row: tuple(panel for panel in recipe.panels if int(panel.row) == row)
-        for row in rows
-    }
-    elevation_row = next(
-        (
-            row
-            for row, panels in panels_by_row.items()
-            if panels and {panel.kind for panel in panels} == {"wet_snow_elevation_fraction"}
-        ),
-        None,
-    )
-    snow_depth_row = next(
-        (
-            row
-            for row, panels in panels_by_row.items()
-            if panels and {panel.kind for panel in panels} == {"snow_depth"}
-        ),
-        None,
-    )
-    if elevation_row is None or snow_depth_row is None:
-        return replace(recipe, figure_title=None)
-
-    row_mapping = {elevation_row: 0, snow_depth_row: 1}
-    panels = tuple(
-        replace(panel, row=row_mapping[int(panel.row)])
-        for panel in recipe.panels
-        if int(panel.row) in row_mapping
-    )
-    layout = recipe.layout
-    height_ratios: tuple[float, ...] = ()
-    if len(layout.height_ratios) == layout.nrows:
-        height_ratios = tuple(layout.height_ratios[row] for row in (elevation_row, snow_depth_row))
-    row_views = tuple(
-        replace(view, row=row_mapping[int(view.row)])
-        for view in recipe.row_views
-        if int(view.row) in row_mapping
-    )
-    return replace(
-        recipe,
-        figure_title=None,
-        layout=replace(layout, nrows=2, height_ratios=height_ratios),
-        panels=panels,
-        row_labels=(),
-        row_views=row_views,
-    )
-
-
 def _paper_recipe(recipe: MapRecipe) -> MapRecipe:
-    if (
-        recipe.output_subdir == GENERATED_DA_MAPS_SUBDIR
-        and any(panel.kind == "wet_snow_line" for panel in recipe.panels)
-        and any(panel.kind == "wet_snow_elevation_fraction" for panel in recipe.panels)
-    ):
-        return _compact_wet_snow_line_paper_recipe(recipe)
     return replace(recipe, figure_title=None)
 
 

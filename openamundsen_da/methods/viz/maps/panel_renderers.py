@@ -143,6 +143,11 @@ _FRACTION_MODEL_CMAP = colormaps["Greys"]
 _SUBDOMAIN_NO_DA_COLOR = "#525252"
 _SUBDOMAIN_NO_DA_HATCH = "////"
 _SUBDOMAIN_NO_DA_LABEL = "no DA"
+_MAP_SUPPORT_TEXT_SIZE = 5.8
+_COLORBAR_PANEL_UNIT_HEADER_ENABLED = False
+_COLORBAR_PANEL_UNIT_HEADER_HEIGHT_AXES = 0.20
+_COLORBAR_PANEL_UNIT_HEADER_GAP_AXES = 0.03
+_COLORBAR_PANEL_POSTER_TICKS_ENABLED = False
 _ELEVATION_BAND_WSF_CMAP = _FRACTION_MODEL_CMAP
 _WET_SNOW_MODEL_CODES = (110, 125)
 _SCF_BINARY_CMAP = ListedColormap(["#efefef", "#111111"], name="scf_binary")
@@ -158,6 +163,49 @@ class OverviewLabelSpec:
     fontsize: float
     with_bbox: bool
     zorder: int
+
+
+def _format_poster_colorbar_tick(value: float) -> str:
+    value = float(value)
+    if abs(value) < 5e-10:
+        value = 0.0
+    if abs(value - round(value)) < 1e-9:
+        return str(int(round(value)))
+    return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
+def _poster_colorbar_ticks(
+    cbar,
+    *,
+    label: str | None,
+    ticks: tuple[float, ...],
+) -> tuple[tuple[float, ...], tuple[str, ...]]:
+    if ticks and extract_unit_title(label) == "[%]" and len(ticks) > 5 and min(ticks) >= 0.0 and max(ticks) <= 100.0:
+        values = (0.0, 25.0, 50.0, 75.0, 100.0)
+        return values, tuple(_format_poster_colorbar_tick(value) for value in values)
+    if ticks and len(ticks) <= 5:
+        return (), ()
+    norm = getattr(cbar.mappable, "norm", None)
+    vmin = getattr(norm, "vmin", None)
+    vmax = getattr(norm, "vmax", None)
+    if vmin is None or vmax is None:
+        return (), ()
+    vmin = float(vmin)
+    vmax = float(vmax)
+    if vmin < 0.0 < vmax and abs(abs(vmin) - abs(vmax)) < 1e-9:
+        values = (vmin, 0.5 * vmin, 0.0, 0.5 * vmax, vmax)
+        return values, tuple(_format_poster_colorbar_tick(value) for value in values)
+    return (), ()
+
+
+def _apply_poster_colorbar_ticks(cbar, *, label: str | None, ticks: tuple[float, ...]) -> None:
+    if not _COLORBAR_PANEL_POSTER_TICKS_ENABLED:
+        return
+    poster_ticks, poster_labels = _poster_colorbar_ticks(cbar, label=label, ticks=ticks)
+    if not poster_ticks:
+        return
+    cbar.set_ticks(poster_ticks)
+    cbar.set_ticklabels(poster_labels)
 
 
 def masked(arr: np.ndarray, roi_mask: np.ndarray) -> np.ma.MaskedArray:
@@ -321,7 +369,7 @@ def draw_subdomain_dropped_event_overlay(
                 _SUBDOMAIN_NO_DA_LABEL,
                 ha="center",
                 va="center",
-                fontsize=5.7,
+                fontsize=_MAP_SUPPORT_TEXT_SIZE,
                 color=_SUBDOMAIN_NO_DA_COLOR,
                 zorder=_ANNOTATION_ZORDER + 1,
             ),
@@ -395,7 +443,7 @@ def draw_stations_overlay(
             float(row["x"]) + dx,
             float(row["y"]) + dy,
             label,
-            fontsize=5.8,
+            fontsize=_MAP_SUPPORT_TEXT_SIZE,
             ha="left",
             va="bottom",
             color="black",
@@ -606,7 +654,7 @@ def draw_classified_legend(ax, handles: list[object], *, layout: str) -> None:
         handles=handles,
         loc="lower left",
         frameon=False,
-        fontsize=5.8,
+        fontsize=_MAP_SUPPORT_TEXT_SIZE,
         handlelength=1.3,
         handletextpad=0.45,
         borderaxespad=0.2,
@@ -1081,14 +1129,16 @@ def render_overview_panel(
         draw_map_grid_overlay(ax, show_grid=show_grid)
         return {"extent": extent}
 
-    visible_regions_getter = lambda current_extent: overview_subset_geometries(
-        country_regions,
-        context=context,
-        extent=current_extent,
-        geom_types={"Polygon", "MultiPolygon"},
-        clip_to_extent=True,
-        filter_fragments=False,
-    )
+    def visible_regions_getter(current_extent):
+        return overview_subset_geometries(
+            country_regions,
+            context=context,
+            extent=current_extent,
+            geom_types={"Polygon", "MultiPolygon"},
+            clip_to_extent=True,
+            filter_fragments=False,
+        )
+
     extent = overview_extent_with_label_fit(
         ax,
         panel=panel,
@@ -1311,7 +1361,26 @@ def render_static_panel(
     raw_data = field_array(context, field)
     data = masked(raw_data, context.roi_mask)
     norm = static_field_norm(preset, data.filled(np.nan))
-    image = ax.imshow(data, cmap=static_field_cmap(preset), norm=norm, extent=panel_grid_extent, origin="upper", interpolation="nearest", zorder=5)
+    alpha = 1.0
+    if resolve_flag(panel.show_hillshade, defaults, "show_hillshade", False):
+        hillshade_mode = resolve_hillshade_extent(panel, defaults, builtin="roi")
+        underlay = (
+            hillshade_underlay(context, derived_cache=derived_cache)
+            if hillshade_mode == "roi"
+            else hillshade(context, derived_cache=derived_cache)
+        )
+        ax.imshow(
+            underlay,
+            cmap="Greys_r",
+            extent=hillshade_extent(context),
+            origin="upper",
+            interpolation=_HILLSHADE_INTERPOLATION,
+            vmin=0.0,
+            vmax=1.0,
+            zorder=0,
+        )
+        alpha = 0.86
+    image = ax.imshow(data, cmap=static_field_cmap(preset), norm=norm, extent=panel_grid_extent, origin="upper", interpolation="nearest", alpha=alpha, zorder=5)
     overlay_invalid_inside_roi(ax, inside_roi_invalid_mask(raw_data, context.roi_mask), extent=panel_grid_extent)
     apply_common_overlays(
         ax,
@@ -1885,7 +1954,7 @@ def _posterior_weighted_wet_fraction_array(
             member_weights.append(1.0)
 
     if not member_masks:
-        raise FileNotFoundError(f"Missing weighted posterior members for wet snow line (WSL) map in {step_dir}")
+        raise FileNotFoundError(f"Missing weighted posterior members for wet snow line altitude (WSLA) map in {step_dir}")
 
     stack = np.stack(member_masks, axis=0)
     weight_arr = np.asarray(member_weights, dtype=float)
@@ -2070,9 +2139,9 @@ def _draw_wsl_contour(
 
 def _wsl_callout_text(level: float | None) -> str:
     if level is None or not np.isfinite(level):
-        return "WSL unavailable"
+        return "WSLA unavailable"
     rounded = int(10.0 * np.floor((float(level) / 10.0) + 0.5))
-    return f"WSL {rounded} m"
+    return f"WSLA {rounded} m"
 
 
 def _annotate_wsl_callout(ax, *, level: float | None, color: str = "black") -> None:
@@ -2084,7 +2153,7 @@ def _annotate_wsl_callout(ax, *, level: float | None, color: str = "black") -> N
             transform=ax.transAxes,
             ha="left",
             va="bottom",
-            fontsize=6.0,
+            fontsize=_MAP_SUPPORT_TEXT_SIZE,
             color=color,
             zorder=_ANNOTATION_ZORDER + 2,
             bbox={"boxstyle": "round,pad=0.10", "facecolor": "white", "edgecolor": "none", "alpha": _DATE_CALLOUT_ALPHA},
@@ -2102,9 +2171,9 @@ def _wet_snow_line_legend_handles(
 ) -> list[object]:
     handles = list(base_handles)
     if include_model_wsl:
-        handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, label="model WSL"))
+        handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, label="model WSLA"))
     if include_obs_wsl:
-        handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, linestyle=obs_linestyle, label="observation WSL"))
+        handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, linestyle=obs_linestyle, label="observation WSLA"))
     return handles
 
 
@@ -2120,7 +2189,7 @@ def _draw_inpanel_wsl_legend(ax, handles: list[object]) -> None:
         framealpha=_DATE_CALLOUT_ALPHA,
         facecolor="white",
         edgecolor="none",
-        fontsize=5.3,
+        fontsize=_MAP_SUPPORT_TEXT_SIZE,
         handlelength=1.5,
         handletextpad=0.45,
         borderpad=0.25,
@@ -2544,7 +2613,7 @@ def render_wet_snow_line_panel(
                 layout=panel_legend_layout(panel, figure_horizontal_default=figure_horizontal_default, is_colorbar=True),
             )
         if model_contour_drawn:
-            label_text = "posterior WSL" if str(panel.source) in {"posterior", "posterior_probability"} else "prior WSL"
+            label_text = "posterior WSLA" if str(panel.source) in {"posterior", "posterior_probability"} else "prior WSLA"
             posterior_overlay_handles.append(Line2D([0], [0], color=_WSL_MODEL_COLOR, linewidth=1.6, linestyle="-", label=label_text))
     else:
         draw_classified_legend(
@@ -2997,18 +3066,34 @@ def render_colorbar_panel(ax, *, panel: MapPanelSpec, artifacts: dict[str, dict[
     source = artifacts.get(str(panel.source or ""))
     if source is None or "mappable" not in source:
         raise ValueError(f"Colorbar panel source '{panel.source}' is not available")
-    cbar = plt.colorbar(source["mappable"], cax=ax, orientation="vertical")
     style = source.get("colorbar_style") or {}
     label = style.get("label") if isinstance(style, dict) else getattr(style, "label", None)
     ticks = style.get("ticks", ()) if isinstance(style, dict) else getattr(style, "ticks", ())
     ticklabels = style.get("ticklabels", ()) if isinstance(style, dict) else getattr(style, "ticklabels", ())
+    title = extract_unit_title(label)
+    cax = ax
+    if title and _COLORBAR_PANEL_UNIT_HEADER_ENABLED:
+        header_height = _COLORBAR_PANEL_UNIT_HEADER_HEIGHT_AXES
+        gap = _COLORBAR_PANEL_UNIT_HEADER_GAP_AXES
+        cax = ax.inset_axes([0.0, 0.0, 1.0, max(1.0 - header_height - gap, 0.1)], transform=ax.transAxes)
+        register_child_axes(ax, cax)
+        ax.text(
+            0.5,
+            1.0,
+            title,
+            transform=ax.transAxes,
+            ha="center",
+            va="top",
+            fontsize=_COLORBAR_TITLE_SIZE,
+        )
+    cbar = plt.colorbar(source["mappable"], cax=cax, orientation="vertical")
     if ticks:
         cbar.set_ticks(ticks)
     if ticklabels:
         cbar.set_ticklabels(ticklabels)
+    _apply_poster_colorbar_ticks(cbar, label=label, ticks=ticks)
     cbar.ax.tick_params(labelsize=_COLORBAR_TICK_SIZE, pad=1.0)
-    title = extract_unit_title(label)
-    if title:
+    if title and not _COLORBAR_PANEL_UNIT_HEADER_ENABLED:
         cbar.ax.text(0.5, 1.02, title, transform=cbar.ax.transAxes, ha="center", va="top", fontsize=_COLORBAR_TITLE_SIZE)
     return {}
 
@@ -3033,7 +3118,15 @@ def render_legend_panel(ax, *, panel: MapPanelSpec, artifacts: dict[str, dict[st
                     y = draw_patch_entry(ax, y=y, label=handle.get_label(), facecolor=handle.get_facecolor(), edgecolor=handle.get_edgecolor())
                 elif isinstance(handle, Line2D):
                     ax.plot([0.02, 0.12], [y - 0.02, y - 0.02], transform=ax.transAxes, color=handle.get_color(), lw=handle.get_linewidth(), ls=handle.get_linestyle(), solid_capstyle="round")
-                    ax.text(0.15, y - 0.02, handle.get_label(), transform=ax.transAxes, ha="left", va="center", fontsize=5.8)
+                    ax.text(
+                        0.15,
+                        y - 0.02,
+                        handle.get_label(),
+                        transform=ax.transAxes,
+                        ha="left",
+                        va="center",
+                        fontsize=_MAP_SUPPORT_TEXT_SIZE,
+                    )
                     y -= 0.065
                 else:
                     raise TypeError(f"Unsupported legend source handle type: {type(handle)!r}")

@@ -24,7 +24,7 @@ Complete reference for all CLI commands.
 
 ## Overview
 
-The package provides **18 CLI entry points** for workflow automation, organized into 5 categories:
+The package provides **20 CLI entry points** for workflow automation, organized into 5 categories:
 
 1. **Core Workflow** - Main pipeline commands
 2. **Data Assimilation** - data assimilation-specific operations
@@ -104,6 +104,98 @@ data_assimilation:
 Configured extra benchmark families can still appear as `semi_independent` in outputs, but only from the first same-variable or sister-station assimilation date onward.
 `score_station_sigma_threshold` optionally excludes station rows with high resolved `station_uncertainty_pct` from non-sigma-aware benchmark metrics (`CRPSS`, `NER`) while leaving sigma-aware `zSkill` unchanged.
 The headline plot shows only DA-date `prior` and `posterior` skill for assimilated and transfer-observed variables; whole-project propagated skill remains in `project_summary.csv`. Station-point rows also carry sigma-aware `zSkill`, and the headline plot adds a third `zSkill` panel whenever those station scores are available.
+
+---
+
+### oa-da-merge-project-grids
+
+**Merge completed project DA summary NetCDFs**
+
+Concatenates multiple completed project `results/grids/da_output_grids.nc` files along their time-like dimensions and writes one normal DA summary NetCDF. This is intended for adjacent annual projects that share the same domain, grid, CRS, variables and compact NetCDF encoding.
+
+Use setup-relative project names:
+
+```bash
+oa-da-merge-project-grids \
+  --setup /data/rofental \
+  --project project_2020_2021 \
+  --project project_2021_2022 \
+  --output-nc /data/rofental/results/grids/da_output_grids_2020_2022.nc
+```
+
+Or pass project directories directly:
+
+```bash
+oa-da-merge-project-grids \
+  --project-dir /data/rofental/projects/project_2020_2021 \
+  --project-dir /data/rofental/projects/project_2021_2022 \
+  --output-nc /data/rofental/results/grids/da_output_grids_2020_2022.nc
+```
+
+**Required Arguments:**
+- `--output-nc PATH` - Merged output NetCDF path
+- Either `--setup PATH` with repeated `--project NAME`, or repeated `--project-dir PATH`
+
+**Optional Arguments:**
+- `--overwrite` - Replace an existing output file
+- `--log-level LEVEL` - Logging level
+
+**Validation behavior (fail-fast):**
+- input projects must already contain `results/grids/da_output_grids.nc`
+- all inputs must have identical variables, static coordinates, x/y grid, CRS and compatible NetCDF encoding
+- duplicate timestamps on any time-like dimension are rejected
+- time-like dimensions inherited from openAMUNDSEN outputs, such as `time1` and `time2`, are concatenated independently
+
+The output keeps normal DA summary variable names and stores merge provenance in global NetCDF attributes.
+
+---
+
+### oa-da-plot-multi-project-snow
+
+**Plot multi-project snow station and ROI time series**
+
+Creates a small snow-plot bundle from completed projects by stitching per-step point-result CSVs across projects. This is intended for adjacent annual projects that share one setup and should be delivered as one continuous multi-year product.
+
+Use setup-relative project names:
+
+```bash
+oa-da-plot-multi-project-snow \
+  --setup /data/rofental \
+  --project project_2020_2021 \
+  --project project_2021_2022 \
+  --project project_2022_2023
+```
+
+Or pass project directories directly:
+
+```bash
+oa-da-plot-multi-project-snow \
+  --project-dir /data/rofental/projects/project_2020_2021 \
+  --project-dir /data/rofental/projects/project_2021_2022 \
+  --output-dir /data/rofental/results/plots/multi_year_snow
+```
+
+**Required Arguments:**
+- Either `--setup PATH` with repeated `--project NAME`, or repeated `--project-dir PATH`
+
+**Optional Arguments:**
+- `--output-dir PATH` - Output directory; defaults to `<setup>/results/plots/multi_year_snow` when a setup can be inferred
+- `--station ID` - Station id to plot; repeatable, defaults to `latschbloder` and `proviantdepot`
+- `--variable NAME` - Snow variable to plot; repeatable, supports `snow_depth` and `swe`
+- `--overwrite` - Replace existing output PNGs
+- `--backend NAME` - Matplotlib backend, default `Agg`
+- `--log-level LEVEL` - Logging level
+
+**Output behavior:**
+- station plots show open loop, ensemble mean, the 5-95% member envelope and station observations where available
+- ROI plots show open loop, ensemble mean and the 5-95% member envelope
+- station model and station observations are aggregated to daily means; ROI result CSVs are used at their native daily cadence
+- negative station observations are masked before daily aggregation
+- missing observations do not fail a plot; the station plot is written model-only
+- no DA-event markers are drawn
+- if a source project has `results/maps/setup_overview.png`, it is copied to `context_map.png`
+
+The default Rofental bundle writes PNGs such as `station_latschbloder_snow_depth_2020_2024.png`, `station_proviantdepot_swe_2020_2024.png`, `roi_mean_snow_depth_2020_2024.png` and `context_map.png`.
 
 ---
 
@@ -450,7 +542,7 @@ Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PR
 
 **Setup result overview**
 
-Plots the combined setup result overview: SCF, WSF, WSLA, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. Figure legends are built from rendered plot elements, so unused observation, ensemble, open-loop, or DA-event entries are omitted. If `<project-dir>/plots.yml` exists, the pipeline additionally writes `result_overview_custom.png` with the configured panel list. Custom panel configs support `WSF`, `WSLA`, `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
+Plots the combined setup result overview: fSCA, WSF, WSLA, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. Figure legends are built from rendered plot elements, so unused observation, ensemble, open-loop, or DA-event entries are omitted. Observation `x` markers identify assimilated observations, and month labels are centered between month-boundary ticks. If `<project-dir>/plots.yml` exists, the pipeline additionally writes `result_overview_custom.png` with the configured panel list. Custom panel configs support `WSF`, `WSLA`, `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
 
 ```bash
 oa-da-plot-result-overview \
@@ -470,7 +562,7 @@ oa-da-plot-result-overview \
 **Publication-style project maps**
 
 Renders generated DA-event maps plus optional custom project maps from the compact project summary grid, setup grids, ROI, stations, and project observation summaries. By default the command generates one `da_*` map per assimilation event from the project YAML. `<project-dir>/maps.yml` is now reserved for custom maps such as `setup_overview`, and those custom maps are rendered together with the generated DA-event set in one command. The same workflow is also used for best-effort post-run pipeline rendering.
-Map panels use the example-map visual grammar by default: boxed axes, coordinate ticks and grid lines, subplot labels like `(a)`, and attached vertical colorbars. Continuous sequential model and observation maps use the viridis palette; snow-depth maps keep a shared linear colorbar scale per render run, `cm` tick labels, and transparent cells below `1 cm`. Increment maps and SRF maps use a signed red-blue diverging palette, with negative increments in red and positive increments in blue.
+Map panels use the example-map visual grammar by default: boxed axes, coordinate ticks and grid lines, subplot labels like `(a)`, and attached vertical colorbars. Continuous sequential model and observation maps use the viridis palette; snow-depth maps keep a shared linear colorbar scale per render run, `cm` tick labels, and transparent cells below `1 cm`. Increment maps and SRF maps use a compact-neutral signed red-blue diverging palette, with negative increments in red and positive increments in blue.
 
 Typical custom `maps.yml` files still use this panel catalog:
 
@@ -498,7 +590,7 @@ Typical custom `maps.yml` files still use this panel catalog:
 # - title, name, date, legend, legend_items, below_items
 # - show_colorbar, show_scalebar, show_grid, show_hillshade, hillshade_extent
 # - observation (uncertainty only), show_roi, show_station_marker, show_stations_name, show_stations_elev
-# - landcover_grouping: broad # landcover panels only; omitted/native keeps source classes
+# - landcover_grouping: broad | rofental_manuscript # landcover panels only; omitted/native keeps source classes
 # Optional recipe-level row zoom views:
 # row_views:
 #   - row: 1
@@ -522,9 +614,9 @@ oa-da-plot-project-maps \
 - generated DA-event maps under `results/maps/da_events/*.png`
 - custom YAML maps under `results/maps/*.png`
 
-Generated `wet_snow` and `wet_snow_line` DA-event maps include a generated-only spatial elevation-band WSF row below the primary wet-snow row. Each panel keeps the map footprint, but every valid cell is colored by the raw wet snow fraction of its elevation band on a fixed white-to-black `0-100%` scale for open loop, posterior, and observation columns.
+Generated `wet_snow` and `wet_snow_line` DA-event maps include a generated-only spatial elevation-band WSF row below the primary wet-snow row. Each panel keeps the map footprint, but every valid cell is colored by the raw wet snow fraction of its elevation band on a fixed white-to-black `0-100%` scale for open loop, posterior, and observation columns. Generated WSLA maps keep the primary WSF/WSLA row, the elevation-band WSF row and the snow-depth response row in both standard and paper outputs.
 
-Static context panels (`hillshade`, `dem`, `aspect`, `svf`, `srf`, `landcover`) mask raster cells outside the ROI. `aspect` is derived from the DEM at render time and shown on a continuous radian colorbar. `landcover` panels can set `landcover_grouping: broad` to merge detailed vegetation/forest classes into broad manuscript-friendly classes, and the legend only lists classes present inside the ROI. Non-legend panels can use `legend_items` with `placement: below` or `placement: inside` (`anchor: top_left|top_right|bottom_left|bottom_right`) for compact layer legends such as station symbols; legacy `below_items` remains supported. Model and observation panels remain ROI-masked. Prepared sub-domain projects automatically draw the configured sub-domain polygons from `subdomain_manifest.json` on top-level ROI-bearing map panels and overview panels. Generated DA-event maps mark a sub-domain as `no DA` only when the event was dropped locally and recorded in `results/subdomain_dropped_events.csv`; events with valid weights are not marked just because posterior resampling was skipped. When `show_hillshade: true`, `hillshade_extent: roi` limits the hillshade to the ROI mask and `hillshade_extent: full` draws it across the full panel. In the supported Docker workflow, omitted `--max-workers` uses automatic recipe-level multicore rendering with the effective worker count clamped to `min(visible CPUs, selected recipes)`; pass `--max-workers 1` to keep rendering sequential. If one or more maps fail because supporting data are missing, the pipeline logs a rerun command and continues. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
+Static context panels (`hillshade`, `dem`, `aspect`, `svf`, `srf`, `landcover`) mask raster cells outside the ROI. `aspect` is derived from the DEM at render time and shown on a continuous radian colorbar. Continuous static panels such as `srf` can set `show_hillshade: true` to draw a terrain underlay. `landcover` panels can set `landcover_grouping: broad` to merge detailed vegetation/forest classes into broad manuscript-friendly classes, and the legend only lists classes present inside the ROI. The `rofental_manuscript` grouping is reserved for the Rofental paper/tutorial setup map, not for generic land-cover maps; it merges codes 1 and 13 as `rock`, 2 and 3 as `ice`, 4--7 as `grass/shrub`, and 8--12 as `forest`. Non-legend panels can use `legend_items` with `placement: below` or `placement: inside` (`anchor: top_left|top_right|bottom_left|bottom_right`) for compact layer legends such as station symbols; legacy `below_items` remains supported. Model and observation panels remain ROI-masked. Prepared sub-domain projects automatically draw the configured sub-domain polygons from `subdomain_manifest.json` on top-level ROI-bearing map panels and overview panels. Generated DA-event maps mark a sub-domain as `no DA` only when the event was dropped locally and recorded in `results/subdomain_dropped_events.csv`; events with valid weights are not marked just because posterior resampling was skipped. When `show_hillshade: true`, `hillshade_extent: roi` limits the hillshade to the ROI mask and `hillshade_extent: full` draws it across the full panel. In the supported Docker workflow, omitted `--max-workers` uses automatic recipe-level multicore rendering with the effective worker count clamped to `min(visible CPUs, selected recipes)`; pass `--max-workers 1` to keep rendering sequential. If one or more maps fail because supporting data are missing, the pipeline logs a rerun command and continues. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
 
 The `uncertainty` panel renders GeoTIFF companion rasters named `<source>_uncertainty.tif` for `observation: scf` or `observation: wet_snow`. Values use the same `0..100 [%]` scale as uncertainty-aware preprocessing, and invalid observation pixels stay masked.
 
@@ -536,7 +628,7 @@ Overview panels use setup-local GISCO GeoJSONs under `<setup>/env/` for country 
 
 **Recreate all project plots from existing outputs**
 
-Runs the same post-run plot orchestration used by the project pipeline, but without rerunning the DA workflow itself. The command expects an already finished project with populated `steps/step_*/.../results` outputs. Before plotting, it rebuilds the ROI fraction envelopes in `results/misc/`, then renders forcing plots, setup point-result plots, assimilation weights, ESS timeline, and the result overview panels. Weights plots use short `Wet snow line` labels, compact residual-unit labels, adaptive sigma labels, and optional station marker color overrides from `plots.yml` under `weights.station_colors.<observable>.<station_id>`. Setup weights overviews include `(a)`, `(b)`, ... panel labels in the DA-event headers and panel-local station legends; standalone per-event weights plots keep their compact bottom legend.
+Runs the same post-run plot orchestration used by the project pipeline, but without rerunning the DA workflow itself. The command expects an already finished project with populated `steps/step_*/.../results` outputs. Before plotting, it rebuilds the ROI fraction envelopes in `results/misc/`, then renders forcing plots, setup point-result plots, assimilation weights, ESS timeline, and the result overview panels. `wet_snow_line` weights plots use meter residuals and compact `WSLA` labels, while `scf` weights plots use compact `fSCA` labels; weights residual axes use compact residual-unit labels and adaptive sigma labels. Setup weights overviews include `(a)`, `(b)`, ... panel labels in the DA-event headers and panel-local station legends; standalone per-event weights plots keep their compact bottom legend.
 
 ```bash
 oa-da-plot-project-plots \
@@ -550,6 +642,73 @@ oa-da-plot-project-plots \
 - refreshed fraction envelopes under `results/misc/point_*_roi_envelope.csv`
 
 Use this when you changed plotting code, `plots.yml`, or map-independent styling and want a clean plot rerender without executing `oa-da-project` again.
+
+### oa-da-plot-poster
+
+**Render configured poster-profile assets**
+
+Reads `<project-dir>/poster.yml` and writes selected poster-ready variants under `results/poster/` without rerunning the model or DA workflow. `oa-da-project` also runs this renderer automatically near the end of a project run when `poster.yml` exists, after maps, plots and benchmark-dependent overview panels are current.
+
+```bash
+oa-da-plot-poster \
+  --project-dir PATH \
+  [--config PATH] \
+  [--max-workers N]
+```
+
+**Output:**
+- poster maps under `results/poster/maps/**`
+- poster plots under `results/poster/plots/**`
+
+The first supported poster profile is a paper-baseline transform. `setup_overview` can keep or drop selected map panel kinds and reflow them to a chosen column count, generated DA-event maps can drop the first/open-loop column, and `result_overview_custom` can use its own reduced `panels` list. Optional `target_size_mm: [width, height]` values render PNGs at their intended physical poster size while keeping paper typography and line-width constants unchanged. Optional `theme.scale` applies a poster-local multiplier, while `theme.typography` and `theme.linework` can pin exact poster text sizes and panel-border width:
+
+```yaml
+theme:
+  scale: 1.4
+  typography:
+    title_pt: 14.2
+    label_pt: 12.0
+    support_pt: 10.0
+  linework:
+    panel_box_pt: 0.45
+maps:
+  setup_overview:
+    enabled: true
+    target_size_mm: [75.220833, 178.40262]
+    keep_panel_kinds: [dem, landcover]
+    layout:
+      ncols: 1
+  da_events:
+    enabled: true
+    drop_first_column: true
+    target_size_mm: [250.78568, 156.94586]
+plots:
+  result_overview_custom:
+    enabled: true
+    target_size_mm: [429.34836, 186.90407]
+    panels:
+      - panel: fSC
+        title: Fractional snow covered area (fSCA)
+      - panel: WSLA
+        title: Wet snow line altitude
+      - panel: station-sd
+        station_id: proviantdepot
+        title: Snow depth (Proviantdepot 2659 m)
+```
+
+### oa-da-poster-measure
+
+**Measure poster-profile asset sizes from an Inkscape SVG**
+
+Matches embedded current `results/poster` PNGs in an Inkscape SVG by hash, or linked `results/poster` PNGs by file path, and writes their measured physical placement sizes back to `poster.yml` as `target_size_mm`.
+
+```bash
+oa-da-poster-measure \
+  --project-dir PATH \
+  --svg PATH \
+  [--config PATH] \
+  [--write]
+```
 
 ### oa-da-project-pdf
 

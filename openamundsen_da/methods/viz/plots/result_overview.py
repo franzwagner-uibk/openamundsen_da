@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 from string import ascii_lowercase
 
 import pandas as pd
@@ -35,9 +37,14 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.methods.viz.station_meta import load_ensemble_station_table_from_steps
 from openamundsen_da.methods.viz.common import (
+    PosterLinework,
+    PosterRenderStyle,
+    PosterTypography,
     force_figure_text_black,
     save_figure_png,
+    scaled_module_attributes,
     set_matplotlib_text_black,
+    temporary_module_attributes,
 )
 from openamundsen_da.methods.viz.plots.theme import (
     BAND_ALPHA,
@@ -149,17 +156,17 @@ _DEFAULT_PANELS = [
 ]
 
 _PANEL_YLABELS = {
-    "fSC": "SCF",
-    "WSF": "WSF",
+    "fSC": "",
+    "WSF": "",
     "WSLA": "Elevation [m]",
     "roi-swe": "SWE [mm]",
     "roi-sd": "Snow depth [m]",
     "station-sd": "Snow depth [m]",
     "station-swe": "SWE [mm]",
-    "ess": "ESS",
-    "scores-crpss": "CRPSS",
-    "scores-ner": "NER [-]",
-    "scores-zskill": "zSkill [-]",
+    "ess": "",
+    "scores-crpss": "",
+    "scores-ner": "",
+    "scores-zskill": "",
 }
 
 _PANEL_TITLE_X = 0.0
@@ -175,17 +182,23 @@ _RESULT_OVERVIEW_TICK_SIZE = OVERVIEW_YTICK_SIZE
 _RESULT_OVERVIEW_XTICK_SIZE = OVERVIEW_XTICK_SIZE
 _RESULT_OVERVIEW_LEGEND_SIZE = 5.4
 _RESULT_OVERVIEW_SCORE_LEGEND_SIZE = 4.8
-_RESULT_OVERVIEW_LEGEND_FRAME_ALPHA = 0.88
+_RESULT_OVERVIEW_FIGURE_LEGEND_SIZE = 8.0
+_RESULT_OVERVIEW_SPLIT_FIGURE_LEGEND_SIZE = 6.2
+_RESULT_OVERVIEW_DA_LABEL_SIZE = 5.5
+_RESULT_OVERVIEW_PANEL_BOX_LW: float | None = None
+_RESULT_OVERVIEW_LEGEND_FRAME_ALPHA = 0.74
 _RESULT_OVERVIEW_SAVE_PAD_INCHES = 0.015
+_RESULT_OVERVIEW_OBS_MARKER_SIZE = 2.8
+_RESULT_OVERVIEW_ESS_MARKER_SIZE = 3.2
 _ESS_THRESHOLD_COLOR = "black"
 _ESS_THRESHOLD_LW = 0.9
 _ALTITUDE_MAJOR_TICK_STEPS_M = (100.0, 200.0, 250.0, 500.0, 1000.0, 2000.0)
 _ALTITUDE_MAX_MAJOR_INTERVALS = 5.0
 
 _DEFAULT_TITLES = {
-    "fSC": "Snow cover fraction",
+    "fSC": "Fractional snow covered area (fSCA)",
     "WSF": "Wet snow fraction",
-    "WSLA": "Wet snow line",
+    "WSLA": "Wet snow line altitude",
     "roi-swe": "Mean SWE",
     "roi-sd": "Mean snow depth",
     "ess": "Effective sample size",
@@ -234,6 +247,56 @@ _STATION_PANEL_EVENT_VARIABLE = {
 _ASSIM_LABEL_ROW_OFFSETS_PTS = [0.35, 6.5]
 _ASSIM_LABEL_MIN_SPACING_DAYS = 18.0
 _PANEL_YLABEL_FONT_SIZE = 8.4
+
+
+@contextmanager
+def _scaled_result_overview_style(style: PosterRenderStyle | float):
+    if isinstance(style, (int, float)):
+        style = PosterRenderStyle(scale=float(style))
+    names = (
+        "_RESULT_OVERVIEW_DATA_LW",
+        "_RESULT_OVERVIEW_MATCHED_EVENT_LW",
+        "_RESULT_OVERVIEW_TITLE_SIZE",
+        "_RESULT_OVERVIEW_LABEL_SIZE",
+        "_RESULT_OVERVIEW_TICK_SIZE",
+        "_RESULT_OVERVIEW_XTICK_SIZE",
+        "_RESULT_OVERVIEW_LEGEND_SIZE",
+        "_RESULT_OVERVIEW_SCORE_LEGEND_SIZE",
+        "_RESULT_OVERVIEW_FIGURE_LEGEND_SIZE",
+        "_RESULT_OVERVIEW_SPLIT_FIGURE_LEGEND_SIZE",
+        "_RESULT_OVERVIEW_DA_LABEL_SIZE",
+        "_RESULT_OVERVIEW_OBS_MARKER_SIZE",
+        "_RESULT_OVERVIEW_ESS_MARKER_SIZE",
+        "_ESS_THRESHOLD_LW",
+        "_PANEL_YLABEL_FONT_SIZE",
+        "SIZE_DA_OBS",
+        "LW_DA_OBS",
+    )
+    with scaled_module_attributes(sys.modules[__name__], names, style.scale):
+        overrides: dict[str, object] = {}
+        if style.typography is not None:
+            typography = style.typography
+            overrides.update(
+                {
+                    "_RESULT_OVERVIEW_TITLE_SIZE": typography.title_pt,
+                    "_RESULT_OVERVIEW_LABEL_SIZE": typography.label_pt,
+                    "_PANEL_YLABEL_FONT_SIZE": typography.label_pt,
+                    "_RESULT_OVERVIEW_TICK_SIZE": typography.support_pt,
+                    "_RESULT_OVERVIEW_XTICK_SIZE": typography.support_pt,
+                    "_RESULT_OVERVIEW_LEGEND_SIZE": typography.support_pt,
+                    "_RESULT_OVERVIEW_SCORE_LEGEND_SIZE": typography.support_pt,
+                    "_RESULT_OVERVIEW_FIGURE_LEGEND_SIZE": typography.support_pt,
+                    "_RESULT_OVERVIEW_SPLIT_FIGURE_LEGEND_SIZE": typography.support_pt,
+                    "_RESULT_OVERVIEW_DA_LABEL_SIZE": typography.support_pt,
+                }
+            )
+        if style.linework is not None:
+            overrides["_RESULT_OVERVIEW_PANEL_BOX_LW"] = style.linework.panel_box_pt
+        if overrides:
+            with temporary_module_attributes(sys.modules[__name__], overrides):
+                yield
+        else:
+            yield
 
 
 class _LabeledLegendTuple(tuple):
@@ -805,6 +868,21 @@ def _satellite_obs_legend_handle():
     )
 
 
+def _assimilated_obs_legend_handle():
+    from matplotlib.lines import Line2D
+
+    return Line2D(
+        [0],
+        [0],
+        color=COLOR_DA_OBS,
+        marker="x",
+        linestyle="none",
+        markersize=5.2,
+        markeredgewidth=1.35,
+        label="assimilated observation",
+    )
+
+
 def _station_obs_legend_handle():
     from matplotlib.lines import Line2D
 
@@ -857,6 +935,11 @@ def _add_score_panel_legend(ax, variables: list[str]) -> None:
         return
     from matplotlib.lines import Line2D
 
+    def _score_variable_label(variable: str) -> str:
+        if str(variable) == "scf":
+            return "fSCA"
+        return variable_label(variable)
+
     handles = [
         Line2D(
             [0],
@@ -867,7 +950,7 @@ def _add_score_panel_legend(ax, variables: list[str]) -> None:
             markerfacecolor=score_variable_color(variable),
             markeredgecolor=score_variable_color(variable),
             color=score_variable_color(variable),
-            label=variable_label(variable),
+            label=_score_variable_label(variable),
         )
         for variable in variables
     ]
@@ -954,6 +1037,9 @@ def _apply_result_axis_text(axes, specs: list[PanelSpec]) -> None:
     for ax, spec in zip(axes, specs, strict=True):
         ax.set_ylabel(_PANEL_YLABELS.get(spec.panel, ""), fontsize=_RESULT_OVERVIEW_LABEL_SIZE, labelpad=2.0)
         ax.tick_params(axis="y", labelsize=_RESULT_OVERVIEW_TICK_SIZE, pad=4.0)
+        if _RESULT_OVERVIEW_PANEL_BOX_LW is not None:
+            for spine in ax.spines.values():
+                spine.set_linewidth(_RESULT_OVERVIEW_PANEL_BOX_LW)
         for label in ax.get_yticklabels():
             label.set_rotation(90)
             label.set_rotation_mode("anchor")
@@ -995,7 +1081,7 @@ def _add_in_panel_assim_labels(ax, events: list[AssimilationEvent], *, center_of
             transform=ax.get_xaxis_transform(),
             ha=ha,
             va="center",
-            fontsize=5.5,
+            fontsize=_RESULT_OVERVIEW_DA_LABEL_SIZE,
             color="#000000",
             bbox={
                 "boxstyle": "round,pad=0.18",
@@ -1177,7 +1263,7 @@ def _build_result_overview_legend_handles(
                 linestyle="none",
                 markersize=5.6,
                 markeredgewidth=1.45,
-                label="observation used for data assimilation",
+                label="assimilated observation",
             )
         )
     if legend_state.satellite_observation:
@@ -1256,7 +1342,7 @@ def _build_result_overview_legends(
             mode="expand",
             ncol=3,
             frameon=False,
-            fontsize=8.0,
+            fontsize=_RESULT_OVERVIEW_FIGURE_LEGEND_SIZE,
             handlelength=2.45,
             handleheight=1.25,
             columnspacing=1.1,
@@ -1277,7 +1363,7 @@ def _build_result_overview_legends(
             mode="expand",
             ncol=min(4, len(overview_handles)),
             frameon=False,
-            fontsize=6.2,
+            fontsize=_RESULT_OVERVIEW_SPLIT_FIGURE_LEGEND_SIZE,
             handlelength=2.4,
             handleheight=1.22,
             columnspacing=0.8,
@@ -1294,7 +1380,7 @@ def _build_result_overview_legends(
         mode="expand",
         ncol=5,
         frameon=False,
-        fontsize=6.2,
+        fontsize=_RESULT_OVERVIEW_SPLIT_FIGURE_LEGEND_SIZE,
         handlelength=2.4,
         handleheight=1.22,
         columnspacing=0.8,
@@ -1513,7 +1599,7 @@ def _add_ess_threshold_legend(ax) -> None:
         ],
         loc="upper right",
         frameon=False,
-        fontsize=6.2,
+        fontsize=_RESULT_OVERVIEW_SPLIT_FIGURE_LEGEND_SIZE,
         handlelength=1.8,
         handletextpad=0.35,
         labelspacing=0.2,
@@ -1546,33 +1632,51 @@ def _thin_final_result_y_tick_labels(axes, specs: list[PanelSpec]) -> None:
             _label_every_second_dense_y_ticks_from_bottom(ax, max_visible_labels=4)
 
 
-def _apply_time_axis_labels(axes, x_bounds: tuple[pd.Timestamp, pd.Timestamp] | None) -> None:
+def _apply_time_axis_labels(
+    axes,
+    x_bounds: tuple[pd.Timestamp, pd.Timestamp] | None,
+    *,
+    align_first_xtick_left: bool = False,
+) -> None:
     import matplotlib.dates as mdates
+    from matplotlib.ticker import NullFormatter
 
     locator = mdates.MonthLocator()
-    formatter = mdates.DateFormatter("%b")
     for ax in axes:
         ax.xaxis.set_major_locator(locator)
-        ax.xaxis.set_major_formatter(formatter)
+        ax.xaxis.set_major_formatter(NullFormatter())
     if x_bounds is None:
         return
 
-    tick_values = locator.tick_values(x_bounds[0].to_pydatetime(), x_bounds[1].to_pydatetime())
-    tick_dates = [pd.Timestamp(mdates.num2date(val)).tz_localize(None) for val in tick_values]
-    if not tick_dates:
+    start = pd.Timestamp(x_bounds[0]).normalize().replace(day=1)
+    end = pd.Timestamp(x_bounds[1]).normalize().replace(day=1) + pd.DateOffset(months=1)
+    month_starts = list(pd.date_range(start, end, freq="MS"))
+    if len(month_starts) < 2:
         return
 
+    tick_values = [mdates.date2num(date.to_pydatetime()) for date in month_starts]
+    mid_values: list[float] = []
     labels: list[str] = []
     prev_year: int | None = None
-    for idx, tick_dt in enumerate(tick_dates):
-        if idx == 0 or tick_dt.year != prev_year:
-            labels.append(tick_dt.strftime("%b\n%Y"))
+    for left, right in zip(month_starts[:-1], month_starts[1:], strict=True):
+        midpoint = left + (right - left) / 2
+        mid_values.append(mdates.date2num(midpoint.to_pydatetime()))
+        if prev_year is None or left.year != prev_year:
+            labels.append(left.strftime("%b\n%Y"))
         else:
-            labels.append(tick_dt.strftime("%b"))
-        prev_year = tick_dt.year
+            labels.append(left.strftime("%b"))
+        prev_year = left.year
     axes[-1].set_xticks(tick_values)
-    axes[-1].set_xticklabels(labels)
-    axes[-1].tick_params(axis="x", labelsize=_RESULT_OVERVIEW_XTICK_SIZE)
+    axes[-1].set_xticklabels([""] * len(tick_values))
+    axes[-1].set_xticks(mid_values, labels, minor=True)
+    for ax in axes:
+        ax.set_xlim(*x_bounds)
+    if align_first_xtick_left:
+        xtick_labels = axes[-1].get_xticklabels(minor=True)
+        if xtick_labels:
+            xtick_labels[0].set_ha("left")
+    axes[-1].tick_params(axis="x", which="major", labelbottom=False)
+    axes[-1].tick_params(axis="x", which="minor", length=0, labelsize=_RESULT_OVERVIEW_XTICK_SIZE)
 
 
 def _panel_has_data(
@@ -1693,8 +1797,56 @@ def plot_result_overview(
     strict_panels: bool = False,
     x_bounds: tuple[pd.Timestamp, pd.Timestamp] | None = None,
     backend: str = "Agg",
+    write_paper_copy: bool = True,
+    target_size_in: tuple[float, float] | None = None,
+    style_scale: float = 1.0,
+    poster_style: PosterRenderStyle | None = None,
+    layout_h_pad: float = 0.32,
+    layout_hspace: float | None = None,
+    panel_height_factor: float = 1.0,
+    align_first_xtick_left: bool = False,
 ) -> None:
     """Render the result overview into one PNG."""
+    if panel_height_factor <= 0.0:
+        raise ValueError("panel_height_factor must be > 0")
+    style = poster_style or PosterRenderStyle(scale=style_scale)
+    if style.scale != 1.0 or style.typography is not None or style.linework is not None:
+        with _scaled_result_overview_style(style):
+            return plot_result_overview(
+                scf_obs=scf_obs,
+                scf_model=scf_model,
+                wet_obs=wet_obs,
+                wet_model=wet_model,
+                scf_env=scf_env,
+                wet_env=wet_env,
+                output=output,
+                wsl_obs=wsl_obs,
+                wsl_model=wsl_model,
+                wsl_env=wsl_env,
+                wsl_prior_coverage=wsl_prior_coverage,
+                assim_events=assim_events,
+                mode=mode,
+                roi_swe_model=roi_swe_model,
+                roi_swe_members=roi_swe_members,
+                roi_snow_depth_model=roi_snow_depth_model,
+                roi_snow_depth_members=roi_snow_depth_members,
+                panel_specs=panel_specs,
+                station_panels=station_panels,
+                ess_panel=ess_panel,
+                score_points=score_points,
+                strict_panels=strict_panels,
+                x_bounds=x_bounds,
+                backend=backend,
+                write_paper_copy=write_paper_copy,
+                target_size_in=target_size_in,
+                style_scale=1.0,
+                poster_style=PosterRenderStyle(),
+                layout_h_pad=layout_h_pad,
+                layout_hspace=layout_hspace,
+                panel_height_factor=panel_height_factor,
+                align_first_xtick_left=align_first_xtick_left,
+            )
+
     import matplotlib
 
     matplotlib.use(backend or "Agg")
@@ -1739,7 +1891,7 @@ def plot_result_overview(
     if not specs:
         raise ValueError("No data available to plot.")
 
-    height_ratios = [OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR for _spec in specs]
+    height_ratios = [OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR * panel_height_factor for _spec in specs]
     total_height_units = sum(height_ratios)
     fig, axes = plt.subplots(
         len(specs),
@@ -1810,6 +1962,7 @@ def plot_result_overview(
             local_has_ensemble = False
             local_has_open_loop = False
             local_has_satellite_obs = False
+            local_has_assimilated_obs = False
             if mode == "band" and _frame_has_finite_band(scf_env):
                 legend_state.ensemble_summary = True
                 local_has_ensemble = True
@@ -1844,17 +1997,18 @@ def plot_result_overview(
                     scf_obs_points["scf"],
                     linestyle="none",
                     marker="o",
-                    ms=2.8,
+                    ms=_RESULT_OVERVIEW_OBS_MARKER_SIZE,
                     color=COLOR_DA_OBS,
                     label="_nolegend_",
                 )
                 scf_dates = [pd.to_datetime(ev.date) for ev in events if ev.variable == "scf"]
                 if scf_dates:
-                    legend_state.da_observation = legend_state.da_observation or _has_matching_assimilation_observation(
+                    local_has_assimilated_obs = _has_matching_assimilation_observation(
                         scf_dates,
                         scf_obs_points,
                         value_col="scf",
                     )
+                    legend_state.da_observation = legend_state.da_observation or local_has_assimilated_obs
                     draw_assimilation_markers(
                         ax,
                         dates=scf_dates,
@@ -1873,9 +2027,10 @@ def plot_result_overview(
             _add_panel_local_legend(
                 ax,
                 [
+                    *([_satellite_obs_legend_handle()] if local_has_satellite_obs else []),
+                    *([_assimilated_obs_legend_handle()] if local_has_assimilated_obs else []),
                     *([_open_loop_legend_handle()] if local_has_open_loop else []),
                     *([_ensemble_legend_handle(panel_style)] if local_has_ensemble else []),
-                    *([_satellite_obs_legend_handle()] if local_has_satellite_obs else []),
                 ],
                 loc="upper left",
             )
@@ -1885,6 +2040,7 @@ def plot_result_overview(
             local_has_ensemble = False
             local_has_open_loop = False
             local_has_satellite_obs = False
+            local_has_assimilated_obs = False
             if mode == "band" and _frame_has_finite_band(wet_env):
                 legend_state.ensemble_summary = True
                 local_has_ensemble = True
@@ -1926,17 +2082,18 @@ def plot_result_overview(
                     wet_obs_points["wet_snow_fraction"],
                     linestyle="none",
                     marker="o",
-                    ms=2.8,
+                    ms=_RESULT_OVERVIEW_OBS_MARKER_SIZE,
                     color=COLOR_DA_OBS,
                     label="_nolegend_",
                 )
                 wet_dates = [pd.to_datetime(ev.date) for ev in events if ev.variable == "wet_snow"]
                 if wet_dates:
-                    legend_state.da_observation = legend_state.da_observation or _has_matching_assimilation_observation(
+                    local_has_assimilated_obs = _has_matching_assimilation_observation(
                         wet_dates,
                         wet_obs_points,
                         value_col="wet_snow_fraction",
                     )
+                    legend_state.da_observation = legend_state.da_observation or local_has_assimilated_obs
                     draw_assimilation_markers(
                         ax,
                         dates=wet_dates,
@@ -1955,9 +2112,10 @@ def plot_result_overview(
             _add_panel_local_legend(
                 ax,
                 [
+                    *([_satellite_obs_legend_handle()] if local_has_satellite_obs else []),
+                    *([_assimilated_obs_legend_handle()] if local_has_assimilated_obs else []),
                     *([_open_loop_legend_handle()] if local_has_open_loop else []),
                     *([_ensemble_legend_handle(panel_style)] if local_has_ensemble else []),
-                    *([_satellite_obs_legend_handle()] if local_has_satellite_obs else []),
                 ],
                 loc="upper left",
             )
@@ -1967,6 +2125,7 @@ def plot_result_overview(
             local_has_ensemble = False
             local_has_open_loop = False
             local_has_satellite_obs = False
+            local_has_assimilated_obs = False
             if mode == "band" and _frame_has_finite_band(wsl_env):
                 legend_state.ensemble_summary = True
                 local_has_ensemble = True
@@ -2012,17 +2171,18 @@ def plot_result_overview(
                     wsl_obs_points["wet_snow_line"],
                     linestyle="none",
                     marker="o",
-                    ms=2.8,
+                    ms=_RESULT_OVERVIEW_OBS_MARKER_SIZE,
                     color=COLOR_DA_OBS,
                     label="_nolegend_",
                 )
                 wsl_dates = [pd.to_datetime(ev.date) for ev in events if ev.variable == "wet_snow_line"]
                 if wsl_dates:
-                    legend_state.da_observation = legend_state.da_observation or _has_matching_assimilation_observation(
+                    local_has_assimilated_obs = _has_matching_assimilation_observation(
                         wsl_dates,
                         wsl_obs_points,
                         value_col="wet_snow_line",
                     )
+                    legend_state.da_observation = legend_state.da_observation or local_has_assimilated_obs
                     draw_assimilation_markers(
                         ax,
                         dates=wsl_dates,
@@ -2044,6 +2204,7 @@ def plot_result_overview(
                     *([_open_loop_legend_handle()] if local_has_open_loop else []),
                     *([_ensemble_legend_handle(panel_style)] if local_has_ensemble else []),
                     *([_satellite_obs_legend_handle()] if local_has_satellite_obs else []),
+                    *([_assimilated_obs_legend_handle()] if local_has_assimilated_obs else []),
                 ],
                 loc="lower left",
             )
@@ -2129,7 +2290,7 @@ def plot_result_overview(
                 ess_series["date"],
                 ess_series["ess"],
                 marker="o",
-                ms=3.2,
+                ms=_RESULT_OVERVIEW_ESS_MARKER_SIZE,
                 lw=0.0,
                 ls="none",
                 color="#000000",
@@ -2161,6 +2322,7 @@ def plot_result_overview(
             local_has_ensemble = False
             local_has_open_loop = False
             local_has_station_obs = False
+            local_has_assimilated_obs = False
             if _frame_has_finite_band(env_frame):
                 legend_state.ensemble_summary = True
                 local_has_ensemble = True
@@ -2222,11 +2384,12 @@ def plot_result_overview(
                     zorder=7,
                     draw_vlines=False,
                 )
-                legend_state.da_observation = legend_state.da_observation or _has_matching_assimilation_observation(
+                local_has_assimilated_obs = _has_matching_assimilation_observation(
                     _station_assimilation_dates(events, spec.panel),
                     _station_obs_frame(station_data.obs, value_col=value_col),
                     value_col=value_col,
                 )
+                legend_state.da_observation = legend_state.da_observation or local_has_assimilated_obs
             ax.set_ylabel("")
             apply_fraction_grid(ax, y_step=None)
             _apply_shared_result_scale(ax, spec.panel, shared_scales)
@@ -2236,6 +2399,7 @@ def plot_result_overview(
                     *([_open_loop_legend_handle()] if local_has_open_loop else []),
                     *([_ensemble_legend_handle(panel_style)] if local_has_ensemble else []),
                     *([_station_obs_legend_handle()] if local_has_station_obs else []),
+                    *([_assimilated_obs_legend_handle()] if local_has_assimilated_obs else []),
                 ],
                 loc="upper left",
             )
@@ -2258,15 +2422,19 @@ def plot_result_overview(
     if events and len(axes) > 0:
         center_assim = specs[0].panel in {"roi-swe", "roi-sd", "station-swe", "station-sd"}
         _add_assim_label_axis(axes[0], events, 0, center_of_day=center_assim)
-    _apply_time_axis_labels(axes, effective_x_bounds)
+    _apply_time_axis_labels(axes, effective_x_bounds, align_first_xtick_left=align_first_xtick_left)
 
     axes[-1].set_xlabel("")
-    fig.tight_layout(rect=(0.0, 0.025, 0.985, 1.0), h_pad=0.32)
+    fig.tight_layout(rect=(0.0, 0.025, 0.985, 1.0), h_pad=layout_h_pad)
+    if layout_hspace is not None:
+        fig.subplots_adjust(hspace=layout_hspace)
     fig.align_ylabels(axes)
     fig.canvas.draw()
     _align_panel_titles_to_axes(title_artists)
     del legend_state
-    fig.tight_layout(rect=(0.0, 0.025, 0.985, 1.0), h_pad=0.32)
+    fig.tight_layout(rect=(0.0, 0.025, 0.985, 1.0), h_pad=layout_h_pad)
+    if layout_hspace is not None:
+        fig.subplots_adjust(hspace=layout_hspace)
     fig.align_ylabels(axes)
     fig.canvas.draw()
     _align_panel_titles_to_axes(title_artists)
@@ -2276,12 +2444,18 @@ def plot_result_overview(
     _hide_title_overlapping_y_tick_labels(fig, title_artists)
     fig.canvas.draw()
     force_figure_text_black(fig, axes)
-    save_figure_png(fig, output, bbox_inches="tight", pad_inches=_RESULT_OVERVIEW_SAVE_PAD_INCHES)
+    save_figure_png(
+        fig,
+        output,
+        bbox_inches="tight",
+        pad_inches=_RESULT_OVERVIEW_SAVE_PAD_INCHES,
+        target_size_in=target_size_in,
+    )
     try:
         project_dir = infer_project_dir(output)
     except FileNotFoundError:
         project_dir = None
-    if project_dir is not None:
+    if write_paper_copy and project_dir is not None:
         paper_output = project_paper_output_path(project_dir, output)
         paper_output.parent.mkdir(parents=True, exist_ok=True)
         save_figure_png(fig, paper_output, bbox_inches="tight", pad_inches=_RESULT_OVERVIEW_SAVE_PAD_INCHES)
@@ -2310,7 +2484,59 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
     parser.add_argument("--mode", choices=["band", "members"], default="band", help="Plot mode: band (default) or members")
     parser.add_argument("--backend", default="Agg", help="Matplotlib backend (default: Agg)")
+    parser.add_argument(
+        "--no-paper-mirror",
+        action="store_true",
+        help="Do not write the secondary results/paper mirror output",
+    )
+    parser.add_argument(
+        "--target-size-mm",
+        nargs=2,
+        type=float,
+        metavar=("WIDTH", "HEIGHT"),
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument("--style-scale", type=float, default=1.0, help=argparse.SUPPRESS)
+    parser.add_argument("--poster-title-pt", type=float, help=argparse.SUPPRESS)
+    parser.add_argument("--poster-label-pt", type=float, help=argparse.SUPPRESS)
+    parser.add_argument("--poster-support-pt", type=float, help=argparse.SUPPRESS)
+    parser.add_argument("--poster-panel-box-pt", type=float, help=argparse.SUPPRESS)
+    parser.add_argument("--poster-h-pad", type=float, default=0.32, help=argparse.SUPPRESS)
+    parser.add_argument("--poster-hspace", type=float, help=argparse.SUPPRESS)
+    parser.add_argument("--poster-panel-height-factor", type=float, default=1.0, help=argparse.SUPPRESS)
+    parser.add_argument("--poster-align-first-xtick-left", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.style_scale <= 0.0:
+        parser.error("--style-scale must be > 0")
+    if args.poster_h_pad < 0.0:
+        parser.error("--poster-h-pad must be >= 0")
+    if args.poster_hspace is not None and args.poster_hspace < 0.0:
+        parser.error("--poster-hspace must be >= 0")
+    if args.poster_panel_height_factor <= 0.0:
+        parser.error("--poster-panel-height-factor must be > 0")
+    typography_args = (args.poster_title_pt, args.poster_label_pt, args.poster_support_pt)
+    if any(value is not None for value in typography_args):
+        if any(value is None or value <= 0.0 for value in typography_args):
+            parser.error("--poster-title-pt, --poster-label-pt and --poster-support-pt must all be > 0")
+        poster_typography = PosterTypography(
+            title_pt=float(args.poster_title_pt),
+            label_pt=float(args.poster_label_pt),
+            support_pt=float(args.poster_support_pt),
+        )
+    else:
+        poster_typography = None
+    if args.poster_panel_box_pt is not None and args.poster_panel_box_pt <= 0.0:
+        parser.error("--poster-panel-box-pt must be > 0")
+    poster_style = PosterRenderStyle(
+        scale=float(args.style_scale),
+        typography=poster_typography,
+        linework=PosterLinework(panel_box_pt=float(args.poster_panel_box_pt))
+        if args.poster_panel_box_pt is not None
+        else None,
+    )
+    target_size_in = None
+    if args.target_size_mm is not None:
+        target_size_in = (float(args.target_size_mm[0]) / 25.4, float(args.target_size_mm[1]) / 25.4)
 
     if configure_logger:
         configure_cli_logger(args.log_level)
@@ -2462,6 +2688,13 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                 strict_panels=True,
                 x_bounds=project_time_bounds,
                 backend=args.backend,
+                write_paper_copy=not args.no_paper_mirror,
+                target_size_in=target_size_in,
+                poster_style=poster_style,
+                layout_h_pad=float(args.poster_h_pad),
+                layout_hspace=float(args.poster_hspace) if args.poster_hspace is not None else None,
+                panel_height_factor=float(args.poster_panel_height_factor),
+                align_first_xtick_left=bool(args.poster_align_first_xtick_left),
             )
             logger.info("Wrote custom plot: {}", custom_output)
         else:
@@ -2487,6 +2720,13 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                 ess_panel=ess_panel,
                 x_bounds=project_time_bounds,
                 backend=args.backend,
+                write_paper_copy=not args.no_paper_mirror,
+                target_size_in=target_size_in,
+                poster_style=poster_style,
+                layout_h_pad=float(args.poster_h_pad),
+                layout_hspace=float(args.poster_hspace) if args.poster_hspace is not None else None,
+                panel_height_factor=float(args.poster_panel_height_factor),
+                align_first_xtick_left=bool(args.poster_align_first_xtick_left),
             )
             logger.info("Wrote plot: {}", default_output)
 
@@ -2517,6 +2757,13 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
                     strict_panels=True,
                     x_bounds=project_time_bounds,
                     backend=args.backend,
+                    write_paper_copy=not args.no_paper_mirror,
+                    target_size_in=target_size_in,
+                    poster_style=poster_style,
+                    layout_h_pad=float(args.poster_h_pad),
+                    layout_hspace=float(args.poster_hspace) if args.poster_hspace is not None else None,
+                    panel_height_factor=float(args.poster_panel_height_factor),
+                    align_first_xtick_left=bool(args.poster_align_first_xtick_left),
                 )
                 logger.info("Wrote custom plot: {}", custom_output)
     except ModuleNotFoundError as exc:

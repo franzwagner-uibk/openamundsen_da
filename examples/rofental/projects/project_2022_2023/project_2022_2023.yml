@@ -89,11 +89,11 @@ data_assimilation:
     sector_relative_threshold: 0.8
   likelihood:
     scf:
-      obs_sigma: 0.1
-      use_binomial: true
-      sigma_floor: 0.05
-      sigma_cloud_scale: 0.1
-      min_sigma: 0.03
+      obs_sigma: 0.05
+      use_binomial: false
+      sigma_floor: 0.0
+      sigma_cloud_scale: 0.0
+      min_sigma: 0.05
       min_support_coverage_ratio: 0.1
     wet_snow:
       obs_sigma: 0.08
@@ -103,7 +103,7 @@ data_assimilation:
       min_sigma: 0.03
       min_support_coverage_ratio: 0.1
     wet_snow_line:
-      obs_sigma: 150.0
+      obs_sigma: 100.0
       use_binomial: false
       sigma_floor: 25.0
       min_sigma: 25.0
@@ -120,7 +120,7 @@ data_assimilation:
         uncertainty_variable: uncertainty
         time_variable: time
       assimilation:
-        sigma_mode: uncertainty_layer
+        sigma_mode: formula
         aggregate_metric: unc_mean
       u_min: 10.0
       u_max: 20.0

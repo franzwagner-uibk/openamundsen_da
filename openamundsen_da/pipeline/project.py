@@ -80,6 +80,7 @@ from openamundsen_da.pipeline.plot_tasks import (
     plot_result_overview_cli as plot_result_overview_cli,
     plot_setup_weights_overview as plot_setup_weights_overview,
     render_project_maps_best_effort,
+    render_project_poster_best_effort,
     render_project_report_best_effort,
     run_live_plots,
     run_plot_tasks_parallel,
@@ -867,6 +868,8 @@ def run_project(cfg: OrchestratorConfig) -> None:
             run_plot_tasks_parallel([build_fraction_overlay_task(cfg)], cfg.plot_workers, cfg.max_workers)
         except Exception as exc:
             logger.warning("Post-benchmark plotting failed: {}", exc)
+
+    render_project_poster_best_effort(cfg.project_dir, max_workers=cfg.max_workers)
 
     render_project_report_best_effort(cfg.project_dir)
 

@@ -12,9 +12,13 @@ The tutorial uses the bundled Rofental setup as one concrete, reproducible examp
 This page describes that example once so later chapters do not need to repeat the same
 context.
 
-![Rofental tutorial setup overview map (domain, forcing stations, and land-cover layer)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_overview.png)
+The shipped Rofental forcing is a prepared illustrative baseline. Station precipitation
+has been deliberately reduced to create a controlled mismatch, so the tutorial can show
+particle weighting, resampling and posterior updates clearly.
 
-*Rofental tutorial setup map rendered from `projects/project_2022_2023/maps.yml`, showing the model domain, forcing stations, and land-cover context used throughout the tutorial.*
+![Rofental tutorial setup overview map with DEM, forcing stations, land cover, aspect and SRF]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_overview.png)
+
+*Rofental tutorial setup map rendered from `projects/project_2022_2023/maps.yml`, showing the DEM with forcing stations, the Rofental manuscript land-cover grouping, aspect and the snow redistribution factor (SRF).*
 
 ## What Is Included
 
@@ -73,7 +77,7 @@ The corresponding grids are named with the same pattern, for example:
 
 Three observation groups are bundled:
 
-- `obs/snowcover/`: snow-cover fraction rasters
+- `obs/snowcover/`: fractional snow covered area (fSCA) rasters
 - `obs/wetsnow/`: wet-snow mask rasters
 - `obs/stations/`: station snow observations for result plots and validation
 

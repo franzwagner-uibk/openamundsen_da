@@ -235,7 +235,7 @@ This directory contains the stitched station and ROI point plots for the project
 
 Typical files include:
 
-- `result_overview.png` (SCF, wet-snow, ROI mean SWE, and ROI mean snow depth over time)
+- `result_overview.png` (fSCA, wet-snow, ROI mean SWE, and ROI mean snow depth over time)
 - station snow depth plots
 - station SWE plots
 - ROI envelope exports and land-cover masking report
@@ -258,14 +258,14 @@ Reference structure snippet (`results/plots/points`, typical files)
 - observation dates actually used,
 - model-vs-observation fraction behavior,
 - ROI mean SWE and snow-depth evolution relative to the open loop,
-- whether SCF and wet-snow observations are present where expected.
+- whether fSCA and wet-snow observations are present where expected.
 
-The ROI SWE and snow-depth panels use the full ROI footprint rather than the land-cover-masked ROI used for SCF and wet-snow summaries.
+The ROI SWE and snow-depth panels use the full ROI footprint rather than the land-cover-masked ROI used for fSCA and wet-snow summaries.
 
 What to inspect:
 
 - are observation markers present at the configured data assimilation dates?
-- do SCF and wet-snow events appear in the expected seasonal phases?
+- do fSCA and wet-snow events appear in the expected seasonal phases?
 - are there obvious missing events or suspicious gaps?
 
 ### Station plots (snow depth / SWE)
@@ -282,7 +282,7 @@ What to inspect:
 In this tutorial setup, station SWE observations are expected in **mm** (see project config comment).
 If a curve appears near zero against model SWE, check units first.
 
-Land-cover masking affects how much of the ROI contributes to SCF/wet-snow summaries and
+Land-cover masking affects how much of the ROI contributes to fSCA/wet-snow summaries and
 fractions. This report is useful here because it explains the masking context behind the
 result plots and ROI envelope values shown in this chapter.
 
@@ -302,7 +302,7 @@ How to use this table:
 
 - confirm that excluded/retained classes look plausible for the tutorial ROI
 - check whether `percent_of_roi` suggests over-masking (unexpectedly little usable area)
-- use it as context when SCF/wet-snow fractions look unexpectedly low/high
+- use it as context when fSCA/wet-snow fractions look unexpectedly low/high
 
 Recommended plot files to inspect (Rofental tutorial run):
 
@@ -328,12 +328,12 @@ Result overview:
 
 ![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/result_overview.png)
 
-_`result_overview.png`: check observation dates, SCF/wet-snow event timing, ROI mean SWE / snow-depth behavior, and gross model-vs-observation behavior._
+_`result_overview.png`: check observation dates, fSCA/wet-snow event timing, ROI mean SWE / snow-depth behavior, and gross model-vs-observation behavior._
 
 What to read in this plot:
 
 - whether observation markers exist at the configured data assimilation dates,
-- whether SCF events cluster in snow-cover relevant periods and wet-snow events in melt-season periods,
+- whether fSCA events cluster in snow-cover relevant periods and wet-snow events in melt-season periods,
 - whether ROI mean SWE and snow depth shift away from or back toward the open loop during the season,
 - whether data assimilation moves the ensemble envelope in the expected direction relative to the open loop.
 
@@ -403,6 +403,31 @@ Reference output file path (data assimilation summary NetCDF):
 
 - `/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc`
 
+Adjacent completed projects with the same domain, grid, CRS, variables and compact encoding can be merged into one time-concatenated DA summary NetCDF:
+
+```bash
+oa-da-merge-project-grids \
+  --setup /data/rofental \
+  --project project_2020_2021 \
+  --project project_2021_2022 \
+  --project project_2022_2023 \
+  --output-nc /data/rofental/results/grids/da_output_grids_2020_2023.nc
+```
+
+The merge command fails if variables, static coordinates, grid metadata or timestamps are incompatible. It preserves the usual DA summary variable names and records source-project provenance in global NetCDF attributes.
+
+For adjacent completed projects, the snow point-result CSVs can also be stitched into a compact multi-year snow-plot bundle:
+
+```bash
+oa-da-plot-multi-project-snow \
+  --setup /data/rofental \
+  --project project_2020_2021 \
+  --project project_2021_2022 \
+  --project project_2022_2023 \
+  --project project_2023_2024
+```
+
+By default, this writes station and ROI PNGs to `results/plots/multi_year_snow`. The plots show open loop, ensemble mean and the 5-95% member envelope; station observations are added where available. Station model and observation series are shown as daily means, negative station observations are masked and no DA-event markers are drawn. If `results/maps/setup_overview.png` exists in a source project, it is copied into the bundle as `context_map.png`.
 
 Optional variable/dimension inspection (Python in the container).
 
@@ -433,17 +458,17 @@ Dimension names in the inspected NetCDF (for example `time1`, `time2`, `snow_lay
 ### Raster output
 
 {: .checks }
-> Generated map examples from the Rofental paper reference run:
-> - `results/maps/da_events/da_6.png`: WSL/WSLA update on **2023-03-24**
-> - `results/maps/da_events/da_8.png`: SCF update on **2023-05-26**
+> Generated map examples from the Rofental tutorial reference run:
+> - `results/maps/da_events/da_6.png`: WSLA update on **2023-03-24**
+> - `results/maps/da_events/da_8.png`: fSCA (`scf`) update on **2023-05-26**
 
-![Generated DA-event map for the WSL update on 2023-03-24]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_06_wsla_2023_03_24.png)
+![Generated DA-event map for the WSLA update on 2023-03-24]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_06_wsla_2023_03_24.png)
 
-_`da_6.png`: open loop, prior, posterior and observed elevation-band wet snow fraction / wet snow line diagnostics plus corresponding snow-depth fields for the **2023-03-24** `wet_snow_line` update._
+_`da_6.png`: open loop, prior, posterior and observed wet snow fraction maps with WSLA contours, elevation-band wet snow fraction maps, and corresponding snow-depth fields for the **2023-03-24** `wet_snow_line` update._
 
-![Generated DA-event map for the SCF update on 2023-05-26]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_08_scf_2023_05_26.png)
+![Generated DA-event map for the fSCA update on 2023-05-26]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_08_scf_2023_05_26.png)
 
-_`da_8.png`: open loop, prior, posterior and observed snow-cover diagnostics plus corresponding snow-depth fields for the **2023-05-26** `scf` update._
+_`da_8.png`: open loop, prior, posterior and observed fSCA diagnostics plus corresponding snow-depth fields for the **2023-05-26** `scf` update._
 
 {: .checks }
 > Note on raster workflow:
@@ -485,7 +510,7 @@ vars:
 Use `results/grids/da_output_grids.nc` in a GIS software of your choice and visualize raster output.
 
 Recommended manual map date(s): choose one date with active snow cover and one date near melt season.
-Use the same date across `open_loop`, `ens_mean`, and `increment` maps. Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-depth maps use `ens_mean` as the prior mean, `analysis_mean` as the event-weighted posterior mean, and `analysis_increment` as `posterior - prior`.
+Use the same date across `open_loop`, `ens_mean`, and `increment` maps. Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow depth maps use `ens_mean` as the prior mean, `analysis_mean` as the event-weighted posterior mean, and `analysis_increment` as `posterior - prior`.
 
 For the shipped examples, project maps are split into generated DA-event maps under `results/maps/da_events/` and custom YAML maps such as `setup_overview` at the root of `results/maps/`. Use `oa-da-plot-project-maps --project-dir /data/rofental/projects/project_2022_2023 --max-workers 4` to rerender the full combined map set in one command. Omit `--max-workers` to let the Docker container auto-select a recipe-level worker count from the visible CPUs. Overview panels use setup-local GISCO GeoJSONs under `env/`; if you want to prefetch them ahead of time, run `oa-da-fetch-overview-geojson --project-dir /data/rofental/projects/project_2022_2023`.
 For `snowdepth_daily`, the map renderer uses the viridis palette together with a shared linear legend scale per render run. Tick labels are shown in `cm`, cells below `1 cm` stay transparent so only meaningful snow cover is colored, and the top of the snow-depth legend is derived from the plotted maps. Increment panels use a signed red-blue diverging palette: negative increments are red, positive increments are blue. In generated DA-event maps, positive `analysis_increment` means the DA event added snow; negative means it removed snow.

@@ -110,7 +110,7 @@ STATIC_FIELD_PRESETS = {
         field="srf",
         title="Snow redistribution factor",
         unit_label="SRF [-]",
-        cmap_name="RdBu",
+        cmap_name="oa_da_diverging_compact",
         vmin=0.1,
         vmax=1.9,
         center=1.0,
@@ -172,7 +172,7 @@ LANDCOVER_LABELS = {
 }
 
 UNKNOWN_LANDCOVER_COLOR = "#d9d9d9"
-SUPPORTED_LANDCOVER_GROUPINGS = {"native", "broad"}
+SUPPORTED_LANDCOVER_GROUPINGS = {"native", "broad", "rofental_manuscript"}
 LANDCOVER_BROAD_CLASSES = (
     LandcoverDisplayClass(1, "rock", LANDCOVER_COLORS[1], (1,)),
     LandcoverDisplayClass(2, "ice", LANDCOVER_COLORS[2], (2,)),
@@ -181,6 +181,12 @@ LANDCOVER_BROAD_CLASSES = (
     LandcoverDisplayClass(5, "farmland/transitional", LANDCOVER_COLORS[6], (6, 7)),
     LandcoverDisplayClass(6, "forest", LANDCOVER_COLORS[10], (8, 9, 10, 11, 12)),
     LandcoverDisplayClass(7, "built-up", LANDCOVER_COLORS[13], (13,)),
+)
+LANDCOVER_ROFENTAL_MANUSCRIPT_CLASSES = (
+    LandcoverDisplayClass(1, "rock", LANDCOVER_COLORS[1], (1, 13)),
+    LandcoverDisplayClass(2, "ice", LANDCOVER_COLORS[2], (2, 3)),
+    LandcoverDisplayClass(3, "grass/shrub", LANDCOVER_COLORS[4], (4, 5, 6, 7)),
+    LandcoverDisplayClass(4, "forest", LANDCOVER_COLORS[10], (8, 9, 10, 11, 12)),
 )
 
 FSC_OBS_CMAP = colormaps["Greys"]
@@ -214,7 +220,27 @@ def _snow_depth_reference_cmap() -> LinearSegmentedColormap:
 
 
 SNOW_DEPTH_CMAP = _snow_depth_reference_cmap()
-INCREMENT_CMAP = colormaps["RdBu"]
+
+
+def _compact_diverging_cmap() -> LinearSegmentedColormap:
+    return LinearSegmentedColormap.from_list(
+        "oa_da_diverging_compact",
+        (
+            (0.00, "#67001f"),
+            (0.20, "#b2182b"),
+            (0.36, "#d6604d"),
+            (0.46, "#fddbc7"),
+            (0.50, "#ffffff"),
+            (0.54, "#d1e5f0"),
+            (0.64, "#67a9cf"),
+            (0.80, "#2166ac"),
+            (1.00, "#053061"),
+        ),
+        N=512,
+    )
+
+
+INCREMENT_CMAP = _compact_diverging_cmap()
 SNOW_DEPTH_COLORBAR_STEPS_M = (0.05, 0.10, 0.25, 0.50, 1.0)
 ASPECT_COLORBAR_TICKS_RAD = (0.0, 1.0, 2.0, math.pi, 4.0, 5.0, 6.0)
 ASPECT_COLORBAR_TICKLABELS = ("0", "1", "2", "3.14", "4", "5", "6")
@@ -326,12 +352,19 @@ def landcover_classes_for_present_codes(
 ) -> tuple[LandcoverDisplayClass, ...]:
     token = normalize_landcover_grouping(grouping)
     if token == "broad":
+        grouping_classes = LANDCOVER_BROAD_CLASSES
+    elif token == "rofental_manuscript":
+        grouping_classes = LANDCOVER_ROFENTAL_MANUSCRIPT_CLASSES
+    else:
+        grouping_classes = ()
+
+    if grouping_classes:
         classes = [
             item
-            for item in LANDCOVER_BROAD_CLASSES
+            for item in grouping_classes
             if not present_source_codes or any(source_code in present_source_codes for source_code in item.source_codes)
         ]
-        covered_codes = {source_code for item in LANDCOVER_BROAD_CLASSES for source_code in item.source_codes}
+        covered_codes = {source_code for item in grouping_classes for source_code in item.source_codes}
     else:
         codes = sorted(present_source_codes) if present_source_codes else list(LANDCOVER_LABELS)
         classes = [
@@ -397,6 +430,8 @@ def model_colorbar_style(preset: VariablePreset, *, vmax: float | None = None) -
 def static_field_cmap(preset: StaticFieldPreset):
     if preset.field == "landcover":
         raise ValueError("Landcover colors are derived from present codes")
+    if preset.cmap_name == INCREMENT_CMAP.name:
+        return INCREMENT_CMAP
     return colormaps[preset.cmap_name]
 
 

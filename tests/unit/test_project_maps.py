@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 import rasterio
 import xarray as xr
+import yaml
 from matplotlib.colors import to_rgba
 from matplotlib.markers import MarkerStyle
 from rasterio.transform import from_origin
@@ -72,6 +73,7 @@ from openamundsen_da.methods.viz.maps.styles import (
     INCREMENT_CMAP,
     LANDCOVER_BROAD_CLASSES,
     LANDCOVER_COLORS,
+    LANDCOVER_ROFENTAL_MANUSCRIPT_CLASSES,
     SNOW_DEPTH_REFERENCE_TICKS_M,
     WET_SNOW_COLORS,
     WET_SNOW_LABELS,
@@ -87,7 +89,7 @@ from openamundsen_da.methods.viz.maps.styles import (
     static_field_cmap,
     static_field_colorbar_style,
 )
-from openamundsen_da.methods.viz.maps.theme import _COLORBAR_TICK_SIZE, _OVERVIEW_ROI_COLOR, _STATION_COLOR, _TICK_SIZE
+from openamundsen_da.methods.viz.maps.theme import _COLORBAR_TICK_SIZE, _GRID_COLOR, _GRID_WIDTH, _OVERVIEW_ROI_COLOR, _STATION_COLOR, _TICK_SIZE
 from openamundsen_da.util.run_mode import write_run_mode
 
 
@@ -172,6 +174,37 @@ def _write_da_output(path: Path) -> None:
         },
         coords={"time": times, "snow_layer": np.arange(3), "y": np.arange(4), "x": np.arange(4)},
     )
+    ds.to_netcdf(path)
+
+
+def _write_eurac_observation_netcdf(path: Path) -> None:
+    data = np.array(
+        [
+            [
+                [100.0, 90.0, 50.0, 0.0],
+                [100.0, 205.0, 50.0, 0.0],
+                [100.0, 90.0, 255.0, 0.0],
+                [100.0, 90.0, 50.0, 0.0],
+            ]
+        ],
+        dtype=np.float32,
+    )
+    ds = xr.Dataset(
+        {
+            "fsc": (("band", "y", "x"), data),
+            "uncertainty": (("band", "y", "x"), np.full(data.shape, 25.0, dtype=np.float32)),
+        },
+        coords={
+            "band": [1],
+            "x": np.array([50.0, 150.0, 250.0, 350.0], dtype=np.float32),
+            "y": np.array([350.0, 250.0, 150.0, 50.0], dtype=np.float32),
+            "time": [np.datetime64("2023-01-03T00:00:00")],
+        },
+    )
+    ds["spatial_ref"] = xr.DataArray(0)
+    ds["spatial_ref"].attrs["crs_wkt"] = "EPSG:25832"
+    ds["spatial_ref"].attrs["spatial_ref"] = "EPSG:25832"
+    path.parent.mkdir(parents=True, exist_ok=True)
     ds.to_netcdf(path)
 
 
@@ -1493,7 +1526,7 @@ def test_project_maps_config_accepts_wet_snow_line_panel_kind(tmp_path: Path) ->
         """
         maps:
           wsl_demo:
-            title: WSL demo
+            title: WSLA demo
             defaults:
               date: "2023-01-02"
             layout:
@@ -1609,20 +1642,21 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
     assert cfg.maps[0].layout.nrows == 1
     assert cfg.maps[0].layout.ncols == 4
     assert [panel.title for panel in cfg.maps[0].panels] == [
-        "Overview",
         "Digital elevation model",
         "Land cover",
         "Aspect",
+        "Snow redistribution factor",
     ]
-    assert [panel.kind for panel in cfg.maps[0].panels] == ["overview", "dem", "landcover", "aspect"]
+    assert [panel.kind for panel in cfg.maps[0].panels] == ["dem", "landcover", "aspect", "srf"]
     assert [(panel.row, panel.col) for panel in cfg.maps[0].panels] == [(0, 0), (0, 1), (0, 2), (0, 3)]
-    assert cfg.maps[0].panels[1].show_station_marker is True
-    assert cfg.maps[0].panels[1].show_stations_name is True
-    assert cfg.maps[0].panels[1].show_stations_elev is True
-    assert cfg.maps[0].panels[1].below_items == ()
-    assert cfg.maps[0].panels[1].inside_legend_items[0].label == "AWS"
-    assert cfg.maps[0].panels[2].landcover_grouping == "broad"
-    assert cfg.maps[0].panels[3].legend == "horizontal"
+    assert cfg.maps[0].panels[0].show_station_marker is True
+    assert cfg.maps[0].panels[0].show_stations_name is True
+    assert cfg.maps[0].panels[0].show_stations_elev is True
+    assert cfg.maps[0].panels[0].below_items == ()
+    assert cfg.maps[0].panels[0].inside_legend_items[0].label == "AWS"
+    assert cfg.maps[0].panels[1].landcover_grouping == "rofental_manuscript"
+    assert cfg.maps[0].panels[2].legend == "horizontal"
+    assert cfg.maps[0].panels[3].show_hillshade is True
 
 
 def test_shipped_subdomain_project_maps_config_keeps_generic_setup_overview_only() -> None:
@@ -1652,10 +1686,10 @@ def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, 
     assert recipes[0].row_labels == ()
     assert recipes[0].layout.ncols == 4
     assert [panel.title for panel in recipes[0].panels] == [
-        "Open-loop snow depth",
+        "Open loop snow depth",
         "Prior snow depth",
         "Posterior snow depth",
-        "Snow-depth increment",
+        "Snow depth increment",
     ]
     assert [panel.source for panel in recipes[0].panels] == [
         "open_loop",
@@ -1876,16 +1910,16 @@ def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_sup
         None,
     ]
     assert [panel.title for panel in scf_panels[:4]] == [
-        "Open-loop snow cover",
+        "Open loop snow cover",
         "Prior snow cover probability",
         "Posterior snow cover probability",
         "Satellite FSC observation",
     ]
     assert [panel.title for panel in scf_panels[4:8]] == [
-        "Open-loop snow depth",
+        "Open loop snow depth",
         "Prior snow depth",
         "Posterior snow depth",
-        "Snow-depth increment",
+        "Snow depth increment",
     ]
 
 
@@ -1913,7 +1947,7 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
 
     recipes = generated_module.generated_da_map_recipes(project_dir)
 
-    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (Wet snow line - WSL)"
+    assert recipes[0].figure_title == "DA 1 - 2023-01-02 (Wet snow line altitude (WSLA))"
     assert recipes[0].row_labels == ()
     assert recipes[0].layout.ncols == 4
     assert recipes[0].layout.nrows == 3
@@ -1930,10 +1964,10 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
         None,
     ]
     assert [panel.title for panel in recipes[0].panels[:4]] == [
-        "Open-loop wet snow line",
-        "Prior wet snow line",
-        "Posterior wet snow line",
-        "Observed wet snow line",
+        "Open loop WSLA",
+        "Prior WSLA",
+        "Posterior WSLA",
+        "Observed WSLA",
     ]
     assert [panel.kind for panel in recipes[0].panels[4:8]] == [
         "wet_snow_elevation_fraction",
@@ -1954,21 +1988,21 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
         "wet_snow_line",
     ]
     assert [panel.title for panel in recipes[0].panels[4:8]] == [
-        "Open-loop elevation band WSF",
+        "Open loop elevation band WSF",
         "Prior elevation band WSF",
         "Posterior elevation band WSF",
         "Observed elevation band WSF",
     ]
     assert [panel.kind for panel in recipes[0].panels[8:12]] == ["snow_depth", "snow_depth", "snow_depth", "snow_depth"]
     assert [panel.title for panel in recipes[0].panels[8:12]] == [
-        "Open-loop snow depth",
+        "Open loop snow depth",
         "Prior snow depth",
         "Posterior snow depth",
-        "Snow-depth increment",
+        "Snow depth increment",
     ]
 
 
-def test_paper_recipe_compacts_wet_snow_line_da_maps(
+def test_paper_recipe_keeps_full_wet_snow_line_da_maps(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1996,31 +2030,43 @@ def test_paper_recipe_compacts_wet_snow_line_da_maps(
     assert full_recipe.layout.nrows == 3
     assert full_recipe.row_labels == ()
     assert paper_recipe.figure_title is None
-    assert paper_recipe.layout.nrows == 2
+    assert paper_recipe.layout.nrows == 3
     assert paper_recipe.layout.ncols == 4
     assert paper_recipe.row_labels == ()
-    assert {panel.row for panel in paper_recipe.panels} == {0, 1}
+    assert {panel.row for panel in paper_recipe.panels} == {0, 1, 2}
     assert [panel.kind for panel in paper_recipe.panels[:4]] == [
+        "wet_snow_line",
+        "wet_snow_line",
+        "wet_snow_line",
+        "wet_snow_line",
+    ]
+    assert [panel.title for panel in paper_recipe.panels[:4]] == [
+        "Open loop WSLA",
+        "Prior WSLA",
+        "Posterior WSLA",
+        "Observed WSLA",
+    ]
+    assert [panel.kind for panel in paper_recipe.panels[4:8]] == [
         "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
     ]
-    assert [panel.kind for panel in paper_recipe.panels[4:]] == ["snow_depth", "snow_depth", "snow_depth", "snow_depth"]
-    assert [panel.title for panel in paper_recipe.panels[:4]] == [
-        "Open-loop elevation band WSF",
+    assert [panel.title for panel in paper_recipe.panels[4:8]] == [
+        "Open loop elevation band WSF",
         "Prior elevation band WSF",
         "Posterior elevation band WSF",
         "Observed elevation band WSF",
     ]
-    assert [panel.title for panel in paper_recipe.panels[4:]] == [
-        "Open-loop snow depth",
+    assert [panel.title for panel in paper_recipe.panels[8:]] == [
+        "Open loop snow depth",
         "Prior snow depth",
         "Posterior snow depth",
-        "Snow-depth increment",
+        "Snow depth increment",
     ]
     assert {panel.row for panel in paper_recipe.panels[:4]} == {0}
-    assert {panel.row for panel in paper_recipe.panels[4:]} == {1}
+    assert {panel.row for panel in paper_recipe.panels[4:8]} == {1}
+    assert {panel.row for panel in paper_recipe.panels[8:]} == {2}
 
 
 def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events(
@@ -2047,7 +2093,7 @@ def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events
         None,
     ]
     assert [panel.title for panel in wet_recipe.panels[:4]] == [
-        "Open-loop WSF",
+        "Open loop WSF",
         "Prior WSF",
         "Posterior WSF",
         "Wet snow observation",
@@ -2065,7 +2111,7 @@ def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events
         None,
     ]
     assert [panel.title for panel in wet_recipe.panels[4:8]] == [
-        "Open-loop elevation band WSF",
+        "Open loop elevation band WSF",
         "Prior elevation band WSF",
         "Posterior elevation band WSF",
         "Observed elevation band WSF",
@@ -2464,6 +2510,47 @@ def test_load_observation_uncertainty_scene_masks_invalid_observation_pixels(tmp
     assert scene.array[0, 0] == 35.0
 
 
+def test_load_observation_scene_reads_eurac_netcdf_uncertainty_variable(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    project_yaml = project_dir / "project_demo.yml"
+    cfg = _read_yaml_file(project_yaml)
+    cfg["data_assimilation"]["uncertainty"] = {
+        "scf": {
+            "enabled": True,
+            "ingest": {
+                "scf_variable": "fsc",
+                "uncertainty_variable": "uncertainty",
+                "time_variable": "time",
+            },
+        }
+    }
+    project_yaml.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+    _write_summary(
+        setup_dir / "obs" / "summaries" / project_dir.name / "scf_summary.csv",
+        [{"date": "2023-01-03", "source": "SnowFLAKES_20230103_v3_eurac.nc@2023-01-03T00:00:00Z"}],
+    )
+    _write_eurac_observation_netcdf(setup_dir / "obs" / "snowcover" / "SnowFLAKES_20230103_v3_eurac.nc")
+    context = load_static_context(project_dir)
+
+    scene = load_observation_scene(project_dir, context, observation="scf", date=pd.Timestamp("2023-01-03"))
+    unc_scene = load_observation_uncertainty_scene(
+        project_dir,
+        context,
+        observation="scf",
+        date=pd.Timestamp("2023-01-03"),
+    )
+
+    assert scene.coverage_fraction == pytest.approx(14.0 / 16.0)
+    assert np.isfinite(scene.array).sum() == 14
+    assert scene.invalid_mask is not None
+    assert scene.invalid_mask[1, 1]
+    assert scene.invalid_mask[2, 2]
+    assert unc_scene.coverage_fraction == pytest.approx(14.0 / 16.0)
+    assert unc_scene.array[0, 0] == 25.0
+    assert np.isnan(unc_scene.array[1, 1])
+    assert np.isnan(unc_scene.array[2, 2])
+
+
 def test_load_observation_uncertainty_scene_requires_sidecars(tmp_path: Path) -> None:
     setup_dir, project_dir = _build_project_fixture(tmp_path)
     (setup_dir / "obs" / "snowcover" / "scf_right_uncertainty.tif").unlink()
@@ -2545,6 +2632,161 @@ def test_row_extents_use_full_extent_unless_row_view_is_configured(tmp_path: Pat
     assert row_extents[1] != row_extents[0]
     assert row_ratios[0] == pytest.approx(1.0)
     assert row_ratios[1] == pytest.approx(0.5)
+
+
+def test_one_column_non_raster_map_uses_three_column_panel_width() -> None:
+    one_col = MapRecipe(
+        name="one_col",
+        title="one_col",
+        layout=LayoutSpec(nrows=1, ncols=1),
+        panels=(MapPanelSpec(kind="roi", row=0, col=0),),
+    )
+    three_col = MapRecipe(
+        name="three_col",
+        title="three_col",
+        layout=LayoutSpec(nrows=1, ncols=3),
+        panels=tuple(MapPanelSpec(kind="roi", row=0, col=col) for col in range(3)),
+    )
+    figure_horizontal_default = layout_module.figure_prefers_horizontal_legends(one_col)
+
+    one_col_panel_width = layout_module.panel_width_in_for_recipe(
+        one_col,
+        figure_horizontal_default=figure_horizontal_default,
+    )
+    three_col_panel_width = layout_module.panel_width_in_for_recipe(
+        three_col,
+        figure_horizontal_default=layout_module.figure_prefers_horizontal_legends(three_col),
+    )
+    one_col_figure_width = layout_module.figure_width_for_recipe(
+        one_col,
+        figure_horizontal_default=figure_horizontal_default,
+    )
+
+    assert one_col_panel_width == pytest.approx(three_col_panel_width)
+    assert one_col_figure_width == pytest.approx(
+        layout_module.FIGWIDTH_OVERVIEW_PAPER / (3.0 + 2.0 * layout_module._LAYOUT_COL_GAP)
+    )
+    assert one_col_figure_width < layout_module.FIGWIDTH_OVERVIEW_PAPER
+
+
+def test_one_column_raster_map_uses_scaled_compact_panel_width() -> None:
+    one_col = MapRecipe(
+        name="one_col",
+        title="one_col",
+        layout=LayoutSpec(nrows=1, ncols=1),
+        panels=(MapPanelSpec(kind="dem", row=0, col=0),),
+    )
+    figure_horizontal_default = layout_module.figure_prefers_horizontal_legends(one_col)
+    inner_width_in = layout_module.FIGWIDTH_OVERVIEW_PAPER * (
+        layout_module._RIGHT_MARGIN - layout_module._LEFT_MARGIN
+    )
+    compact_reference_units = (
+        3.0
+        + 2.0 * layout_module._LAYOUT_COL_GAP
+        + layout_module._VERTICAL_COLORBAR_GAP_EXTRA
+    )
+    expected_panel_width = (
+        inner_width_in
+        / compact_reference_units
+        * layout_module._ONE_COLUMN_RASTER_PANEL_SCALE
+    )
+    actual_width_units = 1.0 + layout_module._VERTICAL_COLORBAR_OUTER_EXTRA
+    expected_figure_width = expected_panel_width * actual_width_units / (
+        layout_module._RIGHT_MARGIN - layout_module._LEFT_MARGIN
+    )
+
+    one_col_panel_width = layout_module.panel_width_in_for_recipe(
+        one_col,
+        figure_horizontal_default=figure_horizontal_default,
+    )
+    one_col_figure_width = layout_module.figure_width_for_recipe(
+        one_col,
+        figure_horizontal_default=figure_horizontal_default,
+    )
+
+    assert one_col_panel_width == pytest.approx(expected_panel_width)
+    assert one_col_figure_width == pytest.approx(expected_figure_width)
+    assert one_col_figure_width < layout_module.FIGWIDTH_OVERVIEW_PAPER
+
+
+def test_one_column_support_only_map_keeps_compact_panel_width() -> None:
+    one_col = MapRecipe(
+        name="one_col",
+        title="one_col",
+        layout=LayoutSpec(nrows=1, ncols=1),
+        panels=(MapPanelSpec(kind="legend", row=0, col=0),),
+    )
+    three_col = MapRecipe(
+        name="three_col",
+        title="three_col",
+        layout=LayoutSpec(nrows=1, ncols=3),
+        panels=tuple(MapPanelSpec(kind="legend", row=0, col=col) for col in range(3)),
+    )
+
+    one_col_panel_width = layout_module.panel_width_in_for_recipe(
+        one_col,
+        figure_horizontal_default=layout_module.figure_prefers_horizontal_legends(one_col),
+    )
+    three_col_panel_width = layout_module.panel_width_in_for_recipe(
+        three_col,
+        figure_horizontal_default=layout_module.figure_prefers_horizontal_legends(three_col),
+    )
+
+    assert one_col_panel_width == pytest.approx(three_col_panel_width)
+
+
+def test_multi_column_map_widths_stay_full_paper_width() -> None:
+    for ncols in (2, 3, 4):
+        recipe = MapRecipe(
+            name=f"{ncols}_col",
+            title=f"{ncols}_col",
+            layout=LayoutSpec(nrows=1, ncols=ncols),
+            panels=tuple(MapPanelSpec(kind="roi", row=0, col=col) for col in range(ncols)),
+        )
+
+        assert layout_module.figure_width_for_recipe(
+            recipe,
+            figure_horizontal_default=layout_module.figure_prefers_horizontal_legends(recipe),
+        ) == pytest.approx(layout_module.FIGWIDTH_OVERVIEW_PAPER)
+
+
+def test_two_by_one_raster_map_uses_scaled_compact_canvas_and_sane_height(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    recipe = MapRecipe(
+        name="two_by_one",
+        title="two_by_one",
+        layout=LayoutSpec(nrows=2, ncols=1),
+        panels=(
+            MapPanelSpec(kind="dem", row=0, col=0),
+            MapPanelSpec(kind="landcover", row=1, col=0),
+        ),
+    )
+    compact_non_raster_recipe = MapRecipe(
+        name="two_by_one_roi",
+        title="two_by_one_roi",
+        layout=LayoutSpec(nrows=2, ncols=1),
+        panels=(
+            MapPanelSpec(kind="roi", row=0, col=0),
+            MapPanelSpec(kind="roi", row=1, col=0),
+        ),
+    )
+
+    fig_width, fig_height = render_module._figure_size(
+        buffered_extent(context),
+        recipe,
+        context=context,
+    )
+    compact_fig_width, _compact_fig_height = render_module._figure_size(
+        buffered_extent(context),
+        compact_non_raster_recipe,
+        context=context,
+    )
+
+    assert fig_width == pytest.approx(compact_fig_width * layout_module._ONE_COLUMN_RASTER_PANEL_SCALE)
+    assert fig_width < layout_module.FIGWIDTH_OVERVIEW_PAPER
+    assert fig_height > fig_width
+    assert fig_height / fig_width < 3.0
 
 
 def test_comparison_scales_use_zero_centered_diverging_increment_norm() -> None:
@@ -2733,6 +2975,59 @@ def test_aspect_panel_masks_flat_no_aspect_cells(tmp_path: Path) -> None:
         assert np.all(aspect_rgba[..., 3] == 0.0)
     finally:
         plt.close(fig)
+
+
+def test_static_continuous_panel_can_use_hillshade_underlay(tmp_path: Path) -> None:
+    roi_mask = np.array(
+        [
+            [0, 0, 0, 0],
+            [0, 1, 1, 0],
+            [0, 1, 1, 0],
+            [0, 0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
+    _setup_dir, project_dir = _build_project_fixture(
+        tmp_path,
+        roi_mask=roi_mask,
+        roi_bounds=(100.0, 100.0, 300.0, 300.0),
+    )
+    context = load_static_context(project_dir)
+    extent = buffered_extent(context)
+    grid_extent = render_module._grid_extent(context)
+    fig_plain, ax_plain = plt.subplots(figsize=(3, 3))
+    fig_shaded, ax_shaded = plt.subplots(figsize=(3, 3))
+    try:
+        render_module._render_static_panel(
+            ax_plain,
+            panel=MapPanelSpec(kind="srf", row=0, col=0, show_colorbar=False),
+            context=context,
+            extent=extent,
+            grid_extent=grid_extent,
+            label=None,
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
+        render_module._render_static_panel(
+            ax_shaded,
+            panel=MapPanelSpec(kind="srf", row=0, col=0, show_colorbar=False, show_hillshade=True),
+            context=context,
+            extent=extent,
+            grid_extent=grid_extent,
+            label=None,
+            defaults=MapDefaults(),
+            figure_horizontal_default=True,
+        )
+
+        assert len(ax_plain.images) == 1
+        assert len(ax_shaded.images) == 2
+        underlay = np.ma.asarray(ax_shaded.images[0].get_array())
+        assert np.ma.getmaskarray(underlay)[0, 0]
+        assert not np.ma.getmaskarray(underlay)[1, 1]
+        assert ax_shaded.images[1].get_alpha() == pytest.approx(0.86)
+    finally:
+        plt.close(fig_plain)
+        plt.close(fig_shaded)
 
 
 def test_aspect_panel_uses_horizontal_radian_colorbar(tmp_path: Path) -> None:
@@ -3322,12 +3617,21 @@ def test_snowdepth_colorbar_ticks_keep_reference_style_with_dynamic_top_bin() ->
     assert snow_depth_colorbar_ticklabels(vmax) == ("0.01", "0.5", "1", "1.5", "2", "2.25")
 
 
-def test_increment_cmap_runs_from_negative_red_to_positive_blue() -> None:
+def test_increment_cmap_uses_compact_neutral_negative_red_positive_blue() -> None:
     low = INCREMENT_CMAP(0.0)
+    near_low = INCREMENT_CMAP(0.46)
+    center = INCREMENT_CMAP(0.5)
+    near_high = INCREMENT_CMAP(0.54)
     high = INCREMENT_CMAP(1.0)
 
+    assert INCREMENT_CMAP.name == "oa_da_diverging_compact"
     assert low[0] > low[2]
+    assert near_low[0] > near_low[2]
+    assert min(center[:3]) > 0.98
+    assert near_high[2] > near_high[0]
     assert high[2] > high[0]
+    assert sum(1.0 - value for value in near_low[:3]) > 0.20
+    assert sum(1.0 - value for value in near_high[:3]) > 0.12
 
 
 def test_scf_observation_palette_uses_greys_for_example_map_style() -> None:
@@ -3343,8 +3647,9 @@ def test_static_field_palettes_follow_reference_style() -> None:
 
     dem_cmap = static_field_cmap(dem_preset)
     svf_cmap = static_field_cmap(require_static_field_preset("svf"))
-    srf_cmap = static_field_cmap(require_static_field_preset("srf"))
-    srf_style = static_field_colorbar_style(require_static_field_preset("srf"))
+    srf_preset = require_static_field_preset("srf")
+    srf_cmap = static_field_cmap(srf_preset)
+    srf_style = static_field_colorbar_style(srf_preset)
 
     dem_low = dem_cmap(0.0)
     dem_high = dem_cmap(1.0)
@@ -3362,7 +3667,8 @@ def test_static_field_palettes_follow_reference_style() -> None:
     )
     assert static_field_colorbar_style(dem_preset, np.array([450.0, 1670.0])).ticks == (500.0, 1000.0, 1500.0)
     assert svf_cmap.name == "viridis"
-    assert srf_cmap.name == "RdBu"
+    assert srf_preset.cmap_name == "oa_da_diverging_compact"
+    assert srf_cmap is INCREMENT_CMAP
     assert sum(dem_high[:3]) > sum(dem_low[:3])
     assert sum(svf_high[:3]) > sum(svf_low[:3])
     assert srf_low[0] > srf_low[2]
@@ -3394,6 +3700,12 @@ def test_landcover_reference_colors_use_categorical_palette() -> None:
         LANDCOVER_COLORS[6],
         LANDCOVER_COLORS[10],
         LANDCOVER_COLORS[13],
+    ]
+    assert [(item.label, item.source_codes) for item in LANDCOVER_ROFENTAL_MANUSCRIPT_CLASSES] == [
+        ("rock", (1, 13)),
+        ("ice", (2, 3)),
+        ("grass/shrub", (4, 5, 6, 7)),
+        ("forest", (8, 9, 10, 11, 12)),
     ]
 
 
@@ -3444,6 +3756,8 @@ def test_map_axis_style_places_title_above_axes_and_can_hide_nonfirstcolumn_ylab
         assert all(not tick.label2.get_visible() for tick in ax.yaxis.get_major_ticks())
         assert grid_lines
         assert all(line.get_zorder() == 120 for line in grid_lines)
+        assert all(line.get_color() == _GRID_COLOR for line in grid_lines)
+        assert all(line.get_linewidth() == pytest.approx(_GRID_WIDTH) for line in grid_lines)
     finally:
         plt.close(fig)
 
@@ -3844,9 +4158,9 @@ def test_wet_snow_line_model_panel_draws_wsl_contour(tmp_path: Path, monkeypatch
                 include_obs_wsl=False,
             )
         ]
-        assert legend_labels[-1:] == ["model WSL"]
-        assert "WSL unavailable" not in {text.get_text() for text in ax.texts}
-        callout = next(text for text in ax.texts if text.get_text() == "WSL 2450 m")
+        assert legend_labels[-1:] == ["model WSLA"]
+        assert "WSLA unavailable" not in {text.get_text() for text in ax.texts}
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2450 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
         assert callout.get_position() == pytest.approx((0.02, 0.045))
         assert callout.get_ha() == "left"
@@ -3998,7 +4312,7 @@ def test_wet_snow_elevation_fraction_panel_draws_source_local_wsl(
         assert recorded == [(2450.0, panel_renderers_module._WSL_MODEL_COLOR, "-")]
         assert artifacts["wsl"] == 2450.0
         assert artifacts["wsl_drawn"] is True
-        callout = next(text for text in ax.texts if text.get_text() == "WSL 2450 m")
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2450 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
     finally:
         plt.close(fig)
@@ -4017,7 +4331,7 @@ def test_wet_snow_elevation_fraction_observation_reuses_observed_wsl(
     monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: 3320.0)
 
     def _unexpected_fraction_wsl(**_kwargs):
-        raise AssertionError("observation elevation band WSF panels must reuse diagnostics WSL")
+        raise AssertionError("observation elevation band WSF panels must reuse diagnostics WSLA")
 
     monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", _unexpected_fraction_wsl)
 
@@ -4042,7 +4356,7 @@ def test_wet_snow_elevation_fraction_observation_reuses_observed_wsl(
         assert recorded == [(3320.0, panel_renderers_module._WSL_MODEL_COLOR, "-")]
         assert artifacts["wsl"] == 3320.0
         assert artifacts["wsl_drawn"] is True
-        callout = next(text for text in ax.texts if text.get_text() == "WSL 3320 m")
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA 3320 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
     finally:
         plt.close(fig)
@@ -4060,7 +4374,7 @@ def test_wet_snow_elevation_fraction_panel_annotates_unavailable_wsl(
     monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: None)
 
     def _unexpected_fraction_wsl(**_kwargs):
-        raise AssertionError("missing observation diagnostics WSL must not fall back to local recomputation")
+        raise AssertionError("missing observation diagnostics WSLA must not fall back to local recomputation")
 
     monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_fraction", _unexpected_fraction_wsl)
     monkeypatch.setattr(panel_renderers_module, "_draw_wsl_contour", lambda *_args, **_kwargs: False)
@@ -4079,7 +4393,7 @@ def test_wet_snow_elevation_fraction_panel_annotates_unavailable_wsl(
 
         assert artifacts["wsl"] is None
         assert artifacts["wsl_drawn"] is False
-        callout = next(text for text in ax.texts if text.get_text() == "WSL unavailable")
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA unavailable")
         assert callout.get_color() == "black"
     finally:
         plt.close(fig)
@@ -4187,11 +4501,11 @@ def test_wet_snow_line_observation_panel_uses_obs_color_for_callout(
         )
 
         assert recorded_levels == [(2550.0, panel_renderers_module._WSL_MODEL_COLOR, "-")]
-        callout = next(text for text in ax.texts if text.get_text() == "WSL 2550 m")
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2550 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
         legend = ax.get_legend()
         assert legend is not None
-        assert [text.get_text() for text in legend.get_texts()][-1] == "observation WSL"
+        assert [text.get_text() for text in legend.get_texts()][-1] == "observation WSLA"
     finally:
         plt.close(fig)
 
@@ -4228,10 +4542,10 @@ def test_wet_snow_line_observation_panel_annotates_unavailable_without_wsl_legen
             observation_loader=lambda *_args, **_kwargs: observation,
         )
 
-        assert "WSL unavailable" in {text.get_text() for text in ax.texts}
+        assert "WSLA unavailable" in {text.get_text() for text in ax.texts}
         legend = ax.get_legend()
         assert legend is not None
-        assert "observation WSL" not in {text.get_text() for text in legend.get_texts()}
+        assert "observation WSLA" not in {text.get_text() for text in legend.get_texts()}
     finally:
         plt.close(fig)
 
@@ -4253,7 +4567,7 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
         monkeypatch.setattr(panel_renderers_module, "_observed_wet_snow_line_value", lambda *_args, **_kwargs: 2625.0)
 
         def _unexpected_raster_wsl(**_kwargs):
-            raise AssertionError("posterior panel should not derive its WSL from the classified raster helper")
+            raise AssertionError("posterior panel should not derive its WSLA from the classified raster helper")
 
         monkeypatch.setattr(panel_renderers_module, "_wet_snow_line_from_classified", _unexpected_raster_wsl)
 
@@ -4277,12 +4591,12 @@ def test_wet_snow_line_posterior_panel_uses_weighted_posterior_field(tmp_path: P
         assert recorded_levels == [(2525.0, panel_renderers_module._WSL_MODEL_COLOR, "-", 9.5)]
         assert artifacts["wsl"] == 2525.0
         assert artifacts["obs_wsl"] == 2625.0
-        assert [handle.get_label() for handle in artifacts["posterior_overlay_handles"]] == ["posterior WSL"]
+        assert [handle.get_label() for handle in artifacts["posterior_overlay_handles"]] == ["posterior WSLA"]
         legend = ax.get_legend()
         assert legend is not None
-        assert [text.get_text() for text in legend.get_texts()] == ["posterior WSL"]
-        assert "WSL unavailable" not in {text.get_text() for text in ax.texts}
-        callout = next(text for text in ax.texts if text.get_text() == "WSL 2530 m")
+        assert [text.get_text() for text in legend.get_texts()] == ["posterior WSLA"]
+        assert "WSLA unavailable" not in {text.get_text() for text in ax.texts}
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA 2530 m")
         assert callout.get_color() == panel_renderers_module._WSL_MODEL_COLOR
     finally:
         plt.close(fig)
@@ -4315,8 +4629,8 @@ def test_wet_snow_line_panel_annotates_unavailable_wsl(tmp_path: Path, monkeypat
             figure_horizontal_default=True,
         )
 
-        assert "WSL unavailable" in {text.get_text() for text in ax.texts}
-        callout = next(text for text in ax.texts if text.get_text() == "WSL unavailable")
+        assert "WSLA unavailable" in {text.get_text() for text in ax.texts}
+        callout = next(text for text in ax.texts if text.get_text() == "WSLA unavailable")
         assert callout.get_position() == pytest.approx((0.02, 0.045))
         assert callout.get_ha() == "left"
         assert callout.get_va() == "bottom"

@@ -5,13 +5,14 @@ _FIGURE_HEIGHT_MIN = 2.9
 _FIGURE_HEIGHT_MAX = 16.5
 _BUFFER_RATIO = 0.05
 _STATION_LABEL_RATIO = 0.04
-_GRID_COLOR = "#666666"
+_GRID_COLOR = "#777777"
 _GRID_STYLE = (0, (4, 4))
-_GRID_WIDTH = 0.74
+_GRID_WIDTH = 0.45
 _SPINE_WIDTH = 0.85
 _TICK_SIZE = 6.0
 _TICK_LABEL_MIN_GAP_IN = 0.42
 _COLORBAR_TICK_SIZE = 6.0
+_COLORBAR_TICK_PAD = 1.0
 _COLORBAR_TITLE_SIZE = 6.6
 _SUPPORT_PANEL_KINDS = {"colorbar", "legend"}
 _ROI_FILL = "#efefef"
@@ -114,7 +115,7 @@ _AUTO_TITLE_SOURCE = {
     "posterior_probability": "Posterior probability",
     "increment": "Increment",
     "analysis_increment": "Posterior - prior",
-    "open_loop_binary": "Open-loop snow cover",
+    "open_loop_binary": "Open loop snow cover",
 }
 _AUTO_TITLE_KIND = {
     "overview": "Overview map",
@@ -131,6 +132,6 @@ _AUTO_TITLE_KIND = {
     "fsc": "Sentinel-2 FSC",
     "uncertainty": "Observation uncertainty",
     "wet_snow": "Sentinel-1 wet snow fraction (WSF)",
-    "wet_snow_line": "Wet snow line (WSL)",
+    "wet_snow_line": "Wet snow line altitude (WSLA)",
     "wet_snow_elevation_fraction": "Elevation band WSF",
 }

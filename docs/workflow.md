@@ -152,7 +152,7 @@ The example below shows this logic for a Rofental SCF scene. The left panel is t
 Observation uncertainty is configured per product under `data_assimilation.uncertainty`.
 Ingestion is file-type based:
 
-- NetCDF: value + uncertainty are read from variables in the same file.
+- NetCDF: value + uncertainty are read from variables in the same file. CRS metadata may come from a CF `crs` variable or from a `spatial_ref` variable with `crs_wkt`/`spatial_ref` attributes, which covers products whose GDAL subdatasets do not expose CRS directly.
 - GeoTIFF: uncertainty is read from `<source_stem>_uncertainty.tif` next to each source raster.
 - If uncertainty is enabled and required layers are missing, preprocessing fails fast.
 
@@ -274,7 +274,7 @@ docker compose run --rm oa \
   --setup-dir /data
 ```
 
-Classes are read from `obs.snowcover.classes` in project YAML (defaults: valid 0-100, cloud 205, water 210, nodata 255). The project-level data assimilation land-cover mask is applied to observations automatically.
+Classes are read from `obs.snowcover.classes` in project YAML (defaults: valid 0-100, cloud 205, water 210, nodata 255). The project-level data assimilation land-cover mask is applied to observations automatically. NetCDF SCF products require explicit ingest variable names when uncertainty ingest is enabled, and same-file uncertainty variables are also used by generated uncertainty map panels.
 
 ### Wet snow (categorical rasters -> `wet_snow_summary.csv`)
 

@@ -2002,7 +2002,7 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
     ]
 
 
-def test_paper_recipe_compacts_wet_snow_line_da_maps(
+def test_paper_recipe_keeps_full_wet_snow_line_da_maps(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2030,31 +2030,43 @@ def test_paper_recipe_compacts_wet_snow_line_da_maps(
     assert full_recipe.layout.nrows == 3
     assert full_recipe.row_labels == ()
     assert paper_recipe.figure_title is None
-    assert paper_recipe.layout.nrows == 2
+    assert paper_recipe.layout.nrows == 3
     assert paper_recipe.layout.ncols == 4
     assert paper_recipe.row_labels == ()
-    assert {panel.row for panel in paper_recipe.panels} == {0, 1}
+    assert {panel.row for panel in paper_recipe.panels} == {0, 1, 2}
     assert [panel.kind for panel in paper_recipe.panels[:4]] == [
+        "wet_snow_line",
+        "wet_snow_line",
+        "wet_snow_line",
+        "wet_snow_line",
+    ]
+    assert [panel.title for panel in paper_recipe.panels[:4]] == [
+        "Open loop WSLA",
+        "Prior WSLA",
+        "Posterior WSLA",
+        "Observed WSLA",
+    ]
+    assert [panel.kind for panel in paper_recipe.panels[4:8]] == [
         "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
     ]
-    assert [panel.kind for panel in paper_recipe.panels[4:]] == ["snow_depth", "snow_depth", "snow_depth", "snow_depth"]
-    assert [panel.title for panel in paper_recipe.panels[:4]] == [
+    assert [panel.title for panel in paper_recipe.panels[4:8]] == [
         "Open loop elevation band WSF",
         "Prior elevation band WSF",
         "Posterior elevation band WSF",
         "Observed elevation band WSF",
     ]
-    assert [panel.title for panel in paper_recipe.panels[4:]] == [
+    assert [panel.title for panel in paper_recipe.panels[8:]] == [
         "Open loop snow depth",
         "Prior snow depth",
         "Posterior snow depth",
         "Snow depth increment",
     ]
     assert {panel.row for panel in paper_recipe.panels[:4]} == {0}
-    assert {panel.row for panel in paper_recipe.panels[4:]} == {1}
+    assert {panel.row for panel in paper_recipe.panels[4:8]} == {1}
+    assert {panel.row for panel in paper_recipe.panels[8:]} == {2}
 
 
 def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events(

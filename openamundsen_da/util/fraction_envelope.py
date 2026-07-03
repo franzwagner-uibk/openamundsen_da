@@ -8,7 +8,7 @@ Description:
     Looks for member CSVs (e.g., point_scf_roi.csv or point_wet_snow_roi.csv)
     under <setup>/steps/step_*/ensembles/prior/*/results and writes an envelope CSV
     with date, value_mean, value_min, value_max, n. The envelope bounds are
-    the 5th and 95th percentiles of finite member values.
+    the finite-member minimum and maximum.
 """
 
 from __future__ import annotations
@@ -101,8 +101,8 @@ def aggregate_fraction_envelope(
         {
             "date": grp.mean().index,
             "value_mean": grp.mean().values,
-            "value_min": grp.quantile(0.05).values,
-            "value_max": grp.quantile(0.95).values,
+            "value_min": grp.min().values,
+            "value_max": grp.max().values,
             "n": grp.count().values,
         }
     ).sort_values("date")

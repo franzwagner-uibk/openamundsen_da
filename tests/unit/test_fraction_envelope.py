@@ -18,7 +18,7 @@ def _write_member_series(path: Path, values: list[float]) -> None:
     ).to_csv(path, index=False)
 
 
-def test_aggregate_fraction_envelope_uses_member_quantiles_and_excludes_open_loop(tmp_path: Path) -> None:
+def test_aggregate_fraction_envelope_uses_member_minmax_and_excludes_open_loop(tmp_path: Path) -> None:
     project_dir = tmp_path / "project"
     step_dir = project_dir / "steps" / "step_00"
     _write_member_series(step_dir / "ensembles" / "prior" / "open_loop" / "results" / "point_scf_roi.csv", [0.0, 0.0])
@@ -36,5 +36,5 @@ def test_aggregate_fraction_envelope_uses_member_quantiles_and_excludes_open_loo
     out = pd.read_csv(out_path)
     assert list(out["n"]) == [2, 2]
     assert list(out["value_mean"]) == pytest.approx([0.5, 0.7])
-    assert list(out["value_min"]) == pytest.approx([0.23, 0.43])
-    assert list(out["value_max"]) == pytest.approx([0.77, 0.97])
+    assert list(out["value_min"]) == pytest.approx([0.2, 0.4])
+    assert list(out["value_max"]) == pytest.approx([0.8, 1.0])

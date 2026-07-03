@@ -187,8 +187,8 @@ oa-da-plot-multi-project-snow \
 - `--log-level LEVEL` - Logging level
 
 **Output behavior:**
-- station plots show open loop, ensemble mean, the 5-95% member envelope and station observations where available
-- ROI plots show open loop, ensemble mean and the 5-95% member envelope
+- station plots show open loop, ensemble mean, the full finite-member range and station observations where available
+- ROI plots show open loop, ensemble mean and the full finite-member range
 - station model and station observations are aggregated to daily means; ROI result CSVs are used at their native daily cadence
 - negative station observations are masked before daily aggregation
 - missing observations do not fail a plot; the station plot is written model-only
@@ -542,7 +542,7 @@ Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PR
 
 **Setup result overview**
 
-Plots the combined setup result overview: fSCA, WSF, WSLA, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the 5-95% band from ensemble members only. Figure legends are built from rendered plot elements, so unused observation, ensemble, open-loop, or DA-event entries are omitted. Observation `x` markers identify assimilated observations, and month labels are centered between month-boundary ticks. If `<project-dir>/plots.yml` exists, the configured panel list is used for the standard `result_overview.png`. Configured panels support `WSF`, `WSLA`, `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
+Plots the combined setup result overview: fSCA, WSF, WSLA, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the full finite-member range from ensemble members only. Figure legends are built from rendered plot elements, so unused observation, ensemble, open-loop, or DA-event entries are omitted. Observation `x` markers identify assimilated observations, and month labels are centered between month-boundary ticks. If `<project-dir>/plots.yml` exists, the configured panel list is used for the standard `result_overview.png`. Configured panels support `WSF`, `WSLA`, `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
 
 ```bash
 oa-da-plot-result-overview \

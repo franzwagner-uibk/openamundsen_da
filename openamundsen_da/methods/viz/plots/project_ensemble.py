@@ -256,17 +256,14 @@ def _build_station_result_legend(
     if show_station_observation:
         handles.append(Line2D([0], [0], color=COLOR_DA_OBS, lw=LW_DA_OBS, label="station observation"))
     if show_ensemble_summary:
-        handles.extend(
-            [
-                Line2D([0], [0], color=mean_color, lw=LW_MEAN, label="ensemble mean"),
-                Patch(
-                    facecolor=band_color,
-                    edgecolor=band_color,
-                    linewidth=1.2,
-                    alpha=BAND_ALPHA,
-                    label="5-95% range",
-                ),
-            ]
+        handles.append(
+            Patch(
+                facecolor=band_color,
+                edgecolor=band_color,
+                linewidth=1.2,
+                alpha=BAND_ALPHA,
+                label="ensemble (with mean)",
+            )
         )
     if show_da_event:
         handles.append(Line2D([0], [0], color="#666666", lw=1.2, ls="--", label="data assimilation event"))
@@ -701,8 +698,8 @@ def plot_setup_results(
     resample: Optional[str] = None,
     resample_agg: str = "mean",
     rolling: Optional[int] = None,
-    band_low: float = 0.05,
-    band_high: float = 0.95,
+    band_low: float = 0.0,
+    band_high: float = 1.0,
     show_members: bool = False,
     backend: str = "Agg",
     log_level: str = "INFO",

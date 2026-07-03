@@ -145,7 +145,7 @@ def _assert_figure_legends_clear_axes(fig) -> None:
         assert all(not legend_bbox.overlaps(other_bbox) for other_bbox in legend_bboxes[idx + 1 :])
 
 
-def test_default_wsl_overview_env_uses_prior_member_mean_quantiles_and_preserves_gaps(tmp_path: Path) -> None:
+def test_default_wsl_overview_env_uses_prior_member_mean_minmax_and_preserves_gaps(tmp_path: Path) -> None:
     project_dir = tmp_path / "project"
     member_001 = project_dir / "steps" / "step_00" / "ensembles" / "prior" / "member_001" / "results"
     member_002 = project_dir / "steps" / "step_00" / "ensembles" / "prior" / "member_002" / "results"
@@ -170,14 +170,14 @@ def test_default_wsl_overview_env_uses_prior_member_mean_quantiles_and_preserves
     assert env is not None
     assert list(env["date"]) == list(pd.to_datetime(["2023-04-29", "2023-05-11", "2023-05-15"]))
     assert env.iloc[0]["value_mean"] == 2450.0
-    assert env.iloc[0]["value_min"] == pytest.approx(2405.0)
-    assert env.iloc[0]["value_max"] == pytest.approx(2495.0)
+    assert env.iloc[0]["value_min"] == pytest.approx(2400.0)
+    assert env.iloc[0]["value_max"] == pytest.approx(2500.0)
     assert pd.isna(env.iloc[1]["value_mean"])
     assert pd.isna(env.iloc[1]["value_min"])
     assert pd.isna(env.iloc[1]["value_max"])
     assert env.iloc[2]["value_mean"] == 2650.0
-    assert env.iloc[2]["value_min"] == pytest.approx(2605.0)
-    assert env.iloc[2]["value_max"] == pytest.approx(2695.0)
+    assert env.iloc[2]["value_min"] == pytest.approx(2600.0)
+    assert env.iloc[2]["value_max"] == pytest.approx(2700.0)
     assert list(env["n"]) == [2.0, 0.0, 2.0]
 
 
@@ -197,8 +197,8 @@ def test_load_wsl_prior_coverage_frame_uses_value_model_from_weights_csv(tmp_pat
     assert frame is not None
     assert list(frame["date"]) == [pd.Timestamp("2023-05-11")]
     assert list(frame["value_mean"]) == [2500.0]
-    assert list(frame["value_min"]) == pytest.approx([2410.0])
-    assert list(frame["value_max"]) == pytest.approx([2590.0])
+    assert list(frame["value_min"]) == pytest.approx([2400.0])
+    assert list(frame["value_max"]) == pytest.approx([2600.0])
     assert list(frame["value_obs"]) == [2550.0]
     assert list(frame["n"]) == [2]
 
@@ -1034,7 +1034,7 @@ def test_plot_result_overview_uses_panel_local_legend_labels(tmp_path: Path) -> 
         assert legend_handles[1].get_color() == "#d62728"
         assert legend_handles[-1].get_color() == "#777777"
         ensemble_handle = legend_handles[3]
-        assert ensemble_handle.get_label() == "ensemble mean + 5-95% range"
+        assert ensemble_handle.get_label() == "ensemble (with mean)"
         assert isinstance(ensemble_handle, tuple)
         assert isinstance(ensemble_handle[0], Patch)
         assert isinstance(ensemble_handle[1], Line2D)
@@ -1201,7 +1201,7 @@ def test_plot_result_overview_custom_legend_includes_station_observation_when_dr
         assert len(plt.gcf().legends) == 0
         assert _axis_legend_labels(axes[1]) == [
             "open loop",
-            "ensemble mean + 5-95% range",
+            "ensemble (with mean)",
             "station observation",
         ]
         _assert_panel_legend_style(axes[1], loc=2)
@@ -1246,7 +1246,7 @@ def test_plot_result_overview_custom_legend_omits_station_observation_when_hidde
         assert len(plt.gcf().legends) == 0
         assert _axis_legend_labels(axes[1]) == [
             "open loop",
-            "ensemble mean + 5-95% range",
+            "ensemble (with mean)",
         ]
         _assert_panel_legend_style(axes[1], loc=2)
         assert out_path.is_file()

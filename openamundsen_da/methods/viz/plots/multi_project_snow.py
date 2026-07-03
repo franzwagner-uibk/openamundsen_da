@@ -363,7 +363,7 @@ def _plot_snow_series(
     fill_color = da_variable_fill_color(color_key)
 
     fig, ax = plt.subplots(figsize=(9.6, 3.05))
-    mean, lo, hi = envelope(series.members, q_low=0.05, q_high=0.95)
+    mean, lo, hi = envelope(series.members, q_low=0.0, q_high=1.0)
     if not mean.empty:
         ax.fill_between(mean.index, lo.values, hi.values, color=fill_color, alpha=BAND_ALPHA, edgecolor="none", zorder=2)
         ax.plot(mean.index, mean.values, color=line_color, lw=LW_MEAN, zorder=4)
@@ -385,8 +385,7 @@ def _plot_snow_series(
     if not mean.empty:
         handles.extend(
             [
-                Line2D([0], [0], color=line_color, lw=LW_MEAN, label="ensemble mean"),
-                Patch(facecolor=fill_color, edgecolor=fill_color, alpha=BAND_ALPHA, label="5-95% ensemble range"),
+                Patch(facecolor=fill_color, edgecolor=fill_color, alpha=BAND_ALPHA, label="ensemble (with mean)"),
             ]
         )
     if series.obs is not None and not series.obs.empty:

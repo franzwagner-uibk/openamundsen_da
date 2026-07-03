@@ -688,8 +688,8 @@ def _wsl_prior_member_env(member_series: list[pd.Series] | None) -> pd.DataFrame
         return None
     n = aligned.count(axis=1)
     center = aligned.mean(axis=1, skipna=True).where(n > 0)
-    value_min = aligned.quantile(0.05, axis=1, numeric_only=True).where(n > 0)
-    value_max = aligned.quantile(0.95, axis=1, numeric_only=True).where(n > 0)
+    value_min = aligned.min(axis=1, numeric_only=True).where(n > 0)
+    value_max = aligned.max(axis=1, numeric_only=True).where(n > 0)
     out = pd.DataFrame(
         {
             "date": aligned.index,
@@ -740,8 +740,8 @@ def _load_wsl_prior_coverage_frame(project_dir: Path) -> pd.DataFrame | None:
                 {
                     "date": pd.Timestamp(date).normalize(),
                     "value_mean": summary["mean"],
-                    "value_min": summary["q05"],
-                    "value_max": summary["q95"],
+                    "value_min": summary["min"],
+                    "value_max": summary["max"],
                     "value_obs": summary["obs"],
                     "n": summary["n_members"],
                 }
@@ -847,7 +847,7 @@ def _ensemble_legend_handle(panel_style: dict[str, str]):
             Patch(facecolor=panel_style["fill"], edgecolor="none", linewidth=0.0, alpha=BAND_ALPHA),
             Line2D([0], [0], color=panel_style["line"], lw=_RESULT_OVERVIEW_DATA_LW),
         ),
-        "ensemble mean + 5-95% range",
+        "ensemble (with mean)",
     )
 
 
@@ -1124,8 +1124,8 @@ def _pad_single_day_bounds(bounds: tuple[pd.Timestamp, pd.Timestamp] | None) -> 
 def _band_frame(
     member_series: list[pd.Series] | None,
     *,
-    q_low: float = 0.05,
-    q_high: float = 0.95,
+    q_low: float = 0.0,
+    q_high: float = 1.0,
 ) -> pd.DataFrame | None:
     if not member_series:
         return None
@@ -1295,7 +1295,7 @@ def _build_result_overview_legend_handles(
                     ),
                     Line2D([0], [0], color="#666666", lw=_RESULT_OVERVIEW_DATA_LW),
                 ),
-                "ensemble mean + 5-95% range",
+                "ensemble (with mean)",
             )
         )
     if legend_state.station_observation:

@@ -429,7 +429,7 @@ oa-da-plot-multi-project-snow \
   --project project_2023_2024
 ```
 
-By default, this writes station and ROI PNGs to `results/plots/multi_year_snow`. The plots show open loop, ensemble mean and the 5-95% member envelope; station observations are added where available. Station model and observation series are shown as daily means, negative station observations are masked and no DA-event markers are drawn. If `results/maps/setup_overview.png` exists in a source project, it is copied into the bundle as `context_map.png`.
+By default, this writes station and ROI PNGs to `results/plots/multi_year_snow`. The plots show open loop, ensemble mean and the full finite-member range; station observations are added where available. Station model and observation series are shown as daily means, negative station observations are masked and no DA-event markers are drawn. If `results/maps/setup_overview.png` exists in a source project, it is copied into the bundle as `context_map.png`.
 
 Optional variable/dimension inspection (Python in the container).
 
@@ -538,7 +538,7 @@ The project now writes these setup-level envelope time series under `results/mis
 - `point_scf_roi_envelope.csv`
 - `point_wet_snow_roi_envelope.csv`
 
-These summarize the ensemble spread over the ROI (mean, 5th/95th percentile range and sample count).
+These summarize the ensemble spread over the ROI (mean, finite-member min-max range and sample count).
 
 These CSVs are lightweight outputs that are ideal for quick comparisons between runs without loading NetCDF files.
 
@@ -580,7 +580,7 @@ File path: `/data/rofental/projects/project_2022_2023/results/misc/point_wet_sno
 Interpretation:
 
 - `value_mean`: ensemble mean over finite ensemble members
-- `value_min` / `value_max`: 5th and 95th percentiles of finite ensemble members
+- `value_min` / `value_max`: finite-member minimum and maximum
 - `n`: number of contributing ensemble members
 
 ---

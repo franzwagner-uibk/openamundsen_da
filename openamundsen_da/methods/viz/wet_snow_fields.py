@@ -33,6 +33,9 @@ def wsl_prior_summary_from_weights_df(df: pd.DataFrame) -> dict[str, float | int
     if model_values.empty:
         return None
     return {
+        "mean": float(model_values.mean()),
+        "q05": float(model_values.quantile(0.05)),
+        "q95": float(model_values.quantile(0.95)),
         "median": float(model_values.median()),
         "min": float(model_values.min()),
         "max": float(model_values.max()),

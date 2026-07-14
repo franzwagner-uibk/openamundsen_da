@@ -46,7 +46,7 @@ def test_render_project_plots_runs_post_processing_tasks(monkeypatch, tmp_path: 
     monkeypatch.setattr(plots_runner, "ensure_gdal_proj_from_conda", lambda: calls.setdefault("gdal", True))
     monkeypatch.setattr(plots_runner, "apply_numeric_thread_defaults", lambda: calls.setdefault("threads", True))
     monkeypatch.setattr(plots_runner, "aggregate_fraction_envelopes", lambda **kwargs: calls.setdefault("aggregate", kwargs))
-    monkeypatch.setattr(plots_runner, "custom_overview_needs_benchmark_scores", lambda project_dir: False)
+    monkeypatch.setattr(plots_runner, "configured_overview_needs_benchmark_scores", lambda project_dir: False)
     monkeypatch.setattr(
         plots_runner,
         "build_post_run_plot_tasks",
@@ -82,7 +82,7 @@ def test_render_project_plots_runs_deferred_overlay_when_needed(monkeypatch, tmp
     monkeypatch.setattr(plots_runner, "ensure_gdal_proj_from_conda", lambda: None)
     monkeypatch.setattr(plots_runner, "apply_numeric_thread_defaults", lambda: None)
     monkeypatch.setattr(plots_runner, "aggregate_fraction_envelopes", lambda **kwargs: None)
-    monkeypatch.setattr(plots_runner, "custom_overview_needs_benchmark_scores", lambda project_dir: True)
+    monkeypatch.setattr(plots_runner, "configured_overview_needs_benchmark_scores", lambda project_dir: True)
     monkeypatch.setattr(
         plots_runner,
         "build_post_run_plot_tasks",

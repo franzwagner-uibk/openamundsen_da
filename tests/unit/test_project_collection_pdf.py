@@ -101,6 +101,7 @@ def _pdf_page_count(path: Path) -> int:
 
 def test_collect_project_pdf_items_orders_front_da_and_appendix(tmp_path: Path) -> None:
     project_dir = _create_project(tmp_path, event_count=2)
+    # Legacy output from older runs must not create a duplicate overview page.
     _write_png(project_dir / "results/plots/results/result_overview_custom.png", width=80, height=80)
     _write_png(project_dir / "results/plots/assim/weights/setup_weights_overview_2023_page_02.png", width=70, height=90)
     _write_png(project_dir / "results/plots/assim/scores/performance_scores.png", width=90, height=40)
@@ -115,7 +116,6 @@ def test_collect_project_pdf_items_orders_front_da_and_appendix(tmp_path: Path) 
     assert plan.missing_paths == ()
     assert [item.path.name for item in plan.front_items] == [
         "result_overview.png",
-        "result_overview_custom.png",
         "setup_overview.png",
         "setup_weights_overview_2023.png",
         "setup_weights_overview_2023_page_02.png",
@@ -130,7 +130,7 @@ def test_collect_project_pdf_items_orders_front_da_and_appendix(tmp_path: Path) 
     assert plan.project_perf_item.path.name == "project_perf.png"
     assert [item.map_path.name for item in plan.da_steps] == ["da_1.png", "da_2.png"]
     assert plan.appendix_items == ()
-    assert plan.page_count == 10
+    assert plan.page_count == 9
 
 
 def test_project_pdf_sections_follow_temporal_report_order(tmp_path: Path) -> None:

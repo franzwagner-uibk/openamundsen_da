@@ -76,7 +76,7 @@ from openamundsen_da.pipeline.plot_tasks import (
     aggregate_fraction_envelopes,
     build_fraction_overlay_task,
     build_post_run_plot_tasks,
-    custom_overview_needs_benchmark_scores,
+    configured_overview_needs_benchmark_scores,
     plot_result_overview_cli as plot_result_overview_cli,
     plot_setup_weights_overview as plot_setup_weights_overview,
     render_project_maps_best_effort,
@@ -122,7 +122,7 @@ DA_DIAGNOSTICS = {
 # Backward-compatible aliases for older tests and imports that still reach into
 # the project orchestrator module for plot-task helpers.
 _build_post_run_plot_tasks = build_post_run_plot_tasks
-_custom_overview_needs_benchmark_scores = custom_overview_needs_benchmark_scores
+_configured_overview_needs_benchmark_scores = configured_overview_needs_benchmark_scores
 _build_fraction_overlay_task = build_fraction_overlay_task
 _render_project_report_best_effort = render_project_report_best_effort
 
@@ -815,7 +815,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
         project_fraction_envelope_path=project_fraction_envelope_path,
     )
 
-    score_dependent_fraction_overlay = custom_overview_needs_benchmark_scores(cfg.project_dir)
+    score_dependent_fraction_overlay = configured_overview_needs_benchmark_scores(cfg.project_dir)
 
     # Build post-run plot tasks (per-step forcing, project results, weights, ESS,
     # and the overview plot when it does not depend on benchmark score outputs).

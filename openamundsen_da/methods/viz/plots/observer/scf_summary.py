@@ -28,6 +28,7 @@ from openamundsen_da.methods.viz.common import (
     save_figure_png,
     set_matplotlib_text_black,
 )
+from openamundsen_da.methods.viz.plots.common import apply_month_interval_axis_labels
 from openamundsen_da.observer.summary_io import load_scf_summary
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 
@@ -58,7 +59,6 @@ def _plot(df: pd.DataFrame, title: str | None = None, subtitle: str | None = Non
     matplotlib.use(backend or "Agg")  # headless or user-provided
     set_matplotlib_text_black(matplotlib)
     import matplotlib.pyplot as plt
-    import matplotlib.dates as mdates
 
     # Use manual layout reservation for title/subtitle to avoid clipping
     fig, ax = plt.subplots(figsize=(10, 4.3))
@@ -67,9 +67,7 @@ def _plot(df: pd.DataFrame, title: str | None = None, subtitle: str | None = Non
     ax.set_ylim(0, 1)
     ax.set_ylabel("SCF")
     ax.set_xlabel("Date")
-    # One major tick per month
-    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    apply_month_interval_axis_labels(ax)
     # Reserve a modest top margin for headers
     top_rect = 0.90 if (title or subtitle) else 0.94
     fig.tight_layout(rect=[0.02, 0.02, 0.98, top_rect])

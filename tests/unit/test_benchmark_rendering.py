@@ -4,6 +4,7 @@ import textwrap
 from pathlib import Path
 
 import matplotlib.colors as mcolors
+import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
 import pytest
@@ -756,12 +757,12 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     assert ax_crpss.get_ylim()[0] >= 0.0
     assert 0.5 in list(ax_ner.get_yticks())
     x0, x1 = ax_crpss.get_xlim()
-    first = plots_core.mdates.date2num(pd.Timestamp("2023-01-02"))
-    last = plots_core.mdates.date2num(pd.Timestamp("2023-01-03"))
+    first = mdates.date2num(pd.Timestamp("2023-01-02"))
+    last = mdates.date2num(pd.Timestamp("2023-01-03"))
     assert x0 < first < last < x1
-    assert x0 <= plots_core.mdates.date2num(pd.Timestamp("2022-12-31"))
-    assert x1 >= plots_core.mdates.date2num(pd.Timestamp("2023-01-05"))
-    assert any("\n2023" in label.get_text() for label in ax_ner.get_xticklabels())
+    assert x0 <= mdates.date2num(pd.Timestamp("2022-12-31"))
+    assert x1 >= mdates.date2num(pd.Timestamp("2023-01-05"))
+    assert any("\n2023" in label.get_text() for label in ax_ner.get_xticklabels(minor=True))
     assert len(ax_crpss.collections) > 0
     assert len(ax_ner.collections) > 0
     assert ax_crpss.lines

@@ -285,16 +285,17 @@ def compute_obs_sigma(
 
 def envelope(
     series_list: list[pd.Series],
-    q_low: float = 0.05,
-    q_high: float = 0.95,
+    q_low: float = 0.0,
+    q_high: float = 1.0,
     *,
     min_count: int = 1,
 ) -> tuple[pd.Series, pd.Series, pd.Series]:
-    """Return (mean, q_low, q_high) across a list of series (union alignment).
+    """Return (mean, low, high) across a list of series (union alignment).
 
     - Aligns on the union of timestamps (outer join) and computes row-wise
       statistics while ignoring NaNs (skipna).
     - Drops timestamps with fewer than ``min_count`` available series.
+    - Defaults to the finite-member min-max range.
     """
     if not series_list:
         return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)

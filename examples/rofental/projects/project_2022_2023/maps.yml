@@ -34,5 +34,5 @@ maps:
       - row: 0
         col: 3
         kind: srf
-        title: Snow redistribution factor
+        title: Snowfall redistribution
         show_hillshade: true

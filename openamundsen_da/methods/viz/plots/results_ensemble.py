@@ -44,8 +44,8 @@ from openamundsen_da.util.loguru_utils import configure_cli_logger
 
 
 FIGSIZE = (12.0, 5.2)
-DEFAULT_BAND_LOW = 0.05
-DEFAULT_BAND_HIGH = 0.95
+DEFAULT_BAND_LOW = 0.0
+DEFAULT_BAND_HIGH = 1.0
 
 
 def _list_point_files(step_dir: Path, ensemble: str) -> Tuple[Optional[Path], List[str]]:
@@ -104,10 +104,10 @@ def _plot_point_station(
                 hi,
                 color=COLOR_MEAN,
                 alpha=BAND_ALPHA,
-                label="ensemble",
+                label="ensemble (with mean)",
                 zorder=2,
             )
-            ax.plot(mean.index, mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="ensemble mean", zorder=4)
+            ax.plot(mean.index, mean.values, color=COLOR_MEAN, lw=LW_MEAN, label="_nolegend_", zorder=4)
 
     if open_loop is not None and _series_has_data(open_loop):
         ax.plot(open_loop.index, open_loop.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, label="open loop", zorder=5)

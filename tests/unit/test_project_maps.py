@@ -67,6 +67,7 @@ from openamundsen_da.methods.viz.maps.render import (
 import openamundsen_da.pipeline.plot_tasks as plot_tasks_module
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.methods.viz.maps.runner import project_maps_enabled, render_project_maps
+from openamundsen_da.methods.viz.theme import da_variable_line_color
 from openamundsen_da.methods.viz.maps.styles import (
     FSC_OBS_CMAP,
     FSC_INVALID_COLOR,
@@ -3723,6 +3724,10 @@ def test_wet_snow_reference_colors_follow_example_palette() -> None:
     assert WET_SNOW_COLORS[200] == "#ddb9ba"
     assert WET_SNOW_COLORS[210] == "#4b79c6"
     assert FSC_INVALID_COLOR == "#d8b3b7"
+
+
+def test_wet_snow_line_overlay_uses_shared_da_variable_color() -> None:
+    assert panel_renderers_module._WSL_MODEL_COLOR == da_variable_line_color("wet_snow_line")
 
 
 def test_map_axis_style_places_title_above_axes_and_can_hide_nonfirstcolumn_ylabels() -> None:

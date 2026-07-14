@@ -11,6 +11,7 @@ from openamundsen_da.methods.viz.common import (
     save_figure_png,
     set_matplotlib_text_black,
 )
+from openamundsen_da.methods.viz.plots.theme import COLOR_DA_OBS, LS_STATION_OBS
 
 
 def _load_diagnostics(csv_path: Path) -> pd.DataFrame:
@@ -65,8 +66,8 @@ def plot_station_diagnostics_for_csv(
         sigma = float(pd.to_numeric(sub["sigma"], errors="coerce").iloc[0])
         model_values = pd.to_numeric(sub["model_value"], errors="coerce").to_numpy(dtype=float)
 
-        ax.axhspan(obs_value - sigma, obs_value + sigma, color="#4ec36b", alpha=0.35, label="obs +/- sigma")
-        ax.axhline(obs_value, color="#4ec36b", lw=1.6, label="observation")
+        ax.axhspan(obs_value - sigma, obs_value + sigma, color=COLOR_DA_OBS, alpha=0.35, label="obs +/- sigma")
+        ax.axhline(obs_value, color=COLOR_DA_OBS, lw=1.6, ls=LS_STATION_OBS, label="observation")
 
         if np.isfinite(weights).any():
             w_norm = np.nan_to_num(weights, nan=0.0, posinf=0.0, neginf=0.0)

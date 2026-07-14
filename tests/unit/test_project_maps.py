@@ -1645,7 +1645,7 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
         "Digital elevation model",
         "Land cover",
         "Aspect",
-        "Snow redistribution factor",
+        "Snowfall redistribution",
     ]
     assert [panel.kind for panel in cfg.maps[0].panels] == ["dem", "landcover", "aspect", "srf"]
     assert [(panel.row, panel.col) for panel in cfg.maps[0].panels] == [(0, 0), (0, 1), (0, 2), (0, 3)]

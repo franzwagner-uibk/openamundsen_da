@@ -116,7 +116,7 @@ def test_plot_setup_results_members_mode_draws_members_without_band(tmp_path: Pa
         original_close("all")
 
 
-def test_plot_setup_results_band_mode_uses_quantile_band(tmp_path: Path) -> None:
+def test_plot_setup_results_band_mode_uses_configured_band(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 
     project_dir = _build_project(tmp_path)
@@ -136,7 +136,7 @@ def test_plot_setup_results_band_mode_uses_quantile_band(tmp_path: Path) -> None
         assert len(ax.collections) == 1
         assert len(ax.lines) == 3
         legend_labels = [text.get_text() for text in fig.legends[0].get_texts()]
-        assert legend_labels == ["open loop", "ensemble mean", "ensemble", "data assimilation event"]
+        assert legend_labels == ["open loop", "ensemble (with mean)", "data assimilation event"]
     finally:
         plt.close = original_close
         original_close("all")

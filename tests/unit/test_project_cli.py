@@ -159,7 +159,7 @@ def test_post_run_plot_tasks_include_setup_weights_overview(tmp_path: Path) -> N
     assert overview_task.kwargs == {}
 
 
-def test_custom_overview_needs_benchmark_scores_detects_score_panels(tmp_path: Path) -> None:
+def test_configured_overview_needs_benchmark_scores_detects_score_panels(tmp_path: Path) -> None:
     project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
     _write_project_yaml(project_dir)
     (project_dir / "plots.yml").write_text(
@@ -167,7 +167,7 @@ def test_custom_overview_needs_benchmark_scores_detects_score_panels(tmp_path: P
         encoding="utf-8",
     )
 
-    assert project_cli._custom_overview_needs_benchmark_scores(project_dir) is True
+    assert project_cli._configured_overview_needs_benchmark_scores(project_dir) is True
 
 
 def test_post_run_plot_tasks_can_defer_fraction_overlay_for_score_panels(tmp_path: Path) -> None:
@@ -186,7 +186,7 @@ def test_post_run_plot_tasks_can_defer_fraction_overlay_for_score_panels(tmp_pat
         setup_dir=setup_dir,
     )
 
-    needs_scores = project_cli._custom_overview_needs_benchmark_scores(project_dir)
+    needs_scores = project_cli._configured_overview_needs_benchmark_scores(project_dir)
     tasks = project_cli._build_post_run_plot_tasks(
         cfg,
         [step_dir],

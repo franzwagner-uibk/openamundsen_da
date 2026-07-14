@@ -12,7 +12,7 @@ from openamundsen_da.methods.viz.plots.theme import BAND_ALPHA, GRID_ALPHA, GRID
 from openamundsen_da.methods.viz.plots.result_overview import (
     PanelSpec,
     StationPanelData,
-    _project_custom_config_path,
+    _project_panel_config_path,
     _load_station_panel_data,
     _parse_panel_specs,
     plot_result_overview,
@@ -79,6 +79,33 @@ def _assim_label_axes(fig) -> list:
     return [ax for ax in fig.axes if ax.get_label().startswith("assimilation_label_axis")]
 
 
+def _patch_result_overview_cli_loaders(monkeypatch) -> dict:
+    calls: dict = {}
+
+    monkeypatch.setattr(plot_mod, "_load_scf_obs_series", lambda path: _frame("scf", [0.2, 0.3]))
+    monkeypatch.setattr(plot_mod, "resolve_fraction_summary_path", lambda *args, **kwargs: Path("summary.csv"))
+    monkeypatch.setattr(plot_mod, "load_fraction_series", lambda *args, **kwargs: None)
+    monkeypatch.setattr(plot_mod, "load_open_loop_fraction_series", lambda *args, **kwargs: _series([0.3, 0.4]))
+    monkeypatch.setattr(plot_mod, "load_member_series", lambda *args, **kwargs: {})
+    monkeypatch.setattr(plot_mod, "_default_wsl_overview_env", lambda *args, **kwargs: None)
+    monkeypatch.setattr(plot_mod, "_load_wsl_prior_coverage_frame", lambda *args, **kwargs: None)
+    monkeypatch.setattr(plot_mod, "load_assimilation_events", lambda *args, **kwargs: [])
+
+    def missing_ess(*args, **kwargs):
+        raise FileNotFoundError
+
+    monkeypatch.setattr(plot_mod, "load_setup_ess_series", missing_ess)
+    monkeypatch.setattr(plot_mod, "_load_setup_stations_df", lambda *args, **kwargs: pd.DataFrame({"id": []}))
+    monkeypatch.setattr(plot_mod, "_project_time_bounds", lambda *args, **kwargs: None)
+    monkeypatch.setattr(plot_mod, "_load_score_points_for_configured_overview", lambda *args, **kwargs: _score_points())
+
+    def fake_plot_result_overview(**kwargs):
+        calls.update(kwargs)
+
+    monkeypatch.setattr(plot_mod, "plot_result_overview", fake_plot_result_overview)
+    return calls
+
+
 def _axis_assim_label_texts(fig) -> list[str]:
     return [text.get_text() for ax in _assim_label_axes(fig) for text in ax.texts if text.get_text().startswith("DA ")]
 
@@ -118,7 +145,7 @@ def _assert_figure_legends_clear_axes(fig) -> None:
         assert all(not legend_bbox.overlaps(other_bbox) for other_bbox in legend_bboxes[idx + 1 :])
 
 
-def test_default_wsl_overview_env_uses_prior_member_median_minmax_and_preserves_gaps(tmp_path: Path) -> None:
+def test_default_wsl_overview_env_uses_prior_member_mean_minmax_and_preserves_gaps(tmp_path: Path) -> None:
     project_dir = tmp_path / "project"
     member_001 = project_dir / "steps" / "step_00" / "ensembles" / "prior" / "member_001" / "results"
     member_002 = project_dir / "steps" / "step_00" / "ensembles" / "prior" / "member_002" / "results"
@@ -143,14 +170,14 @@ def test_default_wsl_overview_env_uses_prior_member_median_minmax_and_preserves_
     assert env is not None
     assert list(env["date"]) == list(pd.to_datetime(["2023-04-29", "2023-05-11", "2023-05-15"]))
     assert env.iloc[0]["value_mean"] == 2450.0
-    assert env.iloc[0]["value_min"] == 2400.0
-    assert env.iloc[0]["value_max"] == 2500.0
+    assert env.iloc[0]["value_min"] == pytest.approx(2400.0)
+    assert env.iloc[0]["value_max"] == pytest.approx(2500.0)
     assert pd.isna(env.iloc[1]["value_mean"])
     assert pd.isna(env.iloc[1]["value_min"])
     assert pd.isna(env.iloc[1]["value_max"])
     assert env.iloc[2]["value_mean"] == 2650.0
-    assert env.iloc[2]["value_min"] == 2600.0
-    assert env.iloc[2]["value_max"] == 2700.0
+    assert env.iloc[2]["value_min"] == pytest.approx(2600.0)
+    assert env.iloc[2]["value_max"] == pytest.approx(2700.0)
     assert list(env["n"]) == [2.0, 0.0, 2.0]
 
 
@@ -170,8 +197,8 @@ def test_load_wsl_prior_coverage_frame_uses_value_model_from_weights_csv(tmp_pat
     assert frame is not None
     assert list(frame["date"]) == [pd.Timestamp("2023-05-11")]
     assert list(frame["value_mean"]) == [2500.0]
-    assert list(frame["value_min"]) == [2400.0]
-    assert list(frame["value_max"]) == [2600.0]
+    assert list(frame["value_min"]) == pytest.approx([2400.0])
+    assert list(frame["value_max"]) == pytest.approx([2600.0])
     assert list(frame["value_obs"]) == [2550.0]
     assert list(frame["n"]) == [2]
 
@@ -1007,7 +1034,7 @@ def test_plot_result_overview_uses_panel_local_legend_labels(tmp_path: Path) -> 
         assert legend_handles[1].get_color() == "#d62728"
         assert legend_handles[-1].get_color() == "#777777"
         ensemble_handle = legend_handles[3]
-        assert ensemble_handle.get_label() == "ensemble (min - max, mean)"
+        assert ensemble_handle.get_label() == "ensemble (with mean)"
         assert isinstance(ensemble_handle, tuple)
         assert isinstance(ensemble_handle[0], Patch)
         assert isinstance(ensemble_handle[1], Line2D)
@@ -1174,7 +1201,7 @@ def test_plot_result_overview_custom_legend_includes_station_observation_when_dr
         assert len(plt.gcf().legends) == 0
         assert _axis_legend_labels(axes[1]) == [
             "open loop",
-            "ensemble",
+            "ensemble (with mean)",
             "station observation",
         ]
         _assert_panel_legend_style(axes[1], loc=2)
@@ -1219,7 +1246,7 @@ def test_plot_result_overview_custom_legend_omits_station_observation_when_hidde
         assert len(plt.gcf().legends) == 0
         assert _axis_legend_labels(axes[1]) == [
             "open loop",
-            "ensemble",
+            "ensemble (with mean)",
         ]
         _assert_panel_legend_style(axes[1], loc=2)
         assert out_path.is_file()
@@ -1482,7 +1509,7 @@ def test_plot_result_overview_supports_custom_crpss_score_panel(tmp_path: Path) 
         plt.close = original_close
 
 
-def test_load_score_points_for_custom_overview_applies_benchmark_exclusions(tmp_path: Path) -> None:
+def test_load_score_points_for_configured_overview_applies_benchmark_exclusions(tmp_path: Path) -> None:
     project_dir = tmp_path / "projects" / "project_2022_2023"
     (project_dir / "results" / "benchmark" / "scores").mkdir(parents=True)
     (project_dir / "project_2022_2023.yml").write_text(
@@ -1553,7 +1580,7 @@ def test_load_score_points_for_custom_overview_applies_benchmark_exclusions(tmp_
         ]
     ).to_csv(project_dir / "results" / "benchmark" / "scores" / "event_scores.csv", index=False)
 
-    points = plot_mod._load_score_points_for_custom_overview(project_dir)
+    points = plot_mod._load_score_points_for_configured_overview(project_dir)
 
     assert set(points["variable"]) == {"scf"}
     assert pd.Timestamp("2023-01-03") not in set(pd.to_datetime(points["assimilation_date"]))
@@ -2013,18 +2040,100 @@ def test_parse_custom_panel_specs_rejects_old_wet_snow_aliases(
         _parse_panel_specs(cfg)
 
 
-def test_project_custom_config_path_uses_project_root_file(tmp_path: Path) -> None:
+def test_project_panel_config_path_uses_project_root_file(tmp_path: Path) -> None:
     cfg = tmp_path / "plots.yml"
     cfg.write_text("panels: []\n", encoding="utf-8")
 
-    assert _project_custom_config_path(tmp_path) == cfg.resolve()
+    assert _project_panel_config_path(tmp_path) == cfg.resolve()
 
 
-def test_project_custom_config_path_returns_none_when_root_file_missing(tmp_path: Path) -> None:
-    assert _project_custom_config_path(tmp_path) is None
+def test_project_panel_config_path_returns_none_when_root_file_missing(tmp_path: Path) -> None:
+    assert _project_panel_config_path(tmp_path) is None
 
 
-def test_shipped_subdomain_custom_overview_uses_roi_satellite_ess_and_scores_without_station() -> None:
+def test_cli_project_plots_yml_configures_standard_result_overview(monkeypatch, tmp_path: Path) -> None:
+    setup_dir = tmp_path / "setup"
+    project_dir = setup_dir / "projects" / "project_2022_2023"
+    project_dir.mkdir(parents=True)
+    (project_dir / "plots.yml").write_text(
+        "panels:\n  - panel: fSC\n  - panel: scores-crpss\n",
+        encoding="utf-8",
+    )
+    legacy_output = project_dir / "results" / "plots" / "results" / "result_overview_custom.png"
+    legacy_paper_output = project_dir / "results" / "paper" / "plots" / "results" / "result_overview_custom.png"
+    legacy_output.parent.mkdir(parents=True)
+    legacy_paper_output.parent.mkdir(parents=True)
+    legacy_output.write_bytes(b"legacy")
+    legacy_paper_output.write_bytes(b"legacy")
+    calls = _patch_result_overview_cli_loaders(monkeypatch)
+
+    rc = plot_mod.cli_main(
+        [
+            "--project-dir",
+            str(project_dir),
+            "--setup-dir",
+            str(setup_dir),
+            "--no-paper-mirror",
+        ],
+        configure_logger=False,
+    )
+
+    assert rc == 0
+    assert calls["output"] == project_dir / "results" / "plots" / "results" / "result_overview.png"
+    assert [spec.panel for spec in calls["panel_specs"]] == ["fSC", "scores-crpss"]
+    assert calls["strict_panels"] is True
+    assert calls["score_points"] is not None
+    assert not legacy_output.exists()
+    assert not legacy_paper_output.exists()
+
+
+def test_cli_explicit_custom_config_writes_standard_output_unless_output_is_set(monkeypatch, tmp_path: Path) -> None:
+    setup_dir = tmp_path / "setup"
+    project_dir = setup_dir / "projects" / "project_2022_2023"
+    project_dir.mkdir(parents=True)
+    custom_config = tmp_path / "overview.yml"
+    custom_config.write_text("panels:\n  - panel: fSC\n", encoding="utf-8")
+    calls = _patch_result_overview_cli_loaders(monkeypatch)
+
+    rc = plot_mod.cli_main(
+        [
+            "--project-dir",
+            str(project_dir),
+            "--setup-dir",
+            str(setup_dir),
+            "--custom-config",
+            str(custom_config),
+            "--no-paper-mirror",
+        ],
+        configure_logger=False,
+    )
+
+    assert rc == 0
+    assert calls["output"] == project_dir / "results" / "plots" / "results" / "result_overview.png"
+    assert [spec.panel for spec in calls["panel_specs"]] == ["fSC"]
+
+    explicit_output = tmp_path / "explicit.png"
+    calls.clear()
+    rc = plot_mod.cli_main(
+        [
+            "--project-dir",
+            str(project_dir),
+            "--setup-dir",
+            str(setup_dir),
+            "--custom-config",
+            str(custom_config),
+            "--output",
+            str(explicit_output),
+            "--no-paper-mirror",
+        ],
+        configure_logger=False,
+    )
+
+    assert rc == 0
+    assert calls["output"] == explicit_output
+
+
+def test_shipped_subdomain_configured_overview_uses_roi_satellite_ess_and_scores_without_station() -> None:
     cfg = Path(__file__).resolve().parents[2] / "examples/subdomains/projects/project_2022_2023/plots.yml"
 
     specs = _parse_panel_specs(cfg)

@@ -235,7 +235,7 @@ This directory contains the stitched station and ROI point plots for the project
 
 Typical files include:
 
-- `result_overview.png` (fSCA, wet-snow, ROI mean SWE, and ROI mean snow depth over time)
+- `result_overview.png` (configured high-level overview of observations, ensemble behavior, ESS and benchmark scores)
 - station snow depth plots
 - station SWE plots
 - ROI envelope exports and land-cover masking report
@@ -257,10 +257,11 @@ Reference structure snippet (`results/plots/points`, typical files)
 
 - observation dates actually used,
 - model-vs-observation fraction behavior,
-- ROI mean SWE and snow-depth evolution relative to the open loop,
+- station snow-depth evolution relative to the open loop,
+- ESS and DA-date score response,
 - whether fSCA and wet-snow observations are present where expected.
 
-The ROI SWE and snow-depth panels use the full ROI footprint rather than the land-cover-masked ROI used for fSCA and wet-snow summaries.
+The shipped Rofental project uses `plots.yml` to configure this standard overview. Other projects can use the built-in default panel list or provide their own panel order in the same file.
 
 What to inspect:
 
@@ -328,13 +329,14 @@ Result overview:
 
 ![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/result_overview.png?v=20260703)
 
-_`result_overview.png`: check observation dates, fSCA/wet-snow event timing, ROI mean SWE / snow-depth behavior, and gross model-vs-observation behavior._
+_`result_overview.png`: check observation dates, fSCA/wet-snow event timing, station snow-depth behavior, ESS response and DA-date skill scores._
 
 What to read in this plot:
 
 - whether observation markers exist at the configured data assimilation dates,
 - whether fSCA events cluster in snow-cover relevant periods and wet-snow events in melt-season periods,
-- whether ROI mean SWE and snow depth shift away from or back toward the open loop during the season,
+- whether the station snow-depth ensemble shifts away from or back toward the open loop during the season,
+- whether ESS and CRPSS respond to the assimilation dates,
 - whether data assimilation moves the ensemble envelope in the expected direction relative to the open loop.
 
 Station snow depth example (`latschbloder`):
@@ -427,7 +429,7 @@ oa-da-plot-multi-project-snow \
   --project project_2023_2024
 ```
 
-By default, this writes station and ROI PNGs to `results/plots/multi_year_snow`. The plots show open loop, ensemble mean and the 5-95% member envelope; station observations are added where available. Station model and observation series are shown as daily means, negative station observations are masked and no DA-event markers are drawn. If `results/maps/setup_overview.png` exists in a source project, it is copied into the bundle as `context_map.png`.
+By default, this writes station and ROI PNGs to `results/plots/multi_year_snow`. The plots show open loop, ensemble mean and the full finite-member range; station observations are added where available. Station model and observation series are shown as daily means, negative station observations are masked and no DA-event markers are drawn. If `results/maps/setup_overview.png` exists in a source project, it is copied into the bundle as `context_map.png`.
 
 Optional variable/dimension inspection (Python in the container).
 
@@ -536,7 +538,7 @@ The project now writes these setup-level envelope time series under `results/mis
 - `point_scf_roi_envelope.csv`
 - `point_wet_snow_roi_envelope.csv`
 
-These summarize the ensemble spread over the ROI (mean/min/max and sample count).
+These summarize the ensemble spread over the ROI (mean, finite-member min-max range and sample count).
 
 These CSVs are lightweight outputs that are ideal for quick comparisons between runs without loading NetCDF files.
 
@@ -577,9 +579,9 @@ File path: `/data/rofental/projects/project_2022_2023/results/misc/point_wet_sno
 
 Interpretation:
 
-- `value_mean`: ensemble mean over `open_loop + ensemble members`
-- `value_min` / `value_max`: spread envelope
-- `n`: number of contributing trajectories (for tutorial baseline: `10` members + `1` open loop = `11`)
+- `value_mean`: ensemble mean over finite ensemble members
+- `value_min` / `value_max`: finite-member minimum and maximum
+- `n`: number of contributing ensemble members
 
 ---
 

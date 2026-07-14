@@ -20,7 +20,7 @@ from openamundsen_da.pipeline.plot_tasks import (
     aggregate_fraction_envelopes,
     build_fraction_overlay_task,
     build_post_run_plot_tasks,
-    custom_overview_needs_benchmark_scores,
+    configured_overview_needs_benchmark_scores,
     run_plot_tasks_parallel,
 )
 from openamundsen_da.util.loguru_utils import configure_cli_logger
@@ -74,7 +74,7 @@ def render_project_plots(
         project_fraction_envelope_path=project_fraction_envelope_path,
     )
 
-    include_fraction_overlay = not custom_overview_needs_benchmark_scores(project_dir)
+    include_fraction_overlay = not configured_overview_needs_benchmark_scores(project_dir)
     tasks = build_post_run_plot_tasks(
         cfg,
         steps,

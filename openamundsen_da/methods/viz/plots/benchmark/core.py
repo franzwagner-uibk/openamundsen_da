@@ -8,7 +8,6 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -28,6 +27,7 @@ from openamundsen_da.methods.viz.plots.common import (
     add_assim_label_axis,
     align_figure_title_to_plot_block,
     apply_fraction_grid,
+    apply_month_interval_axis_labels,
     bounded_metric_range,
     draw_assimilation_vlines,
 )
@@ -255,30 +255,7 @@ def _scaled_timedelta(delta: pd.Timedelta, factor: float) -> pd.Timedelta:
 
 
 def _apply_result_like_time_axis_labels(axes, x_bounds: tuple[pd.Timestamp, pd.Timestamp] | None) -> None:
-    locator = mdates.MonthLocator()
-    formatter = mdates.DateFormatter("%b")
-    for ax in axes:
-        ax.xaxis.set_major_locator(locator)
-        ax.xaxis.set_major_formatter(formatter)
-    if x_bounds is None:
-        return
-
-    tick_values = locator.tick_values(x_bounds[0].to_pydatetime(), x_bounds[1].to_pydatetime())
-    tick_dates = [pd.Timestamp(mdates.num2date(val)).tz_localize(None) for val in tick_values]
-    if not tick_dates:
-        return
-
-    labels: list[str] = []
-    prev_year: int | None = None
-    for idx, tick_dt in enumerate(tick_dates):
-        if idx == 0 or tick_dt.year != prev_year:
-            labels.append(tick_dt.strftime("%b\n%Y"))
-        else:
-            labels.append(tick_dt.strftime("%b"))
-        prev_year = tick_dt.year
-    axes[-1].set_xticks(tick_values)
-    axes[-1].set_xticklabels(labels)
-    axes[-1].tick_params(axis="x", labelsize=8.4)
+    apply_month_interval_axis_labels(axes, x_bounds)
 
 
 def _date_half_span(assimilation_dates: list[pd.Timestamp], idx: int) -> pd.Timedelta:

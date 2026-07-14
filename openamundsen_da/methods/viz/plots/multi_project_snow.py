@@ -19,6 +19,7 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.methods.viz.plots.common import (
     apply_fraction_grid,
+    apply_month_interval_axis_labels,
     force_figure_text_black,
     format_station_label,
     save_figure_png,
@@ -324,23 +325,8 @@ def _station_label(station_id: str, stations_df: pd.DataFrame | None) -> str:
 
 
 def _apply_time_axis(ax, start: pd.Timestamp, end: pd.Timestamp) -> None:
-    import matplotlib.dates as mdates
-
     ax.set_xlim(start.to_pydatetime(), end.to_pydatetime())
-    locator = mdates.MonthLocator(interval=3)
-    ax.xaxis.set_major_locator(locator)
-    ticks = locator.tick_values(start.to_pydatetime(), end.to_pydatetime())
-    labels: list[str] = []
-    last_year: int | None = None
-    for tick in ticks:
-        dt = pd.Timestamp(mdates.num2date(tick)).tz_localize(None)
-        if last_year is None or dt.year != last_year:
-            labels.append(dt.strftime("%b\n%Y"))
-        else:
-            labels.append(dt.strftime("%b"))
-        last_year = dt.year
-    ax.set_xticks(ticks)
-    ax.set_xticklabels(labels, fontsize=8.0)
+    apply_month_interval_axis_labels(ax, (start, end), interval=3, labelsize=8.0)
 
 
 def _apply_snow_y_axis(ax, series: Sequence[pd.Series]) -> None:
@@ -377,7 +363,7 @@ def _plot_snow_series(
     fill_color = da_variable_fill_color(color_key)
 
     fig, ax = plt.subplots(figsize=(9.6, 3.05))
-    mean, lo, hi = envelope(series.members, q_low=0.05, q_high=0.95)
+    mean, lo, hi = envelope(series.members, q_low=0.0, q_high=1.0)
     if not mean.empty:
         ax.fill_between(mean.index, lo.values, hi.values, color=fill_color, alpha=BAND_ALPHA, edgecolor="none", zorder=2)
         ax.plot(mean.index, mean.values, color=line_color, lw=LW_MEAN, zorder=4)
@@ -399,8 +385,7 @@ def _plot_snow_series(
     if not mean.empty:
         handles.extend(
             [
-                Line2D([0], [0], color=line_color, lw=LW_MEAN, label="ensemble mean"),
-                Patch(facecolor=fill_color, edgecolor=fill_color, alpha=BAND_ALPHA, label="5-95% ensemble"),
+                Patch(facecolor=fill_color, edgecolor=fill_color, alpha=BAND_ALPHA, label="ensemble (with mean)"),
             ]
         )
     if series.obs is not None and not series.obs.empty:

@@ -196,7 +196,7 @@ def test_cli_accepts_direct_project_dirs(tmp_path: Path) -> None:
     assert (out / "context_map.png").is_file()
 
 
-def test_station_model_series_are_daily_means_and_members_are_quantile_ready(tmp_path: Path) -> None:
+def test_station_model_series_are_daily_means_and_members_are_range_ready(tmp_path: Path) -> None:
     setup, project_1, project_2 = _build_setup(tmp_path)
     start, end = plot_mod._time_bounds([project_1, project_2])
 
@@ -208,13 +208,13 @@ def test_station_model_series_are_daily_means_and_members_are_quantile_ready(tmp
         start=start,
         end=end,
     )
-    mean, lo, hi = plot_mod.envelope(series.members, q_low=0.05, q_high=0.95)
+    mean, lo, hi = plot_mod.envelope(series.members, q_low=0.0, q_high=1.0)
 
     assert series.open_loop.loc[pd.Timestamp("2020-10-01")] == pytest.approx(2.0)
     assert len(series.members) == 2
     assert mean.loc[pd.Timestamp("2020-10-01")] == pytest.approx(2.0)
-    assert lo.loc[pd.Timestamp("2020-10-01")] == pytest.approx(1.1)
-    assert hi.loc[pd.Timestamp("2020-10-01")] == pytest.approx(2.9)
+    assert lo.loc[pd.Timestamp("2020-10-01")] == pytest.approx(1.0)
+    assert hi.loc[pd.Timestamp("2020-10-01")] == pytest.approx(3.0)
 
 
 def test_negative_observed_snow_depth_values_are_masked(tmp_path: Path) -> None:

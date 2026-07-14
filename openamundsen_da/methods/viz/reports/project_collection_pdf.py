@@ -26,7 +26,6 @@ from openamundsen_da.io.paths import (
     project_plot_points_dir,
     project_plots_maps_collection_pdf_path,
     project_plots_root,
-    project_result_overview_custom_output_path,
     project_result_overview_output_path,
 )
 from openamundsen_da.methods.viz.maps.generated import GENERATED_DA_MAPS_SUBDIR
@@ -645,10 +644,6 @@ def collect_project_pdf_items(project_dir: Path) -> ProjectPdfPlan:
     result_overview = optional(project_result_overview_output_path(project_dir))
     if result_overview is not None:
         front_items.append(PdfImageItem(result_overview, "result overview"))
-
-    custom_overview = optional(project_result_overview_custom_output_path(project_dir))
-    if custom_overview is not None:
-        front_items.append(PdfImageItem(custom_overview, "custom result overview"))
 
     setup_overview = optional(project_maps_root(project_dir) / "setup_overview.png")
     if setup_overview is not None:

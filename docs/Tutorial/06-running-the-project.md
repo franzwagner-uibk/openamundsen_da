@@ -183,7 +183,6 @@ results/plots/perf/
 
 results/plots/results/
   result_overview.png
-  result_overview_custom.png
 
 results/plots/points/
   setup_results_point_latschbloder_snow_depth_2022_2023.png

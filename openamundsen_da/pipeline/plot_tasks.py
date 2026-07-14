@@ -233,12 +233,12 @@ def build_fraction_overlay_task(cfg) -> PlotTask:
     )
 
 
-def custom_overview_needs_benchmark_scores(project_dir: Path) -> bool:
-    custom_cfg = Path(project_dir) / "plots.yml"
-    if not custom_cfg.is_file():
+def configured_overview_needs_benchmark_scores(project_dir: Path) -> bool:
+    panel_cfg = Path(project_dir) / "plots.yml"
+    if not panel_cfg.is_file():
         return False
     try:
-        data = _read_yaml_file(custom_cfg) or {}
+        data = _read_yaml_file(panel_cfg) or {}
     except Exception:
         return False
     panels = data.get("panels") or []
@@ -424,7 +424,7 @@ __all__ = [
     "PlotTask",
     "aggregate_fraction_envelopes",
     "build_post_run_plot_tasks",
-    "custom_overview_needs_benchmark_scores",
+    "configured_overview_needs_benchmark_scores",
     "default_project_report_rerun_command",
     "render_project_maps_best_effort",
     "render_project_poster_best_effort",

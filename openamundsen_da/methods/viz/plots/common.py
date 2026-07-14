@@ -520,9 +520,12 @@ def add_assim_label_axis(
     x_offset_pts: float = 0.0,
 ) -> object | None:
     """Create a lightweight top axis for visible assimilation labels."""
+    from matplotlib.ticker import NullFormatter
+
     date_index = list(pd.to_datetime(list(dates)))
     if not date_index:
         return None
+    had_visible_minor_bottom_labels = any(tick.label1.get_visible() for tick in ax.xaxis.get_minor_ticks())
     x_min, x_max = sorted(ax.get_xlim())
     visible_start = pd.Timestamp(mdates.num2date(x_min)).tz_localize(None)
     visible_end = pd.Timestamp(mdates.num2date(x_max)).tz_localize(None)
@@ -544,7 +547,17 @@ def add_assim_label_axis(
     label_axis.set_xticks([])
     label_axis.set_xlabel("")
     label_axis.yaxis.set_visible(False)
-    label_axis.xaxis.set_visible(False)
+    label_axis.xaxis.set_major_formatter(NullFormatter())
+    label_axis.xaxis.set_minor_formatter(NullFormatter())
+    label_axis.tick_params(
+        axis="x",
+        which="both",
+        bottom=False,
+        top=False,
+        labelbottom=False,
+        labeltop=False,
+        length=0,
+    )
     for spine in label_axis.spines.values():
         spine.set_visible(False)
 
@@ -565,6 +578,10 @@ def add_assim_label_axis(
         ha=ha,
         x_offset_pts=x_offset_pts,
     )
+    if had_visible_minor_bottom_labels:
+        ax.tick_params(axis="x", which="minor", labelbottom=True)
+        for tick in ax.xaxis.get_minor_ticks():
+            tick.label1.set_visible(True)
     return label_axis
 
 
@@ -672,6 +689,76 @@ def apply_plot_grid(ax, *, axis: str = "both", which: str = "major") -> None:
     """Apply the shared light dotted grid style for diagnostic plots."""
     ax.set_axisbelow(True)
     ax.grid(True, axis=axis, which=which, alpha=GRID_ALPHA, linestyle=GRID_LS, linewidth=GRID_LW)
+
+
+def apply_month_interval_axis_labels(
+    axes,
+    x_bounds: tuple[pd.Timestamp, pd.Timestamp] | None = None,
+    *,
+    interval: int = 1,
+    labelsize: float = 8.4,
+    include_year_on_first: bool = True,
+    align_first_label_left: bool = False,
+) -> None:
+    """Show month names centered between month-boundary ticks on the bottom axis."""
+    from matplotlib.ticker import FixedFormatter, FixedLocator, NullFormatter
+
+    axes_array = np.asarray(axes, dtype=object)
+    axes_tuple = tuple(axes_array.ravel()) if axes_array.ndim > 0 else (axes,)
+    if not axes_tuple:
+        return
+    if interval <= 0:
+        raise ValueError("interval must be positive")
+
+    locator = mdates.MonthLocator(interval=interval)
+    for ax in axes_tuple:
+        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(NullFormatter())
+
+    if x_bounds is None:
+        x_min, x_max = sorted(axes_tuple[-1].get_xlim())
+        x_bounds = (
+            pd.Timestamp(mdates.num2date(x_min)).tz_localize(None),
+            pd.Timestamp(mdates.num2date(x_max)).tz_localize(None),
+        )
+
+    start = pd.Timestamp(x_bounds[0]).normalize().replace(day=1)
+    end = pd.Timestamp(x_bounds[1]).normalize().replace(day=1) + pd.DateOffset(months=interval)
+    month_starts = list(pd.date_range(start, end, freq=f"{interval}MS"))
+    if len(month_starts) < 2:
+        return
+
+    tick_values = [mdates.date2num(date.to_pydatetime()) for date in month_starts]
+    label_values: list[float] = []
+    labels: list[str] = []
+    previous_year: int | None = None
+    for left, right in zip(month_starts[:-1], month_starts[1:], strict=True):
+        midpoint = left + (right - left) / 2
+        label_values.append(mdates.date2num(midpoint.to_pydatetime()))
+        if include_year_on_first and (previous_year is None or left.year != previous_year):
+            labels.append(left.strftime("%b\n%Y"))
+        else:
+            labels.append(left.strftime("%b"))
+        previous_year = left.year
+
+    bottom_axis = axes_tuple[-1]
+    bottom_axis.xaxis.set_major_locator(FixedLocator(tick_values))
+    bottom_axis.xaxis.set_major_formatter(NullFormatter())
+    bottom_axis.xaxis.set_minor_locator(FixedLocator(label_values))
+    bottom_axis.xaxis.set_minor_formatter(FixedFormatter(labels))
+    bottom_axis.tick_params(axis="x", which="major", labelbottom=False)
+    bottom_axis.tick_params(axis="x", which="minor", length=0, labelbottom=True, labelsize=labelsize)
+    for tick in bottom_axis.xaxis.get_minor_ticks():
+        if tick.label1.get_text():
+            tick.label1.set_visible(True)
+
+    for ax in axes_tuple:
+        ax.set_xlim(*x_bounds)
+
+    if align_first_label_left:
+        labels = bottom_axis.get_xticklabels(minor=True)
+        if labels:
+            labels[0].set_ha("left")
 
 
 def apply_fraction_grid(ax, *, y_step: float | None = 0.1) -> None:

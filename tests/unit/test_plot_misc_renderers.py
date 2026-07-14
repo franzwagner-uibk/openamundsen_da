@@ -7,9 +7,12 @@ import pandas as pd
 from openamundsen_da.methods.viz.plots.assimilation.station_diagnostics import plot_station_diagnostics_for_csv
 from openamundsen_da.methods.viz.plots.forcing_ensemble import _plot_station
 from openamundsen_da.methods.viz.plots.observer.scf_summary import cli_main as plot_scf_cli_main
+from openamundsen_da.methods.viz.plots.theme import COLOR_DA_OBS, LS_STATION_OBS
 
 
 def test_plot_station_diagnostics_for_csv_writes_png(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
     csv_path = tmp_path / "station_diagnostics_station_hs_20230221.csv"
     pd.DataFrame(
         [
@@ -36,10 +39,21 @@ def test_plot_station_diagnostics_for_csv_writes_png(tmp_path: Path) -> None:
         ]
     ).to_csv(csv_path, index=False)
 
-    out = plot_station_diagnostics_for_csv(csv_path, backend="Agg")
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        out = plot_station_diagnostics_for_csv(csv_path, backend="Agg")
+        fig = plt.gcf()
+        observation_lines = [line for line in fig.axes[0].lines if line.get_label() == "observation"]
 
-    assert out == csv_path.with_suffix(".png")
-    assert out.is_file()
+        assert out == csv_path.with_suffix(".png")
+        assert out.is_file()
+        assert len(observation_lines) == 1
+        assert observation_lines[0].get_color() == COLOR_DA_OBS
+        assert observation_lines[0].get_linestyle() == LS_STATION_OBS
+    finally:
+        plt.close = original_close
+        original_close(plt.gcf())
 
 
 def test_plot_scf_summary_cli_main_writes_png(tmp_path: Path) -> None:

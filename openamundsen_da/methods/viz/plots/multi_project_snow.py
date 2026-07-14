@@ -33,6 +33,7 @@ from openamundsen_da.methods.viz.plots.theme import (
     GRID_ALPHA,
     GRID_LS,
     GRID_LW,
+    LS_STATION_OBS,
     LW_DA_OBS,
     LW_MEAN,
     LW_OPEN,
@@ -370,7 +371,14 @@ def _plot_snow_series(
     if not series.open_loop.empty:
         ax.plot(series.open_loop.index, series.open_loop.values, color=COLOR_OPEN_LOOP, lw=LW_OPEN, zorder=5)
     if series.obs is not None and not series.obs.empty:
-        ax.plot(series.obs.index, series.obs.values, color=COLOR_DA_OBS, lw=LW_DA_OBS, zorder=6)
+        ax.plot(
+            series.obs.index,
+            series.obs.values,
+            color=COLOR_DA_OBS,
+            lw=LW_DA_OBS,
+            ls=LS_STATION_OBS,
+            zorder=6,
+        )
 
     ax.set_title(title, loc="left", fontsize=10.2, pad=7.0)
     ax.set_ylabel(ylabel, fontsize=9.0)
@@ -389,7 +397,16 @@ def _plot_snow_series(
             ]
         )
     if series.obs is not None and not series.obs.empty:
-        handles.append(Line2D([0], [0], color=COLOR_DA_OBS, lw=LW_DA_OBS, label="station observation"))
+        handles.append(
+            Line2D(
+                [0],
+                [0],
+                color=COLOR_DA_OBS,
+                lw=LW_DA_OBS,
+                ls=LS_STATION_OBS,
+                label="station observation",
+            )
+        )
     if handles:
         ax.legend(handles=handles, loc="upper left", ncol=min(4, len(handles)), frameon=True, fontsize=8.0)
 

@@ -150,7 +150,7 @@ def _add_ess_threshold_legend(ax) -> None:
     from matplotlib.lines import Line2D
 
     legend = ax.legend(
-        handles=[Line2D([0], [0], color="#d62728", lw=0.9, ls="--", label="ESS threshold")],
+        handles=[Line2D([0], [0], color="black", lw=0.9, ls="--", label="ESS threshold")],
         loc="upper right",
         frameon=False,
         fontsize=6.2,
@@ -232,7 +232,7 @@ def _plot(
     _apply_result_like_time_axis_labels(ax)
     ax.tick_params(axis="y", labelsize=8.4)
     if threshold is not None:
-        ax.axhline(threshold, color="#d62728", lw=0.9, ls="--")
+        ax.axhline(threshold, color="black", lw=0.9, ls="--")
         _add_ess_threshold_legend(ax)
     if assim_dates:
         draw_assimilation_vlines(ax, assim_dates, color="#777777", ls="--", lw=1.0, alpha=0.9, label="_nolegend_", zorder=20)

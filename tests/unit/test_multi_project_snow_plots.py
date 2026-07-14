@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from openamundsen_da.methods.viz.plots import multi_project_snow as plot_mod
+from openamundsen_da.methods.viz.plots.theme import COLOR_DA_OBS, LS_STATION_OBS
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -244,6 +245,45 @@ def test_missing_station_observations_do_not_fail_model_only_plot(tmp_path: Path
     assert series.obs is None
     assert series.open_loop.notna().any()
     assert len(series.members) == 2
+
+
+def test_station_observations_use_shared_accessible_style(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    dates = pd.to_datetime(["2022-01-01", "2022-01-02"])
+    series = plot_mod.SnowPlotSeries(
+        open_loop=pd.Series([0.1, 0.2], index=dates),
+        members=[
+            pd.Series([0.15, 0.25], index=dates),
+            pd.Series([0.2, 0.3], index=dates),
+        ],
+        obs=pd.Series([0.12, 0.22], index=dates),
+        start=dates[0],
+        end=dates[-1],
+    )
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        plot_mod._plot_snow_series(
+            series=series,
+            variable="snow_depth",
+            title="Station snow depth",
+            ylabel="Snow depth [m]",
+            output=tmp_path / "station.png",
+            backend="Agg",
+        )
+        ax = plt.gcf().axes[0]
+        observation_line = next(line for line in ax.lines if line.get_color() == COLOR_DA_OBS)
+        assert observation_line.get_linestyle() == LS_STATION_OBS
+        legend = ax.get_legend()
+        legend_handles = getattr(legend, "legend_handles", None) or legend.legendHandles
+        station_index = [text.get_text() for text in legend.get_texts()].index("station observation")
+        station_legend_line = legend_handles[station_index]
+        assert station_legend_line.get_color() == COLOR_DA_OBS
+        assert station_legend_line.get_linestyle() == LS_STATION_OBS
+    finally:
+        plt.close = original_close
+        original_close("all")
 
 
 def test_overwrite_protection_fails_when_outputs_exist(tmp_path: Path) -> None:

@@ -609,8 +609,8 @@ def test_poster_da_event_drops_open_loop_column_and_keeps_response_panels() -> N
         layout=LayoutSpec(nrows=1, ncols=4),
         panels=(
             _panel("snow_depth", 0, 0, source="open_loop", title="Open-loop snow depth"),
-            _panel("snow_depth", 0, 1, source="ensemble_mean", title="Prior snow depth"),
-            _panel("snow_depth", 0, 2, source="analysis_mean", title="Posterior snow depth"),
+            _panel("snow_depth", 0, 1, source="ensemble_mean", title="Prior mean snow depth"),
+            _panel("snow_depth", 0, 2, source="analysis_mean", title="Posterior mean snow depth"),
             _panel("snow_depth", 0, 3, source="analysis_increment", title="Snow-depth increment"),
         ),
     )

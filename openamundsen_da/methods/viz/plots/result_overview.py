@@ -55,8 +55,9 @@ from openamundsen_da.methods.viz.plots.theme import (
     OVERVIEW_STANDARD_PANEL_HEIGHT_FACTOR,
     OVERVIEW_XTICK_SIZE,
     OVERVIEW_YTICK_SIZE,
-    SIZE_DA_OBS,
+    LS_STATION_OBS,
     LW_DA_OBS,
+    SIZE_DA_OBS,
     da_variable_style,
 )
 from openamundsen_da.methods.viz.plots.common import (
@@ -157,17 +158,17 @@ _DEFAULT_PANELS = [
 ]
 
 _PANEL_YLABELS = {
-    "fSC": "",
-    "WSF": "",
+    "fSC": "fSCA",
+    "WSF": "WSF",
     "WSLA": "Elevation [m]",
     "roi-swe": "SWE [mm]",
     "roi-sd": "Snow depth [m]",
     "station-sd": "Snow depth [m]",
     "station-swe": "SWE [mm]",
-    "ess": "",
-    "scores-crpss": "",
-    "scores-ner": "",
-    "scores-zskill": "",
+    "ess": "ESS",
+    "scores-crpss": "CRPSS",
+    "scores-ner": "NER",
+    "scores-zskill": "zSkill",
 }
 
 _PANEL_TITLE_X = 0.0
@@ -191,6 +192,7 @@ _RESULT_OVERVIEW_LEGEND_FRAME_ALPHA = 0.74
 _RESULT_OVERVIEW_SAVE_PAD_INCHES = 0.015
 _RESULT_OVERVIEW_OBS_MARKER_SIZE = 2.8
 _RESULT_OVERVIEW_ESS_MARKER_SIZE = 3.2
+_SCORE_LEGEND_SPACER_SCALE = 0.25
 _ESS_THRESHOLD_COLOR = "black"
 _ESS_THRESHOLD_LW = 0.9
 _ALTITUDE_MAJOR_TICK_STEPS_M = (100.0, 200.0, 250.0, 500.0, 1000.0, 2000.0)
@@ -889,7 +891,14 @@ def _assimilated_obs_legend_handle():
 def _station_obs_legend_handle():
     from matplotlib.lines import Line2D
 
-    return Line2D([0], [0], color=COLOR_DA_OBS, lw=_RESULT_OVERVIEW_DATA_LW, label="station observation")
+    return Line2D(
+        [0],
+        [0],
+        color=COLOR_DA_OBS,
+        lw=_RESULT_OVERVIEW_DATA_LW,
+        ls=LS_STATION_OBS,
+        label="station observation",
+    )
 
 
 def _add_panel_local_legend(ax, handles: list, *, loc: str = "upper left") -> None:
@@ -933,6 +942,28 @@ def _add_ess_threshold_inline_label(ax, threshold: float) -> None:
     )
 
 
+def _compact_legend_spacer_rows(legend, spacer_indices: tuple[int, ...]) -> None:
+    """Reduce selected one-column legend rows without changing other spacing."""
+    handle_box = getattr(legend, "_legend_handle_box", None)
+    if handle_box is None:
+        return
+    columns = handle_box.get_children()
+    if len(columns) != 1:
+        return
+    rows = columns[0].get_children()
+    texts = legend.get_texts()
+    spacer_height = _RESULT_OVERVIEW_SCORE_LEGEND_SIZE * _SCORE_LEGEND_SPACER_SCALE
+    for index in spacer_indices:
+        if index >= len(rows) or index >= len(texts):
+            continue
+        row_children = rows[index].get_children()
+        if row_children:
+            drawing_area = row_children[0]
+            drawing_area.height = spacer_height
+            drawing_area.ydescent = 0.0
+        texts[index].set_fontsize(spacer_height)
+
+
 def _add_score_panel_legend(ax, variables: list[str]) -> None:
     if not variables:
         return
@@ -957,8 +988,10 @@ def _add_score_panel_legend(ax, variables: list[str]) -> None:
         )
         for variable in variables
     ]
+    spacer_indices = (len(handles), len(handles) + 3)
     handles.extend(
         [
+            Line2D([0], [0], linestyle="none", marker="none", alpha=0.0, label=" "),
             Line2D(
                 [0],
                 [0],
@@ -981,6 +1014,7 @@ def _add_score_panel_legend(ax, variables: list[str]) -> None:
                 color="#000000",
                 label="prior",
             ),
+            Line2D([0], [0], linestyle="none", marker="none", alpha=0.0, label=" "),
             Line2D(
                 [0],
                 [0],
@@ -1032,6 +1066,7 @@ def _add_score_panel_legend(ax, variables: list[str]) -> None:
         labelspacing=0.12,
         borderaxespad=0.35,
     )
+    _compact_legend_spacer_rows(legend, spacer_indices)
     legend.get_frame().set_linewidth(0.0)
     legend.set_zorder(50)
 
@@ -1305,6 +1340,7 @@ def _build_result_overview_legend_handles(
                 [0],
                 color=COLOR_DA_OBS,
                 lw=_RESULT_OVERVIEW_DATA_LW,
+                ls=LS_STATION_OBS,
                 label="station observation",
             ),
         )
@@ -2336,7 +2372,7 @@ def plot_result_overview(
                 ax.plot(
                     station_data.obs.index,
                     station_data.obs.values,
-                    "-",
+                    LS_STATION_OBS,
                     color=COLOR_DA_OBS,
                     lw=_RESULT_OVERVIEW_DATA_LW,
                     label="_nolegend_",

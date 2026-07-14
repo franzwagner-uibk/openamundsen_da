@@ -187,7 +187,7 @@ oa-da-plot-multi-project-snow \
 - `--log-level LEVEL` - Logging level
 
 **Output behavior:**
-- station plots show open loop, ensemble mean, the full finite-member range and station observations where available
+- station plots show open loop, ensemble mean, the full finite-member range and red dashed station observations where available
 - ROI plots show open loop, ensemble mean and the full finite-member range
 - station model and station observations are aggregated to daily means; ROI result CSVs are used at their native daily cadence
 - negative station observations are masked before daily aggregation
@@ -542,7 +542,7 @@ Copies selected rows from `wet_snow_summary.csv` into per-step `obs_wet_snow_<PR
 
 **Setup result overview**
 
-Plots the combined setup result overview: fSCA, WSF, WSLA, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the full finite-member range from ensemble members only. Figure legends are built from rendered plot elements, so unused observation, ensemble, open-loop, or DA-event entries are omitted. Observation `x` markers identify assimilated observations, and month labels are centered between month-boundary ticks. If `<project-dir>/plots.yml` exists, the configured panel list is used for the standard `result_overview.png`. Configured panels support `WSF`, `WSLA`, `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
+Plots the combined setup result overview: fSCA, WSF, WSLA, ROI mean SWE, and ROI mean snow depth. The ROI SWE and snow-depth panels use the full ROI footprint, keep `open_loop` separate, and derive the full finite-member range from ensemble members only. Figure legends are built from rendered plot elements, so unused observation, ensemble, open-loop, or DA-event entries are omitted. Observations are red and use redundant encodings: station observations are dashed lines, satellite observations are circles and observation X markers identify assimilated observations. Month labels are centered between month-boundary ticks. If `<project-dir>/plots.yml` exists, the configured panel list is used for the standard `result_overview.png`. Configured panels support `WSF`, `WSLA`, `scores-crpss`, `scores-ner`, and station-only `scores-zskill` to embed the benchmark score panels individually.
 
 ```bash
 oa-da-plot-result-overview \
@@ -599,7 +599,7 @@ Typical custom `maps.yml` files still use this panel catalog:
 #     # viewport_px: [1024, 1024]
 ```
 
-Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference panels show `analysis_increment` (`posterior - prior`); FSC and wet-snow reference panels show the satellite observation. WSLA lines are panel-local and observation WSLA is drawn only in the observation/reference panel. Top-level sub-domain SCF events use a taller same-file layout with a 2x2 snow-cover block above the 2x2 snow-depth response block; exact rerendering requires retained per-sub-domain grids. If an event's resampling manifest has `skipped: true`, the generated map title includes `resampling skipped`.
+Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference panels show `analysis_increment` (`posterior - prior`); FSC and wet-snow reference panels show the satellite observation. Generated WSLA maps show spatial WSF without WSLA contours in the first row and derived WSLA contours only in the elevation-band WSF row. Top-level sub-domain SCF events use a taller same-file layout with a 2x2 snow-cover block above the 2x2 snow-depth response block; exact rerendering requires retained per-sub-domain grids. If an event's resampling manifest has `skipped: true`, the generated map title includes `resampling skipped`.
 
 ```bash
 oa-da-plot-project-maps \
@@ -613,7 +613,7 @@ oa-da-plot-project-maps \
 - generated DA-event maps under `results/maps/da_events/*.png`
 - custom YAML maps under `results/maps/*.png`
 
-Generated `wet_snow` and `wet_snow_line` DA-event maps include a generated-only spatial elevation-band WSF row below the primary wet-snow row. Each panel keeps the map footprint, but every valid cell is colored by the raw wet snow fraction of its elevation band on a fixed white-to-black `0-100%` scale for open loop, posterior, and observation columns. Generated WSLA maps keep the primary WSF/WSLA row, the elevation-band WSF row and the snow-depth response row in both standard and paper outputs.
+Generated `wet_snow` and `wet_snow_line` DA-event maps include a generated-only spatial elevation-band WSF row below the primary wet-snow row. Each panel keeps the map footprint, but every valid cell is colored by the raw wet snow fraction of its elevation band on a fixed white-to-black `0-100%` scale for open loop, posterior, and observation columns. Generated WSLA maps keep the primary WSF row, the elevation-band WSF row with derived WSLA contours and the snow-depth response row in both standard and paper outputs.
 
 Static context panels (`hillshade`, `dem`, `aspect`, `svf`, `srf`, `landcover`) mask raster cells outside the ROI. `aspect` is derived from the DEM at render time and shown on a continuous radian colorbar. Continuous static panels such as `srf` can set `show_hillshade: true` to draw a terrain underlay. `landcover` panels can set `landcover_grouping: broad` to merge detailed vegetation/forest classes into broad manuscript-friendly classes, and the legend only lists classes present inside the ROI. The `rofental_manuscript` grouping is reserved for the Rofental paper/tutorial setup map, not for generic land-cover maps; it merges codes 1 and 13 as `rock`, 2 and 3 as `ice`, 4--7 as `grass/shrub`, and 8--12 as `forest`. Non-legend panels can use `legend_items` with `placement: below` or `placement: inside` (`anchor: top_left|top_right|bottom_left|bottom_right`) for compact layer legends such as station symbols; legacy `below_items` remains supported. Model and observation panels remain ROI-masked. Prepared sub-domain projects automatically draw the configured sub-domain polygons from `subdomain_manifest.json` on top-level ROI-bearing map panels and overview panels. Generated DA-event maps mark a sub-domain as `no DA` only when the event was dropped locally and recorded in `results/subdomain_dropped_events.csv`; events with valid weights are not marked just because posterior resampling was skipped. When `show_hillshade: true`, `hillshade_extent: roi` limits the hillshade to the ROI mask and `hillshade_extent: full` draws it across the full panel. In the supported Docker workflow, omitted `--max-workers` uses automatic recipe-level multicore rendering with the effective worker count clamped to `min(visible CPUs, selected recipes)`; pass `--max-workers 1` to keep rendering sequential. If one or more maps fail because supporting data are missing, the pipeline logs a rerun command and continues. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
 

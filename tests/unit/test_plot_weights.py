@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from openamundsen_da.methods.viz.plots.assimilation import weights as plot_mod
-from openamundsen_da.methods.viz.plots.theme import GRID_ALPHA, GRID_LS, GRID_LW, da_variable_style
+from openamundsen_da.methods.viz.plots.theme import COLOR_DA_OBS, GRID_ALPHA, GRID_LS, GRID_LW, da_variable_style
 from openamundsen_da.util.da_observables import weight_plot_title_from_csv_path
 
 
@@ -45,6 +45,8 @@ def test_da_variable_styles_use_viridis_option_c_colors() -> None:
 
     for variable, color in expected.items():
         assert da_variable_style(variable) == {"fill": color, "line": color}
+    assert COLOR_DA_OBS == "#d62728"
+    assert len(set(expected.values()) | {COLOR_DA_OBS}) == 6
 
 
 def _add_weights_event(

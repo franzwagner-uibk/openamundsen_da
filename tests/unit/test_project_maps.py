@@ -1687,8 +1687,8 @@ def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, 
     assert recipes[0].layout.ncols == 4
     assert [panel.title for panel in recipes[0].panels] == [
         "Open loop snow depth",
-        "Prior snow depth",
-        "Posterior snow depth",
+        "Prior mean snow depth",
+        "Posterior mean snow depth",
         "Snow depth increment",
     ]
     assert [panel.source for panel in recipes[0].panels] == [
@@ -1917,13 +1917,13 @@ def test_generated_da_map_recipes_use_probabilistic_scf_panels_when_fraction_sup
     ]
     assert [panel.title for panel in scf_panels[4:8]] == [
         "Open loop snow depth",
-        "Prior snow depth",
-        "Posterior snow depth",
+        "Prior mean snow depth",
+        "Posterior mean snow depth",
         "Snow depth increment",
     ]
 
 
-def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
+def test_generated_da_map_recipes_keep_wsla_contours_out_of_primary_wsf_row(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1952,10 +1952,10 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
     assert recipes[0].layout.ncols == 4
     assert recipes[0].layout.nrows == 3
     assert [panel.kind for panel in recipes[0].panels[:4]] == [
-        "wet_snow_line",
-        "wet_snow_line",
-        "wet_snow_line",
-        "wet_snow_line",
+        "wet_snow",
+        "wet_snow",
+        "wet_snow",
+        "wet_snow",
     ]
     assert [panel.source for panel in recipes[0].panels[:4]] == [
         "open_loop",
@@ -1964,10 +1964,10 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
         None,
     ]
     assert [panel.title for panel in recipes[0].panels[:4]] == [
-        "Open loop WSLA",
-        "Prior WSLA",
-        "Posterior WSLA",
-        "Observed WSLA",
+        "Open loop WSF",
+        "Prior WSF",
+        "Posterior WSF",
+        "Observed WSF",
     ]
     assert [panel.kind for panel in recipes[0].panels[4:8]] == [
         "wet_snow_elevation_fraction",
@@ -1996,8 +1996,8 @@ def test_generated_da_map_recipes_use_true_wsl_panels_for_wet_snow_line_events(
     assert [panel.kind for panel in recipes[0].panels[8:12]] == ["snow_depth", "snow_depth", "snow_depth", "snow_depth"]
     assert [panel.title for panel in recipes[0].panels[8:12]] == [
         "Open loop snow depth",
-        "Prior snow depth",
-        "Posterior snow depth",
+        "Prior mean snow depth",
+        "Posterior mean snow depth",
         "Snow depth increment",
     ]
 
@@ -2035,16 +2035,16 @@ def test_paper_recipe_keeps_full_wet_snow_line_da_maps(
     assert paper_recipe.row_labels == ()
     assert {panel.row for panel in paper_recipe.panels} == {0, 1, 2}
     assert [panel.kind for panel in paper_recipe.panels[:4]] == [
-        "wet_snow_line",
-        "wet_snow_line",
-        "wet_snow_line",
-        "wet_snow_line",
+        "wet_snow",
+        "wet_snow",
+        "wet_snow",
+        "wet_snow",
     ]
     assert [panel.title for panel in paper_recipe.panels[:4]] == [
-        "Open loop WSLA",
-        "Prior WSLA",
-        "Posterior WSLA",
-        "Observed WSLA",
+        "Open loop WSF",
+        "Prior WSF",
+        "Posterior WSF",
+        "Observed WSF",
     ]
     assert [panel.kind for panel in paper_recipe.panels[4:8]] == [
         "wet_snow_elevation_fraction",
@@ -2060,8 +2060,8 @@ def test_paper_recipe_keeps_full_wet_snow_line_da_maps(
     ]
     assert [panel.title for panel in paper_recipe.panels[8:]] == [
         "Open loop snow depth",
-        "Prior snow depth",
-        "Posterior snow depth",
+        "Prior mean snow depth",
+        "Posterior mean snow depth",
         "Snow depth increment",
     ]
     assert {panel.row for panel in paper_recipe.panels[:4]} == {0}
@@ -2096,7 +2096,7 @@ def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events
         "Open loop WSF",
         "Prior WSF",
         "Posterior WSF",
-        "Wet snow observation",
+        "Observed WSF",
     ]
     assert [panel.kind for panel in wet_recipe.panels[4:8]] == [
         "wet_snow_elevation_fraction",

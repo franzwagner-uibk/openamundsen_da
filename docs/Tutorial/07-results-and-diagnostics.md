@@ -464,11 +464,11 @@ Dimension names in the inspected NetCDF (for example `time1`, `time2`, `snow_lay
 > - `results/maps/da_events/da_6.png`: WSLA update on **2023-03-24**
 > - `results/maps/da_events/da_8.png`: fSCA (`scf`) update on **2023-05-26**
 
-![Generated DA-event map for the WSLA update on 2023-03-24]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_06_wsla_2023_03_24.png?v=20260703)
+![Generated DA-event map for the WSLA update on 2023-03-24]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_06_wsla_2023_03_24.png?v=20260714)
 
-_`da_6.png`: open loop, prior, posterior and observed wet snow fraction maps with WSLA contours, elevation-band wet snow fraction maps, and corresponding snow-depth fields for the **2023-03-24** `wet_snow_line` update._
+_`da_6.png`: open loop, prior, posterior and observed wet snow fraction maps, elevation-band wet snow fraction maps with derived WSLA contours, and corresponding snow-depth fields for the **2023-03-24** `wet_snow_line` update._
 
-![Generated DA-event map for the fSCA update on 2023-05-26]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_08_scf_2023_05_26.png?v=20260703)
+![Generated DA-event map for the fSCA update on 2023-05-26]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_08_scf_2023_05_26.png?v=20260714)
 
 _`da_8.png`: open loop, prior, posterior and observed fSCA diagnostics plus corresponding snow-depth fields for the **2023-05-26** `scf` update._
 

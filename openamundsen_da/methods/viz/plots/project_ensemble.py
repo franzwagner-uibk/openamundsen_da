@@ -64,6 +64,7 @@ from openamundsen_da.methods.viz.plots.theme import (
     LW_OPEN,
     COLOR_DA_OBS,
     SIZE_DA_OBS,
+    LS_STATION_OBS,
     LW_DA_OBS,
     GRID_LS,
     GRID_LW,
@@ -254,7 +255,16 @@ def _build_station_result_legend(
     if show_open_loop:
         handles.append(Line2D([0], [0], color="black", lw=LW_OPEN, label="open loop"))
     if show_station_observation:
-        handles.append(Line2D([0], [0], color=COLOR_DA_OBS, lw=LW_DA_OBS, label="station observation"))
+        handles.append(
+            Line2D(
+                [0],
+                [0],
+                color=COLOR_DA_OBS,
+                lw=LW_DA_OBS,
+                ls=LS_STATION_OBS,
+                label="station observation",
+            )
+        )
     if show_ensemble_summary:
         handles.append(
             Patch(
@@ -897,7 +907,7 @@ def plot_setup_results(
             ax.plot(
                 obs_series.index,
                 obs_series.values,
-                "-",
+                LS_STATION_OBS,
                 color=station_obs_color,
                 lw=LW_DA_OBS,
                 label="station observation",

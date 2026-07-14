@@ -124,6 +124,7 @@ def test_observer_scf_summary_uses_centered_month_labels() -> None:
     fig = scf_summary_mod._plot(df, backend="Agg")
     ax = fig.axes[0]
 
+    assert {line.get_color() for line in ax.lines} == {"#3c4f8a"}
     assert any(label.get_text() == "Jan\n2023" for label in ax.get_xticklabels(minor=True))
     assert all(label.get_text() == "" for label in ax.get_xticklabels(minor=False))
     plt.close(fig)
@@ -227,7 +228,7 @@ def test_plot_ess_timeline_uses_regular_y_ticks_without_threshold_label() -> Non
     assert ax.get_legend()._loc == 1
     assert not ax.get_legend().get_frame().get_visible()
     assert [text.get_text() for text in ax.get_legend().get_texts()] == ["ESS threshold"]
-    assert any(line.get_color() == "#d62728" and line.get_linestyle() == "--" for line in ax.lines)
+    assert any(line.get_color() == "black" and line.get_linestyle() == "--" for line in ax.lines)
     plt.close(fig)
 
 

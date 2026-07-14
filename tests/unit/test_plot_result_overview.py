@@ -8,7 +8,15 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 import openamundsen_da.methods.viz.plots.result_overview as plot_mod
-from openamundsen_da.methods.viz.plots.theme import BAND_ALPHA, GRID_ALPHA, GRID_LS, GRID_LW, da_variable_style
+from openamundsen_da.methods.viz.plots.theme import (
+    BAND_ALPHA,
+    COLOR_DA_OBS,
+    GRID_ALPHA,
+    GRID_LS,
+    GRID_LW,
+    LS_STATION_OBS,
+    da_variable_style,
+)
 from openamundsen_da.methods.viz.plots.result_overview import (
     PanelSpec,
     StationPanelData,
@@ -235,7 +243,7 @@ def test_plot_result_overview_uses_four_panels_when_roi_series_exist(monkeypatch
 
     assert recorded["nrows"] == 4
     axes = _panel_axes(plt.gcf())
-    assert [ax.get_ylabel() for ax in axes] == ["", "", "SWE [mm]", "Snow depth [m]"]
+    assert [ax.get_ylabel() for ax in axes] == ["fSCA", "WSF", "SWE [mm]", "Snow depth [m]"]
     assert axes[0].get_title(loc="left") == "(a) Fractional snow covered area (fSCA)"
     assert axes[0]._left_title.get_fontsize() == pytest.approx(plot_mod._RESULT_OVERVIEW_TITLE_SIZE)
     assert axes[1].get_title(loc="left") == "(b) Wet snow fraction"
@@ -331,7 +339,7 @@ def test_plot_result_overview_adds_wsl_panel_when_wsl_series_exist(monkeypatch, 
 
     assert recorded["nrows"] == 3
     axes = _panel_axes(plt.gcf())
-    assert [ax.get_ylabel() for ax in axes] == ["", "", "Elevation [m]"]
+    assert [ax.get_ylabel() for ax in axes] == ["fSCA", "WSF", "Elevation [m]"]
     _assert_panel_legend_style(axes[2], loc=3)
     assert out_path.is_file()
     original_close(plt.gcf())
@@ -407,12 +415,12 @@ def test_plot_result_overview_ylabels_do_not_overlap_with_stacked_custom_panels(
         renderer = fig.canvas.get_renderer()
         axes = _panel_axes(fig)
         assert [ax.get_ylabel() for ax in axes] == [
-            "",
-            "",
+            "fSCA",
+            "WSF",
             "Elevation [m]",
             "Snow depth [m]",
-            "",
-            "",
+            "ESS",
+            "CRPSS",
         ]
         ytick_bboxes = [
             bbox
@@ -426,6 +434,24 @@ def test_plot_result_overview_ylabels_do_not_overlap_with_stacked_custom_panels(
             for label in ax.get_yticklabels():
                 if label.get_text() and label.get_visible():
                     assert not ax._left_title.get_window_extent(renderer).overlaps(label.get_window_extent(renderer))
+        score_legend = axes[-1].get_legend()
+        assert score_legend is not None
+        legend_bbox = score_legend.get_window_extent(renderer)
+        axes_bbox = axes[-1].get_window_extent(renderer)
+        assert legend_bbox.x0 >= axes_bbox.x0 - 1.0
+        assert legend_bbox.x1 <= axes_bbox.x1 + 1.0
+        assert legend_bbox.y0 >= axes_bbox.y0 - 1.0
+        assert legend_bbox.y1 <= axes_bbox.y1 + 1.0
+        spacer_indices = [
+            index for index, text in enumerate(score_legend.get_texts()) if text.get_text() == " "
+        ]
+        legend_rows = score_legend._legend_handle_box.get_children()[0].get_children()
+        expected_spacer_height = (
+            plot_mod._RESULT_OVERVIEW_SCORE_LEGEND_SIZE * plot_mod._SCORE_LEGEND_SPACER_SCALE
+        )
+        assert spacer_indices == [2, 5]
+        for index in spacer_indices:
+            assert legend_rows[index].get_children()[0].height == pytest.approx(expected_spacer_height)
         assert out_path.is_file()
     finally:
         plt.close = original_close
@@ -1025,13 +1051,16 @@ def test_plot_result_overview_uses_panel_local_legend_labels(tmp_path: Path) -> 
                 satellite_observation=True,
                 open_loop=True,
                 ensemble_summary=True,
+                station_observation=True,
                 da_event=True,
             )
         )
         assert legend_handles[0].get_marker() == "x"
         assert legend_handles[0].get_label() == "assimilated observation"
-        assert legend_handles[0].get_color() == "#d62728"
-        assert legend_handles[1].get_color() == "#d62728"
+        assert legend_handles[0].get_color() == COLOR_DA_OBS
+        assert legend_handles[1].get_color() == COLOR_DA_OBS
+        assert legend_handles[4].get_color() == COLOR_DA_OBS
+        assert legend_handles[4].get_linestyle() == LS_STATION_OBS
         assert legend_handles[-1].get_color() == "#777777"
         ensemble_handle = legend_handles[3]
         assert ensemble_handle.get_label() == "ensemble (with mean)"
@@ -1399,13 +1428,18 @@ def test_plot_result_overview_supports_custom_station_panel(tmp_path: Path) -> N
         )
 
         axes = _panel_axes(plt.gcf())
-        assert [ax.get_ylabel() for ax in axes] == ["", "Snow depth [m]"]
+        assert [ax.get_ylabel() for ax in axes] == ["fSCA", "Snow depth [m]"]
         assert axes[1].get_title(loc="left").startswith("(b) Snow depth (Latschbloder 2919 m)")
         line_colors = [line.get_color() for line in axes[1].lines]
         assert da_variable_style("station_hs")["line"] in line_colors
         assert "black" in line_colors
         assert plot_mod.COLOR_DA_OBS == "#d62728"
         assert plot_mod.COLOR_DA_OBS in line_colors
+        station_lines = [line for line in axes[1].lines if line.get_color() == COLOR_DA_OBS]
+        assert any(line.get_linestyle() == LS_STATION_OBS for line in station_lines)
+        station_legend_handle = plot_mod._station_obs_legend_handle()
+        assert station_legend_handle.get_color() == COLOR_DA_OBS
+        assert station_legend_handle.get_linestyle() == LS_STATION_OBS
         for line in axes[1].lines[:3]:
             assert line.get_linewidth() == pytest.approx(plot_mod._RESULT_OVERVIEW_DATA_LW)
         assert axes[1].collections
@@ -1484,7 +1518,7 @@ def test_plot_result_overview_supports_custom_crpss_score_panel(tmp_path: Path) 
         axes = _panel_axes(plt.gcf())
         assert len(axes) == 1
         assert axes[0].get_title(loc="left") == "(a) Continuous ranked probability skill score (CRPSS)"
-        assert axes[0].get_ylabel() == ""
+        assert axes[0].get_ylabel() == "CRPSS"
         assert 0.5 in list(axes[0].get_yticks())
         assert set(label.get_text() for label in axes[0].get_yticklabels() if label.get_text()) <= {"0", "0.5", "1"}
         assert axes[0].collections
@@ -1501,6 +1535,17 @@ def test_plot_result_overview_supports_custom_crpss_score_panel(tmp_path: Path) 
         assert (pd.Timestamp("2023-01-03"), "#777777", "--", 1.0) in event_lines
         assert len(plt.gcf().legends) == 0
         score_labels = _axis_legend_labels(axes[0])
+        assert score_labels == [
+            "fSCA",
+            "station SWE",
+            " ",
+            "posterior",
+            "prior",
+            " ",
+            "assimilation fit",
+            "semi-independent",
+            "independent",
+        ]
         assert "prior" in score_labels
         assert "posterior" in score_labels
         assert "assimilation fit" in score_labels
@@ -1613,7 +1658,7 @@ def test_plot_result_overview_supports_custom_ner_score_panel(tmp_path: Path) ->
         axes = _panel_axes(plt.gcf())
         assert len(axes) == 1
         assert axes[0].get_title(loc="left").endswith("NER")
-        assert axes[0].get_ylabel() == ""
+        assert axes[0].get_ylabel() == "NER"
         assert 0.5 in list(axes[0].get_yticks())
         assert axes[0].collections
         assert out_path.is_file()
@@ -1648,7 +1693,7 @@ def test_plot_result_overview_supports_custom_zskill_score_panel(tmp_path: Path)
         axes = _panel_axes(plt.gcf())
         assert len(axes) == 1
         assert axes[0].get_title(loc="left").endswith("zSkill")
-        assert axes[0].get_ylabel() == ""
+        assert axes[0].get_ylabel() == "zSkill"
         assert axes[0].collections
         assert out_path.is_file()
     finally:
@@ -1682,7 +1727,7 @@ def test_plot_result_overview_supports_both_score_panels_and_single_local_legend
         axes = _panel_axes(plt.gcf())
         assert axes[0].get_title(loc="left") == "(a) Continuous ranked probability skill score (CRPSS)"
         assert axes[1].get_title(loc="left").endswith("NER")
-        assert [ax.get_ylabel() for ax in axes] == ["", ""]
+        assert [ax.get_ylabel() for ax in axes] == ["CRPSS", "NER"]
         assert 0.5 in list(axes[0].get_yticks())
         assert 0.5 in list(axes[1].get_yticks())
         assert axes[0].get_legend() is not None

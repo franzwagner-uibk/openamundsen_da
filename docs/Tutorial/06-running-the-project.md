@@ -212,7 +212,7 @@ The performance plot shows CPU, RAM, filesystem-used percentage, project size, a
 
 ![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/project_perf.png?v=20260703)
 
-![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/result_overview.png?v=20260703)
+![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/result_overview.png?v=20260714)
 
 Detailed interpretation of these plots is covered in [7. Results and diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}).
 

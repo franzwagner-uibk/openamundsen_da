@@ -18,6 +18,7 @@ from openamundsen_da.methods.viz.plots.theme import (
     GRID_LW,
     FIGSIZE_RESULTS,
     FS_TITLE,
+    LS_STATION_OBS,
     LW_OPEN,
     LW_MEMBER,
 )
@@ -144,7 +145,14 @@ def plot_station_comparisons(
 
         fig, ax = plt.subplots(figsize=FIGSIZE_RESULTS)
         ax.plot(merged.index, merged["model"], label="model", color=COLOR_OPEN_LOOP, lw=LW_OPEN)
-        ax.plot(merged.index, merged["obs"], label="obs", color=COLOR_DA_OBS, lw=LW_MEMBER, linestyle="--")
+        ax.plot(
+            merged.index,
+            merged["obs"],
+            label="obs",
+            color=COLOR_DA_OBS,
+            lw=LW_MEMBER,
+            linestyle=LS_STATION_OBS,
+        )
         ax.set_ylabel(pretty_var_title(variable))
         ax.set_xlabel("Time")
         ax.grid(True, linestyle=GRID_LS, linewidth=GRID_LW, alpha=GRID_ALPHA)

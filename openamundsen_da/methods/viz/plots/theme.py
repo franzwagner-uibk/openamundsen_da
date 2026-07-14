@@ -32,7 +32,8 @@ LEGEND_NCOL_SETUP = 6
 COLOR_DA_OBS = "#d62728"
 SIZE_DA_OBS = 80
 LW_DA_OBS = 1.8
-COLOR_OBS_SCF = "#d62728"
+LS_STATION_OBS = "--"
+COLOR_OBS_SCF = COLOR_DA_OBS
 SIZE_OBS_SCF = 10
 
 # Grid style
@@ -93,6 +94,7 @@ __all__ = [
     "GRID_LW",
     "LEGEND_NCOL",
     "LEGEND_NCOL_SETUP",
+    "LS_STATION_OBS",
     "LW_DA_OBS",
     "LW_MEAN",
     "LW_MEMBER",

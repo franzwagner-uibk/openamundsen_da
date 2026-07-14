@@ -191,7 +191,7 @@ Plot files to open:
 
 Reference ESS plot (tutorial baseline):
 
-![ESS timeline plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_ess_timeline_2022_2023.png?v=20260703)
+![ESS timeline plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_ess_timeline_2022_2023.png?v=20260714)
 
 _ESS timeline (`setup_ess_timeline_2022_2023.png`) from the tutorial reference run._
 
@@ -327,9 +327,9 @@ Recommended plot files to inspect (Rofental tutorial run):
 
 Result overview:
 
-![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/result_overview.png?v=20260703)
+![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/result_overview.png?v=20260714)
 
-_`result_overview.png`: check observation dates, fSCA/wet-snow event timing, station snow-depth behavior, ESS response and DA-date skill scores._
+_`result_overview.png`: check observation dates, fSCA/wet-snow event timing, station snow-depth behavior, ESS response and DA-date skill scores. Observations are red, with dashed station lines, satellite circles and X markers for assimilated observations._
 
 What to read in this plot:
 
@@ -341,7 +341,7 @@ What to read in this plot:
 
 Station snow depth example (`latschbloder`):
 
-![Latschbloder snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_latschbloder_snow_depth_2022_2023.png?v=20260703)
+![Latschbloder snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_latschbloder_snow_depth_2022_2023.png?v=20260714)
 
 _Snow depth comparison at `latschbloder` (open loop + ensemble + observations)._
 
@@ -353,7 +353,7 @@ What to read in this plot:
 
 Station SWE example (`proviantdepot`):
 
-![Proviantdepot SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_proviantdepot_swe_2022_2023.png?v=20260703)
+![Proviantdepot SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_proviantdepot_swe_2022_2023.png?v=20260714)
 
 _SWE comparison at `proviantdepot` (remember: station SWE observations are expected in **mm** in this tutorial setup)._
 
@@ -368,11 +368,11 @@ What to read in this plot:
 
 `proviantdepot` snow depth:
 
-![Proviantdepot snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_proviantdepot_snow_depth_2022_2023.png?v=20260703)
+![Proviantdepot snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_proviantdepot_snow_depth_2022_2023.png?v=20260714)
 
 `latschbloder` SWE:
 
-![Latschbloder SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_latschbloder_swe_2022_2023.png?v=20260703)
+![Latschbloder SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_latschbloder_swe_2022_2023.png?v=20260714)
 
 </details>
 
@@ -429,7 +429,7 @@ oa-da-plot-multi-project-snow \
   --project project_2023_2024
 ```
 
-By default, this writes station and ROI PNGs to `results/plots/multi_year_snow`. The plots show open loop, ensemble mean and the full finite-member range; station observations are added where available. Station model and observation series are shown as daily means, negative station observations are masked and no DA-event markers are drawn. If `results/maps/setup_overview.png` exists in a source project, it is copied into the bundle as `context_map.png`.
+By default, this writes station and ROI PNGs to `results/plots/multi_year_snow`. The plots show open loop, ensemble mean and the full finite-member range; station observations use red dashed lines. Station model and observation series are shown as daily means, negative station observations are masked and no DA-event markers are drawn. If `results/maps/setup_overview.png` exists in a source project, it is copied into the bundle as `context_map.png`.
 
 Optional variable/dimension inspection (Python in the container).
 
@@ -464,11 +464,11 @@ Dimension names in the inspected NetCDF (for example `time1`, `time2`, `snow_lay
 > - `results/maps/da_events/da_6.png`: WSLA update on **2023-03-24**
 > - `results/maps/da_events/da_8.png`: fSCA (`scf`) update on **2023-05-26**
 
-![Generated DA-event map for the WSLA update on 2023-03-24]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_06_wsla_2023_03_24.png?v=20260703)
+![Generated DA-event map for the WSLA update on 2023-03-24]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_06_wsla_2023_03_24.png?v=20260714)
 
 _`da_6.png`: open loop, prior, posterior and observed wet snow fraction maps with WSLA contours, elevation-band wet snow fraction maps, and corresponding snow-depth fields for the **2023-03-24** `wet_snow_line` update._
 
-![Generated DA-event map for the fSCA update on 2023-05-26]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_08_scf_2023_05_26.png?v=20260703)
+![Generated DA-event map for the fSCA update on 2023-05-26]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_08_scf_2023_05_26.png?v=20260714)
 
 _`da_8.png`: open loop, prior, posterior and observed fSCA diagnostics plus corresponding snow-depth fields for the **2023-05-26** `scf` update._
 

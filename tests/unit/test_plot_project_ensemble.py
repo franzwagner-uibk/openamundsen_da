@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 import openamundsen_da.methods.viz.plots.project_ensemble as plot_mod
-from openamundsen_da.methods.viz.plots.theme import da_variable_style
+from openamundsen_da.methods.viz.plots.theme import COLOR_DA_OBS, LS_STATION_OBS, da_variable_style
 from openamundsen_da.methods.viz.plots.project_ensemble import plot_setup_results
 
 
@@ -186,6 +186,41 @@ def test_station_result_colors_use_shared_da_palette() -> None:
     assert plot_mod._station_model_color("hs") == da_variable_style("station_hs")["line"]
     assert plot_mod._station_model_color("snow_depth") == da_variable_style("station_hs")["line"]
     assert plot_mod._station_model_color("swe") == da_variable_style("station_swe")["line"]
+
+
+def test_station_result_observations_use_shared_accessible_style(tmp_path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    project_dir = _build_project(tmp_path)
+    _write_csv(
+        tmp_path / "obs" / "stations" / "latschbloder.csv",
+        [
+            {"time": "2022-11-01", "swe": 9.0},
+            {"time": "2022-11-02", "swe": 11.0},
+        ],
+    )
+    original_close = plt.close
+    plt.close = lambda fig=None: None
+    try:
+        plot_setup_results(
+            setup_dir=project_dir,
+            var_col="swe",
+            mode="band",
+            configure_logger=False,
+        )
+        fig = plt.gcf()
+        ax = fig.axes[0]
+        observation_lines = [line for line in ax.lines if line.get_color() == COLOR_DA_OBS]
+        assert any(line.get_linestyle() == LS_STATION_OBS for line in observation_lines)
+        station_legend_line = next(
+            line for line, text in zip(fig.legends[0].get_lines(), fig.legends[0].get_texts())
+            if text.get_text() == "station observation"
+        )
+        assert station_legend_line.get_color() == COLOR_DA_OBS
+        assert station_legend_line.get_linestyle() == LS_STATION_OBS
+    finally:
+        plt.close = original_close
+        original_close("all")
 
 
 def test_station_result_band_uses_shared_fill_color(tmp_path: Path) -> None:

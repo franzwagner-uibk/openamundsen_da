@@ -1,12 +1,12 @@
 ---
 layout: default
-title: 6. Results and Diagnostics
+title: 7. Results and Diagnostics
 parent: How to Use
-nav_order: 6
+nav_order: 7
 permalink: /tutorial/results-and-diagnostics/
 ---
 
-# 6. Results and Diagnostics
+# 7. Results and Diagnostics
 
 This chapter is the review pass after a completed project run. The recommended order is
 simple: confirm that the run finished cleanly, inspect the assimilation diagnostics, and
@@ -16,9 +16,15 @@ Most tutorial outputs live under:
 
 - `/data/rofental/projects/project_2022_2023/`
 
+Because `/data` is a bind mount, open generated PNGs and the PDF with your normal
+host applications under
+`<tutorial-workdir>/rofental/projects/project_2022_2023/results/`. You do not need
+an image viewer inside the container.
+
 The most important locations are:
 
 - `project_2022_2023.log`
+- `results/run_manifest.json`
 - `results/plots/perf/`
 - `results/plots/assim/`
 - `results/plots/results/`
@@ -38,7 +44,7 @@ What to look for:
 - data assimilation variable processing messages (`scf`, `wet_snow`)
 - plot tasks completed
 - data assimilation output summary NetCDF writing (`da_output_grids.nc`)
-- cleanup messages (`Setup cleanup succeeded`; compact-retention deletion appears only in compact mode)
+- setup cleanup and final run-manifest messages
 
 <details markdown="block">
   <summary>If the log is not clean (important troubleshooting note)</summary>
@@ -164,7 +170,7 @@ Reference structure snippet (`results/plots/assim`, typical files)
 > - ESS very low (near 1) frequently:
 >   - strong degeneracy, aggressive resampling likely
 >   - possibly too-small observation error (`obs_sigma`) or too-strong mismatch
-> - abrupt differences between station HS, SCF, and wet-snow events:
+> - abrupt differences between station HS, fSCA, and wet-snow events:
 >   - also normal and expected (different variables, support, and information content)
 
 ESS is a diagnostic, not a simple "good/bad" score. Interpret it together with weights, variable type, and observation coverage.
@@ -199,7 +205,18 @@ What to read in the ESS plot:
 
 - each point corresponds to one assimilation event,
 - lower ESS means stronger weight concentration (more degeneracy),
-- differences between station HS, SCF, and wet-snow events are expected because the observation types have different information content and spatial support.
+- differences between station HS, fSCA, and wet-snow events are expected because the observation types have different information content and spatial support.
+
+Reference assimilation-date performance scores:
+
+![Assimilation-date performance scores (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/performance_scores.png?v=20260714)
+
+_Prior and posterior CRPSS, NER and station-only zSkill for the configured
+assimilation dates. Use the benchmark tables for exact values and provenance._
+
+This is an observation-based update diagnostic. It shows whether the weighted
+posterior improves relative to the prior for the evaluated observations, but it
+does not replace independent holdout validation.
 
 Reference setup weights overview:
 
@@ -221,7 +238,10 @@ What to read in the weights plot:
 - a **peaked** distribution means a few particles explain the observation much better,
 - very strong peaks often coincide with low ESS and potential resampling pressure.
 
-Exact weights differ between runs because the ensemble is stochastic. Focus on the structure (spread/concentration), not exact numeric values.
+With the tutorial's frozen seeds and pinned release image, a run should reproduce
+the reference ensemble and diagnostics. Results can differ after changing the
+configuration, image, inputs or execution platform. For experiments, compare both
+the numeric outputs and the weight-distribution structure.
 
 {: .references }
 > - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) (likelihood, resampling, rejuvenation)
@@ -258,7 +278,7 @@ Reference structure snippet (`results/plots/points`, typical files)
 - observation dates actually used,
 - model-vs-observation fraction behavior,
 - station snow-depth evolution relative to the open loop,
-- ESS and DA-date score response,
+- ESS and assimilation-date score response,
 - whether fSCA and wet-snow observations are present where expected.
 
 The shipped Rofental project uses `plots.yml` to configure this standard overview. Other projects can use the built-in default panel list or provide their own panel order in the same file.
@@ -329,7 +349,7 @@ Result overview:
 
 ![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/result_overview.png?v=20260714)
 
-_`result_overview.png`: check observation dates, fSCA/wet-snow event timing, station snow-depth behavior, ESS response and DA-date skill scores. Observations are red, with dashed station lines, satellite circles and X markers for assimilated observations._
+_`result_overview.png`: check observation dates, fSCA/wet-snow event timing, station snow-depth behavior, ESS response and assimilation-date skill scores. Observations are red, with dashed station lines, satellite circles and X markers for assimilated observations._
 
 What to read in this plot:
 
@@ -363,6 +383,11 @@ What to read in this plot:
 - amplitude mismatch (systematic bias) vs timing mismatch (phase error),
 - whether data assimilation corrections remain small/local or systematically shift the trajectory.
 
+When interpreting systematic snow bias, remember that the frozen example uses the
+documented precipitation factor `0.74` and applies no additional correction before
+ensemble perturbations. This is an accepted reference-run choice, not a tuning
+recommendation; see [Example Data: Rofental]({{ site.baseurl }}{% link Tutorial/03-example-data-rofental.md %}).
+
 <details markdown="block">
   <summary>More station reference plots (tutorial baseline)</summary>
 
@@ -377,8 +402,8 @@ What to read in this plot:
 </details>
 
 {: .references }
-> - [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %}) (SCF / wet-snow preprocessing context)
-> - [Workflow]({{ site.baseurl }}{% link workflow.md %}) (where these plots fit in the data assimilation workflow)
+> - [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %}) (fSCA / wet-snow preprocessing context)
+> - [Running]({{ site.baseurl }}{% link running.md %}) (how the project lifecycle produces these plots)
 
 <a id="da-output-summary-netcdf"></a>
 ## 5. data assimilation output summary NetCDF (`da_output_grids.nc`)
@@ -399,28 +424,15 @@ This file is designed for:
 - exporting selected variables in one merged file.
 
 In the current tutorial configuration, `data_assimilation.output.retention: full` is enabled, so this summary NetCDF is written and the heavier member-grid artifacts are retained as well.
-The summary NetCDF uses compact internal storage for DA-owned snow grids: snow depth is stored at 0.001 m resolution, while SWE and liquid-water content are stored at integer millimeter resolution. Normal CF-aware readers such as xarray return decoded physical values.
+The summary NetCDF uses compact internal storage for data-assimilation-owned snow grids: snow depth is stored at 0.001 m resolution, while SWE and liquid-water content are stored at integer millimeter resolution. Normal CF-aware readers such as xarray return decoded physical values.
 
 Reference output file path (data assimilation summary NetCDF):
 
 - `/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc`
 
-Adjacent completed projects with the same domain, grid, CRS, variables and compact encoding can be merged into one time-concatenated DA summary NetCDF:
-
-```bash
-oa-da-merge-project-grids \
-  --setup /data/rofental \
-  --project project_2020_2021 \
-  --project project_2021_2022 \
-  --project project_2022_2023 \
-  --output-nc /data/rofental/results/grids/da_output_grids_2020_2023.nc
-```
-
-The merge command fails if variables, static coordinates, grid metadata or timestamps are incompatible. It preserves the usual DA summary variable names and records source-project provenance in global NetCDF attributes.
-
 Optional variable/dimension inspection (Python in the container).
 
-**🟢 Run this command:**
+**🟢 Run command:**
 
 ```bash
 python - <<'PY'
@@ -440,9 +452,9 @@ PY
 > - open-loop baseline fields
 > - ensemble mean / spread fields
 > - open-loop departure fields (`increment = ens_mean - open_loop`)
-> - DA-event analysis fields (`analysis_increment = analysis_mean - ens_mean`) on event dates with weights
+> - assimilation-event analysis fields (`analysis_increment = analysis_mean - ens_mean`) on event dates with weights
 
-Dimension names in the inspected NetCDF (for example `time1`, `time2`, `snow_layer`, `nbnd`) are typically inherited from the underlying model outputs. Configure **which variables/metrics** are exported in the project YAML under `data_assimilation.output.grids.variables[*]`; see [5. Running the Model]({{ site.baseurl }}{% link Tutorial/06-running-the-project.md %}) for the output-grid configuration note.
+Dimension names in the inspected NetCDF (for example `time1`, `time2`, `snow_layer`, `nbnd`) are typically inherited from the underlying model outputs. Configure **which variables/metrics** are exported in the project YAML under `data_assimilation.output.grids.variables[*]`; see [6. Running the Model]({{ site.baseurl }}{% link Tutorial/06-running-the-project.md %}) for the output-grid configuration note.
 
 ### Raster output
 
@@ -451,18 +463,18 @@ Dimension names in the inspected NetCDF (for example `time1`, `time2`, `snow_lay
 > - `results/maps/da_events/da_6.png`: WSLA update on **2023-03-24**
 > - `results/maps/da_events/da_8.png`: fSCA (`scf`) update on **2023-05-26**
 
-![Generated DA-event map for the WSLA update on 2023-03-24]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_06_wsla_2023_03_24.png?v=20260714)
+![Generated assimilation-event map for the WSLA update on 2023-03-24]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_06_wsla_2023_03_24.png?v=20260714)
 
 _`da_6.png`: open loop, prior, posterior and observed wet snow fraction maps, elevation-band wet snow fraction maps with derived WSLA contours, and corresponding snow-depth fields for the **2023-03-24** `wet_snow_line` update._
 
-![Generated DA-event map for the fSCA update on 2023-05-26]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_08_scf_2023_05_26.png?v=20260714)
+![Generated assimilation-event map for the fSCA update on 2023-05-26]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_08_scf_2023_05_26.png?v=20260714)
 
 _`da_8.png`: open loop, prior, posterior and observed fSCA diagnostics plus corresponding snow-depth fields for the **2023-05-26** `scf` update._
 
 {: .checks }
 > Note on raster workflow:
 > - all output grids are stored in one NetCDF file: `results/grids/da_output_grids.nc` (see [5. data assimilation output summary NetCDF (`da_output_grids.nc`)](#da-output-summary-netcdf))
-> - generated DA-event maps use event dates with available particle-filter weights
+> - generated assimilation-event maps use event dates with available particle-filter weights
 > - for non-event dates, extract the layers/time slices you need in the GIS tool of your choice before styling or export
 
 Reference snippet (NetCDF inspection, tutorial reference run):
@@ -499,21 +511,39 @@ vars:
 Use `results/grids/da_output_grids.nc` in a GIS software of your choice and visualize raster output.
 
 Recommended manual map date(s): choose one date with active snow cover and one date near melt season.
-Use the same date across `open_loop`, `ens_mean`, and `increment` maps. Generated DA-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow depth maps use `ens_mean` as the prior mean, `analysis_mean` as the event-weighted posterior mean, and `analysis_increment` as `posterior - prior`.
+Use the same date across `open_loop`, `ens_mean`, and `increment` maps. Generated assimilation-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow depth maps use `ens_mean` as the prior mean, `analysis_mean` as the event-weighted posterior mean, and `analysis_increment` as `posterior - prior`.
 
-For the shipped examples, project maps are split into generated DA-event maps under `results/maps/da_events/` and custom YAML maps such as `setup_overview` at the root of `results/maps/`. Use `oa-da-plot-project-maps --project-dir /data/rofental/projects/project_2022_2023 --max-workers 4` to rerender the full combined map set in one command. Omit `--max-workers` to let the Docker container auto-select a recipe-level worker count from the visible CPUs. Overview panels use setup-local GISCO GeoJSONs under `env/`; if you want to prefetch them ahead of time, run `oa-da-fetch-overview-geojson --project-dir /data/rofental/projects/project_2022_2023`.
-For `snowdepth_daily`, the map renderer uses the viridis palette together with a shared linear legend scale per render run. Tick labels are shown in `cm`, cells below `1 cm` stay transparent so only meaningful snow cover is colored, and the top of the snow-depth legend is derived from the plotted maps. Increment panels use a signed red-blue diverging palette: negative increments are red, positive increments are blue. In generated DA-event maps, positive `analysis_increment` means the DA event added snow; negative means it removed snow.
+For the shipped examples, project maps are split into generated assimilation-event maps under `results/maps/da_events/` and custom YAML maps such as `setup_overview` at the root of `results/maps/`. After changing plot or map configuration, regenerate the complete configured presentation layer with:
 
-`oa-da-project` attempts to collect the project summary page, overview outputs, diagnostics, and DA-event maps into `results/reports/project_report.pdf` at the end of the run, after plots, maps, and benchmark-dependent overview panels are current. Report generation is best-effort in the pipeline: missing prerequisites are logged with a manual rerun command and do not fail the completed model run. To regenerate only the PDF later, run `oa-da-project-pdf --project-dir /data/rofental/projects/project_2022_2023`. The first PDF page contains basic setup YAML settings, wet-snow classification and liquid-water-content settings, DA-event counts, computing-cost stats, and a bottom `Content` table with page numbers first and section names second. The PDF then includes the overview plots, setup map, setup weights overview pages, station snow-depth point plots on one page, `performance_scores.png`, `project_perf.png`, and generated DA-event maps in temporal order. Source PNGs are placed at their shared export-DPI size rather than scaled down to fit a page; consecutive DA maps are packed onto a page only while the reserved bottom gap is preserved. Standalone per-event weights plots and other remaining plot/map PNGs are not included.
+**🟢 Run command:**
+
+```bash
+openamundsen-da render \
+  /data/rofental/projects/project_2022_2023 \
+  --max-workers 4
+```
+
+Omit `--max-workers` to let the container select the worker count from the visible
+CPUs. Rendering validates and refreshes the configured plots, maps and project
+report as one output set.
+
+For `snowdepth_daily`, the map renderer uses the viridis palette together with a shared linear legend scale per render run. Tick labels are shown in `cm`, cells below `1 cm` stay transparent so only meaningful snow cover is colored, and the top of the snow-depth legend is derived from the plotted maps. Increment panels use a signed red-blue diverging palette: negative increments are red, positive increments are blue. In generated assimilation-event maps, positive `analysis_increment` means the assimilation event added snow; negative means it removed snow.
+
+A successful project run requires `results/reports/project_report.pdf` after the
+plots, maps and benchmark outputs have validated. Use `openamundsen-da render` to
+regenerate that complete configured output set after a presentation-only change.
+The first PDF page summarizes the setup, wet-snow and liquid-water-content settings,
+assimilation-event counts and computing-cost statistics. The remaining pages collect
+the configured overview plots, maps and diagnostics in a compact review artifact.
 
 ### data assimilation increment map
 
-The tutorial includes generated DA-event maps above. For event-level diagnostics, use these maps or export
+The tutorial includes generated assimilation-event maps above. For event-level diagnostics, use these maps or export
 `analysis_increment_snowdepth_daily` from `da_output_grids.nc` on an assimilation date and compare it against the same-date prior/posterior mean maps.
 
 {: .references }
 > - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) (data assimilation output variable selection and metrics)
-> - [Project Structure]({{ site.baseurl }}{% link project-structure.md %}) (where project outputs live)
+> - [Output Data]({{ site.baseurl }}{% link output-data.md %}) (where project outputs live)
 > - [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %}) (how to interpret increments conceptually)
 
 ---
@@ -542,7 +572,7 @@ Reference file paths for ROI envelope outputs:
 > - useful for external plotting notebooks or reports
 > - easy comparison across experimental runs
 
-Reference CSV snippet (SCF ROI envelope)
+Reference CSV snippet (fSCA ROI envelope)
 
 File path: `/data/rofental/projects/project_2022_2023/results/misc/point_scf_roi_envelope.csv`
 
@@ -605,7 +635,7 @@ checks. Failed and interrupted projects keep restart state so they can resume.
 
 For an older project, first preview the eligible files:
 
-**🟢 Run this command:**
+**🟢 Run command:**
 
 ```bash
 openamundsen-da clean \
@@ -614,7 +644,7 @@ openamundsen-da clean \
 
 Apply the preview only after checking it:
 
-**🟢 Run this command:**
+**🟢 Run command:**
 
 ```bash
 openamundsen-da clean \
@@ -628,4 +658,4 @@ What is removed:
 - stale state pointers whose target no longer exists or is being removed.
 
 {: .references }
-> - [Workflow]({{ site.baseurl }}{% link workflow.md %}) (state cleanup behavior and project lifecycle)
+> - [Output Data]({{ site.baseurl }}{% link output-data.md %}) (retention and cleanup contract)

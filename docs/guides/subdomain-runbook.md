@@ -1,8 +1,8 @@
 ---
 layout: default
 title: Sub-domain Runbook
-parent: Guides
-nav_order: 6
+parent: Advanced
+nav_order: 2
 ---
 
 # End-to-end Sub-domain Runbook
@@ -57,7 +57,7 @@ Install Docker on the machine that will run the workflow. The commands below use
 Pull the image:
 
 ```bash
-docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest
+docker pull {{ site.data.release.image }}
 ```
 
 ## Host Setup Layout
@@ -117,7 +117,7 @@ Set the host setup path and project name:
 ```bash
 SETUP_HOST=/absolute/path/to/large_setup
 PROJECT_NAME=project_YYYY-YYYY
-IMAGE=ghcr.io/franzwagner-uibk/openamundsen_da:latest
+IMAGE={{ site.data.release.image }}
 ```
 
 Run the four explicit stages in order:
@@ -221,7 +221,7 @@ For a split and merged plain openAMUNDSEN model run without data assimilation, u
 
 ```bash
 SETUP_HOST=/absolute/path/to/large_setup
-IMAGE=ghcr.io/franzwagner-uibk/openamundsen_da:latest
+IMAGE={{ site.data.release.image }}
 
 docker run \
   -v "${SETUP_HOST}:/data" \

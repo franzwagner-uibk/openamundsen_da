@@ -1,0 +1,4 @@
+version: "0.9.0"
+status: "unreleased"
+image: "ghcr.io/franzwagner-uibk/openamundsen_da:0.9.0"
+

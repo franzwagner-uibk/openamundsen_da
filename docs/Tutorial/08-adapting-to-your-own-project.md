@@ -1,12 +1,12 @@
 ---
 layout: default
-title: 7. Adapting to Your Own Project
+title: 8. Adapting to Your Own Project
 parent: How to Use
-nav_order: 7
+nav_order: 8
 permalink: /tutorial/adapting-to-your-own-project/
 ---
 
-# 7. Adapting to Your Own Project
+# 8. Adapting to Your Own Project
 
 Use the Rofental tutorial as a working reference, not as a template to copy blindly.
 The safest path is to keep the workflow order intact: prepare the configuration,
@@ -46,12 +46,13 @@ a short date range, only a few assimilation events, and the minimum outputs need
 to confirm that the workflow runs cleanly. This keeps the structure familiar while
 you change data sources.
 
-Next, validate the observations before you spend time on assimilation tuning. Run
-`oa-da-snowcover` and/or `oa-da-wetsnow`, inspect `scf_summary.csv` and
-`wet_snow_summary.csv`, and choose a small set of usable dates. Once those dates
-are fixed, update `assimilation_events` and rebuild the step skeleton and per-step
-observation CSVs. Data assimilation debugging is much easier when coverage, class
-mappings, and product tags are already confirmed.
+Next, validate the observations before you spend time on assimilation tuning.
+Run `openamundsen-da observations snow-cover PROJECT_DIR` and/or
+`openamundsen-da observations wet-snow PROJECT_DIR`, inspect `scf_summary.csv`
+and `wet_snow_summary.csv`, and choose a small set of usable dates. Once those
+dates are fixed, update `assimilation_events` and run
+`openamundsen-da prepare PROJECT_DIR --overwrite`. Data assimilation debugging
+is much easier when coverage, class mappings and product tags are already confirmed.
 
 Only then run a cheap data assimilation test. If possible, use a coarser grid,
 fewer assimilation events, a small ensemble such as `5-10`, and a shorter
@@ -62,7 +63,7 @@ looks sane before increasing resolution or ensemble size.
 ## Choosing assimilation dates
 
 Choose dates from the summary CSVs rather than from visual impression alone. For
-FSC, prefer scenes with acceptable cloud fraction and enough valid pixels inside
+fSCA, prefer scenes with acceptable cloud fraction and enough valid pixels inside
 the project period. For wet snow, look for dates that capture onset or progression
 of melt rather than clustering all events in one phase.
 
@@ -106,10 +107,10 @@ assimilation dates. Document each change so runtime, ESS, and result-plot
 differences remain interpretable.
 
 For deeper reference material, continue with the
-[CLI Reference]({{ site.baseurl }}{% link guides/cli.md %}),
+[CLI Reference]({{ site.baseurl }}{% link reference/cli.md %}),
 [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}),
 [Observation Processing Guide]({{ site.baseurl }}{% link guides/observations.md %}),
-[Workflow Guide]({{ site.baseurl }}{% link workflow.md %}),
+[Running]({{ site.baseurl }}{% link running.md %}),
 [Advanced Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}),
 [Advanced Performance]({{ site.baseurl }}{% link advanced/performance.md %}), and
 the external openAMUNDSEN docs.

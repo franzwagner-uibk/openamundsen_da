@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
+  <title id="title">openAMUNDSEN-DA technical workflow and file boundary</title>
+  <desc id="desc">A host setup directory is mounted at data inside the container. Snow observations are summarized, the project is prepared into steps and the model run writes a validated manifest, grids, plots, maps and report.</desc>
+  <defs>
+    <style>
+      .background { fill: #ffffff; }
+      .boundary { fill: #f8f9fa; stroke: #1f2933; stroke-width: 2; }
+      .stage { fill: #ffffff; stroke: #2f5d7c; stroke-width: 2; }
+      .input { fill: #eef5fa; stroke: #2f5d7c; stroke-width: 2; }
+      .title { font: 700 25px Arial, sans-serif; fill: #111827; }
+      .heading { font: 700 20px Arial, sans-serif; fill: #111827; }
+      .body { font: 17px Arial, sans-serif; fill: #1f2933; }
+      .small { font: 15px Arial, sans-serif; fill: #374151; }
+      .mono { font: 15px Menlo, Consolas, monospace; fill: #111827; }
+      .arrow { stroke: #1f2933; stroke-width: 2.2; fill: none; marker-end: url(#arrowhead); }
+      .mount { stroke-dasharray: 8 6; }
+    </style>
+    <marker id="arrowhead" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#1f2933"/>
+    </marker>
+  </defs>
+
+  <rect class="background" x="0" y="0" width="1200" height="560"/>
+  <text class="title" x="600" y="38" text-anchor="middle">Technical workflow and file boundary</text>
+
+  <rect class="input" x="28" y="72" width="278" height="450" rx="16"/>
+  <text class="heading" x="54" y="108">Host setup directory</text>
+  <text class="mono" x="54" y="143">setup/</text>
+  <text class="mono" x="72" y="174">setup.yml</text>
+  <text class="small" x="205" y="174">model config</text>
+  <text class="mono" x="72" y="205">grids/</text>
+  <text class="mono" x="72" y="232">meteo/</text>
+  <text class="mono" x="72" y="263">obs/</text>
+  <text class="mono" x="90" y="290">snowcover/</text>
+  <text class="mono" x="90" y="317">wetsnow/</text>
+  <text class="mono" x="90" y="344">stations/</text>
+  <text class="mono" x="72" y="375">projects/</text>
+  <text class="mono" x="90" y="402">project_.../</text>
+  <text class="mono" x="108" y="429">project_....yml</text>
+  <text class="small" x="54" y="475">Editable inputs and generated outputs</text>
+  <text class="small" x="54" y="499">remain on the host.</text>
+
+  <path class="arrow mount" d="M306 284 L386 284"/>
+  <text class="small" x="346" y="245" text-anchor="middle">bind mount</text>
+  <text class="mono" x="346" y="266" text-anchor="middle">:/data</text>
+
+  <rect class="boundary" x="388" y="72" width="784" height="450" rx="16"/>
+  <text class="heading" x="414" y="108">Docker container</text>
+  <text class="mono" x="1144" y="108" text-anchor="end">setup mounted at /data</text>
+
+  <rect class="stage" x="416" y="137" width="218" height="330" rx="14"/>
+  <text class="heading" x="525" y="174" text-anchor="middle">1. Preprocess</text>
+  <text class="body" x="525" y="202" text-anchor="middle">snow observations</text>
+  <text class="mono" x="438" y="245">/data/obs/</text>
+  <text class="mono" x="456" y="271">snowcover/</text>
+  <text class="mono" x="456" y="297">wetsnow/</text>
+  <path class="arrow" d="M525 318 L525 346"/>
+  <text class="small" x="525" y="374" text-anchor="middle">summary statistics</text>
+  <text class="mono" x="438" y="405">obs/summaries/</text>
+  <text class="mono" x="456" y="431">*_summary.csv</text>
+
+  <path class="arrow" d="M634 302 L666 302"/>
+
+  <rect class="stage" x="666" y="137" width="218" height="330" rx="14"/>
+  <text class="heading" x="775" y="174" text-anchor="middle">2. Prepare</text>
+  <text class="body" x="775" y="202" text-anchor="middle">project windows</text>
+  <text class="mono" x="688" y="245">project_....yml</text>
+  <text class="small" x="688" y="272">dates, products and</text>
+  <text class="small" x="688" y="295">assimilation events</text>
+  <path class="arrow" d="M775 318 L775 346"/>
+  <text class="mono" x="688" y="378">steps/step_*/</text>
+  <text class="mono" x="706" y="405">obs/obs_*.csv</text>
+  <text class="small" x="688" y="434">one reviewed event input</text>
+  <text class="small" x="688" y="455">per matching step</text>
+
+  <path class="arrow" d="M884 302 L916 302"/>
+
+  <rect class="stage" x="916" y="137" width="228" height="330" rx="14"/>
+  <text class="heading" x="1030" y="174" text-anchor="middle">3. Run and validate</text>
+  <text class="body" x="1030" y="202" text-anchor="middle">openAMUNDSEN ensemble</text>
+  <text class="small" x="940" y="245">propagation, weighting,</text>
+  <text class="small" x="940" y="270">resampling and outputs</text>
+  <path class="arrow" d="M1030 291 L1030 319"/>
+  <text class="mono" x="940" y="351">results/</text>
+  <text class="mono" x="958" y="377">run_manifest.json</text>
+  <text class="mono" x="958" y="403">grids/*.nc</text>
+  <text class="mono" x="958" y="429">plots/ maps/ reports/</text>
+  <text class="small" x="940" y="455">success only after checks pass</text>
+
+  <text class="small" x="780" y="500" text-anchor="middle">The container supplies the pinned software; the mounted setup remains the durable project record.</text>
+</svg>

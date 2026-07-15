@@ -6,162 +6,81 @@ nav_order: 2
 
 # Installation
 
-{: .no_toc }
+openAMUNDSEN-DA is distributed as a Python package and as a wheel-based,
+multi-architecture Docker image. The image includes openAMUNDSEN, GDAL/PROJ and
+the plotting stack and is the recommended path for the complete workflow.
 
-Complete guide to installing and setting up openAMUNDSEN-DA.
-{: .fs-6 .fw-300 }
+## Requirements
 
-<details markdown="block">
-  <summary>
-    Table of contents
-  </summary>
-  {: .text-delta }
-1. TOC
-{:toc}
-</details>
+- Docker Desktop on Windows 10/11 with WSL2 or on macOS, or Docker Engine on Linux
+- an x86-64 or Apple-silicon/ARM64 host
+- enough local storage for one setup plus member outputs
 
----
+A small wiring test can run with 4 CPU cores and 16 GB RAM. The tutorial ES30
+project is more comfortable with 8 or more cores, 32 GB RAM and at least 50 GB
+of free disk. Higher resolution, more members and full member-grid retention can
+increase storage substantially; monitor `results/plots/perf/` during the run.
 
-## Prerequisites
-
-### System Requirements
-
-- **Operating System**: Windows 10/11, macOS, or Linux
-- **Memory**: 16 GB RAM minimum (32 GB recommended for large ensembles)
-- **CPU**: Multi-core processor (parallelization scales with core count)
-
-### Software Dependencies
-
-1. **Docker**
-   - **Windows**: Install [Docker Desktop](https://www.docker.com/products/docker-desktop); enable WSL2 backend. Reboot if prompted.
-   - **macOS**: Install [Docker Desktop](https://www.docker.com/products/docker-desktop).
-   - **Linux**: Install Docker Engine (and Compose, usually bundled). Quick steps (Ubuntu/Debian):
-     ```bash
-     sudo apt-get update
-     sudo apt-get install -y docker.io docker-compose-plugin
-     sudo usermod -aG docker $USER   # re-login to drop sudo
-     sudo systemctl enable --now docker
-     docker run hello-world          # verify
-     ```
-
-2. **Git** (optional, only for developer install)
-
----
-
-## How to Use First
-
-The full Rofental walkthrough lives in the How to Use section:
-
-- [How to Use overview]({{ '/tutorial/' | relative_url }})
-- [1. Overview]({{ '/tutorial/openamundsen-da/' | relative_url }})
-- [3. Example Data: Rofental]({{ '/tutorial/example-data-rofental/' | relative_url }})
-- [4. Preprocessing]({{ '/tutorial/pre-processing/' | relative_url }})
-- [5. Running the Model]({{ '/tutorial/running-the-project/' | relative_url }})
-
-## Developer install (clone + compose)
-
-Use this when you want to modify the code or run Compose with mounted source.
-
-1. Clone the repo:
-
-   ```bash
-   git clone https://github.com/franzwagner-uibk/openamundsen_da.git
-   cd openamundsen_da
-   ```
-
-2. (Optional) Build the distribution and a local image instead of pulling:
-
-   ```bash
-   python -m pip install build twine
-   bash scripts/ci/build_distribution.sh
-   docker build -t openamundsen-da:local .
-   ```
-
-3. Add the source-development Compose overlay. `PROJ` defaults to
-   `./examples/rofental`; override it inline when needed:
-
-   ```bash
-   IMAGE=openamundsen-da:local PROJ=/path/to/project \
-   docker compose -f compose.yml -f compose.dev.yml run --rm oa \
-     python -c "import openamundsen_da; print(openamundsen_da.__version__)"
-   ```
-
-Release-mode `compose.yml` mounts the setup and cache only. It executes the
-non-editable wheel installed in the image; it does not shadow that wheel with a
-source checkout.
-
----
-
-## Next Steps
-
-- [Running Experiments]({{ '/guides/experiments/' | relative_url }}) - Set up your own project and run custom setups
-- [Project Structure]({{ site.baseurl }}{% link project-structure.md %}) - Understand the directory layout
-- [Workflow Overview]({{ site.baseurl }}{% link workflow.md %}) - Learn the data assimilation workflow
-
----
-
-## Troubleshooting
-
-### Docker Issues
-
-**Problem**: "Cannot connect to Docker daemon"
+Verify Docker before downloading the image:
 
 ```bash
-# Start Docker Desktop (Windows/macOS)
-# Or start Docker service (Linux)
-sudo systemctl start docker
+docker run --rm hello-world
 ```
 
-**Problem**: "Permission denied" on Linux
+## Docker image
+
+Pull the exact v0.9 image:
 
 ```bash
-sudo usermod -aG docker $USER
-sudo systemctl enable --now docker
-# Then refresh your login session:
-# - log out and back in, or
-# - reboot, or
-# - run: newgrp docker
+docker pull {{ site.data.release.image }}
 ```
 
-Until your session is refreshed, running Docker commands with `sudo` can be necessary.
+During the release-candidate rehearsal, replace `0.9.0` with the published RC
+tag. `edge` follows the latest green `main` commit and is suitable only for
+testing unreleased documentation.
 
-**Problem**: Tutorial or example files copied from a container are owned by `root`
-
-This usually happens on Linux when a bind-mounted copy command was run with `sudo docker ...`.
-The container process writes into the mounted host directory as `root`, so later edits to
-`rofental.yml`, project YAMLs, or generated files may ask for `sudo`.
-
-Preferred fix:
+Verify the installed version and architecture:
 
 ```bash
-sudo usermod -aG docker $USER
-# Then log out/in, reboot, or run: newgrp docker
+docker run --rm {{ site.data.release.image }} openamundsen-da --version
 ```
 
-If the files are already root-owned, repair ownership on the host:
+The image contains the shipped examples under `/workspace/examples`. Copy an
+example to a host directory before running it so that configuration and outputs
+persist outside the container. The [How to Use installation chapter]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %})
+shows that sequence in full.
+
+## Python package
+
+Python 3.11, 3.12, 3.13 and 3.14 are supported:
 
 ```bash
-cd /path/to/tutorial-workdir
-sudo chown -R "$USER":"$USER" rofental
-chmod -R u+rwX rofental
+python -m pip install openamundsen-da
+openamundsen-da --version
 ```
 
-### GDAL Issues
+The Python package does not replace system-level geospatial libraries on every
+platform. Use the container when you need the tested end-to-end runtime.
 
-**Problem**: "GDAL not found" or import errors
+## Developer checkout
+
+Clone the repository, build the strict distribution and install the tested wheel:
 
 ```bash
-# Check GDAL installation
-gdalinfo --version
-
-# Set environment variables (Linux/macOS)
-export GDAL_DATA=$(gdal-config --datadir)
-export PROJ_LIB=/path/to/proj/share/proj
-
-# Or add to setup YAML
-environment:
-  GDAL_DATA: /usr/share/gdal
-  PROJ_LIB: /usr/share/proj
+git clone https://github.com/franzwagner-uibk/openamundsen_da.git
+cd openamundsen_da
+python -m pip install build twine
+bash scripts/ci/build_distribution.sh
+python -m pip install dist/openamundsen_da-*.whl
 ```
 
-See [Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) for more issues and solutions.
+`compose.yml` executes the non-editable wheel installed in the image and mounts
+only setup data and cache. Add `compose.dev.yml` explicitly when developing with
+a source overlay.
+
+## Next steps
+
+Continue with [Input Data]({{ site.baseurl }}{% link guides/observations.md %}),
+[Configuration]({{ site.baseurl }}{% link guides/configuration.md %}) or the
+[How to Use tutorial]({{ '/tutorial/' | relative_url }}). Installation problems
+are collected under [Advanced troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}).

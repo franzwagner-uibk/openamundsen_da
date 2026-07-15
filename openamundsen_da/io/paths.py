@@ -18,14 +18,11 @@ Assumptions
 - Repository layout matches the openAMUNDSEN convention (setup/step/ensembles/member_*).
 """
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Union
-
-import pandas as pd
-from loguru import logger
-import json
 
 from openamundsen_da.core.constants import (
     ENSEMBLE_PRIOR,
@@ -37,12 +34,6 @@ from openamundsen_da.core.constants import (
 )
 
 # ---- Raster/NetCDF discovery helpers ---------------------------------------
-
-_VAR_TO_NC_NAME = {
-    VAR_HS: "snowdepth_daily",
-    VAR_SWE: "swe_daily",
-}
-
 
 @dataclass(frozen=True)
 class GridSlice:
@@ -57,73 +48,33 @@ class GridSlice:
 
 # ---- YAML discovery helpers -------------------------------------------------
 
-def _discover_named_yaml(
-    root_dir: Path,
-    *,
-    preferred_name: str,
-    fallback_name: str,
-    allow_single_candidate: bool = False,
-) -> Path:
-    """
-    Discover a YAML file in `root_dir` with deterministic precedence.
+def _canonical_yaml(root_dir: Path, *, kind: str) -> Path:
+    """Return the one canonical YAML path for a setup or project directory."""
+    root_dir = Path(root_dir)
+    canonical = root_dir / f"{root_dir.name}.yml"
+    if canonical.is_file():
+        return canonical
 
-    Priority:
-    1) `<preferred_name>.yml`
-    2) `<fallback_name>.yml`
-    3) exactly one `*.yml` in directory (optional)
-
-    Always logs which file was selected.
-    """
-    preferred = root_dir / f"{preferred_name}.yml"
-    if preferred.is_file():
-        logger.debug("Resolved YAML: {}", preferred)
-        return preferred
-
-    fallback = root_dir / f"{fallback_name}.yml"
-    if fallback.is_file():
-        logger.debug("Resolved YAML: {}", fallback)
-        return fallback
-
-    if allow_single_candidate:
-        candidates = sorted(root_dir.glob("*.yml"))
-        if len(candidates) == 1:
-            logger.debug("Resolved YAML: {}", candidates[0])
-            return candidates[0]
-
-    raise FileNotFoundError(f"Missing YAML in {root_dir}: expected {preferred.name} or {fallback.name}")
+    legacy_name = "setup.yml" if kind == "setup" else "project.yml"
+    legacy = root_dir / legacy_name
+    hint = f"; rename legacy alias {legacy.name} to {canonical.name}" if legacy.is_file() else ""
+    raise FileNotFoundError(f"Missing canonical {kind} YAML {canonical}{hint}")
 
 
 def find_setup_yaml(setup_dir: str | Path) -> Path:
-    """
-    Return setup-level YAML from a setup root directory.
-
-    Setup YAML naming is strict-by-convention:
-    - preferred: `<setup_dir.name>.yml`
-    - template fallback: `setup.yml`
-    """
+    """Return the required ``<setup-name>.yml`` setup configuration."""
     setup_dir = Path(setup_dir)
     if not (setup_dir / "projects").is_dir():
         raise FileNotFoundError(f"Not a setup root (missing projects/): {setup_dir}")
-    return _discover_named_yaml(
-        setup_dir,
-        preferred_name=setup_dir.name,
-        fallback_name="setup",
-        allow_single_candidate=True,
-    )
+    return _canonical_yaml(setup_dir, kind="setup")
 
 
 def find_project_yaml(project_dir: str | Path) -> Path:
-    """
-    Return project-level YAML from a project directory.
-
-    Project YAML naming is strict-by-convention:
-    - preferred: `<project_dir.name>.yml`
-    - fallback: `project.yml`
-    """
+    """Return the required ``<project-name>.yml`` project configuration."""
     project_dir = Path(project_dir)
     if project_dir.parent.name != "projects":
         raise FileNotFoundError(f"Not a project directory under projects/: {project_dir}")
-    return _discover_named_yaml(project_dir, preferred_name=project_dir.name, fallback_name="project")
+    return _canonical_yaml(project_dir, kind="project")
 
 
 def infer_project_dir(path: str | Path) -> Path:
@@ -588,92 +539,14 @@ def find_member_daily_grid_slice(
     date_str: str,
     preferred_format: str | None = None,
 ) -> GridSlice:
-    """
-    Locate a daily gridded output for the given variable/date.
+    """Resolve a daily grid through an explicitly selected format adapter."""
+    if preferred_format is None:
+        raise ValueError("preferred_format is required; cross-format model-grid discovery is not supported")
+    from openamundsen_da.io.model_grids import resolve_model_grid_slice
 
-    The search order honors `preferred_format` when provided. Otherwise it
-    tries GeoTIFF first for backward compatibility, then NetCDF.
-    """
-    results_dir = Path(results_dir)
-    date = datetime.fromisoformat(date_str)
-
-    fmt = (preferred_format or "").lower().strip() or None
-    if fmt not in {None, "geotiff", "netcdf"}:
-        fmt = None  # fall back to autodetect
-
-    def _try_geotiff() -> GridSlice | None:
-        try:
-            tif = find_member_daily_raster(results_dir, variable, date_str)
-            return GridSlice(kind="geotiff", path=tif, variable=variable, date=date, band=1)
-        except FileNotFoundError:
-            return None
-
-    nc_var = _VAR_TO_NC_NAME.get(variable)
-    if nc_var is None:
-        raise FileNotFoundError(f"No NetCDF mapping for variable '{variable}'")
-
-    def _try_netcdf() -> GridSlice | None:
-        candidates = sorted(results_dir.glob("*.nc"))
-        for nc_path in candidates:
-            try:
-                import xarray as xr  # lazy import
-            except Exception as exc:  # pragma: no cover - defensive
-                raise FileNotFoundError("xarray is required to read NetCDF outputs.") from exc
-
-            try:
-                with xr.open_dataset(nc_path) as ds:
-                    if nc_var not in ds:
-                        continue
-                    da = ds[nc_var]
-                    time_dims = [d for d in da.dims if d.startswith("time")]
-                    if not time_dims:
-                        continue
-                    time_dim = time_dims[0]
-                    times = pd.to_datetime(ds[time_dim].values)
-                    # Prefer exact datetime match; otherwise fall back to calendar date match.
-                    matches_dt = [i for i, t in enumerate(times) if pd.to_datetime(t) == date]
-                    idx = None
-                    if matches_dt:
-                        idx = matches_dt[0]
-                    else:
-                        matches_date = [i for i, t in enumerate(times) if pd.to_datetime(t).date() == date.date()]
-                        if matches_date:
-                            idx = matches_date[0]
-                    if idx is None:
-                        continue
-                    band = idx + 1  # rasterio flattens time to band (1-based)
-                    return GridSlice(
-                        kind="netcdf",
-                        path=nc_path,
-                        variable=variable,
-                        date=date,
-                        band=band,
-                        nc_var=nc_var,
-                    )
-            except Exception:
-                continue
-        return None
-
-    # Resolve according to preferred_format
-    if fmt == "geotiff":
-        tif_slice = _try_geotiff()
-        if tif_slice:
-            return tif_slice
-        raise FileNotFoundError(f"No GeoTIFF found for variable '{variable}' and date {date_str} in {results_dir}")
-    if fmt == "netcdf":
-        nc_slice = _try_netcdf()
-        if nc_slice:
-            return nc_slice
-        raise FileNotFoundError(f"No NetCDF grid found for variable '{variable}' and date {date_str} in {results_dir}")
-
-    # fmt None -> try GeoTIFF then NetCDF
-    tif_slice = _try_geotiff()
-    if tif_slice:
-        return tif_slice
-    nc_slice = _try_netcdf()
-    if nc_slice:
-        return nc_slice
-
-    raise FileNotFoundError(
-        f"No GeoTIFF or NetCDF daily grid found for variable '{variable}' and date {date_str} in {results_dir}"
+    return resolve_model_grid_slice(
+        results_dir=results_dir,
+        variable=variable,
+        date=datetime.fromisoformat(date_str),
+        grid_format=preferred_format,
     )

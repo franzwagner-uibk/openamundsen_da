@@ -6,9 +6,6 @@ from typing import Any
 import ruamel.yaml
 
 
-_YAML = ruamel.yaml.YAML(typ="safe")
-
-
 def read_yaml_mapping(
     path: Path,
     *,
@@ -16,9 +13,11 @@ def read_yaml_mapping(
     context: str = "YAML root",
 ) -> dict[str, Any]:
     """Read YAML and require a mapping at document root."""
+    yaml = ruamel.yaml.YAML(typ="safe")
+    yaml.allow_duplicate_keys = False
     try:
         with Path(path).open("r", encoding="utf-8") as f:
-            data = _YAML.load(f) or {}
+            data = yaml.load(f) or {}
     except Exception as exc:
         raise error_cls(f"Could not read YAML from {path}: {exc}") from exc
     if not isinstance(data, dict):

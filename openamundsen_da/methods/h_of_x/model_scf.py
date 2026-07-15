@@ -52,12 +52,12 @@ from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.io.paths import (
     find_member_daily_grid_slice,
     member_id_from_results_dir,
-    find_setup_yaml,
     find_project_yaml,
     infer_project_dir,
     infer_setup_dir_from_project,
     list_step_dirs,
 )
+from openamundsen_da.io.model_grids import configured_model_grid_format
 from openamundsen_da.util.landcover_mask import (
     LandcoverMaskConfig,
     deserialize_landcover_mask_config,
@@ -122,23 +122,9 @@ def load_hofx_from_project(project_dir: Path) -> tuple[str, str, SCFParams]:
     return _parse_hofx_block(hofx)
 
 
-def _grid_format_from_setup(setup_dir: Path) -> str | None:
-    """Return output_data.grids.format from setup YAML (lowercase) if present."""
-    try:
-        proj = find_setup_yaml(setup_dir)
-        cfg = _read_yaml_file(proj) or {}
-        out_cfg = cfg.get("output_data", {}).get("grids", {})
-        fmt = out_cfg.get("format")
-        if fmt:
-            f = str(fmt).lower().strip()
-            if f in {"geotiff", "netcdf"}:
-                return f
-            if f == "ascii":
-                # ASCII grids are not supported for DA readers; fall back to autodetect.
-                return None
-        return None
-    except Exception:
-        return None
+def _grid_format_from_setup(setup_dir: Path) -> str:
+    """Return the required configured model-grid format."""
+    return configured_model_grid_format(setup_dir).value
 
 
 def _valid_mask(x: np.ma.MaskedArray) -> np.ndarray:

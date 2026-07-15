@@ -8,23 +8,22 @@ from openamundsen_da.io.paths import find_project_yaml, infer_project_dir, infer
 
 
 class YamlDiscoveryTests(unittest.TestCase):
-    def test_find_project_yaml_prefers_project_name(self):
+    def test_find_project_yaml_uses_canonical_project_name(self):
         with TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "projects" / "project_alpha"
             project_dir.mkdir(parents=True, exist_ok=True)
             preferred = project_dir / "project_alpha.yml"
-            fallback = project_dir / "project.yml"
             preferred.write_text("a: 1\n", encoding="utf-8")
-            fallback.write_text("a: 2\n", encoding="utf-8")
             self.assertEqual(find_project_yaml(project_dir), preferred)
 
-    def test_find_project_yaml_uses_project_fallback(self):
+    def test_find_project_yaml_rejects_project_alias(self):
         with TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "projects" / "project_beta"
             project_dir.mkdir(parents=True, exist_ok=True)
             fallback = project_dir / "project.yml"
             fallback.write_text("a: 1\n", encoding="utf-8")
-            self.assertEqual(find_project_yaml(project_dir), fallback)
+            with self.assertRaisesRegex(FileNotFoundError, "rename legacy alias"):
+                find_project_yaml(project_dir)
 
     def test_find_project_yaml_rejects_unrelated_single_yaml(self):
         with TemporaryDirectory() as tmp:

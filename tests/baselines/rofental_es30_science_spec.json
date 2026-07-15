@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "exclude": [
+    "projects/project_2022_2023/results/plots/perf/**",
+    "projects/project_2022_2023/project_2022_2023.log"
+  ],
+  "files": [
+    {
+      "glob": "*.yml",
+      "kind": "yaml"
+    },
+    {
+      "glob": "projects/project_2022_2023/*.yml",
+      "kind": "yaml"
+    },
+    {
+      "glob": "grids/**/*",
+      "kind": "binary"
+    },
+    {
+      "glob": "meteo/**/*",
+      "kind": "binary"
+    },
+    {
+      "glob": "obs/**/*",
+      "kind": "binary"
+    },
+    {
+      "glob": "projects/project_2022_2023/steps/*/*.yml",
+      "kind": "yaml"
+    },
+    {
+      "glob": "projects/project_2022_2023/steps/**/*.csv",
+      "kind": "csv"
+    },
+    {
+      "glob": "projects/project_2022_2023/results/**/*.csv",
+      "kind": "csv"
+    },
+    {
+      "glob": "projects/project_2022_2023/results/**/*.json",
+      "kind": "json",
+      "ignore_keys": [
+        "created_at",
+        "generated_at",
+        "timestamp"
+      ]
+    },
+    {
+      "path": "projects/project_2022_2023/results/grids/da_output_grids.nc",
+      "kind": "netcdf"
+    },
+    {
+      "glob": "projects/project_2022_2023/results/**/*.png",
+      "kind": "image"
+    }
+  ]
+}

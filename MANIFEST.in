@@ -19,6 +19,7 @@ exclude .dockerignore
 exclude .gitattributes
 exclude .gitignore
 exclude .sync-exclude.lst
+exclude .trivyignore
 exclude AGENTS.md
 exclude CLAUDE.md
 exclude Dockerfile

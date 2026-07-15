@@ -1,345 +1,133 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from openamundsen_da.subdomain import cli as subdomain_cli
+from openamundsen_da import cli
 
 
-def _write_project_yaml(project_dir: Path) -> None:
-    project_dir.mkdir(parents=True, exist_ok=True)
-    (project_dir / f"{project_dir.name}.yml").write_text(
-        "start_date: '2022-10-01'\nend_date: '2022-10-02'\ndata_assimilation: {}\n",
-        encoding="utf-8",
-    )
-
-
-def test_prepare_uses_setup_default_subdomain_root(monkeypatch, tmp_path: Path) -> None:
-    setup_dir = tmp_path / "rofental"
-    project_dir = setup_dir / "projects" / "project_2022_2023"
-    regions = tmp_path / "regions.gpkg"
-    setup_dir.mkdir(parents=True, exist_ok=True)
-    _write_project_yaml(project_dir)
-    regions.write_text("", encoding="utf-8")
-
-    called: dict = {}
-
-    def _fake_prepare_subdomains(**kwargs):
-        called.update(kwargs)
-
-    monkeypatch.setattr("openamundsen_da.subdomain.prepare.prepare_subdomains", _fake_prepare_subdomains)
-
-    rc = subdomain_cli.cli(
-        [
-            "prepare",
-            "--setup-dir",
-            str(setup_dir),
-            "--project-dir",
-            str(project_dir),
-            "--regions",
-            str(regions),
-        ]
-    )
-
-    assert rc == 0
-    assert called["setup_dir"] == setup_dir
-    assert called["project_dir"] == project_dir
-    assert called["subdomain_root"] == project_dir / "subdomains"
-
-
-def test_model_prepare_uses_setup_default_subdomain_root(monkeypatch, tmp_path: Path) -> None:
-    setup_dir = tmp_path / "rofental"
-    regions = tmp_path / "regions.gpkg"
-    setup_dir.mkdir(parents=True, exist_ok=True)
-    regions.write_text("", encoding="utf-8")
-
-    called: dict = {}
-
-    def _fake_prepare_model_subdomains(**kwargs):
-        called.update(kwargs)
-
-    monkeypatch.setattr(
-        "openamundsen_da.subdomain.prepare.prepare_model_subdomains",
-        _fake_prepare_model_subdomains,
-    )
-
-    rc = subdomain_cli.cli(
-        [
-            "model-prepare",
-            "--setup-dir",
-            str(setup_dir),
-            "--regions",
-            str(regions),
-        ]
-    )
-
-    assert rc == 0
-    assert called["setup_dir"] == setup_dir
-    assert called["subdomain_root"] == setup_dir / "subdomains" / "model"
-
-
-def test_prepare_defaults_to_subdomains_regions_file(monkeypatch, tmp_path: Path) -> None:
-    setup_dir = tmp_path / "rofental"
-    project_dir = setup_dir / "projects" / "project_2022_2023"
-    env_dir = setup_dir / "env"
-    env_dir.mkdir(parents=True, exist_ok=True)
-    (env_dir / "subdomains.gpkg").write_text("", encoding="utf-8")
-    _write_project_yaml(project_dir)
-
-    called: dict = {}
-
-    def _fake_prepare_subdomains(**kwargs):
-        called.update(kwargs)
-
-    monkeypatch.setattr("openamundsen_da.subdomain.prepare.prepare_subdomains", _fake_prepare_subdomains)
-
-    rc = subdomain_cli.cli(
-        [
-            "prepare",
-            "--setup-dir",
-            str(setup_dir),
-            "--project-dir",
-            str(project_dir),
-        ]
-    )
-
-    assert rc == 0
-    assert called["regions_path"] == setup_dir / "env" / "subdomains.gpkg"
-
-
-def test_prepare_defaults_to_roi_regions_file_when_subdomains_missing(monkeypatch, tmp_path: Path) -> None:
-    setup_dir = tmp_path / "rofental"
-    project_dir = setup_dir / "projects" / "project_2022_2023"
-    env_dir = setup_dir / "env"
-    env_dir.mkdir(parents=True, exist_ok=True)
-    (env_dir / "roi.gpkg").write_text("", encoding="utf-8")
-    _write_project_yaml(project_dir)
-
-    called: dict = {}
-
-    def _fake_prepare_subdomains(**kwargs):
-        called.update(kwargs)
-
-    monkeypatch.setattr("openamundsen_da.subdomain.prepare.prepare_subdomains", _fake_prepare_subdomains)
-
-    rc = subdomain_cli.cli(
-        [
-            "prepare",
-            "--setup-dir",
-            str(setup_dir),
-            "--project-dir",
-            str(project_dir),
-        ]
-    )
-
-    assert rc == 0
-    assert called["regions_path"] == setup_dir / "env" / "roi.gpkg"
-
-
-def test_run_resolves_manifest_from_project_dir(monkeypatch, tmp_path: Path) -> None:
-    setup_dir = tmp_path / "rofental"
-    project_dir = setup_dir / "projects" / "project_2022_2023"
-    _write_project_yaml(project_dir)
-    manifest = project_dir / "subdomains" / "subdomain_manifest.json"
-    manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text("{}", encoding="utf-8")
-
-    called: dict = {}
-
-    def _fake_run_subdomains(**kwargs):
-        called.update(kwargs)
-
-    monkeypatch.setattr("openamundsen_da.subdomain.run.run_subdomains", _fake_run_subdomains)
-
-    rc = subdomain_cli.cli(["run", "--project-dir", str(project_dir), "--no-perf-monitor"])
-
-    assert rc == 0
-    assert called["manifest_path"] == manifest
-
-
-def test_model_run_resolves_manifest_from_setup_dir_and_selected_subdomains(monkeypatch, tmp_path: Path) -> None:
-    setup_dir = tmp_path / "rofental"
-    manifest = setup_dir / "subdomains" / "model" / "subdomain_manifest.json"
-    manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text("{}", encoding="utf-8")
-
-    called: dict = {}
-
-    def _fake_run_model_subdomains(**kwargs):
-        called.update(kwargs)
-
-    monkeypatch.setattr("openamundsen_da.subdomain.model.run_model_subdomains", _fake_run_model_subdomains)
-
-    rc = subdomain_cli.cli(
-        [
-            "model-run",
-            "--setup-dir",
-            str(setup_dir),
-            "--subdomains",
-            "sd_02",
-            "--max-workers",
-            "3",
-        ]
-    )
-
-    assert rc == 0
-    assert called["manifest_path"] == manifest
-    assert called["subdomains"] == ["sd_02"]
-    assert called["max_workers"] == 3
-
-
-def test_merge_uses_default_output_layout(monkeypatch, tmp_path: Path) -> None:
-    setup_dir = tmp_path / "rofental"
-    project_dir = setup_dir / "projects" / "project_2022_2023"
-    _write_project_yaml(project_dir)
-    manifest = project_dir / "subdomains" / "subdomain_manifest.json"
-    manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text(
-        "{}",
-        encoding="utf-8",
-    )
-
-    called_grids: dict = {}
-    def _fake_merge_grids(**kwargs):
-        called_grids.update(kwargs)
-        return []
-
-    monkeypatch.setattr("openamundsen_da.subdomain.merge.merge_grids", _fake_merge_grids)
-    monkeypatch.setattr(
-        "openamundsen_da.subdomain.manifest.SubdomainManifest.load",
-        lambda _path: type("M", (), {"project_dir": project_dir})(),
-    )
-
-    rc = subdomain_cli.cli(["merge", "--project-dir", str(project_dir)])
-
-    assert rc == 0
-    assert called_grids["out_dir"] == project_dir / "results" / "grids"
-    assert called_grids["cleanup_compact_artifacts"] is False
-
-
-def test_merge_cleanup_requires_confirmation(tmp_path: Path) -> None:
-    setup_dir = tmp_path / "rofental"
-    project_dir = setup_dir / "projects" / "project_2022_2023"
-    _write_project_yaml(project_dir)
-
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["subdomains", "pipeline", "/tmp/project"],
+        ["subdomains", "plot", "/tmp/project"],
+        ["subdomains", "model-pipeline", "/tmp/setup"],
+        ["subdomains", "model-prepare", "/tmp/setup"],
+    ],
+)
+def test_removed_subdomain_aliases_are_rejected(arguments: list[str]) -> None:
     with pytest.raises(SystemExit) as excinfo:
-        subdomain_cli.cli(
-            [
-                "merge",
-                "--project-dir",
-                str(project_dir),
-                "--cleanup-compact-artifacts",
-            ]
-        )
+        cli.build_parser().parse_args(arguments)
 
     assert excinfo.value.code == 2
 
 
-def test_merge_passes_explicit_cleanup_flag(monkeypatch, tmp_path: Path) -> None:
-    setup_dir = tmp_path / "rofental"
-    project_dir = setup_dir / "projects" / "project_2022_2023"
-    _write_project_yaml(project_dir)
-    manifest = project_dir / "subdomains" / "subdomain_manifest.json"
-    manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text("{}", encoding="utf-8")
+def test_da_prepare_dispatches_directly_to_staged_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    setup_dir = tmp_path / "setup"
+    project_dir = setup_dir / "projects" / "winter"
+    regions = setup_dir / "env" / "subdomains.gpkg"
+    regions.parent.mkdir(parents=True)
+    regions.write_bytes(b"regions")
+    project_dir.mkdir(parents=True)
+    called: dict[str, object] = {}
 
-    called_grids: dict = {}
-
-    def _fake_merge_grids(**kwargs):
-        called_grids.update(kwargs)
-        return []
-
-    monkeypatch.setattr("openamundsen_da.subdomain.merge.merge_grids", _fake_merge_grids)
-    monkeypatch.setattr(
-        "openamundsen_da.subdomain.manifest.SubdomainManifest.load",
-        lambda _path: type("M", (), {"project_dir": project_dir})(),
-    )
-
-    rc = subdomain_cli.cli(
-        [
-            "merge",
-            "--project-dir",
-            str(project_dir),
-            "--cleanup-compact-artifacts",
-            "--confirm-delete-raw-grid-support",
-        ]
-    )
-
-    assert rc == 0
-    assert called_grids["cleanup_compact_artifacts"] is True
-
-
-def test_model_merge_resolves_manifest_from_setup_dir(monkeypatch, tmp_path: Path) -> None:
-    setup_dir = tmp_path / "rofental"
-    manifest = setup_dir / "subdomains" / "model" / "subdomain_manifest.json"
-    manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text("{}", encoding="utf-8")
-
-    called: dict = {}
-
-    def _fake_merge_model_grids(**kwargs):
+    def fake_prepare(**kwargs):
         called.update(kwargs)
-        return []
+        return SimpleNamespace(
+            subdomain_root=project_dir / "subdomains",
+            subdomains={"sd_01": object(), "sd_02": object()},
+        )
 
-    monkeypatch.setattr("openamundsen_da.subdomain.merge.merge_model_grids", _fake_merge_model_grids)
+    monkeypatch.setattr("openamundsen_da.subdomain.prepare.prepare_subdomains", fake_prepare)
 
-    rc = subdomain_cli.cli(["model-merge", "--setup-dir", str(setup_dir)])
+    exit_code = cli.main(["subdomains", "prepare", str(project_dir), "--json"])
 
-    assert rc == 0
-    assert called["manifest_path"] == manifest
-    assert called["out_dir"] is None
-
-
-def test_resolve_manifest_from_subdomain_root(tmp_path: Path) -> None:
-    subdomain_root = tmp_path / "custom_subdomains"
-    manifest = subdomain_root / "subdomain_manifest.json"
-    subdomain_root.mkdir(parents=True, exist_ok=True)
-    manifest.write_text("{}", encoding="utf-8")
-
-    resolved = subdomain_cli._resolve_manifest(
-        manifest_arg=None,
-        project_dir=None,
-        subdomain_root=subdomain_root,
-    )
-    assert resolved == manifest
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert called["setup_dir"] == setup_dir.resolve()
+    assert called["project_dir"] == project_dir.resolve()
+    assert called["regions_path"] == regions.resolve()
+    assert payload["result"]["subdomain_count"] == 2
 
 
-def test_resolve_model_manifest_from_subdomain_root(tmp_path: Path) -> None:
-    subdomain_root = tmp_path / "model_subdomains"
-    manifest = subdomain_root / "subdomain_manifest.json"
-    subdomain_root.mkdir(parents=True, exist_ok=True)
-    manifest.write_text("{}", encoding="utf-8")
+def test_model_prepare_keeps_plain_model_root_separate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    setup_dir = tmp_path / "setup"
+    regions = setup_dir / "env" / "subdomains.gpkg"
+    regions.parent.mkdir(parents=True)
+    regions.write_bytes(b"regions")
+    called: dict[str, object] = {}
 
-    resolved = subdomain_cli._resolve_model_manifest(
-        manifest_arg=None,
-        setup_dir=None,
-        subdomain_root=subdomain_root,
-    )
-    assert resolved == manifest
-
-
-def test_plot_defaults_to_snow_depth_obs_column(monkeypatch, tmp_path: Path) -> None:
-    setup_dir = tmp_path / "rofental"
-    project_dir = setup_dir / "projects" / "project_2022_2023"
-    _write_project_yaml(project_dir)
-    manifest = project_dir / "subdomains" / "subdomain_manifest.json"
-    manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text("{}", encoding="utf-8")
-
-    called: dict = {}
-
-    def _fake_plot_station_comparisons(**kwargs):
+    def fake_prepare(**kwargs):
         called.update(kwargs)
-        return []
+        return SimpleNamespace(
+            subdomain_root=setup_dir / "subdomains" / "model",
+            subdomains={"sd_01": object()},
+        )
 
     monkeypatch.setattr(
-        "openamundsen_da.methods.viz.plots.subdomain.station_comparisons.plot_station_comparisons",
-        _fake_plot_station_comparisons,
+        "openamundsen_da.subdomain.prepare.prepare_model_subdomains",
+        fake_prepare,
     )
 
-    rc = subdomain_cli.cli(["plot", "--project-dir", str(project_dir)])
+    exit_code = cli.main(["subdomains", "model", "prepare", str(setup_dir)])
 
-    assert rc == 0
-    assert called["manifest_path"] == manifest
-    assert called["obs_column"] == "snow_depth"
+    assert exit_code == 0
+    assert called["setup_dir"] == setup_dir.resolve()
+    assert called["regions_path"] == regions.resolve()
+
+
+def test_da_merge_dispatches_to_manifest_owned_stage(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "winter"
+    project_dir.mkdir(parents=True)
+    called: dict[str, object] = {}
+
+    def fake_merge(**kwargs):
+        called.update(kwargs)
+        return [project_dir / "results" / "grids" / "da_output_grids.nc"]
+
+    monkeypatch.setattr("openamundsen_da.subdomain.merge.merge_grids", fake_merge)
+
+    exit_code = cli.main(["subdomains", "merge", str(project_dir)])
+
+    assert exit_code == 0
+    assert called["manifest_path"] == project_dir / "subdomains" / "subdomain_manifest.json"
+
+
+def test_model_merge_dispatches_to_plain_model_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    setup_dir = tmp_path / "setup"
+    setup_dir.mkdir()
+    called: dict[str, object] = {}
+
+    def fake_merge(**kwargs):
+        called.update(kwargs)
+        return [setup_dir / "subdomains" / "model" / "results" / "grids" / "output_grids.nc"]
+
+    monkeypatch.setattr("openamundsen_da.subdomain.merge.merge_model_grids", fake_merge)
+
+    exit_code = cli.main(["subdomains", "model", "merge", str(setup_dir)])
+
+    assert exit_code == 0
+    assert called["manifest_path"] == setup_dir / "subdomains" / "model" / "subdomain_manifest.json"
+
+
+def test_subdomain_project_must_follow_setup_projects_layout(tmp_path: Path) -> None:
+    project_dir = tmp_path / "winter"
+    project_dir.mkdir()
+
+    assert cli.main(["subdomains", "merge", str(project_dir)]) == 1

@@ -26,6 +26,7 @@ from openamundsen_da.pipeline.project import OrchestratorConfig, run_project
 from openamundsen_da.pipeline.project_skeleton import create_project_skeleton
 from openamundsen_da.subdomain.event_filter import filter_project_events_for_subdomain
 from openamundsen_da.subdomain.manifest import SubdomainManifest
+from openamundsen_da.subdomain.status import save_stage, terminal_status
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.parallel import pick_max_workers
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
@@ -436,6 +437,7 @@ def run_subdomains(
     unknown = [sid for sid in selected_ids if sid not in manifest.subdomains]
     if unknown:
         raise ValueError(f"Sub-domains not in manifest: {', '.join(unknown)}")
+    save_stage(manifest, manifest_path, "run", "running")
 
     root_log = manifest.project_dir / "subdomain_run.log"
     sink_id = None
@@ -494,7 +496,7 @@ def run_subdomains(
             res = fut.result()
             results.append(res)
             meta = manifest.subdomains[sid]
-            meta.status = res.status
+            meta.status = "success" if res.status == "skipped" else res.status
             if res.run_manifest:
                 meta.run_manifest = res.run_manifest
             meta.dropped_events = list(res.dropped_events or [])
@@ -513,6 +515,16 @@ def run_subdomains(
                         other.cancel()
                 executor.shutdown(wait=False, cancel_futures=True)
                 break
+    except BaseException as exc:
+        current = SubdomainManifest.load(manifest_path)
+        save_stage(
+            current,
+            manifest_path,
+            "run",
+            terminal_status(exc),
+            error=str(exc),
+        )
+        raise
     finally:
         if perf_stop:
             perf_stop.set()
@@ -546,5 +558,14 @@ def run_subdomains(
     if sink_id is not None:
         logger.remove(sink_id)
     if failed_id is not None:
-        raise RuntimeError(f"Sub-domain run failed in {failed_id}; fail-fast stopped remaining tasks.")
+        error = f"Sub-domain run failed in {failed_id}; fail-fast stopped remaining tasks."
+        save_stage(manifest, manifest_path, "run", "failed", error=error)
+        raise RuntimeError(error)
+    save_stage(
+        manifest,
+        manifest_path,
+        "run",
+        "completed",
+        outputs=(result.run_manifest for result in results if result.run_manifest is not None),
+    )
     return results

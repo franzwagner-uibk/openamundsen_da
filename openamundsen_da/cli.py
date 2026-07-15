@@ -136,58 +136,105 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _append_option(arguments: list[str], name: str, value: object | None) -> None:
-    if value is not None:
-        arguments.extend([name, str(value)])
+def _subdomain_setup_dir(project_dir: Path) -> Path:
+    if project_dir.parent.name != "projects":
+        raise ValueError(f"Subdomain project must use <setup>/projects/<project>: {project_dir}")
+    return project_dir.parent.parent.resolve()
 
 
-def _run_legacy_subdomain(arguments: list[str]) -> dict[str, Any]:
-    from openamundsen_da.subdomain.cli import cli as subdomain_cli
-
-    result = subdomain_cli(arguments)
-    if result not in (None, 0):
-        raise RuntimeError(f"Subdomain operation failed with exit code {result}")
-    return {"status": "completed"}
+def _default_regions_path(setup_dir: Path) -> Path:
+    env_dir = setup_dir / "env"
+    preferred = (env_dir / "subdomains.gpkg", env_dir / "roi.gpkg")
+    return next((path for path in preferred if path.is_file()), preferred[0])
 
 
 def _dispatch_subdomains(args: argparse.Namespace) -> object:
     if args.subdomain_command == "model":
+        from openamundsen_da.subdomain.merge import merge_model_grids
+        from openamundsen_da.subdomain.model import run_model_subdomains
+        from openamundsen_da.subdomain.prepare import prepare_model_subdomains
+
         setup_dir = args.setup_dir.resolve()
-        legacy = [f"model-{args.model_command}", "--setup-dir", str(setup_dir)]
+        manifest_path = setup_dir / "subdomains" / "model" / "subdomain_manifest.json"
         if args.model_command == "prepare":
-            _append_option(legacy, "--regions", args.regions)
-            _append_option(legacy, "--station-buffer-km", args.station_buffer_km)
-            _append_option(legacy, "--grid-buffer-m", args.grid_buffer_m)
-        elif args.model_command == "run":
-            _append_option(legacy, "--max-workers", args.max_workers)
-        elif args.model_command == "merge":
-            _append_option(legacy, "--coverage-sliver-tol-px", args.coverage_sliver_tol_px)
-            _append_option(legacy, "--out-dir", args.out_dir)
-        if getattr(args, "overwrite", False):
-            legacy.append("--overwrite")
-        return _run_legacy_subdomain(legacy)
+            manifest = prepare_model_subdomains(
+                setup_dir=setup_dir,
+                regions_path=(args.regions or _default_regions_path(setup_dir)).resolve(),
+                station_buffer_m=float(args.station_buffer_km) * 1000.0,
+                grid_buffer_m=args.grid_buffer_m,
+                overwrite=args.overwrite,
+            )
+            return {
+                "status": "completed",
+                "manifest_path": manifest.subdomain_root / "subdomain_manifest.json",
+                "subdomain_count": len(manifest.subdomains),
+            }
+        if args.model_command == "run":
+            results = run_model_subdomains(
+                manifest_path=manifest_path,
+                max_workers=args.max_workers,
+                overwrite=args.overwrite,
+            )
+            return {
+                "status": "completed",
+                "manifest_path": manifest_path,
+                "completed": sum(result.status == "success" for result in results),
+                "reused": sum(result.status == "skipped" for result in results),
+            }
+        outputs = merge_model_grids(
+            manifest_path=manifest_path,
+            coverage_sliver_tol_px=args.coverage_sliver_tol_px,
+            out_dir=args.out_dir,
+        )
+        return {"status": "completed", "manifest_path": manifest_path, "outputs": outputs}
 
     project_dir = args.project_dir.resolve()
+    manifest_path = project_dir / "subdomains" / "subdomain_manifest.json"
     if args.subdomain_command == "render":
         from openamundsen_da.subdomain.render import render_subdomain_outputs
 
         return render_subdomain_outputs(project_dir, max_workers=args.max_workers)
-    setup_dir = project_dir.parent.parent.resolve()
-    legacy = [args.subdomain_command, "--project-dir", str(project_dir)]
+    setup_dir = _subdomain_setup_dir(project_dir)
     if args.subdomain_command == "prepare":
-        legacy.extend(["--setup-dir", str(setup_dir)])
-        _append_option(legacy, "--regions", args.regions)
-        _append_option(legacy, "--station-buffer-km", args.station_buffer_km)
-        _append_option(legacy, "--grid-buffer-m", args.grid_buffer_m)
-    elif args.subdomain_command == "run":
-        _append_option(legacy, "--max-workers", args.max_workers)
-        _append_option(legacy, "--inner-max-workers", args.inner_max_workers)
-    elif args.subdomain_command == "merge":
-        _append_option(legacy, "--coverage-sliver-tol-px", args.coverage_sliver_tol_px)
-        _append_option(legacy, "--out-dir", args.out_dir)
-    if getattr(args, "overwrite", False):
-        legacy.append("--overwrite")
-    return _run_legacy_subdomain(legacy)
+        from openamundsen_da.subdomain.prepare import prepare_subdomains
+
+        manifest = prepare_subdomains(
+            setup_dir=setup_dir,
+            project_dir=project_dir,
+            regions_path=(args.regions or _default_regions_path(setup_dir)).resolve(),
+            station_buffer_m=float(args.station_buffer_km) * 1000.0,
+            grid_buffer_m=args.grid_buffer_m,
+            overwrite=args.overwrite,
+        )
+        return {
+            "status": "completed",
+            "manifest_path": manifest.subdomain_root / "subdomain_manifest.json",
+            "subdomain_count": len(manifest.subdomains),
+        }
+    if args.subdomain_command == "run":
+        from openamundsen_da.subdomain.run import run_subdomains
+
+        results = run_subdomains(
+            manifest_path=manifest_path,
+            max_workers=args.max_workers,
+            inner_max_workers=args.inner_max_workers,
+            overwrite=args.overwrite,
+        )
+        return {
+            "status": "completed",
+            "manifest_path": manifest_path,
+            "completed": sum(result.status == "success" for result in results),
+            "reused": sum(result.status == "skipped" for result in results),
+        }
+
+    from openamundsen_da.subdomain.merge import merge_grids
+
+    outputs = merge_grids(
+        manifest_path=manifest_path,
+        coverage_sliver_tol_px=args.coverage_sliver_tol_px,
+        out_dir=args.out_dir,
+    )
+    return {"status": "completed", "manifest_path": manifest_path, "outputs": outputs}
 
 
 def _dispatch(args: argparse.Namespace) -> object:

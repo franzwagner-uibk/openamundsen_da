@@ -16,16 +16,15 @@ High-level map of the Python package.
 - `openamundsen_da.methods` - assimilation methods, H(x), wet-snow tools, visualization.
 - `openamundsen_da.io` - path and file discovery helpers.
 - `openamundsen_da.util` - stats, time series, validation, landcover, ROI, parallel helpers.
-- `openamundsen_da.subdomain` - sub-domain workflow (`oa-da-subdomain`) for preparing, running, and merging independent sub-domains.
+- `openamundsen_da.subdomain` - internal staged DA and plain-model subdomain preparation, execution, mosaic, rendering and status modules exposed through `openamundsen-da subdomains ...`.
 
 ## CLI entry points
-Declared in `pyproject.toml` as `oa-da-*` scripts.
+`pyproject.toml` declares one `openamundsen-da` command with nested workflow commands.
 
 ## Conventions
 - Setup YAML (`<setup-name>.yml`, template fallback `setup.yml`) contains setup-wide openAMUNDSEN settings.
 - Project YAML (`<project-name>.yml`, fallback `project.yml`) contains data assimilation settings and project time span.
 - Steps live under `projects/project_*/steps/step_*`.
 - Members live under `.../ensembles/{prior,posterior}/member_*`.
-
 
 

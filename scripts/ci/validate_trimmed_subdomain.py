@@ -71,6 +71,19 @@ def _check_manifest(subdomain_root: Path) -> dict:
     if str(data.get("run_mode", "")).lower() != "subdomain":
         raise ValueError(f"Manifest run_mode is not 'subdomain': {data.get('run_mode')!r}")
 
+    stages = data.get("stages") or {}
+    expected_stages = {
+        "prepare": "completed",
+        "run": "completed",
+        "merge": "completed",
+        "render": "completed",
+        "cleanup": "skipped",
+    }
+    for stage, expected in expected_stages.items():
+        actual = str((stages.get(stage) or {}).get("status", "missing"))
+        if actual != expected:
+            raise ValueError(f"Sub-domain stage {stage!r} is {actual!r}, expected {expected!r}")
+
     subdomains = data.get("subdomains") or {}
     if len(subdomains) < 8:
         raise ValueError(f"Expected at least 8 sub-domains in manifest, got {len(subdomains)}")

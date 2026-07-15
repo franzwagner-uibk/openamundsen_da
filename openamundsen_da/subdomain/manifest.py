@@ -6,7 +6,7 @@ import json
 import os
 import tempfile
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -130,7 +130,8 @@ class SubdomainManifest:
     grid_buffer_m: float
     raw_snowcover_dir: Path
     raw_wetsnow_dir: Path
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat(timespec="seconds"))
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    stages: dict[str, dict[str, object]] = field(default_factory=dict)
     subdomains: Dict[str, SubdomainMeta] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -157,6 +158,7 @@ class SubdomainManifest:
             "raw_snowcover_dir": str(self.raw_snowcover_dir),
             "raw_wetsnow_dir": str(self.raw_wetsnow_dir),
             "created_at": self.created_at,
+            "stages": self.stages,
             "subdomains": {k: v.to_dict() for k, v in self.subdomains.items()},
         }
 
@@ -186,6 +188,7 @@ class SubdomainManifest:
             raw_snowcover_dir=Path(data["raw_snowcover_dir"]),
             raw_wetsnow_dir=Path(data["raw_wetsnow_dir"]),
             created_at=str(data.get("created_at", "")),
+            stages={str(k): dict(v) for k, v in (data.get("stages") or {}).items()},
             subdomains=subs,
         )
 

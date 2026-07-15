@@ -104,13 +104,28 @@ def main() -> int:
         if scripts != ["openamundsen-da"]:
             raise RuntimeError(f"Unexpected installed console scripts: {scripts}")
 
+        help_outputs: dict[tuple[str, ...], str] = {}
         for arguments in (
             ["--help"],
             ["observations", "--help"],
             ["subdomains", "--help"],
             ["subdomains", "model", "--help"],
         ):
-            _run([str(cli), *arguments], cwd=tmp, pythonpath=installed_site)
+            completed = _run([str(cli), *arguments], cwd=tmp, pythonpath=installed_site)
+            help_outputs[tuple(arguments)] = completed.stdout
+
+        subdomain_help = help_outputs[("subdomains", "--help")]
+        for command in ("prepare", "run", "merge", "render", "model"):
+            if command not in subdomain_help:
+                raise RuntimeError(f"Missing subdomain command in installed help: {command}")
+        for removed in ("pipeline", "model-pipeline", "model-prepare", "model-run", "model-merge", "plot"):
+            if removed in subdomain_help:
+                raise RuntimeError(f"Removed subdomain alias remains installed: {removed}")
+
+        model_help = help_outputs[("subdomains", "model", "--help")]
+        for command in ("prepare", "run", "merge"):
+            if command not in model_help:
+                raise RuntimeError(f"Missing plain-model subdomain command in installed help: {command}")
 
         failed = _run(
             [str(cli), "clean", str(tmp / "missing-project"), "--json"],

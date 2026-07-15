@@ -46,7 +46,6 @@ data_assimilation:
     seed: 113
     rebase_open_loop: false
   restart:
-    use_state: true
     dump_state: true
     state_pattern: model_state.pickle.gz
   assimilation_events:

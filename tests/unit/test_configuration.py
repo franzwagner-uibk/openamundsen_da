@@ -8,6 +8,9 @@ from openamundsen_da.configuration import load_project_configuration
 from openamundsen_da.exceptions import ProjectValidationError
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
 def _write_valid_project(tmp_path: Path) -> Path:
     setup_dir = tmp_path / "alpine"
     project_dir = setup_dir / "projects" / "winter"
@@ -102,6 +105,15 @@ def test_subdomain_configuration_allows_preparation_owned_summary(tmp_path: Path
     config = load_project_configuration(project_dir)
 
     assert config.project["run_mode"] == "subdomain"
+
+
+@pytest.mark.parametrize("example", ["rofental", "subdomains"])
+def test_shipped_project_configuration_matches_strict_schema(example: str) -> None:
+    project_dir = REPO_ROOT / "examples" / example / "projects" / "project_2022_2023"
+
+    config = load_project_configuration(project_dir)
+
+    assert config.project_dir == project_dir.resolve()
 
 
 @pytest.mark.parametrize(

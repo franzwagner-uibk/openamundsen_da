@@ -1,6 +1,6 @@
 # openAMUNDSEN-DA - Data Assimilation for openAMUNDSEN
 
-openAMUNDSEN-DA is an open-source data assimilation framework designed to be executable on standard workstation hardware. The framework provides documented, reproducible command-line workflows and supports parallel execution on local CPU cores; for computationally demanding applications (e.g., larger domains, finer resolutions, or larger ensembles), the same workflow can be scaled to HPC environments. openAMUNDSEN-DA is coupled to the open-source openAMUNDSEN model, and both codebases are publicly available on GitHub. For end users, openAMUNDSEN-DA is distributed as a Docker image that includes the openAMUNDSEN coupling and example data, while developers who want to contribute to this open-source project can work directly with the corresponding GitHub repositories.
+openAMUNDSEN-DA is an open-source data assimilation framework designed to be executable on standard workstation hardware. The framework provides documented, reproducible command-line workflows and supports parallel execution on local CPU cores; for computationally demanding applications (e.g., larger domains, finer resolutions, or larger ensembles), the same workflow can be scaled to HPC environments. openAMUNDSEN-DA is coupled to the open-source openAMUNDSEN model, and both codebases are publicly available on GitHub. End users can install the Python distribution from PyPI or run the GHCR image with a mounted setup. The Rofental tutorial setup is bundled in the image at `/workspace/examples/rofental` and remains available in this repository.
 
 ## Documentation
 
@@ -40,25 +40,55 @@ Use `openamundsen-da render PROJECT_DIR` to regenerate configured plots, maps
 and the report. `openamundsen-da clean PROJECT_DIR` previews safe cleanup;
 deletion requires `--apply`. Every operation supports `--json`.
 
+## Installation
+
+Published stable releases are distributed through three places:
+
+- Python package: `python -m pip install openamundsen-da`
+- Container: `docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest`
+- Checksums, SPDX SBOM and archives: [GitHub Releases](https://github.com/franzwagner-uibk/openamundsen_da/releases)
+
+The v0.9 release does not publish a conda-forge package. The GHCR image remains
+the recommended reproducible environment because it includes the geospatial
+stack and openAMUNDSEN. See the [release and distribution guide](docs/release.md)
+for tags and verification details.
+
+The coupled openAMUNDSEN model remains a separate upstream project. Its source
+is on [GitHub](https://github.com/openamundsen/openamundsen), its technical
+documentation is at [doc.openamundsen.org](https://doc.openamundsen.org/) and
+its Python package is available from [PyPI](https://pypi.org/project/openamundsen/).
+
 ## Installation (for contributors)
 
 - Install Docker Desktop (Windows/macOS) or Docker Engine (Linux).
-- Build locally if needed: `docker build -t ghcr.io/franzwagner-uibk/openamundsen_da:local .`  
-  (Otherwise pull `:latest`.)
-- Compose defaults now work without an `.env` file: volumes default to your current repo (`REPO=.`) and the bundled example (`PROJ=./examples/rofental`). Override per command if you need different paths, e.g.  
-  `REPO=/my/repo PROJ=/my/project docker compose run --rm oa ...`
+- Build the distributions and local image if needed:
+  `python -m pip install build twine && bash scripts/ci/build_distribution.sh && docker build -t openamundsen-da:local .`.
+  Otherwise pull `:latest`.
+- Release-mode Compose mounts only a setup at `/data`; `PROJ` defaults to
+  `./examples/rofental`. Override it per command, for example
+  `PROJ=/my/project docker compose run --rm oa ...`.
+- For source development, add the explicit overlay:
+  `IMAGE=openamundsen-da:local docker compose -f compose.yml -f compose.dev.yml run --rm oa ...`.
 - Docker permissions: ensure your user can access the Docker daemon (Linux: docker group or sudo).
 
 ### Container image (GHCR) and CI
 
-- Images are built/published to GHCR at `ghcr.io/franzwagner-uibk/openamundsen_da` (tags: `main-YYYYMMDD`, short SHA, `latest`).
-- GitHub Actions workflow `.github/workflows/ci.yml` runs unit + integration tests and publishes to GHCR on pushes to `main` only after tests pass; requires repo secret `GHCR_PAT` with `write:packages`.
-- To pull from GHCR locally/servers: `echo "$GHCR_PAT_RO" | docker login ghcr.io -u <github-user> --password-stdin` then `docker pull ghcr.io/franzwagner-uibk/openamundsen_da:<tag>`.
+- Every `main` commit publishes `sha-<full-commit>` and the moving `edge` tag.
+  Main never updates `latest`.
+- Release candidates publish their exact version tag (for example
+  `0.9.0rc1`). A stable release publishes its exact version and updates
+  `latest` only after the release gates pass.
+- CI uses the repository `GITHUB_TOKEN`; no long-lived GHCR personal access
+  token is required for publication. Public images can be pulled without a
+  login.
+- `.github/workflows/ci.yml` runs package, 12-job portable, documentation,
+  container-architecture and trusted Lenovo P8 integration gates. The release
+  workflow uses OIDC Trusted Publishing for TestPyPI and PyPI.
 
 ### Environment notes
 
 - GDAL/PROJ are bundled in the image; if running natively, install via Conda and ensure `GDAL_DATA` / `PROJ_LIB` are set.
-- Python 3.10+ is required; dependencies are declared in `pyproject.toml`.
+- Python 3.11 through 3.14 is supported; dependencies are declared in `pyproject.toml`.
 
 ## Project Variables
 
@@ -930,7 +960,8 @@ Ready-made example:
 - Plots on Windows: use `--backend SVG`.
 - HDF not recognized: ensure HDF4 support is present; check `gdalinfo --formats | findstr HDF4`.
 - Windows bind mounts may drop metadata; code falls back to content-only copies.
-- Package import in container: Compose sets `PYTHONPATH=/workspace`.
+- Package import in the release container comes from the installed wheel. The
+  development overlay alone sets `PYTHONPATH=/workspace`.
 
 ## Logging
 

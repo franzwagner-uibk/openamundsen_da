@@ -69,17 +69,26 @@ Use this when you want to modify the code or run Compose with mounted source.
    cd openamundsen_da
    ```
 
-2. (Optional) Build a local image instead of pulling:
+2. (Optional) Build the distribution and a local image instead of pulling:
 
    ```bash
-   docker build -t ghcr.io/franzwagner-uibk/openamundsen_da:local .
+   python -m pip install build twine
+   bash scripts/ci/build_distribution.sh
+   docker build -t openamundsen-da:local .
    ```
 
-3. Compose with defaults (no `.env` needed): `REPO` defaults to `.` and `PROJ` to `./examples/rofental`. Override inline if needed:
+3. Add the source-development Compose overlay. `PROJ` defaults to
+   `./examples/rofental`; override it inline when needed:
+
    ```bash
-   REPO=/path/to/repo PROJ=/path/to/project \
-   docker compose run --rm oa python -c "import openamundsen_da; print('Success!')"
+   IMAGE=openamundsen-da:local PROJ=/path/to/project \
+   docker compose -f compose.yml -f compose.dev.yml run --rm oa \
+     python -c "import openamundsen_da; print(openamundsen_da.__version__)"
    ```
+
+Release-mode `compose.yml` mounts the setup and cache only. It executes the
+non-editable wheel installed in the image; it does not shadow that wheel with a
+source checkout.
 
 ---
 

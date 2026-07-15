@@ -1,18 +1,10 @@
-name: CI and Publish
+name: CI
 
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main]
   push:
-    branches:
-      - main
-    paths-ignore:
-      - "docs/**"
-      - "README.md"
-      - "examples/README.md"
-      - "tests/README.md"
-      - ".github/workflows/deploy-docs.yml"
+    branches: [main]
   workflow_dispatch:
 
 env:
@@ -23,155 +15,315 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   lint:
-    name: Ruff Lint
-    # Never run untrusted fork code on self-hosted infrastructure.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-    runs-on: [self-hosted, linux, x64, oa-da]
-    permissions:
-      contents: read
+    name: Ruff lint
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Run ruff (fatal checks)
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Run fatal Ruff checks
         run: |
-          bash scripts/ci/run_lint.sh
+          python -m pip install --disable-pip-version-check ruff==0.8.4
+          python -m ruff check --no-cache --select E9,F63,F7,F82,F401,F841,ERA001 openamundsen_da scripts tests
 
-  tests:
-    name: Unit and Integration Tests
-    # Never run untrusted fork code on self-hosted infrastructure.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-    needs: [lint]
-    runs-on: [self-hosted, linux, x64, oa-da]
-    permissions:
-      actions: write
-      contents: read
+  package:
+    name: Build and validate distributions
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout complete history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
 
-      - name: Detect docs-only pull request
-        id: changes
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Build strict wheel and source distribution
+        run: |
+          python -m pip install --disable-pip-version-check build==1.5.0 twine==6.2.0
+          bash scripts/ci/build_distribution.sh
+
+      - name: Export distribution version
+        id: metadata
+        run: |
+          python scripts/ci/validate_distribution.py dist --source-dir . --github-output "${GITHUB_OUTPUT}"
+
+      - name: Upload tested distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-distributions
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  portable:
+    name: Portable ${{ matrix.os }} / Python ${{ matrix.python }}
+    needs: package
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    defaults:
+      run:
         shell: bash
+    steps:
+      - name: Checkout validators
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Download tested wheel
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-distributions
+          path: dist
+
+      - name: Validate no-dependency portable interface
         run: |
-          set -euo pipefail
-          docs_only=false
+          wheel=(dist/openamundsen_da-*.whl)
+          test "${#wheel[@]}" -eq 1
+          python scripts/ci/validate_installed_wheel.py "${wheel[0]}" \
+            --portable \
+            --expected-version "${{ needs.package.outputs.version }}"
 
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
-            changed_files="$(git diff --name-only "origin/${{ github.base_ref }}"..HEAD)"
+  docs:
+    name: Build documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-            {
-              echo "### Changed files"
-              echo
-              if [[ -n "${changed_files}" ]]; then
-                printf '%s\n' "${changed_files}" | sed 's/^/- `/' | sed 's/$/`/'
-              else
-                echo "_No changed files detected._"
-              fi
-              echo
-            } >> "${GITHUB_STEP_SUMMARY}"
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@8e41b362d2589a22a44c1cfa214b3c83052c195b # v1.318.0
+        with:
+          ruby-version: "3.1"
+          bundler-cache: true
+          working-directory: docs
 
-            if [[ -n "${changed_files}" ]] && ! grep -Ev '^(docs/|README\.md$|examples/README\.md$|tests/README\.md$|\.github/workflows/deploy-docs\.yml$)' <<< "${changed_files}" >/dev/null; then
-              docs_only=true
-            fi
-          fi
+      - name: Build Jekyll site
+        working-directory: docs
+        env:
+          JEKYLL_ENV: production
+        run: bundle exec jekyll build --trace
 
-          echo "docs_only=${docs_only}" >> "${GITHUB_OUTPUT}"
-          echo "docs_only=${docs_only}" >> "${GITHUB_STEP_SUMMARY}"
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Build docs (docs-only PR)
-        if: ${{ steps.changes.outputs.docs_only == 'true' }}
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+
+  container-portability:
+    name: Container ${{ matrix.platform }}
+    needs: package
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            suffix: amd64
+          - platform: linux/arm64
+            suffix: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Download tested wheel
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-distributions
+          path: dist
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Build architecture image from tested wheel
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          load: true
+          push: false
+          tags: openamundsen-da-portability:${{ matrix.suffix }}
+          build-args: |
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ needs.package.outputs.version }}
+
+      - name: Verify architecture, version and setup mount
         run: |
-          docker run --rm \
-            -e HOST_UID="$(id -u)" \
-            -e HOST_GID="$(id -g)" \
-            -v "${PWD}/docs:/docs" \
-            -w /docs \
-            ruby:3.1 bash -lc \
-            'set -e; gem install bundler --no-document; BUNDLE_PATH=/tmp/bundle bundle install; JEKYLL_ENV=production BUNDLE_PATH=/tmp/bundle bundle exec jekyll build; chown -R "${HOST_UID}:${HOST_GID}" /docs/_site /docs/.jekyll-cache 2>/dev/null || true'
-          {
-            echo
-            echo "Docs-only pull request detected."
-            echo "Built the Jekyll docs and skipped the CI image build, unit tests and integration tests."
-          } >> "${GITHUB_STEP_SUMMARY}"
+          tutorial_root="$(mktemp -d)"
+          docker run --rm --platform "${{ matrix.platform }}" \
+            -v "${tutorial_root}:/data" \
+            openamundsen-da-portability:${{ matrix.suffix }} \
+            bash -c 'cp -a /workspace/examples/rofental /data/rofental'
+          test -f "${tutorial_root}/rofental/rofental.yml"
+          docker run --rm --platform "${{ matrix.platform }}" \
+            -v "${tutorial_root}/rofental:/data:ro" \
+            openamundsen-da-portability:${{ matrix.suffix }} \
+            openamundsen-da --version | grep -F "${{ needs.package.outputs.version }}"
 
-      - name: Build CI image
-        if: ${{ steps.changes.outputs.docs_only != 'true' }}
+      - name: Scan release image
+        if: matrix.platform == 'linux/amd64'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: openamundsen-da-portability:amd64
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL
+
+  trusted-integration:
+    name: Trusted Lenovo P8 integration
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    needs: [lint, package, portable, docs, container-portability]
+    runs-on: [self-hosted, linux, x64, oa-da]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Download tested distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-distributions
+          path: dist
+
+      - name: Build trusted integration image
         run: |
-          docker build -t "${CI_IMAGE_NAME}:${GITHUB_SHA}" .
+          docker build \
+            --build-arg "VCS_REF=${GITHUB_SHA}" \
+            --build-arg "VERSION=${{ needs.package.outputs.version }}" \
+            -t "${CI_IMAGE_NAME}:${GITHUB_SHA}" .
 
       - name: Run unit tests
-        if: ${{ steps.changes.outputs.docs_only != 'true' }}
-        run: |
-          CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
-          bash scripts/ci/run_unit_tests.sh
+        run: CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" bash scripts/ci/run_unit_tests.sh
 
       - name: Validate installed wheel interface
-        if: ${{ steps.changes.outputs.docs_only != 'true' }}
-        run: |
-          CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
-          bash scripts/ci/run_wheel_smoke.sh
+        run: CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" bash scripts/ci/run_wheel_smoke.sh
 
-      - name: Run integration tests (derived Rofental fast path)
-        if: ${{ steps.changes.outputs.docs_only != 'true' }}
+      - name: Run derived Rofental integration
         run: |
           CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
           OA_DA_TEST_MAX_WORKERS=8 \
           OA_DA_TEST_SETUP_RESOLUTION=500 \
           OA_DA_TEST_ENSEMBLE_SIZE=2 \
-          CI_ARTIFACT_DIR="${{ github.workspace }}/.ci-artifacts/integration/single-domain" \
+          CI_ARTIFACT_DIR="${GITHUB_WORKSPACE}/.ci-artifacts/integration/single-domain" \
           bash scripts/ci/run_integration_tests.sh
 
-      - name: Run integration tests (trimmed North Tyrol sub-domain)
-        if: ${{ steps.changes.outputs.docs_only != 'true' }}
+      - name: Run North Tyrol DA subdomain integration
         run: |
           CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
           OA_DA_SUBDOMAIN_TEST_MAX_WORKERS=8 \
           OA_DA_SUBDOMAIN_TEST_INNER_WORKERS=4 \
-          CI_ARTIFACT_DIR="${{ github.workspace }}/.ci-artifacts/integration/sub-domain" \
+          CI_ARTIFACT_DIR="${GITHUB_WORKSPACE}/.ci-artifacts/integration/sub-domain" \
           bash scripts/ci/run_integration_tests_subdomain.sh
 
-      - name: Run integration tests (trimmed North Tyrol openAMUNDSEN model sub-domain)
-        if: ${{ steps.changes.outputs.docs_only != 'true' }}
+      - name: Run North Tyrol model subdomain integration
         run: |
           CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
           OA_DA_MODEL_SUBDOMAIN_TEST_MAX_WORKERS=8 \
-          CI_ARTIFACT_DIR="${{ github.workspace }}/.ci-artifacts/integration/model-sub-domain" \
+          CI_ARTIFACT_DIR="${GITHUB_WORKSPACE}/.ci-artifacts/integration/model-sub-domain" \
           bash scripts/ci/run_integration_tests_model_subdomain.sh
 
-      - name: Upload integration artifacts (on failure)
+      - name: Upload integration artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: integration-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
           path: .ci-artifacts/integration
           if-no-files-found: ignore
           retention-days: 7
 
-  publish:
-    name: Build and Push GHCR Image
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    needs: [tests]
-    runs-on: [self-hosted, linux, x64, oa-da]
+  publish-edge:
+    name: Publish immutable commit and edge images
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [package, trusted-integration]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+      attestations: write
+      id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Download tested wheel
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-distributions
+          path: dist
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Log in to GHCR
-        run: |
-          echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image tags
-        run: |
-          DATE_TAG="main-$(date +%Y%m%d)"
-          SHA_TAG="${GITHUB_SHA::7}"
-          docker build -t "${IMAGE}:${DATE_TAG}" -t "${IMAGE}:${SHA_TAG}" -t "${IMAGE}:latest" .
-          docker push "${IMAGE}:${DATE_TAG}"
-          docker push "${IMAGE}:${SHA_TAG}"
-          docker push "${IMAGE}:latest"
+      - name: Compute image metadata
+        id: metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=sha-${{ github.sha }}
+            type=raw,value=edge
+
+      - name: Build and publish multiarch edge image
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          build-args: |
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ needs.package.outputs.version }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Attest published image
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

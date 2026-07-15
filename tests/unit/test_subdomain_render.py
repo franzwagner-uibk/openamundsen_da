@@ -28,6 +28,7 @@ def test_render_subdomain_outputs_runs_parent_level_stages(
     calls: list[str] = []
 
     monkeypatch.setattr(render_mod, "ensure_run_mode", lambda *args, **kwargs: calls.append("mode"))
+    monkeypatch.setattr(render_mod, "save_stage", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         render_mod.SubdomainManifest,
         "load",
@@ -56,10 +57,15 @@ def test_render_subdomain_outputs_runs_parent_level_stages(
 
     monkeypatch.setattr(render_mod, "render_project_maps", fake_maps)
     monkeypatch.setattr(render_mod, "build_project_collection_pdf", fake_report)
+    monkeypatch.setattr(
+        render_mod,
+        "cleanup_compact_grid_artifacts",
+        lambda **_kwargs: calls.append("cleanup") or ([], 0),
+    )
 
     result = render_mod.render_subdomain_outputs(project_dir, max_workers=2)
 
-    assert calls == ["mode", "tables", "maps", "report"]
+    assert calls == ["mode", "tables", "maps", "report", "cleanup"]
     assert result.status is WorkflowStatus.COMPLETED
     assert [path.name for path in result.map_paths] == ["overview.png"]
     assert [path.name for path in result.report_paths] == ["project_report.pdf"]
@@ -80,3 +86,37 @@ def test_render_subdomain_outputs_rejects_incomplete_run(
 
     with pytest.raises(ProjectRenderError, match="unsuccessful subdomains: sd_01"):
         render_mod.render_subdomain_outputs(project_dir)
+
+
+def test_render_subdomain_outputs_records_interruption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "winter"
+    merged = project_dir / "results" / "grids" / "da_output_grids.nc"
+    merged.parent.mkdir(parents=True)
+    merged.write_bytes(b"netcdf")
+    manifest = _manifest(project_dir.resolve())
+    transitions: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(render_mod, "ensure_run_mode", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        render_mod.SubdomainManifest,
+        "load",
+        classmethod(lambda cls, path: manifest),
+    )
+    monkeypatch.setattr(
+        render_mod,
+        "save_stage",
+        lambda _manifest, _path, stage, status, **_kwargs: transitions.append((stage, status)),
+    )
+    monkeypatch.setattr(
+        render_mod,
+        "write_subdomain_reports",
+        lambda **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        render_mod.render_subdomain_outputs(project_dir)
+
+    assert transitions == [("render", "running"), ("render", "interrupted")]

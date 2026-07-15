@@ -29,6 +29,11 @@ def _write_roi(path: Path, data: np.ndarray) -> None:
         dst.write(data.astype(np.uint8), 1)
 
 
+@pytest.fixture(autouse=True)
+def _ignore_stage_persistence(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(merge_mod, "save_stage", lambda *args, **kwargs: None)
+
+
 def test_merge_grids_uses_compact_da_summary(monkeypatch, tmp_path: Path) -> None:
     project_dir = tmp_path / "projects" / "project_2022_2023"
     sub_project_dir = project_dir / "subdomains" / "sd_01" / "projects" / "project_2022_2023"
@@ -366,7 +371,7 @@ def test_merge_grids_recomputes_da_summary_when_no_compact_da_summary_exists(
     assert write_calls[0]["output_nc"] == project_dir / "results" / "grids" / "da_output_grids.nc"
 
 
-def test_merge_grids_can_defer_compact_cleanup(monkeypatch, tmp_path: Path) -> None:
+def test_merge_grids_defers_compact_cleanup_until_render(monkeypatch, tmp_path: Path) -> None:
     project_dir = tmp_path / "projects" / "project_2022_2023"
     sub_project_dir = project_dir / "subdomains" / "sd_01" / "projects" / "project_2022_2023"
     compact_da = sub_project_dir / "results" / "grids" / "da_output_grids.nc"
@@ -396,12 +401,6 @@ def test_merge_grids_can_defer_compact_cleanup(monkeypatch, tmp_path: Path) -> N
         lambda *_args, **_kwargs: np.zeros((1, 1), dtype=bool),
     )
     monkeypatch.setattr(merge_mod, "output_retention_mode", lambda *_args, **_kwargs: "compact")
-    monkeypatch.setattr(
-        merge_mod,
-        "delete_files",
-        lambda paths: (_ for _ in ()).throw(AssertionError("compact cleanup should be deferred")),
-    )
-
     def _fake_merge_netcdf(*, output_name: str, out_dir: Path, **kwargs):
         out_path = Path(out_dir) / output_name
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -410,9 +409,10 @@ def test_merge_grids_can_defer_compact_cleanup(monkeypatch, tmp_path: Path) -> N
 
     monkeypatch.setattr(merge_mod, "_merge_netcdf", _fake_merge_netcdf)
 
-    merge_mod.merge_grids(manifest_path=tmp_path / "manifest.json", defer_compact_cleanup=True)
+    merge_mod.merge_grids(manifest_path=tmp_path / "manifest.json")
 
     assert (project_dir / "results" / "grids" / "da_output_grids.nc").is_file()
+    assert compact_da.is_file()
 
 
 def test_merge_grids_does_not_cleanup_compact_artifacts_by_default(monkeypatch, tmp_path: Path) -> None:
@@ -447,8 +447,8 @@ def test_merge_grids_does_not_cleanup_compact_artifacts_by_default(monkeypatch, 
     monkeypatch.setattr(merge_mod, "output_retention_mode", lambda *_args, **_kwargs: "compact")
     monkeypatch.setattr(
         merge_mod,
-        "cleanup_deferred_compact_grid_artifacts",
-        lambda **kwargs: (_ for _ in ()).throw(AssertionError("cleanup must be explicit")),
+        "_manifest_owned_compact_artifacts",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("cleanup must wait for render")),
     )
 
     def _fake_merge_netcdf(*, output_name: str, out_dir: Path, **kwargs):
@@ -464,20 +464,45 @@ def test_merge_grids_does_not_cleanup_compact_artifacts_by_default(monkeypatch, 
     assert (project_dir / "results" / "grids" / "da_output_grids.nc").is_file()
 
 
-def test_cleanup_deferred_compact_grid_artifacts_archives_raw_support_files(
+def test_cleanup_deletes_only_manifest_owned_files_after_render(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
     project_dir = tmp_path / "projects" / "project_2022_2023"
+    subdomain_root = project_dir / "subdomains"
+    sub_project_dir = subdomain_root / "sd_01" / "projects" / "project_2022_2023"
     grids_dir = project_dir / "results" / "grids"
     grids_dir.mkdir(parents=True)
     keep = grids_dir / "da_output_grids.nc"
     merged_open_loop = grids_dir / "output_grids.nc"
     merged_member = grids_dir / "member_001_output_grids.nc"
     merged_tif = grids_dir / "snow_depth.tif"
-    subdomain_artifact = project_dir / "subdomains" / "sd_01" / "steps" / "step_01" / "output_grids.nc"
+    unlisted_merged_tif = grids_dir / "unlisted_reference.tif"
+    compact_subdomain = sub_project_dir / "results" / "grids" / "da_output_grids.nc"
+    subdomain_artifact = (
+        sub_project_dir
+        / "steps"
+        / "step_01"
+        / "ensembles"
+        / "prior"
+        / "member_000"
+        / "results"
+        / "output_grids.nc"
+    )
     subdomain_artifact.parent.mkdir(parents=True)
-    for path in (keep, merged_open_loop, merged_member, merged_tif, subdomain_artifact):
+    compact_subdomain.parent.mkdir(parents=True)
+    unowned = subdomain_root / "not_in_manifest" / "output_grids.nc"
+    unowned.parent.mkdir(parents=True)
+    for path in (
+        keep,
+        merged_open_loop,
+        merged_member,
+        merged_tif,
+        unlisted_merged_tif,
+        compact_subdomain,
+        subdomain_artifact,
+        unowned,
+    ):
         path.write_bytes(b"data")
     report = project_dir / "results" / "reports" / "project_report.pdf"
     report.parent.mkdir(parents=True)
@@ -485,11 +510,24 @@ def test_cleanup_deferred_compact_grid_artifacts_archives_raw_support_files(
     da_map = project_dir / "results" / "maps" / "da_events" / "da_1.png"
     da_map.parent.mkdir(parents=True)
     da_map.write_bytes(b"map")
-    lock = merge_mod.compact_cleanup_ready_lock_path(project_dir)
-    lock.parent.mkdir(parents=True)
-    lock.write_text("ready\n", encoding="utf-8")
 
-    manifest = SimpleNamespace(project_dir=project_dir)
+    manifest = SimpleNamespace(
+        project_dir=project_dir,
+        subdomain_root=subdomain_root,
+        subdomains={"sd_01": SimpleNamespace(project_dir=sub_project_dir)},
+        stages={
+            "merge": {
+                "status": "completed",
+                "outputs": [
+                    str(keep),
+                    str(merged_open_loop),
+                    str(merged_member),
+                    str(merged_tif),
+                ],
+            },
+            "render": {"status": "completed"},
+        },
+    )
     monkeypatch.setattr(
         merge_mod.SubdomainManifest,
         "load",
@@ -501,32 +539,27 @@ def test_cleanup_deferred_compact_grid_artifacts_archives_raw_support_files(
         "load_assimilation_events",
         lambda _project_dir: [SimpleNamespace(date="2022-10-01", variable="scf", product="test")],
     )
-    monkeypatch.setattr(
-        merge_mod,
-        "collect_subdomain_grid_artifacts",
-        lambda _project_dir: [subdomain_artifact],
-    )
-    archive_dir = tmp_path / "archive"
 
-    archived, _bytes_staged = merge_mod.cleanup_deferred_compact_grid_artifacts(
+    deleted, bytes_freed = merge_mod.cleanup_compact_grid_artifacts(
         manifest_path=tmp_path / "manifest.json",
         out_dir=grids_dir,
-        archive_dir=archive_dir,
     )
 
-    assert archived == 4
+    assert set(deleted) == {
+        merged_open_loop.resolve(),
+        merged_member.resolve(),
+        merged_tif.resolve(),
+        compact_subdomain.resolve(),
+        subdomain_artifact.resolve(),
+    }
+    assert bytes_freed == 5 * len(b"data")
     assert keep.is_file()
-    assert not merged_open_loop.exists()
-    assert not merged_member.exists()
-    assert not merged_tif.exists()
-    assert not subdomain_artifact.exists()
-    assert (archive_dir / "results" / "grids" / "output_grids.nc").is_file()
-    assert (archive_dir / "results" / "grids" / "member_001_output_grids.nc").is_file()
-    assert (archive_dir / "results" / "grids" / "snow_depth.tif").is_file()
-    assert (archive_dir / "subdomains" / "sd_01" / "steps" / "step_01" / "output_grids.nc").is_file()
+    assert unlisted_merged_tif.is_file()
+    assert unowned.is_file()
+    assert all(not path.exists() for path in deleted)
 
 
-def test_cleanup_deferred_compact_grid_artifacts_refuses_without_ready_lock(
+def test_cleanup_refuses_before_render_stage_completes(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -541,7 +574,15 @@ def test_cleanup_deferred_compact_grid_artifacts_refuses_without_ready_lock(
     da_map.parent.mkdir(parents=True)
     da_map.write_bytes(b"map")
 
-    manifest = SimpleNamespace(project_dir=project_dir)
+    manifest = SimpleNamespace(
+        project_dir=project_dir,
+        subdomain_root=project_dir / "subdomains",
+        subdomains={},
+        stages={
+            "merge": {"status": "completed"},
+            "render": {"status": "interrupted"},
+        },
+    )
     monkeypatch.setattr(
         merge_mod.SubdomainManifest,
         "load",
@@ -554,8 +595,46 @@ def test_cleanup_deferred_compact_grid_artifacts_refuses_without_ready_lock(
         lambda _project_dir: [SimpleNamespace(date="2022-10-01", variable="scf", product="test")],
     )
 
-    with pytest.raises(merge_mod.CompactCleanupSafetyError, match="artifact_cleanup_allowed"):
-        merge_mod.cleanup_deferred_compact_grid_artifacts(
+    with pytest.raises(merge_mod.CompactCleanupSafetyError, match="render.*interrupted"):
+        merge_mod.cleanup_compact_grid_artifacts(
             manifest_path=tmp_path / "manifest.json",
             out_dir=grids_dir,
         )
+
+
+def test_atomic_output_preserves_previous_merge_after_interruption(tmp_path: Path) -> None:
+    output = tmp_path / "merged.nc"
+    output.write_bytes(b"previous complete output")
+
+    with pytest.raises(KeyboardInterrupt):
+        with merge_mod._atomic_output(output) as partial:
+            partial.write_bytes(b"partial")
+            raise KeyboardInterrupt
+
+    assert output.read_bytes() == b"previous complete output"
+    assert not list(tmp_path.glob(".merged.*.nc"))
+
+
+def test_tracked_merge_records_interruption(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    manifest = SimpleNamespace(stages={})
+    transitions: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        merge_mod.SubdomainManifest,
+        "load",
+        classmethod(lambda cls, path: manifest),
+    )
+    monkeypatch.setattr(
+        merge_mod,
+        "save_stage",
+        lambda _manifest, _path, stage, status, **_kwargs: transitions.append((stage, status)),
+    )
+
+    @merge_mod._tracked_merge
+    def interrupted_merge(*, manifest_path: Path) -> list[Path]:
+        del manifest_path
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        interrupted_merge(manifest_path=tmp_path / "manifest.json")
+
+    assert transitions == [("merge", "running"), ("merge", "interrupted")]

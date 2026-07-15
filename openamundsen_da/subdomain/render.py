@@ -9,7 +9,9 @@ from openamundsen_da.methods.viz.maps import project_maps_enabled, render_projec
 from openamundsen_da.methods.viz.reports import build_project_collection_pdf
 from openamundsen_da.results import RenderResult, WorkflowStatus
 from openamundsen_da.subdomain.manifest import SubdomainManifest
+from openamundsen_da.subdomain.merge import cleanup_compact_grid_artifacts
 from openamundsen_da.subdomain.report import write_subdomain_reports
+from openamundsen_da.subdomain.status import save_stage, terminal_status
 from openamundsen_da.util.run_mode import ensure_run_mode
 
 
@@ -45,24 +47,43 @@ def render_subdomain_outputs(
             f"Merged compact DA output is required before rendering: {merged_grid}"
         )
 
+    save_stage(manifest, manifest_path, "render", "running")
     try:
         write_subdomain_reports(manifest_path=manifest_path, out_dir=project_dir / "results")
         if project_maps_enabled(project_dir):
             render_project_maps(project_dir=project_dir, max_workers=max_workers)
         report = build_project_collection_pdf(project_dir=project_dir).resolve()
-    except Exception as exc:
+    except BaseException as exc:
+        current = SubdomainManifest.load(manifest_path)
+        save_stage(
+            current,
+            manifest_path,
+            "render",
+            terminal_status(exc),
+            error=str(exc),
+        )
+        if isinstance(exc, KeyboardInterrupt):
+            raise
         if isinstance(exc, ProjectRenderError):
             raise
         raise ProjectRenderError(f"Subdomain rendering failed: {exc}") from exc
 
     results_dir = project_dir / "results"
-    return RenderResult(
+    result = RenderResult(
         project_dir=project_dir,
         status=WorkflowStatus.COMPLETED,
         plot_paths=tuple(path.resolve() for path in sorted((results_dir / "plots").rglob("*.png"))),
         map_paths=tuple(path.resolve() for path in sorted((results_dir / "maps").rglob("*.png"))),
         report_paths=(report,),
     )
+    current = SubdomainManifest.load(manifest_path)
+    render_outputs = (*result.plot_paths, *result.map_paths, *result.report_paths)
+    save_stage(current, manifest_path, "render", "completed", outputs=render_outputs)
+    try:
+        cleanup_compact_grid_artifacts(manifest_path=manifest_path)
+    except Exception as exc:
+        raise ProjectRenderError(f"Subdomain compact cleanup failed: {exc}") from exc
+    return result
 
 
 __all__ = ["render_subdomain_outputs"]

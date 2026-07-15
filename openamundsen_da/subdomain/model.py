@@ -17,8 +17,7 @@ from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.subdomain.manifest import SubdomainManifest
-from openamundsen_da.subdomain.merge import merge_model_grids
-from openamundsen_da.subdomain.prepare import prepare_model_subdomains
+from openamundsen_da.subdomain.status import save_stage, terminal_status
 from openamundsen_da.util.parallel import pick_max_workers
 
 
@@ -197,7 +196,7 @@ def _record_model_result(
     result: ModelRunResult,
 ) -> None:
     meta = manifest.subdomains[result.subdomain_id]
-    meta.status = result.status
+    meta.status = "success" if result.status == "skipped" else result.status
     if result.run_manifest:
         meta.run_manifest = result.run_manifest
     manifest.save(manifest_path)
@@ -238,6 +237,7 @@ def run_model_subdomains(
         raise ValueError(f"Sub-domains not in manifest: {', '.join(unknown)}")
     if not selected_ids:
         return []
+    save_stage(manifest, manifest_path, "run", "running")
 
     root_log = manifest.subdomain_root / "model_run.log"
     sink_id = None
@@ -322,6 +322,16 @@ def run_model_subdomains(
                 selected_ids=selected_ids,
                 completed_ids=completed_ids,
             )
+    except BaseException as exc:
+        current = SubdomainManifest.load(manifest_path)
+        save_stage(
+            current,
+            manifest_path,
+            "run",
+            terminal_status(exc),
+            error=str(exc),
+        )
+        raise
     finally:
         if sink_id is not None:
             logger.remove(sink_id)
@@ -338,86 +348,14 @@ def run_model_subdomains(
         skip,
     )
     if failed_id is not None:
-        raise RuntimeError(f"Model sub-domain run failed in {failed_id}; fail-fast stopped remaining tasks.")
+        error = f"Model sub-domain run failed in {failed_id}; fail-fast stopped remaining tasks."
+        save_stage(manifest, manifest_path, "run", "failed", error=error)
+        raise RuntimeError(error)
+    save_stage(
+        manifest,
+        manifest_path,
+        "run",
+        "completed",
+        outputs=(result.run_manifest for result in results if result.run_manifest is not None),
+    )
     return results
-
-
-def run_model_pipeline(
-    *,
-    setup_dir: Path,
-    regions_path: Path,
-    subdomain_root: Path,
-    id_field: str = "id",
-    clip_mode: str = "window",
-    station_buffer_m: float = 50_000.0,
-    roi_buffer_m: float = 0.0,
-    grid_buffer_m: float | None = None,
-    overlap_area_tol_m2: float = 100.0,
-    sliver_fix_m: float = 0.0,
-    subdomains: Optional[Iterable[str]] = None,
-    max_workers: Optional[int] = None,
-    retries: int = 0,
-    coverage_sliver_tol_px: int = 4,
-    skip_merge: bool = False,
-    overwrite: bool = False,
-    log_level: str = "INFO",
-) -> None:
-    """Run prepare -> model-run -> model-merge for plain openAMUNDSEN sub-domain mode."""
-    setup_dir = Path(setup_dir).resolve()
-    subdomain_root = Path(subdomain_root).resolve()
-    manifest_path = subdomain_root / "subdomain_manifest.json"
-    pipeline_log = subdomain_root.parent / "model_pipeline.log"
-
-    pipeline_log.parent.mkdir(parents=True, exist_ok=True)
-    sink_id = logger.add(
-        pipeline_log,
-        level=log_level.upper(),
-        colorize=False,
-        enqueue=True,
-        format=LOGURU_FORMAT,
-        mode="w" if overwrite else "a",
-    )
-    logger.info(
-        "MODEL PIPELINE START setup_dir={} regions={} subdomain_root={}",
-        setup_dir,
-        regions_path,
-        subdomain_root,
-    )
-    try:
-        prepare_model_subdomains(
-            setup_dir=setup_dir,
-            regions_path=regions_path,
-            subdomain_root=subdomain_root,
-            id_field=id_field,
-            clip_mode=clip_mode,
-            station_buffer_m=station_buffer_m,
-            roi_buffer_m=roi_buffer_m,
-            grid_buffer_m=grid_buffer_m,
-            overlap_area_tol_m2=overlap_area_tol_m2,
-            sliver_fix_m=sliver_fix_m,
-            overwrite=overwrite,
-        )
-        logger.info("MODEL PREP OK manifest={}", manifest_path)
-        run_model_subdomains(
-            manifest_path=manifest_path,
-            subdomains=subdomains,
-            max_workers=max_workers,
-            retries=retries,
-            overwrite=overwrite,
-            log_level=log_level,
-            log_to_file=False,
-        )
-        logger.info("MODEL RUN OK")
-        if skip_merge:
-            logger.info("MODEL MERGE skipped")
-        else:
-            merge_model_grids(
-                manifest_path=manifest_path,
-                subdomains=subdomains,
-                out_dir=subdomain_root / "results" / "grids",
-                coverage_sliver_tol_px=int(coverage_sliver_tol_px),
-            )
-            logger.info("MODEL MERGE OK")
-        logger.info("MODEL PIPELINE DONE subdomain_root={}", subdomain_root)
-    finally:
-        logger.remove(sink_id)

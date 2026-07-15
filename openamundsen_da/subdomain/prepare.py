@@ -29,6 +29,7 @@ from openamundsen_da.io.paths import (
     find_setup_yaml,
 )
 from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta, WindowSpec
+from openamundsen_da.subdomain.status import record_stage
 from openamundsen_da.util.yaml_utils import read_yaml_mapping
 from openamundsen_da.util.roi_grid import ensure_setup_roi_grid, load_setup_roi_mask
 from openamundsen_da.util.run_mode import ensure_run_mode
@@ -987,6 +988,7 @@ def prepare_subdomains(
         logger.info("Wrote observation support table -> {}", support_path)
 
     manifest_path = subdomain_root / "subdomain_manifest.json"
+    record_stage(manifest, "prepare", "completed", outputs=(manifest_path,))
     manifest.save(manifest_path)
     logger.info("Wrote manifest -> {}", manifest_path)
     return manifest

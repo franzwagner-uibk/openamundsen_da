@@ -577,7 +577,7 @@ Note: running the project pipeline (see below) also generates these plots automa
 
   Generated DA-event rows use four consistent columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference columns show `analysis_increment` (`posterior - prior`, so positive values mean DA added snow/water). FSC and wet-snow reference columns show the satellite observation. Generated FSC, WSF, WSLA, and elevation-band WSF rows use spatial prior/posterior probability maps where applicable. Generated WSLA maps keep a primary WSF row without WSLA contours, an elevation-band WSF row with the derived WSLA contours and a snow-depth response row. Top-level sub-domain SCF events use a taller same-file layout with a 2x2 snow-cover block above the 2x2 snow-depth response block; exact rerendering requires retained per-sub-domain grids. If the event resampling manifest reports skipped resampling, the map title is suffixed with `resampling skipped`.
 
-  By default the renderer parallelizes across independent recipe PNGs inside the Docker container and clamps the effective worker count to `min(visible CPUs, selected recipes)`; use `--max-workers 1` to force sequential rendering. `oa-da-project` and merged sub-domain runs also render project maps automatically as a best-effort post-run stage. If a map fails because supporting data are missing, the pipeline logs a rerun command and continues.
+  By default the renderer parallelizes across independent recipe PNGs inside the Docker container and clamps the effective worker count to `min(visible CPUs, selected recipes)`; use `--max-workers 1` to force sequential rendering. `oa-da-project` renders project maps during single-domain execution. Merged subdomain projects use the explicit strict `openamundsen-da subdomains render` stage.
   Project maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `aspect`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`, `uncertainty`, `wet_snow_line`, `wet_snow_elevation_fraction`), and optional support panels (`legend`, `colorbar`). Static context rasters are masked to the ROI; `aspect` is derived from the DEM at render time and shown on a continuous radian colorbar, continuous static panels such as `srf` can use `show_hillshade: true` for a terrain underlay, and SRF and increment maps share a compact-neutral signed red-blue diverging palette. `landcover` panels can set `landcover_grouping: broad` to merge detailed vegetation/forest classes into broad manuscript-friendly classes, and their legend only lists classes present inside the ROI. The `rofental_manuscript` grouping is a Rofental paper/tutorial grouping, not a generic land-cover classification; it merges codes 1 and 13 as `rock`, 2 and 3 as `ice`, 4--7 as `grass/shrub`, and 8--12 as `forest`. Non-legend panels can use `legend_items` with `placement: below` or `placement: inside` (`anchor: top_left|top_right|bottom_left|bottom_right`) for compact layer legends such as station symbols; legacy `below_items` remains supported. `uncertainty` renders `*_uncertainty.tif` companion rasters for `observation: scf` or `observation: wet_snow` on the valid observation support. In prepared sub-domain projects, top-level project maps automatically overlay the configured sub-domain polygons from `subdomain_manifest.json` on ROI-bearing map panels and overview panels. Generated DA-event maps additionally mark sub-domain polygons as `no DA` only when that event was dropped for the sub-domain and recorded in `results/subdomain_dropped_events.csv`; healthy events with computed weights are not marked just because resampling was skipped. Recipe-level `row_views` can assign a shared Google/Slippy-map zoom extent to every panel in a row. `wet_snow` renders WSF, while `wet_snow_line` renders the wet-snow raster context and derives WSLA contours in the elevation-band WSF row. `prior_probability` and `posterior_probability` sources render spatial ensemble probability fields; observation overlays are kept in observation/reference panels.
 
 - Project plots (all post-run plots without rerunning DA):
@@ -647,7 +647,7 @@ Outputs
 - The combined project result overview plot (`results/plots/results/result_overview.png`) now shows fSCA, WSF, WSLA, ROI mean SWE, and ROI mean snow depth together when those outputs are available.
   Setup results plots now show the ensemble mean, the full finite-member range, and the open loop by default; individual members are hidden unless `--show-members` is passed to the plot CLI. Wet-snow setup plots overlay available observations from `obs/<setup>/wet_snow_summary.csv` automatically.
   At the end of the project run, per-step weights plots (`step_XX_weights.png`) and the setup ESS timeline (`setup_ess_timeline_<setup_id>.png`) are also generated under `<project_dir>/results/plots/assim/{weights,ess}`.
-  Single-domain projects default to compact retention (`data_assimilation.output.retention: compact`), which prunes heavy member grid artifacts after writing `da_output_grids.nc`. Sub-domain projects default to `retention: full` so generated DA-event maps can be regenerated exactly after the run. If compact retention is enabled for a sub-domain project, raw grid support files are only archived after the merged grid, all planned DA maps, and the top-level report are present.
+  Single-domain projects default to compact retention (`data_assimilation.output.retention: compact`), which prunes heavy member grid artifacts after writing `da_output_grids.nc`. Subdomain projects default to `retention: full` so generated DA-event maps can be regenerated exactly after the run. If compact retention is enabled for a subdomain project, the strict render stage deletes only manifest-owned transient grids after the merged grid, all planned DA maps and the top-level report validate.
 
 ### Backfilling model SCF for an existing setup (optional)
 
@@ -800,7 +800,10 @@ removes member grids, compact outputs, maps, reports, manifests or logs.
 
 ## Sub-domain Mode
 
-Use `oa-da-subdomain` to split a large setup into non-overlapping sub-domains. There are two workflows:
+Use the nested `openamundsen-da subdomains` commands to split a large setup into non-overlapping subdomains. The two command branches are intentional:
+
+- `subdomains prepare|run|merge|render` runs independent DA projects and combines their compact results.
+- `subdomains model prepare|run|merge` tiles one plain openAMUNDSEN simulation without projects, ensembles or assimilation.
 
 For a start-to-finish guide, see `docs/guides/subdomain-runbook.md`.
 
@@ -809,29 +812,30 @@ For a start-to-finish guide, see `docs/guides/subdomain-runbook.md`.
 This is the existing openAMUNDSEN-DA workflow: one independent data assimilation project per sub-domain, project-level reports, then compact data assimilation grid merge. It is regional decomposition, not formal particle-filter localization.
 
 Minimal DA flow:
-- Prepare DA sub-domain setups from ROI polygons:
-  `oa-da-subdomain prepare --setup-dir <setup> --project-dir <setup>/projects/<project> --roi <setup>/env/subdomains.gpkg --id-field id`
-- Run all sub-domains in parallel:
-  `oa-da-subdomain run --project-dir <setup>/projects/<project>`
-- Merge data assimilation grids (hard mosaic, no interpolation/blending):
-  `oa-da-subdomain merge --project-dir <setup>/projects/<project>`
+
+```bash
+openamundsen-da subdomains prepare <setup>/projects/<project> \
+  --regions <setup>/env/subdomains.gpkg
+openamundsen-da subdomains run <setup>/projects/<project>
+openamundsen-da subdomains merge <setup>/projects/<project>
+openamundsen-da subdomains render <setup>/projects/<project>
+```
 
 DA defaults:
-- Sub-domain root is `<project>/subdomains` (override with `--subdomain-root`).
-- Manifest path is `<subdomain_root>/subdomain_manifest.json` (or pass `--manifest` explicitly).
+- Subdomain root is `<project>/subdomains`.
+- Manifest path is `<project>/subdomains/subdomain_manifest.json`.
 - Each sub-domain run lives under `<subdomain_root>/<subdomain_id>/`.
 - Project-level outputs are written under `<project>/results/`.
 - Compact data assimilation grid output is `<project>/results/grids/da_output_grids.nc`.
   - Variables in `da_output_grids.nc`: `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`, and event analysis fields `analysis_mean_<var>` / `analysis_increment_<var>` when weights are available.
   - Merged compact DA grids preserve the same compressed storage policy as single-domain `da_output_grids.nc`.
-- Standalone `oa-da-subdomain merge` does not clean or move raw compact grid support files by default. Cleanup is an explicit post-artifact step and requires `--cleanup-compact-artifacts --confirm-delete-raw-grid-support`; even then it only archives files after the generated maps/report readiness checks pass.
+- Merge never removes its source grids. With `retention: compact`, successful strict rendering validates the merged grid, all planned DA maps and the top-level report before automatically deleting only transient grid files owned by the manifest. Interrupted or failed rendering preserves those inputs for a safe rerun.
 - Sub-domain reports are written under `<project>/results/subdomain_*.csv`.
 - Point outputs and plots remain inside each sub-domain project.
 - Station selection uses a 50 km default buffer (`--station-buffer-km`).
-- Tiny polygon overlaps are tolerated up to 100 m^2 (`--overlap-area-tol-m2`), with optional sliver correction (`--sliver-fix-m`).
 - Sub-domain mode requires at least two polygons in the ROI file.
-- `--id-field` must exist in the regions file; there is no automatic fallback to another field name.
-- If `--roi` is omitted in sub-domain prepare/pipeline, `<setup>/env/subdomains.gpkg` is preferred and `<setup>/env/roi.gpkg` is the fallback.
+- The regions file must contain the canonical `id` field.
+- If `--regions` is omitted during preparation, `<setup>/env/subdomains.gpkg` is preferred and `<setup>/env/roi.gpkg` is the fallback.
 - Sub-domain runs fail fast if configured assimilation events are not available in the local sub-domain observation summaries.
 - Projects may enable `data_assimilation.subdomain_event_filter` to drop unavailable SCF, wet-snow, or station events per sub-domain after local observation summaries are generated. Dropped events are recorded in each sub-domain run manifest and in `<project>/results/subdomain_dropped_events.csv`; the final kept/dropped event table is written to `<project>/results/event_plan_by_subdomain.csv`.
 - Station benchmark variables are pruned from copied sub-domain project YAMLs when the local station subset contains no benchmark-enabled station observations, allowing mixed FSC-only and FSC+station sub-domain projects in one run.
@@ -863,34 +867,36 @@ data_assimilation:
 This workflow uses the same geometry validation, ROI rasterization, grid cropping, meteo station subsetting, manifest, and hard-mosaic merge helpers, but skips data assimilation project setup and raw observation preprocessing. It runs the installed `openamundsen` executable once per prepared sub-domain.
 
 ```bash
-oa-da-subdomain model-pipeline \
-  --setup-dir /data/subdomains \
+openamundsen-da subdomains model prepare /data/subdomains \
   --regions /data/subdomains/env/subdomains.gpkg \
+  --overwrite
+openamundsen-da subdomains model run /data/subdomains \
   --max-workers 24 \
   --overwrite
+openamundsen-da subdomains model merge /data/subdomains
 ```
 
 Docker usage:
 - Run from this repository root, where `compose.yml` lives.
 - Mount a plain openAMUNDSEN setup with `PROJ=/absolute/path/to/setup`; inside the container it is available as `/data`.
-- The Docker image already contains the `openamundsen` executable used by `model-run`.
+- The Docker image already contains the `openamundsen` executable used by the nested model `run` command.
 
 ```bash
 PROJ=/absolute/path/to/setup docker compose run --rm oa \
-  oa-da-subdomain model-pipeline \
-  --setup-dir /data \
+  openamundsen-da subdomains model prepare /data \
   --regions /data/env/subdomains.gpkg \
-  --max-workers 24 \
   --overwrite
 ```
+
+Then run `openamundsen-da subdomains model run /data --max-workers 24 --overwrite` and `openamundsen-da subdomains model merge /data` through the same container wrapper.
 
 Minimal plain-model setup layout:
 
 ```
 setup/
-  <setup-name>.yml        # or setup.yml; plain openAMUNDSEN config
+  <setup-name>.yml        # canonical plain openAMUNDSEN config
   env/
-    subdomains.gpkg       # non-overlapping polygons with an id column, or pass --id-field
+    subdomains.gpkg       # non-overlapping polygons with the canonical id column
   grids/
     dem_<domain>_<resolution>.asc
     lc_<domain>_<resolution>.asc
@@ -901,22 +907,23 @@ setup/
     ...
 ```
 
-The setup YAML must define the normal openAMUNDSEN domain settings (`domain`, `resolution`, `crs`, `timestep`, `timezone`), `start_date`, `end_date`, `input_data.grids.dir`, `input_data.meteo.dir`, and the desired `output_data` grid variables. `projects/` and `obs/` directories are not required for plain model mode. The `subdomains/model/` tree is generated by `model-prepare` or `model-pipeline`.
+The setup YAML must define the normal openAMUNDSEN domain settings (`domain`, `resolution`, `crs`, `timestep`, `timezone`), `start_date`, `end_date`, `input_data.grids.dir`, `input_data.meteo.dir`, and the desired `output_data` grid variables. `projects/` and `obs/` directories are not required for plain model mode. The nested model `prepare` command generates `subdomains/model/`.
 
 Model defaults and outputs:
 - Source setup YAML must define `start_date` and `end_date`.
-- Sub-domain root is `<setup>/subdomains/model` (override with `--subdomain-root`).
+- Subdomain root is `<setup>/subdomains/model`.
 - Each generated sub-domain setup remains a plain openAMUNDSEN config with sub-domain `domain`, grid/meteo dirs, `results_dir`, and ROI grid.
 - Per-subdomain model outputs are written to `<setup>/subdomains/model/<id>/results/`.
 - Merged grid outputs are written to `<setup>/subdomains/model/results/grids/`.
 - Only grid outputs under each `<id>/results/grids/` are merged in v1; point/timeseries outputs are left per sub-domain.
-- Merge is hard mosaic only (no interpolation, blending, or boundary smoothing).
+- Merge selects inputs exclusively from `output_data.grids.format`. NetCDF and GeoTIFF are supported; ASCII, memory, mixed formats and stale ambiguous outputs are rejected.
+- Merge is a hard mosaic only (no interpolation, blending or boundary smoothing).
 - Per-subdomain run diagnostics are written to `<setup>/subdomains/model/<id>/run.log` and `<setup>/subdomains/model/<id>/run_manifest.json`.
 
 Ready-made example:
 - setup: `examples/subdomains`
-- regions file: `examples/subdomains/env/subdomains.gpkg` (pass with `--roi`)
-- note: this example can be used with either DA commands or the new `model-*` commands.
+- regions file: `examples/subdomains/env/subdomains.gpkg` (pass with `--regions`)
+- note: this example can be used with either the DA branch or the nested plain-model branch.
 
 ## Troubleshooting
 

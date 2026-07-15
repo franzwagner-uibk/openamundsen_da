@@ -85,6 +85,20 @@ def test_manifest_save_preserves_existing_file_when_new_write_fails(tmp_path, mo
     assert not list(manifest_path.parent.glob(f".{manifest_path.name}.*.tmp"))
 
 
+def test_manifest_round_trip_preserves_stage_state(tmp_path):
+    manifest, manifest_path = _single_subdomain_manifest(tmp_path)
+    manifest.stages["merge"] = {
+        "status": "interrupted",
+        "updated_at": "2026-07-15T12:00:00+00:00",
+        "error": "worker stopped",
+    }
+    manifest.save(manifest_path)
+
+    loaded = SubdomainManifest.load(manifest_path)
+
+    assert loaded.stages["merge"] == manifest.stages["merge"]
+
+
 def test_run_one_caps_project_plot_workers_to_inner_workers(tmp_path, monkeypatch):
     _, manifest_path = _single_subdomain_manifest(tmp_path)
 

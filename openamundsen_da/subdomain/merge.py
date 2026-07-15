@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-import shutil
+from contextlib import contextmanager
+from functools import wraps
+import os
 from pathlib import Path
+import tempfile
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
-import pandas as pd
 import rasterio
 import xarray as xr
 from affine import Affine
@@ -21,9 +22,8 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.methods.viz.maps.generated import GENERATED_DA_MAPS_SUBDIR
 from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta
+from openamundsen_da.subdomain.status import save_stage, terminal_status
 from openamundsen_da.util.da_output import (
-    collect_subdomain_grid_artifacts,
-    delete_files,
     output_retention_mode,
     write_da_output_grids,
 )
@@ -31,13 +31,58 @@ from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.roi_grid import load_setup_roi_mask
 from openamundsen_da.util.run_mode import ensure_run_mode
 from openamundsen_da.util.storage_policy import da_summary_netcdf_encoding, preserved_netcdf_encoding
-
-
-COMPACT_CLEANUP_LOCK_NAME = "artifact_cleanup_allowed"
+from openamundsen_da.util.yaml_utils import read_yaml_mapping
 
 
 class CompactCleanupSafetyError(RuntimeError):
     """Raised when compact cleanup would remove files before artifacts are complete."""
+
+
+@contextmanager
+def _atomic_output(path: Path):
+    """Yield a same-directory temporary path and replace the target on success."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, raw_tmp = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.stem}.",
+        suffix=path.suffix,
+    )
+    os.close(fd)
+    tmp_path = Path(raw_tmp)
+    tmp_path.unlink(missing_ok=True)
+    try:
+        yield tmp_path
+        os.replace(tmp_path, path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def _tracked_merge(operation):
+    """Persist merge stage transitions around a DA or model mosaic operation."""
+
+    @wraps(operation)
+    def wrapped(*, manifest_path: Path, **kwargs):
+        manifest_path = Path(manifest_path).resolve()
+        manifest = SubdomainManifest.load(manifest_path)
+        save_stage(manifest, manifest_path, "merge", "running")
+        try:
+            outputs = operation(manifest_path=manifest_path, **kwargs)
+        except BaseException as exc:
+            current = SubdomainManifest.load(manifest_path)
+            save_stage(
+                current,
+                manifest_path,
+                "merge",
+                terminal_status(exc),
+                error=str(exc),
+            )
+            raise
+        current = SubdomainManifest.load(manifest_path)
+        save_stage(current, manifest_path, "merge", "completed", outputs=outputs)
+        return outputs
+
+    return wrapped
 
 
 def _latest_step_dir(sub: SubdomainMeta) -> Path | None:
@@ -166,15 +211,13 @@ def _validate_coverage_or_raise(
     )
 
 
+@_tracked_merge
 def merge_grids(
     *,
     manifest_path: Path,
     subdomains: Optional[Iterable[str]] = None,
     out_dir: Optional[Path] = None,
     coverage_sliver_tol_px: int = 4,
-    defer_compact_cleanup: bool = False,
-    cleanup_compact_artifacts: bool = False,
-    compact_cleanup_archive_dir: Optional[Path] = None,
 ) -> List[Path]:
     """Merge sub-domain grid outputs into global hard mosaics."""
     manifest = SubdomainManifest.load(manifest_path)
@@ -224,30 +267,8 @@ def merge_grids(
         if da_summary_written:
             logger.info("Using merged compact DA output summary {}", merged_nc)
 
-        retention_mode = output_retention_mode(manifest.project_dir)
-        if retention_mode == "compact":
-            if not da_summary_written:
-                logger.warning("Skipping compact grid retention because da_output_grids.nc was not written.")
-            elif defer_compact_cleanup:
-                logger.info(
-                    "Deferring compact sub-domain grid retention cleanup until top-level map rendering is complete."
-                )
-            elif not cleanup_compact_artifacts:
-                logger.info(
-                    "Compact sub-domain grid retention cleanup not requested; leaving raw grid support files in place."
-                )
-            else:
-                archived, bytes_staged = _cleanup_after_artifact_validation(
-                    manifest_path=manifest_path,
-                    project_dir=manifest.project_dir,
-                    out_dir=out_base,
-                    archive_dir=compact_cleanup_archive_dir,
-                )
-                logger.info(
-                    "Compact retention: archived {} sub-domain grid artifact file(s), staged {:.1f} MB",
-                    archived,
-                    bytes_staged / 1_000_000.0,
-                )
+        if output_retention_mode(manifest.project_dir) == "compact":
+            logger.info("Compact cleanup is deferred until strict top-level rendering and report validation succeed.")
         return written
 
     tif_groups: Dict[str, List[Tuple[SubdomainMeta, Path]]] = {}
@@ -323,67 +344,9 @@ def merge_grids(
             da_summary_written = True
             logger.info("Using existing DA output summary {}", da_summary_path)
 
-    retention_mode = output_retention_mode(manifest.project_dir)
-    if retention_mode == "compact":
-        if not da_summary_written:
-            logger.warning("Skipping compact grid retention because da_output_grids.nc was not written.")
-        elif defer_compact_cleanup:
-            logger.info(
-                "Deferring compact sub-domain grid retention cleanup until top-level map rendering is complete."
-            )
-        elif not cleanup_compact_artifacts:
-            logger.info("Compact sub-domain grid retention cleanup not requested; leaving raw grid support files in place.")
-        else:
-            archived, bytes_staged = _cleanup_after_artifact_validation(
-                manifest_path=manifest_path,
-                project_dir=manifest.project_dir,
-                out_dir=out_base,
-                archive_dir=compact_cleanup_archive_dir,
-            )
-            logger.info(
-                "Compact retention: archived {} sub-domain grid artifact file(s), staged {:.1f} MB",
-                archived,
-                bytes_staged / 1_000_000.0,
-            )
+    if output_retention_mode(manifest.project_dir) == "compact":
+        logger.info("Compact cleanup is deferred until strict top-level rendering and report validation succeed.")
     return written
-
-
-def _merged_compact_grid_artifacts(out_base: Path) -> list[Path]:
-    """Return merged grid artifacts that are transient under compact retention."""
-    artifacts: list[Path] = []
-    for pattern in ("member_*", "*.tif", "output_grids*.nc"):
-        for path in sorted(out_base.glob(pattern)):
-            if path.is_file() and path.name != "da_output_grids.nc":
-                artifacts.append(path)
-    return sorted(set(artifacts))
-
-
-def _cleanup_after_artifact_validation(
-    *,
-    manifest_path: Path,
-    project_dir: Path,
-    out_dir: Path,
-    archive_dir: Optional[Path],
-) -> tuple[int, int]:
-    lock_path = mark_compact_cleanup_artifacts_ready(project_dir=project_dir, out_dir=out_dir)
-    logger.info("Compact cleanup readiness lock written: {}", lock_path)
-    return cleanup_deferred_compact_grid_artifacts(
-        manifest_path=manifest_path,
-        out_dir=out_dir,
-        archive_dir=archive_dir,
-    )
-
-
-def _project_setup_dir(project_dir: Path) -> Path:
-    project_dir = Path(project_dir)
-    if project_dir.parent.name == "projects":
-        return project_dir.parent.parent
-    return project_dir.parent
-
-
-def compact_cleanup_ready_lock_path(project_dir: Path) -> Path:
-    """Return the run-status lock that permits compact raw-grid cleanup."""
-    return _project_setup_dir(project_dir) / "status" / COMPACT_CLEANUP_LOCK_NAME
 
 
 def _planned_da_map_paths(project_dir: Path) -> list[Path]:
@@ -411,19 +374,18 @@ def _missing_compact_cleanup_artifacts(project_dir: Path, out_base: Path) -> lis
 
 def validate_compact_cleanup_artifacts_ready(
     *,
-    project_dir: Path,
+    manifest: SubdomainManifest,
     out_dir: Optional[Path] = None,
-    require_ready_lock: bool = True,
 ) -> None:
-    """Fail unless merged grids, planned maps, report, and status lock are present."""
-    project_dir = Path(project_dir)
+    """Fail unless merge and render completed and their required artifacts exist."""
+    project_dir = Path(manifest.project_dir)
     out_base = Path(out_dir) if out_dir is not None else (project_dir / "results" / "grids")
     missing: list[Path | str] = []
 
-    if require_ready_lock:
-        lock_path = compact_cleanup_ready_lock_path(project_dir)
-        if not lock_path.is_file():
-            missing.append(lock_path)
+    for stage in ("merge", "render"):
+        status = str((manifest.stages.get(stage) or {}).get("status", "pending"))
+        if status != "completed":
+            missing.append(f"manifest stage {stage!r} is {status!r}, expected 'completed'")
 
     missing.extend(_missing_compact_cleanup_artifacts(project_dir, out_base))
     if missing:
@@ -435,103 +397,116 @@ def validate_compact_cleanup_artifacts_ready(
         )
 
 
-def mark_compact_cleanup_artifacts_ready(
-    *,
-    project_dir: Path,
-    out_dir: Optional[Path] = None,
-) -> Path:
-    """Write the run-status lock after generated artifacts are complete."""
-    validate_compact_cleanup_artifacts_ready(
-        project_dir=project_dir,
-        out_dir=out_dir,
-        require_ready_lock=False,
-    )
-    lock_path = compact_cleanup_ready_lock_path(project_dir)
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    checked_at = datetime.now(timezone.utc).isoformat()
-    lock_path.write_text(
-        "\n".join(
-            [
-                f"checked_at={checked_at}",
-                f"project_dir={Path(project_dir)}",
-                f"grids_dir={Path(out_dir) if out_dir is not None else Path(project_dir) / 'results' / 'grids'}",
-            ]
+def _manifest_owned_compact_artifacts(manifest: SubdomainManifest, out_base: Path) -> list[Path]:
+    """Return only transient grid files owned by the selected manifest."""
+    artifacts: set[Path] = set()
+    resolved_out_base = out_base.resolve()
+    merge_outputs = (manifest.stages.get("merge") or {}).get("outputs")
+    if not isinstance(merge_outputs, list):
+        raise CompactCleanupSafetyError(
+            "Manifest merge stage has no output inventory; refusing compact cleanup."
         )
-        + "\n",
-        encoding="utf-8",
+    for raw_path in merge_outputs:
+        path = Path(str(raw_path)).resolve()
+        if not path.is_relative_to(resolved_out_base):
+            raise CompactCleanupSafetyError(
+                f"Manifest merge output escapes the selected grids directory: {path}"
+            )
+        if path.name != "da_output_grids.nc" and path.is_file():
+            artifacts.add(path)
+
+    step_patterns = (
+        "steps/step_*/ensembles/prior/member_*/results/output_grids*.nc",
+        "steps/step_*/ensembles/prior/open_loop/results/output_grids*.nc",
+        "steps/step_*/ensembles/prior/member_*/results/**/*.tif",
+        "steps/step_*/ensembles/prior/member_*/results/**/*.tiff",
+        "steps/step_*/ensembles/prior/open_loop/results/**/*.tif",
+        "steps/step_*/ensembles/prior/open_loop/results/**/*.tiff",
+        "steps/step_*/ensembles/posterior/member_*/results/output_grids*.nc",
+        "steps/step_*/ensembles/posterior/member_*/results/**/*.tif",
+        "steps/step_*/ensembles/posterior/member_*/results/**/*.tiff",
     )
-    return lock_path
+    manifest_root = manifest.subdomain_root.resolve()
+    for subdomain in manifest.subdomains.values():
+        project_root = subdomain.project_dir.resolve()
+        if not project_root.is_relative_to(manifest_root):
+            raise CompactCleanupSafetyError(
+                f"Manifest project escapes its subdomain root: {project_root}"
+            )
+        compact_summary = project_root / "results" / "grids" / "da_output_grids.nc"
+        if compact_summary.is_file():
+            artifacts.add(compact_summary.resolve())
+        for pattern in step_patterns:
+            for path in project_root.glob(pattern):
+                resolved = path.resolve()
+                if path.is_file() and resolved.is_relative_to(project_root):
+                    artifacts.add(resolved)
+    return sorted(artifacts)
 
 
-def _default_compact_cleanup_archive_dir(project_dir: Path) -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return _project_setup_dir(project_dir) / "archive" / "compact_grid_artifacts" / Path(project_dir).name / stamp
-
-
-def _archive_files(paths: Iterable[Path], *, project_dir: Path, archive_dir: Optional[Path] = None) -> tuple[int, int]:
-    archive_root = Path(archive_dir) if archive_dir is not None else _default_compact_cleanup_archive_dir(project_dir)
-    moved = 0
-    bytes_staged = 0
-    seen: set[Path] = set()
-    for raw in paths:
-        path = Path(raw)
-        if path in seen or not path.is_file():
-            continue
-        seen.add(path)
-        try:
-            size = path.stat().st_size
-        except Exception:
-            size = 0
-        try:
-            rel = path.relative_to(project_dir)
-        except ValueError:
-            rel = Path(path.name)
-        target = archive_root / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            shutil.move(str(path), str(target))
-            moved += 1
-            bytes_staged += size
-        except Exception as exc:
-            logger.warning("Could not archive {} to {}: {}", path, target, exc)
-    return moved, bytes_staged
-
-
-def cleanup_deferred_compact_grid_artifacts(
+def cleanup_compact_grid_artifacts(
     *,
     manifest_path: Path,
     out_dir: Optional[Path] = None,
-    archive_dir: Optional[Path] = None,
-    permanently_delete: bool = False,
-    require_ready_lock: bool = True,
-) -> tuple[int, int]:
-    """Archive compact grid artifacts after downstream artifacts are verified.
-
-    Permanent deletion is intentionally opt-in for callers that have a separate
-    confirmation workflow. The default moves raw grid support files to a
-    recoverable archive under the setup root.
-    """
+) -> tuple[list[Path], int]:
+    """Delete manifest-owned transient grids after strict downstream validation."""
     manifest = SubdomainManifest.load(manifest_path)
     retention_mode = output_retention_mode(manifest.project_dir)
     if retention_mode != "compact":
-        logger.info("Skipping deferred compact grid cleanup because output retention is {}.", retention_mode)
-        return 0, 0
+        save_stage(manifest, manifest_path, "cleanup", "skipped")
+        logger.info("Skipping compact grid cleanup because output retention is {}.", retention_mode)
+        return [], 0
 
     out_base = out_dir or (manifest.project_dir / "results" / "grids")
-    validate_compact_cleanup_artifacts_ready(
-        project_dir=manifest.project_dir,
-        out_dir=out_base,
-        require_ready_lock=require_ready_lock,
+    validate_compact_cleanup_artifacts_ready(manifest=manifest, out_dir=out_base)
+    artifacts = _manifest_owned_compact_artifacts(manifest, Path(out_base))
+    save_stage(manifest, manifest_path, "cleanup", "running", outputs=artifacts)
+
+    deleted: list[Path] = []
+    bytes_freed = 0
+    try:
+        for path in artifacts:
+            size = path.stat().st_size
+            path.unlink()
+            deleted.append(path)
+            bytes_freed += size
+    except BaseException as exc:
+        current = SubdomainManifest.load(manifest_path)
+        save_stage(
+            current,
+            manifest_path,
+            "cleanup",
+            terminal_status(exc),
+            outputs=deleted,
+            error=str(exc),
+        )
+        if isinstance(exc, KeyboardInterrupt):
+            raise
+        raise CompactCleanupSafetyError(f"Compact cleanup failed at {path}: {exc}") from exc
+
+    current = SubdomainManifest.load(manifest_path)
+    save_stage(current, manifest_path, "cleanup", "completed", outputs=deleted)
+    return deleted, bytes_freed
+
+
+def _configured_model_grid_format(manifest: SubdomainManifest) -> str:
+    cfg = read_yaml_mapping(
+        manifest.setup_yaml,
+        error_cls=ValueError,
+        context="Plain-model setup YAML root",
     )
+    output_cfg = cfg.get("output_data") or {}
+    grids_cfg = output_cfg.get("grids") or {}
+    grid_format = str(grids_cfg.get("format", "netcdf")).strip().lower()
+    if grid_format not in {"netcdf", "geotiff"}:
+        raise ValueError(
+            "Plain-model subdomain merge supports output_data.grids.format "
+            f"'netcdf' or 'geotiff', got {grid_format!r}."
+        )
+    return grid_format
 
-    merged_artifacts = _merged_compact_grid_artifacts(out_base)
-    subdomain_artifacts = collect_subdomain_grid_artifacts(manifest.project_dir)
-    artifacts = [*merged_artifacts, *subdomain_artifacts]
-    if permanently_delete:
-        return delete_files(artifacts)
-    return _archive_files(artifacts, project_dir=manifest.project_dir, archive_dir=archive_dir)
 
-
+@_tracked_merge
 def merge_model_grids(
     *,
     manifest_path: Path,
@@ -558,6 +533,7 @@ def merge_model_grids(
     out_base = out_dir or (manifest.subdomain_root / "results" / "grids")
     out_base.mkdir(parents=True, exist_ok=True)
 
+    grid_format = _configured_model_grid_format(manifest)
     tif_groups: Dict[str, List[Tuple[SubdomainMeta, Path]]] = {}
     nc_groups: Dict[str, List[Tuple[SubdomainMeta, Path]]] = {}
     owners_by_name: Dict[str, set[str]] = {}
@@ -566,17 +542,29 @@ def merge_model_grids(
         grid_dir = sub.setup_dir / "results" / "grids"
         if not grid_dir.is_dir():
             raise FileNotFoundError(f"Missing model grid output directory for {sid}: {grid_dir}")
-        for tif in sorted([*grid_dir.glob("*.tif"), *grid_dir.glob("*.tiff")]):
-            tif_groups.setdefault(tif.name, []).append((sub, tif))
-            owners_by_name.setdefault(tif.name, set()).add(sid)
-        for nc in sorted(grid_dir.glob("*.nc")):
-            nc_groups.setdefault(nc.name, []).append((sub, nc))
-            owners_by_name.setdefault(nc.name, set()).add(sid)
+        tif_paths = sorted([*grid_dir.glob("*.tif"), *grid_dir.glob("*.tiff")])
+        nc_paths = sorted(grid_dir.glob("*.nc"))
+        unexpected = tif_paths if grid_format == "netcdf" else nc_paths
+        if unexpected:
+            names = ", ".join(path.name for path in unexpected[:5])
+            raise ValueError(
+                f"Mixed model grid artifacts for {sid}: setup selects {grid_format!r}, "
+                f"but also found {names}. Remove stale outputs and rerun the model stage."
+            )
+
+        if grid_format == "geotiff":
+            for tif in tif_paths:
+                tif_groups.setdefault(tif.name, []).append((sub, tif))
+                owners_by_name.setdefault(tif.name, set()).add(sid)
+        else:
+            for nc in nc_paths:
+                nc_groups.setdefault(nc.name, []).append((sub, nc))
+                owners_by_name.setdefault(nc.name, set()).add(sid)
 
     all_groups = {**tif_groups, **nc_groups}
     if not all_groups:
         raise FileNotFoundError(
-            "No model grid outputs found below selected sub-domain results/grids directories "
+            f"No {grid_format} model grid outputs found below selected sub-domain results/grids directories "
             f"in {manifest.subdomain_root}."
         )
 
@@ -587,6 +575,20 @@ def merge_model_grids(
             raise FileNotFoundError(
                 f"Model grid output {name!r} is missing for sub-domain(s): {', '.join(missing)}"
             )
+
+    expected_names = set(all_groups)
+    existing_outputs = sorted(
+        path
+        for path in [*out_base.glob("*.nc"), *out_base.glob("*.tif"), *out_base.glob("*.tiff")]
+        if path.is_file()
+    )
+    unmanaged = [path for path in existing_outputs if path.name not in expected_names]
+    if unmanaged:
+        names = ", ".join(path.name for path in unmanaged[:5])
+        raise ValueError(
+            f"Ambiguous existing merged model outputs in {out_base}: {names}. "
+            "Move or remove outputs that are not part of the current manifest before merging."
+        )
 
     written: List[Path] = []
     if tif_groups:
@@ -674,14 +676,15 @@ def _merge_tifs(
             "transform": transform,
             "compress": "lzw",
         }
-        with rasterio.open(out_path, "w", **meta) as dst:
-            if np.issubdtype(np.dtype(dtype), np.integer):
-                fill_val = int(nd)
-                write_arr = np.where(np.isnan(data_global), fill_val, np.round(data_global)).astype(dtype)
-                dst.write(write_arr, 1)
-                dst.nodata = fill_val
-            else:
-                dst.write(np.where(np.isnan(data_global), nd, data_global).astype(dtype), 1)
+        with _atomic_output(out_path) as tmp_path:
+            with rasterio.open(tmp_path, "w", **meta) as dst:
+                if np.issubdtype(np.dtype(dtype), np.integer):
+                    fill_val = int(nd)
+                    write_arr = np.where(np.isnan(data_global), fill_val, np.round(data_global)).astype(dtype)
+                    dst.write(write_arr, 1)
+                    dst.nodata = fill_val
+                else:
+                    dst.write(np.where(np.isnan(data_global), nd, data_global).astype(dtype), 1)
         outputs.append(out_path)
         logger.info("Wrote merged grid {}", out_path)
     return outputs
@@ -824,97 +827,11 @@ def _merge_netcdf(
         encoding.update(da_summary_netcdf_encoding(merged))
 
     out_path = out_dir / output_name
-    merged.to_netcdf(out_path, encoding=encoding)
-    ds_template.close()
+    try:
+        with _atomic_output(out_path) as tmp_path:
+            merged.to_netcdf(tmp_path, encoding=encoding)
+    finally:
+        merged.close()
+        ds_template.close()
     logger.info("Wrote merged NetCDF {}", out_path)
     return out_path
-
-
-def merge_points(
-    *,
-    manifest_path: Path,
-    subdomains: Optional[Iterable[str]] = None,
-    out_dir: Optional[Path] = None,
-) -> List[Path]:
-    """Collect compact point outputs and station observations into one directory."""
-    manifest = SubdomainManifest.load(manifest_path)
-    if str(getattr(manifest, "run_mode", "")).lower() != "subdomain":
-        raise ValueError(f"Manifest at {manifest_path} is not marked as run_mode='subdomain'.")
-    ensure_run_mode(manifest.project_dir, expected="subdomain", write_if_missing=False)
-    selected_ids = list(subdomains) if subdomains else list(manifest.subdomains.keys())
-    unknown = [sid for sid in selected_ids if sid not in manifest.subdomains]
-    if unknown:
-        raise ValueError(f"Sub-domains not in manifest: {', '.join(unknown)}")
-
-    out_base = out_dir or (manifest.project_dir / "results" / "points")
-    out_base.mkdir(parents=True, exist_ok=True)
-    obs_out = out_base / "obs" / "stations"
-    obs_out.mkdir(parents=True, exist_ok=True)
-
-    copied: List[Path] = []
-
-    station_frames = []
-    for sid in selected_ids:
-        sub = manifest.subdomains[sid]
-        path = sub.meteo_dir / "stations.csv"
-        if path.is_file():
-            try:
-                station_frames.append(pd.read_csv(path))
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Could not read {}: {}", path, exc)
-    if station_frames:
-        merged_stations = pd.concat(station_frames, ignore_index=True).drop_duplicates(subset="id")
-        stations_out = out_base / "stations.csv"
-        merged_stations.to_csv(stations_out, index=False)
-        copied.append(stations_out)
-
-    obs_meta_frames = []
-    for sid in selected_ids:
-        sub = manifest.subdomains[sid]
-        path = sub.obs_stations_dir / "stations_snow_depth.csv"
-        if path.is_file():
-            try:
-                obs_meta_frames.append(pd.read_csv(path))
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Could not read {}: {}", path, exc)
-    if obs_meta_frames:
-        merged_obs_meta = pd.concat(obs_meta_frames, ignore_index=True).drop_duplicates(subset="id")
-        meta_out = obs_out / "stations_snow_depth.csv"
-        merged_obs_meta.to_csv(meta_out, index=False)
-        copied.append(meta_out)
-
-    seen_files: set[str] = set()
-    for sid in selected_ids:
-        sub = manifest.subdomains[sid]
-        sources = _result_sources(sub)
-        for source_label, res_dir in sources:
-            prefix = "" if source_label == "open_loop" else f"{source_label}_"
-            for csv in sorted(res_dir.glob("point_*.csv")):
-                out_name = f"{prefix}{csv.name}"
-                if out_name in seen_files:
-                    continue
-                target = out_base / out_name
-                shutil.copy2(csv, target)
-                copied.append(target)
-                seen_files.add(out_name)
-            for nc in sorted(res_dir.glob("output_timeseries*.nc")):
-                out_name = f"{prefix}{nc.name}"
-                if out_name in seen_files:
-                    continue
-                target = out_base / out_name
-                shutil.copy2(nc, target)
-                copied.append(target)
-                seen_files.add(out_name)
-
-        for obs_csv in sorted(sub.obs_stations_dir.glob("*.csv")):
-            target = obs_out / obs_csv.name
-            if target.exists():
-                continue
-            shutil.copy2(obs_csv, target)
-            copied.append(target)
-
-    if copied:
-        logger.info("Merged point outputs into {}", out_base)
-    else:
-        logger.warning("No point outputs found to merge in selected sub-domains.")
-    return copied

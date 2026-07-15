@@ -169,12 +169,29 @@ def test_prepare_model_subdomains_requires_setup_dates(tmp_path: Path) -> None:
         )
 
 
-def _model_manifest(tmp_path: Path, ids: tuple[str, ...] = ("sd_01", "sd_02")) -> Path:
+def _model_manifest(
+    tmp_path: Path,
+    ids: tuple[str, ...] = ("sd_01", "sd_02"),
+    *,
+    grid_format: str = "netcdf",
+) -> Path:
     setup_dir = tmp_path / "setup"
     root = setup_dir / "subdomains" / "model"
     setup_dir.mkdir(parents=True, exist_ok=True)
     setup_yaml = setup_dir / "demo.yml"
-    setup_yaml.write_text("start_date: '2022-10-01'\nend_date: '2022-10-02'\n", encoding="utf-8")
+    setup_yaml.write_text(
+        "\n".join(
+            [
+                "start_date: '2022-10-01'",
+                "end_date: '2022-10-02'",
+                "output_data:",
+                "  grids:",
+                f"    format: {grid_format}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
     manifest = SubdomainManifest(
         run_mode="model",
         setup_dir=setup_dir,
@@ -282,6 +299,29 @@ def test_run_model_subdomains_fail_fast_marks_unfinished_skipped(monkeypatch, tm
     assert loaded.subdomains["sd_02"].status == "skipped"
 
 
+def test_run_model_subdomains_reuses_success_without_downgrading_manifest(tmp_path: Path) -> None:
+    manifest_path = _model_manifest(tmp_path, ids=("sd_01",))
+    manifest = SubdomainManifest.load(manifest_path)
+    subdomain = manifest.subdomains["sd_01"]
+    run_manifest = subdomain.setup_dir / "run_manifest.json"
+    run_manifest.write_text('{"status": "success"}\n', encoding="utf-8")
+    subdomain.status = "success"
+    subdomain.run_manifest = run_manifest
+    manifest.save(manifest_path)
+
+    results = model_mod.run_model_subdomains(
+        manifest_path=manifest_path,
+        max_workers=1,
+        overwrite=False,
+        log_to_file=False,
+    )
+
+    loaded = SubdomainManifest.load(manifest_path)
+    assert [result.status for result in results] == ["skipped"]
+    assert loaded.subdomains["sd_01"].status == "success"
+    assert loaded.stages["run"]["status"] == "completed"
+
+
 def test_stage_model_grid_outputs_leaves_timeseries_outputs_in_place(tmp_path: Path) -> None:
     results_dir = tmp_path / "results"
     results_dir.mkdir()
@@ -340,38 +380,51 @@ def _write_nc(path: Path, arr: np.ndarray) -> None:
     ds.to_netcdf(path)
 
 
-def test_merge_model_grids_mosaics_matching_tif_and_netcdf_outputs(tmp_path: Path) -> None:
-    manifest_path = _model_manifest(tmp_path)
+def _write_paired_model_grid_inputs(manifest: SubdomainManifest, *, grid_format: str) -> None:
+    values = {
+        "sd_01": np.array([[1.0], [2.0]], dtype=np.float32),
+        "sd_02": np.array([[3.0], [4.0]], dtype=np.float32),
+    }
+    transforms = {
+        "sd_01": from_origin(0.0, 2.0, 1.0, 1.0),
+        "sd_02": from_origin(1.0, 2.0, 1.0, 1.0),
+    }
+    for sid, subdomain in manifest.subdomains.items():
+        _write_roi(
+            subdomain.roi_raster_path,
+            np.ones((2, 1), dtype=np.uint8),
+            transforms[sid],
+        )
+        output_dir = subdomain.setup_dir / "results" / "grids"
+        if grid_format == "netcdf":
+            _write_nc(output_dir / "output_grids.nc", values[sid])
+        else:
+            _write_tif(output_dir / "swe.tif", values[sid], transforms[sid])
+
+
+def test_model_netcdf_and_geotiff_mosaics_are_scientifically_equivalent(tmp_path: Path) -> None:
+    nc_manifest_path = _model_manifest(tmp_path / "netcdf", grid_format="netcdf")
+    tif_manifest_path = _model_manifest(tmp_path / "geotiff", grid_format="geotiff")
+    nc_manifest = SubdomainManifest.load(nc_manifest_path)
+    tif_manifest = SubdomainManifest.load(tif_manifest_path)
+    _write_paired_model_grid_inputs(nc_manifest, grid_format="netcdf")
+    _write_paired_model_grid_inputs(tif_manifest, grid_format="geotiff")
+
+    nc_written = merge_model_grids(manifest_path=nc_manifest_path, coverage_sliver_tol_px=0)
+    tif_written = merge_model_grids(manifest_path=tif_manifest_path, coverage_sliver_tol_px=0)
+
+    assert [path.name for path in nc_written] == ["output_grids.nc"]
+    assert [path.name for path in tif_written] == ["swe.tif"]
+    with xr.open_dataset(nc_written[0]) as nc_ds, rasterio.open(tif_written[0]) as tif_ds:
+        np.testing.assert_allclose(nc_ds["swe"].values, tif_ds.read(1))
+
+
+def test_model_merge_rejects_mixed_configured_and_stale_formats(tmp_path: Path) -> None:
+    manifest_path = _model_manifest(tmp_path, grid_format="netcdf")
     manifest = SubdomainManifest.load(manifest_path)
+    _write_paired_model_grid_inputs(manifest, grid_format="netcdf")
+    stale = manifest.subdomains["sd_01"].setup_dir / "results" / "grids" / "stale.tif"
+    _write_tif(stale, np.ones((2, 1), dtype=np.float32), from_origin(0.0, 2.0, 1.0, 1.0))
 
-    left_transform = from_origin(0.0, 2.0, 1.0, 1.0)
-    right_transform = from_origin(1.0, 2.0, 1.0, 1.0)
-    _write_roi(manifest.subdomains["sd_01"].roi_raster_path, np.ones((2, 1), dtype=np.uint8), left_transform)
-    _write_roi(manifest.subdomains["sd_02"].roi_raster_path, np.ones((2, 1), dtype=np.uint8), right_transform)
-    _write_tif(
-        manifest.subdomains["sd_01"].setup_dir / "results" / "grids" / "snowdepth.tif",
-        np.array([[1.0], [2.0]], dtype=np.float32),
-        left_transform,
-    )
-    _write_tif(
-        manifest.subdomains["sd_02"].setup_dir / "results" / "grids" / "snowdepth.tif",
-        np.array([[3.0], [4.0]], dtype=np.float32),
-        right_transform,
-    )
-    _write_nc(
-        manifest.subdomains["sd_01"].setup_dir / "results" / "grids" / "output_grids.nc",
-        np.array([[10.0], [20.0]], dtype=np.float32),
-    )
-    _write_nc(
-        manifest.subdomains["sd_02"].setup_dir / "results" / "grids" / "output_grids.nc",
-        np.array([[30.0], [40.0]], dtype=np.float32),
-    )
-
-    written = merge_model_grids(manifest_path=manifest_path, coverage_sliver_tol_px=0)
-
-    out_dir = manifest.subdomain_root / "results" / "grids"
-    assert sorted(path.name for path in written) == ["output_grids.nc", "snowdepth.tif"]
-    with rasterio.open(out_dir / "snowdepth.tif") as ds:
-        np.testing.assert_allclose(ds.read(1), np.array([[1.0, 3.0], [2.0, 4.0]], dtype=np.float32))
-    with xr.open_dataset(out_dir / "output_grids.nc") as ds:
-        np.testing.assert_allclose(ds["swe"].values, np.array([[10.0, 30.0], [20.0, 40.0]], dtype=np.float32))
+    with pytest.raises(ValueError, match="Mixed model grid artifacts"):
+        merge_model_grids(manifest_path=manifest_path, coverage_sliver_tol_px=0)

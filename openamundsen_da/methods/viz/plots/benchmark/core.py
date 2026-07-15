@@ -15,7 +15,6 @@ from matplotlib.lines import Line2D
 from matplotlib.legend_handler import HandlerBase
 from matplotlib.ticker import MultipleLocator
 
-from openamundsen_da.io.paths import project_paper_output_path
 from openamundsen_da.methods.viz.plots.theme import (
     FIGHEIGHT_OVERVIEW_ROW,
     FIGWIDTH_OVERVIEW_PAPER,
@@ -688,13 +687,6 @@ def write_plots(
 
     outputs: dict[str, Path] = {}
     out_path = plots_dir / "performance_scores.png"
-    paper_written = _write_event_skill_figure(
-        project_paper_output_path(project_dir, out_path),
-        event_scores=event_scores,
-        project_dir=project_dir,
-        exclude_variables=exclude_variables,
-        show_figure_title=False,
-    )
     written = _write_event_skill_figure(
         out_path,
         event_scores=event_scores,
@@ -703,8 +695,6 @@ def write_plots(
     )
     if written is not None:
         outputs["performance_scores"] = written
-    if paper_written is not None:
-        outputs["performance_scores_paper"] = paper_written
     return outputs
 
 

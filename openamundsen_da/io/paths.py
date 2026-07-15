@@ -340,53 +340,6 @@ def project_paper_root(project_dir: str | Path) -> Path:
     return project_results_root(project_dir) / "paper"
 
 
-def project_poster_root(project_dir: str | Path) -> Path:
-    """Return the canonical project-level poster-output root."""
-    return project_results_root(project_dir) / "poster"
-
-
-def project_paper_output_path(project_dir: str | Path, output_path: str | Path) -> Path:
-    """Mirror a project results output under ``results/paper``.
-
-    Examples
-    --------
-    ``results/maps/da_events/da_6.png`` becomes
-    ``results/paper/maps/da_events/da_6.png``.
-    """
-    project_dir = Path(project_dir)
-    output_path = Path(output_path)
-    results_root = project_results_root(project_dir)
-    try:
-        relative = output_path.relative_to(results_root)
-    except ValueError:
-        relative = output_path.name
-    return project_paper_root(project_dir) / relative
-
-
-def project_poster_output_path(project_dir: str | Path, output_path: str | Path) -> Path:
-    """Mirror a project results output under ``results/poster``.
-
-    If ``output_path`` already points inside ``results/poster``, it is returned
-    unchanged so poster renderers can be safely composed without nesting.
-    """
-    project_dir = Path(project_dir)
-    output_path = Path(output_path)
-    poster_root = project_poster_root(project_dir)
-    try:
-        output_path.relative_to(poster_root)
-    except ValueError:
-        pass
-    else:
-        return output_path
-
-    results_root = project_results_root(project_dir)
-    try:
-        relative = output_path.relative_to(results_root)
-    except ValueError:
-        relative = output_path.name
-    return poster_root / relative
-
-
 def project_plots_root(project_dir: str | Path) -> Path:
     """Return the canonical project-level plots root."""
     return project_results_root(project_dir) / "plots"
@@ -430,11 +383,6 @@ def project_plot_points_dir(project_dir: str | Path) -> Path:
 def project_result_overview_output_path(project_dir: str | Path) -> Path:
     """Return the canonical default result-overview plot path."""
     return project_plot_results_dir(project_dir) / "result_overview.png"
-
-
-def project_result_overview_custom_output_path(project_dir: str | Path) -> Path:
-    """Return the canonical custom result-overview plot path."""
-    return project_plot_results_dir(project_dir) / "result_overview_custom.png"
 
 
 def project_obs_selection_plot_path(project_dir: str | Path) -> Path:

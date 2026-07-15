@@ -150,55 +150,6 @@ The output keeps normal DA summary variable names and stores merge provenance in
 
 ---
 
-### oa-da-plot-multi-project-snow
-
-**Plot multi-project snow station and ROI time series**
-
-Creates a small snow-plot bundle from completed projects by stitching per-step point-result CSVs across projects. This is intended for adjacent annual projects that share one setup and should be delivered as one continuous multi-year product.
-
-Use setup-relative project names:
-
-```bash
-oa-da-plot-multi-project-snow \
-  --setup /data/rofental \
-  --project project_2020_2021 \
-  --project project_2021_2022 \
-  --project project_2022_2023
-```
-
-Or pass project directories directly:
-
-```bash
-oa-da-plot-multi-project-snow \
-  --project-dir /data/rofental/projects/project_2020_2021 \
-  --project-dir /data/rofental/projects/project_2021_2022 \
-  --output-dir /data/rofental/results/plots/multi_year_snow
-```
-
-**Required Arguments:**
-- Either `--setup PATH` with repeated `--project NAME`, or repeated `--project-dir PATH`
-
-**Optional Arguments:**
-- `--output-dir PATH` - Output directory; defaults to `<setup>/results/plots/multi_year_snow` when a setup can be inferred
-- `--station ID` - Station id to plot; repeatable, defaults to `latschbloder` and `proviantdepot`
-- `--variable NAME` - Snow variable to plot; repeatable, supports `snow_depth` and `swe`
-- `--overwrite` - Replace existing output PNGs
-- `--backend NAME` - Matplotlib backend, default `Agg`
-- `--log-level LEVEL` - Logging level
-
-**Output behavior:**
-- station plots show open loop, ensemble mean, the full finite-member range and red dashed station observations where available
-- ROI plots show open loop, ensemble mean and the full finite-member range
-- station model and station observations are aggregated to daily means; ROI result CSVs are used at their native daily cadence
-- negative station observations are masked before daily aggregation
-- missing observations do not fail a plot; the station plot is written model-only
-- no DA-event markers are drawn
-- if a source project has `results/maps/setup_overview.png`, it is copied to `context_map.png`
-
-The default Rofental bundle writes PNGs such as `station_latschbloder_snow_depth_2020_2024.png`, `station_proviantdepot_swe_2020_2024.png`, `roi_mean_snow_depth_2020_2024.png` and `context_map.png`.
-
----
-
 ### oa-da-benchmark
 
 **Re-run scientific benchmarking on an existing finished project**
@@ -613,7 +564,7 @@ oa-da-plot-project-maps \
 - generated DA-event maps under `results/maps/da_events/*.png`
 - custom YAML maps under `results/maps/*.png`
 
-Generated `wet_snow` and `wet_snow_line` DA-event maps include a generated-only spatial elevation-band WSF row below the primary wet-snow row. Each panel keeps the map footprint, but every valid cell is colored by the raw wet snow fraction of its elevation band on a fixed white-to-black `0-100%` scale for open loop, posterior, and observation columns. Generated WSLA maps keep the primary WSF row, the elevation-band WSF row with derived WSLA contours and the snow-depth response row in both standard and paper outputs.
+Generated `wet_snow` and `wet_snow_line` DA-event maps include a generated-only spatial elevation-band WSF row below the primary wet-snow row. Each panel keeps the map footprint, but every valid cell is colored by the raw wet snow fraction of its elevation band on a fixed white-to-black `0-100%` scale for open loop, posterior, and observation columns. Generated WSLA maps keep the primary WSF row, the elevation-band WSF row with derived WSLA contours and the snow-depth response row.
 
 Static context panels (`hillshade`, `dem`, `aspect`, `svf`, `srf`, `landcover`) mask raster cells outside the ROI. `aspect` is derived from the DEM at render time and shown on a continuous radian colorbar. Continuous static panels such as `srf` can set `show_hillshade: true` to draw a terrain underlay. `landcover` panels can set `landcover_grouping: broad` to merge detailed vegetation/forest classes into broad manuscript-friendly classes, and the legend only lists classes present inside the ROI. The `rofental_manuscript` grouping is reserved for the Rofental paper/tutorial setup map, not for generic land-cover maps; it merges codes 1 and 13 as `rock`, 2 and 3 as `ice`, 4--7 as `grass/shrub`, and 8--12 as `forest`. Non-legend panels can use `legend_items` with `placement: below` or `placement: inside` (`anchor: top_left|top_right|bottom_left|bottom_right`) for compact layer legends such as station symbols; legacy `below_items` remains supported. Model and observation panels remain ROI-masked. Prepared sub-domain projects automatically draw the configured sub-domain polygons from `subdomain_manifest.json` on top-level ROI-bearing map panels and overview panels. Generated DA-event maps mark a sub-domain as `no DA` only when the event was dropped locally and recorded in `results/subdomain_dropped_events.csv`; events with valid weights are not marked just because posterior resampling was skipped. When `show_hillshade: true`, `hillshade_extent: roi` limits the hillshade to the ROI mask and `hillshade_extent: full` draws it across the full panel. In the supported Docker workflow, omitted `--max-workers` uses automatic recipe-level multicore rendering with the effective worker count clamped to `min(visible CPUs, selected recipes)`; pass `--max-workers 1` to keep rendering sequential. If one or more maps fail because supporting data are missing, the pipeline logs a rerun command and continues. After changing shipped or local static grids, rerender the full local project-map catalog so mixed gallery outputs do not keep stale static panels.
 
@@ -641,73 +592,6 @@ oa-da-plot-project-plots \
 - refreshed fraction envelopes under `results/misc/point_*_roi_envelope.csv`
 
 Use this when you changed plotting code, `plots.yml`, or map-independent styling and want a clean plot rerender without executing `oa-da-project` again.
-
-### oa-da-plot-poster
-
-**Render configured poster-profile assets**
-
-Reads `<project-dir>/poster.yml` and writes selected poster-ready variants under `results/poster/` without rerunning the model or DA workflow. `oa-da-project` also runs this renderer automatically near the end of a project run when `poster.yml` exists, after maps, plots and benchmark-dependent overview panels are current.
-
-```bash
-oa-da-plot-poster \
-  --project-dir PATH \
-  [--config PATH] \
-  [--max-workers N]
-```
-
-**Output:**
-- poster maps under `results/poster/maps/**`
-- poster plots under `results/poster/plots/**`
-
-The first supported poster profile is a paper-baseline transform. `setup_overview` can keep or drop selected map panel kinds and reflow them to a chosen column count, generated DA-event maps can drop the first/open-loop column, and the poster `result_overview_custom` asset can use its own reduced `panels` list. Optional `target_size_mm: [width, height]` values render PNGs at their intended physical poster size while keeping paper typography and line-width constants unchanged. Optional `theme.scale` applies a poster-local multiplier, while `theme.typography` and `theme.linework` can pin exact poster text sizes and panel-border width:
-
-```yaml
-theme:
-  scale: 1.4
-  typography:
-    title_pt: 14.2
-    label_pt: 12.0
-    support_pt: 10.0
-  linework:
-    panel_box_pt: 0.45
-maps:
-  setup_overview:
-    enabled: true
-    target_size_mm: [75.220833, 178.40262]
-    keep_panel_kinds: [dem, landcover]
-    layout:
-      ncols: 1
-  da_events:
-    enabled: true
-    drop_first_column: true
-    target_size_mm: [250.78568, 156.94586]
-plots:
-  result_overview_custom:
-    enabled: true
-    target_size_mm: [429.34836, 186.90407]
-    panels:
-      - panel: fSC
-        title: Fractional snow covered area (fSCA)
-      - panel: WSLA
-        title: Wet snow line altitude
-      - panel: station-sd
-        station_id: proviantdepot
-        title: Snow depth (Proviantdepot 2659 m)
-```
-
-### oa-da-poster-measure
-
-**Measure poster-profile asset sizes from an Inkscape SVG**
-
-Matches embedded current `results/poster` PNGs in an Inkscape SVG by hash, or linked `results/poster` PNGs by file path, and writes their measured physical placement sizes back to `poster.yml` as `target_size_mm`.
-
-```bash
-oa-da-poster-measure \
-  --project-dir PATH \
-  --svg PATH \
-  [--config PATH] \
-  [--write]
-```
 
 ### oa-da-project-pdf
 

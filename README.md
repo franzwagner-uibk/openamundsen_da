@@ -575,7 +575,7 @@ Note: running the project pipeline (see below) also generates these plots automa
   One-column project maps (`layout.ncols: 1`) render with a compact map-panel width rather than stretching the panel to the full paper width. One-column raster maps use this compact width with a small built-in enlargement so simple 1x1
   or 2x1 context rasters remain readable while staying visually consistent with larger map combinations.
 
-  Generated DA-event rows use four consistent columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference columns show `analysis_increment` (`posterior - prior`, so positive values mean DA added snow/water). FSC and wet-snow reference columns show the satellite observation. Generated FSC, WSF, WSLA, and elevation-band WSF rows use spatial prior/posterior probability maps where applicable. Generated WSLA maps keep a primary WSF row without WSLA contours, an elevation-band WSF row with the derived WSLA contours and a snow-depth response row in both standard and paper outputs. Top-level sub-domain SCF events use a taller same-file layout with a 2x2 snow-cover block above the 2x2 snow-depth response block; exact rerendering requires retained per-sub-domain grids. If the event resampling manifest reports skipped resampling, the map title is suffixed with `resampling skipped`.
+  Generated DA-event rows use four consistent columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference columns show `analysis_increment` (`posterior - prior`, so positive values mean DA added snow/water). FSC and wet-snow reference columns show the satellite observation. Generated FSC, WSF, WSLA, and elevation-band WSF rows use spatial prior/posterior probability maps where applicable. Generated WSLA maps keep a primary WSF row without WSLA contours, an elevation-band WSF row with the derived WSLA contours and a snow-depth response row. Top-level sub-domain SCF events use a taller same-file layout with a 2x2 snow-cover block above the 2x2 snow-depth response block; exact rerendering requires retained per-sub-domain grids. If the event resampling manifest reports skipped resampling, the map title is suffixed with `resampling skipped`.
 
   By default the renderer parallelizes across independent recipe PNGs inside the Docker container and clamps the effective worker count to `min(visible CPUs, selected recipes)`; use `--max-workers 1` to force sequential rendering. `oa-da-project` and merged sub-domain runs also render project maps automatically as a best-effort post-run stage. If a map fails because supporting data are missing, the pipeline logs a rerun command and continues.
   Project maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `aspect`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`, `uncertainty`, `wet_snow_line`, `wet_snow_elevation_fraction`), and optional support panels (`legend`, `colorbar`). Static context rasters are masked to the ROI; `aspect` is derived from the DEM at render time and shown on a continuous radian colorbar, continuous static panels such as `srf` can use `show_hillshade: true` for a terrain underlay, and SRF and increment maps share a compact-neutral signed red-blue diverging palette. `landcover` panels can set `landcover_grouping: broad` to merge detailed vegetation/forest classes into broad manuscript-friendly classes, and their legend only lists classes present inside the ROI. The `rofental_manuscript` grouping is a Rofental paper/tutorial grouping, not a generic land-cover classification; it merges codes 1 and 13 as `rock`, 2 and 3 as `ice`, 4--7 as `grass/shrub`, and 8--12 as `forest`. Non-legend panels can use `legend_items` with `placement: below` or `placement: inside` (`anchor: top_left|top_right|bottom_left|bottom_right`) for compact layer legends such as station symbols; legacy `below_items` remains supported. `uncertainty` renders `*_uncertainty.tif` companion rasters for `observation: scf` or `observation: wet_snow` on the valid observation support. In prepared sub-domain projects, top-level project maps automatically overlay the configured sub-domain polygons from `subdomain_manifest.json` on ROI-bearing map panels and overview panels. Generated DA-event maps additionally mark sub-domain polygons as `no DA` only when that event was dropped for the sub-domain and recorded in `results/subdomain_dropped_events.csv`; healthy events with computed weights are not marked just because resampling was skipped. Recipe-level `row_views` can assign a shared Google/Slippy-map zoom extent to every panel in a row. `wet_snow` renders WSF, while `wet_snow_line` renders the wet-snow raster context and derives WSLA contours in the elevation-band WSF row. `prior_probability` and `posterior_probability` sources render spatial ensemble probability fields; observation overlays are kept in observation/reference panels.
@@ -593,53 +593,6 @@ Note: running the project pipeline (see below) also generates these plots automa
   ```
 
   The command expects an already finished project with step outputs under `<project-dir>/steps/`. It does not rerun openAMUNDSEN or data assimilation; it only regenerates plot artifacts under `results/plots/` and the fraction envelopes under `results/misc/`.
-
-- Poster profile (selected poster-ready plot/map variants):
-
-  Add `poster.yml` to a project directory to activate a reusable poster profile. `oa-da-project` renders it automatically near the end of the run, after maps, plots and benchmark-dependent overview panels are current. Use `oa-da-plot-poster` to regenerate the configured poster assets from an already completed project without rerunning the model or data assimilation:
-
-  ```powershell
-  docker compose run --rm oa `
-    oa-da-plot-poster `
-    --project-dir /data/projects/project_2022_2023 `
-    --max-workers 4
-  ```
-
-  Poster outputs mirror the normal results tree under `results/poster/`, for example `results/poster/maps/setup_overview.png`, `results/poster/maps/da_events/da_1.png` and `results/poster/plots/results/result_overview_custom.png`. The first supported profile is a paper-baseline transform: `setup_overview` can keep or drop selected map panel kinds and reflow them to a chosen column count, generated DA-event maps can drop the first/open-loop column and the poster result overview asset can use its own reduced `panels` list. Optional `target_size_mm: [width, height]` values render PNGs at their intended physical poster size while keeping paper typography and line-width constants unchanged, which avoids inconsistent scaling after placing linked images in Inkscape. Optional `theme.scale` applies a poster-local multiplier, while `theme.typography` and `theme.linework` can pin exact poster text sizes and panel-border width. Use `oa-da-poster-measure --project-dir <project> --svg <poster.svg> --config <poster.yml> --write` to measure current embedded or linked poster PNG placements from an Inkscape SVG and write those target sizes into `poster.yml`.
-
-  ```yaml
-  theme:
-    scale: 1.4
-    typography:
-      title_pt: 14.2
-      label_pt: 12.0
-      support_pt: 10.0
-    linework:
-      panel_box_pt: 0.45
-  maps:
-    setup_overview:
-      enabled: true
-      target_size_mm: [75.220833, 178.40262]
-      keep_panel_kinds: [dem, landcover]
-      layout:
-        ncols: 1
-    da_events:
-      enabled: true
-      drop_first_column: true
-      target_size_mm: [250.78568, 156.94586]
-  plots:
-    result_overview_custom:
-      enabled: true
-      target_size_mm: [429.34836, 186.90407]
-      panels:
-        - panel: fSC
-          title: Fractional snow covered area (fSCA)
-        - panel: WSLA
-          title: Wet snow line altitude
-        - panel: station-sd
-          station_id: proviantdepot
-          title: Snow depth (Proviantdepot 2659 m)
-  ```
 
 - Project PDF collection (curated project overview and DA maps):
 

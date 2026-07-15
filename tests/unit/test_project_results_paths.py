@@ -12,10 +12,7 @@ from openamundsen_da.io.paths import (
     project_maps_root,
     project_misc_root,
     project_obs_selection_plot_path,
-    project_paper_output_path,
     project_paper_root,
-    project_poster_output_path,
-    project_poster_root,
     project_plot_assim_dir,
     project_plot_assim_ess_dir,
     project_plot_assim_scores_dir,
@@ -26,7 +23,6 @@ from openamundsen_da.io.paths import (
     project_plots_maps_collection_pdf_path,
     project_plots_root,
     project_reports_root,
-    project_result_overview_custom_output_path,
     project_result_overview_output_path,
     project_results_root,
 )
@@ -37,7 +33,6 @@ def test_project_level_results_paths_use_canonical_results_tree(tmp_path: Path) 
 
     assert project_results_root(project_dir) == project_dir / "results"
     assert project_paper_root(project_dir) == project_dir / "results" / "paper"
-    assert project_poster_root(project_dir) == project_dir / "results" / "poster"
     assert project_plots_root(project_dir) == project_dir / "results" / "plots"
     assert project_plot_results_dir(project_dir) == project_dir / "results" / "plots" / "results"
     assert project_plot_assim_dir(project_dir) == project_dir / "results" / "plots" / "assim"
@@ -47,7 +42,6 @@ def test_project_level_results_paths_use_canonical_results_tree(tmp_path: Path) 
     assert project_plot_perf_dir(project_dir) == project_dir / "results" / "plots" / "perf"
     assert project_plot_points_dir(project_dir) == project_dir / "results" / "plots" / "points"
     assert project_result_overview_output_path(project_dir) == project_dir / "results" / "plots" / "results" / "result_overview.png"
-    assert project_result_overview_custom_output_path(project_dir) == project_dir / "results" / "plots" / "results" / "result_overview_custom.png"
     assert project_obs_selection_plot_path(project_dir) == project_dir / "results" / "plots" / "results" / "obs_selection.png"
     assert project_misc_root(project_dir) == project_dir / "results" / "misc"
     assert project_fraction_envelope_path(project_dir, "scf") == project_dir / "results" / "misc" / "point_scf_roi_envelope.csv"
@@ -63,20 +57,3 @@ def test_project_level_results_paths_use_canonical_results_tree(tmp_path: Path) 
     )
     assert project_benchmark_root(project_dir) == project_dir / "results" / "benchmark"
     assert project_benchmark_plots_dir(project_dir) == project_plot_assim_scores_dir(project_dir)
-    assert (
-        project_paper_output_path(project_dir, project_dir / "results" / "maps" / "da_events" / "da_6.png")
-        == project_dir / "results" / "paper" / "maps" / "da_events" / "da_6.png"
-    )
-    assert (
-        project_paper_output_path(
-            project_dir,
-            project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_project_2022_2023.png",
-        )
-        == project_dir / "results" / "paper" / "plots" / "assim" / "weights" / "setup_weights_overview_project_2022_2023.png"
-    )
-    assert (
-        project_poster_output_path(project_dir, project_dir / "results" / "maps" / "da_events" / "da_6.png")
-        == project_dir / "results" / "poster" / "maps" / "da_events" / "da_6.png"
-    )
-    poster_output = project_dir / "results" / "poster" / "plots" / "results" / "result_overview_custom.png"
-    assert project_poster_output_path(project_dir, poster_output) == poster_output

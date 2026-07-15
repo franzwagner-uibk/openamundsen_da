@@ -2230,11 +2230,10 @@ def test_render_project_maps_generates_da_event_maps_under_subdir(tmp_path: Path
     ]
     for output in outputs:
         assert output.is_file()
-        paper_output = project_dir / "results" / "paper" / "maps" / "da_events" / output.name
-        assert paper_output.is_file()
+    assert not (project_dir / "results" / "paper").exists()
 
 
-def test_render_project_maps_writes_paper_outputs_without_figure_titles(
+def test_developer_map_profile_writes_selected_title_free_outputs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2262,10 +2261,17 @@ def test_render_project_maps_writes_paper_outputs_without_figure_titles(
     monkeypatch.setattr(runner_module, "render_map_recipe", _fake_render_map_recipe)
 
     outputs = render_project_maps(project_dir=project_dir, max_workers=1)
+    profile_outputs = runner_module.render_project_map_profile(
+        project_dir=project_dir,
+        output_root=project_dir / "results" / "paper" / "maps",
+        names={"da_1"},
+        strip_figure_titles=True,
+    )
 
     normal = project_dir / "results" / "maps" / "da_events" / "da_1.png"
     paper = project_dir / "results" / "paper" / "maps" / "da_events" / "da_1.png"
     assert outputs == [normal]
+    assert profile_outputs == [paper]
     assert normal.read_text(encoding="utf-8") == "DA 1 - 2023-01-02 (Snow cover fraction)"
     assert paper.read_text(encoding="utf-8") == ""
     assert rendered == [
@@ -5697,7 +5703,6 @@ def test_render_project_maps_parallel_logs_recipe_attributed_failure(
                     runner_module.RecipeRenderResult(
                         recipe_name=recipe.name,
                         output_path=Path("/tmp") / f"{recipe.name}.png",
-                        paper_output_path=Path("/tmp") / "paper" / f"{recipe.name}.png",
                     )
                 )
             return future

@@ -2096,7 +2096,10 @@ def test_project_panel_config_path_returns_none_when_root_file_missing(tmp_path:
     assert _project_panel_config_path(tmp_path) is None
 
 
-def test_cli_project_plots_yml_configures_standard_result_overview(monkeypatch, tmp_path: Path) -> None:
+def test_cli_project_plots_yml_configures_standard_result_overview_without_cleaning_unrelated_outputs(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
     setup_dir = tmp_path / "setup"
     project_dir = setup_dir / "projects" / "project_2022_2023"
     project_dir.mkdir(parents=True)
@@ -2118,7 +2121,6 @@ def test_cli_project_plots_yml_configures_standard_result_overview(monkeypatch, 
             str(project_dir),
             "--setup-dir",
             str(setup_dir),
-            "--no-paper-mirror",
         ],
         configure_logger=False,
     )
@@ -2128,8 +2130,8 @@ def test_cli_project_plots_yml_configures_standard_result_overview(monkeypatch, 
     assert [spec.panel for spec in calls["panel_specs"]] == ["fSC", "scores-crpss"]
     assert calls["strict_panels"] is True
     assert calls["score_points"] is not None
-    assert not legacy_output.exists()
-    assert not legacy_paper_output.exists()
+    assert legacy_output.exists()
+    assert legacy_paper_output.exists()
 
 
 def test_cli_explicit_custom_config_writes_standard_output_unless_output_is_set(monkeypatch, tmp_path: Path) -> None:
@@ -2148,7 +2150,6 @@ def test_cli_explicit_custom_config_writes_standard_output_unless_output_is_set(
             str(setup_dir),
             "--custom-config",
             str(custom_config),
-            "--no-paper-mirror",
         ],
         configure_logger=False,
     )
@@ -2169,7 +2170,6 @@ def test_cli_explicit_custom_config_writes_standard_output_unless_output_is_set(
             str(custom_config),
             "--output",
             str(explicit_output),
-            "--no-paper-mirror",
         ],
         configure_logger=False,
     )

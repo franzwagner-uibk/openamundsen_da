@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 from loguru import logger
 
-from openamundsen_da.io.paths import project_maps_output_dir, project_paper_output_path
+from openamundsen_da.io.paths import project_maps_output_dir
 from openamundsen_da.methods.viz.maps.annotations import panel_date
 from openamundsen_da.methods.viz.maps.config import (
     MapRecipe,
@@ -33,7 +33,6 @@ from openamundsen_da.util.loguru_utils import configure_cli_logger
 class RecipeRenderResult:
     recipe_name: str
     output_path: Path
-    paper_output_path: Path
 
 
 class ProjectMapRenderError(RuntimeError):
@@ -122,15 +121,7 @@ def _render_recipe_with_cache(
         output_path=output_path,
         runtime_cache=runtime_cache,
     )
-    paper_output_path = project_paper_output_path(project_dir, rendered_output)
-    rendered_paper_output = render_map_recipe(
-        project_dir=project_dir,
-        context=context,
-        recipe=_paper_recipe(recipe),
-        output_path=paper_output_path,
-        runtime_cache=runtime_cache,
-    )
-    return RecipeRenderResult(recipe_name=recipe.name, output_path=rendered_output, paper_output_path=rendered_paper_output)
+    return RecipeRenderResult(recipe_name=recipe.name, output_path=rendered_output)
 
 
 def _collect_shared_model_vmax(project_dir: Path, recipes: tuple[MapRecipe, ...]) -> dict[str, float]:
@@ -278,6 +269,60 @@ def render_project_maps(
         max_workers=effective_workers,
         shared_range_recipes=shared_range_recipes,
     )
+
+
+def render_project_map_profile(
+    *,
+    project_dir: Path,
+    output_root: Path,
+    names: set[str],
+    strip_figure_titles: bool = False,
+) -> list[Path]:
+    """Render an explicit developer profile without changing public outputs.
+
+    Profile rendering is deliberately sequential because publication profiles
+    contain only a small, selected set of recipes. Shared ranges still use the
+    complete generated DA-map collection so selected maps remain numerically
+    and visually consistent with the canonical public render.
+    """
+    project_dir = Path(project_dir).resolve()
+    output_root = Path(output_root).resolve()
+    if not names:
+        raise ValueError("Project map profile requires at least one recipe name")
+
+    config_path = default_project_maps_config_path(project_dir).resolve()
+    config = _effective_project_maps_config(project_dir, config_path)
+    filtered = _filtered_names(config, names=names)
+    selected_names = set(filtered.all_names())
+    missing_names = sorted(names - selected_names)
+    if missing_names:
+        raise ValueError(f"Unknown project map profile recipe(s): {', '.join(missing_names)}")
+
+    shared_range_recipes = _shared_range_recipes_for_selection(filtered.maps, config.maps)
+    context = load_static_context(project_dir)
+    runtime_cache = RenderRuntimeCache(
+        shared_model_vmax=_collect_shared_model_vmax(project_dir, shared_range_recipes)
+    )
+    outputs: list[Path] = []
+    for recipe in filtered.maps:
+        profile_recipe = _paper_recipe(recipe) if strip_figure_titles else recipe
+        output_dir = output_root / recipe.output_subdir if recipe.output_subdir else output_root
+        output_path = output_dir / f"{recipe.output_stem}.png"
+        logger.info("Starting profile map {}", recipe.name)
+        try:
+            rendered_output = render_map_recipe(
+                project_dir=project_dir,
+                context=context,
+                recipe=profile_recipe,
+                output_path=output_path,
+                runtime_cache=runtime_cache,
+            )
+        except Exception as exc:
+            logger.error("Failed profile map {}: {}", recipe.name, exc)
+            raise ProjectMapRenderError(recipe.name, "profile", str(exc)) from exc
+        logger.info("Finished profile map {} -> {}", recipe.name, rendered_output)
+        outputs.append(rendered_output)
+    return outputs
 
 
 def cli_main(argv: list[str] | None = None) -> int:

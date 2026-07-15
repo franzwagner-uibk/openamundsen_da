@@ -153,7 +153,7 @@ def _list_steps_sorted(setup_dir: Path) -> List[StepInfo]:
 
 
 def _assimilation_event_dates(setup_dir: Path) -> List[datetime]:
-    """Return assimilation datetimes (midnight) from setup.yml events."""
+    """Return assimilation datetimes (midnight) from project assimilation events."""
     events = load_assimilation_events(setup_dir)
     return [datetime.combine(ev.date, datetime.min.time()) for ev in events]
 

@@ -271,7 +271,7 @@ def _write_subdomain_regions_and_manifest(project_dir: Path, setup_dir: Path) ->
                 "setup_dir": str(setup_dir),
                 "project_dir": str(project_dir),
                 "project_name": project_dir.name,
-                "setup_yaml": str(setup_dir / "setup.yml"),
+                "setup_yaml": str(setup_dir / f"{setup_dir.name}.yml"),
                 "project_yaml": str(project_dir / f"{project_dir.name}.yml"),
                 "subdomain_root": str(project_dir / "subdomains"),
                 "regions_path": str(regions_path),
@@ -326,7 +326,7 @@ def _write_runtime_subdomain_manifest(project_dir: Path, setup_dir: Path) -> Pat
             "id": sid,
             "label": sid,
             "setup_dir": str(sub_setup),
-            "setup_yaml": str(sub_setup / "setup.yml"),
+            "setup_yaml": str(sub_setup / f"{sub_setup.name}.yml"),
             "project_dir": str(sub_project),
             "project_yaml": str(sub_project / f"{project_dir.name}.yml"),
             "project_name": project_dir.name,
@@ -367,7 +367,7 @@ def _build_project_fixture(
     transform = from_origin(0.0, 400.0, 100.0, 100.0)
 
     _write_yaml(
-        setup_dir / "setup.yml",
+        setup_dir / f"{setup_dir.name}.yml",
         f"""
         domain: demo
         resolution: 100

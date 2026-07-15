@@ -12,11 +12,16 @@ Configuration model for openAMUNDSEN-DA.
 {: .fs-6 .fw-300 }
 
 ## Hierarchy
-1. `<setup-name>.yml` (fallback `setup.yml`) - setup-wide openAMUNDSEN config.
-2. `<project-name>.yml` (fallback `project.yml`) - project-specific data assimilation config and time span.
+1. `<setup-name>.yml` - setup-wide openAMUNDSEN config.
+2. `<project-name>.yml` - project-specific data assimilation config and time span.
 3. `step_XX.yml` - auto-generated step windows.
 
-## `<setup-name>.yml` / `setup.yml` (setup level)
+Generic `setup.yml` and `project.yml` aliases are not accepted.
+The setup root must contain exactly one non-legacy `.yml` file. This keeps the
+configuration unambiguous when Docker mounts a named setup directory as
+`/data`; the logical setup filename does not change at the mount boundary.
+
+## `<setup-name>.yml` (setup level)
 Use setup YAML for stable, shared settings that apply to all projects.
 
 Typical keys:
@@ -50,12 +55,18 @@ output_data:
 
 Do not place `obs` or `data_assimilation` in setup YAML.
 
-## `<project-name>.yml` / `project.yml` (project level)
+`output_data.grids.format` is required and selects the one model-grid reader.
+Use `netcdf` for grid-layout NetCDF or `geotiff` for deterministic,
+georeferenced daily GeoTIFFs. Mixed artifacts and NetCDF `roi_pixel` layout are
+rejected.
+
+## `<project-name>.yml` (project level)
 Use project YAML for data assimilation configuration for one project.
 
 Required top-level keys:
 - `start_date`
 - `end_date`
+- `run_mode`
 - `obs`
 - `data_assimilation`
 
@@ -64,12 +75,14 @@ Example:
 ```yaml
 start_date: 2022-10-01
 end_date: 2023-09-30
+run_mode: single
 
 obs:
   stations:
     dir: obs/stations
   snowcover:
     dir: obs/snowcover
+    format: geotiff
     product_tag: SNOWCOVER
     summary_csv: obs/summaries/project_2022_2023/scf_summary.csv
     classes:
@@ -80,6 +93,7 @@ obs:
       nodata: [255]
   wetsnow:
     dir: obs/wetsnow
+    format: geotiff
     product_tag: WETSNOW
     summary_csv: obs/summaries/project_2022_2023/wet_snow_summary.csv
     classes:
@@ -145,7 +159,6 @@ data_assimilation:
   restart:
     dump_state: true
     state_pattern: model_state.pickle.gz
-    cleanup_after_setup: true
 
   benchmark:
     independent_variables:
@@ -155,7 +168,9 @@ data_assimilation:
     output_dir: results/benchmark
 
   output:
-    retention: compact # options: compact | full; sub-domain projects default to full when omitted
+    retention: compact
+    grids:
+      format: netcdf # compact DA output is always NetCDF
 
   landcover_mask:
     enabled: true
@@ -172,7 +187,7 @@ data_assimilation:
       assimilation:
         sigma_mode: formula # formula | uncertainty_layer
         aggregate_metric: unc_mean # used when sigma_mode=uncertainty_layer
-      input_dir: obs/snowcover # used by oa-da-scf-uncertainty generator
+      input_dir: obs/snowcover
       u_min: 10.0
       u_max: 20.0
       nodata_value: 255.0
@@ -198,7 +213,7 @@ data_assimilation:
       assimilation:
         sigma_mode: formula # formula | uncertainty_layer
         aggregate_metric: unc_mean # used when sigma_mode=uncertainty_layer
-      input_dir: obs/wetsnow # used by oa-da-wetsnow-uncertainty generator
+      input_dir: obs/wetsnow
       base_uncertainty: 15.0
       nodata_value: 255.0
       penalties:
@@ -249,10 +264,10 @@ Notes:
   - NetCDF uses configured in-file variables; GeoTIFF requires `<stem>_uncertainty.tif`.
   - Cloud pixels should be handled as data gaps (masked), not as uncertainty-penalty pixels.
 - Wet-snow uncertainty uses the same pattern (`ingest` + `assimilation`) and the same file-type behavior.
-- Uncertainty generator keys:
-  - `input_dir`, `u_min`, `u_max`, `base_uncertainty`, `nodata_value`, and `penalties[]` are used by `oa-da-scf-uncertainty` / `oa-da-wetsnow-uncertainty`.
+- Uncertainty preprocessing keys:
+  - `input_dir`, `u_min`, `u_max`, `base_uncertainty`, `nodata_value`, and `penalties[]` are used by `openamundsen-da observations snow-cover` and `openamundsen-da observations wet-snow`.
   - `penalties[].input_dir` is required only for `source: shadow`.
-- `output.retention: compact` writes `results/grids/da_output_grids.nc` and removes heavy member grid artifacts.
+- `output.retention: compact` writes `results/grids/da_output_grids.nc`. Member grids are retained by the safe cleanup contract.
 - `run_mode: subdomain` defaults to `output.retention: full` when retention is omitted, preserving the sub-domain NC grids required for exact generated DA-event map rerendering.
 - `output.grids.variables[*]` controls both which compact grid variables are exported and which metrics are written for each variable. If this block is omitted, all grid variables and metrics are written for backward compatibility.
 - Compact DA summary NetCDFs use internal compressed storage encodings: snow depth at 0.001 m resolution and SWE/liquid-water content at integer millimeter resolution. This is not a YAML setting; CF-aware readers decode the variables back to physical values.
@@ -272,10 +287,10 @@ results_dir: results
 
 ## Validation behavior
 Configuration is validated when running CLI commands such as:
-- `oa-da-project`
-- `python -m openamundsen_da.pipeline.project_skeleton`
-- `oa-da-snowcover`
-- `oa-da-assimilate-scf`
+- `openamundsen-da observations snow-cover PROJECT_DIR`
+- `openamundsen-da observations wet-snow PROJECT_DIR`
+- `openamundsen-da prepare PROJECT_DIR`
+- `openamundsen-da run PROJECT_DIR`
 
 Typical early failures:
 - missing project YAML data assimilation keys

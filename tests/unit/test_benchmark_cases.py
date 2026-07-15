@@ -27,7 +27,7 @@ def _setup_basic_project(tmp_path: Path, *, events_yaml: str) -> tuple[Path, Pat
     events_block = events_yaml.strip("\n")
 
     _write_yaml(
-        setup_dir / "setup.yml",
+        setup_dir / "demo.yml",
         """
         resolution: 100
         """,

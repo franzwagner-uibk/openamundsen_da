@@ -24,6 +24,7 @@ from shapely.ops import unary_union
 
 from openamundsen_da.io.paths import (
     abspath_relative_to,
+    find_plain_setup_yaml,
     find_project_yaml,
     find_setup_yaml,
 )
@@ -57,20 +58,6 @@ def _nested_dir(cfg: dict, keys: tuple[str, ...], default_rel: str) -> Path:
     if isinstance(cur, str) and cur.strip():
         return Path(cur)
     return Path(default_rel)
-
-
-def _find_plain_setup_yaml(setup_dir: Path) -> Path:
-    """Find a setup YAML without requiring a DA `projects/` directory."""
-    preferred = [setup_dir / f"{setup_dir.name}.yml", setup_dir / "setup.yml"]
-    for cand in preferred:
-        if cand.is_file():
-            return cand
-    candidates = sorted(setup_dir.glob("*.yml"))
-    if len(candidates) == 1:
-        return candidates[0]
-    raise FileNotFoundError(
-        f"Missing setup YAML in {setup_dir}: expected {preferred[0].name} or {preferred[1].name}"
-    )
 
 
 def _to_yaml_text(data: dict) -> str:
@@ -650,7 +637,7 @@ def prepare_subdomains(
             raise TypeError("project_dir is required for DA sub-domain preparation")
         project_dir = Path(project_dir).resolve()
         ensure_run_mode(project_dir, expected="subdomain", write_if_missing=True)
-    setup_yaml = _find_plain_setup_yaml(setup_dir) if model_mode else find_setup_yaml(setup_dir)
+    setup_yaml = find_plain_setup_yaml(setup_dir) if model_mode else find_setup_yaml(setup_dir)
     setup_cfg = read_yaml_mapping(setup_yaml, error_cls=ValueError, context="Setup YAML root")
     if model_mode:
         missing_dates = [

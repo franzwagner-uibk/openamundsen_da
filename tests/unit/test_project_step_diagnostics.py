@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from pyproj import CRS
 
 from openamundsen_da.pipeline import project as project_mod
@@ -25,6 +27,11 @@ def test_compute_prior_step_diagnostics_runs_existing_and_new_diagnostics(tmp_pa
 
     monkeypatch.setattr(project_mod, "compute_step_scf_daily_for_all_members", _record("scf"))
     monkeypatch.setattr(project_mod, "compute_step_roi_mean_daily_for_all_members", _record("roi"))
+    monkeypatch.setattr(
+        project_mod,
+        "configured_model_grid_format",
+        lambda _setup_dir: SimpleNamespace(value="netcdf"),
+    )
     monkeypatch.setattr(project_mod, "classify_step_wet_snow", _record("wet_classify"))
     monkeypatch.setattr(project_mod, "compute_step_wet_snow_daily_for_all_members", _record("wet_daily"))
 

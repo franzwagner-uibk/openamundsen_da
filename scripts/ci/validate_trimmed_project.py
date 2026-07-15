@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 from openamundsen_da.util.storage_policy import DA_SUMMARY_NC_FILL_VALUE, METEO_CSV_DECIMALS
+from openamundsen_da.manifests import file_inventory, inventory_digest, load_manifest
 from openamundsen_da.util.da_observables import (
     station_diagnostics_glob_pattern,
     weights_glob_pattern,
@@ -520,6 +521,43 @@ def _check_benchmark_outputs(project_dir: Path) -> None:
         raise ValueError(f"Legacy project-level plots root should not be written anymore: {project_dir / 'plots'}")
 
 
+def _check_run_manifest_and_cleanup(project_dir: Path) -> None:
+    manifest_path = project_dir / "results" / "run_manifest.json"
+    manifest = load_manifest(manifest_path)
+    if manifest is None:
+        raise FileNotFoundError(f"Missing run manifest: {manifest_path}")
+    if manifest.get("status") != "success":
+        raise ValueError(f"Run manifest is not successful: {manifest_path}")
+    if manifest.get("stages") != {"execution": "success", "render": "success", "cleanup": "success"}:
+        raise ValueError(f"Run manifest stages are incomplete: {manifest.get('stages')}")
+
+    cleanup = manifest.get("cleanup") or {}
+    deleted_paths = cleanup.get("deleted_paths") or []
+    if int(cleanup.get("deleted_count", 0)) != len(deleted_paths) or not deleted_paths:
+        raise ValueError(f"Run manifest does not record applied restart cleanup: {manifest_path}")
+    if int(cleanup.get("freed_bytes", 0)) <= 0:
+        raise ValueError(f"Run manifest cleanup did not record freed bytes: {manifest_path}")
+    for relative in deleted_paths:
+        if (project_dir / relative).exists():
+            raise ValueError(f"Cleaned restart artifact still exists: {project_dir / relative}")
+
+    remaining_states = sorted((project_dir / "steps").glob("step_*/ensembles/*/*/results/model_state.pickle.gz"))
+    remaining_pointers = sorted((project_dir / "steps").glob("step_*/ensembles/*/*/state_pointer.json"))
+    if remaining_states or remaining_pointers:
+        raise ValueError(
+            "Successful run retained package-owned restart artifacts: "
+            f"states={len(remaining_states)} pointers={len(remaining_pointers)}"
+        )
+
+    outputs = manifest.get("outputs") or []
+    output_paths = [project_dir.parent.parent / entry["path"] for entry in outputs]
+    current = file_inventory(root=project_dir.parent.parent, files=output_paths)
+    if inventory_digest(current) != manifest.get("output_digest"):
+        raise ValueError(f"Run output inventory does not match its manifest: {manifest_path}")
+    for relative in manifest.get("performance_outputs") or []:
+        _assert_non_empty(project_dir / relative)
+
+
 def validate_project(project_dir: Path, log_file: Path) -> None:
     steps_dir = project_dir / "steps"
     if not steps_dir.is_dir():
@@ -534,6 +572,7 @@ def validate_project(project_dir: Path, log_file: Path) -> None:
     _check_wet_snow_mask_storage(steps_dir)
     _check_benchmark_outputs(project_dir)
     _check_minimal_weight_sanity(steps_dir)
+    _check_run_manifest_and_cleanup(project_dir)
 
 
 def main() -> int:

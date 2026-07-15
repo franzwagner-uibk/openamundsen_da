@@ -33,6 +33,7 @@ _DA_KEYS = {
     "wet_snow_line",
 }
 _EVENT_KEYS = {"date", "product", "variable"}
+_RESTART_KEYS = {"dump_state", "state_pattern"}
 _MODEL_GRID_FORMATS = {"geotiff", "netcdf"}
 
 
@@ -72,7 +73,6 @@ def _required(mapping: dict[str, Any], key: str, *, path: str, errors: list[str]
 
 def _contained_path(setup_dir: Path, raw: object, *, path: str, errors: list[str]) -> Path | None:
     if raw is None or not str(raw).strip():
-        errors.append(f"Missing required configuration key: {path}")
         return None
     candidate = Path(str(raw))
     if candidate.is_absolute():
@@ -92,18 +92,22 @@ def _validate_observation_product(
     name: str,
     raw: object,
     setup_dir: Path,
+    require_summary: bool,
     errors: list[str],
 ) -> None:
     path = f"project.obs.{name}"
     section = _mapping(raw, path=path, errors=errors)
     _unknown_keys(section, _OBS_PRODUCT_KEYS, path=path, errors=errors)
     _contained_path(setup_dir, _required(section, "dir", path=path, errors=errors), path=f"{path}.dir", errors=errors)
-    _contained_path(
-        setup_dir,
-        _required(section, "summary_csv", path=path, errors=errors),
-        path=f"{path}.summary_csv",
-        errors=errors,
-    )
+    if require_summary:
+        _contained_path(
+            setup_dir,
+            _required(section, "summary_csv", path=path, errors=errors),
+            path=f"{path}.summary_csv",
+            errors=errors,
+        )
+    elif section.get("summary_csv") is not None:
+        _contained_path(setup_dir, section["summary_csv"], path=f"{path}.summary_csv", errors=errors)
     _required(section, "product_tag", path=path, errors=errors)
     fmt = _required(section, "format", path=path, errors=errors)
     if fmt is not None and str(fmt).strip().lower() not in _MODEL_GRID_FORMATS:
@@ -117,6 +121,18 @@ def _validate_observation_product(
 def _validate_events(project: dict[str, Any], *, errors: list[str]) -> set[str]:
     da = _mapping(project.get("data_assimilation"), path="project.data_assimilation", errors=errors)
     _unknown_keys(da, _DA_KEYS, path="project.data_assimilation", errors=errors)
+    if "restart" in da:
+        restart = _mapping(
+            da.get("restart"),
+            path="project.data_assimilation.restart",
+            errors=errors,
+        )
+        _unknown_keys(
+            restart,
+            _RESTART_KEYS,
+            path="project.data_assimilation.restart",
+            errors=errors,
+        )
     raw_events = da.get("assimilation_events")
     if not isinstance(raw_events, list) or not raw_events:
         errors.append("project.data_assimilation.assimilation_events must be a non-empty list")
@@ -209,6 +225,9 @@ def load_project_configuration(project_dir: str | Path) -> ProjectConfiguration:
             errors.append(f"Setup YAML must not contain project-owned key: {forbidden}")
     for key in ("start_date", "end_date", "run_mode"):
         _required(project, key, path="project", errors=errors)
+    run_mode = str(project.get("run_mode", "")).strip().lower()
+    if run_mode not in {"single", "subdomain"}:
+        errors.append("project.run_mode must be one of: single, subdomain")
 
     output_data = _mapping(setup.get("output_data"), path="setup.output_data", errors=errors)
     grids = _mapping(output_data.get("grids"), path="setup.output_data.grids", errors=errors)
@@ -225,6 +244,14 @@ def load_project_configuration(project_dir: str | Path) -> ProjectConfiguration:
         path="setup.input_data.grids.dir",
         errors=errors,
     )
+    input_meteo = _mapping(input_data.get("meteo"), path="setup.input_data.meteo", errors=errors)
+    if input_meteo.get("dir") is not None:
+        _contained_path(
+            setup_dir,
+            input_meteo["dir"],
+            path="setup.input_data.meteo.dir",
+            errors=errors,
+        )
 
     variables = _validate_events(project, errors=errors)
     obs = _mapping(project.get("obs"), path="project.obs", errors=errors)
@@ -238,9 +265,21 @@ def load_project_configuration(project_dir: str | Path) -> ProjectConfiguration:
         errors=errors,
     )
     if "scf" in variables:
-        _validate_observation_product(name="snowcover", raw=obs.get("snowcover"), setup_dir=setup_dir, errors=errors)
+        _validate_observation_product(
+            name="snowcover",
+            raw=obs.get("snowcover"),
+            setup_dir=setup_dir,
+            require_summary=run_mode == "single",
+            errors=errors,
+        )
     if variables & {"wet_snow", "wet_snow_line"}:
-        _validate_observation_product(name="wetsnow", raw=obs.get("wetsnow"), setup_dir=setup_dir, errors=errors)
+        _validate_observation_product(
+            name="wetsnow",
+            raw=obs.get("wetsnow"),
+            setup_dir=setup_dir,
+            require_summary=run_mode == "single",
+            errors=errors,
+        )
     _validate_uncertainty(project, variables, setup_dir, errors)
 
     da = project.get("data_assimilation") if isinstance(project.get("data_assimilation"), dict) else {}

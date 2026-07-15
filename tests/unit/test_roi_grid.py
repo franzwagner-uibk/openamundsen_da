@@ -17,7 +17,7 @@ from openamundsen_da.util.roi_grid import (
 
 
 def _write_setup_yaml(setup_dir: Path) -> None:
-    (setup_dir / "setup.yml").write_text(
+    (setup_dir / "demo.yml").write_text(
         "\n".join(
             [
                 'domain: "demo"',

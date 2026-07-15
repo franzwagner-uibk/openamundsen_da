@@ -26,6 +26,20 @@ See the docs How to Use section for the full Rofental walkthrough:
 
 Developer workflow (clone + compose) remains documented in the installation page.
 
+The installed workflow has one command, `openamundsen-da`. A single-domain
+project follows these explicit stages:
+
+```bash
+openamundsen-da observations snow-cover PROJECT_DIR
+openamundsen-da observations wet-snow PROJECT_DIR
+openamundsen-da prepare PROJECT_DIR
+openamundsen-da run PROJECT_DIR --max-workers 24
+```
+
+Use `openamundsen-da render PROJECT_DIR` to regenerate configured plots, maps
+and the report. `openamundsen-da clean PROJECT_DIR` previews safe cleanup;
+deletion requires `--apply`. Every operation supports `--json`.
+
 ## Installation (for contributors)
 
 - Install Docker Desktop (Windows/macOS) or Docker Engine (Linux).
@@ -70,7 +84,7 @@ This repo expects the following setup/project hierarchy:
 
 ```
 setup/
-  <setup-name>.yml         # setup-level openAMUNDSEN config (template fallback: setup.yml)
+  <setup-name>.yml         # canonical setup-level openAMUNDSEN config
   env/
     roi.gpkg                # optional ROI vector (preferred name)
     subdomains.gpkg         # optional multi-feature regions file for sub-domain mode
@@ -117,13 +131,13 @@ You can use the scaffold under `templates/project` as a starting point.
 Each directory in that template contains a small `readme.txt` describing the expected files
 and naming conventions.
 
-- Setup YAML (`<setup-name>.yml`/`setup.yml`) must stay pure openAMUNDSEN config (no data assimilation block).
-- Project YAML (`<project-name>.yml`/`project.yml`) must define `data_assimilation` (`prior_forcing`, `h_of_x`, `likelihood`, `resampling`, `rejuvenation`, `restart`, `landcover_mask`, `assimilation_events`; add `station` when using station HS/SWE assimilation) plus `start_date` and `end_date`.
+- Setup YAML (`<setup-name>.yml`) must stay pure openAMUNDSEN config (no data assimilation block).
+- Project YAML (`<project-name>.yml`) must define `data_assimilation` (`prior_forcing`, `h_of_x`, `likelihood`, `resampling`, `rejuvenation`, `restart`, `landcover_mask`, `assimilation_events`; add `station` when using station HS/SWE assimilation) plus `start_date` and `end_date`.
 - `projects/project_X/steps/step_Y/ensembles/prior` is created automatically by the project pipeline (using `${setup}/meteo` forcing).
 - Observations live under `obs/project_X`; the pipeline assumes the per-step CSVs follow `obs_scf_<PRODUCT>_YYYYMMDD.csv`, `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`, and `obs_wet_snow_line_<PRODUCT>_YYYYMMDD.csv` when those observables are active. Configure product tags and summary sources explicitly in project YAML under `obs.*` (`summary_csv` for SCF/wet-snow summaries).
 - Station observations live under `obs/stations`; ROI-based station assimilation uses `assimilation_events` variables `station_hs` and `station_swe` and reads optional per-station uncertainty metadata from `obs/stations/stations_da_metadata.csv`. Station metadata may also include `use_for_da` and `use_for_benchmark` flags to keep stations out of assimilation or benchmark scoring without deleting their observation files.
 - The station assimilation method itself is documented in the docs guide: `guides/station-assimilation`.
-- Scientific benchmarking always runs at the end of `oa-da-project` and writes observation-based score tables under `results/benchmark/` plus the headline DA-skill plot `results/plots/assim/scores/performance_scores.png`. Station benchmark rows now also carry sigma-aware `zSkill` based on the configured station uncertainty metadata.
+- Scientific benchmarking always runs during `openamundsen-da run` and writes observation-based score tables under `results/benchmark/` plus the headline DA-skill plot `results/plots/assim/scores/performance_scores.png`. Station benchmark rows now also carry sigma-aware `zSkill` based on the configured station uncertainty metadata.
 - Data assimilation uses `grids/roi_<domain>_<resolution>.asc` as the canonical ROI mask. When it is missing, commands generate it from ROI vectors under `env/` (`roi.gpkg` preferred, `subdomains.gpkg` supported) and then reuse the grid mask as the project contract.
 - Land-cover masking (applied to obs + model SCF/wet-snow): land-cover ASCII is resolved as `grids/lc_<domain>_<resolution>.asc` from setup config; excluded classes come from project YAML `data_assimilation.landcover_mask.classes_to_exclude`.
 
@@ -809,31 +823,26 @@ with `Ctrl+C`.
 
 ## State cleanup (free disk space)
 
-- Automatic: set `data_assimilation.restart.cleanup_after_setup: true` (default) in project YAML to delete member state pickle files after a successful project run.
-- Manual (ignores the toggle): clean one or all projects via Docker Compose.
-
-All projects under a setup:
-
-```powershell
-docker compose run --rm oa \
-  python -m openamundsen_da.pipeline.cleanup \
-  --setup-dir /data/your_setup \
-  --all-projects \
-  --log-level INFO
-```
-
-Single project:
+- A successful single-domain run automatically deletes package-owned restart
+  state pickles and stale state pointers after compact output, benchmarks,
+  plots, maps and the report have all passed validation.
+- Interrupted or failed runs retain restart state for a safe resume.
+- `clean` previews any remaining eligible restart artifacts; add `--apply` to
+  delete exactly that set.
 
 ```powershell
-docker compose run --rm oa \
-  python -m openamundsen_da.pipeline.cleanup \
-  --setup-dir /data/your_setup \
-  --project-dir /data/your_setup/projects/project_YYYY-YYYY \
-  --log-level INFO
+docker compose run --rm oa openamundsen-da clean \
+  /data/your_setup/projects/project_YYYY-YYYY
 ```
 
-If you rebuilt the image with the latest code, you can replace the `python -m ...cleanup` line with the shorter `oa-da-clean-project`.
-Cleanup only removes matching state pickle files. It leaves `state_pointer.json`, grids, maps, reports, manifests, logs, and sub-domain workspaces in place; grid artifact pruning is controlled separately by `data_assimilation.output.retention`.
+```powershell
+docker compose run --rm oa openamundsen-da clean \
+  /data/your_setup/projects/project_YYYY-YYYY \
+  --apply
+```
+
+Single-domain cleanup does not descend into subdomain workspaces and never
+removes member grids, compact outputs, maps, reports, manifests or logs.
 
 
 ## Sub-domain Mode

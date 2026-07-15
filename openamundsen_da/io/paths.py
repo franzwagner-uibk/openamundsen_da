@@ -29,8 +29,6 @@ from openamundsen_da.core.constants import (
     MEMBER_SOURCE_POINTER,
     MEMBER_PREFIX,
     OPEN_LOOP,
-    VAR_HS,
-    VAR_SWE,
 )
 
 # ---- Raster/NetCDF discovery helpers ---------------------------------------
@@ -52,21 +50,52 @@ def _canonical_yaml(root_dir: Path, *, kind: str) -> Path:
     """Return the one canonical YAML path for a setup or project directory."""
     root_dir = Path(root_dir)
     canonical = root_dir / f"{root_dir.name}.yml"
+    legacy_name = "setup.yml" if kind == "setup" else "project.yml"
+    if canonical.name == legacy_name:
+        raise FileNotFoundError(
+            f"Directory name {root_dir.name!r} would require removed legacy alias {legacy_name}; "
+            f"use a descriptive {kind} directory name"
+        )
     if canonical.is_file():
         return canonical
 
-    legacy_name = "setup.yml" if kind == "setup" else "project.yml"
     legacy = root_dir / legacy_name
     hint = f"; rename legacy alias {legacy.name} to {canonical.name}" if legacy.is_file() else ""
     raise FileNotFoundError(f"Missing canonical {kind} YAML {canonical}{hint}")
 
 
 def find_setup_yaml(setup_dir: str | Path) -> Path:
-    """Return the required ``<setup-name>.yml`` setup configuration."""
+    """Return the one unambiguous canonical setup YAML from a setup root.
+
+    The directory name may change at a container mount boundary (for example,
+    ``rofental`` mounted as ``/data``), so identity is established by requiring
+    exactly one non-legacy root ``.yml`` file rather than comparing basenames.
+    """
     setup_dir = Path(setup_dir)
     if not (setup_dir / "projects").is_dir():
         raise FileNotFoundError(f"Not a setup root (missing projects/): {setup_dir}")
-    return _canonical_yaml(setup_dir, kind="setup")
+    return find_plain_setup_yaml(setup_dir)
+
+
+def find_plain_setup_yaml(setup_dir: str | Path) -> Path:
+    """Return one canonical setup YAML without requiring a DA projects tree."""
+    setup_dir = Path(setup_dir)
+    legacy = setup_dir / "setup.yml"
+    candidates = sorted(
+        path
+        for path in setup_dir.glob("*.yml")
+        if path.is_file() and path.name != legacy.name
+    )
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        names = ", ".join(path.name for path in candidates)
+        raise FileNotFoundError(f"Ambiguous setup YAMLs in {setup_dir}: {names}")
+    if legacy.is_file():
+        raise FileNotFoundError(
+            f"Missing canonical setup YAML in {setup_dir}; rename legacy alias setup.yml to <setup-name>.yml"
+        )
+    raise FileNotFoundError(f"Missing canonical setup YAML in {setup_dir}: expected one <setup-name>.yml")
 
 
 def find_project_yaml(project_dir: str | Path) -> Path:
@@ -500,37 +529,6 @@ def member_dir_for_index(step_dir: PathLike, index: int, width: int = 3) -> Path
 def member_id_from_results_dir(results_dir: str | Path) -> str:
     """Return member ID (e.g., 'member_001') given a member results dir."""
     return Path(results_dir).parent.name
-
-
-def find_member_daily_raster(results_dir: str | Path, variable: str, date_str: str) -> Path:
-    """Find a daily raster for a given variable and date in a member results dir.
-
-    Parameters
-    ----------
-    results_dir : Path-like
-        Path to the member results directory (contains daily GeoTIFFs).
-    variable : str
-        One of VAR_HS ('hs') or VAR_SWE ('swe').
-    date_str : str
-        Date string in 'YYYY-MM-DD' format.
-
-    Returns
-    -------
-    Path
-        Path to the first matching raster.
-    """
-    results_dir = Path(results_dir)
-    if variable == VAR_HS:
-        prefix = "snowdepth_daily_"
-    elif variable == VAR_SWE:
-        prefix = "swe_daily_"
-    else:
-        raise ValueError(f"Unknown variable '{variable}', expected '{VAR_HS}' or '{VAR_SWE}'")
-    patt = f"{prefix}{date_str}T*.tif"
-    matches = sorted(results_dir.glob(patt))
-    if not matches:
-        raise FileNotFoundError(f"No raster found matching {patt} in {results_dir}")
-    return matches[0]
 
 
 def find_member_daily_grid_slice(

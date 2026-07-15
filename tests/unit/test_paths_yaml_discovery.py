@@ -4,10 +4,38 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from openamundsen_da.io.paths import find_project_yaml, infer_project_dir, infer_setup_dir
+from openamundsen_da.io.paths import find_project_yaml, find_setup_yaml, infer_project_dir, infer_setup_dir
 
 
 class YamlDiscoveryTests(unittest.TestCase):
+    def test_find_setup_yaml_survives_container_mount_rename(self):
+        with TemporaryDirectory() as tmp:
+            setup_dir = Path(tmp) / "data"
+            (setup_dir / "projects").mkdir(parents=True)
+            canonical = setup_dir / "rofental.yml"
+            canonical.write_text("domain: rofental\n", encoding="utf-8")
+
+            self.assertEqual(find_setup_yaml(setup_dir), canonical)
+
+    def test_find_setup_yaml_rejects_legacy_alias(self):
+        with TemporaryDirectory() as tmp:
+            setup_dir = Path(tmp) / "data"
+            (setup_dir / "projects").mkdir(parents=True)
+            (setup_dir / "setup.yml").write_text("domain: demo\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(FileNotFoundError, "rename legacy alias"):
+                find_setup_yaml(setup_dir)
+
+    def test_find_setup_yaml_rejects_ambiguous_root_files(self):
+        with TemporaryDirectory() as tmp:
+            setup_dir = Path(tmp) / "data"
+            (setup_dir / "projects").mkdir(parents=True)
+            (setup_dir / "alpine.yml").write_text("domain: alpine\n", encoding="utf-8")
+            (setup_dir / "rofental.yml").write_text("domain: rofental\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(FileNotFoundError, "Ambiguous setup YAMLs"):
+                find_setup_yaml(setup_dir)
+
     def test_find_project_yaml_uses_canonical_project_name(self):
         with TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "projects" / "project_alpha"
@@ -23,6 +51,15 @@ class YamlDiscoveryTests(unittest.TestCase):
             fallback = project_dir / "project.yml"
             fallback.write_text("a: 1\n", encoding="utf-8")
             with self.assertRaisesRegex(FileNotFoundError, "rename legacy alias"):
+                find_project_yaml(project_dir)
+
+    def test_find_project_yaml_rejects_directory_named_project(self):
+        with TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "projects" / "project"
+            project_dir.mkdir(parents=True, exist_ok=True)
+            (project_dir / "project.yml").write_text("a: 1\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(FileNotFoundError, "descriptive project directory"):
                 find_project_yaml(project_dir)
 
     def test_find_project_yaml_rejects_unrelated_single_yaml(self):

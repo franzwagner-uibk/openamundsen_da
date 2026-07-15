@@ -10,6 +10,8 @@ __pycache__/
 
 # Build artifacts
 *.egg-info
+build/
+dist/
 
 # Coverage & profiling
 /.coverage*

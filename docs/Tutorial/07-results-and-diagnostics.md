@@ -604,40 +604,41 @@ Interpretation:
 
 ---
 
-## 8. Project cleanup (optional)
+## 8. Project cleanup
 
-openAMUNDSEN-DA contains a module that cleans up heavy files that are used within the data assimilation workflow and not needed anymore after running a project. The cleanup is wired into the project pipeline and activated by default.
+After a successful single-domain project, openAMUNDSEN-DA automatically removes
+package-owned restart state files that are no longer needed. Cleanup happens
+only after the compact grid output, benchmark, plots, maps and report pass their
+checks. Failed and interrupted projects keep restart state so they can resume.
 
 {: .checks }
-> Automatic cleanup is enabled by default via `data_assimilation.restart.cleanup_after_setup: true`.
-> Use manual cleanup if you disabled automatic cleanup or if older projects still contain state files.
+> The scientific results remain available under `results/`. Member grids are
+> retained. Only restart state pickles and stale state pointers are eligible for
+> automatic cleanup.
 
-Clean one project (`project_2022_2023`):
+For an older project, first preview the eligible files:
 
 **🟢 Run this command:**
 
 ```bash
-oa-da-clean-project \
-  --setup-dir /data/rofental \
-  --project-dir /data/rofental/projects/project_2022_2023 \
-  --log-level INFO
+openamundsen-da clean \
+  /data/rofental/projects/project_2022_2023
 ```
 
-Clean all projects under the same setup:
+Apply the preview only after checking it:
 
 **🟢 Run this command:**
 
 ```bash
-oa-da-clean-project \
-  --setup-dir /data/rofental \
-  --all-projects \
-  --log-level INFO
+openamundsen-da clean \
+  /data/rofental/projects/project_2022_2023 \
+  --apply
 ```
 
 What is removed:
 
 - restart state pickle files under member `results/` directories,
-- sub-domain workspace artifacts (if present).
+- stale state pointers whose target no longer exists or is being removed.
 
 {: .references }
 > - [Workflow]({{ site.baseurl }}{% link workflow.md %}) (state cleanup behavior and project lifecycle)

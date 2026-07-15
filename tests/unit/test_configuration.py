@@ -17,6 +17,8 @@ def _write_valid_project(tmp_path: Path) -> Path:
 input_data:
   grids:
     dir: grids
+  meteo:
+    dir: meteo
 output_data:
   grids:
     format: netcdf
@@ -42,6 +44,9 @@ obs:
       water: [3]
       nodata: [255]
 data_assimilation:
+  restart:
+    dump_state: true
+    state_pattern: model_state.pickle.gz
   uncertainty:
     scf:
       enabled: true
@@ -71,13 +76,47 @@ def test_load_project_configuration_returns_canonical_absolute_paths(tmp_path: P
     assert config.model_grid_format == "netcdf"
 
 
+def test_single_domain_configuration_allows_runner_managed_meteo_dir(tmp_path: Path) -> None:
+    project_dir = _write_valid_project(tmp_path)
+    setup_yaml = project_dir.parent.parent / "alpine.yml"
+    setup_yaml.write_text(
+        setup_yaml.read_text(encoding="utf-8").replace("  meteo:\n    dir: meteo\n", "  meteo: {}\n"),
+        encoding="utf-8",
+    )
+
+    config = load_project_configuration(project_dir)
+
+    assert config.setup_dir == project_dir.parent.parent.resolve()
+
+
+def test_subdomain_configuration_allows_preparation_owned_summary(tmp_path: Path) -> None:
+    project_dir = _write_valid_project(tmp_path)
+    project_yaml = project_dir / "winter.yml"
+    project_yaml.write_text(
+        project_yaml.read_text(encoding="utf-8")
+        .replace("run_mode: single", "run_mode: subdomain")
+        .replace("    summary_csv: obs/summaries/winter/scf_summary.csv\n", ""),
+        encoding="utf-8",
+    )
+
+    config = load_project_configuration(project_dir)
+
+    assert config.project["run_mode"] == "subdomain"
+
+
 @pytest.mark.parametrize(
     ("old", "new", "message"),
     [
         ("run_mode: single", "run_mode: single\nlegacy_mode: true", "Unknown configuration key"),
+        ("run_mode: single", "run_mode: legacy", "project.run_mode"),
         ("dir: obs/snowcover", "dir: ../../outside", "escapes the setup directory"),
         ("format: geotiff", "format: ascii", "project.obs.snowcover.format"),
         ("format: netcdf", "format: memory", "setup.output_data.grids.format"),
+        (
+            "state_pattern: model_state.pickle.gz",
+            "state_pattern: model_state.pickle.gz\n    cleanup_after_setup: false",
+            "cleanup_after_setup",
+        ),
         ("variable: scf", "variable: wet_snow_fraction", "removed alias"),
     ],
 )

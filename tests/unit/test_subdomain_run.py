@@ -106,7 +106,6 @@ def test_run_one_caps_project_plot_workers_to_inner_workers(tmp_path, monkeypatc
     assert result.status == "success"
     assert captured["cfg"].max_workers == 6
     assert captured["cfg"].plot_workers == 6
-    assert captured["cfg"].defer_compact_grid_cleanup is True
 
 
 def test_run_one_rebuilds_failed_partial_subdomain_on_resume(tmp_path, monkeypatch):

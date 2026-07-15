@@ -9,14 +9,12 @@ Description:
 from __future__ import annotations
 
 import argparse
-import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence
 from types import SimpleNamespace
+from typing import Iterable, List, Optional, Sequence
 
 import numpy as np
-import pandas as pd
 import rasterio
 from loguru import logger
 
@@ -28,7 +26,11 @@ from openamundsen_da.io.paths import (
     infer_setup_dir_from_project,
     find_project_yaml,
 )
-from openamundsen_da.io.model_grids import configured_model_grid_format
+from openamundsen_da.io.model_grids import (
+    ModelGridFrame as DepthEntry,
+    configured_model_grid_format,
+    model_grid_reader,
+)
 from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
 from openamundsen_da.util.storage_policy import PERCENT_UINT8_NODATA, percent_to_uint8_nodata
 
@@ -40,26 +42,12 @@ CLASSIFICATION_METHOD_AMOUNT = "liquid_water_amount"
 CLASSIFICATION_METHODS = (CLASSIFICATION_METHOD_FRACTION, CLASSIFICATION_METHOD_AMOUNT)
 DEFAULT_LIQUID_WATER_AMOUNT_THRESHOLD_MM = 5.0
 
-_DEPTH_RE = re.compile(r"^snowdepth_daily_(?P<stamp>[^.]+)\.tif$")
-_LWC_RE = re.compile(
-    r"^liquid_water_content_(?P<layer>\d+)_(?P<start>\d{4}-\d{2}-\d{2}T\d{4})_"
-    r"(?P<end>\d{4}-\d{2}-\d{2}T\d{4})\.tif$"
-)
-
-
 def _grid_format_for_step(step_dir: Path) -> str:
     """Read the required model-grid format from canonical setup YAML."""
     step_dir = Path(step_dir)
     project_dir = infer_project_dir(step_dir)
     setup_dir = infer_setup_dir_from_project(project_dir)
     return configured_model_grid_format(setup_dir).value
-
-
-@dataclass
-class DepthEntry:
-    stamp: str
-    data: np.ndarray
-    profile: dict
 
 
 @dataclass(frozen=True)
@@ -124,134 +112,14 @@ def load_wet_snow_classification_config(project_dir: Path) -> WetSnowClassificat
     )
 
 
-def _load_depth_entries(results_dir: Path, preferred_format: str) -> List[DepthEntry]:
-    """
-    Load daily snow depth grids (GeoTIFF or NetCDF) for a member.
-
-    Returns a list of depth slices with data and profile for the one configured
-    format. Cross-format discovery is intentionally unsupported.
-    """
-    entries: List[DepthEntry] = []
-    fmt = str(preferred_format).lower().strip()
-    if fmt not in {"geotiff", "netcdf"}:
-        raise ValueError(f"Unsupported model-grid format: {preferred_format!r}")
-
-    # GeoTIFF first
-    if fmt == "geotiff":
-        if (results_dir / "output_grids.nc").is_file():
-            raise ValueError(f"Mixed model-grid artifacts in {results_dir}: GeoTIFF and output_grids.nc")
-        for path in sorted(results_dir.glob("snowdepth_daily_*.tif")):
-            m = _DEPTH_RE.match(path.name)
-            if not m:
-                continue
-            with rasterio.open(path) as src:
-                data = src.read(1).astype(np.float32)
-                profile = src.profile
-            entries.append(DepthEntry(stamp=m.group("stamp"), data=data, profile=profile))
-        return entries
-
-    # NetCDF fallback
-    nc_path = results_dir / "output_grids.nc"
-    if sorted(results_dir.glob("snowdepth_daily_*.tif")):
-        raise ValueError(f"Mixed model-grid artifacts in {results_dir}: output_grids.nc and GeoTIFF")
-    if not nc_path.is_file():
-        raise FileNotFoundError(f"Canonical NetCDF model grid not found: {nc_path}")
-    import xarray as xr
-
-    with xr.open_dataset(nc_path) as ds:
-        if "snowdepth_daily" not in ds:
-            raise FileNotFoundError(f"Variable 'snowdepth_daily' not found in {nc_path}")
-        da = ds["snowdepth_daily"]
-        if "x" not in da.dims or "y" not in da.dims:
-            raise ValueError(f"NetCDF snowdepth_daily must use grid dimensions x and y; got {da.dims}")
-        time_dims = [d for d in da.dims if d.startswith("time")]
-        if len(time_dims) != 1:
-            raise ValueError("NetCDF snowdepth_daily must have exactly one time dimension")
-        time_dim = time_dims[0]
-        times = pd.to_datetime(ds[time_dim].values)
-        url = f"NETCDF:{nc_path}:snowdepth_daily"
-        with rasterio.open(url) as src:
-            for idx, timestamp in enumerate(times):
-                entries.append(
-                    DepthEntry(
-                        stamp=timestamp.strftime("%Y-%m-%dT%H%M"),
-                        data=src.read(idx + 1).astype(np.float32),
-                        profile=src.profile,
-                    )
-                )
-
-    return entries
-
-
-def _collect_lwc_files(results_dir: Path, preferred_format: str) -> Dict[str, List[Path | np.ndarray]]:
-    """
-    Group liquid water rasters by their start timestamp.
-
-    Parameters
-    ----------
-    results_dir : Path
-        Member results directory containing liquid water rasters.
-    preferred_format : {"geotiff","netcdf",None}
-
-    Returns
-    -------
-    dict
-        Mapping YYYY-MM-DDTHHMM strings to a list of layer rasters.
-    """
-    grouped: Dict[str, List[Path | np.ndarray]] = {}
-    fmt = str(preferred_format).lower().strip()
-    if fmt not in {"geotiff", "netcdf"}:
-        raise ValueError(f"Unsupported model-grid format: {preferred_format!r}")
-
-    # GeoTIFFs (if present)
-    if fmt == "geotiff":
-        if (results_dir / "output_grids.nc").is_file():
-            raise ValueError(f"Mixed model-grid artifacts in {results_dir}: GeoTIFF and output_grids.nc")
-        for path in sorted(results_dir.glob("liquid_water_content_*.tif")):
-            m = _LWC_RE.match(path.name)
-            if not m:
-                continue
-            grouped.setdefault(m.group("start"), []).append(path)
-        return grouped
-
-    # NetCDF fallback
-    nc_path = results_dir / "output_grids.nc"
-    if sorted(results_dir.glob("liquid_water_content_*.tif")):
-        raise ValueError(f"Mixed model-grid artifacts in {results_dir}: output_grids.nc and GeoTIFF")
-    if not nc_path.is_file():
-        raise FileNotFoundError(f"Canonical NetCDF model grid not found: {nc_path}")
-    import xarray as xr
-
-    with xr.open_dataset(nc_path) as ds:
-        if "liquid_water_content" not in ds:
-            raise FileNotFoundError(f"Variable 'liquid_water_content' not found in {nc_path}")
-        da = ds["liquid_water_content"]
-        if "snow_layer" not in da.dims or "x" not in da.dims or "y" not in da.dims:
-            raise ValueError(
-                "NetCDF liquid_water_content must use snow_layer, x and y grid dimensions; "
-                f"got {da.dims}"
-            )
-        time_dims = [d for d in da.dims if d.startswith("time")]
-        if len(time_dims) != 1:
-            raise ValueError("NetCDF liquid_water_content must have exactly one time dimension")
-        time_dim = time_dims[0]
-        times = pd.to_datetime(ds[time_dim].values)
-        for index, timestamp in enumerate(times):
-            stamp = f"{timestamp.date():%Y-%m-%d}T0000"
-            layers = np.asarray(da.isel({time_dim: index}).values, dtype=np.float32)
-            grouped[stamp] = [layer for layer in layers]
-
-    return grouped
-
-
-def _read_sum_lwc(lw_paths: Sequence[Path | np.ndarray]) -> np.ndarray:
+def _read_sum_lwc(layers: Sequence[np.ndarray]) -> np.ndarray:
     """
     Sum liquid water layers while honoring nodata masks.
 
     Parameters
     ----------
-    lw_paths : sequence of Path or arrays
-        Raster paths or arrays representing liquid water per snow layer.
+    layers : sequence of arrays
+        Arrays representing liquid water per snow layer. Invalid cells are NaN.
 
     Returns
     -------
@@ -260,17 +128,9 @@ def _read_sum_lwc(lw_paths: Sequence[Path | np.ndarray]) -> np.ndarray:
     """
     total: Optional[np.ndarray] = None
     valid_mask: Optional[np.ndarray] = None
-    for item in lw_paths:
-        if isinstance(item, Path):
-            with rasterio.open(item) as src:
-                data = src.read(1).astype(np.float32)
-                nodata = src.nodata
-        else:
-            data = np.asarray(item, dtype=np.float32)
-            nodata = None
+    for item in layers:
+        data = np.asarray(item, dtype=np.float32)
         invalid = ~np.isfinite(data)
-        if nodata is not None:
-            invalid |= data == nodata
         data = np.where(invalid, 0.0, data)
         if total is None:
             total = data
@@ -479,8 +339,9 @@ def _process_member(
         logger.warning("Results directory missing for {}", member_dir)
         return
 
-    depth_entries = _load_depth_entries(results_dir, preferred_format=grid_format)
-    lwc_files = _collect_lwc_files(results_dir, preferred_format=grid_format)
+    reader = model_grid_reader(grid_format)
+    depth_entries = reader.depth_series(results_dir)
+    lwc_files = reader.liquid_water_series(results_dir)
     if not depth_entries:
         logger.warning("No snow depth grids in {}", results_dir)
         return
@@ -494,15 +355,7 @@ def _process_member(
         if not lw_paths:
             logger.warning("Missing liquid water grids for {} in {}", depth.stamp, member_dir)
             continue
-        # Convert GeoTIFF LWC paths to arrays on the fly
-        if lw_paths and isinstance(lw_paths[0], Path):
-            arrays = []
-            for p in lw_paths:
-                with rasterio.open(p) as src:
-                    arrays.append(src.read(1).astype(np.float32))
-            lw_arrays = arrays
-        else:
-            lw_arrays = [np.asarray(a, dtype=np.float32) for a in lw_paths]
+        lw_arrays = [np.asarray(array, dtype=np.float32) for array in lw_paths]
         try:
             _compute_fraction(
                 depth_entry=depth,

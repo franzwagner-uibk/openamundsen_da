@@ -47,7 +47,7 @@ from openamundsen_da.io.paths import (
 )
 
 @dataclass
-class RunResult:
+class MemberRunResult:
     member_name: str
     status: str            # "success" | "skipped" | "failed"
     results_dir: str
@@ -220,7 +220,7 @@ def run_member(
     overwrite: bool = False,
     log_level: Optional[str] = None,
     state_pattern: Optional[str] = None,
-) -> RunResult:
+) -> MemberRunResult:
     # Step 1: Constrain numeric library threads (one per worker)
     apply_numeric_thread_defaults()
 
@@ -269,7 +269,7 @@ def run_member(
     # 'starting'; we only trust status='success' as a signal to skip.
     if results_dir.exists() and _is_successful_run(results_dir) and not overwrite:
         logger.info(f"[{member_name}] Results already exist -> skipping (use --overwrite to rerun)")
-        return RunResult(member_name, "skipped", str(results_dir), 0.0, None)
+        return MemberRunResult(member_name, "skipped", str(results_dir), 0.0, None)
 
     # Step 8: Initialize manifest and timing
     start = time.time()
@@ -343,7 +343,7 @@ def run_member(
             "duration_seconds": dur,
         })
         _write_manifest(results_dir, manifest)
-        return RunResult(member_name, "success", str(results_dir), dur, None)
+        return MemberRunResult(member_name, "success", str(results_dir), dur, None)
 
     except Exception as e:
         dur = time.time() - start
@@ -355,7 +355,7 @@ def run_member(
         })
         _write_manifest(results_dir, manifest)
         logger.exception(f"[{member_name}] Failed with error: {e}")
-        return RunResult(member_name, "failed", str(results_dir), dur, repr(e))
+        return MemberRunResult(member_name, "failed", str(results_dir), dur, repr(e))
     finally:
         # Step 10: Restore stderr and close log file
         try:
@@ -456,4 +456,3 @@ def _dump_init_data(model, filename: Path) -> None:
             init_data[category][var_name] = var_data
     with gzip.open(filename, "wb") as f:
         pickle.dump(init_data, f)
-

@@ -16,7 +16,7 @@ from shapely.geometry import shape as shp_shape
 from shapely.ops import unary_union
 
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import abspath_relative_to, find_setup_yaml
+from openamundsen_da.io.paths import abspath_relative_to, find_plain_setup_yaml, find_setup_yaml
 
 
 @dataclass(frozen=True)
@@ -84,16 +84,7 @@ def _find_setup_yaml_for_roi(setup_dir: Path) -> Path:
     except FileNotFoundError as exc:
         if "missing projects/" not in str(exc):
             raise
-    preferred = (setup_dir / f"{setup_dir.name}.yml", setup_dir / "setup.yml")
-    for cand in preferred:
-        if cand.is_file():
-            return cand
-    candidates = sorted(setup_dir.glob("*.yml"))
-    if len(candidates) == 1:
-        return candidates[0]
-    raise FileNotFoundError(
-        f"Missing setup YAML in {setup_dir}: expected {preferred[0].name} or {preferred[1].name}"
-    )
+    return find_plain_setup_yaml(setup_dir)
 
 
 def resolve_setup_grid_spec(setup_dir: Path) -> SetupGridSpec:

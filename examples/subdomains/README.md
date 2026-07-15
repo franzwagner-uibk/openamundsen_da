@@ -11,11 +11,19 @@ This shipped example covers a larger alpine ROI as 8 avalanche-report subdomains
 - DA config: 30 ensemble members, ESS threshold ratio 0.7, full output retention, and four-variable forcing/rejuvenation perturbations for temperature, precipitation, humidity, and shortwave radiation.
 - Maps: `projects/project_2022_2023/maps.yml` adds a setup overview. Generated DA-event maps are rendered automatically from the configured assimilation events.
 
-Run the example with:
+The data-assimilation and plain-model subdomain modes are intentionally
+separate. Run the data-assimilation example in four explicit stages:
 
 ```bash
-oa-da-subdomain pipeline --setup-dir examples/subdomains --project-dir examples/subdomains/projects/project_2022_2023 --regions examples/subdomains/env/subdomains.gpkg --station-buffer-km 10 --grid-buffer-m 10000 --max-workers 8 --inner-max-workers 3 --overwrite
+project=examples/subdomains/projects/project_2022_2023
+openamundsen-da subdomains prepare "$project" --regions examples/subdomains/env/subdomains.gpkg --station-buffer-km 10 --grid-buffer-m 10000 --overwrite
+openamundsen-da subdomains run "$project" --max-workers 8 --inner-max-workers 3 --overwrite
+openamundsen-da subdomains merge "$project"
+openamundsen-da subdomains render "$project" --max-workers 8
 ```
+
+For an ordinary openAMUNDSEN simulation without projects or assimilation, use
+the distinct `openamundsen-da subdomains model prepare|run|merge` command tree.
 
 The FRAMES-specific build logic is external to `openamundsen_da`:
 `/home/franz/workspace/repos/scripts/04-openAMUNDSEN/buildSubdomainExample.py`.

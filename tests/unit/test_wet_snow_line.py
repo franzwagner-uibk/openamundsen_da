@@ -34,7 +34,7 @@ def test_compute_wet_snow_line_from_masks_uses_downward_crossing_fraction() -> N
         transform = from_origin(0.0, 400.0, 100.0, 100.0)
 
         _write_yaml(
-            setup_dir / "setup.yml",
+            setup_dir / "demo.yml",
             {
                 "domain": "demo",
                 "resolution": 100,
@@ -163,7 +163,7 @@ def test_compute_wet_snow_line_from_masks_exposes_sector_relative_diagnostics() 
         transform = from_origin(0.0, 500.0, 100.0, 100.0)
 
         _write_yaml(
-            setup_dir / "setup.yml",
+            setup_dir / "demo.yml",
             {
                 "domain": "demo",
                 "resolution": 100,
@@ -264,7 +264,7 @@ def test_compute_wet_snow_line_from_masks_returns_no_crossing_for_fully_wet_prof
         transform = from_origin(0.0, 300.0, 100.0, 100.0)
 
         _write_yaml(
-            setup_dir / "setup.yml",
+            setup_dir / "demo.yml",
             {
                 "domain": "demo",
                 "resolution": 100,

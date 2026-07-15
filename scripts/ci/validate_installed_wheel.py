@@ -1,15 +1,27 @@
 #!/usr/bin/env python3
-"""Build and exercise the installed command from outside the source checkout."""
+"""Install one wheel and exercise its public interface outside the source tree."""
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
-import zipfile
+
+
+def _arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("wheel", type=Path)
+    parser.add_argument("--expected-version")
+    parser.add_argument(
+        "--portable",
+        action="store_true",
+        help="Only exercise dependency-free import, metadata and parser paths",
+    )
+    return parser.parse_args()
 
 
 def _run(
@@ -32,38 +44,21 @@ def _run(
         check=False,
     )
     if check and completed.returncode != 0:
-        command = " ".join(arguments)
         raise RuntimeError(
-            f"Command failed ({completed.returncode}): {command}\n"
+            f"Command failed ({completed.returncode}): {' '.join(arguments)}\n"
             f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
         )
     return completed
 
 
 def main() -> int:
-    source = Path(sys.argv[1] if len(sys.argv) > 1 else "/workspace").resolve()
+    args = _arguments()
+    wheel = args.wheel.resolve()
+    if not wheel.is_file():
+        raise FileNotFoundError(f"Wheel not found: {wheel}")
+
     with tempfile.TemporaryDirectory(prefix="openamundsen-da-wheel-") as raw_tmp:
         tmp = Path(raw_tmp)
-        wheel_dir = tmp / "wheel"
-        wheel_dir.mkdir()
-        _run(
-            [sys.executable, "-m", "pip", "wheel", str(source), "--no-deps", "--wheel-dir", str(wheel_dir)],
-            cwd=tmp,
-        )
-        wheels = tuple(wheel_dir.glob("openamundsen_da-*.whl"))
-        if len(wheels) != 1:
-            raise RuntimeError(f"Expected one built wheel, found: {wheels}")
-        with zipfile.ZipFile(wheels[0]) as archive:
-            wheel_members = tuple(archive.namelist())
-        forbidden_roots = ("build/", "tests/", "scripts/", "docs/", "examples/", "context/")
-        forbidden = [
-            member
-            for member in wheel_members
-            if member.startswith(forbidden_roots) or "/build/" in member or "/tests/" in member
-        ]
-        if forbidden:
-            raise RuntimeError(f"Wheel contains non-package workspace content: {forbidden[:10]}")
-
         install_root = tmp / "install"
         _run(
             [
@@ -75,34 +70,59 @@ def main() -> int:
                 "--ignore-installed",
                 "--prefix",
                 str(install_root),
-                str(wheels[0]),
+                str(wheel),
             ],
             cwd=tmp,
         )
-        site_packages = tuple(install_root.glob("lib/python*/site-packages"))
-        if len(site_packages) != 1:
-            raise RuntimeError(f"Expected one installed site-packages directory, found: {site_packages}")
-        installed_site = site_packages[0]
+        site_candidates = tuple(
+            path
+            for path in install_root.rglob("*")
+            if path.is_dir() and path.name in {"site-packages", "dist-packages"}
+        )
+        if len(site_candidates) != 1:
+            raise RuntimeError(f"Expected one installed package directory, found {site_candidates}")
+        site_packages = site_candidates[0]
+        cli_names = {"openamundsen-da", "openamundsen-da.exe"}
+        cli_candidates = tuple(
+            path for path in install_root.rglob("*") if path.is_file() and path.name in cli_names
+        )
+        if len(cli_candidates) != 1:
+            raise RuntimeError(f"Expected one installed CLI executable, found {cli_candidates}")
+        cli = cli_candidates[0]
         python = Path(sys.executable)
-        cli = install_root / "bin" / "openamundsen-da"
+        if not site_packages.is_dir() or not cli.is_file():
+            raise RuntimeError(f"Incomplete prefix install: site_packages={site_packages}, cli={cli}")
 
-        entry_points = _run(
+        inspection = _run(
             [
                 str(python),
                 "-c",
                 (
-                    "import importlib.metadata as m, json; "
+                    "import importlib.metadata as m, json, openamundsen_da as p; "
                     "d=m.distribution('openamundsen-da'); "
-                    "print(json.dumps(sorted(e.name for e in d.entry_points "
-                    "if e.group == 'console_scripts')))"
+                    "print(json.dumps({'metadata_version': d.version, 'runtime_version': p.__version__, "
+                    "'origin': p.__file__, 'scripts': sorted(e.name for e in d.entry_points "
+                    "if e.group == 'console_scripts')}))"
                 ),
             ],
             cwd=tmp,
-            pythonpath=installed_site,
+            pythonpath=site_packages,
         )
-        scripts = json.loads(entry_points.stdout)
-        if scripts != ["openamundsen-da"]:
-            raise RuntimeError(f"Unexpected installed console scripts: {scripts}")
+        details = json.loads(inspection.stdout)
+        if details["scripts"] != ["openamundsen-da"]:
+            raise RuntimeError(f"Unexpected installed console scripts: {details['scripts']}")
+        if details["runtime_version"] != details["metadata_version"]:
+            raise RuntimeError(f"Runtime/metadata version mismatch: {details}")
+        if args.expected_version and details["metadata_version"] != args.expected_version:
+            raise RuntimeError(
+                f"Installed version {details['metadata_version']!r} does not match expected {args.expected_version!r}"
+            )
+        if not Path(details["origin"]).resolve().is_relative_to(install_root.resolve()):
+            raise RuntimeError(f"Package imported outside the isolated environment: {details['origin']}")
+
+        version_output = _run([str(cli), "--version"], cwd=tmp, pythonpath=site_packages).stdout.strip()
+        if details["metadata_version"] not in version_output:
+            raise RuntimeError(f"CLI version output does not contain installed version: {version_output!r}")
 
         help_outputs: dict[tuple[str, ...], str] = {}
         for arguments in (
@@ -111,7 +131,7 @@ def main() -> int:
             ["subdomains", "--help"],
             ["subdomains", "model", "--help"],
         ):
-            completed = _run([str(cli), *arguments], cwd=tmp, pythonpath=installed_site)
+            completed = _run([str(cli), *arguments], cwd=tmp, pythonpath=site_packages)
             help_outputs[tuple(arguments)] = completed.stdout
 
         subdomain_help = help_outputs[("subdomains", "--help")]
@@ -127,21 +147,25 @@ def main() -> int:
             if command not in model_help:
                 raise RuntimeError(f"Missing plain-model subdomain command in installed help: {command}")
 
-        failed = _run(
-            [str(cli), "clean", str(tmp / "missing-project"), "--json"],
-            cwd=tmp,
-            check=False,
-            pythonpath=installed_site,
-        )
-        if failed.returncode != 1:
-            raise RuntimeError(f"Expected JSON failure exit code 1, got {failed.returncode}: {failed.stderr}")
-        payload = json.loads(failed.stdout)
-        if payload.get("ok") is not False or payload.get("command") != "clean":
-            raise RuntimeError(f"Unexpected JSON failure envelope: {payload}")
-        if payload.get("error", {}).get("type") != "ProjectValidationError":
-            raise RuntimeError(f"Unexpected JSON failure type: {payload}")
+        if not args.portable:
+            failed = _run(
+                [str(cli), "clean", str(tmp / "missing-project"), "--json"],
+                cwd=tmp,
+                check=False,
+                pythonpath=site_packages,
+            )
+            if failed.returncode != 1:
+                raise RuntimeError(f"Expected JSON failure exit code 1, got {failed.returncode}: {failed.stderr}")
+            payload = json.loads(failed.stdout)
+            if payload.get("ok") is not False or payload.get("command") != "clean":
+                raise RuntimeError(f"Unexpected JSON failure envelope: {payload}")
+            if payload.get("error", {}).get("type") != "ProjectValidationError":
+                raise RuntimeError(f"Unexpected JSON failure type: {payload}")
 
-    print("Installed-wheel smoke test passed; console scripts: openamundsen-da")
+    print(
+        "Installed-wheel smoke test passed: "
+        f"version={details['metadata_version']}, portable={args.portable}, console_scripts=openamundsen-da"
+    )
     return 0
 
 

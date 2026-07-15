@@ -25,7 +25,10 @@ from openamundsen_da.results import (
     WorkflowStatus,
 )
 
-__version__ = "1.0.0"
+try:
+    from openamundsen_da._version import __version__
+except ModuleNotFoundError:  # Source tree before setuptools-scm has generated the file.
+    __version__ = "0+unknown"
 
 
 def __getattr__(name: str):
@@ -56,6 +59,7 @@ __all__ = [
     "RenderResult",
     "RunResult",
     "WorkflowStatus",
+    "__version__",
     "clean_project",
     "prepare_project",
     "preprocess_snow_cover",

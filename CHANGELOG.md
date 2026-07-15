@@ -7,10 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.0] - 2026-06-15
-
 ### Changed
-- Marked the package metadata and runtime `__version__` as `1.0.0`.
+- Derive the package and runtime version from Git tags with `setuptools-scm`.
+- Declare the supported Python range as 3.11 through 3.14.
 - Expanded the CI lint gate to include unused imports, unused local variables and commented-out Python code.
 - Updated package metadata with README, license expression, authors, project URLs and release classifiers.
 
@@ -18,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed pre-v1 transitional aliases `cli_setup_daily`, `cli_model_setup`, `_read_resampling_from_setup` and the `openamundsen_da.methods.pf.plot_weights` re-export.
 - Removed the unused `oa-da-resample --project-dir` compatibility option; resampling configuration is inferred from `--step-dir` through the project YAML.
 - Removed migration-era cleanup of historical benchmark, map and project plot output locations.
+- Removed the unregistered Copernicus HRWSI downloader and its unused `boto3` dependency after caller tracing.
 
 ### Fixed
 - Removed UTF-8 BOMs and CRLF line endings from tracked release-facing text/config files.
@@ -50,5 +50,4 @@ Initial pre-release of openamundsen_da - Data Assimilation Framework for openAMU
 
 ---
 
-[Unreleased]: https://github.com/franzwagner-uibk/openamundsen_da/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/franzwagner-uibk/openamundsen_da/releases/tag/v1.0.0
+[Unreleased]: https://github.com/franzwagner-uibk/openamundsen_da/commits/main

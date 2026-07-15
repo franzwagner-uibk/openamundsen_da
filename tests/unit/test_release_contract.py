@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
 
 
 SCRIPT = Path(__file__).parents[2] / "scripts" / "release" / "validate_release.py"
+ROOT = SCRIPT.parents[2]
 SPEC = importlib.util.spec_from_file_location("validate_release", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 validate_release = importlib.util.module_from_spec(SPEC)
@@ -32,3 +34,12 @@ def test_release_from_tag(tag: str, expected: tuple[str, bool]) -> None:
 def test_release_from_tag_rejects_unsupported_forms(tag: str) -> None:
     with pytest.raises(ValueError, match="Unsupported release tag"):
         validate_release.release_from_tag(tag)
+
+
+def test_fiona_trivy_exception_requires_non_vulnerable_gdal_pin() -> None:
+    environment = (ROOT / "environment.yml").read_text(encoding="utf-8")
+    ignore = (ROOT / ".trivyignore").read_text(encoding="utf-8")
+
+    assert re.search(r"^\s*-\s+fiona=1\.9\.6\s*$", environment, re.MULTILINE)
+    assert re.search(r"^\s*-\s+gdal=3\.8\.5\s*$", environment, re.MULTILINE)
+    assert "GHSA-q5fm-55c2-v6j9 exp:2027-07-15" in ignore

@@ -1,0 +1,4 @@
+# Fiona 1.9.6 PyPI wheels bundle vulnerable GDAL 3.6.4, but this image uses the
+# conda-forge build linked to GDAL 3.8.5. GDAL fixed CVE-2023-45853 in 3.8.0.
+# Revisit annually or immediately if either pin in environment.yml changes.
+GHSA-q5fm-55c2-v6j9 exp:2027-07-15

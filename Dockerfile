@@ -10,6 +10,15 @@ LABEL org.opencontainers.image.version="${VERSION}"
 ARG MAMBA_DOCKERFILE_ACTIVATE=1
 SHELL ["/bin/bash", "-lc"]
 
+# The pinned base predates two critical GnuTLS fixes. Keep the package version
+# explicit so container builds fail instead of silently accepting a regression.
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends --only-upgrade \
+        libgnutls30=3.7.9-2+deb12u7 && \
+    rm -rf /var/lib/apt/lists/*
+USER mambauser
+
 # Create the conda-forge environment
 COPY environment.yml /tmp/environment.yml
 RUN micromamba create -y -n openamundsen_da -f /tmp/environment.yml && \

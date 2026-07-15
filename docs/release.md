@@ -38,9 +38,13 @@ Before publication, the exact release artifacts pass:
 1. strict wheel and source-archive content checks;
 2. installation and CLI checks on Linux, macOS and Windows with Python 3.11,
    3.12, 3.13 and 3.14;
-3. unit and three integration suites on the trusted Lenovo P8 runner; and
-4. a release-image build from the tested wheel, never from an editable source
-   checkout.
+3. a critical-vulnerability scan of the staged multiarch image built from the
+   tested wheel, never from an editable source checkout; and
+4. unit and three integration suites against that exact staged image digest on
+   the trusted Lenovo P8 runner.
+
+After the gates pass, the workflow promotes the tested digest to the public
+version tags without rebuilding it.
 
 Release candidates publish to TestPyPI, an exact prerelease GHCR tag and a
 GitHub prerelease. Stable tags wait for approval in the `pypi` GitHub

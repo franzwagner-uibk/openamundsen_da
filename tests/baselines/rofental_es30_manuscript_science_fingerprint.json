@@ -4914,7 +4914,7 @@
     },
     {
       "columns_sha256": "420a9ab354efca9a080e9111299888ddce36236a59cad32ab9cde940031544bc",
-      "data_sha256": "fb21b6d0c5116ab2389eb851a73e4e1ae6a73b293517b38aa558e00b78d8a266",
+      "data_sha256": "d0350334dbedc01fe2415aa78703cc371eda3398f514b84b5c35a4c21e762b11",
       "ignored_columns": [],
       "kind": "csv",
       "path": "projects/project_2022_2023/results/benchmark/cases/analysis_case_scores.csv",
@@ -4941,7 +4941,7 @@
     },
     {
       "columns_sha256": "370775cf28393eac4a1f49be45cc99ed597e8b05752b0084eefe9cbc52eeda4e",
-      "data_sha256": "c6c5d236da1e8c0b447a2a60c8d4926670d6c2e80798b3ddf4d115a747afcdb8",
+      "data_sha256": "2c933f8d45d2fa12f63a7814f9373c876dcf0170ec4270d248fa0fe4a0b2ec8e",
       "ignored_columns": [],
       "kind": "csv",
       "path": "projects/project_2022_2023/results/benchmark/scores/event_scores.csv",
@@ -4957,7 +4957,7 @@
     },
     {
       "columns_sha256": "718653fe48701670f53f052c4bce5bfc4b4fc1c566b4ae150b2a6e94436bf9da",
-      "data_sha256": "4576e63e3ac6cd8d00a7143303eb1e13f4e16a229c26f73f375a3b8e0f55b217",
+      "data_sha256": "b7cbed7c5e10871dac853b5b261422ff81ac580a08428f939bffa2fc95ae736d",
       "ignored_columns": [],
       "kind": "csv",
       "path": "projects/project_2022_2023/results/benchmark/scores/project_scores.csv",
@@ -4965,7 +4965,7 @@
     },
     {
       "columns_sha256": "c060540aa6fa6294cbdcd654177a9f5366d6ca07cd87d98917b6289fd54c3a98",
-      "data_sha256": "5cae4d2650b37aafb4a71662e651d5b841e4e6f9a825ca10e24fd3c9866d91e6",
+      "data_sha256": "9304f7e174048431192abb3e75a64d5eac87781d3d99d9e5070e561d4e3ee5ab",
       "ignored_columns": [],
       "kind": "csv",
       "path": "projects/project_2022_2023/results/benchmark/tables/project_summary.csv",
@@ -4973,7 +4973,7 @@
     },
     {
       "columns_sha256": "6a27b35afd769ed4fa1fa37b50a65bd73ba5929ab395a5f5f5b9384a4996d8dc",
-      "data_sha256": "fa429183fba990cbabe19fbc1bb03f698bc0809d316cabcc10bd9366fc2402b7",
+      "data_sha256": "d329b1809590bdb2555e61992968597e5f7913d8800c175f73d91a6aea55930f",
       "ignored_columns": [],
       "kind": "csv",
       "path": "projects/project_2022_2023/results/benchmark/tables/update_summary.csv",
@@ -5109,7 +5109,7 @@
       "path": "projects/project_2022_2023/results/grids/da_output_grids.nc",
       "variables": {
         "analysis_increment_snowdepth_daily": {
-          "data_sha256": "1d5b7b17700873a6d3ae930437e3cae32a645d47b2f73a18287337479b652995",
+          "data_sha256": "27083c93b886d137c2b9fe7de516e01bd9ce9d4725bfae6e8d1ec57979a0ea05",
           "dimensions": [
             "time1",
             "y",
@@ -5131,7 +5131,7 @@
           ]
         },
         "analysis_mean_snowdepth_daily": {
-          "data_sha256": "18f3727543f84d21a3efe1c66d23bcb01caf2bd1df2cc12ded07e5c1e8f07384",
+          "data_sha256": "6ad7396dfc2b4cb20ba24c863c51952587b151f397ad30999de1b95c9dd3d880",
           "dimensions": [
             "time1",
             "y",
@@ -5615,7 +5615,7 @@
       "kind": "image",
       "mode": "RGBA",
       "path": "projects/project_2022_2023/results/maps/da_events/da_7.png",
-      "pixels_sha256": "0d8281ad2cf52df174c793f60f31e81597e5ad48be730228ffdd1edb9afcf214",
+      "pixels_sha256": "125b640ac712e4d72cc096db33f16188f3fdceb13841c378fd73472fec862c04",
       "width": 4278
     },
     {
@@ -5623,7 +5623,7 @@
       "kind": "image",
       "mode": "RGBA",
       "path": "projects/project_2022_2023/results/maps/da_events/da_8.png",
-      "pixels_sha256": "918757725241baccc925119930f463ad31fb705fff9c820312685cddfd6962c0",
+      "pixels_sha256": "6cc9d11b694ed7c0903f066cc666e9dd2ab8fed14d16b08a4b0ed9598ace5573",
       "width": 4278
     },
     {
@@ -5719,7 +5719,7 @@
       "kind": "image",
       "mode": "RGBA",
       "path": "projects/project_2022_2023/results/paper/maps/da_events/da_7.png",
-      "pixels_sha256": "d7c5e11df62e96363bd48d9526fe6734b95d9f7f6ed083131c3ba26c5f3f2201",
+      "pixels_sha256": "d2a7e808f5f8842c2afd60e479249bf46e7bea6b4d6375c35db7cfcc6e12166e",
       "width": 4278
     },
     {
@@ -5727,7 +5727,7 @@
       "kind": "image",
       "mode": "RGBA",
       "path": "projects/project_2022_2023/results/paper/maps/da_events/da_8.png",
-      "pixels_sha256": "d374e1d9119c41ce67a7494e4f19f866582dbb262eab55ac3794b67e4addf26c",
+      "pixels_sha256": "90a36c5c46cd86942a259f38a4d398c74d21f940a125896784bf8c1e876e71e7",
       "width": 4278
     },
     {
@@ -5743,7 +5743,7 @@
       "kind": "image",
       "mode": "RGBA",
       "path": "projects/project_2022_2023/results/paper/plots/assim/scores/performance_scores.png",
-      "pixels_sha256": "fcb94639b7347552a3743b08868e24c5f46eb65f2e35f0873b488b0a936f2178",
+      "pixels_sha256": "281591b07d707f470cc9bf8955fe160d5aa39043a0073092d3c98997cc56b8c6",
       "width": 4372
     },
     {
@@ -5751,7 +5751,7 @@
       "kind": "image",
       "mode": "RGBA",
       "path": "projects/project_2022_2023/results/paper/plots/assim/weights/setup_weights_overview_2022_2023.png",
-      "pixels_sha256": "a3d4c34a52aeab3fef7056b844da3b2254a1c8f8a5af9985b1a8b45145e35b05",
+      "pixels_sha256": "03b5f262e380563aa12a02677f07bab5933ce15a639b73943546ae89c7861a53",
       "width": 4139
     },
     {
@@ -5775,7 +5775,7 @@
       "kind": "image",
       "mode": "RGBA",
       "path": "projects/project_2022_2023/results/plots/assim/scores/performance_scores.png",
-      "pixels_sha256": "fb44a051a333e10a491c3ef73331289864576cfa36f1ebea5672cb3da7717539",
+      "pixels_sha256": "f3f80bc55c37bd0fb1093ca3f2a0b63ada85dcc3556c760af21e3d2648e4be77",
       "width": 4372
     },
     {
@@ -5831,15 +5831,15 @@
       "kind": "image",
       "mode": "RGBA",
       "path": "projects/project_2022_2023/results/plots/assim/weights/DA_07_weights.png",
-      "pixels_sha256": "8ed6823fb6c71dc4d30629d641807df1b484b51f149215d30a73d948a10e06c0",
-      "width": 3470
+      "pixels_sha256": "de930d1b588b4f63d7f2e2540b201cd0739757f3215a688909a2383bcc2df4c2",
+      "width": 3471
     },
     {
       "height": 1289,
       "kind": "image",
       "mode": "RGBA",
       "path": "projects/project_2022_2023/results/plots/assim/weights/DA_08_weights.png",
-      "pixels_sha256": "f7d1ad6e465f24acb0eea6539d6b93d87471447a0171f16246152c0311a4bea8",
+      "pixels_sha256": "914a09311056cda1386088aa50e2bacd04e382c1cf88631a8d4533e0a1d3a595",
       "width": 3382
     },
     {
@@ -5847,7 +5847,7 @@
       "kind": "image",
       "mode": "RGBA",
       "path": "projects/project_2022_2023/results/plots/assim/weights/setup_weights_overview_2022_2023.png",
-      "pixels_sha256": "4a7370f73571b212300409a617bceef1d3f51c34d12f67f846d05d4ac94d1391",
+      "pixels_sha256": "071ec8c610e5058273d491185424f0b6e9b110e8c19300568a6c4cd0526ffd2d",
       "width": 4139
     },
     {
@@ -22455,7 +22455,7 @@
     },
     {
       "columns_sha256": "b07c296106ff3c60ef3b14e92c0e93648a886b66856b7257678567953a98f3c3",
-      "data_sha256": "35a3f4304d61c897187158b928cd5e92bebcf8e0168b85f7ca02379a7ba08e64",
+      "data_sha256": "32f70ca816be631119d9a4a58b73ed7ff80afe9abb61d48017b0cb7aed455f3e",
       "ignored_columns": [],
       "kind": "csv",
       "path": "projects/project_2022_2023/steps/step_06_20230324-20230426/assim/resample_indices_20230426.csv",
@@ -22463,7 +22463,7 @@
     },
     {
       "columns_sha256": "040fc550e4e08476f046b2c8ded1e4780f4d7dd551958e80bebcfd78eb453a9d",
-      "data_sha256": "4fa16d048bad7241a427c252475b190b78904244cb87136636ef52e13f92a6a0",
+      "data_sha256": "f4deb94952f16d519b970f27e81866d12035dcff5435e665828ce3fe846fd988",
       "ignored_columns": [],
       "kind": "csv",
       "path": "projects/project_2022_2023/steps/step_06_20230324-20230426/assim/weights_scf_20230426.csv",
@@ -25199,7 +25199,7 @@
     },
     {
       "columns_sha256": "237b7866f0b46c7f30994ca9d4683c7a1e210a6d8c39d0d44827d78a4f7c4e1f",
-      "data_sha256": "90f9ac62f6c0255ee06ad6287cfb0965f35e70869525e426aac0f19dd7ff5017",
+      "data_sha256": "cb9bd200630cc28425ee04b362b7d8dc2a6e97050f0f75e8a5d4efa7312e9acf",
       "ignored_columns": [],
       "kind": "csv",
       "path": "projects/project_2022_2023/steps/step_06_20230324-20230426/obs/obs_scf_SNOWCOVER_20230426.csv",
@@ -25212,7 +25212,7 @@
     },
     {
       "columns_sha256": "b07c296106ff3c60ef3b14e92c0e93648a886b66856b7257678567953a98f3c3",
-      "data_sha256": "382f8b8c3cfbbdb1cdefd48a6fce68921443a06bd94c73a927813b8586ba547e",
+      "data_sha256": "468db50c734d66365be663f6f9d3f0f2f6d45595a5ccdb16296f664087638e6f",
       "ignored_columns": [],
       "kind": "csv",
       "path": "projects/project_2022_2023/steps/step_07_20230426-20230526/assim/resample_indices_20230526.csv",
@@ -25220,7 +25220,7 @@
     },
     {
       "columns_sha256": "040fc550e4e08476f046b2c8ded1e4780f4d7dd551958e80bebcfd78eb453a9d",
-      "data_sha256": "a1a371903306f67c76ed1706015f7217153eef923f3ea281c6c2d978fcfa8b58",
+      "data_sha256": "a74237c9d8a27da1d469d2321ae96ef72d03913089c5538bfd40edcbbcba5de3",
       "ignored_columns": [],
       "kind": "csv",
       "path": "projects/project_2022_2023/steps/step_07_20230426-20230526/assim/weights_scf_20230526.csv",
@@ -27956,7 +27956,7 @@
     },
     {
       "columns_sha256": "237b7866f0b46c7f30994ca9d4683c7a1e210a6d8c39d0d44827d78a4f7c4e1f",
-      "data_sha256": "6254293d70528b81e136d2ec86a7a3ff70e562ed522e744c12fd09a1110f4348",
+      "data_sha256": "9e20117f042a9d567a35d3e959d1fd5757deb1660640fbec2fd4f2c831e5d194",
       "ignored_columns": [],
       "kind": "csv",
       "path": "projects/project_2022_2023/steps/step_07_20230426-20230526/obs/obs_scf_SNOWCOVER_20230526.csv",
@@ -30702,9 +30702,11 @@
     }
   ],
   "provenance": {
-    "baseline_commit": "1a6a4b3a8318ada8c3d5a5708019767f9c20b177",
     "contract": "phase1-semantic-artifacts",
-    "role": "current-shipped-es30"
+    "publication_overlay": "obs/summaries/project_2022_2023/scf_summary.csv",
+    "role": "manuscript-publication-analysis",
+    "simulation_source": "original8_p074_wsla100_fsca005",
+    "source_commit": "f49807ffabdc31e7757e52087ef3ddfc5f986e80"
   },
   "schema_version": 1,
   "spec_sha256": "120046f83939ed0ca627fdcfbae6444aa68683d014cfcb33e299cc08f5a57a36"

@@ -17,3 +17,6 @@
 *.tif binary
 *.tiff binary
 *.nc binary
+
+# Preserve the frozen manuscript reference inputs byte for byte.
+tests/baselines/rofental_es30_manuscript_inputs/** binary

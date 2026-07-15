@@ -86,6 +86,34 @@ def test_capture_fingerprint_compares_scientific_content(tmp_path: Path) -> None
     assert module.compare_fingerprints(expected, changed) == ["artifact differs: values.csv"]
 
 
+def test_ascii_grid_fingerprint_ignores_decimal_serialization(tmp_path: Path) -> None:
+    module = _load_fingerprint_module()
+    path = tmp_path / "grid.asc"
+    path.write_text(
+        "ncols 2\n"
+        "nrows 1\n"
+        "xllcorner 0\n"
+        "yllcorner 0\n"
+        "cellsize 100\n"
+        "NODATA_value -9999\n"
+        "1.0 2.5\n",
+        encoding="utf-8",
+    )
+    expected = module._ascii_grid_record(path)
+    path.write_text(
+        "ncols 2\n"
+        "nrows 1\n"
+        "xllcorner 0,0\n"
+        "yllcorner 0,0\n"
+        "cellsize 100,0\n"
+        "NODATA_value -9999,0\n"
+        "1,000000 2,500000\n",
+        encoding="utf-8",
+    )
+
+    assert module._ascii_grid_record(path) == expected
+
+
 def test_image_fingerprint_ignores_png_metadata(tmp_path: Path) -> None:
     module = _load_fingerprint_module()
     pixels = Image.new("RGB", (2, 2), (1, 2, 3))

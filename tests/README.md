@@ -29,6 +29,7 @@ Workflow file: `.github/workflows/ci.yml`
   - Runs on self-hosted runner labels: `self-hosted, linux, x64, oa-da`
   - Builds a CI Docker image from current commit
   - Runs unit tests with `pytest` via `scripts/ci/run_unit_tests.sh`
+  - Builds and installs the wheel outside the checkout via `scripts/ci/run_wheel_smoke.sh`; verifies that only `openamundsen-da` is installed and exercises nested help and JSON errors
   - Runs full single-domain example integration test via `scripts/ci/run_integration_tests.sh`
   - Runs trimmed sub-domain integration test via `scripts/ci/run_integration_tests_subdomain.sh`
   - Runs trimmed plain openAMUNDSEN model sub-domain integration test via `scripts/ci/run_integration_tests_model_subdomain.sh`
@@ -61,7 +62,7 @@ Workflow file: `.github/workflows/ci.yml`
 5. Integration run clones `examples/rofental` into a temporary workspace.
 6. Setup skeleton is generated for the shipped `project_2022_2023`.
 7. SCF and wet-snow per-step observation CSVs are prepared.
-8. Full example pipeline is executed (`oa-da-project` equivalent module call).
+8. The full example is executed through `openamundsen-da run`.
 9. Integration validator checks logs, outputs, plots, scientific benchmark outputs, and weight sanity.
 10. Example-specific diagnostics such as station HS weights and setup weights overview are checked.
 11. Sub-domain integration validator checks manifest status and project-level results outputs.
@@ -155,7 +156,8 @@ Runner script: `scripts/ci/run_integration_tests_subdomain.sh`
 What it does:
 - clones `examples/subdomains` into a temp directory
 - writes a trimmed project config (`project_ci_2022_2023`) under the sub-domain setup
-- runs full sub-domain pipeline (`oa-da-subdomain pipeline`) with:
+- runs the explicit data-assimilation subdomain stages
+  (`openamundsen-da subdomains prepare`, `run` and `merge`) with:
   - setup: `/data/subdomains` (the copied sub-domain setup root)
   - project: `/data/subdomains/projects/project_ci_2022_2023`
   - regions: `/data/subdomains/env/subdomains.gpkg` (8 avalanche-report subdomains)
@@ -180,7 +182,8 @@ Runner script: `scripts/ci/run_integration_tests_model_subdomain.sh`
 What it does:
 - clones `examples/subdomains` into a temp directory
 - shortens setup-level `start_date`/`end_date` in the temp copy
-- runs the plain openAMUNDSEN model sub-domain pipeline (`oa-da-subdomain model-pipeline`) with:
+- runs the explicit plain openAMUNDSEN model subdomain stages
+  (`openamundsen-da subdomains model prepare`, `run` and `merge`) with:
   - setup: `/data/subdomains` (the copied sub-domain setup root)
   - regions: `/data/subdomains/env/subdomains.gpkg` (8 avalanche-report subdomains)
   - station buffer: `10 km`
@@ -332,3 +335,73 @@ absolute runtime paths are provenance rather than scientific output.
 Performance monitor outputs are deliberately excluded because they describe the
 host run, not the scientific result. A changed fingerprint blocks release until
 the difference is explained and explicitly approved.
+
+### Exact manuscript setup
+
+The manuscript figures and reported statistics come from the selected
+`original8_p074_wsla100_fsca005` Rofental run. That run used a prepared
+precipitation factor of `0.74`, the corrected 100 m snow redistribution grid and
+an earlier input snapshot than the current shipped example. The five
+byte-distinct inputs are preserved under
+`tests/baselines/rofental_es30_manuscript_inputs/` with SHA-256 checksums.
+Four differ only in serialization; the selected fSCA summary also differs in
+values and therefore controls the DA7/DA8 simulation-stage observation record.
+Materialize a clean reproduction setup with:
+
+```bash
+python scripts/release/materialize_manuscript_setup.py \
+  /path/to/rofental_manuscript_es30
+```
+
+The command copies the current shipped setup, preserving its strict project
+contract and current `maps.yml`/`plots.yml`, then overlays only the frozen
+scientific inputs. Run the exact setup through the integration path with:
+
+```bash
+OA_DA_TEST_SETUP_SOURCE=/path/to/rofental_manuscript_es30 \
+OA_DA_TEST_MAX_WORKERS=24 \
+bash scripts/ci/run_integration_tests.sh
+```
+
+First validate the completed selected simulation before applying any later
+analysis inputs:
+
+```bash
+python scripts/release/validate_manuscript_reference.py \
+  /path/to/completed/rofental_manuscript_es30 \
+  --stage simulation
+```
+
+The manuscript assets were rendered later with an updated fSCA summary. The
+assimilation weights and model outputs remained those of the selected run, but
+the benchmark tables, plots, maps and report were regenerated. Reproduce that
+explicit second stage with:
+
+```bash
+python scripts/release/refresh_manuscript_outputs.py \
+  /path/to/completed/rofental_manuscript_es30 \
+  --manuscript-root /path/to/openAMUNDSEN-DA \
+  --max-workers 24 \
+  --apply
+```
+
+The refresh command refuses to mutate a run until the simulation-stage contract
+passes. Its final publication-stage validation checks the selected-run
+provenance, all case-study parameters, the eight event ESS and resampling
+decisions, quoted benchmark values, generated figures, exact manuscript asset
+hashes and the corresponding literals in `template.tex`. The selected
+simulation and publication-analysis science contracts are stored separately in
+`tests/baselines/rofental_es30_manuscript_simulation_fingerprint.json` and
+`tests/baselines/rofental_es30_manuscript_science_fingerprint.json`. The
+publication figure contract remains
+`tests/baselines/rofental_es30_manuscript_assets.json`. It keeps the manuscript
+files byte-exact and records one accepted fresh-render variant of Figure 04,
+whose benchmark reductions differ only at machine precision and affect 1434
+antialiased pixels in the CRPSS panel.
+
+The validator records the intentional metadata distinction between the
+physical Proviantdepot altitude reported by the manuscript and upstream point
+example (2737 m) and the 2659 m altitude stored in the regional forcing table
+used by the selected run. The selected-run contract also records, without
+blocking validation, the author-approved manuscript wording that describes a
+40% forcing reduction while the frozen input snapshot uses a factor of 0.74.

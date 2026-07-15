@@ -2,6 +2,7 @@
   "schema_version": 1,
   "exclude": [
     "projects/project_2022_2023/results/plots/perf/**",
+    "projects/project_2022_2023/results/run_manifest.json",
     "projects/project_2022_2023/project_2022_2023.log"
   ],
   "files": [
@@ -14,16 +15,24 @@
       "kind": "yaml"
     },
     {
-      "glob": "grids/**/*",
-      "kind": "binary"
+      "glob": "grids/**/*.asc",
+      "kind": "ascii_grid"
     },
     {
-      "glob": "meteo/**/*",
-      "kind": "binary"
+      "glob": "meteo/**/*.csv",
+      "kind": "csv"
     },
     {
-      "glob": "obs/**/*",
-      "kind": "binary"
+      "glob": "obs/**/*.csv",
+      "kind": "csv"
+    },
+    {
+      "glob": "obs/**/*.json",
+      "kind": "json"
+    },
+    {
+      "glob": "obs/**/*.tif",
+      "kind": "geotiff"
     },
     {
       "glob": "projects/project_2022_2023/steps/*/*.yml",
@@ -43,6 +52,7 @@
       "ignore_keys": [
         "created_at",
         "generated_at",
+        "generated_at_utc",
         "timestamp"
       ]
     },

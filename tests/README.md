@@ -28,7 +28,8 @@ Workflow file: `.github/workflows/ci.yml`
   - fatal and stale-code Ruff checks
   - strict wheel and sdist validation with SHA-256 checksums
   - no-dependency installed-wheel smoke tests on Linux, macOS and Windows with Python 3.11 through 3.14
-  - documentation build and pull-request dependency review
+  - generated CLI, navigation/link, frozen tutorial-asset and Jekyll documentation checks
+  - pull-request dependency review
   - `linux/amd64` and `linux/arm64` release-image bootstrap checks and a critical-vulnerability image scan
 - Job `Trusted Lenovo P8 integration`:
   - Runs on self-hosted runner labels: `self-hosted, linux, x64, oa-da`
@@ -94,6 +95,17 @@ Runner command wrapper: `scripts/ci/run_unit_tests.sh`
 
 Framework/tooling config:
 - unit test dependencies and lint tool extras: `pyproject.toml` (`[project.optional-dependencies].test`)
+
+### Documentation contract
+
+`tests/unit/test_docs_contract.py` and `scripts/ci/validate_docs.py` keep the
+published documentation aligned with the installed interface. The gate rejects
+stale generated CLI help, invalid navigation parents, broken Jekyll links,
+missing local assets, removed review/history pages, legacy installed commands
+and any changed, unreferenced or extra PNG in the 13-image frozen Rofental
+tutorial selection. CI then builds the production Jekyll site and confirms that
+repository-only guidance and the superseded unreferenced science schematic are
+not published.
 
 ### What is tested (rough checklist)
 

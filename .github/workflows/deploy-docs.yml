@@ -6,6 +6,10 @@ on:
       - main
     paths:
       - 'docs/**'
+      - 'openamundsen_da/cli.py'
+      - 'scripts/ci/validate_docs.py'
+      - 'scripts/docs/**'
+      - 'tests/baselines/rofental_es30_manuscript_assets.json'
       - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 
@@ -19,6 +23,16 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.11'
+
+      - name: Validate documentation contracts
+        run: |
+          python scripts/docs/render_cli_reference.py --check
+          python scripts/ci/validate_docs.py
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@8e41b362d2589a22a44c1cfa214b3c83052c195b # v1.318.0
@@ -37,6 +51,9 @@ jobs:
         run: |
           cd docs
           bundle exec jekyll build
+          test ! -e _site/AGENTS.md
+          test ! -e _site/README.md
+          test ! -e _site/assets/images/tutorial/scheme_oa_da.png
         env:
           JEKYLL_ENV: production
 

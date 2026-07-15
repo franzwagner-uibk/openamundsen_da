@@ -97,7 +97,6 @@ REJ_SIGMA_SW = "sigma_sw"
 RESTART_BLOCK = "restart"
 RESTART_DUMP_STATE = "dump_state"       # bool
 RESTART_STATE_PATTERN = "state_pattern" # filename or glob (relative to member results_dir)
-RESTART_CLEANUP_AFTER_SETUP = "cleanup_after_setup"  # bool; delete state files after successful setup
 STATE_DEFAULT_NAME = "model_state.pickle.gz"
 
 # Pointer files to avoid duplicating large state/outputs across steps

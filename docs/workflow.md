@@ -465,22 +465,25 @@ Optional: `--overwrite`, `--live-plots`, `--log-level <LEVEL>` (`--live-plots` e
 
 ## State cleanup
 
-- Automatic: `data_assimilation.restart.cleanup_after_setup: true` (default, in project YAML) removes member state pickle files after a successful project run to save disk space.
-- Manual: run the cleanup CLI to delete state files even if automatic cleanup is disabled.
-
-Clean all projects under one setup:
-
-```powershell
-oa-da-clean-project --setup-dir /data/your_setup --all-projects --log-level INFO
-```
-
-Clean one project:
+- A successful single-domain run removes package-owned restart state pickles
+  and stale state pointers only after compact output, benchmark and configured
+  render validation succeeds.
+- Interrupted and failed runs retain restart state.
+- The manual command previews remaining eligible artifacts by default.
 
 ```powershell
-oa-da-clean-project --setup-dir /data/your_setup --project-dir /data/your_setup/projects/project_YYYY-YYYY --log-level INFO
+openamundsen-da clean /data/your_setup/projects/project_YYYY-YYYY
 ```
 
-Only state pickle files are removed; `state_pointer.json` files, grid outputs, maps, reports, manifests, and sub-domain workspaces are left in place. Grid artifact deletion is controlled separately by `data_assimilation.output.retention`.
+Apply that preview:
+
+```powershell
+openamundsen-da clean /data/your_setup/projects/project_YYYY-YYYY --apply
+```
+
+The command is limited to a single-domain project's top-level steps. It does
+not descend into subdomain workspaces or remove member grids, compact outputs,
+maps, reports, manifests or logs.
 
 ---
 

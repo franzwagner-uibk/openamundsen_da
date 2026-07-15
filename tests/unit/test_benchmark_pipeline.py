@@ -24,7 +24,7 @@ def _setup_project(tmp_path: Path) -> tuple[Path, Path, Path]:
     step_dir = project_dir / "steps" / "step_00_init"
 
     _write_yaml(
-        setup_dir / "setup.yml",
+        setup_dir / "demo.yml",
         """
         resolution: 100
         """,

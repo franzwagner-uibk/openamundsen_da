@@ -49,6 +49,7 @@ def test_compute_member_roi_mean_daily_reads_geotiff(monkeypatch, tmp_path: Path
         start=datetime(2023, 1, 1),
         end=datetime(2023, 1, 1),
         variable="swe",
+        model_grid_format="geotiff",
     )
 
     assert list(df.columns) == ["time", "swe"]
@@ -85,6 +86,7 @@ def test_compute_member_roi_mean_daily_reads_netcdf(monkeypatch, tmp_path: Path)
         start=datetime(2023, 1, 2),
         end=datetime(2023, 1, 2),
         variable="hs",
+        model_grid_format="netcdf",
     )
 
     assert list(df.columns) == ["time", "snow_depth"]

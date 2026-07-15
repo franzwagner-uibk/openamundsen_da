@@ -9,14 +9,12 @@ Description:
 from __future__ import annotations
 
 import argparse
-import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence
 from types import SimpleNamespace
+from typing import Iterable, List, Optional, Sequence
 
 import numpy as np
-import pandas as pd
 import rasterio
 from loguru import logger
 
@@ -26,8 +24,12 @@ from openamundsen_da.io.paths import (
     list_member_dirs,
     infer_project_dir,
     infer_setup_dir_from_project,
-    find_setup_yaml,
     find_project_yaml,
+)
+from openamundsen_da.io.model_grids import (
+    ModelGridFrame as DepthEntry,
+    configured_model_grid_format,
+    model_grid_reader,
 )
 from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
 from openamundsen_da.util.storage_policy import PERCENT_UINT8_NODATA, percent_to_uint8_nodata
@@ -40,49 +42,12 @@ CLASSIFICATION_METHOD_AMOUNT = "liquid_water_amount"
 CLASSIFICATION_METHODS = (CLASSIFICATION_METHOD_FRACTION, CLASSIFICATION_METHOD_AMOUNT)
 DEFAULT_LIQUID_WATER_AMOUNT_THRESHOLD_MM = 5.0
 
-_DEPTH_RE = re.compile(r"^snowdepth_daily_(?P<stamp>[^.]+)\.tif$")
-_LWC_RE = re.compile(
-    r"^liquid_water_content_(?P<layer>\d+)_(?P<start>\d{4}-\d{2}-\d{2}T\d{4})_"
-    r"(?P<end>\d{4}-\d{2}-\d{2}T\d{4})\.tif$"
-)
-
-
-def _grid_format_for_step(step_dir: Path) -> str | None:
-    """
-    Read output_data.grids.format from setup YAML.
-
-    Returns lower-case format or None if not found/unsupported.
-    """
+def _grid_format_for_step(step_dir: Path) -> str:
+    """Read the required model-grid format from canonical setup YAML."""
     step_dir = Path(step_dir)
-    try:
-        project_dir = infer_project_dir(step_dir)
-        setup_dir = infer_setup_dir_from_project(project_dir)
-        setup_yaml = find_setup_yaml(setup_dir)
-    except Exception:
-        return None
-    try:
-        cfg = _read_yaml_file(setup_yaml) or {}
-        fmt = (
-            cfg.get("output_data", {})
-            .get("grids", {})
-            .get("format")
-        )
-        if fmt:
-            fmt = str(fmt).lower().strip()
-            if fmt in {"geotiff", "netcdf"}:
-                return fmt
-            if fmt == "ascii":
-                logger.warning("output_data.grids.format=ascii not supported for wet-snow classification; falling back to autodetect.")
-    except Exception:
-        return None
-    return None
-
-
-@dataclass
-class DepthEntry:
-    stamp: str
-    data: np.ndarray
-    profile: dict
+    project_dir = infer_project_dir(step_dir)
+    setup_dir = infer_setup_dir_from_project(project_dir)
+    return configured_model_grid_format(setup_dir).value
 
 
 @dataclass(frozen=True)
@@ -147,143 +112,14 @@ def load_wet_snow_classification_config(project_dir: Path) -> WetSnowClassificat
     )
 
 
-def _load_depth_entries(results_dir: Path, preferred_format: str | None = None) -> List[DepthEntry]:
-    """
-    Load daily snow depth grids (GeoTIFF or NetCDF) for a member.
-
-    Returns a list of depth slices with data and profile. GeoTIFFs are
-    preferred; if none are found, falls back to NetCDF output_grids.nc.
-    """
-    entries: List[DepthEntry] = []
-    fmt = (preferred_format or "").lower().strip() or None
-    if fmt not in {None, "geotiff", "netcdf"}:
-        fmt = None
-
-    # GeoTIFF first
-    if fmt in {None, "geotiff"}:
-        for path in sorted(results_dir.glob("snowdepth_daily_*.tif")):
-            m = _DEPTH_RE.match(path.name)
-            if not m:
-                continue
-            with rasterio.open(path) as src:
-                data = src.read(1).astype(np.float32)
-                profile = src.profile
-            entries.append(DepthEntry(stamp=m.group("stamp"), data=data, profile=profile))
-        if entries or fmt == "geotiff":
-            return entries
-
-    # NetCDF fallback
-    if fmt in {None, "netcdf"}:
-        nc_candidates = sorted(results_dir.glob("*.nc"))
-        for nc_path in nc_candidates:
-            try:
-                import xarray as xr  # lazy
-            except Exception:
-                break
-            try:
-                with xr.open_dataset(nc_path) as ds:
-                    if "snowdepth_daily" not in ds:
-                        continue
-                    da = ds["snowdepth_daily"]
-                    time_dims = [d for d in da.dims if d.startswith("time")]
-                    if not time_dims:
-                        continue
-                    time_dim = time_dims[0]
-                    times = pd.to_datetime(ds[time_dim].values)
-                    url = f"NETCDF:{nc_path}:snowdepth_daily"
-                    with rasterio.open(url) as src:
-                        for idx, t in enumerate(times):
-                            stamp = t.strftime("%Y-%m-%dT%H%M")
-                            data = src.read(idx + 1).astype(np.float32)
-                            entries.append(
-                                DepthEntry(
-                                    stamp=stamp,
-                                    data=data,
-                                    profile=src.profile,
-                                )
-                            )
-                    break
-            except Exception:
-                continue
-
-    return entries
-
-
-def _collect_lwc_files(results_dir: Path, preferred_format: str | None = None) -> Dict[str, List[Path]]:
-    """
-    Group liquid water rasters by their start timestamp.
-
-    Parameters
-    ----------
-    results_dir : Path
-        Member results directory containing liquid water rasters.
-    preferred_format : {"geotiff","netcdf",None}
-
-    Returns
-    -------
-    dict
-        Mapping YYYY-MM-DDTHHMM strings to a list of layer rasters.
-    """
-    grouped: Dict[str, List[Path]] = {}
-    fmt = (preferred_format or "").lower().strip() or None
-    if fmt not in {None, "geotiff", "netcdf"}:
-        fmt = None
-
-    # GeoTIFFs (if present)
-    if fmt in {None, "geotiff"}:
-        for path in sorted(results_dir.glob("liquid_water_content_*.tif")):
-            m = _LWC_RE.match(path.name)
-            if not m:
-                continue
-            grouped.setdefault(m.group("start"), []).append(path)
-        if grouped or fmt == "geotiff":
-            return grouped
-
-    # NetCDF fallback
-    if fmt in {None, "netcdf"}:
-        nc_candidates = sorted(results_dir.glob("*.nc"))
-        for nc_path in nc_candidates:
-            try:
-                import xarray as xr  # lazy
-            except Exception:
-                break
-            try:
-                with xr.open_dataset(nc_path) as ds:
-                    if "liquid_water_content" not in ds:
-                        continue
-                    da = ds["liquid_water_content"]
-                    if "snow_layer" not in da.dims:
-                        continue
-                    time_dims = [d for d in da.dims if d.startswith("time")]
-                    if not time_dims:
-                        continue
-                    time_dim = time_dims[0]
-                    times = pd.to_datetime(ds[time_dim].values)
-                    n_layers = da.sizes.get("snow_layer", 0)
-                    url = f"NETCDF:{nc_path}:liquid_water_content"
-                    with rasterio.open(url) as src:
-                        for i, t in enumerate(times):
-                            stamp_date = pd.to_datetime(t).date()
-                            stamp = f"{stamp_date:%Y-%m-%d}T0000"
-                            base = i * n_layers
-                            indexes = list(range(base + 1, base + n_layers + 1))
-                            data = src.read(indexes)
-                            grouped[stamp] = [layer.astype(np.float32) for layer in data]
-                    break
-            except Exception:
-                continue
-
-    return grouped
-
-
-def _read_sum_lwc(lw_paths: Sequence[Path]) -> np.ndarray:
+def _read_sum_lwc(layers: Sequence[np.ndarray]) -> np.ndarray:
     """
     Sum liquid water layers while honoring nodata masks.
 
     Parameters
     ----------
-    lw_paths : sequence of Path or arrays
-        Raster paths or arrays representing liquid water per snow layer.
+    layers : sequence of arrays
+        Arrays representing liquid water per snow layer. Invalid cells are NaN.
 
     Returns
     -------
@@ -292,17 +128,9 @@ def _read_sum_lwc(lw_paths: Sequence[Path]) -> np.ndarray:
     """
     total: Optional[np.ndarray] = None
     valid_mask: Optional[np.ndarray] = None
-    for item in lw_paths:
-        if isinstance(item, Path):
-            with rasterio.open(item) as src:
-                data = src.read(1).astype(np.float32)
-                nodata = src.nodata
-        else:
-            data = np.asarray(item, dtype=np.float32)
-            nodata = None
+    for item in layers:
+        data = np.asarray(item, dtype=np.float32)
         invalid = ~np.isfinite(data)
-        if nodata is not None:
-            invalid |= data == nodata
         data = np.where(invalid, 0.0, data)
         if total is None:
             total = data
@@ -492,7 +320,7 @@ def _process_member(
     member_dir: Path,
     threshold_frac: float,
     args: SimpleNamespace,
-    grid_format: str | None,
+    grid_format: str,
 ) -> None:
     """
     Run the wet-snow classification for a single member directory.
@@ -511,8 +339,9 @@ def _process_member(
         logger.warning("Results directory missing for {}", member_dir)
         return
 
-    depth_entries = _load_depth_entries(results_dir, preferred_format=grid_format)
-    lwc_files = _collect_lwc_files(results_dir, preferred_format=grid_format)
+    reader = model_grid_reader(grid_format)
+    depth_entries = reader.depth_series(results_dir)
+    lwc_files = reader.liquid_water_series(results_dir)
     if not depth_entries:
         logger.warning("No snow depth grids in {}", results_dir)
         return
@@ -526,15 +355,7 @@ def _process_member(
         if not lw_paths:
             logger.warning("Missing liquid water grids for {} in {}", depth.stamp, member_dir)
             continue
-        # Convert GeoTIFF LWC paths to arrays on the fly
-        if lw_paths and isinstance(lw_paths[0], Path):
-            arrays = []
-            for p in lw_paths:
-                with rasterio.open(p) as src:
-                    arrays.append(src.read(1).astype(np.float32))
-            lw_arrays = arrays
-        else:
-            lw_arrays = [np.asarray(a, dtype=np.float32) for a in lw_paths]
+        lw_arrays = [np.asarray(array, dtype=np.float32) for array in lw_paths]
         try:
             _compute_fraction(
                 depth_entry=depth,
@@ -558,7 +379,7 @@ def _classify_members(
     members: Sequence[Path],
     threshold_frac: float,
     args: SimpleNamespace,
-    grid_format: str | None,
+    grid_format: str,
     max_workers: int | None,
 ) -> None:
     """Classify wet snow for all members, optionally in parallel."""

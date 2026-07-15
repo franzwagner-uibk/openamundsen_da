@@ -7,6 +7,7 @@ obs:
     dir: obs/stations
   snowcover:
     dir: obs/snowcover
+    format: geotiff
     product_tag: SNOWCOVER
     summary_csv: obs/summaries/project_2022_2023/scf_summary.csv
     classes:
@@ -16,6 +17,7 @@ obs:
       nodata: [255]
   wetsnow:
     dir: obs/wetsnow
+    format: geotiff
     product_tag: WETSNOW
     summary_csv: obs/summaries/project_2022_2023/wet_snow_summary.csv
     classes:
@@ -44,7 +46,6 @@ data_assimilation:
     seed: 113
     rebase_open_loop: false
   restart:
-    use_state: true
     dump_state: true
     state_pattern: model_state.pickle.gz
   assimilation_events:

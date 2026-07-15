@@ -7,45 +7,51 @@ nav_order: 2
 
 # API Quick Reference
 
-Scripting-oriented entry points. Everything else should be used via the CLI.
+The supported Python API contains six workflow operations. Import them from the
+top-level package:
 
-## Setup orchestration
-- `openamundsen_da.pipeline.project.cli(argv=None)` -> main setup driver (same as `oa-da-project`).
-- `openamundsen_da.pipeline.project_skeleton.cli(argv=None)` -> build step skeletons.
-- `openamundsen_da.pipeline.cleanup.cli(argv=None)` -> remove intermediate artifacts.
+```python
+from openamundsen_da import (
+    clean_project,
+    prepare_project,
+    preprocess_snow_cover,
+    preprocess_wet_snow,
+    render_project,
+    run_project,
+)
+```
 
-## Particle filter
-- `openamundsen_da.methods.pf.assimilate_fraction.assimilate_scf_for_date(...)`
-- `openamundsen_da.methods.pf.assimilate_fraction.assimilate_wet_snow_for_date(...)`
-- `openamundsen_da.methods.pf.assimilate_station.assimilate_station_hs_for_date(...)`
-- `openamundsen_da.methods.pf.assimilate_station.assimilate_station_swe_for_date(...)`
-- `openamundsen_da.methods.pf.resample.resample_from_weights(...)`
-- `openamundsen_da.methods.pf.rejuvenate.rejuvenate(...)`
+## Observation preprocessing
 
-## Observation operators
-- `openamundsen_da.methods.h_of_x.model_scf.compute_model_scf(...)`
-- `openamundsen_da.methods.wet_snow.area.compute_model_wet_snow_fraction(...)`
+- `preprocess_snow_cover(project_dir, *, overwrite=False)`
+- `preprocess_wet_snow(project_dir, *, overwrite=False)`
 
-## Observation processing
-- `openamundsen_da.observer.snowcover.cli_main(argv=None)`
-- `openamundsen_da.observer.wetsnow.cli_main(argv=None)`
-- `openamundsen_da.observer.satellite_scf.cli_main(argv=None)`
-- `openamundsen_da.observer.satellite_wet_snow_s1.cli_main(argv=None)`
+Both operations read the explicit observation format and paths from the
+canonical project YAML. They return an immutable
+`ObservationPreprocessingResult` and write a hash-tracked manifest under
+`<project>/.openamundsen-da/manifests/`.
 
-## Batch processing
-- `openamundsen_da.subdomain.pipeline.run_pipeline(...)`
-- `openamundsen_da.subdomain.prepare.prepare_subdomains(...)`
-- `openamundsen_da.subdomain.run.run_subdomains(...)`
-- `openamundsen_da.subdomain.merge.merge_grids(...)`
-- `openamundsen_da.subdomain.merge.merge_points(...)`
-- `openamundsen_da.methods.viz.plots.subdomain.station_comparisons.plot_station_comparisons(...)`
+## Project workflow
 
-## Utilities (selected)
-- `openamundsen_da.util.stats`
-- `openamundsen_da.util.parallel.run_tasks_with_pool(...)`
-- `openamundsen_da.io.paths`
+- `prepare_project(project_dir, *, overwrite=False)` creates deterministic
+  steps and maps configured observations. It returns `PreparationResult`.
+- `run_project(project_dir, *, max_workers=None)` runs a prepared project,
+  validates required scientific and rendered outputs, applies safe restart
+  cleanup and returns `RunResult`.
+- `render_project(project_dir, *, max_workers=None)` regenerates all configured
+  plots, maps and the project report. It returns `RenderResult`.
+- `clean_project(project_dir, *, apply=False)` previews package-owned restart
+  cleanup by default. Pass `apply=True` to delete the previewed artifacts. It
+  returns `CleanupResult`.
 
-## Stability note
-Prefer CLI usage for stable workflows. Direct Python APIs may change between minor versions.
+Result objects and `WorkflowStatus` are immutable values from
+`openamundsen_da.results`. Public workflow exceptions inherit from
+`openamundsen_da.exceptions.OpenAmundsenDAError`.
 
+## Stability boundary
+
+The six operations, their result types and the public exception hierarchy are
+the supported scripting boundary. Subdomain Python modules, particle-filter
+functions, observers, plotting modules and path utilities are implementation
+details; use the `openamundsen-da` command for those workflows.
 

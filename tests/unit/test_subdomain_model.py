@@ -40,7 +40,7 @@ def _write_setup_yaml(setup_dir: Path, *, include_dates: bool = True) -> None:
             "",
         ]
     )
-    (setup_dir / "setup.yml").write_text("\n".join(lines), encoding="utf-8")
+    (setup_dir / "demo.yml").write_text("\n".join(lines), encoding="utf-8")
 
 
 def _write_dem(path: Path, *, shape: tuple[int, int] = (4, 4)) -> None:
@@ -173,7 +173,7 @@ def _model_manifest(tmp_path: Path, ids: tuple[str, ...] = ("sd_01", "sd_02")) -
     setup_dir = tmp_path / "setup"
     root = setup_dir / "subdomains" / "model"
     setup_dir.mkdir(parents=True, exist_ok=True)
-    setup_yaml = setup_dir / "setup.yml"
+    setup_yaml = setup_dir / "demo.yml"
     setup_yaml.write_text("start_date: '2022-10-01'\nend_date: '2022-10-02'\n", encoding="utf-8")
     manifest = SubdomainManifest(
         run_mode="model",

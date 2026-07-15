@@ -4,7 +4,7 @@ Helper to create an empty project step layout from high-level config.
 
 Inputs
 ------
-- setup YAML at setup root (named like the setup, template fallback: ``setup.yml``)
+- one canonical named setup YAML at the setup root
   - Uses the ``timestep`` field (e.g. ``"3H"``) to infer the model time step.
 - project YAML at ``<setup>/projects/<project>/`` (named like the project folder)
   - ``start_date`` and ``end_date`` (dates or ISO datetimes).
@@ -269,7 +269,6 @@ def cli(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli())
-
 
 
 

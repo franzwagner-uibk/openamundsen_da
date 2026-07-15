@@ -69,6 +69,7 @@ def compute_member_roi_mean_daily(
     start: datetime,
     end: datetime,
     variable: str,
+    model_grid_format: str,
 ) -> pd.DataFrame:
     """Return the full-ROI daily mean for one member over a date range."""
     ensure_gdal_proj_from_conda()
@@ -87,6 +88,7 @@ def compute_member_roi_mean_daily(
                 Path(results_dir),
                 spec.variable,
                 dt.strftime("%Y-%m-%d"),
+                preferred_format=model_grid_format,
             )
             arr = read_grid_slice_roi_masked_array(
                 slice_,
@@ -122,12 +124,14 @@ def _compute_member_roi_mean_daily_worker(
 ) -> bool:
     """Worker: compute one ROI daily-mean series for a single member."""
     variable = str(extra["variable"])
+    model_grid_format = str(extra["model_grid_format"])
     df = compute_member_roi_mean_daily(
         results_dir=results_dir,
         aoi_path=aoi_path,
         start=start,
         end=end,
         variable=variable,
+        model_grid_format=model_grid_format,
     )
     if df.empty:
         return False
@@ -143,6 +147,7 @@ def compute_step_roi_mean_daily_for_all_members(
     step_dir: Path,
     aoi_path: Path,
     variable: str,
+    model_grid_format: str,
     max_workers: int = 4,
     overwrite: bool = False,
 ) -> None:
@@ -160,6 +165,8 @@ def compute_step_roi_mean_daily_for_all_members(
         include_open_loop=True,
         max_workers=max_workers,
         overwrite=overwrite,
-        worker_kwargs={"variable": spec.variable},
+        worker_kwargs={
+            "variable": spec.variable,
+            "model_grid_format": model_grid_format,
+        },
     )
-

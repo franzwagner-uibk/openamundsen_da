@@ -34,7 +34,7 @@ from openamundsen_da.util.ts import parse_datetime_opt
 
 
 @dataclass
-class RunResult:
+class SubdomainRunResult:
     subdomain_id: str
     status: str  # success | failed | skipped
     duration_seconds: float
@@ -242,7 +242,7 @@ def _run_one(
     retries: int,
     log_level: str,
     root_log_path: Path | None,
-) -> RunResult:
+) -> SubdomainRunResult:
     """Worker: run one fully independent sub-domain DA setup."""
     manifest = SubdomainManifest.load(manifest_path)
     sub = manifest.subdomains[subdomain_id]
@@ -256,7 +256,7 @@ def _run_one(
             data = json.loads(run_manifest_path.read_text(encoding="utf-8"))
             previous_status = str(data.get("status", "")).lower()
             if previous_status == "success":
-                return RunResult(
+                return SubdomainRunResult(
                     subdomain_id=sub.id,
                     status="skipped",
                     duration_seconds=0.0,
@@ -303,7 +303,6 @@ def _run_one(
                     live_plots=False,
                     plot_workers=int(inner_max_workers),
                     monitor_perf=False,
-                    defer_compact_grid_cleanup=True,
                 )
             )
             duration = time.time() - started
@@ -317,7 +316,7 @@ def _run_one(
             )
             _write_run_manifest(run_manifest_path, run_meta)
             logger.info("OK sub-domain={} duration_s={:.1f}", sub.id, duration)
-            return RunResult(
+            return SubdomainRunResult(
                 subdomain_id=sub.id,
                 status="success",
                 duration_seconds=duration,
@@ -341,7 +340,7 @@ def _run_one(
             _write_run_manifest(run_manifest_path, run_meta)
             logger.exception("Sub-domain {} failed on attempt {}: {}", sub.id, attempt, exc)
             if attempt > retries:
-                return RunResult(
+                return SubdomainRunResult(
                     subdomain_id=sub.id,
                     status="failed",
                     duration_seconds=duration,
@@ -351,7 +350,7 @@ def _run_one(
                     run_manifest=run_manifest_path,
                     dropped_events=dropped_events,
                 )
-    return RunResult(
+    return SubdomainRunResult(
         subdomain_id=sub.id,
         status="failed",
         duration_seconds=0.0,
@@ -427,7 +426,7 @@ def run_subdomains(
     log_level: str = "INFO",
     perf_monitor: bool = True,
     log_to_file: bool = True,
-) -> List[RunResult]:
+) -> List[SubdomainRunResult]:
     """Run sub-domain DA workflows in parallel and stop on first failure."""
     manifest = SubdomainManifest.load(manifest_path)
     if str(getattr(manifest, "run_mode", "")).lower() != "subdomain":
@@ -470,7 +469,7 @@ def run_subdomains(
             PerfMonitorConfig(project_dir=manifest.project_dir, sample_interval_sec=5.0, plot_interval_sec=30.0)
         )
 
-    results: List[RunResult] = []
+    results: List[SubdomainRunResult] = []
     failed_id: str | None = None
 
     ctx = mp.get_context("spawn")

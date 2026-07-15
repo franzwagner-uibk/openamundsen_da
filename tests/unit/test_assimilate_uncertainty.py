@@ -415,7 +415,7 @@ class AssimilateUncertaintyTests(unittest.TestCase):
             for path in (obs_dir, member_1 / "results", member_2 / "results"):
                 path.mkdir(parents=True, exist_ok=True)
             y = YAML()
-            with (setup_dir / "setup.yml").open("w", encoding="utf-8") as f:
+            with (setup_dir / "demo.yml").open("w", encoding="utf-8") as f:
                 y.dump({"crs": "EPSG:25832", "domain": "demo", "resolution": 100}, f)
             _write_project_yaml(project_dir, {"data_assimilation": {}})
             obs_csv = obs_dir / "obs_scf_20240401.csv"
@@ -502,7 +502,7 @@ class AssimilateUncertaintyTests(unittest.TestCase):
             obs_csv.parent.mkdir(parents=True, exist_ok=True)
 
             y = YAML()
-            with (sub_setup_dir / "setup.yml").open("w", encoding="utf-8") as f:
+            with (sub_setup_dir / f"{sub_setup_dir.name}.yml").open("w", encoding="utf-8") as f:
                 y.dump(
                     {
                         "domain": "demo",
@@ -579,7 +579,7 @@ class AssimilateUncertaintyTests(unittest.TestCase):
                 "setup_dir": str(setup_dir),
                 "project_dir": str(project_root),
                 "project_name": "project_2024_2025",
-                "setup_yaml": str(setup_dir / "setup.yml"),
+                "setup_yaml": str(setup_dir / "demo.yml"),
                 "project_yaml": str(project_root / "project_2024_2025.yml"),
                 "subdomain_root": str(subdomain_root),
                 "regions_path": str(setup_dir / "env" / "subdomains.gpkg"),
@@ -601,7 +601,7 @@ class AssimilateUncertaintyTests(unittest.TestCase):
                         "id": "sd_01",
                         "label": "sd_01",
                         "setup_dir": str(sub_setup_dir),
-                        "setup_yaml": str(sub_setup_dir / "setup.yml"),
+                        "setup_yaml": str(sub_setup_dir / f"{sub_setup_dir.name}.yml"),
                         "project_dir": str(sub_project_dir),
                         "project_yaml": str(sub_project_dir / "project_2024_2025.yml"),
                         "project_name": "project_2024_2025",
@@ -658,7 +658,7 @@ class AssimilateUncertaintyTests(unittest.TestCase):
             grid_dir.mkdir(parents=True, exist_ok=True)
             obs_csv.parent.mkdir(parents=True, exist_ok=True)
             y = YAML()
-            with (setup_dir / "setup.yml").open("w", encoding="utf-8") as f:
+            with (setup_dir / "demo.yml").open("w", encoding="utf-8") as f:
                 y.dump(
                     {
                         "domain": "demo",

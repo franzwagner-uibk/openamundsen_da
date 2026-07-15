@@ -52,7 +52,7 @@ def _write_png(path: Path, *, width: int = 80, height: int = 40) -> None:
 def _create_project(tmp_path: Path, *, event_count: int = 2) -> Path:
     project_dir = tmp_path / "setup" / "projects" / "project_2023"
     (tmp_path / "setup").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "setup" / "setup.yml").write_text(
+    (tmp_path / "setup" / "demo.yml").write_text(
         "domain: rofental\n"
         "resolution: 100\n"
         "timestep: 3H\n"

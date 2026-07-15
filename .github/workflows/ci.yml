@@ -109,6 +109,12 @@ jobs:
           CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
           bash scripts/ci/run_unit_tests.sh
 
+      - name: Validate installed wheel interface
+        if: ${{ steps.changes.outputs.docs_only != 'true' }}
+        run: |
+          CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
+          bash scripts/ci/run_wheel_smoke.sh
+
       - name: Run integration tests (derived Rofental fast path)
         if: ${{ steps.changes.outputs.docs_only != 'true' }}
         run: |

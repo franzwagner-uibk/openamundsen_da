@@ -4,12 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CI_IMAGE="${CI_IMAGE:-openamundsen-da-ci:local}"
 MAX_WORKERS="${OA_DA_TEST_MAX_WORKERS:-4}"
+SOURCE_SETUP="${OA_DA_TEST_SETUP_SOURCE:-${ROOT_DIR}/examples/rofental}"
 ARTIFACT_DIR="${CI_ARTIFACT_DIR:-}"
 SETUP_RESOLUTION_OVERRIDE="${OA_DA_TEST_SETUP_RESOLUTION:-}"
 ENSEMBLE_SIZE_OVERRIDE="${OA_DA_TEST_ENSEMBLE_SIZE:-}"
 
 TMP_ROOT="$(mktemp -d -t oada-ci-XXXXXX)"
-PROJECT_DIR="${TMP_ROOT}/rofental_ci"
+PROJECT_DIR="${TMP_ROOT}/rofental"
 PROJECT_NAME=""
 PROJECT_PATH=""
 SOURCE_PROJECT_NAME=""
@@ -45,7 +46,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cp -a "${ROOT_DIR}/examples/rofental" "${PROJECT_DIR}"
+if [[ ! -d "${SOURCE_SETUP}" ]]; then
+  echo "[integration] ERROR: setup source directory not found: ${SOURCE_SETUP}"
+  exit 1
+fi
+echo "[integration] Copying setup source: ${SOURCE_SETUP}"
+cp -a "${SOURCE_SETUP}" "${PROJECT_DIR}"
 SOURCE_PROJECT_DIR="$(find "${PROJECT_DIR}/projects" -mindepth 1 -maxdepth 1 -type d -name 'project_*' | sort | head -n 1)"
 if [[ -z "${SOURCE_PROJECT_DIR}" ]]; then
   echo "[integration] ERROR: could not discover source project under ${PROJECT_DIR}/projects"
@@ -192,10 +198,7 @@ if ! summary_host_source "scf_summary.csv" >/dev/null; then
       --project-label "${SOURCE_PROJECT_NAME}" \
       --overwrite
   fi
-  compose_run oa-da-snowcover \
-    --input-dir /data/obs/snowcover \
-    --project-label "${SOURCE_PROJECT_NAME}" \
-    --setup-dir /data \
+  compose_run openamundsen-da observations snow-cover "${PROJECT_PATH}" \
     --overwrite
 fi
 
@@ -208,10 +211,7 @@ if ! summary_host_source "wet_snow_summary.csv" >/dev/null; then
       --project-label "${SOURCE_PROJECT_NAME}" \
       --overwrite
   fi
-  compose_run oa-da-wetsnow \
-    --input-dir /data/obs/wetsnow \
-    --project-label "${SOURCE_PROJECT_NAME}" \
-    --setup-dir /data \
+  compose_run openamundsen-da observations wet-snow "${PROJECT_PATH}" \
     --overwrite
 fi
 
@@ -229,36 +229,13 @@ if [[ -z "${SCF_SUMMARY_HOST_SOURCE}" || -z "${WET_SUMMARY_HOST_SOURCE}" ]]; the
   exit 1
 fi
 
-SCF_SUMMARY_CSV="$(container_path_for_host "${SCF_SUMMARY_HOST_SOURCE}")"
-WET_SUMMARY_CSV="$(container_path_for_host "${WET_SUMMARY_HOST_SOURCE}")"
-echo "[integration] Using SCF summary: ${SCF_SUMMARY_CSV}"
-echo "[integration] Using wet-snow summary: ${WET_SUMMARY_CSV}"
+echo "[integration] Using SCF summary: $(container_path_for_host "${SCF_SUMMARY_HOST_SOURCE}")"
+echo "[integration] Using wet-snow summary: $(container_path_for_host "${WET_SUMMARY_HOST_SOURCE}")"
 
-compose_run python -m openamundsen_da.pipeline.project_skeleton \
-  --setup-dir /data \
-  --project-dir "${PROJECT_PATH}" \
-  --overwrite \
-  --log-level INFO
-
-compose_run oa-da-scf \
-  --project-dir "${PROJECT_PATH}" \
-  --summary-csv "${SCF_SUMMARY_CSV}" \
-  --overwrite \
-  --log-level INFO
-
-compose_run oa-da-wetsnow-project \
-  --project-dir "${PROJECT_PATH}" \
-  --summary-csv "${WET_SUMMARY_CSV}" \
-  --overwrite \
-  --log-level INFO
+compose_run openamundsen-da prepare "${PROJECT_PATH}" --overwrite
 
 echo "[integration] Running project pipeline (max-workers=${MAX_WORKERS})"
-compose_run python -m openamundsen_da.pipeline.project \
-  --setup-dir /data \
-  --project-dir "${PROJECT_PATH}" \
-  --max-workers "${MAX_WORKERS}" \
-  --overwrite \
-  --log-level INFO
+compose_run openamundsen-da run "${PROJECT_PATH}" --max-workers "${MAX_WORKERS}"
 
 CONTAINER_LOG_FILE="$(compose_run python - "${PROJECT_NAME}" <<'PY' | tr -d '\r' | tail -n 1
 from pathlib import Path

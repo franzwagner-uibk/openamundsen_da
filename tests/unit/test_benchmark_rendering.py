@@ -34,7 +34,7 @@ def _setup_render_project(tmp_path: Path) -> tuple[Path, Path]:
     setup_dir = tmp_path / "setup"
     project_dir = setup_dir / "projects" / "project_2022_2023"
     _write_yaml(
-        setup_dir / "setup.yml",
+        setup_dir / "demo.yml",
         """
         resolution: 100
         """,

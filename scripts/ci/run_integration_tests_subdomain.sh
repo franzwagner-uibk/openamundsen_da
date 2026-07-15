@@ -144,16 +144,24 @@ if source_maps_cfg.is_file():
         yaml.safe_dump(maps_cfg, f, sort_keys=False)
 PY
 
-echo "[subdomain-integration] Running sub-domain pipeline (max-workers=${MAX_WORKERS}, inner=${INNER_WORKERS})"
-compose_run python -m openamundsen_da.subdomain.cli pipeline \
-  --setup-dir "${SETUP_PATH}" \
-  --project-dir "${PROJECT_PATH}" \
+echo "[subdomain-integration] Preparing sub-domains"
+compose_run openamundsen-da subdomains prepare "${PROJECT_PATH}" \
   --regions "${SETUP_PATH}/env/subdomains.gpkg" \
   --station-buffer-km 10 \
+  --overwrite
+
+echo "[subdomain-integration] Running sub-domains (max-workers=${MAX_WORKERS}, inner=${INNER_WORKERS})"
+compose_run openamundsen-da subdomains run "${PROJECT_PATH}" \
   --max-workers "${MAX_WORKERS}" \
   --inner-max-workers "${INNER_WORKERS}" \
-  --overwrite \
-  --log-level INFO
+  --overwrite
+
+echo "[subdomain-integration] Merging compact sub-domain outputs"
+compose_run openamundsen-da subdomains merge "${PROJECT_PATH}"
+
+echo "[subdomain-integration] Rendering merged sub-domain outputs"
+compose_run openamundsen-da subdomains render "${PROJECT_PATH}" \
+  --max-workers "${MAX_WORKERS}"
 
 compose_run python /workspace/scripts/ci/validate_trimmed_subdomain.py \
   --subdomain-root "${PROJECT_PATH}/subdomains" \

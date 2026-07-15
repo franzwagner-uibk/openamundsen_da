@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Iterable, List, Tuple, TYPE_CHECKING
 if TYPE_CHECKING:
     # For type checking only; avoids importing heavy dependencies at runtime
-    from openamundsen_da.core.runner import RunResult
+    from openamundsen_da.core.runner import MemberRunResult
 import sys
 
 from loguru import logger
@@ -103,7 +103,7 @@ def _discover_members(
     return project_yaml, setup_yaml, step_yaml, members
 
 
-def _run_one(args: Tuple[Path, Path, Path, Path, bool, Path | None, str | None, str | None]) -> RunResult:
+def _run_one(args: Tuple[Path, Path, Path, Path, bool, Path | None, str | None, str | None]) -> MemberRunResult:
     """
     Small wrapper so ProcessPoolExecutor can pickle the callable easily.
     Import of runner happens inside the child worker.
@@ -183,7 +183,7 @@ def launch_members(
         n=len(tasks),
         mw=workers,
     )
-    results: List[RunResult] = []
+    results: List[MemberRunResult] = []
     failed = 0
     skipped = 0
     ok = 0
@@ -271,4 +271,3 @@ def main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

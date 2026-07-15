@@ -60,9 +60,9 @@ from openamundsen_da.methods.pf.assimilate_station import (
     assimilate_station_hs_for_date,
     assimilate_station_swe_for_date,
 )
-from openamundsen_da.pipeline.cleanup import cleanup_setup_dir, is_cleanup_enabled, state_patterns_from_setup
 from openamundsen_da.methods.h_of_x.model_scf import compute_step_scf_daily_for_all_members
 from openamundsen_da.methods.roi_mean import compute_step_roi_mean_daily_for_all_members
+from openamundsen_da.io.model_grids import configured_model_grid_format
 from openamundsen_da.methods.wet_snow.classify import (
     CLASSIFICATION_METHOD_AMOUNT,
     WetSnowClassificationConfig,
@@ -73,25 +73,14 @@ from openamundsen_da.methods.wet_snow.area import compute_step_wet_snow_daily_fo
 from openamundsen_da.methods.pf.rejuvenate import rejuvenate
 from openamundsen_da.methods.pf.resample import resample_from_weights, _read_resampling_from_project
 from openamundsen_da.pipeline.plot_tasks import (
-    aggregate_fraction_envelopes,
-    build_fraction_overlay_task,
-    build_post_run_plot_tasks,
-    configured_overview_needs_benchmark_scores,
-    plot_result_overview_cli as plot_result_overview_cli,
-    plot_setup_weights_overview as plot_setup_weights_overview,
-    render_project_maps_best_effort,
-    render_project_poster_best_effort,
-    render_project_report_best_effort,
     run_live_plots,
-    run_plot_tasks_parallel,
 )
+from openamundsen_da.results import RenderResult
+from openamundsen_da.pipeline.rendering import render_required_project_outputs
 from openamundsen_da.util.validation import validate_assimilation_requirements
 from openamundsen_da.util.run_mode import ensure_run_mode
 from openamundsen_da.util.station_da import is_station_variable
 from openamundsen_da.util.da_output import (
-    collect_project_grid_artifacts,
-    delete_files,
-    output_retention_mode,
     write_project_da_output_grids,
 )
 from openamundsen_da.util.da_observables import (
@@ -117,14 +106,6 @@ DA_DIAGNOSTICS = {
         "wet_plots": True,
     },
 }
-
-
-# Backward-compatible aliases for older tests and imports that still reach into
-# the project orchestrator module for plot-task helpers.
-_build_post_run_plot_tasks = build_post_run_plot_tasks
-_configured_overview_needs_benchmark_scores = configured_overview_needs_benchmark_scores
-_build_fraction_overlay_task = build_fraction_overlay_task
-_render_project_report_best_effort = render_project_report_best_effort
 
 
 def _list_steps_sorted(project_dir: Path) -> List[Path]:
@@ -202,6 +183,7 @@ def _compute_prior_step_diagnostics(
                 step_dir=step_dir,
                 aoi_path=roi,
                 variable=variable,
+                model_grid_format=configured_model_grid_format(cfg.setup_dir).value,
                 max_workers=int(workers),
                 overwrite=bool(cfg.overwrite),
             )
@@ -340,7 +322,6 @@ class OrchestratorConfig:
     monitor_perf: bool = False
     perf_sample_interval: float = 5.0
     perf_plot_interval: float = 30.0
-    defer_compact_grid_cleanup: bool = False
 
 
 def _setup_logger(project_dir: Path, log_level: str) -> None:
@@ -411,34 +392,7 @@ def _setup_log_path(project_dir: Path) -> Path:
     return project_dir / f"{label}.log"
 
 
-def _apply_project_compact_grid_retention(
-    *,
-    cfg: OrchestratorConfig,
-    retention_mode: str,
-    member_failures: bool,
-    da_summary_written: bool,
-) -> None:
-    if retention_mode != "compact":
-        return
-    if member_failures:
-        logger.info("Skipping compact grid retention because some member runs failed.")
-    elif not da_summary_written:
-        logger.warning("Skipping compact grid retention because da_output_grids.nc was not written.")
-    elif cfg.defer_compact_grid_cleanup:
-        logger.info(
-            "Deferring compact grid retention cleanup until downstream sub-domain map rendering is complete."
-        )
-    else:
-        artifacts = collect_project_grid_artifacts(cfg.project_dir)
-        deleted, bytes_freed = delete_files(artifacts)
-        logger.info(
-            "Compact retention: deleted {} grid artifact file(s), freed {:.1f} MB",
-            deleted,
-            bytes_freed / 1_000_000.0,
-        )
-
-
-def run_project(cfg: OrchestratorConfig) -> None:
+def run_project(cfg: OrchestratorConfig) -> RenderResult:
     run_start = datetime.utcnow()
     # Console + file log under project root.
     _setup_logger(cfg.project_dir, cfg.log_level)
@@ -592,8 +546,6 @@ def run_project(cfg: OrchestratorConfig) -> None:
         perf_stop_event = start_perf_monitor(pm_cfg)
 
     # Process each step
-    cleanup_enabled = is_cleanup_enabled(cfg.project_dir)
-    member_failures = False
     for i, step_dir in enumerate(steps):
         step_name = Path(step_dir).name
         logger.info("== Step {} ==", step_name)
@@ -612,7 +564,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
             state_pattern=None,
         )
         if launch_summary.get("summary", {}).get("failed", 0) > 0:
-            member_failures = True
+            raise RuntimeError(f"Member propagation failed in {step_name}; restart states were retained")
 
         _compute_prior_step_diagnostics(
             cfg=cfg,
@@ -809,43 +761,16 @@ def run_project(cfg: OrchestratorConfig) -> None:
             t.join()
         except Exception:
             pass
-    # Aggregate fraction envelopes before plotting overlays
-    aggregate_fraction_envelopes(
-        project_dir=cfg.project_dir,
-        project_fraction_envelope_path=project_fraction_envelope_path,
-    )
-
-    score_dependent_fraction_overlay = configured_overview_needs_benchmark_scores(cfg.project_dir)
-
-    # Build post-run plot tasks (per-step forcing, project results, weights, ESS,
-    # and the overview plot when it does not depend on benchmark score outputs).
-    plot_tasks = build_post_run_plot_tasks(
-        cfg,
-        steps,
-        include_fraction_overlay=not score_dependent_fraction_overlay,
-    )
-    try:
-        run_plot_tasks_parallel(plot_tasks, cfg.plot_workers, cfg.max_workers)
-    except Exception as exc:
-        logger.warning("Post-run plotting failed: {}", exc)
-
-    da_summary_written = False
     da_summary_path = project_da_output_grids_path(cfg.project_dir)
     if da_summary_path.is_file() and not cfg.overwrite:
-        da_summary_written = True
         logger.info("Using existing DA output summary {}", da_summary_path)
     else:
-        try:
-            da_path = write_project_da_output_grids(
-                step_dirs=steps,
-                output_nc=da_summary_path,
-            )
-            da_summary_written = da_path is not None
-        except Exception as exc:
-            logger.warning("DA output grid summary failed: {}", exc)
-
-    if da_summary_written:
-        render_project_maps_best_effort(cfg.project_dir)
+        da_path = write_project_da_output_grids(
+            step_dirs=steps,
+            output_nc=da_summary_path,
+        )
+        if da_path is None or not da_summary_path.is_file():
+            raise RuntimeError(f"Required compact DA output was not written: {da_summary_path}")
 
     try:
         benchmark_outputs = run_project_benchmark(
@@ -863,56 +788,10 @@ def run_project(cfg: OrchestratorConfig) -> None:
         logger.exception("Project benchmarking failed")
         raise
 
-    if score_dependent_fraction_overlay:
-        try:
-            run_plot_tasks_parallel([build_fraction_overlay_task(cfg)], cfg.plot_workers, cfg.max_workers)
-        except Exception as exc:
-            logger.warning("Post-benchmark plotting failed: {}", exc)
-
-    render_project_poster_best_effort(cfg.project_dir, max_workers=cfg.max_workers)
-
-    render_project_report_best_effort(cfg.project_dir)
-
-    retention_mode = output_retention_mode(cfg.project_dir)
-    _apply_project_compact_grid_retention(
-        cfg=cfg,
-        retention_mode=retention_mode,
-        member_failures=member_failures,
-        da_summary_written=da_summary_written,
+    render_result = render_required_project_outputs(
+        cfg.project_dir,
+        max_workers=cfg.plot_workers or cfg.max_workers,
     )
-
-    # Cleanup state files if configured and no member failures occurred
-    try:
-        if cleanup_enabled:
-            if member_failures:
-                logger.info("Skipping project cleanup because some member runs failed.")
-            else:
-                patterns = state_patterns_from_setup(cfg.project_dir)
-                summary = cleanup_setup_dir(setup_dir=cfg.project_dir, patterns=patterns)
-                patt = ",".join(summary.patterns)
-                if summary.attempted == 0:
-                    logger.info("Setup cleanup: no matching state files found (patterns={})", patt)
-                elif summary.failures:
-                    logger.warning(
-                        "Setup cleanup completed with {} failure(s): deleted {}/{} file(s), freed {:.1f} MB (patterns={})",
-                        summary.failures,
-                        summary.files_deleted,
-                        summary.attempted,
-                        summary.bytes_freed / 1_000_000.0,
-                        patt,
-                    )
-                else:
-                    logger.info(
-                        "Setup cleanup succeeded: deleted {}/{} file(s), freed {:.1f} MB (patterns={})",
-                        summary.files_deleted,
-                        summary.attempted,
-                        summary.bytes_freed / 1_000_000.0,
-                        patt,
-                    )
-        else:
-            logger.info("Project cleanup disabled via project YAML (data_assimilation.restart.cleanup_after_setup=false).")
-    except Exception as exc:
-        logger.warning("Setup cleanup failed: {}", exc)
 
     _setup_logger(cfg.project_dir, cfg.log_level)
     run_end = datetime.utcnow()
@@ -921,6 +800,7 @@ def run_project(cfg: OrchestratorConfig) -> None:
 
     if perf_stop_event is not None:
         perf_stop_event.set()
+    return render_result
 
 
 def cli(argv: Optional[List[str]] = None) -> int:

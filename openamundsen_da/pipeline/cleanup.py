@@ -1,24 +1,19 @@
-"""Cleanup utilities for removing project state pickle files."""
+"""Preview-first cleanup of package-owned single-domain restart artifacts."""
 
 from __future__ import annotations
 
-import argparse
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Sequence
-
-from loguru import logger
+from typing import Sequence
 
 from openamundsen_da.core.constants import (
     DA_BLOCK,
     RESTART_BLOCK,
-    RESTART_CLEANUP_AFTER_SETUP,
     RESTART_STATE_PATTERN,
     STATE_DEFAULT_NAME,
 )
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml
-from openamundsen_da.util.loguru_utils import configure_cli_logger
+from openamundsen_da.results import CleanupFailure, CleanupResult, WorkflowStatus
 
 
 def _read_restart_config(project_dir: Path) -> dict:
@@ -32,11 +27,8 @@ def _read_restart_config(project_dir: Path) -> dict:
         return {}
 
 
-def state_patterns_from_setup(project_dir: Path) -> List[str]:
-    """Return state filename patterns (configured + default).
-
-    Note: function name kept for internal compatibility; input is a project dir.
-    """
+def state_patterns_from_setup(project_dir: Path) -> list[str]:
+    """Return configured and default state filename patterns."""
     restart_cfg = _read_restart_config(project_dir)
     patt = restart_cfg.get(RESTART_STATE_PATTERN) or STATE_DEFAULT_NAME
     patterns = [str(patt), STATE_DEFAULT_NAME]
@@ -49,167 +41,83 @@ def state_patterns_from_setup(project_dir: Path) -> List[str]:
     return unique
 
 
-def is_cleanup_enabled(project_dir: Path) -> bool:
-    """Return True if cleanup_after_setup is enabled (default: True)."""
-    restart_cfg = _read_restart_config(project_dir)
-    val = restart_cfg.get(RESTART_CLEANUP_AFTER_SETUP)
-    return True if val is None else bool(val)
-
-
-def _list_project_dirs(setup_dir: Path) -> List[Path]:
-    """Return project directories under setup/projects with a project YAML."""
-    projects_root = Path(setup_dir) / "projects"
-    if not projects_root.is_dir():
+def _single_domain_cleanup_candidates(project_dir: Path, patterns: Sequence[str]) -> list[Path]:
+    """Return owned restart artifacts below top-level project steps only."""
+    project_dir = Path(project_dir).resolve()
+    steps_dir = project_dir / "steps"
+    if not steps_dir.is_dir():
         return []
-    projects: List[Path] = []
-    for cand in sorted(projects_root.iterdir()):
-        if not cand.is_dir():
+    candidates: dict[str, Path] = {}
+    for pattern in patterns:
+        for path in steps_dir.glob(f"step_*/ensembles/*/*/results/{pattern}"):
+            if path.is_file() and not path.is_symlink():
+                resolved = path.resolve()
+                resolved.relative_to(project_dir)
+                candidates[resolved.as_posix()] = resolved
+    state_candidates = set(candidates.values())
+    pointer_patterns = (
+        "step_*/ensembles/*/*/state_pointer.json",
+        "step_*/ensembles/*/*/results/state_pointer.json",
+    )
+    for pointer in (path for pattern in pointer_patterns for path in steps_dir.glob(pattern)):
+        if not pointer.is_file() or pointer.is_symlink():
             continue
         try:
-            _ = find_project_yaml(cand)
-            projects.append(cand)
-        except FileNotFoundError:
-            continue
-    return projects
+            import json
+
+            data = json.loads(pointer.read_text(encoding="utf-8"))
+            target_raw = data.get("path") if isinstance(data, dict) else None
+            target = (pointer.parent / str(target_raw)).resolve() if target_raw else None
+        except Exception:
+            target = None
+        if target is None or not target.is_file() or target in state_candidates:
+            resolved = pointer.resolve()
+            resolved.relative_to(project_dir)
+            candidates[resolved.as_posix()] = resolved
+    return [candidates[key] for key in sorted(candidates)]
 
 
-def _iter_state_files(project_dir: Path, patterns: Sequence[str]) -> Iterable[Path]:
-    """Yield state files under project_dir matching any pattern, limited to results dirs."""
-    for patt in patterns:
-        for p in project_dir.rglob(patt):
-            if p.is_file() and "results" in p.parts:
-                yield p
-
-
-@dataclass
-class CleanupSummary:
-    project_dir: Path
-    patterns: List[str]
-    files_deleted: int
-    bytes_freed: int
-    attempted: int
-    failures: int
-
-
-def cleanup_setup_dir(
-    *,
-    setup_dir: Path,
-    patterns: Sequence[str] | None = None,
-) -> CleanupSummary:
-    """Delete state pickle files for a given project directory.
-
-    Note: parameter name kept for internal compatibility; pass project dir.
-    """
-    project_dir = Path(setup_dir)
+def clean_project_artifacts(project_dir: Path, *, apply: bool) -> CleanupResult:
+    """Preview or delete safe single-domain restart artifacts."""
+    project_dir = Path(project_dir).resolve()
     if not project_dir.is_dir():
         raise FileNotFoundError(f"Project directory not found: {project_dir}")
-
-    pats = list(patterns) if patterns is not None else state_patterns_from_setup(project_dir)
-    seen = set()
-    files = []
-    for f in _iter_state_files(project_dir, pats):
-        rp = f.resolve()
-        if rp in seen:
-            continue
-        seen.add(rp)
-        files.append(f)
-
-    bytes_freed = 0
-    deleted = 0
-    failures = 0
-    for f in files:
+    candidates = _single_domain_cleanup_candidates(project_dir, state_patterns_from_setup(project_dir))
+    sizes: dict[Path, int] = {}
+    for path in candidates:
         try:
-            size = f.stat().st_size
-        except Exception:
-            size = 0
-        try:
-            f.unlink()
-            deleted += 1
-            bytes_freed += size
-            logger.debug("Deleted state file {}", f)
-        except Exception as exc:
-            logger.warning("Could not delete {}: {}", f, exc)
-            failures += 1
+            sizes[path] = path.stat().st_size
+        except OSError:
+            sizes[path] = 0
+    if not apply:
+        return CleanupResult(
+            project_dir=project_dir,
+            status=WorkflowStatus.PREVIEW,
+            applied=False,
+            eligible_paths=tuple(candidates),
+            deleted_paths=(),
+            failures=(),
+            eligible_bytes=sum(sizes.values()),
+            freed_bytes=0,
+        )
 
-    return CleanupSummary(
+    deleted: list[Path] = []
+    failures: list[CleanupFailure] = []
+    freed = 0
+    for path in candidates:
+        try:
+            path.unlink()
+            deleted.append(path)
+            freed += sizes[path]
+        except OSError as exc:
+            failures.append(CleanupFailure(path=path, error=str(exc)))
+    return CleanupResult(
         project_dir=project_dir,
-        patterns=pats,
-        files_deleted=deleted,
-        bytes_freed=bytes_freed,
-        attempted=len(files),
-        failures=failures,
+        status=WorkflowStatus.APPLIED,
+        applied=True,
+        eligible_paths=tuple(candidates),
+        deleted_paths=tuple(deleted),
+        failures=tuple(failures),
+        eligible_bytes=sum(sizes.values()),
+        freed_bytes=freed,
     )
-
-
-def cli_main(argv: Iterable[str] | None = None) -> int:
-    p = argparse.ArgumentParser(
-        prog="oa-da-clean-project",
-        description="Remove model state pickle files for one project (or all projects) to free disk space.",
-    )
-    p.add_argument("--setup-dir", required=True, type=Path, help="Setup directory containing projects/")
-    p.add_argument("--project-dir", type=Path, help="Project directory to clean (e.g., /data/projects/project_2022_2023)")
-    p.add_argument("--all-projects", action="store_true", help="Clean all projects under setup/projects")
-    p.add_argument("--log-level", default="INFO")
-    args = p.parse_args(list(argv) if argv is not None else None)
-
-    configure_cli_logger(str(args.log_level or "INFO"))
-
-    if not args.all_projects and args.project_dir is None:
-        p.error("Provide --project-dir or --all-projects")
-    if args.all_projects and args.project_dir is not None:
-        p.error("Use either --project-dir or --all-projects, not both")
-
-    setup_dir = Path(args.setup_dir)
-    projects: List[Path]
-    if args.all_projects:
-        projects = _list_project_dirs(setup_dir)
-        if not projects:
-            logger.error("No project directories found under {}/projects", setup_dir)
-            return 1
-    else:
-        projects = [Path(args.project_dir)]
-
-    total_files = 0
-    total_bytes = 0
-    for project in projects:
-        try:
-            summary = cleanup_setup_dir(setup_dir=project, patterns=None)
-        except Exception as exc:
-            logger.error("Cleanup failed for {}: {}", project, exc)
-            return 1
-        total_files += summary.files_deleted
-        total_bytes += summary.bytes_freed
-        patterns_str = ",".join(summary.patterns)
-        if summary.attempted == 0:
-            logger.info("Cleaned {} -> no matching state files found (patterns={})", project, patterns_str)
-        elif summary.failures:
-            logger.warning(
-                "Cleaned {} -> deleted {}/{} file(s), {} failure(s), freed {:.1f} MB (patterns={})",
-                project,
-                summary.files_deleted,
-                summary.attempted,
-                summary.failures,
-                summary.bytes_freed / 1_000_000.0,
-                patterns_str,
-            )
-        else:
-            logger.info(
-                "Cleaned {} -> deleted {}/{} file(s), freed {:.1f} MB (patterns={})",
-                project,
-                summary.files_deleted,
-                summary.attempted,
-                summary.bytes_freed / 1_000_000.0,
-                patterns_str,
-            )
-
-    logger.info(
-        "Cleanup complete | projects={} files={} freed={:.1f} MB",
-        len(projects),
-        total_files,
-        total_bytes / 1_000_000.0,
-    )
-    return 0
-
-
-if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(cli_main())

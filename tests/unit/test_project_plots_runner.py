@@ -37,7 +37,7 @@ def test_render_project_plots_runs_post_processing_tasks(monkeypatch, tmp_path: 
     project_dir = setup_dir / "projects" / "project_2022_2023"
     step_dir = project_dir / "steps" / "step_01_event"
     _write_step_yaml(step_dir)
-    (setup_dir / "setup.yml").write_text("name: setup\n", encoding="utf-8")
+    (setup_dir / "demo.yml").write_text("name: setup\n", encoding="utf-8")
     _write_project_yaml(project_dir)
 
     calls: dict[str, object] = {}
@@ -75,7 +75,7 @@ def test_render_project_plots_runs_deferred_overlay_when_needed(monkeypatch, tmp
     project_dir = setup_dir / "projects" / "project_2022_2023"
     step_dir = project_dir / "steps" / "step_01_event"
     _write_step_yaml(step_dir)
-    (setup_dir / "setup.yml").write_text("name: setup\n", encoding="utf-8")
+    (setup_dir / "demo.yml").write_text("name: setup\n", encoding="utf-8")
     _write_project_yaml(project_dir)
 
     monkeypatch.setattr(plots_runner, "apply_env_from_project", lambda path: {})

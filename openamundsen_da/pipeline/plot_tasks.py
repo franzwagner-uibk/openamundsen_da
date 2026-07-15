@@ -125,6 +125,7 @@ def run_plot_tasks_parallel(
         candidates.append(setup_max_workers)
     workers = max(1, min(candidates))
     logger.info("Running {} plot task(s) with {} worker(s) ...", len(tasks), workers)
+    errors: list[str] = []
     with cf.ProcessPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(_run_plot_task, t): t for t in tasks}
         for fut in cf.as_completed(futures):
@@ -132,12 +133,14 @@ def run_plot_tasks_parallel(
             try:
                 name, err = fut.result()
             except Exception as exc:  # pragma: no cover
-                logger.warning("Plot task {} crashed: {}", task.name, exc)
+                errors.append(f"{task.name}: crashed: {exc}")
                 continue
             if err:
-                logger.warning("Plot task {} failed: {}", name, err)
+                errors.append(f"{name}: {err}")
             else:
                 logger.info("Plot task {} completed", name)
+    if errors:
+        raise RuntimeError("Project plot rendering failed:\n- " + "\n- ".join(errors))
 
 
 def run_live_plots(

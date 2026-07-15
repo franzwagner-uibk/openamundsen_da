@@ -24,7 +24,17 @@ from PIL import Image
 
 
 SCHEMA_VERSION = 1
-SUPPORTED_KINDS = {"auto", "binary", "csv", "geotiff", "image", "json", "netcdf", "yaml"}
+SUPPORTED_KINDS = {
+    "ascii_grid",
+    "auto",
+    "binary",
+    "csv",
+    "geotiff",
+    "image",
+    "json",
+    "netcdf",
+    "yaml",
+}
 
 
 class FingerprintError(ValueError):
@@ -77,6 +87,8 @@ def _auto_kind(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix == ".csv":
         return "csv"
+    if suffix == ".asc":
+        return "ascii_grid"
     if suffix in {".png", ".jpg", ".jpeg"}:
         return "image"
     if suffix in {".tif", ".tiff"}:
@@ -116,6 +128,47 @@ def _csv_record(path: Path, *, ignore_columns: Sequence[str]) -> dict[str, Any]:
         "ignored_columns": sorted(ignored.intersection(header)),
         "row_count": len(kept_rows),
         "data_sha256": _digest_json(kept_rows),
+    }
+
+
+def _ascii_grid_record(path: Path) -> dict[str, Any]:
+    try:
+        with path.open("r", encoding="utf-8") as stream:
+            header: dict[str, float] = {}
+            data_lines: list[str] = []
+            header_keys = {
+                "ncols",
+                "nrows",
+                "xllcenter",
+                "xllcorner",
+                "yllcenter",
+                "yllcorner",
+                "cellsize",
+                "nodata_value",
+            }
+            for line in stream:
+                fields = line.split(maxsplit=1)
+                key = fields[0].lower() if fields else ""
+                if key in header_keys and len(fields) == 2:
+                    header[key] = float(fields[1].replace(",", "."))
+                    continue
+                data_lines.append(line)
+                data_lines.extend(stream)
+                break
+            values = np.loadtxt((line.replace(",", ".") for line in data_lines))
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise FingerprintError(f"Cannot read ESRI ASCII grid {path}: {exc}") from exc
+    expected_shape = (int(header.get("nrows", -1)), int(header.get("ncols", -1)))
+    if values.size == int(np.prod(expected_shape)):
+        values = values.reshape(expected_shape)
+    if values.shape != expected_shape:
+        raise FingerprintError(
+            f"ASCII grid shape differs from header for {path}: {values.shape} != {expected_shape}"
+        )
+    return {
+        "kind": "ascii_grid",
+        "header": {key: _json_scalar(value) for key, value in sorted(header.items())},
+        "data_sha256": _array_digest(values),
     }
 
 
@@ -299,6 +352,8 @@ def _artifact_record(path: Path, rule: Mapping[str, Any]) -> dict[str, Any]:
     if kind not in SUPPORTED_KINDS:
         raise FingerprintError(f"Unsupported fingerprint kind {kind!r} for {path}")
     kind = _auto_kind(path) if kind == "auto" else kind
+    if kind == "ascii_grid":
+        return _ascii_grid_record(path)
     if kind == "csv":
         return _csv_record(path, ignore_columns=tuple(rule.get("ignore_columns", ())))
     if kind == "netcdf":

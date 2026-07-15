@@ -12,7 +12,7 @@ SETUP_PATH="/data/subdomains"
 MODEL_ROOT_HOST="${SETUP_DIR}/subdomains/model"
 MODEL_ROOT_PATH="${SETUP_PATH}/subdomains/model"
 HOST_LOG_FILE="${SETUP_DIR}/ci_integration_model_subdomain.log"
-CONTAINER_LOG_FILE="${SETUP_PATH}/subdomains/model_pipeline.log"
+CONTAINER_LOG_FILE="${SETUP_PATH}/ci_integration_model_subdomain.log"
 REPO_MOUNT="${ROOT_DIR}"
 PROJ_MOUNT="${TMP_ROOT}"
 
@@ -73,14 +73,19 @@ with setup_yml.open("w", encoding="utf-8") as f:
     yaml.safe_dump(cfg, f, sort_keys=False)
 PY
 
-echo "[model-subdomain-integration] Running model sub-domain pipeline (max-workers=${MAX_WORKERS})"
-compose_run python -m openamundsen_da.subdomain.cli model-pipeline \
-  --setup-dir "${SETUP_PATH}" \
+echo "[model-subdomain-integration] Preparing model sub-domains"
+compose_run openamundsen-da subdomains model prepare "${SETUP_PATH}" \
   --regions "${SETUP_PATH}/env/subdomains.gpkg" \
   --station-buffer-km 10 \
+  --overwrite
+
+echo "[model-subdomain-integration] Running model sub-domains (max-workers=${MAX_WORKERS})"
+compose_run openamundsen-da subdomains model run "${SETUP_PATH}" \
   --max-workers "${MAX_WORKERS}" \
-  --overwrite \
-  --log-level INFO
+  --overwrite
+
+echo "[model-subdomain-integration] Merging model sub-domain outputs"
+compose_run openamundsen-da subdomains model merge "${SETUP_PATH}"
 
 compose_run python /workspace/scripts/ci/validate_trimmed_model_subdomain.py \
   --subdomain-root "${MODEL_ROOT_PATH}" \

@@ -1,13 +1,15 @@
 ---
 layout: default
 title: Releases and Distribution
-nav_order: 9
+parent: Reference
+nav_order: 5
 ---
 
 # Releases and Distribution
 
 openAMUNDSEN-DA releases one tested Python distribution and one tested
-multi-architecture container. The v0.9 release does not include conda-forge.
+multi-architecture container. A conda-forge submission follows the stable release;
+it is not a release gate for v0.9.
 
 The coupled openAMUNDSEN model remains a separate upstream project: use its
 [technical documentation](https://doc.openamundsen.org/),
@@ -76,6 +78,8 @@ repository `GITHUB_TOKEN`.
 5. After the RC rehearsal is accepted, create and push the stable tag
    `v0.9.0`.
 6. Review the stable workflow evidence and approve the `pypi` environment.
+7. After the stable artifacts are public, submit the conda-forge recipe as a
+   follow-up distribution task; do not delay the stable release for it.
 
 The release workflow verifies that the tagged commit belongs to `main`. It
 publishes only after all portable and trusted integration gates are green.

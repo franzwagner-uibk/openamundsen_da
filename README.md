@@ -1,980 +1,119 @@
-# openAMUNDSEN-DA - Data Assimilation for openAMUNDSEN
+# openAMUNDSEN-DA
 
-openAMUNDSEN-DA is an open-source data assimilation framework designed to be executable on standard workstation hardware. The framework provides documented, reproducible command-line workflows and supports parallel execution on local CPU cores; for computationally demanding applications (e.g., larger domains, finer resolutions, or larger ensembles), the same workflow can be scaled to HPC environments. openAMUNDSEN-DA is coupled to the open-source openAMUNDSEN model, and both codebases are publicly available on GitHub. End users can install the Python distribution from PyPI or run the GHCR image with a mounted setup. The Rofental tutorial setup is bundled in the image at `/workspace/examples/rofental` and remains available in this repository.
+openAMUNDSEN-DA is the data assimilation layer for the distributed snow and
+hydrological model [openAMUNDSEN](https://github.com/openamundsen/openamundsen).
+It prepares configured snow observations, executes sequential ensemble updates
+and writes reproducible diagnostics and compact gridded results.
+
+The project is a v0.9 research preview. Its scientific formulation and Rofental
+application are described by Wagner et al. (2026); this repository documents the
+software interface and operational workflow.
 
 ## Documentation
 
-Live docs: https://openamundsen-da.pages.dev/ (Cloudflare Pages).
-This replaces the old GitHub Pages site.
+- [Installation](https://openamundsen-da.pages.dev/installation.html)
+- [Input data](https://openamundsen-da.pages.dev/guides/observations.html)
+- [Configuration](https://openamundsen-da.pages.dev/guides/configuration.html)
+- [Running](https://openamundsen-da.pages.dev/running.html)
+- [Output data](https://openamundsen-da.pages.dev/output-data.html)
+- [Example data](https://openamundsen-da.pages.dev/example-data.html)
+- [How to Use](https://openamundsen-da.pages.dev/tutorial/)
+- [CLI reference](https://openamundsen-da.pages.dev/reference/cli.html)
 
-Useful entry points:
+## Install
 
-- Configuration: `https://openamundsen-da.pages.dev/guides/configuration/`
-- Station assimilation: `https://openamundsen-da.pages.dev/guides/station-assimilation/`
-- Tutorial: `https://openamundsen-da.pages.dev/tutorial/`
-
-## Overview
-
-- Setup-based snow cover prediction with an ensemble model + particle filter.
-- Includes prior forcing builder, ensemble launcher, generic snow-cover and wet-snow summarization, H(x) model SCF, assimilation, resampling, rejuvenation, and plotting utilities.
-
-## How to Use
-
-See the docs How to Use section for the full Rofental walkthrough:
-
-`https://openamundsen-da.pages.dev/tutorial/`
-
-Developer workflow (clone + compose) remains documented in the installation page.
-
-The installed workflow has one command, `openamundsen-da`. A single-domain
-project follows these explicit stages:
+Install the Python package on Python 3.11–3.14:
 
 ```bash
+python -m pip install openamundsen-da
+```
+
+For the complete geospatial runtime, use the multi-architecture container:
+
+```bash
+docker pull ghcr.io/franzwagner-uibk/openamundsen_da:0.9.0
+```
+
+Use exact versions or image digests for reproducible work. The moving `edge`
+image tracks the latest green `main` commit and is not a release.
+
+## Command-line workflow
+
+The installed distribution exposes one command, `openamundsen-da`:
+
+```text
 openamundsen-da observations snow-cover PROJECT_DIR
 openamundsen-da observations wet-snow PROJECT_DIR
 openamundsen-da prepare PROJECT_DIR
 openamundsen-da run PROJECT_DIR --max-workers 24
+openamundsen-da render PROJECT_DIR --max-workers 24
+openamundsen-da clean PROJECT_DIR
 ```
 
-Use `openamundsen-da render PROJECT_DIR` to regenerate configured plots, maps
-and the report. `openamundsen-da clean PROJECT_DIR` previews safe cleanup;
-deletion requires `--apply`. Every operation supports `--json`.
+`clean` is preview-only unless `--apply` is supplied. A successful single-domain
+run already removes package-owned restart state after all configured outputs pass
+validation; member grids remain available.
 
-## Installation
+Large domains use explicit data assimilation stages:
 
-Published stable releases are distributed through three places:
-
-- Python package: `python -m pip install openamundsen-da`
-- Container: `docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest`
-- Checksums, SPDX SBOM and archives: [GitHub Releases](https://github.com/franzwagner-uibk/openamundsen_da/releases)
-
-The v0.9 release does not publish a conda-forge package. The GHCR image remains
-the recommended reproducible environment because it includes the geospatial
-stack and openAMUNDSEN. See the [release and distribution guide](docs/release.md)
-for tags and verification details.
-
-The coupled openAMUNDSEN model remains a separate upstream project. Its source
-is on [GitHub](https://github.com/openamundsen/openamundsen), its technical
-documentation is at [doc.openamundsen.org](https://doc.openamundsen.org/) and
-its Python package is available from [PyPI](https://pypi.org/project/openamundsen/).
-
-## Installation (for contributors)
-
-- Install Docker Desktop (Windows/macOS) or Docker Engine (Linux).
-- Build the distributions and local image if needed:
-  `python -m pip install build twine && bash scripts/ci/build_distribution.sh && docker build -t openamundsen-da:local .`.
-  Otherwise pull `:latest`.
-- Release-mode Compose mounts only a setup at `/data`; `PROJ` defaults to
-  `./examples/rofental`. Override it per command, for example
-  `PROJ=/my/project docker compose run --rm oa ...`.
-- For source development, add the explicit overlay:
-  `IMAGE=openamundsen-da:local docker compose -f compose.yml -f compose.dev.yml run --rm oa ...`.
-- Docker permissions: ensure your user can access the Docker daemon (Linux: docker group or sudo).
-
-### Container image (GHCR) and CI
-
-- Every `main` commit publishes `sha-<full-commit>` and the moving `edge` tag.
-  Main never updates `latest`.
-- Release candidates publish their exact version tag (for example
-  `0.9.0rc1`). A stable release publishes its exact version and updates
-  `latest` only after the release gates pass.
-- CI uses the repository `GITHUB_TOKEN`; no long-lived GHCR personal access
-  token is required for publication. Public images can be pulled without a
-  login.
-- `.github/workflows/ci.yml` runs package, 12-job portable, documentation,
-  container-architecture and trusted Lenovo P8 integration gates. The release
-  workflow uses OIDC Trusted Publishing for TestPyPI and PyPI.
-
-### Environment notes
-
-- GDAL/PROJ are bundled in the image; if running natively, install via Conda and ensure `GDAL_DATA` / `PROJ_LIB` are set.
-- Python 3.11 through 3.14 is supported; dependencies are declared in `pyproject.toml`.
-
-## Project Variables
-
-Define once per shell and reuse in all commands:
-
-```powershell
-$setup   = "/data"                                        # setup root (top level)
-$project = "$setup/projects/project_YYYY-YYYY"            # one data assimilation project
-$step    = "$project/steps/step_XX_name"                  # current step
-$date    = "YYYY-MM-DD"                            # assimilation date
-$dateTag = ($date -replace '-', '')
-$roi     = "$setup/env/roi.gpkg"                   # optional ROI vector; data assimilation always uses grids/roi_<domain>_<resolution>.asc
+```text
+openamundsen-da subdomains prepare PROJECT_DIR
+openamundsen-da subdomains run PROJECT_DIR
+openamundsen-da subdomains merge PROJECT_DIR
+openamundsen-da subdomains render PROJECT_DIR
 ```
 
-Notes
+The separate `openamundsen-da subdomains model prepare|run|merge` branch tiles
+one ordinary openAMUNDSEN simulation without projects or assimilation.
 
-- Use forward slashes in paths (`/workspace`, `/data`).
-- Optional flags are listed under each command; examples show only required flags.
+## Python interface
 
-## Required Project Structure
+```python
+from openamundsen_da import prepare_project, run_project
 
-This repo expects the following setup/project hierarchy:
-
-```
-setup/
-  <setup-name>.yml         # canonical setup-level openAMUNDSEN config
-  env/
-    roi.gpkg                # optional ROI vector (preferred name)
-    subdomains.gpkg         # optional multi-feature regions file for sub-domain mode
-  grids/
-    roi_<domain>_<resolution>.asc  # canonical ROI mask used by data assimilation runs
-    lc_<domain>_<resolution>.asc  # land-cover classes used for masking
-  meteo/
-    stations.csv
-    <station>.csv           # long-span forcing inputs
-  projects/
-      project_YYYY-YYYY/
-        project_YYYY-YYYY.yml # project-level data assimilation config + start/end + assimilation_events
-        results/
-          benchmark/          # scientific benchmark tables + manifest + summary
-      steps/
-        step_00_init/
-          step_00.yml         # initial spin-up step
-          ensembles/
-            prior/            # created by project pipeline; contains member_<NNN>
-            posterior/        # created by resampling (when enabled)
-        step_01_YYYYMMDD-YYYYMMDD/
-          step_01.yml
-          ensembles/
-            prior/
-            posterior/
-        ... additional steps ...
-  obs/
-    stations/
-      <station>.csv                      # setup-level station observations (time,snow_depth,swe)
-      stations_da_metadata.csv          # optional station DA metadata (station_id,station_uncertainty_pct)
-    project_YYYY-YYYY/
-      scf_summary.csv                       # project-wide SCF summary
-      obs_scf_SNOWCOVER_YYYYMMDD.csv       # per-date SCF CSVs
-      obs_wet_snow_WETSNOW_YYYYMMDD.csv    # optional WSF CSVs
-      obs_wet_snow_line_WETSNOW_YYYYMMDD.csv # optional WSLA CSVs
-    summaries/
-      project_YYYY-YYYY/
-        scf_summary.csv                     # default location for snow-cover summaries
-        wet_snow_summary.csv                # default location for WSF summaries
-        wet_snow_line_diagnostics.csv       # optional seasonal WSLA diagnostics
+project = "/data/rofental/projects/project_2022_2023"
+prepare_project(project)
+result = run_project(project, max_workers=24)
+print(result.manifest_path)
 ```
 
-You can use the scaffold under `templates/project` as a starting point.
-Each directory in that template contains a small `readme.txt` describing the expected files
-and naming conventions.
+The supported Python surface contains the six top-level workflow operations
+documented in the [API reference](https://openamundsen-da.pages.dev/reference/api.html).
+Subdomain modules and lower-level scientific routines are internal interfaces.
 
-- Setup YAML (`<setup-name>.yml`) must stay pure openAMUNDSEN config (no data assimilation block).
-- Project YAML (`<project-name>.yml`) must define `data_assimilation` (`prior_forcing`, `h_of_x`, `likelihood`, `resampling`, `rejuvenation`, `restart`, `landcover_mask`, `assimilation_events`; add `station` when using station HS/SWE assimilation) plus `start_date` and `end_date`.
-- `projects/project_X/steps/step_Y/ensembles/prior` is created automatically by the project pipeline (using `${setup}/meteo` forcing).
-- Observations live under `obs/project_X`; the pipeline assumes the per-step CSVs follow `obs_scf_<PRODUCT>_YYYYMMDD.csv`, `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv`, and `obs_wet_snow_line_<PRODUCT>_YYYYMMDD.csv` when those observables are active. Configure product tags and summary sources explicitly in project YAML under `obs.*` (`summary_csv` for SCF/wet-snow summaries).
-- Station observations live under `obs/stations`; ROI-based station assimilation uses `assimilation_events` variables `station_hs` and `station_swe` and reads optional per-station uncertainty metadata from `obs/stations/stations_da_metadata.csv`. Station metadata may also include `use_for_da` and `use_for_benchmark` flags to keep stations out of assimilation or benchmark scoring without deleting their observation files.
-- The station assimilation method itself is documented in the docs guide: `guides/station-assimilation`.
-- Scientific benchmarking always runs during `openamundsen-da run` and writes observation-based score tables under `results/benchmark/` plus the headline DA-skill plot `results/plots/assim/scores/performance_scores.png`. Station benchmark rows now also carry sigma-aware `zSkill` based on the configured station uncertainty metadata.
-- Data assimilation uses `grids/roi_<domain>_<resolution>.asc` as the canonical ROI mask. When it is missing, commands generate it from ROI vectors under `env/` (`roi.gpkg` preferred, `subdomains.gpkg` supported) and then reuse the grid mask as the project contract.
-- Land-cover masking (applied to obs + model SCF/wet-snow): land-cover ASCII is resolved as `grids/lc_<domain>_<resolution>.asc` from setup config; excluded classes come from project YAML `data_assimilation.landcover_mask.classes_to_exclude`.
+## Configuration boundary
 
-```yaml
-data_assimilation:
-  landcover_mask:
-    enabled: true
-    classes_to_exclude: [2, 8, 9, 10, 11, 12, 13]
-```
+- `<setup-name>.yml` is pure openAMUNDSEN configuration and shared setup data.
+- `<project-name>.yml` owns the time span, observations and data assimilation.
+- generated step YAML files own one assimilation window and step-local model overrides.
 
-Why land-cover masking matters
+Model grid inputs are selected exclusively by `output_data.grids.format` and
+support grid-layout NetCDF or deterministic georeferenced GeoTIFF. The compact
+data assimilation result is always `results/grids/da_output_grids.nc`.
 
-- Dense forest and built-up surfaces often hide snow in satellite products while the model may still simulate snow below canopy or within cities. Ice/glacier classes are also excluded by default via the land-cover grid.
-- Masking keeps model vs obs consistent by removing pixels where observation/model support diverges.
-- Best-practice split: use `landcover_mask.classes_to_exclude` for truly unusable classes (for example ice/water/urban), and handle usable-but-uncertain classes (for example forest/shadow) with uncertainty penalties rather than hard exclusion.
+## Development
 
-## Workflow/Commands
-
-### Prior Forcing (build ensemble)
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.core.prior_forcing `
-  --input-meteo-dir $project/meteo `
-  --project-dir $project `
-  --step-dir $step
-```
-
-Optional flags: `--overwrite`, `--log-level <LEVEL>`
-
-Current forcing perturbations are:
-
-- additive `temp` offset (`sigma_t`)
-- multiplicative precipitation factor (`mu_p`, `sigma_p`)
-- additive dew-point temperature offset (`sigma_rh`, applied before recalculating `rel_hum`)
-- multiplicative shortwave factor (`sigma_sw`)
-
-`sigma_rh` and `sigma_sw` default to `0.0` when omitted. Humidity perturbation requires both `temp` and `rel_hum` in station CSVs. Temperature perturbations also update `rel_hum` through the dew-point transform when both columns are available.
-
-### Run Ensemble
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.core.launch `
-  --project-dir $project `
-  --setup-dir $setup `
-  --step-dir $step `
-  --ensemble prior
-```
-
-Optional flags: `--max-workers <N>`, `--overwrite`, `--state-pattern <glob>`, `--log-level <LEVEL>`
-
-Parallelism and CPU limits
-
-- The `--max-workers` value is an upper bound. The launcher clamps the actual worker count to `os.cpu_count()` inside the container and to the number of available members, so the effective workers are `min(max_workers, CPUs visible, #members)`.
-- Under Docker/WSL2 the CPUs visible to the container are controlled by your WSL `.wslconfig` and the `CPUS` variable used in `compose.yml` (`deploy.resources.limits.cpus: "${CPUS:-8}"`).
-- Each prior run launches `open_loop` plus `ensemble_size` members from `setup.yml` (`data_assimilation.prior_forcing`). `open_loop` is the unperturbed, unassimilated baseline and is carried through all steps for reference/plots. If you want to run "one process per core" in a single batch, a common pattern is: set `CPUS = N`, `ensemble_size = N-1`, and use `--max-workers N`.
-
-### Observation Processing
-
-- Snow-cover summary (GeoTIFF/NetCDF -> `scf_summary.csv`):
-
-```powershell
-docker compose run --rm oa `
-  oa-da-snowcover `
-  --input-dir $setup/obs/snowcover `
-  --project-label project_YYYY-YYYY `
-  --setup-dir $setup `
-  --overwrite
-```
-
-Classes and product tags are read from project YAML `obs.snowcover`.
-NetCDF SCF products can provide georeferencing through CF `crs` metadata or a `spatial_ref` variable with `crs_wkt`/`spatial_ref` attributes; configure exact value, uncertainty and time variable names under `data_assimilation.uncertainty.scf.ingest`.
-
-- Wet-snow summary (categorical rasters -> `wet_snow_summary.csv`):
-
-```powershell
-docker compose run --rm oa `
-  oa-da-wetsnow `
-  --input-dir $setup/obs/wetsnow `
-  --project-label project_YYYY-YYYY `
-  --setup-dir $setup `
-  --overwrite
-```
-
-Classes come from project YAML `obs.wetsnow.classes`; the project-level data assimilation land-cover exclusions are applied automatically.
-
-- Per-step obs CSVs (align summaries to assimilation events):
-
-```powershell
-docker compose run --rm oa oa-da-scf --project-dir $project --overwrite
-docker compose run --rm oa oa-da-wetsnow-project --project-dir $project --overwrite
-```
-
-Both commands resolve summaries from `obs.snowcover.summary_csv` / `obs.wetsnow.summary_csv` when configured. If those keys are omitted, v1 keeps supported compatibility lookup under `<setup>/obs/<project-name>/` and `<setup>/obs/summaries/<project-name>/`. Prefer passing `--summary-csv` for new projects; the command records that path in project YAML so maps and benchmarking use the same source, then writes per-step obs CSVs under `<project>/steps/*/obs/`.
-
-### Wet Snow Classification
-
-Classify wet-versus-dry snow grids directly from the OA raster outputs following the volumetric liquid water content definition (Rottler et al., 2024): sum the layer-wise liquid water (kg m-2), divide by water density (1000 kg m-3) and snow depth (m), then multiply by 100 for percent. The CLI below walks every step and ensemble member (or a single step) and writes the binary mask (1 = wet, 0 = dry, 255 = nodata) plus an optional percent raster per timestamp.
-
-```powershell
-$setup = "/data"
-$project = "$setup/projects/project_2019-2020"
-
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.wet_snow.classify `
-  --setup-dir $project
-```
-
-Optional flags: `--step-dir <path>` (mutually exclusive with `--setup-dir`), `--members member_001 ...`, `--threshold <percent>`, `--write-fraction`, `--min-depth-mm <mm>`. Outputs land under each member's `results/<output-subdir>` (default `wet_snow`): `wet_snow_mask_<timestamp>.tif` and `lwc_fraction_<timestamp>.tif` when `--write-fraction` is set.
-
-Wet-snow observations use categorical rasters (e.g., Sentinel-1 WSM). `oa-da-wetsnow` clips rasters to the ROI, applies land-cover exclusions, and writes `wet_snow_summary.csv` for wet snow fraction (WSF). That summary now also carries basin-wide wet snow line (WSLA) diagnostics based on the **50% wet-fraction crossing** plus companion `wet_snow_line_diagnostics.csv` / `wet_snow_line_profile_YYYYMMDD.csv` outputs when the project defines `data_assimilation.wet_snow_line`. The same diagnostics surface also stores separate aspect-sector relative-threshold WSLA diagnostics for analysis only. The project helper converts summary rows into per-step `obs_wet_snow_<PRODUCT>_YYYYMMDD.csv` and `obs_wet_snow_line_<PRODUCT>_YYYYMMDD.csv`.
-
-## Wet-snow assimilation workflow
-
-- Summarize observations into `wet_snow_summary.csv` (e.g., `oa-da-wetsnow`), then drive the setup helper to write per-step `obs_wet_snow_*.csv` aligned to assimilation dates.
-- When `wet_snow_line` is used, the same summary pass also derives the WSLA diagnostics and the project helper writes `obs_wet_snow_line_*.csv` for the configured WSLA dates.
-- The project pipeline reads `data_assimilation.assimilation_events` from project YAML; it requires exactly one event per non-final step.
-- Per-step observation preparation (`oa-da-scf`, `oa-da-wetsnow-project`) is fail-fast:
-  - event date must lie inside the associated step window,
-  - the summary CSV must contain a row for each configured event date of that variable.
-- Wet-snow masks/fractions are computed for all members before data assimilation using the project wet-snow classification method. The default `liquid_water_fraction` method keeps the existing ratio threshold, while `liquid_water_amount` classifies cells by summed snowpack liquid water in mm. `wet_snow` keeps the scalar WSF update, while `wet_snow_line` derives a scalar WSLA from the **50% wet-fraction crossing elevation** and assimilates it with a Gaussian likelihood in meters.
-
-## Per-step forcing plots
-
-Forcing (temperature in K, cumulative precipitation) is plotted per step with all members and the open loop. The project pipeline calls this automatically for each step. Manual trigger:
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.viz.plots.forcing_ensemble `
-  --step-dir $step `
-  --ensemble prior
-```
-
-## Setup-level model envelopes for plotting
-
-Project runs now aggregate member ROI series into:
-
-- `results/misc/point_scf_roi_envelope.csv`
-- `results/misc/point_wet_snow_roi_envelope.csv`
-- `results/misc/point_wet_snow_line_roi_envelope.csv`
-
-Each contains `date, value_mean, value_min, value_max, n` computed from all available prior member `point_*_roi.csv` files; `value_min` and `value_max` are the finite-member minimum and maximum. Generate manually if needed:
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.viz.aggregate_fractions `
-  --setup-dir $setup `
-  --filename point_scf_roi.csv `
-  --value-col scf `
-  --output-name point_scf_roi_envelope.csv
-```
-
-## Plotting the result overview
-
-Use the combined plot helper to overlay observations, optional single-model series, and envelopes:
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.viz.plots.result_overview `
-  --setup-dir $setup `
-  --project-dir $project
-```
-
-Defaults read obs from `obs/summaries/<setup>/scf_summary.csv`, `wet_snow_summary.csv`, and `wet_snow_line_diagnostics.csv`, use the canonical project envelopes under `results/misc/` for SCF / WSF / WSLA, and write `results/plots/results/result_overview.png`. The default setup overview expands to a 5-panel layout when WSLA data are available: fractional snow covered area (fSCA), wet snow fraction (WSF), wet snow line altitude (WSLA), ROI mean SWE, and ROI mean snow depth. Seasonal ensemble bands show the full finite-member range with an ensemble mean line. Observations are red and use redundant encodings: station observations are dashed lines, satellite observations are circles and assimilated observations are X markers. The WSLA panel uses the daily `open_loop` scalar from `point_wet_snow_line_roi.csv`, while the ensemble WSLA line / band is built from stitched prior-member `point_wet_snow_line_roi.csv` series using the same finite-member mean and min-max range convention. On `wet_snow_line` assimilation dates the panel also draws compact event-date coverage bars from `weights_wet_snow_line_YYYYMMDD.csv`, using the exact support-aware PF `value_model` scalars for the finite-member minimum, mean and maximum spread at that event. In v1 those `wet_snow_line` values represent the basin-wide **50% wet-fraction crossing**, while the aspect-aware relative-threshold WSLA remains a diagnostics-only companion written to the same seasonal/profile CSV family. When that `50%` crossing is undefined, the overview keeps a true gap in the WSLA model and ensemble lines and omits observation dots / assimilation `x` markers for that date instead of falling back to `p95`. Observation `x` markers are only drawn on the panel for the actually assimilated variable, so `wet_snow_line` events do not mark the WSF panel unless `wet_snow` itself is assimilated. Month labels are centered between month-boundary ticks, and local panel legends distinguish ordinary observations from assimilated observations where both are shown. Add `--scf-model-csv` / `--wet-model-csv` / `--wsl-model-csv` to overlay specific member series or `--scf-env-csv` / `--wet-env-csv` / `--wsl-env-csv` to use custom envelopes. Plot mode can be switched with `--mode band|members` (pipeline default: `band`). When `<project-dir>/plots.yml` exists, the requested panel order and station panels from that YAML configure the standard `result_overview.png`; configured panels support `WSF`, `WSLA`, `scores-crpss`, `scores-ner`, and station-only `scores-zskill`.
-
-## Setup point results (SWE / snow depth, member mode)
-
-Generate setup-wide point plots (members only, legend shows just open loop + assimilation markers):
-
-```powershell
-docker compose run --rm oa python -m openamundsen_da.methods.viz.plots.project_ensemble results --setup-dir $setup --var-col swe --mode members --log-level INFO
-docker compose run --rm oa python -m openamundsen_da.methods.viz.plots.project_ensemble results --setup-dir $setup --var-col snow_depth --mode members --log-level INFO
-```
-
-Outputs are written to `<project>/results/plots/points/setup_results_point_<station>_{swe|snow_depth}_<project>.png`. The project pipeline calls the same functions with `mode=members` after each step and at the end.
-
-### H(x) Model SCF (optional, per-member debug)
-
-```powershell
-  docker compose run --rm oa `
-    python -m openamundsen_da.methods.h_of_x.model_scf `
-    --project-dir $project `
-    --member-results $step/ensembles/prior/member_001/results `
-    --roi $roi `
-    --date $date
-```
-
-Model parameters (`variable`, `method`, `h0`, `k`) are read from `setup.yml` under `data_assimilation.h_of_x`; the CLI no longer accepts overrides.
-
-Optional: `--variable hs|swe`, `--method depth_threshold|logistic`, `--log-level <LEVEL>`
-
-### Assimilation (SCF weights)
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.pf.assimilate_fraction `
-  --project-dir $project `
-  --step-dir $step `
-  --ensemble prior `
-  --date $date `
-  --roi $roi
-```
-
-Optional flags: `--obs-csv <path>`, `--output <csv>`, `--log-level <LEVEL>`
-
-Fraction DA remains a scalar particle-filter update. For `scf` and `wet_snow`, the model-side scalar is derived on the event-date observation-valid support; `wet_snow` is the WSF scalar. The written weights CSV keeps `value_model` as the assimilated support-aware value and also records `value_model_full_roi`, `value_model_obs_support`, `obs_support_n_valid`, and `obs_support_coverage_ratio`. `wet_snow_line` is the WSLA scalar: it reuses the same scalar PF path, but its residuals and likelihood sigmas live in meters of elevation. In v1 the assimilated WSLA is the support-aware **50% wet-fraction crossing**, while the weights CSV also stores the full-ROI companion diagnostic for envelope-style summaries. If the crossing is undefined the event becomes a no-op update with equal weights; there is no fallback to the retired highest-band WSLA or to `p95`. In project maps, each WSLA panel draws only the WSLA contour diagnosed from that panel's own field; observation WSLA is shown only in observation/reference panels.
-
-### Resampling (posterior ensemble)
-
-```powershell
-$dateTag = ($date -replace '-', '')
-$weights = "$step/assim/weights_scf_$dateTag.csv"
-
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.pf.resample `
-  --step-dir $step `
-  --ensemble prior `
-  --weights $weights `
-  --target posterior
-```
-
-Optional flags: `--ess-threshold-ratio <0..1>`, `--ess-threshold <n|ratio>`, `--seed <int>`, `--overwrite`, `--log-level <LEVEL>`
-
-Resampling configuration (project + CLI)
-
-- The pipeline and CLI both read `data_assimilation.resampling` from project YAML.
-- Keys: `algorithm` (systematic), `ess_threshold_ratio` (recommended `0.50-0.66`), optional `ess_threshold` (absolute), and `seed`.
-- Behavior: if ESS >= threshold, resampling is skipped and the prior is mirrored to the posterior; a log line like `Skipping resampling | ESS=38.2 >= thr_abs=30.0 (ensemble healthy; mirroring source->target; ess_ratio=0.637)` is emitted.
-- If no threshold is set, resampling always runs.
-
-### Rejuvenation (posterior -> prior)
-
-Rebase is default (perturbations are applied relative to open_loop). If rejuvenation sigmas are not set, they fall back to prior_forcing sigmas.
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.pf.rejuvenate `
-  --project-dir $project `
-  --prev-step-dir $setup/steps/step_XX_prev `
-  --next-step-dir $setup/steps/step_YY_next
-```
-
-Optional: `--source-meteo-dir <path>`, `--log-level <LEVEL>`
-
-Project YAML example:
-
-```yaml
-data_assimilation:
-  rejuvenation:
-    sigma_t: 0.2
-    sigma_p: 0.2
-    sigma_rh: 0.0
-    sigma_sw: 0.0
-```
-
-## Plots
-
-- Forcing per-station:
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.viz.plots.forcing_ensemble `
-  --step-dir $step `
-  --ensemble prior
-```
-
-Optional flags: `--time-col`, `--temp-col`, `--precip-col`, `--start-date`, `--end-date`, `--resample`, `--rolling`, `--hydro-month`, `--hydro-day`, `--title`, `--subtitle`, `--output-dir`, `--backend`, `--log-level`
-
-- Results per-station:
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.viz.plots.results_ensemble `
-  --step-dir $step `
-  --ensemble prior
-```
-
-Optional flags: `--time-col`, `--var-col`, `--var-label`, `--var-units`, `--start-date`, `--end-date`, `--resample`, `--resample-agg`, `--rolling`, `--band-low`, `--band-high`, `--title`, `--subtitle`, `--output-dir`, `--backend`, `--log-level`
-
-- ESS timeline:
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.viz.plots.assimilation.ess_timeline `
-  --step-dir $step
-```
-
-Optional: `--normalized`, `--threshold <ratio>`, `--output <svg>`, `--backend`, `--log-level`
-
-Project-level stitched forcing and point-result panels are written to `$setup/results/plots/points` with the setup identifier in the filenames.
-
-- Setup-level assimilation plots:
-
-  Each weights plot shows the posterior probability assigned to every member after assimilating SCF on that date. The y-axis is normalized to `[0,1]` so you can directly compare different steps, and the subtitle now records `Step <n> - <YYYY-MM-DD>` when the CSV lives under the expected `step_XX_*/assim/` layout.
-
-  Keep these interpretation tips in mind:
-
-  - A steep fall-off after the top members implies the observation strongly favors a few particles; this also drives the ESS timeline downward for that step.
-  - A flatter trend with many weights  `0.05` means the observation is not differentiating members, which can reflect broad uncertainties or overly similar ensemble members.
-  - Use the residual histogram and sigma markers on the right panel: tight residuals centered near zero mean the model already matched the observation, while heavy tails or offsets may flag issue with the obs CSV or indicate the model spread is too small.
-
-  - Per-step weights (setup view):
-
-  ```powershell
-  $weights = "$setup/steps/step_01_20171122-20171224/assim/weights_scf_20171122.csv"
-
-  docker compose run --rm oa `
-    python -m openamundsen_da.methods.viz.plots.assimilation.weights `
-    $weights
-  ```
-
-  When the CSV lives under `$setup/steps/step_XX_*/assim/`, the plot is written to `$setup/plots/assim/weights/step_XX_weights.png`.
-
-  - Setup ESS timeline (all steps):
-
-  ```powershell
-  docker compose run --rm oa `
-    python -c "from pathlib import Path; from openamundsen_da.methods.viz.plots.assimilation.ess_timeline import plot_setup_ess_timeline; plot_setup_ess_timeline(Path('$setup'))"
-  ```
-
-  This scans `steps/step_*/assim/weights_scf_*.csv` under `$setup` and writes the timeline to `$setup/results/plots/assim/ess/setup_ess_timeline_<setup_id>.png`.
-
-- Setup-wide forcing/results (stitch all steps together):
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.viz.plots.project_ensemble `
-  forcing `
-  --setup-dir $setup
-```
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.viz.plots.project_ensemble `
-  results `
-  --setup-dir $setup `
-  --var-col swe
-```
-
-- Setup-wide SCF (model + obs SCF):
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.methods.viz.plots.project_ensemble `
-  results `
-  --setup-dir $setup `
-  --var-col scf `
-  --station point_scf_roi.csv
-```
-
-This uses per-member `point_scf_roi.csv` files (model SCF derived from HS/SWE grids) written under each member's `results` directory and overlays observed SCF from `obs/summaries/<setup>/scf_summary.csv` when available.
-
-Defaults: ensemble members are hidden; plots show the ensemble mean, the full finite-member range, and the open loop. Use `--show-members` to draw all members.
-Optional: `--station`, `--max-stations`, `--start-date`, `--end-date`, `--resample`, `--rolling`, `--hydro-month`, `--hydro-day`, `--backend`, `--log-level`, `--var-label`, `--var-units`, `--band-low`, `--band-high`, `--show-members`.
-
-Note: running the project pipeline (see below) also generates these plots automatically under `<project_dir>/results/plots/` when the required model outputs and observation summaries are present.
-
-- Manual station result plotting (single CSV, single variable):
-
-  For quick manual inspection of one variable from a single station results CSV (e.g., SWE, snow_depth, temperature), use the lightweight CLI `plot_station_variable`. It works on exactly one CSV and one column at a time and writes a PNG next to the CSV.
-
-  ```powershell
-  $project = "/data"
-  $setup  = "$project/projects/project_2019-2020"
-  $step    = "$setup/steps/step_00_init"
-
-  docker compose run --rm oa `
-    python -m openamundsen_da.methods.viz.plots.station_variable `
-    "$step/ensembles/prior/member_001/results/point_latschbloder.csv" `
-    --var swe
-  ```
-
-  Key options:
-
-  - `--time-col` timestamp column in the CSV (default: `time`)
-  - `--var` column to plot (e.g., `swe`, `snow_depth`, `temp`)  required
-  - `--var-label` pretty y-axis/title label (defaults to column name)
-  - `--var-units` units appended to the label (e.g., `mm`, `m`, `K`)
-  - `--start-date`, `--end-date` optional ISO dates (`YYYY-MM-DD`) to restrict the time window
-  - `--backend` Matplotlib backend (default: `Agg`, headless)
-
-  The output file is written next to the input CSV as `<basename>.<var>.png`, e.g., `point_latschbloder.swe.png`.
-
-- Project maps (compact project grid -> publication-style PNGs):
-
-  Use `oa-da-plot-project-maps` to render generated DA-event maps plus optional custom YAML map recipes from a completed project. The renderer reads `results/grids/da_output_grids.nc`, setup grids/ROI/stations, and project observation summaries automatically. By default it generates one `da_*` map per assimilation event from `<project-dir>/project_*.yml`; `<project-dir>/maps.yml` is now for custom maps such as `setup_overview`.
-  The custom `maps.yml` sidecar still uses the same panel catalog:
-
-  ```yaml
-  # Available panel kinds:
-  # - overview                 # scale: 1000000 ; optional roi_label
-  # - roi
-  # - hillshade
-  # - dem
-  # - aspect
-  # - svf
-  # - srf
-  # - landcover
-  # - snow_depth               # source: open_loop | ensemble_mean | analysis_mean | increment | analysis_increment
-  # - swe                      # source: open_loop | ensemble_mean | analysis_mean | increment | analysis_increment
-  # - liquid_water_content     # source: open_loop | ensemble_mean | analysis_mean | increment | analysis_increment
-  # - fsc                      # source: open_loop | ensemble_mean | open_loop_binary | prior_probability | posterior_probability
-  # - wet_snow                 # source: open_loop | ensemble_mean | prior_probability | posterior_probability
-  # - uncertainty              # observation: scf | wet_snow
-  # - wet_snow_line            # source: open_loop | prior_probability | posterior_probability | posterior
-  # - wet_snow_elevation_fraction # source: open_loop | prior_probability | posterior_probability
-  # - legend
-  # - colorbar
-  # Optional panel keys:
-  # - title, name, date, legend, legend_items, below_items
-  # - show_colorbar, show_scalebar, show_grid, show_hillshade, hillshade_extent
-  # - observation (uncertainty only), show_roi, show_station_marker, show_stations_name, show_stations_elev
-  # - landcover_grouping: broad | rofental_manuscript # landcover panels only; omitted/native keeps source classes
-  # Optional recipe-level row zoom views:
-  # row_views:
-  #   - row: 1
-  #     center: [643767, 5191680] # setup/project CRS by default
-  #     zoom: 13                 # Google/Slippy-map zoom
-  #     # center_crs: EPSG:4326
-  #     # viewport_px: [1024, 1024]
-  ```
-
-  ```powershell
-  docker compose run --rm oa `
-    oa-da-plot-project-maps `
-    --project-dir /data/projects/project_2022_2023 `
-    --max-workers 4
-  ```
-
-  Outputs are split by type:
-  - generated DA-event maps under `results/maps/da_events/`
-  - custom YAML maps at the root of `results/maps/`
-
-  One-column project maps (`layout.ncols: 1`) render with a compact map-panel width rather than stretching the panel to the full paper width. One-column raster maps use this compact width with a small built-in enlargement so simple 1x1
-  or 2x1 context rasters remain readable while staying visually consistent with larger map combinations.
-
-  Generated DA-event rows use four consistent columns: `open loop`, `prior`, `posterior`, and `reference`. Snow-state reference columns show `analysis_increment` (`posterior - prior`, so positive values mean DA added snow/water). FSC and wet-snow reference columns show the satellite observation. Generated FSC, WSF, WSLA, and elevation-band WSF rows use spatial prior/posterior probability maps where applicable. Generated WSLA maps keep a primary WSF row without WSLA contours, an elevation-band WSF row with the derived WSLA contours and a snow-depth response row. Top-level sub-domain SCF events use a taller same-file layout with a 2x2 snow-cover block above the 2x2 snow-depth response block; exact rerendering requires retained per-sub-domain grids. If the event resampling manifest reports skipped resampling, the map title is suffixed with `resampling skipped`.
-
-  By default the renderer parallelizes across independent recipe PNGs inside the Docker container and clamps the effective worker count to `min(visible CPUs, selected recipes)`; use `--max-workers 1` to force sequential rendering. `oa-da-project` renders project maps during single-domain execution. Merged subdomain projects use the explicit strict `openamundsen-da subdomains render` stage.
-  Project maps now use a simplified public panel catalog: context panels (`overview`, `roi`, `hillshade`, `dem`, `aspect`, `svf`, `srf`, `landcover`), result panels (`snow_depth`, `swe`, `liquid_water_content`, `fsc`, `wet_snow`, `uncertainty`, `wet_snow_line`, `wet_snow_elevation_fraction`), and optional support panels (`legend`, `colorbar`). Static context rasters are masked to the ROI; `aspect` is derived from the DEM at render time and shown on a continuous radian colorbar, continuous static panels such as `srf` can use `show_hillshade: true` for a terrain underlay, and SRF and increment maps share a compact-neutral signed red-blue diverging palette. `landcover` panels can set `landcover_grouping: broad` to merge detailed vegetation/forest classes into broad manuscript-friendly classes, and their legend only lists classes present inside the ROI. The `rofental_manuscript` grouping is a Rofental paper/tutorial grouping, not a generic land-cover classification; it merges codes 1 and 13 as `rock`, 2 and 3 as `ice`, 4--7 as `grass/shrub`, and 8--12 as `forest`. Non-legend panels can use `legend_items` with `placement: below` or `placement: inside` (`anchor: top_left|top_right|bottom_left|bottom_right`) for compact layer legends such as station symbols; legacy `below_items` remains supported. `uncertainty` renders `*_uncertainty.tif` companion rasters for `observation: scf` or `observation: wet_snow` on the valid observation support. In prepared sub-domain projects, top-level project maps automatically overlay the configured sub-domain polygons from `subdomain_manifest.json` on ROI-bearing map panels and overview panels. Generated DA-event maps additionally mark sub-domain polygons as `no DA` only when that event was dropped for the sub-domain and recorded in `results/subdomain_dropped_events.csv`; healthy events with computed weights are not marked just because resampling was skipped. Recipe-level `row_views` can assign a shared Google/Slippy-map zoom extent to every panel in a row. `wet_snow` renders WSF, while `wet_snow_line` renders the wet-snow raster context and derives WSLA contours in the elevation-band WSF row. `prior_probability` and `posterior_probability` sources render spatial ensemble probability fields; observation overlays are kept in observation/reference panels.
-
-- Project plots (all post-run plots without rerunning DA):
-
-  Use `oa-da-plot-project-plots` to recreate the full `results/plots/` tree from existing project outputs. The command reuses the same post-run plot orchestration as the project pipeline: forcing plots, setup point-result plots, weights, ESS timeline, and the result overview. It also rebuilds the ROI fraction envelopes in `results/misc/` first, because the overview plots depend on them. `wet_snow_line` weights plots use meter residuals and compact `WSLA` labels, while `scf` weights plots use compact `fSCA` labels; weights residual axes use compact residual-unit labels and adaptive sigma labels. Setup weights overviews add `(a)`, `(b)`, ... panel labels to the DA-event headers and use panel-local station legends; standalone per-event weights plots retain their compact bottom legend. Project `plots.yml` can set optional weights-plot station colors with `weights.station_colors.<observable>.<station_id>`, using DA variable color aliases such as `station_hs` or explicit matplotlib colors.
-
-  ```powershell
-  docker compose run --rm oa `
-    oa-da-plot-project-plots `
-    --project-dir /data/projects/project_2022_2023 `
-    --plot-workers 4 `
-    --max-workers 4
-  ```
-
-  The command expects an already finished project with step outputs under `<project-dir>/steps/`. It does not rerun openAMUNDSEN or data assimilation; it only regenerates plot artifacts under `results/plots/` and the fraction envelopes under `results/misc/`.
-
-- Project PDF collection (curated project overview and DA maps):
-
-  `oa-da-project` attempts this automatically at the end of the project run, after final plots, maps, and benchmark-dependent overview panels are current. It writes `results/reports/project_report.pdf`. Report generation is best-effort inside the project pipeline: if a required plot or map is missing, the run stays successful and the log prints the manual rerun command.
-
-  Use `oa-da-project-pdf` to manually reassemble the compact report summary page, curated project overview outputs, diagnostics, and DA-event maps into a DIN A4 portrait PDF without rerunning the model. It does not regenerate any source plot or map; run `oa-da-plot-project-plots` and `oa-da-plot-project-maps` first when outputs are stale or missing. When running against a mounted source checkout with an older Docker image, use the equivalent `python -m openamundsen_da.methods.viz.reports` entry point so the command is loaded from the checkout.
-
-  ```powershell
-  docker compose run --rm oa `
-    python -m openamundsen_da.methods.viz.reports `
-    --project-dir /data/projects/project_2022_2023
-  ```
-
-  The PDF starts with a generated one-page project report containing basic setup YAML settings, wet-snow classification and liquid-water-content settings, DA-event counts, computing-cost stats from project logs and `results/plots/perf/project_perf_metrics.csv` when available, plus a bottom `Content` table with page numbers first and section names second. It then includes `result_overview.png`, `setup_overview.png`, all `setup_weights_overview*.png` pages, station snow-depth point plots on one page, `performance_scores.png`, `project_perf.png`, and generated DA-event maps under `results/maps/da_events/da_<n>.png` in temporal order. Source PNGs are placed at their shared export-DPI size rather than scaled down to fit a page; consecutive DA maps are packed onto a page only while the reserved bottom gap is preserved. Standalone per-event weights plots and other remaining plot/map PNGs are not included. Missing required overview, setup map, setup weights overview, or DA map outputs cause a fail-fast error listing all paths to regenerate.
-
-## Setup Pipeline
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.pipeline.project `
-  --project-dir $project `
-  --setup-dir $setup
-```
-
-The launcher automatically pulls the initial forcing from `$setup/meteo` and builds the first prior ensemble (errors if the directory is missing), so you no longer need a separate `prior_forcing` run before `oa-da-project` as long as the long-span station files live under the setup meteo directory.
-
-Optional: `--max-workers <N>`, `--overwrite`, `--live-plots`, `--log-level <LEVEL>` (`--live-plots` enables in-run plotting; default is off and plots are created once at the end).
-
-At startup the launcher validates assimilation prerequisites: required grid outputs configured in `project.yml` (snow depth for SCF, liquid water content for wet-snow), matching model outputs in prior/open_loop results, and the expected obs CSV in each step directory. Missing items are listed and the run aborts early.
-
-The pipeline drives each step in order, assimilates SCF on the _next_ step's start date, resamples the resulting weights to the posterior, and rejuvenates that posterior into the next prior before proceeding. Assimilation looks for the single-row CSV `obs_scf_SNOWCOVER_YYYYMMDD.csv` inside `<step>/obs/` for the date being processed; generate those files with the observation-preparation CLIs after you summarize your snow-cover rasters into `scf_summary.csv`. The project pipeline never reads source observation rasters directly, so the CSV must already reflect any filtering or thresholding you want applied.
-
-Outputs
-
-- Per-step runs in `<step>/ensembles/{prior,posterior}` (open_loop + members)
-- Weights and indices in `<step>/assim/`
-- Rejuvenated next-step prior (members + open_loop with state_pointer.json)
-- Compact data assimilation summary grids in `<project>/results/grids/da_output_grids.nc`
-  - Per variable `<var>`: `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`, and event analysis fields `analysis_mean_<var>` / `analysis_increment_<var>` where assimilation weights are available
-  - The exported variables and metrics follow `data_assimilation.output.grids.variables[*]`; omitted output-grid config preserves the legacy all-variable/all-metric behavior
-  - `increment_<var>` is the open-loop departure: `ens_mean_<var> - open_loop_<var>`
-  - `analysis_increment_<var>` is the DA-event increment: `analysis_mean_<var> - ens_mean_<var>`; positive values mean the event added snow/water to the ensemble mean
-  - Time axis spans the full project timeline across all steps (not only the last step)
-  - DA-owned snow summary grids use compact NetCDF storage: snow depth is stored at 0.001 m resolution, SWE and liquid-water content at integer millimeter resolution, with CF scale factors preserving decoded physical values
-- Setup plots under `<setup_dir>/plots/{forcing,results}`
-- Project-level plots under `<project>/results/plots/{results,perf,points,assim/{weights,ess,scores}}`
-- Project-level misc artifacts under `<project>/results/misc`
-- Project maps under `<project>/results/maps`, with generated DA maps under `da_events/` and optional custom YAML maps at the root
-- Project report PDFs under `<project>/results/reports`
-- When model SCF is enabled, daily ROI-mean SCF per member is written to `<step>/ensembles/prior/<member>/results/point_scf_roi.csv`.
-- Full-ROI daily mean SWE and snow depth are written to `<step>/ensembles/prior/<member>/results/point_swe_roi.csv` and `<step>/ensembles/prior/<member>/results/point_snow_depth_roi.csv`.
-- The combined project result overview plot (`results/plots/results/result_overview.png`) now shows fSCA, WSF, WSLA, ROI mean SWE, and ROI mean snow depth together when those outputs are available.
-  Setup results plots now show the ensemble mean, the full finite-member range, and the open loop by default; individual members are hidden unless `--show-members` is passed to the plot CLI. Wet-snow setup plots overlay available observations from `obs/<setup>/wet_snow_summary.csv` automatically.
-  At the end of the project run, per-step weights plots (`step_XX_weights.png`) and the setup ESS timeline (`setup_ess_timeline_<setup_id>.png`) are also generated under `<project_dir>/results/plots/assim/{weights,ess}`.
-  Single-domain projects default to compact retention (`data_assimilation.output.retention: compact`), which prunes heavy member grid artifacts after writing `da_output_grids.nc`. Subdomain projects default to `retention: full` so generated DA-event maps can be regenerated exactly after the run. If compact retention is enabled for a subdomain project, the strict render stage deletes only manifest-owned transient grids after the merged grid, all planned DA maps and the top-level report validate.
-
-### Backfilling model SCF for an existing setup (optional)
-
-If you have already run a setup and want to compute daily ROI-mean model SCF for all members (to enable SCF setup plots), you can run:
-
-```powershell
-$project = "/data"
-$setup  = "$project/projects/project_YYYY-YYYY"
-$roi     = "$project/env/roi.gpkg"
-
-docker compose run --rm oa `
-  python -c "from openamundsen_da.methods.h_of_x.model_scf import cli_project_daily; import sys; sys.exit(cli_project_daily(['--project-dir','$project','--setup-dir','$setup','--roi','$roi','--max-workers','20']))"
-```
-
-This writes per-member SCF time series to `<step>/ensembles/prior/<member>/results/point_scf_roi.csv` for all steps, so `plot_setup_ensemble` with `var_col="scf"` can consume them.
-
-### Setup Skeleton (optional helper)
-
-To create an empty setup layout with `steps/step_*` folders and minimal step YAMLs, use the structured data assimilation block:
-
-```yaml
-start_date: 2017-10-01
-end_date: 2018-09-30
-data_assimilation:
-  assimilation_events:
-    - date: 2017-11-23
-      variable: scf
-      product: SNOWCOVER
-    - date: 2018-03-19
-      variable: wet_snow_line
-      product: S1
-    # ...
-```
-
-Then run:
-
-```powershell
-docker compose run --rm oa `
-  python -m openamundsen_da.pipeline.project_skeleton `
-  --project-dir $project `
-  --setup-dir $setup
-```
-
-This creates `step_00_init`, `step_01_*`,  with `start_date`, `end_date`, and `results_dir: results` aligned to the model timestep and the specified assimilation dates.
-
-The skeleton uses the `timestep` from the setup YAML (e.g. `3H`, `6H`, `1D`) to define step boundaries. For each assimilation date `D_i`, step i runs long enough that openAMUNDSEN produces a daily grid for `D_i` in the preceding step, and step boundaries satisfy `start_{i+1} = end_i + timestep` (no duplicated timesteps). The project pipeline then assimilates SCF on the calendar date of `start_{i+1}`, which matches `D_i`.
-
-### Performance monitoring (CPU / RAM / disk / thermal)
-
-A minimal monitor samples system CPU%, RAM%, filesystem disk pressure, throttled project directory size, and CPU temperature when host sensors are exposed (enabled by default for `oa-da-project`).
-Outputs under `<project>/results/plots/perf/`:
-- `project_perf_metrics.csv` (timestamp, CPU/RAM columns, filesystem used/free/total GB, project size GB, and optional CPU temperature columns)
-- `project_perf.png` (CPU/RAM/filesystem-used %, project size GB, and optional CPU temperature)
-
-Thermal sampling is fail-soft. On systems without readable sensors, including some containers and virtualized environments, the thermal CSV columns stay blank and the plot omits the CPU temperature line. If a host exposes sensors through a non-default mount, set `OA_DA_THERMAL_SYSFS_ROOT` to the mounted `hwmon` directory, for example `/host-sys/class/hwmon`.
-
-Suggested intervals: sample every 5-10 seconds; refresh the plot every 30-60 seconds; scan recursive project size every 300 seconds or longer for large runs.
-
-Project run with default monitoring
-
-```powershell
-docker compose run --rm oa `
-  oa-da-project `
-  --setup-dir $setup
-```
-
-- `--monitor-perf` explicitly enables monitoring (default behavior).
-- `--no-monitor-perf` disables monitoring for the project run.
-- `--project-dir` is optional; it is auto-detected by walking up from `--setup-dir` to the nearest `project.yml`.
-- `--perf-sample-interval` and `--perf-plot-interval` default to 5 seconds and 30 seconds respectively.
-
-### Scientific Benchmarking
-
-`oa-da-project` now always ends with an observation-based benchmarking stage. It writes:
-
-- `results/benchmark/manifest.json`
-- `results/benchmark/cases/*.csv`
-- `results/benchmark/scores/*.csv`
-- `results/benchmark/tables/project_summary.csv`
-- `results/benchmark/tables/update_summary.csv`
-- `results/benchmark/summary.md`
-- `results/plots/assim/scores/performance_scores.png`
-
-After benchmarking and any benchmark-dependent overview rerender, `oa-da-project` also attempts to assemble `results/reports/project_report.pdf`. Missing report prerequisites are logged as warnings with a rerun command and do not fail the completed project run.
-
-The raw benchmark backend still scores whole-project propagated `da_informed_ensemble` skill against `open_loop` and, on assimilation dates, explicit analysis-time `prior` and weighted `posterior` skill. The headline plot is intentionally narrower: it shows only assimilation-date `prior` and `posterior` skill (`CRPSS`, `NER`) for assimilated and transfer-observed variables on the DA dates themselves, and adds a third station-only `zSkill` panel when sigma-aware station scores are available, while `project_summary.csv` keeps the whole-project propagated view. `wet_snow` is scored as WSF, while `wet_snow_line` is scored as its own WSLA ROI scalar in meters against `wet_snow_line_diagnostics.csv` and `point_wet_snow_line_roi.csv`, not as a WSF proxy. Results are split into `assimilation_fit`, `semi_independent`, and `independent`: `semi_independent` means the exact variable/date pair was not assimilated, but a same-variable or sister-station assimilation has already happened by that date, while `independent` means no same-variable assimilation has happened yet by that date and no active sister-station linkage applies.
-
-You can add extra independent benchmark families from the current DA-supported set (`scf`, `wet_snow`, `wet_snow_line`, `station_hs`, `station_swe`) in project YAML:
-
-```yaml
-data_assimilation:
-  benchmark:
-    independent_variables:
-      - station_swe
-    plots: true
-    output_dir: results/benchmark
-```
-
-You can also rerun the same benchmark logic manually on an existing finished project:
-
-```powershell
-docker compose run --rm oa `
-  oa-da-benchmark `
-  --project-dir $project
-```
-
-Running the monitor manually
-
-You can also attach the monitor manually to an existing setup directory (for example,
-while a setup run is already in progress from another shell):
-
-```powershell
-$setup = "$project/projects/project_YYYY-YYYY"
-
-docker compose run --rm oa `
-  oa-da-perf-monitor `
-  --project-dir $setup `
-  --sample-interval 5 `
-  --plot-interval 30 `
-  --disk-scan-interval 300
-```
-
-This foreground command will keep updating the CSV and plot until interrupted
-with `Ctrl+C`.
-
-
-## State cleanup (free disk space)
-
-- A successful single-domain run automatically deletes package-owned restart
-  state pickles and stale state pointers after compact output, benchmarks,
-  plots, maps and the report have all passed validation.
-- Interrupted or failed runs retain restart state for a safe resume.
-- `clean` previews any remaining eligible restart artifacts; add `--apply` to
-  delete exactly that set.
-
-```powershell
-docker compose run --rm oa openamundsen-da clean \
-  /data/your_setup/projects/project_YYYY-YYYY
-```
-
-```powershell
-docker compose run --rm oa openamundsen-da clean \
-  /data/your_setup/projects/project_YYYY-YYYY \
-  --apply
-```
-
-Single-domain cleanup does not descend into subdomain workspaces and never
-removes member grids, compact outputs, maps, reports, manifests or logs.
-
-
-## Sub-domain Mode
-
-Use the nested `openamundsen-da subdomains` commands to split a large setup into non-overlapping subdomains. The two command branches are intentional:
-
-- `subdomains prepare|run|merge|render` runs independent DA projects and combines their compact results.
-- `subdomains model prepare|run|merge` tiles one plain openAMUNDSEN simulation without projects, ensembles or assimilation.
-
-For a start-to-finish guide, see `docs/guides/subdomain-runbook.md`.
-
-### Data Assimilation Sub-domain Workflow
-
-This is the existing openAMUNDSEN-DA workflow: one independent data assimilation project per sub-domain, project-level reports, then compact data assimilation grid merge. It is regional decomposition, not formal particle-filter localization.
-
-Minimal DA flow:
+Build and validate the distribution, then build the same wheel-based image used
+for release:
 
 ```bash
-openamundsen-da subdomains prepare <setup>/projects/<project> \
-  --regions <setup>/env/subdomains.gpkg
-openamundsen-da subdomains run <setup>/projects/<project>
-openamundsen-da subdomains merge <setup>/projects/<project>
-openamundsen-da subdomains render <setup>/projects/<project>
+python -m pip install build twine
+bash scripts/ci/build_distribution.sh
+docker build -t openamundsen-da:local .
 ```
 
-DA defaults:
-- Subdomain root is `<project>/subdomains`.
-- Manifest path is `<project>/subdomains/subdomain_manifest.json`.
-- Each sub-domain run lives under `<subdomain_root>/<subdomain_id>/`.
-- Project-level outputs are written under `<project>/results/`.
-- Compact data assimilation grid output is `<project>/results/grids/da_output_grids.nc`.
-  - Variables in `da_output_grids.nc`: `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`, `ens_min_<var>`, `ens_max_<var>`, `increment_<var>`, and event analysis fields `analysis_mean_<var>` / `analysis_increment_<var>` when weights are available.
-  - Merged compact DA grids preserve the same compressed storage policy as single-domain `da_output_grids.nc`.
-- Merge never removes its source grids. With `retention: compact`, successful strict rendering validates the merged grid, all planned DA maps and the top-level report before automatically deleting only transient grid files owned by the manifest. Interrupted or failed rendering preserves those inputs for a safe rerun.
-- Sub-domain reports are written under `<project>/results/subdomain_*.csv`.
-- Point outputs and plots remain inside each sub-domain project.
-- Station selection uses a 50 km default buffer (`--station-buffer-km`).
-- Sub-domain mode requires at least two polygons in the ROI file.
-- The regions file must contain the canonical `id` field.
-- If `--regions` is omitted during preparation, `<setup>/env/subdomains.gpkg` is preferred and `<setup>/env/roi.gpkg` is the fallback.
-- Sub-domain runs fail fast if configured assimilation events are not available in the local sub-domain observation summaries.
-- Projects may enable `data_assimilation.subdomain_event_filter` to drop unavailable SCF, wet-snow, or station events per sub-domain after local observation summaries are generated. Dropped events are recorded in each sub-domain run manifest and in `<project>/results/subdomain_dropped_events.csv`; the final kept/dropped event table is written to `<project>/results/event_plan_by_subdomain.csv`.
-- Station benchmark variables are pruned from copied sub-domain project YAMLs when the local station subset contains no benchmark-enabled station observations, allowing mixed FSC-only and FSC+station sub-domain projects in one run.
-- Configured `output_data.timeseries.points` are filtered to the active sub-domain ROI when sub-domain setup YAML files are generated.
-- Sub-domain projects default to full retention (`data_assimilation.output.retention: full`) and keep the sub-domain NC grids needed for exact DA-event map regeneration. Set `retention: compact` only if you knowingly trade away exact spatial DA-event map rerendering for disk savings.
-
-Example sub-domain event filter:
-
-```yaml
-data_assimilation:
-  subdomain_event_filter:
-    enabled: true
-    drop_unavailable: true
-    variables:
-      scf:
-        max_cloud_fraction: 0.20
-      station_hs:
-        min_active_stations: 1
-        max_time_delta_hours: 36
-    subdomains:
-      AT-07-20:
-        variables:
-          scf:
-            max_cloud_fraction: 0.25
-```
-
-### Plain openAMUNDSEN Model Workflow
-
-This workflow uses the same geometry validation, ROI rasterization, grid cropping, meteo station subsetting, manifest, and hard-mosaic merge helpers, but skips data assimilation project setup and raw observation preprocessing. It runs the installed `openamundsen` executable once per prepared sub-domain.
+Run tests through the repository wrappers:
 
 ```bash
-openamundsen-da subdomains model prepare /data/subdomains \
-  --regions /data/subdomains/env/subdomains.gpkg \
-  --overwrite
-openamundsen-da subdomains model run /data/subdomains \
-  --max-workers 24 \
-  --overwrite
-openamundsen-da subdomains model merge /data/subdomains
+bash scripts/ci/run_lint.sh
+bash scripts/ci/run_unit_tests.sh
+bash scripts/ci/run_integration_tests.sh
+bash scripts/ci/run_integration_tests_subdomain.sh
 ```
 
-Docker usage:
-- Run from this repository root, where `compose.yml` lives.
-- Mount a plain openAMUNDSEN setup with `PROJ=/absolute/path/to/setup`; inside the container it is available as `/data`.
-- The Docker image already contains the `openamundsen` executable used by the nested model `run` command.
+See [tests/README.md](tests/README.md) for the exact validation contracts.
 
-```bash
-PROJ=/absolute/path/to/setup docker compose run --rm oa \
-  openamundsen-da subdomains model prepare /data \
-  --regions /data/env/subdomains.gpkg \
-  --overwrite
-```
+## License
 
-Then run `openamundsen-da subdomains model run /data --max-workers 24 --overwrite` and `openamundsen-da subdomains model merge /data` through the same container wrapper.
-
-Minimal plain-model setup layout:
-
-```
-setup/
-  <setup-name>.yml        # canonical plain openAMUNDSEN config
-  env/
-    subdomains.gpkg       # non-overlapping polygons with the canonical id column
-  grids/
-    dem_<domain>_<resolution>.asc
-    lc_<domain>_<resolution>.asc
-    ...                   # any additional grids required by the setup
-  meteo/
-    stations.csv
-    <station>.csv
-    ...
-```
-
-The setup YAML must define the normal openAMUNDSEN domain settings (`domain`, `resolution`, `crs`, `timestep`, `timezone`), `start_date`, `end_date`, `input_data.grids.dir`, `input_data.meteo.dir`, and the desired `output_data` grid variables. `projects/` and `obs/` directories are not required for plain model mode. The nested model `prepare` command generates `subdomains/model/`.
-
-Model defaults and outputs:
-- Source setup YAML must define `start_date` and `end_date`.
-- Subdomain root is `<setup>/subdomains/model`.
-- Each generated sub-domain setup remains a plain openAMUNDSEN config with sub-domain `domain`, grid/meteo dirs, `results_dir`, and ROI grid.
-- Per-subdomain model outputs are written to `<setup>/subdomains/model/<id>/results/`.
-- Merged grid outputs are written to `<setup>/subdomains/model/results/grids/`.
-- Only grid outputs under each `<id>/results/grids/` are merged in v1; point/timeseries outputs are left per sub-domain.
-- Merge selects inputs exclusively from `output_data.grids.format`. NetCDF and GeoTIFF are supported; ASCII, memory, mixed formats and stale ambiguous outputs are rejected.
-- Merge is a hard mosaic only (no interpolation, blending or boundary smoothing).
-- Per-subdomain run diagnostics are written to `<setup>/subdomains/model/<id>/run.log` and `<setup>/subdomains/model/<id>/run_manifest.json`.
-
-Ready-made example:
-- setup: `examples/subdomains`
-- regions file: `examples/subdomains/env/subdomains.gpkg` (pass with `--regions`)
-- note: this example can be used with either the DA branch or the nested plain-model branch.
-
-## Troubleshooting
-
-- Plots on Windows: use `--backend SVG`.
-- HDF not recognized: ensure HDF4 support is present; check `gdalinfo --formats | findstr HDF4`.
-- Windows bind mounts may drop metadata; code falls back to content-only copies.
-- Package import in the release container comes from the installed wheel. The
-  development overlay alone sets `PYTHONPATH=/workspace`.
-
-## Logging
-
-- All commands accept `--log-level`.
-- Internally uses loguru with the standard format in `openamundsen_da/core/constants.py`.
-
-## Warm Start and Step Chaining
-
-- Warm start uses the model state saved at the end of each step. The runner loads the state pointed to by `state_pointer.json` under each member's directory and writes a new state file in the results directory (optionally named via `--state-pattern`).
-- Step boundaries must align with the model time step. If a step ends at end_date = T, the next step must start exactly one model time step later: start_date = T + one model timestep.
-  - Example: With a 3-hour model time step and Step i ending at `2018-10-10 00:00:00`, Step i+1 must start at `2018-10-10 03:00:00`.
-- Why: Misalignment can cause duplicated/skipped timesteps, inconsistent warm starts, or assimilation at a wrong time.
-- Assimilation date: The pipeline uses the next step's start_date as the SCF assimilation date.
-- Tips
-  - Keep a constant model time step across steps.
-  - Verify the effective time step via the merged OA config persisted next to members (e.g., `<step>/ensembles/prior/member_001/config.yml`).
+openAMUNDSEN-DA is released under the [MIT License](LICENSE), including
+commercial use subject to the license terms.

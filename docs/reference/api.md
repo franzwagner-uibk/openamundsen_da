@@ -54,4 +54,3 @@ The six operations, their result types and the public exception hierarchy are
 the supported scripting boundary. Subdomain Python modules, particle-filter
 functions, observers, plotting modules and path utilities are implementation
 details; use the `openamundsen-da` command for those workflows.
-

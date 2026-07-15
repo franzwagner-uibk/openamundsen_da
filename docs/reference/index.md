@@ -1,24 +1,20 @@
 ---
 layout: default
 title: Reference
-nav_order: 7
+nav_order: 10
 has_children: true
 ---
 
-# Technical Reference
-{: .no_toc }
+# Reference
 
-Detailed technical documentation for developers and advanced users.
-{: .fs-6 .fw-300 }
-
----
-
-This section contains technical reference documentation:
-
-- [**Package Structure**]({{ site.baseurl }}{% link reference/package-structure.md %}) - Module organization and architecture
-- [**API Reference**]({{ site.baseurl }}{% link reference/api.md %}) - Python API documentation
-- [**Data Assimilation Methods**]({{ site.baseurl }}{% link reference/da-methods.md %}) - Particle filter implementation details
-
-{: .note }
-> This section is intended for developers and users who want to extend or customize the framework.
+- [Command-Line Interface]({{ site.baseurl }}{% link reference/cli.md %}) is generated
+  from the installed parser.
+- [Python API]({{ site.baseurl }}{% link reference/api.md %}) documents the six
+  supported top-level operations and typed results.
+- [Package Structure]({{ site.baseurl }}{% link reference/package-structure.md %})
+  describes public and internal module boundaries.
+- [Data Assimilation Implementation]({{ site.baseurl }}{% link reference/da-methods.md %})
+  maps technical stages to outputs without repeating the scientific manuscript.
+- [Releases and Distribution]({{ site.baseurl }}{% link release.md %}) records the
+  RC and stable publication contract.
 

@@ -1,24 +1,19 @@
 ---
 layout: default
-title: Advanced Topics
-nav_order: 8
+title: Advanced
+nav_order: 9
 has_children: true
-nav_exclude: true
 ---
 
-# Advanced Topics
-{: .no_toc }
+# Advanced
 
-Performance optimization, troubleshooting, and advanced usage patterns.
-{: .fs-6 .fw-300 }
+Use these pages after completing the single-domain tutorial:
 
----
+- [Station Assimilation]({{ site.baseurl }}{% link guides/station-assimilation.md %})
+- [Subdomain Runbook]({{ site.baseurl }}{% link guides/subdomain-runbook.md %})
+- [Performance]({{ site.baseurl }}{% link advanced/performance.md %})
+- [Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %})
 
-This section covers advanced topics:
-
-- [**Performance Tuning**]({{ site.baseurl }}{% link advanced/performance.md %}) - Optimization strategies for large ensembles
-- [**Troubleshooting**]({{ site.baseurl }}{% link advanced/troubleshooting.md %}) - Common issues and solutions
-
-{: .note }
-> These guides assume familiarity with the basic workflow. Start with the [User Guides]({{ site.baseurl }}{% link guides/index.md %}) if you're new to the framework.
+The public interface intentionally stays small. Lower-level package modules are
+not compatibility commitments; use the umbrella CLI or top-level Python API.
 

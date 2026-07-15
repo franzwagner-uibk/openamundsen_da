@@ -5,6 +5,16 @@ remote_theme: just-the-docs/just-the-docs@v0.4.0
 url: https://openamundsen-da.pages.dev
 baseurl: ""
 
+# Repository-only guidance and superseded unreferenced assets are not part of
+# the published technical documentation.
+exclude:
+  - AGENTS.md
+  - README.md
+  - bundle.log
+  - tmp/
+  - vendor/
+  - assets/images/tutorial/scheme_oa_da.png
+
 # Plugins
 plugins:
   - jekyll-remote-theme

@@ -30,18 +30,19 @@ Install Docker on the host machine:
 
 Verify that Docker works:
 
-**🟢 Run this command:**
+**🟢 Run command:**
 
 ```bash
 docker run hello-world
 ```
 
-Pull the tutorial image:
+Purpose: download the exact v0.9 runtime used by this tutorial. During the RC
+rehearsal, substitute the published `0.9.0rc1` tag.
 
-**🟢 Run this command:**
+**🟢 Run command:**
 
 ```bash
-docker pull ghcr.io/franzwagner-uibk/openamundsen_da:latest
+docker pull {{ site.data.release.image }}
 ```
 
 ## 2. Copy The Bundled Example To Your Local Tutorial Folder
@@ -61,12 +62,15 @@ as `tutorial-workdir/rofental` and inside the container as `/data/rofental`.
 _Host directory used in the `-v "...:/data"` mount and the corresponding path
 inside the Docker container._
 
-**🟢 Run this command:**
+The bind mount maps your host work directory to `/data`; `--rm` removes only the
+stopped container, not the copied host files.
+
+**🟢 Run command:**
 
 ```bash
 docker run --rm \
   -v "/absolute/path/to/tutorial-workdir:/data" \
-  ghcr.io/franzwagner-uibk/openamundsen_da:latest \
+  {{ site.data.release.image }} \
   bash -lc 'cp -a /workspace/examples/rofental /data/rofental'
 ```
 
@@ -81,7 +85,10 @@ Linux file-ownership note:
 
 If the copy already produced root-owned files, fix the host-side ownership once:
 
-**🟢 Run this command:**
+Purpose: return the copied setup to your normal user without changing its
+contents.
+
+**🟢 Run command:**
 
 ```bash
 sudo chown -R "$USER":"$USER" /absolute/path/to/tutorial-workdir/rofental
@@ -93,7 +100,12 @@ chmod -R u+rwX /absolute/path/to/tutorial-workdir/rofental
 Now start one interactive container and mount the same local tutorial folder as `/data`.
 The tutorial commands in later chapters are executed inside this shell.
 
-**🟢 Run this command:**
+Before execution, note the important options: `-v` mounts the host work directory,
+`-w` starts the shell in the Rofental setup, `--cpus 8` caps the visible CPUs and
+the four thread variables prevent numerical libraries from oversubscribing those
+CPUs. `--rm` removes the stopped container but leaves the mounted setup untouched.
+
+**🟢 Run command:**
 
 ```bash
 docker run --rm -it \
@@ -104,16 +116,9 @@ docker run --rm -it \
   -e OPENBLAS_NUM_THREADS=1 \
   -e MKL_NUM_THREADS=1 \
   -e NUMEXPR_NUM_THREADS=1 \
-  ghcr.io/franzwagner-uibk/openamundsen_da:latest \
+  {{ site.data.release.image }} \
   bash --noprofile --norc
 ```
-
-Why these options are used:
-
-- `-v ...:/data` mounts your local tutorial folder into the container
-- `-w /data/rofental` starts you inside the copied setup
-- `--cpus 8` is an example CPU limit for the container
-- the BLAS/OpenMP variables prevent nested threading and unstable oversubscription
 
 ## 4. Editing Files During The Tutorial
 

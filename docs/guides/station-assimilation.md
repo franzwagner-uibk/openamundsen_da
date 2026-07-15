@@ -1,8 +1,8 @@
 ---
 layout: default
 title: Station Assimilation
-parent: Guides
-nav_order: 4
+parent: Advanced
+nav_order: 1
 ---
 
 # Station Assimilation
@@ -251,5 +251,5 @@ This is standard particle-filter behavior and is especially important for strong
 
 - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %})
 - [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %})
-- [Workflow]({{ site.baseurl }}{% link workflow.md %})
+- [Running]({{ site.baseurl }}{% link running.md %})
 - [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %})

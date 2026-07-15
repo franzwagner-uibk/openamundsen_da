@@ -1,73 +1,47 @@
 ---
 layout: default
-title: Data Assimilation Methods
+title: Data Assimilation Implementation
 parent: Reference
-nav_order: 3
+nav_order: 4
 ---
 
-# Data Assimilation Methods
+# Data Assimilation Implementation
 
-openAMUNDSEN-DA implements a bootstrap particle filter (SIR) for snow data assimilation.
+This page identifies software stages and artifacts. For equations, methodological
+motivation and scientific interpretation, use Wagner et al. (2026), the manuscript
+accompanying openAMUNDSEN-DA v0.9.
 
-## Flow (per assimilation date)
-1. Forecast/prior: run the openAMUNDSEN ensemble.
-2. Observation operator H(x): map model states to observation space.
-3. Likelihood: compare model vs observations and compute log weights.
-4. Normalize and ESS: convert log weights to normalized weights and compute ESS.
-5. Resample (if ESS below threshold): select posterior members.
-6. Rejuvenate: perturb posterior members to keep ensemble spread.
-7. Propagate: use posterior as next prior and continue within the setup.
+## Event sequence
 
-## Key modules
-- `openamundsen_da.methods.pf.assimilate_fraction`
-- `openamundsen_da.methods.pf.assimilate_station`
-- `openamundsen_da.methods.pf.resample`
-- `openamundsen_da.methods.pf.rejuvenate`
-- `openamundsen_da.methods.h_of_x.model_scf`
-- `openamundsen_da.methods.wet_snow.area`
+For each configured event, the project runner:
 
-## Configuration hooks
-- Setup YAML (`<setup-name>.yml` or `setup.yml`) contains pure openAMUNDSEN settings and shared setup data.
-- Project YAML (`<project-name>.yml` or `project.yml`) owns observation product/class mappings and data assimilation config under `data_assimilation`.
-  - `prior_forcing`
-  - `h_of_x`
-  - `likelihood`
-  - `resampling`
-  - `rejuvenation`
-  - `restart`
-  - `landcover_mask`
-  - `assimilation_events`
+1. propagates the open loop and prior members with openAMUNDSEN;
+2. evaluates the configured observation operator;
+3. calculates and normalizes likelihood weights;
+4. records effective sample size and the resampling decision;
+5. materializes the posterior and applies configured rejuvenation; and
+6. uses the posterior as the next step's prior.
 
-## Prior forcing perturbations
-
-- `sigma_t` samples an additive air-temperature offset.
-- `mu_p` and `sigma_p` sample a multiplicative precipitation factor.
-- `sigma_rh` samples an additive dew-point temperature offset. When forcing files contain both `temp` and `rel_hum`, openAMUNDSEN-DA converts air temperature and relative humidity to dew point, applies the sampled dew-point offset, caps dew point at the perturbed air temperature, and recalculates relative humidity.
-- `sigma_sw` samples a positive multiplicative shortwave factor and applies it only to positive daytime `sw_in` values.
-
-## Outputs
-- Per-step weights and indices: `<project>/steps/step_*/assim/`
-- Station DA diagnostics: `station_diagnostics_station_hs_*.csv` / `station_diagnostics_station_swe_*.csv`
-- ESS timeline and assimilation plots: `<project>/results/plots/assim/`
-- Posterior members: `<project>/steps/step_*/ensembles/posterior/`
-
-## Prior, Posterior, And Increment Diagnostics
-- `open_loop` is the unperturbed baseline and is not resampled by DA.
-- `ens_mean_<var>` in `da_output_grids.nc` is the unweighted prior ensemble mean for the current step. It already carries effects from earlier DA steps through warm starts.
-- `increment_<var>` is an open-loop departure diagnostic: `ens_mean_<var> - open_loop_<var>`. It is useful for accumulated DA-vs-baseline comparison, but it is not the increment caused by one event.
-- `analysis_mean_<var>` is the event-weighted posterior mean on dates with weights.
-- `analysis_increment_<var>` is the event-level DA increment: `analysis_mean_<var> - ens_mean_<var>`. Positive values mean the event added snow/water to the prior ensemble mean; negative values mean it removed snow/water.
+The current particle weights are scalar at the model-domain or subdomain scale.
+Independent subdomain execution is a decomposition strategy and does not add
+localization or exchange particles across boundaries.
 
 ## Observation families
 
-- `scf` and `wet_snow` compare satellite fractions on the event-date valid observation support. The full-ROI companion values are diagnostic context, not the assimilated scalar when support differs.
-- `wet_snow_line` assimilates the support-aware 50% wet-fraction crossing as a scalar elevation value in meters.
-- `station_hs` and `station_swe` use station point observations against model point outputs at station locations. They are local evidence for reweighting whole-ROI particles, not basin-mean observations.
+The event schema supports fractional snow covered area (`scf`), wet snow fraction
+(`wet_snow`), wet snow line altitude (`wet_snow_line`), station snow depth
+(`station_hs`) and station snow water equivalent (`station_swe`). Each family has
+an explicit operator and uncertainty configuration.
 
-Missing or invalid configured observations fail before the particle-filter update unless a sub-domain event filter explicitly drops a local event.
+## Technical artifacts
 
-For the station method, see the dedicated [Station Assimilation]({{ site.baseurl }}{% link guides/station-assimilation.md %}) guide.
+- per-event weight CSVs and plots record member likelihood response;
+- effective sample size plots record degeneracy and resampling decisions;
+- `results/benchmark/` stores configured evaluation cases and scores;
+- `results/grids/da_output_grids.nc` stores compact open-loop, ensemble and
+  event-analysis fields; and
+- `results/run_manifest.json` records hashes, stage state, provenance and outputs.
 
-## Sub-domain mode
-
-Sub-domain mode runs independent regional data assimilation projects and hard-mosaics their compact grid outputs. It is not a formal localization scheme for one shared particle filter, and boundary discontinuities can be expected.
+See [Output Data]({{ site.baseurl }}{% link output-data.md %}) for paths and
+[Configuration]({{ site.baseurl }}{% link guides/configuration.md %}) for the
+event/uncertainty schema.

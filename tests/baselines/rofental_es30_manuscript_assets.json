@@ -9,11 +9,11 @@
     {
       "name": "fig01.png",
       "source": "manual",
-      "file_sha256": "6e7af3e1fc7314bdda42d765d118a2df70632a9a1b7ce770c1fd252fba906829",
+      "file_sha256": "da3c53dc47663a22e3cae84cec99bd3b963e329680dfabfc22c1e9b6beaa8bbf",
       "width": 5708,
       "height": 3283,
       "mode": "RGBA",
-      "pixels_sha256": "9476da9a8c60344d4790d52fde19aae5d7205c783373143ea3c3e0a24b0f2301"
+      "pixels_sha256": "ce108bd0cdc150228ded0d0a3f941293ce89e9f82b96a832c8f3e270e27e0529"
     },
     {
       "name": "fig02.png",
@@ -78,6 +78,125 @@
       "height": 2566,
       "mode": "RGBA",
       "pixels_sha256": "90a36c5c46cd86942a259f38a4d398c74d21f940a125896784bf8c1e876e71e7"
+    }
+  ],
+  "tutorial_assets": [
+    {
+      "destination": "DA_04_weights.png",
+      "source": "projects/project_2022_2023/results/plots/assim/weights/DA_04_weights.png",
+      "file_sha256": "7caf4591c0b83e97e4869133fbe8d9734291d5c97698fccd08946e508736cb37",
+      "width": 3382,
+      "height": 1289,
+      "mode": "RGBA",
+      "pixels_sha256": "2a02eb3e9993fa74672f6083c74e02e96fbf2a2dad1ee89cf9825a0f0f60e614"
+    },
+    {
+      "destination": "da_06_wsla_2023_03_24.png",
+      "source": "projects/project_2022_2023/results/maps/da_events/da_6.png",
+      "file_sha256": "d0e70155b8a0429b6435af9b63bd160cfdb763bf6025e289413d094268a48a61",
+      "width": 4278,
+      "height": 4005,
+      "mode": "RGBA",
+      "pixels_sha256": "ff558eeb7d83cf63f72112f940f500c26983e14c7b49a83c70f048ab985b527b"
+    },
+    {
+      "destination": "da_08_scf_2023_05_26.png",
+      "source": "projects/project_2022_2023/results/maps/da_events/da_8.png",
+      "file_sha256": "caa0fbcf37752f26c9a801c96cee1f5ccc5dbc6818922c086fbf2bd963274f2f",
+      "width": 4278,
+      "height": 2658,
+      "mode": "RGBA",
+      "pixels_sha256": "6cc9d11b694ed7c0903f066cc666e9dd2ab8fed14d16b08a4b0ed9598ace5573"
+    },
+    {
+      "destination": "performance_scores.png",
+      "source": "projects/project_2022_2023/results/plots/assim/scores/performance_scores.png",
+      "file_sha256": "d120b04d088f8f5338a7fc4001983e8015f1f741fb34a473bc1d3864d954ca8f",
+      "width": 4372,
+      "height": 2305,
+      "mode": "RGBA",
+      "pixels_sha256": "f3f80bc55c37bd0fb1093ca3f2a0b63ada85dcc3556c760af21e3d2648e4be77"
+    },
+    {
+      "destination": "project_perf.png",
+      "source": "projects/project_2022_2023/results/plots/perf/project_perf.png",
+      "file_sha256": "f760c8e66c2acad9a045a093bfb168dbc777d8faae712aeb655ffa11e5fd837d",
+      "width": 4372,
+      "height": 1438,
+      "mode": "RGBA",
+      "pixels_sha256": "1c34b8c7d54794ad1f3e4a852ed9826608aee782b589b530fa395069c7286b8b"
+    },
+    {
+      "destination": "result_overview.png",
+      "source": "projects/project_2022_2023/results/plots/results/result_overview.png",
+      "file_sha256": "6da91786ed13a5b6b34ecca6a4f3c207b5163ca9d7b16c1b252763216d1cace8",
+      "width": 4043,
+      "height": 3684,
+      "mode": "RGBA",
+      "pixels_sha256": "7bc12e2b46cba6e979ca09994696f0b0fe64953bc0ffd301b535058b9e44d8b6"
+    },
+    {
+      "destination": "setup_ess_timeline_2022_2023.png",
+      "source": "projects/project_2022_2023/results/plots/assim/ess/setup_ess_timeline_2022_2023.png",
+      "file_sha256": "1ddd0870a27b50d8e16c1f41abda1099c6927277888b35bb67f6517492b73fb0",
+      "width": 4084,
+      "height": 1173,
+      "mode": "RGBA",
+      "pixels_sha256": "490f1dddd59e3dc96f04d0d4d6635ca17810455e979a269a96a750a26798ba20"
+    },
+    {
+      "destination": "setup_overview.png",
+      "source": "projects/project_2022_2023/results/maps/setup_overview.png",
+      "file_sha256": "50344bbb37e5fdd8f8e5bcbaef5c3db67f1dc0133e468329588b3761dd6284a5",
+      "width": 4278,
+      "height": 1248,
+      "mode": "RGBA",
+      "pixels_sha256": "999be466f20f001d2fb93f2a891a37ab6aa8e2c40a724632e8211cf1f42570ab"
+    },
+    {
+      "destination": "setup_results_point_latschbloder_snow_depth_2022_2023.png",
+      "source": "projects/project_2022_2023/results/plots/points/setup_results_point_latschbloder_snow_depth_2022_2023.png",
+      "file_sha256": "d528964133bc8af641f2139282f4d5a6df98830d03a98c9f85f01eb1a604505e",
+      "width": 4075,
+      "height": 1404,
+      "mode": "RGBA",
+      "pixels_sha256": "d7e8a309c58cb023d099b7185e11595bbe4fa16ad4d46ec2a53e3150d9b4f2d3"
+    },
+    {
+      "destination": "setup_results_point_latschbloder_swe_2022_2023.png",
+      "source": "projects/project_2022_2023/results/plots/points/setup_results_point_latschbloder_swe_2022_2023.png",
+      "file_sha256": "45542a02d0aa91521e17660a67cf21511dab4e2b4a2d6cfe412d48e3be1b111b",
+      "width": 4154,
+      "height": 1404,
+      "mode": "RGBA",
+      "pixels_sha256": "f2568bf4864d3f527e4072adbd349816766e0903dc678c78696e0c8b7ab2a89c"
+    },
+    {
+      "destination": "setup_results_point_proviantdepot_snow_depth_2022_2023.png",
+      "source": "projects/project_2022_2023/results/plots/points/setup_results_point_proviantdepot_snow_depth_2022_2023.png",
+      "file_sha256": "6083a6b442ace376f94d4dd0ff1bcda61a274f4d83a5cc5d8480aac1892fc9ff",
+      "width": 4127,
+      "height": 1404,
+      "mode": "RGBA",
+      "pixels_sha256": "c39ab6b5a40d195646199e36240d5b1d5a2896b9690045bc67b1ca389f732721"
+    },
+    {
+      "destination": "setup_results_point_proviantdepot_swe_2022_2023.png",
+      "source": "projects/project_2022_2023/results/plots/points/setup_results_point_proviantdepot_swe_2022_2023.png",
+      "file_sha256": "65b3c187d1398cb096a39b7793c284d6b53d21e9d7ef92ee9853cf1eb2a66bbc",
+      "width": 4154,
+      "height": 1404,
+      "mode": "RGBA",
+      "pixels_sha256": "e571245a0152ba7c89534e6ac3a8072b95827a4d7f9bd6dec452dee97c4c067b"
+    },
+    {
+      "destination": "setup_weights_overview_2022_2023.png",
+      "source": "projects/project_2022_2023/results/plots/assim/weights/setup_weights_overview_2022_2023.png",
+      "file_sha256": "63722bc4b5efebc63e8385ed9122325f491fd952929993cf5afc145b550beacf",
+      "width": 4139,
+      "height": 3494,
+      "mode": "RGBA",
+      "pixels_sha256": "071ec8c610e5058273d491185424f0b6e9b110e8c19300568a6c4cd0526ffd2d"
     }
   ]
 }

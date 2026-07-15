@@ -525,7 +525,8 @@ def test_write_plots_adds_zskill_third_panel_when_available(tmp_path: Path, monk
     )
 
     assert outputs["performance_scores"].is_file()
-    assert outputs["performance_scores_paper"].is_file()
+    assert set(outputs) == {"performance_scores"}
+    assert not (project_dir / "results" / "paper").exists()
     assert recorded["nrows"] == 3
     assert recorded["figsize"][1] == pytest.approx(
         plots_core.FIGHEIGHT_OVERVIEW_ROW * plots_core.STANDALONE_SCORE_PANEL_HEIGHT_FACTOR * 3.0
@@ -598,9 +599,8 @@ def test_write_plots_can_hide_station_swe_only_from_performance_scores_plot(
     )
 
     assert outputs["performance_scores"].is_file()
-    assert outputs["performance_scores_paper"].is_file()
     assert "station_swe" in set(event_scores["variable"])
-    assert captured == [["scf"], ["scf"]]
+    assert captured == [["scf"]]
 
 
 def test_event_skill_plot_positions_distinguish_same_date_markers(tmp_path: Path) -> None:
@@ -708,10 +708,7 @@ def test_write_plots_trims_to_da_window_and_drops_subtitle(tmp_path: Path, monke
     )
 
     assert outputs["performance_scores"].is_file()
-    assert outputs["performance_scores_paper"].is_file()
     fig = captured[outputs["performance_scores"]]["fig"]
-    paper_fig = captured[outputs["performance_scores_paper"]]["fig"]
-    assert paper_fig._suptitle is None
     assert fig._suptitle is not None
     assert fig._suptitle.get_text() == "Data assimilation performance scores"
     assert fig._suptitle.get_ha() == "left"

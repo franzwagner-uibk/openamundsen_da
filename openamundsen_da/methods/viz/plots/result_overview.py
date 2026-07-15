@@ -28,18 +28,13 @@ from openamundsen_da.methods.viz.plots.benchmark.core import (
 from openamundsen_da.io.paths import (
     abspath_relative_to,
     find_project_yaml,
-    infer_project_dir,
     list_member_dirs,
     list_steps_sorted,
-    project_paper_output_path,
     project_fraction_envelope_path,
-    project_result_overview_custom_output_path,
 )
 from openamundsen_da.methods.viz.station_meta import load_ensemble_station_table_from_steps
 from openamundsen_da.methods.viz.common import (
-    PosterLinework,
     PosterRenderStyle,
-    PosterTypography,
     force_figure_text_black,
     save_figure_png,
     scaled_module_attributes,
@@ -423,14 +418,6 @@ def _project_panel_config_path(project_dir: Path) -> Path | None:
     if not candidate.is_file():
         return None
     return candidate
-
-
-def _remove_legacy_custom_outputs(project_dir: Path) -> None:
-    custom_output = project_result_overview_custom_output_path(project_dir)
-    for path in (custom_output, project_paper_output_path(project_dir, custom_output)):
-        if path.is_file():
-            path.unlink()
-            logger.info("Removed legacy custom result overview: {}", path)
 
 
 def _project_time_bounds(project_dir: Path) -> tuple[pd.Timestamp, pd.Timestamp] | None:
@@ -1803,7 +1790,6 @@ def plot_result_overview(
     strict_panels: bool = False,
     x_bounds: tuple[pd.Timestamp, pd.Timestamp] | None = None,
     backend: str = "Agg",
-    write_paper_copy: bool = True,
     target_size_in: tuple[float, float] | None = None,
     style_scale: float = 1.0,
     poster_style: PosterRenderStyle | None = None,
@@ -1843,7 +1829,6 @@ def plot_result_overview(
                 strict_panels=strict_panels,
                 x_bounds=x_bounds,
                 backend=backend,
-                write_paper_copy=write_paper_copy,
                 target_size_in=target_size_in,
                 style_scale=1.0,
                 poster_style=PosterRenderStyle(),
@@ -2457,14 +2442,6 @@ def plot_result_overview(
         pad_inches=_RESULT_OVERVIEW_SAVE_PAD_INCHES,
         target_size_in=target_size_in,
     )
-    try:
-        project_dir = infer_project_dir(output)
-    except FileNotFoundError:
-        project_dir = None
-    if write_paper_copy and project_dir is not None:
-        paper_output = project_paper_output_path(project_dir, output)
-        paper_output.parent.mkdir(parents=True, exist_ok=True)
-        save_figure_png(fig, paper_output, bbox_inches="tight", pad_inches=_RESULT_OVERVIEW_SAVE_PAD_INCHES)
     plt.close(fig)
 
 
@@ -2490,59 +2467,7 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
     parser.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
     parser.add_argument("--mode", choices=["band", "members"], default="band", help="Plot mode: band (default) or members")
     parser.add_argument("--backend", default="Agg", help="Matplotlib backend (default: Agg)")
-    parser.add_argument(
-        "--no-paper-mirror",
-        action="store_true",
-        help="Do not write the secondary results/paper mirror output",
-    )
-    parser.add_argument(
-        "--target-size-mm",
-        nargs=2,
-        type=float,
-        metavar=("WIDTH", "HEIGHT"),
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument("--style-scale", type=float, default=1.0, help=argparse.SUPPRESS)
-    parser.add_argument("--poster-title-pt", type=float, help=argparse.SUPPRESS)
-    parser.add_argument("--poster-label-pt", type=float, help=argparse.SUPPRESS)
-    parser.add_argument("--poster-support-pt", type=float, help=argparse.SUPPRESS)
-    parser.add_argument("--poster-panel-box-pt", type=float, help=argparse.SUPPRESS)
-    parser.add_argument("--poster-h-pad", type=float, default=0.32, help=argparse.SUPPRESS)
-    parser.add_argument("--poster-hspace", type=float, help=argparse.SUPPRESS)
-    parser.add_argument("--poster-panel-height-factor", type=float, default=1.0, help=argparse.SUPPRESS)
-    parser.add_argument("--poster-align-first-xtick-left", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
-    if args.style_scale <= 0.0:
-        parser.error("--style-scale must be > 0")
-    if args.poster_h_pad < 0.0:
-        parser.error("--poster-h-pad must be >= 0")
-    if args.poster_hspace is not None and args.poster_hspace < 0.0:
-        parser.error("--poster-hspace must be >= 0")
-    if args.poster_panel_height_factor <= 0.0:
-        parser.error("--poster-panel-height-factor must be > 0")
-    typography_args = (args.poster_title_pt, args.poster_label_pt, args.poster_support_pt)
-    if any(value is not None for value in typography_args):
-        if any(value is None or value <= 0.0 for value in typography_args):
-            parser.error("--poster-title-pt, --poster-label-pt and --poster-support-pt must all be > 0")
-        poster_typography = PosterTypography(
-            title_pt=float(args.poster_title_pt),
-            label_pt=float(args.poster_label_pt),
-            support_pt=float(args.poster_support_pt),
-        )
-    else:
-        poster_typography = None
-    if args.poster_panel_box_pt is not None and args.poster_panel_box_pt <= 0.0:
-        parser.error("--poster-panel-box-pt must be > 0")
-    poster_style = PosterRenderStyle(
-        scale=float(args.style_scale),
-        typography=poster_typography,
-        linework=PosterLinework(panel_box_pt=float(args.poster_panel_box_pt))
-        if args.poster_panel_box_pt is not None
-        else None,
-    )
-    target_size_in = None
-    if args.target_size_mm is not None:
-        target_size_in = (float(args.target_size_mm[0]) / 25.4, float(args.target_size_mm[1]) / 25.4)
 
     if configure_logger:
         configure_cli_logger(args.log_level)
@@ -2691,17 +2616,8 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
             strict_panels=configured_specs is not None,
             x_bounds=project_time_bounds,
             backend=args.backend,
-            write_paper_copy=not args.no_paper_mirror,
-            target_size_in=target_size_in,
-            poster_style=poster_style,
-            layout_h_pad=float(args.poster_h_pad),
-            layout_hspace=float(args.poster_hspace) if args.poster_hspace is not None else None,
-            panel_height_factor=float(args.poster_panel_height_factor),
-            align_first_xtick_left=bool(args.poster_align_first_xtick_left),
         )
         logger.info("Wrote plot: {}", output)
-        if args.output is None:
-            _remove_legacy_custom_outputs(project_dir)
     except ModuleNotFoundError as exc:
         logger.error("matplotlib is required to plot: {}", exc)
         return 1

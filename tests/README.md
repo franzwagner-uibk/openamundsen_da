@@ -386,7 +386,11 @@ python scripts/release/refresh_manuscript_outputs.py \
 ```
 
 The refresh command refuses to mutate a run until the simulation-stage contract
-passes. Its final publication-stage validation checks the selected-run
+passes. It regenerates the canonical public outputs under `results/`, then
+replaces `results/paper/` with the developer-only manuscript profile. That
+profile contains exactly the title-free setup weights overview and DA maps 6
+and 8; normal project rendering does not create publication mirrors. Its final
+publication-stage validation checks the selected-run
 provenance, all case-study parameters, the eight event ESS and resampling
 decisions, quoted benchmark values, generated figures, exact manuscript asset
 hashes and the corresponding literals in `template.tex`. The selected
@@ -398,6 +402,30 @@ publication figure contract remains
 files byte-exact and records one accepted fresh-render variant of Figure 04,
 whose benchmark reductions differ only at machine precision and affect 1434
 antialiased pixels in the CRPSS panel.
+
+Preview manuscript asset staging before changing the separate manuscript
+repository:
+
+```bash
+python scripts/release/stage_publication_assets.py \
+  /path/to/completed/rofental_manuscript_es30 \
+  --target manuscript \
+  --destination /path/to/openAMUNDSEN-DA/assets
+```
+
+Preview the corresponding tutorial image selection with:
+
+```bash
+python scripts/release/stage_publication_assets.py \
+  /path/to/completed/rofental_manuscript_es30 \
+  --target tutorial \
+  --destination docs/assets/images/tutorial/rofental_2022_2023_es30
+```
+
+The staging command validates source hashes and decoded RGBA pixels, lists
+every selected copy and leaves all unlisted destination files untouched. It
+does not edit LaTeX. Use `--apply` only after reviewing the preview and, for
+manuscript assets, receiving explicit approval for the proposed replacements.
 
 The validator records the intentional metadata distinction between the
 physical Proviantdepot altitude reported by the manuscript and upstream point

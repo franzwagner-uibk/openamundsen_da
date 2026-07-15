@@ -213,7 +213,7 @@ def test_remove_stale_setup_weights_overview_pages_keeps_requested_outputs(tmp_p
     assert not page_99.exists()
 
 
-def test_setup_weights_overview_writes_paper_copy_without_figure_title(tmp_path: Path, monkeypatch) -> None:
+def test_setup_weights_overview_writes_only_canonical_public_output(tmp_path: Path, monkeypatch) -> None:
     import matplotlib.pyplot as plt
 
     _setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
@@ -230,18 +230,54 @@ def test_setup_weights_overview_writes_paper_copy_without_figure_title(tmp_path:
 
     saved = _render_setup_weights_overview_pages(project_dir, monkeypatch)
 
-    assert len(saved) == 2
-    normal, paper = saved
+    assert len(saved) == 1
+    normal = saved[0]
     assert normal["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
-    assert paper["out"] == plot_mod.project_paper_output_path(project_dir, normal["out"])
     normal_title = next(text for text in normal["fig"].texts if text.get_text().startswith("Data assimilation weights"))
     assert normal_title.get_fontsize() == pytest.approx(8.0)
     assert normal["fig"].legends == []
-    assert not any(text.get_text().startswith("Data assimilation weights") for text in paper["fig"].texts)
-    assert paper["fig"].legends == []
+    assert not (project_dir / "results" / "paper").exists()
 
     for item in saved:
         plt.close(item["fig"])
+
+
+def test_setup_weights_overview_supports_explicit_title_free_profile_output(tmp_path: Path, monkeypatch) -> None:
+    import matplotlib.pyplot as plt
+
+    _setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
+    _add_weights_event(
+        project_dir,
+        step_idx=0,
+        observable="scf",
+        date_str="20230501",
+        weights_rows=[
+            {"member_id": "member_001", "residual": -0.1, "sigma": 0.2, "log_weight": -1.0, "weight": 0.6},
+            {"member_id": "member_002", "residual": 0.1, "sigma": 0.2, "log_weight": -1.2, "weight": 0.4},
+        ],
+    )
+    output = project_dir / "results" / "paper" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
+    saved: list[dict[str, object]] = []
+
+    def _fake_save(fig, out, **kwargs) -> None:
+        saved.append({"fig": fig, "out": out, "kwargs": kwargs})
+
+    monkeypatch.setattr(plot_mod, "save_figure_png", _fake_save)
+
+    returned = plot_mod.plot_setup_weights_overview(
+        project_dir,
+        backend="Agg",
+        output=output,
+        show_figure_title=False,
+    )
+
+    assert returned == output
+    assert [item["out"] for item in saved] == [output]
+    assert not any(
+        text.get_text().startswith("Data assimilation weights")
+        for text in saved[0]["fig"].texts
+    )
+    plt.close(saved[0]["fig"])
 
 
 def test_setup_weights_overview_places_event_title_close_to_panel(tmp_path: Path, monkeypatch) -> None:
@@ -1629,30 +1665,19 @@ def test_setup_overview_splits_many_events_across_multiple_pages(tmp_path: Path,
         )
 
     saved = _render_setup_weights_overview_pages(project_dir, monkeypatch)
-    normal_saved = [saved[0], saved[2]]
-    paper_saved = [saved[1], saved[3]]
+    normal_saved = saved
 
-    assert len(saved) == 4
+    assert len(saved) == 2
     assert normal_saved[0]["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023.png"
     assert normal_saved[1]["out"] == project_dir / "results" / "plots" / "assim" / "weights" / "setup_weights_overview_2022_2023_page_02.png"
-    assert paper_saved[0]["out"] == plot_mod.project_paper_output_path(project_dir, normal_saved[0]["out"])
-    assert paper_saved[1]["out"] == plot_mod.project_paper_output_path(project_dir, normal_saved[1]["out"])
     assert normal_saved[0]["fig"].get_figheight() == pytest.approx(
         plot_mod._COMPOSITE_ROW_HEIGHT * plot_mod._OVERVIEW_MAX_ROWS_PER_PAGE
     )
     assert normal_saved[1]["fig"].get_figheight() == pytest.approx(
         plot_mod._COMPOSITE_ROW_HEIGHT * plot_mod._OVERVIEW_MAX_ROWS_PER_PAGE
     )
-    assert paper_saved[0]["fig"].get_figheight() == pytest.approx(
-        plot_mod._COMPOSITE_ROW_HEIGHT * plot_mod._OVERVIEW_MAX_ROWS_PER_PAGE
-    )
-    assert paper_saved[1]["fig"].get_figheight() == pytest.approx(
-        plot_mod._COMPOSITE_ROW_HEIGHT * plot_mod._OVERVIEW_MAX_ROWS_PER_PAGE
-    )
     assert "page 1/2" in normal_saved[0]["fig"].texts[0].get_text()
     assert "page 2/2" in normal_saved[1]["fig"].texts[0].get_text()
-    assert not any(text.get_text().startswith("Data assimilation weights") for text in paper_saved[0]["fig"].texts)
-    assert not any(text.get_text().startswith("Data assimilation weights") for text in paper_saved[1]["fig"].texts)
     renderer = normal_saved[1]["fig"].canvas.get_renderer()
     summary_box = normal_saved[1]["fig"].texts[0].get_window_extent(renderer)
     event_title_boxes = [

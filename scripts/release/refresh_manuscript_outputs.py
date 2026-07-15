@@ -12,6 +12,7 @@ from typing import Any, Mapping, Sequence
 from openamundsen_da.api import render_project
 from openamundsen_da.benchmark.pipeline import run_project_benchmark
 from openamundsen_da.exceptions import OpenAmundsenDAError
+from render_manuscript_profile import render_manuscript_profile
 from validate_manuscript_reference import (
     DEFAULT_ASSET_MANIFEST,
     DEFAULT_CONTRACT,
@@ -122,6 +123,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             reuse_existing_prerequisites=True,
         )
         render_project(project_dir, max_workers=args.max_workers)
+        render_manuscript_profile(root)
         differences = validate_reference(
             root,
             contract,

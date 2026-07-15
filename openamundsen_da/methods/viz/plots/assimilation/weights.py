@@ -28,7 +28,6 @@ from openamundsen_da.io.paths import (
     infer_project_dir,
     infer_setup_dir,
     list_steps_sorted,
-    project_paper_output_path,
     project_plot_assim_weights_dir,
 )
 from openamundsen_da.methods.viz.theme import da_variable_line_color
@@ -1408,7 +1407,13 @@ def _build_setup_weights_overview_page(
     return fig
 
 
-def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Path:
+def plot_setup_weights_overview(
+    setup_dir: Path,
+    *,
+    backend: str = "Agg",
+    output: Path | None = None,
+    show_figure_title: bool = True,
+) -> Path:
     import matplotlib
 
     matplotlib.use(backend or "Agg")
@@ -1437,12 +1442,12 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
     ensemble_size = len(first_df)
     first_manifest = _read_resample_manifest(csv_paths[0])
     ess_threshold = first_manifest.get("ess_threshold")
-    out = _default_setup_weights_overview_output(setup_dir)
+    out = Path(output) if output is not None else _default_setup_weights_overview_output(setup_dir)
+    out.parent.mkdir(parents=True, exist_ok=True)
     rows_per_page = min(_OVERVIEW_MAX_ROWS_PER_PAGE, max(1, n_rows))
     events_per_page = rows_per_page * n_cols
     page_specs = [event_specs[start : start + events_per_page] for start in range(0, len(event_specs), events_per_page)]
     output_paths: list[Path] = []
-    paper_output_paths: list[Path] = []
     for page_index, page in enumerate(page_specs):
         fig = _build_setup_weights_overview_page(
             page,
@@ -1453,29 +1458,13 @@ def plot_setup_weights_overview(setup_dir: Path, *, backend: str = "Agg") -> Pat
             page_index=page_index,
             total_pages=len(page_specs),
             layout_rows=rows_per_page if len(page_specs) > 1 else None,
+            show_figure_title=show_figure_title,
             station_color_config=station_color_config,
         )
         page_out = _setup_weights_overview_page_output(out, page_index)
         save_figure_png(fig, page_out, dpi=600, bbox_inches="tight", pad_inches=0.04)
         output_paths.append(page_out)
-        paper_fig = _build_setup_weights_overview_page(
-            page,
-            all_csv_paths=csv_paths,
-            residual_xlims=residual_xlims,
-            ensemble_size=ensemble_size,
-            ess_threshold=ess_threshold,
-            page_index=page_index,
-            total_pages=len(page_specs),
-            layout_rows=rows_per_page if len(page_specs) > 1 else None,
-            show_figure_title=False,
-            station_color_config=station_color_config,
-        )
-        paper_page_out = project_paper_output_path(setup_dir, page_out)
-        paper_page_out.parent.mkdir(parents=True, exist_ok=True)
-        save_figure_png(paper_fig, paper_page_out, dpi=600, bbox_inches="tight", pad_inches=0.04)
-        paper_output_paths.append(paper_page_out)
     _remove_stale_setup_weights_overview_pages(out, output_paths)
-    _remove_stale_setup_weights_overview_pages(project_paper_output_path(setup_dir, out), paper_output_paths)
     return out
 
 

@@ -120,6 +120,8 @@
     {
       "destination": "project_perf.png",
       "source": "projects/project_2022_2023/results/plots/perf/project_perf.png",
+      "source_policy": "runtime_specific",
+      "reason": "Performance samples describe the execution machine and wall-clock run, so staging validates the canonical tutorial image and the generated image layout but never replaces the canonical image from a different run.",
       "file_sha256": "f760c8e66c2acad9a045a093bfb168dbc777d8faae712aeb655ffa11e5fd837d",
       "width": 4372,
       "height": 1438,
@@ -133,7 +135,17 @@
       "width": 4043,
       "height": 3684,
       "mode": "RGBA",
-      "pixels_sha256": "7bc12e2b46cba6e979ca09994696f0b0fe64953bc0ffd301b535058b9e44d8b6"
+      "pixels_sha256": "7bc12e2b46cba6e979ca09994696f0b0fe64953bc0ffd301b535058b9e44d8b6",
+      "accepted_run_records": [
+        {
+          "file_sha256": "8787471c102364af3774c22c58c54ac42787e6cefbf3310a0d3a08dc062cbf36",
+          "width": 4043,
+          "height": 3684,
+          "mode": "RGBA",
+          "pixels_sha256": "431dec70f531dcfb8f33d207aa5e403c20f6f014a9fc7d2d22427443e15e1450",
+          "reason": "Fresh reproduction with the current pinned environment differs from the canonical image in 1434 antialiased CRPSS-panel pixels because benchmark reductions vary at machine precision; the numerical contract remains unchanged."
+        }
+      ]
     },
     {
       "destination": "setup_ess_timeline_2022_2023.png",

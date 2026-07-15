@@ -203,3 +203,99 @@ def test_publication_staging_blocks_source_hash_drift(tmp_path: Path, monkeypatc
     assert actions[0].operation == "BLOCKED"
     assert any("selected source differs" in error for error in errors)
     assert not (tmp_path / "tutorial" / "figure.png").exists()
+
+
+def test_publication_staging_preserves_canonical_destination_for_accepted_variant(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _load_release_module("stage_publication_assets", monkeypatch)
+    root = tmp_path / "run"
+    source = root / "results" / "figure.png"
+    source.parent.mkdir(parents=True)
+    Image.new("RGBA", (3, 2), (4, 5, 6, 255)).save(source)
+    destination = tmp_path / "assets"
+    destination.mkdir()
+    canonical = destination / "figure.png"
+    Image.new("RGBA", (3, 2), (1, 2, 3, 255)).save(canonical)
+    record = {
+        "destination": "figure.png",
+        "source": "results/figure.png",
+        **module._image_record(canonical),
+        "accepted_run_records": [module._image_record(source)],
+    }
+
+    actions, errors = module.plan_stage(
+        root=root,
+        destination=destination,
+        manifest={"tutorial_assets": [record]},
+        target="tutorial",
+    )
+
+    assert errors == ()
+    assert actions[0].operation == "PRESERVE"
+    assert module.apply_stage(actions, errors) == ()
+    assert module._image_record(canonical) == {
+        key: record[key] for key in module.IMAGE_KEYS
+    }
+
+
+def test_publication_staging_blocks_accepted_variant_without_canonical_destination(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _load_release_module("stage_publication_assets", monkeypatch)
+    root = tmp_path / "run"
+    source = root / "results" / "figure.png"
+    source.parent.mkdir(parents=True)
+    Image.new("RGBA", (3, 2), (4, 5, 6, 255)).save(source)
+    canonical = tmp_path / "canonical.png"
+    Image.new("RGBA", (3, 2), (1, 2, 3, 255)).save(canonical)
+    record = {
+        "destination": "figure.png",
+        "source": "results/figure.png",
+        **module._image_record(canonical),
+        "accepted_run_records": [module._image_record(source)],
+    }
+
+    actions, errors = module.plan_stage(
+        root=root,
+        destination=tmp_path / "assets",
+        manifest={"tutorial_assets": [record]},
+        target="tutorial",
+    )
+
+    assert actions[0].operation == "BLOCKED"
+    assert any("canonical destination differs" in error for error in errors)
+
+
+def test_publication_staging_preserves_runtime_specific_plot(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _load_release_module("stage_publication_assets", monkeypatch)
+    root = tmp_path / "run"
+    source = root / "results" / "performance.png"
+    source.parent.mkdir(parents=True)
+    Image.new("RGBA", (3, 2), (8, 7, 6, 255)).save(source)
+    destination = tmp_path / "assets"
+    destination.mkdir()
+    canonical = destination / "performance.png"
+    Image.new("RGBA", (3, 2), (1, 2, 3, 255)).save(canonical)
+    record = {
+        "destination": "performance.png",
+        "source": "results/performance.png",
+        "source_policy": "runtime_specific",
+        **module._image_record(canonical),
+    }
+
+    actions, errors = module.plan_stage(
+        root=root,
+        destination=destination,
+        manifest={"tutorial_assets": [record]},
+        target="tutorial",
+    )
+
+    assert errors == ()
+    assert actions[0].operation == "PRESERVE"
+    assert module.apply_stage(actions, errors) == ()

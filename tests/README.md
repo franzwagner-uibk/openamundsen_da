@@ -449,9 +449,13 @@ python scripts/release/stage_publication_assets.py \
 ```
 
 The staging command validates source hashes and decoded RGBA pixels, lists
-every selected copy and leaves all unlisted destination files untouched. It
-does not edit LaTeX. Use `--apply` only after reviewing the preview and, for
-manuscript assets, receiving explicit approval for the proposed replacements.
+every selected copy and leaves all unlisted destination files untouched.
+`PRESERVE` means that a source is an explicitly recorded cross-platform render
+variant, or a machine-specific performance plot, while the canonical
+destination remains byte-exact. Such a source is never copied over the
+canonical asset. The command does not edit LaTeX. Use `--apply` only after
+reviewing the preview and, for manuscript assets, receiving explicit approval
+for the proposed replacements.
 
 The validator records the intentional metadata distinction between the
 physical Proviantdepot altitude reported by the manuscript and upstream point

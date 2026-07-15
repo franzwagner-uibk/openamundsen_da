@@ -30,17 +30,33 @@ def _relative_path(value: Any, *, field: str) -> Path:
     return path
 
 
-def _image_differences(path: Path, record: Mapping[str, Any]) -> list[str]:
+IMAGE_KEYS = ("file_sha256", "width", "height", "mode", "pixels_sha256")
+LAYOUT_KEYS = ("width", "height", "mode")
+
+
+def _image_differences(
+    path: Path,
+    record: Mapping[str, Any],
+    *,
+    keys: Sequence[str] = IMAGE_KEYS,
+) -> list[str]:
     if not path.is_file():
         return [f"missing image: {path}"]
     actual = _image_record(path)
     differences: list[str] = []
-    for key in ("file_sha256", "width", "height", "mode", "pixels_sha256"):
+    for key in keys:
         if actual[key] != record[key]:
             differences.append(
                 f"{path}:{key}: expected {record[key]!r}, got {actual[key]!r}"
             )
     return differences
+
+
+def _matches_record(path: Path, record: Mapping[str, Any]) -> bool:
+    if not path.is_file():
+        return False
+    actual = _image_record(path)
+    return all(actual[key] == record[key] for key in IMAGE_KEYS)
 
 
 def _target_records(manifest: Mapping[str, Any], target: str) -> tuple[Mapping[str, Any], ...]:
@@ -83,10 +99,37 @@ def plan_stage(
 
         relative_source = _relative_path(source_value, field="source")
         source_path = root / relative_source
+        source_policy = str(record.get("source_policy", "exact"))
+        if source_policy not in {"exact", "runtime_specific"}:
+            errors.append(
+                f"unsupported source policy for {source_path}: {source_policy!r}"
+            )
+            actions.append(StageAction(destination_path, source_path, "BLOCKED"))
+            continue
         source_differences = _image_differences(source_path, record)
-        if source_differences:
+        accepted_variant = any(
+            _matches_record(source_path, accepted)
+            for accepted in record.get("accepted_run_records", ())
+        )
+        runtime_variant = source_policy == "runtime_specific" and not _image_differences(
+            source_path,
+            record,
+            keys=LAYOUT_KEYS,
+        )
+        if source_differences and not accepted_variant and not runtime_variant:
             errors.extend(f"selected source differs: {item}" for item in source_differences)
             actions.append(StageAction(destination_path, source_path, "BLOCKED"))
+            continue
+
+        if source_differences:
+            destination_differences = _image_differences(destination_path, record)
+            if destination_differences:
+                errors.extend(
+                    f"canonical destination differs: {item}" for item in destination_differences
+                )
+                actions.append(StageAction(destination_path, source_path, "BLOCKED"))
+            else:
+                actions.append(StageAction(destination_path, source_path, "PRESERVE"))
             continue
 
         destination_differences = _image_differences(destination_path, record)

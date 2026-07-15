@@ -2,13 +2,11 @@ services:
   oa:
     image: ${IMAGE:-ghcr.io/franzwagner-uibk/openamundsen_da:latest}
     user: "${UID:-1000}:${GID:-1000}"
-    working_dir: /workspace
+    working_dir: /data
     volumes:
-      - ${REPO:-.}:/workspace
       - ${PROJ:-./examples/rofental}:/data
       - oa_cache:/cache
     environment:
-      PYTHONPATH: /workspace
       XDG_CACHE_HOME: /cache/xdg
       MAMBA_PKGS_DIRS: /cache/mamba/pkgs
       MPLCONFIGDIR: /cache/mpl

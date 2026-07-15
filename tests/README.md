@@ -7,68 +7,76 @@ This folder documents the current regression-testing setup for `openamundsen_da`
 1. Start from `main` and create a feature branch.
 2. Implement changes on the feature branch.
 3. Push branch to GitHub.
-4. Wait for `CI and Publish` -> `Unit and Integration Tests` to finish green.
+4. Wait for all required `CI` jobs to finish green.
 5. Merge branch into `main` only if green.
-6. After merge, verify `main` pipeline is green (`tests` + `publish`).
+6. After merge, verify the trusted integration and `publish-edge` jobs are green.
 7. Delete merged feature branch.
 
-Important: because the repository is private and you do not use paid GitHub plan features for protected rulesets, this process is enforced by discipline, not hard merge blocking.
+Important: the repository is public. Keep every CI check green before merging;
+until required-check branch protection is configured, this process is enforced
+by review discipline rather than a hard merge block.
 
 ## What Is Automated
 
 Workflow file: `.github/workflows/ci.yml`
 
 - Triggered on:
-  - Pull requests to `main` (except docs-only changes)
-  - Pushes to any branch (except docs-only changes)
+  - Pull requests to `main`
+  - Pushes to `main`
   - Manual dispatch (`workflow_dispatch`)
-- Job `Ruff Lint`:
-  - Runs fast fatal and stale-code lint checks before tests
-  - Script: `scripts/ci/run_lint.sh`
-- Job `Unit and Integration Tests`:
+- GitHub-hosted gates:
+  - fatal and stale-code Ruff checks
+  - strict wheel and sdist validation with SHA-256 checksums
+  - no-dependency installed-wheel smoke tests on Linux, macOS and Windows with Python 3.11 through 3.14
+  - documentation build and pull-request dependency review
+  - `linux/amd64` and `linux/arm64` release-image bootstrap checks and a critical-vulnerability image scan
+- Job `Trusted Lenovo P8 integration`:
   - Runs on self-hosted runner labels: `self-hosted, linux, x64, oa-da`
-  - Builds a CI Docker image from current commit
+  - Downloads the wheel that passed the package and portable gates
+  - Builds a release-layout image that installs that wheel non-editably
   - Runs unit tests with `pytest` via `scripts/ci/run_unit_tests.sh`
-  - Builds and installs the wheel outside the checkout via `scripts/ci/run_wheel_smoke.sh`; verifies that only `openamundsen-da` is installed and exercises nested help and JSON errors
+  - Installs the tested wheel outside the checkout via `scripts/ci/run_wheel_smoke.sh`; verifies that only `openamundsen-da` is installed and exercises nested help and JSON errors
   - Runs full single-domain example integration test via `scripts/ci/run_integration_tests.sh`
   - Runs trimmed sub-domain integration test via `scripts/ci/run_integration_tests_subdomain.sh`
   - Runs trimmed plain openAMUNDSEN model sub-domain integration test via `scripts/ci/run_integration_tests_model_subdomain.sh`
   - Uploads integration artifacts on failure (log + example setup outputs)
-- Job `Build and Push GHCR Image`:
+- Job `Publish immutable commit and edge images`:
   - Runs only on push to `main`
-  - Depends on successful `tests` job
-  - Logs in to GHCR using `GHCR_PAT`
-  - Builds and pushes image tags:
-    - `main-YYYYMMDD`
-    - short SHA
-    - `latest`
+  - Depends on all trusted tests
+  - Uses the scoped repository `GITHUB_TOKEN`
+  - Builds and pushes multi-architecture `sha-<full-commit>` and `edge` tags
+  - Generates BuildKit provenance/SBOM metadata and a GitHub attestation
+  - Never updates `latest`; only a stable release does that
+
+Workflow file `.github/workflows/release.yml` runs for exact stable and RC tags.
+It repeats the portable matrix and trusted Lenovo P8 rehearsal before OIDC
+Trusted Publishing to TestPyPI or approval-gated PyPI, then publishes the
+multi-architecture release image and GitHub prerelease/release.
 
 ## What You Must Do Manually
 
 - Follow feature-branch workflow (do not develop directly on `main`).
 - Monitor Actions results after push/merge.
 - Keep the self-hosted runner online and healthy.
-- Keep GitHub secret `GHCR_PAT` valid.
+- Keep the `testpypi` and approval-gated `pypi` GitHub environments and their
+  corresponding Trusted Publisher registrations valid.
 - Tune integration validation rules if expected output/warnings change.
 
 ## Current Test Stack
 
 ### Rough CI test steps (execution order)
 
-1. `Ruff Lint` job runs (`scripts/ci/run_lint.sh`) and checks fatal lint classes.
-2. `Unit and Integration Tests` job starts only after lint is green.
-3. CI image is built from current commit.
-4. Unit tests are executed with `pytest` (`scripts/ci/run_unit_tests.sh`).
-5. Integration run clones `examples/rofental` into a temporary workspace.
-6. Setup skeleton is generated for the shipped `project_2022_2023`.
+1. Lint, package, documentation and architecture jobs start on GitHub-hosted runners.
+2. The built wheel is reused by the 12-job portable matrix.
+3. The Lenovo P8 job starts only after those gates are green.
+4. A release-layout image is built from the tested wheel.
+5. Unit tests are executed with `pytest` (`scripts/ci/run_unit_tests.sh`).
+6. Integration run clones `examples/rofental` into a temporary workspace.
 7. SCF and wet-snow per-step observation CSVs are prepared.
 8. The full example is executed through `openamundsen-da run`.
-9. Integration validator checks logs, outputs, plots, scientific benchmark outputs, and weight sanity.
-10. Example-specific diagnostics such as station HS weights and setup weights overview are checked.
-11. Sub-domain integration validator checks manifest status and project-level results outputs.
-12. Model sub-domain integration validator checks model manifest status and merged grid output.
-13. If integration fails, log and example outputs are uploaded as CI artifacts.
-14. On push to `main` only: publish job builds and pushes GHCR image.
+9. Integration validators check logs, outputs, plots, scientific benchmark outputs, weights and subdomain manifests.
+10. If integration fails, log and example outputs are uploaded as CI artifacts.
+11. On push to `main`, the multi-architecture `edge` and immutable commit images publish after all gates.
 
 ### Unit tests
 
@@ -207,7 +215,7 @@ Runner script: `scripts/ci/run_lint.sh`
 
 What it checks:
 - ruff fatal classes (`E9`, `F63`, `F7`, `F82`)
-- stale-code classes that are clean enough to enforce for v1.0 (`F401`, `F841`, `ERA001`)
+- stale-code classes enforced for releases (`F401`, `F841`, `ERA001`)
 
 ## Self-Hosted Runner Setup (Ubuntu Test Machine)
 
@@ -226,7 +234,10 @@ Required network direction:
 
 Required:
 - Actions enabled
-- Secret `GHCR_PAT` present (package write access for GHCR publish job)
+- GitHub environments `testpypi` and `pypi`
+- A required reviewer on the stable `pypi` environment
+- Matching TestPyPI and PyPI Trusted Publisher registrations for
+  `.github/workflows/release.yml`
 
 Recommended for this project:
 - Keep `main` as release branch
@@ -290,13 +301,16 @@ If CI fails, check in this order:
 - integration validation failure (log/output checks)
 - environment/runtime issue (paths, resources, permissions)
 
-4. Publish-stage failures (only on `main`)
-- `GHCR_PAT` missing/expired/insufficient permissions
+4. Publish-stage failures
+- repository `GITHUB_TOKEN` lacks package or attestation permission
 - GHCR login or push denied
+- Trusted Publisher workflow/environment fields do not match
+- stable `pypi` environment is waiting for reviewer approval
 
 ## Local Reproduction (optional)
 
 From repository root:
+- build and validate the distributions: `bash scripts/ci/build_distribution.sh`
 - run unit test wrapper: `bash scripts/ci/run_unit_tests.sh`
 - run single-domain integration wrapper: `bash scripts/ci/run_integration_tests.sh`
 - run sub-domain integration wrapper: `bash scripts/ci/run_integration_tests_subdomain.sh`

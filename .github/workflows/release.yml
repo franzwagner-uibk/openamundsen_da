@@ -1,0 +1,391 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  IMAGE: ghcr.io/franzwagner-uibk/openamundsen_da
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Build exact release bundle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    outputs:
+      version: ${{ steps.contract.outputs.version }}
+      prerelease: ${{ steps.contract.outputs.prerelease }}
+      index: ${{ steps.contract.outputs.index }}
+    steps:
+      - name: Checkout tag and complete history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Require a commit from main
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Build distributions
+        run: |
+          python -m pip install --disable-pip-version-check build==1.5.0 twine==6.2.0
+          bash scripts/ci/build_distribution.sh
+
+      - name: Validate tag and exact distribution version
+        id: contract
+        run: |
+          python scripts/release/validate_release.py \
+            --tag "${GITHUB_REF_NAME}" \
+            --dist-dir dist \
+            --source-dir . \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Generate SPDX package SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: dist
+          format: spdx-json
+          output-file: release-metadata/openamundsen-da-${{ steps.contract.outputs.version }}.spdx.json
+          upload-artifact: false
+
+      - name: Generate release checksums
+        run: |
+          rm -f dist/SHA256SUMS
+          sha256sum dist/*.whl dist/*.tar.gz release-metadata/*.spdx.json > release-metadata/SHA256SUMS
+
+      - name: Attest wheel with SPDX SBOM
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-path: dist/*.whl
+          sbom-path: release-metadata/openamundsen-da-${{ steps.contract.outputs.version }}.spdx.json
+
+      - name: Attest source distribution with SPDX SBOM
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-path: dist/*.tar.gz
+          sbom-path: release-metadata/openamundsen-da-${{ steps.contract.outputs.version }}.spdx.json
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-bundle
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            release-metadata/*
+          if-no-files-found: error
+          retention-days: 90
+
+  portable:
+    name: Release portable ${{ matrix.os }} / Python ${{ matrix.python }}
+    needs: package
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout validator
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Download release bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-bundle
+          path: release
+
+      - name: Validate exact portable wheel
+        run: |
+          wheel=(release/dist/openamundsen_da-*.whl)
+          test "${#wheel[@]}" -eq 1
+          python scripts/ci/validate_installed_wheel.py "${wheel[0]}" \
+            --portable \
+            --expected-version "${{ needs.package.outputs.version }}"
+
+  stage-container:
+    name: Stage exact multiarch release image
+    needs: [package, portable]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Download release bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-bundle
+          path: release
+
+      - name: Stage exact release wheel
+        run: |
+          mkdir -p dist
+          cp release/dist/openamundsen_da-*.whl dist/
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and stage multiarch candidate
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.IMAGE }}:candidate-${{ needs.package.outputs.version }}-${{ github.sha }}
+          build-args: |
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ needs.package.outputs.version }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Scan staged release image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL
+          trivyignores: .trivyignore
+
+  trusted-integration:
+    name: Release candidate rehearsal on Lenovo P8
+    needs: [package, portable, stage-container]
+    runs-on: [self-hosted, linux, x64, oa-da]
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Download release bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-bundle
+          path: release
+
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull exact staged release image
+        run: docker pull --platform linux/amd64 "${IMAGE}@${{ needs.stage-container.outputs.digest }}"
+
+      - name: Validate installed wheel interface
+        run: CI_IMAGE="${IMAGE}@${{ needs.stage-container.outputs.digest }}" bash scripts/ci/run_wheel_smoke.sh
+
+      - name: Run unit tests
+        run: CI_IMAGE="${IMAGE}@${{ needs.stage-container.outputs.digest }}" bash scripts/ci/run_unit_tests.sh
+
+      - name: Run Rofental integration
+        run: |
+          CI_IMAGE="${IMAGE}@${{ needs.stage-container.outputs.digest }}" \
+          OA_DA_TEST_MAX_WORKERS=8 \
+          OA_DA_TEST_SETUP_RESOLUTION=500 \
+          OA_DA_TEST_ENSEMBLE_SIZE=2 \
+          CI_ARTIFACT_DIR="${GITHUB_WORKSPACE}/.ci-artifacts/release/single-domain" \
+          bash scripts/ci/run_integration_tests.sh
+
+      - name: Run DA subdomain integration
+        run: |
+          CI_IMAGE="${IMAGE}@${{ needs.stage-container.outputs.digest }}" \
+          OA_DA_SUBDOMAIN_TEST_MAX_WORKERS=8 \
+          OA_DA_SUBDOMAIN_TEST_INNER_WORKERS=4 \
+          CI_ARTIFACT_DIR="${GITHUB_WORKSPACE}/.ci-artifacts/release/sub-domain" \
+          bash scripts/ci/run_integration_tests_subdomain.sh
+
+      - name: Run model subdomain integration
+        run: |
+          CI_IMAGE="${IMAGE}@${{ needs.stage-container.outputs.digest }}" \
+          OA_DA_MODEL_SUBDOMAIN_TEST_MAX_WORKERS=8 \
+          CI_ARTIFACT_DIR="${GITHUB_WORKSPACE}/.ci-artifacts/release/model-sub-domain" \
+          bash scripts/ci/run_integration_tests_model_subdomain.sh
+
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-integration-artifacts-${{ github.run_id }}
+          path: .ci-artifacts/release
+          if-no-files-found: ignore
+          retention-days: 14
+
+  publish-python:
+    name: Publish to ${{ needs.package.outputs.index }}
+    needs: [package, trusted-integration]
+    runs-on: ubuntu-latest
+    environment: ${{ needs.package.outputs.index }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Download release bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-bundle
+          path: release
+
+      - name: Publish with Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          packages-dir: release/dist
+          repository-url: ${{ needs.package.outputs.prerelease == 'true' && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}
+          attestations: true
+
+      - name: Verify exact public index install
+        env:
+          VERSION: ${{ needs.package.outputs.version }}
+          INDEX_URL: ${{ needs.package.outputs.prerelease == 'true' && 'https://test.pypi.org/simple/' || 'https://pypi.org/simple/' }}
+        run: |
+          for attempt in $(seq 1 12); do
+            echo "Index verification attempt ${attempt}/12"
+            target="$(mktemp -d)"
+            if python -m pip install --disable-pip-version-check --no-deps \
+              --target "${target}" --index-url "${INDEX_URL}" "openamundsen-da==${VERSION}"; then
+              PYTHONPATH="${target}" python -c \
+                "import openamundsen_da as p; assert p.__version__ == '${VERSION}', p.__version__"
+              exit 0
+            fi
+            rm -rf "${target}"
+            sleep 10
+          done
+          exit 1
+
+  publish-container:
+    name: Promote exact release container
+    needs: [package, stage-container, publish-python]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute immutable release tags
+        id: tags
+        env:
+          VERSION: ${{ needs.package.outputs.version }}
+          PRERELEASE: ${{ needs.package.outputs.prerelease }}
+        run: |
+          {
+            echo 'tags<<EOF'
+            echo "${IMAGE}:${VERSION}"
+            if [[ "${PRERELEASE}" == "false" ]]; then
+              echo "${IMAGE}:latest"
+            fi
+            echo EOF
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Promote staged digest without rebuilding
+        env:
+          TAGS: ${{ steps.tags.outputs.tags }}
+          DIGEST: ${{ needs.stage-container.outputs.digest }}
+        run: |
+          args=()
+          while IFS= read -r tag; do
+            [[ -n "${tag}" ]] && args+=(--tag "${tag}")
+          done <<< "${TAGS}"
+          docker buildx imagetools create "${args[@]}" "${IMAGE}@${DIGEST}"
+
+      - name: Attest published release image
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ needs.stage-container.outputs.digest }}
+          push-to-registry: true
+
+      - name: Verify exact published container
+        env:
+          VERSION: ${{ needs.package.outputs.version }}
+          EXPECTED_DIGEST: ${{ needs.stage-container.outputs.digest }}
+        run: |
+          docker buildx imagetools inspect "${IMAGE}:${VERSION}" | grep -F "Digest: ${EXPECTED_DIGEST}"
+          docker pull --platform linux/amd64 "${IMAGE}:${VERSION}"
+          docker run --rm --platform linux/amd64 "${IMAGE}:${VERSION}" \
+            openamundsen-da --version | grep -F "${VERSION}"
+
+  github-release:
+    name: Create GitHub release
+    needs: [package, publish-container]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-bundle
+          path: release
+
+      - name: Create immutable GitHub release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: ${{ github.ref_name }}
+          prerelease: ${{ needs.package.outputs.prerelease == 'true' }}
+          make_latest: ${{ needs.package.outputs.prerelease == 'false' }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release/dist/*.whl
+            release/dist/*.tar.gz
+            release/release-metadata/*

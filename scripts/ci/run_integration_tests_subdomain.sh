@@ -59,7 +59,7 @@ compose_run() {
   PROJ="${PROJ_MOUNT}" \
   IMAGE="${CI_IMAGE}" \
   env UID="$(id -u)" GID="$(id -g)" \
-  docker compose run --rm oa "$@"
+  docker compose -f "${ROOT_DIR}/compose.yml" -f "${ROOT_DIR}/compose.ci.yml" run --rm oa "$@"
 }
 
 echo "[subdomain-integration] Preparing trimmed CI project in ${SETUP_DIR}"

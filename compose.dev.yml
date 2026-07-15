@@ -1,0 +1,7 @@
+services:
+  oa:
+    working_dir: /workspace
+    volumes:
+      - ${REPO:-.}:/workspace
+    environment:
+      PYTHONPATH: /workspace

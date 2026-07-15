@@ -5,6 +5,16 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CI_IMAGE="${CI_IMAGE:-openamundsen-da-ci:local}"
 REPO_MOUNT="${ROOT_DIR}"
 PROJ_MOUNT="${ROOT_DIR}/examples/rofental"
+WHEEL_PATH="${WHEEL_PATH:-}"
+
+if [[ -z "${WHEEL_PATH}" ]]; then
+  mapfile -t wheels < <(find "${ROOT_DIR}/dist" -maxdepth 1 -type f -name 'openamundsen_da-*.whl' | sort)
+  if [[ "${#wheels[@]}" -ne 1 ]]; then
+    echo "Expected one wheel under ${ROOT_DIR}/dist, found ${#wheels[@]}" >&2
+    exit 1
+  fi
+  WHEEL_PATH="${wheels[0]}"
+fi
 
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*)
@@ -19,5 +29,5 @@ REPO="${REPO_MOUNT}" \
 PROJ="${PROJ_MOUNT}" \
 IMAGE="${CI_IMAGE}" \
 env UID="$(id -u)" GID="$(id -g)" \
-docker compose run --rm oa \
-  python /workspace/scripts/ci/validate_installed_wheel.py /workspace
+docker compose -f "${ROOT_DIR}/compose.yml" -f "${ROOT_DIR}/compose.ci.yml" run --rm oa \
+  python /workspace/scripts/ci/validate_installed_wheel.py "/workspace/dist/$(basename "${WHEEL_PATH}")"

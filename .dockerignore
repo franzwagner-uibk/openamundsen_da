@@ -1,52 +1,12 @@
-# VCS / metadata
-.git
-.sync-exclude.lst
-
-# Python bytecode & caches
-**/__pycache__/
-**/*.pyc
-**/*.pyo
-.mypy_cache
-.pytest_cache
-.ruff_cache
-
-# Build artifacts
-build
-dist
-*.egg-info
-
-# Coverage & profiling
-.coverage*
-coverage.xml
-htmlcov/
-*.prof
-*.pstats
-*.cprofile
-
-# Virtual environments & env files
-.venv
-.venv*/
-.env
-*.env
-
-# OS / editor cruft
-.DS_Store
-.idea/
-.vscode/
-*.swp
-*.log
-.ci-artifacts/
-
-# Documentation build outputs
-docs/_build/
-docs/_site/
-CODE_REVIEW_GUIDELINES.md
-
-# Notebooks
-*.ipynb
-*.ipynb_checkpoints
-
-# Local data (kept out of image)
-dev_examples
-testdata/
-context/
+**
+!Dockerfile
+!environment.yml
+!dist/
+!dist/openamundsen_da-*.whl
+!examples/
+examples/**
+!examples/rofental/
+!examples/rofental/**
+!scripts/
+scripts/**
+!scripts/oa_entrypoint.sh

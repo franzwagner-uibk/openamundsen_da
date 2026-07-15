@@ -299,3 +299,36 @@ From repository root:
 - run sub-domain integration wrapper: `bash scripts/ci/run_integration_tests_subdomain.sh`
 
 Use same scripts as CI to avoid drift between local and server behavior.
+
+## Rofental ES30 Scientific Fingerprint
+
+The release-only comparison harness records scientific content without depending
+on PNG chunks or NetCDF history metadata. Its selection contract is
+`tests/baselines/rofental_es30_science_spec.json`.
+
+Capture a completed canonical run:
+
+```bash
+python scripts/release/science_fingerprint.py capture \
+  /path/to/rofental \
+  tests/baselines/rofental_es30_science_spec.json \
+  /path/to/rofental_es30_fingerprint.json \
+  --metadata git_commit=<full-commit> \
+  --metadata image_digest=<sha256-digest>
+```
+
+Compare a candidate capture to the committed baseline:
+
+```bash
+python scripts/release/science_fingerprint.py compare \
+  tests/baselines/rofental_es30_science_fingerprint.json \
+  /path/to/candidate_fingerprint.json
+```
+
+The capture compares semantic YAML content; CSV columns, row order and values;
+decoded NetCDF dimensions, coordinates and arrays; and decoded RGBA image
+pixels. Generated member configuration files are excluded because their
+absolute runtime paths are provenance rather than scientific output.
+Performance monitor outputs are deliberately excluded because they describe the
+host run, not the scientific result. A changed fingerprint blocks release until
+the difference is explained and explicitly approved.

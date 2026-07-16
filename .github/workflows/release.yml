@@ -57,6 +57,9 @@ jobs:
             --source-dir . \
             --github-output "${GITHUB_OUTPUT}"
 
+      - name: Prepare release metadata directory
+        run: mkdir -p release-metadata
+
       - name: Generate SPDX package SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:

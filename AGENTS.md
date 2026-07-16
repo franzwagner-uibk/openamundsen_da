@@ -2,7 +2,7 @@
 
 This repository uses layered instructions on purpose: Codex reads the `AGENTS.md` chain, `CLAUDE.md` imports this root file and adds `.claude/rules/`, and Cursor should rely on this root file plus `.cursor/rules/*.mdc`. Keep shared project facts here and keep tool-specific scoping in the tool-specific rule directories.
 
-- Treat `README.md`, `docs/project-structure.md`, `docs/workflow.md`, `docs/guides/configuration.md`, `tests/README.md`, `examples/README.md`, and `.github/workflows/ci.yml` as the authoritative workflow and contract sources.
+- Treat `README.md`, `docs/reference/package-structure.md`, `docs/running.md`, `docs/guides/configuration.md`, `tests/README.md`, `examples/README.md`, and `.github/workflows/ci.yml` as the authoritative workflow and contract sources.
 - openAMUNDSEN-DA is currently an operational ROI-scale particle-filter layer on top of openAMUNDSEN. Do not describe current ROI weighting as spatial localization unless the task explicitly implements localization.
 - Treat EO and station observations as product-specific evidence with uncertainty and representativeness limits, not as universal ground truth.
 - Work on a feature branch only. Never develop on `main`.

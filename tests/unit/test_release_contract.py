@@ -9,6 +9,7 @@ import pytest
 
 SCRIPT = Path(__file__).parents[2] / "scripts" / "release" / "validate_release.py"
 ROOT = SCRIPT.parents[2]
+RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
 SPEC = importlib.util.spec_from_file_location("validate_release", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 validate_release = importlib.util.module_from_spec(SPEC)
@@ -43,3 +44,15 @@ def test_fiona_trivy_exception_requires_non_vulnerable_gdal_pin() -> None:
     assert re.search(r"^\s*-\s+fiona=1\.9\.6\s*$", environment, re.MULTILINE)
     assert re.search(r"^\s*-\s+gdal=3\.8\.5\s*$", environment, re.MULTILINE)
     assert "GHSA-q5fm-55c2-v6j9 exp:2027-07-15" in ignore
+
+
+def test_release_workflow_prepares_metadata_directory_before_sbom() -> None:
+    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    prepare_step = "      - name: Prepare release metadata directory"
+    sbom_step = "      - name: Generate SPDX package SBOM"
+
+    prepare_index = workflow.index(prepare_step)
+    sbom_index = workflow.index(sbom_step)
+
+    assert prepare_index < sbom_index
+    assert "run: mkdir -p release-metadata" in workflow[prepare_index:sbom_index]

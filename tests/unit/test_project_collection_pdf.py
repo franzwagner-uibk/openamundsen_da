@@ -7,6 +7,7 @@ import matplotlib.image as mpimg
 import numpy as np
 import pytest
 from openamundsen_da.methods.viz.reports.project_collection_pdf import (
+    MissingProjectPdfArtifactsError,
     _content_rows,
     _format_page_range,
     _image_size_inches,
@@ -328,6 +329,16 @@ def test_build_project_collection_pdf_writes_summary_with_missing_artifacts(tmp_
     assert written == output
     assert output.is_file()
     assert _pdf_page_count(output) == 1
+
+
+def test_missing_project_pdf_artifacts_error_recommends_supported_render_command(tmp_path: Path) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2023"
+    missing = project_dir / "results" / "maps" / "setup_overview.png"
+
+    message = str(MissingProjectPdfArtifactsError(project_dir, [missing]))
+
+    assert f"Rerun rendering: openamundsen-da render {project_dir}" in message
+    assert "oa-da-" not in message
 
 
 def test_build_project_collection_pdf_handles_subdomain_summary_section(tmp_path: Path) -> None:

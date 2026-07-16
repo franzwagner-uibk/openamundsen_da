@@ -120,10 +120,9 @@ class MissingProjectPdfArtifactsError(FileNotFoundError):
         self.missing_paths = tuple(Path(path) for path in missing_paths)
         formatted = "\n".join(f"- {path}" for path in self.missing_paths)
         super().__init__(
-            "Missing required project PDF artifact(s). Regenerate project plots/maps first:\n"
+            "Missing required project PDF artifact(s). Regenerate configured project outputs first:\n"
             f"{formatted}\n\n"
-            f"Rerun plots: oa-da-plot-project-plots --project-dir {self.project_dir}\n"
-            f"Rerun maps:  oa-da-plot-project-maps --project-dir {self.project_dir}"
+            f"Rerun rendering: openamundsen-da render {self.project_dir}"
         )
 
 

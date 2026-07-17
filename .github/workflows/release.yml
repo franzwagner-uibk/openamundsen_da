@@ -71,7 +71,17 @@ jobs:
       - name: Generate release checksums
         run: |
           rm -f dist/SHA256SUMS
-          sha256sum dist/*.whl dist/*.tar.gz release-metadata/*.spdx.json > release-metadata/SHA256SUMS
+          {
+            (cd dist && sha256sum *.whl *.tar.gz)
+            (cd release-metadata && sha256sum *.spdx.json)
+          } > release-metadata/SHA256SUMS
+
+      - name: Verify flat release bundle checksums
+        run: |
+          verify_dir="$(mktemp -d)"
+          cp dist/*.whl dist/*.tar.gz release-metadata/*.spdx.json \
+            release-metadata/SHA256SUMS "${verify_dir}/"
+          (cd "${verify_dir}" && sha256sum -c SHA256SUMS)
 
       - name: Attest wheel with SPDX SBOM
         uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1

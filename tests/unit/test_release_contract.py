@@ -71,3 +71,15 @@ def test_release_workflow_stages_downloaded_wheel_before_p8_smoke() -> None:
 
     assert stage_index < smoke_index
     assert "cp release/dist/openamundsen_da-*.whl dist/" in trusted_job[stage_index:smoke_index]
+
+
+def test_release_workflow_verifies_published_manifest_digest_from_raw_bytes() -> None:
+    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    promotion_start = workflow.index("  publish-container:")
+    promotion_end = workflow.index("\n  github-release:", promotion_start)
+    promotion_job = workflow[promotion_start:promotion_end]
+
+    assert 'imagetools inspect "${IMAGE}:${VERSION}" --raw' in promotion_job
+    assert "| sha256sum" in promotion_job
+    assert '[[ "${published_digest}" != "${EXPECTED_DIGEST}" ]]' in promotion_job
+    assert 'grep -F "Digest: ${EXPECTED_DIGEST}"' not in promotion_job

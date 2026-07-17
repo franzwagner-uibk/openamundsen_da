@@ -56,3 +56,18 @@ def test_release_workflow_prepares_metadata_directory_before_sbom() -> None:
 
     assert prepare_index < sbom_index
     assert "run: mkdir -p release-metadata" in workflow[prepare_index:sbom_index]
+
+
+def test_release_workflow_stages_downloaded_wheel_before_p8_smoke() -> None:
+    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    trusted_start = workflow.index("  trusted-integration:")
+    trusted_end = workflow.index("\n  publish-python:", trusted_start)
+    trusted_job = workflow[trusted_start:trusted_end]
+    stage_step = "      - name: Stage exact release wheel"
+    smoke_step = "      - name: Validate installed wheel interface"
+
+    stage_index = trusted_job.index(stage_step)
+    smoke_index = trusted_job.index(smoke_step)
+
+    assert stage_index < smoke_index
+    assert "cp release/dist/openamundsen_da-*.whl dist/" in trusted_job[stage_index:smoke_index]

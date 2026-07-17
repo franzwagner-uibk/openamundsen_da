@@ -193,13 +193,18 @@ jobs:
             VCS_REF=${{ github.sha }}
             VERSION=${{ needs.package.outputs.version }}
 
-      - name: Verify architecture, version and setup mount
+      - name: Verify architecture, version and shipped examples
         run: |
           tutorial_root="$(mktemp -d)"
           docker run --rm --platform "${{ matrix.platform }}" \
             -v "${tutorial_root}:/data" \
             openamundsen-da-portability:${{ matrix.suffix }} \
-            bash -c 'cp -a /workspace/examples/rofental /data/rofental'
+            bash -c '
+              test -f /workspace/examples/rofental/rofental.yml
+              test -f /workspace/examples/subdomains/subdomains.yml
+              ! find /workspace -name AGENTS.md -print -quit | grep -q .
+              cp -a /workspace/examples/rofental /data/rofental
+            '
           test -f "${tutorial_root}/rofental/rofental.yml"
           docker run --rm --platform "${{ matrix.platform }}" \
             -v "${tutorial_root}/rofental:/data:ro" \

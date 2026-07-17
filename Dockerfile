@@ -39,8 +39,9 @@ RUN wheels=(/tmp/dist/openamundsen_da-*.whl) && \
     micromamba run -n openamundsen_da python -m pip install --no-deps "${wheels[0]}" && \
     rm -rf /tmp/dist
 
-# Preserve the documented tutorial bootstrap without copying the source tree.
+# Preserve the documented example bootstraps without copying the source tree.
 COPY examples/rofental /workspace/examples/rofental
+COPY examples/subdomains /workspace/examples/subdomains
 
 # Lightweight entrypoint to clear stale mamba locks and run inside env
 COPY scripts/oa_entrypoint.sh /usr/local/bin/oa_entrypoint.sh

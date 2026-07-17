@@ -176,16 +176,6 @@ def validate_docs() -> tuple[str, ...]:
         *_validate_removed_and_stale(paths),
         *_validate_tutorial_assets(),
     ]
-    scripts_dir = REPO_ROOT / "scripts" / "docs"
-    sys.path.insert(0, str(scripts_dir))
-    try:
-        from render_cli_reference import render_cli_reference
-
-        cli_reference = DOCS_ROOT / "reference" / "cli.md"
-        if not cli_reference.is_file() or cli_reference.read_text(encoding="utf-8") != render_cli_reference():
-            errors.append(f"generated CLI reference is stale: {cli_reference.relative_to(REPO_ROOT)}")
-    finally:
-        sys.path.remove(str(scripts_dir))
     return tuple(errors)
 
 

@@ -7,315 +7,96 @@ nav_order: 1
 
 # Command-Line Interface
 
-This page is generated from `openamundsen_da.cli.build_parser`. It documents the
-single supported command tree installed by the `openamundsen-da` package.
+`openamundsen-da` provides one command tree for observation preprocessing,
+single-domain data assimilation and explicit subdomain workflows. Run
+`openamundsen-da COMMAND --help` at any level for the complete option list.
 
-Run `python scripts/docs/render_cli_reference.py` after changing the parser.
-The documentation gate fails if this file is stale.
+## Paths and notation
 
-## `openamundsen-da`
+- `PROJECT_DIR` is one data-assimilation project below
+  `<setup>/projects/<project>`. It contains the project YAML, prepared steps and
+  project results.
+- `SETUP_DIR` is a plain openAMUNDSEN setup. It is used only by the
+  `subdomains model` commands, which do not perform data assimilation.
+- Uppercase values such as `COUNT` and `PATH` are placeholders. Replace them
+  with values for your machine and setup; do not type the angle brackets shown
+  in explanatory prose.
+- Add `--json` to a leaf command when a script needs one machine-readable result
+  instead of the human summary.
 
-```text
-usage: openamundsen-da [-h] [--version]
-                       {observations,prepare,run,render,clean,subdomains} ...
+## Single-domain data assimilation
 
-Prepare, run and inspect openAMUNDSEN data-assimilation projects.
+Preprocess the configured observations, prepare deterministic steps and run the
+project:
 
-positional arguments:
-  {observations,prepare,run,render,clean,subdomains}
-    observations        Preprocess configured observation products
-    prepare             Prepare deterministic project steps and observations
-    run                 Run a prepared single-domain project
-    render              Regenerate configured project outputs
-    clean               Preview safe heavy restart-artifact cleanup
-    subdomains          Run explicit subdomain workflows
-
-options:
-  -h, --help            show this help message and exit
-  --version             show program's version number and exit
+```bash
+openamundsen-da observations snow-cover PROJECT_DIR
+openamundsen-da observations wet-snow PROJECT_DIR
+openamundsen-da prepare PROJECT_DIR
+openamundsen-da run PROJECT_DIR --max-workers COUNT
 ```
 
-### `openamundsen-da observations`
+After a successful run, regenerate configured plots, maps and reports without
+rerunning the model:
 
-```text
-usage: openamundsen-da observations [-h] {snow-cover,wet-snow} ...
-
-positional arguments:
-  {snow-cover,wet-snow}
-    snow-cover          Preprocess configured snow-cover observations
-    wet-snow            Preprocess configured wet-snow observations
-
-options:
-  -h, --help            show this help message and exit
+```bash
+openamundsen-da render PROJECT_DIR --max-workers COUNT
 ```
 
-#### `openamundsen-da observations snow-cover`
+Successful project runs already remove restart state according to the configured
+retention policy. To inspect or apply cleanup manually for an older or incomplete
+project:
 
-```text
-usage: openamundsen-da observations snow-cover [-h] [--json] [--overwrite]
-                                               PROJECT_DIR
-
-Preprocess configured snow-cover observations
-
-positional arguments:
-  PROJECT_DIR
-
-options:
-  -h, --help   show this help message and exit
-  --json       Emit one machine-readable JSON envelope
-  --overwrite
+```bash
+openamundsen-da clean PROJECT_DIR
+openamundsen-da clean PROJECT_DIR --apply
 ```
 
-#### `openamundsen-da observations wet-snow`
+See [Running]({{ site.baseurl }}{% link running.md %}) for the execution order and
+[Output Data]({{ site.baseurl }}{% link output-data.md %}) for completion and
+cleanup semantics.
 
-```text
-usage: openamundsen-da observations wet-snow [-h] [--json] [--overwrite]
-                                             PROJECT_DIR
+## Subdomain data assimilation
 
-Preprocess configured wet-snow observations
+These commands split one data-assimilation project into explicit regional
+projects. Each region remains an independent particle-filter problem.
 
-positional arguments:
-  PROJECT_DIR
-
-options:
-  -h, --help   show this help message and exit
-  --json       Emit one machine-readable JSON envelope
-  --overwrite
+```bash
+openamundsen-da subdomains prepare PROJECT_DIR --regions PATH
+openamundsen-da subdomains run PROJECT_DIR \
+  --max-workers COUNT \
+  --inner-max-workers COUNT
+openamundsen-da subdomains merge PROJECT_DIR
+openamundsen-da subdomains render PROJECT_DIR --max-workers COUNT
 ```
 
-### `openamundsen-da prepare`
+When `--regions` is omitted, preparation uses `env/subdomains.gpkg`, falling
+back to `env/roi.gpkg`. Use outer and inner worker limits together so their
+product does not oversubscribe the machine. See the
+[Subdomain Runbook]({{ site.baseurl }}{% link guides/subdomain-runbook.md %}) for
+the complete sequence and resource guidance.
 
-```text
-usage: openamundsen-da prepare [-h] [--json] [--overwrite] PROJECT_DIR
+## Plain-model subdomains
 
-Prepare deterministic project steps and observations
+The separate `subdomains model` branch tiles one ordinary openAMUNDSEN setup.
+It has no projects, ensembles or assimilation steps.
 
-positional arguments:
-  PROJECT_DIR
-
-options:
-  -h, --help   show this help message and exit
-  --json       Emit one machine-readable JSON envelope
-  --overwrite
+```bash
+openamundsen-da subdomains model prepare SETUP_DIR --regions PATH
+openamundsen-da subdomains model run SETUP_DIR --max-workers COUNT
+openamundsen-da subdomains model merge SETUP_DIR
 ```
 
-### `openamundsen-da run`
+## Options that can replace or relocate outputs
 
-```text
-usage: openamundsen-da run [-h] [--json] [--max-workers MAX_WORKERS]
-                           PROJECT_DIR
+`--overwrite` permits the named operation to replace existing preparation or
+reusable run artifacts. Use it only after checking that the existing outputs are
+not the accepted result you intend to preserve.
 
-Run a prepared single-domain project
+`--out-dir PATH` redirects merged grid outputs. Without it, DA merges write below
+`PROJECT_DIR/results/grids`, while plain-model merges write below
+`SETUP_DIR/subdomains/model/results/grids`.
 
-positional arguments:
-  PROJECT_DIR
-
-options:
-  -h, --help            show this help message and exit
-  --json                Emit one machine-readable JSON envelope
-  --max-workers MAX_WORKERS
-```
-
-### `openamundsen-da render`
-
-```text
-usage: openamundsen-da render [-h] [--json] [--max-workers MAX_WORKERS]
-                              PROJECT_DIR
-
-Regenerate configured project outputs
-
-positional arguments:
-  PROJECT_DIR
-
-options:
-  -h, --help            show this help message and exit
-  --json                Emit one machine-readable JSON envelope
-  --max-workers MAX_WORKERS
-```
-
-### `openamundsen-da clean`
-
-```text
-usage: openamundsen-da clean [-h] [--json] [--apply] PROJECT_DIR
-
-Preview safe heavy restart-artifact cleanup
-
-positional arguments:
-  PROJECT_DIR
-
-options:
-  -h, --help   show this help message and exit
-  --json       Emit one machine-readable JSON envelope
-  --apply      Apply the previewed cleanup
-```
-
-### `openamundsen-da subdomains`
-
-```text
-usage: openamundsen-da subdomains [-h] {prepare,run,merge,render,model} ...
-
-positional arguments:
-  {prepare,run,merge,render,model}
-    prepare             Prepare DA subdomains for a project
-    run                 Run prepared DA subdomains
-    merge               Merge compact DA subdomain outputs
-    render              Render merged DA subdomain outputs
-    model               Tile one plain openAMUNDSEN simulation
-
-options:
-  -h, --help            show this help message and exit
-```
-
-#### `openamundsen-da subdomains prepare`
-
-```text
-usage: openamundsen-da subdomains prepare [-h] [--json] [--regions REGIONS]
-                                          [--station-buffer-km STATION_BUFFER_KM]
-                                          [--grid-buffer-m GRID_BUFFER_M]
-                                          [--overwrite]
-                                          PROJECT_DIR
-
-Prepare DA subdomains for a project
-
-positional arguments:
-  PROJECT_DIR
-
-options:
-  -h, --help            show this help message and exit
-  --json                Emit one machine-readable JSON envelope
-  --regions REGIONS
-  --station-buffer-km STATION_BUFFER_KM
-  --grid-buffer-m GRID_BUFFER_M
-  --overwrite
-```
-
-#### `openamundsen-da subdomains run`
-
-```text
-usage: openamundsen-da subdomains run [-h] [--json]
-                                      [--max-workers MAX_WORKERS]
-                                      [--inner-max-workers INNER_MAX_WORKERS]
-                                      [--overwrite]
-                                      PROJECT_DIR
-
-Run prepared DA subdomains
-
-positional arguments:
-  PROJECT_DIR
-
-options:
-  -h, --help            show this help message and exit
-  --json                Emit one machine-readable JSON envelope
-  --max-workers MAX_WORKERS
-  --inner-max-workers INNER_MAX_WORKERS
-  --overwrite
-```
-
-#### `openamundsen-da subdomains merge`
-
-```text
-usage: openamundsen-da subdomains merge [-h] [--json]
-                                        [--coverage-sliver-tol-px COVERAGE_SLIVER_TOL_PX]
-                                        [--out-dir OUT_DIR]
-                                        PROJECT_DIR
-
-Merge compact DA subdomain outputs
-
-positional arguments:
-  PROJECT_DIR
-
-options:
-  -h, --help            show this help message and exit
-  --json                Emit one machine-readable JSON envelope
-  --coverage-sliver-tol-px COVERAGE_SLIVER_TOL_PX
-  --out-dir OUT_DIR
-```
-
-#### `openamundsen-da subdomains render`
-
-```text
-usage: openamundsen-da subdomains render [-h] [--json]
-                                         [--max-workers MAX_WORKERS]
-                                         PROJECT_DIR
-
-Render merged DA subdomain outputs
-
-positional arguments:
-  PROJECT_DIR
-
-options:
-  -h, --help            show this help message and exit
-  --json                Emit one machine-readable JSON envelope
-  --max-workers MAX_WORKERS
-```
-
-#### `openamundsen-da subdomains model`
-
-```text
-usage: openamundsen-da subdomains model [-h] {prepare,run,merge} ...
-
-positional arguments:
-  {prepare,run,merge}
-    prepare            Prepare plain-model subdomains
-    run                Run plain-model subdomains
-    merge              Merge plain-model subdomain outputs
-
-options:
-  -h, --help           show this help message and exit
-```
-
-##### `openamundsen-da subdomains model prepare`
-
-```text
-usage: openamundsen-da subdomains model prepare [-h] [--regions REGIONS]
-                                                [--station-buffer-km STATION_BUFFER_KM]
-                                                [--grid-buffer-m GRID_BUFFER_M]
-                                                [--overwrite] [--json]
-                                                SETUP_DIR
-
-positional arguments:
-  SETUP_DIR
-
-options:
-  -h, --help            show this help message and exit
-  --regions REGIONS
-  --station-buffer-km STATION_BUFFER_KM
-  --grid-buffer-m GRID_BUFFER_M
-  --overwrite
-  --json                Emit one machine-readable JSON envelope
-```
-
-##### `openamundsen-da subdomains model run`
-
-```text
-usage: openamundsen-da subdomains model run [-h] [--max-workers MAX_WORKERS]
-                                            [--overwrite] [--json]
-                                            SETUP_DIR
-
-positional arguments:
-  SETUP_DIR
-
-options:
-  -h, --help            show this help message and exit
-  --max-workers MAX_WORKERS
-  --overwrite
-  --json                Emit one machine-readable JSON envelope
-```
-
-##### `openamundsen-da subdomains model merge`
-
-```text
-usage: openamundsen-da subdomains model merge [-h]
-                                              [--coverage-sliver-tol-px COVERAGE_SLIVER_TOL_PX]
-                                              [--out-dir OUT_DIR] [--json]
-                                              SETUP_DIR
-
-positional arguments:
-  SETUP_DIR
-
-options:
-  -h, --help            show this help message and exit
-  --coverage-sliver-tol-px COVERAGE_SLIVER_TOL_PX
-  --out-dir OUT_DIR
-  --json                Emit one machine-readable JSON envelope
-```
+`--coverage-sliver-tol-px PIXELS` controls the permitted uncovered edge sliver
+during mosaic validation. Keep the default unless you have inspected the region
+geometry and grid alignment.

@@ -83,7 +83,6 @@ openamundsen-da subdomains model run SETUP_DIR --max-workers 24
 openamundsen-da subdomains model merge SETUP_DIR
 ```
 
-Use the generated [CLI reference]({{ site.baseurl }}{% link reference/cli.md %})
+Use the [CLI guide]({{ site.baseurl }}{% link reference/cli.md %})
 for all options and [Output Data]({{ site.baseurl }}{% link output-data.md %})
 for completion and cleanup semantics.
-

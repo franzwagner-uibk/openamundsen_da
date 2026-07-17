@@ -8,7 +8,6 @@ baseurl: ""
 # Repository-only guidance and superseded unreferenced assets are not part of
 # the published technical documentation.
 exclude:
-  - AGENTS.md
   - README.md
   - bundle.log
   - tmp/

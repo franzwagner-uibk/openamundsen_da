@@ -135,7 +135,6 @@ jobs:
           JEKYLL_ENV: production
         run: |
           bundle exec jekyll build --trace
-          test ! -e _site/AGENTS.md
           test ! -e _site/README.md
           test ! -e _site/assets/images/tutorial/scheme_oa_da.png
 

@@ -46,7 +46,7 @@ def _published_markdown() -> tuple[Path, ...]:
     return tuple(
         path
         for path in sorted(DOCS_ROOT.rglob("*.md"))
-        if path.name not in {"AGENTS.md", "README.md"}
+        if path.name != "README.md"
         and "_site" not in path.parts
         and ".jekyll-cache" not in path.parts
         and "tmp" not in path.parts

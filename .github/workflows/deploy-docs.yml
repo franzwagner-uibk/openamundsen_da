@@ -51,7 +51,6 @@ jobs:
         run: |
           cd docs
           bundle exec jekyll build
-          test ! -e _site/AGENTS.md
           test ! -e _site/README.md
           test ! -e _site/assets/images/tutorial/scheme_oa_da.png
         env:

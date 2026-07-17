@@ -16,9 +16,17 @@ on or reproduce them from the configured products.
 From this point on, the tutorial assumes that the container shell is open at
 `/data/rofental` and uses this project directory:
 
+**🟢 Run command:**
+
 ```bash
 PROJECT_DIR=/data/rofental/projects/project_2022_2023
+echo "$PROJECT_DIR"
 ```
+
+The first line assigns a Bash variable; entering `PROJECT_DIR` by itself would
+try to run a command with that name. In the container shell, `$PROJECT_DIR`
+expands to the stored path, so `echo "$PROJECT_DIR"` should print
+`/data/rofental/projects/project_2022_2023`.
 
 ## Inputs and configuration
 
@@ -56,6 +64,8 @@ existing frozen summary and its completed preprocessing manifest to be replaced;
 omit the option when you only want hash-identical work to be reused. `--json`
 is available for machine-readable automation but is not needed in the tutorial.
 
+**🟢 Run command:**
+
 ```bash
 openamundsen-da observations snow-cover "$PROJECT_DIR" --overwrite
 ```
@@ -89,6 +99,8 @@ snow line diagnostics.
 The positional argument and options have the same meaning as for snow cover.
 Use `--overwrite` here because the tutorial intentionally reproduces the frozen
 summary from its source products.
+
+**🟢 Run command:**
 
 ```bash
 openamundsen-da observations wet-snow "$PROJECT_DIR" --overwrite

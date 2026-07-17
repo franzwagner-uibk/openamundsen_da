@@ -74,18 +74,6 @@ stay aligned with the selected dates. The
 [Observation Processing Guide]({{ site.baseurl }}{% link guides/observations.md %})
 goes deeper into product-specific criteria.
 
-## Common mistakes
-
-Most failed migrations fall into a small set of patterns. The first is mixing
-configuration scopes: data assimilation settings belong in the project YAML, not
-the setup YAML. The second is changing too many things at once, which makes it
-hard to tell whether a problem comes from observations, forcing, geometry, or
-tuning. The third is using wrong class mappings or mismatched product tags, which
-usually shows up as missing or implausible summary values. Another common mistake
-is editing `assimilation_events` without rebuilding the step skeleton afterward.
-Finally, apparent plot mismatches are sometimes just unit mismatches, especially
-for SWE, so check units before diagnosing model behavior.
-
 ## Pre-run check
 
 {: .checks }

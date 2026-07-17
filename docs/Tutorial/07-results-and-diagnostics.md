@@ -430,9 +430,7 @@ Reference output file path (data assimilation summary NetCDF):
 
 - `/data/rofental/projects/project_2022_2023/results/grids/da_output_grids.nc`
 
-Optional variable/dimension inspection (Python in the container).
-
-**🟢 Run command:**
+Optional variable/dimension inspection (Python in the container):
 
 ```bash
 python - <<'PY'
@@ -513,14 +511,12 @@ Use `results/grids/da_output_grids.nc` in a GIS software of your choice and visu
 Recommended manual map date(s): choose one date with active snow cover and one date near melt season.
 Use the same date across `open_loop`, `ens_mean`, and `increment` maps. Generated assimilation-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow depth maps use `ens_mean` as the prior mean, `analysis_mean` as the event-weighted posterior mean, and `analysis_increment` as `posterior - prior`.
 
-For the shipped examples, project maps are split into generated assimilation-event maps under `results/maps/da_events/` and custom YAML maps such as `setup_overview` at the root of `results/maps/`. After changing plot or map configuration, regenerate the complete configured presentation layer with:
-
-**🟢 Run command:**
+For the shipped examples, project maps are split into generated assimilation-event maps under `results/maps/da_events/` and custom YAML maps such as `setup_overview` at the root of `results/maps/`. After changing plot or map configuration, optionally regenerate the complete configured presentation layer. Replace `<MAX_WORKERS>` with the worker limit chosen for the container; do not type the angle brackets.
 
 ```bash
 openamundsen-da render \
   /data/rofental/projects/project_2022_2023 \
-  --max-workers 4
+  --max-workers <MAX_WORKERS>
 ```
 
 Omit `--max-workers` to let the container select the worker count from the visible
@@ -633,9 +629,9 @@ checks. Failed and interrupted projects keep restart state so they can resume.
 > retained. Only restart state pickles and stale state pointers are eligible for
 > automatic cleanup.
 
-For an older project, first preview the eligible files:
-
-**🟢 Run command:**
+The successful project pipeline has already applied this cleanup. The commands
+below are the optional manual workflow for an older or incomplete project. First
+preview the eligible files:
 
 ```bash
 openamundsen-da clean \
@@ -644,13 +640,15 @@ openamundsen-da clean \
 
 Apply the preview only after checking it:
 
-**🟢 Run command:**
-
 ```bash
 openamundsen-da clean \
   /data/rofental/projects/project_2022_2023 \
   --apply
 ```
+
+Immediately after a successful tutorial run, `preview:` and `applied:` with no
+listed files is the expected no-op result: there is no restart state left for the
+manual command to remove.
 
 What is removed:
 

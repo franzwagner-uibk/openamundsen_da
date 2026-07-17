@@ -15,6 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS_ROOT = REPO_ROOT / "docs"
 ASSET_MANIFEST = REPO_ROOT / "tests" / "baselines" / "rofental_es30_manuscript_assets.json"
 TUTORIAL_ASSET_ROOT = DOCS_ROOT / "assets" / "images" / "tutorial" / "rofental_2022_2023_es30"
+CONFIG_ARCHITECTURE_FIGURE = DOCS_ROOT / "assets" / "images" / "diagrams" / "setup-project-configuration.png"
+CONFIG_ARCHITECTURE_FIGURE_SHA256 = "fd2e413b6aaafa2ee2c779456e48cb0ee6e23f28ba66ef31795905cfdf2b13bc"
 REQUIRED_TOP_LEVEL_TITLES = (
     "Home",
     "Installation",
@@ -167,6 +169,75 @@ def _validate_tutorial_assets() -> list[str]:
     return errors
 
 
+def _validate_reviewed_documentation_contracts() -> list[str]:
+    errors: list[str] = []
+    if not CONFIG_ARCHITECTURE_FIGURE.is_file():
+        errors.append(f"missing configuration architecture figure: {CONFIG_ARCHITECTURE_FIGURE.relative_to(REPO_ROOT)}")
+    elif _sha256(CONFIG_ARCHITECTURE_FIGURE) != CONFIG_ARCHITECTURE_FIGURE_SHA256:
+        errors.append(f"configuration architecture figure hash differs: {CONFIG_ARCHITECTURE_FIGURE.relative_to(REPO_ROOT)}")
+
+    figure_reference = "assets/images/diagrams/setup-project-configuration.png"
+    for relative in ("guides/observations.md", "guides/configuration.md"):
+        path = DOCS_ROOT / relative
+        if figure_reference not in path.read_text(encoding="utf-8"):
+            errors.append(f"configuration architecture figure is not referenced: docs/{relative}")
+
+    tutorial_home = DOCS_ROOT / "Tutorial" / "index.md"
+    if _front_matter(tutorial_home).get("permalink") != "/tutorial/":
+        errors.append("Tutorial landing page must use canonical permalink /tutorial/")
+    redirect = DOCS_ROOT / "tutorial-uppercase-redirect.md"
+    redirect_text = redirect.read_text(encoding="utf-8") if redirect.is_file() else ""
+    if _front_matter(redirect).get("permalink") != "/Tutorial/" or "url={{ '/tutorial/'" not in redirect_text:
+        errors.append("uppercase /Tutorial/ compatibility redirect is missing or invalid")
+
+    tutorial_text = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted((DOCS_ROOT / "Tutorial").glob("*.md"))
+    )
+    if "--cpus 8" in tutorial_text or re.search(r"--max-workers\s+(?:4|8)(?:\s|$)", tutorial_text):
+        errors.append("tutorial still contains a fixed CPU or worker count")
+    for placeholder in ("<CPU_COUNT>", "<MAX_WORKERS>"):
+        if placeholder not in tutorial_text:
+            errors.append(f"tutorial is missing required hardware placeholder: {placeholder}")
+
+    marked_blocks = "\n".join(
+        re.findall(
+            r"\*\*🟢 Run command:\*\*\s*```bash\n(.*?)```",
+            tutorial_text,
+            flags=re.DOTALL,
+        )
+    )
+    for required in (
+        "docker run hello-world",
+        "docker pull {{ site.data.release.image }}",
+        "cp -a /workspace/examples/rofental",
+        "bash --noprofile --norc",
+        "openamundsen-da --version",
+        "echo \"$PROJECT_DIR\"",
+        "observations snow-cover",
+        "observations wet-snow",
+        "openamundsen-da prepare",
+        "find \"$PROJECT_DIR/steps\"",
+        "openamundsen-da run",
+    ):
+        if required not in marked_blocks:
+            errors.append(f"required tutorial command lacks the run marker: {required}")
+    for optional in ("sudo chown", "python - <<'PY'", "openamundsen-da render", "openamundsen-da clean"):
+        if optional in marked_blocks:
+            errors.append(f"optional tutorial command must not use the required-command marker: {optional}")
+
+    release_text = (DOCS_ROOT / "release.md").read_text(encoding="utf-8")
+    for forbidden in (
+        "## Release gates",
+        "## Repository setup",
+        "## Release procedure",
+        "pypi.org/project/openamundsen-da",
+        "`edge`",
+    ):
+        if forbidden in release_text:
+            errors.append(f"public release page contains maintainer-only or unavailable material: {forbidden}")
+    return errors
+
+
 def validate_docs() -> tuple[str, ...]:
     """Return all documentation contract violations."""
     paths = _published_markdown()
@@ -175,6 +246,7 @@ def validate_docs() -> tuple[str, ...]:
         *_validate_links(paths),
         *_validate_removed_and_stale(paths),
         *_validate_tutorial_assets(),
+        *_validate_reviewed_documentation_contracts(),
     ]
     return tuple(errors)
 

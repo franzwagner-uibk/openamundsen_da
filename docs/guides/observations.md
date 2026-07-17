@@ -6,10 +6,14 @@ nav_order: 3
 
 # Input Data
 
-openAMUNDSEN-DA combines a normal openAMUNDSEN setup with explicit observation
-products and one project configuration. This page defines the file contract. It
-does not provide algorithms for deriving fractional snow cover or wet-snow
-products from satellite source data.
+openAMUNDSEN-DA combines a standard openAMUNDSEN setup with explicit observation
+products and one data assimilation project configuration.
+
+![Setup, project and step configuration ownership in openAMUNDSEN-DA]({{ site.baseurl }}/assets/images/diagrams/setup-project-configuration.png)
+
+*The setup contains shared openAMUNDSEN inputs. One project defines the data
+assimilation period, observations and events; preparation materializes the
+step-specific inputs.*
 
 ## openAMUNDSEN inputs
 
@@ -79,15 +83,5 @@ statistics before selecting `assimilation_events`. `openamundsen-da prepare`
 then verifies that each configured event has the required observation and writes
 deterministic per-step inputs.
 
-## Product and uncertainty rules
-
-- Do not guess class codes or product tags; copy them from product metadata.
-- Clouds and nodata are missing evidence, not high-uncertainty observations.
-- Uncertainty inputs use the configured 0–100 scale and fail fast when required
-  variables, sidecars or finite support are missing.
-- Observation support differs between raster products and point stations; the
-  software keeps those operators and uncertainty settings explicit.
-
 See [Configuration]({{ site.baseurl }}{% link guides/configuration.md %}) for the
-YAML schema and [Station Assimilation]({{ site.baseurl }}{% link guides/station-assimilation.md %})
-for station-specific implementation details.
+YAML schema.

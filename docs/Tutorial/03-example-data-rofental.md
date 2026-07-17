@@ -12,11 +12,6 @@ The tutorial uses the bundled Rofental setup as one concrete, reproducible examp
 This page describes that example once so later chapters do not need to repeat the same
 context.
 
-The shipped Rofental forcing is a prepared illustrative baseline. Its station
-precipitation input uses a fixed factor of `0.74`; the tutorial applies no further
-bias correction before the configured ensemble perturbations. This controlled
-mismatch makes particle weighting, resampling and posterior updates visible.
-
 ![Rofental tutorial setup overview map with DEM, forcing stations, land cover, aspect and SRF]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_overview.png?v=20260703)
 
 *Rofental tutorial setup map rendered from `projects/project_2022_2023/maps.yml`, showing the DEM with forcing stations, the Rofental manuscript land-cover grouping, aspect and the snow redistribution factor (SRF).*

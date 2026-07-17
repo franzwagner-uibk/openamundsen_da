@@ -60,7 +60,7 @@ footer_nav_enabled: true
 # External navigation links
 nav_external_links:
   - title: openAMUNDSEN
-    url: https://github.com/openamundsen/openamundsen
+    url: https://doc.openamundsen.org/
     hide_icon: false
 
 # Mermaid diagrams support (disabled for GitHub Pages compatibility)

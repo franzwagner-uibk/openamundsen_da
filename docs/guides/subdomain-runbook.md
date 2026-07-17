@@ -60,6 +60,22 @@ Pull the image:
 docker pull {{ site.data.release.image }}
 ```
 
+Copy the complete shipped subdomain setup from that image into a fresh host
+work directory:
+
+```bash
+docker run --rm \
+  -v "/absolute/path/to/subdomain-workdir:/data" \
+  {{ site.data.release.image }} \
+  bash -lc 'cp -a /workspace/examples/subdomains /data/subdomains'
+```
+
+The copied setup is approximately 262 MB. The configured 100 m ES30
+eight-subdomain workload is server-scale: one historical completed run occupied
+about 137 GB. Reserve substantially more free space than the copied inputs, use
+fast storage and begin with a coarser grid or smaller ensemble when validating a
+new machine.
+
 ## Host Setup Layout
 
 A complete setup directory is required on the host, for example:
@@ -112,12 +128,16 @@ run_mode: subdomain
 
 ## Staged DA Run
 
-Set the host setup path and project name:
+Set the host setup path, shipped project name and worker limits. Choose the two
+worker counts together so their product fits the CPU and memory available to
+Docker.
 
 ```bash
-SETUP_HOST=/absolute/path/to/large_setup
-PROJECT_NAME=project_YYYY-YYYY
+SETUP_HOST=/absolute/path/to/subdomain-workdir/subdomains
+PROJECT_NAME=project_2022_2023
 IMAGE={{ site.data.release.image }}
+MAX_WORKERS=8
+INNER_MAX_WORKERS=3
 ```
 
 Run the four explicit stages in order:
@@ -132,8 +152,8 @@ docker run \
   -v "${SETUP_HOST}:/data" \
   "${IMAGE}" \
   openamundsen-da subdomains run "/data/projects/${PROJECT_NAME}" \
-    --max-workers 8 \
-    --inner-max-workers 3
+    --max-workers "${MAX_WORKERS}" \
+    --inner-max-workers "${INNER_MAX_WORKERS}"
 
 docker run \
   -v "${SETUP_HOST}:/data" \
@@ -144,7 +164,7 @@ docker run \
   -v "${SETUP_HOST}:/data" \
   "${IMAGE}" \
   openamundsen-da subdomains render "/data/projects/${PROJECT_NAME}" \
-    --max-workers 8
+    --max-workers "${MAX_WORKERS}"
 ```
 
 This assumes the regions file is available at `/data/env/subdomains.gpkg`. Pass `--regions /data/path/to/regions.gpkg` to the prepare stage when needed.

@@ -38,6 +38,15 @@ avalanche-report regions. It exercises both the staged data assimilation
 subdomain workflow and the separate plain openAMUNDSEN model workflow. Static
 grids are available at 50, 100, 250 and 500 m.
 
+Copy it from the same release image before use:
+
+```bash
+docker run --rm \
+  -v "/absolute/path/to/workdir:/data" \
+  {{ site.data.release.image }} \
+  bash -lc 'cp -a /workspace/examples/subdomains /data/subdomains'
+```
+
 See the [Subdomain Runbook]({{ site.baseurl }}{% link guides/subdomain-runbook.md %})
 for the explicit prepare, run, merge and render sequence.
 
@@ -47,4 +56,3 @@ Copy an example outside the repository, keep the setup/project ownership boundar
 and replace one input class at a time. Do not copy completed `steps/`, `results/`
 or logs into a new experiment. Start with a short project, coarse grid and small
 ensemble before increasing computational cost.
-

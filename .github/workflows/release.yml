@@ -209,6 +209,11 @@ jobs:
           name: release-bundle
           path: release
 
+      - name: Stage exact release wheel
+        run: |
+          mkdir -p dist
+          cp release/dist/openamundsen_da-*.whl dist/
+
       - name: Log in to GHCR
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:

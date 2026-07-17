@@ -37,7 +37,7 @@ docker run hello-world
 ```
 
 Purpose: download the exact v0.9 runtime used by this tutorial. During the RC
-rehearsal, substitute the published `0.9.0rc2` tag.
+rehearsal, substitute the published `0.9.0rc3` tag.
 
 **🟢 Run command:**
 

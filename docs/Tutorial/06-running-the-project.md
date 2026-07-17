@@ -12,8 +12,11 @@ The preparation manifest and step inputs are now complete. The remaining command
 executes the open loop and ensemble, performs the configured updates and validates
 the complete output set.
 
+**🟢 Run command:**
+
 ```bash
 PROJECT_DIR=/data/rofental/projects/project_2022_2023
+echo "$PROJECT_DIR"
 ```
 
 ## Review runtime configuration
@@ -52,14 +55,21 @@ sequence.
 Purpose: execute the prepared single-domain project, benchmark it, render every
 configured plot/map/report and finalize cleanup only after validation succeeds.
 
-The positional argument is the project directory. `--max-workers 8` caps
-parallel model propagations for the 8-CPU tutorial container. Omit it to let the
-runtime choose a default. `--json` emits the typed run result as one JSON envelope.
-There is intentionally no run-level `--overwrite`: completed projects are
-immutable and interrupted projects resume only from hash-identical inputs.
+The positional argument is the project directory. Replace `<MAX_WORKERS>` with
+a number no larger than the `<CPU_COUNT>` exposed to the container in Chapter 2;
+do not type the angle brackets. For this ES30 project, at most 31 propagations
+can run at once. On a 24-core machine, use `24`; on a machine exposing 48 CPUs,
+use at most `31`. Use a lower value when memory is limited. The numerical-library
+thread variables remain set to `1`.
+
+`--json` emits the typed run result as one JSON envelope. There is intentionally
+no run-level `--overwrite`: completed projects are immutable and interrupted
+projects resume only from hash-identical inputs.
+
+**🟢 Run command:**
 
 ```bash
-openamundsen-da run "$PROJECT_DIR" --max-workers 8
+openamundsen-da run "$PROJECT_DIR" --max-workers <MAX_WORKERS>
 ```
 
 The runtime can take from tens of minutes to several hours depending on host,

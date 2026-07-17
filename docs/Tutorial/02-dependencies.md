@@ -36,8 +36,7 @@ Verify that Docker works:
 docker run hello-world
 ```
 
-Purpose: download the exact v0.9 runtime used by this tutorial. During the RC
-rehearsal, substitute the published `0.9.0rc4` tag.
+Purpose: download the exact release-candidate runtime reviewed by this tutorial.
 
 **🟢 Run command:**
 
@@ -85,10 +84,7 @@ Linux file-ownership note:
 
 If the copy already produced root-owned files, fix the host-side ownership once:
 
-Purpose: return the copied setup to your normal user without changing its
-contents.
-
-**🟢 Run command:**
+Optional ownership repair (run this only when the copied setup is root-owned):
 
 ```bash
 sudo chown -R "$USER":"$USER" /absolute/path/to/tutorial-workdir/rofental
@@ -100,10 +96,17 @@ chmod -R u+rwX /absolute/path/to/tutorial-workdir/rofental
 Now start one interactive container and mount the same local tutorial folder as `/data`.
 The tutorial commands in later chapters are executed inside this shell.
 
-Before execution, note the important options: `-v` mounts the host work directory,
-`-w` starts the shell in the Rofental setup, `--cpus 8` caps the visible CPUs and
-the four thread variables prevent numerical libraries from oversubscribing those
-CPUs. `--rm` removes the stopped container but leaves the mounted setup untouched.
+Before execution, note the important options: `-v` mounts the host work
+directory, `-w` starts the shell in the Rofental setup and `--cpus` controls how
+many CPUs Docker exposes. The four thread variables keep numerical libraries at
+one thread so that process workers do not oversubscribe those CPUs. `--rm`
+removes the stopped container but leaves the mounted setup untouched.
+
+Replace `<CPU_COUNT>` with the number of CPU cores you want Docker to use, for
+example `24`. Do not type the angle brackets. The project worker limit in Chapter
+6 must not exceed this value. More workers also require more memory; the ES30 run
+has at most 31 useful simultaneous propagations (one open loop plus 30 ensemble
+members).
 
 **🟢 Run command:**
 
@@ -111,7 +114,7 @@ CPUs. `--rm` removes the stopped container but leaves the mounted setup untouche
 docker run --rm -it \
   -v "/absolute/path/to/tutorial-workdir:/data" \
   -w /data/rofental \
-  --cpus 8 \
+  --cpus <CPU_COUNT> \
   -e OMP_NUM_THREADS=1 \
   -e OPENBLAS_NUM_THREADS=1 \
   -e MKL_NUM_THREADS=1 \
@@ -119,6 +122,27 @@ docker run --rm -it \
   {{ site.data.release.image }} \
   bash --noprofile --norc
 ```
+
+The expected result is a container-shell prompt similar to:
+
+```text
+bash-5.2#
+```
+
+The exact Bash version may differ. The prompt means that you are inside the
+container; it is not a command to type. Verify the working directory and package
+version:
+
+**🟢 Run command:**
+
+```bash
+pwd
+openamundsen-da --version
+```
+
+`pwd` should print `/data/rofental`, and the version should match the image tag.
+Stay in this container shell for the remaining tutorial chapters. Type `exit`
+only after you have finished the results and cleanup checks.
 
 ## 4. Editing Files During The Tutorial
 

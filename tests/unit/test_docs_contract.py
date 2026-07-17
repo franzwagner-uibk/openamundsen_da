@@ -19,20 +19,21 @@ def _load_script(relative_path: str, module_name: str):
     return module
 
 
-def test_generated_cli_reference_covers_supported_command_tree() -> None:
-    module = _load_script("scripts/docs/render_cli_reference.py", "render_cli_reference")
+def test_curated_cli_guide_covers_supported_workflows() -> None:
+    guide = (ROOT / "docs/reference/cli.md").read_text(encoding="utf-8")
 
-    rendered = module.render_cli_reference()
-
-    assert "`openamundsen-da observations snow-cover`" in rendered
-    assert "`openamundsen-da clean`" in rendered
-    assert "`openamundsen-da subdomains render`" in rendered
-    assert "`openamundsen-da subdomains model merge`" in rendered
-    assert "oa-da-" not in rendered
+    assert "## Single-domain data assimilation" in guide
+    assert "## Subdomain data assimilation" in guide
+    assert "## Plain-model subdomains" in guide
+    assert "openamundsen-da observations snow-cover PROJECT_DIR" in guide
+    assert "openamundsen-da subdomains render PROJECT_DIR" in guide
+    assert "openamundsen-da subdomains model merge SETUP_DIR" in guide
+    assert "scripts/docs/render_cli_reference.py" not in guide
+    assert "usage: openamundsen-da" not in guide
+    assert "oa-da-" not in guide
 
 
 def test_published_documentation_contract_is_current() -> None:
     module = _load_script("scripts/ci/validate_docs.py", "validate_docs")
 
     assert module.validate_docs() == ()
-

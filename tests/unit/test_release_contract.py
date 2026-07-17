@@ -10,6 +10,7 @@ import pytest
 SCRIPT = Path(__file__).parents[2] / "scripts" / "release" / "validate_release.py"
 ROOT = SCRIPT.parents[2]
 RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 SPEC = importlib.util.spec_from_file_location("validate_release", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 validate_release = importlib.util.module_from_spec(SPEC)
@@ -83,3 +84,23 @@ def test_release_workflow_verifies_published_manifest_digest_from_raw_bytes() ->
     assert "| sha256sum" in promotion_job
     assert '[[ "${published_digest}" != "${EXPECTED_DIGEST}" ]]' in promotion_job
     assert 'grep -F "Digest: ${EXPECTED_DIGEST}"' not in promotion_job
+
+
+def test_release_image_contains_both_examples_without_agent_guidance() -> None:
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "COPY examples/rofental /workspace/examples/rofental" in dockerfile
+    assert "COPY examples/subdomains /workspace/examples/subdomains" in dockerfile
+    assert "!examples/rofental/**" in dockerignore
+    assert "!examples/subdomains/**" in dockerignore
+    assert "test -f /workspace/examples/rofental/rofental.yml" in workflow
+    assert "test -f /workspace/examples/subdomains/subdomains.yml" in workflow
+    assert "find /workspace -name AGENTS.md" in workflow
+    source_agent_files = tuple(
+        path
+        for path in ROOT.rglob("AGENTS.md")
+        if not {".git", "_site", ".jekyll-cache"}.intersection(path.parts)
+    )
+    assert not source_agent_files

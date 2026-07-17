@@ -23,22 +23,15 @@ Do not edit them as source.
 From the repository root:
 
 ```bash
-python scripts/docs/render_cli_reference.py --check
 python scripts/ci/validate_docs.py
 cd docs
 bundle exec jekyll build --trace
 ```
 
-After changing `openamundsen_da.cli.build_parser`, regenerate the committed CLI
-reference with:
-
-```bash
-python scripts/docs/render_cli_reference.py
-```
-
 The documentation validator checks navigation parents, Jekyll source links,
-local assets, removed review/history pages, legacy installed commands, generated
-CLI drift and the hash-selected tutorial image set.
+local assets, removed review/history pages, legacy installed commands and the
+hash-selected tutorial image set. When parser help changes, update the curated
+CLI guide and its contract tests in the same commit.
 
 ## Local preview
 

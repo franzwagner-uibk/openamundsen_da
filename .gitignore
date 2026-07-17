@@ -23,7 +23,7 @@ htmlcov/
 *.cprofile
 
 # Virtual environments & env files
-/.env
+.env
 /.venv
 .venv*/
 
@@ -40,7 +40,7 @@ docs/_build/
 docs/_site/
 docs/.jekyll-cache/
 docs/.jekyll-metadata
-docs/Gemfile.lock
+docs/tmp/
 /.bundle-cache/
 
 # Notebooks

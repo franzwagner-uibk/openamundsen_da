@@ -4,6 +4,7 @@ title: How to Use
 nav_order: 8
 has_children: true
 has_toc: false
+permalink: /tutorial/
 ---
 
 # How to Use
@@ -13,6 +14,9 @@ A guided walkthrough of openAMUNDSEN-DA using the existing reviewed Rofental
 example. Work through it once from start to finish: understand the framework,
 start the pinned runtime, inspect the example, preprocess observations, prepare
 the project, run the model and inspect the outputs.
+
+For the scientific background to the openAMUNDSEN-DA software publication, it
+is recommended to read Wagner et al. (2026).
 
 ## Chapter Order
 {: .no_toc }

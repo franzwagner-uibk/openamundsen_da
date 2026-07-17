@@ -540,8 +540,15 @@ def _render_plot(
     axes = [ax1, ax2] + ([ax3] if ax3 is not None else [])
     lines = [line for axis in axes for line in axis.get_lines()]
     labels = [line.get_label() for line in lines]
-    ax1.legend(lines, labels, loc="upper left", fontsize=8, ncol=2)
-    ax1.set_xlabel("Time")
+    ax1.legend(
+        lines,
+        labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.14),
+        fontsize=8,
+        ncol=len(labels),
+        frameon=False,
+    )
 
     elapsed_sec = max(0, int((timestamps[-1] - run_start).total_seconds()))
     hh, rem = divmod(elapsed_sec, 3600)
@@ -563,7 +570,7 @@ def _render_plot(
     fig.text(0.5, 0.985, summary, ha="center", va="top", fontsize=9)
 
     right_rect = 0.89 if ax3 is not None else 0.995
-    fig.tight_layout(rect=(0.005, 0.03, right_rect, 0.91))
+    fig.tight_layout(rect=(0.005, 0.18, right_rect, 0.91))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     force_figure_text_black(fig, axes)
     _save_perf_plot_atomic(fig, out_path)
@@ -605,6 +612,7 @@ def _save_perf_plot_atomic(fig, out_path: Path) -> None:
         ) as tmp:
             tmp_path = Path(tmp.name)
         save_figure_png(fig, tmp_path)
+        tmp_path.chmod(0o644)
         os.replace(tmp_path, out_path)
         tmp_path = None
     finally:

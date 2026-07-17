@@ -28,7 +28,7 @@ Workflow file: `.github/workflows/ci.yml`
   - fatal and stale-code Ruff checks
   - strict wheel and sdist validation with SHA-256 checksums
   - no-dependency installed-wheel smoke tests on Linux, macOS and Windows with Python 3.11 through 3.14
-  - generated CLI, navigation/link, frozen tutorial-asset and Jekyll documentation checks
+  - curated CLI, navigation/link, frozen tutorial-asset and Jekyll documentation checks
   - pull-request dependency review
   - `linux/amd64` and `linux/arm64` release-image bootstrap checks and a critical-vulnerability image scan
 - Job `Trusted Lenovo P8 integration`:
@@ -100,7 +100,7 @@ Framework/tooling config:
 
 `tests/unit/test_docs_contract.py` and `scripts/ci/validate_docs.py` keep the
 published documentation aligned with the installed interface. The gate rejects
-stale generated CLI help, invalid navigation parents, broken Jekyll links,
+incomplete curated CLI guidance, invalid navigation parents, broken Jekyll links,
 missing local assets, removed review/history pages, legacy installed commands
 and any changed, unreferenced or extra PNG in the 13-image frozen Rofental
 tutorial selection. CI then builds the production Jekyll site and confirms that

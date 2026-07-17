@@ -18,23 +18,17 @@ into openAMUNDSEN.
 [Installation]({{ site.baseurl }}{% link installation.md %}){: .btn .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [View on GitHub](https://github.com/franzwagner-uibk/openamundsen_da){: .btn .fs-5 .mb-4 .mb-md-0 }
 
-{: .warning }
-> Documentation status: v{{ site.data.release.version }} is currently
-> **{{ site.data.release.status }}**. Until the stable image is published, use the
-> release-candidate tag from GitHub Releases or `edge` for testing. Reproducible
-> studies should use an immutable version or digest, never `edge`.
-
 ## Software scope
 
-openAMUNDSEN-DA is an open-source workflow layer around
+openAMUNDSEN-DA is an open-source data assimilation framework built around
 [openAMUNDSEN](https://doc.openamundsen.org/). It preprocesses configured snow
-observations, prepares deterministic assimilation windows, executes an ensemble
-particle-filter workflow and validates the resulting tables, grids, plots, maps
-and report.
+observations, prepares deterministic assimilation sequences, executes an
+ensemble particle-filter workflow and validates the resulting tables, grids,
+plots, maps and report.
 
-The documentation is deliberately technical. For the particle-filter formulation,
-scientific motivation and interpretation of the Rofental application, see Wagner
-et al. (2026), the manuscript accompanying this software release.
+The documentation is deliberately technical. For the particle-filter
+formulation, scientific motivation and further interpretation of the results,
+see Wagner et al. (2026), the manuscript accompanying this software release.
 
 ![openAMUNDSEN-DA technical workflow from mounted setup inputs through observation summaries and prepared steps to validated results]({{ site.baseurl }}/assets/images/diagrams/openamundsen-da-workflow.svg)
 
@@ -60,7 +54,9 @@ observations, prepares inspectable event inputs and writes a validated result se
 
 ## License and availability
 
-The Python package is published on [PyPI](https://pypi.org/project/openamundsen-da/),
-the container on [GHCR](https://github.com/franzwagner-uibk/openamundsen_da/pkgs/container/openamundsen_da)
-and release evidence on [GitHub Releases](https://github.com/franzwagner-uibk/openamundsen_da/releases).
+The stable Python package will be published with v0.9.0. Release-candidate
+containers are available on
+[GHCR](https://github.com/franzwagner-uibk/openamundsen_da/pkgs/container/openamundsen_da),
+and archives and release evidence are available from
+[GitHub Releases](https://github.com/franzwagner-uibk/openamundsen_da/releases).
 The MIT License permits commercial use subject to its terms.

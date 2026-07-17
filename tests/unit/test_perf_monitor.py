@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
+import stat
 from types import SimpleNamespace
 
 import pytest
@@ -54,6 +55,46 @@ def test_project_perf_plot_replaces_target_atomically(tmp_path: Path, monkeypatc
     assert saved_paths[0].parent == out.parent
     assert saved_paths[0].name != out.name
     assert not saved_paths[0].exists()
+    assert stat.S_IMODE(out.stat().st_mode) == 0o644
+
+
+def test_project_perf_plot_places_one_row_legend_below_axes_without_x_title(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if perf_monitor.plt is None:
+        pytest.skip("matplotlib is not available")
+
+    start = datetime(2026, 1, 1, 12, 0)
+    timestamps = [start + timedelta(minutes=idx) for idx in range(4)]
+    captured: dict[str, object] = {}
+
+    def _capture_figure(fig, _out_path: Path) -> None:
+        captured["figure"] = fig
+
+    monkeypatch.setattr(perf_monitor, "_save_perf_plot_atomic", _capture_figure)
+
+    perf_monitor._render_plot(
+        tmp_path / "project_perf.png",
+        timestamps,
+        cpu_pct=[10.0, 50.0, 80.0, 30.0],
+        mem_pct=[20.0, 25.0, 30.0, 26.0],
+        mem_used_gb=[20.0, 25.0, 30.0, 26.0],
+        mem_total_gb=[128.0, 128.0, 128.0, 128.0],
+        run_start=start,
+        disk_fs_used_pct=[40.0, 42.0, 43.0, 45.0],
+        disk_project_used_gb=[5.0, 20.0, 50.0, 80.0],
+        cpu_temp_c=[70.0, 75.0, 83.0, 78.0],
+        cpu_temp_crit_c=[95.0, 95.0, 95.0, 95.0],
+    )
+
+    fig = captured["figure"]
+    primary_axis = fig.axes[0]
+    legend = primary_axis.get_legend()
+    assert primary_axis.get_xlabel() == ""
+    assert legend is not None
+    assert legend._ncols == len(legend.get_texts())
+    assert legend.get_bbox_to_anchor()._bbox.y0 < 0
 
 
 def test_project_perf_csv_appends_disk_and_thermal_columns(tmp_path: Path) -> None:

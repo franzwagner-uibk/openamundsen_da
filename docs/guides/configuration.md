@@ -20,6 +20,11 @@ The setup root must contain exactly one non-legacy `.yml` file. This keeps the
 configuration unambiguous when Docker mounts a named setup directory as
 `/data`; the logical setup filename does not change at the mount boundary.
 
+![Setup, project and step configuration ownership in openAMUNDSEN-DA]({{ site.baseurl }}/assets/images/diagrams/setup-project-configuration.png)
+
+*Configuration ownership from the shared openAMUNDSEN setup through one data
+assimilation project to generated step windows.*
+
 ## `<setup-name>.yml` (setup level)
 Use setup YAML for stable, shared settings that apply to all projects.
 

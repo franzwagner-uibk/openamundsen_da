@@ -13,8 +13,11 @@ into deterministic step windows and maps the reviewed summaries into per-step
 observation files. This chapter shows the configuration before executing that
 operation.
 
+**🟢 Run command:**
+
 ```bash
 PROJECT_DIR=/data/rofental/projects/project_2022_2023
+echo "$PROJECT_DIR"
 ```
 
 ## Review the event sequence
@@ -59,6 +62,8 @@ rebuilds a previous preparation only when the project has not completed a
 successful immutable run. Omit it to reuse a hash-identical completed
 preparation. `--json` is available for automation.
 
+**🟢 Run command:**
+
 ```bash
 openamundsen-da prepare "$PROJECT_DIR" --overwrite
 ```
@@ -66,6 +71,18 @@ openamundsen-da prepare "$PROJECT_DIR" --overwrite
 The command replaces the former separate skeleton, snow-cover mapping and
 wet-snow mapping commands. One preparation manifest records the exact inputs and
 outputs so that the three operations cannot drift apart.
+
+List the generated step directories as an immediate confirmation:
+
+**🟢 Run command:**
+
+```bash
+find "$PROJECT_DIR/steps" \
+  -mindepth 1 -maxdepth 1 -type d \
+  -printf '%f\n' | sort
+```
+
+The output should contain `step_00_init` plus eight dated step directories.
 
 ## Inspect the prepared project
 
@@ -107,4 +124,3 @@ selected summary rows with deterministic project steps.*
 
 If an event is missing, fix the product tag, summary date or event configuration
 and rerun preparation. Continue with [6. Running the Model]({{ site.baseurl }}{% link Tutorial/06-running-the-project.md %}).
-

@@ -44,5 +44,4 @@ Treat the run manifest and log as authoritative. A project is not successful if
 compact grids, benchmark outputs or configured renders fail validation. Preserve
 restart state and fix the reported stage before interpreting partial outputs.
 
-For command options, use the [generated CLI reference]({{ site.baseurl }}{% link reference/cli.md %}).
-
+For command options, use the [CLI guide]({{ site.baseurl }}{% link reference/cli.md %}).

@@ -45,7 +45,11 @@ def _jsonable(value: Any) -> Any:
 
 
 def _add_json(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--json", action="store_true", help="Emit one machine-readable JSON envelope")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit one machine-readable JSON result instead of the human summary.",
+    )
 
 
 def _project_leaf(
@@ -55,7 +59,12 @@ def _project_leaf(
     help_text: str,
 ) -> argparse.ArgumentParser:
     parser = subparsers.add_parser(name, help=help_text, description=help_text)
-    parser.add_argument("project_dir", type=Path, metavar="PROJECT_DIR")
+    parser.add_argument(
+        "project_dir",
+        type=Path,
+        metavar="PROJECT_DIR",
+        help="Project directory under <setup>/projects containing the project YAML.",
+    )
     _add_json(parser)
     return parser
 
@@ -66,7 +75,12 @@ def build_parser() -> argparse.ArgumentParser:
         prog="openamundsen-da",
         description="Prepare, run and inspect openAMUNDSEN data-assimilation projects.",
     )
-    parser.add_argument("--version", action="version", version=f"%(prog)s {_version()}")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {_version()}",
+        help="Show the installed openAMUNDSEN-DA version and exit.",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
 
     observations = commands.add_parser("observations", help="Preprocess configured observation products")
@@ -76,22 +90,48 @@ def build_parser() -> argparse.ArgumentParser:
         "snow-cover",
         help_text="Preprocess configured snow-cover observations",
     )
-    snow.add_argument("--overwrite", action="store_true")
+    snow.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing snow-cover summary for this project.",
+    )
     wet = _project_leaf(
         observation_commands,
         "wet-snow",
         help_text="Preprocess configured wet-snow observations",
     )
-    wet.add_argument("--overwrite", action="store_true")
+    wet.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing wet-snow summary for this project.",
+    )
 
     prepare = _project_leaf(commands, "prepare", help_text="Prepare deterministic project steps and observations")
-    prepare.add_argument("--overwrite", action="store_true")
+    prepare.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace existing prepared steps after validating the project inputs.",
+    )
     run = _project_leaf(commands, "run", help_text="Run a prepared single-domain project")
-    run.add_argument("--max-workers", type=_positive_int)
+    run.add_argument(
+        "--max-workers",
+        type=_positive_int,
+        metavar="COUNT",
+        help="Limit concurrent open-loop and ensemble propagations; omit to use the runtime default.",
+    )
     render = _project_leaf(commands, "render", help_text="Regenerate configured project outputs")
-    render.add_argument("--max-workers", type=_positive_int)
+    render.add_argument(
+        "--max-workers",
+        type=_positive_int,
+        metavar="COUNT",
+        help="Limit concurrent plot and map rendering workers; omit to use the runtime default.",
+    )
     clean = _project_leaf(commands, "clean", help_text="Preview safe heavy restart-artifact cleanup")
-    clean.add_argument("--apply", action="store_true", help="Apply the previewed cleanup")
+    clean.add_argument(
+        "--apply",
+        action="store_true",
+        help="Delete the restart artifacts listed by the preview; without this flag nothing is removed.",
+    )
 
     subdomains = commands.add_parser("subdomains", help="Run explicit subdomain workflows")
     subdomain_commands = subdomains.add_subparsers(dest="subdomain_command", required=True)
@@ -100,38 +140,143 @@ def build_parser() -> argparse.ArgumentParser:
         "prepare",
         help_text="Prepare DA subdomains for a project",
     )
-    sub_prepare.add_argument("--regions", type=Path)
-    sub_prepare.add_argument("--station-buffer-km", type=float, default=50.0)
-    sub_prepare.add_argument("--grid-buffer-m", type=float)
-    sub_prepare.add_argument("--overwrite", action="store_true")
+    sub_prepare.add_argument(
+        "--regions",
+        type=Path,
+        metavar="PATH",
+        help="Region vector; defaults to env/subdomains.gpkg, then env/roi.gpkg.",
+    )
+    sub_prepare.add_argument(
+        "--station-buffer-km",
+        type=float,
+        default=50.0,
+        metavar="KM",
+        help="Buffer around each region when selecting forcing stations (default: 50 km).",
+    )
+    sub_prepare.add_argument(
+        "--grid-buffer-m",
+        type=float,
+        metavar="METERS",
+        help="Additional buffer around each subdomain grid (default: 0 m).",
+    )
+    sub_prepare.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing DA subdomain preparation after validation.",
+    )
     sub_run = _project_leaf(subdomain_commands, "run", help_text="Run prepared DA subdomains")
-    sub_run.add_argument("--max-workers", type=_positive_int)
-    sub_run.add_argument("--inner-max-workers", type=_positive_int)
-    sub_run.add_argument("--overwrite", action="store_true")
+    sub_run.add_argument(
+        "--max-workers",
+        type=_positive_int,
+        metavar="COUNT",
+        help="Limit the number of subdomain projects running concurrently.",
+    )
+    sub_run.add_argument(
+        "--inner-max-workers",
+        type=_positive_int,
+        metavar="COUNT",
+        help="Limit concurrent propagations inside each subdomain project.",
+    )
+    sub_run.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Rerun subdomains even when reusable successful outputs exist.",
+    )
     sub_merge = _project_leaf(subdomain_commands, "merge", help_text="Merge compact DA subdomain outputs")
-    sub_merge.add_argument("--coverage-sliver-tol-px", type=int, default=4)
-    sub_merge.add_argument("--out-dir", type=Path)
+    sub_merge.add_argument(
+        "--coverage-sliver-tol-px",
+        type=int,
+        default=4,
+        metavar="PIXELS",
+        help="Allow this many uncovered edge pixels when validating merged coverage (default: 4).",
+    )
+    sub_merge.add_argument(
+        "--out-dir",
+        type=Path,
+        metavar="PATH",
+        help="Write merged grids here instead of PROJECT_DIR/results/grids.",
+    )
     sub_render = _project_leaf(subdomain_commands, "render", help_text="Render merged DA subdomain outputs")
-    sub_render.add_argument("--max-workers", type=_positive_int)
+    sub_render.add_argument(
+        "--max-workers",
+        type=_positive_int,
+        metavar="COUNT",
+        help="Limit concurrent rendering workers for merged subdomain outputs.",
+    )
 
     model = subdomain_commands.add_parser("model", help="Tile one plain openAMUNDSEN simulation")
     model_commands = model.add_subparsers(dest="model_command", required=True)
     model_prepare = model_commands.add_parser("prepare", help="Prepare plain-model subdomains")
-    model_prepare.add_argument("setup_dir", type=Path, metavar="SETUP_DIR")
-    model_prepare.add_argument("--regions", type=Path)
-    model_prepare.add_argument("--station-buffer-km", type=float, default=50.0)
-    model_prepare.add_argument("--grid-buffer-m", type=float)
-    model_prepare.add_argument("--overwrite", action="store_true")
+    model_prepare.add_argument(
+        "setup_dir",
+        type=Path,
+        metavar="SETUP_DIR",
+        help="Plain openAMUNDSEN setup directory containing its setup YAML.",
+    )
+    model_prepare.add_argument(
+        "--regions",
+        type=Path,
+        metavar="PATH",
+        help="Region vector; defaults to env/subdomains.gpkg, then env/roi.gpkg.",
+    )
+    model_prepare.add_argument(
+        "--station-buffer-km",
+        type=float,
+        default=50.0,
+        metavar="KM",
+        help="Buffer around each region when selecting forcing stations (default: 50 km).",
+    )
+    model_prepare.add_argument(
+        "--grid-buffer-m",
+        type=float,
+        metavar="METERS",
+        help="Additional buffer around each subdomain grid (default: 0 m).",
+    )
+    model_prepare.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing plain-model subdomain preparation after validation.",
+    )
     _add_json(model_prepare)
     model_run = model_commands.add_parser("run", help="Run plain-model subdomains")
-    model_run.add_argument("setup_dir", type=Path, metavar="SETUP_DIR")
-    model_run.add_argument("--max-workers", type=_positive_int)
-    model_run.add_argument("--overwrite", action="store_true")
+    model_run.add_argument(
+        "setup_dir",
+        type=Path,
+        metavar="SETUP_DIR",
+        help="Prepared plain openAMUNDSEN setup directory.",
+    )
+    model_run.add_argument(
+        "--max-workers",
+        type=_positive_int,
+        metavar="COUNT",
+        help="Limit the number of plain-model subdomains running concurrently.",
+    )
+    model_run.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Rerun subdomains even when reusable successful outputs exist.",
+    )
     _add_json(model_run)
     model_merge = model_commands.add_parser("merge", help="Merge plain-model subdomain outputs")
-    model_merge.add_argument("setup_dir", type=Path, metavar="SETUP_DIR")
-    model_merge.add_argument("--coverage-sliver-tol-px", type=int, default=4)
-    model_merge.add_argument("--out-dir", type=Path)
+    model_merge.add_argument(
+        "setup_dir",
+        type=Path,
+        metavar="SETUP_DIR",
+        help="Prepared plain openAMUNDSEN setup directory.",
+    )
+    model_merge.add_argument(
+        "--coverage-sliver-tol-px",
+        type=int,
+        default=4,
+        metavar="PIXELS",
+        help="Allow this many uncovered edge pixels when validating merged coverage (default: 4).",
+    )
+    model_merge.add_argument(
+        "--out-dir",
+        type=Path,
+        metavar="PATH",
+        help="Write merged grids here instead of SETUP_DIR/subdomains/model/results/grids.",
+    )
     _add_json(model_merge)
     return parser
 

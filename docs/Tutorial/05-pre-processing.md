@@ -22,70 +22,29 @@ PROJECT_DIR=/data/rofental/projects/project_2022_2023
 
 ## Inputs and configuration
 
-The example provides `obs/snowcover/`, `obs/wetsnow/` and `obs/stations/`.
-Baseline fractional snow covered area (fSCA) and wet-snow summaries live under
-`obs/summaries/project_2022_2023/`. Station observations and
-`stations_da_metadata.csv` are read during project preparation and do not require
-a raster-summary command.
-
-All observation paths, formats, product tags, class mappings, summary paths and
-uncertainty settings come from
-`projects/project_2022_2023/project_2022_2023.yml`. The commands do not guess a
-product or rewrite the YAML.
+Before preprocessing, confirm that the project YAML points each raster product
+to its intended input directory and summary table. The commands use these
+values directly; they do not guess a product or rewrite the YAML.
 
 ```yaml
 obs:
-  stations:
-    dir: obs/stations
   snowcover:
     dir: obs/snowcover
     format: geotiff
     product_tag: SNOWCOVER
     summary_csv: obs/summaries/project_2022_2023/scf_summary.csv
-    classes:
-      valid: [0, 1, 2, 3, 4, 5]
-      cloud: [205]
-      water: [210]
-      nodata: [255]
   wetsnow:
     dir: obs/wetsnow
     format: geotiff
     product_tag: WETSNOW
     summary_csv: obs/summaries/project_2022_2023/wet_snow_summary.csv
-    classes:
-      wet: [110]
-      valid: [110, 125, 200, 210]
-      exclude: [200, 210]
-
-data_assimilation:
-  uncertainty:
-    scf:
-      enabled: true
-      assimilation:
-        sigma_mode: formula
-        aggregate_metric: unc_mean
-    wet_snow:
-      enabled: true
-      assimilation:
-        sigma_mode: formula
-        aggregate_metric: unc_mean
 ```
 
-The abbreviated `valid` list above is for orientation; keep the complete class
-mapping in the shipped project YAML. The bundled GeoTIFF products include the
-required `<stem>_uncertainty.tif` sidecars. Uncertainty uses the configured 0–100
-scale. Clouds and nodata remain missing evidence rather than being converted to
-high-uncertainty observations.
-
-The project map helps check ROI coverage, station locations, land-cover context
-and the snow redistribution factor:
-
-![Rofental tutorial setup overview map with DEM, forcing stations, land cover, aspect and SRF]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_overview.png?v=20260703)
-
-The uncertainty example below shows a continuous layer over valid fSCA pixels.
-The lower row zooms into a watershed detail; clouds remain masked.
-
-![Rofental fSCA uncertainty example with land-cover context]({{ site.baseurl }}/assets/images/tutorial/rofental_uncertainty.png)
+Class mappings and uncertainty settings remain explicit in the same project
+YAML; keep the shipped tutorial values unchanged. Preprocessing writes project
+summary tables only. It does not create step folders. In the next chapter,
+`openamundsen-da prepare` combines these summaries with `assimilation_events`
+and generates the steps that you inspect before running the model.
 
 ## 1. Summarize snow-cover products
 
@@ -105,6 +64,11 @@ Before using the summary, confirm that expected acquisition dates are present,
 valid support is sufficient and the fSCA, cloud and invalid fractions are
 plausible. With uncertainty enabled, also inspect `unc_mean`, `unc_min`,
 `unc_max` and `unc_n_valid`.
+
+The uncertainty example below shows a continuous layer over valid fSCA pixels.
+The lower row zooms into a watershed detail; clouds remain masked.
+
+![Rofental fSCA uncertainty example with land-cover context]({{ site.baseurl }}/assets/images/tutorial/rofental_uncertainty.png)
 
 Reference rows from `scf_summary.csv`:
 

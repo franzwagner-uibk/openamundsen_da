@@ -19,8 +19,56 @@ permissions:
   contents: read
 
 jobs:
+  change-scope:
+    name: Classify changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+    steps:
+      - name: Checkout complete history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Classify change scope
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          paths_file="${RUNNER_TEMP}/changed-paths.txt"
+          force_full=false
+          case "${EVENT_NAME}" in
+            pull_request)
+              if [[ ! "${BASE_SHA}" =~ ^[0-9a-f]{40}$ || ! "${HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+                force_full=true
+              elif ! git diff --name-only --no-renames "${BASE_SHA}" "${HEAD_SHA}" > "${paths_file}"; then
+                force_full=true
+              fi
+              ;;
+            push)
+              if [[ ! "${BEFORE_SHA}" =~ ^[0-9a-f]{40}$ || "${BEFORE_SHA}" == "0000000000000000000000000000000000000000" ]]; then
+                force_full=true
+              elif ! git diff --name-only --no-renames "${BEFORE_SHA}" "${GITHUB_SHA}" > "${paths_file}"; then
+                force_full=true
+              fi
+              ;;
+            *)
+              force_full=true
+              ;;
+          esac
+          if [[ "${force_full}" == true ]]; then
+            python scripts/ci/classify_changes.py --force-full --github-output "${GITHUB_OUTPUT}"
+          else
+            python scripts/ci/classify_changes.py --paths-file "${paths_file}" --github-output "${GITHUB_OUTPUT}"
+          fi
+
   lint:
     name: Ruff lint
+    needs: change-scope
+    if: needs.change-scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -38,6 +86,8 @@ jobs:
 
   package:
     name: Build and validate distributions
+    needs: change-scope
+    if: needs.change-scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.metadata.outputs.version }}
@@ -72,7 +122,8 @@ jobs:
 
   portable:
     name: Portable ${{ matrix.os }} / Python ${{ matrix.python }}
-    needs: package
+    needs: [change-scope, package]
+    if: needs.change-scope.outputs.docs_only != 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -107,6 +158,7 @@ jobs:
 
   docs:
     name: Build documentation
+    needs: change-scope
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -154,7 +206,8 @@ jobs:
 
   container-portability:
     name: Container ${{ matrix.platform }}
-    needs: package
+    needs: [change-scope, package]
+    if: needs.change-scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -223,8 +276,10 @@ jobs:
 
   trusted-integration:
     name: Trusted Lenovo P8 integration
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-    needs: [lint, package, portable, docs, container-portability]
+    if: >-
+      needs.change-scope.outputs.docs_only != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
+    needs: [change-scope, lint, package, portable, docs, container-portability]
     runs-on: [self-hosted, linux, x64, oa-da]
     steps:
       - name: Checkout
@@ -284,8 +339,11 @@ jobs:
 
   publish-edge:
     name: Publish immutable commit and edge images
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [package, trusted-integration]
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.change-scope.outputs.docs_only != 'true'
+    needs: [change-scope, package, trusted-integration]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -345,3 +403,59 @@ jobs:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+  ci-gate:
+    name: CI gate
+    if: always()
+    needs:
+      - change-scope
+      - lint
+      - package
+      - portable
+      - docs
+      - dependency-review
+      - container-portability
+      - trusted-integration
+      - publish-edge
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate required jobs for change scope
+        env:
+          DOCS_ONLY: ${{ needs.change-scope.outputs.docs_only }}
+          SCOPE_RESULT: ${{ needs.change-scope.result }}
+          LINT_RESULT: ${{ needs.lint.result }}
+          PACKAGE_RESULT: ${{ needs.package.result }}
+          PORTABLE_RESULT: ${{ needs.portable.result }}
+          DOCS_RESULT: ${{ needs.docs.result }}
+          DEPENDENCY_RESULT: ${{ needs.dependency-review.result }}
+          CONTAINER_RESULT: ${{ needs.container-portability.result }}
+          TRUSTED_RESULT: ${{ needs.trusted-integration.result }}
+          EDGE_RESULT: ${{ needs.publish-edge.result }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          test "${SCOPE_RESULT}" = success
+          test "${DOCS_RESULT}" = success
+          if [[ "${EVENT_NAME}" == pull_request ]]; then
+            test "${DEPENDENCY_RESULT}" = success
+          else
+            test "${DEPENDENCY_RESULT}" = skipped
+          fi
+          if [[ "${DOCS_ONLY}" == true ]]; then
+            test "${LINT_RESULT}" = skipped
+            test "${PACKAGE_RESULT}" = skipped
+            test "${PORTABLE_RESULT}" = skipped
+            test "${CONTAINER_RESULT}" = skipped
+            test "${TRUSTED_RESULT}" = skipped
+            test "${EDGE_RESULT}" = skipped
+          else
+            test "${LINT_RESULT}" = success
+            test "${PACKAGE_RESULT}" = success
+            test "${PORTABLE_RESULT}" = success
+            test "${CONTAINER_RESULT}" = success
+            test "${TRUSTED_RESULT}" = success
+            if [[ "${EVENT_NAME}" == push ]]; then
+              test "${EDGE_RESULT}" = success
+            else
+              test "${EDGE_RESULT}" = skipped
+            fi
+          fi

@@ -118,3 +118,28 @@ def test_release_image_contains_both_examples_without_agent_guidance() -> None:
         if not {".git", "_site", ".jekyll-cache"}.intersection(path.parts)
     )
     assert not source_agent_files
+
+
+def test_ci_docs_only_scope_is_narrow_and_full_ci_is_the_fallback() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    classifier = (ROOT / "scripts" / "ci" / "classify_changes.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert '"tests/baselines/rofental_es30_tutorial_assets.json"' in classifier
+    assert 'path.parts[0] == "docs"' in classifier
+    assert "rofental_es30_manuscript_assets.json" not in classifier
+    assert "python scripts/ci/classify_changes.py --force-full" in workflow
+    assert "git diff --name-only --no-renames" in workflow
+    assert "if: needs.change-scope.outputs.docs_only != 'true'" in workflow
+    assert "name: CI gate" in workflow
+    assert "test \"${TRUSTED_RESULT}\" = success" in workflow
+
+
+def test_docs_deployment_tracks_only_the_dedicated_tutorial_asset_manifest() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "deploy-docs.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "tests/baselines/rofental_es30_tutorial_assets.json" in workflow
+    assert "tests/baselines/rofental_es30_manuscript_assets.json" not in workflow

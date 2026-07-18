@@ -84,11 +84,11 @@ Reference rows from `scf_summary.csv`:
 
 | date | n_valid | n_snow | scf | cloud_fraction | invalid_fraction | source |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| 2022-10-03 | 89927 | 46001 | 0.51 | 0.00 | 0.36 | s2_fsc_snowflake_rofental_2022_10_03.tif |
-| 2022-10-05 | 80183 | 23973 | 0.30 | 0.00 | 0.41 | s2_fsc_snowflake_rofental_2022_10_05.tif |
-| 2022-10-08 | 35064 | 1078 | 0.03 | 0.00 | 0.77 | s2_fsc_snowflake_rofental_2022_10_08.tif |
-| 2022-10-13 | 13648 | 306 | 0.02 | 0.00 | 0.93 | s2_fsc_snowflake_rofental_2022_10_13.tif |
-| 2022-10-18 | 73805 | 2255 | 0.03 | 0.00 | 0.48 | s2_fsc_snowflake_rofental_2022_10_18.tif |
+| 2022-10-03 | 90056 | 46132 | 0.51 | 0.00 | 0.36 | s2_fsc_snowflake_rofental_2022_10_03.tif |
+| 2022-10-05 | 80363 | 24157 | 0.30 | 0.00 | 0.41 | s2_fsc_snowflake_rofental_2022_10_05.tif |
+| 2022-10-08 | 35157 | 1171 | 0.03 | 0.00 | 0.77 | s2_fsc_snowflake_rofental_2022_10_08.tif |
+| 2022-10-13 | 13688 | 354 | 0.03 | 0.00 | 0.93 | s2_fsc_snowflake_rofental_2022_10_13.tif |
+| 2022-10-18 | 74037 | 2498 | 0.03 | 0.00 | 0.48 | s2_fsc_snowflake_rofental_2022_10_18.tif |
 
 ## 2. Summarize wet-snow products
 
@@ -113,11 +113,11 @@ Reference rows from `wet_snow_summary.csv`:
 
 | date | wet_snow_fraction | n_valid | n_wet | source |
 | --- | ---: | ---: | ---: | --- |
-| 2023-03-12 | 0.02 | 156982 | 3453 | WSM_S1A_SAR_track117_2023_03_12_17_07_24.tif |
-| 2023-03-16 | 0.03 | 158953 | 4667 | WSM_S1A_SAR_track168_2023_03_16_05_27_37.tif |
-| 2023-03-24 | 0.47 | 156982 | 73218 | WSM_S1A_SAR_track117_2023_03_24_17_07_24.tif |
-| 2023-03-28 | 0.27 | 158953 | 42301 | WSM_S1A_SAR_track168_2023_03_28_05_27_38.tif |
-| 2023-04-05 | 0.06 | 156982 | 9750 | WSM_S1A_SAR_track117_2023_04_05_17_07_24.tif |
+| 2023-03-12 | 0.02 | 158583 | 3547 | WSM_S1A_SAR_track117_2023_03_12_17_07_24.tif |
+| 2023-03-16 | 0.03 | 160355 | 4835 | WSM_S1A_SAR_track168_2023_03_16_05_27_37.tif |
+| 2023-03-24 | 0.46 | 158583 | 73560 | WSM_S1A_SAR_track117_2023_03_24_17_07_24.tif |
+| 2023-03-28 | 0.27 | 160355 | 43183 | WSM_S1A_SAR_track168_2023_03_28_05_27_38.tif |
+| 2023-04-05 | 0.06 | 158583 | 9808 | WSM_S1A_SAR_track117_2023_04_05_17_07_24.tif |
 
 ## When preprocessing fails
 

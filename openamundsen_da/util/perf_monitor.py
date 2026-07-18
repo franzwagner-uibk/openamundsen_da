@@ -1,4 +1,4 @@
-"""Minimal performance monitor for project runs (CPU / RAM / disk / thermal).
+"""Minimal performance monitor for project runs (CPU / RAM / storage / thermal).
 
 When enabled, a background thread samples:
 - System CPU percent
@@ -9,7 +9,7 @@ When enabled, a background thread samples:
 
 Outputs under `<project_dir>/results/plots/perf/`:
 - `project_perf_metrics.csv`
-- `project_perf.png` (CPU+RAM+disk+thermal)
+- `project_perf.png` (CPU, RAM, project size and optional CPU temperature)
 
 Dependencies: psutil (required), matplotlib (optional for plotting).
 If psutil is missing, the monitor logs a warning and no files are written.
@@ -22,7 +22,7 @@ import shutil
 import sys
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from math import isfinite
 from pathlib import Path
 from threading import Event, Thread
@@ -31,7 +31,7 @@ from typing import List
 from loguru import logger
 from openamundsen_da.io.paths import project_plot_perf_dir
 from openamundsen_da.methods.viz.common import force_figure_text_black, save_figure_png
-from openamundsen_da.methods.viz.theme import FIGHEIGHT_OVERVIEW_ROW, FIGWIDTH_OVERVIEW_PAPER
+from openamundsen_da.methods.viz.theme import FIGWIDTH_OVERVIEW_PAPER
 
 try:
     import psutil  # type: ignore[import]
@@ -43,13 +43,12 @@ try:
 except Exception:  # pragma: no cover
     plt = None  # type: ignore[assignment]
 
-PROJECT_PERF_FIGSIZE = (FIGWIDTH_OVERVIEW_PAPER, FIGHEIGHT_OVERVIEW_ROW * 1.4)
+PROJECT_PERF_FIGSIZE = (FIGWIDTH_OVERVIEW_PAPER, 2.1)
 THERMAL_SYSFS_ROOT_ENV = "OA_DA_THERMAL_SYSFS_ROOT"
 DEFAULT_THERMAL_SYSFS_ROOT = Path("/sys/class/hwmon")
 PERF_PLOT_COLORS = {
     "cpu": "#0072B2",
     "ram": "#CC79A7",
-    "disk_used": "#009E73",
     "project_size": "#222222",
     "cpu_temp": "#D55E00",
     "cpu_temp_crit": "#8B1A1A",
@@ -63,6 +62,27 @@ class PerfMonitorConfig:
     plot_interval_sec: float = 30.0
     disk_scan_interval_sec: float = 300.0
     run_start: datetime | None = None
+
+
+@dataclass(frozen=True)
+class PerfMonitorHandle:
+    """Own one background monitor thread and its final snapshots."""
+
+    config: PerfMonitorConfig
+    out_dir: Path
+    stop_event: Event
+    thread: Thread
+
+    def stop_and_join(self) -> None:
+        """Request shutdown and wait until the sampler has fully stopped."""
+
+        self.stop_event.set()
+        self.thread.join()
+
+    def capture_now(self) -> bool:
+        """Append and render one exact, unthrottled project-size snapshot."""
+
+        return capture_perf_snapshot(self.config, self.out_dir)
 
 
 @dataclass(frozen=True)
@@ -80,20 +100,20 @@ class _ThermalCandidate:
     crit_c: float | None = None
 
 
-def start_perf_monitor(cfg: PerfMonitorConfig) -> Event:
+def start_perf_monitor(cfg: PerfMonitorConfig) -> PerfMonitorHandle | None:
     """Start a background performance monitor thread."""
-    stop_event = Event()
     if psutil is None:
         logger.warning("psutil is not available; performance monitoring is disabled.")
-        return stop_event
+        return None
 
     out_dir = project_plot_perf_dir(cfg.project_dir)
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
     except Exception as exc:  # pragma: no cover
         logger.warning("Could not create perf monitor output directory {}: {}", out_dir, exc)
-        return stop_event
+        return None
 
+    stop_event = Event()
     thread = Thread(
         target=_monitor_loop,
         args=(cfg, out_dir, stop_event),
@@ -102,7 +122,7 @@ def start_perf_monitor(cfg: PerfMonitorConfig) -> Event:
     )
     thread.start()
     logger.info("Performance monitor started -> {}", out_dir)
-    return stop_event
+    return PerfMonitorHandle(cfg, out_dir, stop_event, thread)
 
 
 def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> None:
@@ -470,6 +490,119 @@ def _append_csv_row(
         f.write(line)
 
 
+def _csv_float(row: dict[str, str], key: str, *, default: float = 0.0) -> float:
+    value = row.get(key, "")
+    try:
+        return float(value) if value not in (None, "") else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _csv_optional_float(row: dict[str, str], key: str) -> float | None:
+    value = row.get(key, "")
+    if value in (None, ""):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isfinite(parsed) else None
+
+
+def _naive_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def capture_perf_snapshot(cfg: PerfMonitorConfig, out_dir: Path | None = None) -> bool:
+    """Append and render one unthrottled snapshot from an existing monitor CSV."""
+
+    if psutil is None:
+        return False
+    out_dir = Path(out_dir) if out_dir is not None else project_plot_perf_dir(cfg.project_dir)
+    csv_path = out_dir / "project_perf_metrics.csv"
+    png_path = out_dir / "project_perf.png"
+    if not csv_path.is_file():
+        logger.warning("Performance monitor final snapshot skipped; CSV is missing: {}", csv_path)
+        return False
+
+    try:
+        import csv
+
+        with csv_path.open("r", encoding="utf-8", newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        if not rows:
+            raise ValueError("CSV has no data rows")
+
+        timestamps = [datetime.fromisoformat(row["timestamp"]) for row in rows]
+        cpu_pct = [_csv_float(row, "cpu_total_pct") for row in rows]
+        mem_pct = [_csv_float(row, "mem_used_pct") for row in rows]
+        mem_used_gb = [_csv_float(row, "mem_used_gb") for row in rows]
+        mem_total_gb = [_csv_float(row, "mem_total_gb") for row in rows]
+        disk_fs_used_pct = [_csv_float(row, "disk_fs_used_pct") for row in rows]
+        disk_fs_free_gb = [_csv_float(row, "disk_fs_free_gb") for row in rows]
+        disk_project_used_gb = [_csv_float(row, "disk_project_used_gb") for row in rows]
+        cpu_temp_c = [_csv_optional_float(row, "cpu_temp_c") for row in rows]
+        cpu_temp_crit_c = [_csv_optional_float(row, "cpu_temp_crit_c") for row in rows]
+
+        now = datetime.utcnow()
+        vm = psutil.virtual_memory()
+        cpu_value = float(psutil.cpu_percent(interval=None))
+        fs_used_pct, fs_used_gb, fs_free_gb, fs_total_gb = _filesystem_disk_usage_gb(cfg.project_dir)
+        project_used_gb = _directory_size_gb(cfg.project_dir)
+        thermal = _sample_cpu_temperature_c()
+
+        timestamps.append(now)
+        cpu_pct.append(cpu_value)
+        mem_pct.append(float(vm.percent))
+        mem_used_gb.append(_bytes_to_gb(vm.used))
+        mem_total_gb.append(_bytes_to_gb(vm.total))
+        disk_fs_used_pct.append(fs_used_pct)
+        disk_fs_free_gb.append(fs_free_gb)
+        disk_project_used_gb.append(project_used_gb)
+        cpu_temp_c.append(thermal.temp_c)
+        cpu_temp_crit_c.append(thermal.crit_c)
+
+        _append_csv_row(
+            csv_path,
+            now,
+            cpu_value,
+            float(vm.percent),
+            _bytes_to_gb(vm.used),
+            _bytes_to_gb(vm.total),
+            fs_used_pct,
+            fs_used_gb,
+            fs_free_gb,
+            fs_total_gb,
+            project_used_gb,
+            cpu_temp_c=thermal.temp_c,
+            cpu_temp_source=thermal.source,
+            cpu_temp_crit_c=thermal.crit_c,
+            thermal_sample_ok=thermal.temp_c is not None,
+        )
+        if plt is not None:
+            run_start = _naive_utc(cfg.run_start) if cfg.run_start is not None else timestamps[0]
+            _render_plot(
+                png_path,
+                timestamps,
+                cpu_pct,
+                mem_pct,
+                mem_used_gb,
+                mem_total_gb,
+                run_start,
+                disk_fs_used_pct=disk_fs_used_pct,
+                disk_fs_free_gb=disk_fs_free_gb,
+                disk_project_used_gb=disk_project_used_gb,
+                cpu_temp_c=cpu_temp_c,
+                cpu_temp_crit_c=cpu_temp_crit_c,
+            )
+        return True
+    except Exception as exc:  # pragma: no cover - final monitoring is best effort
+        logger.warning("Performance monitor final snapshot failed for {}: {}", cfg.project_dir, exc)
+        return False
+
+
 def _render_plot(
     out_path: Path,
     timestamps: List[datetime],
@@ -491,9 +624,7 @@ def _render_plot(
 
     ax1.plot(timestamps, cpu_pct, label="CPU [%]", color=PERF_PLOT_COLORS["cpu"])
     ax1.plot(timestamps, mem_pct, label="RAM [%]", color=PERF_PLOT_COLORS["ram"])
-    if disk_fs_used_pct:
-        ax1.plot(timestamps, disk_fs_used_pct, label="Disk used [%]", color=PERF_PLOT_COLORS["disk_used"])
-    ax1.set_ylabel("CPU / RAM / disk used [%]")
+    ax1.set_ylabel("CPU / RAM [%]")
     ax1.set_ylim(bottom=0)
     ax1.grid(True, alpha=0.3)
 
@@ -544,7 +675,7 @@ def _render_plot(
         lines,
         labels,
         loc="upper center",
-        bbox_to_anchor=(0.5, -0.14),
+        bbox_to_anchor=(0.5, -0.26),
         fontsize=8,
         ncol=len(labels),
         frameon=False,
@@ -555,22 +686,21 @@ def _render_plot(
     mm = rem // 60
     elapsed_hhmm = f"{hh:02d}:{mm:02d}"
     peak_project_size = max(disk_project_used_gb) if disk_project_used_gb else 0.0
-    peak_disk_used_pct = max(disk_fs_used_pct) if disk_fs_used_pct else 0.0
+    final_project_size = disk_project_used_gb[-1] if disk_project_used_gb else 0.0
     summary_parts = [f"Elapsed: {elapsed_hhmm}"]
     if cpu_temp_values:
         summary_parts.append(f"Peak CPU temp: {max(cpu_temp_values):.1f} C")
     summary_parts.extend(
         [
             f"Peak RAM: {max(mem_used_gb or [0]):.2f} / {max(mem_total_gb or [0]):.2f} GB",
-            f"Peak disk used: {peak_disk_used_pct:.1f}%",
-            f"Peak project: {peak_project_size:.2f} GB",
+            f"Project: peak {peak_project_size:.2f} GB \N{RIGHTWARDS ARROW} final {final_project_size:.2f} GB",
         ]
     )
     summary = "   ".join(summary_parts)
     fig.text(0.5, 0.985, summary, ha="center", va="top", fontsize=9)
 
-    right_rect = 0.89 if ax3 is not None else 0.995
-    fig.tight_layout(rect=(0.005, 0.18, right_rect, 0.91))
+    right_margin = 0.83 if ax3 is not None else 0.91
+    fig.subplots_adjust(left=0.075, right=right_margin, top=0.86, bottom=0.27)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     force_figure_text_black(fig, axes)
     _save_perf_plot_atomic(fig, out_path)

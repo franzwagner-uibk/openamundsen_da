@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from openamundsen_da.methods.viz.theme import EXPORT_DPI, FIGHEIGHT_OVERVIEW_ROW, FIGWIDTH_OVERVIEW_PAPER
+from openamundsen_da.methods.viz.theme import EXPORT_DPI, FIGWIDTH_OVERVIEW_PAPER
 from openamundsen_da.util import perf_monitor
 
 
@@ -34,7 +34,7 @@ def test_project_perf_plot_uses_report_overview_page_width(tmp_path: Path) -> No
         width, height = image.size
 
     assert width == pytest.approx(FIGWIDTH_OVERVIEW_PAPER * EXPORT_DPI, abs=2)
-    assert height == pytest.approx(FIGHEIGHT_OVERVIEW_ROW * 1.4 * EXPORT_DPI, abs=2)
+    assert height == pytest.approx(2.1 * EXPORT_DPI, abs=2)
 
 
 def test_project_perf_plot_replaces_target_atomically(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -92,9 +92,27 @@ def test_project_perf_plot_places_one_row_legend_below_axes_without_x_title(
     primary_axis = fig.axes[0]
     legend = primary_axis.get_legend()
     assert primary_axis.get_xlabel() == ""
+    assert primary_axis.get_ylabel() == "CPU / RAM [%]"
     assert legend is not None
     assert legend._ncols == len(legend.get_texts())
     assert legend.get_bbox_to_anchor()._bbox.y0 < 0
+    labels = [text.get_text() for text in legend.get_texts()]
+    assert labels == [
+        "CPU [%]",
+        "RAM [%]",
+        "Project size [GB]",
+        "CPU temp [C]",
+        "CPU temp crit [C]",
+    ]
+    assert "Disk used [%]" not in labels
+    summary = " ".join(text.get_text() for text in fig.texts)
+    assert "Project: peak 80.00 GB \N{RIGHTWARDS ARROW} final 80.00 GB" in summary
+    fig.canvas.draw()
+    legend_bounds = legend.get_window_extent()
+    figure_bounds = fig.bbox
+    assert legend_bounds.x0 >= figure_bounds.x0
+    assert legend_bounds.x1 <= figure_bounds.x1
+    assert legend_bounds.y0 >= figure_bounds.y0
 
 
 def test_project_perf_csv_appends_disk_and_thermal_columns(tmp_path: Path) -> None:
@@ -160,16 +178,25 @@ def test_project_perf_csv_handles_missing_thermal_data(tmp_path: Path) -> None:
     )
 
 
-def test_project_perf_plot_accepts_disk_series(tmp_path: Path) -> None:
+def test_project_perf_plot_accepts_raw_disk_telemetry_without_plotting_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     if perf_monitor.plt is None:
         pytest.skip("matplotlib is not available")
 
     start = datetime(2026, 1, 1, 12, 0)
     timestamps = [start + timedelta(minutes=idx) for idx in range(4)]
-    out = tmp_path / "project_perf.png"
+    captured_labels: list[str] = []
+
+    def _capture_labels(fig, _out_path: Path) -> None:
+        for axis in fig.axes:
+            captured_labels.extend(line.get_label() for line in axis.get_lines())
+
+    monkeypatch.setattr(perf_monitor, "_save_perf_plot_atomic", _capture_labels)
 
     perf_monitor._render_plot(
-        out,
+        tmp_path / "project_perf.png",
         timestamps,
         cpu_pct=[10.0, 50.0, 80.0, 30.0],
         mem_pct=[20.0, 25.0, 30.0, 26.0],
@@ -183,11 +210,8 @@ def test_project_perf_plot_accepts_disk_series(tmp_path: Path) -> None:
         cpu_temp_crit_c=[95.0, 95.0, 95.0, 95.0],
     )
 
-    with Image.open(out) as image:
-        width, height = image.size
-
-    assert width > 0
-    assert height > 0
+    assert "Disk used [%]" not in captured_labels
+    assert "Project size [GB]" in captured_labels
 
 
 def test_project_perf_plot_omits_disk_free_series(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -218,7 +242,115 @@ def test_project_perf_plot_omits_disk_free_series(tmp_path: Path, monkeypatch: p
     )
 
     assert "Disk free [GB]" not in captured_labels
+    assert "Disk used [%]" not in captured_labels
     assert "Project size [GB]" in captured_labels
+
+
+def test_forced_snapshot_preserves_csv_schema_and_refreshes_exact_project_size(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir = tmp_path / "project"
+    out_dir = project_dir / "results" / "plots" / "perf"
+    out_dir.mkdir(parents=True)
+    csv_path = out_dir / "project_perf_metrics.csv"
+    start = datetime(2026, 1, 1, 12, 0)
+    perf_monitor._append_csv_row(
+        csv_path,
+        start,
+        cpu_total_pct=10.0,
+        mem_used_pct=20.0,
+        mem_used_gb=8.0,
+        mem_total_gb=32.0,
+        disk_fs_used_pct=40.0,
+        disk_fs_used_gb=400.0,
+        disk_fs_free_gb=600.0,
+        disk_fs_total_gb=1000.0,
+        disk_project_used_gb=12.0,
+    )
+    fake_vm = SimpleNamespace(percent=25.0, used=9 * 1024**3, total=32 * 1024**3)
+    monkeypatch.setattr(
+        perf_monitor,
+        "psutil",
+        SimpleNamespace(
+            virtual_memory=lambda: fake_vm,
+            cpu_percent=lambda interval=None: 30.0,
+        ),
+    )
+    monkeypatch.setattr(
+        perf_monitor,
+        "_filesystem_disk_usage_gb",
+        lambda _path: (45.0, 450.0, 550.0, 1000.0),
+    )
+    monkeypatch.setattr(perf_monitor, "_directory_size_gb", lambda _path: 3.25)
+    monkeypatch.setattr(
+        perf_monitor,
+        "_sample_cpu_temperature_c",
+        lambda: perf_monitor.CpuThermalSample(70.0, "psutil:k10temp:Tctl", 95.0),
+    )
+    rendered: dict[str, object] = {}
+
+    def _capture_render(_path: Path, _timestamps, _cpu, _mem, _used, _total, _start, **kwargs) -> None:
+        rendered.update(kwargs)
+
+    monkeypatch.setattr(perf_monitor, "_render_plot", _capture_render)
+
+    captured = perf_monitor.capture_perf_snapshot(
+        perf_monitor.PerfMonitorConfig(project_dir=project_dir, run_start=start),
+        out_dir,
+    )
+
+    lines = csv_path.read_text(encoding="utf-8").splitlines()
+    assert captured is True
+    assert len(lines) == 3
+    assert lines[0].split(",") == [
+        "timestamp",
+        "cpu_total_pct",
+        "mem_used_pct",
+        "mem_used_gb",
+        "mem_total_gb",
+        "disk_fs_used_pct",
+        "disk_fs_used_gb",
+        "disk_fs_free_gb",
+        "disk_fs_total_gb",
+        "disk_project_used_gb",
+        "cpu_temp_c",
+        "cpu_temp_source",
+        "cpu_temp_crit_c",
+        "thermal_sample_ok",
+    ]
+    assert lines[-1].split(",")[5:10] == ["45.000", "450.000", "550.000", "1000.000", "3.250"]
+    assert rendered["disk_fs_used_pct"] == [40.0, 45.0]
+    assert rendered["disk_project_used_gb"] == [12.0, 3.25]
+
+
+def test_monitor_handle_stops_thread_before_forced_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    class FakeEvent:
+        def set(self) -> None:
+            calls.append("stop")
+
+    class FakeThread:
+        def join(self) -> None:
+            calls.append("join")
+
+    monkeypatch.setattr(
+        perf_monitor,
+        "capture_perf_snapshot",
+        lambda _config, _out_dir: calls.append("capture") or True,
+    )
+    handle = perf_monitor.PerfMonitorHandle(
+        perf_monitor.PerfMonitorConfig(project_dir=Path("project")),
+        Path("perf"),
+        FakeEvent(),  # type: ignore[arg-type]
+        FakeThread(),  # type: ignore[arg-type]
+    )
+
+    handle.stop_and_join()
+    handle.capture_now()
+
+    assert calls == ["stop", "join", "capture"]
 
 
 def test_cpu_temperature_prefers_psutil_k10temp_tctl(monkeypatch: pytest.MonkeyPatch) -> None:

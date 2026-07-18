@@ -11,6 +11,13 @@ from typing import Any, Mapping, Sequence
 
 from validate_manuscript_reference import DEFAULT_ASSET_MANIFEST, _image_record, _read_json
 
+DEFAULT_TUTORIAL_ASSET_MANIFEST = (
+    Path(__file__).resolve().parents[2]
+    / "tests"
+    / "baselines"
+    / "rofental_es30_tutorial_assets.json"
+)
+
 
 class PublicationAssetError(RuntimeError):
     """Raised when a selected publication asset is missing or differs."""
@@ -69,6 +76,16 @@ def _target_records(manifest: Mapping[str, Any], target: str) -> tuple[Mapping[s
     if not isinstance(records, list) or not records:
         raise PublicationAssetError(f"Asset manifest has no {target} records")
     return tuple(records)
+
+
+def _manifest_path(target: str, override: Path | None = None) -> Path:
+    if override is not None:
+        return override
+    if target == "manuscript":
+        return DEFAULT_ASSET_MANIFEST
+    if target == "tutorial":
+        return DEFAULT_TUTORIAL_ASSET_MANIFEST
+    raise PublicationAssetError(f"Unsupported publication target: {target}")
 
 
 def plan_stage(
@@ -166,7 +183,11 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="Explicit destination root (for example manuscript assets/ or tutorial image directory)",
     )
-    parser.add_argument("--manifest", type=Path, default=DEFAULT_ASSET_MANIFEST)
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        help="Override the target-specific manuscript or tutorial asset manifest",
+    )
     parser.add_argument("--apply", action="store_true", help="Copy changed selected assets")
     return parser
 
@@ -174,7 +195,8 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        manifest = _read_json(args.manifest.resolve(strict=True))
+        manifest_path = _manifest_path(args.target, args.manifest)
+        manifest = _read_json(manifest_path.resolve(strict=True))
         actions, errors = plan_stage(
             root=args.root,
             destination=args.destination,

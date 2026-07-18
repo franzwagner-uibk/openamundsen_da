@@ -13,7 +13,9 @@ from typing import Iterable, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS_ROOT = REPO_ROOT / "docs"
-ASSET_MANIFEST = REPO_ROOT / "tests" / "baselines" / "rofental_es30_manuscript_assets.json"
+TUTORIAL_ASSET_MANIFEST = (
+    REPO_ROOT / "tests" / "baselines" / "rofental_es30_tutorial_assets.json"
+)
 TUTORIAL_ASSET_ROOT = DOCS_ROOT / "assets" / "images" / "tutorial" / "rofental_2022_2023_es30"
 CONFIG_ARCHITECTURE_FIGURE = DOCS_ROOT / "assets" / "images" / "diagrams" / "setup-project-configuration.png"
 CONFIG_ARCHITECTURE_FIGURE_SHA256 = "fd2e413b6aaafa2ee2c779456e48cb0ee6e23f28ba66ef31795905cfdf2b13bc"
@@ -141,10 +143,13 @@ def _validate_removed_and_stale(paths: Iterable[Path]) -> list[str]:
 
 
 def _validate_tutorial_assets() -> list[str]:
-    manifest = json.loads(ASSET_MANIFEST.read_text(encoding="utf-8"))
+    manifest = json.loads(TUTORIAL_ASSET_MANIFEST.read_text(encoding="utf-8"))
     records = manifest.get("tutorial_assets")
     if not isinstance(records, list) or not records:
-        return [f"missing tutorial asset records: {ASSET_MANIFEST.relative_to(REPO_ROOT)}"]
+        return [
+            "missing tutorial asset records: "
+            f"{TUTORIAL_ASSET_MANIFEST.relative_to(REPO_ROOT)}"
+        ]
     errors: list[str] = []
     selected: set[str] = set()
     tutorial_text = "\n".join(

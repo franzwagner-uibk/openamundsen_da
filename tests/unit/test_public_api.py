@@ -326,6 +326,7 @@ def test_run_project_finalizes_manifest_then_cleans_restart_states(
     project_dir = _write_public_project(tmp_path)
     _mark_prepared(project_dir)
     calls = 0
+    lifecycle: list[str] = []
 
     def fake_execute(_config) -> RenderResult:
         nonlocal calls
@@ -333,9 +334,6 @@ def test_run_project_finalizes_manifest_then_cleans_restart_states(
         return _fake_successful_execution(project_dir)
 
     monkeypatch.setattr("openamundsen_da.pipeline.project.run_project", fake_execute)
-
-    completed = run_project(project_dir, max_workers=2)
-    reused = run_project(project_dir, max_workers=2)
 
     state = (
         project_dir
@@ -347,6 +345,23 @@ def test_run_project_finalizes_manifest_then_cleans_restart_states(
         / "results"
         / "model_state.pickle.gz"
     )
+
+    def fake_snapshot(_config) -> bool:
+        assert not state.exists()
+        lifecycle.append("post-cleanup-snapshot")
+        return True
+
+    def fake_report(*, project_dir: Path, output: Path) -> Path:
+        lifecycle.append("report-refresh")
+        output.write_bytes(b"refreshed-pdf")
+        return output
+
+    monkeypatch.setattr("openamundsen_da.api.capture_perf_snapshot", fake_snapshot)
+    monkeypatch.setattr("openamundsen_da.api.build_project_collection_pdf", fake_report)
+
+    completed = run_project(project_dir, max_workers=2)
+    reused = run_project(project_dir, max_workers=2)
+
     manifest = load_manifest(completed.manifest_path)
     assert calls == 1
     assert completed.status is WorkflowStatus.COMPLETED
@@ -356,6 +371,8 @@ def test_run_project_finalizes_manifest_then_cleans_restart_states(
     assert manifest["status"] == "success"
     assert manifest["stages"] == {"execution": "success", "render": "success", "cleanup": "success"}
     assert manifest["cleanup"]["deleted_count"] == 2
+    assert lifecycle == ["post-cleanup-snapshot", "report-refresh"]
+    assert (project_dir / "results" / "reports" / "project_report.pdf").read_bytes() == b"refreshed-pdf"
 
 
 def test_run_project_retains_restart_states_when_required_output_fails(
@@ -371,6 +388,11 @@ def test_run_project_retains_restart_states_when_required_output_fails(
         return result
 
     monkeypatch.setattr("openamundsen_da.pipeline.project.run_project", fake_execute)
+    snapshot_calls: list[Path] = []
+    monkeypatch.setattr(
+        "openamundsen_da.api.capture_perf_snapshot",
+        lambda config: snapshot_calls.append(config.project_dir) or True,
+    )
 
     with pytest.raises(Exception, match="report validation"):
         run_project(project_dir)
@@ -391,6 +413,7 @@ def test_run_project_retains_restart_states_when_required_output_fails(
     assert manifest["status"] == "failed"
     assert manifest["stages"]["execution"] == "failed"
     assert manifest["stages"]["cleanup"] == "pending"
+    assert snapshot_calls == []
 
 
 def test_run_project_rejects_mismatched_resume_before_manifest_write(

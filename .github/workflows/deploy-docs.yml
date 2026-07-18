@@ -9,7 +9,7 @@ on:
       - 'openamundsen_da/cli.py'
       - 'scripts/ci/validate_docs.py'
       - 'scripts/docs/**'
-      - 'tests/baselines/rofental_es30_manuscript_assets.json'
+      - 'tests/baselines/rofental_es30_tutorial_assets.json'
       - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 

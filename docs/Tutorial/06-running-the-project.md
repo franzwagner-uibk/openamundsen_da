@@ -88,8 +88,11 @@ The command returns success only when all of these are valid:
 - `results/reports/project_report.pdf`; and
 - automatic removal of package-owned restart state.
 
-The atomic `results/run_manifest.json` records the input digest, software/image
-provenance, completed/reused members, output inventory and cleanup record.
+The atomic `results/run_manifest.json` always records the openAMUNDSEN-DA
+software version. It also records `image` and `image_digest` when the runtime
+supplies `OPENAMUNDSEN_DA_IMAGE` and `OPENAMUNDSEN_DA_IMAGE_DIGEST`; otherwise
+those optional fields are empty. Completed/reused members, the output inventory
+and cleanup record are included independently of this optional image metadata.
 Interrupted or failed projects keep restart state.
 
 Before interpretation, confirm that the manifest reports `status: success` and

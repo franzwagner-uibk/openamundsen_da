@@ -180,6 +180,14 @@ def test_publication_staging_copies_only_selected_assets_and_keeps_extras(
     assert extra.read_bytes() == b"unlisted"
 
 
+def test_publication_staging_uses_separate_target_manifests(monkeypatch) -> None:
+    module = _load_release_module("stage_publication_assets", monkeypatch)
+
+    assert module._manifest_path("manuscript") == module.DEFAULT_ASSET_MANIFEST
+    assert module._manifest_path("tutorial") == module.DEFAULT_TUTORIAL_ASSET_MANIFEST
+    assert module._manifest_path("tutorial", Path("custom.json")) == Path("custom.json")
+
+
 def test_publication_staging_blocks_source_hash_drift(tmp_path: Path, monkeypatch) -> None:
     module = _load_release_module("stage_publication_assets", monkeypatch)
     root = tmp_path / "run"

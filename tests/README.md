@@ -429,6 +429,11 @@ files byte-exact and records one accepted fresh-render variant of Figure 04,
 whose benchmark reductions differ only at machine precision and affect 1434
 antialiased pixels in the CRPSS panel.
 
+Tutorial images are governed separately by
+`tests/baselines/rofental_es30_tutorial_assets.json`. Documentation validation
+and tutorial staging use this dedicated contract, so accepting a runtime-specific
+tutorial image cannot alter the manuscript figure records.
+
 Preview manuscript asset staging before changing the separate manuscript
 repository:
 

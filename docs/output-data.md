@@ -12,8 +12,11 @@ checks. The atomic run manifest is the authoritative completion record.
 
 ## Run manifest
 
-`results/run_manifest.json` records configuration and input hashes, software and
-container provenance, stage/member state, output inventory and cleanup results.
+`results/run_manifest.json` records configuration and input hashes, the
+openAMUNDSEN-DA software version, stage/member state, output inventory and
+cleanup results. The optional `image` and `image_digest` fields are populated
+only when the runtime supplies `OPENAMUNDSEN_DA_IMAGE` and
+`OPENAMUNDSEN_DA_IMAGE_DIGEST`; an empty value does not invalidate a run.
 Interrupted or failed runs keep restart state. A mismatched configuration or
 input inventory cannot resume an existing run.
 
@@ -53,8 +56,11 @@ results/
 
 Benchmark tables and their manifest live under `results/benchmark/`. Weight,
 effective sample size and score plots live under `results/plots/assim/`.
-`results/plots/perf/` is refreshed during every agent/CI project run. The
-reviewed Rofental walkthrough explains the files in
+`results/plots/perf/` is refreshed during every project run. The CSV retains
+raw filesystem telemetry, while the plot focuses on CPU, RAM, project-directory
+size and optional CPU temperature. For successful single-domain runs, exact
+project-size samples immediately before and after restart-state cleanup make the
+storage reduction visible. The reviewed Rofental walkthrough explains the files in
 [Results and Diagnostics]({{ site.baseurl }}{% link Tutorial/07-results-and-diagnostics.md %}).
 
 ## Cleanup and retention

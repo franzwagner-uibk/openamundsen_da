@@ -44,12 +44,12 @@
       "destination": "project_perf.png",
       "source": "projects/project_2022_2023/results/plots/perf/project_perf.png",
       "source_policy": "runtime_specific",
-      "reason": "Performance samples describe the execution machine and wall-clock run, so staging validates the canonical tutorial image and the generated image layout but never replaces the canonical image from a different run.",
-      "file_sha256": "f760c8e66c2acad9a045a093bfb168dbc777d8faae712aeb655ffa11e5fd837d",
+      "reason": "User-approved exact-RC7 WSL tutorial run on LAP-WAGNER with 24 CPUs, 24 workers and one numerical-library thread per process; performance values remain specific to that execution machine.",
+      "file_sha256": "55bc40588dc2ffe324468f7427e86312e1ff16f954b8b0490bdddd7d78aab982",
       "width": 4372,
-      "height": 1438,
+      "height": 1260,
       "mode": "RGBA",
-      "pixels_sha256": "1c34b8c7d54794ad1f3e4a852ed9826608aee782b589b530fa395069c7286b8b"
+      "pixels_sha256": "e741d08218be97a49807a7259c0f7f1c15addf6320436f9f245896cdde447c14"
     },
     {
       "destination": "result_overview.png",

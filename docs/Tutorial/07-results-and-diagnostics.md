@@ -111,14 +111,21 @@ Plot file to open:
 
 Reference plot (tutorial baseline, `ensemble_size=30`):
 
-![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/project_perf.png?v=20260703)
+![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/project_perf.png?v=20260718)
 
-_`project_perf.png` from the Rofental tutorial reference run (`100 m`, `ensemble_size=30`)._
+_`project_perf.png` from the accepted exact-RC7 WSL tutorial run (`100 m`,
+`ensemble_size=30`, 24 workers). Runtime and resource values are specific to
+that machine._
 
 What to read in the plot:
 
-- **Relative utilization curves**: look for sustained CPU use during step processing, stable RAM use, and filesystem-used percentage that stays below critical disk pressure.
-- **Project-size curve**: compare project directory growth against filesystem-used percentage. Project size is scanned at a throttled interval, so it can update in steps rather than every sample.
+- **Relative utilization curves**: look for sustained CPU use during step
+  processing and stable RAM use. Filesystem capacity telemetry remains in the
+  CSV instead of competing with these curves in the figure.
+- **Project-size curve**: follow project-directory growth across the steps. The
+  final forced sample shows the drop after automatic restart-state cleanup; in
+  this run, project size falls from a 2.49 GB peak to 1.10 GB. Periodic samples
+  are throttled, so earlier growth can update in steps rather than every row.
 - **Thermal curve**: when host sensors are readable, CPU temperature is plotted on its own axis. Missing thermal data is expected in some containers and does not invalidate the CPU/RAM/disk diagnostics.
 - **Timing structure**: repeated patterns often correspond to repeated step execution.
 

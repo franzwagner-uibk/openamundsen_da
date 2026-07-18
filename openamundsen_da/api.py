@@ -26,6 +26,7 @@ from openamundsen_da.manifests import (
     workflow_manifest_path,
     write_manifest_atomic,
 )
+from openamundsen_da.methods.viz.reports import build_project_collection_pdf
 from openamundsen_da.observer.satellite_scf import generate_project_from_summary as prepare_scf_observations
 from openamundsen_da.observer.satellite_wet_snow_s1 import (
     generate_project_from_summary as prepare_wet_snow_observations,
@@ -34,6 +35,7 @@ from openamundsen_da.pipeline.cleanup import clean_project_artifacts
 from openamundsen_da.pipeline.project_skeleton import create_project_skeleton
 from openamundsen_da.pipeline.rendering import render_required_project_outputs
 from openamundsen_da.results import CleanupResult, PreparationResult, RenderResult, RunResult, WorkflowStatus
+from openamundsen_da.util.perf_monitor import PerfMonitorConfig, capture_perf_snapshot
 
 
 def _setup_path(config: ProjectConfiguration, raw: object) -> Path:
@@ -375,11 +377,12 @@ def run_project(project_dir: str | Path, *, max_workers: int | None = None) -> R
                 f"Results exist without a project run manifest: {unmanaged[0]}; move or clean unmanaged outputs first"
             )
 
+    started_at = datetime.now(timezone.utc)
     started = time.monotonic()
     manifest = {
         "operation": "run-project",
         "status": "running",
-        "started_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": started_at.isoformat(),
         "input_digest": digest,
         "inputs": inputs,
         "provenance": {
@@ -424,6 +427,11 @@ def run_project(project_dir: str | Path, *, max_workers: int | None = None) -> R
             raise ProjectRunError(
                 f"Restart-state cleanup failed for {len(cleanup_result.failures)} artifact(s)"
             )
+        if capture_perf_snapshot(
+            PerfMonitorConfig(project_dir=config.project_dir, run_start=started_at)
+        ):
+            for report_path in render_result.report_paths:
+                build_project_collection_pdf(project_dir=config.project_dir, output=report_path)
         output_files = [
             path
             for path in recursive_files(config.project_dir / "results")

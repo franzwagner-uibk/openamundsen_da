@@ -527,7 +527,8 @@ def run_subdomains(
         raise
     finally:
         if perf_stop:
-            perf_stop.set()
+            perf_stop.stop_and_join()
+            perf_stop.capture_now()
         # Ensure process cleanup.
         try:
             executor.shutdown(wait=True, cancel_futures=True)

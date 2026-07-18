@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import threading
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -392,8 +392,7 @@ def _setup_log_path(project_dir: Path) -> Path:
     return project_dir / f"{label}.log"
 
 
-def run_project(cfg: OrchestratorConfig) -> RenderResult:
-    run_start = datetime.utcnow()
+def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> RenderResult:
     # Console + file log under project root.
     _setup_logger(cfg.project_dir, cfg.log_level)
     live_plot_threads: list[threading.Thread] = []
@@ -534,16 +533,6 @@ def run_project(cfg: OrchestratorConfig) -> RenderResult:
                 roi_area_km2 = lc_report.roi_area_km2
         except Exception as exc:
             logger.warning("Land-cover mask report failed: {}", exc)
-
-    perf_stop_event = None
-    if cfg.monitor_perf:
-        pm_cfg = PerfMonitorConfig(
-            project_dir=cfg.project_dir,
-            sample_interval_sec=float(cfg.perf_sample_interval or 5.0),
-            plot_interval_sec=float(cfg.perf_plot_interval or 30.0),
-            run_start=run_start,
-        )
-        perf_stop_event = start_perf_monitor(pm_cfg)
 
     # Process each step
     for i, step_dir in enumerate(steps):
@@ -798,9 +787,29 @@ def run_project(cfg: OrchestratorConfig) -> RenderResult:
     duration = (run_end - run_start).total_seconds()
     logger.info("Project processing complete: {} (wall-clock {:.1f} s, ~{:.2f} h)", cfg.project_dir, duration, duration / 3600.0)
 
-    if perf_stop_event is not None:
-        perf_stop_event.set()
     return render_result
+
+
+def run_project(cfg: OrchestratorConfig) -> RenderResult:
+    """Run the orchestrator while owning performance-monitor shutdown."""
+
+    run_start = datetime.utcnow()
+    perf_handle = None
+    if cfg.monitor_perf:
+        perf_handle = start_perf_monitor(
+            PerfMonitorConfig(
+                project_dir=cfg.project_dir,
+                sample_interval_sec=float(cfg.perf_sample_interval or 5.0),
+                plot_interval_sec=float(cfg.perf_plot_interval or 30.0),
+                run_start=run_start,
+            )
+        )
+    try:
+        return _run_project_impl(replace(cfg, monitor_perf=False), run_start=run_start)
+    finally:
+        if perf_handle is not None:
+            perf_handle.stop_and_join()
+            perf_handle.capture_now()
 
 
 def cli(argv: Optional[List[str]] = None) -> int:

@@ -3,6 +3,8 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
+import pytest
+
 from openamundsen_da.pipeline import plot_tasks, project as project_cli
 
 
@@ -153,8 +155,39 @@ def test_post_run_plot_tasks_can_defer_fraction_overlay_for_score_panels(tmp_pat
 
 
 def test_project_pipeline_runs_report_after_final_artifact_stages() -> None:
-    source = inspect.getsource(project_cli.run_project)
+    source = inspect.getsource(project_cli._run_project_impl)
 
     assert source.index("write_project_da_output_grids(") < source.index("run_project_benchmark(")
     assert source.index("run_project_benchmark(") < source.index("render_required_project_outputs(")
     assert source.index("render_required_project_outputs(") < source.index("Project processing complete:")
+
+
+def test_project_pipeline_stops_monitor_and_captures_final_snapshot_on_failure(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[str] = []
+
+    class FakeHandle:
+        def stop_and_join(self) -> None:
+            calls.append("stop")
+
+        def capture_now(self) -> None:
+            calls.append("capture")
+
+    monkeypatch.setattr(project_cli, "start_perf_monitor", lambda _cfg: FakeHandle())
+    monkeypatch.setattr(
+        project_cli,
+        "_run_project_impl",
+        lambda _cfg, *, run_start: (_ for _ in ()).throw(RuntimeError("failed")),
+    )
+    cfg = project_cli.OrchestratorConfig(
+        project_dir=tmp_path / "project",
+        setup_dir=tmp_path,
+        monitor_perf=True,
+    )
+
+    with pytest.raises(RuntimeError, match="failed"):
+        project_cli.run_project(cfg)
+
+    assert calls == ["stop", "capture"]

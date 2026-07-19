@@ -54,9 +54,10 @@ observations, prepares inspectable event inputs and writes a validated result se
 
 ## License and availability
 
-The stable Python package will be published with v0.9.0. Release-candidate
-containers are available on
+The stable v0.9.0 Python package is available from
+[PyPI](https://pypi.org/project/openamundsen-da/). The tested multi-architecture
+container is available from
 [GHCR](https://github.com/franzwagner-uibk/openamundsen_da/pkgs/container/openamundsen_da),
-and archives and release evidence are available from
+and release archives and evidence are available from
 [GitHub Releases](https://github.com/franzwagner-uibk/openamundsen_da/releases).
 The MIT License permits commercial use subject to its terms.

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-19
+
 ### Changed
 - RC8 treats the exact root `CHANGELOG.md` as documentation-only in CI while
   retaining full CI for every uncertain or mixed change.
@@ -54,4 +56,5 @@ Initial pre-release of openamundsen_da - Data Assimilation Framework for openAMU
 
 ---
 
-[Unreleased]: https://github.com/franzwagner-uibk/openamundsen_da/commits/main
+[Unreleased]: https://github.com/franzwagner-uibk/openamundsen_da/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/franzwagner-uibk/openamundsen_da/compare/v0.9.0rc8...v0.9.0

@@ -13,12 +13,12 @@ upstream project; see its [technical documentation](https://doc.openamundsen.org
 
 ## Available now
 
+- The stable Python package is available from PyPI; see the
+  [installation instructions]({{ site.baseurl }}{% link installation.md %}).
 - [GitHub Container Registry](https://github.com/franzwagner-uibk/openamundsen_da/pkgs/container/openamundsen_da)
-  provides the published release-candidate containers.
+  provides the tested `0.9.0` multi-architecture container.
 - [GitHub Releases](https://github.com/franzwagner-uibk/openamundsen_da/releases)
   provides release archives, checksums and supporting release evidence.
 
-The documentation uses the current reviewed release-candidate image in its
-commands. The stable Python package and stable container selector will be added
-here after v0.9.0 is published and verified. A conda-forge package is planned as
-a follow-up distribution channel.
+The documentation uses the stable `0.9.0` image in its commands. A conda-forge
+package is being submitted as a follow-up distribution channel.

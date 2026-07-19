@@ -37,6 +37,49 @@ def test_project_perf_plot_uses_report_overview_page_width(tmp_path: Path) -> No
     assert height == pytest.approx(2.1 * EXPORT_DPI, abs=2)
 
 
+@pytest.mark.parametrize("duration_minutes", [9, 34, 90])
+def test_project_perf_plot_hides_alternate_time_labels_only(
+    duration_minutes: int,
+) -> None:
+    if perf_monitor.plt is None:
+        pytest.skip("matplotlib is not available")
+
+    start = datetime(2026, 1, 1, 12, 0)
+    timestamps = [
+        start + timedelta(seconds=5 * idx)
+        for idx in range(duration_minutes * 12 + 1)
+    ]
+    fig, axis = perf_monitor.plt.subplots(figsize=perf_monitor.PROJECT_PERF_FIGSIZE)
+    try:
+        axis.plot(timestamps, range(len(timestamps)))
+        axis.grid(True)
+        fig.canvas.draw()
+        positions_before = list(axis.get_xticks())
+        grid_positions_before = [
+            tuple(line.get_xdata()) for line in axis.get_xgridlines()
+        ]
+
+        perf_monitor._show_every_second_time_label(axis)
+        fig.canvas.draw()
+
+        ticks = axis.xaxis.get_major_ticks()
+        labels = [tick.label1.get_text() for tick in ticks]
+        assert list(axis.get_xticks()) == positions_before
+        grid_lines = axis.get_xgridlines()
+        assert [tuple(line.get_xdata()) for line in grid_lines] == grid_positions_before
+        assert all(line.get_visible() for line in grid_lines)
+        assert len(ticks) == len(positions_before)
+        assert labels[0]
+        assert all(tick.tick1line.get_visible() for tick in ticks)
+        assert all(
+            label if index % 2 == 0 else not label
+            for index, label in enumerate(labels)
+        )
+        assert len({label for label in labels if label}) > 1
+    finally:
+        perf_monitor.plt.close(fig)
+
+
 def test_project_perf_plot_replaces_target_atomically(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     out = tmp_path / "project_perf.png"
     out.write_text("old", encoding="utf-8")

@@ -44,12 +44,12 @@
       "destination": "project_perf.png",
       "source": "projects/project_2022_2023/results/plots/perf/project_perf.png",
       "source_policy": "runtime_specific",
-      "reason": "User-approved exact-RC7 WSL tutorial run on LAP-WAGNER with 24 CPUs, 24 workers and one numerical-library thread per process; performance values remain specific to that execution machine.",
-      "file_sha256": "55bc40588dc2ffe324468f7427e86312e1ff16f954b8b0490bdddd7d78aab982",
+      "reason": "User-approved exact-RC7 WSL tutorial telemetry from LAP-WAGNER with 24 CPUs, 24 workers and one numerical-library thread per process, rerendered with RC8 plotting code; performance values remain specific to that execution machine.",
+      "file_sha256": "d9f71d4574994734fa3018d4f34c18b3030b7753404b5a065a3fb54cd6902019",
       "width": 4372,
       "height": 1260,
       "mode": "RGBA",
-      "pixels_sha256": "e741d08218be97a49807a7259c0f7f1c15addf6320436f9f245896cdde447c14"
+      "pixels_sha256": "4faf946f915b4bc2b8026844678ddf1787b1babe45210519817529a8468346f1"
     },
     {
       "destination": "result_overview.png",

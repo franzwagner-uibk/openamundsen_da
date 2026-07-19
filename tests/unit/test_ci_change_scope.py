@@ -22,6 +22,7 @@ SPEC.loader.exec_module(classify_changes)
         "docs/Tutorial/07-results-and-diagnostics.md",
         "docs/assets/images/tutorial/reference.png",
         "tests/baselines/rofental_es30_tutorial_assets.json",
+        "CHANGELOG.md",
     ],
 )
 def test_documentation_only_paths_are_explicitly_allowlisted(path: str) -> None:
@@ -37,6 +38,7 @@ def test_documentation_only_paths_are_explicitly_allowlisted(path: str) -> None:
         "examples/rofental/rofental.yml",
         "openamundsen_da/api.py",
         "tests/baselines/rofental_es30_manuscript_assets.json",
+        "notes/CHANGELOG.md",
         "../docs/index.md",
         "/docs/index.md",
         " docs/index.md",
@@ -49,6 +51,7 @@ def test_every_non_allowlisted_or_uncertain_path_requires_full_ci(path: str) -> 
 
 def test_mixed_empty_and_forced_diffs_fail_safe_to_full_ci() -> None:
     assert classify_changes.classify_paths(["docs/index.md"]) is True
+    assert classify_changes.classify_paths(["docs/index.md", "CHANGELOG.md"]) is True
     assert classify_changes.classify_paths(["docs/index.md", "README.md"]) is False
     assert classify_changes.classify_paths([]) is False
     assert classify_changes.classify_paths(["docs/index.md"], force_full=True) is False

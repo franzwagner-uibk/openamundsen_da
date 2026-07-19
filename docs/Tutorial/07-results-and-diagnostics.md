@@ -111,11 +111,11 @@ Plot file to open:
 
 Reference plot (tutorial baseline, `ensemble_size=30`):
 
-![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/project_perf.png?v=20260718)
+![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/project_perf.png?v=20260719)
 
-_`project_perf.png` from the accepted exact-RC7 WSL tutorial run (`100 m`,
-`ensemble_size=30`, 24 workers). Runtime and resource values are specific to
-that machine._
+_Accepted exact-RC7 WSL tutorial telemetry (`100 m`, `ensemble_size=30`, 24
+workers), rerendered with RC8 plotting code. Runtime and resource values are
+specific to that machine._
 
 What to read in the plot:
 

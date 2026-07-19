@@ -701,10 +701,35 @@ def _render_plot(
 
     right_margin = 0.83 if ax3 is not None else 0.91
     fig.subplots_adjust(left=0.075, right=right_margin, top=0.86, bottom=0.27)
+    _show_every_second_time_label(ax1)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     force_figure_text_black(fig, axes)
     _save_perf_plot_atomic(fig, out_path)
     plt.close(fig)
+
+
+def _show_every_second_time_label(axis: object) -> None:
+    """Hide alternate time-label text without changing ticks or grid positions."""
+
+    from matplotlib.ticker import Formatter
+
+    axis.figure.canvas.draw()
+    formatter = axis.xaxis.get_major_formatter()
+
+    class _AlternatingFormatter(Formatter):
+        def __call__(self, value: float, position: int | None = None) -> str:
+            if position is not None and position % 2 == 1:
+                return ""
+            return formatter(value, position)
+
+        def set_locs(self, locs: object) -> None:
+            super().set_locs(locs)
+            formatter.set_locs(locs)
+
+        def get_offset(self) -> str:
+            return formatter.get_offset()
+
+    axis.xaxis.set_major_formatter(_AlternatingFormatter())
 
 
 def _optional_plot_series(values: List[float | None] | None) -> list[float | None]:

@@ -127,6 +127,7 @@ def test_ci_docs_only_scope_is_narrow_and_full_ci_is_the_fallback() -> None:
     )
 
     assert '"tests/baselines/rofental_es30_tutorial_assets.json"' in classifier
+    assert 'PurePosixPath("CHANGELOG.md")' in classifier
     assert 'path.parts[0] == "docs"' in classifier
     assert "rofental_es30_manuscript_assets.json" not in classifier
     assert "python scripts/ci/classify_changes.py --force-full" in workflow

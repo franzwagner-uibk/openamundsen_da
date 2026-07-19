@@ -11,6 +11,7 @@ from typing import Iterable, Sequence
 TUTORIAL_ASSET_MANIFEST = PurePosixPath(
     "tests/baselines/rofental_es30_tutorial_assets.json"
 )
+ROOT_CHANGELOG = PurePosixPath("CHANGELOG.md")
 
 
 def is_documentation_only_path(raw_path: str) -> bool:
@@ -21,7 +22,10 @@ def is_documentation_only_path(raw_path: str) -> bool:
     path = PurePosixPath(raw_path)
     if path.is_absolute() or ".." in path.parts or path == PurePosixPath("."):
         return False
-    return path == TUTORIAL_ASSET_MANIFEST or path.parts[0] == "docs"
+    return (
+        path in {ROOT_CHANGELOG, TUTORIAL_ASSET_MANIFEST}
+        or path.parts[0] == "docs"
+    )
 
 
 def classify_paths(paths: Iterable[str], *, force_full: bool = False) -> bool:

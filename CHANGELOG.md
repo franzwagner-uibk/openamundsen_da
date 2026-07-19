@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- RC8 treats the exact root `CHANGELOG.md` as documentation-only in CI while
+  retaining full CI for every uncertain or mixed change.
 - Derive the package and runtime version from Git tags with `setuptools-scm`.
 - Declare the supported Python range as 3.11 through 3.14.
 - Expanded the CI lint gate to include unused imports, unused local variables and commented-out Python code.
@@ -20,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the unregistered Copernicus HRWSI downloader and its unused `boto3` dependency after caller tracing.
 
 ### Fixed
+- RC8 reduces performance-plot time-label density while preserving every tick,
+  grid position, telemetry sample and scientific output.
 - Removed UTF-8 BOMs and CRLF line endings from tracked release-facing text/config files.
 - Excluded generated `docs/_site/` output from Docker build context.
 - Corrected stale docs around Cloudflare Pages deployment, setup/project config ownership and resampling configuration ownership.

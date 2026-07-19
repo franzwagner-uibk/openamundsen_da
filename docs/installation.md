@@ -29,7 +29,7 @@ docker run --rm hello-world
 
 ## Docker image
 
-Pull the release-candidate image reviewed by this documentation:
+Pull the stable image reviewed by this documentation:
 
 ```bash
 docker pull {{ site.data.release.image }}
@@ -50,9 +50,14 @@ shows that sequence in full.
 
 Python 3.11, 3.12, 3.13 and 3.14 are supported:
 
-The stable `pip install openamundsen-da` distribution will be available after
-v0.9.0 is published and verified. Use the reviewed container for the current
-release-candidate workflow.
+```bash
+python -m pip install openamundsen-da=={{ site.data.release.version }}
+```
+
+The stable distribution is published on
+[PyPI](https://pypi.org/project/openamundsen-da/). Use the reviewed container
+when you need the complete end-to-end runtime with its geospatial system
+libraries.
 
 The Python package does not replace system-level geospatial libraries on every
 platform. Use the container when you need the tested end-to-end runtime.

@@ -36,7 +36,7 @@ Verify that Docker works:
 docker run hello-world
 ```
 
-Purpose: download the exact release-candidate runtime reviewed by this tutorial.
+Purpose: download the exact stable runtime reviewed by this tutorial.
 
 **🟢 Run command:**
 

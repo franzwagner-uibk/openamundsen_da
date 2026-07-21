@@ -82,11 +82,11 @@
     {
       "destination": "setup_overview.png",
       "source": "projects/project_2022_2023/results/maps/setup_overview.png",
-      "file_sha256": "50344bbb37e5fdd8f8e5bcbaef5c3db67f1dc0133e468329588b3761dd6284a5",
+      "file_sha256": "d3cf45b20d9b0ab9bc8047162ef774417ab1d6483dba91830f41355455f00886",
       "width": 4278,
       "height": 1248,
       "mode": "RGBA",
-      "pixels_sha256": "999be466f20f001d2fb93f2a891a37ab6aa8e2c40a724632e8211cf1f42570ab"
+      "pixels_sha256": "9e4423b1c8eb3a07b40210d22d3ceced69845452c0c30be5b55d679b07d4dac0"
     },
     {
       "destination": "setup_results_point_latschbloder_snow_depth_2022_2023.png",

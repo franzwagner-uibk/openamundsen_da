@@ -1643,21 +1643,20 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
     assert cfg.maps[0].layout.nrows == 1
     assert cfg.maps[0].layout.ncols == 4
     assert [panel.title for panel in cfg.maps[0].panels] == [
-        "Overview",
         "Digital elevation model",
         "Land cover",
+        "Aspect",
         "Snowfall redistribution",
     ]
-    assert [panel.kind for panel in cfg.maps[0].panels] == ["overview", "dem", "landcover", "srf"]
+    assert [panel.kind for panel in cfg.maps[0].panels] == ["dem", "landcover", "aspect", "srf"]
     assert [(panel.row, panel.col) for panel in cfg.maps[0].panels] == [(0, 0), (0, 1), (0, 2), (0, 3)]
-    assert cfg.maps[0].panels[0].scale == 1_800_000
-    assert cfg.maps[0].panels[0].roi_label == "Rofental"
-    assert cfg.maps[0].panels[1].show_station_marker is True
-    assert cfg.maps[0].panels[1].show_stations_name is True
-    assert cfg.maps[0].panels[1].show_stations_elev is True
-    assert cfg.maps[0].panels[1].below_items == ()
-    assert cfg.maps[0].panels[1].inside_legend_items[0].label == "AWS"
-    assert cfg.maps[0].panels[2].landcover_grouping == "rofental_manuscript"
+    assert cfg.maps[0].panels[0].show_station_marker is True
+    assert cfg.maps[0].panels[0].show_stations_name is True
+    assert cfg.maps[0].panels[0].show_stations_elev is True
+    assert cfg.maps[0].panels[0].below_items == ()
+    assert cfg.maps[0].panels[0].inside_legend_items[0].label == "AWS"
+    assert cfg.maps[0].panels[1].landcover_grouping == "rofental_manuscript"
+    assert cfg.maps[0].panels[2].legend == "horizontal"
     assert cfg.maps[0].panels[3].show_hillshade is True
 
 

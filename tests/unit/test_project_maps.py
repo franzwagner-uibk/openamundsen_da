@@ -4127,6 +4127,41 @@ def test_uncertainty_panel_uses_fixed_percent_colorbar(tmp_path: Path) -> None:
         plt.close(fig)
 
 
+def test_draw_wsl_contour_applies_halo_with_current_matplotlib(tmp_path: Path) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    finite_dem = np.asarray(context.dem, dtype=float)[context.roi_mask]
+    level = 0.5 * (float(np.nanmin(finite_dem)) + float(np.nanmax(finite_dem)))
+    fig, ax = plt.subplots(figsize=(4, 4))
+    collection_count = len(ax.collections)
+    try:
+        assert panel_renderers_module._draw_wsl_contour(ax, context=context, level=level) is True
+
+        contour_collections = ax.collections[collection_count:]
+        assert contour_collections
+        effects = [
+            effect
+            for collection in contour_collections
+            for effect in collection.get_path_effects()
+        ]
+        assert any(isinstance(effect, pe.Stroke) for effect in effects)
+        assert any(isinstance(effect, pe.Normal) for effect in effects)
+    finally:
+        plt.close(fig)
+
+
+def test_contour_halo_supports_legacy_collection_api() -> None:
+    recorded: list[list[matplotlib.patheffects.AbstractPathEffect]] = []
+    legacy_contour = SimpleNamespace(
+        collections=[SimpleNamespace(set_path_effects=lambda effects: recorded.append(effects))],
+    )
+    effects = [pe.Stroke(linewidth=2.2, foreground="white"), pe.Normal()]
+
+    panel_renderers_module._set_contour_path_effects(legacy_contour, effects)
+
+    assert recorded == [effects]
+
+
 def test_wet_snow_line_model_panel_draws_wsl_contour(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     context = load_static_context(project_dir)

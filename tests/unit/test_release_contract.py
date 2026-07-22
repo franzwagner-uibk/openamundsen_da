@@ -78,7 +78,7 @@ def test_release_workflow_checksums_match_flat_github_release_assets() -> None:
 def test_release_workflow_stages_downloaded_wheel_before_p8_smoke() -> None:
     workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
     trusted_start = workflow.index("  trusted-integration:")
-    trusted_end = workflow.index("\n  publish-python:", trusted_start)
+    trusted_end = workflow.index("\n  native-integration:", trusted_start)
     trusted_job = workflow[trusted_start:trusted_end]
     stage_step = "      - name: Stage exact release wheel"
     smoke_step = "      - name: Validate installed wheel interface"
@@ -88,6 +88,64 @@ def test_release_workflow_stages_downloaded_wheel_before_p8_smoke() -> None:
 
     assert stage_index < smoke_index
     assert "cp release/dist/openamundsen_da-*.whl dist/" in trusted_job[stage_index:smoke_index]
+
+
+def test_native_pip_rofental_is_a_ci_and_release_gate() -> None:
+    ci_workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    release_workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    runner = (ROOT / "scripts" / "ci" / "run_native_integration_tests.sh").read_text(
+        encoding="utf-8"
+    )
+    integration = (ROOT / "scripts" / "ci" / "run_integration_tests.sh").read_text(
+        encoding="utf-8"
+    )
+    api_driver = (ROOT / "scripts" / "ci" / "run_project_api.py").read_text(
+        encoding="utf-8"
+    )
+    constraints = (ROOT / "constraints" / "native-ci-py312.txt").read_text(
+        encoding="utf-8"
+    )
+
+    ci_start = ci_workflow.index("  native-integration:")
+    ci_end = ci_workflow.index("\n  publish-edge:", ci_start)
+    ci_job = ci_workflow[ci_start:ci_end]
+    release_start = release_workflow.index("  native-integration:")
+    release_end = release_workflow.index("\n  publish-python:", release_start)
+    release_job = release_workflow[release_start:release_end]
+
+    for job in (ci_job, release_job):
+        assert "runs-on: [self-hosted, linux, x64, oa-da]" in job
+        assert 'python-version: "3.12"' in job
+        assert "bash scripts/ci/run_native_integration_tests.sh" in job
+        assert "OA_DA_TEST_SETUP_RESOLUTION=500" in job
+        assert "OA_DA_TEST_ENSEMBLE_SIZE=2" in job
+        assert "OA_DA_TEST_MAX_WORKERS=8" in job
+        assert "constraints/native-ci-py312.txt" in job
+
+    assert "needs: [change-scope, package, trusted-integration, native-integration]" in ci_workflow
+    assert "test \"${NATIVE_RESULT}\" = success" in ci_workflow
+    assert "native_dependency_mode:" in ci_workflow
+    assert "inputs.native_dependency_mode || 'locked'" in ci_job
+    assert "needs: [package, trusted-integration, native-integration]" in release_workflow
+    assert "OA_DA_NATIVE_DEPENDENCY_MODE=locked" in release_job
+    assert "matplotlib>=3.10" in runner
+    assert "pip check" in runner
+    assert "pip freeze" in runner
+    assert "OA_DA_NATIVE_DEPENDENCY_MODE:-locked" in runner
+    assert "OA_DA_NATIVE_PIP_VERSION:-26.1.2" in runner
+    assert '"pip==${PIP_VERSION}"' in runner
+    assert "validate_installed_wheel.py" in runner
+    assert "OA_DA_TEST_RUNTIME=native" in runner
+    assert "OA_DA_TEST_PROJECT_DRIVER=api" in runner
+    assert "native)" in integration
+    assert 'PROJECT_DRIVER="${OA_DA_TEST_PROJECT_DRIVER:-cli}"' in integration
+    assert "scripts/ci/run_project_api.py" in integration
+    assert "from openamundsen_da import prepare_project, run_project" in api_driver
+    assert 'if __name__ == "__main__":' in api_driver
+    assert 'env -u PYTHONHOME -u PYTHONPATH PYTHONNOUSERSITE=1 "$@"' in integration
+    assert "matplotlib==3.10.9" in constraints
+    assert "openamundsen==1.2.1" in constraints
+    assert "openamundsen-da" not in constraints
 
 
 def test_release_workflow_verifies_published_manifest_digest_from_raw_bytes() -> None:
@@ -137,6 +195,7 @@ def test_ci_docs_only_scope_is_narrow_and_full_ci_is_the_fallback() -> None:
     assert "if: needs.change-scope.outputs.docs_only != 'true'" in workflow
     assert "name: CI gate" in workflow
     assert "test \"${TRUSTED_RESULT}\" = success" in workflow
+    assert "test \"${NATIVE_RESULT}\" = success" in workflow
 
 
 def test_docs_deployment_tracks_only_the_dedicated_tutorial_asset_manifest() -> None:

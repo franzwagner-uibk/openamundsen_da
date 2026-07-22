@@ -273,9 +273,57 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  native-integration:
+    name: Native pip release rehearsal on Lenovo P8
+    needs: [package, portable]
+    runs-on: [self-hosted, linux, x64, oa-da]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up native Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            constraints/native-ci-py312.txt
+
+      - name: Download release bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-bundle
+          path: release
+
+      - name: Install wheel and run native Rofental integration
+        run: |
+          wheel=(release/dist/openamundsen_da-*.whl)
+          test "${#wheel[@]}" -eq 1
+          WHEEL_PATH="${wheel[0]}" \
+          OA_DA_NATIVE_PYTHON=python \
+          OA_DA_NATIVE_DEPENDENCY_MODE=locked \
+          OA_DA_EXPECTED_VERSION="${{ needs.package.outputs.version }}" \
+          OA_DA_TEST_MAX_WORKERS=8 \
+          OA_DA_TEST_SETUP_RESOLUTION=500 \
+          OA_DA_TEST_ENSEMBLE_SIZE=2 \
+          CI_ARTIFACT_DIR="${GITHUB_WORKSPACE}/.ci-artifacts/release/native-single-domain" \
+          bash scripts/ci/run_native_integration_tests.sh
+
+      - name: Upload native failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-release-integration-artifacts-${{ github.run_id }}
+          path: .ci-artifacts/release/native-single-domain
+          if-no-files-found: ignore
+          retention-days: 14
+
   publish-python:
     name: Publish to ${{ needs.package.outputs.index }}
-    needs: [package, trusted-integration]
+    needs: [package, trusted-integration, native-integration]
     runs-on: ubuntu-latest
     environment: ${{ needs.package.outputs.index }}
     permissions:

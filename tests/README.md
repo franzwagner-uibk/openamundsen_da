@@ -41,6 +41,13 @@ Workflow file: `.github/workflows/ci.yml`
   - Runs trimmed sub-domain integration test via `scripts/ci/run_integration_tests_subdomain.sh`
   - Runs trimmed plain openAMUNDSEN model sub-domain integration test via `scripts/ci/run_integration_tests_model_subdomain.sh`
   - Uploads integration artifacts on failure (log + example setup outputs)
+- Job `Native pip Rofental integration on Lenovo P8`:
+  - Runs on the same self-hosted runner labels with Python 3.12 outside Docker
+  - Creates a fresh virtual environment with a pinned pip resolver and installs the exact tested wheel against `constraints/native-ci-py312.txt`
+  - Uses a fully pinned known-good native dependency set, including Matplotlib 3.10.9, and records the actual environment with `pip freeze`
+  - Runs `pip check`, the installed-wheel API/CLI smoke test and the full derived Rofental integration through the public Python API (`prepare_project` and `run_project`) from outside the source checkout
+  - Reuses `scripts/ci/run_integration_tests.sh` in native mode, calls the API through the multiprocessing-safe `scripts/ci/run_project_api.py` entry point and uses the same output validator as the Docker run
+  - Uploads its own log and project outputs on failure
 - Job `Publish immutable commit and edge images`:
   - Runs only on push to `main`
   - Depends on all trusted tests
@@ -56,15 +63,17 @@ only update the protected Cloudflare Pages fallback through an intentional
 manual dispatch.
 
 Workflow file `.github/workflows/release.yml` runs for exact stable and RC tags.
-It repeats the portable matrix and trusted Lenovo P8 rehearsal before OIDC
-Trusted Publishing to TestPyPI or approval-gated PyPI, then publishes the
-multi-architecture release image and GitHub prerelease/release.
+It repeats the portable matrix plus both Docker and native pip Lenovo P8
+rehearsals before OIDC Trusted Publishing to TestPyPI or approval-gated PyPI,
+then publishes the multi-architecture release image and GitHub prerelease/release.
 
 ## What You Must Do Manually
 
 - Follow feature-branch workflow (do not develop directly on `main`).
 - Monitor Actions results after push/merge.
 - Keep the self-hosted runner online and healthy.
+- Refresh `constraints/native-ci-py312.txt` only after an intentional manual
+  `latest` dependency canary and the full native Rofental validator pass.
 - Keep the `testpypi` and approval-gated `pypi` GitHub environments and their
   corresponding Trusted Publisher registrations valid.
 - After a verified release or documentation cutover, manually dispatch the
@@ -78,15 +87,15 @@ multi-architecture release image and GitHub prerelease/release.
 
 1. Lint, package, documentation and architecture jobs start on GitHub-hosted runners.
 2. The built wheel is reused by the 12-job portable matrix.
-3. The Lenovo P8 job starts only after those gates are green.
-4. A release-layout image is built from the tested wheel.
-5. Unit tests are executed with `pytest` (`scripts/ci/run_unit_tests.sh`).
-6. Integration run clones `examples/rofental` into a temporary workspace.
+3. The Docker and native pip Lenovo P8 jobs become eligible after those gates are green and queue on the available runner.
+4. The native job installs the wheel and pinned known-good dependencies into a fresh Python 3.12 environment, checks the API/CLI and processes Rofental outside Docker through `prepare_project` and `run_project`.
+5. The Docker job builds a release-layout image from the same tested wheel and runs unit, Rofental and sub-domain tests.
+6. Each Rofental integration clones `examples/rofental` into its own temporary workspace.
 7. SCF and wet-snow per-step observation CSVs are prepared.
-8. The full example is executed through `openamundsen-da run`.
+8. The Docker example is executed through the CLI; the native example calls the public Python API directly.
 9. Integration validators check logs, outputs, plots, scientific benchmark outputs, weights and subdomain manifests.
-10. If integration fails, log and example outputs are uploaded as CI artifacts.
-11. On push to `main`, the multi-architecture `edge` and immutable commit images publish after all gates.
+10. If integration fails, log and example outputs are uploaded as job-specific CI artifacts.
+11. On push to `main`, the multi-architecture `edge` and immutable commit images publish after both P8 gates.
 
 ### Unit tests
 
@@ -154,6 +163,7 @@ Runner script: `scripts/ci/run_integration_tests.sh`
 What it does:
 - clones `examples/rofental` into a temp directory
 - uses the shipped `project_2022_2023` configuration directly
+- defaults to the Docker runtime, while `OA_DA_TEST_RUNTIME=native` executes the installed Python and CLI outside the checkout
 - generates setup skeleton
 - distributes SCF and wet-snow observations
 - runs full project pipeline
@@ -171,12 +181,19 @@ Validation focuses on:
   - member SCF point time series
   - forcing plots, setup result plots, setup ESS timeline, setup weights overview, numbered setup weights continuation pages when present, and assimilation plots
   - benchmark outputs under `results/benchmark/` and the headline skill figure `results/plots/assim/scores/performance_scores.png`
-  - project maps under `results/maps/` when `maps.yml` is present
+- project maps under `results/maps/` when `maps.yml` is present
   - shipped semi-independent benchmark view for `station_swe`
   - persistent point outputs (`point_*.csv`)
   - compact data assimilation grid output (`results/grids/da_output_grids.nc`) with expected compressed integer storage encodings for DA-owned snow grids
   - generated meteo CSV precision and retained member grid storage dtypes
 - minimal weight sanity (weights exist, numeric, sum to `1.0`)
+
+The native wrapper `scripts/ci/run_native_integration_tests.sh` creates an
+isolated virtual environment, installs the built wheel with the committed Python
+3.12 constraints, validates the installed package origin and then invokes this
+same integration recipe in native mode. Set
+`OA_DA_NATIVE_DEPENDENCY_MODE=latest` only for an intentional dependency canary;
+normal PR and release jobs always use `locked`.
 
 ### Integration regression test (trimmed sub-domain)
 
@@ -276,6 +293,7 @@ Main locations:
 - unit test runner command: `scripts/ci/run_unit_tests.sh`
 - integration run recipes:
   - single-domain full example: `scripts/ci/run_integration_tests.sh`
+  - native installed-wheel single-domain full example: `scripts/ci/run_native_integration_tests.sh`
   - sub-domain trimmed: `scripts/ci/run_integration_tests_subdomain.sh`
   - model sub-domain trimmed: `scripts/ci/run_integration_tests_model_subdomain.sh`
 - integration validation logic:
@@ -293,7 +311,7 @@ Single-domain example configuration details:
 - trimmed dates, assimilation events, and ensemble sizes are still hard-coded in:
   - `scripts/ci/run_integration_tests_subdomain.sh` (sub-domain)
 - max workers for CI integration runs are set in `.github/workflows/ci.yml` via:
-  - `OA_DA_TEST_MAX_WORKERS` (single-domain, current value: `8`)
+  - `OA_DA_TEST_MAX_WORKERS` (Docker and native single-domain, current value: `8`)
   - `OA_DA_SUBDOMAIN_TEST_MAX_WORKERS` / `OA_DA_SUBDOMAIN_TEST_INNER_WORKERS` (sub-domain, current values: `8` / `4`)
   - `OA_DA_MODEL_SUBDOMAIN_TEST_MAX_WORKERS` (model sub-domain, current value: `8`)
 - feature branches are validated through pull requests to avoid duplicate branch-push and PR runs on the self-hosted runner.
@@ -334,6 +352,8 @@ From repository root:
 - build and validate the distributions: `bash scripts/ci/build_distribution.sh`
 - run unit test wrapper: `bash scripts/ci/run_unit_tests.sh`
 - run single-domain integration wrapper: `bash scripts/ci/run_integration_tests.sh`
+- run the built wheel and full single-domain integration outside Docker: `bash scripts/ci/run_native_integration_tests.sh`
+- manually probe the newest compatible stable dependencies: `OA_DA_NATIVE_DEPENDENCY_MODE=latest bash scripts/ci/run_native_integration_tests.sh`
 - run sub-domain integration wrapper: `bash scripts/ci/run_integration_tests_subdomain.sh`
 
 Use same scripts as CI to avoid drift between local and server behavior.

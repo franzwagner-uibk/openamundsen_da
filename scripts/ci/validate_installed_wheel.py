@@ -148,6 +148,24 @@ def main() -> int:
                 raise RuntimeError(f"Missing plain-model subdomain command in installed help: {command}")
 
         if not args.portable:
+            public_api = _run(
+                [
+                    str(python),
+                    "-c",
+                    (
+                        "import openamundsen_da as p; "
+                        "names=('preprocess_snow_cover','preprocess_wet_snow','prepare_project',"
+                        "'run_project','render_project','clean_project'); "
+                        "assert all(callable(getattr(p, name)) for name in names); "
+                        "print(','.join(names))"
+                    ),
+                ],
+                cwd=tmp,
+                pythonpath=site_packages,
+            )
+            if "prepare_project" not in public_api.stdout or "run_project" not in public_api.stdout:
+                raise RuntimeError(f"Installed public API validation failed: {public_api.stdout!r}")
+
             failed = _run(
                 [str(cli), "clean", str(tmp / "missing-project"), "--json"],
                 cwd=tmp,

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Use `openamundsen/openamundsen-da` and
+  `ghcr.io/openamundsen/openamundsen-da` as the canonical public namespaces.
+- Deploy current documentation to GitHub Pages at
+  `https://doc-da.openamundsen.org/`; the existing Cloudflare Pages deployment
+  remains frozen behind an explicit opt-in gate during the migration.
+
 ## [0.9.0] - 2026-07-19
 
 ### Changed
@@ -32,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Pre-release 2025
 
-Initial pre-release of openamundsen_da - Data Assimilation Framework for openAMUNDSEN.
+Initial pre-release of openamundsen-da - Data Assimilation Framework for openAMUNDSEN.
 
 #### Features
 - Ensemble generation with meteorological forcing perturbations
@@ -56,5 +63,5 @@ Initial pre-release of openamundsen_da - Data Assimilation Framework for openAMU
 
 ---
 
-[Unreleased]: https://github.com/franzwagner-uibk/openamundsen_da/compare/v0.9.0...HEAD
-[0.9.0]: https://github.com/franzwagner-uibk/openamundsen_da/compare/v0.9.0rc8...v0.9.0
+[Unreleased]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.0rc8...v0.9.0

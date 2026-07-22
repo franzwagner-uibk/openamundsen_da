@@ -67,8 +67,8 @@ platform. Use the container when you need the tested end-to-end runtime.
 Clone the repository, build the strict distribution and install the tested wheel:
 
 ```bash
-git clone https://github.com/franzwagner-uibk/openamundsen_da.git
-cd openamundsen_da
+git clone https://github.com/openamundsen/openamundsen-da.git
+cd openamundsen-da
 python -m pip install build twine
 bash scripts/ci/build_distribution.sh
 python -m pip install dist/openamundsen_da-*.whl

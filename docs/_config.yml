@@ -2,7 +2,7 @@
 title: openAMUNDSEN-DA
 description: Data Assimilation Framework for openAMUNDSEN
 remote_theme: just-the-docs/just-the-docs@v0.4.0
-url: https://openamundsen-da.pages.dev
+url: https://doc-da.openamundsen.org
 baseurl: ""
 
 # Repository-only guidance and superseded unreferenced assets are not part of
@@ -48,7 +48,7 @@ nav_fold: true
 # Disabled to keep the header search field visible; GitHub link remains available in `nav_external_links`.
 # aux_links:
 #   "openAMUNDSEN-DA on GitHub":
-#     - "//github.com/franzwagner-uibk/openamundsen_da"
+#     - "//github.com/openamundsen/openamundsen-da"
 
 # Back to top link
 back_to_top: true

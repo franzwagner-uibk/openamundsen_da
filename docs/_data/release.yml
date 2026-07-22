@@ -1,3 +1,3 @@
 version: "0.9.0"
 status: "stable"
-image: "ghcr.io/franzwagner-uibk/openamundsen_da:0.9.0"
+image: "ghcr.io/openamundsen/openamundsen-da:0.9.0"

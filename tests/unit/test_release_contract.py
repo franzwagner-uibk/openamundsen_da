@@ -146,7 +146,7 @@ def test_docs_deployment_tracks_only_the_dedicated_tutorial_asset_manifest() -> 
     assert "tests/baselines/rofental_es30_manuscript_assets.json" not in workflow
 
 
-def test_docs_deployment_uses_github_pages_and_keeps_cloudflare_gated() -> None:
+def test_docs_deployment_uses_github_pages_and_keeps_cloudflare_manual() -> None:
     pages = DOCS_WORKFLOW.read_text(encoding="utf-8")
     cloudflare = CLOUDFLARE_WORKFLOW.read_text(encoding="utf-8")
 
@@ -158,25 +158,44 @@ def test_docs_deployment_uses_github_pages_and_keeps_cloudflare_gated() -> None:
     assert "name: github-pages" in pages
     assert "cloudflare/wrangler-action@" not in pages
 
-    assert "name: Deploy Docs to Cloudflare Pages (gated fallback)" in cloudflare
-    assert "  push:\n    branches:\n      - main" in cloudflare
+    assert "name: Deploy Docs to Cloudflare Pages (manual fallback)" in cloudflare
     assert "  workflow_dispatch:" in cloudflare
-    assert (
-        "if: github.event_name == 'workflow_dispatch' || "
-        "vars.CLOUDFLARE_AUTO_DEPLOY == 'true'" in cloudflare
-    )
+    assert "  push:" not in cloudflare
+    assert "CLOUDFLARE_AUTO_DEPLOY" not in cloudflare
     assert "cloudflare/wrangler-action@" in cloudflare
     assert "pages deploy docs/_site --project-name=openamundsen-da" in cloudflare
 
 
-def test_container_publication_uses_hyphenated_organization_namespace() -> None:
-    image = "ghcr.io/openamundsen/openamundsen-da"
-
-    assert f"IMAGE: {image}" in CI_WORKFLOW.read_text(encoding="utf-8")
-    assert f"IMAGE: {image}" in RELEASE_WORKFLOW.read_text(encoding="utf-8")
-    assert f"${{IMAGE:-{image}:latest}}" in (ROOT / "compose.yml").read_text(
+def test_container_publication_targets_organization_while_public_usage_stays_legacy(
+) -> None:
+    publication_image = "ghcr.io/openamundsen/openamundsen-da"
+    public_image = "ghcr.io/franzwagner-uibk/openamundsen_da:0.9.0"
+    public_package_page = (
+        "https://github.com/franzwagner-uibk/openamundsen_da/"
+        "pkgs/container/openamundsen_da"
+    )
+    compose = (ROOT / "compose.yml").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    docs_release = (ROOT / "docs" / "_data" / "release.yml").read_text(
         encoding="utf-8"
     )
+    docs_index = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    docs_distribution = (ROOT / "docs" / "release.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert f"IMAGE: {publication_image}" in CI_WORKFLOW.read_text(encoding="utf-8")
+    assert f"IMAGE: {publication_image}" in RELEASE_WORKFLOW.read_text(
+        encoding="utf-8"
+    )
+    assert f"${{IMAGE:-{public_image}}}" in compose
+    assert f"docker pull {public_image}" in readme
+    assert f'image: "{public_image}"' in docs_release
+    assert public_package_page in docs_index
+    assert public_package_page in docs_distribution
+    assert publication_image not in compose
+    assert publication_image not in readme
+    assert publication_image not in docs_release
     assert (
         'org.opencontainers.image.source="https://github.com/openamundsen/openamundsen-da"'
         in (ROOT / "Dockerfile").read_text(encoding="utf-8")

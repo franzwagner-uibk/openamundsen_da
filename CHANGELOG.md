@@ -8,11 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Use `openamundsen/openamundsen-da` and
-  `ghcr.io/openamundsen/openamundsen-da` as the canonical public namespaces.
+- Use `openamundsen/openamundsen-da` as the canonical repository and
+  `ghcr.io/openamundsen/openamundsen-da` for CI and future releases. Public
+  container instructions remain on the personal `0.9.0` image until the
+  organization package is public.
 - Deploy current documentation to GitHub Pages at
   `https://doc-da.openamundsen.org/`; the existing Cloudflare Pages deployment
-  remains frozen behind an explicit opt-in gate during the migration.
+  remains a manual-only fallback during the migration.
 
 ## [0.9.0] - 2026-07-19
 

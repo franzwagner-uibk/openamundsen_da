@@ -1,21 +1,14 @@
-name: Deploy Docs to Cloudflare Pages (gated fallback)
+name: Deploy Docs to Cloudflare Pages (manual fallback)
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'docs/**'
-      - 'openamundsen_da/cli.py'
-      - 'scripts/ci/validate_docs.py'
-      - 'scripts/docs/**'
-      - 'tests/baselines/rofental_es30_tutorial_assets.json'
-      - '.github/workflows/deploy-cloudflare.yml'
   workflow_dispatch:
+
+concurrency:
+  group: cloudflare-pages
+  cancel-in-progress: false
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || vars.CLOUDFLARE_AUTO_DEPLOY == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -51,10 +51,9 @@ Workflow file: `.github/workflows/ci.yml`
 
 Workflow file `.github/workflows/deploy-docs.yml` validates and builds the
 documentation before deploying it to GitHub Pages. The separate
-`.github/workflows/deploy-cloudflare.yml` workflow is gated by the repository
-variable `CLOUDFLARE_AUTO_DEPLOY`. While that variable is absent or not `true`,
-pushes to `main` cannot change the existing Cloudflare Pages deployment; a
-manual dispatch remains available for an intentional update.
+`.github/workflows/deploy-cloudflare.yml` workflow has no push trigger. It can
+only update the protected Cloudflare Pages fallback through an intentional
+manual dispatch.
 
 Workflow file `.github/workflows/release.yml` runs for exact stable and RC tags.
 It repeats the portable matrix and trusted Lenovo P8 rehearsal before OIDC
@@ -68,9 +67,9 @@ multi-architecture release image and GitHub prerelease/release.
 - Keep the self-hosted runner online and healthy.
 - Keep the `testpypi` and approval-gated `pypi` GitHub environments and their
   corresponding Trusted Publisher registrations valid.
-- After the frozen tutorial review ends, set `CLOUDFLARE_AUTO_DEPLOY=true` and
-  dispatch the Cloudflare workflow once to catch up. Set the variable to
-  `false` to stop parallel Cloudflare deployments later.
+- After a verified release or documentation cutover, manually dispatch the
+  Cloudflare workflow from the same release tag or reviewed commit. Never use
+  it as an automatic parallel deployment.
 - Tune integration validation rules if expected output/warnings change.
 
 ## Current Test Stack

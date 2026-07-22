@@ -105,6 +105,7 @@ def test_native_pip_rofental_is_a_ci_and_release_gate() -> None:
     constraints = (ROOT / "constraints" / "native-ci-py312.txt").read_text(
         encoding="utf-8"
     )
+    manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
 
     ci_start = ci_workflow.index("  native-integration:")
     ci_end = ci_workflow.index("\n  publish-edge:", ci_start)
@@ -146,6 +147,7 @@ def test_native_pip_rofental_is_a_ci_and_release_gate() -> None:
     assert "matplotlib==3.10.9" in constraints
     assert "openamundsen==1.2.1" in constraints
     assert "openamundsen-da" not in constraints
+    assert "prune constraints" in manifest
 
 
 def test_release_workflow_verifies_published_manifest_digest_from_raw_bytes() -> None:

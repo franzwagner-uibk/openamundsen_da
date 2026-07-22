@@ -5,6 +5,7 @@ include pyproject.toml
 recursive-include openamundsen_da *.py py.typed
 prune .github
 prune .vscode
+prune constraints
 prune context
 prune dev_examples
 prune docs

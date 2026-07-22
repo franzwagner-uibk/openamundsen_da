@@ -11,6 +11,8 @@ SCRIPT = Path(__file__).parents[2] / "scripts" / "release" / "validate_release.p
 ROOT = SCRIPT.parents[2]
 RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+DOCS_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-docs.yml"
+CLOUDFLARE_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-cloudflare.yml"
 SPEC = importlib.util.spec_from_file_location("validate_release", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 validate_release = importlib.util.module_from_spec(SPEC)
@@ -138,9 +140,44 @@ def test_ci_docs_only_scope_is_narrow_and_full_ci_is_the_fallback() -> None:
 
 
 def test_docs_deployment_tracks_only_the_dedicated_tutorial_asset_manifest() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "deploy-docs.yml").read_text(
-        encoding="utf-8"
-    )
+    workflow = DOCS_WORKFLOW.read_text(encoding="utf-8")
 
     assert "tests/baselines/rofental_es30_tutorial_assets.json" in workflow
     assert "tests/baselines/rofental_es30_manuscript_assets.json" not in workflow
+
+
+def test_docs_deployment_uses_github_pages_and_keeps_cloudflare_gated() -> None:
+    pages = DOCS_WORKFLOW.read_text(encoding="utf-8")
+    cloudflare = CLOUDFLARE_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "name: Deploy Docs to GitHub Pages" in pages
+    assert "  push:\n    branches:\n      - main" in pages
+    assert "actions/configure-pages@" in pages
+    assert "actions/upload-pages-artifact@" in pages
+    assert "actions/deploy-pages@" in pages
+    assert "name: github-pages" in pages
+    assert "cloudflare/wrangler-action@" not in pages
+
+    assert "name: Deploy Docs to Cloudflare Pages (gated fallback)" in cloudflare
+    assert "  push:\n    branches:\n      - main" in cloudflare
+    assert "  workflow_dispatch:" in cloudflare
+    assert (
+        "if: github.event_name == 'workflow_dispatch' || "
+        "vars.CLOUDFLARE_AUTO_DEPLOY == 'true'" in cloudflare
+    )
+    assert "cloudflare/wrangler-action@" in cloudflare
+    assert "pages deploy docs/_site --project-name=openamundsen-da" in cloudflare
+
+
+def test_container_publication_uses_hyphenated_organization_namespace() -> None:
+    image = "ghcr.io/openamundsen/openamundsen-da"
+
+    assert f"IMAGE: {image}" in CI_WORKFLOW.read_text(encoding="utf-8")
+    assert f"IMAGE: {image}" in RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    assert f"${{IMAGE:-{image}:latest}}" in (ROOT / "compose.yml").read_text(
+        encoding="utf-8"
+    )
+    assert (
+        'org.opencontainers.image.source="https://github.com/openamundsen/openamundsen-da"'
+        in (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    )

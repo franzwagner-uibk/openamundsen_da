@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE: ghcr.io/franzwagner-uibk/openamundsen_da
+  IMAGE: ghcr.io/openamundsen/openamundsen-da
   CI_IMAGE_NAME: openamundsen-da-ci
 
 concurrency:

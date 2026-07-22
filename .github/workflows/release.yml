@@ -6,7 +6,7 @@ on:
       - "v*"
 
 env:
-  IMAGE: ghcr.io/franzwagner-uibk/openamundsen_da
+  IMAGE: ghcr.io/openamundsen/openamundsen-da
 
 concurrency:
   group: release-${{ github.ref_name }}

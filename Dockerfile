@@ -1,5 +1,5 @@
 FROM mambaorg/micromamba:1.5.8@sha256:475730daef12ff9c0733e70092aeeefdf4c373a584c952dac3f7bdb739601990
-LABEL org.opencontainers.image.source="https://github.com/franzwagner-uibk/openamundsen_da"
+LABEL org.opencontainers.image.source="https://github.com/openamundsen/openamundsen-da"
 
 ARG VCS_REF="unknown"
 ARG VERSION="0+unknown"

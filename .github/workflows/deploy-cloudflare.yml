@@ -1,4 +1,4 @@
-name: Deploy Docs to GitHub Pages
+name: Deploy Docs to Cloudflare Pages (gated fallback)
 
 on:
   push:
@@ -10,23 +10,16 @@ on:
       - 'scripts/ci/validate_docs.py'
       - 'scripts/docs/**'
       - 'tests/baselines/rofental_es30_tutorial_assets.json'
-      - '.github/workflows/deploy-docs.yml'
+      - '.github/workflows/deploy-cloudflare.yml'
   workflow_dispatch:
 
-concurrency:
-  group: github-pages
-  cancel-in-progress: false
-
-permissions:
-  contents: read
-
 jobs:
-  build:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || vars.CLOUDFLARE_AUTO_DEPLOY == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pages: write
-      id-token: write
+      deployments: write
 
     steps:
       - name: Checkout repository
@@ -47,35 +40,22 @@ jobs:
           bundler-cache: true
           working-directory: docs
 
-      - name: Configure GitHub Pages
-        id: pages
-        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
-
       - name: Build Jekyll site
         working-directory: docs
         env:
           JEKYLL_ENV: production
         run: |
-          bundle exec jekyll build --trace --baseurl "${{ steps.pages.outputs.base_path }}"
+          bundle exec jekyll build --trace
           test ! -e _site/README.md
           test ! -e _site/assets/images/tutorial/scheme_oa_da.png
 
-      - name: Upload GitHub Pages artifact
-        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+      - name: Deploy to Cloudflare Pages
+        id: cloudflare
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
         with:
-          path: docs/_site
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy docs/_site --project-name=openamundsen-da --branch=main --commit-dirty=true
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    permissions:
-      pages: write
-      id-token: write
-
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+      - name: Output deployment URL
+        run: echo "Deployed to ${{ steps.cloudflare.outputs.deployment-url }}"

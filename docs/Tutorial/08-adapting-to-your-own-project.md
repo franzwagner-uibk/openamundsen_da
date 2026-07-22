@@ -98,7 +98,7 @@ For deeper reference material, continue with the
 [CLI Reference]({{ site.baseurl }}{% link reference/cli.md %}),
 [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}),
 [Observation Processing Guide]({{ site.baseurl }}{% link guides/observations.md %}),
-[Running]({{ site.baseurl }}{% link running.md %}),
+[Running the model]({{ site.baseurl }}{% link running.md %}),
 [Advanced Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}),
 [Advanced Performance]({{ site.baseurl }}{% link advanced/performance.md %}), and
 the external openAMUNDSEN docs.

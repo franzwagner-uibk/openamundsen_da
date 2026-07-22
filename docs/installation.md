@@ -1,7 +1,8 @@
 ---
 layout: default
 title: Installation
-nav_order: 2
+parent: Documentation
+nav_order: 1
 ---
 
 # Installation
@@ -80,7 +81,7 @@ a source overlay.
 
 ## Next steps
 
-Continue with [Input Data]({{ site.baseurl }}{% link guides/observations.md %}),
+Continue with [Input data]({{ site.baseurl }}{% link guides/observations.md %}),
 [Configuration]({{ site.baseurl }}{% link guides/configuration.md %}) or the
 [How to Use tutorial]({{ '/tutorial/' | relative_url }}). Installation problems
 are collected under [Advanced troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}).

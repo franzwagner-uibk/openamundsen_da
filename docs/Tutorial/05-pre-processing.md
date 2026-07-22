@@ -126,5 +126,5 @@ mapping, absent uncertainty sidecar or escaping path fails before writing a new
 summary. If a completed manifest exists but the input hash changed, rerun with
 `--overwrite` only after reviewing the changed product or configuration.
 
-For the general input contract, see [Input Data]({{ site.baseurl }}{% link guides/observations.md %}).
+For the general input contract, see [Input data]({{ site.baseurl }}{% link guides/observations.md %}).
 Continue with [5. Prepare the Project]({{ site.baseurl }}{% link Tutorial/05-prepare-project.md %}).

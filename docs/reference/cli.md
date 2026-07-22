@@ -52,8 +52,8 @@ openamundsen-da clean PROJECT_DIR
 openamundsen-da clean PROJECT_DIR --apply
 ```
 
-See [Running]({{ site.baseurl }}{% link running.md %}) for the execution order and
-[Output Data]({{ site.baseurl }}{% link output-data.md %}) for completion and
+See [Running the model]({{ site.baseurl }}{% link running.md %}) for the execution order and
+[Output data]({{ site.baseurl }}{% link output-data.md %}) for completion and
 cleanup semantics.
 
 ## Subdomain data assimilation

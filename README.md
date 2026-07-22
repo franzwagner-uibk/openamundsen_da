@@ -14,9 +14,9 @@ software interface and operational workflow.
 - [Installation](https://doc-da.openamundsen.org/installation.html)
 - [Input data](https://doc-da.openamundsen.org/guides/observations.html)
 - [Configuration](https://doc-da.openamundsen.org/guides/configuration.html)
-- [Running](https://doc-da.openamundsen.org/running.html)
+- [Running the model](https://doc-da.openamundsen.org/running.html)
 - [Output data](https://doc-da.openamundsen.org/output-data.html)
-- [Example data](https://doc-da.openamundsen.org/example-data.html)
+- [Example data sets](https://doc-da.openamundsen.org/example-data.html)
 - [How to Use](https://doc-da.openamundsen.org/tutorial/)
 - [CLI reference](https://doc-da.openamundsen.org/reference/cli.html)
 

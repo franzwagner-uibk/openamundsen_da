@@ -35,5 +35,4 @@ supported user interface is the umbrella command tree.
 The setup root owns shared openAMUNDSEN inputs. A project owns its YAML, steps,
 manifest and results. Generated steps and member directories are runtime data,
 not source configuration. See [Configuration]({{ site.baseurl }}{% link guides/configuration.md %})
-and [Output Data]({{ site.baseurl }}{% link output-data.md %}).
-
+and [Output data]({{ site.baseurl }}{% link output-data.md %}).

@@ -4,12 +4,13 @@ The site uses Jekyll and Just the Docs. Published source pages are organized to
 match the upstream openAMUNDSEN documentation where behavior overlaps:
 
 ```text
-Installation
-Input Data
-Configuration
-Running
-Output Data
-Example Data
+Documentation
+  Installation
+  Input data
+  Configuration
+  Running the model
+  Output data
+  Example data sets
 How to Use
 Advanced
 Reference

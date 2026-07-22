@@ -1,10 +1,11 @@
 ---
 layout: default
-title: Output Data
-nav_order: 6
+title: Output data
+parent: Documentation
+nav_order: 5
 ---
 
-# Output Data
+# Output data
 
 A project is successful only after ensemble execution, assimilation, compact
 grid export, benchmarking and every configured plot, map and report pass their

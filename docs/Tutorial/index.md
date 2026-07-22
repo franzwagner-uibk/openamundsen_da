@@ -1,7 +1,7 @@
 ---
 layout: default
 title: How to Use
-nav_order: 8
+nav_order: 3
 has_children: true
 has_toc: false
 permalink: /tutorial/

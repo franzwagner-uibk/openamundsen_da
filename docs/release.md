@@ -17,7 +17,7 @@ upstream project; see its [technical documentation](https://doc.openamundsen.org
   [installation instructions]({{ site.baseurl }}{% link installation.md %}).
 - [GitHub Container Registry](https://github.com/franzwagner-uibk/openamundsen_da/pkgs/container/openamundsen_da)
   provides the tested `0.9.0` multi-architecture container.
-- [GitHub Releases](https://github.com/franzwagner-uibk/openamundsen_da/releases)
+- [GitHub Releases](https://github.com/openamundsen/openamundsen-da/releases)
   provides release archives, checksums and supporting release evidence.
 
 The documentation uses the stable `0.9.0` image in its commands. A conda-forge

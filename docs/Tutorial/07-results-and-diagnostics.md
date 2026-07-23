@@ -410,7 +410,7 @@ recommendation; see [Example Data: Rofental]({{ site.baseurl }}{% link Tutorial/
 
 {: .references }
 > - [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %}) (fSCA / wet-snow preprocessing context)
-> - [Running]({{ site.baseurl }}{% link running.md %}) (how the project lifecycle produces these plots)
+> - [Running the model]({{ site.baseurl }}{% link running.md %}) (how the project lifecycle produces these plots)
 
 <a id="da-output-summary-netcdf"></a>
 ## 5. data assimilation output summary NetCDF (`da_output_grids.nc`)
@@ -546,7 +546,7 @@ The tutorial includes generated assimilation-event maps above. For event-level d
 
 {: .references }
 > - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %}) (data assimilation output variable selection and metrics)
-> - [Output Data]({{ site.baseurl }}{% link output-data.md %}) (where project outputs live)
+> - [Output data]({{ site.baseurl }}{% link output-data.md %}) (where project outputs live)
 > - [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %}) (how to interpret increments conceptually)
 
 ---
@@ -663,4 +663,4 @@ What is removed:
 - stale state pointers whose target no longer exists or is being removed.
 
 {: .references }
-> - [Output Data]({{ site.baseurl }}{% link output-data.md %}) (retention and cleanup contract)
+> - [Output data]({{ site.baseurl }}{% link output-data.md %}) (retention and cleanup contract)

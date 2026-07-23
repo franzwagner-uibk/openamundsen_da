@@ -1,4 +1,4 @@
-name: Deploy Docs to Cloudflare Pages
+name: Deploy Docs to GitHub Pages
 
 on:
   push:
@@ -13,55 +13,69 @@ on:
       - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      deployments: write
+      pages: write
+      id-token: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.11'
 
       - name: Validate documentation contracts
-        run: |
-          python scripts/ci/validate_docs.py
+        run: python scripts/ci/validate_docs.py
 
-      - name: Setup Ruby
+      - name: Set up Ruby
         uses: ruby/setup-ruby@8e41b362d2589a22a44c1cfa214b3c83052c195b # v1.318.0
         with:
           ruby-version: '3.1'
-          bundler-cache: false
+          bundler-cache: true
+          working-directory: docs
 
-      - name: Install Jekyll dependencies
-        run: |
-          cd docs
-          gem install bundler
-          bundle config set --local path 'vendor/bundle'
-          bundle install
+      - name: Configure GitHub Pages
+        id: pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
       - name: Build Jekyll site
-        run: |
-          cd docs
-          bundle exec jekyll build
-          test ! -e _site/README.md
-          test ! -e _site/assets/images/tutorial/scheme_oa_da.png
+        working-directory: docs
         env:
           JEKYLL_ENV: production
+        run: |
+          bundle exec jekyll build --trace --baseurl "${{ steps.pages.outputs.base_path }}"
+          test ! -e _site/README.md
+          test ! -e _site/assets/images/tutorial/scheme_oa_da.png
 
-      - name: Deploy to Cloudflare Pages
-        id: cloudflare
-        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy docs/_site --project-name=openamundsen-da --branch=main --commit-dirty=true
+          path: docs/_site
 
-      - name: Output deployment URL
-        run: echo "Deployed to ${{ steps.cloudflare.outputs.deployment-url }}"
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

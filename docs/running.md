@@ -1,10 +1,11 @@
 ---
 layout: default
-title: Running
-nav_order: 5
+title: Running the model
+parent: Documentation
+nav_order: 4
 ---
 
-# Running
+# Running the model
 
 All supported workflows use the single `openamundsen-da` command tree. Commands
 accept a project directory, not separate setup/config guesses; the setup is the
@@ -93,5 +94,5 @@ openamundsen-da subdomains model merge SETUP_DIR
 ```
 
 Use the [CLI guide]({{ site.baseurl }}{% link reference/cli.md %})
-for all options and [Output Data]({{ site.baseurl }}{% link output-data.md %})
+for all options and [Output data]({{ site.baseurl }}{% link output-data.md %})
 for completion and cleanup semantics.

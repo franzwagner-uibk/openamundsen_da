@@ -2094,6 +2094,14 @@ def _padded_wsl_panel_extent(extent: tuple[float, float, float, float]) -> tuple
     return (xmin - dx, xmax + dx, ymin - dy, ymax + dy)
 
 
+def _set_contour_path_effects(contour, effects: list[matplotlib.patheffects.AbstractPathEffect]) -> None:
+    if hasattr(contour, "set_path_effects"):
+        contour.set_path_effects(effects)
+        return
+    for collection in contour.collections:
+        collection.set_path_effects(effects)
+
+
 def _draw_wsl_contour(
     ax,
     *,
@@ -2127,13 +2135,13 @@ def _draw_wsl_contour(
         linestyles=linestyle,
         zorder=zorder,
     )
-    for collection in contour.collections:
-        collection.set_path_effects(
-            [
-                matplotlib.patheffects.Stroke(linewidth=2.2, foreground="white"),
-                matplotlib.patheffects.Normal(),
-            ]
-        )
+    _set_contour_path_effects(
+        contour,
+        [
+            matplotlib.patheffects.Stroke(linewidth=2.2, foreground="white"),
+            matplotlib.patheffects.Normal(),
+        ],
+    )
     return True
 
 

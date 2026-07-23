@@ -11,14 +11,14 @@ software interface and operational workflow.
 
 ## Documentation
 
-- [Installation](https://openamundsen-da.pages.dev/installation.html)
-- [Input data](https://openamundsen-da.pages.dev/guides/observations.html)
-- [Configuration](https://openamundsen-da.pages.dev/guides/configuration.html)
-- [Running](https://openamundsen-da.pages.dev/running.html)
-- [Output data](https://openamundsen-da.pages.dev/output-data.html)
-- [Example data](https://openamundsen-da.pages.dev/example-data.html)
-- [How to Use](https://openamundsen-da.pages.dev/tutorial/)
-- [CLI reference](https://openamundsen-da.pages.dev/reference/cli.html)
+- [Installation](https://doc-da.openamundsen.org/installation.html)
+- [Input data](https://doc-da.openamundsen.org/guides/observations.html)
+- [Configuration](https://doc-da.openamundsen.org/guides/configuration.html)
+- [Running the model](https://doc-da.openamundsen.org/running.html)
+- [Output data](https://doc-da.openamundsen.org/output-data.html)
+- [Example data sets](https://doc-da.openamundsen.org/example-data.html)
+- [How to Use](https://doc-da.openamundsen.org/tutorial/)
+- [CLI reference](https://doc-da.openamundsen.org/reference/cli.html)
 
 ## Install
 
@@ -78,7 +78,7 @@ print(result.manifest_path)
 ```
 
 The supported Python surface contains the six top-level workflow operations
-documented in the [API reference](https://openamundsen-da.pages.dev/reference/api.html).
+documented in the [API reference](https://doc-da.openamundsen.org/reference/api.html).
 Subdomain modules and lower-level scientific routines are internal interfaces.
 
 ## Configuration boundary

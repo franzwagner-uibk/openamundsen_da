@@ -3,11 +3,15 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CI_IMAGE="${CI_IMAGE:-openamundsen-da-ci:local}"
+TEST_RUNTIME="${OA_DA_TEST_RUNTIME:-docker}"
+PROJECT_DRIVER="${OA_DA_TEST_PROJECT_DRIVER:-cli}"
 MAX_WORKERS="${OA_DA_TEST_MAX_WORKERS:-4}"
 SOURCE_SETUP="${OA_DA_TEST_SETUP_SOURCE:-${ROOT_DIR}/examples/rofental}"
 ARTIFACT_DIR="${CI_ARTIFACT_DIR:-}"
 SETUP_RESOLUTION_OVERRIDE="${OA_DA_TEST_SETUP_RESOLUTION:-}"
 ENSEMBLE_SIZE_OVERRIDE="${OA_DA_TEST_ENSEMBLE_SIZE:-}"
+RUNTIME_PYTHON="${OA_DA_TEST_PYTHON:-python}"
+RUNTIME_CLI="${OA_DA_TEST_CLI:-openamundsen-da}"
 
 TMP_ROOT="$(mktemp -d -t oada-ci-XXXXXX)"
 PROJECT_DIR="${TMP_ROOT}/rofental"
@@ -17,6 +21,8 @@ SOURCE_PROJECT_NAME=""
 HOST_LOG_FILE="${PROJECT_DIR}/ci_integration.log"
 REPO_MOUNT="${ROOT_DIR}"
 PROJ_MOUNT="${PROJECT_DIR}"
+PROJECT_RUNTIME_ROOT=""
+REPO_RUNTIME_ROOT=""
 
 # Prevent Git-Bash path mangling of container-style arguments like /data or /workspace.
 case "$(uname -s)" in
@@ -46,6 +52,38 @@ cleanup() {
 }
 trap cleanup EXIT
 
+case "${TEST_RUNTIME}" in
+  docker)
+    PROJECT_RUNTIME_ROOT="/data"
+    REPO_RUNTIME_ROOT="/workspace"
+    ;;
+  native)
+    PROJECT_RUNTIME_ROOT="${PROJECT_DIR}"
+    REPO_RUNTIME_ROOT="${ROOT_DIR}"
+    if ! command -v "${RUNTIME_PYTHON}" >/dev/null 2>&1; then
+      echo "[integration] ERROR: native Python executable not found: ${RUNTIME_PYTHON}"
+      exit 1
+    fi
+    if ! command -v "${RUNTIME_CLI}" >/dev/null 2>&1; then
+      echo "[integration] ERROR: native openamundsen-da executable not found: ${RUNTIME_CLI}"
+      exit 1
+    fi
+    ;;
+  *)
+    echo "[integration] ERROR: unsupported runtime '${TEST_RUNTIME}' (expected docker or native)"
+    exit 1
+    ;;
+esac
+
+case "${PROJECT_DRIVER}" in
+  cli|api)
+    ;;
+  *)
+    echo "[integration] ERROR: unsupported project driver '${PROJECT_DRIVER}' (expected cli or api)"
+    exit 1
+    ;;
+esac
+
 if [[ ! -d "${SOURCE_SETUP}" ]]; then
   echo "[integration] ERROR: setup source directory not found: ${SOURCE_SETUP}"
   exit 1
@@ -59,16 +97,38 @@ if [[ -z "${SOURCE_PROJECT_DIR}" ]]; then
 fi
 SOURCE_PROJECT_NAME="$(basename "${SOURCE_PROJECT_DIR}")"
 PROJECT_NAME="${SOURCE_PROJECT_NAME}"
-PROJECT_PATH="/data/projects/${PROJECT_NAME}"
+PROJECT_PATH="${PROJECT_RUNTIME_ROOT}/projects/${PROJECT_NAME}"
+
+runtime_run() {
+  if [[ "${TEST_RUNTIME}" == "docker" ]]; then
+    REPO="${REPO_MOUNT}" \
+    PROJ="${PROJ_MOUNT}" \
+    IMAGE="${CI_IMAGE}" \
+    env UID="$(id -u)" GID="$(id -g)" \
+    docker compose -f "${ROOT_DIR}/compose.yml" -f "${ROOT_DIR}/compose.ci.yml" run --rm oa "$@"
+    return
+  fi
+  (
+    cd "${TMP_ROOT}"
+    env -u PYTHONHOME -u PYTHONPATH PYTHONNOUSERSITE=1 "$@"
+  )
+}
 
 touch "${HOST_LOG_FILE}"
 exec > >(tee -a "${HOST_LOG_FILE}") 2>&1
+
+echo "[integration] Runtime: ${TEST_RUNTIME}"
+echo "[integration] Project driver: ${PROJECT_DRIVER}"
 
 if [[ -n "${SETUP_RESOLUTION_OVERRIDE}" || -n "${ENSEMBLE_SIZE_OVERRIDE}" ]]; then
   echo "[integration] Applying derived CI copy overrides"
   echo "[integration]   setup resolution: ${SETUP_RESOLUTION_OVERRIDE:-unchanged}"
   echo "[integration]   ensemble size: ${ENSEMBLE_SIZE_OVERRIDE:-unchanged}"
-  python3 - "${PROJECT_DIR}" "${SOURCE_PROJECT_NAME}" "${SETUP_RESOLUTION_OVERRIDE}" "${ENSEMBLE_SIZE_OVERRIDE}" <<'PY'
+  runtime_run "${RUNTIME_PYTHON}" - \
+    "${PROJECT_RUNTIME_ROOT}" \
+    "${SOURCE_PROJECT_NAME}" \
+    "${SETUP_RESOLUTION_OVERRIDE}" \
+    "${ENSEMBLE_SIZE_OVERRIDE}" <<'PY'
 from pathlib import Path
 import sys
 import yaml
@@ -112,14 +172,6 @@ else
   echo "[integration] Using shipped Rofental example config without CI overrides"
 fi
 
-compose_run() {
-  REPO="${REPO_MOUNT}" \
-  PROJ="${PROJ_MOUNT}" \
-  IMAGE="${CI_IMAGE}" \
-  env UID="$(id -u)" GID="$(id -g)" \
-  docker compose -f "${ROOT_DIR}/compose.yml" -f "${ROOT_DIR}/compose.ci.yml" run --rm oa "$@"
-}
-
 summary_host_source() {
   local filename="$1"
   local candidates=(
@@ -137,22 +189,26 @@ summary_host_source() {
   return 1
 }
 
-container_path_for_host() {
+runtime_path_for_host() {
   local host_path="$1"
-  printf '/data/%s\n' "${host_path#"${PROJECT_DIR}/"}"
+  printf '%s/%s\n' "${PROJECT_RUNTIME_ROOT%/}" "${host_path#"${PROJECT_DIR}/"}"
 }
 
 uncertainty_companions_missing() {
   local obs_key="$1"
   local source_project_name="$2"
-  compose_run python - "${obs_key}" "${source_project_name}" <<'PY'
+  runtime_run "${RUNTIME_PYTHON}" - \
+    "${obs_key}" \
+    "${source_project_name}" \
+    "${PROJECT_RUNTIME_ROOT}" <<'PY'
 from pathlib import Path
 import sys
 import yaml
 
 obs_key = str(sys.argv[1]).strip()
 source_project = str(sys.argv[2]).strip()
-project_yml = Path("/data/projects") / source_project / f"{source_project}.yml"
+setup_dir = Path(sys.argv[3])
+project_yml = setup_dir / "projects" / source_project / f"{source_project}.yml"
 with project_yml.open("r", encoding="utf-8") as f:
     cfg = yaml.safe_load(f) or {}
 
@@ -170,7 +226,7 @@ enabled = bool(block.get("enabled", False))
 if not enabled:
     raise SystemExit(1)
 
-obs_path = Path("/data") / str(obs_dir)
+obs_path = setup_dir / str(obs_dir)
 if not obs_path.exists():
     raise SystemExit(1)
 
@@ -193,12 +249,12 @@ if ! summary_host_source "scf_summary.csv" >/dev/null; then
   echo "[integration] SCF summary missing in example; generating from raw rasters"
   if uncertainty_companions_missing "scf" "${SOURCE_PROJECT_NAME}"; then
     echo "[integration] SCF uncertainty enabled and companion rasters missing; generating companions first"
-    compose_run python -m openamundsen_da.observer.scf_uncertainty \
-      --setup-dir /data \
+    runtime_run "${RUNTIME_PYTHON}" -m openamundsen_da.observer.scf_uncertainty \
+      --setup-dir "${PROJECT_RUNTIME_ROOT}" \
       --project-label "${SOURCE_PROJECT_NAME}" \
       --overwrite
   fi
-  compose_run openamundsen-da observations snow-cover "${PROJECT_PATH}" \
+  runtime_run "${RUNTIME_CLI}" observations snow-cover "${PROJECT_PATH}" \
     --overwrite
 fi
 
@@ -206,12 +262,12 @@ if ! summary_host_source "wet_snow_summary.csv" >/dev/null; then
   echo "[integration] Wet-snow summary missing in example; generating from raw rasters"
   if uncertainty_companions_missing "wet_snow" "${SOURCE_PROJECT_NAME}"; then
     echo "[integration] Wet-snow uncertainty enabled and companion rasters missing; generating companions first"
-    compose_run python -m openamundsen_da.observer.wetsnow_uncertainty \
-      --setup-dir /data \
+    runtime_run "${RUNTIME_PYTHON}" -m openamundsen_da.observer.wetsnow_uncertainty \
+      --setup-dir "${PROJECT_RUNTIME_ROOT}" \
       --project-label "${SOURCE_PROJECT_NAME}" \
       --overwrite
   fi
-  compose_run openamundsen-da observations wet-snow "${PROJECT_PATH}" \
+  runtime_run "${RUNTIME_CLI}" observations wet-snow "${PROJECT_PATH}" \
     --overwrite
 fi
 
@@ -229,22 +285,32 @@ if [[ -z "${SCF_SUMMARY_HOST_SOURCE}" || -z "${WET_SUMMARY_HOST_SOURCE}" ]]; the
   exit 1
 fi
 
-echo "[integration] Using SCF summary: $(container_path_for_host "${SCF_SUMMARY_HOST_SOURCE}")"
-echo "[integration] Using wet-snow summary: $(container_path_for_host "${WET_SUMMARY_HOST_SOURCE}")"
+echo "[integration] Using SCF summary: $(runtime_path_for_host "${SCF_SUMMARY_HOST_SOURCE}")"
+echo "[integration] Using wet-snow summary: $(runtime_path_for_host "${WET_SUMMARY_HOST_SOURCE}")"
 
-compose_run openamundsen-da prepare "${PROJECT_PATH}" --overwrite
+if [[ "${PROJECT_DRIVER}" == "api" ]]; then
+  runtime_run "${RUNTIME_PYTHON}" "${REPO_RUNTIME_ROOT}/scripts/ci/run_project_api.py" \
+    prepare "${PROJECT_PATH}" --overwrite
+else
+  runtime_run "${RUNTIME_CLI}" prepare "${PROJECT_PATH}" --overwrite
+fi
 
 echo "[integration] Running project pipeline (max-workers=${MAX_WORKERS})"
-compose_run openamundsen-da run "${PROJECT_PATH}" --max-workers "${MAX_WORKERS}"
+if [[ "${PROJECT_DRIVER}" == "api" ]]; then
+  runtime_run "${RUNTIME_PYTHON}" "${REPO_RUNTIME_ROOT}/scripts/ci/run_project_api.py" \
+    run "${PROJECT_PATH}" --max-workers "${MAX_WORKERS}"
+else
+  runtime_run "${RUNTIME_CLI}" run "${PROJECT_PATH}" --max-workers "${MAX_WORKERS}"
+fi
 
-CONTAINER_LOG_FILE="$(compose_run python - "${PROJECT_NAME}" <<'PY' | tr -d '\r' | tail -n 1
+RUNTIME_LOG_FILE="$(runtime_run "${RUNTIME_PYTHON}" - "${PROJECT_PATH}" <<'PY' | tr -d '\r' | tail -n 1
 from pathlib import Path
 import sys
 
-project_name = str(sys.argv[1]).strip()
-project_dir = Path("/data/projects") / project_name
+project_dir = Path(sys.argv[1])
 if not project_dir.is_dir():
     raise SystemExit(f"Missing project directory: {project_dir}")
+project_name = project_dir.name
 candidates = sorted(project_dir.glob(f"{project_name}.log"))
 if not candidates:
     candidates = sorted(project_dir.glob("project_*.log"))
@@ -255,10 +321,10 @@ if not candidates:
 print(candidates[-1].as_posix())
 PY
 )"
-echo "[integration] Using project log: ${CONTAINER_LOG_FILE}"
+echo "[integration] Using project log: ${RUNTIME_LOG_FILE}"
 
-compose_run python /workspace/scripts/ci/validate_trimmed_project.py \
+runtime_run "${RUNTIME_PYTHON}" "${REPO_RUNTIME_ROOT}/scripts/ci/validate_trimmed_project.py" \
   --project-dir "${PROJECT_PATH}" \
-  --log-file "${CONTAINER_LOG_FILE}"
+  --log-file "${RUNTIME_LOG_FILE}"
 
 echo "[integration] PASS"

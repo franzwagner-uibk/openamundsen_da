@@ -42,6 +42,6 @@ an explicit operator and uncertainty configuration.
   event-analysis fields; and
 - `results/run_manifest.json` records hashes, stage state, provenance and outputs.
 
-See [Output Data]({{ site.baseurl }}{% link output-data.md %}) for paths and
+See [Output data]({{ site.baseurl }}{% link output-data.md %}) for paths and
 [Configuration]({{ site.baseurl }}{% link guides/configuration.md %}) for the
 event/uncertainty schema.

@@ -50,9 +50,9 @@ test = [
 ]
 
 [project.urls]
-Documentation = "https://openamundsen-da.pages.dev/"
-Repository = "https://github.com/franzwagner-uibk/openamundsen_da"
-Issues = "https://github.com/franzwagner-uibk/openamundsen_da/issues"
+Documentation = "https://doc-da.openamundsen.org/"
+Repository = "https://github.com/openamundsen/openamundsen-da"
+Issues = "https://github.com/openamundsen/openamundsen-da/issues"
 
 [build-system]
 requires = ["setuptools>=77.0.3", "setuptools-scm>=8,<9", "wheel"]

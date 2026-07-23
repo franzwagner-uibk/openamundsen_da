@@ -251,5 +251,5 @@ This is standard particle-filter behavior and is especially important for strong
 
 - [Configuration Reference]({{ site.baseurl }}{% link guides/configuration.md %})
 - [Observation Processing]({{ site.baseurl }}{% link guides/observations.md %})
-- [Running]({{ site.baseurl }}{% link running.md %})
+- [Running the model]({{ site.baseurl }}{% link running.md %})
 - [Data Assimilation Methods]({{ site.baseurl }}{% link reference/da-methods.md %})

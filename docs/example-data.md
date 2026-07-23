@@ -1,10 +1,11 @@
 ---
 layout: default
-title: Example Data
-nav_order: 7
+title: Example data sets
+parent: Documentation
+nav_order: 6
 ---
 
-# Example Data
+# Example data sets
 
 The release image contains two shipped, versioned examples under
 `/workspace/examples`. They are user-facing baselines and CI contracts, not

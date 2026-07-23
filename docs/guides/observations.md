@@ -1,10 +1,11 @@
 ---
 layout: default
-title: Input Data
-nav_order: 3
+title: Input data
+parent: Documentation
+nav_order: 2
 ---
 
-# Input Data
+# Input data
 
 openAMUNDSEN-DA combines a standard openAMUNDSEN setup with explicit observation
 products and one data assimilation project configuration.

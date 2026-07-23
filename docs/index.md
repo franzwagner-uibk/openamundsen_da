@@ -16,7 +16,7 @@ into openAMUNDSEN.
 
 [How to Use]({{ '/tutorial/' | relative_url }}){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [Installation]({{ site.baseurl }}{% link installation.md %}){: .btn .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[View on GitHub](https://github.com/franzwagner-uibk/openamundsen_da){: .btn .fs-5 .mb-4 .mb-md-0 }
+[View on GitHub](https://github.com/openamundsen/openamundsen-da){: .btn .fs-5 .mb-4 .mb-md-0 }
 
 ## Software scope
 
@@ -39,15 +39,15 @@ observations, prepares inspectable event inputs and writes a validated result se
 
 - [Installation]({{ site.baseurl }}{% link installation.md %}) explains the Python
   package and wheel-based Docker image.
-- [Input Data]({{ site.baseurl }}{% link guides/observations.md %}) defines required
+- [Input data]({{ site.baseurl }}{% link guides/observations.md %}) defines required
   model, forcing and observation inputs without prescribing product-generation algorithms.
 - [Configuration]({{ site.baseurl }}{% link guides/configuration.md %}) documents the
   strict setup, project and step ownership boundary.
-- [Running]({{ site.baseurl }}{% link running.md %}) covers the supported single-domain
+- [Running the model]({{ site.baseurl }}{% link running.md %}) covers the supported single-domain
   and subdomain command sequences.
-- [Output Data]({{ site.baseurl }}{% link output-data.md %}) defines the manifest,
+- [Output data]({{ site.baseurl }}{% link output-data.md %}) defines the manifest,
   compact NetCDF, diagnostics and cleanup contract.
-- [Example Data]({{ site.baseurl }}{% link example-data.md %}) describes the shipped
+- [Example data sets]({{ site.baseurl }}{% link example-data.md %}) describes the shipped
   Rofental and North Tyrol examples.
 - [How to Use]({{ '/tutorial/' | relative_url }}) is the reviewed, continuous
   Rofental walkthrough.
@@ -59,5 +59,5 @@ The stable v0.9.0 Python package is available from
 container is available from
 [GHCR](https://github.com/franzwagner-uibk/openamundsen_da/pkgs/container/openamundsen_da),
 and release archives and evidence are available from
-[GitHub Releases](https://github.com/franzwagner-uibk/openamundsen_da/releases).
+[GitHub Releases](https://github.com/openamundsen/openamundsen-da/releases).
 The MIT License permits commercial use subject to its terms.

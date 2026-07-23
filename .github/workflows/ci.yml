@@ -6,9 +6,18 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      native_dependency_mode:
+        description: Dependency set for the native P8 integration
+        required: true
+        default: locked
+        type: choice
+        options:
+          - locked
+          - latest
 
 env:
-  IMAGE: ghcr.io/franzwagner-uibk/openamundsen_da
+  IMAGE: ghcr.io/openamundsen/openamundsen-da
   CI_IMAGE_NAME: openamundsen-da-ci
 
 concurrency:
@@ -337,13 +346,59 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  native-integration:
+    name: Native pip Rofental integration on Lenovo P8
+    if: >-
+      needs.change-scope.outputs.docs_only != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
+    needs: [change-scope, lint, package, portable, docs]
+    runs-on: [self-hosted, linux, x64, oa-da]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up native Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            constraints/native-ci-py312.txt
+
+      - name: Download tested distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-distributions
+          path: dist
+
+      - name: Install wheel and run native Rofental integration
+        run: |
+          OA_DA_NATIVE_PYTHON=python \
+          OA_DA_NATIVE_DEPENDENCY_MODE="${{ inputs.native_dependency_mode || 'locked' }}" \
+          OA_DA_EXPECTED_VERSION="${{ needs.package.outputs.version }}" \
+          OA_DA_TEST_MAX_WORKERS=8 \
+          OA_DA_TEST_SETUP_RESOLUTION=500 \
+          OA_DA_TEST_ENSEMBLE_SIZE=2 \
+          CI_ARTIFACT_DIR="${GITHUB_WORKSPACE}/.ci-artifacts/integration/native-single-domain" \
+          bash scripts/ci/run_native_integration_tests.sh
+
+      - name: Upload native integration artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-integration-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-artifacts/integration/native-single-domain
+          if-no-files-found: ignore
+          retention-days: 7
+
   publish-edge:
     name: Publish immutable commit and edge images
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       needs.change-scope.outputs.docs_only != 'true'
-    needs: [change-scope, package, trusted-integration]
+    needs: [change-scope, package, trusted-integration, native-integration]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -416,6 +471,7 @@ jobs:
       - dependency-review
       - container-portability
       - trusted-integration
+      - native-integration
       - publish-edge
     runs-on: ubuntu-latest
     steps:
@@ -430,6 +486,7 @@ jobs:
           DEPENDENCY_RESULT: ${{ needs.dependency-review.result }}
           CONTAINER_RESULT: ${{ needs.container-portability.result }}
           TRUSTED_RESULT: ${{ needs.trusted-integration.result }}
+          NATIVE_RESULT: ${{ needs.native-integration.result }}
           EDGE_RESULT: ${{ needs.publish-edge.result }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -446,6 +503,7 @@ jobs:
             test "${PORTABLE_RESULT}" = skipped
             test "${CONTAINER_RESULT}" = skipped
             test "${TRUSTED_RESULT}" = skipped
+            test "${NATIVE_RESULT}" = skipped
             test "${EDGE_RESULT}" = skipped
           else
             test "${LINT_RESULT}" = success
@@ -453,6 +511,7 @@ jobs:
             test "${PORTABLE_RESULT}" = success
             test "${CONTAINER_RESULT}" = success
             test "${TRUSTED_RESULT}" = success
+            test "${NATIVE_RESULT}" = success
             if [[ "${EVENT_NAME}" == push ]]; then
               test "${EDGE_RESULT}" = success
             else

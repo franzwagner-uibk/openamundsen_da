@@ -1,7 +1,8 @@
 ---
 layout: default
 title: Installation
-nav_order: 2
+parent: Documentation
+nav_order: 1
 ---
 
 # Installation
@@ -67,8 +68,8 @@ platform. Use the container when you need the tested end-to-end runtime.
 Clone the repository, build the strict distribution and install the tested wheel:
 
 ```bash
-git clone https://github.com/franzwagner-uibk/openamundsen_da.git
-cd openamundsen_da
+git clone https://github.com/openamundsen/openamundsen-da.git
+cd openamundsen-da
 python -m pip install build twine
 bash scripts/ci/build_distribution.sh
 python -m pip install dist/openamundsen_da-*.whl
@@ -80,7 +81,7 @@ a source overlay.
 
 ## Next steps
 
-Continue with [Input Data]({{ site.baseurl }}{% link guides/observations.md %}),
+Continue with [Input data]({{ site.baseurl }}{% link guides/observations.md %}),
 [Configuration]({{ site.baseurl }}{% link guides/configuration.md %}) or the
 [How to Use tutorial]({{ '/tutorial/' | relative_url }}). Installation problems
 are collected under [Advanced troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %}).

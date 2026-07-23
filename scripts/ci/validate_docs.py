@@ -19,17 +19,18 @@ TUTORIAL_ASSET_MANIFEST = (
 TUTORIAL_ASSET_ROOT = DOCS_ROOT / "assets" / "images" / "tutorial" / "rofental_2022_2023_es30"
 CONFIG_ARCHITECTURE_FIGURE = DOCS_ROOT / "assets" / "images" / "diagrams" / "setup-project-configuration.png"
 CONFIG_ARCHITECTURE_FIGURE_SHA256 = "fd2e413b6aaafa2ee2c779456e48cb0ee6e23f28ba66ef31795905cfdf2b13bc"
-REQUIRED_TOP_LEVEL_TITLES = (
-    "Home",
-    "Installation",
-    "Input Data",
-    "Configuration",
-    "Running",
-    "Output Data",
-    "Example Data",
-    "How to Use",
-    "Advanced",
-    "Reference",
+REQUIRED_NAVIGATION = (
+    ("Home", None, "1"),
+    ("Documentation", None, "2"),
+    ("Installation", "Documentation", "1"),
+    ("Input data", "Documentation", "2"),
+    ("Configuration", "Documentation", "3"),
+    ("Running the model", "Documentation", "4"),
+    ("Output data", "Documentation", "5"),
+    ("Example data sets", "Documentation", "6"),
+    ("How to Use", None, "3"),
+    ("Advanced", None, "4"),
+    ("Reference", None, "5"),
 )
 REMOVED_PUBLISHED_PATHS = (
     "Tutorial/03-workflow.md",
@@ -54,6 +55,7 @@ def _published_markdown() -> tuple[Path, ...]:
         and "_site" not in path.parts
         and ".jekyll-cache" not in path.parts
         and "tmp" not in path.parts
+        and _front_matter(path).get("published") != "false"
     )
 
 
@@ -101,14 +103,32 @@ def _validate_front_matter(paths: Iterable[Path]) -> list[str]:
         if parent and parent not in title_paths:
             errors.append(f"unknown parent {parent!r}: {path.relative_to(REPO_ROOT)}")
 
-    top_level = {
-        front_matter.get("title")
-        for front_matter in records.values()
-        if front_matter and "parent" not in front_matter and front_matter.get("nav_exclude") != "true"
-    }
-    for title in REQUIRED_TOP_LEVEL_TITLES:
-        if title not in top_level:
-            errors.append(f"missing required top-level navigation page: {title}")
+    for title, expected_parent, expected_order in REQUIRED_NAVIGATION:
+        matching_paths = title_paths.get(title, [])
+        if len(matching_paths) != 1:
+            errors.append(
+                f"required navigation title must occur exactly once: {title!r} "
+                f"(found {len(matching_paths)})"
+            )
+            continue
+        front_matter = records[matching_paths[0]]
+        if front_matter.get("parent") != expected_parent:
+            errors.append(
+                f"navigation parent differs for {title!r}: "
+                f"expected {expected_parent!r}, found {front_matter.get('parent')!r}"
+            )
+        if front_matter.get("nav_order") != expected_order:
+            errors.append(
+                f"navigation order differs for {title!r}: "
+                f"expected {expected_order}, found {front_matter.get('nav_order')!r}"
+            )
+
+    documentation_paths = title_paths.get("Documentation", [])
+    if (
+        len(documentation_paths) == 1
+        and records[documentation_paths[0]].get("has_children") != "true"
+    ):
+        errors.append("Documentation navigation page must declare has_children: true")
     return errors
 
 

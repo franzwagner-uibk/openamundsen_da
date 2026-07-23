@@ -10,6 +10,8 @@ permalink: /
 
 {: .fs-9 }
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21519388.svg)](https://doi.org/10.5281/zenodo.21519388)
+
 Assimilating satellite-based snow cover, wet snow extent and station observations
 into openAMUNDSEN.
 {: .fs-6 .fw-300 }
@@ -60,4 +62,8 @@ container is available from
 [GHCR](https://github.com/openamundsen/openamundsen-da/pkgs/container/openamundsen-da),
 and release archives and evidence are available from
 [GitHub Releases](https://github.com/openamundsen/openamundsen-da/releases).
+Archived releases are available under the
+[openAMUNDSEN-DA concept DOI](https://doi.org/10.5281/zenodo.21519388);
+the exact v0.9.2 snapshot is
+[10.5281/zenodo.21519389](https://doi.org/10.5281/zenodo.21519389).
 The MIT License permits commercial use subject to its terms.

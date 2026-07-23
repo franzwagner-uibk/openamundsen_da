@@ -84,7 +84,7 @@ def test_citation_metadata_is_validated_in_ci_and_release() -> None:
     ).read_text(encoding="utf-8")
 
     assert 'version: "0.9.2"' in citation
-    assert "doi:" not in citation
+    assert 'doi: "10.5281/zenodo.21519389"' in citation
     assert "preferred-citation:" not in citation
     assert not (ROOT / ".zenodo.json").exists()
     assert "include CITATION.cff" in manifest

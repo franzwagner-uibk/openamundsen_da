@@ -227,13 +227,12 @@ def test_docs_deployment_uses_github_pages_and_keeps_cloudflare_manual() -> None
     assert "pages deploy docs/_site --project-name=openamundsen-da" in cloudflare
 
 
-def test_container_publication_targets_organization_while_public_usage_stays_legacy(
-) -> None:
+def test_container_publication_and_public_usage_target_organization() -> None:
     publication_image = "ghcr.io/openamundsen/openamundsen-da"
-    public_image = "ghcr.io/franzwagner-uibk/openamundsen_da:0.9.0"
+    public_image = f"{publication_image}:0.9.1"
     public_package_page = (
-        "https://github.com/franzwagner-uibk/openamundsen_da/"
-        "pkgs/container/openamundsen_da"
+        "https://github.com/openamundsen/openamundsen-da/"
+        "pkgs/container/openamundsen-da"
     )
     compose = (ROOT / "compose.yml").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -254,9 +253,9 @@ def test_container_publication_targets_organization_while_public_usage_stays_leg
     assert f'image: "{public_image}"' in docs_release
     assert public_package_page in docs_index
     assert public_package_page in docs_distribution
-    assert publication_image not in compose
-    assert publication_image not in readme
-    assert publication_image not in docs_release
+    assert "ghcr.io/franzwagner-uibk/openamundsen_da" not in compose
+    assert "ghcr.io/franzwagner-uibk/openamundsen_da" not in readme
+    assert "ghcr.io/franzwagner-uibk/openamundsen_da" not in docs_release
     assert (
         'org.opencontainers.image.source="https://github.com/openamundsen/openamundsen-da"'
         in (ROOT / "Dockerfile").read_text(encoding="utf-8")

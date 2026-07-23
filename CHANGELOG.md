@@ -7,14 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-07-23
+
 ### Changed
-- Use `openamundsen/openamundsen-da` as the canonical repository and
-  `ghcr.io/openamundsen/openamundsen-da` for CI and future releases. Public
-  container instructions remain on the personal `0.9.0` image until the
-  organization package is public.
+- Use `openamundsen/openamundsen-da` as the canonical repository and public
+  `ghcr.io/openamundsen/openamundsen-da` as the canonical container package.
 - Deploy current documentation to GitHub Pages at
   `https://doc-da.openamundsen.org/`; the existing Cloudflare Pages deployment
-  remains a manual-only fallback during the migration.
+  remains a manual-only protected fallback.
+- Group the shared user documentation under a `Documentation` section and align
+  its visible page names with openAMUNDSEN without changing public URLs.
+- Add a locked native Python wheel integration on the Lenovo P8 that processes
+  the Rofental example through the public Python API outside Docker.
+- Gate releases on both the native Python integration and the existing trusted
+  Docker integrations before publishing packages or containers.
+
+### Fixed
+- Support contour path effects with Matplotlib 3.10 and later while retaining
+  compatibility with older Matplotlib contour collections.
+- Exclude native CI dependency constraints from source distributions.
 
 ## [0.9.0] - 2026-07-19
 
@@ -65,5 +76,6 @@ Initial pre-release of openamundsen-da - Data Assimilation Framework for openAMU
 
 ---
 
-[Unreleased]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.0rc8...v0.9.0

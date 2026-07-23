@@ -1,6 +1,6 @@
 services:
   oa:
-    image: ${IMAGE:-ghcr.io/franzwagner-uibk/openamundsen_da:0.9.0}
+    image: ${IMAGE:-ghcr.io/openamundsen/openamundsen-da:0.9.1}
     user: "${UID:-1000}:${GID:-1000}"
     working_dir: /data
     volumes:

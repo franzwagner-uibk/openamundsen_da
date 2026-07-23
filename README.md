@@ -1,5 +1,7 @@
 # openAMUNDSEN-DA
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21519388.svg)](https://doi.org/10.5281/zenodo.21519388)
+
 openAMUNDSEN-DA is the data assimilation layer for the distributed snow and
 hydrological model [openAMUNDSEN](https://github.com/openamundsen/openamundsen).
 It prepares configured snow observations, executes sequential ensemble updates

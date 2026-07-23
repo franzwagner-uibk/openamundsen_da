@@ -11,6 +11,7 @@ authors:
     email: "franz.wagner@uibk.ac.at"
 version: "0.9.2"
 date-released: "2026-07-23"
+doi: "10.5281/zenodo.21519389"
 license: MIT
 repository-code: "https://github.com/openamundsen/openamundsen-da"
 url: "https://doc-da.openamundsen.org/"

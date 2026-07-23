@@ -78,11 +78,17 @@ def test_release_workflow_checksums_match_flat_github_release_assets() -> None:
 
 def test_citation_metadata_is_validated_in_ci_and_release() -> None:
     citation = CITATION.read_text(encoding="utf-8")
+    manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+    distribution_validator = (
+        ROOT / "scripts" / "ci" / "validate_distribution.py"
+    ).read_text(encoding="utf-8")
 
     assert 'version: "0.9.2"' in citation
     assert "doi:" not in citation
     assert "preferred-citation:" not in citation
     assert not (ROOT / ".zenodo.json").exists()
+    assert "include CITATION.cff" in manifest
+    assert '"CITATION.cff"' in distribution_validator
     for workflow_path in (CI_WORKFLOW, RELEASE_WORKFLOW):
         workflow = workflow_path.read_text(encoding="utf-8")
         assert "cffconvert==2.0.0" in workflow

@@ -23,6 +23,7 @@ FORBIDDEN_PARTS = {
 }
 SDIST_ROOT_FILES = {
     "CHANGELOG.md",
+    "CITATION.cff",
     "LICENSE",
     "MANIFEST.in",
     "PKG-INFO",

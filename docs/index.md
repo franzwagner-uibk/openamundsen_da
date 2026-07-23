@@ -26,9 +26,9 @@ observations, prepares deterministic assimilation sequences, executes an
 ensemble particle-filter workflow and validates the resulting tables, grids,
 plots, maps and report.
 
-The documentation is deliberately technical. For the particle-filter
-formulation, scientific motivation and further interpretation of the results,
-see Wagner et al. (2026), the manuscript accompanying this software release.
+The documentation is deliberately technical. A scientific manuscript describing
+the openAMUNDSEN-DA framework and its Rofental application is in preparation.
+This repository documents the software interface and operational workflow.
 
 ![openAMUNDSEN-DA technical workflow from mounted setup inputs through observation summaries and prepared steps to validated results]({{ site.baseurl }}/assets/images/diagrams/openamundsen-da-workflow.svg)
 
@@ -54,7 +54,7 @@ observations, prepares inspectable event inputs and writes a validated result se
 
 ## License and availability
 
-The stable v0.9.1 Python package is available from
+The stable v0.9.2 Python package is available from
 [PyPI](https://pypi.org/project/openamundsen-da/). The tested multi-architecture
 container is available from
 [GHCR](https://github.com/openamundsen/openamundsen-da/pkgs/container/openamundsen-da),

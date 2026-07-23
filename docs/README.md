@@ -47,8 +47,8 @@ available for environments where filesystem notifications are reliable.
 
 ## Publication boundary
 
-Technical documentation describes software behavior. Link scientific method and
-Rofental interpretation to Wagner et al. (2026) instead of duplicating the
-manuscript. Tutorial reference images under
+This documentation focuses on the implemented software workflow. Detailed
+scientific formulation and interpretation are outside its scope. Tutorial
+reference images under
 `docs/assets/images/tutorial/rofental_2022_2023_es30` are selected by the frozen
 publication manifest and must not be replaced manually.

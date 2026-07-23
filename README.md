@@ -5,9 +5,9 @@ hydrological model [openAMUNDSEN](https://github.com/openamundsen/openamundsen).
 It prepares configured snow observations, executes sequential ensemble updates
 and writes reproducible diagnostics and compact gridded results.
 
-The project is a v0.9 research preview. Its scientific formulation and Rofental
-application are described by Wagner et al. (2026); this repository documents the
-software interface and operational workflow.
+The project is a v0.9 research preview. A scientific manuscript describing the
+openAMUNDSEN-DA framework and its Rofental application is in preparation. This
+repository documents the software interface and operational workflow.
 
 ## Documentation
 
@@ -31,7 +31,7 @@ python -m pip install openamundsen-da
 For the complete geospatial runtime, use the multi-architecture container:
 
 ```bash
-docker pull ghcr.io/openamundsen/openamundsen-da:0.9.1
+docker pull ghcr.io/openamundsen/openamundsen-da:0.9.2
 ```
 
 Use exact versions or image digests for reproducible work. The moving `edge`

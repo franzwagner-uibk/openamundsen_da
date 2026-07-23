@@ -7,9 +7,8 @@ nav_order: 4
 
 # Data Assimilation Implementation
 
-This page identifies software stages and artifacts. For equations, methodological
-motivation and scientific interpretation, use Wagner et al. (2026), the manuscript
-accompanying openAMUNDSEN-DA v0.9.
+This page identifies the implemented software stages and artifacts. Detailed
+scientific formulation and interpretation are outside its scope.
 
 ## Event sequence
 

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-07-23
+
+### Changed
+- Add machine-readable software citation metadata and validate it in CI and
+  release workflows before publication.
+- Replace references to an unpublished manuscript with a neutral
+  manuscript-in-preparation note in the project overview and documentation.
+- Update stable package and container references to `0.9.2`.
+
 ## [0.9.1] - 2026-07-23
 
 ### Changed
@@ -76,6 +85,7 @@ Initial pre-release of openamundsen-da - Data Assimilation Framework for openAMU
 
 ---
 
-[Unreleased]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.0rc8...v0.9.0

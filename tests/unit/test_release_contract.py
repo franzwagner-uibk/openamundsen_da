@@ -13,6 +13,7 @@ RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 DOCS_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-docs.yml"
 CLOUDFLARE_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-cloudflare.yml"
+CITATION = ROOT / "CITATION.cff"
 SPEC = importlib.util.spec_from_file_location("validate_release", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 validate_release = importlib.util.module_from_spec(SPEC)
@@ -73,6 +74,25 @@ def test_release_workflow_checksums_match_flat_github_release_assets() -> None:
     assert "      - name: Verify flat release bundle checksums" in package_job
     assert 'release-metadata/SHA256SUMS "${verify_dir}/"' in package_job
     assert '(cd "${verify_dir}" && sha256sum -c SHA256SUMS)' in package_job
+
+
+def test_citation_metadata_is_validated_in_ci_and_release() -> None:
+    citation = CITATION.read_text(encoding="utf-8")
+    manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+    distribution_validator = (
+        ROOT / "scripts" / "ci" / "validate_distribution.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'version: "0.9.2"' in citation
+    assert "doi:" not in citation
+    assert "preferred-citation:" not in citation
+    assert not (ROOT / ".zenodo.json").exists()
+    assert "include CITATION.cff" in manifest
+    assert '"CITATION.cff"' in distribution_validator
+    for workflow_path in (CI_WORKFLOW, RELEASE_WORKFLOW):
+        workflow = workflow_path.read_text(encoding="utf-8")
+        assert "cffconvert==2.0.0" in workflow
+        assert "cffconvert --validate" in workflow
 
 
 def test_release_workflow_stages_downloaded_wheel_before_p8_smoke() -> None:
@@ -229,7 +249,7 @@ def test_docs_deployment_uses_github_pages_and_keeps_cloudflare_manual() -> None
 
 def test_container_publication_and_public_usage_target_organization() -> None:
     publication_image = "ghcr.io/openamundsen/openamundsen-da"
-    public_image = f"{publication_image}:0.9.1"
+    public_image = f"{publication_image}:0.9.2"
     public_package_page = (
         "https://github.com/openamundsen/openamundsen-da/"
         "pkgs/container/openamundsen-da"

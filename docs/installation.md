@@ -42,8 +42,8 @@ Verify the installed version and architecture:
 docker run --rm {{ site.data.release.image }} openamundsen-da --version
 ```
 
-The image contains the shipped examples under `/workspace/examples`. Copy an
-example to a host directory before running it so that configuration and outputs
+The image contains the shipped Rofental example under `/workspace/examples`.
+Copy it to a host directory before running it so that configuration and outputs
 persist outside the container. The [How to Use installation chapter]({{ site.baseurl }}{% link Tutorial/02-dependencies.md %})
 shows that sequence in full.
 

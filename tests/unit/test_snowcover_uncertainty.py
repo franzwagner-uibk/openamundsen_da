@@ -38,7 +38,10 @@ def _write_eurac_style_scf_netcdf(path: Path) -> None:
             ),
             "uncertainty": (
                 ("band", "y", "x"),
-                np.array([[[10.0, 99.0], [99.0, 40.0]]], dtype=np.float32),
+                np.array(
+                    [[[10.12345, 99.0], [99.0, 40.98765]]],
+                    dtype=np.float32,
+                ),
             ),
         },
         coords={
@@ -348,7 +351,13 @@ class SnowcoverUncertaintyTests(unittest.TestCase):
             self.assertEqual(int(df["n_cloud"]), 2)
             self.assertAlmostEqual(float(df["cloud_fraction"]), 0.5, places=6)
             self.assertAlmostEqual(float(df["scf"]), 0.5, places=6)
-            self.assertAlmostEqual(float(df["unc_mean"]), 25.0, places=6)
+            expected_unc_mean = float(
+                np.mean(np.array([10.12345, 40.98765], dtype=np.float32))
+            )
+            self.assertAlmostEqual(float(df["unc_mean"]), expected_unc_mean, places=6)
+            self.assertNotEqual(float(df["unc_mean"]), round(expected_unc_mean, 3))
+            self.assertEqual(float(df["unc_min"]), 10.123)
+            self.assertEqual(float(df["unc_max"]), 40.988)
             self.assertEqual(str(df["source"]), "SnowFLAKES_20240401_v3_eurac.nc@2024-04-01T00:00:00Z")
 
     def test_out_of_range_uncertainty_raises(self):

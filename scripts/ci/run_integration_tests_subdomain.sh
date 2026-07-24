@@ -6,6 +6,18 @@ CI_IMAGE="${CI_IMAGE:-openamundsen-da-ci:local}"
 MAX_WORKERS="${OA_DA_SUBDOMAIN_TEST_MAX_WORKERS:-3}"
 INNER_WORKERS="${OA_DA_SUBDOMAIN_TEST_INNER_WORKERS:-2}"
 ARTIFACT_DIR="${CI_ARTIFACT_DIR:-}"
+SOURCE_DIR="${OA_DA_SUBDOMAIN_TEST_SETUP_SOURCE:-}"
+
+if [[ -z "${SOURCE_DIR}" ]]; then
+  echo "OA_DA_SUBDOMAIN_TEST_SETUP_SOURCE must point to the private subdomain fixture" >&2
+  exit 2
+fi
+if [[ ! -f "${SOURCE_DIR}/subdomains.yml" ]] ||
+  [[ ! -f "${SOURCE_DIR}/env/subdomains.gpkg" ]] ||
+  [[ ! -f "${SOURCE_DIR}/projects/project_2022_2023/project_2022_2023.yml" ]]; then
+  echo "Invalid private subdomain fixture: ${SOURCE_DIR}" >&2
+  exit 2
+fi
 
 TMP_ROOT="$(mktemp -d -t oada-subdomain-ci-XXXXXX)"
 SETUP_DIR="${TMP_ROOT}/subdomains"
@@ -50,7 +62,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cp -a "${ROOT_DIR}/examples/subdomains" "${SETUP_DIR}"
+cp -a "${SOURCE_DIR}" "${SETUP_DIR}"
 touch "${HOST_LOG_FILE}"
 exec > >(tee -a "${HOST_LOG_FILE}") 2>&1
 
@@ -92,9 +104,9 @@ station_events = [
     if isinstance(event, dict) and str(event.get("variable", "")).strip().lower() == "station_hs"
 ]
 if not scf_events:
-    raise RuntimeError("No SCF assimilation event found in shipped sub-domain example")
+    raise RuntimeError("No SCF assimilation event found in private sub-domain fixture")
 if not station_events:
-    raise RuntimeError("No station_hs assimilation event found in shipped sub-domain example")
+    raise RuntimeError("No station_hs assimilation event found in private sub-domain fixture")
 
 def event_day(event):
     return datetime.fromisoformat(str(event["date"])).date()

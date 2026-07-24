@@ -1,3 +1,4 @@
+import csv
 from pathlib import Path
 
 import yaml
@@ -63,3 +64,27 @@ def test_shipped_rofental_uses_promoted_golden_project_config() -> None:
         {"date": "2023-04-26", "variable": "scf", "product": "SNOWCOVER"},
         {"date": "2023-05-26", "variable": "scf", "product": "SNOWCOVER"},
     ]
+
+
+def test_shipped_rofental_snowcover_files_use_neutral_prefix() -> None:
+    rofental_root = REPO_ROOT / "examples" / "rofental"
+    snowcover_dir = rofental_root / "obs" / "snowcover"
+    renamed_files = tuple(snowcover_dir.glob("s2_fsc_rofental_*"))
+    legacy_prefix = "s2_fsc_" + "snowflake_rofental_*"
+
+    assert len(renamed_files) == 153
+    assert not tuple(snowcover_dir.glob(legacy_prefix))
+
+    summary_path = (
+        rofental_root
+        / "obs"
+        / "summaries"
+        / "project_2022_2023"
+        / "scf_summary.csv"
+    )
+    with summary_path.open(encoding="utf-8", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+
+    assert rows
+    assert all(row["source"].startswith("s2_fsc_rofental_") for row in rows)
+    assert all("snowflake" not in row["source"].lower() for row in rows)

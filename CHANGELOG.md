@@ -12,7 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Credit Franz Wagner, Erwin Rottler and Ulrich Strasser as software creators
   in manuscript order, including their ORCIDs and shared affiliation.
+- Move the restricted North Tyrol subdomain example and runbook to a pinned
+  private maintainer fixture while retaining the public subdomain API, CLI,
+  documentation and mandatory trusted integration coverage.
+- Rename the 153 shipped Rofental snow-cover observation files to the neutral
+  `s2_fsc_rofental_*` pattern without changing their raster contents.
+- Improve the tutorial introduction, Docker setup, host-path guidance,
+  `region_id` explanation and station-siting terminology, and remove the
+  ambiguous Rofental SWE reference interpretation.
 - Update stable package and container references to `0.9.3`.
+
+### Fixed
+- Round only `unc_min` and `unc_max` in generated `scf_summary.csv` files to
+  three decimal places while preserving `unc_mean` and filtering decisions.
 
 ## [0.9.2] - 2026-07-23
 

@@ -7,8 +7,6 @@
 examples/**
 !examples/rofental/
 !examples/rofental/**
-!examples/subdomains/
-!examples/subdomains/**
 !scripts/
 scripts/**
 !scripts/oa_entrypoint.sh

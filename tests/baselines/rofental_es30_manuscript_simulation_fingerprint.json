@@ -213,7 +213,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_03.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_03.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -228,7 +228,7 @@
       "data_sha256": "670bbd685c4d3b334e3314980849ecb507336ce7c89b407317b0451c9978bd0d",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_03.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_03.tif.aux.json"
     },
     {
       "bands": 1,
@@ -246,7 +246,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_03_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_03_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -273,7 +273,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_05.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_05.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -288,7 +288,7 @@
       "data_sha256": "3cd84710653f24fbc1c35ab0e681ad6056f33663ca88c76259247726e13d9290",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_05.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_05.tif.aux.json"
     },
     {
       "bands": 1,
@@ -306,7 +306,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_05_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_05_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -333,7 +333,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_08.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_08.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -348,7 +348,7 @@
       "data_sha256": "9e5b6d5b6014db2cbb65f68057b93750bcfa7a26435682874b0c83192696669a",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_08.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_08.tif.aux.json"
     },
     {
       "bands": 1,
@@ -366,7 +366,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_08_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_08_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -393,7 +393,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_13.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_13.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -408,7 +408,7 @@
       "data_sha256": "ff2c05b781e44e107e065dd0fc3ed7d51980dcb5cde3e94694071dc884cd16f1",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_13.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_13.tif.aux.json"
     },
     {
       "bands": 1,
@@ -426,7 +426,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_13_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_13_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -453,7 +453,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_18.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_18.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -468,7 +468,7 @@
       "data_sha256": "200eb96de0eff53e1f53d958277df933b97f3406b79a463e5d1c96e415b140c4",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_18.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_18.tif.aux.json"
     },
     {
       "bands": 1,
@@ -486,7 +486,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_18_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_18_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -513,7 +513,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_25.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_25.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -528,7 +528,7 @@
       "data_sha256": "b97be85fedfdf23e32c0548c114d1b784ea5750b3ded71381aaab2f8adce39b1",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_25.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_25.tif.aux.json"
     },
     {
       "bands": 1,
@@ -546,7 +546,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_25_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_25_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -573,7 +573,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_28.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_28.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -588,7 +588,7 @@
       "data_sha256": "70b19e521632f0ba6d262c863c9c6f7d954c26fa039336274c5740e2a412d729",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_28.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_28.tif.aux.json"
     },
     {
       "bands": 1,
@@ -606,7 +606,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_28_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_28_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -633,7 +633,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_30.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_30.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -648,7 +648,7 @@
       "data_sha256": "56653b1d5edd5d90f61e12f2ed90425d3fb96743c40b72ad9b34959bdbedbd76",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_30.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_30.tif.aux.json"
     },
     {
       "bands": 1,
@@ -666,7 +666,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_10_30_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_10_30_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -693,7 +693,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_11_02.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_11_02.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -708,7 +708,7 @@
       "data_sha256": "fdb9ef933a11cf2c82a5437aafbd4ea89a61a7c543202d465371e78523d9efa0",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_11_02.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2022_11_02.tif.aux.json"
     },
     {
       "bands": 1,
@@ -726,7 +726,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_11_02_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_11_02_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -753,7 +753,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_11_17.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_11_17.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -768,7 +768,7 @@
       "data_sha256": "b789a64e63437d2f935b737b51f3e06d35e34bfde6945b08cc3a0fd107cda238",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_11_17.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2022_11_17.tif.aux.json"
     },
     {
       "bands": 1,
@@ -786,7 +786,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_11_17_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_11_17_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -813,7 +813,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_11_19.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_11_19.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -828,7 +828,7 @@
       "data_sha256": "3b2f906833a5c7d28a38761a26e585390897ee7eaf7bb81b6d984bf58c3f71e5",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_11_19.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2022_11_19.tif.aux.json"
     },
     {
       "bands": 1,
@@ -846,7 +846,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_11_19_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_11_19_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -873,7 +873,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_11_24.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_11_24.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -888,7 +888,7 @@
       "data_sha256": "0f4a89032ed7999853647fce8eb9dd8b9b632eac69aa10dc1d7f10f7528d70b3",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_11_24.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2022_11_24.tif.aux.json"
     },
     {
       "bands": 1,
@@ -906,7 +906,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_11_24_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_11_24_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -933,7 +933,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_11_27.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_11_27.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -948,7 +948,7 @@
       "data_sha256": "22c14106b371e29b0e588b6e8f46a3090f9b01bdbcf048539f697cea0f9bef7f",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_11_27.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2022_11_27.tif.aux.json"
     },
     {
       "bands": 1,
@@ -966,7 +966,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_11_27_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_11_27_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -993,7 +993,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_12_07.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_12_07.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1008,7 +1008,7 @@
       "data_sha256": "f87a2d2860f7bfe6cb3034c0b1e88e7b0bcf521181952e925a7a42809a9394dd",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_12_07.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2022_12_07.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1026,7 +1026,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2022_12_07_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2022_12_07_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1053,7 +1053,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_01.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_01.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1068,7 +1068,7 @@
       "data_sha256": "63fd12bcc4f4c2086f88ee41351010a7df3ba53b73c278895403239c8e235727",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_01.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_01.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1086,7 +1086,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_01_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_01_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1113,7 +1113,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_18.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_18.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1128,7 +1128,7 @@
       "data_sha256": "10686bb319bf77826168d8147e363066060637f367377b42193e1df39be4760d",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_18.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_18.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1146,7 +1146,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_18_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_18_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1173,7 +1173,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_21.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_21.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1188,7 +1188,7 @@
       "data_sha256": "f4d4c018f3ab32e122a4f3f1195c558ac79af94f30dc00240d3e95d73cf63636",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_21.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_21.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1206,7 +1206,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_21_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_21_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1233,7 +1233,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_26.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_26.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1248,7 +1248,7 @@
       "data_sha256": "7e6047bc7feb428d07cb83b69297ea5b933900cf00dded03e10b8149bbd18b81",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_26.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_26.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1266,7 +1266,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_26_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_26_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1293,7 +1293,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_28.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_28.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1308,7 +1308,7 @@
       "data_sha256": "a84dd4f007d5ec4188233b6861310304d6bad881e60a49b9532f363fbb668ef6",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_28.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_28.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1326,7 +1326,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_28_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_28_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1353,7 +1353,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_31.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_31.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1368,7 +1368,7 @@
       "data_sha256": "774754740912380ee70a76bf19c35a86ec0e89ddfdbe7f6be312fcd194ccf8f1",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_31.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_31.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1386,7 +1386,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_01_31_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_01_31_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1413,7 +1413,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_05.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_05.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1428,7 +1428,7 @@
       "data_sha256": "532ef5ac2ea272ba450554712f5d2f0167ac0138524c40721ad72a226ff94a93",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_05.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_05.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1446,7 +1446,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_05_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_05_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1473,7 +1473,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_07.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_07.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1488,7 +1488,7 @@
       "data_sha256": "97890d6174e78abb93a6f62cd45ce09a59c7a0fc86e713a14657af71b596ecd8",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_07.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_07.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1506,7 +1506,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_07_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_07_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1533,7 +1533,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_10.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_10.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1548,7 +1548,7 @@
       "data_sha256": "c1c06922782f84b2fa7d375464a46059230d563a63c3bddfea188f41349c917f",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_10.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_10.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1566,7 +1566,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_10_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_10_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1593,7 +1593,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_12.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_12.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1608,7 +1608,7 @@
       "data_sha256": "bf276ff2380beb26868fae24e4977a41f209bf1ba24560380b3e14ac31b85257",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_12.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_12.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1626,7 +1626,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_12_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_12_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1653,7 +1653,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_15.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_15.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1668,7 +1668,7 @@
       "data_sha256": "1de36c8bc2da4691d713ddf452b85174f19c4bfea0ca2215bf4311159f435b2d",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_15.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_15.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1686,7 +1686,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_15_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_15_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1713,7 +1713,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_20.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_20.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1728,7 +1728,7 @@
       "data_sha256": "36f90b8209d11f7fc20b3131f339be49d0bf73e4a9d68f95c15706b4e327fcac",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_20.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_20.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1746,7 +1746,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_20_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_20_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1773,7 +1773,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_22.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_22.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1788,7 +1788,7 @@
       "data_sha256": "33a8b731faa05aa07f3740d54787d03cf1ba1f1bc9cacb78d005ed5ce1fb5dd5",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_22.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_22.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1806,7 +1806,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_22_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_22_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1833,7 +1833,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_25.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_25.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1848,7 +1848,7 @@
       "data_sha256": "55aeb22b1629dfea3be4e7cd6bb48373be6dc6252116c5081493ec2dbead2ebc",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_25.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_25.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1866,7 +1866,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_02_25_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_02_25_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1893,7 +1893,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_03_09.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_03_09.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1908,7 +1908,7 @@
       "data_sha256": "2bbc92800206849fec9a083dbecd6e5c9dcc1b89244ab31e88ce5d54a247d5c4",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_03_09.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_03_09.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1926,7 +1926,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_03_09_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_03_09_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1953,7 +1953,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_03_17.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_03_17.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -1968,7 +1968,7 @@
       "data_sha256": "faa3c9666da70acb76756e23961de95c3134f0a544a8716e916c8b31af1bbe10",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_03_17.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_03_17.tif.aux.json"
     },
     {
       "bands": 1,
@@ -1986,7 +1986,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_03_17_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_03_17_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2013,7 +2013,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_03_19.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_03_19.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2028,7 +2028,7 @@
       "data_sha256": "06b9e848b1b6135ec9f86a4392d9a0534d0ef68d5835fa2dd77175e882372bec",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_03_19.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_03_19.tif.aux.json"
     },
     {
       "bands": 1,
@@ -2046,7 +2046,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_03_19_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_03_19_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2073,7 +2073,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_03_22.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_03_22.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2088,7 +2088,7 @@
       "data_sha256": "cc9539ca592badc45ca92075687a9f1a03b804524a5e4d8d9b3321d77c033cbf",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_03_22.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_03_22.tif.aux.json"
     },
     {
       "bands": 1,
@@ -2106,7 +2106,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_03_22_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_03_22_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2133,7 +2133,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_03_27.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_03_27.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2148,7 +2148,7 @@
       "data_sha256": "75fb8a2a5e28475c5ce0329f068a91460fae12cfa8ecf987174134218a60abf4",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_03_27.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_03_27.tif.aux.json"
     },
     {
       "bands": 1,
@@ -2166,7 +2166,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_03_27_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_03_27_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2193,7 +2193,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_01.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_01.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2208,7 +2208,7 @@
       "data_sha256": "2370085fafd291b16eda72614d4f4725a4ef003fae51279dfa9bbd8a51d2bafb",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_01.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_01.tif.aux.json"
     },
     {
       "bands": 1,
@@ -2226,7 +2226,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_01_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_01_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2253,7 +2253,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_03.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_03.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2268,7 +2268,7 @@
       "data_sha256": "2a3fe2f166666254418e1f253a2e0ef3444eaff75d12d9c55b305d9ab8f6752f",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_03.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_03.tif.aux.json"
     },
     {
       "bands": 1,
@@ -2286,7 +2286,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_03_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_03_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2313,7 +2313,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_06.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_06.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2328,7 +2328,7 @@
       "data_sha256": "0411985a081b4c7380756a0d6f53f9073b286edaebb51c5302f5fcf7a0b1e0b8",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_06.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_06.tif.aux.json"
     },
     {
       "bands": 1,
@@ -2346,7 +2346,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_06_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_06_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2373,7 +2373,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_16.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_16.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2388,7 +2388,7 @@
       "data_sha256": "8d5fdf1cf8ecd339bde3e3f7e7f9c7cf20886006ad5b84a896f94f595fe0f889",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_16.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_16.tif.aux.json"
     },
     {
       "bands": 1,
@@ -2406,7 +2406,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_16_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_16_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2433,7 +2433,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_18.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_18.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2448,7 +2448,7 @@
       "data_sha256": "e3441ec32f4238467aab16a05a4903a32505c13fbb0e372e958b67e50bf1c20b",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_18.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_18.tif.aux.json"
     },
     {
       "bands": 1,
@@ -2466,7 +2466,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_18_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_18_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2493,7 +2493,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_26.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_26.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2508,7 +2508,7 @@
       "data_sha256": "18b2d74919fda21254257dbabcbbeea79dcfab4ce05e5aa6d50ef62a77737371",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_26.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_26.tif.aux.json"
     },
     {
       "bands": 1,
@@ -2526,7 +2526,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_04_26_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_04_26_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2553,7 +2553,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_05_03.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_05_03.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2568,7 +2568,7 @@
       "data_sha256": "9cc3025fb403691e121f347f0947f49e6381009bdb912438c8ef46c456679c3f",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_05_03.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_05_03.tif.aux.json"
     },
     {
       "bands": 1,
@@ -2586,7 +2586,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_05_03_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_05_03_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2613,7 +2613,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_05_18.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_05_18.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2628,7 +2628,7 @@
       "data_sha256": "b242cfebc5d1145ebd383cc69812a47c698db6dd56a113c67069c13601d184f1",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_05_18.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_05_18.tif.aux.json"
     },
     {
       "bands": 1,
@@ -2646,7 +2646,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_05_18_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_05_18_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2673,7 +2673,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_05_26.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_05_26.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2688,7 +2688,7 @@
       "data_sha256": "51d46f8f029e5823a344f344adf4969c27d1d0aa6d8b1accbe1a30689232fbda",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_05_26.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_05_26.tif.aux.json"
     },
     {
       "bands": 1,
@@ -2706,7 +2706,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_05_26_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_05_26_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2733,7 +2733,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_02.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_02.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2748,7 +2748,7 @@
       "data_sha256": "967c731415d59e4f29eb3302a94162b0ebd4791245c05d87a8843c08011c1c96",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_02.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_02.tif.aux.json"
     },
     {
       "bands": 1,
@@ -2766,7 +2766,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_02_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_02_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2793,7 +2793,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_12.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_12.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2808,7 +2808,7 @@
       "data_sha256": "c1333a06d9b86cc865a4e49018e3ce049b9e91a75a30b73b319a179c6e21cbd2",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_12.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_12.tif.aux.json"
     },
     {
       "bands": 1,
@@ -2826,7 +2826,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_12_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_12_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2853,7 +2853,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_15.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_15.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2868,7 +2868,7 @@
       "data_sha256": "ba974748e4d59963a4189ad538fcf32f0a97ec01c560cf73134589211102cd8d",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_15.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_15.tif.aux.json"
     },
     {
       "bands": 1,
@@ -2886,7 +2886,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_15_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_15_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2913,7 +2913,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_17.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_17.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2928,7 +2928,7 @@
       "data_sha256": "d51f791150ba55f1cb93f3530c0ee8ef145c37f9ad66a975c4cbee44c84da5f4",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_17.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_17.tif.aux.json"
     },
     {
       "bands": 1,
@@ -2946,7 +2946,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_17_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_17_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2973,7 +2973,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_20.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_20.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -2988,7 +2988,7 @@
       "data_sha256": "b1e97e2e204256b8584238aaad7228b91b07174175cd8ffc14bacdd2d171bb54",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_20.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_20.tif.aux.json"
     },
     {
       "bands": 1,
@@ -3006,7 +3006,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_20_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_20_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -3033,7 +3033,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_25.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_25.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -3048,7 +3048,7 @@
       "data_sha256": "e7dbb219e327240df0e302ebc87ba4463ade235cddbc6dc3d7e96786b6fb8b25",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_25.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_25.tif.aux.json"
     },
     {
       "bands": 1,
@@ -3066,7 +3066,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_06_25_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_06_25_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -3093,7 +3093,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_07_05.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_07_05.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -3108,7 +3108,7 @@
       "data_sha256": "2fc4858decee42101b3332758074425506c019ecb7f9305bc601dae9b570e714",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_07_05.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_07_05.tif.aux.json"
     },
     {
       "bands": 1,
@@ -3126,7 +3126,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_07_05_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_07_05_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -3153,7 +3153,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_07_07.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_07_07.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -3168,7 +3168,7 @@
       "data_sha256": "d065aefd206efbaf686d6bcb991daa56ecfc082f3d6bb70d085a71ee47ee4d3b",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_07_07.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_07_07.tif.aux.json"
     },
     {
       "bands": 1,
@@ -3186,7 +3186,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_07_07_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_07_07_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -3213,7 +3213,7 @@
       "nodata": [
         "NaN"
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_07_10.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_07_10.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -3228,7 +3228,7 @@
       "data_sha256": "ee8f0a49aaf4a498eb700302f16c8830d13fab39773e3e49941e8957edca0705",
       "ignored_keys": [],
       "kind": "json",
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_07_10.tif.aux.json"
+      "path": "obs/snowcover/s2_fsc_rofental_2023_07_10.tif.aux.json"
     },
     {
       "bands": 1,
@@ -3246,7 +3246,7 @@
       "nodata": [
         255.0
       ],
-      "path": "obs/snowcover/s2_fsc_snowflake_rofental_2023_07_10_uncertainty.tif",
+      "path": "obs/snowcover/s2_fsc_rofental_2023_07_10_uncertainty.tif",
       "transform": [
         19.840066384432735,
         0.0,
@@ -3283,7 +3283,7 @@
     },
     {
       "columns_sha256": "d6a07bd22be7adae466e69f094600731dc9e652e047b9927793cd75449e7ce36",
-      "data_sha256": "7497643ffc95dddbbdecc07003038e6c3be280df9d35d8beaa5fab416cb878e2",
+      "data_sha256": "db5223a7fffcbc4e963a3c44fc8216f2ac2fbdb2590abd8b2f54800253dfd570",
       "ignored_columns": [],
       "kind": "csv",
       "path": "obs/summaries/project_2022_2023/scf_summary.csv",
@@ -25199,7 +25199,7 @@
     },
     {
       "columns_sha256": "237b7866f0b46c7f30994ca9d4683c7a1e210a6d8c39d0d44827d78a4f7c4e1f",
-      "data_sha256": "cb9bd200630cc28425ee04b362b7d8dc2a6e97050f0f75e8a5d4efa7312e9acf",
+      "data_sha256": "999785971dba296e6e0e0d9a26e7f37ace69a9afec948abadc3c67ca89518a29",
       "ignored_columns": [],
       "kind": "csv",
       "path": "projects/project_2022_2023/steps/step_06_20230324-20230426/obs/obs_scf_SNOWCOVER_20230426.csv",
@@ -27956,7 +27956,7 @@
     },
     {
       "columns_sha256": "237b7866f0b46c7f30994ca9d4683c7a1e210a6d8c39d0d44827d78a4f7c4e1f",
-      "data_sha256": "9e20117f042a9d567a35d3e959d1fd5757deb1660640fbec2fd4f2c831e5d194",
+      "data_sha256": "03fbb4730ffcd8e009a844cb3368cfe48d470bb6a4681e3376b4abb3abe142cb",
       "ignored_columns": [],
       "kind": "csv",
       "path": "projects/project_2022_2023/steps/step_07_20230426-20230526/obs/obs_scf_SNOWCOVER_20230526.csv",

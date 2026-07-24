@@ -5,6 +5,17 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CI_IMAGE="${CI_IMAGE:-openamundsen-da-ci:local}"
 MAX_WORKERS="${OA_DA_MODEL_SUBDOMAIN_TEST_MAX_WORKERS:-3}"
 ARTIFACT_DIR="${CI_ARTIFACT_DIR:-}"
+SOURCE_DIR="${OA_DA_SUBDOMAIN_TEST_SETUP_SOURCE:-}"
+
+if [[ -z "${SOURCE_DIR}" ]]; then
+  echo "OA_DA_SUBDOMAIN_TEST_SETUP_SOURCE must point to the private subdomain fixture" >&2
+  exit 2
+fi
+if [[ ! -f "${SOURCE_DIR}/subdomains.yml" ]] ||
+  [[ ! -f "${SOURCE_DIR}/env/subdomains.gpkg" ]]; then
+  echo "Invalid private subdomain fixture: ${SOURCE_DIR}" >&2
+  exit 2
+fi
 
 TMP_ROOT="$(mktemp -d -t oada-model-subdomain-ci-XXXXXX)"
 SETUP_DIR="${TMP_ROOT}/subdomains"
@@ -44,7 +55,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cp -a "${ROOT_DIR}/examples/subdomains" "${SETUP_DIR}"
+cp -a "${SOURCE_DIR}" "${SETUP_DIR}"
 touch "${HOST_LOG_FILE}"
 exec > >(tee -a "${HOST_LOG_FILE}") 2>&1
 

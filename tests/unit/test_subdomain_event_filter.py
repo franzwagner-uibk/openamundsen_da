@@ -39,8 +39,22 @@ def test_subdomain_event_filter_drops_scf_by_invalid_fraction(tmp_path: Path) ->
     summary_dir.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(
         [
-            {"date": "2024-01-03", "scf": 0.5, "invalid_fraction": 0.05},
-            {"date": "2024-01-10", "scf": 0.6, "invalid_fraction": 0.20},
+            {
+                "date": "2024-01-03",
+                "scf": 0.5,
+                "invalid_fraction": 0.05,
+                "unc_mean": 10.123456,
+                "unc_min": 10.123,
+                "unc_max": 30.988,
+            },
+            {
+                "date": "2024-01-10",
+                "scf": 0.6,
+                "invalid_fraction": 0.20,
+                "unc_mean": 10.654321,
+                "unc_min": 10.123,
+                "unc_max": 31.988,
+            },
         ]
     ).to_csv(summary_dir / "scf_summary.csv", index=False)
 

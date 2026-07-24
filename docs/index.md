@@ -12,8 +12,8 @@ permalink: /
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21519388.svg)](https://doi.org/10.5281/zenodo.21519388)
 
-Assimilating satellite-based snow cover, wet snow extent and station observations
-into openAMUNDSEN.
+An ensemble-based snow data assimilation framework for the open-source
+snow-hydrological model openAMUNDSEN.
 {: .fs-6 .fw-300 }
 
 [How to Use]({{ '/tutorial/' | relative_url }}){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
@@ -49,8 +49,8 @@ observations, prepares inspectable event inputs and writes a validated result se
   and subdomain command sequences.
 - [Output data]({{ site.baseurl }}{% link output-data.md %}) defines the manifest,
   compact NetCDF, diagnostics and cleanup contract.
-- [Example data sets]({{ site.baseurl }}{% link example-data.md %}) describes the shipped
-  Rofental and North Tyrol examples.
+- [Example data sets]({{ site.baseurl }}{% link example-data.md %}) describes the
+  shipped Rofental example.
 - [How to Use]({{ '/tutorial/' | relative_url }}) is the reviewed, continuous
   Rofental walkthrough.
 
@@ -65,4 +65,5 @@ and release archives and evidence are available from
 Archived releases are available under the
 [openAMUNDSEN-DA concept DOI](https://doi.org/10.5281/zenodo.21519388).
 The version-specific v0.9.3 DOI will be added after Zenodo archives the release.
-The MIT License permits commercial use subject to its terms.
+The [MIT License](https://github.com/openamundsen/openamundsen-da/blob/main/LICENSE)
+permits commercial use subject to its terms.

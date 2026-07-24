@@ -80,15 +80,18 @@ The lower row zooms into a watershed detail; clouds remain masked.
 
 ![Rofental fSCA uncertainty example with land-cover context]({{ site.baseurl }}/assets/images/tutorial/rofental_uncertainty.png)
 
+`region_id` identifies the processed ROI or subdomain. It is empty for these
+full-ROI Rofental rows and populated when summaries are generated per subdomain.
+
 Reference rows from `scf_summary.csv`:
 
-| date | n_valid | n_snow | scf | cloud_fraction | invalid_fraction | source |
-| --- | ---: | ---: | ---: | ---: | ---: | --- |
-| 2022-10-03 | 90056 | 46132 | 0.51 | 0.00 | 0.36 | s2_fsc_snowflake_rofental_2022_10_03.tif |
-| 2022-10-05 | 80363 | 24157 | 0.30 | 0.00 | 0.41 | s2_fsc_snowflake_rofental_2022_10_05.tif |
-| 2022-10-08 | 35157 | 1171 | 0.03 | 0.00 | 0.77 | s2_fsc_snowflake_rofental_2022_10_08.tif |
-| 2022-10-13 | 13688 | 354 | 0.03 | 0.00 | 0.93 | s2_fsc_snowflake_rofental_2022_10_13.tif |
-| 2022-10-18 | 74037 | 2498 | 0.03 | 0.00 | 0.48 | s2_fsc_snowflake_rofental_2022_10_18.tif |
+| date | region_id | n_valid | n_snow | scf | cloud_fraction | invalid_fraction | source |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 2022-10-03 | — | 90056 | 46132 | 0.51 | 0.00 | 0.36 | s2_fsc_rofental_2022_10_03.tif |
+| 2022-10-05 | — | 80363 | 24157 | 0.30 | 0.00 | 0.41 | s2_fsc_rofental_2022_10_05.tif |
+| 2022-10-08 | — | 35157 | 1171 | 0.03 | 0.00 | 0.77 | s2_fsc_rofental_2022_10_08.tif |
+| 2022-10-13 | — | 13688 | 354 | 0.03 | 0.00 | 0.93 | s2_fsc_rofental_2022_10_13.tif |
+| 2022-10-18 | — | 74037 | 2498 | 0.03 | 0.00 | 0.48 | s2_fsc_rofental_2022_10_18.tif |
 
 ## 2. Summarize wet-snow products
 

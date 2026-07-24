@@ -17,6 +17,10 @@ In Docker terms:
 - the **container** is one running instance of that image
 - a **bind mount** makes a local host folder visible inside the container
 
+If these terms are new, read Docker's
+[container basics](https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-container/)
+before continuing.
+
 In this tutorial, your local tutorial folder is mounted as `/data` inside the container.
 That means you can edit files locally with your normal editor while running commands in
 the container shell.
@@ -52,9 +56,11 @@ only then start an interactive container that mounts that local copy.
 Choose a local host folder that will hold the tutorial files. The command below copies the
 bundled example from the image into that folder.
 
-This command uses a bind mount so the host directory `tutorial-workdir/` appears
+This command uses a bind mount so the host directory
+`$HOME/openamundsen-da-tutorial/` appears
 inside the container as `/data`. The copied example therefore ends up on the host
-as `tutorial-workdir/rofental` and inside the container as `/data/rofental`.
+as `$HOME/openamundsen-da-tutorial/rofental` and inside the container as
+`/data/rofental`.
 
 ![Tutorial setup schematic showing the local host directory and the mounted Docker container path]({{ site.baseurl }}/assets/images/tutorial/diagrams/tutorial-overview-setup-schematic.svg)
 
@@ -68,7 +74,7 @@ stopped container, not the copied host files.
 
 ```bash
 docker run --rm \
-  -v "/absolute/path/to/tutorial-workdir:/data" \
+  -v "$HOME/openamundsen-da-tutorial:/data" \
   {{ site.data.release.image }} \
   bash -lc 'cp -a /workspace/examples/rofental /data/rofental'
 ```
@@ -87,8 +93,8 @@ If the copy already produced root-owned files, fix the host-side ownership once:
 Optional ownership repair (run this only when the copied setup is root-owned):
 
 ```bash
-sudo chown -R "$USER":"$USER" /absolute/path/to/tutorial-workdir/rofental
-chmod -R u+rwX /absolute/path/to/tutorial-workdir/rofental
+sudo chown -R "$USER":"$USER" "$HOME/openamundsen-da-tutorial/rofental"
+chmod -R u+rwX "$HOME/openamundsen-da-tutorial/rofental"
 ```
 
 ## 3. Start The Tutorial Container Shell
@@ -112,7 +118,7 @@ members).
 
 ```bash
 docker run --rm -it \
-  -v "/absolute/path/to/tutorial-workdir:/data" \
+  -v "$HOME/openamundsen-da-tutorial:/data" \
   -w /data/rofental \
   --cpus <CPU_COUNT> \
   -e OMP_NUM_THREADS=1 \

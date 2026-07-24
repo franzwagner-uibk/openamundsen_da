@@ -8,16 +8,10 @@ permalink: /tutorial/running-the-project/
 
 # 6. Running the Model
 
-The preparation manifest and step inputs are now complete. The remaining command
+The preparation manifest and step inputs are now complete. Continue with the
+`PROJECT_DIR` variable set in the preprocessing chapter. The remaining command
 executes the open loop and ensemble, performs the configured updates and validates
 the complete output set.
-
-**🟢 Run command:**
-
-```bash
-PROJECT_DIR=/data/rofental/projects/project_2022_2023
-echo "$PROJECT_DIR"
-```
 
 ## Review runtime configuration
 

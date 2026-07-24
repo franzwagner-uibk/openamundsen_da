@@ -259,7 +259,7 @@ jobs:
             VCS_REF=${{ github.sha }}
             VERSION=${{ needs.package.outputs.version }}
 
-      - name: Verify architecture, version and shipped examples
+      - name: Verify architecture, version and shipped example
         run: |
           tutorial_root="$(mktemp -d)"
           docker run --rm --platform "${{ matrix.platform }}" \
@@ -267,7 +267,7 @@ jobs:
             openamundsen-da-portability:${{ matrix.suffix }} \
             bash -c '
               test -f /workspace/examples/rofental/rofental.yml
-              test -f /workspace/examples/subdomains/subdomains.yml
+              test ! -e /workspace/examples/subdomains
               ! find /workspace -name AGENTS.md -print -quit | grep -q .
               cp -a /workspace/examples/rofental /data/rofental
             '
@@ -299,6 +299,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
+      - name: Checkout private subdomain fixture
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: franzwagner-uibk/openamundsen_da-maintainer
+          ref: c9b700aeb1b27fa12a5876d8829664426d9efe36
+          path: .private-fixtures/openamundsen_da-maintainer
+          ssh-key: ${{ secrets.OA_DA_MAINTAINER_DEPLOY_KEY }}
+          persist-credentials: false
+
       - name: Download tested distributions
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -327,20 +336,24 @@ jobs:
           CI_ARTIFACT_DIR="${GITHUB_WORKSPACE}/.ci-artifacts/integration/single-domain" \
           bash scripts/ci/run_integration_tests.sh
 
-      - name: Run North Tyrol DA subdomain integration
+      - name: Run private DA subdomain integration
         run: |
           CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
+          OA_DA_SUBDOMAIN_TEST_SETUP_SOURCE="${GITHUB_WORKSPACE}/.private-fixtures/openamundsen_da-maintainer/examples/subdomains" \
           OA_DA_SUBDOMAIN_TEST_MAX_WORKERS=8 \
           OA_DA_SUBDOMAIN_TEST_INNER_WORKERS=4 \
-          CI_ARTIFACT_DIR="${GITHUB_WORKSPACE}/.ci-artifacts/integration/sub-domain" \
           bash scripts/ci/run_integration_tests_subdomain.sh
 
-      - name: Run North Tyrol model subdomain integration
+      - name: Run private model subdomain integration
         run: |
           CI_IMAGE="${CI_IMAGE_NAME}:${GITHUB_SHA}" \
+          OA_DA_SUBDOMAIN_TEST_SETUP_SOURCE="${GITHUB_WORKSPACE}/.private-fixtures/openamundsen_da-maintainer/examples/subdomains" \
           OA_DA_MODEL_SUBDOMAIN_TEST_MAX_WORKERS=8 \
-          CI_ARTIFACT_DIR="${GITHUB_WORKSPACE}/.ci-artifacts/integration/model-sub-domain" \
           bash scripts/ci/run_integration_tests_model_subdomain.sh
+
+      - name: Remove private subdomain fixture
+        if: always()
+        run: rm -rf "${GITHUB_WORKSPACE}/.private-fixtures"
 
       - name: Upload integration artifacts on failure
         if: failure()

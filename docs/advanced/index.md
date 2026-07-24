@@ -10,7 +10,6 @@ has_children: true
 Use these pages after completing the single-domain tutorial:
 
 - [Station Assimilation]({{ site.baseurl }}{% link guides/station-assimilation.md %})
-- [Subdomain Runbook]({{ site.baseurl }}{% link guides/subdomain-runbook.md %})
 - [Performance]({{ site.baseurl }}{% link advanced/performance.md %})
 - [Troubleshooting]({{ site.baseurl }}{% link advanced/troubleshooting.md %})
 

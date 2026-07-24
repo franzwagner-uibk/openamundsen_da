@@ -1660,20 +1660,6 @@ def test_shipped_rofental_project_maps_config_matches_curated_recipe_set() -> No
     assert cfg.maps[0].panels[3].show_hillshade is True
 
 
-def test_shipped_subdomain_project_maps_config_keeps_generic_setup_overview_only() -> None:
-    root = Path(__file__).resolve().parents[2] / "examples/subdomains"
-    config_path = root / "projects/project_2022_2023/maps.yml"
-
-    cfg = load_project_maps_config(config_path)
-
-    assert [recipe.name for recipe in cfg.maps] == ["subdomain_example_setup_overview"]
-    assert [recipe.title for recipe in cfg.maps] == ["Subdomain example setup overview"]
-    assert [recipe.output_stem for recipe in cfg.maps] == ["setup_overview"]
-    assert cfg.maps[0].panels[0].roi_label == "Subdomain ROI"
-    assert _read_yaml_file(root / "subdomains.yml")["domain"] == "subdomain_example"
-    assert (root / "grids/dem_subdomain_example_100.asc").is_file()
-
-
 def test_generated_da_map_recipes_build_stable_da_event_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _setup_dir, project_dir = _build_project_fixture(tmp_path)
     monkeypatch.setattr(generated_module, "_fraction_model_support_available", lambda *_args, **_kwargs: False)

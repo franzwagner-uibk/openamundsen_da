@@ -272,9 +272,7 @@ Reference structure snippet (`results/plots/points`, typical files)
 ```text
 /data/rofental/projects/project_2022_2023/results/plots/points/
   setup_results_point_latschbloder_snow_depth_2022_2023.png
-  setup_results_point_latschbloder_swe_2022_2023.png
   setup_results_point_proviantdepot_snow_depth_2022_2023.png
-  setup_results_point_proviantdepot_swe_2022_2023.png
 ```
 
 
@@ -296,7 +294,7 @@ What to inspect:
 - do fSCA and wet-snow events appear in the expected seasonal phases?
 - are there obvious missing events or suspicious gaps?
 
-### Station plots (snow depth / SWE)
+### Station plots
 
 These plots support validation and interpretation of model behavior at observation stations.
 
@@ -306,9 +304,6 @@ What to inspect:
 - amplitude differences (too much / too little snow),
 - whether data assimilation shifts the ensemble envelope relative to the open loop,
 - consistency across stations (important for tutorial interpretation).
-
-In this tutorial setup, station SWE observations are expected in **mm** (see project config comment).
-If a curve appears near zero against model SWE, check units first.
 
 Land-cover masking affects how much of the ROI contributes to fSCA/wet-snow summaries and
 fractions. This report is useful here because it explains the masking context behind the
@@ -337,17 +332,14 @@ Recommended plot files to inspect (Rofental tutorial run):
 - `/data/rofental/projects/project_2022_2023/results/plots/results/result_overview.png`
 - `/data/rofental/projects/project_2022_2023/results/plots/points/setup_results_point_latschbloder_snow_depth_2022_2023.png`
 - `/data/rofental/projects/project_2022_2023/results/plots/points/setup_results_point_proviantdepot_snow_depth_2022_2023.png`
-- `/data/rofental/projects/project_2022_2023/results/plots/points/setup_results_point_latschbloder_swe_2022_2023.png`
-- `/data/rofental/projects/project_2022_2023/results/plots/points/setup_results_point_proviantdepot_swe_2022_2023.png`
 
 <details markdown="block">
   <summary>Suggested plot review order (practical)</summary>
 
 1. `result_overview.png` (observation timing and availability)
 2. ESS / weights plots (data assimilation behavior)
-3. Station snow depth plots
-4. Station SWE plots
-5. NetCDF/grid outputs for spatial interpretation
+3. Station plots
+4. NetCDF/grid outputs for spatial interpretation
 </details>
 
 ### Reference plots (tutorial baseline)
@@ -378,18 +370,6 @@ What to read in this plot:
 - whether observed values stay within (or near) the ensemble envelope,
 - whether data assimilation visibly shifts the ensemble relative to the open loop around observation periods.
 
-Station SWE example (`proviantdepot`):
-
-![Proviantdepot SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_proviantdepot_swe_2022_2023.png?v=20260714)
-
-_SWE comparison at `proviantdepot` (remember: station SWE observations are expected in **mm** in this tutorial setup)._
-
-What to read in this plot:
-
-- unit consistency first (obs in **mm** in this tutorial setup),
-- amplitude mismatch (systematic bias) vs timing mismatch (phase error),
-- whether data assimilation corrections remain small/local or systematically shift the trajectory.
-
 When interpreting systematic snow bias, remember that the frozen example uses the
 documented precipitation factor `0.74` and applies no additional correction before
 ensemble perturbations. This is an accepted reference-run choice, not a tuning
@@ -401,10 +381,6 @@ recommendation; see [Example Data: Rofental]({{ site.baseurl }}{% link Tutorial/
 `proviantdepot` snow depth:
 
 ![Proviantdepot snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_proviantdepot_snow_depth_2022_2023.png?v=20260714)
-
-`latschbloder` SWE:
-
-![Latschbloder SWE plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_latschbloder_swe_2022_2023.png?v=20260714)
 
 </details>
 
@@ -518,7 +494,7 @@ Use `results/grids/da_output_grids.nc` in a GIS software of your choice and visu
 Recommended manual map date(s): choose one date with active snow cover and one date near melt season.
 Use the same date across `open_loop`, `ens_mean`, and `increment` maps. Generated assimilation-event maps use four columns: `open loop`, `prior`, `posterior`, and `reference`. Snow depth maps use `ens_mean` as the prior mean, `analysis_mean` as the event-weighted posterior mean, and `analysis_increment` as `posterior - prior`.
 
-For the shipped examples, project maps are split into generated assimilation-event maps under `results/maps/da_events/` and custom YAML maps such as `setup_overview` at the root of `results/maps/`. After changing plot or map configuration, optionally regenerate the complete configured presentation layer. Replace `<MAX_WORKERS>` with the worker limit chosen for the container; do not type the angle brackets.
+For the shipped example, project maps are split into generated assimilation-event maps under `results/maps/da_events/` and custom YAML maps such as `setup_overview` at the root of `results/maps/`. After changing plot or map configuration, optionally regenerate the complete configured presentation layer. Replace `<MAX_WORKERS>` with the worker limit chosen for the container; do not type the angle brackets.
 
 ```bash
 openamundsen-da render \

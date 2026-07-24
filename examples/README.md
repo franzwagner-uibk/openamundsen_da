@@ -12,14 +12,6 @@ examples/rofental/
 |-- meteo/
 |-- obs/
 `-- projects/
-
-examples/subdomains/
-|-- subdomains.yml
-|-- env/
-|-- grids/
-|-- meteo/
-|-- obs/
-`-- projects/
 ```
 
 ### `rofental.yml`
@@ -55,9 +47,3 @@ examples/subdomains/
 - The shipped `rofental` project also enables the benchmark stage and adds `station_swe` as an extra benchmark family, so completed runs write `results/benchmark/` plus the headline DA-skill plot `results/plots/assim/scores/performance_scores.png` in addition to the usual DA outputs. Because `station_hs` is assimilated in that project, the resulting `station_swe` benchmark rows appear as `semi_independent` in the benchmark outputs. Station benchmark rows also expose sigma-aware `zSkill`, and the headline plot grows a third panel when those scores are available.
 
 This bundle mirrors the documented setup/project structure and is used by tests and examples.
-
-## Subdomain Example
-
-`examples/subdomains` is the shipped subdomain setup. It contains 8 avalanche-report subregions from the North Tyrol source data, static grids at 50, 100, 250, and 500 m, `openamundsen-v2` forcing stations selected from the ROI plus a 10 km buffer, ROI station snow-depth observations, clipped SnowFLAKES FSC NetCDF files, a generic setup-overview map recipe, and a station-free SCF/snow-depth/ESS/score configured result overview for subdomain reports.
-
-The project YAML intentionally carries a broad list of candidate DA events. During subdomain preparation and execution, generic `data_assimilation.subdomain_event_filter` settings decide which events each subdomain can assimilate based on local observation availability, FSC cloud fraction, and active station support. Dropped events are written to subdomain manifests and `results/subdomain_dropped_events.csv`; generated DA-event maps use this file to mark affected subdomains as `no DA`.

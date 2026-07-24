@@ -72,9 +72,7 @@ openamundsen-da subdomains render PROJECT_DIR --max-workers COUNT
 
 When `--regions` is omitted, preparation uses `env/subdomains.gpkg`, falling
 back to `env/roi.gpkg`. Use outer and inner worker limits together so their
-product does not oversubscribe the machine. See the
-[Subdomain Runbook]({{ site.baseurl }}{% link guides/subdomain-runbook.md %}) for
-the complete sequence and resource guidance.
+product does not oversubscribe the machine.
 
 ## Plain-model subdomains
 

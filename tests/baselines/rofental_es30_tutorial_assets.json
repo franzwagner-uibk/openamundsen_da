@@ -98,15 +98,6 @@
       "pixels_sha256": "d7e8a309c58cb023d099b7185e11595bbe4fa16ad4d46ec2a53e3150d9b4f2d3"
     },
     {
-      "destination": "setup_results_point_latschbloder_swe_2022_2023.png",
-      "source": "projects/project_2022_2023/results/plots/points/setup_results_point_latschbloder_swe_2022_2023.png",
-      "file_sha256": "45542a02d0aa91521e17660a67cf21511dab4e2b4a2d6cfe412d48e3be1b111b",
-      "width": 4154,
-      "height": 1404,
-      "mode": "RGBA",
-      "pixels_sha256": "f2568bf4864d3f527e4072adbd349816766e0903dc678c78696e0c8b7ab2a89c"
-    },
-    {
       "destination": "setup_results_point_proviantdepot_snow_depth_2022_2023.png",
       "source": "projects/project_2022_2023/results/plots/points/setup_results_point_proviantdepot_snow_depth_2022_2023.png",
       "file_sha256": "6083a6b442ace376f94d4dd0ff1bcda61a274f4d83a5cc5d8480aac1892fc9ff",
@@ -114,15 +105,6 @@
       "height": 1404,
       "mode": "RGBA",
       "pixels_sha256": "c39ab6b5a40d195646199e36240d5b1d5a2896b9690045bc67b1ca389f732721"
-    },
-    {
-      "destination": "setup_results_point_proviantdepot_swe_2022_2023.png",
-      "source": "projects/project_2022_2023/results/plots/points/setup_results_point_proviantdepot_swe_2022_2023.png",
-      "file_sha256": "65b3c187d1398cb096a39b7793c284d6b53d21e9d7ef92ee9853cf1eb2a66bbc",
-      "width": 4154,
-      "height": 1404,
-      "mode": "RGBA",
-      "pixels_sha256": "e571245a0152ba7c89534e6ac3a8072b95827a4d7f9bd6dec452dee97c4c067b"
     },
     {
       "destination": "setup_weights_overview_2022_2023.png",

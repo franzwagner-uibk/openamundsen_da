@@ -812,6 +812,9 @@ def summarize_snowcover_directory(
         out_rows.append(row)
 
     df = pd.DataFrame(out_rows).sort_values("date")
+    for column in ("unc_min", "unc_max"):
+        if column in df.columns:
+            df[column] = df[column].round(3)
     df.to_csv(summary_path, index=False)
     logger.info("Snow-cover summary written: {} ({} day(s), {} raster(s))", summary_path, len(df), len(best_per_date_tile))
     return written

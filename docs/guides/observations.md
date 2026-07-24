@@ -39,7 +39,7 @@ reader. Supported inputs are grid-layout NetCDF and deterministic georeferenced
 GeoTIFF. ASCII output, in-memory output, NetCDF `roi_pixel` layout, mixed formats
 and discovery fallbacks are rejected.
 
-## Observation products
+## Snow observation products
 
 The project YAML declares every observation family, directory, file format,
 product tag, summary path and class mapping. Paths are setup-relative and may not

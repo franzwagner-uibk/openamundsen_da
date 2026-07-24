@@ -38,9 +38,12 @@ Workflow file: `.github/workflows/ci.yml`
   - Runs unit tests with `pytest` via `scripts/ci/run_unit_tests.sh`
   - Installs the tested wheel outside the checkout via `scripts/ci/run_wheel_smoke.sh`; verifies that only `openamundsen-da` is installed and exercises nested help and JSON errors
   - Runs full single-domain example integration test via `scripts/ci/run_integration_tests.sh`
-  - Runs trimmed sub-domain integration test via `scripts/ci/run_integration_tests_subdomain.sh`
-  - Runs trimmed plain openAMUNDSEN model sub-domain integration test via `scripts/ci/run_integration_tests_model_subdomain.sh`
-  - Uploads integration artifacts on failure (log + example setup outputs)
+  - Checks out the restricted subdomain fixture at a pinned commit with a
+    repository-specific read-only deploy key
+  - Runs the trimmed data assimilation and plain-model subdomain integrations
+    without publishing their inputs, results or logs as Actions artifacts
+  - Removes the private checkout before the job ends
+  - Uploads only the public Rofental integration artifacts on failure
 - Job `Native pip Rofental integration on Lenovo P8`:
   - Runs on the same self-hosted runner labels with Python 3.12 outside Docker
   - Creates a fresh virtual environment with a pinned pip resolver and installs the exact tested wheel against `constraints/native-ci-py312.txt`
@@ -200,7 +203,8 @@ normal PR and release jobs always use `locked`.
 Runner script: `scripts/ci/run_integration_tests_subdomain.sh`
 
 What it does:
-- clones `examples/subdomains` into a temp directory
+- copies the external setup named by `OA_DA_SUBDOMAIN_TEST_SETUP_SOURCE` into a
+  temporary directory
 - writes a trimmed project config (`project_ci_2022_2023`) under the sub-domain setup
 - runs the explicit data-assimilation subdomain stages
   (`openamundsen-da subdomains prepare`, `run` and `merge`) with:
@@ -218,15 +222,17 @@ Validation focuses on:
 - project-level sub-domain reports exist (`projects/<project>/results/subdomain_*.csv`)
 
 Failure artifacts:
-- integration log and example setup outputs are copied to CI artifact directory when the run fails
-- artifact upload is defined in `.github/workflows/ci.yml`
+- the trusted public workflow does not upload the private fixture, derived
+  results or logs as Actions artifacts
+- the private checkout and temporary run tree are removed before the job ends
 
 ### Integration regression test (trimmed model sub-domain)
 
 Runner script: `scripts/ci/run_integration_tests_model_subdomain.sh`
 
 What it does:
-- clones `examples/subdomains` into a temp directory
+- copies the external setup named by `OA_DA_SUBDOMAIN_TEST_SETUP_SOURCE` into a
+  temporary directory
 - shortens setup-level `start_date`/`end_date` in the temp copy
 - runs the explicit plain openAMUNDSEN model subdomain stages
   (`openamundsen-da subdomains model prepare`, `run` and `merge`) with:
@@ -244,8 +250,9 @@ Validation focuses on:
 - generated model sub-domain folders do not contain DA `projects/` directories
 
 Failure artifacts:
-- integration log and model sub-domain outputs are copied to CI artifact directory when the run fails
-- artifact upload is defined in `.github/workflows/ci.yml`
+- the trusted public workflow does not upload the private fixture, derived
+  results or logs as Actions artifacts
+- the private checkout and temporary run tree are removed before the job ends
 
 ### Lint gate
 
@@ -305,7 +312,9 @@ Main locations:
 
 Single-domain example configuration details:
 - source project copied for CI: `examples/rofental`
-- source sub-domain setup copied for CI: `examples/subdomains`
+- source sub-domain setup supplied by
+  `OA_DA_SUBDOMAIN_TEST_SETUP_SOURCE`; the trusted P8 jobs check out the
+  restricted maintainer fixture at the commit pinned in the workflow
 - the full shipped example project is exercised in:
   - `scripts/ci/run_integration_tests.sh` (single-domain)
 - trimmed dates, assimilation events, and ensemble sizes are still hard-coded in:
@@ -318,10 +327,14 @@ Single-domain example configuration details:
 - workflow concurrency is grouped by branch name, so new PR updates cancel stale in-progress checks for older commits.
 
 If you want to change the CI test setup:
-- edit the shipped example project or the relevant script directly:
+- edit the shipped Rofental project or the relevant public runner directly:
   - `examples/rofental/projects/project_2022_2023/project_2022_2023.yml`
   - `scripts/ci/run_integration_tests.sh`
   - `scripts/ci/run_integration_tests_subdomain.sh`
+
+The two subdomain runners fail fast unless
+`OA_DA_SUBDOMAIN_TEST_SETUP_SOURCE` points to a complete external fixture. The
+public repository intentionally contains no North Tyrol example data.
 
 ## Failure Modes and Fast Checks
 
@@ -354,7 +367,8 @@ From repository root:
 - run single-domain integration wrapper: `bash scripts/ci/run_integration_tests.sh`
 - run the built wheel and full single-domain integration outside Docker: `bash scripts/ci/run_native_integration_tests.sh`
 - manually probe the newest compatible stable dependencies: `OA_DA_NATIVE_DEPENDENCY_MODE=latest bash scripts/ci/run_native_integration_tests.sh`
-- run sub-domain integration wrapper: `bash scripts/ci/run_integration_tests_subdomain.sh`
+- run a subdomain integration wrapper with an authorized external fixture:
+  `OA_DA_SUBDOMAIN_TEST_SETUP_SOURCE=/absolute/path/to/subdomains bash scripts/ci/run_integration_tests_subdomain.sh`
 
 Use same scripts as CI to avoid drift between local and server behavior.
 

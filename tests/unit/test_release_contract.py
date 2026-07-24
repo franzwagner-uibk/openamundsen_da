@@ -182,24 +182,58 @@ def test_release_workflow_verifies_published_manifest_digest_from_raw_bytes() ->
     assert 'grep -F "Digest: ${EXPECTED_DIGEST}"' not in promotion_job
 
 
-def test_release_image_contains_both_examples_without_agent_guidance() -> None:
+def test_release_image_contains_only_publishable_example_without_agent_guidance() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
 
     assert "COPY examples/rofental /workspace/examples/rofental" in dockerfile
-    assert "COPY examples/subdomains /workspace/examples/subdomains" in dockerfile
+    assert "COPY examples/subdomains /workspace/examples/subdomains" not in dockerfile
     assert "!examples/rofental/**" in dockerignore
-    assert "!examples/subdomains/**" in dockerignore
+    assert "!examples/subdomains/**" not in dockerignore
     assert "test -f /workspace/examples/rofental/rofental.yml" in workflow
-    assert "test -f /workspace/examples/subdomains/subdomains.yml" in workflow
+    assert "test ! -e /workspace/examples/subdomains" in workflow
     assert "find /workspace -name AGENTS.md" in workflow
     source_agent_files = tuple(
         path
         for path in ROOT.rglob("AGENTS.md")
-        if not {".git", "_site", ".jekyll-cache"}.intersection(path.parts)
+        if not {
+            ".git",
+            ".private-fixtures",
+            "_site",
+            ".jekyll-cache",
+        }.intersection(path.parts)
     )
     assert not source_agent_files
+
+
+def test_trusted_subdomain_integrations_use_pinned_private_fixture_without_artifacts() -> None:
+    expected_ref = "c9b700aeb1b27fa12a5876d8829664426d9efe36"
+    fixture_repo = "franzwagner-uibk/openamundsen_da-maintainer"
+    source_variable = "OA_DA_SUBDOMAIN_TEST_SETUP_SOURCE"
+
+    for workflow_path in (CI_WORKFLOW, RELEASE_WORKFLOW):
+        workflow = workflow_path.read_text(encoding="utf-8")
+        assert f"repository: {fixture_repo}" in workflow
+        assert f"ref: {expected_ref}" in workflow
+        assert "ssh-key: ${{ secrets.OA_DA_MAINTAINER_DEPLOY_KEY }}" in workflow
+        assert "persist-credentials: false" in workflow
+        assert source_variable in workflow
+        assert 'run: rm -rf "${GITHUB_WORKSPACE}/.private-fixtures"' in workflow
+        assert "CI_ARTIFACT_DIR=" not in "\n".join(
+            line
+            for line in workflow.splitlines()
+            if "sub-domain" in line or "subdomain" in line
+        )
+
+    for script_name in (
+        "run_integration_tests_subdomain.sh",
+        "run_integration_tests_model_subdomain.sh",
+    ):
+        runner = (ROOT / "scripts" / "ci" / script_name).read_text(encoding="utf-8")
+        assert f'SOURCE_DIR="${{{source_variable}:-}}"' in runner
+        assert 'cp -a "${SOURCE_DIR}" "${SETUP_DIR}"' in runner
+        assert "examples/subdomains" not in runner
 
 
 def test_ci_docs_only_scope_is_narrow_and_full_ci_is_the_fallback() -> None:

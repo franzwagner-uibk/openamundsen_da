@@ -79,8 +79,8 @@ openamundsen-da subdomains render PROJECT_DIR --max-workers <MAX_WORKERS>
 ```
 
 Each subdomain is an independent data assimilation problem. This is regional
-decomposition, not particle-filter localization. See the
-[Subdomain Runbook]({{ site.baseurl }}{% link guides/subdomain-runbook.md %}).
+decomposition, not particle-filter localization. Use outer and inner worker
+limits together so their product does not oversubscribe the machine.
 
 ## Plain-model subdomains
 

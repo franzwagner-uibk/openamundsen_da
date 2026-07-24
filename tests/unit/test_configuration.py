@@ -107,9 +107,14 @@ def test_subdomain_configuration_allows_preparation_owned_summary(tmp_path: Path
     assert config.project["run_mode"] == "subdomain"
 
 
-@pytest.mark.parametrize("example", ["rofental", "subdomains"])
-def test_shipped_project_configuration_matches_strict_schema(example: str) -> None:
-    project_dir = REPO_ROOT / "examples" / example / "projects" / "project_2022_2023"
+def test_shipped_rofental_project_configuration_matches_strict_schema() -> None:
+    project_dir = (
+        REPO_ROOT
+        / "examples"
+        / "rofental"
+        / "projects"
+        / "project_2022_2023"
+    )
 
     config = load_project_configuration(project_dir)
 

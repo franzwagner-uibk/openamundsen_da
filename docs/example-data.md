@@ -7,9 +7,9 @@ nav_order: 6
 
 # Example data sets
 
-The release image contains two shipped, versioned examples under
-`/workspace/examples`. They are user-facing baselines and CI contracts, not
-runtime output archives.
+The release image contains the shipped, versioned Rofental example under
+`/workspace/examples`. It is a user-facing baseline and CI contract, not a
+runtime output archive.
 
 ## Rofental
 
@@ -23,37 +23,21 @@ Copy it from the image before use:
 
 ```bash
 docker run --rm \
-  -v "/absolute/path/to/workdir:/data" \
+  -v "$HOME/openamundsen-da-tutorial:/data" \
   {{ site.data.release.image }} \
   bash -lc 'cp -a /workspace/examples/rofental /data/rofental'
 ```
 
+Here `$HOME/openamundsen-da-tutorial` is a concrete host directory. Replace it
+with another absolute path if you want the copied setup elsewhere.
+
 The [How to Use tutorial]({{ '/tutorial/' | relative_url }}) works through this
-existing setup incrementally. Its 13 reference images are selected from the
+existing setup incrementally. Its 11 reference images are selected from the
 canonical ES30 output by a hash-checked publication manifest.
-
-## North Tyrol subdomains
-
-`examples/subdomains` covers a larger North Tyrol domain split into eight
-avalanche-report regions. It exercises both the staged data assimilation
-subdomain workflow and the separate plain openAMUNDSEN model workflow. Static
-grids are available at 50, 100, 250 and 500 m.
-
-Copy it from the same release image before use:
-
-```bash
-docker run --rm \
-  -v "/absolute/path/to/workdir:/data" \
-  {{ site.data.release.image }} \
-  bash -lc 'cp -a /workspace/examples/subdomains /data/subdomains'
-```
-
-See the [Subdomain Runbook]({{ site.baseurl }}{% link guides/subdomain-runbook.md %})
-for the explicit prepare, run, merge and render sequence.
 
 ## Adapting an example
 
-Copy an example outside the repository, keep the setup/project ownership boundary
+Copy the example outside the repository, keep the setup/project ownership boundary
 and replace one input class at a time. Do not copy completed `steps/`, `results/`
 or logs into a new experiment. Start with a short project, coarse grid and small
 ensemble before increasing computational cost.

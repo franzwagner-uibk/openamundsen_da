@@ -140,8 +140,8 @@ It can absorb:
 
 - instrument uncertainty
 - local station quality and maintenance confidence
-- siting concerns
-- flat-field or sheltered-location concerns
+- exposure, slope, aspect, wind redistribution and vegetation around the station
+- flat-field or sheltered-location effects
 - broad point-to-ROI representativeness concerns
 
 Interpretation:

@@ -197,7 +197,12 @@ def test_release_image_contains_only_publishable_example_without_agent_guidance(
     source_agent_files = tuple(
         path
         for path in ROOT.rglob("AGENTS.md")
-        if not {".git", "_site", ".jekyll-cache"}.intersection(path.parts)
+        if not {
+            ".git",
+            ".private-fixtures",
+            "_site",
+            ".jekyll-cache",
+        }.intersection(path.parts)
     )
     assert not source_agent_files
 

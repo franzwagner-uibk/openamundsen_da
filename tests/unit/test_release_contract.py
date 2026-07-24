@@ -83,8 +83,11 @@ def test_citation_metadata_is_validated_in_ci_and_release() -> None:
         ROOT / "scripts" / "ci" / "validate_distribution.py"
     ).read_text(encoding="utf-8")
 
-    assert 'version: "0.9.2"' in citation
-    assert 'doi: "10.5281/zenodo.21519389"' in citation
+    assert 'version: "0.9.3"' in citation
+    assert "doi:" not in citation
+    assert 'orcid: "https://orcid.org/0009-0001-4675-601X"' in citation
+    assert 'orcid: "https://orcid.org/0000-0003-3072-2189"' in citation
+    assert 'orcid: "https://orcid.org/0000-0003-4776-2822"' in citation
     assert "preferred-citation:" not in citation
     assert not (ROOT / ".zenodo.json").exists()
     assert "include CITATION.cff" in manifest
@@ -283,7 +286,7 @@ def test_docs_deployment_uses_github_pages_and_keeps_cloudflare_manual() -> None
 
 def test_container_publication_and_public_usage_target_organization() -> None:
     publication_image = "ghcr.io/openamundsen/openamundsen-da"
-    public_image = f"{publication_image}:0.9.2"
+    public_image = f"{publication_image}:0.9.3"
     public_package_page = (
         "https://github.com/openamundsen/openamundsen-da/"
         "pkgs/container/openamundsen-da"

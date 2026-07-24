@@ -56,15 +56,14 @@ observations, prepares inspectable event inputs and writes a validated result se
 
 ## License and availability
 
-The stable v0.9.2 Python package is available from
+The stable v0.9.3 Python package is available from
 [PyPI](https://pypi.org/project/openamundsen-da/). The tested multi-architecture
 container is available from
 [GHCR](https://github.com/openamundsen/openamundsen-da/pkgs/container/openamundsen-da),
 and release archives and evidence are available from
 [GitHub Releases](https://github.com/openamundsen/openamundsen-da/releases).
 Archived releases are available under the
-[openAMUNDSEN-DA concept DOI](https://doi.org/10.5281/zenodo.21519388);
-the exact v0.9.2 snapshot is
-[10.5281/zenodo.21519389](https://doi.org/10.5281/zenodo.21519389).
+[openAMUNDSEN-DA concept DOI](https://doi.org/10.5281/zenodo.21519388).
+The version-specific v0.9.3 DOI will be added after Zenodo archives the release.
 The [MIT License](https://github.com/openamundsen/openamundsen-da/blob/main/LICENSE)
 permits commercial use subject to its terms.

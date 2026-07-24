@@ -33,7 +33,7 @@ python -m pip install openamundsen-da
 For the complete geospatial runtime, use the multi-architecture container:
 
 ```bash
-docker pull ghcr.io/openamundsen/openamundsen-da:0.9.2
+docker pull ghcr.io/openamundsen/openamundsen-da:0.9.3
 ```
 
 Use exact versions or image digests for reproducible work. The moving `edge`

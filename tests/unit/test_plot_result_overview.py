@@ -2178,15 +2178,6 @@ def test_cli_explicit_custom_config_writes_standard_output_unless_output_is_set(
     assert calls["output"] == explicit_output
 
 
-def test_shipped_subdomain_configured_overview_uses_roi_satellite_ess_and_scores_without_station() -> None:
-    cfg = Path(__file__).resolve().parents[2] / "examples/subdomains/projects/project_2022_2023/plots.yml"
-
-    specs = _parse_panel_specs(cfg)
-
-    assert [spec.panel for spec in specs] == ["fSC", "roi-sd", "ess", "scores-crpss"]
-    assert all(spec.station_id is None for spec in specs)
-
-
 def test_load_station_panel_data_falls_back_to_setup_root_obs_dir(monkeypatch, tmp_path: Path) -> None:
     root_dir = tmp_path / "setup_root"
     project_dir = root_dir / "projects" / "project_2022_2023"

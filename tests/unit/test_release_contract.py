@@ -84,7 +84,7 @@ def test_citation_metadata_is_validated_in_ci_and_release() -> None:
     ).read_text(encoding="utf-8")
 
     assert 'version: "0.9.3"' in citation
-    assert "doi:" not in citation
+    assert 'doi: "10.5281/zenodo.21534587"' in citation
     assert 'orcid: "https://orcid.org/0009-0001-4675-601X"' in citation
     assert 'orcid: "https://orcid.org/0000-0003-3072-2189"' in citation
     assert 'orcid: "https://orcid.org/0000-0003-4776-2822"' in citation

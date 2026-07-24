@@ -18,6 +18,7 @@ authors:
     orcid: "https://orcid.org/0000-0003-4776-2822"
     affiliation: "Department of Geography, University of Innsbruck"
 version: "0.9.3"
+doi: "10.5281/zenodo.21534587"
 date-released: "2026-07-24"
 license: MIT
 repository-code: "https://github.com/openamundsen/openamundsen-da"

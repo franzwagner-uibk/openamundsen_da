@@ -64,6 +64,7 @@ and release archives and evidence are available from
 [GitHub Releases](https://github.com/openamundsen/openamundsen-da/releases).
 Archived releases are available under the
 [openAMUNDSEN-DA concept DOI](https://doi.org/10.5281/zenodo.21519388).
-The version-specific v0.9.3 DOI will be added after Zenodo archives the release.
+The archived v0.9.3 release is available under its
+[version-specific DOI](https://doi.org/10.5281/zenodo.21534587).
 The [MIT License](https://github.com/openamundsen/openamundsen-da/blob/main/LICENSE)
 permits commercial use subject to its terms.

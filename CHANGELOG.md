@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-07-24
+
+### Changed
+- Credit Franz Wagner, Erwin Rottler and Ulrich Strasser as software creators
+  in manuscript order, including their ORCIDs and shared affiliation.
+- Update stable package and container references to `0.9.3`.
+
 ## [0.9.2] - 2026-07-23
 
 ### Changed
@@ -85,7 +92,8 @@ Initial pre-release of openamundsen-da - Data Assimilation Framework for openAMU
 
 ---
 
-[Unreleased]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.0rc8...v0.9.0

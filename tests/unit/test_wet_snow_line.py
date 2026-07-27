@@ -118,6 +118,7 @@ def test_compute_wet_snow_line_from_masks_uses_downward_crossing_fraction() -> N
 
         assert result.wet_snow_line == 300.0
         assert result.wet_bands == 2
+        assert result.method == "uppermost_crossing_fraction"
         assert result.gate_reason is None
 
 
@@ -163,6 +164,53 @@ def test_compute_wet_snow_line_from_fraction_grid_uses_shared_profile_logic(tmp_
     )
 
     assert result == 200.0
+
+
+def test_wet_snow_line_uses_uppermost_downward_crossing_for_masks_and_fraction_grid(
+    tmp_path: Path,
+) -> None:
+    setup_dir = tmp_path / "setup"
+    project_dir = setup_dir / "projects" / "project_2024_2025"
+    _write_yaml(
+        project_dir / "project_2024_2025.yml",
+        {
+            "data_assimilation": {
+                "wet_snow_line": {
+                    "elevation_band_size_m": 100.0,
+                    "smoothing_window_bands": 1,
+                    "crossing_fraction": 0.5,
+                    "wet_elevation_percentile": 95.0,
+                    "aspect_diagnostics": "off",
+                    "sector_relative_threshold": 0.8,
+                }
+            }
+        },
+    )
+    dem = np.array([[120.0], [220.0], [320.0], [420.0], [520.0]], dtype=float)
+    wet_fraction = np.array([[1.0], [0.0], [1.0], [1.0], [0.0]], dtype=float)
+    fraction_line = compute_wet_snow_line_from_fraction_grid(
+        project_dir=project_dir,
+        dem=dem,
+        roi_mask=np.ones_like(dem, dtype=bool),
+        wet_fraction=wet_fraction,
+    )
+
+    aspect = np.zeros_like(dem, dtype=float)
+    slope = np.ones_like(dem, dtype=float)
+    with patch(
+        "openamundsen_da.methods.wet_snow.wsl._load_dem_and_aspect",
+        return_value=(dem, aspect, slope),
+    ):
+        mask_result = compute_wet_snow_line_from_masks(
+            setup_dir=setup_dir,
+            project_dir=project_dir,
+            valid_mask=np.ones_like(dem, dtype=bool),
+            wet_mask=wet_fraction.astype(bool),
+        )
+
+    assert fraction_line == 500.0
+    assert mask_result.wet_snow_line == fraction_line
+    assert mask_result.method == "uppermost_crossing_fraction"
 
 
 def test_compute_wet_snow_line_from_masks_exposes_sector_relative_diagnostics() -> None:
@@ -339,9 +387,17 @@ def test_compute_wet_snow_line_from_masks_returns_no_crossing_for_fully_wet_prof
             valid_mask=np.ones_like(dem, dtype=bool),
             wet_mask=np.ones_like(dem, dtype=bool),
         )
+        dry_result = compute_wet_snow_line_from_masks(
+            setup_dir=setup_dir,
+            project_dir=project_dir,
+            valid_mask=np.ones_like(dem, dtype=bool),
+            wet_mask=np.zeros_like(dem, dtype=bool),
+        )
 
         assert result.wet_snow_line is None
         assert result.gate_reason == "no_crossing_fraction"
+        assert dry_result.wet_snow_line is None
+        assert dry_result.gate_reason == "no_wet_pixels"
 
 
 def test_assimilate_wet_snow_line_writes_uniform_weights_when_obs_gate_triggers() -> None:

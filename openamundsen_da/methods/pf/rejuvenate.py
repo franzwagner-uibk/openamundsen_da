@@ -381,7 +381,7 @@ def rejuvenate(
         target_ensemble=target_ensemble,
     )
     manifest = {
-        "rejuvenation_schema_version": 1,
+        "rejuvenation_schema_version": 2,
         "status": "complete",
         "source_step": str(prev_step_dir),
         "target_step": str(next_step_dir),
@@ -422,7 +422,18 @@ def _rejuvenation_input_inventory(
     files.extend(project_dir.glob("*.yaml"))
     files.extend(next_step_dir.glob("*.yml"))
     files.extend(next_step_dir.glob("*.yaml"))
-    files.extend(recursive_files(prev_step_dir / "assim"))
+    previous_assim = prev_step_dir / "assim"
+    for pattern in (
+        "prior_forcing_manifest.json",
+        "prior_weights.csv",
+        "prior_weights_manifest.json",
+        "rejuvenate_manifest.json",
+        "weights_*.csv",
+        "weights_*_manifest.json",
+        "resample_indices_*.csv",
+        "resample_manifest_*.json",
+    ):
+        files.extend(previous_assim.glob(pattern))
     files.extend(path for path in prior_weight_paths(next_step_dir) if path.is_file())
     for member in list_member_dirs(prev_step_dir / "ensembles", source_ensemble):
         for pointer_name in (MEMBER_SOURCE_POINTER, STATE_POINTER_JSON):
@@ -465,7 +476,7 @@ def validate_rejuvenation_manifest(
     manifest = load_manifest(manifest_path)
     if manifest is None:
         raise FileNotFoundError(f"Missing rejuvenation manifest: {manifest_path}")
-    if manifest.get("rejuvenation_schema_version") != 1 or manifest.get("status") != "complete":
+    if manifest.get("rejuvenation_schema_version") != 2 or manifest.get("status") != "complete":
         raise ValueError(f"Unsupported or incomplete rejuvenation manifest: {manifest_path}")
     params = _read_rejuvenation_params(infer_project_dir(next_step_dir))
     expected = {

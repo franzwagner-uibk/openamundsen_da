@@ -94,3 +94,42 @@ def test_rejuvenation_uses_distinct_event_keyed_perturbations_and_validates_outp
     frame.to_csv(target_csv, index=False)
     with pytest.raises(RuntimeError, match="output_inventory_sha256"):
         validate_rejuvenation_manifest(setup_dir=setup, prev_step_dir=step_0, next_step_dir=step_1)
+
+
+def test_rejuvenation_resume_ignores_diagnostics_but_binds_weight_ancestry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup, step_0, step_1, _step_2 = _prepare_project(tmp_path)
+    previous_assim = step_0 / "assim"
+    previous_assim.mkdir(parents=True, exist_ok=True)
+    weights = previous_assim / "weights_station_hs_20230101.csv"
+    weights.write_text("member_id,weight\nmember_001,0.5\nmember_002,0.5\n", encoding="utf-8")
+    (previous_assim / "weights_station_hs_20230101_manifest.json").write_text(
+        '{"status":"complete"}\n',
+        encoding="utf-8",
+    )
+    (previous_assim / "resample_indices_20230101.csv").write_text(
+        "child_member_id,source_member_id\nmember_001,member_001\nmember_002,member_002\n",
+        encoding="utf-8",
+    )
+    (previous_assim / "resample_manifest_20230101.json").write_text(
+        '{"status":"complete"}\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        rejuvenate_module,
+        "run_tasks_with_pool",
+        lambda func, tasks, **_kwargs: [func(*task) for task in tasks],
+    )
+    monkeypatch.setattr(rejuvenate_module, "pick_max_workers", lambda *args, **kwargs: 1)
+
+    rejuvenate(setup_dir=setup, prev_step_dir=step_0, next_step_dir=step_1)
+    diagnostic = previous_assim / "station_diagnostics_station_hs_20230101.png"
+    diagnostic.write_bytes(b"rendered later")
+    validate_rejuvenation_manifest(setup_dir=setup, prev_step_dir=step_0, next_step_dir=step_1)
+
+    weights.write_text("member_id,weight\nmember_001,0.9\nmember_002,0.1\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="input_inventory_sha256"):
+        validate_rejuvenation_manifest(setup_dir=setup, prev_step_dir=step_0, next_step_dir=step_1)

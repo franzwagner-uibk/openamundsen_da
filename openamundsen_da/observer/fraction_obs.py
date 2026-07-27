@@ -20,6 +20,7 @@ from typing import Dict, Iterable, List, Mapping
 
 import pandas as pd
 from loguru import logger
+from openamundsen import util as openamundsen_util
 
 from openamundsen_da.core.constants import OBS_DIR_NAME
 from openamundsen_da.core.env import _read_yaml_file
@@ -392,7 +393,11 @@ def prepare_project_obs_from_summary(
                 variable,
                 ev.date,
             )
-        model_times = pd.date_range(start=start_dt, end=end_dt, freq=str(timestep))
+        model_times = pd.date_range(
+            start=start_dt,
+            end=end_dt,
+            freq=openamundsen_util.to_offset(str(timestep)),
+        )
         match = match_observation_to_model_time(
             observation_time=observation_time,
             model_times=model_times,

@@ -39,7 +39,9 @@ class FractionObsPrepareTests(unittest.TestCase):
             setup_dir = Path(tmp) / "setup_root"
             project_dir = setup_dir / "projects" / "project_2024_2025"
             summary_csv = setup_dir / "obs" / "summaries" / "scf_summary.csv"
-            _write_yaml(setup_dir / "setup_root.yml", {"timestep": "3h", "timezone": 0})
+            # Uppercase H remains common in existing openAMUNDSEN setup files and
+            # must work with pandas 3, which removed that legacy frequency alias.
+            _write_yaml(setup_dir / "setup_root.yml", {"timestep": "3H", "timezone": 0})
             project_payload = {
                 "obs": {"snowcover": {"dir": "obs/snowcover", "product_tag": "FSC"}},
                 "data_assimilation": {

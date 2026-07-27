@@ -46,6 +46,14 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     return base, snapshot, manifest
 
 
+def test_default_snapshot_manifest_checksums_match() -> None:
+    module = _load_module()
+    manifest = module._read_manifest(module.DEFAULT_MANIFEST)
+
+    for record in manifest["files"]:
+        module._snapshot_file(module.DEFAULT_SNAPSHOT, record)
+
+
 def test_materialize_setup_applies_validated_snapshot(tmp_path: Path) -> None:
     module = _load_module()
     base, snapshot, manifest = _fixture(tmp_path)

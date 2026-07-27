@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from openamundsen_da.exceptions import ProjectValidationError
 from openamundsen_da.pipeline import plot_tasks, project as project_cli
 
 
@@ -160,6 +161,26 @@ def test_project_pipeline_runs_report_after_final_artifact_stages() -> None:
     assert source.index("write_project_da_output_grids(") < source.index("run_project_benchmark(")
     assert source.index("run_project_benchmark(") < source.index("render_required_project_outputs(")
     assert source.index("render_required_project_outputs(") < source.index("Project processing complete:")
+
+
+def test_project_pipeline_validates_configuration_before_discovery(monkeypatch, tmp_path: Path) -> None:
+    def reject_config(_project_dir: Path):
+        raise ProjectValidationError(["invalid scientific configuration"])
+
+    monkeypatch.setattr(project_cli, "load_project_configuration", reject_config)
+    monkeypatch.setattr(
+        project_cli,
+        "_list_steps_sorted",
+        lambda _project_dir: (_ for _ in ()).throw(AssertionError("step discovery must not run")),
+    )
+    cfg = project_cli.OrchestratorConfig(
+        project_dir=tmp_path / "setup" / "projects" / "project_demo",
+        setup_dir=tmp_path / "setup",
+        monitor_perf=False,
+    )
+
+    with pytest.raises(ProjectValidationError, match="invalid scientific configuration"):
+        project_cli._run_project_impl(cfg, run_start=project_cli.datetime.utcnow())
 
 
 def test_project_pipeline_stops_monitor_and_captures_final_snapshot_on_failure(

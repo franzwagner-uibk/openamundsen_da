@@ -44,6 +44,31 @@ def _write_project_yaml(project_dir: Path, payload: dict) -> None:
         y.dump(payload, f)
 
 
+def _likelihood_project(observable: str, **overrides: object) -> dict:
+    if observable == "wet_snow_line":
+        values: dict[str, object] = {
+            "obs_sigma": 100.0,
+            "use_binomial": False,
+            "sigma_floor": 25.0,
+            "min_sigma": 25.0,
+            "min_support_coverage_ratio": 0.0,
+            "min_model_finite_fraction": 1.0,
+            "min_wet_pixels_total": 0,
+            "min_wet_bands": 0,
+        }
+    else:
+        values = {
+            "obs_sigma": 0.1,
+            "use_binomial": False,
+            "sigma_floor": 0.05,
+            "sigma_cloud_scale": 0.1,
+            "min_sigma": 0.03,
+            "min_support_coverage_ratio": 0.0,
+        }
+    values.update(overrides)
+    return {"data_assimilation": {"likelihood": {observable: values}}}
+
+
 def _write_two_slice_eurac_scf(path: Path) -> None:
     ds = xr.Dataset(
         {
@@ -99,29 +124,21 @@ class AssimilateUncertaintyTests(unittest.TestCase):
 
         self.assertEqual(ref, "netcdf:/tmp/scene.nc:fsc")
 
-    def test_likelihood_config_missing_block_uses_defaults(self):
+    def test_likelihood_config_missing_block_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
             _write_project_yaml(project_dir, {"data_assimilation": {}})
 
-            params = _read_likelihood_from_project(project_dir, "scf")
-
-            self.assertEqual(params, LikelihoodParams())
+            with self.assertRaises(ValueError) as ctx:
+                _read_likelihood_from_project(project_dir, "scf")
+            self.assertIn("project.data_assimilation.likelihood", str(ctx.exception))
 
     def test_likelihood_config_invalid_value_raises(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
             _write_project_yaml(
                 project_dir,
-                {
-                    "data_assimilation": {
-                        "likelihood": {
-                            "scf": {
-                                "obs_sigma": "not-a-number",
-                            }
-                        }
-                    }
-                },
+                _likelihood_project("scf", obs_sigma="not-a-number"),
             )
 
             with self.assertRaises(ValueError) as ctx:
@@ -133,15 +150,7 @@ class AssimilateUncertaintyTests(unittest.TestCase):
             project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
             _write_project_yaml(
                 project_dir,
-                {
-                    "data_assimilation": {
-                        "likelihood": {
-                            "scf": {
-                                "min_support_coverage_ratio": 0.35,
-                            }
-                        }
-                    }
-                },
+                _likelihood_project("scf", min_support_coverage_ratio=0.35),
             )
 
             params = _read_likelihood_from_project(project_dir, "scf")
@@ -153,15 +162,7 @@ class AssimilateUncertaintyTests(unittest.TestCase):
             project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
             _write_project_yaml(
                 project_dir,
-                {
-                    "data_assimilation": {
-                        "likelihood": {
-                            "wet_snow_line": {
-                                "min_model_finite_fraction": 0.9,
-                            }
-                        }
-                    }
-                },
+                _likelihood_project("wet_snow_line", min_model_finite_fraction=0.9),
             )
 
             params = _read_likelihood_from_project(project_dir, "wet_snow_line")
@@ -173,15 +174,7 @@ class AssimilateUncertaintyTests(unittest.TestCase):
             project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
             _write_project_yaml(
                 project_dir,
-                {
-                    "data_assimilation": {
-                        "likelihood": {
-                            "wet_snow_line": {
-                                "min_model_finite_fraction": 1.2,
-                            }
-                        }
-                    }
-                },
+                _likelihood_project("wet_snow_line", min_model_finite_fraction=1.2),
             )
 
             with self.assertRaises(ValueError) as ctx:
@@ -196,15 +189,7 @@ class AssimilateUncertaintyTests(unittest.TestCase):
             project_dir = Path(tmp) / "setup" / "projects" / "project_2024_2025"
             _write_project_yaml(
                 project_dir,
-                {
-                    "data_assimilation": {
-                        "likelihood": {
-                            "scf": {
-                                "min_support_coverage_ratio": 1.5,
-                            }
-                        }
-                    }
-                },
+                _likelihood_project("scf", min_support_coverage_ratio=1.5),
             )
 
             with self.assertRaises(ValueError) as ctx:
@@ -290,6 +275,16 @@ class AssimilateUncertaintyTests(unittest.TestCase):
             with self.assertRaises(ValueError) as ctx:
                 _read_obs(csv_path, "scf", uncertainty_metric="unc_mean")
             self.assertIn("missing required uncertainty metric", str(ctx.exception).lower())
+
+    def test_read_obs_rejects_incomplete_uncertainty_coverage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = Path(tmp) / "obs.csv"
+            pd.DataFrame(
+                [{"date": "2024-04-01", "scf": 0.4, "n_valid": 100, "unc_mean": 12.0, "unc_n_valid": 99}]
+            ).to_csv(csv_path, index=False)
+            with self.assertRaises(ValueError) as ctx:
+                _read_obs(csv_path, "scf", uncertainty_metric="unc_mean")
+            self.assertIn("invalid uncertainty coverage", str(ctx.exception).lower())
 
     def test_assimilate_scf_uses_tagged_obs_candidate_when_uncertainty_enabled(self):
         with tempfile.TemporaryDirectory() as tmp:

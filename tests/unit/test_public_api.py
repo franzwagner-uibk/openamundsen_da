@@ -53,6 +53,28 @@ obs:
       water: [3]
       nodata: [255]
 data_assimilation:
+  prior_forcing:
+    ensemble_size: 3
+    random_seed: 11
+    sigma_t: 0.5
+    mu_p: 0.0
+    sigma_p: 0.2
+    sigma_rh: 0.3
+    sigma_sw: 0.05
+  resampling:
+    algorithm: systematic
+    ess_threshold_ratio: 0.7
+    seed: 12
+  rejuvenation:
+    seed: 13
+  likelihood:
+    scf:
+      obs_sigma: 0.1
+      use_binomial: false
+      sigma_floor: 0.05
+      sigma_cloud_scale: 0.1
+      min_sigma: 0.03
+      min_support_coverage_ratio: 0.0
   uncertainty:
     scf:
       enabled: true

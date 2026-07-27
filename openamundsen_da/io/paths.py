@@ -485,7 +485,7 @@ def find_member_daily_grid_slice(
     date_str: str,
     preferred_format: str | None = None,
 ) -> GridSlice:
-    """Resolve a daily grid through an explicitly selected format adapter."""
+    """Resolve an instantaneous grid through an explicitly selected format adapter."""
     if preferred_format is None:
         raise ValueError("preferred_format is required; cross-format model-grid discovery is not supported")
     from openamundsen_da.io.model_grids import resolve_model_grid_slice

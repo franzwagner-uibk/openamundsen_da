@@ -30,7 +30,6 @@ def generate_project_from_summary(
         product=product,
         overwrite=overwrite,
         include_product_tag=True,
-        use_step_start_time=True,
         summary_date_col="date",
         log_prefix="Wet-snow project summary prep",
     )
@@ -43,7 +42,6 @@ def generate_project_from_summary(
         product=product,
         overwrite=overwrite,
         include_product_tag=True,
-        use_step_start_time=True,
         summary_date_col="date",
         log_prefix="Wet-snow-line project summary prep",
     )

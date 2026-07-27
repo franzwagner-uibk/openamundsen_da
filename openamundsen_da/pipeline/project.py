@@ -24,8 +24,10 @@ from pathlib import Path
 from typing import List, Optional
 
 from loguru import logger
+import numpy as np
 import pandas as pd
 
+from openamundsen_da.configuration import load_project_configuration
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.core.launch import launch_members
@@ -35,6 +37,7 @@ from openamundsen_da.io.paths import (
     read_step_config,
     find_setup_yaml,
     find_project_yaml,
+    list_member_dirs,
     list_steps_sorted,
     project_da_output_grids_path,
     project_fraction_envelope_path,
@@ -70,8 +73,17 @@ from openamundsen_da.methods.wet_snow.classify import (
     load_wet_snow_classification_config,
 )
 from openamundsen_da.methods.wet_snow.area import compute_step_wet_snow_daily_for_all_members
-from openamundsen_da.methods.pf.rejuvenate import rejuvenate
+from openamundsen_da.methods.pf.rejuvenate import rejuvenate, validate_rejuvenation_manifest
 from openamundsen_da.methods.pf.resample import resample_from_weights, _read_resampling_from_project
+from openamundsen_da.methods.pf.weights import (
+    carry_weights_to_next_step,
+    combine_event_weights,
+    initialize_prior_weights,
+    load_event_weights,
+    load_prior_weights,
+    prior_weight_paths,
+    write_event_weights,
+)
 from openamundsen_da.pipeline.plot_tasks import (
     run_live_plots,
 )
@@ -235,6 +247,34 @@ def _write_station_diagnostics(
     return out
 
 
+def _update_station_diagnostics_weights(path: Path, weights: pd.DataFrame) -> None:
+    """Replace provisional likelihood-only station weights with PF posteriors."""
+    diagnostics = pd.read_csv(path)
+    stale = [
+        column
+        for column in (
+            "final_weight",
+            "final_log_weight",
+            "prior_weight",
+            "prior_log_weight",
+            "member_log_likelihood",
+        )
+        if column in diagnostics.columns
+    ]
+    diagnostics = diagnostics.drop(columns=stale)
+    aligned = weights[
+        ["member_id", "prior_weight", "prior_log_weight", "log_likelihood", "weight", "log_weight"]
+    ].rename(
+        columns={
+            "log_likelihood": "member_log_likelihood",
+            "weight": "final_weight",
+            "log_weight": "final_log_weight",
+        }
+    )
+    diagnostics = diagnostics.merge(aligned, on="member_id", how="left", validate="many_to_one")
+    diagnostics.to_csv(path, index=False)
+
+
 def _run_assimilation_for_event(
     *,
     cfg: "OrchestratorConfig",
@@ -393,6 +433,13 @@ def _setup_log_path(project_dir: Path) -> Path:
 
 
 def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> RenderResult:
+    project_config = load_project_configuration(cfg.project_dir)
+    if project_config.setup_dir != Path(cfg.setup_dir).resolve():
+        raise ValueError(
+            f"Project {project_config.project_dir} belongs to setup {project_config.setup_dir}, "
+            f"not configured setup {Path(cfg.setup_dir).resolve()}"
+        )
+
     # Console + file log under project root.
     _setup_logger(cfg.project_dir, cfg.log_level)
     live_plot_threads: list[threading.Thread] = []
@@ -447,6 +494,26 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         max_workers=int(workers),
         overwrite=bool(cfg.overwrite),
     )
+    initial_members = list_member_dirs(steps[0] / "ensembles", "prior")
+    if not initial_members:
+        raise RuntimeError(f"No prior members available for PF initialization in {steps[0]}")
+    initial_weight_csv, initial_weight_manifest = prior_weight_paths(steps[0])
+    if initial_weight_csv.is_file() and initial_weight_manifest.is_file():
+        load_prior_weights(steps[0], [member.name for member in initial_members])
+    elif initial_weight_csv.exists() or initial_weight_manifest.exists():
+        raise RuntimeError(f"Incomplete PF prior-weight ledger in {steps[0] / 'assim'}")
+    else:
+        existing_event_weights = [
+            path
+            for step in steps
+            for path in (step / "assim").glob("weights_*.csv")
+        ]
+        if existing_event_weights:
+            raise RuntimeError(
+                "Existing assimilation artifacts do not have the required sequential PF weight ledger; "
+                "v0.9.3 chains are view-only and must be rerun from a fresh project"
+            )
+        initialize_prior_weights(steps[0], [member.name for member in initial_members])
 
     roi_grid = ensure_setup_roi_grid(cfg.setup_dir)
     logger.info("Using ROI grid: {}", roi_grid)
@@ -640,6 +707,10 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         assim_dir.mkdir(parents=True, exist_ok=True)
         weights_name = weights_csv_name(ev.variable, assim_dt)
         wcsv = assim_dir / weights_name
+        rs_cfg = _read_resampling_from_project(cfg.project_dir)
+        algo = rs_cfg.algorithm
+        ess_thr_abs = float(rs_cfg.ess_threshold or 0.0)
+        ess_thr_ratio = rs_cfg.ess_threshold_ratio
         station_diag_csv: Path | None = None
         if is_station_variable(ev.variable):
             station_diag_csv = assim_dir / station_diagnostics_csv_name(ev.variable, assim_dt)
@@ -649,8 +720,30 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
                 step_name,
                 wcsv,
             )
-            # Downstream resampling/rejuvenation will read this file; no need
-            # to recompute or touch assimilation for this step.
+            weights = load_event_weights(
+                wcsv,
+                project_dir=cfg.project_dir,
+                step_dir=step_dir,
+            )
+            required_weight_columns = {
+                "member_id",
+                "prior_log_weight",
+                "prior_weight",
+                "log_likelihood",
+                "log_weight",
+                "weight",
+            }
+            if not required_weight_columns.issubset(weights.columns):
+                raise RuntimeError(
+                    f"Existing weights use an incompatible pre-ledger contract: {wcsv}; "
+                    "rerun the project from a fresh copy"
+                )
+            prior = load_prior_weights(step_dir, weights["member_id"].astype(str).tolist())
+            if not np.allclose(
+                pd.to_numeric(weights["prior_weight"], errors="raise").to_numpy(dtype=float),
+                prior["weight"].to_numpy(dtype=float),
+            ):
+                raise RuntimeError(f"Existing event weights do not match the prior-weight ledger: {wcsv}")
         else:
             try:
                 weights, station_diag_csv = _run_assimilation_for_event(
@@ -673,8 +766,35 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
                     step_dir,
                 )
                 raise
-            weights.to_csv(wcsv, index=False)
-            logger.info("Wrote weights -> {}", wcsv)
+            weights = combine_event_weights(weights, step_dir=step_dir)
+            n_members = len(weights)
+            threshold = (
+                float(ess_thr_ratio) * float(n_members)
+                if ess_thr_ratio is not None
+                else float(ess_thr_abs)
+            )
+            posterior_ess = float(weights["posterior_ess"].iloc[0])
+            resampled = bool(threshold > 0.0 and posterior_ess < threshold)
+            weights["resampling_threshold"] = threshold
+            weights["resampling_threshold_ratio"] = ess_thr_ratio
+            weights["resampled"] = resampled
+            weights["ess_below_threshold"] = resampled
+            write_event_weights(
+                wcsv,
+                weights,
+                project_dir=cfg.project_dir,
+                step_dir=step_dir,
+            )
+            if station_diag_csv is not None:
+                _update_station_diagnostics_weights(station_diag_csv, weights)
+            logger.info(
+                "Wrote recursive PF weights -> {} (prior ESS={:.2f}, posterior ESS={:.2f}, threshold={:.2f}, resampled={})",
+                wcsv,
+                float(weights["prior_ess"].iloc[0]),
+                posterior_ess,
+                threshold,
+                resampled,
+            )
 
         # Resample to posterior
         posterior_root = Path(step_dir) / "ensembles" / "posterior"
@@ -682,10 +802,6 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         if has_posterior and not cfg.overwrite:
             logger.info("Posterior ensemble already exists and overwrite=False; skipping resampling.")
         else:
-            rs_cfg = _read_resampling_from_project(cfg.project_dir)
-            algo = rs_cfg.algorithm or "systematic"
-            ess_thr_abs = float(rs_cfg.ess_threshold or 0.0)
-            ess_thr_ratio = rs_cfg.ess_threshold_ratio
             ratio_text = f"{ess_thr_ratio:.3f}" if ess_thr_ratio is not None else "None"
             logger.info(
                 "Resampling to posterior ... (algorithm={} seed={} ess_thr_abs={} ess_thr_ratio={})",
@@ -694,7 +810,7 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
                 ess_thr_abs,
                 ratio_text,
             )
-            resample_from_weights(
+            resampling_summary = resample_from_weights(
                 step_dir=step_dir,
                 source_ensemble="prior",
                 weights_csv=wcsv,
@@ -705,11 +821,72 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
                 ess_threshold_ratio=ess_thr_ratio,
                 overwrite=bool(cfg.overwrite),
             )
+        if has_posterior and not cfg.overwrite:
+            # Re-evaluate the deterministic resampling decision and validate
+            # the existing materialization against its mapping.
+            resampling_summary = resample_from_weights(
+                step_dir=step_dir,
+                source_ensemble="prior",
+                weights_csv=wcsv,
+                target_ensemble="posterior",
+                seed=rs_cfg.seed,
+                algorithm=algo,
+                ess_threshold=ess_thr_abs,
+                ess_threshold_ratio=ess_thr_ratio,
+                overwrite=False,
+            )
+        expected_resampled = bool(weights["resampled"].iloc[0])
+        if bool(resampling_summary["resampled"]) != expected_resampled:
+            raise RuntimeError(
+                f"Resampling result disagrees with recorded event decision in {wcsv}"
+            )
+
+        mapping = pd.read_csv(Path(resampling_summary["indices_csv"]))
+        next_weight_csv, next_weight_manifest = prior_weight_paths(steps[i + 1])
+        if next_weight_csv.exists() != next_weight_manifest.exists():
+            raise RuntimeError(f"Incomplete next-step PF ledger in {steps[i + 1] / 'assim'}")
+        if next_weight_csv.is_file() and next_weight_manifest.is_file() and not cfg.overwrite:
+            expected_ids = mapping["posterior_member_id"].astype(str).tolist()
+            existing_next = load_prior_weights(steps[i + 1], expected_ids)
+            if bool(resampling_summary["resampled"]):
+                expected_weights = pd.Series([1.0 / len(expected_ids)] * len(expected_ids), dtype=float)
+            else:
+                event_by_member_frame = weights.copy()
+                event_by_member_frame["member_id"] = event_by_member_frame["member_id"].astype(str)
+                event_by_member = event_by_member_frame.set_index("member_id")["weight"]
+                expected_weights = pd.Series(
+                    [float(event_by_member.loc[str(source)]) for source in mapping["source_member_id"]],
+                    dtype=float,
+                )
+                expected_weights /= expected_weights.sum()
+            if not np.allclose(
+                existing_next["weight"].to_numpy(dtype=float),
+                expected_weights.to_numpy(dtype=float),
+            ):
+                raise RuntimeError(f"Existing next-step PF ledger does not match event ancestry: {next_weight_csv}")
+        else:
+            carry_weights_to_next_step(
+                current_step_dir=step_dir,
+                next_step_dir=steps[i + 1],
+                event_weights=weights,
+                mapping=mapping,
+                resampled=bool(resampling_summary["resampled"]),
+                source_weights=wcsv,
+                overwrite=bool(cfg.overwrite),
+            )
 
         # Rejuvenate posterior -> next prior
         rejuvenate_manifest = Path(steps[i + 1]) / "assim" / "rejuvenate_manifest.json"
         if rejuvenate_manifest.is_file() and not cfg.overwrite:
-            logger.info("Rejuvenation manifest already exists for {}; overwrite=False -> skipping rejuvenation.", steps[i + 1].name)
+            validate_rejuvenation_manifest(
+                setup_dir=cfg.setup_dir,
+                prev_step_dir=step_dir,
+                next_step_dir=steps[i + 1],
+            )
+            logger.info(
+                "Validated rejuvenation manifest for {}; overwrite=False -> skipping process-noise rebuild.",
+                steps[i + 1].name,
+            )
         else:
             logger.info("Rejuvenating posterior -> {} (prior) ...", steps[i + 1].name)
             rejuvenate(

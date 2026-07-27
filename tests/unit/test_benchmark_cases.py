@@ -8,6 +8,8 @@ import pytest
 
 from openamundsen_da.benchmark.cases import analysis_event_contexts, event_dates_by_variable, extract_analysis_cases, extract_continuous_cases
 from openamundsen_da.benchmark.metrics import build_case_scores
+from openamundsen_da.benchmark.extract.cases import _prior_weights_for_members
+from openamundsen_da.methods.pf.weights import initialize_prior_weights, write_prior_weights
 from openamundsen_da.observer.summary_paths import record_fraction_summary_path
 
 
@@ -69,7 +71,26 @@ def _setup_basic_project(tmp_path: Path, *, events_yaml: str) -> tuple[Path, Pat
         end_date: '2023-01-04 23:00:00'
         """,
     )
+    for step_name in ("step_00_init", "step_01_next"):
+        initialize_prior_weights(
+            project_dir / "steps" / step_name,
+            ["member_001", "member_002"],
+        )
     return setup_dir, project_dir
+
+
+def test_prior_weights_for_available_benchmark_members_are_renormalized(tmp_path: Path) -> None:
+    step_dir = tmp_path / "step_00"
+    write_prior_weights(
+        step_dir,
+        member_ids=["member_001", "member_002", "member_003"],
+        weights=[0.2, 0.3, 0.5],
+        mode="carried_posterior",
+    )
+
+    weights = _prior_weights_for_members(step_dir, ["member_001", "member_003"])
+
+    assert weights == pytest.approx((2.0 / 7.0, 5.0 / 7.0))
 
 
 def _write_fraction_benchmark_inputs(setup_dir: Path, project_dir: Path) -> None:
@@ -298,8 +319,8 @@ def test_extract_analysis_cases_uses_weighted_station_posterior(tmp_path: Path) 
     _write_series_csv(
         weights_path,
         [
-            {"member_id": "member_001", "weight": 0.25},
-            {"member_id": "member_002", "weight": 0.75},
+            {"member_id": "member_001", "prior_weight": 0.5, "weight": 0.25},
+            {"member_id": "member_002", "prior_weight": 0.5, "weight": 0.75},
         ],
     )
 
@@ -341,15 +362,29 @@ def test_extract_analysis_cases_include_transfer_streams_on_da_dates(tmp_path: P
     _write_series_csv(
         project_dir / "steps" / "step_00_init" / "assim" / "weights_station_hs_20230102.csv",
         [
-            {"member_id": "member_001", "weight": 0.25},
-            {"member_id": "member_002", "weight": 0.75},
+            {"member_id": "member_001", "prior_weight": 0.5, "weight": 0.25},
+            {"member_id": "member_002", "prior_weight": 0.5, "weight": 0.75},
         ],
     )
     _write_series_csv(
         project_dir / "steps" / "step_01_next" / "assim" / "weights_scf_20230103.csv",
         [
-            {"member_id": "member_001", "weight": 0.6},
-            {"member_id": "member_002", "weight": 0.4},
+            {
+                "member_id": "member_001",
+                "value_model": 0.55,
+                "value_obs": 0.60,
+                "open_loop_value": 0.50,
+                "prior_weight": 0.5,
+                "weight": 0.6,
+            },
+            {
+                "member_id": "member_002",
+                "value_model": 0.75,
+                "value_obs": 0.60,
+                "open_loop_value": 0.50,
+                "prior_weight": 0.5,
+                "weight": 0.4,
+            },
         ],
     )
 
@@ -388,8 +423,8 @@ def test_extract_analysis_cases_skips_wet_snow_line_transfer_with_missing_weight
     _write_series_csv(
         project_dir / "steps" / "step_00_init" / "assim" / "weights_station_hs_20230103.csv",
         [
-            {"member_id": "member_001", "weight": 0.25},
-            {"member_id": "member_002", "weight": 0.75},
+            {"member_id": "member_001", "prior_weight": 0.5, "weight": 0.25},
+            {"member_id": "member_002", "prior_weight": 0.5, "weight": 0.75},
         ],
     )
 
@@ -417,8 +452,8 @@ def test_extract_analysis_cases_skip_transfer_rows_without_same_day_observation(
     _write_series_csv(
         project_dir / "steps" / "step_00_init" / "assim" / "weights_station_hs_20230102.csv",
         [
-            {"member_id": "member_001", "weight": 0.25},
-            {"member_id": "member_002", "weight": 0.75},
+            {"member_id": "member_001", "prior_weight": 0.5, "weight": 0.25},
+            {"member_id": "member_002", "prior_weight": 0.5, "weight": 0.75},
         ],
     )
 
@@ -630,8 +665,22 @@ def test_extract_analysis_cases_uses_wet_snow_line_prior_and_posterior(tmp_path:
     _write_series_csv(
         project_dir / "steps" / "step_00_init" / "assim" / "weights_wet_snow_line_20230103.csv",
         [
-            {"member_id": "member_001", "value_model": 2360.0, "value_obs": 2375.0, "weight": 0.25},
-            {"member_id": "member_002", "value_model": 2380.0, "value_obs": 2375.0, "weight": 0.75},
+            {
+                "member_id": "member_001",
+                "value_model": 2360.0,
+                "value_obs": 2375.0,
+                "open_loop_value": 2350.0,
+                "prior_weight": 0.5,
+                "weight": 0.25,
+            },
+            {
+                "member_id": "member_002",
+                "value_model": 2380.0,
+                "value_obs": 2375.0,
+                "open_loop_value": 2350.0,
+                "prior_weight": 0.5,
+                "weight": 0.75,
+            },
         ],
     )
 

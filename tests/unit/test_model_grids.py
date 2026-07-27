@@ -43,10 +43,10 @@ def _write_netcdf(path: Path, *, dims: tuple[str, ...] = ("time", "y", "x")) -> 
     if dims == ("time", "roi_pixel"):
         data = data.reshape(1, 4)
     variables: dict[str, tuple[tuple[str, ...], np.ndarray]] = {
-        "snowdepth_daily": (dims, data),
+        "snowdepth_instantaneous": (dims, data),
     }
     if dims == ("time", "y", "x"):
-        variables["liquid_water_content"] = (
+        variables["liquid_water_content_instantaneous"] = (
             ("time", "snow_layer", "y", "x"),
             np.array(
                 [[[[0.1, 0.2], [0.3, 0.4]], [[1.0, 2.0], [3.0, 4.0]]]],
@@ -69,8 +69,8 @@ def _write_netcdf(path: Path, *, dims: tuple[str, ...] = ("time", "y", "x")) -> 
         dataset["y"].attrs.update(
             {"standard_name": "projection_y_coordinate", "units": "m"}
         )
-        dataset["snowdepth_daily"].attrs["grid_mapping"] = "crs"
-        dataset["liquid_water_content"].attrs["grid_mapping"] = "crs"
+        dataset["snowdepth_instantaneous"].attrs["grid_mapping"] = "crs"
+        dataset["liquid_water_content_instantaneous"].attrs["grid_mapping"] = "crs"
     dataset.to_netcdf(path)
 
 
@@ -81,13 +81,13 @@ def test_explicit_adapters_return_equivalent_depth_and_liquid_water_series(
     netcdf_dir = tmp_path / "netcdf"
     geotiff_dir.mkdir()
     netcdf_dir.mkdir()
-    _write_geotiff(geotiff_dir / "snowdepth_daily_2023-04-26T0000.tif")
+    _write_geotiff(geotiff_dir / "snowdepth_instantaneous_2023-04-26T0000.tif")
     _write_geotiff(
-        geotiff_dir / "liquid_water_content_0_2023-04-26T0000_2023-04-27T0000.tif",
+        geotiff_dir / "liquid_water_content_instantaneous_0_2023-04-26T0000.tif",
         np.array([[0.1, 0.2], [0.3, 0.4]], dtype=np.float32),
     )
     _write_geotiff(
-        geotiff_dir / "liquid_water_content_1_2023-04-26T0000_2023-04-27T0000.tif",
+        geotiff_dir / "liquid_water_content_instantaneous_1_2023-04-26T0000.tif",
         np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
     )
     _write_netcdf(netcdf_dir / "output_grids.nc")
@@ -111,32 +111,32 @@ def test_explicit_adapters_return_equivalent_depth_and_liquid_water_series(
         np.testing.assert_allclose(geotiff_layer, netcdf_layer)
 
 
-def test_explicit_adapters_resolve_equivalent_daily_grid(tmp_path: Path) -> None:
+def test_explicit_adapters_resolve_equivalent_instantaneous_grid(tmp_path: Path) -> None:
     geotiff_dir = tmp_path / "geotiff"
     netcdf_dir = tmp_path / "netcdf"
     geotiff_dir.mkdir()
     netcdf_dir.mkdir()
-    geotiff = geotiff_dir / "snowdepth_daily_2023-04-26T0000.tif"
+    geotiff = geotiff_dir / "snowdepth_instantaneous_2023-04-26T0000.tif"
     netcdf = netcdf_dir / "output_grids.nc"
     _write_geotiff(geotiff)
     _write_netcdf(netcdf)
 
     tif_slice = resolve_model_grid_slice(
         results_dir=geotiff_dir,
-        variable="hs",
+        variable="hs_instantaneous",
         date=datetime(2023, 4, 26),
         grid_format="geotiff",
     )
     nc_slice = resolve_model_grid_slice(
         results_dir=netcdf_dir,
-        variable="hs",
+        variable="hs_instantaneous",
         date=datetime(2023, 4, 26),
         grid_format="netcdf",
     )
 
     assert tif_slice.kind == "geotiff"
     assert nc_slice.kind == "netcdf"
-    assert nc_slice.nc_var == "snowdepth_daily"
+    assert nc_slice.nc_var == "snowdepth_instantaneous"
     assert nc_slice.band == 1
 
     roi = tmp_path / "roi.gpkg"
@@ -156,7 +156,7 @@ def test_netcdf_adapter_rejects_roi_pixel_layout(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="grid dimensions x and y"):
         resolve_model_grid_slice(
             results_dir=tmp_path,
-            variable="hs",
+            variable="hs_instantaneous",
             date=datetime(2023, 4, 26),
             grid_format="netcdf",
         )
@@ -165,7 +165,7 @@ def test_netcdf_adapter_rejects_roi_pixel_layout(tmp_path: Path) -> None:
 @pytest.mark.parametrize("grid_format", ["netcdf", "geotiff"])
 def test_adapters_reject_mixed_model_grid_artifacts(tmp_path: Path, grid_format: str) -> None:
     _write_netcdf(tmp_path / "output_grids.nc")
-    _write_geotiff(tmp_path / "snowdepth_daily_2023-04-26T0000.tif")
+    _write_geotiff(tmp_path / "snowdepth_instantaneous_2023-04-26T0000.tif")
 
     with pytest.raises(ValueError, match="Mixed model-grid artifacts"):
         resolve_model_grid_slice(

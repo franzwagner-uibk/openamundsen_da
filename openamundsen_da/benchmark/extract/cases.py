@@ -12,6 +12,7 @@ from loguru import logger
 
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml, list_steps_sorted, read_step_config
+from openamundsen_da.methods.pf.weights import load_prior_weights
 from openamundsen_da.methods.viz.fraction_series import (
     load_named_member_series,
     load_open_loop_fraction_series,
@@ -30,8 +31,6 @@ from openamundsen_da.util.station_da import (
     station_variable_spec,
 )
 from openamundsen_da.util.ts import parse_datetime_opt, read_timeseries_csv
-
-
 SUPPORTED_BENCHMARK_VARIABLES = ("scf", "wet_snow", "wet_snow_line", "station_hs", "station_swe")
 
 
@@ -60,6 +59,22 @@ class RawBenchmarkCase:
     posterior_values: tuple[float, ...] | None
     posterior_weights: tuple[float, ...] | None
     sigma_base: float | None = None
+    da_informed_weights: tuple[float, ...] | None = None
+    prior_weights: tuple[float, ...] | None = None
+
+    def __post_init__(self) -> None:
+        """Make manually constructed raw cases explicitly uniform by default."""
+        for values_name, weights_name in (
+            ("da_informed_values", "da_informed_weights"),
+            ("prior_values", "prior_weights"),
+        ):
+            values = getattr(self, values_name)
+            weights = getattr(self, weights_name)
+            if values is not None and weights is None:
+                if not values:
+                    raise ValueError(f"{values_name} must not be empty")
+                uniform = tuple(float(1.0 / len(values)) for _ in values)
+                object.__setattr__(self, weights_name, uniform)
 
 
 @dataclass(frozen=True)
@@ -449,21 +464,64 @@ def _weights_for_event(step_dir: Path, variable: str, assimilation_dt: datetime)
     return out
 
 
-def _wsl_member_values_from_weights(weights_df: pd.DataFrame) -> tuple[float, dict[str, float]] | None:
-    """Return the assimilated WSLA observation and member scalars from an event weights CSV."""
+def _prior_weights_for_members(step_dir: Path, member_ids: list[str]) -> tuple[float, ...]:
+    ledger = load_prior_weights(step_dir).set_index("member_id")
+    missing = sorted(set(member_ids) - set(ledger.index.astype(str)))
+    if missing:
+        raise ValueError(f"PF prior weights are missing benchmark members: {', '.join(missing)}")
+    selected = pd.to_numeric(ledger.loc[member_ids, "weight"], errors="raise").astype(float)
+    total = float(selected.sum())
+    if not total > 0.0:
+        raise ValueError("Available benchmark members have zero total PF weight")
+    return tuple(float(value / total) for value in selected)
+
+
+def _weights_column_for_members(
+    weights_df: pd.DataFrame,
+    member_ids: list[str],
+    *,
+    column: str,
+) -> tuple[float, ...]:
+    if column not in weights_df.columns:
+        raise ValueError(f"Event weights are missing required {column!r} column")
+    indexed = weights_df.set_index("member_id")
+    missing = sorted(set(member_ids) - set(indexed.index.astype(str)))
+    if missing:
+        raise ValueError(f"Event weights are missing members for {column}: {', '.join(missing)}")
+    return tuple(float(indexed.loc[member_id, column]) for member_id in member_ids)
+
+
+def _assimilated_fraction_values_from_weights(
+    weights_df: pd.DataFrame,
+) -> tuple[pd.Timestamp | None, float, float, dict[str, float]] | None:
+    """Return exact observation, open-loop and member H(x) values from event weights."""
     if "value_model" not in weights_df.columns or "value_obs" not in weights_df.columns:
         return None
-    working = weights_df[["member_id", "value_model", "value_obs"]].copy()
+    required = ["member_id", "value_model", "value_obs", "open_loop_value"]
+    if not set(required).issubset(weights_df.columns):
+        return None
+    working = weights_df[required].copy()
     working["value_model"] = pd.to_numeric(working["value_model"], errors="coerce")
     working["value_obs"] = pd.to_numeric(working["value_obs"], errors="coerce")
-    working = working.dropna(subset=["member_id", "value_model", "value_obs"])
+    working["open_loop_value"] = pd.to_numeric(working["open_loop_value"], errors="coerce")
+    working = working.dropna(subset=required)
     if working.empty:
         return None
     obs_values = working["value_obs"].dropna().unique()
     if len(obs_values) != 1:
-        raise ValueError("WSLA weights must contain exactly one finite value_obs")
+        raise ValueError("Fraction weights must contain exactly one finite value_obs")
+    open_loop_values = working["open_loop_value"].dropna().unique()
+    if len(open_loop_values) != 1:
+        raise ValueError("Fraction weights must contain exactly one finite open_loop_value")
+    timestamp = None
+    if "matched_model_time" in weights_df.columns:
+        stamps = pd.to_datetime(weights_df["matched_model_time"], errors="coerce").dropna().unique()
+        if len(stamps) > 1:
+            raise ValueError("Fraction weights contain inconsistent matched_model_time values")
+        if len(stamps) == 1:
+            timestamp = pd.Timestamp(stamps[0])
     member_values = {str(row.member_id): float(row.value_model) for row in working.itertuples(index=False)}
-    return float(obs_values[0]), member_values
+    return timestamp, float(obs_values[0]), float(open_loop_values[0]), member_values
 
 
 def _aligned_posterior(
@@ -528,6 +586,10 @@ def extract_continuous_cases(
                 if open_loop_value is None or not member_values:
                     logger.warning("Skipping {} benchmark case at {}: missing model values", variable, timestamp.date())
                     continue
+                ordered_member_ids = sorted(member_values)
+                step_name = _match_step_name(timestamp, windows)
+                if step_name is None:
+                    raise ValueError(f"Could not match benchmark timestamp {timestamp} to a PF step")
                 out.append(
                     RawBenchmarkCase(
                         score_set="continuous",
@@ -540,13 +602,17 @@ def extract_continuous_cases(
                         ),
                         timestamp=timestamp,
                         obs_id="roi",
-                        step_name=_match_step_name(timestamp, windows),
+                        step_name=step_name,
                         obs_value=obs_value,
                         open_loop_value=open_loop_value,
-                        da_informed_values=tuple(member_values[mid] for mid in sorted(member_values)),
+                        da_informed_values=tuple(member_values[mid] for mid in ordered_member_ids),
                         prior_values=None,
                         posterior_values=None,
                         posterior_weights=None,
+                        da_informed_weights=_prior_weights_for_members(
+                            project_dir / "steps" / step_name,
+                            ordered_member_ids,
+                        ),
                     )
                 )
             continue
@@ -575,6 +641,10 @@ def extract_continuous_cases(
                 member_values = _member_values_exact(named_series, timestamp)
                 if open_loop_value is None or not member_values:
                     continue
+                ordered_member_ids = sorted(member_values)
+                step_name = _match_step_name(timestamp, windows)
+                if step_name is None:
+                    raise ValueError(f"Could not match benchmark timestamp {timestamp} to a PF step")
                 out.append(
                     RawBenchmarkCase(
                         score_set="continuous",
@@ -587,10 +657,10 @@ def extract_continuous_cases(
                         ),
                         timestamp=timestamp,
                         obs_id=station_id,
-                        step_name=_match_step_name(timestamp, windows),
+                        step_name=step_name,
                         obs_value=float(obs_value),
                         open_loop_value=open_loop_value,
-                        da_informed_values=tuple(member_values[mid] for mid in sorted(member_values)),
+                        da_informed_values=tuple(member_values[mid] for mid in ordered_member_ids),
                         prior_values=None,
                         posterior_values=None,
                         posterior_weights=None,
@@ -601,6 +671,10 @@ def extract_continuous_cases(
                             station_id=station_id,
                             obs_value=float(obs_value),
                             sigma_context=station_sigma_context,
+                        ),
+                        da_informed_weights=_prior_weights_for_members(
+                            project_dir / "steps" / step_name,
+                            ordered_member_ids,
                         ),
                     )
                 )
@@ -637,37 +711,35 @@ def extract_analysis_cases(
             stream: str | None = None
 
             if spec.kind == "fraction":
-                if benchmark_variable == "wet_snow_line" and ctx.variable == "wet_snow_line":
-                    wsl_values = _wsl_member_values_from_weights(weights_df)
-                    if wsl_values is None:
+                if benchmark_variable == ctx.variable:
+                    assimilated_values = _assimilated_fraction_values_from_weights(weights_df)
+                    if assimilated_values is None:
                         logger.warning(
-                            "Skipping analysis benchmark for wet_snow_line on {}: no finite WSLA event scalars",
+                            "Skipping analysis benchmark for {} on {}: no finite exact event H(x) scalars",
+                            benchmark_variable,
                             ctx.event_date,
                         )
                         continue
-                    obs_value, member_values = wsl_values
-                    timestamp = pd.Timestamp(ctx.event_date)
-                    key = (benchmark_variable, None)
-                    if key not in open_loop_cache:
-                        open_loop_cache[key] = _open_loop_series_for_variable(project_dir, benchmark_variable)
-                    open_loop_value = _series_exact_value(open_loop_cache[key], timestamp)
-                    if open_loop_value is None:
-                        logger.warning(
-                            "Skipping analysis benchmark for wet_snow_line on {}: missing open-loop WSLA value",
-                            ctx.event_date,
-                        )
-                        continue
+                    matched_time, obs_value, open_loop_value, member_values = assimilated_values
+                    timestamp = matched_time or pd.Timestamp(ctx.event_date)
                     finite_member_ids = set(member_values)
                     filtered_weights = weights_df[weights_df["member_id"].astype(str).isin(finite_member_ids)].copy()
                     weight_sum = pd.to_numeric(filtered_weights["weight"], errors="coerce").sum()
                     if not pd.notna(weight_sum) or float(weight_sum) <= 0.0:
                         logger.warning(
-                            "Skipping analysis benchmark for wet_snow_line on {}: no positive posterior weight on finite WSLA members",
+                            "Skipping analysis benchmark for {} on {}: no positive posterior weight on finite members",
+                            benchmark_variable,
                             ctx.event_date,
                         )
                         continue
                     filtered_weights["weight"] = pd.to_numeric(filtered_weights["weight"], errors="coerce") / float(weight_sum)
-                    prior_values = tuple(member_values[mid] for mid in sorted(member_values))
+                    ordered_member_ids = sorted(member_values)
+                    prior_values = tuple(member_values[mid] for mid in ordered_member_ids)
+                    prior_weights = _weights_column_for_members(
+                        weights_df,
+                        ordered_member_ids,
+                        column="prior_weight",
+                    )
                     posterior_values, posterior_weights = _aligned_posterior(
                         member_values,
                         filtered_weights,
@@ -694,6 +766,7 @@ def extract_analysis_cases(
                             prior_values=prior_values,
                             posterior_values=posterior_values,
                             posterior_weights=posterior_weights,
+                            prior_weights=prior_weights,
                         )
                     )
                     continue
@@ -741,7 +814,13 @@ def extract_analysis_cases(
                             ", ".join(missing_member_ids),
                         )
                         continue
-                prior_values = tuple(member_values[mid] for mid in sorted(member_values))
+                ordered_member_ids = sorted(member_values)
+                prior_values = tuple(member_values[mid] for mid in ordered_member_ids)
+                prior_weights = _weights_column_for_members(
+                    weights_df,
+                    ordered_member_ids,
+                    column="prior_weight",
+                )
                 posterior_values, posterior_weights = _aligned_posterior(
                     member_values,
                     weights_df,
@@ -768,6 +847,7 @@ def extract_analysis_cases(
                         prior_values=prior_values,
                         posterior_values=posterior_values,
                         posterior_weights=posterior_weights,
+                        prior_weights=prior_weights,
                     )
                 )
                 continue
@@ -810,7 +890,13 @@ def extract_analysis_cases(
                     continue
                 if station_sigma_context is None:
                     station_sigma_context = _station_sigma_context(setup_dir=setup_dir, project_dir=project_dir)
-                prior_values = tuple(member_values[mid] for mid in sorted(member_values))
+                ordered_member_ids = sorted(member_values)
+                prior_values = tuple(member_values[mid] for mid in ordered_member_ids)
+                prior_weights = _weights_column_for_members(
+                    weights_df,
+                    ordered_member_ids,
+                    column="prior_weight",
+                )
                 posterior_values, posterior_weights = _aligned_posterior(
                     member_values,
                     weights_df,
@@ -837,6 +923,7 @@ def extract_analysis_cases(
                         prior_values=prior_values,
                         posterior_values=posterior_values,
                         posterior_weights=posterior_weights,
+                        prior_weights=prior_weights,
                         sigma_base=_station_case_sigma_base(
                             setup_dir=setup_dir,
                             project_dir=project_dir,

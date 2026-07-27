@@ -11,7 +11,9 @@ from openamundsen_da.methods.viz.fraction_series import (
     load_member_series,
     load_named_member_series,
     load_open_loop_fraction_series,
+    load_weighted_member_envelope,
 )
+from openamundsen_da.methods.pf.weights import write_prior_weights
 
 
 def _write_series_csv(path: Path, value_col: str, rows: list[tuple[str, float]]) -> None:
@@ -51,6 +53,35 @@ def test_load_member_series_stitches_members_across_steps(tmp_path: Path) -> Non
     assert list(member_series[0].index) == list(pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-03"]))
     assert list(member_series[0].values) == [10.0, 12.0, 14.0]
     assert list(member_series[1].values) == [20.0, 22.0, 24.0]
+
+
+def test_load_weighted_member_envelope_uses_each_step_ledger(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    for step_name, day, values, weights in (
+        ("step_00_init", "2023-01-01", (0.0, 10.0), (0.8, 0.2)),
+        ("step_01_next", "2023-01-02", (2.0, 12.0), (0.25, 0.75)),
+    ):
+        step = project_dir / "steps" / step_name
+        for member_idx, value in enumerate(values, start=1):
+            _write_series_csv(
+                step / "ensembles" / "prior" / f"member_{member_idx:03d}" / "results" / "point_swe_roi.csv",
+                "swe",
+                [(day, value)],
+            )
+        write_prior_weights(
+            step,
+            member_ids=["member_001", "member_002"],
+            weights=weights,
+            mode="carried_posterior",
+        )
+
+    envelope = load_weighted_member_envelope(project_dir, "point_swe_roi.csv", "swe")
+
+    assert envelope is not None
+    assert list(envelope["value_mean"]) == pytest.approx([2.0, 9.5])
+    assert list(envelope["value_min"]) == [0.0, 2.0]
+    assert list(envelope["value_max"]) == [10.0, 12.0]
+    assert set(envelope["weighting"]) == {"pf_prior_ledger"}
 
 
 def test_load_open_loop_fraction_series_collapses_step_overlap(tmp_path: Path) -> None:

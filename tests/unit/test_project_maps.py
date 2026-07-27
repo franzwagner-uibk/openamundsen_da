@@ -2106,7 +2106,7 @@ def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events
     assert [panel.variable for panel in wet_recipe.panels[4:8]] == ["wet_snow", "wet_snow", "wet_snow", "wet_snow"]
 
 
-def test_scf_probability_model_resolves_posterior_member_source_pointers(
+def test_scf_posterior_probability_uses_weighted_pre_resampling_prior_members(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2115,17 +2115,15 @@ def test_scf_probability_model_resolves_posterior_member_source_pointers(
     step_dir = project_dir / "steps" / "step_01_20230101-20230102"
     source_member_dir = step_dir / "ensembles" / "prior" / "member_002"
     (source_member_dir / "results").mkdir(parents=True, exist_ok=True)
-    posterior_member_dir = step_dir / "ensembles" / "posterior" / "member_001"
-    posterior_member_dir.mkdir(parents=True, exist_ok=True)
-    (posterior_member_dir / "source_pointer.json").write_text(
-        json.dumps({"member_dir": str(source_member_dir)}, indent=2),
-        encoding="utf-8",
-    )
-
     seen_results_dirs: list[Path] = []
 
     monkeypatch.setattr(panel_renderers_module, "_step_dir_for_date", lambda *_args, **_kwargs: step_dir)
-    monkeypatch.setattr(panel_renderers_module, "list_member_dirs", lambda *_args, **_kwargs: [posterior_member_dir])
+    monkeypatch.setattr(panel_renderers_module, "list_member_dirs", lambda *_args, **_kwargs: [source_member_dir])
+    monkeypatch.setattr(
+        panel_renderers_module,
+        "_posterior_da_weights",
+        lambda *_args, **_kwargs: pd.Series({"member_002": 1.0}),
+    )
 
     def fake_binary_grid(**kwargs):
         seen_results_dirs.append(Path(kwargs["results_dir"]))
@@ -4216,6 +4214,7 @@ def test_posterior_weighted_wet_fraction_array_uses_da_weights(tmp_path: Path, m
         "_posterior_da_weights",
         lambda *_args, **_kwargs: pd.Series([0.25, 0.75], index=["member_001", "member_002"], dtype=float),
     )
+    monkeypatch.setattr(panel_renderers_module, "_event_variable_for_date", lambda *_args, **_kwargs: "wet_snow")
     monkeypatch.setattr(panel_renderers_module, "_step_dir_for_date", lambda *_args, **_kwargs: step_dir)
     monkeypatch.setattr(panel_renderers_module, "list_member_dirs", lambda *_args, **_kwargs: [member_a, member_b])
     monkeypatch.setattr(panel_renderers_module, "_wet_snow_mask_path", lambda results_dir, _date: Path(results_dir) / "dummy.tif")
@@ -4452,6 +4451,37 @@ def test_posterior_da_weights_reads_requested_wet_snow_variable(tmp_path: Path, 
     assert wsla_weights is not None
     assert wsf_weights["member_001"] == pytest.approx(0.2)
     assert wsla_weights["member_001"] == pytest.approx(0.5)
+
+
+def test_posterior_da_weights_defaults_to_assimilated_event_variable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+    context = load_static_context(project_dir)
+    requested_variables: list[str] = []
+
+    monkeypatch.setattr(
+        panel_renderers_module,
+        "load_assimilation_events",
+        lambda _project_dir: [
+            SimpleNamespace(date=pd.Timestamp("2023-01-02").date(), variable="station_hs"),
+        ],
+    )
+
+    def fake_load_weights_df(_project_dir: Path, _date: pd.Timestamp, variable: str) -> pd.DataFrame:
+        requested_variables.append(variable)
+        return pd.DataFrame(
+            {"member_id": ["member_001", "member_002"], "weight": [0.25, 0.75]},
+        )
+
+    monkeypatch.setattr(panel_renderers_module, "_load_weights_df", fake_load_weights_df)
+
+    weights = panel_renderers_module._posterior_da_weights(context, pd.Timestamp("2023-01-02"))
+
+    assert requested_variables == ["station_hs"]
+    assert weights is not None
+    assert weights.to_dict() == pytest.approx({"member_001": 0.25, "member_002": 0.75})
 
 
 def test_wet_snow_elevation_fraction_observation_excludes_non_contributors(tmp_path: Path) -> None:

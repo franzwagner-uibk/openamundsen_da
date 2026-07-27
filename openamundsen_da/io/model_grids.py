@@ -19,7 +19,12 @@ from openamundsen_da.util.yaml_utils import read_yaml_mapping
 _VARIABLE_NAMES = {
     "hs": "snowdepth_daily",
     "swe": "swe_daily",
+    "hs_instantaneous": "snowdepth_instantaneous",
+    "swe_instantaneous": "swe_instantaneous",
 }
+
+_DEPTH_NAME = "snowdepth_instantaneous"
+_LIQUID_WATER_NAME = "liquid_water_content_instantaneous"
 
 
 @dataclass(frozen=True)
@@ -55,7 +60,7 @@ def configured_model_grid_format(setup_dir: str | Path) -> ModelGridFormat:
 
 
 class ModelGridReader(ABC):
-    """Resolve one logical daily model grid without cross-format discovery."""
+    """Resolve instantaneous DA model grids without cross-format discovery."""
 
     format: ModelGridFormat
 
@@ -65,11 +70,11 @@ class ModelGridReader(ABC):
 
     @abstractmethod
     def depth_series(self, results_dir: Path) -> list[ModelGridFrame]:
-        """Return ordered daily snow-depth frames."""
+        """Return ordered instantaneous snow-depth frames."""
 
     @abstractmethod
     def liquid_water_series(self, results_dir: Path) -> dict[str, list[np.ndarray]]:
-        """Return liquid-water layers grouped by timestamp."""
+        """Return instantaneous liquid-water layers grouped by timestamp."""
 
     @staticmethod
     def _variable_name(variable: str) -> str:
@@ -93,10 +98,10 @@ class GeoTiffGridReader(ModelGridReader):
         results_dir = Path(results_dir)
         self._validate_artifacts(results_dir)
         name = self._variable_name(variable)
-        matches = sorted(results_dir.glob(f"{name}_{date:%Y-%m-%d}T*.tif"))
+        matches = sorted(results_dir.glob(f"{name}_{date:%Y-%m-%dT%H%M}.tif"))
         if len(matches) != 1:
             raise FileNotFoundError(
-                f"Expected exactly one GeoTIFF for {variable} on {date:%Y-%m-%d} in {results_dir}; "
+                f"Expected exactly one GeoTIFF for {variable} at {date:%Y-%m-%dT%H:%M} in {results_dir}; "
                 f"found {len(matches)}"
             )
         path = matches[0]
@@ -104,7 +109,7 @@ class GeoTiffGridReader(ModelGridReader):
             if dataset.crs is None:
                 raise ValueError(f"GeoTIFF model grid has no CRS: {path}")
             if dataset.count != 1:
-                raise ValueError(f"GeoTIFF daily model grid must have exactly one band: {path}")
+                raise ValueError(f"GeoTIFF instantaneous model grid must have exactly one band: {path}")
         return GridSlice(kind="geotiff", path=path, variable=variable, date=date, band=1)
 
     def depth_series(self, results_dir: Path) -> list[ModelGridFrame]:
@@ -112,9 +117,9 @@ class GeoTiffGridReader(ModelGridReader):
 
         results_dir = Path(results_dir)
         self._validate_artifacts(results_dir)
-        pattern = re.compile(r"^snowdepth_daily_(?P<stamp>[^.]+)\.tif$")
+        pattern = re.compile(rf"^{_DEPTH_NAME}_(?P<stamp>[^.]+)\.tif$")
         entries: list[ModelGridFrame] = []
-        for path in sorted(results_dir.glob("snowdepth_daily_*.tif")):
+        for path in sorted(results_dir.glob(f"{_DEPTH_NAME}_*.tif")):
             match = pattern.match(path.name)
             if match is None:
                 continue
@@ -134,8 +139,7 @@ class GeoTiffGridReader(ModelGridReader):
         results_dir = Path(results_dir)
         self._validate_artifacts(results_dir)
         pattern = re.compile(
-            r"^liquid_water_content_(?P<layer>\d+)_(?P<start>\d{4}-\d{2}-\d{2}T\d{4})_"
-            r"(?P<end>\d{4}-\d{2}-\d{2}T\d{4})\.tif$"
+            rf"^{_LIQUID_WATER_NAME}_(?P<layer>\d+)_(?P<stamp>\d{{4}}-\d{{2}}-\d{{2}}T\d{{4}})\.tif$"
         )
         grouped: dict[str, list[np.ndarray]] = {}
         for path in sorted(results_dir.glob("liquid_water_content_*.tif")):
@@ -146,7 +150,7 @@ class GeoTiffGridReader(ModelGridReader):
                 data = dataset.read(1).astype("float32")
                 if dataset.nodata is not None:
                     data[data == dataset.nodata] = np.nan
-                grouped.setdefault(match.group("start"), []).append(data)
+                grouped.setdefault(match.group("stamp"), []).append(data)
         return grouped
 
 
@@ -183,14 +187,11 @@ class NetCdfGridReader(ModelGridReader):
                 raise ValueError(f"NetCDF model variable {name!r} must have exactly one time dimension")
             time_dim = time_dims[0]
             times = pd.to_datetime(dataset[time_dim].values)
-            matches = [
-                index
-                for index, timestamp in enumerate(times)
-                if pd.to_datetime(timestamp).date() == date.date()
-            ]
+            target = pd.Timestamp(date)
+            matches = [index for index, timestamp in enumerate(times) if pd.Timestamp(timestamp) == target]
             if len(matches) != 1:
                 raise FileNotFoundError(
-                    f"Expected exactly one NetCDF grid for {variable} on {date:%Y-%m-%d} in {path}; "
+                    f"Expected exactly one NetCDF grid for {variable} at {date:%Y-%m-%dT%H:%M} in {path}; "
                     f"found {len(matches)}"
                 )
         return GridSlice(
@@ -205,16 +206,16 @@ class NetCdfGridReader(ModelGridReader):
     def depth_series(self, results_dir: Path) -> list[ModelGridFrame]:
         path = self._path(Path(results_dir))
         with xr.open_dataset(path) as dataset:
-            if "snowdepth_daily" not in dataset:
-                raise FileNotFoundError(f"Variable 'snowdepth_daily' not found in {path}")
-            data = dataset["snowdepth_daily"]
+            if _DEPTH_NAME not in dataset:
+                raise FileNotFoundError(f"Variable {_DEPTH_NAME!r} not found in {path}")
+            data = dataset[_DEPTH_NAME]
             if "x" not in data.dims or "y" not in data.dims:
-                raise ValueError(f"NetCDF snowdepth_daily must use grid dimensions x and y; got {data.dims}")
+                raise ValueError(f"NetCDF {_DEPTH_NAME} must use grid dimensions x and y; got {data.dims}")
             time_dims = [dim for dim in data.dims if dim.startswith("time")]
             if len(time_dims) != 1:
-                raise ValueError("NetCDF snowdepth_daily must have exactly one time dimension")
+                raise ValueError(f"NetCDF {_DEPTH_NAME} must have exactly one time dimension")
             times = pd.to_datetime(dataset[time_dims[0]].values)
-        url = f"NETCDF:{path}:snowdepth_daily"
+        url = f"NETCDF:{path}:{_DEPTH_NAME}"
         with rasterio.open(url) as source:
             profile = dict(source.profile)
             return [
@@ -229,21 +230,21 @@ class NetCdfGridReader(ModelGridReader):
     def liquid_water_series(self, results_dir: Path) -> dict[str, list[np.ndarray]]:
         path = self._path(Path(results_dir))
         with xr.open_dataset(path) as dataset:
-            if "liquid_water_content" not in dataset:
-                raise FileNotFoundError(f"Variable 'liquid_water_content' not found in {path}")
-            data = dataset["liquid_water_content"]
+            if _LIQUID_WATER_NAME not in dataset:
+                raise FileNotFoundError(f"Variable {_LIQUID_WATER_NAME!r} not found in {path}")
+            data = dataset[_LIQUID_WATER_NAME]
             if "snow_layer" not in data.dims or "x" not in data.dims or "y" not in data.dims:
                 raise ValueError(
-                    "NetCDF liquid_water_content must use snow_layer, x and y grid dimensions; "
+                    f"NetCDF {_LIQUID_WATER_NAME} must use snow_layer, x and y grid dimensions; "
                     f"got {data.dims}"
                 )
             time_dims = [dim for dim in data.dims if dim.startswith("time")]
             if len(time_dims) != 1:
-                raise ValueError("NetCDF liquid_water_content must have exactly one time dimension")
+                raise ValueError(f"NetCDF {_LIQUID_WATER_NAME} must have exactly one time dimension")
             time_dim = time_dims[0]
             times = pd.to_datetime(dataset[time_dim].values)
             return {
-                f"{timestamp.date():%Y-%m-%d}T0000": [
+                timestamp.strftime("%Y-%m-%dT%H%M"): [
                     layer.astype("float32")
                     for layer in data.isel({time_dim: index}).values
                 ]

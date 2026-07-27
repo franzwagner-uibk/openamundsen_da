@@ -289,9 +289,9 @@ def _write_subdomain_setup_yaml(
     cfg = copy.deepcopy(source_cfg)
     cfg["domain"] = domain
     cfg.setdefault("input_data", {}).setdefault("grids", {})
-    cfg["input_data"]["grids"]["dir"] = str(grids_dir.resolve())
+    cfg["input_data"]["grids"]["dir"] = grids_dir.resolve().relative_to(sub_setup_dir.resolve()).as_posix()
     cfg.setdefault("input_data", {}).setdefault("meteo", {})
-    cfg["input_data"]["meteo"]["dir"] = str(meteo_dir.resolve())
+    cfg["input_data"]["meteo"]["dir"] = meteo_dir.resolve().relative_to(sub_setup_dir.resolve()).as_posix()
     # Sub-domains may rely on nearby stations outside the clipped grid extent.
     # Use global station bounds to avoid dropping all stations in small tiles.
     cfg["input_data"]["meteo"]["bounds"] = "global"

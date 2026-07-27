@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
+from typing import Callable
 
+import numpy as np
 import pandas as pd
 
 from openamundsen_da.io.paths import (
@@ -12,6 +14,8 @@ from openamundsen_da.io.paths import (
     list_step_dirs,
     project_result_overview_output_path,
 )
+from openamundsen_da.methods.pf.weights import load_prior_weights
+from openamundsen_da.util.stats import effective_sample_size, weighted_mean, weighted_quantile, weighted_std
 from openamundsen_da.util.ts import concat_series, parse_time_column
 
 
@@ -158,3 +162,104 @@ def load_named_member_series(
         if not stitched.empty:
             stitched_members[member_name] = stitched
     return stitched_members
+
+
+def load_weighted_member_envelope(
+    project_dir: Path,
+    filename: str,
+    value_col: str,
+    *,
+    q_low: float = 0.0,
+    q_high: float = 1.0,
+    preserve_missing_values: bool = False,
+    daily_mean: bool = False,
+    series_transform: Callable[[pd.Series], pd.Series] | None = None,
+) -> pd.DataFrame | None:
+    """Build a stepwise envelope using each step's persistent PF prior ledger."""
+    if not 0.0 <= q_low <= q_high <= 1.0:
+        raise ValueError("Envelope quantiles must satisfy 0 <= q_low <= q_high <= 1")
+    if not (Path(project_dir) / "steps").is_dir():
+        return None
+    segments: list[pd.DataFrame] = []
+    for step in list_step_dirs(project_dir):
+        members = list_member_dirs(step / "ensembles", "prior")
+        if not members:
+            continue
+        member_ids = [member.name for member in members]
+        ledger = load_prior_weights(step, member_ids).set_index("member_id")
+        series_by_member: dict[str, pd.Series] = {}
+        for member in members:
+            series = _load_fraction_value_series(
+                member / "results" / filename,
+                value_col,
+                preserve_missing_values=preserve_missing_values,
+            )
+            if series is None:
+                continue
+            if daily_mean:
+                series = series.resample("D").mean()
+            if series_transform is not None:
+                series = series_transform(series)
+            series_by_member[member.name] = series
+        if not series_by_member:
+            continue
+        aligned = pd.concat(series_by_member, axis=1, join="outer").sort_index()
+        rows: list[dict[str, object]] = []
+        for timestamp, row in aligned.iterrows():
+            values = pd.to_numeric(row, errors="coerce")
+            valid = values.notna()
+            if not valid.any():
+                if preserve_missing_values:
+                    rows.append(
+                        {
+                            "date": pd.Timestamp(timestamp),
+                            "value_mean": np.nan,
+                            "value_std": np.nan,
+                            "value_min": np.nan,
+                            "value_max": np.nan,
+                            "value_q_low": np.nan,
+                            "value_q_high": np.nan,
+                            "n": 0,
+                            "ess": np.nan,
+                            "weighting": "pf_prior_ledger",
+                            "bounds_semantics": "materialized_member_range",
+                        }
+                    )
+                continue
+            ids = values.index[valid].astype(str).tolist()
+            arr = values.loc[valid].to_numpy(dtype=float)
+            weights = ledger.loc[ids, "weight"].to_numpy(dtype=float)
+            weights /= weights.sum()
+            rows.append(
+                {
+                    "date": pd.Timestamp(timestamp),
+                    "value_mean": weighted_mean(arr, weights=weights),
+                    "value_std": weighted_std(arr, weights=weights),
+                    "value_min": float(np.min(arr)),
+                    "value_max": float(np.max(arr)),
+                    "value_q_low": weighted_quantile(arr, q_low, weights=weights),
+                    "value_q_high": weighted_quantile(arr, q_high, weights=weights),
+                    "n": int(arr.size),
+                    "ess": effective_sample_size(weights),
+                    "weighting": "pf_prior_ledger",
+                    "bounds_semantics": "materialized_member_range",
+                }
+            )
+        if rows:
+            segments.append(pd.DataFrame(rows))
+    if not segments:
+        return None
+    result = pd.concat(segments, ignore_index=True).sort_values("date")
+    result = result.drop_duplicates(subset=["date"], keep="last").reset_index(drop=True)
+    return result
+
+
+__all__ = [
+    "default_result_overview_output",
+    "load_fraction_series",
+    "load_member_series",
+    "load_named_member_series",
+    "load_open_loop_fraction_series",
+    "load_weighted_member_envelope",
+    "parse_fraction_dates",
+]

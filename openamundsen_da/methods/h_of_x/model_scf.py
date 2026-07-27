@@ -191,8 +191,8 @@ def compute_model_scf_binary_grid(
     preferred_format = _grid_format_from_setup(Path(setup_dir))
     slice_ = find_member_daily_grid_slice(
         Path(results_dir),
-        var,
-        date.strftime("%Y-%m-%d"),
+        f"{var}_instantaneous",
+        date.isoformat(),
         preferred_format=preferred_format,
     )
     arr = read_grid_slice_roi_masked_array(
@@ -219,7 +219,7 @@ def compute_model_scf(
     params: SCFParams | None = None,
     support_mask: np.ndarray | None = None,
 ) -> dict:
-    """Compute model SCF for one member/date within an AOI.
+    """Compute model SCF for one member at an instantaneous model time.
 
     Parameters
     ----------
@@ -228,7 +228,7 @@ def compute_model_scf(
     aoi_path : Path
         Vector file with single AOI polygon; reprojected to raster CRS if needed.
     date : datetime
-        Date for which to read the raster (daily outputs expected).
+        Matched model timestamp for which to read the instantaneous raster.
     variable : {"hs","swe"}
         Use snow depth (HS) or SWE raster for computation.
     method : {"depth_threshold","logistic"}
@@ -252,8 +252,8 @@ def compute_model_scf(
     preferred_format = _grid_format_from_setup(Path(setup_dir))
     slice_ = find_member_daily_grid_slice(
         Path(results_dir),
-        var,
-        date.strftime("%Y-%m-%d"),
+        f"{var}_instantaneous",
+        date.isoformat(),
         preferred_format=preferred_format,
     )
     arr = read_grid_slice_roi_masked_array(

@@ -4,7 +4,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from openamundsen_da.core.prior_forcing import _read_prior_params
+from openamundsen_da.core.prior_forcing import (
+    _read_prior_params,
+    build_prior_ensemble,
+    validate_prior_forcing_manifest,
+)
 from openamundsen_da.methods.pf.rejuvenate import _read_rejuvenation_params
 from openamundsen_da.util.humidity import (
     dew_point_to_relative_humidity,
@@ -134,7 +138,7 @@ def test_filter_and_write_meteo_formats_known_columns_to_storage_precision(tmp_p
     ]
 
 
-def test_new_prior_and_rejuvenation_sigmas_default_to_zero(tmp_path: Path) -> None:
+def test_prior_and_rejuvenation_require_configured_scientific_sigmas(tmp_path: Path) -> None:
     setup_dir = tmp_path / "setup"
     project_dir = setup_dir / "projects" / "demo"
     project_dir.mkdir(parents=True)
@@ -159,13 +163,64 @@ def test_new_prior_and_rejuvenation_sigmas_default_to_zero(tmp_path: Path) -> No
         encoding="utf-8",
     )
 
-    prior = _read_prior_params(project_dir)
-    rejuvenation = _read_rejuvenation_params(project_dir)
+    with pytest.raises(ValueError, match="sigma_rh"):
+        _read_prior_params(project_dir)
+    with pytest.raises(ValueError, match="sigma_rh"):
+        _read_rejuvenation_params(project_dir)
 
-    assert prior.sigma_rh == 0.0
-    assert prior.sigma_sw == 0.0
-    assert rejuvenation.sigma_rh == 0.0
-    assert rejuvenation.sigma_sw == 0.0
+
+def test_prior_forcing_manifest_controls_reuse_and_detects_output_tampering(tmp_path: Path) -> None:
+    setup_dir = tmp_path / "setup"
+    input_meteo_dir = setup_dir / "meteo"
+    project_dir = setup_dir / "projects" / "demo"
+    step_dir = project_dir / "steps" / "step_00"
+    input_meteo_dir.mkdir(parents=True)
+    step_dir.mkdir(parents=True)
+    (setup_dir / "setup.yml").write_text("input_data: {}\n", encoding="utf-8")
+    (input_meteo_dir / "stations.csv").write_text(
+        "id,name,x,y,alt\nstation,Station,0,0,0\n",
+        encoding="utf-8",
+    )
+    (input_meteo_dir / "station.csv").write_text(
+        "date,temp,precip,rel_hum,sw_in\n"
+        "2023-01-01T00:00:00,273.15,1.0,80.0,100.0\n",
+        encoding="utf-8",
+    )
+    (project_dir / "demo.yml").write_text(
+        "end_date: 2023-01-01T00:00:00\n"
+        "data_assimilation:\n"
+        "  prior_forcing:\n"
+        "    ensemble_size: 2\n"
+        "    random_seed: 42\n"
+        "    sigma_t: 0.5\n"
+        "    mu_p: 0.1\n"
+        "    sigma_p: 0.2\n"
+        "    sigma_rh: 0.3\n"
+        "    sigma_sw: 0.05\n",
+        encoding="utf-8",
+    )
+    (step_dir / "step_00.yml").write_text(
+        "start_date: 2023-01-01T00:00:00\n",
+        encoding="utf-8",
+    )
+
+    build_prior_ensemble(input_meteo_dir, project_dir, step_dir, max_workers=1)
+
+    manifest = validate_prior_forcing_manifest(
+        input_meteo_dir=input_meteo_dir,
+        project_dir=project_dir,
+        step_dir=step_dir,
+    )
+    assert manifest["rng_scheme"] == "keyed-v1"
+    assert [row["member"] for row in manifest["members"]] == ["member_001", "member_002"]
+    assert (step_dir / "ensembles" / "prior" / "member_001" / "INFO.txt").is_file()
+
+    build_prior_ensemble(input_meteo_dir, project_dir, step_dir, max_workers=1)
+
+    generated = step_dir / "ensembles" / "prior" / "member_001" / "meteo" / "station.csv"
+    generated.write_text(generated.read_text(encoding="utf-8") + "# tampered\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="output_inventory_sha256"):
+        build_prior_ensemble(input_meteo_dir, project_dir, step_dir, max_workers=1)
 
 
 def test_removed_humidity_method_config_is_rejected(tmp_path: Path) -> None:
@@ -185,6 +240,8 @@ def test_removed_humidity_method_config_is_rejected(tmp_path: Path) -> None:
                 "    mu_p: 0.0",
                 "    sigma_p: 0.5",
                 "    humidity_perturbation_method: dew_point",
+                "  rejuvenation:",
+                "    seed: 7",
             ]
         ),
         encoding="utf-8",

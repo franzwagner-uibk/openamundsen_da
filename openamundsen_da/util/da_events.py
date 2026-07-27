@@ -8,6 +8,7 @@ from pathlib import Path
 
 from openamundsen_da.io.paths import find_project_yaml
 from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
+from openamundsen_da.util.observation_time import parse_utc_timestamp
 from openamundsen_da.util.station_da import is_station_variable
 from openamundsen_da.util.yaml_utils import read_yaml_mapping
 
@@ -17,6 +18,7 @@ class AssimilationEvent:
     date: date
     variable: str
     product: str
+    observation_time: datetime | None = None
 
 
 def _parse_event_date(text: str | None) -> date:
@@ -71,6 +73,17 @@ def load_assimilation_events(project_dir: Path) -> list[AssimilationEvent]:
                 f"Configuration value must not be empty: data_assimilation.assimilation_events[{idx}].date"
             )
         dval = _parse_event_date(str(dtxt))
+        observation_time = None
+        if entry.get("observation_time") is not None:
+            observation_time = parse_utc_timestamp(
+                entry["observation_time"],
+                field=f"data_assimilation.assimilation_events[{idx}].observation_time",
+            )
+            if observation_time.date() != dval:
+                raise ValueError(
+                    f"data_assimilation.assimilation_events[{idx}].observation_time has UTC date "
+                    f"{observation_time.date()}, expected {dval}"
+                )
         var = _parse_event_variable(entry.get("variable"), idx=idx)
         if "product" in entry and entry["product"] is not None:
             prod = str(entry["product"]).strip()
@@ -84,7 +97,14 @@ def load_assimilation_events(project_dir: Path) -> list[AssimilationEvent]:
         else:
             prod_upper = resolve_obs_product_tag(var, setup_dir=setup_dir, project_dir=project_dir)
 
-        events.append(AssimilationEvent(date=dval, variable=var, product=prod_upper))
+        events.append(
+            AssimilationEvent(
+                date=dval,
+                variable=var,
+                product=prod_upper,
+                observation_time=observation_time,
+            )
+        )
 
     events.sort(key=lambda ev: ev.date)
     return events

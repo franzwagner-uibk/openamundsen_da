@@ -87,7 +87,7 @@ def test_build_case_scores_keeps_zskill_undefined_for_non_station_cases() -> Non
     assert project_scores["zskill"].isna().all()
 
 
-def test_reliability_rows_include_rank_histogram_for_unweighted_ensemble() -> None:
+def test_reliability_rows_include_pit_histogram_for_pf_weighted_ensemble() -> None:
     raw_cases = [
         RawBenchmarkCase(
             score_set="continuous",
@@ -125,17 +125,17 @@ def test_reliability_rows_include_rank_histogram_for_unweighted_ensemble() -> No
         group_cols=("score_set", "variable", "stream"),
     )
 
-    da_rank = reliability[
+    da_pit = reliability[
         (reliability["representation"] == "da_informed_ensemble")
-        & (reliability["diagnostic"] == "rank_histogram")
+        & (reliability["diagnostic"] == "pit_histogram")
     ].copy()
     coverage = reliability[
         (reliability["representation"] == "da_informed_ensemble")
         & (reliability["diagnostic"] == "interval_coverage")
     ].copy()
 
-    assert sorted(da_rank["bin_index"].astype(int).tolist()) == [0, 1, 2]
-    assert da_rank["count"].astype(int).tolist() == [0, 1, 1]
+    assert sorted(da_pit["bin_index"].astype(int).tolist()) == list(range(10))
+    assert int(da_pit["count"].sum()) == 2
     assert math.isclose(float(coverage.loc[coverage["nominal_level"] == 0.5, "value"].iloc[0]), 0.5)
     assert math.isclose(float(coverage.loc[coverage["nominal_level"] == 0.8, "value"].iloc[0]), 0.5)
 

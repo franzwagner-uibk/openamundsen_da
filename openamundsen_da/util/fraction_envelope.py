@@ -15,11 +15,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from loguru import logger
 
 from openamundsen_da.io.paths import list_step_dirs
 from openamundsen_da.util.loguru_utils import configure_cli_logger
+from openamundsen_da.methods.pf.weights import load_prior_weights
+from openamundsen_da.util.stats import (
+    effective_sample_size,
+    normalize_weights,
+    weighted_mean,
+    weighted_quantile,
+    weighted_std,
+)
 
 
 def _find_series_files(setup_dir: Path, filename: str) -> list[Path]:
@@ -82,6 +91,7 @@ def aggregate_fraction_envelope(
         return None
 
     frames: list[pd.DataFrame] = []
+    ledgers: dict[Path, pd.DataFrame] = {}
     for f in files:
         try:
             df = _load_series(f, value_col)
@@ -89,6 +99,20 @@ def aggregate_fraction_envelope(
             logger.warning("Skipping {}: {}", f, exc)
             continue
         if df is not None and not df.empty:
+            step_dir = f.parents[4]
+            member_id = f.parents[1].name
+            if step_dir not in ledgers:
+                step_member_ids = sorted(
+                    path.name
+                    for path in (step_dir / "ensembles" / "prior").glob("member_*")
+                    if path.is_dir()
+                )
+                ledgers[step_dir] = load_prior_weights(step_dir, step_member_ids).set_index("member_id")
+            ledger = ledgers[step_dir]
+            if member_id not in ledger.index:
+                raise ValueError(f"Missing PF prior weight for {member_id} in {step_dir}")
+            df["member_id"] = member_id
+            df["pf_weight"] = float(ledger.loc[member_id, "weight"])
             frames.append(df)
 
     if not frames:
@@ -96,16 +120,31 @@ def aggregate_fraction_envelope(
         return None
 
     all_df = pd.concat(frames, ignore_index=True)
-    grp = all_df.groupby("date")[value_col]
-    out = pd.DataFrame(
-        {
-            "date": grp.mean().index,
-            "value_mean": grp.mean().values,
-            "value_min": grp.min().values,
-            "value_max": grp.max().values,
-            "n": grp.count().values,
-        }
-    ).sort_values("date")
+    rows: list[dict[str, object]] = []
+    for date, group in all_df.groupby("date", sort=True):
+        values = pd.to_numeric(group[value_col], errors="coerce").to_numpy(dtype=float)
+        raw_weights = pd.to_numeric(group["pf_weight"], errors="coerce").to_numpy(dtype=float)
+        valid = np.isfinite(values) & np.isfinite(raw_weights) & (raw_weights >= 0.0)
+        if not np.any(valid):
+            continue
+        values = values[valid]
+        weights = normalize_weights(raw_weights[valid])
+        rows.append(
+            {
+                "date": date,
+                "value_mean": weighted_mean(values, weights),
+                "value_std": weighted_std(values, weights),
+                "value_q05": weighted_quantile(values, 0.05, weights),
+                "value_q95": weighted_quantile(values, 0.95, weights),
+                "value_min": float(np.min(values)),
+                "value_max": float(np.max(values)),
+                "n": int(values.size),
+                "ess": effective_sample_size(weights),
+                "weighting": "pf_prior_ledger",
+                "bounds_semantics": "materialized_member_range",
+            }
+        )
+    out = pd.DataFrame(rows).sort_values("date")
 
     out_path = Path(setup_dir) / output_name
     out_path.parent.mkdir(parents=True, exist_ok=True)

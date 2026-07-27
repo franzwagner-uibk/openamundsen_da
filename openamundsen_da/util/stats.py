@@ -71,6 +71,12 @@ def gaussian_logpdf(residual: np.ndarray, sigma: np.ndarray | float) -> np.ndarr
 def logsumexp(a: np.ndarray) -> float:
     """Stable log-sum-exp over a 1D array."""
     a = np.asarray(a, dtype=float)
+    if a.ndim != 1 or a.size == 0:
+        raise ValueError("Log weights must be a non-empty one-dimensional array")
+    if np.any(np.isnan(a)) or np.any(np.isposinf(a)):
+        raise ValueError("Log weights must not contain NaN or positive infinity")
+    if np.all(np.isneginf(a)):
+        raise ValueError("At least one log weight must be finite")
     m = np.max(a)
     return float(m + np.log(np.sum(np.exp(a - m))))
 
@@ -80,7 +86,7 @@ def normalize_log_weights(logw: np.ndarray) -> np.ndarray:
     lw = np.asarray(logw, dtype=float)
     lse = logsumexp(lw)
     w = np.exp(lw - lse)
-    return w / np.sum(w)
+    return normalize_weights(w)
 
 
 def effective_sample_size(w: np.ndarray) -> float:

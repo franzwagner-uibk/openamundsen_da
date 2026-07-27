@@ -55,6 +55,7 @@ from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.roi_grid import ensure_setup_roi_vector, load_setup_roi_mask
 from openamundsen_da.observer.class_config import load_wetsnow_classes
 from openamundsen_da.util.loguru_utils import configure_cli_logger
+from openamundsen_da.util.observation_time import resolve_acquisition_time
 from openamundsen_da.util.project_dates import resolve_project_dates
 from openamundsen_da.util.uncertainty_common import (
     assert_same_grid as assert_same_grid_shared,
@@ -167,14 +168,13 @@ def _find_mask_raster(
     subdir: str = "wet_snow",
     prefix: str = "wet_snow_mask",
 ) -> Path:
-    """Find wet-snow mask inside a member results directory for a date."""
+    """Find the unique wet-snow mask at the requested model timestamp."""
 
-    date_str = date.strftime("%Y-%m-%d")
-    pattern = f"{prefix}_{date_str}T*.tif"
+    pattern = f"{prefix}_{date:%Y-%m-%dT%H%M}.tif"
     base = Path(results_dir) / subdir
     matches = sorted(base.glob(pattern))
-    if not matches:
-        raise FileNotFoundError(f"No mask matching {pattern} in {base}")
+    if len(matches) != 1:
+        raise FileNotFoundError(f"Expected exactly one mask matching {pattern} in {base}; found {len(matches)}")
     return matches[0]
 
 
@@ -423,6 +423,19 @@ def _project_observation_masks_to_setup_grid(
     return valid_mask, wet_mask
 
 
+def _model_grid_support_coverage(valid_mask: np.ndarray, eligible_mask: np.ndarray) -> float:
+    """Return valid observation support over eligible cells on the same model grid."""
+    valid = np.asarray(valid_mask, dtype=bool)
+    eligible = np.asarray(eligible_mask, dtype=bool)
+    if valid.shape != eligible.shape:
+        raise ValueError("Observation support and eligible model masks must share a grid")
+    denominator = int(np.count_nonzero(eligible))
+    if denominator <= 0:
+        raise ValueError("No eligible model-grid cells available for support coverage")
+    numerator = int(np.count_nonzero(valid & eligible))
+    return float(np.clip(numerator / denominator, 0.0, 1.0))
+
+
 def compute_wet_snow_fraction_from_raster(
     raster_path: Path,
     aoi_path: Path,
@@ -501,6 +514,11 @@ def _build_wetsnow_summary_row(
         unc_n_valid = int(np.count_nonzero(unc_valid))
         if unc_n_valid <= 0:
             raise ValueError(f"No valid uncertainty support for source {source_name}")
+        if unc_n_valid != n_valid:
+            raise ValueError(
+                f"Incomplete uncertainty coverage for source {source_name}: "
+                f"unc_n_valid={unc_n_valid}, n_valid={n_valid}"
+            )
         unc_vals = unc_data[unc_valid].astype(float)
         row["unc_mean"] = float(np.mean(unc_vals))
         row["unc_min"] = float(np.min(unc_vals))
@@ -963,6 +981,14 @@ def summarize_s1_directory(
         files.extend(sorted(globber(patt)))
     files = [p for p in files if not p.stem.lower().endswith("_uncertainty")]
     uncertainty_cfg = _load_wet_snow_uncertainty_ingest_config(Path(project_dir))
+    project_cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
+    obs_cfg = require_mapping(project_cfg.get("obs"), path="project.obs")
+    product_cfg = require_mapping(obs_cfg.get("wetsnow"), path="project.obs.wetsnow")
+    product_tag = require_nonempty_str(product_cfg, "product_tag", path="project.obs.wetsnow")
+    parser_raw = product_cfg.get("filename_time_parser")
+    filename_parser = str(parser_raw).strip() if parser_raw is not None else None
+    manifest_raw = product_cfg.get("acquisition_manifest")
+    manifest_path = Path(setup_dir) / str(manifest_raw) if manifest_raw is not None else None
     disabled_uncertainty_cfg = _disabled_wet_snow_uncertainty_ingest_config()
     rows: list[dict[str, object]] = []
     for tif in files:
@@ -1121,6 +1147,21 @@ def summarize_s1_directory(
                     continue
                 if end and stats_date.to_pydatetime() > end:
                     continue
+                source_text = str(row.get("source", tif.name))
+                source_name, separator, cf_time = source_text.partition("@")
+                acquisition = resolve_acquisition_time(
+                    source_path=Path(raster_dir) / Path(source_name).name,
+                    product=product_tag,
+                    observation_date=row["date"],
+                    cf_time=(cf_time if separator else None),
+                    filename_parser=filename_parser,
+                    manifest_path=manifest_path,
+                )
+                row["acquisition_time"] = acquisition.value.isoformat().replace("+00:00", "Z")
+                row["time_source"] = acquisition.source
+                row["time_quality"] = acquisition.quality
+                if acquisition.quality == "fallback_midnight":
+                    logger.warning("No acquisition timestamp for {}; using UTC midnight", source_name)
                 rows.append(row)
                 accepted += 1
                 logger.info(
@@ -1146,21 +1187,28 @@ def summarize_s1_directory(
         raise RuntimeError(f"No valid Sentinel-1 rasters processed in {raster_dir}")
 
     # Keep one best raster per date/tile (highest valid pixel count), then aggregate across tiles.
-    best_per_date_tile: dict[tuple[str, str], dict[str, object]] = {}
+    best_per_date_tile: dict[tuple[str, str, str], dict[str, object]] = {}
     for row in rows:
-        key = (str(row["date"]), str(row.get("tile", "UNKNOWN")))
+        key = (
+            str(row["date"]),
+            str(row["acquisition_time"]),
+            str(row.get("tile", "UNKNOWN")),
+        )
         prev = best_per_date_tile.get(key)
         if prev is None or int(row.get("n_valid", 0)) > int(prev.get("n_valid", 0)):
             best_per_date_tile[key] = row
 
-    agg: dict[tuple[str, str], dict[str, object]] = {}
+    agg: dict[tuple[str, str, str], dict[str, object]] = {}
     for row in best_per_date_tile.values():
-        key = (str(row["date"]), str(row["region_id"]))
+        key = (str(row["date"]), str(row["acquisition_time"]), str(row["region_id"]))
         slot = agg.get(key)
         if slot is None:
             slot = {
                 "date": row["date"],
                 "region_id": row["region_id"],
+                "acquisition_time": row["acquisition_time"],
+                "time_source": row["time_source"],
+                "time_quality": row["time_quality"],
                 "n_valid": 0,
                 "n_wet": 0,
                 "source_set": set(),
@@ -1208,6 +1256,13 @@ def summarize_s1_directory(
         if wsl_profile_dir is not None
         else output_csv.parent / "wet_snow_line_profiles"
     )
+    eligible_model_mask, _eligible_spec = _eligible_setup_mask(
+        setup_dir=Path(setup_dir),
+        landcover_cfg=lc_cfg,
+    )
+    eligible_model_cells = int(np.count_nonzero(eligible_model_mask))
+    if eligible_model_cells <= 0:
+        raise ValueError("No eligible model-grid cells available for wet-snow support coverage")
     for entry in agg.values():
         n_valid = int(entry["n_valid"])
         n_wet = int(entry["n_wet"])
@@ -1220,9 +1275,13 @@ def summarize_s1_directory(
             valid_mask=valid_mask,
             wet_mask=wet_mask,
         )
+        support_coverage_ratio = _model_grid_support_coverage(valid_mask, eligible_model_mask)
         row_out = {
             "date": entry["date"],
             "region_id": entry["region_id"],
+            "acquisition_time": entry["acquisition_time"],
+            "time_source": entry["time_source"],
+            "time_quality": entry["time_quality"],
             "wet_snow_fraction": round(frac, 4),
             "n_valid": n_valid,
             "n_wet": n_wet,
@@ -1233,7 +1292,7 @@ def summarize_s1_directory(
             "wet_snow_line_n_valid": wsl_eval.n_valid,
             "wet_snow_line_n_wet": wsl_eval.n_wet,
             "wet_snow_line_wet_bands": wsl_eval.wet_bands,
-            "wet_snow_line_support_coverage_ratio": float(n_valid / max(1, wsl_eval.n_valid)),
+            "wet_snow_line_support_coverage_ratio": support_coverage_ratio,
             "wet_snow_line_method": wsl_eval.method,
             "wet_snow_line_gate_reason": wsl_eval.gate_reason or "",
         }
@@ -1241,6 +1300,9 @@ def summarize_s1_directory(
         diag_row = {
             "date": entry["date"],
             "region_id": entry["region_id"],
+            "acquisition_time": entry["acquisition_time"],
+            "time_source": entry["time_source"],
+            "time_quality": entry["time_quality"],
             "wet_snow_line": wsl_eval.wet_snow_line,
             "wet_snow_line_p95": wsl_eval.wet_elevation_percentile,
             "wet_snow_line_n_valid": wsl_eval.n_valid,
@@ -1269,6 +1331,9 @@ def summarize_s1_directory(
             profile_df = pd.concat(profile_frames, ignore_index=True)
             profile_df.insert(0, "date", entry["date"])
             profile_df.insert(1, "region_id", entry["region_id"])
+            profile_df.insert(2, "acquisition_time", entry["acquisition_time"])
+            profile_df.insert(3, "time_source", entry["time_source"])
+            profile_df.insert(4, "time_quality", entry["time_quality"])
             resolved_wsl_profile_dir.mkdir(parents=True, exist_ok=True)
             profile_df.to_csv(
                 resolved_wsl_profile_dir / f"wet_snow_line_profile_{str(entry['date']).replace('-', '')}.csv",

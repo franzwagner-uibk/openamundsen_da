@@ -116,6 +116,7 @@ class SnowcoverUncertaintyTests(unittest.TestCase):
                     "obs": {
                         "snowcover": {
                             "dir": "obs/snowcover",
+                            "product_tag": "SNOWCOVER",
                             "classes": {
                                 "valid": [0, 50, 100],
                                 "cloud": [205],
@@ -294,6 +295,7 @@ class SnowcoverUncertaintyTests(unittest.TestCase):
                     "obs": {
                         "snowcover": {
                             "dir": "obs/snowcover",
+                            "product_tag": "SNOWCOVER",
                             "classes": {
                                 "valid": [0, 100],
                                 "cloud": [205, 255],

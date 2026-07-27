@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -133,3 +134,48 @@ def test_rejuvenation_resume_ignores_diagnostics_but_binds_weight_ancestry(
     weights.write_text("member_id,weight\nmember_001,0.9\nmember_002,0.1\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match="input_inventory_sha256"):
         validate_rejuvenation_manifest(setup_dir=setup, prev_step_dir=step_0, next_step_dir=step_1)
+
+
+def test_rejuvenation_validation_allows_pointers_removed_by_completed_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup, step_0, step_1, _step_2 = _prepare_project(tmp_path)
+    source_pointers = []
+    for idx in range(1, 3):
+        pointer = step_0 / "ensembles" / "posterior" / f"member_{idx:03d}" / "state_pointer.json"
+        pointer.write_text(json.dumps({"path": f"/states/member_{idx:03d}.pickle.gz"}), encoding="utf-8")
+        source_pointers.append(pointer)
+
+    monkeypatch.setattr(
+        rejuvenate_module,
+        "run_tasks_with_pool",
+        lambda func, tasks, **_kwargs: [func(*task) for task in tasks],
+    )
+    monkeypatch.setattr(rejuvenate_module, "pick_max_workers", lambda *args, **kwargs: 1)
+
+    rejuvenate(setup_dir=setup, prev_step_dir=step_0, next_step_dir=step_1)
+    target_pointers = sorted((step_1 / "ensembles" / "prior").glob("member_*/state_pointer.json"))
+    pointers = [*source_pointers, *target_pointers]
+    assert len(target_pointers) == 2
+    validate_rejuvenation_manifest(setup_dir=setup, prev_step_dir=step_0, next_step_dir=step_1)
+
+    pointers[0].unlink()
+    with pytest.raises(RuntimeError, match="input_inventory_sha256"):
+        validate_rejuvenation_manifest(setup_dir=setup, prev_step_dir=step_0, next_step_dir=step_1)
+
+    project = step_1.parents[1]
+    cleanup_paths = [pointer.relative_to(project).as_posix() for pointer in pointers]
+    for pointer in pointers[1:]:
+        pointer.unlink()
+    run_manifest = {
+        "schema_version": 1,
+        "status": "success",
+        "stages": {"cleanup": "success"},
+        "cleanup": {"deleted_paths": cleanup_paths, "failures": []},
+    }
+    manifest_path = project / "results" / "run_manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(run_manifest), encoding="utf-8")
+
+    validate_rejuvenation_manifest(setup_dir=setup, prev_step_dir=step_0, next_step_dir=step_1)

@@ -66,6 +66,7 @@ from openamundsen_da.manifests import (
     file_inventory,
     inventory_digest,
     load_manifest,
+    project_run_manifest_path,
     recursive_files,
     write_manifest_atomic,
 )
@@ -381,7 +382,7 @@ def rejuvenate(
         target_ensemble=target_ensemble,
     )
     manifest = {
-        "rejuvenation_schema_version": 2,
+        "rejuvenation_schema_version": 3,
         "status": "complete",
         "source_step": str(prev_step_dir),
         "target_step": str(next_step_dir),
@@ -463,6 +464,55 @@ def _rejuvenation_output_inventory(
     return file_inventory(root=setup_dir, files=files)
 
 
+def _completed_cleanup_paths(*, setup_dir: Path, project_dir: Path) -> set[str]:
+    """Return pointer paths deliberately removed by successful final cleanup."""
+    run_manifest = load_manifest(project_run_manifest_path(project_dir))
+    if (
+        run_manifest is None
+        or run_manifest.get("status") != "success"
+        or (run_manifest.get("stages") or {}).get("cleanup") != "success"
+    ):
+        return set()
+    cleanup = run_manifest.get("cleanup")
+    if not isinstance(cleanup, dict) or cleanup.get("failures"):
+        return set()
+    allowed: set[str] = set()
+    for raw_path in cleanup.get("deleted_paths", []):
+        try:
+            path = (project_dir / str(raw_path)).resolve()
+            path.relative_to(project_dir.resolve())
+            relative = path.relative_to(setup_dir.resolve()).as_posix()
+        except (OSError, ValueError):
+            continue
+        if path.name == STATE_POINTER_JSON:
+            allowed.add(relative)
+    return allowed
+
+
+def _inventory_matches(
+    *,
+    recorded: object,
+    recorded_digest: object,
+    current: list[dict[str, object]],
+    allowed_missing: set[str],
+) -> bool:
+    """Compare an inventory while retaining provenance for cleaned pointers."""
+    if not isinstance(recorded, list) or not isinstance(recorded_digest, str):
+        return False
+    if inventory_digest(recorded) != recorded_digest:
+        return False
+    recorded_by_path = {
+        str(entry.get("path")): entry
+        for entry in recorded
+        if isinstance(entry, dict) and entry.get("path")
+    }
+    current_by_path = {str(entry["path"]): entry for entry in current}
+    for path in allowed_missing:
+        if path not in current_by_path:
+            recorded_by_path.pop(path, None)
+    return recorded_by_path == current_by_path
+
+
 def validate_rejuvenation_manifest(
     *,
     setup_dir: Path,
@@ -476,7 +526,7 @@ def validate_rejuvenation_manifest(
     manifest = load_manifest(manifest_path)
     if manifest is None:
         raise FileNotFoundError(f"Missing rejuvenation manifest: {manifest_path}")
-    if manifest.get("rejuvenation_schema_version") != 2 or manifest.get("status") != "complete":
+    if manifest.get("rejuvenation_schema_version") != 3 or manifest.get("status") != "complete":
         raise ValueError(f"Unsupported or incomplete rejuvenation manifest: {manifest_path}")
     params = _read_rejuvenation_params(infer_project_dir(next_step_dir))
     expected = {
@@ -510,9 +560,23 @@ def validate_rejuvenation_manifest(
         next_step_dir=Path(next_step_dir),
         target_ensemble=target_ensemble,
     )
-    if manifest.get("input_inventory_sha256") != inventory_digest(inputs):
+    allowed_missing = _completed_cleanup_paths(
+        setup_dir=Path(setup_dir),
+        project_dir=infer_project_dir(next_step_dir),
+    )
+    if not _inventory_matches(
+        recorded=manifest.get("input_inventory"),
+        recorded_digest=manifest.get("input_inventory_sha256"),
+        current=inputs,
+        allowed_missing=allowed_missing,
+    ):
         mismatches["input_inventory_sha256"] = (manifest.get("input_inventory_sha256"), inventory_digest(inputs))
-    if manifest.get("output_inventory_sha256") != inventory_digest(outputs):
+    if not _inventory_matches(
+        recorded=manifest.get("output_inventory"),
+        recorded_digest=manifest.get("output_inventory_sha256"),
+        current=outputs,
+        allowed_missing=allowed_missing,
+    ):
         mismatches["output_inventory_sha256"] = (manifest.get("output_inventory_sha256"), inventory_digest(outputs))
     if mismatches:
         raise RuntimeError(f"Rejuvenation resume provenance mismatch: {mismatches}")

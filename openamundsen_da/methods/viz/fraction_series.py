@@ -15,7 +15,13 @@ from openamundsen_da.io.paths import (
     project_result_overview_output_path,
 )
 from openamundsen_da.methods.pf.weights import load_prior_weights
-from openamundsen_da.util.stats import effective_sample_size, weighted_mean, weighted_quantile, weighted_std
+from openamundsen_da.util.stats import (
+    effective_sample_size,
+    normalize_weights,
+    weighted_mean,
+    weighted_quantile,
+    weighted_std,
+)
 from openamundsen_da.util.ts import concat_series, parse_time_column
 
 
@@ -228,8 +234,7 @@ def load_weighted_member_envelope(
                 continue
             ids = values.index[valid].astype(str).tolist()
             arr = values.loc[valid].to_numpy(dtype=float)
-            weights = ledger.loc[ids, "weight"].to_numpy(dtype=float)
-            weights /= weights.sum()
+            weights = normalize_weights(ledger.loc[ids, "weight"].to_numpy(dtype=float))
             rows.append(
                 {
                     "date": pd.Timestamp(timestamp),

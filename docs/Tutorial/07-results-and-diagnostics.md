@@ -174,6 +174,8 @@ Reference structure snippet (`results/plots/assim`, typical files)
 >
 > - ESS near ensemble size for many events:
 >   - observations have weak discrimination or high observation error
+>   - assimilation still updates the normalized PF weights; resampling was
+>     simply unnecessary
 > - ESS very low (near 1) frequently:
 >   - strong degeneracy, aggressive resampling likely
 >   - possibly too-small observation error (`obs_sigma`) or too-strong mismatch
@@ -186,13 +188,14 @@ Reference CSV snippet (weights for one station HS event)
 
 File path: `/data/rofental/projects/project_2022_2023/steps/step_04_20230131-20230221/assim/weights_station_hs_20230221.csv`
 
-| member_id | value_obs | value_model | residual | sigma | n_stations | weight |
+| member_id | prior_weight | log_likelihood | weight | prior_ess | posterior_ess | resampled |
 | --- | --- | --- | --- | --- | --- | --- |
-| member_001 | 0.22 | 0.47 | -0.25 | 0.20 | 2 | 0.10 |
-| member_002 | 0.22 | 1.28 | -1.06 | 0.20 | 2 | 0.00 |
-| member_003 | 0.22 | 0.70 | -0.48 | 0.20 | 2 | 0.00 |
-| member_004 | 0.22 | 0.56 | -0.34 | 0.20 | 2 | 0.05 |
-| member_005 | 0.22 | 0.48 | -0.26 | 0.20 | 2 | 0.10 |
+| member_001 | 0.04 | -0.3 | 0.10 | 25.0 | 16.2 | true |
+| member_002 | 0.04 | -3.2 | 0.01 | 25.0 | 16.2 | true |
+
+Here `weight` is the normalized event posterior. When `resampled` is false, it
+becomes the next step's `prior_weight`; when true, resampled children start
+uniformly.
 
 Plot files to open:
 

@@ -41,6 +41,13 @@ output_data:
         name: liquid_water_content
         freq: D
         agg: mean
+      # Instantaneous model-timestep fields used by satellite DA operators
+      - var: snow.swe
+        name: swe_instantaneous
+      - var: snow.depth
+        name: snowdepth_instantaneous
+      - var: snow.liquid_water_content
+        name: liquid_water_content_instantaneous
 
 meteo:
   # Spatial interpolation parameters

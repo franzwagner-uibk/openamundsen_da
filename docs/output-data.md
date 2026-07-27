@@ -38,6 +38,26 @@ The model propagation grids feeding this builder can be NetCDF or GeoTIFF as
 selected in the setup YAML. The compact data assimilation result itself is always
 NetCDF.
 
+Propagation means, standard deviations, quantiles, increments and continuous
+benchmark distributions use the persistent PF prior ledger for each step.
+Event-analysis fields use the normalized pre-resampling posterior weights.
+Unweighted member traces and extrema describe the materialized member
+collection and are not interchangeable with the weighted analysis.
+
+## Particle-weight and stochastic provenance
+
+Every step stores `assim/prior_weights.csv` with `member_id`, `log_weight` and
+`weight`, plus `prior_weights_manifest.json`. Event tables add
+`prior_log_weight`, `prior_weight`, `log_likelihood`, posterior `log_weight` and
+`weight`, prior/posterior ESS, threshold and `resampled`. Paired manifests hash
+the configuration, observation/model inputs and ledger ancestry.
+
+Resampling indices and manifests distinguish a mirrored posterior from an
+actual systematic resample. `rejuvenate_manifest.json` records the `keyed-v1`
+RNG contract, configured seed and event-specific perturbations. Incomplete old
+chains without these contracts remain readable but cannot resume under the
+corrected method.
+
 ## Tables and diagnostics
 
 The standard result tree includes:

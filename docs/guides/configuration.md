@@ -89,6 +89,7 @@ obs:
     dir: obs/snowcover
     format: geotiff
     product_tag: SNOWCOVER
+    acquisition_manifest: obs/satellite_acquisition_times.csv
     summary_csv: obs/summaries/project_2022_2023/scf_summary.csv
     classes:
       # Example only: use the class set required by your product
@@ -100,6 +101,8 @@ obs:
     dir: obs/wetsnow
     format: geotiff
     product_tag: WETSNOW
+    acquisition_manifest: obs/satellite_acquisition_times.csv
+    filename_time_parser: sentinel_1
     summary_csv: obs/summaries/project_2022_2023/wet_snow_summary.csv
     classes:
       wet: [110]
@@ -140,9 +143,14 @@ data_assimilation:
       sigma_floor: 0.05
       sigma_cloud_scale: 0.10
       min_sigma: 0.03
+      min_support_coverage_ratio: 0.10
     wet_snow:
       obs_sigma: 0.15
       use_binomial: false
+      sigma_floor: 0.03
+      sigma_cloud_scale: 0.10
+      min_sigma: 0.03
+      min_support_coverage_ratio: 0.10
     wet_snow_line:
       obs_sigma: 150.0
       use_binomial: false
@@ -150,16 +158,20 @@ data_assimilation:
       min_sigma: 25.0
       min_support_coverage_ratio: 0.10
       min_model_finite_fraction: 1.0 # set 0.90 for WSLA sensitivity experiments
+      min_wet_pixels_total: 50
+      min_wet_bands: 1
 
   resampling:
     algorithm: systematic
     ess_threshold_ratio: 0.5
+    seed: 43
 
   rejuvenation:
     sigma_t: 0.2
     sigma_p: 0.2
     sigma_rh: 0.0 # dew-point temperature perturbation scale
     sigma_sw: 0.0
+    seed: 44
 
   restart:
     dump_state: true
@@ -236,6 +248,8 @@ data_assimilation:
 
   assimilation_events:
     - date: 2023-03-17
+      # Optional when one scene exists on the date; required to disambiguate several scenes.
+      observation_time: 2023-03-17T10:21:00Z
       variable: scf
       product: SNOWCOVER
     - date: 2023-03-24
@@ -249,6 +263,9 @@ data_assimilation:
 
 Notes:
 - `assimilation_events` defines which dates and variables are assimilated.
+- `observation_time` is an optional full timezone-aware ISO-8601 selector.
+  Date-only selection is valid when exactly one scene exists. Several scenes on
+  one date require `observation_time`; the first row is never selected implicitly.
 - Station observation assimilation uses `variable: station_hs` or `variable: station_swe` and does not require a product tag.
 - Station observations live in `obs/stations/<station_id>.csv`; station DA metadata live in `obs/stations/stations_da_metadata.csv`.
 - `data_assimilation.station` defines project-level percentage defaults and single-station inflation for ROI-based station assimilation.
@@ -258,14 +275,28 @@ Notes:
 - `data_assimilation.benchmark` does not enable or disable benchmarking; the project pipeline always runs it. This block extends the benchmark scope and controls benchmark output location and plot writing. The benchmark presentation itself is fixed and lean: one assimilation-date skill plot plus two compact summary tables.
 - `independent_variables` may currently list only the DA-supported families: `scf`, WSF (`wet_snow`), WSLA (`wet_snow_line`), `station_hs`, `station_swe`.
 - `score_station_sigma_threshold` optionally excludes high-uncertainty station rows from non-sigma-aware benchmark metrics (`CRPSS`, `NER`) while leaving sigma-aware `zSkill` unchanged. The threshold is compared against the resolved station uncertainty percent from `obs/stations/stations_da_metadata.csv`.
+- `prior_forcing.random_seed`, `resampling.seed` and `rejuvenation.seed` are
+  required non-negative scientific seeds. Random draws use stable event/member/
+  variable keys and are invariant to worker scheduling and member ordering.
+- Each fractional observable used by `assimilation_events` requires its own
+  complete `data_assimilation.likelihood.<observable>` mapping. The values shown
+  above are the full contracts; missing, unknown, nonfinite or out-of-range
+  likelihood settings are errors and are never replaced by defaults.
 - `prior_forcing.sigma_rh` samples an additive dew-point temperature perturbation. When station CSVs contain both `temp` and `rel_hum`, the forcing helper converts temperature and relative humidity to dew point, applies the sampled dew-point offset, caps dew point at the perturbed air temperature and recalculates `rel_hum` in `[0, 100]`. Temperature perturbations also update `rel_hum` through this dew-point transform when both columns are available.
 - `prior_forcing.sigma_sw` adds a multiplicative `sw_in` perturbation using a positive factor; it is applied only for positive daytime shortwave values, so nighttime `sw_in` remains unchanged.
-- If `sigma_rh` or `sigma_sw` are omitted, they default to `0.0` and the corresponding perturbation is disabled.
+- Rejuvenation is a fresh process-noise forcing refresh, not an MCMC
+  resample-move step. It inherits omitted distribution parameters from
+  `prior_forcing`, including `mu_p`. `rebase_open_loop` is unsupported because
+  forcing is always rebuilt from the unmodified setup forcing.
 - Output stream labels are derived by benchmark semantics, not by config naming alone: a configured extra family can still appear as `semi_independent` in outputs, but only from the first same-variable or sister-station assimilation date onward.
 - Land-cover mask uses `grids/lc_<domain>_<resolution>.asc` from setup-level paths and data assimilation mask classes from project YAML.
 - For SCF uncertainty:
   - `enabled: true` activates strict uncertainty checks (fail-fast on missing/invalid config or layers).
   - `sigma_mode: uncertainty_layer` uses `aggregate_metric / 100` (for example `unc_mean`) with `min_sigma` floor.
+  - The aggregate is an effective, uncalibrated comparison-error sigma. The
+    uncertainty layer must cover every valid observation pixel; missing,
+    nonfinite, out-of-range or incomplete coverage is an error with no fixed
+    sigma substitution.
   - NetCDF uses configured in-file variables; GeoTIFF requires `<stem>_uncertainty.tif`.
   - Cloud pixels should be handled as data gaps (masked), not as uncertainty-penalty pixels.
 - Wet-snow uncertainty uses the same pattern (`ingest` + `assimilation`) and the same file-type behavior.
@@ -280,6 +311,10 @@ Notes:
 - `results/grids/da_output_grids.nc` is aggregated over all project steps (full project timeline).
 - In `da_output_grids.nc`, `increment_<var>` is the open-loop departure: `ens_mean_<var> - open_loop_<var>`.
 - Event analysis fields `analysis_mean_<var>` and `analysis_increment_<var>` are written where assimilation weights are available; `analysis_increment_<var>` is `analysis_mean_<var> - ens_mean_<var>`.
+- Satellite operators require instantaneous `snowdepth_instantaneous`,
+  `swe_instantaneous` and `liquid_water_content_instantaneous` model outputs.
+  Observation time is matched to the unique nearest model timestep within half
+  a timestep; ties and larger offsets are rejected.
 
 ## `step_XX.yml` (step level)
 Generated by `openamundsen-da prepare` and not edited manually.

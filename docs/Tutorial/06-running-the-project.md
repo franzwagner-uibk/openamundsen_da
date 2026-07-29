@@ -18,17 +18,39 @@ the complete output set.
 The setup YAML selects the 100 m openAMUNDSEN domain and its model grid format.
 The project YAML selects the ensemble size, event sequence and compact result
 variables. The tutorial reference uses `ensemble_size: 30` and eight events.
+Selected scientific fields are shown below; the shipped YAML remains the
+complete configuration.
 
 ```yaml
 data_assimilation:
   prior_forcing:
     ensemble_size: 30
-    random_seed: 113
+    random_seed: 1415935400
+    sigma_t: 1.0
+    mu_p: -0.055
+    sigma_p: 0.6
+    sigma_rh: 1.2
+    sigma_sw: 0.15
   resampling:
     ess_threshold_ratio: 0.7
-    seed: 113
+    seed: 1415935400
   rejuvenation:
-    seed: 113
+    sigma_t: 1.0
+    mu_p: -0.055
+    sigma_p: 0.6
+    sigma_rh: 1.2
+    sigma_sw: 0.15
+    seed: 1415935400
+  likelihood:
+    wet_snow_line:
+      obs_sigma: 200.0
+      min_model_finite_fraction: 0.95
+  uncertainty:
+    scf:
+      enabled: true
+      assimilation:
+        sigma_mode: uncertainty_layer
+        aggregate_metric: unc_mean
   output:
     retention: full
     grids:
@@ -40,9 +62,11 @@ data_assimilation:
           metrics: [open_loop, ens_mean, ens_std, ens_min, ens_max, increment]
 ```
 
-The frozen seeds make the scientific ensemble reproducible in the pinned release
-image. Worker count changes scheduling and runtime but not the configured random
-sequence.
+The fixed seeds and keyed random-number scheme make the scientific ensemble
+reproducible in the pinned release image. Worker count changes scheduling and
+runtime but not the configured random sequence. The precipitation parameters
+describe a lognormal multiplicative factor; `mu_p=-0.055` and `sigma_p=0.6`
+give an arithmetic mean factor of about 1.133.
 
 ## Run the project
 

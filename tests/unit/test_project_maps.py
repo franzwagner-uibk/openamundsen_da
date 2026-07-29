@@ -1989,7 +1989,7 @@ def test_generated_da_map_recipes_keep_wsla_contours_out_of_primary_wsf_row(
     ]
 
 
-def test_paper_recipe_keeps_full_wet_snow_line_da_maps(
+def test_manuscript_profile_can_trim_wet_snow_reference_row(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2008,52 +2008,66 @@ def test_paper_recipe_keeps_full_wet_snow_line_da_maps(
     monkeypatch.setattr(
         generated_module,
         "_fraction_model_support_available",
-        lambda _project_dir, variable: variable == "wet_snow",
+        lambda _project_dir, variable: variable in {"scf", "wet_snow"},
+    )
+    monkeypatch.setattr(
+        generated_module,
+        "_reference_stream",
+        lambda _project_dir, *, variable, date: (
+            "Snow cover (independent)" if variable == "scf" else None
+        ),
     )
 
     full_recipe = generated_module.generated_da_map_recipes(project_dir)[0]
     paper_recipe = runner_module._paper_recipe(full_recipe)
+    manuscript_recipe = runner_module._first_recipe_rows(paper_recipe, 3)
 
-    assert full_recipe.layout.nrows == 3
+    assert full_recipe.layout.nrows == 4
+    assert len(full_recipe.panels) == 16
+    assert [panel.kind for panel in full_recipe.panels[12:]] == ["fsc"] * 4
     assert full_recipe.row_labels == ()
     assert paper_recipe.figure_title is None
-    assert paper_recipe.layout.nrows == 3
-    assert paper_recipe.layout.ncols == 4
-    assert paper_recipe.row_labels == ()
-    assert {panel.row for panel in paper_recipe.panels} == {0, 1, 2}
-    assert [panel.kind for panel in paper_recipe.panels[:4]] == [
+    assert paper_recipe.layout.nrows == 4
+    assert len(paper_recipe.panels) == 16
+    assert manuscript_recipe.figure_title is None
+    assert manuscript_recipe.layout.nrows == 3
+    assert manuscript_recipe.layout.ncols == 4
+    assert manuscript_recipe.row_labels == ()
+    assert len(manuscript_recipe.panels) == 12
+    assert {panel.row for panel in manuscript_recipe.panels} == {0, 1, 2}
+    assert [panel.kind for panel in manuscript_recipe.panels[:4]] == [
         "wet_snow",
         "wet_snow",
         "wet_snow",
         "wet_snow",
     ]
-    assert [panel.title for panel in paper_recipe.panels[:4]] == [
+    assert [panel.title for panel in manuscript_recipe.panels[:4]] == [
         "Open loop WSF",
         "Prior WSF",
         "Posterior WSF",
         "Observed WSF",
     ]
-    assert [panel.kind for panel in paper_recipe.panels[4:8]] == [
+    assert [panel.kind for panel in manuscript_recipe.panels[4:8]] == [
         "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
         "wet_snow_elevation_fraction",
     ]
-    assert [panel.title for panel in paper_recipe.panels[4:8]] == [
+    assert [panel.title for panel in manuscript_recipe.panels[4:8]] == [
         "Open loop elevation band WSF",
         "Prior elevation band WSF",
         "Posterior elevation band WSF",
         "Observed elevation band WSF",
     ]
-    assert [panel.title for panel in paper_recipe.panels[8:]] == [
+    assert [panel.title for panel in manuscript_recipe.panels[8:]] == [
         "Open loop snow depth",
         "Prior mean snow depth",
         "Posterior mean snow depth",
         "Snow depth increment",
     ]
-    assert {panel.row for panel in paper_recipe.panels[:4]} == {0}
-    assert {panel.row for panel in paper_recipe.panels[4:8]} == {1}
-    assert {panel.row for panel in paper_recipe.panels[8:]} == {2}
+    assert {panel.row for panel in manuscript_recipe.panels[:4]} == {0}
+    assert {panel.row for panel in manuscript_recipe.panels[4:8]} == {1}
+    assert {panel.row for panel in manuscript_recipe.panels[8:]} == {2}
 
 
 def test_generated_da_map_recipes_add_elevation_band_wsf_row_for_wet_snow_events(
@@ -2262,6 +2276,63 @@ def test_developer_map_profile_writes_selected_title_free_outputs(
         (normal, "DA 1 - 2023-01-02 (Snow cover fraction)", "Open loop"),
         (paper, None, "Open loop"),
     ]
+
+
+def test_developer_map_profile_limits_only_selected_recipe_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_dir, project_dir = _build_project_fixture(tmp_path)
+
+    def _recipe(name: str, nrows: int) -> MapRecipe:
+        return MapRecipe(
+            name=name,
+            title=name,
+            figure_title=f"{name} title",
+            output_subdir="da_events",
+            layout=LayoutSpec(nrows=nrows, ncols=4),
+            panels=tuple(
+                MapPanelSpec(kind="hillshade", row=row, col=col)
+                for row in range(nrows)
+                for col in range(4)
+            ),
+        )
+
+    recipes = (_recipe("da_7", 4), _recipe("da_8", 2))
+    rendered: dict[str, tuple[int, int, str | None]] = {}
+
+    def _fake_render_map_recipe(*, project_dir, context, recipe, output_path, runtime_cache=None):
+        del project_dir, context, runtime_cache
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(recipe.name, encoding="utf-8")
+        rendered[recipe.name] = (
+            recipe.layout.nrows,
+            len(recipe.panels),
+            recipe.figure_title,
+        )
+        return output_path
+
+    monkeypatch.setattr(runner_module, "generated_da_map_recipes", lambda *_args, **_kwargs: recipes)
+    monkeypatch.setattr(runner_module, "load_static_context", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(runner_module, "_collect_shared_model_vmax", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(runner_module, "render_map_recipe", _fake_render_map_recipe)
+
+    outputs = runner_module.render_project_map_profile(
+        project_dir=project_dir,
+        output_root=project_dir / "results" / "paper" / "maps",
+        names={"da_7", "da_8"},
+        strip_figure_titles=True,
+        row_counts={"da_7": 3},
+    )
+
+    assert outputs == [
+        project_dir / "results" / "paper" / "maps" / "da_events" / "da_7.png",
+        project_dir / "results" / "paper" / "maps" / "da_events" / "da_8.png",
+    ]
+    assert rendered == {
+        "da_7": (3, 12, None),
+        "da_8": (2, 8, None),
+    }
 
 
 def test_project_maps_config_rejects_overlapping_panels(tmp_path: Path) -> None:

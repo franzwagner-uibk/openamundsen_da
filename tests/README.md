@@ -491,7 +491,8 @@ canonical asset. The command does not edit LaTeX. Use `--apply` only after
 reviewing the preview and, for manuscript assets, receiving explicit approval
 for the proposed replacements.
 
-The validator records the intentional metadata distinction between the
-physical Proviantdepot altitude reported by the manuscript and upstream point
-example (2737 m) and the 2659 m altitude stored in the regional forcing table
-used by the selected run.
+The manuscript profile keeps all configured diagnostics in the normal project
+maps while selecting only the three primary WSLA rows for the DA7 manuscript
+map. The DA8 manuscript map remains unfiltered. The validator requires the
+station altitudes distributed by the upstream Rofental example, including
+2659 m for Proviantdepot.

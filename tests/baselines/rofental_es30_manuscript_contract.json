@@ -68,12 +68,12 @@
     {"station_id": "proviantdepot", "station_uncertainty_pct": 10.0, "hs_sigma_abs_min": 0.1},
     {"station_id": "latschbloder", "station_uncertainty_pct": 500.0, "hs_sigma_abs_min": 0.3}
   ],
-  "physical_station_altitudes_in_manuscript": {
+  "distributed_example_station_altitudes_in_manuscript": {
     "bellavista": 2805,
-    "proviantdepot": 2737,
+    "proviantdepot": 2659,
     "latschbloder": 2919
   },
-  "known_metadata_distinction": "The manuscript and the upstream Proviantdepot point example report the physical station altitude as 2737 m. The regional Rofental forcing table used by the manuscript run contains 2659 m; this distinction must remain explicit in reproducibility audits.",
+  "station_altitude_basis": "The manuscript reports the station altitudes distributed in the upstream openAMUNDSEN Rofental example and used by the reproduced run.",
   "ess": [
     {"path": "projects/project_2022_2023/steps/step_00_init/assim/weights_station_hs_20221117.csv", "expected": 25.284539877460773, "resampled": false},
     {"path": "projects/project_2022_2023/steps/step_01_20221117-20221207/assim/weights_station_hs_20221207.csv", "expected": 8.097640663078202, "resampled": true},
@@ -99,7 +99,7 @@
     "99.40\\,km$^{2}$",
     "100\\,\\unit{m} spatial resolution and 3-hourly time steps",
     "elevations from 1905 to 3695\\,m a.s.l., with a mean elevation of 2894\\,m a.s.l.",
-    "Bella Vista (2805 m a.s.l.), Proviantdepot (2737 m a.s.l.) and Latschbloder (2919 m a.s.l.)",
+    "Bella Vista (2805 m a.s.l.), Proviantdepot (2659 m a.s.l.) and Latschbloder (2919 m a.s.l.)",
     "Prior ensemble & Members & 30",
     "Resampling & ESS ratio & \\(<0.7\\)",
     "1415935400",

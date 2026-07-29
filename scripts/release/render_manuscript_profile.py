@@ -16,6 +16,7 @@ from openamundsen_da.methods.viz.plots.assimilation.weights import plot_setup_we
 
 PROJECT_NAME = "project_2022_2023"
 MAP_RECIPE_NAMES = {"da_7", "da_8"}
+MAP_ROW_COUNTS = {"da_7": 3}
 PROFILE_RELATIVE_OUTPUTS = (
     Path("maps/da_events/da_7.png"),
     Path("maps/da_events/da_8.png"),
@@ -87,6 +88,7 @@ def render_manuscript_profile(root: Path) -> tuple[Path, ...]:
             output_root=temporary_root / "maps",
             names=MAP_RECIPE_NAMES,
             strip_figure_titles=True,
+            row_counts=MAP_ROW_COUNTS,
         )
 
         actual = _existing_profile_files(temporary_root)

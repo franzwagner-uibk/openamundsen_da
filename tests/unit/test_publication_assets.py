@@ -39,9 +39,10 @@ def test_manuscript_profile_replaces_broad_mirror_with_three_declared_outputs(
         output.write_text("weights", encoding="utf-8")
         return output
 
-    def _fake_maps(*, project_dir, output_root, names, strip_figure_titles):
+    def _fake_maps(*, project_dir, output_root, names, strip_figure_titles, row_counts):
         assert names == {"da_7", "da_8"}
         assert strip_figure_titles is True
+        assert row_counts == {"da_7": 3}
         outputs = []
         for name in sorted(names):
             output = output_root / "da_events" / f"{name}.png"
@@ -105,7 +106,8 @@ def test_manuscript_profile_restores_previous_outputs_when_swap_fails(
         output.write_text("weights", encoding="utf-8")
         return output
 
-    def _fake_maps(*, project_dir, output_root, names, strip_figure_titles):
+    def _fake_maps(*, project_dir, output_root, names, strip_figure_titles, row_counts):
+        assert row_counts == {"da_7": 3}
         for name in sorted(names):
             output = output_root / "da_events" / f"{name}.png"
             output.parent.mkdir(parents=True, exist_ok=True)

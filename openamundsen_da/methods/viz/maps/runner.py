@@ -5,6 +5,7 @@ import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Mapping
 
 import numpy as np
 from loguru import logger
@@ -67,6 +68,41 @@ def _recipe_output_path(project_dir: Path, recipe: MapRecipe) -> Path:
 
 def _paper_recipe(recipe: MapRecipe) -> MapRecipe:
     return replace(recipe, figure_title=None)
+
+
+def _first_recipe_rows(recipe: MapRecipe, row_count: int) -> MapRecipe:
+    if isinstance(row_count, bool) or not isinstance(row_count, int):
+        raise ValueError("Project map profile row count must be an integer")
+    if row_count < 1 or row_count > recipe.layout.nrows:
+        raise ValueError(
+            f"Project map profile row count for {recipe.name} must be between 1 "
+            f"and {recipe.layout.nrows}"
+        )
+
+    crossing_panels = tuple(
+        panel
+        for panel in recipe.panels
+        if panel.row < row_count < panel.row + panel.rowspan
+    )
+    if crossing_panels:
+        raise ValueError(
+            f"Project map profile row count for {recipe.name} would split a spanning panel"
+        )
+
+    height_ratios = recipe.layout.height_ratios
+    if height_ratios:
+        height_ratios = height_ratios[:row_count]
+    return replace(
+        recipe,
+        layout=replace(
+            recipe.layout,
+            nrows=row_count,
+            height_ratios=height_ratios,
+        ),
+        panels=tuple(panel for panel in recipe.panels if panel.row < row_count),
+        row_labels=recipe.row_labels[:row_count] if recipe.row_labels else (),
+        row_views=tuple(view for view in recipe.row_views if view.row < row_count),
+    )
 
 
 def _positive_int(value: str) -> int:
@@ -277,6 +313,7 @@ def render_project_map_profile(
     output_root: Path,
     names: set[str],
     strip_figure_titles: bool = False,
+    row_counts: Mapping[str, int] | None = None,
 ) -> list[Path]:
     """Render an explicit developer profile without changing public outputs.
 
@@ -289,6 +326,13 @@ def render_project_map_profile(
     output_root = Path(output_root).resolve()
     if not names:
         raise ValueError("Project map profile requires at least one recipe name")
+    row_counts = dict(row_counts or {})
+    unexpected_row_counts = sorted(set(row_counts) - names)
+    if unexpected_row_counts:
+        raise ValueError(
+            "Project map profile row counts include unselected recipe(s): "
+            + ", ".join(unexpected_row_counts)
+        )
 
     config_path = default_project_maps_config_path(project_dir).resolve()
     config = _effective_project_maps_config(project_dir, config_path)
@@ -306,6 +350,8 @@ def render_project_map_profile(
     outputs: list[Path] = []
     for recipe in filtered.maps:
         profile_recipe = _paper_recipe(recipe) if strip_figure_titles else recipe
+        if recipe.name in row_counts:
+            profile_recipe = _first_recipe_rows(profile_recipe, row_counts[recipe.name])
         output_dir = output_root / recipe.output_subdir if recipe.output_subdir else output_root
         output_path = output_dir / f"{recipe.output_stem}.png"
         logger.info("Starting profile map {}", recipe.name)

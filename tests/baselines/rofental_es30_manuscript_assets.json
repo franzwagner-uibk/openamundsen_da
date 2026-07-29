@@ -53,11 +53,11 @@
     {
       "name": "fig06.png",
       "source": "projects/project_2022_2023/results/paper/maps/da_events/da_7.png",
-      "file_sha256": "58e4dcc165e211a94b2fedd79be14efde3eb5dffaa71967de27f4b81140416e5",
+      "file_sha256": "6f6622dbdd045deda3e38a960c73b991b0cebdb8508e9793278be19b92004d0a",
       "width": 4278,
-      "height": 5275,
+      "height": 3913,
       "mode": "RGBA",
-      "pixels_sha256": "7e1378b394501253f7938d69c159ba5514f620e4f24bf3d9b0572cb9e0126abf"
+      "pixels_sha256": "bc2ca767e2c9d868f32eac4521575f9fdeaf3e3c5eed98adb5861eddba97e0e5"
     },
     {
       "name": "fig07.png",

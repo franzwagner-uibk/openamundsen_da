@@ -21,9 +21,6 @@ DEFAULT_CONTRACT = REPO_ROOT / "tests" / "baselines" / "rofental_es30_manuscript
 DEFAULT_ASSET_MANIFEST = (
     REPO_ROOT / "tests" / "baselines" / "rofental_es30_manuscript_assets.json"
 )
-DEFAULT_INPUT_MANIFEST = (
-    REPO_ROOT / "tests" / "baselines" / "rofental_es30_manuscript_inputs" / "manifest.json"
-)
 SCHEMA_VERSION = 1
 PROJECT_NAME = "project_2022_2023"
 RESULT_TOLERANCE = 1e-9
@@ -105,67 +102,6 @@ def _lookup(mapping: Mapping[str, Any], path: Sequence[str]) -> Any:
 
 def _difference(actual: float, expected: float, *, tolerance: float) -> bool:
     return not math.isclose(actual, expected, rel_tol=0.0, abs_tol=tolerance)
-
-
-def _validate_input_manifest(
-    contract: Mapping[str, Any], input_manifest: Mapping[str, Any]
-) -> list[str]:
-    differences: list[str] = []
-    for key in ("source_run", "source_commit", "precipitation_factor"):
-        if input_manifest.get(key) != contract.get(key):
-            differences.append(
-                f"input provenance differs for {key}: "
-                f"expected {contract.get(key)!r}, got {input_manifest.get(key)!r}"
-            )
-    return differences
-
-
-def _validate_frozen_inputs(
-    root: Path,
-    input_manifest: Mapping[str, Any],
-    *,
-    exclude: Sequence[str] = (),
-) -> list[str]:
-    differences: list[str] = []
-    excluded = set(exclude)
-    for record in input_manifest.get("files", ()):  # type: ignore[assignment]
-        relative = Path(str(record["path"]))
-        if relative.is_absolute() or ".." in relative.parts:
-            raise ManuscriptReferenceError(f"Invalid frozen input path: {relative}")
-        if relative.as_posix() in excluded:
-            continue
-        path = root / relative
-        if not path.is_file():
-            differences.append(f"missing frozen manuscript input: {relative.as_posix()}")
-            continue
-        actual = _sha256(path)
-        expected = str(record["sha256"])
-        if actual != expected:
-            differences.append(
-                f"frozen manuscript input differs: {relative.as_posix()}: "
-                f"expected {expected}, got {actual}"
-            )
-    return differences
-
-
-def _validate_publication_overlay(root: Path, contract: Mapping[str, Any]) -> list[str]:
-    differences: list[str] = []
-    for record in contract.get("publication_analysis_overlay", ()):  # type: ignore[assignment]
-        relative = Path(str(record["path"]))
-        if relative.is_absolute() or ".." in relative.parts:
-            raise ManuscriptReferenceError(f"Invalid publication overlay path: {relative}")
-        path = root / relative
-        if not path.is_file():
-            differences.append(f"missing publication analysis overlay: {relative.as_posix()}")
-            continue
-        actual = _sha256(path)
-        expected = str(record["sha256"])
-        if actual != expected:
-            differences.append(
-                f"publication analysis overlay differs: {relative.as_posix()}: "
-                f"expected {expected}, got {actual}"
-            )
-    return differences
 
 
 def _validate_config(root: Path, contract: Mapping[str, Any]) -> list[str]:
@@ -431,7 +367,6 @@ def validate_reference(
     root: Path,
     contract: Mapping[str, Any],
     asset_manifest: Mapping[str, Any],
-    input_manifest: Mapping[str, Any],
     *,
     manuscript_root: Path | None = None,
     stage: str = "publication",
@@ -443,20 +378,6 @@ def validate_reference(
     if stage not in {"simulation", "publication"}:
         raise ManuscriptReferenceError(f"Unsupported validation stage: {stage}")
     differences: list[str] = []
-    differences.extend(_validate_input_manifest(contract, input_manifest))
-    overlay_paths = tuple(
-        str(record["path"])
-        for record in contract.get("publication_analysis_overlay", ())
-    )
-    differences.extend(
-        _validate_frozen_inputs(
-            root,
-            input_manifest,
-            exclude=overlay_paths if stage == "publication" else (),
-        )
-    )
-    if stage == "publication":
-        differences.extend(_validate_publication_overlay(root, contract))
     differences.extend(_validate_config(root, contract))
     differences.extend(_validate_domain(root, contract))
     differences.extend(_validate_stations(root, contract))
@@ -464,9 +385,7 @@ def validate_reference(
         _validate_results(
             root,
             contract,
-            claims_key=(
-                "simulation_benchmark_claims" if stage == "simulation" else "benchmark_claims"
-            ),
+            claims_key="benchmark_claims",
         )
     )
     if stage == "publication":
@@ -486,7 +405,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("root", type=Path, help="Completed Rofental setup root")
     parser.add_argument("--contract", type=Path, default=DEFAULT_CONTRACT)
     parser.add_argument("--asset-manifest", type=Path, default=DEFAULT_ASSET_MANIFEST)
-    parser.add_argument("--input-manifest", type=Path, default=DEFAULT_INPUT_MANIFEST)
     parser.add_argument(
         "--stage",
         choices=("simulation", "publication"),
@@ -506,12 +424,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         contract = _read_json(args.contract.resolve(strict=True))
         asset_manifest = _read_json(args.asset_manifest.resolve(strict=True))
-        input_manifest = _read_json(args.input_manifest.resolve(strict=True))
         differences = validate_reference(
             args.root,
             contract,
             asset_manifest,
-            input_manifest,
             manuscript_root=args.manuscript_root,
             stage=args.stage,
         )

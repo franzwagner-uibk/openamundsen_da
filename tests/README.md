@@ -407,24 +407,17 @@ the difference is explained and explicitly approved.
 
 ### Exact manuscript setup
 
-The manuscript figures and reported statistics come from the selected
-`original8_p074_wsla100_fsca005` Rofental run. That run used a prepared
-precipitation factor of `0.74`, the corrected 100 m snow redistribution grid and
-an earlier input snapshot than the current shipped example. The five
-byte-distinct inputs are preserved under
-`tests/baselines/rofental_es30_manuscript_inputs/` with SHA-256 checksums.
-Four differ only in serialization; the selected fSCA summary also differs in
-values and therefore controls the DA7/DA8 simulation-stage observation record.
-Materialize a clean reproduction setup with:
+The manuscript figures and reported statistics use the same configuration and
+scientific inputs as the shipped Rofental example. Materialize a clean
+reproduction setup with:
 
 ```bash
 python scripts/release/materialize_manuscript_setup.py \
   /path/to/rofental_manuscript_es30
 ```
 
-The command copies the current shipped setup, preserving its strict project
-contract and current `maps.yml`/`plots.yml`, then overlays only the frozen
-scientific inputs. Run the exact setup through the integration path with:
+The command copies the shipped setup without applying scientific-input
+overlays. Run the exact setup through the integration path with:
 
 ```bash
 OA_DA_TEST_SETUP_SOURCE=/path/to/rofental_manuscript_es30 \
@@ -432,8 +425,8 @@ OA_DA_TEST_MAX_WORKERS=24 \
 bash scripts/ci/run_integration_tests.sh
 ```
 
-First validate the completed selected simulation before applying any later
-analysis inputs:
+First validate the completed simulation before regenerating publication
+outputs:
 
 ```bash
 python scripts/release/validate_manuscript_reference.py \
@@ -441,10 +434,8 @@ python scripts/release/validate_manuscript_reference.py \
   --stage simulation
 ```
 
-The manuscript assets were rendered later with an updated fSCA summary. The
-assimilation weights and model outputs remained those of the selected run, but
-the benchmark tables, plots, maps and report were regenerated. Reproduce that
-explicit second stage with:
+Regenerate the benchmark tables, plots, maps, report and title-free manuscript
+profile without changing observations, forcing, weights or model outputs:
 
 ```bash
 python scripts/release/refresh_manuscript_outputs.py \
@@ -454,23 +445,18 @@ python scripts/release/refresh_manuscript_outputs.py \
   --apply
 ```
 
-The refresh command refuses to mutate a run until the simulation-stage contract
-passes. It regenerates the canonical public outputs under `results/`, then
-replaces `results/paper/` with the developer-only manuscript profile. That
-profile contains exactly the title-free setup weights overview and DA maps 6
-and 8; normal project rendering does not create publication mirrors. Its final
-publication-stage validation checks the selected-run
-provenance, all case-study parameters, the eight event ESS and resampling
-decisions, quoted benchmark values, generated figures, exact manuscript asset
-hashes and the corresponding literals in `template.tex`. The selected
-simulation and publication-analysis science contracts are stored separately in
-`tests/baselines/rofental_es30_manuscript_simulation_fingerprint.json` and
+The refresh command refuses to regenerate outputs until the simulation-stage
+contract passes. It then replaces `results/paper/` with the declared manuscript
+profile, containing exactly the title-free setup weights overview and DA maps 7
+and 8. Publication-stage validation checks the case-study configuration, all
+eight event ESS and resampling decisions, benchmark values, generated figures,
+exact manuscript asset hashes and the corresponding literals in `template.tex`.
+The canonical science fingerprint is stored in
 `tests/baselines/rofental_es30_manuscript_science_fingerprint.json`. The
-publication figure contract remains
+publication figure contract is stored in
 `tests/baselines/rofental_es30_manuscript_assets.json`. It keeps the manuscript
-files byte-exact and records one accepted fresh-render variant of Figure 04,
-whose benchmark reductions differ only at machine precision and affect 1434
-antialiased pixels in the CRPSS panel.
+files byte-exact while allowing explicitly reviewed cross-platform render
+variants.
 
 Tutorial images are governed separately by
 `tests/baselines/rofental_es30_tutorial_assets.json`. Documentation validation
@@ -508,6 +494,4 @@ for the proposed replacements.
 The validator records the intentional metadata distinction between the
 physical Proviantdepot altitude reported by the manuscript and upstream point
 example (2737 m) and the 2659 m altitude stored in the regional forcing table
-used by the selected run. The selected-run contract also records, without
-blocking validation, the author-approved manuscript wording that describes a
-40% forcing reduction while the frozen input snapshot uses a factor of 0.74.
+used by the selected run.

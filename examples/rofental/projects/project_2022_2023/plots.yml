@@ -41,7 +41,7 @@ panels:
 
   - panel: WSF
     show_obs: true
-    title: Wet snow fraction
+    title: Wet snow fraction (WSF)
 
   - panel: WSLA
     show_obs: true

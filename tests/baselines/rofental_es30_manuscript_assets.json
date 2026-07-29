@@ -1,10 +1,9 @@
 {
   "schema_version": 1,
   "baseline_commit": "1a6a4b3a8318ada8c3d5a5708019767f9c20b177",
-  "simulation_source_run": "original8_p074_wsla100_fsca005",
-  "publication_analysis_overlay": "obs/summaries/project_2022_2023/scf_summary.csv",
+  "reference_configuration": "M_20230503_s1415935400_sig200_g095",
   "canonical_run_archive": "/home/franz/workspace/dev_examples/archive/20260715T115015_rofental_pre_v09_refactor",
-  "note": "Figures 1-2 are immutable manual inputs. Figures 3-7 use the selected run's simulation outputs followed by the recorded publication-analysis overlay and rerender. Replacing any file requires an exact comparison and explicit approval.",
+  "note": "Figures 1-2 are immutable manual inputs. Figures 3-7 come directly from the verified canonical run. Replacing any file requires an exact comparison and explicit approval.",
   "figures": [
     {
       "name": "fig01.png",
@@ -63,7 +62,7 @@
     },
     {
       "name": "fig06.png",
-      "source": "projects/project_2022_2023/results/paper/maps/da_events/da_6.png",
+      "source": "projects/project_2022_2023/results/paper/maps/da_events/da_7.png",
       "file_sha256": "25a87c3a1a6ff622053f54ac5ba8e4657b6962a9c890a2d051d69f204c0392db",
       "width": 4278,
       "height": 3913,

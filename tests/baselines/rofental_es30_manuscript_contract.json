@@ -1,16 +1,8 @@
 {
   "schema_version": 1,
-  "source_run": "original8_p074_wsla100_fsca005",
-  "source_commit": "f49807ffabdc31e7757e52087ef3ddfc5f986e80",
-  "precipitation_factor": 0.74,
-  "note": "The selected manuscript run scales the prepared baseline precipitation by 0.74 (a 26 percent reduction). The manuscript selection record explicitly required the numeric factor to remain qualitative in prose.",
-  "publication_analysis_overlay": [
-    {
-      "path": "obs/summaries/project_2022_2023/scf_summary.csv",
-      "source": "examples/rofental/obs/summaries/project_2022_2023/scf_summary.csv",
-      "sha256": "cdb8b3e30399cffa12db593cca3b5a31020cf66c603dd18184ba932668f3f656"
-    }
-  ],
+  "source": "examples/rofental",
+  "reference_configuration": "M_20230503_s1415935400_sig200_g095",
+  "note": "The manuscript reference setup is copied directly from the shipped Rofental example without scientific-input overlays or post-run observation substitutions.",
   "config_values": [
     {"file": "setup", "path": ["resolution"], "expected": 100},
     {"file": "setup", "path": ["timestep"], "expected": "3H"},
@@ -18,15 +10,20 @@
     {"file": "project", "path": ["start_date"], "expected": "2022-10-01"},
     {"file": "project", "path": ["end_date"], "expected": "2023-06-30"},
     {"file": "project", "path": ["data_assimilation", "prior_forcing", "ensemble_size"], "expected": 30},
-    {"file": "project", "path": ["data_assimilation", "prior_forcing", "sigma_t"], "expected": 0.5},
-    {"file": "project", "path": ["data_assimilation", "prior_forcing", "sigma_p"], "expected": 0.5},
-    {"file": "project", "path": ["data_assimilation", "prior_forcing", "sigma_rh"], "expected": 0.5},
-    {"file": "project", "path": ["data_assimilation", "prior_forcing", "sigma_sw"], "expected": 0.05},
+    {"file": "project", "path": ["data_assimilation", "prior_forcing", "random_seed"], "expected": 1415935400},
+    {"file": "project", "path": ["data_assimilation", "prior_forcing", "sigma_t"], "expected": 1.0},
+    {"file": "project", "path": ["data_assimilation", "prior_forcing", "mu_p"], "expected": -0.055},
+    {"file": "project", "path": ["data_assimilation", "prior_forcing", "sigma_p"], "expected": 0.6},
+    {"file": "project", "path": ["data_assimilation", "prior_forcing", "sigma_rh"], "expected": 1.2},
+    {"file": "project", "path": ["data_assimilation", "prior_forcing", "sigma_sw"], "expected": 0.15},
     {"file": "project", "path": ["data_assimilation", "resampling", "ess_threshold_ratio"], "expected": 0.7},
-    {"file": "project", "path": ["data_assimilation", "rejuvenation", "sigma_t"], "expected": 0.5},
-    {"file": "project", "path": ["data_assimilation", "rejuvenation", "sigma_p"], "expected": 0.5},
-    {"file": "project", "path": ["data_assimilation", "rejuvenation", "sigma_rh"], "expected": 0.5},
-    {"file": "project", "path": ["data_assimilation", "rejuvenation", "sigma_sw"], "expected": 0.05},
+    {"file": "project", "path": ["data_assimilation", "resampling", "seed"], "expected": 1415935400},
+    {"file": "project", "path": ["data_assimilation", "rejuvenation", "seed"], "expected": 1415935400},
+    {"file": "project", "path": ["data_assimilation", "rejuvenation", "sigma_t"], "expected": 1.0},
+    {"file": "project", "path": ["data_assimilation", "rejuvenation", "mu_p"], "expected": -0.055},
+    {"file": "project", "path": ["data_assimilation", "rejuvenation", "sigma_p"], "expected": 0.6},
+    {"file": "project", "path": ["data_assimilation", "rejuvenation", "sigma_rh"], "expected": 1.2},
+    {"file": "project", "path": ["data_assimilation", "rejuvenation", "sigma_sw"], "expected": 0.15},
     {"file": "project", "path": ["data_assimilation", "h_of_x", "params", "h0"], "expected": 0.03},
     {"file": "project", "path": ["data_assimilation", "wet_snow", "classification_threshold_percent"], "expected": 0.4},
     {"file": "project", "path": ["data_assimilation", "wet_snow_line", "elevation_band_size_m"], "expected": 100.0},
@@ -36,9 +33,12 @@
     {"file": "project", "path": ["data_assimilation", "likelihood", "wet_snow", "min_sigma"], "expected": 0.03},
     {"file": "project", "path": ["data_assimilation", "likelihood", "wet_snow", "sigma_floor"], "expected": 0.03},
     {"file": "project", "path": ["data_assimilation", "likelihood", "wet_snow", "sigma_cloud_scale"], "expected": 0.1},
-    {"file": "project", "path": ["data_assimilation", "likelihood", "wet_snow_line", "obs_sigma"], "expected": 100.0},
+    {"file": "project", "path": ["data_assimilation", "likelihood", "wet_snow_line", "obs_sigma"], "expected": 200.0},
     {"file": "project", "path": ["data_assimilation", "likelihood", "wet_snow_line", "min_sigma"], "expected": 25.0},
-    {"file": "project", "path": ["data_assimilation", "likelihood", "wet_snow_line", "sigma_floor"], "expected": 25.0}
+    {"file": "project", "path": ["data_assimilation", "likelihood", "wet_snow_line", "sigma_floor"], "expected": 25.0},
+    {"file": "project", "path": ["data_assimilation", "likelihood", "wet_snow_line", "min_model_finite_fraction"], "expected": 0.95},
+    {"file": "project", "path": ["data_assimilation", "uncertainty", "scf", "assimilation", "sigma_mode"], "expected": "uncertainty_layer"},
+    {"file": "project", "path": ["data_assimilation", "uncertainty", "scf", "assimilation", "aggregate_metric"], "expected": "unc_mean"}
   ],
   "events": [
     {"date": "2022-11-17", "variable": "station_hs"},
@@ -46,8 +46,8 @@
     {"date": "2023-01-01", "variable": "station_hs"},
     {"date": "2023-01-31", "variable": "station_hs"},
     {"date": "2023-02-21", "variable": "station_hs"},
-    {"date": "2023-03-24", "variable": "wet_snow_line", "product": "WETSNOW"},
     {"date": "2023-04-26", "variable": "scf", "product": "SNOWCOVER"},
+    {"date": "2023-05-03", "observation_time": "2023-05-03T05:26:24Z", "variable": "wet_snow_line", "product": "WETSNOW"},
     {"date": "2023-05-26", "variable": "scf", "product": "SNOWCOVER"}
   ],
   "domain": {
@@ -75,28 +75,21 @@
   },
   "known_metadata_distinction": "The manuscript and the upstream Proviantdepot point example report the physical station altitude as 2737 m. The regional Rofental forcing table used by the manuscript run contains 2659 m; this distinction must remain explicit in reproducibility audits.",
   "ess": [
-    {"path": "projects/project_2022_2023/steps/step_00_init/assim/weights_station_hs_20221117.csv", "expected": 26.14993347322277, "resampled": false},
-    {"path": "projects/project_2022_2023/steps/step_01_20221117-20221207/assim/weights_station_hs_20221207.csv", "expected": 12.164453750069825, "resampled": true},
-    {"path": "projects/project_2022_2023/steps/step_02_20221207-20230101/assim/weights_station_hs_20230101.csv", "expected": 20.304015280418312, "resampled": true},
-    {"path": "projects/project_2022_2023/steps/step_03_20230101-20230131/assim/weights_station_hs_20230131.csv", "expected": 23.507065435241277, "resampled": false},
-    {"path": "projects/project_2022_2023/steps/step_04_20230131-20230221/assim/weights_station_hs_20230221.csv", "expected": 12.065712824962441, "resampled": true},
-    {"path": "projects/project_2022_2023/steps/step_05_20230221-20230324/assim/weights_wet_snow_line_20230324.csv", "expected": 9.649784681785126, "resampled": true},
-    {"path": "projects/project_2022_2023/steps/step_06_20230324-20230426/assim/weights_scf_20230426.csv", "expected": 26.97039105465854, "resampled": false},
-    {"path": "projects/project_2022_2023/steps/step_07_20230426-20230526/assim/weights_scf_20230526.csv", "expected": 18.61353993785791, "resampled": true}
+    {"path": "projects/project_2022_2023/steps/step_00_init/assim/weights_station_hs_20221117.csv", "expected": 25.284539877460773, "resampled": false},
+    {"path": "projects/project_2022_2023/steps/step_01_20221117-20221207/assim/weights_station_hs_20221207.csv", "expected": 8.097640663078202, "resampled": true},
+    {"path": "projects/project_2022_2023/steps/step_02_20221207-20230101/assim/weights_station_hs_20230101.csv", "expected": 16.639071353658537, "resampled": true},
+    {"path": "projects/project_2022_2023/steps/step_03_20230101-20230131/assim/weights_station_hs_20230131.csv", "expected": 25.31315284826874, "resampled": false},
+    {"path": "projects/project_2022_2023/steps/step_04_20230131-20230221/assim/weights_station_hs_20230221.csv", "expected": 14.695090116932958, "resampled": true},
+    {"path": "projects/project_2022_2023/steps/step_05_20230221-20230426/assim/weights_scf_20230426.csv", "expected": 24.740464545409893, "resampled": false},
+    {"path": "projects/project_2022_2023/steps/step_06_20230426-20230503/assim/weights_wet_snow_line_20230503.csv", "expected": 17.52537120828807, "resampled": true},
+    {"path": "projects/project_2022_2023/steps/step_07_20230503-20230526/assim/weights_scf_20230526.csv", "expected": 18.261400523798468, "resampled": true}
   ],
   "benchmark_claims": [
-    {"date": "2023-02-21", "variable": "station_hs", "prior_crpss": 0.15377590506164585, "posterior_crpss": 0.8371603589681855},
-    {"date": "2023-03-24", "variable": "wet_snow_line", "prior_crpss": -0.09435339883237881, "posterior_crpss": 0.7334226073598863},
-    {"date": "2023-05-26", "variable": "scf", "prior_crpss": 0.5928717958982223, "posterior_crpss": 0.771571722430177, "prior_bias": -0.23991567994554697, "posterior_bias": -0.10863476751483336}
+    {"date": "2023-02-21", "variable": "station_hs", "prior_crpss": 0.5598590122564984, "posterior_crpss": 0.8147859723895516},
+    {"date": "2023-04-26", "variable": "scf", "prior_crpss": 0.47004717339465074, "posterior_crpss": 0.7637734665243202},
+    {"date": "2023-05-03", "variable": "wet_snow_line", "prior_crpss": 0.2431278753050804, "posterior_crpss": 0.5995828884226843},
+    {"date": "2023-05-26", "variable": "scf", "prior_crpss": 0.5954310495493056, "posterior_crpss": 0.891684425353162, "prior_bias": -0.18395269831611605, "posterior_bias": -0.04201094403884553}
   ],
-  "simulation_benchmark_claims": [
-    {"date": "2023-02-21", "variable": "station_hs", "prior_crpss": 0.15377590506164585, "posterior_crpss": 0.8371603589681855},
-    {"date": "2023-03-24", "variable": "wet_snow_line", "prior_crpss": -0.09435339883237881, "posterior_crpss": 0.7334226073598863},
-    {"date": "2023-05-26", "variable": "scf", "prior_crpss": 0.593248072023602, "posterior_crpss": 0.7720599048222877, "prior_bias": -0.23968664722826316, "posterior_bias": -0.10840573479754956}
-  ],
-  "map_labels": {
-    "fig06_wsla_m": {"open_loop": 2830, "prior": 2730, "posterior": 2840, "observed": 2970}
-  },
   "manuscript_required_literals": [
     "assets/fig03.png",
     "assets/fig04.png",
@@ -138,11 +131,5 @@
     "CRPSS increases from about -0.09 to 0.73",
     "CRPSS increases from about 0.59 to 0.77",
     "The computation of  the fSCA bias suggests an improvement from about -0.24 to -0.11."
-  ],
-  "manuscript_acknowledged_exceptions": [
-    {
-      "literal": "station precipitation was deliberately reduced by 40\\,\\%",
-      "reason": "The author explicitly accepted this known wording difference on 2026-07-15; it is recorded for provenance but does not block the reference-run contract."
-    }
   ]
 }

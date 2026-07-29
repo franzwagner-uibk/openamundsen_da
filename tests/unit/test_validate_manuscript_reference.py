@@ -47,14 +47,17 @@ def test_shipped_config_matches_manuscript_parameter_contract() -> None:
     assert module._validate_config(setup, _contract()) == []
 
 
-def test_tex_validation_allows_acknowledged_precipitation_exception() -> None:
+def test_tex_validation_checks_required_and_forbidden_literals() -> None:
     module = _load_module()
-    contract = _contract()
-    valid = "\n".join(contract["manuscript_required_literals"])
-    acknowledged = contract["manuscript_acknowledged_exceptions"][0]["literal"]
+    contract = {
+        "manuscript_required_literals": ["recursive weights"],
+        "manuscript_forbidden_literals": ["likelihood-only weights"],
+    }
 
-    assert module._validate_tex(valid, contract) == []
-    assert module._validate_tex(f"{valid}\n{acknowledged}", contract) == []
+    assert module._validate_tex("recursive weights", contract) == []
+    differences = module._validate_tex("likelihood-only weights", contract)
+    assert any("missing required text" in item for item in differences)
+    assert any("incompatible with selected run" in item for item in differences)
 
 
 def test_result_validation_checks_ess_decision_and_benchmark_values(tmp_path: Path) -> None:
@@ -126,59 +129,42 @@ def test_figure_validation_accepts_whitelisted_run_record_only(tmp_path: Path) -
     assert module._validate_figures(tmp_path, {"figures": [record]}, None) == []
 
 
-def test_input_manifest_locks_selected_source_run() -> None:
-    module = _load_module()
-    contract = _contract()
-    manifest_path = (
-        Path(__file__).parents[1]
-        / "baselines"
-        / "rofental_es30_manuscript_inputs"
-        / "manifest.json"
-    )
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-
-    assert module._validate_input_manifest(contract, manifest) == []
-
-
-def test_frozen_input_validation_checks_file_hash(tmp_path: Path) -> None:
-    module = _load_module()
-    frozen = tmp_path / "data.txt"
-    frozen.write_text("selected\n", encoding="utf-8")
-    manifest = {
-        "files": [
-            {
-                "path": "data.txt",
-                "sha256": module._sha256(frozen),
-            }
-        ]
-    }
-
-    assert module._validate_frozen_inputs(tmp_path, manifest) == []
-    frozen.write_text("drifted\n", encoding="utf-8")
-    assert module._validate_frozen_inputs(tmp_path, manifest)[0].startswith(
-        "frozen manuscript input differs: data.txt"
-    )
-
-
-def test_publication_overlay_is_checksum_validated(tmp_path: Path, monkeypatch) -> None:
+def test_publication_refresh_does_not_replace_scientific_inputs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     module = _load_refresh_module(monkeypatch)
-    source_root = tmp_path / "source"
     run_root = tmp_path / "run"
-    source = source_root / "source.csv"
-    source.parent.mkdir()
-    source.write_text("publication\n", encoding="utf-8")
-    run_root.mkdir()
-    contract = {
-        "publication_analysis_overlay": [
-            {
-                "source": "source.csv",
-                "path": "analysis/input.csv",
-                "sha256": module._sha256(source),
-            }
+    project_dir = run_root / "projects" / module.PROJECT_NAME
+    project_dir.mkdir(parents=True)
+    scientific_input = run_root / "obs" / "summary.csv"
+    scientific_input.parent.mkdir()
+    scientific_input.write_text("selected\n", encoding="utf-8")
+    contract = tmp_path / "contract.json"
+    assets = tmp_path / "assets.json"
+    contract.write_text(json.dumps({"schema_version": 1}), encoding="utf-8")
+    assets.write_text(json.dumps({"schema_version": 1}), encoding="utf-8")
+
+    stages: list[str] = []
+
+    def _validate(*_args, stage, **_kwargs):
+        stages.append(stage)
+        return []
+
+    monkeypatch.setattr(module, "validate_reference", _validate)
+    monkeypatch.setattr(module, "run_project_benchmark", lambda **_kwargs: None)
+    monkeypatch.setattr(module, "render_project", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(module, "render_manuscript_profile", lambda *_args: ())
+
+    assert module.main(
+        [
+            str(run_root),
+            "--contract",
+            str(contract),
+            "--asset-manifest",
+            str(assets),
+            "--apply",
         ]
-    }
-
-    written = module.apply_publication_overlay(run_root, contract, source_root=source_root)
-
-    assert written == ((run_root / "analysis" / "input.csv").resolve(),)
-    assert written[0].read_text(encoding="utf-8") == "publication\n"
+    ) == 0
+    assert stages == ["simulation", "publication"]
+    assert scientific_input.read_text(encoding="utf-8") == "selected\n"

@@ -5,8 +5,8 @@ against model-derived H(x) values per ensemble member.
 
 Configuration
 - H(x) configuration is read from project YAML (data_assimilation.h_of_x) and is required.
-- Likelihood configuration is read from project YAML (likelihood block).
-  Falls back to sensible defaults if missing.
+- Likelihood configuration is read from the required per-observable project YAML
+  likelihood block. Scientific likelihood values are never filled implicitly.
 
 Logging
 - Uses loguru with a green timestamp format defined in constants.LOGURU_FORMAT.
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import math
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
@@ -45,11 +46,13 @@ from openamundsen_da.io.paths import (
     find_project_yaml,
     infer_project_dir,
     infer_setup_dir_from_project,
+    open_loop_dir,
 )
 from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf, load_hofx_from_project
 from openamundsen_da.methods.pf.fraction_support import ObservationSupportMask, load_observation_support_mask
 from openamundsen_da.methods.wet_snow.area import compute_model_wet_snow_fraction, compute_model_wet_snow_line
 from openamundsen_da.util.stats import gaussian_logpdf, normalize_log_weights, effective_sample_size, compute_obs_sigma
+from openamundsen_da.methods.pf.weights import combine_event_weights
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.util.config_validators import require_mapping
 from openamundsen_da.util.landcover_mask import LandcoverMaskConfig, resolve_landcover_mask
@@ -140,9 +143,12 @@ def _read_wet_snow_uncertainty_assimilation_config(project_dir: Path) -> WetSnow
 
 def _coerce_float(raw: object, *, path: str) -> float:
     try:
-        return float(raw)
+        value = float(raw)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"Invalid float value at {path}: {raw!r}") from exc
+    if not math.isfinite(value):
+        raise ValueError(f"Nonfinite float value at {path}: {raw!r}")
+    return value
 
 
 def _coerce_bool(raw: object, *, path: str) -> bool:
@@ -160,46 +166,75 @@ def _coerce_bool(raw: object, *, path: str) -> bool:
 
 
 def _coerce_int(raw: object, *, path: str) -> int:
+    if isinstance(raw, bool):
+        raise ValueError(f"Invalid integer value at {path}: {raw!r}")
     try:
-        return int(raw)
+        value = int(raw)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"Invalid integer value at {path}: {raw!r}") from exc
+    try:
+        if float(raw) != float(value):
+            raise ValueError(f"Invalid integer value at {path}: {raw!r}")
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid integer value at {path}: {raw!r}") from exc
+    return value
 
 
 def _read_likelihood_from_project(project_dir: Path, observable: str) -> LikelihoodParams:
-    """Read likelihood settings from project YAML for a given observable if available."""
+    """Read one explicit per-observable likelihood contract from project YAML."""
     cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
-    da_cfg_raw = cfg.get("data_assimilation")
-    da_cfg = {} if da_cfg_raw is None else require_mapping(da_cfg_raw, path="project.data_assimilation")
-
-    lk_root_raw = da_cfg.get(LIKELIHOOD_BLOCK)
+    da_cfg = require_mapping(cfg.get("data_assimilation"), path="project.data_assimilation")
     lk_root_path = f"project.data_assimilation.{LIKELIHOOD_BLOCK}"
-    if lk_root_raw is None:
-        return LikelihoodParams()
+    lk_root = require_mapping(da_cfg.get(LIKELIHOOD_BLOCK), path=lk_root_path)
+    lk_path = f"{lk_root_path}.{observable}"
+    lk = require_mapping(lk_root.get(observable), path=lk_path)
 
-    lk_root = require_mapping(lk_root_raw, path=lk_root_path)
-    lk_raw = lk_root.get(observable)
-    if lk_raw is None:
-        lk = lk_root
-        lk_path = lk_root_path
+    common = {
+        LIK_OBS_SIGMA,
+        LIK_USE_BINOMIAL,
+        LIK_SIGMA_FLOOR,
+        LIK_MIN_SIGMA,
+        LIK_MIN_SUPPORT_COVERAGE_RATIO,
+    }
+    if observable in {"scf", "wet_snow"}:
+        required = common | {LIK_SIGMA_CLOUD_SCALE}
+    elif observable == "wet_snow_line":
+        required = common | {
+            LIK_MIN_MODEL_FINITE_FRACTION,
+            LIK_MIN_WET_PIXELS_TOTAL,
+            LIK_MIN_WET_BANDS,
+        }
     else:
-        lk_path = f"{lk_root_path}.{observable}"
-        lk = require_mapping(lk_raw, path=lk_path)
+        raise ValueError(f"Unsupported fraction likelihood observable: {observable!r}")
+    missing = sorted(required.difference(lk))
+    if missing:
+        raise ValueError(f"Missing required likelihood key(s) at {lk_path}: {', '.join(missing)}")
+    unknown = sorted(set(lk).difference(required))
+    if unknown:
+        raise ValueError(f"Unsupported likelihood key(s) at {lk_path}: {', '.join(unknown)}")
 
     params = LikelihoodParams()
     if LIK_OBS_SIGMA in lk:
         params.obs_sigma = _coerce_float(lk[LIK_OBS_SIGMA], path=f"{lk_path}.{LIK_OBS_SIGMA}")
+        if params.obs_sigma <= 0.0:
+            raise ValueError(f"{lk_path}.{LIK_OBS_SIGMA} must be positive")
     if LIK_USE_BINOMIAL in lk:
         params.use_binomial = _coerce_bool(lk[LIK_USE_BINOMIAL], path=f"{lk_path}.{LIK_USE_BINOMIAL}")
     if LIK_SIGMA_FLOOR in lk:
         params.sigma_floor = _coerce_float(lk[LIK_SIGMA_FLOOR], path=f"{lk_path}.{LIK_SIGMA_FLOOR}")
+        if params.sigma_floor < 0.0:
+            raise ValueError(f"{lk_path}.{LIK_SIGMA_FLOOR} must be >= 0")
     if LIK_SIGMA_CLOUD_SCALE in lk:
         params.sigma_cloud_scale = _coerce_float(
             lk[LIK_SIGMA_CLOUD_SCALE],
             path=f"{lk_path}.{LIK_SIGMA_CLOUD_SCALE}",
         )
+        if params.sigma_cloud_scale < 0.0:
+            raise ValueError(f"{lk_path}.{LIK_SIGMA_CLOUD_SCALE} must be >= 0")
     if LIK_MIN_SIGMA in lk:
         params.min_sigma = _coerce_float(lk[LIK_MIN_SIGMA], path=f"{lk_path}.{LIK_MIN_SIGMA}")
+        if params.min_sigma <= 0.0:
+            raise ValueError(f"{lk_path}.{LIK_MIN_SIGMA} must be positive")
     if LIK_MIN_SUPPORT_COVERAGE_RATIO in lk:
         params.min_support_coverage_ratio = _coerce_float(
             lk[LIK_MIN_SUPPORT_COVERAGE_RATIO],
@@ -271,6 +306,8 @@ def _read_obs(csv_path: Path, value_col: str, *, uncertainty_metric: str | None 
     df = pd.read_csv(csv_path)
     if df.empty:
         raise ValueError(f"Observation CSV has no rows: {csv_path}")
+    if len(df) != 1:
+        raise ValueError(f"Observation CSV must contain exactly one selected scene: {csv_path}")
     row = df.iloc[0]
     out = {value_col: float(row[value_col]) if value_col in row else None}
     if out[value_col] is None:
@@ -283,7 +320,40 @@ def _read_obs(csv_path: Path, value_col: str, *, uncertainty_metric: str | None 
                 f"Observation CSV missing required uncertainty metric '{uncertainty_metric}': {csv_path}"
             )
         out[uncertainty_metric] = float(row[uncertainty_metric])
+        if "n_valid" not in row or pd.isna(row["n_valid"]):
+            raise ValueError(f"Observation CSV missing n_valid required for uncertainty coverage: {csv_path}")
+        if "unc_n_valid" not in row or pd.isna(row["unc_n_valid"]):
+            raise ValueError(f"Observation CSV missing unc_n_valid required for uncertainty coverage: {csv_path}")
+        n_valid = int(row["n_valid"])
+        unc_n_valid = int(row["unc_n_valid"])
+        if n_valid <= 0 or unc_n_valid != n_valid:
+            raise ValueError(
+                f"Invalid uncertainty coverage in {csv_path}: unc_n_valid={unc_n_valid}, n_valid={n_valid}"
+            )
+        out["unc_n_valid"] = unc_n_valid
+    for key in (
+        "observation_time",
+        "matched_model_time",
+        "model_time_offset_seconds",
+        "time_source",
+        "time_quality",
+    ):
+        if key in row and not pd.isna(row[key]):
+            out[key] = row[key]
     return out
+
+
+def _matched_model_time(obs: dict, *, obs_path: Path, fallback: datetime) -> datetime:
+    raw = obs.get("matched_model_time")
+    if raw is None:
+        return fallback
+    try:
+        stamp = pd.Timestamp(raw)
+    except Exception as exc:
+        raise ValueError(f"Invalid matched_model_time in {obs_path}: {raw!r}") from exc
+    if stamp.tzinfo is not None:
+        raise ValueError(f"matched_model_time must use the naive model clock in {obs_path}")
+    return stamp.to_pydatetime()
 
 
 def _compute_sigma(
@@ -364,6 +434,7 @@ def assimilate_fraction_for_date(
         uncertainty_metric=(uncertainty_metric if sigma_mode == "uncertainty_layer" else None),
     )
     y = float(obs[value_col])
+    model_time = _matched_model_time(obs, obs_path=obs_path, fallback=date)
     setup_dir = infer_setup_dir_from_project(project_dir)
     lc_cfg = resolve_landcover_mask(setup_dir, project_dir)
     support_info = load_observation_support_mask(
@@ -396,10 +467,16 @@ def assimilate_fraction_for_date(
     if not members:
         raise RuntimeError(f"No members found under {step_dir}/ensembles/{ensemble}")
 
+    open_loop_model = model_eval(
+        default_results_dir(open_loop_dir(step_dir)),
+        aoi,
+        model_time,
+        support_info,
+    )
     rows: list[dict] = []
     for m in members:
         results = default_results_dir(m)
-        model = model_eval(results, aoi, date, support_info)
+        model = model_eval(results, aoi, model_time, support_info)
         r = y - float(model.value_model)
         rows.append({
             "member_id": m.name,
@@ -407,6 +484,7 @@ def assimilate_fraction_for_date(
             "value_model_full_roi": float(model.value_model_full_roi),
             "value_model_obs_support": float(model.value_model_obs_support),
             "value_obs": y,
+            "open_loop_value": float(open_loop_model.value_model),
             "residual": r,
             "full_roi_n_valid": model.full_roi_n_valid,
             "obs_support_n_valid": model.obs_support_n_valid,
@@ -414,6 +492,11 @@ def assimilate_fraction_for_date(
             "min_support_coverage_ratio": float(lk.min_support_coverage_ratio),
             "support_gate_triggered": bool(support_gate_triggered),
             "support_gate_reason": support_gate_reason,
+            "observation_time": obs.get("observation_time"),
+            "matched_model_time": model_time.isoformat(),
+            "model_time_offset_seconds": obs.get("model_time_offset_seconds"),
+            "time_source": obs.get("time_source"),
+            "time_quality": obs.get("time_quality"),
         })
 
     df = pd.DataFrame(rows)
@@ -636,7 +719,10 @@ def assimilate_wet_snow_line_for_date(
     obs_df = pd.read_csv(obs_path)
     if obs_df.empty:
         raise ValueError(f"Observation CSV has no rows: {obs_path}")
+    if len(obs_df) != 1:
+        raise ValueError(f"Observation CSV must contain exactly one selected scene: {obs_path}")
     obs_row = obs_df.iloc[0]
+    model_time = _matched_model_time(obs_row.to_dict(), obs_path=obs_path, fallback=date)
     if "wet_snow_line" not in obs_row or pd.isna(obs_row["wet_snow_line"]):
         y = float("nan")
     else:
@@ -695,6 +781,15 @@ def assimilate_wet_snow_line_for_date(
     if not members:
         raise RuntimeError(f"No members found under {step_dir}/ensembles/{ensemble}")
 
+    open_loop_model = compute_model_wet_snow_line(
+        setup_dir=setup_dir,
+        project_dir=project_dir,
+        results_dir=default_results_dir(open_loop_dir(step_dir)),
+        aoi_path=aoi,
+        landcover_cfg=lc_cfg,
+        date=model_time,
+        support_mask=support_info.mask,
+    )
     rows: list[dict[str, object]] = []
     for m in members:
         results = default_results_dir(m)
@@ -704,7 +799,7 @@ def assimilate_wet_snow_line_for_date(
             results_dir=results,
             aoi_path=aoi,
             landcover_cfg=lc_cfg,
-            date=date,
+            date=model_time,
             support_mask=support_info.mask,
         )
         value_model = model["wet_snow_line"]
@@ -717,6 +812,7 @@ def assimilate_wet_snow_line_for_date(
                 "value_model_full_roi": value_model_full_roi,
                 "value_model_obs_support": value_model,
                 "value_obs": y,
+                "open_loop_value": open_loop_model["wet_snow_line"],
                 "residual": residual,
                 "full_roi_n_valid": model["n_valid_full_roi"],
                 "obs_support_n_valid": model["n_valid"],
@@ -729,6 +825,11 @@ def assimilate_wet_snow_line_for_date(
                 "wet_information_gate_reason": wet_information_gate_reason,
                 "value_model_gate_reason": str(model.get("wet_snow_line_gate_reason", "") or ""),
                 "value_model_wet_bands": model.get("wet_bands"),
+                "observation_time": obs_row.get("observation_time"),
+                "matched_model_time": model_time.isoformat(),
+                "model_time_offset_seconds": obs_row.get("model_time_offset_seconds"),
+                "time_source": obs_row.get("time_source"),
+                "time_quality": obs_row.get("time_quality"),
             }
         )
 
@@ -835,6 +936,11 @@ def cli_main(argv: list[str] | None = None) -> int:
     p.add_argument("--product", type=str, help="Product code used in obs filename (default: project obs.snowcover.product_tag)")
     p.add_argument("--obs-csv", type=Path, help="Optional path to obs_scf_*.csv; default: <step>/obs")
     p.add_argument("--output", type=Path, help="Optional output CSV path")
+    p.add_argument(
+        "--initialize-weights",
+        action="store_true",
+        help="Explicitly initialize a new uniform PF chain when no prior-weight ledger exists",
+    )
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(argv)
 
@@ -865,6 +971,7 @@ def cli_main(argv: list[str] | None = None) -> int:
             obs_csv=Path(args.obs_csv) if args.obs_csv else None,
             product=str(args.product) if args.product else None,
         )
+        df = combine_event_weights(df, step_dir=step_dir, initialize=bool(args.initialize_weights))
     except Exception as e:
         logger.error(f"Assimilation failed: {e}")
         return 1
@@ -891,6 +998,11 @@ def cli_main_wet_snow(argv: list[str] | None = None) -> int:
     p.add_argument("--aoi", required=True, type=Path, help="AOI vector (single feature)")
     p.add_argument("--obs-csv", type=Path, help="Optional path to obs_wet_snow_*.csv; default: <step>/obs")
     p.add_argument("--output", type=Path, help="Optional output CSV path")
+    p.add_argument(
+        "--initialize-weights",
+        action="store_true",
+        help="Explicitly initialize a new uniform PF chain when no prior-weight ledger exists",
+    )
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(argv)
 
@@ -918,6 +1030,7 @@ def cli_main_wet_snow(argv: list[str] | None = None) -> int:
             landcover_cfg=lc_cfg,
             obs_csv=Path(args.obs_csv) if args.obs_csv else None,
         )
+        df = combine_event_weights(df, step_dir=step_dir, initialize=bool(args.initialize_weights))
     except Exception as e:
         logger.error(f"Wet-snow assimilation failed: {e}")
         return 1

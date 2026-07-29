@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-07-29
+
+### Changed
+- Use recursive importance weights in the particle filter and preserve the
+  weighted analysis distribution until resampling actually occurs.
+- Use keyed, event-specific process-noise perturbations with strict seed,
+  provenance and resume contracts.
+- Match satellite acquisitions to the nearest model timestep and select the
+  interpolated uppermost wet-snow transition.
+- Publish the approved Rofental configuration, tutorial assets and validation
+  baselines for the corrected method.
+
+### Fixed
+- Prevent skipped resampling from discarding prior particle weights.
+- Prevent rejuvenation from repeating identical perturbations at every event.
+- Correct wet-snow-line support coverage and exclude presentation diagnostics
+  from scientific resume ancestry.
+
 ## [0.9.3] - 2026-07-24
 
 ### Changed
@@ -104,7 +122,8 @@ Initial pre-release of openamundsen-da - Data Assimilation Framework for openAMU
 
 ---
 
-[Unreleased]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.4...HEAD
+[0.9.4]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/openamundsen/openamundsen-da/compare/v0.9.0...v0.9.1

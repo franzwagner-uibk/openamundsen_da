@@ -12,7 +12,13 @@ from openamundsen_da.exceptions import (
     ProjectPreparationError,
     ProjectRunError,
 )
-from openamundsen_da.manifests import load_manifest, workflow_manifest_path, write_manifest_atomic
+from openamundsen_da.manifests import (
+    file_inventory,
+    inventory_digest,
+    load_manifest,
+    workflow_manifest_path,
+    write_manifest_atomic,
+)
 from openamundsen_da.observations import preprocess_snow_cover
 from openamundsen_da.results import ObservationProduct, RenderResult, WorkflowStatus
 
@@ -31,6 +37,8 @@ input_data:
 output_data:
   grids:
     format: netcdf
+domain: alpine
+resolution: 100
 """.lstrip(),
         encoding="utf-8",
     )
@@ -53,6 +61,28 @@ obs:
       water: [3]
       nodata: [255]
 data_assimilation:
+  prior_forcing:
+    ensemble_size: 3
+    random_seed: 11
+    sigma_t: 0.5
+    mu_p: 0.0
+    sigma_p: 0.2
+    sigma_rh: 0.3
+    sigma_sw: 0.05
+  resampling:
+    algorithm: systematic
+    ess_threshold_ratio: 0.7
+    seed: 12
+  rejuvenation:
+    seed: 13
+  likelihood:
+    scf:
+      obs_sigma: 0.1
+      use_binomial: false
+      sigma_floor: 0.05
+      sigma_cloud_scale: 0.1
+      min_sigma: 0.03
+      min_support_coverage_ratio: 0.0
   uncertainty:
     scf:
       enabled: true
@@ -270,9 +300,17 @@ def _mark_prepared(project_dir: Path) -> None:
         "start_date: '2022-10-01'\nend_date: '2023-06-30'\n",
         encoding="utf-8",
     )
+    setup_dir = project_dir.parent.parent
+    outputs = file_inventory(root=setup_dir, files=[step / "00.yml"])
     write_manifest_atomic(
         workflow_manifest_path(project_dir, "preparation"),
-        {"operation": "prepare-project", "status": "success"},
+        {
+            "operation": "prepare-project",
+            "preparation_schema_version": 2,
+            "status": "success",
+            "outputs": outputs,
+            "output_digest": inventory_digest(outputs),
+        },
     )
 
 
@@ -373,6 +411,58 @@ def test_run_project_finalizes_manifest_then_cleans_restart_states(
     assert manifest["cleanup"]["deleted_count"] == 2
     assert lifecycle == ["post-cleanup-snapshot", "report-refresh"]
     assert (project_dir / "results" / "reports" / "project_report.pdf").read_bytes() == b"refreshed-pdf"
+
+
+def test_completed_run_reuse_ignores_generated_roi_and_later_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    project_dir = _write_public_project(tmp_path)
+    _mark_prepared(project_dir)
+    calls = 0
+
+    def fake_execute(_config) -> RenderResult:
+        nonlocal calls
+        calls += 1
+        return _fake_successful_execution(project_dir)
+
+    monkeypatch.setattr("openamundsen_da.pipeline.project.run_project", fake_execute)
+    run_project(project_dir)
+
+    setup_dir = project_dir.parent.parent
+    grids = setup_dir / "grids"
+    grids.mkdir(parents=True, exist_ok=True)
+    (grids / "roi_alpine_100.asc").write_bytes(b"generated-roi")
+    (grids / "roi_alpine_100.prj").write_bytes(b"generated-crs")
+    later_manifest = project_dir / ".openamundsen-da" / "manifests" / "render-diagnostics.json"
+    write_manifest_atomic(later_manifest, {"operation": "render-diagnostics", "status": "success"})
+    extra_plot = project_dir / "results" / "plots" / "later_diagnostic.png"
+    extra_plot.write_bytes(b"diagnostic")
+
+    reused = run_project(project_dir)
+
+    assert reused.status is WorkflowStatus.REUSED
+    assert calls == 1
+
+
+def test_run_project_rejects_changed_preparation_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    project_dir = _write_public_project(tmp_path)
+    _mark_prepared(project_dir)
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.project.run_project",
+        lambda _config: (_ for _ in ()).throw(RuntimeError("interrupted")),
+    )
+    with pytest.raises(ProjectRunError, match="interrupted"):
+        run_project(project_dir)
+
+    step_yaml = project_dir / "steps" / "step_00_init" / "00.yml"
+    step_yaml.write_text("start_date: '2022-11-01'\nend_date: '2023-06-30'\n", encoding="utf-8")
+
+    with pytest.raises(ProjectRunError, match="Preparation outputs differ"):
+        run_project(project_dir)
 
 
 def test_run_project_retains_restart_states_when_required_output_fails(

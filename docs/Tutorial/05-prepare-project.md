@@ -37,12 +37,13 @@ data_assimilation:
       variable: station_hs
     - date: "2023-02-21"
       variable: station_hs
-    - date: "2023-03-24"
-      variable: wet_snow_line
-      product: WETSNOW
     - date: "2023-04-26"
       variable: scf
       product: SNOWCOVER
+    - date: "2023-05-03"
+      observation_time: "2023-05-03T05:26:24Z"
+      variable: wet_snow_line
+      product: WETSNOW
     - date: "2023-05-26"
       variable: scf
       product: SNOWCOVER
@@ -95,17 +96,17 @@ steps/
   step_02_20221207-20230101/
   step_03_20230101-20230131/
   step_04_20230131-20230221/
-  step_05_20230221-20230324/
-  step_06_20230324-20230426/
-  step_07_20230426-20230526/
+  step_05_20230221-20230426/
+  step_06_20230426-20230503/
+  step_07_20230503-20230526/
   step_08_20230526-20230630/
 ```
 
 Raster events receive visible inputs under `steps/*/obs/`, for example:
 
 ```text
-steps/step_06_20230324-20230426/obs/obs_scf_SNOWCOVER_20230426.csv
-steps/step_05_20230221-20230324/obs/obs_wet_snow_line_WETSNOW_20230324.csv
+steps/step_05_20230221-20230426/obs/obs_scf_SNOWCOVER_20230426.csv
+steps/step_06_20230426-20230503/obs/obs_wet_snow_line_WETSNOW_20230503.csv
 ```
 
 Each file contains the selected summary row and configured uncertainty

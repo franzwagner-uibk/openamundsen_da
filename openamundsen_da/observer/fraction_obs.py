@@ -20,6 +20,7 @@ from typing import Dict, Iterable, List, Mapping
 
 import pandas as pd
 from loguru import logger
+from openamundsen import util as openamundsen_util
 
 from openamundsen_da.core.constants import OBS_DIR_NAME
 from openamundsen_da.core.env import _read_yaml_file
@@ -30,11 +31,16 @@ from openamundsen_da.io.paths import (
     read_step_config,
 )
 from openamundsen_da.util.ts import parse_datetime_opt
+from openamundsen_da.util.observation_time import (
+    match_observation_to_model_time,
+    parse_utc_timestamp,
+    resolve_acquisition_time,
+)
 
 
 @dataclass(frozen=True)
 class SummaryIndex:
-    by_date: Dict[date, pd.Series]
+    by_date: Dict[date, list[pd.Series]]
 
 
 def read_fraction_summary(summary_csv: Path, *, date_col: str = "date") -> SummaryIndex:
@@ -43,12 +49,12 @@ def read_fraction_summary(summary_csv: Path, *, date_col: str = "date") -> Summa
     if not summary_csv.is_file():
         raise FileNotFoundError(f"Summary CSV not found: {summary_csv}")
     df = pd.read_csv(summary_csv, parse_dates=[date_col])
-    by_date: Dict[date, pd.Series] = {}
+    by_date: Dict[date, list[pd.Series]] = {}
     for _, row in df.iterrows():
         datum = row[date_col]
         if not pd.notna(datum):
             continue
-        by_date[datum.to_pydatetime().date()] = row
+        by_date.setdefault(datum.to_pydatetime().date(), []).append(row)
     return SummaryIndex(by_date=by_date)
 
 
@@ -216,6 +222,87 @@ def resolve_obs_product_tag(
     return _require_product_tag(cfg, key=key, source="setup")
 
 
+def _observation_time_config(
+    *,
+    setup_dir: Path,
+    project_dir: Path,
+    variable: str,
+) -> tuple[Path, str | None, Path | None, object, object]:
+    key = _product_tag_key_for_variable(variable)
+    project_cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+    setup_cfg = _read_yaml_file(find_setup_yaml(setup_dir)) or {}
+    obs = project_cfg.get("obs")
+    section = obs.get(key) if isinstance(obs, dict) else None
+    if not isinstance(section, dict):
+        raise ValueError(f"Expected mapping at project.obs.{key}")
+    raw_dir = section.get("dir")
+    if raw_dir is None or not str(raw_dir).strip():
+        raise ValueError(f"Missing required configuration key: project.obs.{key}.dir")
+    source_dir = (setup_dir / str(raw_dir)).resolve()
+    parser_raw = section.get("filename_time_parser")
+    parser = str(parser_raw).strip() if parser_raw is not None else None
+    manifest_raw = section.get("acquisition_manifest")
+    manifest = (setup_dir / str(manifest_raw)).resolve() if manifest_raw is not None else None
+    timestep = setup_cfg.get("timestep")
+    timezone_config = setup_cfg.get("timezone")
+    if timestep is None or timezone_config is None:
+        raise ValueError("Setup configuration must define timestep and timezone for observation-time matching")
+    return source_dir, parser, manifest, timestep, timezone_config
+
+
+def _resolved_summary_row(
+    *,
+    rows: list[pd.Series],
+    event: object,
+    variable: str,
+    setup_dir: Path,
+    project_dir: Path,
+) -> tuple[pd.Series, datetime, str, str]:
+    source_dir, parser, manifest, _timestep, _timezone = _observation_time_config(
+        setup_dir=setup_dir,
+        project_dir=project_dir,
+        variable=variable,
+    )
+    resolved: list[tuple[pd.Series, datetime, str, str]] = []
+    for row in rows:
+        if "acquisition_time" in row and pd.notna(row["acquisition_time"]):
+            stamp = parse_utc_timestamp(row["acquisition_time"], field="summary.acquisition_time")
+            time_source = str(row.get("time_source", "summary"))
+            time_quality = str(row.get("time_quality", "derived"))
+        else:
+            raw_source = str(row.get("source", "")).strip()
+            if ";" in raw_source:
+                raise ValueError(
+                    "Observation summary row combines multiple source scenes without acquisition_time"
+                )
+            acquisition = resolve_acquisition_time(
+                source_path=source_dir / Path(raw_source).name,
+                product=str(getattr(event, "product")),
+                observation_date=getattr(event, "date"),
+                filename_parser=parser,
+                manifest_path=manifest,
+            )
+            stamp = acquisition.value
+            time_source = acquisition.source
+            time_quality = acquisition.quality
+        resolved.append((row, stamp, time_source, time_quality))
+
+    selector = getattr(event, "observation_time", None)
+    if len(resolved) > 1 and selector is None:
+        raise ValueError(
+            f"Several {variable} observation scenes exist on {getattr(event, 'date')}; "
+            "configure observation_time to select one"
+        )
+    if selector is not None:
+        matches = [item for item in resolved if item[1] == selector]
+        if len(matches) != 1:
+            raise ValueError(
+                f"observation_time {selector.isoformat()} selected {len(matches)} {variable} scenes; expected one"
+            )
+        return matches[0]
+    return resolved[0]
+
+
 def prepare_project_obs_from_summary(
     project_dir: Path,
     summary_csv: Path,
@@ -226,7 +313,6 @@ def prepare_project_obs_from_summary(
     product: str | None,
     overwrite: bool,
     include_product_tag: bool = True,
-    use_step_start_time: bool = False,
     summary_date_col: str = "date",
     log_prefix: str = "Project summary prep",
 ) -> tuple[int, int, int]:
@@ -261,6 +347,11 @@ def prepare_project_obs_from_summary(
         setup_dir=setup_dir,
         project_dir=project_dir,
     )
+    _source_dir, _parser, _manifest, timestep, timezone_config = _observation_time_config(
+        setup_dir=setup_dir,
+        project_dir=project_dir,
+        variable=variable,
+    )
 
     written = 0
     skipped_missing = 0
@@ -274,23 +365,51 @@ def prepare_project_obs_from_summary(
         cfg = read_step_config(step) or {}
         start_dt = parse_datetime_opt(str(cfg.get("start_date")))
         end_dt = parse_datetime_opt(str(cfg.get("end_date")))
-        if start_dt and end_dt and not (start_dt.date() <= ev.date <= end_dt.date()):
+        if start_dt is None or end_dt is None:
+            raise ValueError(f"{log_prefix}: step {step.name} must define valid start_date and end_date")
+        if not (start_dt.date() <= ev.date <= end_dt.date()):
             raise ValueError(
                 f"{log_prefix}: assimilation date {ev.date} is outside step {step.name} window "
                 f"({start_dt.date()} .. {end_dt.date()})"
             )
 
-        row = summary.by_date.get(ev.date)
-        if row is None:
+        rows = summary.by_date.get(ev.date)
+        if rows is None:
             raise ValueError(
                 f"{log_prefix}: missing summary row for variable {variable} at assimilation date {ev.date} "
                 f"(step {step.name})"
             )
 
-        obs_dt = datetime.combine(
-            ev.date,
-            (start_dt or datetime.min).time() if use_step_start_time else datetime.min.time(),
+        row, observation_time, time_source, time_quality = _resolved_summary_row(
+            rows=rows,
+            event=ev,
+            variable=variable,
+            setup_dir=setup_dir,
+            project_dir=project_dir,
         )
+        if time_quality == "fallback_midnight":
+            logger.warning(
+                "No acquisition timestamp available for {} on {}; using UTC midnight",
+                variable,
+                ev.date,
+            )
+        model_times = pd.date_range(
+            start=start_dt,
+            end=end_dt,
+            freq=openamundsen_util.to_offset(str(timestep)),
+        )
+        match = match_observation_to_model_time(
+            observation_time=observation_time,
+            model_times=model_times,
+            timezone_config=timezone_config,
+        )
+        obs_dt = match.model_time
+        row = row.copy()
+        row["observation_time"] = observation_time.isoformat().replace("+00:00", "Z")
+        row["matched_model_time"] = match.model_time.isoformat()
+        row["model_time_offset_seconds"] = match.offset_seconds
+        row["time_source"] = time_source
+        row["time_quality"] = time_quality
         out_csv = build_obs_csv_path(
             step_dir=step,
             variable=variable,

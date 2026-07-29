@@ -30,7 +30,6 @@ def generate_project_from_summary(
         product=product,
         overwrite=overwrite,
         include_product_tag=True,
-        use_step_start_time=False,
         summary_date_col="date",
         log_prefix="SCF project summary prep",
     )
@@ -96,4 +95,3 @@ def cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli_main())
-

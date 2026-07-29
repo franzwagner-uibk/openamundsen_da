@@ -111,11 +111,11 @@ Plot file to open:
 
 Reference plot (tutorial baseline, `ensemble_size=30`):
 
-![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/project_perf.png?v=20260719)
+![Project performance plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/project_perf.png?v=20260729)
 
-_Accepted exact-RC7 WSL tutorial telemetry (`100 m`, `ensemble_size=30`, 24
-workers), rerendered with RC8 plotting code. Runtime and resource values are
-specific to that machine._
+_Approved clean v0.9.4 candidate telemetry from Lenovo P8 (`100 m`,
+`ensemble_size=30`, 31 workers). Runtime and resource values are specific to
+that machine._
 
 What to read in the plot:
 
@@ -124,7 +124,7 @@ What to read in the plot:
   CSV instead of competing with these curves in the figure.
 - **Project-size curve**: follow project-directory growth across the steps. The
   final forced sample shows the drop after automatic restart-state cleanup; in
-  this run, project size falls from a 2.49 GB peak to 1.10 GB. Periodic samples
+  this run, project size falls from an 8.02 GB peak to 6.65 GB. Periodic samples
   are throttled, so earlier growth can update in steps rather than every row.
 - **Thermal curve**: when host sensors are readable, CPU temperature is plotted on its own axis. Missing thermal data is expected in some containers and does not invalidate the CPU/RAM/disk diagnostics.
 - **Timing structure**: repeated patterns often correspond to repeated step execution.
@@ -174,6 +174,8 @@ Reference structure snippet (`results/plots/assim`, typical files)
 >
 > - ESS near ensemble size for many events:
 >   - observations have weak discrimination or high observation error
+>   - assimilation still updates the normalized PF weights; resampling was
+>     simply unnecessary
 > - ESS very low (near 1) frequently:
 >   - strong degeneracy, aggressive resampling likely
 >   - possibly too-small observation error (`obs_sigma`) or too-strong mismatch
@@ -186,13 +188,14 @@ Reference CSV snippet (weights for one station HS event)
 
 File path: `/data/rofental/projects/project_2022_2023/steps/step_04_20230131-20230221/assim/weights_station_hs_20230221.csv`
 
-| member_id | value_obs | value_model | residual | sigma | n_stations | weight |
+| member_id | prior_weight | log_likelihood | weight | prior_ess | posterior_ess | resampled |
 | --- | --- | --- | --- | --- | --- | --- |
-| member_001 | 0.22 | 0.47 | -0.25 | 0.20 | 2 | 0.10 |
-| member_002 | 0.22 | 1.28 | -1.06 | 0.20 | 2 | 0.00 |
-| member_003 | 0.22 | 0.70 | -0.48 | 0.20 | 2 | 0.00 |
-| member_004 | 0.22 | 0.56 | -0.34 | 0.20 | 2 | 0.05 |
-| member_005 | 0.22 | 0.48 | -0.26 | 0.20 | 2 | 0.10 |
+| member_001 | 0.00884 | -14.6988 | 0.00000000618 | 25.3132 | 14.6951 | true |
+| member_002 | 0.04520 | -8.1494 | 0.00002208 | 25.3132 | 14.6951 | true |
+
+Here `weight` is the normalized event posterior. When `resampled` is false, it
+becomes the next step's `prior_weight`; when true, resampled children start
+uniformly.
 
 Plot files to open:
 
@@ -204,9 +207,11 @@ Plot files to open:
 
 Reference ESS plot (tutorial baseline):
 
-![ESS timeline plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_ess_timeline_2022_2023.png?v=20260714)
+![ESS timeline plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_ess_timeline_2022_2023.png?v=20260729)
 
-_ESS timeline (`setup_ess_timeline_2022_2023.png`) from the tutorial reference run._
+_ESS timeline (`setup_ess_timeline_2022_2023.png`) from the tutorial reference
+run. DA1, DA4 and DA6 remain above the threshold of 21 and therefore skip
+resampling; the other events resample._
 
 What to read in the ESS plot:
 
@@ -216,7 +221,7 @@ What to read in the ESS plot:
 
 Reference assimilation-date performance scores:
 
-![Assimilation-date performance scores (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/performance_scores.png?v=20260714)
+![Assimilation-date performance scores (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/performance_scores.png?v=20260729)
 
 _Prior and posterior CRPSS, NER and station-only zSkill for the configured
 assimilation dates. Use the benchmark tables for exact values and provenance._
@@ -227,7 +232,7 @@ does not replace independent holdout validation.
 
 Reference setup weights overview:
 
-![Setup weights overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_weights_overview_2022_2023.png?v=20260703)
+![Setup weights overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_weights_overview_2022_2023.png?v=20260729)
 
 _Setup-wide comparison of all eight assimilation events, grouped by observable family._
 
@@ -235,7 +240,7 @@ For larger projects, the setup overview is automatically split into multiple A4-
 
 Reference weights plot (example event):
 
-![Weights plot for one assimilation event (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/DA_04_weights.png?v=20260703)
+![Weights plot for one assimilation event (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/DA_04_weights.png?v=20260729)
 
 _Weights plot for `DA_04` (`station_hs` on `2023-02-21`)._
 
@@ -245,7 +250,7 @@ What to read in the weights plot:
 - a **peaked** distribution means a few particles explain the observation much better,
 - very strong peaks often coincide with low ESS and potential resampling pressure.
 
-With the tutorial's frozen seeds and pinned release image, a run should reproduce
+With the tutorial's fixed seeds and pinned release image, a run should reproduce
 the reference ensemble and diagnostics. Results can differ after changing the
 configuration, image, inputs or execution platform. For experiments, compare both
 the numeric outputs and the weight-distribution structure.
@@ -346,7 +351,7 @@ Recommended plot files to inspect (Rofental tutorial run):
 
 Result overview:
 
-![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/result_overview.png?v=20260714)
+![Result overview (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/result_overview.png?v=20260729)
 
 _`result_overview.png`: check observation dates, fSCA/wet-snow event timing, station snow-depth behavior, ESS response and assimilation-date skill scores. Observations are red, with dashed station lines, satellite circles and X markers for assimilated observations._
 
@@ -360,7 +365,7 @@ What to read in this plot:
 
 Station snow depth example (`latschbloder`):
 
-![Latschbloder snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_latschbloder_snow_depth_2022_2023.png?v=20260714)
+![Latschbloder snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_latschbloder_snow_depth_2022_2023.png?v=20260729)
 
 _Snow depth comparison at `latschbloder` (open loop + ensemble + observations)._
 
@@ -370,17 +375,17 @@ What to read in this plot:
 - whether observed values stay within (or near) the ensemble envelope,
 - whether data assimilation visibly shifts the ensemble relative to the open loop around observation periods.
 
-When interpreting systematic snow bias, remember that the frozen example uses the
-documented precipitation factor `0.74` and applies no additional correction before
-ensemble perturbations. This is an accepted reference-run choice, not a tuning
-recommendation; see [Example Data: Rofental]({{ site.baseurl }}{% link Tutorial/03-example-data-rofental.md %}).
+The shipped setup no longer applies a publication-only precipitation overlay.
+Its ensemble process noise comes directly from the project configuration shown
+in Chapter 6. This is a reproducible demonstration configuration, not a general
+tuning recommendation; see [Example Data: Rofental]({{ site.baseurl }}{% link Tutorial/03-example-data-rofental.md %}).
 
 <details markdown="block">
   <summary>More station reference plots (tutorial baseline)</summary>
 
 `proviantdepot` snow depth:
 
-![Proviantdepot snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_proviantdepot_snow_depth_2022_2023.png?v=20260714)
+![Proviantdepot snow depth plot (Rofental tutorial reference run)]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/setup_results_point_proviantdepot_snow_depth_2022_2023.png?v=20260729)
 
 </details>
 
@@ -441,14 +446,17 @@ Dimension names in the inspected NetCDF (for example `time1`, `time2`, `snow_lay
 
 {: .checks }
 > Generated map examples from the Rofental tutorial reference run:
-> - `results/maps/da_events/da_6.png`: WSLA update on **2023-03-24**
+> - `results/maps/da_events/da_7.png`: WSLA update on **2023-05-03**
 > - `results/maps/da_events/da_8.png`: fSCA (`scf`) update on **2023-05-26**
 
-![Generated assimilation-event map for the WSLA update on 2023-03-24]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_06_wsla_2023_03_24.png?v=20260714)
+![Generated assimilation-event map for the WSLA update on 2023-05-03]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_07_wsla_2023_05_03.png?v=20260729)
 
-_`da_6.png`: open loop, prior, posterior and observed wet snow fraction maps, elevation-band wet snow fraction maps with derived WSLA contours, and corresponding snow-depth fields for the **2023-03-24** `wet_snow_line` update._
+_`da_7.png`: open loop, prior, posterior and observed wet snow fraction maps,
+elevation-band wet snow fraction maps with the interpolated uppermost 50%
+crossing, and corresponding snow-depth fields for the **2023-05-03**
+`wet_snow_line` update._
 
-![Generated assimilation-event map for the fSCA update on 2023-05-26]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_08_scf_2023_05_26.png?v=20260714)
+![Generated assimilation-event map for the fSCA update on 2023-05-26]({{ site.baseurl }}/assets/images/tutorial/rofental_2022_2023_es30/da_08_scf_2023_05_26.png?v=20260729)
 
 _`da_8.png`: open loop, prior, posterior and observed fSCA diagnostics plus corresponding snow-depth fields for the **2023-05-26** `scf` update._
 

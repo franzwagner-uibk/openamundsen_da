@@ -27,6 +27,7 @@ from openamundsen_da.io.paths import (
     resolve_member_source_dir,
 )
 from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf_binary_grid, load_hofx_from_project
+from openamundsen_da.methods.pf.weights import load_prior_weights
 from openamundsen_da.methods.viz.fraction_series import load_fraction_series, load_open_loop_fraction_series
 from openamundsen_da.methods.viz.theme import da_variable_line_color
 from openamundsen_da.observer.summary_paths import resolve_fraction_summary_path
@@ -136,6 +137,7 @@ from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
 from openamundsen_da.methods.wet_snow.classify import CLASSIFICATION_METHOD_AMOUNT, load_wet_snow_classification_config
 from openamundsen_da.methods.wet_snow.wsl import compute_wet_snow_line_from_masks
 from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta
+from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.da_observables import weights_csv_name
 
 
@@ -1786,6 +1788,34 @@ def _load_wet_snow_mask(path: Path) -> np.ndarray:
         return src.read(1)
 
 
+def _prior_member_weights(step_dir: Path, member_dirs: list[Path]) -> np.ndarray:
+    member_ids = [member.name for member in member_dirs]
+    try:
+        ledger = load_prior_weights(step_dir, member_ids)
+    except FileNotFoundError:
+        logger.warning(
+            "No PF prior ledger available for {}; using legacy uniform materialized-member weights",
+            step_dir,
+        )
+        return np.full(len(member_dirs), 1.0 / len(member_dirs), dtype=float)
+    return ledger["weight"].to_numpy(dtype=float)
+
+
+def _weighted_probability_stack(stack: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    if stack.ndim < 2 or stack.shape[0] != len(weights):
+        raise ValueError("Probability stack and PF weights are misaligned")
+    shaped_weights = weights.reshape((len(weights),) + (1,) * (stack.ndim - 1))
+    valid = np.isfinite(stack)
+    weight_sum = np.sum(np.where(valid, shaped_weights, 0.0), axis=0)
+    weighted_sum = np.sum(np.where(valid, stack * shaped_weights, 0.0), axis=0)
+    return np.divide(
+        weighted_sum,
+        weight_sum,
+        out=np.full(weight_sum.shape, np.nan, dtype=float),
+        where=weight_sum > 0.0,
+    )
+
+
 def _wet_snow_model_classified_array(
     *,
     context: StaticContext,
@@ -1806,16 +1836,21 @@ def _wet_snow_model_classified_array(
     elif source in {"ensemble_mean", "posterior"}:
         member_masks: list[np.ndarray] = []
         ensemble = "prior" if source == "ensemble_mean" else "posterior"
-        for member_dir in list_member_dirs(step_dir, ensemble):
+        member_dirs = list_member_dirs(step_dir, ensemble)
+        for member_dir in member_dirs:
             source_member_dir = resolve_member_source_dir(member_dir) if source == "posterior" else member_dir
             mask_path = _wet_snow_mask_path(source_member_dir / "results", date)
             member_masks.append(_load_wet_snow_mask(mask_path))
         if not member_masks:
             raise FileNotFoundError(f"Missing {ensemble} members for wet-snow ensemble map in {step_dir}")
         stack = np.stack([np.where(mask == 255, np.nan, mask.astype(float)) for mask in member_masks], axis=0)
-        valid_count = np.sum(np.isfinite(stack), axis=0)
-        wet_sum = np.nansum(stack, axis=0)
-        wet_fraction = np.divide(wet_sum, valid_count, out=np.full(valid_count.shape, np.nan, dtype=float), where=valid_count > 0)
+        if ensemble == "prior":
+            wet_fraction = _weighted_probability_stack(stack, _prior_member_weights(step_dir, member_dirs))
+        else:
+            wet_fraction = _weighted_probability_stack(
+                stack,
+                np.full(len(member_dirs), 1.0 / len(member_dirs), dtype=float),
+            )
         valid = np.isfinite(wet_fraction)
         threshold = _wet_snow_threshold_fraction(context.project_dir)
         classified = np.full(wet_fraction.shape, np.nan, dtype=float)
@@ -1842,21 +1877,15 @@ def _prior_wet_fraction_array(
         return np.asarray(derived_cache[cache_key], dtype=float)
 
     step_dir = _step_dir_for_date(context.project_dir, date)
+    member_dirs = list_member_dirs(step_dir, "prior")
     member_masks: list[np.ndarray] = []
-    for member_dir in list_member_dirs(step_dir, "prior"):
+    for member_dir in member_dirs:
         mask_path = _wet_snow_mask_path(member_dir / "results", date)
         member_masks.append(_load_wet_snow_mask(mask_path))
     if not member_masks:
         raise FileNotFoundError(f"Missing prior members for wet-snow probability map in {step_dir}")
     stack = np.stack([np.where(mask == 255, np.nan, mask.astype(float)) for mask in member_masks], axis=0)
-    valid_count = np.sum(np.isfinite(stack), axis=0)
-    wet_sum = np.nansum(stack, axis=0)
-    wet_fraction = np.divide(
-        wet_sum,
-        valid_count,
-        out=np.full(valid_count.shape, np.nan, dtype=float),
-        where=valid_count > 0,
-    )
+    wet_fraction = _weighted_probability_stack(stack, _prior_member_weights(step_dir, member_dirs))
     wet_fraction = np.asarray(wet_fraction, dtype=float)
     wet_fraction[~context.roi_mask] = np.nan
     if derived_cache is not None:
@@ -1898,7 +1927,21 @@ def _load_weights_df(project_dir: Path, date: pd.Timestamp, variable: str) -> pd
     return df
 
 
-def _posterior_da_weights(context: StaticContext, date: pd.Timestamp, variable: str = "wet_snow_line") -> pd.Series | None:
+def _event_variable_for_date(project_dir: Path, date: pd.Timestamp) -> str:
+    target = pd.Timestamp(date).date()
+    matches = [event.variable for event in load_assimilation_events(project_dir) if event.date == target]
+    if len(matches) != 1:
+        raise ValueError(f"Expected exactly one assimilation event on {target}, found {len(matches)}")
+    return matches[0]
+
+
+def _posterior_da_weights(
+    context: StaticContext,
+    date: pd.Timestamp,
+    variable: str | None = None,
+) -> pd.Series | None:
+    if variable is None:
+        variable = _event_variable_for_date(context.project_dir, date)
     df = _load_weights_df(context.project_dir, date, variable)
     if df is None:
         return None
@@ -1924,14 +1967,18 @@ def _posterior_weighted_wet_fraction_array(
     context: StaticContext,
     date: pd.Timestamp,
     derived_cache: dict[str, np.ndarray] | None,
-    weights_variable: str = "wet_snow_line",
+    weights_variable: str | None = None,
 ) -> np.ndarray:
-    cache_key = f"wet-snow-posterior-weighted-fraction:{weights_variable}:{pd.Timestamp(date).normalize().isoformat()}"
+    resolved_weights_variable = weights_variable or _event_variable_for_date(context.project_dir, date)
+    cache_key = (
+        "wet-snow-posterior-weighted-fraction:"
+        f"{resolved_weights_variable}:{pd.Timestamp(date).normalize().isoformat()}"
+    )
     if derived_cache is not None and cache_key in derived_cache:
         return np.asarray(derived_cache[cache_key], dtype=float)
 
     step_dir = _step_dir_for_date(context.project_dir, date)
-    weights = _posterior_da_weights(context, date, variable=weights_variable)
+    weights = _posterior_da_weights(context, date, variable=resolved_weights_variable)
     member_masks: list[np.ndarray] = []
     member_weights: list[float] = []
 
@@ -1997,12 +2044,12 @@ def _wet_snow_elevation_fraction_array(
     context: StaticContext,
     source: str | None,
     date: pd.Timestamp,
-    weights_variable: str,
+    weights_variable: str | None = None,
     obs_cache,
     derived_cache: dict[str, np.ndarray] | None,
     observation_loader: Callable[..., ObservationScene],
 ) -> np.ndarray:
-    cache_key = f"wet-snow-elevation-fraction:{weights_variable}:{source or 'observation'}:{pd.Timestamp(date).normalize().isoformat()}"
+    cache_key = f"wet-snow-elevation-fraction:{source or 'observation'}:{pd.Timestamp(date).normalize().isoformat()}"
     if derived_cache is not None and cache_key in derived_cache:
         return np.asarray(derived_cache[cache_key], dtype=float)
 
@@ -2285,26 +2332,30 @@ def _single_domain_scf_model_probability_array(
         )
     elif source in {"prior_probability", "posterior_probability"}:
         member_fields: list[np.ndarray] = []
-        ensemble = "prior" if source == "prior_probability" else "posterior"
-        for member_dir in list_member_dirs(step_dir, ensemble):
-            source_member_dir = member_dir if ensemble == "prior" else resolve_member_source_dir(member_dir)
+        ensemble = "prior"
+        member_dirs = list_member_dirs(step_dir, "prior")
+        for member_dir in member_dirs:
             member_fields.append(
                 _scf_binary_grid_from_results(
                     context=context,
-                    results_dir=source_member_dir / "results",
+                    results_dir=member_dir / "results",
                     date=date,
                 )
             )
         if not member_fields:
             raise FileNotFoundError(f"Missing {ensemble} members for SCF probability map in {step_dir}")
         stack = np.stack(member_fields, axis=0)
-        valid_count = np.sum(np.isfinite(stack), axis=0)
-        classified = np.divide(
-            np.nansum(stack, axis=0),
-            valid_count,
-            out=np.full(valid_count.shape, np.nan, dtype=float),
-            where=valid_count > 0,
-        )
+        if source == "prior_probability":
+            weights = _prior_member_weights(step_dir, member_dirs)
+        else:
+            posterior = _posterior_da_weights(context, date)
+            if posterior is None:
+                raise FileNotFoundError(f"Missing SCF posterior weights for {date.date()} in {step_dir}")
+            weights = np.asarray([float(posterior.get(member.name, 0.0)) for member in member_dirs], dtype=float)
+            if weights.sum() <= 0.0:
+                raise ValueError(f"Posterior SCF weights do not align with prior members in {step_dir}")
+            weights /= weights.sum()
+        classified = _weighted_probability_stack(stack, weights)
     else:
         raise ValueError(f"Unsupported SCF model source '{source}'")
 
@@ -2520,7 +2571,6 @@ def render_wet_snow_line_panel(
                 context=context,
                 date=date,
                 derived_cache=derived_cache,
-                weights_variable="wet_snow_line",
             ) if source in {"posterior", "posterior_probability"} else _prior_wet_fraction_array(
                 context=context,
                 date=date,
@@ -2685,7 +2735,6 @@ def render_wet_snow_elevation_fraction_panel(
         context=context,
         source=panel.source,
         date=date,
-        weights_variable=str(panel.variable or "wet_snow_line"),
         obs_cache=obs_cache,
         derived_cache=derived_cache,
         observation_loader=observation_loader,
@@ -2853,7 +2902,6 @@ def render_fraction_model_panel(
                 context=context,
                 date=date,
                 derived_cache=derived_cache,
-                weights_variable="wet_snow",
             )
         )
         show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)

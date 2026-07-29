@@ -50,7 +50,7 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                     steps=[step0, step1],
                     events=events,
                 )
-            self.assertIn("snow depth daily output", str(ctx.exception))
+            self.assertIn("instantaneous snow depth output", str(ctx.exception))
 
     def test_missing_obs_file_is_reported(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -111,8 +111,11 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                     "output_data": {
                         "grids": {
                             "variables": [
-                                {"var": "snow.depth", "name": "snowdepth_daily"},
-                                {"var": "snow.liquid_water_content", "name": "liquid_water_content"},
+                                {"var": "snow.depth", "name": "snowdepth_instantaneous"},
+                                {
+                                    "var": "snow.liquid_water_content",
+                                    "name": "liquid_water_content_instantaneous",
+                                },
                             ]
                         }
                     }

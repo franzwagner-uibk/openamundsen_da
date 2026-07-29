@@ -134,17 +134,22 @@ def build_case_scores(raw_cases: Sequence[RawBenchmarkCase]) -> pd.DataFrame:
         if raw_case.score_set == "continuous":
             if raw_case.da_informed_values is None:
                 raise ValueError("Continuous benchmark case missing da_informed_values")
+            if raw_case.da_informed_weights is None:
+                raise ValueError("Continuous benchmark case missing da_informed_weights")
             rows.append(
                 _representation_case_row(
                     raw_case=raw_case,
                     representation="da_informed_ensemble",
                     values=raw_case.da_informed_values,
-                    ensemble_kind="unweighted_ensemble",
+                    weights=raw_case.da_informed_weights,
+                    ensemble_kind="weighted_ensemble",
                 )
             )
             continue
         if raw_case.prior_values is None:
             raise ValueError("Analysis benchmark case missing prior_values")
+        if raw_case.prior_weights is None:
+            raise ValueError("Analysis benchmark case missing prior_weights")
         if raw_case.posterior_values is None or raw_case.posterior_weights is None:
             raise ValueError("Analysis benchmark case missing posterior values or weights")
         rows.append(
@@ -152,7 +157,8 @@ def build_case_scores(raw_cases: Sequence[RawBenchmarkCase]) -> pd.DataFrame:
                 raw_case=raw_case,
                 representation="prior",
                 values=raw_case.prior_values,
-                ensemble_kind="unweighted_ensemble",
+                weights=raw_case.prior_weights,
+                ensemble_kind="weighted_ensemble",
             )
         )
         rows.append(

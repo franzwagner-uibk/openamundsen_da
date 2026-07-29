@@ -38,6 +38,10 @@ from openamundsen_da.results import CleanupResult, PreparationResult, RenderResu
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, capture_perf_snapshot
 
 
+PREPARATION_SCHEMA_VERSION = 2
+RUN_INPUT_SCHEMA_VERSION = 2
+
+
 def _setup_path(config: ProjectConfiguration, raw: object) -> Path:
     return (config.setup_dir / str(raw)).resolve()
 
@@ -49,13 +53,52 @@ def _preparation_inputs(config: ProjectConfiguration) -> tuple[list[dict], str]:
         for section_name, section in obs.items():
             if not isinstance(section, dict):
                 continue
-            for key in ("summary_csv", "wet_snow_line_diagnostics_csv"):
+            for key in ("summary_csv", "wet_snow_line_diagnostics_csv", "acquisition_manifest"):
                 if section.get(key):
                     files.extend(recursive_files(_setup_path(config, section[key])))
             if section.get("dir") and section_name == "stations":
                 files.extend(recursive_files(_setup_path(config, section["dir"])))
     inventory = file_inventory(root=config.setup_dir, files=files)
     return inventory, inventory_digest(inventory)
+
+
+def _configured_roi_grid_paths(config: ProjectConfiguration) -> set[Path]:
+    domain = str(config.setup.get("domain", "")).strip()
+    resolution_raw = config.setup.get("resolution")
+    input_data = config.setup.get("input_data")
+    grids = input_data.get("grids") if isinstance(input_data, dict) else None
+    if not domain or resolution_raw is None or not isinstance(grids, dict) or not grids.get("dir"):
+        return set()
+    try:
+        resolution_float = float(resolution_raw)
+    except (TypeError, ValueError):
+        resolution = str(resolution_raw).strip()
+    else:
+        resolution = str(int(resolution_float)) if resolution_float.is_integer() else str(resolution_raw).strip()
+    base = _setup_path(config, grids["dir"]) / f"roi_{domain}_{resolution}"
+    return {base.with_suffix(".asc"), base.with_suffix(".prj")}
+
+
+def _preparation_output_files(config: ProjectConfiguration) -> list[Path]:
+    steps_dir = config.project_dir / "steps"
+    files = [*sorted(steps_dir.glob("step_*/*.yml")), *sorted(steps_dir.glob("step_*/obs/*.csv"))]
+    files.extend(path for path in sorted(_configured_roi_grid_paths(config)) if path.is_file())
+    return files
+
+
+def _validate_preparation_outputs(config: ProjectConfiguration, manifest: dict) -> list[Path]:
+    if manifest.get("preparation_schema_version") != PREPARATION_SCHEMA_VERSION:
+        raise ProjectRunError(
+            "Unsupported preparation manifest contract; rerun preparation with overwrite enabled"
+        )
+    recorded = manifest.get("outputs")
+    if not isinstance(recorded, list) or not isinstance(manifest.get("output_digest"), str):
+        raise ProjectRunError("Preparation manifest is missing its output inventory")
+    paths = [config.setup_dir / str(entry.get("path", "")) for entry in recorded if isinstance(entry, dict)]
+    current = file_inventory(root=config.setup_dir, files=paths)
+    if inventory_digest(current) != manifest["output_digest"]:
+        raise ProjectRunError("Preparation outputs differ from the completed preparation manifest")
+    return paths
 
 
 def prepare_project(project_dir: str | Path, *, overwrite: bool = False) -> PreparationResult:
@@ -70,9 +113,24 @@ def prepare_project(project_dir: str | Path, *, overwrite: bool = False) -> Prep
     existing = load_manifest(manifest_path)
     existing_steps = sorted((config.project_dir / "steps").glob("step_*"))
     if existing is not None and existing.get("status") == "success" and not overwrite:
+        if existing.get("preparation_schema_version") != PREPARATION_SCHEMA_VERSION:
+            raise ProjectPreparationError(
+                "Unsupported preparation manifest contract; rerun with overwrite=True"
+            )
         if existing.get("input_digest") != digest:
             raise ProjectPreparationError(
                 f"Preparation inputs differ from completed manifest {manifest_path}; rerun with overwrite=True"
+            )
+        recorded_outputs = existing.get("outputs")
+        output_paths = [
+            config.setup_dir / str(entry.get("path", ""))
+            for entry in recorded_outputs
+            if isinstance(entry, dict)
+        ] if isinstance(recorded_outputs, list) else []
+        current_outputs = file_inventory(root=config.setup_dir, files=output_paths)
+        if inventory_digest(current_outputs) != existing.get("output_digest"):
+            raise ProjectPreparationError(
+                f"Preparation outputs differ from completed manifest {manifest_path}; rerun with overwrite=True"
             )
         obs_paths = tuple(
             (config.project_dir / path).resolve()
@@ -98,6 +156,7 @@ def prepare_project(project_dir: str | Path, *, overwrite: bool = False) -> Prep
 
     manifest = {
         "operation": "prepare-project",
+        "preparation_schema_version": PREPARATION_SCHEMA_VERSION,
         "status": "running",
         "input_digest": digest,
         "inputs": inventory,
@@ -133,6 +192,7 @@ def prepare_project(project_dir: str | Path, *, overwrite: bool = False) -> Prep
             for step in step_dirs
             for path in sorted((step / "obs").glob("*.csv"))
         )
+        output_inventory = file_inventory(root=config.setup_dir, files=_preparation_output_files(config))
         manifest.update(
             {
                 "status": "success",
@@ -140,6 +200,8 @@ def prepare_project(project_dir: str | Path, *, overwrite: bool = False) -> Prep
                 "observation_paths": [
                     path.relative_to(config.project_dir).as_posix() for path in observation_paths
                 ],
+                "outputs": output_inventory,
+                "output_digest": inventory_digest(output_inventory),
             }
         )
         write_manifest_atomic(manifest_path, manifest)
@@ -192,28 +254,28 @@ def clean_project(project_dir: str | Path, *, apply: bool = False) -> CleanupRes
         raise ProjectCleanupError(f"Project cleanup failed: {exc}") from exc
 
 
-def _run_input_inventory(config: ProjectConfiguration) -> tuple[list[dict], str]:
+def _run_input_inventory(config: ProjectConfiguration, preparation: dict) -> tuple[list[dict], str]:
     files = [config.setup_yaml, config.project_yaml, *sorted(config.project_dir.glob("*.yml"))]
+    generated_roi_paths = {path.resolve() for path in _configured_roi_grid_paths(config)}
     input_data = config.setup.get("input_data")
     if isinstance(input_data, dict):
         for name in ("grids", "meteo"):
             section = input_data.get(name)
             if isinstance(section, dict) and section.get("dir"):
-                files.extend(recursive_files(_setup_path(config, section["dir"])))
+                discovered = recursive_files(_setup_path(config, section["dir"]))
+                files.extend(path for path in discovered if path.resolve() not in generated_roi_paths)
     obs = config.project.get("obs")
     if isinstance(obs, dict):
         for section in obs.values():
             if isinstance(section, dict) and section.get("dir"):
                 files.extend(recursive_files(_setup_path(config, section["dir"])))
             if isinstance(section, dict):
-                for key in ("summary_csv", "wet_snow_line_diagnostics_csv"):
+                for key in ("summary_csv", "wet_snow_line_diagnostics_csv", "acquisition_manifest"):
                     if section.get(key):
                         files.extend(recursive_files(_setup_path(config, section[key])))
     files.extend(recursive_files(config.setup_dir / "env"))
-    steps_dir = config.project_dir / "steps"
-    files.extend(sorted(steps_dir.glob("step_*/*.yml")))
-    files.extend(sorted(steps_dir.glob("step_*/obs/*.csv")))
-    files.extend(recursive_files(config.project_dir / ".openamundsen-da" / "manifests"))
+    files.append(workflow_manifest_path(config.project_dir, "preparation"))
+    files.extend(_validate_preparation_outputs(config, preparation))
     inventory = file_inventory(root=config.setup_dir, files=files)
     return inventory, inventory_digest(inventory)
 
@@ -349,10 +411,12 @@ def run_project(project_dir: str | Path, *, max_workers: int | None = None) -> R
     if preparation is None or preparation.get("status") != "success":
         raise ProjectRunError(f"A completed preparation manifest is required: {preparation_path}")
 
-    inputs, digest = _run_input_inventory(config)
+    inputs, digest = _run_input_inventory(config, preparation)
     manifest_path = project_run_manifest_path(config.project_dir)
     existing = load_manifest(manifest_path)
     if existing is not None:
+        if existing.get("run_input_schema_version") != RUN_INPUT_SCHEMA_VERSION:
+            raise ProjectRunError(f"Unsupported run input contract in {manifest_path}")
         if existing.get("input_digest") != digest:
             raise ProjectRunError(
                 f"Run inputs differ from manifest {manifest_path}; completed projects are immutable and "
@@ -381,6 +445,7 @@ def run_project(project_dir: str | Path, *, max_workers: int | None = None) -> R
     started = time.monotonic()
     manifest = {
         "operation": "run-project",
+        "run_input_schema_version": RUN_INPUT_SCHEMA_VERSION,
         "status": "running",
         "started_at": started_at.isoformat(),
         "input_digest": digest,

@@ -190,5 +190,7 @@ def test_write_subdomain_setup_yaml_filters_configured_points(tmp_path: Path) ->
     assert "outside" not in text
 
     cfg = yaml.safe_load(text)
+    assert cfg["input_data"]["grids"]["dir"] == "grids"
+    assert cfg["input_data"]["meteo"]["dir"] == "meteo"
     kept_names = [point["name"] for point in cfg["output_data"]["timeseries"]["points"]]
     assert "6988000" in kept_names

@@ -118,8 +118,8 @@ def test_prepare_model_subdomains_writes_plain_setup_folders(tmp_path: Path) -> 
     assert cfg["domain"] == "demo_sd_01"
     assert cfg["start_date"] == "2022-10-01"
     assert cfg["end_date"] == "2022-10-02"
-    assert cfg["input_data"]["grids"]["dir"] == str((root / "sd_01" / "grids").resolve())
-    assert cfg["input_data"]["meteo"]["dir"] == str((root / "sd_01" / "meteo").resolve())
+    assert cfg["input_data"]["grids"]["dir"] == "grids"
+    assert cfg["input_data"]["meteo"]["dir"] == "meteo"
     assert cfg["results_dir"] == str((root / "sd_01" / "results").resolve())
 
 

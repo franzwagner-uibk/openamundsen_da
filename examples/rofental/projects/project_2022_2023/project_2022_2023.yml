@@ -9,6 +9,7 @@ obs:
     dir: obs/snowcover
     format: geotiff
     product_tag: SNOWCOVER
+    acquisition_manifest: obs/satellite_acquisition_times.csv
     summary_csv: obs/summaries/project_2022_2023/scf_summary.csv
     classes:
       valid: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100]
@@ -19,6 +20,8 @@ obs:
     dir: obs/wetsnow
     format: geotiff
     product_tag: WETSNOW
+    acquisition_manifest: obs/satellite_acquisition_times.csv
+    filename_time_parser: sentinel_1
     summary_csv: obs/summaries/project_2022_2023/wet_snow_summary.csv
     classes:
       valid: [110, 125, 200, 210]
@@ -28,23 +31,23 @@ obs:
 data_assimilation:
   prior_forcing:
     ensemble_size: 30
-    random_seed: 113
-    sigma_t: 0.5
-    mu_p: 0.0
-    sigma_p: 0.5
-    sigma_rh: 0.5
-    sigma_sw: 0.05
+    random_seed: 1415935400
+    sigma_t: 1.0
+    mu_p: -0.055
+    sigma_p: 0.6
+    sigma_rh: 1.2
+    sigma_sw: 0.15
   resampling:
     algorithm: systematic
     ess_threshold_ratio: 0.7
-    seed: 113
+    seed: 1415935400
   rejuvenation:
-    sigma_t: 0.5
-    sigma_p: 0.5
-    sigma_rh: 0.5
-    sigma_sw: 0.05
-    seed: 113
-    rebase_open_loop: false
+    sigma_t: 1.0
+    mu_p: -0.055
+    sigma_p: 0.6
+    sigma_rh: 1.2
+    sigma_sw: 0.15
+    seed: 1415935400
   restart:
     dump_state: true
     state_pattern: model_state.pickle.gz
@@ -59,12 +62,13 @@ data_assimilation:
     variable: station_hs
   - date: '2023-02-21'
     variable: station_hs
-  - date: '2023-03-24'
-    variable: wet_snow_line
-    product: WETSNOW
   - date: '2023-04-26'
     variable: scf
     product: SNOWCOVER
+  - date: '2023-05-03'
+    observation_time: '2023-05-03T05:26:24Z'
+    variable: wet_snow_line
+    product: WETSNOW
   - date: '2023-05-26'
     variable: scf
     product: SNOWCOVER
@@ -104,12 +108,12 @@ data_assimilation:
       min_sigma: 0.03
       min_support_coverage_ratio: 0.1
     wet_snow_line:
-      obs_sigma: 100.0
+      obs_sigma: 200.0
       use_binomial: false
       sigma_floor: 25.0
       min_sigma: 25.0
       min_support_coverage_ratio: 0.1
-      min_model_finite_fraction: 1.0
+      min_model_finite_fraction: 0.95
       min_wet_pixels_total: 50
       min_wet_bands: 1
   uncertainty:
@@ -121,7 +125,7 @@ data_assimilation:
         uncertainty_variable: uncertainty
         time_variable: time
       assimilation:
-        sigma_mode: formula
+        sigma_mode: uncertainty_layer
         aggregate_metric: unc_mean
       u_min: 10.0
       u_max: 20.0

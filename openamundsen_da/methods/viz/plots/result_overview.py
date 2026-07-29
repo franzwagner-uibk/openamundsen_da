@@ -69,6 +69,7 @@ from openamundsen_da.methods.viz.fraction_series import (
     load_fraction_series,
     load_member_series,
     load_open_loop_fraction_series,
+    load_weighted_member_envelope,
 )
 from openamundsen_da.methods.viz.plots.assimilation.ess_timeline import (
     ess_axis_ticks,
@@ -103,6 +104,7 @@ class StationPanelData:
     open_loop: pd.Series | None
     members: list[pd.Series]
     obs: pd.Series | None
+    envelope: pd.DataFrame | None = None
 
     @property
     def has_data(self) -> bool:
@@ -523,6 +525,22 @@ def _read_series_with_fallback(path: Path, value_col: str) -> pd.Series | None:
     return series
 
 
+def _weighted_envelope_or_none(
+    project_dir: Path,
+    filename: str,
+    value_col: str,
+    **kwargs,
+) -> pd.DataFrame | None:
+    try:
+        return load_weighted_member_envelope(project_dir, filename, value_col, **kwargs)
+    except FileNotFoundError:
+        logger.warning(
+            "No PF prior ledger available for {}; using the legacy materialized-member summary",
+            filename,
+        )
+        return None
+
+
 def _load_station_panel_data(
     project_dir: Path,
     station_id: str,
@@ -580,6 +598,12 @@ def _load_station_panel_data(
         open_loop=open_loop,
         members=members,
         obs=obs,
+        envelope=_weighted_envelope_or_none(
+            project_dir,
+            point_name,
+            value_col,
+            daily_mean=True,
+        ),
     )
 
 
@@ -692,13 +716,11 @@ def _wsl_prior_member_env(member_series: list[pd.Series] | None) -> pd.DataFrame
 
 
 def _default_wsl_overview_env(project_dir: Path) -> pd.DataFrame | None:
-    return _wsl_prior_member_env(
-        load_member_series(
-            project_dir,
-            "point_wet_snow_line_roi.csv",
-            "wet_snow_line",
-            preserve_missing_values=True,
-        )
+    return _weighted_envelope_or_none(
+        project_dir,
+        "point_wet_snow_line_roi.csv",
+        "wet_snow_line",
+        preserve_missing_values=True,
     )
 
 
@@ -1781,8 +1803,10 @@ def plot_result_overview(
     mode: str = "band",
     roi_swe_model: pd.DataFrame | None = None,
     roi_swe_members: list[pd.Series] | None = None,
+    roi_swe_env: pd.DataFrame | None = None,
     roi_snow_depth_model: pd.DataFrame | None = None,
     roi_snow_depth_members: list[pd.Series] | None = None,
+    roi_snow_depth_env: pd.DataFrame | None = None,
     panel_specs: list[PanelSpec] | None = None,
     station_panels: dict[tuple[str, str], StationPanelData] | None = None,
     ess_panel: EssPanelData | None = None,
@@ -1820,8 +1844,10 @@ def plot_result_overview(
                 mode=mode,
                 roi_swe_model=roi_swe_model,
                 roi_swe_members=roi_swe_members,
+                roi_swe_env=roi_swe_env,
                 roi_snow_depth_model=roi_snow_depth_model,
                 roi_snow_depth_members=roi_snow_depth_members,
+                roi_snow_depth_env=roi_snow_depth_env,
                 panel_specs=panel_specs,
                 station_panels=station_panels,
                 ess_panel=ess_panel,
@@ -1895,8 +1921,8 @@ def plot_result_overview(
         axes = [axes]
     title_artists: list[tuple[object, object, bool]] = []
 
-    roi_swe_env = _band_frame(roi_swe_members)
-    roi_snow_depth_env = _band_frame(roi_snow_depth_members)
+    roi_swe_env = roi_swe_env if roi_swe_env is not None else _band_frame(roi_swe_members)
+    roi_snow_depth_env = roi_snow_depth_env if roi_snow_depth_env is not None else _band_frame(roi_snow_depth_members)
     shared_scales = _shared_result_scales(
         specs,
         roi_swe_model=roi_swe_model,
@@ -2309,7 +2335,7 @@ def plot_result_overview(
         else:
             if station_data is None:
                 raise ValueError(f"Missing station panel data for {spec.panel}")
-            env_frame = _band_frame(station_data.members)
+            env_frame = station_data.envelope if station_data.envelope is not None else _band_frame(station_data.members)
             local_has_ensemble = False
             local_has_open_loop = False
             local_has_station_obs = False
@@ -2508,8 +2534,14 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
         )
     roi_swe_model = load_open_loop_fraction_series(project_dir, "point_swe_roi.csv", "swe")
     roi_swe_members = load_member_series(project_dir, "point_swe_roi.csv", "swe")
+    roi_swe_env = _weighted_envelope_or_none(project_dir, "point_swe_roi.csv", "swe")
     roi_snow_depth_model = load_open_loop_fraction_series(project_dir, "point_snow_depth_roi.csv", "snow_depth")
     roi_snow_depth_members = load_member_series(project_dir, "point_snow_depth_roi.csv", "snow_depth")
+    roi_snow_depth_env = _weighted_envelope_or_none(
+        project_dir,
+        "point_snow_depth_roi.csv",
+        "snow_depth",
+    )
     scf_env = load_fraction_series(scf_env_path, "value_mean")
     if scf_env is not None and not scf_env.empty and {"value_min", "value_max"}.issubset(scf_env.columns) is False:
         scf_env = None
@@ -2607,8 +2639,10 @@ def cli_main(argv: list[str] | None = None, *, configure_logger: bool = True) ->
             mode=str(args.mode or "band"),
             roi_swe_model=roi_swe_model,
             roi_swe_members=roi_swe_members,
+            roi_swe_env=roi_swe_env,
             roi_snow_depth_model=roi_snow_depth_model,
             roi_snow_depth_members=roi_snow_depth_members,
+            roi_snow_depth_env=roi_snow_depth_env,
             panel_specs=configured_specs,
             station_panels=configured_station_panels,
             ess_panel=ess_panel,

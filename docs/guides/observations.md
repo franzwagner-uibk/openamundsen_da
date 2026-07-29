@@ -52,6 +52,13 @@ preprocessor masks the ROI and configured exclusions and writes
 `scf_summary.csv`. When uncertainty-aware processing is enabled, NetCDF variables
 or GeoTIFF `<stem>_uncertainty.tif` sidecars must be present as configured.
 
+Satellite products can reference a tracked acquisition manifest with columns
+`product`, `source`, `product_identity`, `acquisition_time`, `time_source` and
+`time_quality`. Acquisition time is resolved from the CF time coordinate,
+raster metadata, sidecar metadata, a configured filename parser, then this
+manifest. If none is available, preparation warns and records UTC midnight with
+`time_quality=fallback_midnight`.
+
 ### Wet snow
 
 Wet-snow input is GeoTIFF or NetCDF with explicit wet, valid and excluded class
@@ -83,6 +90,11 @@ Inspect summary dates, spatial support, invalid/cloud fractions and uncertainty
 statistics before selecting `assimilation_events`. `openamundsen-da prepare`
 then verifies that each configured event has the required observation and writes
 deterministic per-step inputs.
+
+Prepared satellite rows record both the timezone-aware UTC observation time and
+the matched naive model-clock time. A date with several scenes requires the
+event's `observation_time` selector. A unique scene may still use the date-only
+event form.
 
 See [Configuration]({{ site.baseurl }}{% link guides/configuration.md %}) for the
 YAML schema.

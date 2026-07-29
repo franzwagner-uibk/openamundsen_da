@@ -15,9 +15,9 @@ from openamundsen_da.methods.viz.plots.assimilation.weights import plot_setup_we
 
 
 PROJECT_NAME = "project_2022_2023"
-MAP_RECIPE_NAMES = {"da_6", "da_8"}
+MAP_RECIPE_NAMES = {"da_7", "da_8"}
 PROFILE_RELATIVE_OUTPUTS = (
-    Path("maps/da_events/da_6.png"),
+    Path("maps/da_events/da_7.png"),
     Path("maps/da_events/da_8.png"),
     Path("plots/assim/weights/setup_weights_overview_2022_2023.png"),
 )

@@ -216,11 +216,11 @@ def _interpolate_crossing(
     return float(x1 + frac * (x2 - x1))
 
 
-def _find_first_downward_crossing(profile: pd.DataFrame, threshold: float) -> float | None:
+def _find_uppermost_downward_crossing(profile: pd.DataFrame, threshold: float) -> float | None:
     series = profile[["band_mid_m", "f_wet_smooth"]].dropna().sort_values("band_mid_m").reset_index(drop=True)
     if len(series) < 2:
         return None
-    for idx in range(len(series) - 1):
+    for idx in range(len(series) - 2, -1, -1):
         y1 = float(series.loc[idx, "f_wet_smooth"])
         y2 = float(series.loc[idx + 1, "f_wet_smooth"])
         if y1 >= threshold and y2 < threshold:
@@ -318,7 +318,7 @@ def compute_wet_snow_line_from_fraction_grid(
 
     profile = _build_fraction_profile(dem=dem, valid_mask=valid, wet_fraction=wet_fraction, cfg=cfg)
     crossing_threshold = float(cfg.crossing_fraction if threshold is None else threshold)
-    return _find_first_downward_crossing(profile, crossing_threshold)
+    return _find_uppermost_downward_crossing(profile, crossing_threshold)
 
 
 def _evaluate_from_masks(
@@ -333,7 +333,7 @@ def _evaluate_from_masks(
     n_valid = int(np.count_nonzero(valid))
     n_wet = int(np.count_nonzero(wet))
     profile = _build_profile(dem=dem, valid_mask=valid, wet_mask=wet, cfg=cfg)
-    wet_snow_line = _find_first_downward_crossing(profile, float(cfg.crossing_fraction))
+    wet_snow_line = _find_uppermost_downward_crossing(profile, float(cfg.crossing_fraction))
     wet_percentile = None
     if n_wet > 0:
         wet_percentile = float(np.nanpercentile(dem[wet], cfg.wet_elevation_percentile))
@@ -351,7 +351,7 @@ def _evaluate_from_masks(
         n_valid=n_valid,
         n_wet=n_wet,
         wet_bands=int(np.count_nonzero(profile["n_wet"] > 0)) if not profile.empty else 0,
-        method="crossing_fraction",
+        method="uppermost_crossing_fraction",
         gate_reason=gate_reason,
         profile=profile,
         sector_relative_lines={},

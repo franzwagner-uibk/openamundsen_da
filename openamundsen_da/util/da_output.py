@@ -15,6 +15,7 @@ from openamundsen_da.io.paths import find_project_yaml, infer_project_dir, read_
 from openamundsen_da.util.da_events import AssimilationEvent, load_assimilation_events
 from openamundsen_da.util.da_observables import weights_csv_name
 from openamundsen_da.util.storage_policy import da_summary_netcdf_encoding
+from openamundsen_da.methods.pf.weights import load_prior_weights
 
 _DEFAULT_SUMMARY_METRICS = ("open_loop", "ens_mean", "ens_std", "ens_min", "ens_max", "increment")
 _ANALYSIS_SUMMARY_METRICS = ("analysis_mean", "analysis_increment")
@@ -88,7 +89,14 @@ def _as_nan_array(da: xr.DataArray) -> np.ndarray:
 
 def _member_id_from_output_nc(path: Path) -> str:
     """Return member directory name for a member results/output_grids.nc path."""
-    return Path(path).parent.parent.name
+    path = Path(path)
+    if path.parent.name == "results":
+        return path.parent.parent.name
+    stem = path.stem
+    marker = "_output_grids"
+    if marker in stem:
+        return stem.split(marker, maxsplit=1)[0]
+    return stem
 
 
 def _normalize_time_index(values: object) -> tuple[pd.Timestamp, ...]:
@@ -201,6 +209,7 @@ def _build_da_output_dataset(
     open_loop_nc: Path,
     member_ncs: Sequence[Path],
     analysis_weights: dict[pd.Timestamp, pd.Series] | None = None,
+    propagation_weights: pd.Series | None = None,
     write_analysis_fields: bool = False,
     grid_metrics: dict[str, set[str]] | None = None,
 ) -> xr.Dataset | None:
@@ -212,6 +221,24 @@ def _build_da_output_dataset(
     if not member_files:
         logger.warning("DA output summary skipped: no member NetCDF files provided")
         return None
+
+    member_ids = [_member_id_from_output_nc(path) for path in member_files]
+    if propagation_weights is None:
+        member_weights = pd.Series(
+            np.full(len(member_files), 1.0 / len(member_files)),
+            index=member_ids,
+            dtype=float,
+        )
+        propagation_weighting = "uniform"
+    else:
+        member_weights = pd.to_numeric(propagation_weights, errors="raise").reindex(member_ids)
+        if member_weights.isna().any() or (member_weights < 0.0).any():
+            raise ValueError("Propagation weights must align to every member and be finite non-negative values")
+        total_member_weight = float(member_weights.sum())
+        if not np.isfinite(total_member_weight) or total_member_weight <= 0.0:
+            raise ValueError("Propagation weights must have a positive finite sum")
+        member_weights = member_weights.astype(float) / total_member_weight
+        propagation_weighting = "pf_prior_ledger"
 
     with xr.open_dataset(open_loop_nc) as ds_ol:
         out_vars: dict[str, xr.DataArray] = {}
@@ -231,11 +258,16 @@ def _build_da_output_dataset(
             shape = tuple(int(s) for s in da_ol.shape)
             arr_sum = np.zeros(shape, dtype=np.float64)
             arr_sum_sq = np.zeros(shape, dtype=np.float64)
+            arr_weight_sum = np.zeros(shape, dtype=np.float64)
             arr_count = np.zeros(shape, dtype=np.int32)
             arr_min = np.full(shape, np.nan, dtype=np.float64)
             arr_max = np.full(shape, np.nan, dtype=np.float64)
 
             for nc_path in member_files:
+                member_id = _member_id_from_output_nc(nc_path)
+                member_weight = float(member_weights.loc[member_id])
+                if member_weight <= 0.0:
+                    continue
                 with xr.open_dataset(nc_path) as ds_m:
                     if var_name not in ds_m.data_vars:
                         logger.warning("Variable {} missing in {}", var_name, nc_path)
@@ -254,20 +286,26 @@ def _build_da_output_dataset(
                     valid = np.isfinite(arr)
                     if not np.any(valid):
                         continue
-                    arr_sum[valid] += arr[valid]
-                    arr_sum_sq[valid] += arr[valid] * arr[valid]
+                    arr_sum[valid] += arr[valid] * member_weight
+                    arr_sum_sq[valid] += arr[valid] * arr[valid] * member_weight
+                    arr_weight_sum[valid] += member_weight
                     arr_count[valid] += 1
                     arr_min = np.where(np.isnan(arr_min), arr, np.fmin(arr_min, arr))
                     arr_max = np.where(np.isnan(arr_max), arr, np.fmax(arr_max, arr))
 
             with np.errstate(invalid="ignore", divide="ignore"):
                 arr_mean = np.full(shape, np.nan, dtype=np.float64)
-                np.divide(arr_sum, arr_count, out=arr_mean, where=arr_count > 0)
+                np.divide(arr_sum, arr_weight_sum, out=arr_mean, where=arr_weight_sum > 0)
                 arr_second_moment = np.full(shape, np.nan, dtype=np.float64)
-                np.divide(arr_sum_sq, arr_count, out=arr_second_moment, where=arr_count > 0)
+                np.divide(
+                    arr_sum_sq,
+                    arr_weight_sum,
+                    out=arr_second_moment,
+                    where=arr_weight_sum > 0,
+                )
                 arr_var = arr_second_moment - (arr_mean * arr_mean)
-            arr_mean = np.where(arr_count > 0, arr_mean, np.nan)
-            arr_var = np.where(arr_count > 0, arr_var, np.nan)
+            arr_mean = np.where(arr_weight_sum > 0, arr_mean, np.nan)
+            arr_var = np.where(arr_weight_sum > 0, arr_var, np.nan)
             arr_var = np.where(arr_var < 0, 0.0, arr_var)
             arr_std = np.sqrt(arr_var)
             arr_ol = _as_nan_array(da_ol)
@@ -289,8 +327,8 @@ def _build_da_output_dataset(
             created_names: list[str] = []
             metric_specs = {
                 "open_loop": (arr_ol, "Open-loop baseline output (no assimilation)"),
-                "ens_mean": (arr_mean, "Posterior ensemble mean"),
-                "ens_std": (arr_std, "Posterior ensemble standard deviation"),
+                "ens_mean": (arr_mean, "PF-weighted propagation ensemble mean"),
+                "ens_std": (arr_std, "PF-weighted propagation ensemble standard deviation"),
                 "ens_min": (arr_min, "Posterior ensemble minimum"),
                 "ens_max": (arr_max, "Posterior ensemble maximum"),
                 "increment": (arr_inc, "Posterior ensemble mean minus open-loop baseline"),
@@ -351,7 +389,7 @@ def _build_da_output_dataset(
             "da_output_version": "2",
             "source_open_loop_nc": str(open_loop_nc),
             "source_member_count": str(n_members),
-            "source_member_weighting": "uniform",
+            "source_member_weighting": propagation_weighting,
             "source_grid_variables": ",".join(grid_var_names),
             "summary_variables": ",".join(summary_variables),
             "increment_definition": "increment_<var> = ens_mean_<var> - open_loop_<var>",
@@ -548,10 +586,16 @@ def write_project_da_output_grids(
             if p.is_dir()
         ]
         analysis_weights = _step_event_weights(Path(step_dir), events) if events else {}
+        propagation_ledger = load_prior_weights(
+            Path(step_dir),
+            [_member_id_from_output_nc(path) for path in member_ncs],
+        )
+        propagation_weights = propagation_ledger.set_index("member_id")["weight"]
         ds = _build_da_output_dataset(
             open_loop_nc=open_loop_nc,
             member_ncs=member_ncs,
             analysis_weights=analysis_weights,
+            propagation_weights=propagation_weights,
             write_analysis_fields=bool(events),
             grid_metrics=grid_metrics,
         )

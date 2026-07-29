@@ -32,6 +32,7 @@ from openamundsen_da.util.observation_raster import (
     netcdf_variable_slice_count,
     open_netcdf_variable_raster,
 )
+from openamundsen_da.util.observation_time import resolve_acquisition_time
 from openamundsen_da.util.project_dates import resolve_project_dates
 from openamundsen_da.util.roi import read_single_roi
 from openamundsen_da.util.roi_grid import ensure_setup_roi_vector
@@ -414,6 +415,11 @@ def _build_stats_row(
         unc_n_valid = int(np.count_nonzero(unc_valid))
         if unc_n_valid <= 0:
             raise ValueError(f"No valid uncertainty support for source {source_name}")
+        if unc_n_valid != n_valid:
+            raise ValueError(
+                f"Incomplete uncertainty coverage for source {source_name}: "
+                f"unc_n_valid={unc_n_valid}, n_valid={n_valid}"
+            )
         unc_vals = unc_data[unc_valid].astype(float)
         row["unc_mean"] = float(np.mean(unc_vals))
         row["unc_min"] = float(np.min(unc_vals))
@@ -626,6 +632,14 @@ def summarize_snowcover_directory(
         return []
 
     project_dir = Path(setup_dir) / "projects" / str(project_label)
+    project_cfg = require_mapping(_read_yaml_file(find_project_yaml(project_dir)) or {}, path="project")
+    obs_cfg = require_mapping(project_cfg.get("obs"), path="project.obs")
+    product_cfg = require_mapping(obs_cfg.get("snowcover"), path="project.obs.snowcover")
+    product_tag = require_nonempty_str(product_cfg, "product_tag", path="project.obs.snowcover")
+    parser_raw = product_cfg.get("filename_time_parser")
+    filename_parser = str(parser_raw).strip() if parser_raw is not None else None
+    manifest_raw = product_cfg.get("acquisition_manifest")
+    manifest_path = Path(setup_dir) / str(manifest_raw) if manifest_raw is not None else None
     lc_cfg = landcover_cfg or resolve_landcover_mask(Path(setup_dir), project_dir)
     cls = classes or _load_classes(project_dir)
     uncertainty_cfg = _load_uncertainty_ingest_config(project_dir)
@@ -695,6 +709,21 @@ def summarize_snowcover_directory(
                 continue
             if end and stats_date > end:
                 continue
+            source_text = str(stats.get("source", rast.name))
+            source_name, separator, cf_time = source_text.partition("@")
+            acquisition = resolve_acquisition_time(
+                source_path=Path(input_dir) / Path(source_name).name,
+                product=product_tag,
+                observation_date=stats["date"],
+                cf_time=(cf_time if separator else None),
+                filename_parser=filename_parser,
+                manifest_path=manifest_path,
+            )
+            stats["acquisition_time"] = acquisition.value.isoformat().replace("+00:00", "Z")
+            stats["time_source"] = acquisition.source
+            stats["time_quality"] = acquisition.quality
+            if acquisition.quality == "fallback_midnight":
+                logger.warning("No acquisition timestamp for {}; using UTC midnight", source_name)
             rows.append(stats)
             accepted += 1
             logger.info(
@@ -717,9 +746,13 @@ def summarize_snowcover_directory(
 
     # Keep one best raster per date/tile and aggregate tile contributions to one row per date.
     # "Best" means highest valid pixel count; tie-breaker is lower cloud fraction.
-    best_per_date_tile: dict[tuple[str, str], dict[str, object]] = {}
+    best_per_date_tile: dict[tuple[str, str, str], dict[str, object]] = {}
     for row in rows:
-        key = (str(row["date"]), str(row.get("tile", "UNKNOWN")))
+        key = (
+            str(row["date"]),
+            str(row["acquisition_time"]),
+            str(row.get("tile", "UNKNOWN")),
+        )
         prev = best_per_date_tile.get(key)
         if prev is None:
             best_per_date_tile[key] = row
@@ -735,14 +768,17 @@ def summarize_snowcover_directory(
             if curr_cloud < prev_cloud:
                 best_per_date_tile[key] = row
 
-    agg: dict[tuple[str, str], dict[str, object]] = {}
+    agg: dict[tuple[str, str, str], dict[str, object]] = {}
     for row in best_per_date_tile.values():
-        key = (str(row["date"]), str(row["region_id"]))
+        key = (str(row["date"]), str(row["acquisition_time"]), str(row["region_id"]))
         slot = agg.get(key)
         if slot is None:
             slot = {
                 "date": row["date"],
                 "region_id": row["region_id"],
+                "acquisition_time": row["acquisition_time"],
+                "time_source": row["time_source"],
+                "time_quality": row["time_quality"],
                 "n_valid": 0,
                 "n_snow": 0,
                 "n_cloud": 0,
@@ -787,6 +823,9 @@ def summarize_snowcover_directory(
         row = {
             "date": entry["date"],
             "region_id": entry["region_id"],
+            "acquisition_time": entry["acquisition_time"],
+            "time_source": entry["time_source"],
+            "time_quality": entry["time_quality"],
             "n_valid": n_valid,
             "n_snow": n_snow,
             "n_cloud": n_cloud,

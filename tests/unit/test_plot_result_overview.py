@@ -8,6 +8,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 import openamundsen_da.methods.viz.plots.result_overview as plot_mod
+from openamundsen_da.methods.pf.weights import initialize_prior_weights
 from openamundsen_da.methods.viz.plots.theme import (
     BAND_ALPHA,
     COLOR_DA_OBS,
@@ -159,6 +160,10 @@ def test_default_wsl_overview_env_uses_prior_member_mean_minmax_and_preserves_ga
     member_002 = project_dir / "steps" / "step_00" / "ensembles" / "prior" / "member_002" / "results"
     member_001.mkdir(parents=True, exist_ok=True)
     member_002.mkdir(parents=True, exist_ok=True)
+    initialize_prior_weights(
+        project_dir / "steps" / "step_00",
+        ["member_001", "member_002"],
+    )
 
     pd.DataFrame(
         {

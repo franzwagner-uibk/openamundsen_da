@@ -10,7 +10,7 @@ permalink: /tutorial/pre-processing/
 
 This chapter converts the bundled snow-cover and wet-snow raster products into
 the project summary tables used during preparation. The Rofental example already
-contains the frozen baseline summaries, so you can either inspect them and move
+contains tracked baseline summaries, so you can either inspect them and move
 on or reproduce them from the configured products.
 
 From this point on, the tutorial assumes that the container shell is open at
@@ -59,8 +59,8 @@ and generates the steps that you inspect before running the model.
 Purpose: validate and aggregate every configured snow-cover product inside the
 ROI and write `obs/summaries/project_2022_2023/scf_summary.csv`.
 
-The positional argument is the project directory. `--overwrite` permits the
-existing frozen summary and its completed preprocessing manifest to be replaced;
+The positional argument is the project directory. `--overwrite` permits an
+existing generated summary and its completed preprocessing manifest to be replaced;
 omit the option when you only want hash-identical work to be reused. `--json`
 is available for machine-readable automation but is not needed in the tutorial.
 
@@ -100,8 +100,8 @@ Purpose: validate and aggregate the configured wet-snow products and write
 snow line diagnostics.
 
 The positional argument and options have the same meaning as for snow cover.
-Use `--overwrite` here because the tutorial intentionally reproduces the frozen
-summary from its source products.
+Use `--overwrite` here to reproduce the tracked summary directly from the source
+products and the current uppermost-crossing operator.
 
 **🟢 Run command:**
 

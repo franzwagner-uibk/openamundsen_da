@@ -78,6 +78,7 @@ from openamundsen_da.methods.viz.plots.theme import (
     da_variable_line_color,
 )
 from openamundsen_da.util.stats import envelope
+from openamundsen_da.methods.viz.fraction_series import load_weighted_member_envelope
 from openamundsen_da.util.ts import (
     apply_window,
     resample_and_smooth,
@@ -874,7 +875,37 @@ def plot_setup_results(
                     zorder=3,
                 )
         else:
-            mean, lo, hi = envelope(member_series, q_low=band_low, q_high=band_high)
+            def _transform_member(series: pd.Series) -> pd.Series:
+                frame = resample_and_smooth(
+                    series.to_frame(var_col),
+                    resample,
+                    {var_col: resample_agg} if resample else None,
+                    rolling,
+                )
+                frame = apply_window(frame, effective_start, effective_end)
+                return frame[var_col]
+
+            try:
+                weighted_env = load_weighted_member_envelope(
+                    setup_dir,
+                    fname,
+                    var_col,
+                    q_low=band_low,
+                    q_high=band_high,
+                    series_transform=_transform_member,
+                )
+            except FileNotFoundError:
+                logger.warning(
+                    "No PF prior ledger available for {}; rendering the legacy materialized-member summary",
+                    fname,
+                )
+                weighted_env = None
+            if weighted_env is not None:
+                mean = weighted_env.set_index("date")["value_mean"]
+                lo = weighted_env.set_index("date")["value_q_low"]
+                hi = weighted_env.set_index("date")["value_q_high"]
+            else:
+                mean, lo, hi = envelope(member_series, q_low=band_low, q_high=band_high)
             if not mean.empty:
                 ensemble_summary_drawn = True
                 ax.fill_between(

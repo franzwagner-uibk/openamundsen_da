@@ -40,7 +40,7 @@ def test_manuscript_profile_replaces_broad_mirror_with_three_declared_outputs(
         return output
 
     def _fake_maps(*, project_dir, output_root, names, strip_figure_titles):
-        assert names == {"da_6", "da_8"}
+        assert names == {"da_7", "da_8"}
         assert strip_figure_titles is True
         outputs = []
         for name in sorted(names):
@@ -72,7 +72,7 @@ def test_manuscript_profile_keeps_previous_outputs_when_rendering_fails(
     root = tmp_path / "setup"
     project_dir = root / "projects" / module.PROJECT_NAME
     paper_root = project_dir / "results" / "paper"
-    previous = paper_root / "maps" / "da_events" / "da_6.png"
+    previous = paper_root / "maps" / "da_events" / "da_7.png"
     previous.parent.mkdir(parents=True)
     previous.write_text("previous", encoding="utf-8")
 
@@ -96,7 +96,7 @@ def test_manuscript_profile_restores_previous_outputs_when_swap_fails(
     root = tmp_path / "setup"
     project_dir = root / "projects" / module.PROJECT_NAME
     paper_root = project_dir / "results" / "paper"
-    previous = paper_root / "maps" / "da_events" / "da_6.png"
+    previous = paper_root / "maps" / "da_events" / "da_7.png"
     previous.parent.mkdir(parents=True)
     previous.write_text("previous", encoding="utf-8")
 

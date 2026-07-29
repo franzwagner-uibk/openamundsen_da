@@ -21,13 +21,12 @@ Design
 
 import argparse
 import concurrent.futures as cf
-import sys
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Tuple
 
-import numpy as np
 import pandas as pd
 from loguru import logger
 
@@ -59,7 +58,15 @@ from openamundsen_da.util.stats import (
     sample_precip_factor,
     sample_shortwave_factor,
 )
-from openamundsen_da.util.parallel import pick_max_workers, resolve_base_seed
+from openamundsen_da.util.keyed_rng import RNG_SCHEME, keyed_rng, keyed_seed
+from openamundsen_da.manifests import (
+    file_inventory,
+    inventory_digest,
+    load_manifest,
+    recursive_files,
+    write_manifest_atomic,
+)
+from openamundsen_da.util.parallel import pick_max_workers
 from openamundsen_da.util.meteo import filter_and_write_meteo
 from openamundsen_da.io.paths import (
     find_setup_yaml,
@@ -87,6 +94,9 @@ class PriorParams:
     sigma_sw: float
 
 
+PRIOR_FORCING_MANIFEST = "prior_forcing_manifest.json"
+
+
 def _read_prior_params(project_dir: Path) -> PriorParams:
     """Load prior configuration from project YAML > data_assimilation.prior_forcing."""
     project_yaml = find_project_yaml(project_dir)
@@ -94,18 +104,17 @@ def _read_prior_params(project_dir: Path) -> PriorParams:
     da = (cfg.get(DA_BLOCK) or {}).get(DA_PRIOR_BLOCK) or {}
     _reject_removed_humidity_method_option(da, f"{DA_BLOCK}.{DA_PRIOR_BLOCK}")
     try:
-        cfg_seed = int(da[DA_RANDOM_SEED])
-        seed = resolve_base_seed(cfg_seed)
-        if seed != cfg_seed:
-            logger.info("OA_BASE_SEED override in effect -> seed={}", seed)
+        seed = int(da[DA_RANDOM_SEED])
+        if seed < 0:
+            raise ValueError(f"{DA_BLOCK}.{DA_PRIOR_BLOCK}.{DA_RANDOM_SEED} must be non-negative")
         return PriorParams(
             ensemble_size=int(da[DA_ENSEMBLE_SIZE]),
             random_seed=seed,
             sigma_t=float(da[DA_SIGMA_T]),
             mu_p=float(da[DA_MU_P]),
             sigma_p=float(da[DA_SIGMA_P]),
-            sigma_rh=float(da.get(DA_SIGMA_RH, 0.0)),
-            sigma_sw=float(da.get(DA_SIGMA_SW, 0.0)),
+            sigma_rh=float(da[DA_SIGMA_RH]),
+            sigma_sw=float(da[DA_SIGMA_SW]),
         )
     except KeyError as e:
         missing = str(e).strip("'")
@@ -243,6 +252,89 @@ def _build_member(
     )
 
 
+def _prior_forcing_inventory(*, root: Path, paths: list[Path]) -> list[dict[str, object]]:
+    return file_inventory(root=root, files=paths)
+
+
+def _prior_forcing_input_inventory(
+    *,
+    setup_dir: Path,
+    input_meteo_dir: Path,
+    project_dir: Path,
+    step_dir: Path,
+) -> list[dict[str, object]]:
+    files = recursive_files(input_meteo_dir)
+    files.extend(project_dir.glob("*.yml"))
+    files.extend(project_dir.glob("*.yaml"))
+    files.extend(step_dir.glob("*.yml"))
+    files.extend(step_dir.glob("*.yaml"))
+    return _prior_forcing_inventory(root=setup_dir, paths=files)
+
+
+def _prior_forcing_output_inventory(*, setup_dir: Path, step_dir: Path) -> list[dict[str, object]]:
+    files: list[Path] = []
+    root = prior_root_dir(step_dir)
+    for member in sorted(root.glob("member_*")):
+        files.extend(recursive_files(member / "meteo"))
+        info = member / "INFO.txt"
+        if info.is_file():
+            files.append(info)
+    files.extend(recursive_files(open_loop_dir_for_step(step_dir) / "meteo"))
+    return _prior_forcing_inventory(root=setup_dir, paths=files)
+
+
+def _prior_forcing_manifest_path(step_dir: Path) -> Path:
+    return Path(step_dir) / "assim" / PRIOR_FORCING_MANIFEST
+
+
+def validate_prior_forcing_manifest(
+    *,
+    input_meteo_dir: Path,
+    project_dir: Path,
+    step_dir: Path,
+) -> dict:
+    """Validate initial process-noise forcing before reusing an existing stage."""
+    manifest_path = _prior_forcing_manifest_path(step_dir)
+    manifest = load_manifest(manifest_path)
+    if manifest is None:
+        raise FileNotFoundError(f"Missing prior-forcing manifest: {manifest_path}")
+    if manifest.get("prior_forcing_schema_version") != 1 or manifest.get("status") != "complete":
+        raise ValueError(f"Unsupported or incomplete prior-forcing manifest: {manifest_path}")
+    params = _read_prior_params(project_dir)
+    setup_dir = project_dir.parent.parent.resolve()
+    expected = {
+        "ensemble_size": params.ensemble_size,
+        "random_seed": params.random_seed,
+        "sigma_t": params.sigma_t,
+        "mu_p": params.mu_p,
+        "sigma_p": params.sigma_p,
+        "sigma_rh": params.sigma_rh,
+        "sigma_sw": params.sigma_sw,
+        "rng_scheme": RNG_SCHEME,
+        "event_key": step_dir.name,
+        "event_seed": keyed_seed(params.random_seed, "initial_forcing", step_dir.name),
+    }
+    mismatches = {
+        key: (manifest.get(key), value)
+        for key, value in expected.items()
+        if manifest.get(key) != value
+    }
+    inputs = _prior_forcing_input_inventory(
+        setup_dir=setup_dir,
+        input_meteo_dir=input_meteo_dir,
+        project_dir=project_dir,
+        step_dir=step_dir,
+    )
+    outputs = _prior_forcing_output_inventory(setup_dir=setup_dir, step_dir=step_dir)
+    if manifest.get("input_inventory_sha256") != inventory_digest(inputs):
+        mismatches["input_inventory_sha256"] = (manifest.get("input_inventory_sha256"), inventory_digest(inputs))
+    if manifest.get("output_inventory_sha256") != inventory_digest(outputs):
+        mismatches["output_inventory_sha256"] = (manifest.get("output_inventory_sha256"), inventory_digest(outputs))
+    if mismatches:
+        raise RuntimeError(f"Prior-forcing resume provenance mismatch: {mismatches}")
+    return manifest
+
+
 def build_prior_ensemble(
     input_meteo_dir: Path | str,
     project_dir: Path | str,
@@ -275,6 +367,21 @@ def build_prior_ensemble(
         )
     params = _read_prior_params(project_dir)
     start, end = _read_step_start_and_project_end(step_dir)
+    manifest_path = _prior_forcing_manifest_path(step_dir)
+    prior_root = prior_root_dir(step_dir)
+    if manifest_path.is_file() and not overwrite:
+        validate_prior_forcing_manifest(
+            input_meteo_dir=input_meteo_dir,
+            project_dir=project_dir,
+            step_dir=step_dir,
+        )
+        logger.info("Validated prior-forcing manifest -> {}", manifest_path)
+        return
+    if prior_root.exists() and any(prior_root.iterdir()) and not overwrite:
+        raise RuntimeError(
+            f"Existing prior forcing under {prior_root} lacks a compatible versioned manifest; "
+            "use --overwrite to rebuild it"
+        )
 
     logger.info(
         "Building prior ensemble -> ensemble={ens}  N={n}  seed={seed}",
@@ -282,11 +389,7 @@ def build_prior_ensemble(
     )
     logger.info("Dates (inclusive): {s} .. {e}", s=str(start), e=str(end))
 
-    # Set RNG deterministically
-    rng = np.random.default_rng(params.random_seed)
-
     # Prepare open_loop
-    prior_root = prior_root_dir(step_dir)
     open_loop_root = open_loop_dir_for_step(step_dir)
     if open_loop_root.exists() and not overwrite:
         logger.info("Open-loop exists -> skipping (use --overwrite to rebuild)")
@@ -306,16 +409,31 @@ def build_prior_ensemble(
 
     # Prepare member tasks (skip existing unless overwrite)
     tasks = []
+    perturbations: list[dict[str, object]] = []
     for i in range(1, params.ensemble_size + 1):
         member_name = f"member_{i:03d}"
         member_root = member_dir_for_index(step_dir, i)
         if member_root.exists() and not overwrite:
             logger.info(f"[{member_name}] exists -> skipping (use --overwrite)")
             continue
-        delta_t = sample_delta_t(rng, params.sigma_t)
-        f_p = sample_precip_factor(rng, params.mu_p, params.sigma_p)
-        delta_rh = sample_delta_rh(rng, params.sigma_rh)
-        f_sw = sample_shortwave_factor(rng, params.sigma_sw)
+        event_key = step_dir.name
+        delta_t = sample_delta_t(
+            keyed_rng(params.random_seed, "initial_forcing", event_key, member_name, "temperature"),
+            params.sigma_t,
+        )
+        f_p = sample_precip_factor(
+            keyed_rng(params.random_seed, "initial_forcing", event_key, member_name, "precipitation"),
+            params.mu_p,
+            params.sigma_p,
+        )
+        delta_rh = sample_delta_rh(
+            keyed_rng(params.random_seed, "initial_forcing", event_key, member_name, "dew_point"),
+            params.sigma_rh,
+        )
+        f_sw = sample_shortwave_factor(
+            keyed_rng(params.random_seed, "initial_forcing", event_key, member_name, "shortwave"),
+            params.sigma_sw,
+        )
         logger.info(
             "[{m}] delta_T={dt:+.3f}  f_p={fp:.3f}  delta_Td={drh:+.3f}  f_sw={fsw:.3f}",
             m=member_name,
@@ -323,6 +441,15 @@ def build_prior_ensemble(
             fp=f_p,
             drh=delta_rh,
             fsw=f_sw,
+        )
+        perturbations.append(
+            {
+                "member": member_name,
+                "delta_T": delta_t,
+                "f_p": f_p,
+                "delta_dew_point": delta_rh,
+                "f_sw": f_sw,
+            }
         )
         tasks.append((i, member_root, delta_t, f_p, delta_rh, f_sw, input_meteo_dir))
 
@@ -376,6 +503,36 @@ def build_prior_ensemble(
                     raise
 
     logger.info("Prior ensemble completed under: {root}", root=str(prior_root))
+    setup_dir = project_dir.parent.parent.resolve()
+    inputs = _prior_forcing_input_inventory(
+        setup_dir=setup_dir,
+        input_meteo_dir=input_meteo_dir,
+        project_dir=project_dir,
+        step_dir=step_dir,
+    )
+    outputs = _prior_forcing_output_inventory(setup_dir=setup_dir, step_dir=step_dir)
+    write_manifest_atomic(
+        manifest_path,
+        {
+            "prior_forcing_schema_version": 1,
+            "status": "complete",
+            "ensemble_size": params.ensemble_size,
+            "random_seed": params.random_seed,
+            "sigma_t": params.sigma_t,
+            "mu_p": params.mu_p,
+            "sigma_p": params.sigma_p,
+            "sigma_rh": params.sigma_rh,
+            "sigma_sw": params.sigma_sw,
+            "rng_scheme": RNG_SCHEME,
+            "event_key": step_dir.name,
+            "event_seed": keyed_seed(params.random_seed, "initial_forcing", step_dir.name),
+            "members": perturbations,
+            "input_inventory": inputs,
+            "input_inventory_sha256": inventory_digest(inputs),
+            "output_inventory": outputs,
+            "output_inventory_sha256": inventory_digest(outputs),
+        },
+    )
 
 
 def _parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:

@@ -6,7 +6,7 @@ without duplicating large state files.
 Behavior
 - Reads rejuvenation params from project YAML (data_assimilation.rejuvenation):
   - sigma_t: additive temperature noise
-  - sigma_p: multiplicative precipitation noise (lognormal with mu=0)
+  - sigma_p: multiplicative precipitation noise (lognormal with configured mu_p)
   - sigma_rh: additive dew-point temperature noise
   - sigma_sw: multiplicative shortwave noise (lognormal with mu=0)
 - For each posterior member in the previous step:
@@ -27,11 +27,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-import numpy as np
 import pandas as pd
 from loguru import logger
 
@@ -42,7 +42,7 @@ from openamundsen_da.core.constants import (
     REJ_SIGMA_P,
     REJ_SIGMA_RH,
     REJ_SIGMA_SW,
-    DA_RANDOM_SEED,
+    DA_MU_P,
     DA_SIGMA_RH,
     DA_SIGMA_SW,
     DEFAULT_TIME_COL,
@@ -62,45 +62,77 @@ from openamundsen_da.io.paths import (
     open_loop_dir,
 )
 from openamundsen_da.util.loguru_utils import configure_cli_logger
+from openamundsen_da.manifests import (
+    file_inventory,
+    inventory_digest,
+    load_manifest,
+    project_run_manifest_path,
+    recursive_files,
+    write_manifest_atomic,
+)
+from openamundsen_da.util.keyed_rng import RNG_SCHEME, keyed_rng, keyed_seed
 from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
 from openamundsen_da.util.meteo import filter_and_write_meteo
+from openamundsen_da.methods.pf.weights import prior_weight_paths
 
 
 @dataclass
 class RejuvenationParams:
     sigma_t: float
+    mu_p: float
     sigma_p: float
     sigma_rh: float
     sigma_sw: float
-    seed: Optional[int]
+    seed: int
 
 
 def _read_rejuvenation_params(project_dir: Path) -> RejuvenationParams:
     """Read rejuvenation params; reuse prior_forcing sigmas by default.
 
-    If rejuvenation sigmas are provided, they override; otherwise we fall
-    back to data_assimilation.prior_forcing sigmas. Seed falls back
-    to prior_forcing.random_seed if not set under rejuvenation.
+    If rejuvenation distribution parameters are provided, they override;
+    otherwise they reuse the prior-forcing values. The stage seed is required.
     """
     project_yaml = find_project_yaml(project_dir)
     cfg = _read_yaml_file(project_yaml) or {}
-    da = cfg.get(DA_BLOCK) or {}
-    rj = da.get(REJUVENATION_BLOCK) or {}
-    prior = (da.get("prior_forcing") or {})
+    da = cfg.get(DA_BLOCK)
+    if not isinstance(da, dict):
+        raise ValueError(f"Missing required configuration mapping: {DA_BLOCK}")
+    rj = da.get(REJUVENATION_BLOCK)
+    if not isinstance(rj, dict):
+        raise ValueError(f"Missing required configuration mapping: {DA_BLOCK}.{REJUVENATION_BLOCK}")
+    prior = da.get("prior_forcing")
+    if not isinstance(prior, dict):
+        raise ValueError(f"Missing required configuration mapping: {DA_BLOCK}.prior_forcing")
     _reject_removed_humidity_method_option(prior, f"{DA_BLOCK}.prior_forcing")
     _reject_removed_humidity_method_option(rj, f"{DA_BLOCK}.{REJUVENATION_BLOCK}")
+    if "rebase_open_loop" in rj:
+        raise ValueError(
+            f"{DA_BLOCK}.{REJUVENATION_BLOCK}.rebase_open_loop is unsupported; "
+            "rejuvenation always rebuilds forcing from the unmodified setup forcing"
+        )
     # Defaults: reuse prior_forcing
     sigma_t = float(rj.get(REJ_SIGMA_T, prior.get("sigma_t", 0.0)))
+    mu_p = float(rj.get(DA_MU_P, prior.get(DA_MU_P, 0.0)))
     sigma_p = float(rj.get(REJ_SIGMA_P, prior.get("sigma_p", 0.0)))
-    sigma_rh = float(rj.get(REJ_SIGMA_RH, prior.get(DA_SIGMA_RH, 0.0)))
-    sigma_sw = float(rj.get(REJ_SIGMA_SW, prior.get(DA_SIGMA_SW, 0.0)))
-    seed = rj.get("seed", prior.get(DA_RANDOM_SEED))
+    try:
+        sigma_rh = float(rj.get(REJ_SIGMA_RH, prior[DA_SIGMA_RH]))
+        sigma_sw = float(rj.get(REJ_SIGMA_SW, prior[DA_SIGMA_SW]))
+    except KeyError as exc:
+        raise ValueError(
+            f"Missing required configuration key: {DA_BLOCK}.prior_forcing.{exc.args[0]}"
+        ) from exc
+    if "seed" not in rj:
+        raise ValueError(f"Missing required configuration key: {DA_BLOCK}.{REJUVENATION_BLOCK}.seed")
+    seed = int(rj["seed"])
+    if seed < 0:
+        raise ValueError(f"{DA_BLOCK}.{REJUVENATION_BLOCK}.seed must be non-negative")
     return RejuvenationParams(
         sigma_t=sigma_t,
+        mu_p=mu_p,
         sigma_p=sigma_p,
         sigma_rh=sigma_rh,
         sigma_sw=sigma_sw,
-        seed=(int(seed) if seed is not None else None),
+        seed=seed,
     )
 
 
@@ -263,8 +295,6 @@ def rejuvenate(
     project_dir = infer_project_dir(next_step_dir)
     params = _read_rejuvenation_params(project_dir)
     start, end = _read_next_step_dates(next_step_dir)
-    rng = np.random.default_rng(params.seed if params.seed is not None else None)
-
     src_members = list_member_dirs(Path(prev_step_dir) / "ensembles", source_ensemble)
     if not src_members:
         raise RuntimeError(f"No members under {prev_step_dir}/ensembles/{source_ensemble}")
@@ -273,12 +303,35 @@ def rejuvenate(
     tgt_root.mkdir(parents=True, exist_ok=True)
 
     tasks = []
+    event_key = Path(next_step_dir).name
     for i, post_member in enumerate(src_members, start=1):
         src_member = _source_member_dir(post_member)
-        dT = float(rng.normal(0.0, params.sigma_t)) if params.sigma_t else 0.0
-        fP = float(rng.lognormal(mean=0.0, sigma=params.sigma_p)) if params.sigma_p else 1.0
-        dTd = float(rng.normal(0.0, params.sigma_rh)) if params.sigma_rh else 0.0
-        fSW = float(rng.lognormal(mean=0.0, sigma=params.sigma_sw)) if params.sigma_sw else 1.0
+        member_key = post_member.name
+        dT = (
+            float(keyed_rng(params.seed, "rejuvenation", event_key, member_key, "temperature").normal(0.0, params.sigma_t))
+            if params.sigma_t
+            else 0.0
+        )
+        fP = (
+            float(
+                keyed_rng(params.seed, "rejuvenation", event_key, member_key, "precipitation").lognormal(
+                    mean=params.mu_p,
+                    sigma=params.sigma_p,
+                )
+            )
+            if params.sigma_p
+            else float(math.exp(params.mu_p)) if params.mu_p else 1.0
+        )
+        dTd = (
+            float(keyed_rng(params.seed, "rejuvenation", event_key, member_key, "dew_point").normal(0.0, params.sigma_rh))
+            if params.sigma_rh
+            else 0.0
+        )
+        fSW = (
+            float(keyed_rng(params.seed, "rejuvenation", event_key, member_key, "shortwave").lognormal(0.0, params.sigma_sw))
+            if params.sigma_sw
+            else 1.0
+        )
         tasks.append(
             (i, post_member, src_member, tgt_root, start, end, dT, fP, dTd, fSW, Path(setup_dir), source_meteo_dir)
         )
@@ -317,22 +370,217 @@ def rejuvenate(
     out_dir = Path(next_step_dir) / "assim"
     out_dir.mkdir(parents=True, exist_ok=True)
     rows_sorted = sorted(rows, key=lambda r: r["member"])
+    manifest_inputs = _rejuvenation_input_inventory(
+        setup_dir=Path(setup_dir),
+        prev_step_dir=Path(prev_step_dir),
+        next_step_dir=Path(next_step_dir),
+        source_ensemble=source_ensemble,
+    )
+    manifest_outputs = _rejuvenation_output_inventory(
+        setup_dir=Path(setup_dir),
+        next_step_dir=Path(next_step_dir),
+        target_ensemble=target_ensemble,
+    )
     manifest = {
+        "rejuvenation_schema_version": 3,
+        "status": "complete",
         "source_step": str(prev_step_dir),
         "target_step": str(next_step_dir),
         "source_ensemble": source_ensemble,
         "target_ensemble": target_ensemble,
         "sigma_t": params.sigma_t,
+        "mu_p": params.mu_p,
         "sigma_p": params.sigma_p,
         "sigma_rh": params.sigma_rh,
         "sigma_sw": params.sigma_sw,
-        "seed": (int(params.seed) if params.seed is not None else None),
+        "seed": int(params.seed),
+        "rng_scheme": RNG_SCHEME,
+        "event_key": event_key,
+        "event_seed": keyed_seed(params.seed, "rejuvenation", event_key),
         "copied_state_pointers": int(copied_pointers),
         "members": rows_sorted,
+        "input_inventory": manifest_inputs,
+        "input_inventory_sha256": inventory_digest(manifest_inputs),
+        "output_inventory": manifest_outputs,
+        "output_inventory_sha256": inventory_digest(manifest_outputs),
     }
-    (out_dir / "rejuvenate_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    write_manifest_atomic(out_dir / "rejuvenate_manifest.json", manifest)
 
     return {"members": len(rows_sorted), "copied_state_pointers": copied_pointers}
+
+
+def _rejuvenation_input_inventory(
+    *,
+    setup_dir: Path,
+    prev_step_dir: Path,
+    next_step_dir: Path,
+    source_ensemble: str,
+) -> list[dict[str, object]]:
+    project_dir = infer_project_dir(next_step_dir)
+    files: list[Path] = []
+    files.extend(recursive_files(setup_dir / "meteo"))
+    files.extend(project_dir.glob("*.yml"))
+    files.extend(project_dir.glob("*.yaml"))
+    files.extend(next_step_dir.glob("*.yml"))
+    files.extend(next_step_dir.glob("*.yaml"))
+    previous_assim = prev_step_dir / "assim"
+    for pattern in (
+        "prior_forcing_manifest.json",
+        "prior_weights.csv",
+        "prior_weights_manifest.json",
+        "rejuvenate_manifest.json",
+        "weights_*.csv",
+        "weights_*_manifest.json",
+        "resample_indices_*.csv",
+        "resample_manifest_*.json",
+    ):
+        files.extend(previous_assim.glob(pattern))
+    files.extend(path for path in prior_weight_paths(next_step_dir) if path.is_file())
+    for member in list_member_dirs(prev_step_dir / "ensembles", source_ensemble):
+        for pointer_name in (MEMBER_SOURCE_POINTER, STATE_POINTER_JSON):
+            pointer = member / pointer_name
+            if pointer.is_file():
+                files.append(pointer)
+    return file_inventory(root=setup_dir, files=files)
+
+
+def _rejuvenation_output_inventory(
+    *,
+    setup_dir: Path,
+    next_step_dir: Path,
+    target_ensemble: str,
+) -> list[dict[str, object]]:
+    files: list[Path] = []
+    target_root = next_step_dir / "ensembles" / target_ensemble
+    for member in list_member_dirs(next_step_dir / "ensembles", target_ensemble):
+        files.extend(recursive_files(member / "meteo"))
+        pointer = member / STATE_POINTER_JSON
+        if pointer.is_file():
+            files.append(pointer)
+    open_loop = target_root / "open_loop"
+    files.extend(recursive_files(open_loop / "meteo"))
+    if (open_loop / STATE_POINTER_JSON).is_file():
+        files.append(open_loop / STATE_POINTER_JSON)
+    return file_inventory(root=setup_dir, files=files)
+
+
+def _completed_cleanup_paths(*, setup_dir: Path, project_dir: Path) -> set[str]:
+    """Return pointer paths deliberately removed by successful final cleanup."""
+    run_manifest = load_manifest(project_run_manifest_path(project_dir))
+    if (
+        run_manifest is None
+        or run_manifest.get("status") != "success"
+        or (run_manifest.get("stages") or {}).get("cleanup") != "success"
+    ):
+        return set()
+    cleanup = run_manifest.get("cleanup")
+    if not isinstance(cleanup, dict) or cleanup.get("failures"):
+        return set()
+    allowed: set[str] = set()
+    for raw_path in cleanup.get("deleted_paths", []):
+        try:
+            path = (project_dir / str(raw_path)).resolve()
+            path.relative_to(project_dir.resolve())
+            relative = path.relative_to(setup_dir.resolve()).as_posix()
+        except (OSError, ValueError):
+            continue
+        if path.name == STATE_POINTER_JSON:
+            allowed.add(relative)
+    return allowed
+
+
+def _inventory_matches(
+    *,
+    recorded: object,
+    recorded_digest: object,
+    current: list[dict[str, object]],
+    allowed_missing: set[str],
+) -> bool:
+    """Compare an inventory while retaining provenance for cleaned pointers."""
+    if not isinstance(recorded, list) or not isinstance(recorded_digest, str):
+        return False
+    if inventory_digest(recorded) != recorded_digest:
+        return False
+    recorded_by_path = {
+        str(entry.get("path")): entry
+        for entry in recorded
+        if isinstance(entry, dict) and entry.get("path")
+    }
+    current_by_path = {str(entry["path"]): entry for entry in current}
+    for path in allowed_missing:
+        if path not in current_by_path:
+            recorded_by_path.pop(path, None)
+    return recorded_by_path == current_by_path
+
+
+def validate_rejuvenation_manifest(
+    *,
+    setup_dir: Path,
+    prev_step_dir: Path,
+    next_step_dir: Path,
+    source_ensemble: str = "posterior",
+    target_ensemble: str = "prior",
+) -> dict:
+    """Validate resume provenance and generated process-noise forcing."""
+    manifest_path = Path(next_step_dir) / "assim" / "rejuvenate_manifest.json"
+    manifest = load_manifest(manifest_path)
+    if manifest is None:
+        raise FileNotFoundError(f"Missing rejuvenation manifest: {manifest_path}")
+    if manifest.get("rejuvenation_schema_version") != 3 or manifest.get("status") != "complete":
+        raise ValueError(f"Unsupported or incomplete rejuvenation manifest: {manifest_path}")
+    params = _read_rejuvenation_params(infer_project_dir(next_step_dir))
+    expected = {
+        "source_step": str(prev_step_dir),
+        "target_step": str(next_step_dir),
+        "source_ensemble": source_ensemble,
+        "target_ensemble": target_ensemble,
+        "sigma_t": params.sigma_t,
+        "mu_p": params.mu_p,
+        "sigma_p": params.sigma_p,
+        "sigma_rh": params.sigma_rh,
+        "sigma_sw": params.sigma_sw,
+        "seed": int(params.seed),
+        "rng_scheme": RNG_SCHEME,
+        "event_key": Path(next_step_dir).name,
+        "event_seed": keyed_seed(params.seed, "rejuvenation", Path(next_step_dir).name),
+    }
+    mismatches = {
+        key: (manifest.get(key), value)
+        for key, value in expected.items()
+        if manifest.get(key) != value
+    }
+    inputs = _rejuvenation_input_inventory(
+        setup_dir=Path(setup_dir),
+        prev_step_dir=Path(prev_step_dir),
+        next_step_dir=Path(next_step_dir),
+        source_ensemble=source_ensemble,
+    )
+    outputs = _rejuvenation_output_inventory(
+        setup_dir=Path(setup_dir),
+        next_step_dir=Path(next_step_dir),
+        target_ensemble=target_ensemble,
+    )
+    allowed_missing = _completed_cleanup_paths(
+        setup_dir=Path(setup_dir),
+        project_dir=infer_project_dir(next_step_dir),
+    )
+    if not _inventory_matches(
+        recorded=manifest.get("input_inventory"),
+        recorded_digest=manifest.get("input_inventory_sha256"),
+        current=inputs,
+        allowed_missing=allowed_missing,
+    ):
+        mismatches["input_inventory_sha256"] = (manifest.get("input_inventory_sha256"), inventory_digest(inputs))
+    if not _inventory_matches(
+        recorded=manifest.get("output_inventory"),
+        recorded_digest=manifest.get("output_inventory_sha256"),
+        current=outputs,
+        allowed_missing=allowed_missing,
+    ):
+        mismatches["output_inventory_sha256"] = (manifest.get("output_inventory_sha256"), inventory_digest(outputs))
+    if mismatches:
+        raise RuntimeError(f"Rejuvenation resume provenance mismatch: {mismatches}")
+    return manifest
 
 
 def _copy_open_loop_to_next(

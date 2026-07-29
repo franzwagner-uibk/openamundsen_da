@@ -16,10 +16,18 @@ For each configured event, the project runner:
 
 1. propagates the open loop and prior members with openAMUNDSEN;
 2. evaluates the configured observation operator;
-3. calculates and normalizes likelihood weights;
+3. adds the event log likelihood to the persisted prior log weight and
+   normalizes the resulting posterior weights with log-sum-exp;
 4. records effective sample size and the resampling decision;
 5. materializes the posterior and applies configured rejuvenation; and
-6. uses the posterior as the next step's prior.
+6. carries the normalized weights into the next propagation when resampling is
+   skipped, or initializes uniformly weighted children after actual resampling.
+
+The event analysis is the weighted distribution before resampling. The
+materialized posterior is the mirrored or resampled member collection used to
+initialize propagation. Skipping resampling therefore does not skip data
+assimilation: the observation changes the persistent particle weights and all
+weighted diagnostics until a later resampling event resets them.
 
 The current particle weights are scalar at the model-domain or subdomain scale.
 Independent subdomain execution is a decomposition strategy and does not add
@@ -34,11 +42,16 @@ an explicit operator and uncertainty configuration.
 
 ## Technical artifacts
 
-- per-event weight CSVs and plots record member likelihood response;
+- every step has `assim/prior_weights.csv` and a versioned ancestry manifest;
+- per-event weight CSVs contain prior weight, event log likelihood, posterior
+  weight, prior and posterior ESS, threshold and resampling status;
+- versioned event, resampling and rejuvenation manifests bind resume behavior
+  to inputs, configuration, ancestry and the `keyed-v1` RNG scheme;
 - effective sample size plots record degeneracy and resampling decisions;
 - `results/benchmark/` stores configured evaluation cases and scores;
 - `results/grids/da_output_grids.nc` stores compact open-loop, ensemble and
-  event-analysis fields; and
+  event-analysis fields. Ensemble summaries use persistent PF weights, while
+  member minima and maxima describe the materialized member collection; and
 - `results/run_manifest.json` records hashes, stage state, provenance and outputs.
 
 See [Output data]({{ site.baseurl }}{% link output-data.md %}) for paths and

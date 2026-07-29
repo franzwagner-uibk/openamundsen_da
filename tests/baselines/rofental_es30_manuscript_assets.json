@@ -1,10 +1,9 @@
 {
   "schema_version": 1,
-  "baseline_commit": "1a6a4b3a8318ada8c3d5a5708019767f9c20b177",
-  "simulation_source_run": "original8_p074_wsla100_fsca005",
-  "publication_analysis_overlay": "obs/summaries/project_2022_2023/scf_summary.csv",
-  "canonical_run_archive": "/home/franz/workspace/dev_examples/archive/20260715T115015_rofental_pre_v09_refactor",
-  "note": "Figures 1-2 are immutable manual inputs. Figures 3-7 use the selected run's simulation outputs followed by the recorded publication-analysis overlay and rerender. Replacing any file requires an exact comparison and explicit approval.",
+  "baseline_commit": "aa5ffab4a4a5976b154b2e30480bd2d73da7b203",
+  "reference_configuration": "M_20230503_s1415935400_sig200_g095",
+  "approved_candidate_run": "lenovo-p8:/home/franz/workspace/openamundsen_da_runs/rofental_single_domain_runs/rofental_v094_candidate_aa5ffab_20260729T1040Z/setup",
+  "note": "Figures 1-2 are immutable manual inputs. Figures 3-7 are registered from the user-approved clean aa5ffab candidate. They are not copied into the manuscript repository until the separate manuscript asset approval gate.",
   "figures": [
     {
       "name": "fig01.png",
@@ -36,48 +35,38 @@
     {
       "name": "fig04.png",
       "source": "projects/project_2022_2023/results/plots/results/result_overview.png",
-      "file_sha256": "6da91786ed13a5b6b34ecca6a4f3c207b5163ca9d7b16c1b252763216d1cace8",
+      "file_sha256": "fc4f650c181b297a6ea5426395b7923f5756698d5c3ad046138ae55cc2312067",
       "width": 4043,
       "height": 3684,
       "mode": "RGBA",
-      "pixels_sha256": "7bc12e2b46cba6e979ca09994696f0b0fe64953bc0ffd301b535058b9e44d8b6",
-      "accepted_run_records": [
-        {
-          "file_sha256": "8787471c102364af3774c22c58c54ac42787e6cefbf3310a0d3a08dc062cbf36",
-          "width": 4043,
-          "height": 3684,
-          "mode": "RGBA",
-          "pixels_sha256": "431dec70f531dcfb8f33d207aa5e403c20f6f014a9fc7d2d22427443e15e1450",
-          "reason": "Fresh reproduction with the current pinned environment differs from the canonical manuscript image in 1434 antialiased CRPSS-panel pixels because benchmark reductions vary at machine precision; the numerical manuscript contract remains unchanged."
-        }
-      ]
+      "pixels_sha256": "5ca0bdeb5faab5b632f263fa680ec0545cfd1bc849a9d0ffda55ba61ff0d0d6b"
     },
     {
       "name": "fig05.png",
       "source": "projects/project_2022_2023/results/paper/plots/assim/weights/setup_weights_overview_2022_2023.png",
-      "file_sha256": "4bdafdb3fcb383d29ce7baf1dabb18309148bbc3e5983b76ff2917e8c5b992db",
+      "file_sha256": "b7d8a2db208d086c65ef1621fd6e0c2860bcd365eaf69d104a8fb42dd59518a5",
       "width": 4139,
       "height": 3320,
       "mode": "RGBA",
-      "pixels_sha256": "03b5f262e380563aa12a02677f07bab5933ce15a639b73943546ae89c7861a53"
+      "pixels_sha256": "49e9d02da991b634973f5a7774bc77d86efa7a01b84063b9767a002575b79db5"
     },
     {
       "name": "fig06.png",
-      "source": "projects/project_2022_2023/results/paper/maps/da_events/da_6.png",
-      "file_sha256": "25a87c3a1a6ff622053f54ac5ba8e4657b6962a9c890a2d051d69f204c0392db",
+      "source": "projects/project_2022_2023/results/paper/maps/da_events/da_7.png",
+      "file_sha256": "58e4dcc165e211a94b2fedd79be14efde3eb5dffaa71967de27f4b81140416e5",
       "width": 4278,
-      "height": 3913,
+      "height": 5275,
       "mode": "RGBA",
-      "pixels_sha256": "c4dbbdb7bc651a737a57e4fbe91b680c3b56d69b45a8d6718f94aba1a0986186"
+      "pixels_sha256": "7e1378b394501253f7938d69c159ba5514f620e4f24bf3d9b0572cb9e0126abf"
     },
     {
       "name": "fig07.png",
       "source": "projects/project_2022_2023/results/paper/maps/da_events/da_8.png",
-      "file_sha256": "6a8f490f1fd59f166bb882afc1e8265afc85a3c5b02978fd41901011f28ce6b3",
+      "file_sha256": "a4216c76a4c24b6458c312b7aade65917d5187504e7a8ef18d9640d160d10bfd",
       "width": 4278,
       "height": 2566,
       "mode": "RGBA",
-      "pixels_sha256": "90a36c5c46cd86942a259f38a4d398c74d21f940a125896784bf8c1e876e71e7"
+      "pixels_sha256": "eec8d12184e7394fca0894f673ced9c5cdb0b5419b5c8d650dd3f6a9f814d5f2"
     }
   ]
 }

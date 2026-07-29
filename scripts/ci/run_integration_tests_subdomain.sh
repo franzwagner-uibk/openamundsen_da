@@ -92,6 +92,14 @@ project_dir.mkdir(parents=True, exist_ok=True)
 project_cfg = dict(source_project_cfg)
 
 da_cfg = dict(project_cfg.get("data_assimilation") or {})
+rejuvenation_cfg = dict(da_cfg.get("rejuvenation") or {})
+rejuvenation_cfg.pop("rebase_open_loop", None)
+da_cfg["rejuvenation"] = rejuvenation_cfg
+likelihood_cfg = dict(da_cfg.get("likelihood") or {})
+scf_likelihood_cfg = dict(likelihood_cfg.get("scf") or {})
+scf_likelihood_cfg.setdefault("min_support_coverage_ratio", 0.0)
+likelihood_cfg["scf"] = scf_likelihood_cfg
+da_cfg["likelihood"] = likelihood_cfg
 source_events = da_cfg.get("assimilation_events") or []
 scf_events = [
     dict(event)
@@ -129,6 +137,26 @@ project_cfg["data_assimilation"] = da_cfg
 
 with (project_dir / "project_ci_2022_2023.yml").open("w", encoding="utf-8") as f:
     yaml.safe_dump(project_cfg, f, sort_keys=False)
+
+setup_yml = setup_dir / "subdomains.yml"
+with setup_yml.open("r", encoding="utf-8") as f:
+    setup_cfg = yaml.safe_load(f) or {}
+output_data = dict(setup_cfg.get("output_data") or {})
+grid_output = dict(output_data.get("grids") or {})
+grid_variables = list(grid_output.get("variables") or [])
+if not any(
+    isinstance(item, dict)
+    and item.get("var") == "snow.depth"
+    and item.get("name") == "snowdepth_instantaneous"
+    and "agg" not in item
+    for item in grid_variables
+):
+    grid_variables.append({"var": "snow.depth", "name": "snowdepth_instantaneous"})
+grid_output["variables"] = grid_variables
+output_data["grids"] = grid_output
+setup_cfg["output_data"] = output_data
+with setup_yml.open("w", encoding="utf-8") as f:
+    yaml.safe_dump(setup_cfg, f, sort_keys=False)
 
 source_maps_cfg = source_project_yml.parent / "maps.yml"
 if source_maps_cfg.is_file():

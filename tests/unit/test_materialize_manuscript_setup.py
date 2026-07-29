@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import hashlib
 import importlib.util
-import json
 from pathlib import Path
 from types import ModuleType
 
@@ -19,75 +17,50 @@ def _load_module() -> ModuleType:
     return module
 
 
-def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
+def _fixture(tmp_path: Path) -> Path:
     base = tmp_path / "base"
-    snapshot = tmp_path / "snapshot"
     base.mkdir()
-    snapshot.mkdir()
     (base / "kept.txt").write_text("kept\n", encoding="utf-8")
-    (base / "data.txt").write_text("new\n", encoding="utf-8")
-    frozen = snapshot / "data.txt"
-    frozen.write_text("manuscript\n", encoding="utf-8")
-    manifest = snapshot / "manifest.json"
-    manifest.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "files": [
-                    {
-                        "path": "data.txt",
-                        "sha256": hashlib.sha256(frozen.read_bytes()).hexdigest(),
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    return base, snapshot, manifest
+    (base / "data.txt").write_text("shipped\n", encoding="utf-8")
+    return base
 
 
-def test_materialize_setup_applies_validated_snapshot(tmp_path: Path) -> None:
+def test_default_source_is_shipped_rofental_example() -> None:
     module = _load_module()
-    base, snapshot, manifest = _fixture(tmp_path)
+
+    assert module.DEFAULT_BASE.is_dir()
+    assert (
+        module.DEFAULT_BASE
+        / "projects"
+        / "project_2022_2023"
+        / "project_2022_2023.yml"
+    ).is_file()
+
+
+def test_materialize_setup_copies_shipped_setup_without_overlay(tmp_path: Path) -> None:
+    module = _load_module()
+    base = _fixture(tmp_path)
     target = tmp_path / "target"
 
     written = module.materialize_setup(
         base_setup=base,
-        snapshot_root=snapshot,
-        manifest_path=manifest,
         target=target,
     )
 
-    assert written == ((target / "data.txt").resolve(),)
-    assert (target / "data.txt").read_text(encoding="utf-8") == "manuscript\n"
+    assert written == target.resolve()
+    assert (target / "data.txt").read_text(encoding="utf-8") == "shipped\n"
     assert (target / "kept.txt").read_text(encoding="utf-8") == "kept\n"
-
-
-def test_materialize_setup_rejects_checksum_drift(tmp_path: Path) -> None:
-    module = _load_module()
-    base, snapshot, manifest = _fixture(tmp_path)
-    (snapshot / "data.txt").write_text("changed\n", encoding="utf-8")
-
-    with pytest.raises(module.ManuscriptSetupError, match="checksum differs"):
-        module.materialize_setup(
-            base_setup=base,
-            snapshot_root=snapshot,
-            manifest_path=manifest,
-            target=tmp_path / "target",
-        )
 
 
 def test_materialize_setup_requires_explicit_overwrite(tmp_path: Path) -> None:
     module = _load_module()
-    base, snapshot, manifest = _fixture(tmp_path)
+    base = _fixture(tmp_path)
     target = tmp_path / "target"
     target.mkdir()
 
     with pytest.raises(module.ManuscriptSetupError, match="--overwrite"):
         module.materialize_setup(
             base_setup=base,
-            snapshot_root=snapshot,
-            manifest_path=manifest,
             target=target,
         )
 
@@ -99,21 +72,12 @@ def test_materialize_setup_rejects_overlapping_source_tree(
     module = _load_module()
     protected_parent = tmp_path / "protected"
     base = protected_parent / "base"
-    snapshot = tmp_path / "snapshot"
     base.mkdir(parents=True)
-    snapshot.mkdir()
-    manifest = snapshot / "manifest.json"
-    manifest.write_text(
-        json.dumps({"schema_version": 1, "files": [{"path": "data.txt", "sha256": ""}]}),
-        encoding="utf-8",
-    )
     target = base / "nested" if target_kind == "inside" else protected_parent
 
-    with pytest.raises(module.ManuscriptSetupError, match="outside protected source tree"):
+    with pytest.raises(module.ManuscriptSetupError, match="outside the shipped setup tree"):
         module.materialize_setup(
             base_setup=base,
-            snapshot_root=snapshot,
-            manifest_path=manifest,
             target=target,
             overwrite=True,
         )

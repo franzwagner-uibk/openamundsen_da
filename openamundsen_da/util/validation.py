@@ -25,25 +25,35 @@ def validate_assimilation_requirements(
     """Validate required config outputs and obs files before running a project."""
     proj_cfg = _read_yaml_file(find_setup_yaml(setup_dir)) or {}
     grid_vars = ((proj_cfg.get("output_data") or {}).get("grids") or {}).get("variables") or []
-    names: set[str] = set()
-    vars_: set[str] = set()
+    instantaneous_names: set[str] = set()
     for entry in grid_vars:
         if not isinstance(entry, dict):
             continue
         if entry.get("name"):
-            names.add(str(entry["name"]))
-        if entry.get("var"):
-            vars_.add(str(entry["var"]))
+            name = str(entry["name"])
+            if entry.get("agg") is None:
+                instantaneous_names.add(name)
 
     errors: list[str] = []
 
     needs_scf = any(ev.variable == "scf" for ev in events)
-    if needs_scf and not ({"snowdepth_daily"} & names or {"snow.depth"} & vars_):
-        errors.append("Configure snow depth daily output (var: snow.depth, name: snowdepth_daily) in output_data.grids for SCF assimilation.")
+    if needs_scf and "snowdepth_instantaneous" not in instantaneous_names:
+        errors.append(
+            "Configure instantaneous snow depth output (var: snow.depth, "
+            "name: snowdepth_instantaneous, without agg) in output_data.grids for SCF assimilation."
+        )
 
     needs_wet = any(ev.variable in {"wet_snow", "wet_snow_line"} for ev in events)
-    if needs_wet and not ({"liquid_water_content"} & names or {"snow.liquid_water_content"} & vars_):
-        errors.append("Configure liquid water content output (var: snow.liquid_water_content, name: liquid_water_content) in output_data.grids for wet-snow assimilation.")
+    if needs_wet:
+        for name, variable in (
+            ("snowdepth_instantaneous", "snow.depth"),
+            ("liquid_water_content_instantaneous", "snow.liquid_water_content"),
+        ):
+            if name not in instantaneous_names:
+                errors.append(
+                    f"Configure instantaneous output (var: {variable}, name: {name}, without agg) "
+                    "in output_data.grids for wet-snow assimilation."
+                )
 
     project_cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
     da_cfg = project_cfg.get("data_assimilation") or {}

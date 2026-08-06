@@ -18,7 +18,7 @@ forcing site remain visible in a deterministic five-point circular fan.
 
 Combined markers use a vertical red-left/blue-right split. Holdouts use a black
 `x` marker that overrides source colors and is repeated consistently in both
-inside-panel and below-panel station keys. Holdout symbols use marker area 20
+inside-panel and below-panel station keys. Holdout symbols use marker area 18
 instead of the standard station area 26. On maps they render two z-order levels
 above every forcing, snow-only and split marker, independent of record order or
 co-location. A `station_categories` legend item provides the fixed four-entry

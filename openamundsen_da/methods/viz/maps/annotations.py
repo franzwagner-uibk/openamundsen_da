@@ -244,11 +244,11 @@ def draw_station_categories(ax, *, y: float) -> float:
 def draw_station_categories_below(ax, *, y: float) -> float:
     """Draw the station categories as a compact two-column below-panel key."""
     rows = (
-        (("forcing", "Forcing station"), ("snow", "Snow observation station")),
+        (("forcing", "Forcing station"), ("snow", "Snow obs. station")),
         (("both", "Forcing + snow station"), ("holdout", "Holdout snow station")),
     )
     for row, entries in enumerate(rows):
-        row_y = y - 0.48 * row
+        row_y = y - 0.55 * row
         for column, (kind, label) in enumerate(entries):
             marker_x = 0.055 + 0.50 * column
             label_x = 0.105 + 0.50 * column
@@ -260,7 +260,7 @@ def draw_station_categories_below(ax, *, y: float) -> float:
                 marker_x=marker_x,
                 label_x=label_x,
             )
-    return y - 0.96
+    return y - 1.10
 
 
 def _draw_station_category_entry_at(

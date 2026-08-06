@@ -19,13 +19,19 @@ forcing site remain visible in a deterministic five-point circular fan.
 Combined markers use a vertical red-left/blue-right split. Holdout purple
 overrides source colors. A `station_categories` legend item provides the fixed
 four-entry key. Overview panels may independently enable representative-point
-labels using full subdomain IDs. Existing panel dimensions and legacy map
-recipes remain unchanged.
+labels using full subdomain IDs. Labels displaced to prevent overprinting use a
+straight haloed leader line from the nearest label edge to their representative
+interior point. Connectors avoid label boxes, prefer fewer line crossings and
+fall back deterministically with a warning in unusually dense layouts. Existing
+panel dimensions and legacy map recipes remain unchanged.
 
 The North Tyrol generator enriches finalized snow-station role metadata with
 coordinates, enables classified markers on its ROI and hillshade panels,
 enables full IDs on the country overview and removes its former ROI label.
 Country geometry continues to use the existing GISCO cache contract.
+The North Tyrol below-panel station key abbreviates only its snow entry to
+`Snow obs. station` and uses a slightly larger gap between its two rows; the
+inside-panel key retains the full wording.
 
 ## Acceptance
 

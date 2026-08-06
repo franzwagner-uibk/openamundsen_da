@@ -4,20 +4,26 @@ from types import SimpleNamespace
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as pe
 import numpy as np
 import pandas as pd
 import pytest
 from matplotlib.colors import to_rgba
-from shapely.geometry import box
+from shapely.geometry import LineString, Point, box
 
+from openamundsen_da.methods.viz.maps import panel_renderers as panel_renderers_module
 from openamundsen_da.methods.viz.maps.annotations import (
     draw_station_categories,
     draw_station_categories_below,
 )
 from openamundsen_da.methods.viz.maps.config import load_project_maps_config
 from openamundsen_da.methods.viz.maps.panel_renderers import (
+    OverviewLabelSpec,
+    _overview_subdomain_candidate_score,
+    draw_overview_label_leaders,
     draw_stations_overlay,
     overview_label_data_box,
+    overview_label_leader_segment,
     overview_subdomain_label_specs,
 )
 from openamundsen_da.methods.viz.maps.station_markers import (
@@ -152,6 +158,74 @@ def test_classified_station_rendering_uses_split_and_role_colors() -> None:
         plt.close(fig)
 
 
+def test_subdomain_label_scoring_and_dense_fallback_are_deterministic(
+    monkeypatch,
+) -> None:
+    base = OverviewLabelSpec("A", 0.0, 0.0, "center", "center", 6.0, True, 10)
+    candidate = OverviewLabelSpec("A", 2.0, 2.0, "center", "center", 6.0, True, 10)
+    existing = [LineString([(0.0, -2.0), (0.0, 2.0)])]
+    clean_score = _overview_subdomain_candidate_score(
+        candidate=candidate,
+        candidate_box=box(2.0, 2.0, 3.0, 3.0),
+        leader=LineString([(1.0, 1.0), (2.0, 1.0)]),
+        occupied_boxes=[],
+        placed_leaders=existing,
+        base=base,
+    )
+    crossing_score = _overview_subdomain_candidate_score(
+        candidate=candidate,
+        candidate_box=box(2.0, 2.0, 3.0, 3.0),
+        leader=LineString([(-1.0, 0.0), (1.0, 0.0)]),
+        occupied_boxes=[],
+        placed_leaders=existing,
+        base=base,
+    )
+    assert clean_score[4] == 0
+    assert crossing_score[4] == 1
+    assert clean_score < crossing_score
+
+    warnings = []
+    monkeypatch.setattr(
+        panel_renderers_module.logger,
+        "warning",
+        lambda message, label: warnings.append((message, label)),
+    )
+    subdomains = gpd.GeoDataFrame(
+        {"subdomain_id": ["dense"]},
+        geometry=[box(45.0, 45.0, 55.0, 55.0)],
+        crs="EPSG:25832",
+    )
+    occupied = OverviewLabelSpec(
+        "occupied",
+        50.0,
+        50.0,
+        "center",
+        "center",
+        1000.0,
+        True,
+        10,
+    )
+    fig, ax = plt.subplots(figsize=(2, 2))
+    try:
+        first = overview_subdomain_label_specs(
+            ax,
+            SimpleNamespace(subdomain_gdf=subdomains),
+            extent=(0.0, 100.0, 0.0, 100.0),
+            occupied_specs=[occupied],
+        )
+        second = overview_subdomain_label_specs(
+            ax,
+            SimpleNamespace(subdomain_gdf=subdomains),
+            extent=(0.0, 100.0, 0.0, 100.0),
+            occupied_specs=[occupied],
+        )
+        assert first == second
+        assert warnings
+        assert warnings[0][1] == "dense"
+    finally:
+        plt.close(fig)
+
+
 def test_station_map_config_legend_and_subdomain_labels(tmp_path) -> None:
     maps_path = tmp_path / "maps.yml"
     maps_path.write_text(
@@ -209,6 +283,37 @@ def test_station_map_config_legend_and_subdomain_labels(tmp_path) -> None:
             for spec in label_specs
         ]
         assert not label_boxes[0].intersects(label_boxes[1])
+        assert [(spec.anchor_x, spec.anchor_y) for spec in label_specs] == [
+            (505_000.0, 5_205_000.0),
+            (515_000.0, 5_205_000.0),
+        ]
+        displaced = [
+            spec
+            for spec in label_specs
+            if not np.isclose(spec.x, spec.anchor_x, rtol=0.0, atol=1e-9)
+            or not np.isclose(spec.y, spec.anchor_y, rtol=0.0, atol=1e-9)
+        ]
+        assert len(displaced) == 1
+        leader = overview_label_leader_segment(axes[0], displaced[0], extent=extent)
+        assert leader is not None
+        assert Point(leader.coords[0]).distance(
+            overview_label_data_box(axes[0], displaced[0], extent=extent).boundary
+        ) == pytest.approx(0.0)
+        assert leader.coords[-1] == pytest.approx(
+            (displaced[0].anchor_x, displaced[0].anchor_y)
+        )
+        draw_overview_label_leaders(axes[0], label_specs, extent=extent)
+        assert len(axes[0].lines) == 1
+        assert axes[0].lines[0].get_color() == "#4d4d4d"
+        assert axes[0].lines[0].get_linewidth() == pytest.approx(0.6)
+        assert axes[0].lines[0].get_marker() in {None, "None"}
+        halo = next(
+            effect
+            for effect in axes[0].lines[0].get_path_effects()
+            if isinstance(effect, pe.Stroke)
+        )
+        assert halo._gc["foreground"] == "white"
+        assert halo._gc["linewidth"] == pytest.approx(1.8)
         for spec in label_specs:
             axes[0].text(spec.x, spec.y, spec.text)
         draw_station_categories(axes[1], y=0.86)
@@ -223,9 +328,15 @@ def test_station_map_config_legend_and_subdomain_labels(tmp_path) -> None:
             "Forcing + snow station",
             "Holdout snow station",
         ]
+        assert [text.get_text() for text in axes[2].texts] == [
+            "Forcing station",
+            "Snow obs. station",
+            "Forcing + snow station",
+            "Holdout snow station",
+        ]
         np.testing.assert_allclose(
             sorted({text.get_position()[1] for text in axes[2].texts}),
-            [0.32, 0.80],
+            [0.25, 0.80],
         )
     finally:
         plt.close(fig)

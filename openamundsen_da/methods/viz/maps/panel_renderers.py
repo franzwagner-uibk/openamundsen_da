@@ -18,7 +18,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Rectangle
 from matplotlib.transforms import ScaledTranslation
 from rasterio.warp import Resampling, reproject
-from shapely.geometry import Point, box
+from shapely.geometry import LineString, Point, box
 
 from openamundsen_da.io.paths import (
     list_member_dirs,
@@ -176,6 +176,13 @@ class OverviewLabelSpec:
     fontsize: float
     with_bbox: bool
     zorder: int
+    anchor_x: float | None = None
+    anchor_y: float | None = None
+
+
+_SUBDOMAIN_LEADER_COLOR = "#4d4d4d"
+_SUBDOMAIN_LEADER_WIDTH = 0.6
+_SUBDOMAIN_LEADER_HALO_WIDTH = 1.8
 
 
 def _format_poster_colorbar_tick(value: float) -> str:
@@ -301,6 +308,105 @@ def draw_subdomain_boundaries(ax, context: StaticContext) -> None:
         )
 
 
+def overview_label_leader_segment(
+    ax,
+    spec: OverviewLabelSpec,
+    *,
+    extent: tuple[float, float, float, float],
+) -> LineString | None:
+    """Return the connector from the nearest label-box edge to its anchor."""
+    if spec.anchor_x is None or spec.anchor_y is None:
+        return None
+    if np.isclose(spec.x, spec.anchor_x, rtol=0.0, atol=1e-9) and np.isclose(
+        spec.y,
+        spec.anchor_y,
+        rtol=0.0,
+        atol=1e-9,
+    ):
+        return None
+
+    label_box = overview_label_data_box(ax, spec, extent=extent)
+    anchor = Point(spec.anchor_x, spec.anchor_y)
+    if label_box.covers(anchor):
+        return None
+
+    dx = spec.anchor_x - spec.x
+    dy = spec.anchor_y - spec.y
+    minx, miny, maxx, maxy = label_box.bounds
+    edge_fractions: list[float] = []
+    if dx > 0.0:
+        edge_fractions.append((maxx - spec.x) / dx)
+    elif dx < 0.0:
+        edge_fractions.append((minx - spec.x) / dx)
+    if dy > 0.0:
+        edge_fractions.append((maxy - spec.y) / dy)
+    elif dy < 0.0:
+        edge_fractions.append((miny - spec.y) / dy)
+    valid_fractions = [fraction for fraction in edge_fractions if 0.0 <= fraction <= 1.0]
+    if not valid_fractions:
+        return None
+    fraction = min(valid_fractions)
+    start = (spec.x + fraction * dx, spec.y + fraction * dy)
+    return LineString([start, (spec.anchor_x, spec.anchor_y)])
+
+
+def _overview_subdomain_candidate_score(
+    *,
+    candidate: OverviewLabelSpec,
+    candidate_box,
+    leader: LineString | None,
+    occupied_boxes: list,
+    placed_leaders: list[LineString],
+    base: OverviewLabelSpec,
+) -> tuple[bool, float, bool, float, int, float, float, float]:
+    label_overlap = float(sum(candidate_box.intersection(other).area for other in occupied_boxes))
+    leader_label_intersection = 0.0
+    if leader is not None:
+        leader_label_intersection += sum(leader.intersection(other).length for other in occupied_boxes)
+    leader_label_intersection += sum(existing.intersection(candidate_box).length for existing in placed_leaders)
+    leader_crossings = 0 if leader is None else sum(leader.crosses(existing) for existing in placed_leaders)
+    displacement = (candidate.x - base.x) ** 2 + (candidate.y - base.y) ** 2
+    return (
+        label_overlap > 0.0,
+        label_overlap,
+        leader_label_intersection > 0.0,
+        float(leader_label_intersection),
+        int(leader_crossings),
+        float(displacement),
+        candidate.y,
+        candidate.x,
+    )
+
+
+def draw_overview_label_leaders(
+    ax,
+    specs: list[OverviewLabelSpec],
+    *,
+    extent: tuple[float, float, float, float],
+) -> None:
+    """Draw haloed leader lines for displaced subdomain labels."""
+    for spec in specs:
+        leader = overview_label_leader_segment(ax, spec, extent=extent)
+        if leader is None:
+            continue
+        x, y = leader.xy
+        line = ax.plot(
+            x,
+            y,
+            color=_SUBDOMAIN_LEADER_COLOR,
+            linewidth=_SUBDOMAIN_LEADER_WIDTH,
+            marker=None,
+            solid_capstyle="round",
+            zorder=spec.zorder - 1,
+        )[0]
+        line.set_path_effects(
+            [
+                pe.Stroke(linewidth=_SUBDOMAIN_LEADER_HALO_WIDTH, foreground="white"),
+                pe.Normal(),
+            ]
+        )
+
+
 def overview_subdomain_label_specs(
     ax,
     context: StaticContext,
@@ -315,10 +421,8 @@ def overview_subdomain_label_specs(
     if "subdomain_id" not in subdomains.columns:
         raise ValueError("Subdomain labels require a subdomain_id column")
 
-    occupied_boxes = [
-        overview_label_data_box(ax, spec, extent=extent)
-        for spec in (occupied_specs or [])
-    ]
+    occupied_boxes = [overview_label_data_box(ax, spec, extent=extent) for spec in (occupied_specs or [])]
+    placed_leaders: list[LineString] = []
     visible_extent = box(extent[0], extent[2], extent[1], extent[3])
     placements: list[OverviewLabelSpec] = []
     for _, row in subdomains.sort_values("subdomain_id").iterrows():
@@ -335,6 +439,8 @@ def overview_subdomain_label_specs(
             fontsize=_MAP_SUPPORT_TEXT_SIZE,
             with_bbox=True,
             zorder=_ANNOTATION_ZORDER + 1,
+            anchor_x=float(point.x),
+            anchor_y=float(point.y),
         )
         base_box = overview_label_data_box(ax, base, extent=extent)
         width = max(float(base_box.bounds[2] - base_box.bounds[0]), 1e-9)
@@ -354,29 +460,50 @@ def overview_subdomain_label_specs(
             )
         )
 
-        candidates: list[tuple[OverviewLabelSpec, object, float]] = []
+        candidates: list[
+            tuple[
+                tuple[bool, float, bool, float, int, float, float, float],
+                OverviewLabelSpec,
+                object,
+                LineString | None,
+            ]
+        ] = []
         for dx, dy in offsets:
             candidate = replace(base, x=base.x + dx, y=base.y + dy)
             candidate_box = overview_label_data_box(ax, candidate, extent=extent)
             if not visible_extent.covers(candidate_box):
                 continue
-            overlap_area = sum(candidate_box.intersection(other).area for other in occupied_boxes)
-            candidates.append((candidate, candidate_box, float(overlap_area)))
+            leader = overview_label_leader_segment(ax, candidate, extent=extent)
+            score = _overview_subdomain_candidate_score(
+                candidate=candidate,
+                candidate_box=candidate_box,
+                leader=leader,
+                occupied_boxes=occupied_boxes,
+                placed_leaders=placed_leaders,
+                base=base,
+            )
+            candidates.append((score, candidate, candidate_box, leader))
 
         if not candidates:
-            candidates = [(base, base_box, 0.0)]
-        candidate, candidate_box, _ = min(
-            candidates,
-            key=lambda item: (
-                item[2] > 0.0,
-                item[2],
-                (item[0].x - base.x) ** 2 + (item[0].y - base.y) ** 2,
-                item[0].y,
-                item[0].x,
-            ),
-        )
+            score = _overview_subdomain_candidate_score(
+                candidate=base,
+                candidate_box=base_box,
+                leader=None,
+                occupied_boxes=occupied_boxes,
+                placed_leaders=placed_leaders,
+                base=base,
+            )
+            candidates = [(score, base, base_box, None)]
+        score, candidate, candidate_box, leader = min(candidates, key=lambda item: item[0])
+        if score[0] or score[2]:
+            logger.warning(
+                "Subdomain label {} uses the least-obstructed fallback placement",
+                candidate.text,
+            )
         placements.append(candidate)
         occupied_boxes.append(candidate_box)
+        if leader is not None:
+            placed_leaders.append(leader)
     return placements
 
 
@@ -1274,6 +1401,7 @@ def render_overview_panel(
                     occupied_specs=label_specs,
                 )
             )
+        draw_overview_label_leaders(ax, label_specs, extent=extent)
         draw_overview_label_specs(ax, label_specs)
         show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
         draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=panel_date(panel, defaults), resolve_flag=resolve_flag)
@@ -1338,6 +1466,7 @@ def render_overview_panel(
                 occupied_specs=label_specs,
             )
         )
+    draw_overview_label_leaders(ax, label_specs, extent=extent)
     draw_overview_label_specs(ax, label_specs)
     show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
     draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=panel_date(panel, defaults), resolve_flag=resolve_flag)

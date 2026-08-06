@@ -1,4 +1,10 @@
+---
+published: false
+---
+
 # Station Source and Role Map Markers
+
+Status: approved by the user on 2026-08-06.
 
 ## Design
 

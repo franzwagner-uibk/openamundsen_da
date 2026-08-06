@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import matplotlib
@@ -301,28 +301,83 @@ def draw_subdomain_boundaries(ax, context: StaticContext) -> None:
         )
 
 
-def draw_subdomain_labels(ax, context: StaticContext) -> None:
-    """Draw full subdomain IDs at representative interior points."""
+def overview_subdomain_label_specs(
+    ax,
+    context: StaticContext,
+    *,
+    extent: tuple[float, float, float, float],
+    occupied_specs: list[OverviewLabelSpec] | None = None,
+) -> list[OverviewLabelSpec]:
+    """Place full subdomain IDs without overlapping other overview labels."""
     subdomains = context.subdomain_gdf
     if subdomains is None or subdomains.empty:
-        return
+        return []
     if "subdomain_id" not in subdomains.columns:
         raise ValueError("Subdomain labels require a subdomain_id column")
+
+    occupied_boxes = [
+        overview_label_data_box(ax, spec, extent=extent)
+        for spec in (occupied_specs or [])
+    ]
+    visible_extent = box(extent[0], extent[2], extent[1], extent[3])
+    placements: list[OverviewLabelSpec] = []
     for _, row in subdomains.sort_values("subdomain_id").iterrows():
         geom = row.geometry
         if geom is None or geom.is_empty:
             continue
         point = geom.representative_point()
-        apply_overlay_label_halo(ax.text(
-            float(point.x),
-            float(point.y),
-            str(row["subdomain_id"]),
+        base = OverviewLabelSpec(
+            text=str(row["subdomain_id"]),
+            x=float(point.x),
+            y=float(point.y),
             ha="center",
             va="center",
             fontsize=_MAP_SUPPORT_TEXT_SIZE,
-            color="black",
+            with_bbox=True,
             zorder=_ANNOTATION_ZORDER + 1,
-        ), with_bbox=True)
+        )
+        base_box = overview_label_data_box(ax, base, extent=extent)
+        width = max(float(base_box.bounds[2] - base_box.bounds[0]), 1e-9)
+        height = max(float(base_box.bounds[3] - base_box.bounds[1]), 1e-9)
+        offsets = [
+            (dx * 1.10 * width, dy * 1.20 * height)
+            for dx in range(-3, 4)
+            for dy in range(-3, 4)
+        ]
+        offsets.sort(
+            key=lambda offset: (
+                offset[0] ** 2 + offset[1] ** 2,
+                abs(offset[1]),
+                abs(offset[0]),
+                offset[1],
+                offset[0],
+            )
+        )
+
+        candidates: list[tuple[OverviewLabelSpec, object, float]] = []
+        for dx, dy in offsets:
+            candidate = replace(base, x=base.x + dx, y=base.y + dy)
+            candidate_box = overview_label_data_box(ax, candidate, extent=extent)
+            if not visible_extent.covers(candidate_box):
+                continue
+            overlap_area = sum(candidate_box.intersection(other).area for other in occupied_boxes)
+            candidates.append((candidate, candidate_box, float(overlap_area)))
+
+        if not candidates:
+            candidates = [(base, base_box, 0.0)]
+        candidate, candidate_box, _ = min(
+            candidates,
+            key=lambda item: (
+                item[2] > 0.0,
+                item[2],
+                (item[0].x - base.x) ** 2 + (item[0].y - base.y) ** 2,
+                item[0].y,
+                item[0].x,
+            ),
+        )
+        placements.append(candidate)
+        occupied_boxes.append(candidate_box)
+    return placements
 
 
 def subdomain_dropped_event_regions(
@@ -1208,11 +1263,18 @@ def render_overview_panel(
             zorder=25,
         )
         draw_subdomain_boundaries(ax, context)
-        if panel.show_subdomain_labels:
-            draw_subdomain_labels(ax, context)
         roi_label = overview_roi_label_spec(panel, extent=extent, context=context)
-        if roi_label is not None:
-            draw_overview_label_specs(ax, [roi_label])
+        label_specs = [roi_label] if roi_label is not None else []
+        if panel.show_subdomain_labels:
+            label_specs.extend(
+                overview_subdomain_label_specs(
+                    ax,
+                    context,
+                    extent=extent,
+                    occupied_specs=label_specs,
+                )
+            )
+        draw_overview_label_specs(ax, label_specs)
         show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
         draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=panel_date(panel, defaults), resolve_flag=resolve_flag)
         draw_map_grid_overlay(ax, show_grid=show_grid)
@@ -1256,8 +1318,6 @@ def render_overview_panel(
     )
     context.roi_gdf.plot(ax=ax, facecolor=_OVERVIEW_ROI_COLOR, edgecolor=_OVERVIEW_ROI_COLOR, linewidth=0.8, zorder=25)
     draw_subdomain_boundaries(ax, context)
-    if panel.show_subdomain_labels:
-        draw_subdomain_labels(ax, context)
     roi_label = overview_roi_label_spec(panel, extent=extent, context=context)
     label_specs = overview_country_label_specs(
         ax=ax,
@@ -1269,6 +1329,15 @@ def render_overview_panel(
     )
     if roi_label is not None:
         label_specs.append(roi_label)
+    if panel.show_subdomain_labels:
+        label_specs.extend(
+            overview_subdomain_label_specs(
+                ax,
+                context,
+                extent=extent,
+                occupied_specs=label_specs,
+            )
+        )
     draw_overview_label_specs(ax, label_specs)
     show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
     draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=panel_date(panel, defaults), resolve_flag=resolve_flag)

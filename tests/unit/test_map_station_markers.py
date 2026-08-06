@@ -10,11 +10,12 @@ import pytest
 from matplotlib.colors import to_rgba
 from shapely.geometry import box
 
-from openamundsen_da.methods.viz.maps import annotations
+from openamundsen_da.methods.viz.maps.annotations import draw_station_categories
 from openamundsen_da.methods.viz.maps.config import load_project_maps_config
 from openamundsen_da.methods.viz.maps.panel_renderers import (
     draw_stations_overlay,
-    draw_subdomain_labels,
+    overview_label_data_box,
+    overview_subdomain_label_specs,
 )
 from openamundsen_da.methods.viz.maps.station_markers import (
     FORCING_STATION_COLOR,
@@ -186,13 +187,28 @@ def test_station_map_config_legend_and_subdomain_labels(tmp_path) -> None:
 
     subdomains = gpd.GeoDataFrame(
         {"subdomain_id": ["AT-07-13", "AT-07-14-01"]},
-        geometry=[box(0, 0, 10, 10), box(10, 0, 20, 10)],
+        geometry=[
+            box(500_000, 5_200_000, 510_000, 5_210_000),
+            box(510_000, 5_200_000, 520_000, 5_210_000),
+        ],
         crs="EPSG:25832",
     )
     fig, axes = plt.subplots(1, 2, figsize=(5, 2))
     try:
-        draw_subdomain_labels(axes[0], SimpleNamespace(subdomain_gdf=subdomains))
-        annotations.draw_station_categories(axes[1], y=0.86)
+        extent = (300_000.0, 700_000.0, 5_000_000.0, 5_400_000.0)
+        label_specs = overview_subdomain_label_specs(
+            axes[0],
+            SimpleNamespace(subdomain_gdf=subdomains),
+            extent=extent,
+        )
+        label_boxes = [
+            overview_label_data_box(axes[0], spec, extent=extent)
+            for spec in label_specs
+        ]
+        assert not label_boxes[0].intersects(label_boxes[1])
+        for spec in label_specs:
+            axes[0].text(spec.x, spec.y, spec.text)
+        draw_station_categories(axes[1], y=0.86)
         assert [text.get_text() for text in axes[0].texts] == [
             "AT-07-13",
             "AT-07-14-01",

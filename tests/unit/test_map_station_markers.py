@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from matplotlib.colors import to_rgba
+from matplotlib.markers import MarkerStyle
 from shapely.geometry import LineString, Point, box
 
 from openamundsen_da.methods.viz.maps import panel_renderers as panel_renderers_module
@@ -29,10 +30,16 @@ from openamundsen_da.methods.viz.maps.panel_renderers import (
 from openamundsen_da.methods.viz.maps.station_markers import (
     FORCING_STATION_COLOR,
     HOLDOUT_STATION_COLOR,
+    HOLDOUT_STATION_LINEWIDTH,
+    HOLDOUT_STATION_MARKER,
     LEFT_HALF_TRIANGLE,
     RIGHT_HALF_TRIANGLE,
     SNOW_STATION_COLOR,
     classify_station_markers,
+)
+
+_HOLDOUT_PATH = MarkerStyle(HOLDOUT_STATION_MARKER).get_path().transformed(
+    MarkerStyle(HOLDOUT_STATION_MARKER).get_transform()
 )
 
 
@@ -135,6 +142,18 @@ def test_classified_station_rendering_uses_split_and_role_colors() -> None:
         assert colors.count(to_rgba(FORCING_STATION_COLOR)) == 3
         assert colors.count(to_rgba(SNOW_STATION_COLOR)) == 3
         assert colors.count(to_rgba(HOLDOUT_STATION_COLOR)) == 1
+        holdout_collection = next(
+            collection
+            for collection in ax.collections
+            if tuple(collection.get_facecolors()[0]) == to_rgba(HOLDOUT_STATION_COLOR)
+        )
+        np.testing.assert_allclose(
+            holdout_collection.get_paths()[0].vertices,
+            _HOLDOUT_PATH.vertices,
+        )
+        assert holdout_collection.get_linewidths()[0] == pytest.approx(
+            HOLDOUT_STATION_LINEWIDTH
+        )
         paths = [collection.get_paths()[0].vertices for collection in ax.collections]
         assert any(np.array_equal(path, LEFT_HALF_TRIANGLE.vertices) for path in paths)
         assert any(np.array_equal(path, RIGHT_HALF_TRIANGLE.vertices) for path in paths)
@@ -334,6 +353,15 @@ def test_station_map_config_legend_and_subdomain_labels(tmp_path) -> None:
             "Forcing + snow station",
             "Holdout snow station",
         ]
+        for legend_ax in axes[1:]:
+            holdout_collection = legend_ax.collections[-1]
+            assert tuple(holdout_collection.get_facecolors()[0]) == to_rgba(
+                HOLDOUT_STATION_COLOR
+            )
+            np.testing.assert_allclose(
+                holdout_collection.get_paths()[0].vertices,
+                _HOLDOUT_PATH.vertices,
+            )
         np.testing.assert_allclose(
             sorted({text.get_position()[1] for text in axes[2].texts}),
             [0.25, 0.80],

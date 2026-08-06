@@ -17,6 +17,8 @@ from openamundsen_da.methods.viz.maps.layout import (
 from openamundsen_da.methods.viz.maps.station_markers import (
     FORCING_STATION_COLOR,
     HOLDOUT_STATION_COLOR,
+    HOLDOUT_STATION_LINEWIDTH,
+    HOLDOUT_STATION_MARKER,
     LEFT_HALF_TRIANGLE,
     RIGHT_HALF_TRIANGLE,
     SNOW_STATION_COLOR,
@@ -282,8 +284,19 @@ def _draw_station_category_entry_at(
     if kind == "both":
         ax.scatter([marker_x], [y], marker=LEFT_HALF_TRIANGLE, facecolor=FORCING_STATION_COLOR, **scatter_kwargs)
         ax.scatter([marker_x], [y], marker=RIGHT_HALF_TRIANGLE, facecolor=SNOW_STATION_COLOR, **scatter_kwargs)
+    elif kind == "holdout":
+        holdout_kwargs = dict(scatter_kwargs)
+        holdout_kwargs.pop("edgecolor")
+        holdout_kwargs["linewidth"] = HOLDOUT_STATION_LINEWIDTH
+        ax.scatter(
+            [marker_x],
+            [y],
+            marker=HOLDOUT_STATION_MARKER,
+            color=HOLDOUT_STATION_COLOR,
+            **holdout_kwargs,
+        )
     else:
-        color = {"forcing": FORCING_STATION_COLOR, "snow": SNOW_STATION_COLOR, "holdout": HOLDOUT_STATION_COLOR}[kind]
+        color = {"forcing": FORCING_STATION_COLOR, "snow": SNOW_STATION_COLOR}[kind]
         ax.scatter([marker_x], [y], marker="^", facecolor=color, **scatter_kwargs)
     ax.text(label_x, y, label, transform=ax.transAxes, ha="left", va="center", fontsize=_STATION_LEGEND_FONT_SIZE)
 

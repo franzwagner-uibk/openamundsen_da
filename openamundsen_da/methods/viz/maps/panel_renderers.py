@@ -81,6 +81,8 @@ from openamundsen_da.methods.viz.maps.overview import (
 from openamundsen_da.methods.viz.maps.station_markers import (
     FORCING_STATION_COLOR,
     HOLDOUT_STATION_COLOR,
+    HOLDOUT_STATION_LINEWIDTH,
+    HOLDOUT_STATION_MARKER,
     LEFT_HALF_TRIANGLE,
     RIGHT_HALF_TRIANGLE,
     SNOW_STATION_COLOR,
@@ -647,8 +649,19 @@ def draw_stations_overlay(
                 if marker.kind == "both":
                     ax.scatter([marker.x], [marker.y], marker=LEFT_HALF_TRIANGLE, facecolor=FORCING_STATION_COLOR, **kwargs)
                     ax.scatter([marker.x], [marker.y], marker=RIGHT_HALF_TRIANGLE, facecolor=SNOW_STATION_COLOR, **kwargs)
+                elif marker.kind == "holdout":
+                    holdout_kwargs = dict(kwargs)
+                    holdout_kwargs.pop("edgecolor")
+                    holdout_kwargs["linewidth"] = HOLDOUT_STATION_LINEWIDTH
+                    ax.scatter(
+                        [marker.x],
+                        [marker.y],
+                        marker=HOLDOUT_STATION_MARKER,
+                        color=HOLDOUT_STATION_COLOR,
+                        **holdout_kwargs,
+                    )
                 else:
-                    color = {"forcing": FORCING_STATION_COLOR, "snow": SNOW_STATION_COLOR, "holdout": HOLDOUT_STATION_COLOR}[marker.kind]
+                    color = {"forcing": FORCING_STATION_COLOR, "snow": SNOW_STATION_COLOR}[marker.kind]
                     ax.scatter([marker.x], [marker.y], marker="^", facecolor=color, **kwargs)
         if not (show_station_marker and show_stations_name):
             return

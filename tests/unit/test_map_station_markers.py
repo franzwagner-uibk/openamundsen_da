@@ -10,7 +10,10 @@ import pytest
 from matplotlib.colors import to_rgba
 from shapely.geometry import box
 
-from openamundsen_da.methods.viz.maps.annotations import draw_station_categories
+from openamundsen_da.methods.viz.maps.annotations import (
+    draw_station_categories,
+    draw_station_categories_below,
+)
 from openamundsen_da.methods.viz.maps.config import load_project_maps_config
 from openamundsen_da.methods.viz.maps.panel_renderers import (
     draw_stations_overlay,
@@ -193,7 +196,7 @@ def test_station_map_config_legend_and_subdomain_labels(tmp_path) -> None:
         ],
         crs="EPSG:25832",
     )
-    fig, axes = plt.subplots(1, 2, figsize=(5, 2))
+    fig, axes = plt.subplots(1, 3, figsize=(7, 2))
     try:
         extent = (300_000.0, 700_000.0, 5_000_000.0, 5_400_000.0)
         label_specs = overview_subdomain_label_specs(
@@ -209,6 +212,7 @@ def test_station_map_config_legend_and_subdomain_labels(tmp_path) -> None:
         for spec in label_specs:
             axes[0].text(spec.x, spec.y, spec.text)
         draw_station_categories(axes[1], y=0.86)
+        draw_station_categories_below(axes[2], y=0.80)
         assert [text.get_text() for text in axes[0].texts] == [
             "AT-07-13",
             "AT-07-14-01",
@@ -219,5 +223,9 @@ def test_station_map_config_legend_and_subdomain_labels(tmp_path) -> None:
             "Forcing + snow station",
             "Holdout snow station",
         ]
+        np.testing.assert_allclose(
+            sorted({text.get_position()[1] for text in axes[2].texts}),
+            [0.32, 0.80],
+        )
     finally:
         plt.close(fig)

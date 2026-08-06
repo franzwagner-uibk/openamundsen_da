@@ -217,20 +217,14 @@ def draw_station_entry(ax, *, y: float, label: str) -> float:
 
 
 def _draw_station_category_entry(ax, *, y: float, kind: str, label: str) -> float:
-    scatter_kwargs = {
-        "s": STATION_MARKER_SIZE,
-        "edgecolor": "none",
-        "linewidth": 0.0,
-        "transform": ax.transAxes,
-        "clip_on": False,
-    }
-    if kind == "both":
-        ax.scatter([_STATION_MARKER_X], [y], marker=LEFT_HALF_TRIANGLE, facecolor=FORCING_STATION_COLOR, **scatter_kwargs)
-        ax.scatter([_STATION_MARKER_X], [y], marker=RIGHT_HALF_TRIANGLE, facecolor=SNOW_STATION_COLOR, **scatter_kwargs)
-    else:
-        color = {"forcing": FORCING_STATION_COLOR, "snow": SNOW_STATION_COLOR, "holdout": HOLDOUT_STATION_COLOR}[kind]
-        ax.scatter([_STATION_MARKER_X], [y], marker="^", facecolor=color, **scatter_kwargs)
-    ax.text(_STATION_LABEL_X, y, label, transform=ax.transAxes, ha="left", va="center", fontsize=_STATION_LEGEND_FONT_SIZE)
+    _draw_station_category_entry_at(
+        ax,
+        y=y,
+        kind=kind,
+        label=label,
+        marker_x=_STATION_MARKER_X,
+        label_x=_STATION_LABEL_X,
+    )
     return y - 0.23
 
 
@@ -245,6 +239,53 @@ def draw_station_categories(ax, *, y: float) -> float:
     for kind, label in entries:
         y = _draw_station_category_entry(ax, y=y, kind=kind, label=label)
     return y
+
+
+def draw_station_categories_below(ax, *, y: float) -> float:
+    """Draw the station categories as a compact two-column below-panel key."""
+    rows = (
+        (("forcing", "Forcing station"), ("snow", "Snow observation station")),
+        (("both", "Forcing + snow station"), ("holdout", "Holdout snow station")),
+    )
+    for row, entries in enumerate(rows):
+        row_y = y - 0.48 * row
+        for column, (kind, label) in enumerate(entries):
+            marker_x = 0.055 + 0.50 * column
+            label_x = 0.105 + 0.50 * column
+            _draw_station_category_entry_at(
+                ax,
+                y=row_y,
+                kind=kind,
+                label=label,
+                marker_x=marker_x,
+                label_x=label_x,
+            )
+    return y - 0.96
+
+
+def _draw_station_category_entry_at(
+    ax,
+    *,
+    y: float,
+    kind: str,
+    label: str,
+    marker_x: float,
+    label_x: float,
+) -> None:
+    scatter_kwargs = {
+        "s": STATION_MARKER_SIZE,
+        "edgecolor": "none",
+        "linewidth": 0.0,
+        "transform": ax.transAxes,
+        "clip_on": False,
+    }
+    if kind == "both":
+        ax.scatter([marker_x], [y], marker=LEFT_HALF_TRIANGLE, facecolor=FORCING_STATION_COLOR, **scatter_kwargs)
+        ax.scatter([marker_x], [y], marker=RIGHT_HALF_TRIANGLE, facecolor=SNOW_STATION_COLOR, **scatter_kwargs)
+    else:
+        color = {"forcing": FORCING_STATION_COLOR, "snow": SNOW_STATION_COLOR, "holdout": HOLDOUT_STATION_COLOR}[kind]
+        ax.scatter([marker_x], [y], marker="^", facecolor=color, **scatter_kwargs)
+    ax.text(label_x, y, label, transform=ax.transAxes, ha="left", va="center", fontsize=_STATION_LEGEND_FONT_SIZE)
 
 
 def draw_heading(ax, *, y: float, text: str) -> float:
@@ -372,7 +413,10 @@ def _draw_legend_items_on_axis(
         elif item.kind == "station_symbol":
             y = draw_station_entry(ax, y=y, label=str(item.label))
         elif item.kind == "station_categories":
-            y = draw_station_categories(ax, y=y)
+            if context_label == "below-panel":
+                y = draw_station_categories_below(ax, y=y)
+            else:
+                y = draw_station_categories(ax, y=y)
         elif item.kind == "source_legend":
             if item.label:
                 y = draw_heading(ax, y=y, text=str(item.label))

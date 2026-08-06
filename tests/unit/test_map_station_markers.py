@@ -14,8 +14,10 @@ from shapely.geometry import LineString, Point, box
 
 from openamundsen_da.methods.viz.maps import panel_renderers as panel_renderers_module
 from openamundsen_da.methods.viz.maps.annotations import (
+    draw_scale_bar,
     draw_station_categories,
     draw_station_categories_below,
+    scale_bar_protected_bounds,
 )
 from openamundsen_da.methods.viz.maps.config import load_project_maps_config
 from openamundsen_da.methods.viz.maps.panel_renderers import (
@@ -186,9 +188,7 @@ def test_classified_station_rendering_uses_split_and_role_colors() -> None:
         plt.close(fig)
 
 
-def test_subdomain_label_scoring_and_dense_fallback_are_deterministic(
-    monkeypatch,
-) -> None:
+def test_subdomain_label_scoring_prefers_diagonal_after_crossings() -> None:
     base = OverviewLabelSpec("A", 0.0, 0.0, "center", "center", 6.0, True, 10)
     candidate = OverviewLabelSpec("A", 2.0, 2.0, "center", "center", 6.0, True, 10)
     existing = [LineString([(0.0, -2.0), (0.0, 2.0)])]
@@ -212,26 +212,33 @@ def test_subdomain_label_scoring_and_dense_fallback_are_deterministic(
     assert crossing_score[4] == 1
     assert clean_score < crossing_score
 
-    warnings = []
-    monkeypatch.setattr(
-        panel_renderers_module.logger,
-        "warning",
-        lambda message, label: warnings.append((message, label)),
+    vertical_score = _overview_subdomain_candidate_score(
+        candidate=OverviewLabelSpec("A", 0.0, 1.0, "center", "center", 6.0, True, 10),
+        candidate_box=box(-0.5, 0.5, 0.5, 1.5),
+        leader=LineString([(0.0, 0.5), (0.0, 0.0)]),
+        occupied_boxes=[],
+        placed_leaders=[],
+        base=base,
     )
+    diagonal_score = _overview_subdomain_candidate_score(
+        candidate=candidate,
+        candidate_box=box(1.5, 1.5, 2.5, 2.5),
+        leader=LineString([(1.5, 1.5), (0.0, 0.0)]),
+        occupied_boxes=[],
+        placed_leaders=[],
+        base=base,
+    )
+    assert vertical_score[5] is True
+    assert diagonal_score[5] is False
+    assert diagonal_score < vertical_score
+
+
+def test_subdomain_label_placement_expands_deterministically(monkeypatch) -> None:
+    monkeypatch.setattr(panel_renderers_module, "_SUBDOMAIN_LABEL_INITIAL_SEARCH_RADIUS", 0)
     subdomains = gpd.GeoDataFrame(
-        {"subdomain_id": ["dense"]},
-        geometry=[box(45.0, 45.0, 55.0, 55.0)],
+        {"subdomain_id": ["A", "B"]},
+        geometry=[box(45.0, 45.0, 55.0, 55.0)] * 2,
         crs="EPSG:25832",
-    )
-    occupied = OverviewLabelSpec(
-        "occupied",
-        50.0,
-        50.0,
-        "center",
-        "center",
-        1000.0,
-        True,
-        10,
     )
     fig, ax = plt.subplots(figsize=(2, 2))
     try:
@@ -239,17 +246,88 @@ def test_subdomain_label_scoring_and_dense_fallback_are_deterministic(
             ax,
             SimpleNamespace(subdomain_gdf=subdomains),
             extent=(0.0, 100.0, 0.0, 100.0),
-            occupied_specs=[occupied],
         )
         second = overview_subdomain_label_specs(
             ax,
             SimpleNamespace(subdomain_gdf=subdomains),
             extent=(0.0, 100.0, 0.0, 100.0),
-            occupied_specs=[occupied],
         )
         assert first == second
-        assert warnings
-        assert warnings[0][1] == "dense"
+        assert (first[1].x, first[1].y) != pytest.approx((first[1].anchor_x, first[1].anchor_y))
+        assert box(0.0, 0.0, 100.0, 100.0).covers(
+            overview_label_data_box(ax, first[1], extent=(0.0, 100.0, 0.0, 100.0))
+        )
+    finally:
+        plt.close(fig)
+
+
+def test_subdomain_label_uses_vertical_fallback_when_diagonals_are_blocked() -> None:
+    extent = (0.0, 100.0, 0.0, 100.0)
+    subdomains = gpd.GeoDataFrame(
+        {"subdomain_id": ["fallback"]},
+        geometry=[box(45.0, 45.0, 55.0, 55.0)],
+        crs="EPSG:25832",
+    )
+    occupied = OverviewLabelSpec("fallback", 50.0, 50.0, "center", "center", 5.8, True, 10)
+    fig, ax = plt.subplots(figsize=(2, 2))
+    try:
+        base_box = overview_label_data_box(ax, occupied, extent=extent)
+        minx, _miny, maxx, _maxy = base_box.bounds
+        protected = [
+            box(extent[0], extent[2], minx - 1e-6, extent[3]),
+            box(maxx + 1e-6, extent[2], extent[1], extent[3]),
+        ]
+        specs = overview_subdomain_label_specs(
+            ax,
+            SimpleNamespace(subdomain_gdf=subdomains),
+            extent=extent,
+            occupied_specs=[occupied],
+            protected_boxes=protected,
+        )
+        assert specs[0].x == pytest.approx(specs[0].anchor_x)
+        assert specs[0].y != pytest.approx(specs[0].anchor_y)
+    finally:
+        plt.close(fig)
+
+
+def test_scale_bar_footprint_protects_text_and_subdomain_connectors() -> None:
+    extent = (0.0, 100.0, 0.0, 100.0)
+    fig, ax = plt.subplots(figsize=(3, 3))
+    try:
+        ax.set_xlim(extent[0], extent[1])
+        ax.set_ylim(extent[2], extent[3])
+        draw_scale_bar(ax, extent)
+        protected = box(*scale_bar_protected_bounds(ax, extent))
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        inverse = ax.transData.inverted()
+        for text in ax.texts:
+            display_box = text.get_window_extent(renderer)
+            (minx, miny), (maxx, maxy) = inverse.transform(
+                [(display_box.x0, display_box.y0), (display_box.x1, display_box.y1)]
+            )
+            assert protected.covers(box(minx, miny, maxx, maxy))
+        assert protected.bounds[0] < min(ax.lines[0].get_xdata())
+        assert protected.bounds[2] > max(ax.lines[0].get_xdata())
+
+        anchor_x = 0.5 * (protected.bounds[0] + protected.bounds[2])
+        anchor_y = protected.bounds[3] + 0.1
+        subdomains = gpd.GeoDataFrame(
+            {"subdomain_id": ["AT-07-21"]},
+            geometry=[box(anchor_x - 0.1, anchor_y - 0.1, anchor_x + 0.1, anchor_y + 0.1)],
+            crs="EPSG:25832",
+        )
+        specs = overview_subdomain_label_specs(
+            ax,
+            SimpleNamespace(subdomain_gdf=subdomains),
+            extent=extent,
+            protected_boxes=[protected],
+        )
+        label_box = overview_label_data_box(ax, specs[0], extent=extent)
+        leader = overview_label_leader_segment(ax, specs[0], extent=extent)
+        assert not label_box.intersects(protected)
+        assert leader is not None
+        assert not leader.intersects(protected)
     finally:
         plt.close(fig)
 

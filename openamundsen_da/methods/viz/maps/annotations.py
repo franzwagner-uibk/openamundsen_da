@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import matplotlib.patheffects as pe
 import numpy as np
 import pandas as pd
@@ -64,6 +66,20 @@ _STATION_MARKER_X = 0.095
 _STATION_LABEL_X = 0.225
 _PATCH_LABEL_X = 0.18
 _STYLE_SCALE = 1.0
+
+
+@dataclass(frozen=True)
+class ScaleBarLayout:
+    """Data-coordinate layout shared by scale-bar drawing and collision checks."""
+
+    x0: float
+    x_mid: float
+    x1: float
+    y0: float
+    tick_height: float
+    label_y: float
+    unit_y: float
+    labels: tuple[str, str, str]
 
 
 def panel_semantic_title(panel: MapPanelSpec) -> str | None:
@@ -141,7 +157,8 @@ def format_km_label(length_m: float) -> str:
     return f"{value:g}"
 
 
-def draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
+def scale_bar_layout(extent: tuple[float, float, float, float]) -> ScaleBarLayout:
+    """Return the canonical scale-bar geometry for an extent."""
     span_x = float(extent[1] - extent[0])
     span_y = float(extent[3] - extent[2])
     total_length = scale_bar_length_m(extent)
@@ -150,35 +167,81 @@ def draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
     x0 = max(x0, extent[0] + 0.08 * span_x)
     y0 = extent[2] + _SCALEBAR_BOTTOM_FRACTION * span_y
     tick_height = 0.016 * span_y
-    label_y = y0 + 1.15 * tick_height
+    return ScaleBarLayout(
+        x0=x0,
+        x_mid=x0 + half_length,
+        x1=x0 + total_length,
+        y0=y0,
+        tick_height=tick_height,
+        label_y=y0 + 1.15 * tick_height,
+        unit_y=y0 - 0.95 * tick_height,
+        labels=("0", format_km_label(half_length), format_km_label(total_length)),
+    )
+
+
+def scale_bar_protected_bounds(
+    ax,
+    extent: tuple[float, float, float, float],
+    *,
+    clearance_points: float = 2.0,
+) -> tuple[float, float, float, float]:
+    """Return the scale bar, text halo and clearance envelope in data units."""
+    if clearance_points < 0.0:
+        raise ValueError("Scale-bar clearance must be non-negative")
+    layout = scale_bar_layout(extent)
+    data_per_in_x = float(extent[1] - extent[0]) / max(axis_width_inches(ax), 1e-9)
+    data_per_in_y = float(extent[3] - extent[2]) / max(axis_height_inches(ax), 1e-9)
+    padding_in = (_OVERLAY_LABEL_HALO_WIDTH + clearance_points) / 72.0
+    label_sizes = [text_size_in(label, size=_SCALEBAR_FONT_SIZE) for label in layout.labels]
+    unit_width_in, unit_height_in = text_size_in("km", size=_SCALEBAR_FONT_SIZE)
+    text_left = min(
+        x - 0.5 * width_in * data_per_in_x
+        for x, (width_in, _height_in) in zip((layout.x0, layout.x_mid, layout.x1), label_sizes, strict=True)
+    )
+    text_right = max(
+        x + 0.5 * width_in * data_per_in_x
+        for x, (width_in, _height_in) in zip((layout.x0, layout.x_mid, layout.x1), label_sizes, strict=True)
+    )
+    text_top = max(layout.label_y + height_in * data_per_in_y for _width_in, height_in in label_sizes)
+    unit_left = layout.x_mid - 0.5 * unit_width_in * data_per_in_x
+    unit_right = layout.x_mid + 0.5 * unit_width_in * data_per_in_x
+    unit_bottom = layout.unit_y - unit_height_in * data_per_in_y
+    pad_x = padding_in * data_per_in_x
+    pad_y = padding_in * data_per_in_y
+    return (
+        min(layout.x0, text_left, unit_left) - pad_x,
+        min(layout.y0, unit_bottom) - pad_y,
+        max(layout.x1, text_right, unit_right) + pad_x,
+        max(layout.y0 + layout.tick_height, text_top) + pad_y,
+    )
+
+
+def draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
+    layout = scale_bar_layout(extent)
     line_halo = [pe.Stroke(linewidth=2.2 * _STYLE_SCALE, foreground="white"), pe.Normal()]
     bar = ax.plot(
-        [x0, x0 + total_length],
-        [y0, y0],
+        [layout.x0, layout.x1],
+        [layout.y0, layout.y0],
         color="black",
         linewidth=0.8 * _STYLE_SCALE,
         zorder=_ANNOTATION_ZORDER,
         solid_capstyle="butt",
     )[0]
     bar.set_path_effects(line_halo)
-    for xpos in (x0, x0 + half_length, x0 + total_length):
+    for xpos in (layout.x0, layout.x_mid, layout.x1):
         tick = ax.plot(
             [xpos, xpos],
-            [y0, y0 + tick_height],
+            [layout.y0, layout.y0 + layout.tick_height],
             color="black",
             linewidth=0.8 * _STYLE_SCALE,
             zorder=_ANNOTATION_ZORDER,
             solid_capstyle="butt",
         )[0]
         tick.set_path_effects(line_halo)
-    for xpos, label in (
-        (x0, "0"),
-        (x0 + half_length, format_km_label(half_length)),
-        (x0 + total_length, format_km_label(total_length)),
-    ):
+    for xpos, label in zip((layout.x0, layout.x_mid, layout.x1), layout.labels, strict=True):
         apply_overlay_label_halo(ax.text(
             xpos,
-            label_y,
+            layout.label_y,
             label,
             ha="center",
             va="bottom",
@@ -187,8 +250,8 @@ def draw_scale_bar(ax, extent: tuple[float, float, float, float]) -> None:
             zorder=_ANNOTATION_ZORDER,
         ))
     apply_overlay_label_halo(ax.text(
-        x0 + 0.50 * total_length,
-        y0 - 0.95 * tick_height,
+        layout.x_mid,
+        layout.unit_y,
         "km",
         ha="center",
         va="top",

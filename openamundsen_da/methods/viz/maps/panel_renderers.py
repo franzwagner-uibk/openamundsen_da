@@ -44,6 +44,7 @@ from openamundsen_da.methods.viz.maps.annotations import (
     panel_date,
     panel_semantic_title,
     panel_title,
+    scale_bar_protected_bounds,
 )
 from openamundsen_da.methods.viz.maps.config import LegendItemSpec, MapDefaults, MapPanelSpec
 from openamundsen_da.methods.viz.maps.data import (
@@ -186,6 +187,9 @@ class OverviewLabelSpec:
 _SUBDOMAIN_LEADER_COLOR = "#4d4d4d"
 _SUBDOMAIN_LEADER_WIDTH = 0.6
 _SUBDOMAIN_LEADER_HALO_WIDTH = 1.8
+_SUBDOMAIN_LEADER_DIAGONAL_MIN_DEG = 25.0
+_SUBDOMAIN_LEADER_DIAGONAL_MAX_DEG = 65.0
+_SUBDOMAIN_LABEL_INITIAL_SEARCH_RADIUS = 3
 
 
 def _format_poster_colorbar_tick(value: float) -> str:
@@ -361,13 +365,20 @@ def _overview_subdomain_candidate_score(
     occupied_boxes: list,
     placed_leaders: list[LineString],
     base: OverviewLabelSpec,
-) -> tuple[bool, float, bool, float, int, float, float, float]:
+) -> tuple[bool, float, bool, float, int, bool, float, float, float]:
     label_overlap = float(sum(candidate_box.intersection(other).area for other in occupied_boxes))
     leader_label_intersection = 0.0
     if leader is not None:
         leader_label_intersection += sum(leader.intersection(other).length for other in occupied_boxes)
     leader_label_intersection += sum(existing.intersection(candidate_box).length for existing in placed_leaders)
     leader_crossings = 0 if leader is None else sum(leader.crosses(existing) for existing in placed_leaders)
+    diagonal_penalty = False
+    if leader is not None:
+        (x0, y0), (x1, y1) = leader.coords
+        angle = float(np.degrees(np.arctan2(abs(y1 - y0), abs(x1 - x0))))
+        diagonal_penalty = not (
+            _SUBDOMAIN_LEADER_DIAGONAL_MIN_DEG <= angle <= _SUBDOMAIN_LEADER_DIAGONAL_MAX_DEG
+        )
     displacement = (candidate.x - base.x) ** 2 + (candidate.y - base.y) ** 2
     return (
         label_overlap > 0.0,
@@ -375,6 +386,7 @@ def _overview_subdomain_candidate_score(
         leader_label_intersection > 0.0,
         float(leader_label_intersection),
         int(leader_crossings),
+        diagonal_penalty,
         float(displacement),
         candidate.y,
         candidate.x,
@@ -416,6 +428,7 @@ def overview_subdomain_label_specs(
     *,
     extent: tuple[float, float, float, float],
     occupied_specs: list[OverviewLabelSpec] | None = None,
+    protected_boxes: list | None = None,
 ) -> list[OverviewLabelSpec]:
     """Place full subdomain IDs without overlapping other overview labels."""
     subdomains = context.subdomain_gdf
@@ -425,6 +438,7 @@ def overview_subdomain_label_specs(
         raise ValueError("Subdomain labels require a subdomain_id column")
 
     occupied_boxes = [overview_label_data_box(ax, spec, extent=extent) for spec in (occupied_specs or [])]
+    protected_boxes = list(protected_boxes or [])
     placed_leaders: list[LineString] = []
     visible_extent = box(extent[0], extent[2], extent[1], extent[3])
     placements: list[OverviewLabelSpec] = []
@@ -448,59 +462,71 @@ def overview_subdomain_label_specs(
         base_box = overview_label_data_box(ax, base, extent=extent)
         width = max(float(base_box.bounds[2] - base_box.bounds[0]), 1e-9)
         height = max(float(base_box.bounds[3] - base_box.bounds[1]), 1e-9)
-        offsets = [
-            (dx * 1.10 * width, dy * 1.20 * height)
-            for dx in range(-3, 4)
-            for dy in range(-3, 4)
-        ]
-        offsets.sort(
-            key=lambda offset: (
-                offset[0] ** 2 + offset[1] ** 2,
-                abs(offset[1]),
-                abs(offset[0]),
-                offset[1],
-                offset[0],
-            )
+        step_x = 1.10 * width
+        step_y = 1.20 * height
+        max_radius = max(
+            _SUBDOMAIN_LABEL_INITIAL_SEARCH_RADIUS,
+            int(np.ceil((extent[1] - extent[0]) / step_x)) + 1,
+            int(np.ceil((extent[3] - extent[2]) / step_y)) + 1,
         )
-
         candidates: list[
             tuple[
-                tuple[bool, float, bool, float, int, float, float, float],
+                tuple[bool, float, bool, float, int, bool, float, float, float],
                 OverviewLabelSpec,
                 object,
                 LineString | None,
             ]
         ] = []
-        for dx, dy in offsets:
-            candidate = replace(base, x=base.x + dx, y=base.y + dy)
-            candidate_box = overview_label_data_box(ax, candidate, extent=extent)
-            if not visible_extent.covers(candidate_box):
-                continue
-            leader = overview_label_leader_segment(ax, candidate, extent=extent)
-            score = _overview_subdomain_candidate_score(
-                candidate=candidate,
-                candidate_box=candidate_box,
-                leader=leader,
-                occupied_boxes=occupied_boxes,
-                placed_leaders=placed_leaders,
-                base=base,
+        for radius in range(_SUBDOMAIN_LABEL_INITIAL_SEARCH_RADIUS, max_radius + 1):
+            offsets = [
+                (dx * step_x, dy * step_y)
+                for dx in range(-radius, radius + 1)
+                for dy in range(-radius, radius + 1)
+                if radius == _SUBDOMAIN_LABEL_INITIAL_SEARCH_RADIUS
+                or max(abs(dx), abs(dy)) == radius
+            ]
+            offsets.sort(
+                key=lambda offset: (
+                    offset[0] ** 2 + offset[1] ** 2,
+                    abs(offset[1]),
+                    abs(offset[0]),
+                    offset[1],
+                    offset[0],
+                )
             )
-            candidates.append((score, candidate, candidate_box, leader))
+            for dx, dy in offsets:
+                candidate = replace(base, x=base.x + dx, y=base.y + dy)
+                candidate_box = overview_label_data_box(ax, candidate, extent=extent)
+                if not visible_extent.covers(candidate_box):
+                    continue
+                leader = overview_label_leader_segment(ax, candidate, extent=extent)
+                if any(candidate_box.intersects(protected) for protected in protected_boxes):
+                    continue
+                if leader is not None and any(leader.intersects(protected) for protected in protected_boxes):
+                    continue
+                score = _overview_subdomain_candidate_score(
+                    candidate=candidate,
+                    candidate_box=candidate_box,
+                    leader=leader,
+                    occupied_boxes=occupied_boxes,
+                    placed_leaders=placed_leaders,
+                    base=base,
+                )
+                candidates.append((score, candidate, candidate_box, leader))
 
-        if not candidates:
-            score = _overview_subdomain_candidate_score(
-                candidate=base,
-                candidate_box=base_box,
-                leader=None,
-                occupied_boxes=occupied_boxes,
-                placed_leaders=placed_leaders,
-                base=base,
+            clean_candidates = [item for item in candidates if not item[0][0]]
+            if clean_candidates:
+                candidates = clean_candidates
+                break
+
+        if not candidates or all(item[0][0] for item in candidates):
+            raise ValueError(
+                f"No collision-free in-panel placement exists for subdomain label {base.text!r}"
             )
-            candidates = [(score, base, base_box, None)]
         score, candidate, candidate_box, leader = min(candidates, key=lambda item: item[0])
-        if score[0] or score[2]:
+        if score[2] or score[4] > 0:
             logger.warning(
-                "Subdomain label {} uses the least-obstructed fallback placement",
+                "Subdomain label {} uses the least-obstructed connector placement",
                 candidate.text,
             )
         placements.append(candidate)
@@ -508,6 +534,19 @@ def overview_subdomain_label_specs(
         if leader is not None:
             placed_leaders.append(leader)
     return placements
+
+
+def overview_panel_protected_boxes(
+    ax,
+    *,
+    panel: MapPanelSpec,
+    defaults: MapDefaults,
+    extent: tuple[float, float, float, float],
+) -> list:
+    """Return hard exclusion geometries for automatic overview labels."""
+    if not resolve_flag(panel.show_scalebar, defaults, "show_scalebar", False):
+        return []
+    return [box(*scale_bar_protected_bounds(ax, extent, clearance_points=2.0))]
 
 
 def subdomain_dropped_event_regions(
@@ -1408,6 +1447,12 @@ def render_overview_panel(
         draw_subdomain_boundaries(ax, context)
         roi_label = overview_roi_label_spec(panel, extent=extent, context=context)
         label_specs = [roi_label] if roi_label is not None else []
+        protected_boxes = overview_panel_protected_boxes(
+            ax,
+            panel=panel,
+            defaults=defaults,
+            extent=extent,
+        )
         if panel.show_subdomain_labels:
             label_specs.extend(
                 overview_subdomain_label_specs(
@@ -1415,6 +1460,7 @@ def render_overview_panel(
                     context,
                     extent=extent,
                     occupied_specs=label_specs,
+                    protected_boxes=protected_boxes,
                 )
             )
         draw_overview_label_leaders(ax, label_specs, extent=extent)
@@ -1463,13 +1509,22 @@ def render_overview_panel(
     context.roi_gdf.plot(ax=ax, facecolor=_OVERVIEW_ROI_COLOR, edgecolor=_OVERVIEW_ROI_COLOR, linewidth=0.8, zorder=25)
     draw_subdomain_boundaries(ax, context)
     roi_label = overview_roi_label_spec(panel, extent=extent, context=context)
+    protected_boxes = overview_panel_protected_boxes(
+        ax,
+        panel=panel,
+        defaults=defaults,
+        extent=extent,
+    )
+    country_avoid_geometry = context.roi_gdf.geometry.unary_union
+    for protected in protected_boxes:
+        country_avoid_geometry = country_avoid_geometry.union(protected)
     label_specs = overview_country_label_specs(
         ax=ax,
         visible_countries=visible_regions,
         labels=country_labels,
         extent=extent,
         roi_anchor=(roi_label.x, roi_label.y) if roi_label is not None else None,
-        avoid_geometry=context.roi_gdf.geometry.unary_union,
+        avoid_geometry=country_avoid_geometry,
     )
     if roi_label is not None:
         label_specs.append(roi_label)
@@ -1480,6 +1535,7 @@ def render_overview_panel(
                 context,
                 extent=extent,
                 occupied_specs=label_specs,
+                protected_boxes=protected_boxes,
             )
         )
     draw_overview_label_leaders(ax, label_specs, extent=extent)

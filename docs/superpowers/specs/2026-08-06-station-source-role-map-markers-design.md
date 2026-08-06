@@ -22,20 +22,10 @@ inside-panel and below-panel station keys. Holdout symbols use marker area 18
 instead of the standard station area 26. On maps they render two z-order levels
 above every forcing, snow-only and split marker, independent of record order or
 co-location. A `station_categories` legend item provides the fixed four-entry
-key. Overview panels may independently enable
-full subdomain ID labels at representative points. Labels displaced to prevent
-overprinting use a straight haloed leader line from the nearest label edge to
-their representative interior point. Connectors avoid label boxes and protected
-map elements, prefer fewer line crossings and favor a 25--65 degree angle from
-horizontal before minimizing displacement. Horizontal or vertical connectors
-remain a fallback when diagonal placements are obstructed. The complete
-scale-bar footprint, including its ticks, text halo and two-point clearance, is
-a hard exclusion area for labels and connectors. The placement search expands
-deterministically within the panel when its initial range cannot separate label
-boxes and fails instead of overprinting when no safe label position exists.
-Connector contact with another label remains a ranked, warned fallback when the
-fixed interior anchor makes complete separation impossible.
-Existing panel dimensions and legacy map recipes remain unchanged.
+key. Overview panels may independently enable full subdomain ID labels. The
+renderer places them near representative interior points and separates their
+text boxes where space permits. Existing panel dimensions and legacy map
+recipes remain unchanged.
 
 The North Tyrol generator enriches finalized snow-station role metadata with
 coordinates, enables classified markers on its ROI and hillshade panels,

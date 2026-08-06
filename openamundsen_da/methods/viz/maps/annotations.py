@@ -19,6 +19,7 @@ from openamundsen_da.methods.viz.maps.station_markers import (
     HOLDOUT_STATION_COLOR,
     HOLDOUT_STATION_LINEWIDTH,
     HOLDOUT_STATION_MARKER,
+    HOLDOUT_STATION_SIZE,
     LEFT_HALF_TRIANGLE,
     RIGHT_HALF_TRIANGLE,
     SNOW_STATION_COLOR,
@@ -288,6 +289,7 @@ def _draw_station_category_entry_at(
         holdout_kwargs = dict(scatter_kwargs)
         holdout_kwargs.pop("edgecolor")
         holdout_kwargs["linewidth"] = HOLDOUT_STATION_LINEWIDTH
+        holdout_kwargs["s"] = HOLDOUT_STATION_SIZE
         ax.scatter(
             [marker_x],
             [y],

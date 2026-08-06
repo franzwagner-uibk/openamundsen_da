@@ -83,6 +83,7 @@ from openamundsen_da.methods.viz.maps.station_markers import (
     HOLDOUT_STATION_COLOR,
     HOLDOUT_STATION_LINEWIDTH,
     HOLDOUT_STATION_MARKER,
+    HOLDOUT_STATION_SIZE,
     LEFT_HALF_TRIANGLE,
     RIGHT_HALF_TRIANGLE,
     SNOW_STATION_COLOR,
@@ -653,6 +654,8 @@ def draw_stations_overlay(
                     holdout_kwargs = dict(kwargs)
                     holdout_kwargs.pop("edgecolor")
                     holdout_kwargs["linewidth"] = HOLDOUT_STATION_LINEWIDTH
+                    holdout_kwargs["s"] = HOLDOUT_STATION_SIZE
+                    holdout_kwargs["zorder"] = _GRID_ZORDER + 6
                     ax.scatter(
                         [marker.x],
                         [marker.y],

@@ -9,9 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Add opt-in project-map markers that distinguish forcing, snow-observation,
-  co-located and holdout stations, with holdouts using a black `x`, plus
-  optional subdomain ID labels with automatic leader lines when collision
-  avoidance displaces a label.
+  co-located and holdout stations, with holdouts using a smaller black `x`
+  rendered above other station markers, plus optional subdomain ID labels with
+  automatic leader lines when collision avoidance displaces a label.
 
 ## [0.9.4] - 2026-07-29
 

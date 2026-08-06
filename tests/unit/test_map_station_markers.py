@@ -32,6 +32,7 @@ from openamundsen_da.methods.viz.maps.station_markers import (
     HOLDOUT_STATION_COLOR,
     HOLDOUT_STATION_LINEWIDTH,
     HOLDOUT_STATION_MARKER,
+    HOLDOUT_STATION_SIZE,
     LEFT_HALF_TRIANGLE,
     RIGHT_HALF_TRIANGLE,
     SNOW_STATION_COLOR,
@@ -153,6 +154,14 @@ def test_classified_station_rendering_uses_split_and_role_colors() -> None:
         )
         assert holdout_collection.get_linewidths()[0] == pytest.approx(
             HOLDOUT_STATION_LINEWIDTH
+        )
+        assert holdout_collection.get_sizes()[0] == pytest.approx(
+            HOLDOUT_STATION_SIZE
+        )
+        assert all(
+            holdout_collection.get_zorder() > collection.get_zorder()
+            for collection in ax.collections
+            if collection is not holdout_collection
         )
         paths = [collection.get_paths()[0].vertices for collection in ax.collections]
         assert any(np.array_equal(path, LEFT_HALF_TRIANGLE.vertices) for path in paths)
@@ -361,6 +370,9 @@ def test_station_map_config_legend_and_subdomain_labels(tmp_path) -> None:
             np.testing.assert_allclose(
                 holdout_collection.get_paths()[0].vertices,
                 _HOLDOUT_PATH.vertices,
+            )
+            assert holdout_collection.get_sizes()[0] == pytest.approx(
+                HOLDOUT_STATION_SIZE
             )
         np.testing.assert_allclose(
             sorted({text.get_position()[1] for text in axes[2].texts}),

@@ -32,7 +32,7 @@ from openamundsen_da.methods.pf.fraction_support import (
     _source_path_from_token,
 )
 from openamundsen_da.methods.viz.maps.config import DateSelector
-from openamundsen_da.methods.viz.station_meta import load_setup_station_table
+from openamundsen_da.methods.viz.station_meta import load_project_snow_station_table, load_setup_station_table
 from openamundsen_da.observer.class_config import load_observation_classes, load_wetsnow_classes
 from openamundsen_da.subdomain.manifest import SubdomainManifest
 from openamundsen_da.util.da_events import load_assimilation_events
@@ -57,6 +57,7 @@ class StaticContext:
     svf: np.ndarray | None
     srf: np.ndarray | None
     stations: pd.DataFrame | None
+    snow_stations: pd.DataFrame | None = None
     hillshade_dem: np.ndarray | None = None
     hillshade_transform: object | None = None
     subdomain_gdf: gpd.GeoDataFrame | None = None
@@ -307,6 +308,7 @@ def _load_static_context_cached(project_dir_str: str) -> StaticContext:
         crs=spec.crs,
     )
     stations = load_setup_station_table(setup_dir)
+    snow_stations = load_project_snow_station_table(project_dir, setup_dir)
     subdomain_gdf = _load_subdomain_regions(project_dir, setup_dir, spec.crs)
     subdomain_dropped_events = _load_subdomain_dropped_events(project_dir)
     return StaticContext(
@@ -320,6 +322,7 @@ def _load_static_context_cached(project_dir_str: str) -> StaticContext:
         svf=svf,
         srf=srf,
         stations=stations,
+        snow_stations=snow_stations,
         hillshade_dem=hillshade_dem,
         hillshade_transform=hillshade_transform,
         subdomain_gdf=subdomain_gdf,

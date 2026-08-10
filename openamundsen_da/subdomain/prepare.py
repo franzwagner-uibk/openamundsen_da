@@ -615,17 +615,18 @@ def _prepare_obs_station_subset(
 
     if da_meta.is_file():
         da_df = pd.read_csv(da_meta, dtype={"station_id": "string"})
-        if selected_ids_lower and "station_id" in da_df.columns:
-            station_keys = normalize_station_id_series(da_df["station_id"])
-            keep_mask = station_keys.isin(selected_ids_lower)
-            da_df = da_df.loc[keep_mask].copy()
-            inside_mask = normalize_station_id_series(da_df["station_id"]).isin(inside_grid_ids_lower)
-            for role_col in ("use_for_da", "use_for_benchmark"):
-                if role_col not in da_df.columns:
-                    da_df[role_col] = True
-                da_df.loc[~inside_mask, role_col] = False
-            stats["obs_stations_da_active"] = sum(role_enabled(value) for value in da_df["use_for_da"])
-            stats["obs_stations_benchmark_active"] = sum(role_enabled(value) for value in da_df["use_for_benchmark"])
+        if "station_id" not in da_df.columns:
+            raise ValueError(f"{da_meta} must contain a 'station_id' column")
+        station_keys = normalize_station_id_series(da_df["station_id"])
+        keep_mask = station_keys.isin(selected_ids_lower)
+        da_df = da_df.loc[keep_mask].copy()
+        inside_mask = normalize_station_id_series(da_df["station_id"]).isin(inside_grid_ids_lower)
+        for role_col in ("use_for_da", "use_for_benchmark"):
+            if role_col not in da_df.columns:
+                da_df[role_col] = True
+            da_df.loc[~inside_mask, role_col] = False
+        stats["obs_stations_da_active"] = sum(role_enabled(value) for value in da_df["use_for_da"])
+        stats["obs_stations_benchmark_active"] = sum(role_enabled(value) for value in da_df["use_for_benchmark"])
         da_df.to_csv(out_dir / STATION_DA_METADATA_FILENAME, index=False)
 
     if not selected_ids:

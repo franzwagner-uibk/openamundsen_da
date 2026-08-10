@@ -114,6 +114,31 @@ def test_prepare_obs_subset_rejects_invalid_id_fallback(tmp_path: Path) -> None:
         )
 
 
+def test_prepare_obs_subset_writes_empty_roles_when_no_station_is_in_buffer(tmp_path: Path) -> None:
+    obs_dir = tmp_path / "obs"
+    out_dir = tmp_path / "out"
+    obs_dir.mkdir(parents=True, exist_ok=True)
+    (obs_dir / "stations_da_metadata.csv").write_text(
+        "station_id,x,y,station_uncertainty_pct,hs_sigma_abs_min,use_for_da,use_for_benchmark\n"
+        "outside,20,20,10,0.1,true,true\n",
+        encoding="utf-8",
+    )
+    _write_obs(obs_dir / "outside.csv")
+
+    stats = _prepare_obs_station_subset(
+        obs_dir=obs_dir,
+        out_dir=out_dir,
+        geom=box(0, 0, 1, 1),
+        buffer_m=1.0,
+        crs=None,
+    )
+
+    metadata = pd.read_csv(out_dir / "stations_da_metadata.csv")
+    assert metadata.empty
+    assert stats["obs_stations_selected"] == 0
+    assert stats["obs_station_series_copied"] == 0
+
+
 def test_prepare_obs_subset_filters_station_metadata_files(tmp_path: Path) -> None:
     obs_dir = tmp_path / "obs"
     out_dir = tmp_path / "out"

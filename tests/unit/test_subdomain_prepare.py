@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pandas as pd
+import pytest
 import yaml
 from shapely.geometry import box
 
@@ -50,6 +52,66 @@ def test_prepare_obs_subset_copies_all_series_without_metadata(tmp_path: Path) -
 
     assert (out_dir / "latschbloder.csv").is_file()
     assert (out_dir / "proviantdepot.csv").is_file()
+
+
+def test_prepare_obs_subset_uses_da_metadata_coordinates_without_legacy_file(tmp_path: Path) -> None:
+    obs_dir = tmp_path / "obs"
+    out_dir = tmp_path / "out"
+    obs_dir.mkdir(parents=True, exist_ok=True)
+    (obs_dir / "stations_da_metadata.csv").write_text(
+        "station_id,x,y,station_uncertainty_pct,hs_sigma_abs_min,use_for_da,use_for_benchmark\n"
+        "04140864,0.5,0.5,10,0.1,true,false\n"
+        "station_buffer,1.5,0.5,10,0.1,true,true\n"
+        "station_outside,20,20,10,0.1,true,true\n",
+        encoding="utf-8",
+    )
+    for station_id in ("04140864", "station_buffer", "station_outside"):
+        _write_obs(obs_dir / f"{station_id}.csv")
+
+    stats = _prepare_obs_station_subset(
+        obs_dir=obs_dir,
+        out_dir=out_dir,
+        geom=box(0, 0, 1, 1),
+        buffer_m=1.0,
+        crs=None,
+        station_ids=["unrelated_forcing_station"],
+    )
+
+    metadata = pd.read_csv(out_dir / "stations_da_metadata.csv", dtype={"station_id": "string"})
+    metadata = metadata.set_index("station_id")
+    assert set(metadata.index) == {"04140864", "station_buffer"}
+    assert bool(metadata.loc["04140864", "use_for_da"])
+    assert not bool(metadata.loc["04140864", "use_for_benchmark"])
+    assert not bool(metadata.loc["station_buffer", "use_for_da"])
+    assert not bool(metadata.loc["station_buffer", "use_for_benchmark"])
+    assert (out_dir / "04140864.csv").is_file()
+    assert (out_dir / "station_buffer.csv").is_file()
+    assert not (out_dir / "station_outside.csv").exists()
+    assert not (out_dir / "stations_snow_depth.csv").exists()
+    assert stats == {
+        "obs_stations_selected": 2,
+        "obs_stations_inside_grid": 1,
+        "obs_stations_da_active": 1,
+        "obs_stations_benchmark_active": 0,
+        "obs_station_series_copied": 2,
+    }
+
+
+def test_prepare_obs_subset_rejects_invalid_id_fallback(tmp_path: Path) -> None:
+    obs_dir = tmp_path / "obs"
+    out_dir = tmp_path / "out"
+    obs_dir.mkdir(parents=True, exist_ok=True)
+    _write_obs(obs_dir / "snow_station.csv")
+
+    with pytest.raises(ValueError, match="no same-ID observation series"):
+        _prepare_obs_station_subset(
+            obs_dir=obs_dir,
+            out_dir=out_dir,
+            geom=box(0, 0, 1, 1),
+            buffer_m=0.0,
+            crs=None,
+            station_ids=["forcing_station"],
+        )
 
 
 def test_prepare_obs_subset_filters_station_metadata_files(tmp_path: Path) -> None:

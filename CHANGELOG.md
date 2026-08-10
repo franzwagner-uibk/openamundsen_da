@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   co-located and holdout stations, with holdouts using a smaller black `x`
   rendered above other station markers, plus optional subdomain ID labels.
 
+### Changed
+- Allow subdomain station selection from coordinates in
+  `stations_da_metadata.csv`, require same-ID observations and model points for
+  every active DA or benchmark station before propagation.
+
 ## [0.9.4] - 2026-07-29
 
 ### Changed

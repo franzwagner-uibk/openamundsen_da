@@ -101,6 +101,12 @@ Optional map metadata columns:
 - `alt`
 - `use_for_da` and `use_for_benchmark`
 
+For subdomain preparation, `station_id`, `x` and `y` in this table are also a
+complete station-selection contract. When the legacy
+`stations_snow_depth.csv` table exists it remains authoritative; otherwise the
+preparer selects same-ID observation series from these coordinates and disables
+both roles for stations that lie only in the configured station buffer.
+
 Example:
 
 ```text
@@ -115,6 +121,10 @@ Notes:
 - `hs_sigma_abs_min` is required for every active `station_hs` station.
 - `swe_sigma_abs_min` is required for every active `station_swe` station.
 - Missing required absolute sigma metadata is a hard configuration error.
+- Before propagation, every station enabled for DA or benchmarking must have a
+  same-ID observation CSV and openAMUNDSEN time-series output point. Matching is
+  case-insensitive while the configured IDs are preserved. Stations disabled
+  for both roles are exempt.
 - Classified project-map station markers require `station_id`, `x`, `y`,
   `use_for_da` and `use_for_benchmark`. A benchmark-enabled station is drawn
   as a holdout and must not also be DA-active.

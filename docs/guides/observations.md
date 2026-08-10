@@ -69,8 +69,10 @@ snow line diagnostics and profiles.
 
 Station snow depth and snow water equivalent use one CSV per station under the
 configured station directory. `stations_da_metadata.csv` declares station roles
-and uncertainty settings. Station observations are read directly during project
-preparation; they do not have a raster-summary stage.
+and uncertainty settings. Its `station_id`, `x` and `y` columns also support
+spatial subdomain selection when no legacy `stations_snow_depth.csv` is present.
+Station observations are read directly during project preparation; they do not
+have a raster-summary stage.
 
 ## Observation preprocessing
 

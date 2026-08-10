@@ -523,42 +523,96 @@ def _prepare_obs_station_subset(
     selected_ids: set[str] = set()
     inside_grid_ids: set[str] = set()
     stations_meta = obs_dir / STATION_SNOW_DEPTH_METADATA_FILENAME
+    da_meta = obs_dir / STATION_DA_METADATA_FILENAME
+    coordinate_meta: pd.DataFrame | None = None
+    coordinate_id_column: str | None = None
+    used_coordinate_filter = False
     if stations_meta.is_file():
         meta_df = pd.read_csv(stations_meta, dtype={"id": "string"})
-        if {"x", "y"}.issubset(meta_df.columns):
+        if "id" not in meta_df.columns:
+            raise ValueError(f"{stations_meta} must contain an 'id' column")
+        coordinate_meta = meta_df
+        coordinate_id_column = "id"
+    elif da_meta.is_file():
+        meta_df = pd.read_csv(da_meta, dtype={"station_id": "string"})
+        if {"station_id", "x", "y"}.issubset(meta_df.columns):
+            coordinate_meta = meta_df
+            coordinate_id_column = "station_id"
+
+    if coordinate_meta is not None and coordinate_id_column is not None:
+        if not {"x", "y"}.issubset(coordinate_meta.columns):
+            logger.warning("{} missing x/y columns; trying ID-based station fallback", stations_meta.name)
+        else:
+            used_coordinate_filter = True
+            try:
+                x_values = pd.to_numeric(coordinate_meta["x"], errors="raise")
+                y_values = pd.to_numeric(coordinate_meta["y"], errors="raise")
+            except Exception as exc:
+                raise ValueError(
+                    f"Station coordinate metadata contains invalid x/y values: "
+                    f"{stations_meta if stations_meta.is_file() else da_meta}"
+                ) from exc
+            if not np.isfinite(x_values).all() or not np.isfinite(y_values).all():
+                raise ValueError(
+                    f"Station coordinate metadata contains non-finite x/y values: "
+                    f"{stations_meta if stations_meta.is_file() else da_meta}"
+                )
             gdf = gpd.GeoDataFrame(
-                meta_df,
-                geometry=gpd.points_from_xy(meta_df["x"], meta_df["y"]),
+                coordinate_meta,
+                geometry=gpd.points_from_xy(x_values, y_values),
                 crs=crs,
             )
             buffered = geom.buffer(buffer_m) if buffer_m and buffer_m > 0 else geom
             inside_mask = gdf.geometry.apply(geom.covers)
-            meta_df = meta_df.loc[gdf.geometry.within(buffered)].copy()
-            inside_ids = meta_df.loc[inside_mask.reindex(meta_df.index, fill_value=False), "id"] if "id" in meta_df else []
-            inside_grid_ids = {
-                sid
-                for sid in normalize_station_id_series(pd.Series(inside_ids))
-                if sid
+            selected_mask = gdf.geometry.within(buffered)
+            coordinate_meta = coordinate_meta.loc[selected_mask].copy()
+            inside_ids = coordinate_meta.loc[
+                inside_mask.reindex(coordinate_meta.index, fill_value=False),
+                coordinate_id_column,
+            ]
+            selected_ids = {
+                str(sid).strip()
+                for sid in coordinate_meta[coordinate_id_column].dropna().astype(str)
+                if str(sid).strip()
             }
-        else:
-            logger.warning("stations_snow_depth.csv missing x/y columns; skipping spatial filter")
-            if requested_ids and "id" in meta_df.columns:
-                meta_df = meta_df.loc[normalize_station_id_series(meta_df["id"]).isin(requested_ids)].copy()
-                inside_grid_ids = set(requested_ids)
-        meta_df.to_csv(out_dir / "stations_snow_depth.csv", index=False)
-        if "id" in meta_df.columns:
-            selected_ids = {str(sid) for sid in meta_df["id"].dropna().astype(str)}
+            inside_grid_ids = {
+                sid for sid in normalize_station_id_series(pd.Series(inside_ids)) if sid
+            }
+            if stations_meta.is_file():
+                coordinate_meta.to_csv(out_dir / STATION_SNOW_DEPTH_METADATA_FILENAME, index=False)
 
-    if not selected_ids and requested_ids:
-        selected_ids = set(requested_ids)
-        inside_grid_ids = set(requested_ids)
+    if not selected_ids and not used_coordinate_filter:
+        series_by_id = {
+            path.stem.strip().lower(): path.stem
+            for pattern in ("*.csv", "*.nc")
+            for path in sorted(obs_dir.glob(pattern))
+            if path.is_file() and not is_station_metadata_file(path)
+        }
+        if requested_ids:
+            missing_requested = sorted(requested_ids - set(series_by_id))
+            if missing_requested:
+                raise ValueError(
+                    "Cannot select snow-station observations without coordinate metadata: "
+                    "requested station IDs have no same-ID observation series: "
+                    + ", ".join(missing_requested)
+                )
+            selected_ids = {series_by_id[sid] for sid in requested_ids}
+            inside_grid_ids = set(requested_ids)
+        elif series_by_id:
+            selected_ids = set(series_by_id.values())
+            inside_grid_ids = set(series_by_id)
+        else:
+            raise ValueError(
+                f"Cannot select snow-station observations in {obs_dir}: provide "
+                f"{STATION_SNOW_DEPTH_METADATA_FILENAME} with id/x/y, "
+                f"{STATION_DA_METADATA_FILENAME} with station_id/x/y, or same-ID station series."
+            )
 
     selected_ids_lower = {sid.strip().lower() for sid in selected_ids if sid.strip()}
     inside_grid_ids_lower = {sid.strip().lower() for sid in inside_grid_ids if sid.strip()}
     stats["obs_stations_selected"] = len(selected_ids_lower)
     stats["obs_stations_inside_grid"] = len(inside_grid_ids_lower)
 
-    da_meta = obs_dir / STATION_DA_METADATA_FILENAME
     if da_meta.is_file():
         da_df = pd.read_csv(da_meta, dtype={"station_id": "string"})
         if selected_ids_lower and "station_id" in da_df.columns:
@@ -574,37 +628,27 @@ def _prepare_obs_station_subset(
             stats["obs_stations_benchmark_active"] = sum(role_enabled(value) for value in da_df["use_for_benchmark"])
         da_df.to_csv(out_dir / STATION_DA_METADATA_FILENAME, index=False)
 
-    if selected_ids:
-        for sid in sorted(selected_ids):
-            copied = False
-            for ext in (".csv", ".nc"):
-                src = obs_dir / f"{sid}{ext}"
-                if not src.exists():
-                    matches = sorted(
-                        p
-                        for p in obs_dir.glob(f"*{ext}")
-                        if p.stem.strip().lower() == sid.strip().lower()
-                    )
-                    src = matches[0] if matches else src
-                if src.exists():
-                    _copy_or_link(src, out_dir / src.name)
-                    copied = True
-                    stats["obs_station_series_copied"] += 1
-                    break
-            if not copied:
-                logger.debug("No station obs series found for id {}", sid)
+    if not selected_ids:
         return stats
 
-    copied_any = False
-    for pattern in ("*.csv", "*.nc"):
-        for src in sorted(obs_dir.glob(pattern)):
-            if is_station_metadata_file(src):
-                continue
-            _copy_or_link(src, out_dir / src.name)
-            copied_any = True
-            stats["obs_station_series_copied"] += 1
-    if not copied_any:
-        logger.info("No station obs files found in {}", obs_dir)
+    for sid in sorted(selected_ids):
+        copied = False
+        for ext in (".csv", ".nc"):
+            src = obs_dir / f"{sid}{ext}"
+            if not src.exists():
+                matches = sorted(
+                    p
+                    for p in obs_dir.glob(f"*{ext}")
+                    if p.stem.strip().lower() == sid.strip().lower()
+                )
+                src = matches[0] if matches else src
+            if src.exists():
+                _copy_or_link(src, out_dir / src.name)
+                copied = True
+                stats["obs_station_series_copied"] += 1
+                break
+        if not copied:
+            logger.debug("No station obs series found for id {}", sid)
     return stats
 
 

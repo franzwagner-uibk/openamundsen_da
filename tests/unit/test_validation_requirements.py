@@ -3,6 +3,9 @@ import unittest
 from datetime import date
 from pathlib import Path
 
+import numpy as np
+import rasterio
+from rasterio.transform import from_origin
 from ruamel.yaml import YAML
 
 from openamundsen_da.util.da_events import AssimilationEvent
@@ -14,6 +17,23 @@ def _write_yaml(path: Path, payload: dict) -> None:
     y = YAML()
     with path.open("w", encoding="utf-8") as f:
         y.dump(payload, f)
+
+
+def _write_ascii_grid(path: Path, values: np.ndarray) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with rasterio.open(
+        path,
+        "w",
+        driver="AAIGrid",
+        height=values.shape[0],
+        width=values.shape[1],
+        count=1,
+        dtype=values.dtype,
+        crs="EPSG:25832",
+        transform=from_origin(0, 2, 1, 1),
+        nodata=-9999,
+    ) as dataset:
+        dataset.write(values, 1)
 
 
 class ValidateAssimilationRequirementsTests(unittest.TestCase):
@@ -213,7 +233,15 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
 
             _write_yaml(
                 setup_dir / "setup_root.yml",
-                {"output_data": {"grids": {"variables": []}}},
+                {
+                    "output_data": {
+                        "timeseries": {
+                            "add_default_points": False,
+                            "points": [{"name": "STATION_1", "x": 0.5, "y": 0.5}],
+                        },
+                        "grids": {"variables": []},
+                    }
+                },
             )
             _write_yaml(
                 project_dir / "project_2022_2023.yml",
@@ -233,6 +261,11 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                 "time,snow_depth\n2022-10-03 00:00:00,0.4\n",
                 encoding="ascii",
             )
+            (setup_dir / "obs" / "stations" / "stations_da_metadata.csv").write_text(
+                "station_id,station_uncertainty_pct,hs_sigma_abs_min,use_for_da,use_for_benchmark\n"
+                "station_1,25,0.1,true,false\n",
+                encoding="ascii",
+            )
             step0.mkdir(parents=True, exist_ok=True)
             step1.mkdir(parents=True, exist_ok=True)
 
@@ -243,6 +276,112 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                 steps=[step0, step1],
                 events=events,
             )
+
+    def test_station_identity_reports_active_missing_series_and_point_but_exempts_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            setup_dir = Path(tmp) / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2022_2023"
+            step0 = project_dir / "steps" / "step_00_init"
+            step1 = project_dir / "steps" / "step_01_a"
+            _write_yaml(
+                setup_dir / "setup_root.yml",
+                {
+                    "output_data": {
+                        "timeseries": {
+                            "add_default_points": False,
+                            "points": [{"name": "station_da", "x": 0.5, "y": 0.5}],
+                        },
+                        "grids": {"variables": []},
+                    }
+                },
+            )
+            _write_yaml(
+                project_dir / "project_2022_2023.yml",
+                {
+                    "obs": {"stations": {"dir": "obs/stations"}},
+                    "data_assimilation": {
+                        "station": {
+                            "default_station_uncertainty_pct": 25,
+                            "min_station_uncertainty_pct": 10,
+                            "single_station_factor": 2.0,
+                        }
+                    },
+                },
+            )
+            obs_dir = setup_dir / "obs" / "stations"
+            obs_dir.mkdir(parents=True)
+            (obs_dir / "station_da.csv").write_text("time,snow_depth\n", encoding="ascii")
+            (obs_dir / "disabled_station.csv").write_text("time,snow_depth\n", encoding="ascii")
+            (obs_dir / "stations_da_metadata.csv").write_text(
+                "station_id,station_uncertainty_pct,hs_sigma_abs_min,use_for_da,use_for_benchmark\n"
+                "station_da,25,0.1,true,false\n"
+                "Station_Benchmark,25,0.1,false,true\n"
+                "disabled_station,25,0.1,false,false\n",
+                encoding="ascii",
+            )
+            step0.mkdir(parents=True)
+            step1.mkdir(parents=True)
+
+            events = [AssimilationEvent(date=date(2022, 10, 3), variable="station_hs", product="STATION")]
+            with self.assertRaises(ValueError) as ctx:
+                validate_assimilation_requirements(setup_dir, project_dir, [step0, step1], events)
+
+            message = str(ctx.exception)
+            self.assertIn("Station_Benchmark", message)
+            self.assertIn("missing same-ID observation CSVs", message)
+            self.assertIn("missing same-ID model output points", message)
+            self.assertNotIn("disabled_station", message)
+
+    def test_station_identity_resolves_default_meteo_points_inside_roi(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            setup_dir = Path(tmp) / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2022_2023"
+            step0 = project_dir / "steps" / "step_00_init"
+            step1 = project_dir / "steps" / "step_01_a"
+            _write_yaml(
+                setup_dir / "setup_root.yml",
+                {
+                    "domain": "test",
+                    "resolution": 1,
+                    "crs": "EPSG:25832",
+                    "input_data": {"grids": {"dir": "grids"}},
+                    "output_data": {
+                        "timeseries": {"add_default_points": True, "points": []},
+                        "grids": {"variables": []},
+                    },
+                },
+            )
+            _write_ascii_grid(setup_dir / "grids" / "dem_test_1.asc", np.ones((2, 2), dtype="float32"))
+            _write_ascii_grid(setup_dir / "grids" / "roi_test_1.asc", np.ones((2, 2), dtype="int16"))
+            meteo_dir = setup_dir / "meteo"
+            meteo_dir.mkdir()
+            (meteo_dir / "stations.csv").write_text("id,x,y\n04140864,0.5,1.5\n", encoding="ascii")
+            _write_yaml(
+                project_dir / "project_2022_2023.yml",
+                {
+                    "obs": {"stations": {"dir": "obs/stations"}},
+                    "data_assimilation": {
+                        "station": {
+                            "default_station_uncertainty_pct": 25,
+                            "min_station_uncertainty_pct": 10,
+                            "single_station_factor": 2.0,
+                        }
+                    },
+                },
+            )
+            obs_dir = setup_dir / "obs" / "stations"
+            obs_dir.mkdir(parents=True)
+            (obs_dir / "04140864.csv").write_text("time,snow_depth\n", encoding="ascii")
+            (obs_dir / "stations_da_metadata.csv").write_text(
+                "station_id,station_uncertainty_pct,hs_sigma_abs_min,use_for_da,use_for_benchmark\n"
+                "04140864,25,0.1,true,false\n",
+                encoding="ascii",
+            )
+            step0.mkdir(parents=True)
+            step1.mkdir(parents=True)
+
+            events = [AssimilationEvent(date=date(2022, 10, 3), variable="station_hs", product="STATION")]
+            validate_assimilation_requirements(setup_dir, project_dir, [step0, step1], events)
 
 
 if __name__ == "__main__":

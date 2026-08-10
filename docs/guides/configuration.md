@@ -268,6 +268,7 @@ Notes:
   one date require `observation_time`; the first row is never selected implicitly.
 - Station observation assimilation uses `variable: station_hs` or `variable: station_swe` and does not require a product tag.
 - Station observations live in `obs/stations/<station_id>.csv`; station DA metadata live in `obs/stations/stations_da_metadata.csv`.
+- Active DA and benchmark station IDs must resolve case-insensitively to both a same-ID observation CSV and a configured model output point. Explicit points are checked directly; default meteo points are resolved against the setup ROI.
 - `data_assimilation.station` defines project-level percentage defaults and single-station inflation for ROI-based station assimilation.
 - Station absolute sigma floors are configured per station in `stations_da_metadata.csv` via `hs_sigma_abs_min` and `swe_sigma_abs_min`.
 - See [Station Assimilation]({{ site.baseurl }}{% link guides/station-assimilation.md %}) for the method logic, effective sigma definition, single-station handling, and diagnostics.

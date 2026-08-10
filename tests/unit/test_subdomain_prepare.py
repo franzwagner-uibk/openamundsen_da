@@ -257,6 +257,7 @@ def test_write_subdomain_setup_yaml_filters_configured_points(tmp_path: Path) ->
                     {"name": "inside", "x": 0.5, "y": 0.5},
                     {"name": "outside", "x": 10.0, "y": 10.0},
                     {"name": 6988000, "x": 0.6, "y": 0.6},
+                    {"name": "01890168", "x": 0.7, "y": 0.7},
                     {"name": "kept_without_coords"},
                 ]
             }
@@ -275,9 +276,11 @@ def test_write_subdomain_setup_yaml_filters_configured_points(tmp_path: Path) ->
     assert "inside" in text
     assert "kept_without_coords" in text
     assert "outside" not in text
+    assert "name: '01890168'" in text
 
     cfg = yaml.safe_load(text)
     assert cfg["input_data"]["grids"]["dir"] == "grids"
     assert cfg["input_data"]["meteo"]["dir"] == "meteo"
     kept_names = [point["name"] for point in cfg["output_data"]["timeseries"]["points"]]
     assert "6988000" in kept_names
+    assert "01890168" in kept_names

@@ -81,8 +81,24 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import re
 import yaml
-from ruamel.yaml import YAML
-from ruamel.yaml.scalarstring import SingleQuotedScalarString
+
+
+class QuotedPointName(str):
+    pass
+
+
+class SetupDumper(yaml.SafeDumper):
+    pass
+
+
+SetupDumper.add_representer(
+    QuotedPointName,
+    lambda dumper, value: dumper.represent_scalar(
+        "tag:yaml.org,2002:str",
+        value,
+        style="'",
+    ),
+)
 
 setup_dir = Path("/data/subdomains")
 source_project_yml = setup_dir / "projects" / "project_2022_2023" / "project_2022_2023.yml"
@@ -159,11 +175,9 @@ output_data["grids"] = grid_output
 setup_cfg["output_data"] = output_data
 for point in ((output_data.get("timeseries") or {}).get("points") or []):
     if isinstance(point, dict) and point.get("name") is not None:
-        point["name"] = SingleQuotedScalarString(str(point["name"]))
+        point["name"] = QuotedPointName(str(point["name"]))
 with setup_yml.open("w", encoding="utf-8") as f:
-    setup_yaml = YAML()
-    setup_yaml.default_flow_style = False
-    setup_yaml.dump(setup_cfg, f)
+    yaml.dump(setup_cfg, f, Dumper=SetupDumper, sort_keys=False)
 
 source_maps_cfg = source_project_yml.parent / "maps.yml"
 if source_maps_cfg.is_file():

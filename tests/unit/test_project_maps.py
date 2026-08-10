@@ -652,6 +652,7 @@ def test_common_map_overlays_draw_subdomain_boundaries_for_subdomain_projects(
         panel_renderers_module.apply_common_overlays(
             ax,
             context=context,
+            panel=MapPanelSpec(kind="roi", row=0, col=0),
             extent=(0.0, 400.0, 0.0, 400.0),
             show_roi=True,
             show_station_marker=False,

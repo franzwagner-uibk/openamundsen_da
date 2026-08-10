@@ -896,6 +896,7 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
                 source_ensemble="posterior",
                 target_ensemble="prior",
                 source_meteo_dir=None,
+                max_workers=int(workers),
             )
 
         # Update project-wide plots after each assimilation/rejuvenation cycle so

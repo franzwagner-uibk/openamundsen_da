@@ -291,6 +291,7 @@ def rejuvenate(
     source_ensemble: str = "posterior",
     target_ensemble: str = "prior",
     source_meteo_dir: Optional[Path] = None,
+    max_workers: int | None = None,
 ) -> dict:
     project_dir = infer_project_dir(next_step_dir)
     params = _read_rejuvenation_params(project_dir)
@@ -339,7 +340,7 @@ def rejuvenate(
     if not tasks:
         return {"members": 0, "copied_state_pointers": 0}
 
-    workers = pick_max_workers(None, fallback=len(tasks), limit=len(tasks))
+    workers = pick_max_workers(max_workers, fallback=len(tasks), limit=len(tasks))
     logger.info("Rejuvenating {} member(s) with max_workers={}", len(tasks), workers)
 
     rows = run_tasks_with_pool(

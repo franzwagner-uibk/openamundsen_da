@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Allow subdomain station selection from coordinates in
   `stations_da_metadata.csv`, require same-ID observations and model points for
   every active DA or benchmark station before propagation.
+- Keep particle rejuvenation within the project runner's worker limit.
 
 ## [0.9.4] - 2026-07-29
 

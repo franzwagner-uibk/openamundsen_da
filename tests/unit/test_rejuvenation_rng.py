@@ -97,6 +97,34 @@ def test_rejuvenation_uses_distinct_event_keyed_perturbations_and_validates_outp
         validate_rejuvenation_manifest(setup_dir=setup, prev_step_dir=step_0, next_step_dir=step_1)
 
 
+def test_rejuvenation_respects_explicit_worker_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup, step_0, step_1, _step_2 = _prepare_project(tmp_path)
+    observed: dict[str, int | None] = {}
+
+    def capture_pick(requested, **_kwargs):
+        observed["requested"] = requested
+        return int(requested)
+
+    def sequential(func, tasks, **kwargs):
+        observed["pool"] = kwargs["max_workers"]
+        return [func(*task) for task in tasks]
+
+    monkeypatch.setattr(rejuvenate_module, "pick_max_workers", capture_pick)
+    monkeypatch.setattr(rejuvenate_module, "run_tasks_with_pool", sequential)
+
+    rejuvenate(
+        setup_dir=setup,
+        prev_step_dir=step_0,
+        next_step_dir=step_1,
+        max_workers=1,
+    )
+
+    assert observed == {"requested": 1, "pool": 1}
+
+
 def test_rejuvenation_resume_ignores_diagnostics_but_binds_weight_ancestry(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

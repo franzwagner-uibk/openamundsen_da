@@ -334,6 +334,9 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
 
     def test_station_identity_resolves_default_meteo_points_inside_roi(self):
         with tempfile.TemporaryDirectory() as tmp:
+            import geopandas as gpd
+            from shapely.geometry import box
+
             setup_dir = Path(tmp) / "setup_root"
             project_dir = setup_dir / "projects" / "project_2022_2023"
             step0 = project_dir / "steps" / "step_00_init"
@@ -352,7 +355,13 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                 },
             )
             _write_ascii_grid(setup_dir / "grids" / "dem_test_1.asc", np.ones((2, 2), dtype="float32"))
-            _write_ascii_grid(setup_dir / "grids" / "roi_test_1.asc", np.ones((2, 2), dtype="int16"))
+            env_dir = setup_dir / "env"
+            env_dir.mkdir()
+            gpd.GeoDataFrame(
+                {"id": ["roi"]},
+                geometry=[box(0, 0, 2, 2)],
+                crs="EPSG:25832",
+            ).to_file(env_dir / "roi.gpkg", driver="GPKG")
             meteo_dir = setup_dir / "meteo"
             meteo_dir.mkdir()
             (meteo_dir / "stations.csv").write_text("id,x,y\n04140864,0.5,1.5\n", encoding="ascii")
@@ -382,6 +391,7 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
 
             events = [AssimilationEvent(date=date(2022, 10, 3), variable="station_hs", product="STATION")]
             validate_assimilation_requirements(setup_dir, project_dir, [step0, step1], events)
+            self.assertTrue((setup_dir / "grids" / "roi_test_1.asc").is_file())
 
 
 if __name__ == "__main__":

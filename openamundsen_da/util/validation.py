@@ -51,7 +51,7 @@ def _configured_model_point_ids(setup_dir: Path, setup_cfg: dict) -> dict[str, s
             f"missing columns {', '.join(missing_columns)}"
         )
 
-    roi_mask, grid_spec, _ = load_setup_roi_mask(setup_dir)
+    roi_mask, grid_spec, _ = load_setup_roi_mask(setup_dir, ensure_grid=True)
     try:
         rows, cols = rasterio.transform.rowcol(
             grid_spec.transform,

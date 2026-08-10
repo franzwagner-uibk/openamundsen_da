@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Add opt-in project-map markers that distinguish forcing, snow-observation,
+  co-located and holdout stations, with holdouts using a smaller black `x`
+  rendered above other station markers, plus optional subdomain ID labels.
+
 ## [0.9.4] - 2026-07-29
 
 ### Changed

@@ -94,6 +94,13 @@ Expected columns:
 - `hs_sigma_abs_min`
 - `swe_sigma_abs_min`
 
+Optional map metadata columns:
+
+- `id` and `name`
+- `x` and `y` in the setup CRS
+- `alt`
+- `use_for_da` and `use_for_benchmark`
+
 Example:
 
 ```text
@@ -108,6 +115,9 @@ Notes:
 - `hs_sigma_abs_min` is required for every active `station_hs` station.
 - `swe_sigma_abs_min` is required for every active `station_swe` station.
 - Missing required absolute sigma metadata is a hard configuration error.
+- Classified project-map station markers require `station_id`, `x`, `y`,
+  `use_for_da` and `use_for_benchmark`. A benchmark-enabled station is drawn
+  as a holdout and must not also be DA-active.
 
 ## Configuration
 

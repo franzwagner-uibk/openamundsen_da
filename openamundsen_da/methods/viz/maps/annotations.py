@@ -14,6 +14,17 @@ from openamundsen_da.methods.viz.maps.layout import (
     register_child_axes,
     text_size_in,
 )
+from openamundsen_da.methods.viz.maps.station_markers import (
+    FORCING_STATION_COLOR,
+    HOLDOUT_STATION_COLOR,
+    HOLDOUT_STATION_LINEWIDTH,
+    HOLDOUT_STATION_MARKER,
+    HOLDOUT_STATION_SIZE,
+    LEFT_HALF_TRIANGLE,
+    RIGHT_HALF_TRIANGLE,
+    SNOW_STATION_COLOR,
+    STATION_MARKER_SIZE,
+)
 from openamundsen_da.methods.viz.maps.theme import (
     _ANNOTATION_ZORDER,
     _AUTO_TITLE_KIND,
@@ -208,6 +219,90 @@ def draw_station_entry(ax, *, y: float, label: str) -> float:
     return y - 0.054
 
 
+def _draw_station_category_entry(ax, *, y: float, kind: str, label: str) -> float:
+    _draw_station_category_entry_at(
+        ax,
+        y=y,
+        kind=kind,
+        label=label,
+        marker_x=_STATION_MARKER_X,
+        label_x=_STATION_LABEL_X,
+    )
+    return y - 0.23
+
+
+def draw_station_categories(ax, *, y: float) -> float:
+    """Draw the fixed station-source and role legend."""
+    entries = (
+        ("forcing", "Forcing station"),
+        ("snow", "Snow observation station"),
+        ("both", "Forcing + snow station"),
+        ("holdout", "Holdout snow station"),
+    )
+    for kind, label in entries:
+        y = _draw_station_category_entry(ax, y=y, kind=kind, label=label)
+    return y
+
+
+def draw_station_categories_below(ax, *, y: float) -> float:
+    """Draw the station categories as a compact two-column below-panel key."""
+    rows = (
+        (("forcing", "Forcing station"), ("snow", "Snow obs. station")),
+        (("both", "Forcing + snow station"), ("holdout", "Holdout snow station")),
+    )
+    for row, entries in enumerate(rows):
+        row_y = y - 0.55 * row
+        for column, (kind, label) in enumerate(entries):
+            marker_x = 0.055 + 0.50 * column
+            label_x = 0.105 + 0.50 * column
+            _draw_station_category_entry_at(
+                ax,
+                y=row_y,
+                kind=kind,
+                label=label,
+                marker_x=marker_x,
+                label_x=label_x,
+            )
+    return y - 1.10
+
+
+def _draw_station_category_entry_at(
+    ax,
+    *,
+    y: float,
+    kind: str,
+    label: str,
+    marker_x: float,
+    label_x: float,
+) -> None:
+    scatter_kwargs = {
+        "s": STATION_MARKER_SIZE,
+        "edgecolor": "none",
+        "linewidth": 0.0,
+        "transform": ax.transAxes,
+        "clip_on": False,
+    }
+    if kind == "both":
+        ax.scatter([marker_x], [y], marker=LEFT_HALF_TRIANGLE, facecolor=FORCING_STATION_COLOR, **scatter_kwargs)
+        ax.scatter([marker_x], [y], marker=RIGHT_HALF_TRIANGLE, facecolor=SNOW_STATION_COLOR, **scatter_kwargs)
+    elif kind == "holdout":
+        holdout_kwargs = dict(scatter_kwargs)
+        holdout_kwargs.pop("edgecolor")
+        holdout_kwargs["linewidth"] = HOLDOUT_STATION_LINEWIDTH
+        holdout_kwargs["s"] = HOLDOUT_STATION_SIZE
+        ax.scatter(
+            [marker_x],
+            [y],
+            marker=HOLDOUT_STATION_MARKER,
+            color=HOLDOUT_STATION_COLOR,
+            **holdout_kwargs,
+        )
+    else:
+        color = {"forcing": FORCING_STATION_COLOR, "snow": SNOW_STATION_COLOR}[kind]
+        ax.scatter([marker_x], [y], marker="^", facecolor=color, **scatter_kwargs)
+    ax.text(label_x, y, label, transform=ax.transAxes, ha="left", va="center", fontsize=_STATION_LEGEND_FONT_SIZE)
+
+
 def draw_heading(ax, *, y: float, text: str) -> float:
     ax.text(0.0, y, text, transform=ax.transAxes, ha="left", va="top", fontsize=_LEGEND_HEADING_FONT_SIZE)
     return y - 0.05
@@ -218,6 +313,8 @@ def panel_below_item_units(item: LegendItemSpec) -> float:
         return 0.65
     if item.kind == "station_symbol":
         return 0.40
+    if item.kind == "station_categories":
+        return 2.60
     return 1.0
 
 
@@ -330,6 +427,11 @@ def _draw_legend_items_on_axis(
             y = draw_heading(ax, y=y, text=str(item.label))
         elif item.kind == "station_symbol":
             y = draw_station_entry(ax, y=y, label=str(item.label))
+        elif item.kind == "station_categories":
+            if context_label == "below-panel":
+                y = draw_station_categories_below(ax, y=y)
+            else:
+                y = draw_station_categories(ax, y=y)
         elif item.kind == "source_legend":
             if item.label:
                 y = draw_heading(ax, y=y, text=str(item.label))
@@ -375,6 +477,12 @@ def _inside_legend_width(
                 required_width_in,
                 _legend_label_width_in(item.label, fontsize=_STATION_LEGEND_FONT_SIZE, text_x=_STATION_LABEL_X),
             )
+        elif item.kind == "station_categories":
+            for label in ("Forcing station", "Snow observation station", "Forcing + snow station", "Holdout snow station"):
+                required_width_in = max(
+                    required_width_in,
+                    _legend_label_width_in(label, fontsize=_STATION_LEGEND_FONT_SIZE, text_x=_STATION_LABEL_X),
+                )
         elif item.kind == "source_legend":
             required_width_in = max(
                 required_width_in,
@@ -455,7 +563,7 @@ def draw_panel_inside_items(
         legend_ax.set_ylim(0.0, 1.0)
         for spine in legend_ax.spines.values():
             spine.set_visible(False)
-        y = 0.5 if len(items) == 1 else 0.88
+        y = 0.86 if any(item.kind == "station_categories" for item in items) else (0.5 if len(items) == 1 else 0.88)
         _draw_legend_items_on_axis(
             legend_ax,
             items=items,

@@ -11,7 +11,8 @@ import pyproj
 import xarray as xr
 
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import abspath_relative_to, find_setup_yaml, list_member_dirs
+from openamundsen_da.io.paths import abspath_relative_to, find_project_yaml, find_setup_yaml, list_member_dirs
+from openamundsen_da.util.station_da import STATION_DA_METADATA_FILENAME
 
 
 def _transform_coords(x, y, src_crs: str | None, dst_crs: str | None):
@@ -74,6 +75,27 @@ def load_setup_station_table(setup_dir: Path) -> pd.DataFrame | None:
     return None
 
 
+def load_project_snow_station_table(project_dir: Path, setup_dir: Path) -> pd.DataFrame | None:
+    """Load project-configured snow-station metadata for classified maps."""
+    project_cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+    if not isinstance(project_cfg, dict):
+        return None
+    obs_cfg = project_cfg.get("obs")
+    if not isinstance(obs_cfg, dict):
+        return None
+    stations_cfg = obs_cfg.get("stations")
+    if not isinstance(stations_cfg, dict):
+        return None
+    obs_dir_raw = stations_cfg.get("dir")
+    if obs_dir_raw is None or not str(obs_dir_raw).strip():
+        return None
+    obs_dir = Path(abspath_relative_to(setup_dir, Path(str(obs_dir_raw))))
+    metadata_path = obs_dir / STATION_DA_METADATA_FILENAME
+    if not metadata_path.is_file():
+        return None
+    return pd.read_csv(metadata_path, dtype={"station_id": "string", "id": "string"})
+
+
 def load_ensemble_station_table(step_dir: Path, ensemble: str) -> Optional[pd.DataFrame]:
     """Load per-step station metadata from open_loop or first member meteo dir."""
     base = Path(step_dir) / "ensembles" / str(ensemble)
@@ -102,5 +124,6 @@ def load_ensemble_station_table_from_steps(step_dirs: Sequence[Path], ensemble: 
 __all__ = [
     "load_ensemble_station_table",
     "load_ensemble_station_table_from_steps",
+    "load_project_snow_station_table",
     "load_setup_station_table",
 ]

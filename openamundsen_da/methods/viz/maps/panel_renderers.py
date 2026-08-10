@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import matplotlib
@@ -16,6 +16,7 @@ from matplotlib import colormaps
 from matplotlib.colors import BoundaryNorm, ListedColormap, Normalize, TwoSlopeNorm
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Rectangle
+from matplotlib.transforms import ScaledTranslation
 from rasterio.warp import Resampling, reproject
 from shapely.geometry import Point, box
 
@@ -37,6 +38,7 @@ from openamundsen_da.methods.viz.maps.annotations import (
     draw_overview_label_specs,
     draw_panel_extras,
     draw_patch_entry,
+    draw_station_categories,
     draw_station_entry,
     overview_label_box_size_in,
     panel_date,
@@ -75,6 +77,18 @@ from openamundsen_da.methods.viz.maps.overview import (
     load_overview_boundaries,
     load_overview_labels,
     load_overview_regions,
+)
+from openamundsen_da.methods.viz.maps.station_markers import (
+    FORCING_STATION_COLOR,
+    HOLDOUT_STATION_COLOR,
+    HOLDOUT_STATION_LINEWIDTH,
+    HOLDOUT_STATION_MARKER,
+    HOLDOUT_STATION_SIZE,
+    LEFT_HALF_TRIANGLE,
+    RIGHT_HALF_TRIANGLE,
+    SNOW_STATION_COLOR,
+    STATION_MARKER_SIZE,
+    classify_station_markers,
 )
 from openamundsen_da.methods.viz.maps.styles import (
     FSC_OBS_CMAP,
@@ -290,6 +304,85 @@ def draw_subdomain_boundaries(ax, context: StaticContext) -> None:
         )
 
 
+def overview_subdomain_label_specs(
+    ax,
+    context: StaticContext,
+    *,
+    extent: tuple[float, float, float, float],
+    occupied_specs: list[OverviewLabelSpec] | None = None,
+) -> list[OverviewLabelSpec]:
+    """Place full subdomain IDs without overlapping other overview labels."""
+    subdomains = context.subdomain_gdf
+    if subdomains is None or subdomains.empty:
+        return []
+    if "subdomain_id" not in subdomains.columns:
+        raise ValueError("Subdomain labels require a subdomain_id column")
+
+    occupied_boxes = [
+        overview_label_data_box(ax, spec, extent=extent)
+        for spec in (occupied_specs or [])
+    ]
+    visible_extent = box(extent[0], extent[2], extent[1], extent[3])
+    placements: list[OverviewLabelSpec] = []
+    for _, row in subdomains.sort_values("subdomain_id").iterrows():
+        geom = row.geometry
+        if geom is None or geom.is_empty:
+            continue
+        point = geom.representative_point()
+        base = OverviewLabelSpec(
+            text=str(row["subdomain_id"]),
+            x=float(point.x),
+            y=float(point.y),
+            ha="center",
+            va="center",
+            fontsize=_MAP_SUPPORT_TEXT_SIZE,
+            with_bbox=True,
+            zorder=_ANNOTATION_ZORDER + 1,
+        )
+        base_box = overview_label_data_box(ax, base, extent=extent)
+        width = max(float(base_box.bounds[2] - base_box.bounds[0]), 1e-9)
+        height = max(float(base_box.bounds[3] - base_box.bounds[1]), 1e-9)
+        offsets = [
+            (dx * 1.10 * width, dy * 1.20 * height)
+            for dx in range(-3, 4)
+            for dy in range(-3, 4)
+        ]
+        offsets.sort(
+            key=lambda offset: (
+                offset[0] ** 2 + offset[1] ** 2,
+                abs(offset[1]),
+                abs(offset[0]),
+                offset[1],
+                offset[0],
+            )
+        )
+
+        candidates: list[tuple[OverviewLabelSpec, object, float]] = []
+        for dx, dy in offsets:
+            candidate = replace(base, x=base.x + dx, y=base.y + dy)
+            candidate_box = overview_label_data_box(ax, candidate, extent=extent)
+            if not visible_extent.covers(candidate_box):
+                continue
+            overlap_area = sum(candidate_box.intersection(other).area for other in occupied_boxes)
+            candidates.append((candidate, candidate_box, float(overlap_area)))
+
+        if not candidates:
+            candidates = [(base, base_box, 0.0)]
+        candidate, candidate_box, _ = min(
+            candidates,
+            key=lambda item: (
+                item[2] > 0.0,
+                item[2],
+                (item[0].x - base.x) ** 2 + (item[0].y - base.y) ** 2,
+                item[0].y,
+                item[0].x,
+            ),
+        )
+        placements.append(candidate)
+        occupied_boxes.append(candidate_box)
+    return placements
+
+
 def subdomain_dropped_event_regions(
     context: StaticContext,
     *,
@@ -401,8 +494,62 @@ def draw_stations_overlay(
     show_station_marker: bool,
     show_stations_name: bool,
     show_stations_elev: bool,
+    station_marker_mode: str = "forcing",
+    station_match_tolerance_m: float = 10.0,
 ) -> None:
     stations = context.stations
+    if station_marker_mode == "sources_and_roles":
+        if stations is None:
+            raise ValueError("Classified station markers require forcing station metadata")
+        if context.snow_stations is None:
+            raise ValueError("Classified station markers require stations_da_metadata.csv in the configured project.obs.stations.dir")
+        markers = classify_station_markers(stations, context.snow_stations, tolerance_m=station_match_tolerance_m)
+        visible = [marker for marker in markers if extent[0] <= marker.x <= extent[1] and extent[2] <= marker.y <= extent[3]]
+        if show_station_marker:
+            for marker in visible:
+                transform = ax.transData + ScaledTranslation(
+                    marker.offset_x_points / 72.0,
+                    marker.offset_y_points / 72.0,
+                    ax.figure.dpi_scale_trans,
+                )
+                kwargs = {
+                    "s": STATION_MARKER_SIZE,
+                    "edgecolor": "none",
+                    "linewidth": 0.0,
+                    "zorder": _GRID_ZORDER + 4,
+                    "clip_on": True,
+                    "transform": transform,
+                }
+                if marker.kind == "both":
+                    ax.scatter([marker.x], [marker.y], marker=LEFT_HALF_TRIANGLE, facecolor=FORCING_STATION_COLOR, **kwargs)
+                    ax.scatter([marker.x], [marker.y], marker=RIGHT_HALF_TRIANGLE, facecolor=SNOW_STATION_COLOR, **kwargs)
+                elif marker.kind == "holdout":
+                    holdout_kwargs = dict(kwargs)
+                    holdout_kwargs.pop("edgecolor")
+                    holdout_kwargs["linewidth"] = HOLDOUT_STATION_LINEWIDTH
+                    holdout_kwargs["s"] = HOLDOUT_STATION_SIZE
+                    holdout_kwargs["zorder"] = _GRID_ZORDER + 6
+                    ax.scatter(
+                        [marker.x],
+                        [marker.y],
+                        marker=HOLDOUT_STATION_MARKER,
+                        color=HOLDOUT_STATION_COLOR,
+                        **holdout_kwargs,
+                    )
+                else:
+                    color = {"forcing": FORCING_STATION_COLOR, "snow": SNOW_STATION_COLOR}[marker.kind]
+                    ax.scatter([marker.x], [marker.y], marker="^", facecolor=color, **kwargs)
+        if not (show_station_marker and show_stations_name):
+            return
+        label_rows = pd.DataFrame([
+            {"id": marker.station_id, "name": marker.name, "x": marker.x, "y": marker.y, "alt": marker.alt}
+            for marker in visible
+        ])
+        _draw_station_labels(ax, label_rows, extent, show_stations_elev=show_stations_elev)
+        return
+
+    if station_marker_mode != "forcing":
+        raise ValueError(f"Unsupported station_marker_mode: {station_marker_mode!r}")
     if stations is None or stations.empty:
         return
 
@@ -433,13 +580,19 @@ def draw_stations_overlay(
     if not (show_station_marker and show_stations_name):
         return
 
+    _draw_station_labels(ax, ordered, extent, show_stations_elev=show_stations_elev)
+
+
+def _draw_station_labels(ax, ordered: pd.DataFrame, extent, *, show_stations_elev: bool) -> None:
+    if ordered.empty:
+        return
     keep_indices = suppress_station_labels(ordered, extent)
     dx = 0.026 * (extent[1] - extent[0])
     dy = 0.013 * (extent[3] - extent[2])
     for idx in keep_indices:
         row = ordered.iloc[idx]
         label = str(row.get("name") or row.get("id") or "").strip()
-        if show_stations_elev and "alt" in row and np.isfinite(float(row["alt"])):
+        if show_stations_elev and "alt" in row and pd.notna(row["alt"]) and np.isfinite(float(row["alt"])):
             label = f"{label}\n({int(round(float(row['alt'])))} m)"
         apply_overlay_label_halo(ax.text(
             float(row["x"]) + dx,
@@ -667,6 +820,7 @@ def apply_common_overlays(
     ax,
     *,
     context: StaticContext,
+    panel: MapPanelSpec,
     extent: tuple[float, float, float, float],
     show_roi: bool,
     show_station_marker: bool,
@@ -684,6 +838,8 @@ def apply_common_overlays(
             show_station_marker=show_station_marker,
             show_stations_name=show_stations_name,
             show_stations_elev=show_stations_elev,
+            station_marker_mode=panel.station_marker_mode,
+            station_match_tolerance_m=panel.station_match_tolerance_m,
         )
 
 
@@ -1124,8 +1280,17 @@ def render_overview_panel(
         )
         draw_subdomain_boundaries(ax, context)
         roi_label = overview_roi_label_spec(panel, extent=extent, context=context)
-        if roi_label is not None:
-            draw_overview_label_specs(ax, [roi_label])
+        label_specs = [roi_label] if roi_label is not None else []
+        if panel.show_subdomain_labels:
+            label_specs.extend(
+                overview_subdomain_label_specs(
+                    ax,
+                    context,
+                    extent=extent,
+                    occupied_specs=label_specs,
+                )
+            )
+        draw_overview_label_specs(ax, label_specs)
         show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
         draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=panel_date(panel, defaults), resolve_flag=resolve_flag)
         draw_map_grid_overlay(ax, show_grid=show_grid)
@@ -1180,6 +1345,15 @@ def render_overview_panel(
     )
     if roi_label is not None:
         label_specs.append(roi_label)
+    if panel.show_subdomain_labels:
+        label_specs.extend(
+            overview_subdomain_label_specs(
+                ax,
+                context,
+                extent=extent,
+                occupied_specs=label_specs,
+            )
+        )
     draw_overview_label_specs(ax, label_specs)
     show_grid = resolve_flag(panel.show_grid, defaults, "show_grid", True)
     draw_panel_extras(ax, panel=panel, defaults=defaults, extent=extent, date=panel_date(panel, defaults), resolve_flag=resolve_flag)
@@ -1193,6 +1367,7 @@ def render_roi_panel(ax, *, panel: MapPanelSpec, context: StaticContext, extent,
     apply_common_overlays(
         ax,
         context=context,
+        panel=panel,
         extent=extent,
         show_roi=resolve_panel_toggle(panel.show_roi, True),
         show_station_marker=resolve_panel_toggle(panel.show_station_marker, True),
@@ -1251,6 +1426,7 @@ def render_static_panel(
         apply_common_overlays(
             ax,
             context=context,
+            panel=panel,
             extent=extent,
             show_roi=show_roi,
             show_station_marker=show_station_marker,
@@ -1290,6 +1466,7 @@ def render_static_panel(
         apply_common_overlays(
             ax,
             context=context,
+            panel=panel,
             extent=extent,
             show_roi=show_roi,
             show_station_marker=show_station_marker,
@@ -1329,6 +1506,7 @@ def render_static_panel(
         apply_common_overlays(
             ax,
             context=context,
+            panel=panel,
             extent=extent,
             show_roi=show_roi,
             show_station_marker=show_station_marker,
@@ -1387,6 +1565,7 @@ def render_static_panel(
     apply_common_overlays(
         ax,
         context=context,
+        panel=panel,
         extent=extent,
         show_roi=show_roi,
         show_station_marker=show_station_marker,
@@ -1511,6 +1690,7 @@ def render_model_panel(
     apply_common_overlays(
         ax,
         context=context,
+        panel=panel,
         extent=extent,
         show_roi=resolve_panel_toggle(panel.show_roi, True),
         show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
@@ -1634,6 +1814,7 @@ def render_observation_panel(
     apply_common_overlays(
         ax,
         context=context,
+        panel=panel,
         extent=extent,
         show_roi=resolve_panel_toggle(panel.show_roi, True),
         show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
@@ -1722,6 +1903,7 @@ def render_uncertainty_panel(
     apply_common_overlays(
         ax,
         context=context,
+        panel=panel,
         extent=extent,
         show_roi=resolve_panel_toggle(panel.show_roi, True),
         show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
@@ -2646,6 +2828,7 @@ def render_wet_snow_line_panel(
     apply_common_overlays(
         ax,
         context=context,
+        panel=panel,
         extent=display_extent,
         show_roi=resolve_panel_toggle(panel.show_roi, True),
         show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
@@ -2769,6 +2952,7 @@ def render_wet_snow_elevation_fraction_panel(
     apply_common_overlays(
         ax,
         context=context,
+        panel=panel,
         extent=extent,
         show_roi=resolve_panel_toggle(panel.show_roi, True),
         show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
@@ -2860,6 +3044,7 @@ def render_fraction_model_panel(
         apply_common_overlays(
             ax,
             context=context,
+            panel=panel,
             extent=extent,
             show_roi=resolve_panel_toggle(panel.show_roi, True),
             show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
@@ -2935,6 +3120,7 @@ def render_fraction_model_panel(
         apply_common_overlays(
             ax,
             context=context,
+            panel=panel,
             extent=extent,
             show_roi=resolve_panel_toggle(panel.show_roi, True),
             show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
@@ -3017,6 +3203,7 @@ def render_fraction_model_panel(
         apply_common_overlays(
             ax,
             context=context,
+            panel=panel,
             extent=extent,
             show_roi=resolve_panel_toggle(panel.show_roi, True),
             show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
@@ -3081,6 +3268,7 @@ def render_fraction_model_panel(
     apply_common_overlays(
         ax,
         context=context,
+        panel=panel,
         extent=extent,
         show_roi=resolve_panel_toggle(panel.show_roi, True),
         show_station_marker=resolve_panel_toggle(panel.show_station_marker, False),
@@ -3166,6 +3354,8 @@ def render_legend_panel(ax, *, panel: MapPanelSpec, artifacts: dict[str, dict[st
             y = draw_heading(ax, y=y, text=str(item.label))
         elif item.kind == "station_symbol":
             y = draw_station_entry(ax, y=y, label=str(item.label))
+        elif item.kind == "station_categories":
+            y = draw_station_categories(ax, y=y)
         elif item.kind == "source_legend":
             if item.label:
                 y = draw_heading(ax, y=y, text=str(item.label))

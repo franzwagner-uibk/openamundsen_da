@@ -54,12 +54,13 @@ SUPPORTED_WET_SNOW_ELEVATION_FRACTION_SOURCES = {
     "posterior_probability",
 }
 SUPPORTED_UNCERTAINTY_OBSERVATIONS = {"scf", "wet_snow"}
-SUPPORTED_LEGEND_ITEM_KINDS = {"heading", "station_symbol", "source_legend", "scale_bar"}
+SUPPORTED_LEGEND_ITEM_KINDS = {"heading", "station_categories", "station_symbol", "source_legend", "scale_bar"}
 SUPPORTED_LEGEND_ITEM_PLACEMENTS = {"below", "inside"}
 SUPPORTED_LEGEND_ITEM_ANCHORS = {"top_left", "top_right", "bottom_left", "bottom_right"}
 SUPPORTED_PANEL_LEGEND_LAYOUTS = {"horizontal", "vertical"}
 SUPPORTED_HILLSHADE_EXTENTS = {"full", "roi"}
 SUPPORTED_LANDCOVER_GROUPINGS = {"native", "broad", "rofental_manuscript"}
+SUPPORTED_STATION_MARKER_MODES = {"forcing", "sources_and_roles"}
 _REMOVED_PANEL_KEYS = {"variable", "metric", "observation", "field", "style", "legend_inside"}
 _REMOVED_LAYOUT_KEYS = {"wspace", "hspace"}
 _REMOVED_PANEL_KINDS = {"stations", "static_field", "model_field", "increment_field", "observation_field", "roi_overview", "text"}
@@ -135,8 +136,11 @@ class MapPanelSpec:
     hillshade_extent: str | None = None
     show_roi: bool | None = None
     show_station_marker: bool | None = None
+    station_marker_mode: str = "forcing"
+    station_match_tolerance_m: float = 10.0
     show_stations_name: bool | None = None
     show_stations_elev: bool | None = None
+    show_subdomain_labels: bool = False
     legend: str | None = None
     landcover_grouping: str | None = None
     variable: str | None = None
@@ -477,8 +481,14 @@ def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
         hillshade_extent=_optional_hillshade_extent(mapping.get("hillshade_extent"), context=f"{context}.hillshade_extent"),
         show_roi=_coerce_bool(mapping.get("show_roi"), default=None),
         show_station_marker=_coerce_bool(mapping.get("show_station_marker"), default=None),
+        station_marker_mode=(_optional_str(mapping.get("station_marker_mode")) or "forcing").lower(),
+        station_match_tolerance_m=_optional_positive_float(
+            mapping.get("station_match_tolerance_m"),
+            context=f"{context}.station_match_tolerance_m",
+        ) or 10.0,
         show_stations_name=_coerce_bool(mapping.get("show_stations_name"), default=None),
         show_stations_elev=_coerce_bool(mapping.get("show_stations_elev"), default=None),
+        show_subdomain_labels=bool(_coerce_bool(mapping.get("show_subdomain_labels"), default=False)),
         legend=_optional_str(mapping.get("legend")),
         landcover_grouping=landcover_grouping,
     )
@@ -486,6 +496,9 @@ def _parse_panel(value: object, *, context: str) -> MapPanelSpec:
     if panel.legend is not None and panel.legend not in SUPPORTED_PANEL_LEGEND_LAYOUTS:
         supported = ", ".join(sorted(SUPPORTED_PANEL_LEGEND_LAYOUTS))
         raise ValueError(f"{context}.legend must be one of: {supported}")
+    if panel.station_marker_mode not in SUPPORTED_STATION_MARKER_MODES:
+        supported = ", ".join(sorted(SUPPORTED_STATION_MARKER_MODES))
+        raise ValueError(f"{context}.station_marker_mode must be one of: {supported}")
     if panel.landcover_grouping is not None:
         if panel.kind != "landcover":
             raise ValueError(f"{context}.landcover_grouping is only supported for landcover panels")

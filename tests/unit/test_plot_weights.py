@@ -726,6 +726,32 @@ def test_station_plot_with_five_sigma_entries_stacks_inside_panel(tmp_path: Path
     plt.close(fig)
 
 
+def test_station_plot_wraps_six_sigma_entries_inside_panel() -> None:
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(4.0, 2.0))
+    entries = [(f"C{index}", f"σ={0.1 * index:.1f}") for index in range(1, 7)]
+
+    plot_mod._draw_sigma_strip(ax, entries, fontsize=7.0)
+    legend = ax.get_legend()
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    legend_bbox = legend.get_window_extent(renderer=renderer)
+    axes_bbox = ax.get_window_extent(renderer=renderer)
+    row_positions = {
+        round(text.get_window_extent(renderer=renderer).y0, 3)
+        for text in legend.get_texts()
+    }
+
+    assert getattr(legend, "_ncols", None) == 3
+    assert len(row_positions) == 2
+    assert legend_bbox.x0 >= axes_bbox.x0
+    assert legend_bbox.x1 <= axes_bbox.x1 + 2.0
+    assert legend_bbox.y0 >= axes_bbox.y0
+    assert legend_bbox.y1 <= axes_bbox.y1
+    plt.close(fig)
+
+
 def test_fraction_plot_uses_observable_legend_entry_and_sigma_strip(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 

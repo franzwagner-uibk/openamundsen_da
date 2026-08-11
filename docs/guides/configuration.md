@@ -268,6 +268,14 @@ Notes:
   one date require `observation_time`; the first row is never selected implicitly.
 - Station observation assimilation uses `variable: station_hs` or `variable: station_swe` and does not require a product tag.
 - Station observations live in `obs/stations/<station_id>.csv`; station DA metadata live in `obs/stations/stations_da_metadata.csv`.
+- A station event runs at the event date combined with the active step's start
+  time. The unique nearest same-ID, `use_for_da` observation must lie within
+  half the setup timestep. Naive timestamps use the setup timezone; ties and
+  values farther away fail. The corresponding model point must exist exactly
+  at the model-clock timestamp.
+- `assimilation_events` is the final event selection. Discovery, quality
+  filtering and date substitution must happen before project execution. The
+  removed `subdomain_event_filter` key is rejected instead of mutating a project.
 - Active DA and benchmark station IDs must resolve case-insensitively to both a same-ID observation CSV and a configured model output point. Explicit points are checked directly; default meteo points are resolved against the setup ROI.
 - `data_assimilation.station` defines project-level percentage defaults and single-station inflation for ROI-based station assimilation.
 - Station absolute sigma floors are configured per station in `stations_da_metadata.csv` via `hs_sigma_abs_min` and `swe_sigma_abs_min`.
@@ -299,7 +307,7 @@ Notes:
     nonfinite, out-of-range or incomplete coverage is an error with no fixed
     sigma substitution.
   - NetCDF uses configured in-file variables; GeoTIFF requires `<stem>_uncertainty.tif`.
-  - Cloud pixels should be handled as data gaps (masked), not as uncertainty-penalty pixels.
+- Cloud pixels should be handled as data gaps (masked), not as uncertainty-penalty pixels.
 - Wet-snow uncertainty uses the same pattern (`ingest` + `assimilation`) and the same file-type behavior.
 - Uncertainty preprocessing keys:
   - `input_dir`, `u_min`, `u_max`, `base_uncertainty`, `nodata_value`, and `penalties[]` are used by `openamundsen-da observations snow-cover` and `openamundsen-da observations wet-snow`.
@@ -362,6 +370,17 @@ Notes:
   prepared-setup capacity validation remain required before claiming that
   production acceptance.
 - `output.grids.variables[*]` controls both which compact grid variables are exported and which metrics are written for each variable. If this block is omitted, all grid variables and metrics are written for backward compatibility.
+- Every explicit `output.grids.variables[*].var` or `name` must match a
+  `setup.output_data.grids.variables[*].name`. This is validated before model
+  propagation. Maintained snow setups request `snow.depth` as
+  `snowdepth_daily` and `snow.swe` as `swe_daily` so both standard products are
+  available to the compact exporter.
+- Explicit compact output contracts are strict: every open-loop and member
+  NetCDF must contain every requested source variable, and the completed
+  `da_output_grids.nc` must contain every requested metric-variable pair.
+  Validation reports all missing names together instead of writing a partial
+  scientific result. Projects without an explicit compact-variable list keep
+  the legacy all-available-output behavior.
 - Compact DA summary NetCDFs use internal compressed storage encodings: snow depth at 0.001 m resolution and SWE/liquid-water content at integer millimeter resolution. This is not a YAML setting; CF-aware readers decode the variables back to physical values.
 - Generated DA-event maps need `analysis_mean` and `analysis_increment` for `snowdepth_daily`, because their snow-depth response panels show the event-weighted posterior and posterior-minus-prior increment.
 - `results/grids/da_output_grids.nc` is aggregated over all project steps (full project timeline).

@@ -143,6 +143,70 @@ def test_shipped_rofental_project_configuration_matches_strict_schema() -> None:
     assert config.project_dir == project_dir.resolve()
 
 
+def test_configuration_rejects_compact_grid_sources_missing_from_model_outputs(tmp_path: Path) -> None:
+    project_dir = _write_valid_project(tmp_path)
+    setup_yaml = project_dir.parent.parent / "alpine.yml"
+    setup_yaml.write_text(
+        setup_yaml.read_text(encoding="utf-8")
+        + "  variables:\n"
+        + "    - var: snow.depth\n"
+        + "      name: snowdepth_daily\n",
+        encoding="utf-8",
+    )
+    project_yaml = project_dir / "winter.yml"
+    project_yaml.write_text(
+        project_yaml.read_text(encoding="utf-8").replace(
+            "    grids:\n      format: netcdf\n",
+            "    grids:\n"
+            "      format: netcdf\n"
+            "      variables:\n"
+            "        - var: snowdepth_daily\n"
+            "          metrics: [open_loop, ens_mean]\n"
+            "        - var: swe_daily\n"
+            "          metrics: [open_loop, ens_mean]\n"
+            "        - var: liquid_water_content\n"
+            "          metrics: [ens_mean]\n",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProjectValidationError) as exc_info:
+        load_project_configuration(project_dir)
+
+    message = str(exc_info.value)
+    assert "project.data_assimilation.output.grids.variables" in message
+    assert "setup.output_data.grids.variables" in message
+    assert "swe_daily" in message
+    assert "liquid_water_content" in message
+
+
+def test_configuration_rejects_unknown_compact_grid_metrics(tmp_path: Path) -> None:
+    project_dir = _write_valid_project(tmp_path)
+    setup_yaml = project_dir.parent.parent / "alpine.yml"
+    setup_yaml.write_text(
+        setup_yaml.read_text(encoding="utf-8")
+        + "  variables:\n"
+        + "    - var: snow.depth\n"
+        + "      name: snowdepth_daily\n",
+        encoding="utf-8",
+    )
+    project_yaml = project_dir / "winter.yml"
+    project_yaml.write_text(
+        project_yaml.read_text(encoding="utf-8").replace(
+            "    grids:\n      format: netcdf\n",
+            "    grids:\n"
+            "      format: netcdf\n"
+            "      variables:\n"
+            "        - var: snowdepth_daily\n"
+            "          metrics: [ens_mean, mystery_metric]\n",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProjectValidationError, match="mystery_metric"):
+        load_project_configuration(project_dir)
+
+
 @pytest.mark.parametrize(
     ("old", "new", "message"),
     [
@@ -185,4 +249,20 @@ def test_load_project_configuration_rejects_duplicate_event_dates(tmp_path: Path
     )
 
     with pytest.raises(ProjectValidationError, match="Duplicate assimilation event date"):
+        load_project_configuration(project_dir)
+
+
+def test_subdomain_event_filter_requires_external_final_selection(tmp_path: Path) -> None:
+    project_dir = _write_valid_project(tmp_path)
+    path = project_dir / "winter.yml"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "data_assimilation:\n",
+            "data_assimilation:\n  subdomain_event_filter:\n    enabled: true\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProjectValidationError, match="Finalize every project or leaf schedule"):
         load_project_configuration(project_dir)

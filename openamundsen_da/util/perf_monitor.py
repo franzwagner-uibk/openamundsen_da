@@ -44,6 +44,9 @@ except Exception:  # pragma: no cover
     plt = None  # type: ignore[assignment]
 
 PROJECT_PERF_FIGSIZE = (FIGWIDTH_OVERVIEW_PAPER, 2.1)
+DEFAULT_DISK_SCAN_INTERVAL_SEC = 150.0
+PERF_PLOT_RIGHT_MARGIN_WITH_TEMPERATURE = 0.83
+PERF_PLOT_RIGHT_AXIS_GAP_POINTS = 4.0
 THERMAL_SYSFS_ROOT_ENV = "OA_DA_THERMAL_SYSFS_ROOT"
 DEFAULT_THERMAL_SYSFS_ROOT = Path("/sys/class/hwmon")
 PERF_PLOT_COLORS = {
@@ -60,7 +63,7 @@ class PerfMonitorConfig:
     project_dir: Path
     sample_interval_sec: float = 5.0
     plot_interval_sec: float = 30.0
-    disk_scan_interval_sec: float = 300.0
+    disk_scan_interval_sec: float = DEFAULT_DISK_SCAN_INTERVAL_SEC
     run_start: datetime | None = None
 
 
@@ -647,11 +650,10 @@ def _render_plot(
     cpu_temp_crit_values = [value for value in cpu_temp_crit_plot if value is not None]
     if cpu_temp_values:
         ax3 = ax1.twinx()
-        ax3.spines["right"].set_position(("axes", 1.09))
         ax3.plot(
             timestamps,
             cpu_temp_plot,
-            label="CPU temp [C]",
+            label="CPU temp [°C]",
             color=PERF_PLOT_COLORS["cpu_temp"],
             linewidth=1.4,
         )
@@ -659,13 +661,13 @@ def _render_plot(
             ax3.plot(
                 timestamps,
                 cpu_temp_crit_plot,
-                label="CPU temp crit [C]",
+                label="CPU temp crit [°C]",
                 color=PERF_PLOT_COLORS["cpu_temp_crit"],
                 linestyle=":",
                 linewidth=1.1,
             )
         temp_axis_top = max(100.0, max([*cpu_temp_values, *cpu_temp_crit_values]) * 1.08)
-        ax3.set_ylabel("CPU temp [C]")
+        ax3.set_ylabel("CPU temp [°C]")
         ax3.set_ylim(bottom=0, top=temp_axis_top)
 
     axes = [ax1, ax2] + ([ax3] if ax3 is not None else [])
@@ -689,23 +691,74 @@ def _render_plot(
     final_project_size = disk_project_used_gb[-1] if disk_project_used_gb else 0.0
     summary_parts = [f"Elapsed: {elapsed_hhmm}"]
     if cpu_temp_values:
-        summary_parts.append(f"Peak CPU temp: {max(cpu_temp_values):.1f} C")
+        summary_parts.append(f"Peak CPU temp: {max(cpu_temp_values):.1f} °C")
     summary_parts.extend(
         [
-            f"Peak RAM: {max(mem_used_gb or [0]):.2f} / {max(mem_total_gb or [0]):.2f} GB",
-            f"Project: peak {peak_project_size:.2f} GB \N{RIGHTWARDS ARROW} final {final_project_size:.2f} GB",
+            f"Peak RAM: {max(mem_used_gb or [0]):.1f} / {max(mem_total_gb or [0]):.1f} GB",
+            f"Project: peak {peak_project_size:.1f} GB \N{RIGHTWARDS ARROW} final {final_project_size:.1f} GB",
         ]
     )
     summary = "   ".join(summary_parts)
     fig.text(0.5, 0.985, summary, ha="center", va="top", fontsize=9)
 
-    right_margin = 0.83 if ax3 is not None else 0.91
+    right_margin = PERF_PLOT_RIGHT_MARGIN_WITH_TEMPERATURE if ax3 is not None else 0.91
     fig.subplots_adjust(left=0.075, right=right_margin, top=0.86, bottom=0.27)
     _show_every_second_time_label(ax1)
+    if ax3 is not None:
+        _layout_performance_right_axes(fig, ax1, ax2, ax3)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     force_figure_text_black(fig, axes)
     _save_perf_plot_atomic(fig, out_path)
     plt.close(fig)
+
+
+def _layout_performance_right_axes(
+    fig: object,
+    primary_axis: object,
+    project_axis: object,
+    temperature_axis: object,
+) -> None:
+    """Separate the two right axes using their rendered text footprints."""
+
+    gap_px = PERF_PLOT_RIGHT_AXIS_GAP_POINTS * float(fig.dpi) / 72.0
+    base_right = PERF_PLOT_RIGHT_MARGIN_WITH_TEMPERATURE
+
+    # Two passes are sufficient: the first measures the text and reserves the
+    # required figure margin; the second repositions the outer spine after the
+    # primary axes width changes.
+    for pass_index in range(2):
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        axes_right_px = float(primary_axis.transAxes.transform((1.0, 0.0))[0])
+        project_bbox = project_axis.yaxis.get_tightbbox(renderer)
+        project_right_px = max(
+            axes_right_px,
+            float(project_bbox.x1) if project_bbox is not None else axes_right_px,
+        )
+        temperature_spine_px = project_right_px + gap_px
+        temperature_spine_axes = float(
+            primary_axis.transAxes.inverted().transform((temperature_spine_px, 0.0))[0]
+        )
+        temperature_axis.spines["right"].set_position(
+            ("axes", temperature_spine_axes)
+        )
+
+        if pass_index == 0:
+            fig.canvas.draw()
+            renderer = fig.canvas.get_renderer()
+            temperature_bbox = temperature_axis.yaxis.get_tightbbox(renderer)
+            temperature_right_px = max(
+                temperature_spine_px,
+                float(temperature_bbox.x1)
+                if temperature_bbox is not None
+                else temperature_spine_px,
+            )
+            outer_width_px = temperature_right_px - axes_right_px
+            available_right_px = float(fig.bbox.width) - gap_px
+            required_right = (
+                available_right_px - outer_width_px
+            ) / float(fig.bbox.width)
+            fig.subplots_adjust(right=min(base_right, required_right))
 
 
 def _show_every_second_time_label(axis: object) -> None:
@@ -789,8 +842,8 @@ def cli_main(argv: List[str] | None = None) -> int:
     p.add_argument(
         "--disk-scan-interval",
         type=float,
-        default=300.0,
-        help="Recursive project directory disk scan interval in seconds (default: 300)",
+        default=DEFAULT_DISK_SCAN_INTERVAL_SEC,
+        help="Recursive project directory disk scan interval in seconds (default: 150)",
     )
     p.add_argument("--log-level", default="INFO", help="Log level (default: INFO)")
     args = p.parse_args(argv)
@@ -810,7 +863,9 @@ def cli_main(argv: List[str] | None = None) -> int:
         project_dir=project_dir,
         sample_interval_sec=float(args.sample_interval or 5.0),
         plot_interval_sec=float(args.plot_interval or 30.0),
-        disk_scan_interval_sec=float(args.disk_scan_interval or 300.0),
+        disk_scan_interval_sec=float(
+            args.disk_scan_interval or DEFAULT_DISK_SCAN_INTERVAL_SEC
+        ),
         run_start=datetime.utcnow(),
     )
     stop_event = Event()

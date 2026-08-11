@@ -22,6 +22,12 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.util.da_events import AssimilationEvent, load_assimilation_events
 from openamundsen_da.util.da_observables import weights_csv_name
+from openamundsen_da.util.compact_grid_contract import (
+    ANALYSIS_SUMMARY_METRICS,
+    DEFAULT_SUMMARY_METRICS,
+    configured_compact_grid_metrics,
+    expected_compact_data_vars,
+)
 from openamundsen_da.util.storage_policy import (
     da_summary_grid_scale_factor,
     da_summary_netcdf_encoding,
@@ -29,8 +35,8 @@ from openamundsen_da.util.storage_policy import (
 from openamundsen_da.methods.pf.weights import load_prior_weights
 from openamundsen_da.util.atomic import durable_replace
 
-_DEFAULT_SUMMARY_METRICS = ("open_loop", "ens_mean", "ens_std", "ens_min", "ens_max", "increment")
-_ANALYSIS_SUMMARY_METRICS = ("analysis_mean", "analysis_increment")
+_DEFAULT_SUMMARY_METRICS = DEFAULT_SUMMARY_METRICS
+_ANALYSIS_SUMMARY_METRICS = ANALYSIS_SUMMARY_METRICS
 
 
 def output_retention_mode(project_dir: Path) -> str:
@@ -58,32 +64,104 @@ def _configured_grid_metrics(project_dir: Path | None) -> dict[str, set[str]] | 
         cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
     except Exception:
         return None
-    da_cfg = cfg.get("data_assimilation") or {}
-    out_cfg = da_cfg.get("output") or {}
-    grids_cfg = out_cfg.get("grids") or {}
-    variables = grids_cfg.get("variables")
-    if not isinstance(variables, list) or not variables:
-        return None
+    return configured_compact_grid_metrics(cfg)
 
-    out: dict[str, set[str]] = {}
-    all_metrics = set(_DEFAULT_SUMMARY_METRICS) | set(_ANALYSIS_SUMMARY_METRICS)
-    for item in variables:
-        if not isinstance(item, dict):
+
+def _validate_compact_grid_sources(
+    *,
+    open_loop_nc: Path,
+    member_ncs: Sequence[Path],
+    grid_metrics: dict[str, set[str]],
+) -> None:
+    """Require every configured compact source in the open loop and members."""
+
+    required = sorted(grid_metrics)
+    errors: list[str] = []
+    reference_shapes: dict[str, tuple[tuple[str, ...], tuple[int, ...]]] = {}
+
+    if not open_loop_nc.is_file():
+        errors.append(f"missing open-loop NetCDF: {open_loop_nc}")
+    else:
+        with xr.open_dataset(open_loop_nc) as dataset:
+            for variable in required:
+                if variable not in dataset.data_vars:
+                    errors.append(f"{open_loop_nc}: missing configured variable {variable!r}")
+                    continue
+                data = dataset[variable]
+                if "y" not in data.dims or "x" not in data.dims:
+                    errors.append(
+                        f"{open_loop_nc}: configured variable {variable!r} must have x/y dimensions; "
+                        f"got {tuple(data.dims)}"
+                    )
+                    continue
+                reference_shapes[variable] = (
+                    tuple(str(dim) for dim in data.dims),
+                    tuple(int(size) for size in data.shape),
+                )
+
+    for member_nc in member_ncs:
+        if not member_nc.is_file():
+            errors.append(f"missing member NetCDF: {member_nc}")
             continue
-        source_name = str(item.get("name") or item.get("var") or "").strip()
-        if not source_name:
-            continue
-        raw_metrics = item.get("metrics")
-        if raw_metrics is None:
-            metrics = set(all_metrics)
-        elif isinstance(raw_metrics, (list, tuple, set)):
-            metrics = {str(metric).strip() for metric in raw_metrics if str(metric).strip()}
-        else:
-            metrics = {str(raw_metrics).strip()} if str(raw_metrics).strip() else set()
-        if not metrics:
-            metrics = set(all_metrics)
-        out[source_name] = metrics & all_metrics
-    return out or None
+        with xr.open_dataset(member_nc) as dataset:
+            for variable in required:
+                if variable not in dataset.data_vars:
+                    errors.append(f"{member_nc}: missing configured variable {variable!r}")
+                    continue
+                data = dataset[variable]
+                if "y" not in data.dims or "x" not in data.dims:
+                    errors.append(
+                        f"{member_nc}: configured variable {variable!r} must have x/y dimensions; "
+                        f"got {tuple(data.dims)}"
+                    )
+                    continue
+                reference = reference_shapes.get(variable)
+                current = (
+                    tuple(str(dim) for dim in data.dims),
+                    tuple(int(size) for size in data.shape),
+                )
+                if reference is not None and current != reference:
+                    errors.append(
+                        f"{member_nc}: configured variable {variable!r} dimensions/shape "
+                        f"{current} do not match open loop {reference}"
+                    )
+
+    if errors:
+        raise ValueError("Compact DA grid source validation failed:\n- " + "\n- ".join(errors))
+
+
+def _validate_compact_dataset_contract(
+    dataset: xr.Dataset,
+    *,
+    grid_metrics: dict[str, set[str]],
+    source: Path | str,
+) -> None:
+    """Require all configured metric-variable pairs in a compact dataset."""
+
+    missing = sorted(expected_compact_data_vars(grid_metrics) - set(dataset.data_vars))
+    if missing:
+        raise ValueError(
+            f"Compact DA grid output validation failed for {source}: missing configured "
+            "metric-variable(s): "
+            + ", ".join(missing)
+        )
+
+
+def validate_compact_output_file(*, project_dir: Path, output_nc: Path) -> None:
+    """Validate one compact NetCDF against its project's explicit output contract."""
+
+    grid_metrics = _configured_grid_metrics(Path(project_dir))
+    if grid_metrics is None:
+        return
+    output_nc = Path(output_nc)
+    if not output_nc.is_file():
+        raise FileNotFoundError(f"Configured compact DA grid output is missing: {output_nc}")
+    with xr.open_dataset(output_nc) as dataset:
+        _validate_compact_dataset_contract(
+            dataset,
+            grid_metrics=grid_metrics,
+            source=output_nc,
+        )
 
 
 def _as_nan_array(da: xr.DataArray) -> np.ndarray:
@@ -222,9 +300,18 @@ def _build_da_output_dataset(
 ) -> xr.Dataset | None:
     """Build compact DA summary grids for one step from open-loop + members."""
     if not open_loop_nc.is_file():
+        if grid_metrics is not None:
+            raise ValueError(f"Compact DA grid source validation failed:\n- missing open-loop NetCDF: {open_loop_nc}")
         logger.warning("DA output summary skipped: open_loop NetCDF not found at {}", open_loop_nc)
         return None
-    member_files = [Path(p) for p in member_ncs if Path(p).is_file()]
+    requested_member_files = [Path(path) for path in member_ncs]
+    member_files = [path for path in requested_member_files if path.is_file()]
+    if grid_metrics is not None:
+        _validate_compact_grid_sources(
+            open_loop_nc=Path(open_loop_nc),
+            member_ncs=requested_member_files,
+            grid_metrics=grid_metrics,
+        )
     if not member_files:
         logger.warning("DA output summary skipped: no member NetCDF files provided")
         return None
@@ -409,6 +496,12 @@ def _build_da_output_dataset(
             coords=ds_ol.coords,
             attrs=attrs,
         )
+        if grid_metrics is not None:
+            _validate_compact_dataset_contract(
+                out_ds,
+                grid_metrics=grid_metrics,
+                source="in-memory compact step dataset",
+            )
         return out_ds
 
 
@@ -674,6 +767,12 @@ def _build_project_da_output_dataset(step_dirs: Sequence[Path]) -> xr.Dataset | 
             "source_steps": ",".join(used_steps),
         }
     )
+    if grid_metrics is not None:
+        _validate_compact_dataset_contract(
+            combined,
+            grid_metrics=grid_metrics,
+            source="in-memory compact project dataset",
+        )
     return combined
 
 
@@ -687,6 +786,14 @@ def write_project_da_output_grids(
     if combined is None:
         return None
     _write_da_dataset_atomic(combined, output_nc)
+    project_dir: Path | None = None
+    if step_dirs:
+        try:
+            project_dir = infer_project_dir(step_dirs[0])
+        except FileNotFoundError:
+            project_dir = None
+    if project_dir is not None:
+        validate_compact_output_file(project_dir=project_dir, output_nc=output_nc)
     step_count = combined.attrs.get("source_step_count", "0")
     logger.info("Wrote DA output summary NetCDF {} ({} step(s))", output_nc, step_count)
     return output_nc
@@ -697,18 +804,14 @@ def validate_project_da_output_grids(
     *,
     output_nc: str | Path | None = None,
 ) -> Path:
-    """Require configured compact metrics and complete raw-member sources.
-
-    This cleanup gate deliberately validates the current grid contract only.
-    It is kept separate from the broader cross-configuration output validator
-    planned in the required-grid-output increment.
-    """
+    """Require the canonical compact contract and raw scientific equivalence."""
     project_dir = Path(project_dir).resolve()
     output = (
         Path(output_nc)
         if output_nc is not None
         else project_dir / "results" / "grids" / "da_output_grids.nc"
     )
+    validate_compact_output_file(project_dir=project_dir, output_nc=output)
     configured = _configured_grid_metrics(project_dir)
     project_cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
     try:

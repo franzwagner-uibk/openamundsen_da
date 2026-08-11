@@ -46,6 +46,7 @@ def _write_roi(path: Path, data: np.ndarray) -> None:
 @pytest.fixture(autouse=True)
 def _ignore_stage_persistence(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(merge_mod, "save_stage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(merge_mod, "resolve_subdomain_event_plan", lambda *args, **kwargs: [])
 
 
 def test_merge_grids_uses_compact_da_summary(monkeypatch, tmp_path: Path) -> None:
@@ -80,6 +81,12 @@ def test_merge_grids_uses_compact_da_summary(monkeypatch, tmp_path: Path) -> Non
     monkeypatch.setattr(merge_mod, "output_retention_mode", lambda *_args, **_kwargs: "full")
     write_calls: list[dict] = []
     monkeypatch.setattr(merge_mod, "write_da_output_grids", lambda **kwargs: write_calls.append(kwargs))
+    validation_calls: list[tuple[Path, Path]] = []
+    monkeypatch.setattr(
+        merge_mod,
+        "validate_compact_output_file",
+        lambda *, project_dir, output_nc: validation_calls.append((Path(project_dir), Path(output_nc))),
+    )
 
     calls: list[tuple[str, list[Path]]] = []
 
@@ -100,6 +107,10 @@ def test_merge_grids_uses_compact_da_summary(monkeypatch, tmp_path: Path) -> Non
     assert written == [merged_da]
     assert calls == [("da_output_grids.nc", [compact_da])]
     assert write_calls == []
+    assert validation_calls == [
+        (project_dir, compact_da),
+        (project_dir, merged_da),
+    ]
 
 
 def test_merge_grids_skips_latest_member_outputs_when_compact_summary_exists(

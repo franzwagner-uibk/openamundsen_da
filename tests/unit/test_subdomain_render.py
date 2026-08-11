@@ -10,6 +10,11 @@ from openamundsen_da.results import WorkflowStatus
 from openamundsen_da.subdomain import render as render_mod
 
 
+@pytest.fixture(autouse=True)
+def _ignore_event_support(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(render_mod, "resolve_subdomain_event_plan", lambda *args, **kwargs: [])
+
+
 def _manifest(project_dir: Path, *, status: str = "success") -> SimpleNamespace:
     return SimpleNamespace(
         project_dir=project_dir,

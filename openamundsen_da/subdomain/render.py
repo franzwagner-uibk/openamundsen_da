@@ -9,6 +9,10 @@ from openamundsen_da.methods.viz.maps import project_maps_enabled, render_projec
 from openamundsen_da.methods.viz.reports import build_project_collection_pdf
 from openamundsen_da.results import RenderResult, WorkflowStatus
 from openamundsen_da.subdomain.manifest import SubdomainManifest
+from openamundsen_da.subdomain.event_support import (
+    SubdomainEventSupportError,
+    resolve_subdomain_event_plan,
+)
 from openamundsen_da.subdomain.merge import cleanup_compact_grid_artifacts
 from openamundsen_da.subdomain.report import write_subdomain_reports
 from openamundsen_da.subdomain.status import save_stage, terminal_status
@@ -40,6 +44,11 @@ def render_subdomain_outputs(
             "Cannot render an incomplete subdomain workflow; unsuccessful subdomains: "
             + ", ".join(failed)
         )
+
+    try:
+        resolve_subdomain_event_plan(manifest, require_artifacts=True)
+    except SubdomainEventSupportError as exc:
+        raise ProjectRenderError(f"Subdomain event support is incomplete: {exc}") from exc
 
     merged_grid = project_dir / "results" / "grids" / "da_output_grids.nc"
     if not merged_grid.is_file():

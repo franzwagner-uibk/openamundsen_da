@@ -22,6 +22,7 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.methods.viz.maps.generated import GENERATED_DA_MAPS_SUBDIR
 from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta
+from openamundsen_da.subdomain.event_support import resolve_subdomain_event_plan
 from openamundsen_da.subdomain.status import save_stage, terminal_status
 from openamundsen_da.pipeline.cleanup import clean_project_artifacts
 from openamundsen_da.util.retention import apply_retention_batch, reconcile_retention_ledger
@@ -29,6 +30,7 @@ from openamundsen_da.util.atomic import durable_replace
 from openamundsen_da.util.da_output import (
     output_retention_mode,
     write_da_output_grids,
+    validate_compact_output_file,
 )
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.roi_grid import load_setup_roi_mask
@@ -235,6 +237,8 @@ def merge_grids(
     unknown = [sid for sid in selected_ids if sid not in manifest.subdomains]
     if unknown:
         raise ValueError(f"Sub-domains not in manifest: {', '.join(unknown)}")
+    if set(selected_ids) == set(manifest.subdomains):
+        resolve_subdomain_event_plan(manifest, require_artifacts=True)
 
     global_shape = (manifest.grid_rows, manifest.grid_cols)
     global_transform = Affine(*manifest.grid_transform)
@@ -259,6 +263,11 @@ def merge_grids(
             raise FileNotFoundError(
                 "Compact DA output summary da_output_grids.nc is missing for sub-domain(s): "
                 f"{', '.join(missing_compact_ids)}"
+            )
+        for _subdomain, compact_path in compact_entries:
+            validate_compact_output_file(
+                project_dir=manifest.project_dir,
+                output_nc=compact_path,
             )
         merge_reserve = estimate_parent_compact_merge_bytes(
             setup_dir=getattr(manifest, "setup_dir", manifest.project_dir.parents[1]),
@@ -287,6 +296,10 @@ def merge_grids(
         written.append(merged_nc)
         da_summary_written = merged_nc.is_file()
         if da_summary_written:
+            validate_compact_output_file(
+                project_dir=manifest.project_dir,
+                output_nc=merged_nc,
+            )
             logger.info("Using merged compact DA output summary {}", merged_nc)
 
         if output_retention_mode(manifest.project_dir) == "compact":
@@ -368,6 +381,11 @@ def merge_grids(
 
     if output_retention_mode(manifest.project_dir) == "compact":
         logger.info("Compact cleanup is deferred until strict top-level rendering and report validation succeed.")
+    if da_summary_written:
+        validate_compact_output_file(
+            project_dir=manifest.project_dir,
+            output_nc=da_summary_path,
+        )
     return written
 
 

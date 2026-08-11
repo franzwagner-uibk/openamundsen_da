@@ -10,6 +10,7 @@ from openamundsen_da.util import da_output as da_output_mod
 from openamundsen_da.util.da_output import (
     output_retention_mode,
     validate_project_da_output_grids,
+    validate_compact_output_file,
     write_da_output_grids,
     write_project_da_output_grids,
 )
@@ -210,7 +211,7 @@ def test_grid_cleanup_completeness_requires_every_configured_metric_and_member(
     with xr.open_dataset(output) as dataset:
         incomplete = dataset.drop_vars("ens_mean_snowdepth_daily").load()
     incomplete.to_netcdf(output, mode="w")
-    with pytest.raises(ValueError, match="data-variable mismatch"):
+    with pytest.raises(ValueError, match="missing configured metric-variable"):
         validate_project_da_output_grids(project, output_nc=output)
     write_project_da_output_grids(step_dirs=[step], output_nc=output)
 
@@ -469,6 +470,86 @@ def test_write_project_da_output_grids_honors_configured_metrics(tmp_path: Path)
         assert "increment_snowdepth_daily" not in ds.data_vars
         assert "analysis_increment_snowdepth_daily" not in ds.data_vars
         assert ds.attrs.get("summary_variables") == "open_loop,ens_mean,analysis_mean"
+
+
+def test_project_compact_builder_reports_missing_variable_in_every_member_output(tmp_path: Path) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2023"
+    step = project_dir / "steps" / "step_00_init"
+    out_nc = project_dir / "results" / "grids" / "da_output_grids.nc"
+    project_dir.mkdir(parents=True)
+    (project_dir / "project_2023.yml").write_text(
+        "\n".join(
+            [
+                "start_date: '2023-01-01'",
+                "end_date: '2023-01-01'",
+                "data_assimilation:",
+                "  output:",
+                "    grids:",
+                "      variables:",
+                "        - var: snowdepth_daily",
+                "          metrics: [open_loop, ens_mean]",
+                "        - var: swe_daily",
+                "          metrics: [open_loop, ens_mean]",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _write_step_member_ncs(
+        step,
+        np.ones((1, 2, 2), dtype=np.float32),
+        [
+            np.full((1, 2, 2), 2.0, dtype=np.float32),
+            np.full((1, 2, 2), 3.0, dtype=np.float32),
+        ],
+        "2023-01-01",
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        write_project_da_output_grids(step_dirs=[step], output_nc=out_nc)
+
+    message = str(exc_info.value)
+    assert "swe_daily" in message
+    assert "open_loop/results/output_grids.nc" in message
+    assert "member_001/results/output_grids.nc" in message
+    assert "member_002/results/output_grids.nc" in message
+    assert not out_nc.exists()
+
+
+def test_compact_output_file_reports_every_missing_configured_metric(tmp_path: Path) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2023"
+    output_nc = project_dir / "results" / "grids" / "da_output_grids.nc"
+    project_dir.mkdir(parents=True)
+    (project_dir / "project_2023.yml").write_text(
+        "\n".join(
+            [
+                "data_assimilation:",
+                "  output:",
+                "    grids:",
+                "      variables:",
+                "        - var: snowdepth_daily",
+                "          metrics: [open_loop, ens_mean, ens_std]",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output_nc.parent.mkdir(parents=True)
+    xr.Dataset(
+        {
+            "ens_mean_snowdepth_daily": xr.DataArray(
+                np.ones((1, 1, 1), dtype=np.float32),
+                dims=("time1", "y", "x"),
+            )
+        }
+    ).to_netcdf(output_nc)
+
+    with pytest.raises(ValueError) as exc_info:
+        validate_compact_output_file(project_dir=project_dir, output_nc=output_nc)
+
+    message = str(exc_info.value)
+    assert "open_loop_snowdepth_daily" in message
+    assert "ens_std_snowdepth_daily" in message
 
 
 def test_output_retention_mode_defaults_to_compact(tmp_path: Path) -> None:

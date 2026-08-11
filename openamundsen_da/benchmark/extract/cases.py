@@ -21,6 +21,12 @@ from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
 from openamundsen_da.observer.summary_paths import resolve_fraction_summary_path
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.da_observables import weights_csv_name
+from openamundsen_da.util.observation_time import (
+    ModelClockConfig,
+    SeriesTimeUnavailableError,
+    load_model_clock_config,
+    match_series_value_to_model_time,
+)
 from openamundsen_da.util.station_da import (
     is_station_variable,
     load_station_assimilation_config,
@@ -285,19 +291,26 @@ def _series_exact_value(series: pd.Series | None, timestamp: pd.Timestamp) -> fl
     return f
 
 
-def _nearest_series_value(series: pd.Series | None, timestamp: pd.Timestamp) -> tuple[pd.Timestamp, float] | None:
+def _matched_series_value(
+    series: pd.Series | None,
+    timestamp: pd.Timestamp,
+    *,
+    model_clock: ModelClockConfig,
+    require_exact: bool,
+) -> tuple[pd.Timestamp, float] | None:
     if series is None or series.empty:
         return None
-    deltas = (series.index - timestamp).to_series(index=series.index).abs()
-    if deltas.empty:
+    try:
+        matched = match_series_value_to_model_time(
+            series,
+            model_time=timestamp,
+            timestep=model_clock.timestep,
+            timezone_config=model_clock.timezone,
+            require_exact=require_exact,
+        )
+    except SeriesTimeUnavailableError:
         return None
-    min_delta = deltas.min()
-    nearest = deltas[deltas == min_delta]
-    if nearest.empty or len(nearest) > 1:
-        return None
-    matched_time = pd.Timestamp(nearest.index[0])
-    value = float(series.loc[matched_time])
-    return matched_time, value
+    return matched.matched_time, matched.value
 
 
 def _filter_series_to_window(series: pd.Series, *, start_date: date, end_date: date) -> pd.Series:
@@ -397,22 +410,30 @@ def _member_values_exact(named_series: dict[str, pd.Series], timestamp: pd.Times
     return values
 
 
-def _member_values_nearest(named_series: dict[str, pd.Series], timestamp: pd.Timestamp) -> tuple[pd.Timestamp, dict[str, float]] | None:
-    matched_time: pd.Timestamp | None = None
+def _member_values_at_model_time(
+    named_series: dict[str, pd.Series],
+    timestamp: pd.Timestamp,
+    *,
+    model_clock: ModelClockConfig,
+) -> tuple[pd.Timestamp, dict[str, float]] | None:
     values: dict[str, float] = {}
     for member_id, series in named_series.items():
-        matched = _nearest_series_value(series, timestamp)
+        matched = _matched_series_value(
+            series,
+            timestamp,
+            model_clock=model_clock,
+            require_exact=True,
+        )
         if matched is None:
             return None
-        current_time, value = matched
-        if matched_time is None:
-            matched_time = current_time
-        elif current_time != matched_time:
-            return None
+        _current_time, value = matched
         values[member_id] = value
-    if matched_time is None:
+    if not values:
         return None
-    return matched_time, values
+    # Exact matching above already proves that every series represents this
+    # model-clock instant. Return the requested clock value so equivalent naive
+    # and timezone-aware CSV timestamps cannot compare unequal downstream.
+    return pd.Timestamp(timestamp), values
 
 
 def _station_sigma_context(
@@ -690,6 +711,7 @@ def extract_analysis_cases(
     selected = {benchmark_variable_spec(v).variable for v in variables}
     start_date, end_date = project_window(project_dir)
     windows = step_windows(project_dir)
+    model_clock = load_model_clock_config(setup_dir)
     out: list[RawBenchmarkCase] = []
 
     fraction_obs_cache: dict[str, pd.DataFrame] = {}
@@ -878,15 +900,30 @@ def extract_analysis_cases(
                 named_series = members_cache[key]
                 if open_loop_series is None or not named_series:
                     continue
-                obs_match = _nearest_series_value(obs_series, pd.Timestamp(ctx.assimilation_dt))
-                open_loop_match = _nearest_series_value(open_loop_series, pd.Timestamp(ctx.assimilation_dt))
-                members_match = _member_values_nearest(named_series, pd.Timestamp(ctx.assimilation_dt))
+                event_time = pd.Timestamp(ctx.assimilation_dt)
+                obs_match = _matched_series_value(
+                    obs_series,
+                    event_time,
+                    model_clock=model_clock,
+                    require_exact=False,
+                )
+                open_loop_match = _matched_series_value(
+                    open_loop_series,
+                    event_time,
+                    model_clock=model_clock,
+                    require_exact=True,
+                )
+                members_match = _member_values_at_model_time(
+                    named_series,
+                    event_time,
+                    model_clock=model_clock,
+                )
                 if obs_match is None or open_loop_match is None or members_match is None:
                     continue
                 obs_time, obs_value = obs_match
                 _, open_loop_value = open_loop_match
                 member_time, member_values = members_match
-                if member_time != obs_time:
+                if member_time != event_time:
                     continue
                 if station_sigma_context is None:
                     station_sigma_context = _station_sigma_context(setup_dir=setup_dir, project_dir=project_dir)

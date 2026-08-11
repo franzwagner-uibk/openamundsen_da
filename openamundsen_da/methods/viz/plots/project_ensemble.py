@@ -302,13 +302,20 @@ def _build_station_result_legend(
     )
 
 
-def _standalone_result_title(token: str, *, var_key: str, station_label: str) -> str:
+def _standalone_result_title(
+    token: str,
+    *,
+    var_key: str,
+    station_label: str,
+    show_station_observation: bool,
+) -> str:
     if token == "point_swe_roi":
         return "Mean SWE (roi) - openAMUNDSEN ensemble and open loop"
     if token == "point_snow_depth_roi":
         return "Mean snow depth (roi) - openAMUNDSEN ensemble and open loop"
     metric = "SWE" if var_key == "swe" else ("Snow depth" if var_key in {"snow_depth", "snowdepth", "hs"} else var_key.replace("_", " ").capitalize())
-    return f"{metric} {station_label} - openAMUNDSEN ensemble and station observation"
+    comparison = "station observation" if show_station_observation else "open loop"
+    return f"{metric} {station_label} - openAMUNDSEN ensemble and {comparison}"
 
 
 def _point_file_matches_result_variable(filename: str, var_col: str) -> bool:
@@ -1045,7 +1052,12 @@ def plot_setup_results(
         centered_assim_dates = standalone_assim_dates
         _base, _alt, station_label = format_station_label(display_token, stations_df, fallback=display_token)
         ax.set_title(
-            _standalone_result_title(token, var_key=vv, station_label=station_label),
+            _standalone_result_title(
+                token,
+                var_key=vv,
+                station_label=station_label,
+                show_station_observation=obs_series is not None and not obs_series.empty,
+            ),
             loc="left",
             fontsize=8.8,
             pad=result_title_pad(bool(centered_assim_dates)),

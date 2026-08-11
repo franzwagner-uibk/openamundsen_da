@@ -10,6 +10,7 @@ from typing import Any
 from openamundsen_da.exceptions import ProjectValidationError
 from openamundsen_da.io.paths import find_project_yaml, find_setup_yaml
 from openamundsen_da.util.station_da import is_station_variable
+from openamundsen_da.util.compact_grid_contract import compact_grid_configuration_errors
 from openamundsen_da.util.yaml_utils import read_yaml_mapping
 
 _PROJECT_KEYS = {"data_assimilation", "end_date", "obs", "run_mode", "start_date"}
@@ -312,6 +313,12 @@ def _validate_observation_product(
 def _validate_events(project: dict[str, Any], *, errors: list[str]) -> set[str]:
     da = _mapping(project.get("data_assimilation"), path="project.data_assimilation", errors=errors)
     _unknown_keys(da, _DA_KEYS, path="project.data_assimilation", errors=errors)
+    if "subdomain_event_filter" in da:
+        errors.append(
+            "project.data_assimilation.subdomain_event_filter is no longer supported. "
+            "Finalize every project or leaf schedule before execution and store the complete "
+            "selection in data_assimilation.assimilation_events."
+        )
     if "restart" in da:
         restart = _mapping(
             da.get("restart"),
@@ -493,6 +500,12 @@ def load_project_configuration(project_dir: str | Path) -> ProjectConfiguration:
     compact_format = _required(compact_grids, "format", path="project.data_assimilation.output.grids", errors=errors)
     if compact_format is not None and str(compact_format).strip().lower() != "netcdf":
         errors.append("project.data_assimilation.output.grids.format must be netcdf")
+    errors.extend(
+        compact_grid_configuration_errors(
+            setup_cfg=setup,
+            project_cfg=project,
+        )
+    )
 
     if errors:
         raise ProjectValidationError(errors)

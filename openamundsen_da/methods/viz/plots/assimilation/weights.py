@@ -528,15 +528,12 @@ def _draw_sigma_strip(ax, entries: list[tuple[str, str]], *, fontsize: float, an
         for color, _label in entries
     ]
     labels = [label for _color, label in entries]
-    inside_panel = len(labels) <= 5
-    loc = "upper right" if inside_panel else "lower right"
-    bbox_to_anchor = (0.99, anchor_y) if inside_panel else (1.0, 1.05)
-    ncol = 1 if inside_panel else len(labels)
+    ncol = 1 if len(labels) <= 5 else min(4, int(math.ceil(len(labels) / 2)))
     legend = ax.legend(
         handles,
         labels,
-        loc=loc,
-        bbox_to_anchor=bbox_to_anchor,
+        loc="upper right",
+        bbox_to_anchor=(0.99, anchor_y),
         ncol=ncol,
         frameon=False,
         fontsize=fontsize,

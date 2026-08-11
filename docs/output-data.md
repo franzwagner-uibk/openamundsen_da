@@ -34,6 +34,13 @@ including the open loop, ensemble statistics and event-weighted analysis fields.
 Typical names are `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`,
 `increment_<var>`, `analysis_mean_<var>` and `analysis_increment_<var>`.
 
+When compact variables are explicitly configured, output completeness is a
+hard contract. The setup must configure the matching openAMUNDSEN grid output
+name before propagation, every open-loop and member NetCDF must contain that
+source and the compact file must contain every requested metric-variable pair.
+The same validation is repeated for subdomain leaf files and their merged
+NetCDF, so a consistently incomplete set of leaves cannot be accepted.
+
 The model propagation grids feeding this builder can be NetCDF or GeoTIFF as
 selected in the setup YAML. The compact data assimilation result itself is always
 NetCDF.
@@ -52,8 +59,10 @@ series after member CSV cleanup. Projects with satellite observation events
 also retain `results/grids/da_map_support.nc`, which contains the event fields
 needed by the configured map renderer.
 
-Propagation means, standard deviations, quantiles, increments and continuous
-benchmark distributions use the persistent PF prior ledger for each step.
+Weighted propagation means, standard deviations and increments use the
+persistent PF prior ledger for each step. Configured ensemble minima and maxima
+describe the unweighted member collection; compact grid quantiles are not
+currently generated.
 Event-analysis fields use the normalized pre-resampling posterior weights.
 Unweighted member traces and extrema describe the materialized member
 collection and are not interchangeable with the weighted analysis.

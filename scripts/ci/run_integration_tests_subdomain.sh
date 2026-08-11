@@ -110,6 +110,7 @@ project_dir.mkdir(parents=True, exist_ok=True)
 project_cfg = dict(source_project_cfg)
 
 da_cfg = dict(project_cfg.get("data_assimilation") or {})
+da_cfg.pop("subdomain_event_filter", None)
 rejuvenation_cfg = dict(da_cfg.get("rejuvenation") or {})
 rejuvenation_cfg.pop("rebase_open_loop", None)
 da_cfg["rejuvenation"] = rejuvenation_cfg
@@ -210,6 +211,58 @@ compose_run openamundsen-da subdomains prepare "${PROJECT_PATH}" \
   --regions "${SETUP_PATH}/env/subdomains.gpkg" \
   --station-buffer-km 10 \
   --overwrite
+
+# The pinned private fixture has an equidistant pair of station timestamps in
+# AT-07-22 for the trimmed station event. Finalize that leaf schedule explicitly
+# before execution so the integration exercises the supported top-level/leaf
+# subset contract without reviving runtime event selection.
+compose_run python - <<'PY'
+from pathlib import Path
+
+import yaml
+
+
+project_name = "project_ci_2022_2023"
+project_yml = (
+    Path("/data/subdomains")
+    / "projects"
+    / project_name
+    / "subdomains"
+    / "AT-07-22"
+    / "projects"
+    / project_name
+    / f"{project_name}.yml"
+)
+with project_yml.open("r", encoding="utf-8") as f:
+    project_cfg = yaml.safe_load(f) or {}
+
+da_cfg = dict(project_cfg.get("data_assimilation") or {})
+events = list(da_cfg.get("assimilation_events") or [])
+station_events = [
+    event
+    for event in events
+    if isinstance(event, dict)
+    and str(event.get("variable", "")).strip().lower() == "station_hs"
+]
+if len(station_events) != 1:
+    raise RuntimeError(
+        f"Expected one trimmed station_hs event in {project_yml}, got {len(station_events)}"
+    )
+da_cfg["assimilation_events"] = [
+    event
+    for event in events
+    if not (
+        isinstance(event, dict)
+        and str(event.get("variable", "")).strip().lower() == "station_hs"
+    )
+]
+if not da_cfg["assimilation_events"]:
+    raise RuntimeError(f"Refusing to leave {project_yml} without assimilation events")
+project_cfg["data_assimilation"] = da_cfg
+with project_yml.open("w", encoding="utf-8") as f:
+    yaml.safe_dump(project_cfg, f, sort_keys=False)
+print(f"Finalized AT-07-22 leaf schedule -> {len(da_cfg['assimilation_events'])} event(s)")
+PY
 
 echo "[subdomain-integration] Running sub-domains (max-workers=${MAX_WORKERS}, inner=${INNER_WORKERS})"
 compose_run openamundsen-da subdomains run "${PROJECT_PATH}" \

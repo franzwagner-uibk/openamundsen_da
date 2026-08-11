@@ -11,6 +11,12 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.io.paths import default_results_dir, infer_project_dir, list_member_dirs
+from openamundsen_da.util.observation_time import (
+    ModelClockConfig,
+    SeriesTimeUnavailableError,
+    load_model_clock_config,
+    match_series_value_to_model_time,
+)
 from openamundsen_da.util.station_da import (
     StationAssimilationConfig,
     load_station_assimilation_config,
@@ -31,6 +37,7 @@ class ActiveStation:
     station_id: str
     obs_csv: Path
     obs_time: pd.Timestamp
+    obs_time_offset_seconds: float
     obs_value: float
     station_uncertainty_pct: float
     uncertainty_source: str
@@ -63,25 +70,36 @@ def _read_timeseries_with_fallback(csv_path: Path, value_col: str) -> pd.DataFra
     raise ValueError(f"Could not read '{value_col}' with time/date column from {csv_path}: {last_error}")
 
 
-def _nearest_value(csv_path: Path, value_col: str, target_dt: datetime) -> tuple[pd.Timestamp, float]:
-    """Return the unambiguous nearest timestamp/value pair for one CSV."""
+def _matched_value(
+    csv_path: Path,
+    value_col: str,
+    target_dt: datetime,
+    *,
+    model_clock: ModelClockConfig,
+    require_exact: bool,
+    require_nonnegative: bool,
+) -> tuple[pd.Timestamp, float, float]:
+    """Return one time-bounded timestamp/value pair for one CSV."""
     df = _read_timeseries_with_fallback(csv_path, value_col)
-    series = df[value_col].dropna()
+    series = pd.to_numeric(df[value_col], errors="coerce")
+    series = series[np.isfinite(series)]
+    if require_nonnegative:
+        series = series[series >= 0.0]
     if series.empty:
-        raise ValueError(f"No non-empty '{value_col}' data found in {csv_path}")
-
-    target = pd.Timestamp(target_dt)
-    deltas = (series.index - target).to_series(index=series.index).abs()
-    min_delta = deltas.min()
-    nearest = deltas[deltas == min_delta]
-    if nearest.empty:
-        raise ValueError(f"Could not determine nearest timestamp in {csv_path}")
-    if len(nearest) > 1:
-        raise ValueError(
-            f"Ambiguous nearest timestamp in {csv_path} for target {target}: {list(nearest.index.astype(str))}"
+        raise SeriesTimeUnavailableError(f"No non-empty '{value_col}' data found in {csv_path}")
+    try:
+        matched = match_series_value_to_model_time(
+            series,
+            model_time=target_dt,
+            timestep=model_clock.timestep,
+            timezone_config=model_clock.timezone,
+            require_exact=require_exact,
         )
-    matched_time = pd.Timestamp(nearest.index[0])
-    return matched_time, float(series.loc[matched_time])
+    except SeriesTimeUnavailableError as exc:
+        raise SeriesTimeUnavailableError(f"{csv_path}: {exc}") from exc
+    except ValueError as exc:
+        raise ValueError(f"{csv_path}: {exc}") from exc
+    return matched.matched_time, matched.value, matched.offset_seconds
 
 
 def _candidate_station_ids(obs_dir: Path, members: list[Path]) -> list[str]:
@@ -124,6 +142,7 @@ def _build_active_stations(
     members: list[Path],
     date: datetime,
     config: StationAssimilationConfig,
+    model_clock: ModelClockConfig,
     variable: str,
 ) -> list[ActiveStation]:
     """Resolve active stations with observation values and effective sigmas."""
@@ -138,8 +157,15 @@ def _build_active_stations(
             continue
         obs_csv = obs_dir / f"{station_id}.csv"
         try:
-            obs_time, obs_value = _nearest_value(obs_csv, spec.obs_column, date)
-        except ValueError as exc:
+            obs_time, obs_value, obs_time_offset_seconds = _matched_value(
+                obs_csv,
+                spec.obs_column,
+                date,
+                model_clock=model_clock,
+                require_exact=False,
+                require_nonnegative=True,
+            )
+        except SeriesTimeUnavailableError as exc:
             logger.warning("Skipping station {} for {} on {}: {}", station_id, variable, date.date(), exc)
             continue
         if not np.isfinite(obs_value):
@@ -166,6 +192,7 @@ def _build_active_stations(
                 station_id=station_id,
                 obs_csv=obs_csv,
                 obs_time=obs_time,
+                obs_time_offset_seconds=obs_time_offset_seconds,
                 obs_value=float(obs_value),
                 station_uncertainty_pct=float(sigma_terms.station_uncertainty_pct),
                 uncertainty_source=sigma_terms.uncertainty_source,
@@ -194,6 +221,7 @@ def _build_active_stations(
             station_id=st.station_id,
             obs_csv=st.obs_csv,
             obs_time=st.obs_time,
+            obs_time_offset_seconds=st.obs_time_offset_seconds,
             obs_value=st.obs_value,
             station_uncertainty_pct=st.station_uncertainty_pct,
             uncertainty_source=st.uncertainty_source,
@@ -217,6 +245,7 @@ def assimilate_station_for_date(
     """Assimilate one station variable for one ROI/date using point outputs."""
     project_dir = infer_project_dir(step_dir)
     config = load_station_assimilation_config(setup_dir, project_dir)
+    model_clock = load_model_clock_config(setup_dir)
     spec = station_variable_spec(variable)
 
     members = list_member_dirs(step_dir / "ensembles", ensemble)
@@ -228,6 +257,7 @@ def assimilate_station_for_date(
         members=members,
         date=date,
         config=config,
+        model_clock=model_clock,
         variable=variable,
     )
 
@@ -246,10 +276,22 @@ def assimilate_station_for_date(
                 raise FileNotFoundError(
                     f"Missing model point output for station {station.station_id} in {results_dir}"
                 )
-            model_time, model_value = _nearest_value(model_csv, spec.model_column, date)
+            model_time, model_value, model_time_offset_seconds = _matched_value(
+                model_csv,
+                spec.model_column,
+                date,
+                model_clock=model_clock,
+                require_exact=True,
+                require_nonnegative=False,
+            )
             if not np.isfinite(model_value):
                 raise ValueError(
                     f"Model value for station {station.station_id} is not finite in {model_csv}"
+                )
+            if model_value < 0.0:
+                raise ValueError(
+                    f"Model value for station {station.station_id} is negative in {model_csv}: "
+                    f"{model_value:.6f}"
                 )
 
             residual = float(station.obs_value) - float(model_value)
@@ -275,7 +317,9 @@ def assimilate_station_for_date(
                     "uncertainty_source": station.uncertainty_source,
                     "single_station_inflated": bool(station.single_station_inflated),
                     "matched_obs_time": station.obs_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "obs_time_offset_seconds": station.obs_time_offset_seconds,
                     "matched_model_time": pd.Timestamp(model_time).strftime("%Y-%m-%d %H:%M:%S"),
+                    "model_time_offset_seconds": model_time_offset_seconds,
                     "obs_csv": str(station.obs_csv),
                     "model_csv": str(model_csv),
                     "log_likelihood": log_likelihood,

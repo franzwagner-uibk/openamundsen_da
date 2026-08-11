@@ -32,6 +32,7 @@ def _write_roi(path: Path, data: np.ndarray) -> None:
 @pytest.fixture(autouse=True)
 def _ignore_stage_persistence(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(merge_mod, "save_stage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(merge_mod, "resolve_subdomain_event_plan", lambda *args, **kwargs: [])
 
 
 def test_merge_grids_uses_compact_da_summary(monkeypatch, tmp_path: Path) -> None:

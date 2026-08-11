@@ -2563,9 +2563,11 @@ def _top_level_subdomain_scf_model_probability_array(
     mosaic = np.full(global_shape, np.nan, dtype=float)
     dropped_ids = _subdomain_dropped_event_ids(context, date=date, variable="scf")
     missing: list[str] = []
+    supporting_count = 0
     for sid, sub in manifest.subdomains.items():
         if str(sid) in dropped_ids:
             continue
+        supporting_count += 1
         try:
             sub_context = load_static_context(sub.project_dir)
             local = _single_domain_scf_model_probability_array(
@@ -2592,6 +2594,11 @@ def _top_level_subdomain_scf_model_probability_array(
         dest[replace] = local[replace]
         mosaic[sl_r, sl_c] = dest
 
+    if supporting_count == 0:
+        raise FileNotFoundError(
+            f"Cannot render top-level subdomain spatial SCF DA-event map support for "
+            f"{pd.Timestamp(date).date()}: no subdomain supports the configured event."
+        )
     if missing:
         details = "; ".join(missing[:5])
         if len(missing) > 5:

@@ -268,6 +268,14 @@ Notes:
   one date require `observation_time`; the first row is never selected implicitly.
 - Station observation assimilation uses `variable: station_hs` or `variable: station_swe` and does not require a product tag.
 - Station observations live in `obs/stations/<station_id>.csv`; station DA metadata live in `obs/stations/stations_da_metadata.csv`.
+- A station event runs at the event date combined with the active step's start
+  time. The unique nearest same-ID, `use_for_da` observation must lie within
+  half the setup timestep. Naive timestamps use the setup timezone; ties and
+  values farther away fail. The corresponding model point must exist exactly
+  at the model-clock timestamp.
+- `assimilation_events` is the final event selection. Discovery, quality
+  filtering and date substitution must happen before project execution. The
+  removed `subdomain_event_filter` key is rejected instead of mutating a project.
 - Active DA and benchmark station IDs must resolve case-insensitively to both a same-ID observation CSV and a configured model output point. Explicit points are checked directly; default meteo points are resolved against the setup ROI.
 - `data_assimilation.station` defines project-level percentage defaults and single-station inflation for ROI-based station assimilation.
 - Station absolute sigma floors are configured per station in `stations_da_metadata.csv` via `hs_sigma_abs_min` and `swe_sigma_abs_min`.
@@ -299,7 +307,7 @@ Notes:
     nonfinite, out-of-range or incomplete coverage is an error with no fixed
     sigma substitution.
   - NetCDF uses configured in-file variables; GeoTIFF requires `<stem>_uncertainty.tif`.
-  - Cloud pixels should be handled as data gaps (masked), not as uncertainty-penalty pixels.
+- Cloud pixels should be handled as data gaps (masked), not as uncertainty-penalty pixels.
 - Wet-snow uncertainty uses the same pattern (`ingest` + `assimilation`) and the same file-type behavior.
 - Uncertainty preprocessing keys:
   - `input_dir`, `u_min`, `u_max`, `base_uncertainty`, `nodata_value`, and `penalties[]` are used by `openamundsen-da observations snow-cover` and `openamundsen-da observations wet-snow`.

@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   member, project and merged subdomain NetCDFs.
 - Sample exact project-directory size every 150 seconds by default while
   leaving CPU, RAM and plot-refresh sampling unchanged.
+- Match station observations consistently in validation, assimilation and
+  analysis benchmarking to the unique nearest value within half the model
+  timestep, with timezone-aware comparison and exact model-output timestamps.
+- Treat every project's `assimilation_events` as final: reject the removed
+  in-core subdomain event filter and derive cross-leaf rendering support from
+  the accepted leaf project YAMLs.
 
 ### Fixed
 - Keep point-result titles consistent with the observations actually plotted
@@ -29,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shared symmetric residual range per observable.
 - Keep the two right-hand performance axes readable from small projects through
   multi-terabyte runs and use one-decimal storage/RAM summaries and `°C` labels.
+- Allow final subdomain products to mask events absent from a leaf project while
+  still rejecting configured-but-missing support and top-level events unsupported
+  by every leaf.
 
 ## [0.9.4] - 2026-07-29
 

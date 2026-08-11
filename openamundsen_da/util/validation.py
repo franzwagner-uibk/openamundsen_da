@@ -4,21 +4,30 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import rasterio
 
 from openamundsen_da.observer.fraction_obs import resolve_obs_product_tag
 from openamundsen_da.util.station_da import (
+    StationAssimilationConfig,
     is_station_variable,
     load_station_assimilation_config,
     read_station_metadata,
     station_observation_csvs,
+    station_variable_spec,
 )
 from openamundsen_da.util.da_events import AssimilationEvent
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import find_project_yaml, find_setup_yaml
+from openamundsen_da.io.paths import find_project_yaml, find_setup_yaml, read_step_config
 from openamundsen_da.observer.summary_paths import resolve_fraction_summary_path
 from openamundsen_da.util.roi_grid import load_setup_roi_mask
+from openamundsen_da.util.observation_time import (
+    SeriesTimeUnavailableError,
+    load_model_clock_config,
+    match_series_value_to_model_time,
+)
+from openamundsen_da.util.ts import read_timeseries_csv
 
 
 def _configured_model_point_ids(setup_dir: Path, setup_cfg: dict) -> dict[str, str]:
@@ -135,6 +144,100 @@ def _validate_station_identity_contract(
     return errors
 
 
+def _read_station_value_series(csv_path: Path, value_column: str) -> pd.Series:
+    last_error: Exception | None = None
+    for time_column in ("time", "date"):
+        try:
+            frame = read_timeseries_csv(csv_path, time_column, [value_column])
+            values = pd.to_numeric(frame[value_column], errors="coerce")
+            return values[values.notna() & np.isfinite(values) & (values >= 0.0)]
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+    raise ValueError(
+        f"Could not read station variable {value_column!r} from {csv_path}: {last_error}"
+    )
+
+
+def _validate_station_event_time_support(
+    *,
+    setup_dir: Path,
+    station_cfg: StationAssimilationConfig,
+    events: list[AssimilationEvent],
+    steps: list[Path],
+) -> list[str]:
+    """Return errors when a final station event has no timely active station."""
+    metadata = read_station_metadata(station_cfg.metadata_path)
+    active_ids = {
+        str(station_id).strip().lower()
+        for station_id, row in metadata.iterrows()
+        if bool(row.get("use_for_da", True))
+    }
+    model_clock = load_model_clock_config(setup_dir)
+    observations = {
+        path.stem.strip().lower(): path
+        for path in station_observation_csvs(station_cfg.obs_dir)
+        if path.stem.strip()
+    }
+    cache: dict[tuple[Path, str], pd.Series] = {}
+    errors: list[str] = []
+
+    for index, event in enumerate(events[: max(0, len(steps) - 1)]):
+        if not is_station_variable(event.variable):
+            continue
+        try:
+            step_cfg = read_step_config(Path(steps[index])) or {}
+        except Exception as exc:
+            errors.append(
+                f"{Path(steps[index]).name}: cannot read step configuration required for station event timing: {exc}"
+            )
+            continue
+        raw_start = step_cfg.get("start_date")
+        try:
+            step_start = pd.Timestamp(raw_start).to_pydatetime()
+        except Exception as exc:
+            errors.append(
+                f"{Path(steps[index]).name}: invalid start_date required for station event timing: {raw_start!r} ({exc})"
+            )
+            continue
+        event_time = step_start.replace(
+            year=event.date.year,
+            month=event.date.month,
+            day=event.date.day,
+        )
+        spec = station_variable_spec(event.variable)
+        timely_ids: list[str] = []
+        for station_id in sorted(active_ids):
+            csv_path = observations.get(station_id)
+            if csv_path is None:
+                continue
+            cache_key = (csv_path, spec.obs_column)
+            if cache_key not in cache:
+                cache[cache_key] = _read_station_value_series(csv_path, spec.obs_column)
+            try:
+                match_series_value_to_model_time(
+                    cache[cache_key],
+                    model_time=event_time,
+                    timestep=model_clock.timestep,
+                    timezone_config=model_clock.timezone,
+                )
+            except SeriesTimeUnavailableError:
+                continue
+            except ValueError as exc:
+                errors.append(
+                    f"{Path(steps[index]).name}: ambiguous/invalid {event.variable} time support for "
+                    f"station {station_id} at {event_time}: {exc}"
+                )
+                continue
+            timely_ids.append(station_id)
+        if not timely_ids:
+            errors.append(
+                f"{Path(steps[index]).name}: final assimilation event {event.variable} at "
+                f"{event_time} has no active station observation within half the "
+                f"{model_clock.timestep} model timestep"
+            )
+    return errors
+
+
 def validate_assimilation_requirements(
     setup_dir: Path,
     project_dir: Path,
@@ -222,6 +325,14 @@ def validate_assimilation_requirements(
                             setup_cfg=proj_cfg,
                             obs_dir=station_cfg.obs_dir,
                             metadata_path=station_cfg.metadata_path,
+                        )
+                    )
+                    errors.extend(
+                        _validate_station_event_time_support(
+                            setup_dir=setup_dir,
+                            station_cfg=station_cfg,
+                            events=events,
+                            steps=steps,
                         )
                     )
         except Exception as exc:

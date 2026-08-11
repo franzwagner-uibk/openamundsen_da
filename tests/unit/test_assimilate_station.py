@@ -44,9 +44,81 @@ def _write_project_config(project_dir: Path, *, include_legacy_sigma_keys: bool 
             "data_assimilation": {"station": station_cfg},
         },
     )
+    setup_dir = project_dir.parent.parent
+    _write_yaml(
+        setup_dir / "demo.yml",
+        {
+            "timestep": "3h",
+            "timezone": 1,
+        },
+    )
 
 
 class AssimilateStationTests(unittest.TestCase):
+    def test_station_observation_must_be_within_half_model_timestep(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            setup_dir = root / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2024_2025"
+            step_dir = project_dir / "steps" / "step_00_init"
+            obs_dir = setup_dir / "obs" / "stations"
+            prior_root = step_dir / "ensembles" / "prior"
+
+            _write_project_config(project_dir)
+            _write_series(
+                obs_dir / "stations_da_metadata.csv",
+                [{"station_id": "station_a", "station_uncertainty_pct": 10, "hs_sigma_abs_min": 0.20}],
+            )
+            _write_series(
+                obs_dir / "station_a.csv",
+                [{"time": "2023-02-01 00:00:00", "snow_depth": 1.0}],
+            )
+            _write_series(
+                prior_root / "member_001" / "results" / "point_station_a.csv",
+                [{"time": "2024-02-01 00:00:00", "snow_depth": 1.0}],
+            )
+
+            with self.assertRaisesRegex(ValueError, "No active station observations"):
+                assimilate_station_hs_for_date(
+                    setup_dir=setup_dir,
+                    step_dir=step_dir,
+                    ensemble="prior",
+                    date=datetime(2024, 2, 1),
+                )
+
+    def test_station_observation_records_match_offset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            setup_dir = root / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2024_2025"
+            step_dir = project_dir / "steps" / "step_00_init"
+            obs_dir = setup_dir / "obs" / "stations"
+            prior_root = step_dir / "ensembles" / "prior"
+
+            _write_project_config(project_dir)
+            _write_series(
+                obs_dir / "stations_da_metadata.csv",
+                [{"station_id": "station_a", "station_uncertainty_pct": 10, "hs_sigma_abs_min": 0.20}],
+            )
+            _write_series(
+                obs_dir / "station_a.csv",
+                [{"time": "2024-02-01 01:00:00", "snow_depth": 1.0}],
+            )
+            _write_series(
+                prior_root / "member_001" / "results" / "point_station_a.csv",
+                [{"time": "2024-02-01 00:00:00", "snow_depth": 1.0}],
+            )
+
+            result = assimilate_station_hs_for_date(
+                setup_dir=setup_dir,
+                step_dir=step_dir,
+                ensemble="prior",
+                date=datetime(2024, 2, 1),
+            )
+
+            self.assertEqual(float(result.diagnostics["obs_time_offset_seconds"].iloc[0]), 3600.0)
+            self.assertEqual(float(result.diagnostics["model_time_offset_seconds"].iloc[0]), 0.0)
+
     def test_station_hs_assimilation_combines_multiple_stations(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

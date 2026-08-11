@@ -22,6 +22,7 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.methods.viz.maps.generated import GENERATED_DA_MAPS_SUBDIR
 from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta
+from openamundsen_da.subdomain.event_support import resolve_subdomain_event_plan
 from openamundsen_da.subdomain.status import save_stage, terminal_status
 from openamundsen_da.util.da_output import (
     output_retention_mode,
@@ -229,6 +230,8 @@ def merge_grids(
     unknown = [sid for sid in selected_ids if sid not in manifest.subdomains]
     if unknown:
         raise ValueError(f"Sub-domains not in manifest: {', '.join(unknown)}")
+    if set(selected_ids) == set(manifest.subdomains):
+        resolve_subdomain_event_plan(manifest, require_artifacts=True)
 
     global_shape = (manifest.grid_rows, manifest.grid_cols)
     global_transform = Affine(*manifest.grid_transform)

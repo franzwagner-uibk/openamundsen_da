@@ -77,7 +77,16 @@ Notes:
 - `snow_depth` is expected in `m`
 - `swe` is expected in `mm`
 - a station file may exist even if only one variable is later assimilated
-- missing values are allowed, but the requested variable must exist for the station/date to become active
+- missing values are allowed, but the requested variable must have a unique
+  nearest finite, nonnegative value within half the model timestep for the
+  station to become active
+
+For a station event, the assimilation timestamp is the event date at the active
+step's start time. Naive timestamps are interpreted in the setup timezone. An
+equidistant tie or a value farther than half a timestep away is invalid, and
+model point output must exist at the exact model-clock timestamp. The matcher
+uses same-ID metadata rows whose `use_for_da` role is enabled; station IDs
+remain strings so leading zeros are preserved.
 
 ### Station DA metadata
 
@@ -125,6 +134,9 @@ Notes:
   same-ID observation CSV and openAMUNDSEN time-series output point. Matching is
   case-insensitive while the configured IDs are preserved. Stations disabled
   for both roles are exempt.
+- `data_assimilation.assimilation_events` is final. openAMUNDSEN-DA validates
+  its time support but does not select, substitute or remove station events.
+  Generate different leaf schedules before execution when local support differs.
 - Classified project-map station markers require `station_id`, `x`, `y`,
   `use_for_da` and `use_for_benchmark`. A benchmark-enabled station is drawn
   as a holdout and must not also be DA-active.

@@ -8,9 +8,13 @@ import pytest
 
 from openamundsen_da.benchmark.cases import analysis_event_contexts, event_dates_by_variable, extract_analysis_cases, extract_continuous_cases
 from openamundsen_da.benchmark.metrics import build_case_scores
-from openamundsen_da.benchmark.extract.cases import _prior_weights_for_members
+from openamundsen_da.benchmark.extract.cases import (
+    _member_values_at_model_time,
+    _prior_weights_for_members,
+)
 from openamundsen_da.methods.pf.weights import initialize_prior_weights, write_prior_weights
 from openamundsen_da.observer.summary_paths import record_fraction_summary_path
+from openamundsen_da.util.observation_time import ModelClockConfig
 
 
 def _write_yaml(path: Path, text: str) -> None:
@@ -23,6 +27,31 @@ def _write_series_csv(path: Path, rows: list[dict[str, object]]) -> None:
     pd.DataFrame(rows).to_csv(path, index=False)
 
 
+def test_member_model_time_match_normalizes_equivalent_timestamp_representations() -> None:
+    target = pd.Timestamp("2023-01-02 00:00:00")
+    named_series = {
+        "member_000": pd.Series(
+            [1.0],
+            index=pd.DatetimeIndex(["2023-01-02 00:00:00"]),
+        ),
+        "member_001": pd.Series(
+            [2.0],
+            index=pd.DatetimeIndex(["2023-01-02 00:00:00+01:00"]),
+        ),
+    }
+
+    matched = _member_values_at_model_time(
+        named_series,
+        target,
+        model_clock=ModelClockConfig(
+            timestep=pd.Timedelta(hours=3),
+            timezone=1,
+        ),
+    )
+
+    assert matched == (target, {"member_000": 1.0, "member_001": 2.0})
+
+
 def _setup_basic_project(tmp_path: Path, *, events_yaml: str) -> tuple[Path, Path]:
     setup_dir = tmp_path / "setup"
     project_dir = setup_dir / "projects" / "project_2022_2023"
@@ -32,6 +61,8 @@ def _setup_basic_project(tmp_path: Path, *, events_yaml: str) -> tuple[Path, Pat
         setup_dir / "demo.yml",
         """
         resolution: 100
+        timestep: 3h
+        timezone: 1
         """,
     )
     _write_yaml(
@@ -344,6 +375,38 @@ def test_extract_analysis_cases_uses_weighted_station_posterior(tmp_path: Path) 
     case_scores = build_case_scores(cases)
     posterior = case_scores.loc[case_scores["representation"] == "posterior"].iloc[0]
     assert float(posterior["pred_mean"]) == 1.15
+
+
+def test_extract_analysis_cases_rejects_station_observation_outside_half_timestep(
+    tmp_path: Path,
+) -> None:
+    setup_dir, project_dir = _setup_basic_project(
+        tmp_path,
+        events_yaml="""
+            - date: '2023-01-02'
+              variable: station_hs
+        """,
+    )
+    _write_station_benchmark_inputs(project_dir, setup_dir)
+    _write_series_csv(
+        setup_dir / "obs" / "stations" / "station_a.csv",
+        [{"time": "2023-01-02 02:00:00", "snow_depth": 1.1}],
+    )
+    _write_series_csv(
+        project_dir / "steps" / "step_00_init" / "assim" / "weights_station_hs_20230102.csv",
+        [
+            {"member_id": "member_001", "prior_weight": 0.5, "weight": 0.25},
+            {"member_id": "member_002", "prior_weight": 0.5, "weight": 0.75},
+        ],
+    )
+
+    cases = extract_analysis_cases(
+        project_dir=project_dir,
+        setup_dir=setup_dir,
+        variables=("station_hs",),
+    )
+
+    assert cases == []
 
 
 def test_extract_analysis_cases_include_transfer_streams_on_da_dates(tmp_path: Path) -> None:

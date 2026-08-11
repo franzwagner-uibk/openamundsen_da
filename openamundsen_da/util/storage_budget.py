@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 import csv
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from openamundsen_da.exceptions import LowDiskEmergencyError, LowDiskPauseError
@@ -43,7 +43,7 @@ def _parse_csv_timestamp(raw: str) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(value)
         if parsed.tzinfo is not None:
-            parsed = parsed.astimezone().replace(tzinfo=None)
+            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
         return parsed
     except ValueError:
         return None
@@ -63,7 +63,10 @@ def _station_file_bounds(path: Path) -> tuple[datetime, datetime] | None:
     first = next(csv.reader([first_raw]))
     if not header or not first:
         return None
-    date_idx = 0
+    try:
+        date_idx = header.index("date")
+    except ValueError as exc:
+        raise ValueError(f"Forcing CSV has no date column: {path}") from exc
     first_ts = _parse_csv_timestamp(first[date_idx])
     last_ts = None
     for line in reversed(tail):
@@ -107,9 +110,9 @@ def estimate_step_forcing_bytes(
     if not first_times:
         raise ValueError(f"Could not read forcing time coverage in {meteo_dir}")
     if start.tzinfo is not None:
-        start = start.astimezone().replace(tzinfo=None)
+        start = start.astimezone(timezone.utc).replace(tzinfo=None)
     if end.tzinfo is not None:
-        end = end.astimezone().replace(tzinfo=None)
+        end = end.astimezone(timezone.utc).replace(tzinfo=None)
     coverage_seconds = max(1.0, (max(last_times) - min(first_times)).total_seconds())
     window_seconds = max(1.0, (end - start).total_seconds())
     fraction = min(1.0, window_seconds / coverage_seconds)

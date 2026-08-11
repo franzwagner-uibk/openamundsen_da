@@ -304,12 +304,33 @@ Notes:
 - Uncertainty preprocessing keys:
   - `input_dir`, `u_min`, `u_max`, `base_uncertainty`, `nodata_value`, and `penalties[]` are used by `openamundsen-da observations snow-cover` and `openamundsen-da observations wet-snow`.
   - `penalties[].input_dir` is required only for `source: shadow`.
-- `output.retention: compact` writes `results/grids/da_output_grids.nc`. Member grids are retained by the safe cleanup contract.
-- `run_mode: subdomain` defaults to `output.retention: full` when retention is omitted, preserving the sub-domain NC grids required for exact generated DA-event map rerendering.
+- `output.retention: compact` writes the configured grid summaries, compressed
+  all-member point and consumed-forcing time series and satellite-event map
+  support. After benchmarking and rendering validate, package-owned member
+  CSVs, grids and restart checkpoints are removed through
+  `results/retention_manifest.json`.
+- `output.retention: full` preserves member forcing, points, grids and restart
+  artifacts for reanalysis. `run_mode: subdomain` defaults to `full` when the
+  key is omitted; single-domain projects default to `compact`.
+- Retention values other than `compact` and `full` are configuration errors;
+  they are never replaced silently.
+- Perturbed forcing for every member covers only the exact inclusive
+  `start_date` to `end_date` window in its consuming step YAML.
+- Before admitting a step, the project filesystem must be below the fixed 80%
+  soft limit and its conservative forcing estimate plus operational reserve
+  must remain below 90%. A low-disk stop is recorded as resumable and never
+  implies overwrite.
 - `output.grids.variables[*]` controls both which compact grid variables are exported and which metrics are written for each variable. If this block is omitted, all grid variables and metrics are written for backward compatibility.
 - Compact DA summary NetCDFs use internal compressed storage encodings: snow depth at 0.001 m resolution and SWE/liquid-water content at integer millimeter resolution. This is not a YAML setting; CF-aware readers decode the variables back to physical values.
 - Generated DA-event maps need `analysis_mean` and `analysis_increment` for `snowdepth_daily`, because their snow-depth response panels show the event-weighted posterior and posterior-minus-prior increment.
 - `results/grids/da_output_grids.nc` is aggregated over all project steps (full project timeline).
+- Compact projects additionally retain
+  `results/points/ensemble_points.nc`,
+  `results/forcing/ensemble_forcing.nc` and, when satellite observations are
+  configured, `results/grids/da_map_support.nc`. These NetCDF files preserve
+  open-loop and every ensemble member on explicit time/member/point or
+  time/member/station dimensions and are readable with CF-aware tools such as
+  xarray, netCDF4, R `ncdf4` and R `stars`.
 - In `da_output_grids.nc`, `increment_<var>` is the open-loop departure: `ens_mean_<var> - open_loop_<var>`.
 - Event analysis fields `analysis_mean_<var>` and `analysis_increment_<var>` are written where assimilation weights are available; `analysis_increment_<var>` is `analysis_mean_<var> - ens_mean_<var>`.
 - Satellite operators require instantaneous `snowdepth_instantaneous`,

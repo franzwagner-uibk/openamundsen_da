@@ -11,12 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add opt-in project-map markers that distinguish forcing, snow-observation,
   co-located and holdout stations, with holdouts using a smaller black `x`
   rendered above other station markers, plus optional subdomain ID labels.
+- Add fixed disk-admission limits, resumable low-disk status and a versioned
+  cleanup ledger for restart-safe compact retention.
+- Add compressed all-member point and consumed-forcing NetCDFs plus retained
+  satellite-event map support for compact projects.
 
 ### Changed
 - Allow subdomain station selection from coordinates in
   `stations_da_metadata.csv`, require same-ID observations and model points for
   every active DA or benchmark station before propagation.
 - Keep particle rejuvenation within the project runner's worker limit.
+- Generate perturbed forcing only for each consuming step's exact time window.
+- Make compact retention remove validated member forcing, point, grid and
+  restart artifacts while full retention preserves them for reanalysis.
+- Resume failed subdomain leaves non-destructively unless overwrite is
+  requested explicitly.
 
 ## [0.9.4] - 2026-07-29
 

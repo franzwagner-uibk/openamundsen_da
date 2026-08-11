@@ -38,6 +38,20 @@ The model propagation grids feeding this builder can be NetCDF or GeoTIFF as
 selected in the setup YAML. The compact data assimilation result itself is always
 NetCDF.
 
+Compact projects also retain two compressed, all-member time-series files:
+
+```text
+results/points/ensemble_points.nc
+results/forcing/ensemble_forcing.nc
+```
+
+Their dimensions are `time`, `member`, `point` and `time`, `member`,
+`station`, respectively. They contain the open loop and every ensemble member,
+so standard Python and R NetCDF tooling can plot or analyze the retained time
+series after member CSV cleanup. Projects with satellite observation events
+also retain `results/grids/da_map_support.nc`, which contains the event fields
+needed by the configured map renderer.
+
 Propagation means, standard deviations, quantiles, increments and continuous
 benchmark distributions use the persistent PF prior ledger for each step.
 Event-analysis fields use the normalized pre-resampling posterior weights.
@@ -86,9 +100,16 @@ storage reduction visible. The reviewed Rofental walkthrough explains the files 
 
 ## Cleanup and retention
 
-After all required outputs validate, a successful single-domain run deletes only
-package-owned restart pickles and invalid state pointers. The manifest records
-their relative paths, count and bytes. Scientific results and member grids remain.
+After all required outputs validate, `retention: compact` removes package-owned
+restart checkpoints, member point and forcing CSVs and replaceable member grids.
+The atomic, versioned `results/retention_manifest.json` records every planned
+and completed deletion batch, source inventory, final consumer and regeneration
+recipe. Cleanup is contained within the project and can resume an interrupted
+batch idempotently. The retained NetCDFs, weights, benchmarks, plots, maps,
+reports, logs and scientific configuration remain.
+
+`retention: full` skips this artifact cleanup and preserves the raw member
+forcing, points, grids and restart states for reanalysis.
 
 For an older single-domain project, preview and then apply the same safe cleanup:
 
@@ -97,9 +118,11 @@ openamundsen-da clean PROJECT_DIR
 openamundsen-da clean PROJECT_DIR --apply
 ```
 
-Single-domain cleanup does not delete scientific member grids. Subdomain compact
-retention can delete merge inputs only after the merged grid, configured render
-outputs and report have validated.
+Single-domain and subdomain leaf projects use the same cleanup lifecycle.
+Subdomain compact retention deletes leaf and parent merge inputs only after the
+merged grid, configured render outputs and report have validated. An interrupted
+or low-disk run resumes existing work non-destructively; rebuilding requires an
+explicit overwrite request.
 
 ## Subdomain outputs
 

@@ -51,7 +51,13 @@ an explicit operator and uncertainty configuration.
 - `results/benchmark/` stores configured evaluation cases and scores;
 - `results/grids/da_output_grids.nc` stores compact open-loop, ensemble and
   event-analysis fields. Ensemble summaries use persistent PF weights, while
-  member minima and maxima describe the materialized member collection; and
+  member minima and maxima describe the materialized member collection;
+- compact retention stores all-member point and consumed-forcing time series
+  in `results/points/ensemble_points.nc` and
+  `results/forcing/ensemble_forcing.nc`, with satellite-event fields needed
+  for rerendering in `results/grids/da_map_support.nc`;
+- `results/retention_manifest.json` distinguishes deliberate, consumer-gated
+  cleanup from unexpected missing artifacts; and
 - `results/run_manifest.json` records hashes, stage state, provenance and outputs.
 
 See [Output data]({{ site.baseurl }}{% link output-data.md %}) for paths and

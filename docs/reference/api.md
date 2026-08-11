@@ -40,9 +40,10 @@ canonical project YAML. They return an immutable
   cleanup and returns `RunResult`.
 - `render_project(project_dir, *, max_workers=None)` regenerates all configured
   plots, maps and the project report. It returns `RenderResult`.
-- `clean_project(project_dir, *, apply=False)` previews package-owned restart
-  cleanup by default. Pass `apply=True` to delete the previewed artifacts. It
-  returns `CleanupResult`.
+- `clean_project(project_dir, *, apply=False)` previews package-owned artifacts
+  eligible under compact retention. Pass `apply=True` to apply the ledger-backed
+  cleanup. Full-retention projects return an empty preview. It returns
+  `CleanupResult`.
 
 Result objects and `WorkflowStatus` are immutable values from
 `openamundsen_da.results`. Public workflow exceptions inherit from

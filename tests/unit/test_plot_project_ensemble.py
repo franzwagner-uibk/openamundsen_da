@@ -111,6 +111,7 @@ def test_plot_setup_results_members_mode_draws_members_without_band(tmp_path: Pa
         assert len(ax.lines) == 4
         legend_labels = [text.get_text() for text in fig.legends[0].get_texts()]
         assert legend_labels == ["open loop", "data assimilation event"]
+        assert ax.get_title(loc="left").endswith("openAMUNDSEN ensemble and open loop")
     finally:
         plt.close = original_close
         original_close("all")
@@ -218,6 +219,7 @@ def test_station_result_observations_use_shared_accessible_style(tmp_path: Path)
         )
         assert station_legend_line.get_color() == COLOR_DA_OBS
         assert station_legend_line.get_linestyle() == LS_STATION_OBS
+        assert ax.get_title(loc="left").endswith("openAMUNDSEN ensemble and station observation")
     finally:
         plt.close = original_close
         original_close("all")

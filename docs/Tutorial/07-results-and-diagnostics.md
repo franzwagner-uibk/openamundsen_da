@@ -250,6 +250,11 @@ What to read in the weights plot:
 - a **peaked** distribution means a few particles explain the observation much better,
 - very strong peaks often coincide with low ESS and potential resampling pressure.
 
+The weights overview uses one shared symmetric residual range per observable,
+based on the largest finite residual that is actually plotted. Events with many
+station-specific uncertainty values wrap their compact uncertainty key over
+multiple rows inside the panel.
+
 With the tutorial's fixed seeds and pinned release image, a run should reproduce
 the reference ensemble and diagnostics. Results can differ after changing the
 configuration, image, inputs or execution platform. For experiments, compare both
@@ -302,6 +307,10 @@ What to inspect:
 ### Station plots
 
 These plots support validation and interpretation of model behavior at observation stations.
+When a matching station observation series is available, its line and the
+``station observation`` title qualifier are shown. Configured model points without
+a matching observation series remain useful ensemble/open-loop diagnostics and
+are labelled accordingly instead of claiming that an observation is present.
 
 What to inspect:
 

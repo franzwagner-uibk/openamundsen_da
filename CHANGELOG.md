@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `stations_da_metadata.csv`, require same-ID observations and model points for
   every active DA or benchmark station before propagation.
 - Keep particle rejuvenation within the project runner's worker limit.
+- Require explicitly configured compact grid sources in openAMUNDSEN output
+  before propagation and validate every requested variable and metric in
+  member, project and merged subdomain NetCDFs.
+- Sample exact project-directory size every 150 seconds by default while
+  leaving CPU, RAM and plot-refresh sampling unchanged.
 - Match station observations consistently in validation, assimilation and
   analysis benchmarking to the unique nearest value within half the model
   timestep, with timezone-aware comparison and exact model-output timestamps.
@@ -25,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the accepted leaf project YAMLs.
 
 ### Fixed
+- Keep point-result titles consistent with the observations actually plotted
+  and wrap dense station uncertainty keys inside the panel while preserving the
+  shared symmetric residual range per observable.
+- Keep the two right-hand performance axes readable from small projects through
+  multi-terabyte runs and use one-decimal storage/RAM summaries and `°C` labels.
 - Allow final subdomain products to mask events absent from a leaf project while
   still rejecting configured-but-missing support and top-level events unsupported
   by every leaf.

@@ -43,6 +43,14 @@ therefore reports `Project: peak ... GB → final ... GB`. Staged subdomain runs
 do not invent an equivalent cleanup sample; interpret their project-size series
 according to the configured retention stage.
 
+CPU and RAM are sampled every 5 seconds and the live plot is refreshed every
+30 seconds. The exact recursive project-directory size scan is intentionally
+less frequent because it can be expensive for projects containing millions of
+files; it defaults to every 150 seconds. The plot measures its project-size tick
+and axis-label widths before positioning the optional temperature axis, so its
+fixed figure size remains readable for both small projects and sizes of several
+terabytes.
+
 ## Storage
 
 Grid resolution, duration, ensemble size, selected model variables and retention

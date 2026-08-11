@@ -144,18 +144,87 @@ def test_project_perf_plot_places_one_row_legend_below_axes_without_x_title(
         "CPU [%]",
         "RAM [%]",
         "Project size [GB]",
-        "CPU temp [C]",
-        "CPU temp crit [C]",
+        "CPU temp [°C]",
+        "CPU temp crit [°C]",
     ]
     assert "Disk used [%]" not in labels
     summary = " ".join(text.get_text() for text in fig.texts)
-    assert "Project: peak 80.00 GB \N{RIGHTWARDS ARROW} final 80.00 GB" in summary
+    assert "Peak CPU temp: 83.0 °C" in summary
+    assert "Peak RAM: 30.0 / 128.0 GB" in summary
+    assert "Project: peak 80.0 GB \N{RIGHTWARDS ARROW} final 80.0 GB" in summary
     fig.canvas.draw()
     legend_bounds = legend.get_window_extent()
     figure_bounds = fig.bbox
     assert legend_bounds.x0 >= figure_bounds.x0
     assert legend_bounds.x1 <= figure_bounds.x1
     assert legend_bounds.y0 >= figure_bounds.y0
+
+
+@pytest.mark.parametrize(
+    ("project_size_gb", "expected_right_margin"),
+    [(8.0, 0.83), (285.0, 0.83), (2500.0, None)],
+)
+def test_project_perf_plot_separates_dynamic_right_axes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    project_size_gb: float,
+    expected_right_margin: float | None,
+) -> None:
+    if perf_monitor.plt is None:
+        pytest.skip("matplotlib is not available")
+
+    start = datetime(2026, 1, 1, 12, 0)
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        perf_monitor,
+        "_save_perf_plot_atomic",
+        lambda fig, _out_path: captured.setdefault("figure", fig),
+    )
+
+    perf_monitor._render_plot(
+        tmp_path / "project_perf.png",
+        [start, start + timedelta(minutes=3)],
+        cpu_pct=[50.0, 90.0],
+        mem_pct=[20.0, 30.0],
+        mem_used_gb=[25.0, 30.0],
+        mem_total_gb=[128.0, 128.0],
+        run_start=start,
+        disk_project_used_gb=[0.0, project_size_gb],
+        cpu_temp_c=[80.0, 90.0],
+        cpu_temp_crit_c=[95.0, 95.0],
+    )
+
+    fig = captured["figure"]
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    _primary_axis, project_axis, temperature_axis = fig.axes
+    project_bbox = project_axis.yaxis.get_tightbbox(renderer)
+    temperature_spine_bbox = temperature_axis.spines["right"].get_window_extent(
+        renderer
+    )
+    temperature_bbox = temperature_axis.yaxis.get_tightbbox(renderer)
+    gap_px = (
+        perf_monitor.PERF_PLOT_RIGHT_AXIS_GAP_POINTS * float(fig.dpi) / 72.0
+    )
+
+    assert project_bbox is not None
+    assert temperature_bbox is not None
+    assert temperature_spine_bbox.x0 >= project_bbox.x1 + gap_px - 0.5
+    assert temperature_bbox.x1 <= fig.bbox.x1
+    assert tuple(fig.get_size_inches()) == pytest.approx(
+        perf_monitor.PROJECT_PERF_FIGSIZE
+    )
+    if expected_right_margin is not None:
+        assert fig.subplotpars.right == pytest.approx(expected_right_margin)
+    else:
+        assert fig.subplotpars.right < perf_monitor.PERF_PLOT_RIGHT_MARGIN_WITH_TEMPERATURE
+
+
+def test_performance_monitor_defaults_to_150_second_project_size_scan() -> None:
+    config = perf_monitor.PerfMonitorConfig(project_dir=Path("project"))
+
+    assert perf_monitor.DEFAULT_DISK_SCAN_INTERVAL_SEC == 150.0
+    assert config.disk_scan_interval_sec == 150.0
 
 
 def test_project_perf_csv_appends_disk_and_thermal_columns(tmp_path: Path) -> None:

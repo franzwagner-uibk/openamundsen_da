@@ -8,13 +8,14 @@ from dataclasses import dataclass
 from pathlib import Path
 import yaml
 
-from openamundsen_da.util.storage_policy import DA_SUMMARY_NC_FILL_VALUE, METEO_CSV_DECIMALS
 from openamundsen_da.manifests import file_inventory, inventory_digest, load_manifest
 from openamundsen_da.util.da_observables import (
     station_diagnostics_glob_pattern,
     weights_glob_pattern,
 )
+from openamundsen_da.util.da_output import output_retention_mode
 from openamundsen_da.util.station_da import station_observation_csvs
+from openamundsen_da.util.storage_policy import DA_SUMMARY_NC_FILL_VALUE, METEO_CSV_DECIMALS
 
 
 ERROR_PATTERNS = [
@@ -533,21 +534,29 @@ def _check_run_manifest_and_cleanup(project_dir: Path) -> None:
 
     cleanup = manifest.get("cleanup") or {}
     deleted_paths = cleanup.get("deleted_paths") or []
-    if int(cleanup.get("deleted_count", 0)) != len(deleted_paths) or not deleted_paths:
-        raise ValueError(f"Run manifest does not record applied restart cleanup: {manifest_path}")
-    if int(cleanup.get("freed_bytes", 0)) <= 0:
-        raise ValueError(f"Run manifest cleanup did not record freed bytes: {manifest_path}")
+    deleted_count = int(cleanup.get("deleted_count", 0))
+    freed_bytes = int(cleanup.get("freed_bytes", 0))
+    if deleted_count != len(deleted_paths):
+        raise ValueError(f"Run manifest cleanup count is inconsistent: {manifest_path}")
     for relative in deleted_paths:
         if (project_dir / relative).exists():
-            raise ValueError(f"Cleaned restart artifact still exists: {project_dir / relative}")
+            raise ValueError(f"Cleaned artifact still exists: {project_dir / relative}")
 
     remaining_states = sorted((project_dir / "steps").glob("step_*/ensembles/*/*/results/model_state.pickle.gz"))
     remaining_pointers = sorted((project_dir / "steps").glob("step_*/ensembles/*/*/state_pointer.json"))
-    if remaining_states or remaining_pointers:
+    retention_mode = output_retention_mode(project_dir)
+    if retention_mode == "compact" and (not deleted_paths or freed_bytes <= 0):
+        raise ValueError(f"Run manifest does not record applied compact cleanup: {manifest_path}")
+    if retention_mode == "compact" and (remaining_states or remaining_pointers):
         raise ValueError(
-            "Successful run retained package-owned restart artifacts: "
+            "Successful compact run retained package-owned restart artifacts: "
             f"states={len(remaining_states)} pointers={len(remaining_pointers)}"
         )
+    if retention_mode == "full":
+        if deleted_paths or freed_bytes != 0:
+            raise ValueError(f"Full-retention run unexpectedly deleted member artifacts: {manifest_path}")
+        if not remaining_states:
+            raise ValueError(f"Full-retention run did not preserve restart states: {project_dir}")
 
     outputs = manifest.get("outputs") or []
     output_paths = [project_dir.parent.parent / entry["path"] for entry in outputs]

@@ -6,6 +6,8 @@ import sys
 
 import pytest
 
+from openamundsen_da.manifests import inventory_digest, write_manifest_atomic
+
 
 def _load_module(name: str, relative_path: str):
     repo_root = Path(__file__).resolve().parents[2]
@@ -90,3 +92,65 @@ def test_check_logs_still_rejects_other_missing_warnings(tmp_path: Path, module)
 
     with pytest.raises(ValueError, match="severe warning lines"):
         module._check_logs(log_file)
+
+
+def _write_cleanup_contract_fixture(tmp_path: Path, *, retention: str) -> Path:
+    setup = tmp_path / "setup"
+    project = setup / "projects" / "demo"
+    project.mkdir(parents=True)
+    (project / "demo.yml").write_text(
+        "data_assimilation:\n"
+        "  output:\n"
+        f"    retention: {retention}\n",
+        encoding="utf-8",
+    )
+    state = (
+        project
+        / "steps"
+        / "step_00_init"
+        / "ensembles"
+        / "prior"
+        / "member_001"
+        / "results"
+        / "model_state.pickle.gz"
+    )
+    state.parent.mkdir(parents=True)
+    cleanup = {
+        "deleted_paths": [],
+        "deleted_count": 0,
+        "eligible_bytes": 0,
+        "freed_bytes": 0,
+        "failures": [],
+    }
+    if retention == "compact":
+        state.unlink(missing_ok=True)
+        cleanup.update(
+            {
+                "deleted_paths": [state.relative_to(project).as_posix()],
+                "deleted_count": 1,
+                "eligible_bytes": 17,
+                "freed_bytes": 17,
+            }
+        )
+    else:
+        state.write_bytes(b"retained")
+    results = project / "results"
+    results.mkdir()
+    write_manifest_atomic(
+        results / "run_manifest.json",
+        {
+            "status": "success",
+            "stages": {"execution": "success", "render": "success", "cleanup": "success"},
+            "cleanup": cleanup,
+            "outputs": [],
+            "output_digest": inventory_digest([]),
+        },
+    )
+    return project
+
+
+@pytest.mark.parametrize("retention", ["compact", "full"])
+def test_run_manifest_cleanup_check_honors_retention_contract(tmp_path: Path, retention: str) -> None:
+    project = _write_cleanup_contract_fixture(tmp_path, retention=retention)
+
+    validate_trimmed_project._check_run_manifest_and_cleanup(project)

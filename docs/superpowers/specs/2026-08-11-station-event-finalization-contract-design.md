@@ -34,7 +34,8 @@ timestamps fail. It intersects those values with same-ID metadata rows whose
 strings and leading zeros are preserved in files and diagnostics.
 
 Unavailable stations are skipped individually for one event and recorded in
-runtime diagnostics. An event with no timely active station fails before model
+the runtime log. Matched stations record their source timestamp and offset in
+the station diagnostics. An event with no timely active station fails before model
 propagation and again defensively during assimilation. The model point output
 must exist at the exact model-clock timestamp. The same bounded matcher is used
 for station analysis benchmarking. Existing single-station uncertainty

@@ -39,6 +39,7 @@ from openamundsen_da.core.constants import (
     STATE_POINTER_JSON,
 )
 from openamundsen_da.util.atomic import durable_replace
+from openamundsen_da.manifests import write_manifest_atomic
 from openamundsen.model import OpenAmundsen
 
 from openamundsen_da.core.config import load_merged_config
@@ -194,13 +195,9 @@ def _patch_linear_fit() -> None:
     oa_interp._linear_fit = safe_linear_fit
 
 def _write_manifest(results_dir: Path, manifest: Dict[str, Any]) -> None:
-    """Best-effort write of the per-member run manifest JSON."""
-    try:
-        results_dir.mkdir(parents=True, exist_ok=True)
-        with (results_dir / MEMBER_MANIFEST).open("w", encoding="utf-8") as f:
-            json.dump(manifest, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.warning(f"Could not write manifest in {results_dir}: {e}")
+    """Crash-durably replace the per-member run manifest JSON."""
+    results_dir.mkdir(parents=True, exist_ok=True)
+    write_manifest_atomic(results_dir / MEMBER_MANIFEST, manifest)
 
 
 def _is_successful_run(results_dir: Path) -> bool:

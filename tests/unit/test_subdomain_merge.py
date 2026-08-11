@@ -512,7 +512,7 @@ def test_cleanup_deletes_only_manifest_owned_files_after_render(
     )
     subdomain_artifact.parent.mkdir(parents=True)
     (subdomain_artifact.parent / "member_run.json").write_text(
-        '{"status": "success"}\n', encoding="utf-8"
+        '{"member": "member_000", "status": "success"}\n', encoding="utf-8"
     )
     compact_subdomain.parent.mkdir(parents=True)
     unowned = subdomain_root / "not_in_manifest" / "output_grids.nc"

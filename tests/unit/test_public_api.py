@@ -342,7 +342,9 @@ def _fake_successful_execution(project_dir: Path) -> RenderResult:
         / "results"
     )
     member_results.mkdir(parents=True, exist_ok=True)
-    (member_results / "member_run.json").write_text('{"status": "success"}\n', encoding="utf-8")
+    (member_results / "member_run.json").write_text(
+        '{"member": "member_001", "status": "success"}\n', encoding="utf-8"
+    )
     (member_results / "model_state.pickle.gz").write_bytes(b"state")
     (member_results.parent / "state_pointer.json").write_text(
         '{"path": "results/model_state.pickle.gz"}\n',

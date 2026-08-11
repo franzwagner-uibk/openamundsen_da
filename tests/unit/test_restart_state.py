@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import json
 import pytest
 
 from openamundsen_da.core import runner
+from openamundsen_da import manifests
 from openamundsen_da.util.restart_state import validate_restart_state
 
 
@@ -34,6 +36,30 @@ def test_dump_state_is_atomic_and_validated(tmp_path: Path) -> None:
 
     assert validate_restart_state(output) == output
     assert not list(output.parent.glob(f".{output.name}.*.tmp"))
+
+
+def test_member_manifest_is_atomic_and_power_durable(tmp_path: Path, monkeypatch) -> None:
+    results = tmp_path / "member_001" / "results"
+    calls: list[int] = []
+    real_fsync = manifests.os.fsync
+
+    def tracked_fsync(fd: int) -> None:
+        calls.append(fd)
+        real_fsync(fd)
+
+    monkeypatch.setattr(manifests.os, "fsync", tracked_fsync)
+    runner._write_manifest(
+        results,
+        {"member": "member_001", "status": "success"},
+    )
+
+    output = results / "member_run.json"
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["member"] == "member_001"
+    assert payload["status"] == "success"
+    assert payload["schema_version"] == 1
+    assert len(calls) == 2  # completed temporary, then parent-directory metadata
+    assert not list(results.glob(".member_run.json.*.tmp"))
 
 
 def test_step_successor_detection_is_strict(tmp_path: Path) -> None:

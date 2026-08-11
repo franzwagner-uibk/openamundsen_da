@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Sequence
 
@@ -162,6 +163,19 @@ def _member_run_manifests(project_dir: Path, candidates: Sequence[Path]) -> tupl
                 manifest = parent / "results" / "member_run.json"
                 if not manifest.is_file() or manifest.is_symlink():
                     raise RuntimeError(f"Producer member manifest is missing or invalid: {manifest}")
+                try:
+                    payload = json.loads(manifest.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise RuntimeError(f"Producer member manifest is unreadable: {manifest}") from exc
+                if not isinstance(payload, dict):
+                    raise RuntimeError(f"Producer member manifest root is invalid: {manifest}")
+                if str(payload.get("status", "")).strip().lower() != "success":
+                    raise RuntimeError(f"Producer member manifest is not successful: {manifest}")
+                if str(payload.get("member", "")).strip() != parent.name:
+                    raise RuntimeError(
+                        "Producer member manifest identity differs from its member directory: "
+                        f"{payload.get('member')!r} != {parent.name!r} in {manifest}"
+                    )
                 manifests.add(manifest.resolve())
                 break
         if not found_member_root:

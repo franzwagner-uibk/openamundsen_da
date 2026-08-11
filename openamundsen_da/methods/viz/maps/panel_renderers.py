@@ -28,7 +28,11 @@ from openamundsen_da.io.paths import (
     resolve_member_source_dir,
 )
 from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf_binary_grid, load_hofx_from_project
-from openamundsen_da.util.map_support import load_map_support_field, write_map_support
+from openamundsen_da.util.map_support import (
+    load_map_support_field,
+    validate_map_support,
+    write_map_support,
+)
 from openamundsen_da.methods.pf.weights import load_prior_weights
 from openamundsen_da.methods.viz.fraction_series import load_fraction_series, load_open_loop_fraction_series
 from openamundsen_da.methods.viz.theme import da_variable_line_color
@@ -2625,8 +2629,10 @@ def _summary_dates_for_support(project_dir: Path, context: StaticContext, filena
     }
 
 
-def write_project_da_map_support(project_dir: Path) -> Path | None:
-    """Persist the spatial fields required to rerender configured DA maps."""
+def project_da_map_support_fields(
+    project_dir: Path,
+) -> tuple[list[pd.Timestamp], dict[str, list[np.ndarray]], np.ndarray] | None:
+    """Build retained map fields directly from the raw scientific sources."""
     project_dir = Path(project_dir).resolve()
     events = load_assimilation_events(project_dir)
     if not events:
@@ -2699,7 +2705,24 @@ def write_project_da_map_support(project_dir: Path) -> Path | None:
 
     if not fields:
         return None
-    return write_map_support(project_dir, dates=dates, fields=fields)
+    return dates, fields, np.asarray(context.roi_mask, dtype=bool)
+
+
+def write_project_da_map_support(project_dir: Path) -> Path | None:
+    """Persist and source-validate fields required to rerender DA maps."""
+    built = project_da_map_support_fields(project_dir)
+    if built is None:
+        return None
+    dates, fields, roi_mask = built
+    output = write_map_support(project_dir, dates=dates, fields=fields)
+    validate_map_support(
+        project_dir,
+        dates=dates,
+        fields=set(fields),
+        roi_mask=roi_mask,
+        source_fields=fields,
+    )
+    return output
 
 
 def _top_level_subdomain_scf_model_probability_array(

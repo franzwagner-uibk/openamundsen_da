@@ -8,6 +8,7 @@ import xarray as xr
 
 from openamundsen_da.util.da_output import (
     output_retention_mode,
+    validate_project_da_output_grids,
     write_da_output_grids,
     write_project_da_output_grids,
 )
@@ -128,6 +129,72 @@ def test_write_da_output_grids_rejects_scaled_int16_overflow(tmp_path: Path) -> 
             member_ncs=[member],
             output_nc=out_nc,
         )
+
+
+def test_atomic_grid_write_preserves_accepted_output_on_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    open_loop = tmp_path / "output_grids.nc"
+    member = tmp_path / "member_001_output_grids.nc"
+    output = tmp_path / "da_output_grids.nc"
+    _write_nc(open_loop, np.ones((1, 2, 2)))
+    _write_nc(member, np.ones((1, 2, 2)))
+    output.write_bytes(b"accepted")
+
+    monkeypatch.setattr(xr.Dataset, "to_netcdf", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("stop")))
+    with pytest.raises(OSError, match="stop"):
+        write_da_output_grids(
+            open_loop_nc=open_loop,
+            member_ncs=[member],
+            output_nc=output,
+        )
+
+    assert output.read_bytes() == b"accepted"
+    assert not list(tmp_path.glob(f".{output.name}.*.tmp.nc"))
+
+
+def test_grid_cleanup_completeness_requires_every_configured_metric_and_member(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "setup" / "projects" / "demo"
+    step = project / "steps" / "step_00"
+    project.mkdir(parents=True)
+    (project / "demo.yml").write_text(
+        "data_assimilation:\n"
+        "  prior_forcing: {ensemble_size: 1}\n"
+        "  output:\n"
+        "    grids:\n"
+        "      variables:\n"
+        "        - {var: snowdepth_daily, metrics: [open_loop, ens_mean]}\n",
+        encoding="utf-8",
+    )
+    step.mkdir(parents=True)
+    (step / "step.yml").write_text(
+        "start_date: '2023-01-01'\nend_date: '2023-01-01'\n",
+        encoding="utf-8",
+    )
+    _write_step_member_ncs(
+        step,
+        np.ones((1, 2, 2)),
+        [np.full((1, 2, 2), 2.0)],
+        "2023-01-01",
+    )
+    output = project / "results" / "grids" / "da_output_grids.nc"
+    write_project_da_output_grids(step_dirs=[step], output_nc=output)
+    assert validate_project_da_output_grids(project, output_nc=output) == output
+
+    with xr.open_dataset(output) as dataset:
+        incomplete = dataset.drop_vars("ens_mean_snowdepth_daily").load()
+    incomplete.to_netcdf(output, mode="w")
+    with pytest.raises(ValueError, match="metric is missing"):
+        validate_project_da_output_grids(project, output_nc=output)
+    write_project_da_output_grids(step_dirs=[step], output_nc=output)
+
+    member_grid = step / "ensembles" / "prior" / "member_001" / "results" / "output_grids.nc"
+    member_grid.unlink()
+    with pytest.raises(FileNotFoundError, match="required for completeness"):
+        validate_project_da_output_grids(project, output_nc=output)
 
 
 def test_write_project_da_output_grids_spans_all_steps(tmp_path: Path) -> None:

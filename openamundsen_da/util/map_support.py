@@ -111,14 +111,16 @@ def validate_map_support(
     *,
     dates: list[pd.Timestamp],
     fields: set[str],
+    roi_mask: np.ndarray | None = None,
+    source_fields: dict[str, list[np.ndarray]] | None = None,
 ) -> Path:
-    """Validate required event dates and fields before raw-grid cleanup."""
+    """Validate geometry, domain and optional source-value equivalence."""
     path = project_map_support_path(project_dir)
     expected_dates = pd.DatetimeIndex(
         sorted({pd.Timestamp(date).normalize() for date in dates})
     )
     with netCDF4.Dataset(path) as dataset:
-        if not {"event", "y", "x"}.issubset(dataset.dimensions):
+        if set(dataset.dimensions) != {"event", "y", "x"}:
             raise ValueError(f"Invalid map-support dimensions in {path}")
         event = dataset.variables["event"]
         retained_dates = pd.DatetimeIndex(
@@ -134,6 +136,30 @@ def validate_map_support(
         missing = sorted(field for field in fields if field not in dataset.variables)
         if missing:
             raise ValueError(f"Map-support fields missing in {path}: {', '.join(missing)}")
+        expected_shape = None if roi_mask is None else tuple(np.asarray(roi_mask, dtype=bool).shape)
+        for field in sorted(fields):
+            variable = dataset.variables[field]
+            if tuple(variable.dimensions) != ("event", "y", "x"):
+                raise ValueError(f"Invalid map-support dimensions for {field} in {path}")
+            values = np.ma.filled(variable[:], np.nan).astype(float)
+            if expected_shape is not None and tuple(values.shape[1:]) != expected_shape:
+                raise ValueError(f"Map-support ROI shape differs for {field} in {path}")
+            finite = np.isfinite(values)
+            if not np.any(finite):
+                raise ValueError(f"Map-support field contains no finite values: {field} in {path}")
+            if np.any(values[finite] < 0.0) or np.any(values[finite] > 1.0):
+                raise ValueError(f"Map-support values outside [0, 1] for {field} in {path}")
+            if roi_mask is not None and np.any(finite[:, ~np.asarray(roi_mask, dtype=bool)]):
+                raise ValueError(f"Map-support contains finite values outside the ROI for {field} in {path}")
+            if source_fields is not None:
+                expected_arrays = source_fields.get(field)
+                if expected_arrays is None:
+                    raise ValueError(f"Map-support source field is unavailable for {field}")
+                expected = np.stack(
+                    [np.asarray(array, dtype=np.float32) for array in expected_arrays]
+                ).astype(float)
+                if not np.allclose(values, expected, rtol=0.0, atol=1e-6, equal_nan=True):
+                    raise ValueError(f"Map-support values differ from raw sources for {field} in {path}")
     return path
 
 

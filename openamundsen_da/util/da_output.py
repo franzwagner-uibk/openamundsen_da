@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -11,10 +13,19 @@ import xarray as xr
 from loguru import logger
 
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import find_project_yaml, infer_project_dir, read_step_config
+from openamundsen_da.io.paths import (
+    find_project_yaml,
+    infer_project_dir,
+    list_member_dirs,
+    list_steps_sorted,
+    read_step_config,
+)
 from openamundsen_da.util.da_events import AssimilationEvent, load_assimilation_events
 from openamundsen_da.util.da_observables import weights_csv_name
-from openamundsen_da.util.storage_policy import da_summary_netcdf_encoding
+from openamundsen_da.util.storage_policy import (
+    da_summary_grid_scale_factor,
+    da_summary_netcdf_encoding,
+)
 from openamundsen_da.methods.pf.weights import load_prior_weights
 
 _DEFAULT_SUMMARY_METRICS = ("open_loop", "ens_mean", "ens_std", "ens_min", "ens_max", "increment")
@@ -479,6 +490,39 @@ def _combine_step_summaries(step_summaries: Sequence[xr.Dataset]) -> xr.Dataset:
     return merged_ds
 
 
+def _write_da_dataset_atomic(dataset: xr.Dataset, output_nc: Path) -> Path:
+    """Write and validate a same-directory NetCDF before atomic promotion."""
+    output_nc = Path(output_nc)
+    output_nc.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        dir=output_nc.parent,
+        prefix=f".{output_nc.name}.",
+        suffix=".tmp.nc",
+    )
+    os.close(fd)
+    temp = Path(temp_name)
+    try:
+        dataset.to_netcdf(temp, mode="w", encoding=da_summary_netcdf_encoding(dataset))
+        with xr.open_dataset(temp) as retained:
+            if set(retained.data_vars) != set(dataset.data_vars):
+                raise ValueError(f"Atomic DA grid validation found missing variables in {temp}")
+            if dict(retained.sizes) != dict(dataset.sizes):
+                raise ValueError(f"Atomic DA grid validation found dimension mismatch in {temp}")
+            for name in dataset.data_vars:
+                source = np.asarray(dataset[name].values, dtype=float)
+                written = np.asarray(retained[name].values, dtype=float)
+                if not np.array_equal(np.isfinite(source), np.isfinite(written)):
+                    raise ValueError(f"Atomic DA grid validation found invalid values for {name} in {temp}")
+                scale = da_summary_grid_scale_factor(name)
+                tolerance = float(scale) / 2.0 + 1e-7 if scale is not None else 1e-5
+                if not np.allclose(source, written, rtol=1e-6, atol=tolerance, equal_nan=True):
+                    raise ValueError(f"Atomic DA grid validation found changed values for {name} in {temp}")
+        os.replace(temp, output_nc)
+    finally:
+        temp.unlink(missing_ok=True)
+    return output_nc
+
+
 def write_da_output_grids(
     *,
     open_loop_nc: Path,
@@ -492,8 +536,7 @@ def write_da_output_grids(
     )
     if out_ds is None:
         return None
-    output_nc.parent.mkdir(parents=True, exist_ok=True)
-    out_ds.to_netcdf(output_nc, encoding=da_summary_netcdf_encoding(out_ds))
+    _write_da_dataset_atomic(out_ds, output_nc)
     logger.info("Wrote DA output summary NetCDF {}", output_nc)
     return output_nc
 
@@ -610,10 +653,112 @@ def write_project_da_output_grids(
             "source_steps": ",".join(used_steps),
         }
     )
-    output_nc.parent.mkdir(parents=True, exist_ok=True)
-    combined.to_netcdf(output_nc, encoding=da_summary_netcdf_encoding(combined))
+    _write_da_dataset_atomic(combined, output_nc)
     logger.info("Wrote DA output summary NetCDF {} ({} step(s))", output_nc, len(step_summaries))
     return output_nc
+
+
+def validate_project_da_output_grids(
+    project_dir: str | Path,
+    *,
+    output_nc: str | Path | None = None,
+) -> Path:
+    """Require configured compact metrics and complete raw-member sources.
+
+    This cleanup gate deliberately validates the current grid contract only.
+    It is kept separate from the broader cross-configuration output validator
+    planned in the required-grid-output increment.
+    """
+    project_dir = Path(project_dir).resolve()
+    output = (
+        Path(output_nc)
+        if output_nc is not None
+        else project_dir / "results" / "grids" / "da_output_grids.nc"
+    )
+    configured = _configured_grid_metrics(project_dir)
+    project_cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+    try:
+        ensemble_size = int(project_cfg["data_assimilation"]["prior_forcing"]["ensemble_size"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "Cannot validate compact grid completeness without "
+            "data_assimilation.prior_forcing.ensemble_size"
+        ) from exc
+    source_specs: dict[str, dict[str, object]] = {}
+    source_times: dict[tuple[str, str], set[int]] = {}
+    steps = list_steps_sorted(project_dir)
+    if not steps:
+        raise ValueError(f"Cannot validate compact grids without prepared steps: {project_dir}")
+    for step in steps:
+        prior = step / "ensembles" / "prior"
+        roots = [
+            prior / "open_loop",
+            *(prior / f"member_{index:03d}" for index in range(1, ensemble_size + 1)),
+        ]
+        actual_members = [member.name for member in list_member_dirs(step / "ensembles", "prior")]
+        expected_members = [root.name for root in roots[1:]]
+        if actual_members != expected_members:
+            raise ValueError(
+                f"Raw grid member identities differ in {step}: {actual_members} != {expected_members}"
+            )
+        files = [root / "results" / "output_grids.nc" for root in roots]
+        missing_files = [path for path in files if not path.is_file()]
+        if missing_files:
+            raise FileNotFoundError(f"Raw member grid required for completeness is missing: {missing_files[0]}")
+        with xr.open_dataset(files[0]) as reference:
+            variables = (
+                configured
+                if configured is not None
+                else {
+                    name: set(_DEFAULT_SUMMARY_METRICS)
+                    for name, array in reference.data_vars.items()
+                    if {"y", "x"}.issubset(array.dims)
+                }
+            )
+            for source_name, metrics in variables.items():
+                if source_name not in reference:
+                    raise ValueError(f"Configured compact grid source {source_name!r} is missing in {files[0]}")
+                array = reference[source_name]
+                spec = source_specs.setdefault(
+                    source_name,
+                    {"dims": tuple(array.dims), "non_time": {d: int(array.sizes[d]) for d in array.dims if "time" not in d.lower()}, "metrics": set()},
+                )
+                cast_metrics = spec["metrics"]
+                assert isinstance(cast_metrics, set)
+                cast_metrics.update(metrics)
+                for dim in array.dims:
+                    if "time" in dim.lower() and dim in reference.coords:
+                        values = pd.to_datetime(reference[dim].values).view("int64")
+                        source_times.setdefault((source_name, dim), set()).update(int(value) for value in values)
+        for path in files[1:]:
+            with xr.open_dataset(path) as member:
+                for source_name, spec in source_specs.items():
+                    if source_name not in member:
+                        raise ValueError(f"Grid source {source_name!r} is missing in member output {path}")
+                    array = member[source_name]
+                    non_time = {d: int(array.sizes[d]) for d in array.dims if "time" not in d.lower()}
+                    if non_time != spec["non_time"]:
+                        raise ValueError(f"Grid source {source_name!r} shape differs in {path}")
+
+    with xr.open_dataset(output) as retained:
+        for source_name, spec in source_specs.items():
+            metrics = spec["metrics"]
+            assert isinstance(metrics, set)
+            for metric in metrics:
+                name = f"{metric}_{source_name}"
+                if name not in retained:
+                    raise ValueError(f"Compact DA grid metric is missing: {name} in {output}")
+                array = retained[name]
+                non_time = {d: int(array.sizes[d]) for d in array.dims if "time" not in d.lower()}
+                if non_time != spec["non_time"]:
+                    raise ValueError(f"Compact DA grid metric shape differs for {name} in {output}")
+                for dim in array.dims:
+                    expected = source_times.get((source_name, dim))
+                    if expected is not None:
+                        actual = {int(value) for value in pd.to_datetime(retained[dim].values).view("int64")}
+                        if actual != expected:
+                            raise ValueError(f"Compact DA grid time coverage differs for {name} in {output}")
+    return output
 
 
 def delete_files(paths: Iterable[Path]) -> tuple[int, int]:

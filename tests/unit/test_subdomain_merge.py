@@ -569,6 +569,18 @@ def test_cleanup_deletes_only_manifest_owned_files_after_render(
         "openamundsen_da.pipeline.cleanup.validate_map_support",
         lambda *_args, **_kwargs: map_support,
     )
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.cleanup.validate_project_da_output_grids",
+        lambda *_args, **_kwargs: compact_subdomain,
+    )
+    monkeypatch.setattr(
+        "openamundsen_da.methods.viz.maps.panel_renderers.project_da_map_support_fields",
+        lambda *_args, **_kwargs: (
+            ["2022-10-01"],
+            {"scf_prior_probability": [np.zeros((1, 1))]},
+            np.ones((1, 1), dtype=bool),
+        ),
+    )
 
     deleted, bytes_freed = merge_mod.cleanup_compact_grid_artifacts(
         manifest_path=tmp_path / "manifest.json",

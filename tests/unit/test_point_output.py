@@ -7,11 +7,22 @@ import numpy as np
 import pytest
 
 from openamundsen_da.util.point_output import (
+    _read_point_csv,
     compact_point_filenames,
     load_compact_point_series,
     validate_project_ensemble_points,
     write_project_ensemble_points,
 )
+
+
+def test_point_csv_rejects_unknown_text_but_accepts_missing_tokens(tmp_path: Path) -> None:
+    path = tmp_path / "point.csv"
+    path.write_text("date,swe\n2023-01-01,NA\n2023-01-02,bad\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="unrecognized nonnumeric"):
+        _read_point_csv(path)
+    path.write_text("date,swe\n2023-01-01,NA\n2023-01-02,\n", encoding="utf-8")
+    _times, frame = _read_point_csv(path)
+    assert frame["swe"].isna().all()
 from openamundsen_da.methods.viz.fraction_series import (
     load_member_series,
     load_open_loop_fraction_series,

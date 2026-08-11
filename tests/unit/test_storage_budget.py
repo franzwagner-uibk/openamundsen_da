@@ -8,6 +8,7 @@ import pytest
 
 from openamundsen_da.exceptions import LowDiskEmergencyError, LowDiskPauseError
 from openamundsen_da.util.storage_budget import (
+    DEFAULT_POINT_VARIABLE_COUNT,
     EMERGENCY_USED_FRACTION,
     ProjectStorageEstimate,
     SOFT_USED_FRACTION,
@@ -19,6 +20,7 @@ from openamundsen_da.util.storage_budget import (
     estimate_project_storage_components,
     estimate_project_storage_reserve,
     estimate_step_forcing_bytes,
+    _point_storage_bound,
 )
 
 
@@ -91,6 +93,28 @@ def test_forcing_estimate_scales_to_step_window_and_ensemble(tmp_path: Path) -> 
     assert 0 < short < full
 
 
+def test_forcing_estimate_scales_each_station_coverage_independently(tmp_path: Path) -> None:
+    meteo = tmp_path / "meteo"
+    meteo.mkdir()
+    (meteo / "stations.csv").write_text("id\na\nb\n", encoding="utf-8")
+    (meteo / "a.csv").write_text(
+        "date,temp\n2023-01-01,273\n2023-01-11,274\n",
+        encoding="utf-8",
+    )
+    short_record = "date,temp\n2023-01-01,273\n2023-01-02,274\n"
+    (meteo / "b.csv").write_text(short_record, encoding="utf-8")
+
+    estimated = estimate_step_forcing_bytes(
+        meteo,
+        start=datetime(2023, 1, 1),
+        end=datetime(2023, 1, 2),
+        ensemble_size=1,
+    )
+
+    short_full_bound = int(len(short_record.encode()) * 1.35) * 2
+    assert estimated >= short_full_bound
+
+
 def test_compact_export_estimate_counts_owned_csvs_with_margin(tmp_path: Path) -> None:
     project = tmp_path / "project"
     point = project / "steps" / "step_00" / "ensembles" / "prior" / "member_001" / "results" / "point_a.csv"
@@ -104,6 +128,39 @@ def test_compact_export_estimate_counts_owned_csvs_with_margin(tmp_path: Path) -
     unrelated.write_bytes(b"ignored")
 
     assert estimate_compact_timeseries_bytes(project) == 11
+
+
+def test_point_bound_counts_default_columns_and_explicit_layers(tmp_path: Path) -> None:
+    setup = tmp_path / "setup"
+    meteo = setup / "meteo"
+    meteo.mkdir(parents=True)
+    (meteo / "stations.csv").write_text("id\na\n", encoding="utf-8")
+    steps = [(tmp_path / "step", datetime(2023, 1, 1), datetime(2023, 1, 1))]
+    default_only = _point_storage_bound(
+        setup_dir=setup,
+        setup_cfg={},
+        output_data={"timeseries": {"add_default_points": True, "add_default_variables": True}},
+        steps=steps,
+        model_timestep="1D",
+        member_count=1,
+    )
+    explicit_layers = _point_storage_bound(
+        setup_dir=setup,
+        setup_cfg={"snow": {"min_thickness": [0.1, 0.2, 0.4]}},
+        output_data={
+            "timeseries": {
+                "add_default_points": True,
+                "add_default_variables": True,
+                "variables": [{"var": "snow.temp"}],
+            }
+        },
+        steps=steps,
+        model_timestep="1D",
+        member_count=1,
+    )
+
+    assert DEFAULT_POINT_VARIABLE_COUNT == 40
+    assert explicit_layers > default_only
 
 
 def test_project_reserve_covers_pending_steps_and_final_compaction(tmp_path: Path) -> None:
@@ -248,6 +305,15 @@ def test_project_reserve_covers_pending_steps_and_final_compaction(tmp_path: Pat
     )
     assert completed.compact_timeseries_bytes == 0
     assert completed.total_bytes < components.total_bytes
+
+    overwritten = estimate_project_storage_components(
+        setup_dir=setup,
+        project_dir=project,
+        grid_cell_count=4,
+        overwrite=True,
+    )
+    assert overwritten.compact_timeseries_bytes > 0
+    assert overwritten.compact_grid_bytes > 0
 
 
 def test_coordinator_reserves_all_growth_concurrent_states_and_parent_merge(

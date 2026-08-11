@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from openamundsen_da.methods.viz.maps.panel_renderers import (
     _prior_wet_fraction_array,
@@ -42,7 +43,6 @@ def test_retained_map_support_round_trips_and_feeds_render_sources(tmp_path: Pat
         scf,
         equal_nan=True,
     )
-
     context = SimpleNamespace(project_dir=project, roi_mask=np.ones((2, 2), dtype=bool))
     np.testing.assert_allclose(
         _single_domain_scf_model_probability_array(
@@ -59,3 +59,46 @@ def test_retained_map_support_round_trips_and_feeds_render_sources(tmp_path: Pat
         wet,
         equal_nan=True,
     )
+
+
+def test_map_support_validation_binds_roi_domain_and_source_values(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    date = pd.Timestamp("2023-03-01")
+    source = np.asarray([[0.2, np.nan], [0.8, np.nan]])
+    roi = np.asarray([[True, False], [True, False]])
+    write_map_support(project, dates=[date], fields={"scf_prior_probability": [source]})
+
+    validate_map_support(
+        project,
+        dates=[date],
+        fields={"scf_prior_probability"},
+        roi_mask=roi,
+        source_fields={"scf_prior_probability": [source]},
+    )
+    with pytest.raises(ValueError, match="differ from raw sources"):
+        validate_map_support(
+            project,
+            dates=[date],
+            fields={"scf_prior_probability"},
+            roi_mask=roi,
+            source_fields={"scf_prior_probability": [source + 0.1]},
+        )
+
+
+def test_map_support_validation_rejects_finite_values_outside_roi(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    date = pd.Timestamp("2023-03-01")
+    write_map_support(
+        project,
+        dates=[date],
+        fields={"scf_prior_probability": [np.asarray([[0.2, 0.3]])]},
+    )
+    with pytest.raises(ValueError, match="outside the ROI"):
+        validate_map_support(
+            project,
+            dates=[date],
+            fields={"scf_prior_probability"},
+            roi_mask=np.asarray([[True, False]]),
+        )

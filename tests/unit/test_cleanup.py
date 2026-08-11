@@ -1,8 +1,18 @@
 from __future__ import annotations
 
+import gzip
+import pickle
 from pathlib import Path
 
+import pytest
+
 from openamundsen_da.pipeline.cleanup import clean_predecessor_checkpoint, clean_project_artifacts
+
+
+def _write_state(path: Path, value: int = 1) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(path, "wb") as stream:
+        pickle.dump({"snow": {"swe": value}}, stream)
 
 
 def _write_project_yaml(project_dir: Path, *, retention: str | None = None) -> None:
@@ -174,12 +184,44 @@ def test_compact_predecessor_cleanup_waits_for_explicit_successor_gate(tmp_path:
     _write_project_yaml(project_dir, retention="compact")
     step = project_dir / "steps" / "step_00_init"
     state = step / "ensembles" / "prior" / "member_001" / "results" / "model_state.pickle.gz"
-    state.parent.mkdir(parents=True)
-    state.write_bytes(b"state")
+    _write_state(state)
+    successor = project_dir / "steps" / "step_01"
+    for name in ("open_loop", "member_001", "member_002"):
+        _write_state(
+            successor / "ensembles" / "prior" / name / "results" / "model_state.pickle.gz"
+        )
 
     preview = clean_predecessor_checkpoint(project_dir, step, apply=False)
     assert preview == (state.resolve(),)
     assert state.is_file()
-    removed = clean_predecessor_checkpoint(project_dir, step, apply=True)
+    removed = clean_predecessor_checkpoint(
+        project_dir,
+        step,
+        successor_step=successor,
+        apply=True,
+    )
     assert removed == preview
     assert not state.exists()
+
+
+def test_predecessor_cleanup_requires_every_successor_state(tmp_path: Path) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir, retention="compact")
+    predecessor = project_dir / "steps" / "step_00_init"
+    state = predecessor / "ensembles" / "prior" / "member_001" / "results" / "model_state.pickle.gz"
+    _write_state(state)
+    successor = project_dir / "steps" / "step_01"
+    _write_state(successor / "ensembles" / "prior" / "open_loop" / "results" / "model_state.pickle.gz")
+    broken = successor / "ensembles" / "prior" / "member_001" / "results" / "model_state.pickle.gz"
+    broken.parent.mkdir(parents=True)
+    broken.write_bytes(b"not a checkpoint")
+
+    with pytest.raises(RuntimeError, match="Restart state is unreadable"):
+        clean_predecessor_checkpoint(
+            project_dir,
+            predecessor,
+            successor_step=successor,
+            apply=True,
+        )
+
+    assert state.is_file()

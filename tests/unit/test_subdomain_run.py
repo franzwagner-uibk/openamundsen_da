@@ -208,6 +208,41 @@ def test_coordinator_reserves_largest_active_leaf_transitions(monkeypatch, tmp_p
     assert concurrent == 500
 
 
+def test_coordinator_drops_parent_finalization_reserve_only_after_accepted_merge(
+    monkeypatch,
+    tmp_path,
+):
+    manifest, _ = _single_subdomain_manifest(tmp_path)
+    merged = manifest.project_dir / "results" / "grids" / "da_output_grids.nc"
+    merged.parent.mkdir(parents=True, exist_ok=True)
+    merged.write_bytes(b"accepted")
+    manifest.stages["merge"] = {"status": "completed"}
+    captured = {}
+    monkeypatch.setattr(run_mod, "estimate_parent_compact_merge_bytes", lambda **_kwargs: 999)
+    monkeypatch.setattr(
+        run_mod,
+        "estimate_coordinated_storage_reserve",
+        lambda _projects, **kwargs: (captured.setdefault("merge", kwargs["parent_merge_reserve_bytes"]), {}),
+    )
+
+    _total, _leaves, _projects, reserve = run_mod._coordinator_storage_reserve(
+        manifest,
+        selected_ids=["S1"],
+        outer_workers=1,
+        overwrite=False,
+    )
+    assert reserve == 0
+    assert captured["merge"] == 0
+
+    _total, _leaves, _projects, reserve = run_mod._coordinator_storage_reserve(
+        manifest,
+        selected_ids=["S1"],
+        outer_workers=1,
+        overwrite=True,
+    )
+    assert reserve == 999
+
+
 def test_run_subdomains_refuses_coordinated_growth_before_workers(tmp_path, monkeypatch):
     manifest, manifest_path = _single_subdomain_manifest(tmp_path)
     project_spec = run_mod.StorageReservationProject(

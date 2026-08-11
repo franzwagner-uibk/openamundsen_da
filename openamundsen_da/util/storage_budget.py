@@ -32,7 +32,7 @@ OPERATIONAL_RESERVE_FRACTION = 0.05
 GRID_BYTES_PER_CELL_SAMPLE = 8
 STATE_BYTES_PER_CELL_MEMBER = 4096
 POINT_BYTES_PER_VALUE = 32
-DEFAULT_POINT_VARIABLE_COUNT = 32
+DEFAULT_POINT_VARIABLE_COUNT = 40
 FILE_OVERHEAD_BYTES = 256 * 1024
 COMPACT_OUTPUT_MARGIN = 1.10
 OBSERVED_REFIT_MARGIN = 1.25
@@ -159,29 +159,31 @@ def estimate_step_forcing_bytes(
     )
     if not station_files:
         raise FileNotFoundError(f"No station forcing CSV files found in {meteo_dir}")
-    first_times: list[datetime] = []
-    last_times: list[datetime] = []
-    payload_bytes = 0
+    per_copy_payload = 0
     for path in station_files:
-        payload_bytes += path.stat().st_size
         bounds = _station_file_bounds(path)
-        if bounds is not None:
-            first_times.append(bounds[0])
-            last_times.append(bounds[1])
-    if not first_times:
-        raise ValueError(f"Could not read forcing time coverage in {meteo_dir}")
+        if bounds is None:
+            raise ValueError(f"Could not read forcing time coverage in {path}")
+        first, last = bounds
+        coverage_seconds = max(1.0, (last - first).total_seconds())
+        window_seconds = max(1.0, (end - start).total_seconds())
+        fraction = min(1.0, window_seconds / coverage_seconds)
+        # Scale each station independently. Using one network-wide coverage
+        # interval can under-budget short-record stations when another file has
+        # a much longer record.
+        with path.open("rb") as stream:
+            header_bytes = len(stream.readline())
+        payload_bytes = max(0, path.stat().st_size - header_bytes)
+        per_copy_payload += header_bytes + int(payload_bytes * fraction * 1.35)
     if start.tzinfo is not None:
         start = start.astimezone(timezone.utc).replace(tzinfo=None)
     if end.tzinfo is not None:
         end = end.astimezone(timezone.utc).replace(tzinfo=None)
-    coverage_seconds = max(1.0, (max(last_times) - min(first_times)).total_seconds())
-    window_seconds = max(1.0, (end - start).total_seconds())
-    fraction = min(1.0, window_seconds / coverage_seconds)
     metadata_bytes = (meteo_dir / "stations.csv").stat().st_size if (meteo_dir / "stations.csv").is_file() else 0
     # CSV formatting and uneven station coverage make exact byte prediction
     # impossible before generation. Keep a 35% conservative serialization
     # margin while scaling only the requested step window.
-    per_copy = int(payload_bytes * fraction * 1.35) + metadata_bytes
+    per_copy = per_copy_payload + metadata_bytes
     return per_copy * (ensemble_size + 1)
 
 
@@ -345,6 +347,7 @@ def _station_count(setup_dir: Path) -> int:
 def _point_storage_bound(
     *,
     setup_dir: Path,
+    setup_cfg: dict,
     output_data: dict,
     steps: list[tuple[Path, datetime, datetime]],
     model_timestep: object,
@@ -358,7 +361,10 @@ def _point_storage_bound(
     if point_count == 0:
         return 0
     variables = list(timeseries.get("variables") or [])
-    variable_count = len(variables)
+    variable_count = sum(
+        _grid_layer_count(variable, setup_cfg) if isinstance(variable, dict) else 1
+        for variable in variables
+    )
     if bool(timeseries.get("add_default_variables", True)):
         variable_count += DEFAULT_POINT_VARIABLE_COUNT
     variable_count = max(1, variable_count)
@@ -476,6 +482,7 @@ def _compact_grid_storage_bound(
     steps: list[tuple[Path, datetime, datetime]],
     model_timestep: object,
     grid_cell_count: int,
+    overwrite: bool,
 ) -> int:
     total_samples = sum(
         _configured_compact_grid_samples(
@@ -495,8 +502,11 @@ def _compact_grid_storage_bound(
         + FILE_OVERHEAD_BYTES
     )
     output = project_dir / "results" / "grids" / "da_output_grids.nc"
-    existing = output.stat().st_size if output.is_file() else 0
-    return max(0, expected - existing)
+    if output.is_file() and not overwrite:
+        return 0
+    # The writer uses a same-directory atomic temporary. During overwrite the
+    # complete old output and complete replacement coexist.
+    return expected
 
 
 def estimate_project_storage_components(
@@ -508,11 +518,9 @@ def estimate_project_storage_components(
 ) -> ProjectStorageEstimate:
     """Estimate all additional retained and peak-transition project bytes.
 
-    ``overwrite`` is accepted for call-site symmetry. Existing artifact bytes
-    are always measured because replacing a file does not require retaining a
-    second full copy; atomic outputs have their own explicit reservations.
+    Atomic compact outputs reserve one complete temporary when ``overwrite``
+    is requested because the accepted old file remains until replacement.
     """
-    del overwrite
     setup_dir = Path(setup_dir).resolve()
     project_dir = Path(project_dir).resolve()
     project_yaml = find_project_yaml(project_dir)
@@ -564,6 +572,7 @@ def estimate_project_storage_components(
 
     point_expected = _point_storage_bound(
         setup_dir=setup_dir,
+        setup_cfg=setup_cfg,
         output_data=output_data,
         steps=steps,
         model_timestep=model_timestep,
@@ -601,9 +610,9 @@ def estimate_project_storage_components(
     if compact:
         point_output = project_dir / "results" / "points" / "ensemble_points.nc"
         forcing_output = project_dir / "results" / "forcing" / "ensemble_forcing.nc"
-        if not point_output.is_file():
+        if overwrite or not point_output.is_file():
             compact_timeseries += int(point_expected * COMPACT_OUTPUT_MARGIN)
-        if not forcing_output.is_file():
+        if overwrite or not forcing_output.is_file():
             compact_timeseries += int(forcing_expected * COMPACT_OUTPUT_MARGIN)
 
     compact_grid = _compact_grid_storage_bound(
@@ -614,6 +623,7 @@ def estimate_project_storage_components(
         steps=steps,
         model_timestep=model_timestep,
         grid_cell_count=grid_cell_count,
+        overwrite=overwrite,
     )
     return ProjectStorageEstimate(
         forcing_bytes=forcing_additional,

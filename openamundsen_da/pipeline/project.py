@@ -685,11 +685,22 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
             raise RuntimeError(f"Member propagation failed in {step_name}; restart states were retained")
 
         if i > 0:
-            removed_checkpoint = clean_predecessor_checkpoint(
-                cfg.project_dir,
-                steps[i - 1],
-                apply=True,
-            )
+            try:
+                removed_checkpoint = clean_predecessor_checkpoint(
+                    cfg.project_dir,
+                    steps[i - 1],
+                    successor_step=step_dir,
+                    apply=True,
+                )
+            except RuntimeError:
+                if i < len(steps) - 1:
+                    raise
+                removed_checkpoint = ()
+                logger.warning(
+                    "Final-step checkpoint is unavailable; retaining predecessor {} "
+                    "until final project cleanup",
+                    steps[i - 1].name,
+                )
             if removed_checkpoint:
                 logger.info(
                     "Compact retention removed validated predecessor checkpoint {} ({} files)",

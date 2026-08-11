@@ -38,7 +38,10 @@ def _read_point_csv(path: Path) -> tuple[pd.DatetimeIndex, pd.DataFrame]:
     times = pd.DatetimeIndex(pd.to_datetime(frame.pop(time_col), errors="raise"))
     if times.tz is not None:
         times = times.tz_convert("UTC").tz_localize(None)
-    numeric = frame.apply(pd.to_numeric, errors="coerce")
+    try:
+        numeric = frame.apply(pd.to_numeric, errors="raise")
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Point output contains an unrecognized nonnumeric value: {path}") from exc
     return times, numeric
 
 
@@ -270,7 +273,8 @@ def write_project_ensemble_points(
                     chunksizes=chunks,
                     fill_value=np.nan,
                 )
-                var.units = _KNOWN_UNITS.get(name, "1")
+                if name in _KNOWN_UNITS:
+                    var.units = _KNOWN_UNITS[name]
                 var.long_name = name.replace("_", " ")
                 variables[name] = var
 

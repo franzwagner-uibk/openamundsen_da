@@ -7,10 +7,16 @@ from pathlib import Path
 from typing import Iterable
 
 from openamundsen_da.exceptions import CleanupSafetyError
-from openamundsen_da.manifests import file_inventory, inventory_digest, load_manifest, write_manifest_atomic
+from openamundsen_da.manifests import (
+    file_inventory,
+    inventory_digest,
+    load_manifest,
+    sha256_file,
+    write_manifest_atomic,
+)
 
 
-RETENTION_SCHEMA_VERSION = 1
+RETENTION_SCHEMA_VERSION = 2
 RETENTION_MANIFEST = "retention_manifest.json"
 
 
@@ -70,6 +76,33 @@ def _unlink_path(path: Path) -> None:
     path.unlink()
 
 
+def _validate_recorded_file(project_dir: Path, batch: dict, rel: str) -> Path:
+    """Bind a planned deletion to the exact generation recorded in its inventory."""
+    path = (project_dir / rel).resolve()
+    try:
+        path.relative_to(project_dir)
+    except ValueError as exc:
+        raise CleanupSafetyError(f"Recorded cleanup path escapes project root: {rel}") from exc
+    if not path.exists():
+        return path
+    if not path.is_file() or path.is_symlink():
+        raise CleanupSafetyError(f"Recorded cleanup candidate is not a regular file: {rel}")
+    inventory = {
+        str(row.get("path")): row
+        for row in batch.get("inventory", [])
+        if isinstance(row, dict)
+    }
+    row = inventory.get(rel)
+    if row is None:
+        raise CleanupSafetyError(f"Retention plan has no inventory entry for {rel}")
+    size = path.stat().st_size
+    if size != int(row.get("size", -1)) or sha256_file(path) != str(row.get("sha256", "")):
+        raise CleanupSafetyError(
+            f"Retention candidate changed after planning; refusing recreated or modified file: {rel}"
+        )
+    return path
+
+
 def apply_retention_batch(
     project_dir: str | Path,
     *,
@@ -89,29 +122,36 @@ def apply_retention_batch(
 
     # A retry may find a planned batch with some paths already absent. Reuse
     # that exact plan rather than creating a second provenance record.
-    existing = next(
-        (
-            batch
-            for batch in ledger["batches"]
-            if batch.get("artifact_class") == artifact_class
-            and (
-                batch.get("paths") == relative_paths
-                or (
-                    batch.get("status") == "planned"
-                    and set(relative_paths)
-                    == {
-                        str(rel)
-                        for rel in batch.get("paths", [])
-                        if (project_dir / str(rel)).exists()
-                    }
-                )
+    matching = [
+        batch
+        for batch in ledger["batches"]
+        if batch.get("artifact_class") == artifact_class
+        and (
+            batch.get("paths") == relative_paths
+            or (
+                batch.get("status") == "planned"
+                and set(relative_paths)
+                == {
+                    str(rel)
+                    for rel in batch.get("paths", [])
+                    if (project_dir / str(rel)).exists()
+                }
             )
-            and batch.get("status") in {"planned", "complete"}
-        ),
-        None,
+        )
+        and batch.get("status") in {"planned", "complete"}
+    ]
+    # A planned retry always belongs to the recorded generation, even if an
+    # older completed generation used the same relative names.
+    existing = next(
+        (batch for batch in matching if batch.get("status") == "planned"),
+        matching[-1] if matching else None,
     )
     if existing is not None and existing.get("status") == "complete":
-        return existing
+        # An absent generation is idempotently complete. A path recreated at
+        # the same name is a new generation and receives its own batch.
+        if not any((project_dir / rel).exists() for rel in existing.get("paths", [])):
+            return existing
+        existing = None
 
     if existing is None:
         inventory = file_inventory(root=project_dir, files=[path for path in candidates if path.is_file()])
@@ -137,11 +177,7 @@ def apply_retention_batch(
 
     failures: list[str] = []
     for rel in batch["paths"]:
-        path = (project_dir / rel).resolve()
-        try:
-            path.relative_to(project_dir)
-        except ValueError as exc:
-            raise CleanupSafetyError(f"Recorded cleanup path escapes project root: {rel}") from exc
+        path = _validate_recorded_file(project_dir, batch, str(rel))
         if not path.exists():
             continue
         try:
@@ -200,6 +236,7 @@ def completed_retention_paths(project_dir: str | Path) -> set[str]:
         for batch in ledger["batches"]
         if batch.get("status") == "complete"
         for rel in batch.get("paths", [])
+        if not (project_dir / str(rel)).exists()
     }
 
 
@@ -211,14 +248,15 @@ def planned_retention_paths(
     """Return existing paths from the matching interrupted cleanup batch."""
     project_dir = Path(project_dir).resolve()
     ledger = _load_ledger(project_dir)
-    return tuple(
-        project_dir / str(rel)
+    paths = tuple(
+        _validate_recorded_file(project_dir, batch, str(rel))
         for batch in ledger["batches"]
         if batch.get("status") == "planned"
         and batch.get("artifact_class") == artifact_class
         for rel in batch.get("paths", [])
         if (project_dir / str(rel)).is_file()
     )
+    return paths
 
 
 __all__ = [

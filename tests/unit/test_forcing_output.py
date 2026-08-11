@@ -7,12 +7,23 @@ import numpy as np
 import pytest
 
 from openamundsen_da.util.forcing_output import (
+    _read_forcing_csv,
     compact_forcing_members,
     compact_forcing_stations,
     load_compact_forcing_series,
     validate_project_ensemble_forcing,
     write_project_ensemble_forcing,
 )
+
+
+def test_forcing_csv_rejects_unknown_text_but_accepts_missing_tokens(tmp_path: Path) -> None:
+    path = tmp_path / "forcing.csv"
+    path.write_text("date,temp\n2023-01-01,NA\n2023-01-02,bad\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="unrecognized nonnumeric"):
+        _read_forcing_csv(path)
+    path.write_text("date,temp\n2023-01-01,NA\n2023-01-02,\n", encoding="utf-8")
+    _times, frame = _read_forcing_csv(path)
+    assert frame["temp"].isna().all()
 
 
 def _write_forcing(root: Path, date: str, temp: float, precip: float) -> None:

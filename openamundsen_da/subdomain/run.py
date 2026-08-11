@@ -488,7 +488,14 @@ def _coordinator_storage_reserve(
             )
         )
     project_specs = tuple(projects)
-    parent_merge_reserve = estimate_parent_compact_merge_bytes(
+    merge_stage = manifest.stages.get("merge") or {}
+    merged_output = manifest.project_dir / "results" / "grids" / "da_output_grids.nc"
+    merge_is_accepted = (
+        not overwrite
+        and str(merge_stage.get("status", "")).lower() == "completed"
+        and merged_output.is_file()
+    )
+    parent_merge_reserve = 0 if merge_is_accepted else estimate_parent_compact_merge_bytes(
         setup_dir=manifest.setup_dir,
         project_dir=manifest.project_dir,
         grid_cell_count=int(manifest.grid_rows) * int(manifest.grid_cols),

@@ -14,7 +14,7 @@ from openamundsen_da.core.constants import (
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml
 from openamundsen_da.results import CleanupFailure, CleanupResult, WorkflowStatus
-from openamundsen_da.util.da_output import output_retention_mode
+from openamundsen_da.util.da_output import output_retention_mode, validate_project_da_output_grids
 from openamundsen_da.util.map_support import validate_map_support
 from openamundsen_da.util.point_output import validate_project_ensemble_points
 from openamundsen_da.util.forcing_output import validate_project_ensemble_forcing
@@ -24,6 +24,7 @@ from openamundsen_da.util.retention import (
     reconcile_retention_ledger,
 )
 from openamundsen_da.util.da_events import load_assimilation_events
+from openamundsen_da.util.restart_state import validate_restart_state
 
 
 def _read_restart_config(project_dir: Path) -> dict:
@@ -116,13 +117,42 @@ def _restart_checkpoint_candidates(project_dir: Path, step_dir: Path) -> list[Pa
     return sorted(candidates)
 
 
-def clean_predecessor_checkpoint(project_dir: Path, step_dir: Path, *, apply: bool) -> tuple[Path, ...]:
+def _validated_successor_states(project_dir: Path, successor_step: Path) -> tuple[Path, ...]:
+    """Require a readable checkpoint for open loop and every successor member."""
+    prior_dir = successor_step / "ensembles" / "prior"
+    roots = sorted(path for path in prior_dir.iterdir() if path.is_dir()) if prior_dir.is_dir() else []
+    names = {path.name for path in roots}
+    if "open_loop" not in names:
+        raise RuntimeError(f"Successor step has no open-loop member directory: {successor_step}")
+    member_roots = [path for path in roots if path.name == "open_loop" or path.name.startswith("member_")]
+    if not any(path.name.startswith("member_") for path in member_roots):
+        raise RuntimeError(f"Successor step has no ensemble member directories: {successor_step}")
+    pattern = state_patterns_from_setup(project_dir)[0]
+    output_name = STATE_DEFAULT_NAME if any(char in pattern for char in "*?[]") else pattern
+    states: list[Path] = []
+    for root in member_roots:
+        state = root / "results" / output_name
+        validate_restart_state(state)
+        states.append(state.resolve())
+    return tuple(states)
+
+
+def clean_predecessor_checkpoint(
+    project_dir: Path,
+    step_dir: Path,
+    *,
+    successor_step: Path | None = None,
+    apply: bool,
+) -> tuple[Path, ...]:
     """Remove a predecessor checkpoint after its successor has validated."""
     project_dir = Path(project_dir).resolve()
     if output_retention_mode(project_dir) != "compact":
         return ()
     candidates = _restart_checkpoint_candidates(project_dir, step_dir)
     if apply and candidates:
+        if successor_step is None:
+            raise RuntimeError("Successor step is required before deleting a predecessor checkpoint")
+        _validated_successor_states(project_dir, Path(successor_step).resolve())
         apply_retention_batch(
             project_dir,
             artifact_class=f"restart_checkpoint:{Path(step_dir).name}",
@@ -179,6 +209,22 @@ def _compact_grid_candidates(project_dir: Path) -> list[Path]:
     compact = project_dir / "results" / "grids" / "da_output_grids.nc"
     if not compact.is_file():
         return []
+    patterns = (
+        "steps/step_*/ensembles/*/*/results/output_grids*.nc",
+        "steps/step_*/ensembles/*/*/results/**/*.tif",
+        "steps/step_*/ensembles/*/*/results/**/*.tiff",
+    )
+    candidates = sorted(
+        {
+            path.resolve()
+            for pattern in patterns
+            for path in project_dir.glob(pattern)
+            if path.is_file() and not path.is_symlink()
+        }
+    )
+    if not candidates:
+        return []
+    validate_project_da_output_grids(project_dir, output_nc=compact)
     events = load_assimilation_events(project_dir)
     fraction_events = [
         event
@@ -207,24 +253,20 @@ def _compact_grid_candidates(project_dir: Path) -> list[Path]:
                     "wet_snow_posterior_probability",
                 }
             )
+        from openamundsen_da.methods.viz.maps.panel_renderers import project_da_map_support_fields
+
+        built_support = project_da_map_support_fields(project_dir)
+        if built_support is None:
+            return []
+        _support_dates, source_fields, roi_mask = built_support
         validate_map_support(
             project_dir,
             dates=[event.date for event in events],
             fields=required_fields,
+            roi_mask=roi_mask,
+            source_fields=source_fields,
         )
-    patterns = (
-        "steps/step_*/ensembles/*/*/results/output_grids*.nc",
-        "steps/step_*/ensembles/*/*/results/**/*.tif",
-        "steps/step_*/ensembles/*/*/results/**/*.tiff",
-    )
-    return sorted(
-        {
-            path.resolve()
-            for pattern in patterns
-            for path in project_dir.glob(pattern)
-            if path.is_file() and not path.is_symlink()
-        }
-    )
+    return candidates
 
 
 def _cleanup_classes(project_dir: Path) -> dict[str, list[Path]]:

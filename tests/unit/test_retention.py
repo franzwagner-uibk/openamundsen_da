@@ -128,3 +128,57 @@ def test_retention_refuses_paths_outside_project(tmp_path: Path) -> None:
             final_consumer="test",
             regeneration_recipe="none",
         )
+
+
+def test_completed_batch_treats_recreated_path_as_new_generation(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    artifact = project / "step" / "forcing.csv"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"generation-one")
+    first = apply_retention_batch(
+        project,
+        artifact_class="forcing",
+        paths=[artifact],
+        final_consumer="propagation",
+        regeneration_recipe="regenerate",
+    )
+    artifact.write_bytes(b"generation-two")
+
+    second = apply_retention_batch(
+        project,
+        artifact_class="forcing",
+        paths=[artifact],
+        final_consumer="propagation",
+        regeneration_recipe="regenerate",
+    )
+
+    assert first["batch_id"] == "0001"
+    assert second["batch_id"] == "0002"
+    assert not artifact.exists()
+
+
+def test_planned_retry_refuses_modified_generation(tmp_path: Path, monkeypatch) -> None:
+    project = tmp_path / "project"
+    artifact = project / "state.bin"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"original")
+
+    monkeypatch.setattr(retention_mod, "_unlink_path", lambda _path: (_ for _ in ()).throw(OSError("stop")))
+    with pytest.raises(CleanupSafetyError, match="Retention cleanup failed"):
+        apply_retention_batch(
+            project,
+            artifact_class="state",
+            paths=[artifact],
+            final_consumer="successor",
+            regeneration_recipe="rerun",
+        )
+    artifact.write_bytes(b"modified")
+
+    with pytest.raises(CleanupSafetyError, match="changed after planning"):
+        apply_retention_batch(
+            project,
+            artifact_class="state",
+            paths=[artifact],
+            final_consumer="successor",
+            regeneration_recipe="rerun",
+        )

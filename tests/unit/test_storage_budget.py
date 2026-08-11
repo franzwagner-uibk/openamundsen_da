@@ -9,9 +9,15 @@ import pytest
 from openamundsen_da.exceptions import LowDiskEmergencyError, LowDiskPauseError
 from openamundsen_da.util.storage_budget import (
     EMERGENCY_USED_FRACTION,
+    ProjectStorageEstimate,
     SOFT_USED_FRACTION,
+    StorageReservationProject,
     check_step_admission,
     estimate_compact_timeseries_bytes,
+    estimate_coordinated_storage_reserve,
+    estimate_parent_compact_merge_bytes,
+    estimate_project_storage_components,
+    estimate_project_storage_reserve,
     estimate_step_forcing_bytes,
 )
 
@@ -98,3 +104,229 @@ def test_compact_export_estimate_counts_owned_csvs_with_margin(tmp_path: Path) -
     unrelated.write_bytes(b"ignored")
 
     assert estimate_compact_timeseries_bytes(project) == 11
+
+
+def test_project_reserve_covers_pending_steps_and_final_compaction(tmp_path: Path) -> None:
+    setup = tmp_path / "setup"
+    project = setup / "projects" / "demo"
+    meteo = setup / "meteo"
+    meteo.mkdir(parents=True)
+    (meteo / "stations.csv").write_text("id,name,x,y,alt\na,A,0,0,0\n", encoding="utf-8")
+    (meteo / "a.csv").write_text(
+        "date,temp\n"
+        "2023-01-01,273\n"
+        "2023-01-02,274\n"
+        "2023-01-03,275\n"
+        "2023-01-04,276\n",
+        encoding="utf-8",
+    )
+    project.mkdir(parents=True)
+    (setup / "north_tyrol.yml").write_text(
+        "domain: demo\n"
+        "resolution: 100\n"
+        "timestep: 1D\n"
+        "input_data:\n  grids:\n    dir: grids\n"
+        "output_data:\n"
+        "  timeseries:\n"
+        "    add_default_points: false\n"
+        "    add_default_variables: false\n"
+        "  grids:\n"
+        "    format: netcdf\n"
+        "    variables:\n"
+        "      - var: snow.depth\n"
+        "        name: snowdepth_daily\n"
+        "        freq: 1D\n",
+        encoding="utf-8",
+    )
+    (project / "demo.yml").write_text(
+        "data_assimilation:\n"
+        "  prior_forcing:\n"
+        "    ensemble_size: 2\n"
+        "  output:\n"
+        "    retention: compact\n"
+        "    grids:\n"
+        "      variables:\n"
+        "        - var: snowdepth_daily\n"
+        "          metrics: [open_loop, ens_mean]\n",
+        encoding="utf-8",
+    )
+    windows = (
+        ("step_00", "2023-01-01", "2023-01-02"),
+        ("step_01", "2023-01-03", "2023-01-04"),
+    )
+    estimates = []
+    for name, start, end in windows:
+        step = project / "steps" / name
+        step.mkdir(parents=True)
+        (step / f"{name}.yml").write_text(
+            f"start_date: {start}\nend_date: {end}\n",
+            encoding="utf-8",
+        )
+        estimates.append(
+            estimate_step_forcing_bytes(
+                meteo,
+                start=datetime.fromisoformat(start),
+                end=datetime.fromisoformat(end),
+                ensemble_size=2,
+            )
+        )
+
+    reserve = estimate_project_storage_reserve(
+        setup_dir=setup,
+        project_dir=project,
+        grid_cell_count=4,
+    )
+    components = estimate_project_storage_components(
+        setup_dir=setup,
+        project_dir=project,
+        grid_cell_count=4,
+    )
+    assert reserve == components.total_bytes
+    assert components.forcing_bytes == sum(estimates)
+    assert components.member_grid_bytes > 0
+    assert components.restart_baseline_bytes > 0
+    assert components.restart_transition_bytes > 0
+    assert components.compact_timeseries_bytes >= int(sum(estimates) * 1.10)
+    assert components.compact_grid_bytes > 0
+
+    (project / "demo.yml").write_text(
+        "data_assimilation:\n"
+        "  prior_forcing:\n"
+        "    ensemble_size: 2\n"
+        "  output:\n"
+        "    retention: full\n"
+        "    grids:\n"
+        "      variables:\n"
+        "        - var: snowdepth_daily\n"
+        "          metrics: [open_loop, ens_mean]\n",
+        encoding="utf-8",
+    )
+    full = estimate_project_storage_components(
+        setup_dir=setup,
+        project_dir=project,
+        grid_cell_count=4,
+    )
+    assert full.forcing_bytes == sum(estimates)
+    assert full.compact_timeseries_bytes == 0
+    assert full.restart_transition_bytes == 0
+    assert full.restart_baseline_bytes > components.restart_baseline_bytes
+    (project / "demo.yml").write_text(
+        "data_assimilation:\n"
+        "  prior_forcing:\n"
+        "    ensemble_size: 2\n"
+        "  output:\n"
+        "    retention: compact\n"
+        "    grids:\n"
+        "      variables:\n"
+        "        - var: snowdepth_daily\n"
+        "          metrics: [open_loop, ens_mean]\n",
+        encoding="utf-8",
+    )
+
+    for name, _start, _end in windows:
+        for member in ("open_loop", "member_001", "member_002"):
+            member_root = project / "steps" / name / "ensembles" / "prior" / member
+            meteo_out = member_root / "meteo" / "a.csv"
+            grid_out = member_root / "results" / "output_grids.nc"
+            state_out = member_root / "results" / "model_state.pickle.gz"
+            meteo_out.parent.mkdir(parents=True, exist_ok=True)
+            grid_out.parent.mkdir(parents=True, exist_ok=True)
+            meteo_out.write_bytes(b"forcing")
+            grid_out.write_bytes(b"grid")
+            state_out.write_bytes(b"state")
+    for path in (
+        project / "results" / "points" / "ensemble_points.nc",
+        project / "results" / "forcing" / "ensemble_forcing.nc",
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"complete")
+
+    completed = estimate_project_storage_components(
+        setup_dir=setup,
+        project_dir=project,
+        grid_cell_count=4,
+    )
+    assert completed.compact_timeseries_bytes == 0
+    assert completed.total_bytes < components.total_bytes
+
+
+def test_coordinator_reserves_all_growth_concurrent_states_and_parent_merge(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    projects = tuple(
+        StorageReservationProject(
+            setup_dir=tmp_path / f"S{index}",
+            project_dir=tmp_path / f"P{index}",
+            grid_cell_count=10,
+        )
+        for index in range(3)
+    )
+    estimates = {
+        str(projects[0].project_dir): ProjectStorageEstimate(10, 20, 30, 40, 5, 50, 60),
+        str(projects[1].project_dir): ProjectStorageEstimate(11, 21, 31, 41, 15, 51, 61),
+        str(projects[2].project_dir): ProjectStorageEstimate(12, 22, 32, 42, 25, 52, 62),
+    }
+
+    monkeypatch.setattr(
+        "openamundsen_da.util.storage_budget.estimate_project_storage_components",
+        lambda *, project_dir, **_kwargs: estimates[str(project_dir)],
+    )
+    reserve, observed = estimate_coordinated_storage_reserve(
+        projects,
+        outer_workers=2,
+        parent_merge_reserve_bytes=100,
+    )
+
+    expected_non_transition = sum(item.non_transition_bytes for item in estimates.values())
+    assert reserve == expected_non_transition + 25 + 15 + 100
+    assert observed == estimates
+
+    project_root = tmp_path / "shared"
+    project_root.mkdir()
+    with pytest.raises(LowDiskPauseError, match="completion estimate"):
+        check_step_admission(
+            project_root,
+            estimated_growth_bytes=reserve,
+            usage=_usage(total=1_000, used=500),
+        )
+
+
+def test_parent_merge_reserves_one_atomic_full_grid_temporary(tmp_path: Path) -> None:
+    setup = tmp_path / "setup"
+    project = setup / "projects" / "demo"
+    project.mkdir(parents=True)
+    (setup / "north_tyrol.yml").write_text(
+        "domain: demo\nresolution: 100\ntimestep: 1D\n"
+        "output_data:\n"
+        "  grids:\n"
+        "    variables:\n"
+        "      - {var: snow.depth, name: snowdepth_daily, freq: 1D}\n",
+        encoding="utf-8",
+    )
+    (project / "demo.yml").write_text(
+        "data_assimilation:\n"
+        "  prior_forcing: {ensemble_size: 2}\n"
+        "  output:\n"
+        "    grids:\n"
+        "      variables:\n"
+        "        - {var: snowdepth_daily, metrics: [open_loop, ens_mean]}\n",
+        encoding="utf-8",
+    )
+    for name, start, end in (
+        ("step_00", "2023-01-01", "2023-01-02"),
+        ("step_01", "2023-01-03", "2023-01-04"),
+    ):
+        step = project / "steps" / name
+        step.mkdir(parents=True)
+        (step / f"{name}.yml").write_text(
+            f"start_date: {start}\nend_date: {end}\n",
+            encoding="utf-8",
+        )
+
+    reserve = estimate_parent_compact_merge_bytes(
+        setup_dir=setup,
+        project_dir=project,
+        grid_cell_count=100,
+    )
+    assert reserve > 100 * 2 * 4 * 8

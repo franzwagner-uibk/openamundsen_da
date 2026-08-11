@@ -32,13 +32,19 @@ from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.parallel import pick_max_workers
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.util.run_mode import ensure_run_mode
+from openamundsen_da.util.storage_budget import (
+    StorageReservationProject,
+    check_step_admission,
+    estimate_coordinated_storage_reserve,
+    estimate_parent_compact_merge_bytes,
+)
 from openamundsen_da.util.ts import parse_datetime_opt
 
 
 @dataclass
 class SubdomainRunResult:
     subdomain_id: str
-    status: str  # success | failed | skipped
+    status: str  # success | failed | paused_low_disk | skipped
     duration_seconds: float
     setup_dir: Path
     log_path: Path
@@ -244,6 +250,9 @@ def _run_one(
     retries: int,
     log_level: str,
     root_log_path: Path | None,
+    storage_reservation_projects: tuple[StorageReservationProject, ...] = (),
+    storage_outer_workers: int = 1,
+    parent_merge_reserve_bytes: int = 0,
 ) -> SubdomainRunResult:
     """Worker: run one fully independent sub-domain DA setup."""
     manifest = SubdomainManifest.load(manifest_path)
@@ -308,6 +317,9 @@ def _run_one(
                     live_plots=False,
                     plot_workers=int(inner_max_workers),
                     monitor_perf=False,
+                    storage_reservation_projects=storage_reservation_projects,
+                    storage_outer_workers=int(storage_outer_workers),
+                    parent_merge_reserve_bytes=int(parent_merge_reserve_bytes),
                 )
             )
             duration = time.time() - started
@@ -431,6 +443,71 @@ def _write_project_dropped_events(manifest: SubdomainManifest) -> None:
     plan_df.to_csv(plan_out, index=False)
 
 
+def _project_has_started(project_dir: Path) -> bool:
+    return any(
+        path.is_file()
+        for pattern in (
+            "steps/step_*/assim/prior_forcing_manifest.json",
+            "steps/step_*/assim/rejuvenate_manifest.json",
+        )
+        for path in project_dir.glob(pattern)
+    )
+
+
+def _coordinator_storage_reserve(
+    manifest: SubdomainManifest,
+    *,
+    selected_ids: list[str],
+    outer_workers: int,
+    overwrite: bool,
+    reservation_started_ns: int = 0,
+) -> tuple[
+    int,
+    dict[str, int],
+    tuple[StorageReservationProject, ...],
+    int,
+]:
+    """Reserve all retained leaf growth and concurrency-bound checkpoints."""
+    parent_device = manifest.project_dir.resolve().stat().st_dev
+    projects: list[StorageReservationProject] = []
+    for sid in selected_ids:
+        subdomain = manifest.subdomains[sid]
+        leaf_device = subdomain.project_dir.resolve().stat().st_dev
+        if leaf_device != parent_device:
+            raise ValueError(
+                "Bounded subdomain storage admission requires the parent and all selected "
+                f"leaf projects to share one filesystem; {sid} is on another device"
+            )
+        projects.append(
+            StorageReservationProject(
+                setup_dir=subdomain.setup_dir.resolve(),
+                project_dir=subdomain.project_dir.resolve(),
+                grid_cell_count=int(subdomain.window.height) * int(subdomain.window.width),
+                run_manifest=(subdomain.setup_dir / "run_manifest.json").resolve(),
+                completion_not_before_ns=(reservation_started_ns if overwrite else 0),
+            )
+        )
+    project_specs = tuple(projects)
+    parent_merge_reserve = estimate_parent_compact_merge_bytes(
+        setup_dir=manifest.setup_dir,
+        project_dir=manifest.project_dir,
+        grid_cell_count=int(manifest.grid_rows) * int(manifest.grid_cols),
+    )
+    concurrent, estimates = estimate_coordinated_storage_reserve(
+        project_specs,
+        outer_workers=outer_workers,
+        parent_merge_reserve_bytes=parent_merge_reserve,
+        overwrite=overwrite,
+    )
+    reserves = {
+        sid: estimates.get(str(manifest.subdomains[sid].project_dir.resolve())).total_bytes
+        if str(manifest.subdomains[sid].project_dir.resolve()) in estimates
+        else 0
+        for sid in selected_ids
+    }
+    return concurrent, reserves, project_specs, parent_merge_reserve
+
+
 def run_subdomains(
     *,
     manifest_path: Path,
@@ -449,11 +526,11 @@ def run_subdomains(
         raise ValueError(f"Manifest at {manifest_path} is not marked as run_mode='subdomain'.")
     ensure_run_mode(manifest.project_dir, expected="subdomain", write_if_missing=False)
     selected_ids = list(subdomains) if subdomains else list(manifest.subdomains.keys())
+    if not selected_ids:
+        raise ValueError("At least one sub-domain must be selected")
     unknown = [sid for sid in selected_ids if sid not in manifest.subdomains]
     if unknown:
         raise ValueError(f"Sub-domains not in manifest: {', '.join(unknown)}")
-    save_stage(manifest, manifest_path, "run", "running")
-
     root_log = manifest.project_dir / "subdomain_run.log"
     sink_id = None
     if log_to_file:
@@ -473,12 +550,51 @@ def run_subdomains(
     inner_workers = int(inner_max_workers) if inner_max_workers is not None else auto_inner
     inner_workers = max(1, inner_workers)
 
+    try:
+        reservation_started_ns = time.time_ns()
+        (
+            concurrent_storage_reserve,
+            leaf_storage_reserves,
+            storage_reservation_projects,
+            parent_merge_reserve,
+        ) = _coordinator_storage_reserve(
+            manifest,
+            selected_ids=selected_ids,
+            outer_workers=outer_workers,
+            overwrite=overwrite,
+            reservation_started_ns=reservation_started_ns,
+        )
+        resuming_batch = not overwrite and all(
+            _project_has_started(manifest.subdomains[sid].project_dir)
+            for sid in selected_ids
+        )
+        storage_budget = check_step_admission(
+            manifest.project_dir,
+            estimated_growth_bytes=concurrent_storage_reserve,
+            allow_existing_step_drain=resuming_batch,
+        )
+    except LowDiskSpaceError as exc:
+        save_stage(manifest, manifest_path, "run", "paused_low_disk", error=str(exc))
+        raise
+    save_stage(manifest, manifest_path, "run", "running")
+
     logger.info(
-        "START sub-domain run count={} outer_workers={} inner_workers={} fail_fast=true",
+        "START sub-domain run count={} outer_workers={} inner_workers={} "
+        "coordinated_storage_reserve_gib={:.1f} parent_merge_reserve_gib={:.1f} "
+        "used={:.1%} fail_fast=true",
         len(selected_ids),
         outer_workers,
         inner_workers,
+        concurrent_storage_reserve / (1024**3),
+        parent_merge_reserve / (1024**3),
+        storage_budget.used_fraction,
     )
+    for sid in sorted(leaf_storage_reserves):
+        logger.info(
+            "Storage reserve sub-domain={} reserve_gib={:.1f}",
+            sid,
+            leaf_storage_reserves[sid] / (1024**3),
+        )
 
     perf_stop = None
     if perf_monitor:
@@ -503,6 +619,9 @@ def run_subdomains(
                 int(max(0, retries)),
                 log_level,
                 root_log if log_to_file else None,
+                storage_reservation_projects,
+                outer_workers,
+                parent_merge_reserve,
             )
             future_map[fut] = sid
 

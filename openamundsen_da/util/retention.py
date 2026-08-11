@@ -17,7 +17,7 @@ from openamundsen_da.manifests import (
 )
 
 
-RETENTION_SCHEMA_VERSION = 4
+RETENTION_SCHEMA_VERSION = 5
 RETENTION_MANIFEST = "retention_manifest.json"
 
 
@@ -58,31 +58,85 @@ def _load_ledger(project_dir: Path) -> dict:
     if ledger is None:
         return _empty_manifest()
     version = ledger.get("retention_schema_version")
-    if version == 3:
+    if version in {3, 4}:
         batches = list(ledger.get("batches") or [])
-        generation_status = (
-            "complete"
-            if batches and all(batch.get("status") == "complete" for batch in batches)
-            else "planned"
+        if version == 3:
+            for batch in batches:
+                batch["generation"] = 1
+        legacy_generations = (
+            list(ledger.get("generations") or [])
+            if version == 4
+            else ([{"generation": 1, "status": ledger.get("status")}] if batches else [])
         )
-        for batch in batches:
-            batch["generation"] = 1
+        active_generation = ledger.get(
+            "active_generation",
+            int(legacy_generations[-1]["generation"]) if legacy_generations else None,
+        )
+        migrated_generations: list[dict] = []
+        for legacy in legacy_generations:
+            generation = int(legacy.get("generation", -1))
+            generation_batches = [
+                batch for batch in batches if int(batch.get("generation", -2)) == generation
+            ]
+            if not generation_batches or any(
+                batch.get("status") != "complete" for batch in generation_batches
+            ):
+                raise CleanupSafetyError(
+                    "Cannot safely resume a planned legacy retention generation; "
+                    f"inspect or restore {path} before cleanup"
+                )
+            source_inventory = _merge_inventory_rows(
+                *(list(batch.get("inventory") or []) for batch in generation_batches)
+            )
+            consumer_inventory = _merge_inventory_rows(
+                *(list(batch.get("consumer_inventory") or []) for batch in generation_batches)
+            )
+            producer_inventory = _merge_inventory_rows(
+                *(
+                    list(batch.get("producer_manifest_inventory") or [])
+                    for batch in generation_batches
+                )
+            )
+            if producer_inventory:
+                producer_payload: object = {"file_inventory": producer_inventory}
+            else:
+                payloads = [
+                    batch.get("producer_manifest_payload")
+                    for batch in generation_batches
+                ]
+                producer_payload = (
+                    payloads[0]
+                    if len(payloads) == 1
+                    else {"batch_payloads": payloads}
+                )
+            identity = _generation_identity(
+                generation=generation,
+                source_inventory=source_inventory,
+                consumer_inventory=consumer_inventory,
+                producer_payload=producer_payload,
+            )
+            migrated_generations.append(
+                {
+                    **legacy,
+                    "generation": generation,
+                    "status": str(legacy.get("status") or "complete"),
+                    "identity_sha256": hash_json(identity),
+                    "source_inventory": source_inventory,
+                    "source_inventory_sha256": inventory_digest(source_inventory),
+                    "consumer_inventory": consumer_inventory,
+                    "consumer_inventory_sha256": inventory_digest(consumer_inventory),
+                    "producer_manifest_inventory": producer_inventory,
+                    "producer_manifest_payload": producer_payload,
+                    "producer_digest": hash_json(producer_payload),
+                    "started_at": legacy.get("started_at", f"legacy-v{version}"),
+                    "completed_at": legacy.get("completed_at", f"legacy-v{version}"),
+                }
+            )
         ledger.update(
             {
                 "retention_schema_version": RETENTION_SCHEMA_VERSION,
-                "active_generation": 1 if batches else None,
-                "generations": (
-                    [
-                        {
-                            "generation": 1,
-                            "status": generation_status,
-                            "identity_sha256": "legacy-v3",
-                            "started_at": "legacy-v3",
-                        }
-                    ]
-                    if batches
-                    else []
-                ),
+                "active_generation": active_generation,
+                "generations": migrated_generations,
                 "batches": batches,
             }
         )
@@ -92,7 +146,66 @@ def _load_ledger(project_dir: Path) -> dict:
         raise CleanupSafetyError(f"Invalid retention batches in {path}")
     if not isinstance(ledger.get("generations"), list):
         raise CleanupSafetyError(f"Invalid retention generations in {path}")
+    try:
+        generation_numbers = [
+            int(record["generation"])
+            for record in ledger["generations"]
+            if isinstance(record, dict)
+        ]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise CleanupSafetyError(f"Invalid retention generation identity in {path}") from exc
+    if len(generation_numbers) != len(ledger["generations"]) or len(
+        set(generation_numbers)
+    ) != len(generation_numbers):
+        raise CleanupSafetyError(f"Invalid or duplicate retention generations in {path}")
+    active_generation = ledger.get("active_generation")
+    if generation_numbers:
+        if active_generation not in generation_numbers:
+            raise CleanupSafetyError(f"Retention manifest has no valid active generation: {path}")
+    elif active_generation is not None or ledger["batches"]:
+        raise CleanupSafetyError(f"Retention manifest generation structure is invalid: {path}")
+    unknown_batches = [
+        batch
+        for batch in ledger["batches"]
+        if not isinstance(batch, dict) or batch.get("generation") not in generation_numbers
+    ]
+    if unknown_batches:
+        raise CleanupSafetyError(f"Retention batch references an unknown generation: {path}")
     return ledger
+
+
+def _merge_inventory_rows(*inventories: list[dict]) -> list[dict]:
+    """Merge deterministic inventories and reject conflicting path identities."""
+    rows: dict[str, dict] = {}
+    for inventory in inventories:
+        for raw in inventory:
+            if not isinstance(raw, dict):
+                raise CleanupSafetyError("Retention inventory row is invalid")
+            row = dict(raw)
+            rel = str(row.get("path", ""))
+            if not rel:
+                raise CleanupSafetyError("Retention inventory path is missing")
+            if rel in rows and rows[rel] != row:
+                raise CleanupSafetyError(
+                    f"Retention inventories disagree for the same path: {rel}"
+                )
+            rows[rel] = row
+    return [rows[key] for key in sorted(rows)]
+
+
+def _generation_identity(
+    *,
+    generation: int,
+    source_inventory: list[dict],
+    consumer_inventory: list[dict],
+    producer_payload: object,
+) -> dict:
+    return {
+        "generation": int(generation),
+        "source_inventory": source_inventory,
+        "consumer_inventory": consumer_inventory,
+        "producer_manifest_payload": producer_payload,
+    }
 
 
 def _write_ledger(project_dir: Path, ledger: dict) -> None:
@@ -133,10 +246,30 @@ def active_retention_generation(project_dir: str | Path) -> tuple[int, str] | No
     return int(record["generation"]), str(record.get("status", ""))
 
 
+def planned_retention_generation_dependencies(
+    project_dir: str | Path,
+) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
+    """Return every recorded consumer and producer path for planned resume."""
+    project_dir = Path(project_dir).resolve()
+    record = _active_generation_record(_load_ledger(project_dir))
+    if record is None or record.get("status") != "planned":
+        return (), ()
+    consumers = tuple(
+        project_dir / str(row.get("path", ""))
+        for row in record.get("consumer_inventory") or []
+    )
+    producers = tuple(
+        project_dir / str(row.get("path", ""))
+        for row in record.get("producer_manifest_inventory") or []
+    )
+    return consumers, producers
+
+
 def start_retention_generation(
     project_dir: str | Path,
     *,
     source_paths: Iterable[Path],
+    retained_consumers: Iterable[Path],
     producer_manifests: Iterable[Path] = (),
     producer_manifest_payload: object | None = None,
 ) -> int:
@@ -148,19 +281,22 @@ def start_retention_generation(
     """
     project_dir = Path(project_dir).resolve()
     sources = _contained_files(project_dir, source_paths)
+    consumers = _contained_files(project_dir, retained_consumers)
     producers = _contained_files(project_dir, producer_manifests)
+    if not sources:
+        raise CleanupSafetyError("Retention generation requires at least one source")
+    if not consumers:
+        raise CleanupSafetyError("Retention generation requires retained consumers")
     if not producers and producer_manifest_payload is None:
         raise CleanupSafetyError("Retention generation requires producer evidence")
-    ledger = _load_ledger(project_dir)
-    active = _active_generation_record(ledger)
-    if active is not None and active.get("status") == "planned":
-        return int(active["generation"])
-
     source_inventory = file_inventory(
         root=project_dir,
         files=[path for path in sources if path.is_file()],
     )
+    consumer_inventory = file_inventory(root=project_dir, files=consumers)
     producer_inventory = file_inventory(root=project_dir, files=producers)
+    if len(consumer_inventory) != len(consumers):
+        raise CleanupSafetyError("A generation retained consumer is missing or invalid")
     if len(producer_inventory) != len(producers):
         raise CleanupSafetyError("A generation producer manifest is missing or invalid")
     producer_payload = (
@@ -168,14 +304,31 @@ def start_retention_generation(
         if producer_inventory
         else {"manifest_payload": producer_manifest_payload}
     )
-    identity = {
-        "source_inventory_sha256": inventory_digest(source_inventory),
-        "producer_digest": hash_json(producer_payload),
-    }
+    ledger = _load_ledger(project_dir)
+    active = _active_generation_record(ledger)
+    if active is not None and active.get("status") == "planned":
+        _validate_planned_generation_resume(
+            project_dir,
+            ledger=ledger,
+            generation_record=active,
+            current_sources=source_inventory,
+            current_consumers=consumer_inventory,
+            current_producer_payload=producer_payload,
+        )
+        return int(active["generation"])
+    if len(source_inventory) != len(sources):
+        raise CleanupSafetyError("A generation source is missing or invalid")
+
     generation_number = max(
         [int(item.get("generation", 0)) for item in ledger.get("generations") or []],
         default=0,
     ) + 1
+    identity = _generation_identity(
+        generation=generation_number,
+        source_inventory=source_inventory,
+        consumer_inventory=consumer_inventory,
+        producer_payload=producer_payload,
+    )
     if active is not None:
         active["status"] = "superseded"
         active["superseded_by_generation"] = generation_number
@@ -187,8 +340,13 @@ def start_retention_generation(
         "generation": generation_number,
         "status": "planned",
         "identity_sha256": hash_json(identity),
-        "source_inventory_sha256": identity["source_inventory_sha256"],
-        "producer_digest": identity["producer_digest"],
+        "source_inventory": source_inventory,
+        "source_inventory_sha256": inventory_digest(source_inventory),
+        "consumer_inventory": consumer_inventory,
+        "consumer_inventory_sha256": inventory_digest(consumer_inventory),
+        "producer_manifest_inventory": producer_inventory,
+        "producer_manifest_payload": producer_payload,
+        "producer_digest": hash_json(producer_payload),
         "started_at": datetime.now(timezone.utc).isoformat(),
     }
     ledger["generations"].append(record)
@@ -208,15 +366,11 @@ def complete_retention_generation(
     active = _active_generation_record(ledger)
     if active is None or int(active.get("generation", -1)) != int(generation):
         raise CleanupSafetyError(f"Retention generation is no longer active: {generation}")
-    batches = [
-        batch
-        for batch in ledger.get("batches") or []
-        if int(batch.get("generation", -1)) == int(generation)
-    ]
-    if not batches or any(batch.get("status") != "complete" for batch in batches):
-        raise CleanupSafetyError(
-            f"Retention generation {generation} has incomplete or missing batches"
-        )
+    _validate_generation_for_completion(
+        project_dir,
+        ledger=ledger,
+        generation_record=active,
+    )
     active["status"] = "complete"
     active["completed_at"] = datetime.now(timezone.utc).isoformat()
     _write_ledger(project_dir, ledger)
@@ -226,16 +380,24 @@ def _unlink_path(path: Path) -> None:
     path.unlink()
 
 
-def _validate_recorded_file(project_dir: Path, batch: dict, rel: str) -> Path:
-    """Bind a planned deletion to the exact generation recorded in its inventory."""
-    path = (project_dir / rel).resolve()
+def _resolve_recorded_path(project_dir: Path, rel: str, *, purpose: str) -> Path:
+    raw = project_dir / rel
+    path = raw.resolve()
     try:
         path.relative_to(project_dir)
     except ValueError as exc:
-        raise CleanupSafetyError(f"Recorded cleanup path escapes project root: {rel}") from exc
+        raise CleanupSafetyError(f"Recorded {purpose} escapes project root: {rel}") from exc
+    if raw.is_symlink():
+        raise CleanupSafetyError(f"Recorded {purpose} is a symlink: {rel}")
+    return path
+
+
+def _validate_recorded_file(project_dir: Path, batch: dict, rel: str) -> Path:
+    """Bind a planned deletion to the exact generation recorded in its inventory."""
+    path = _resolve_recorded_path(project_dir, rel, purpose="cleanup path")
     if not path.exists():
         return path
-    if not path.is_file() or path.is_symlink():
+    if not path.is_file():
         raise CleanupSafetyError(f"Recorded cleanup candidate is not a regular file: {rel}")
     inventory = {
         str(row.get("path")): row
@@ -264,18 +426,237 @@ def _validate_inventory_files(
         raise CleanupSafetyError(f"Retention plan has no recorded {purpose}")
     for row in inventory:
         rel = str(row.get("path", ""))
-        path = (project_dir / rel).resolve()
-        try:
-            path.relative_to(project_dir)
-        except ValueError as exc:
-            raise CleanupSafetyError(f"Recorded {purpose} escapes project root: {rel}") from exc
-        if not path.is_file() or path.is_symlink():
+        path = _resolve_recorded_path(project_dir, rel, purpose=purpose)
+        if not path.is_file():
             raise CleanupSafetyError(f"Recorded {purpose} is missing or invalid: {rel}")
         if (
             path.stat().st_size != int(row.get("size", -1))
             or sha256_file(path) != str(row.get("sha256", ""))
         ):
             raise CleanupSafetyError(f"Recorded {purpose} changed after planning: {rel}")
+
+
+def _validate_generation_record_identity(generation_record: dict) -> None:
+    """Require the stored inventories to reproduce the generation identity."""
+    try:
+        generation = int(generation_record["generation"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise CleanupSafetyError("Retention generation identity is invalid") from exc
+    source_inventory = list(generation_record.get("source_inventory") or [])
+    consumer_inventory = list(generation_record.get("consumer_inventory") or [])
+    producer_payload = generation_record.get("producer_manifest_payload")
+    if not source_inventory or not consumer_inventory or not isinstance(producer_payload, dict):
+        raise CleanupSafetyError(
+            f"Retention generation {generation} has incomplete identity evidence"
+        )
+    if inventory_digest(source_inventory) != str(
+        generation_record.get("source_inventory_sha256", "")
+    ):
+        raise CleanupSafetyError(f"Retention generation {generation} source identity changed")
+    if inventory_digest(consumer_inventory) != str(
+        generation_record.get("consumer_inventory_sha256", "")
+    ):
+        raise CleanupSafetyError(f"Retention generation {generation} consumer identity changed")
+    if hash_json(producer_payload) != str(generation_record.get("producer_digest", "")):
+        raise CleanupSafetyError(f"Retention generation {generation} producer identity changed")
+    identity = _generation_identity(
+        generation=generation,
+        source_inventory=source_inventory,
+        consumer_inventory=consumer_inventory,
+        producer_payload=producer_payload,
+    )
+    if hash_json(identity) != str(generation_record.get("identity_sha256", "")):
+        raise CleanupSafetyError(f"Retention generation {generation} identity changed")
+
+
+def _active_generation_batches(ledger: dict, generation: int) -> list[dict]:
+    return [
+        batch
+        for batch in ledger.get("batches") or []
+        if int(batch.get("generation", -1)) == int(generation)
+    ]
+
+
+def _validate_planned_generation_resume(
+    project_dir: Path,
+    *,
+    ledger: dict,
+    generation_record: dict,
+    current_sources: list[dict],
+    current_consumers: list[dict],
+    current_producer_payload: object,
+) -> None:
+    """Accept only the exact surviving portion of one recorded generation."""
+    _validate_generation_record_identity(generation_record)
+    generation = int(generation_record["generation"])
+    recorded_sources = list(generation_record.get("source_inventory") or [])
+    recorded_consumers = list(generation_record.get("consumer_inventory") or [])
+    recorded_producer_payload = generation_record.get("producer_manifest_payload")
+    _validate_inventory_files(
+        project_dir,
+        inventory=recorded_consumers,
+        purpose="generation retained consumer",
+    )
+    recorded_producers = list(generation_record.get("producer_manifest_inventory") or [])
+    if recorded_producers:
+        if recorded_producer_payload != {"file_inventory": recorded_producers}:
+            raise CleanupSafetyError(
+                f"Retention generation {generation} producer inventory is inconsistent"
+            )
+        _validate_inventory_files(
+            project_dir,
+            inventory=recorded_producers,
+            purpose="generation producer manifest",
+        )
+
+    surviving_sources = [
+        row
+        for row in recorded_sources
+        if _resolve_recorded_path(
+            project_dir,
+            str(row.get("path", "")),
+            purpose="generation source",
+        ).is_file()
+    ]
+    if current_sources != surviving_sources:
+        raise CleanupSafetyError(
+            f"Retention generation {generation} source identity does not match resume"
+        )
+    for row in surviving_sources:
+        _validate_inventory_files(
+            project_dir,
+            inventory=[row],
+            purpose="generation source",
+        )
+    authorized_paths = {
+        str(rel)
+        for batch in _active_generation_batches(ledger, generation)
+        for rel in batch.get("paths", [])
+    }
+    missing_unplanned = [
+        str(row.get("path", ""))
+        for row in recorded_sources
+        if not _resolve_recorded_path(
+            project_dir,
+            str(row.get("path", "")),
+            purpose="generation source",
+        ).exists()
+        and str(row.get("path", "")) not in authorized_paths
+    ]
+    if missing_unplanned:
+        raise CleanupSafetyError(
+            "Retention generation source disappeared before it was planned: "
+            f"{missing_unplanned[0]}"
+        )
+    if current_consumers != recorded_consumers:
+        raise CleanupSafetyError(
+            f"Retention generation {generation} consumer identity does not match resume"
+        )
+    if isinstance(current_producer_payload, dict) and "file_inventory" in current_producer_payload:
+        current_producers = list(current_producer_payload.get("file_inventory") or [])
+        if current_producers != recorded_producers:
+            raise CleanupSafetyError(
+                f"Retention generation {generation} producer identity does not match resume"
+            )
+    elif current_producer_payload != recorded_producer_payload:
+        raise CleanupSafetyError(
+            f"Retention generation {generation} producer identity does not match resume"
+        )
+
+
+def _validate_batch_evidence(project_dir: Path, batch: dict) -> None:
+    """Revalidate one complete batch's immutable evidence and removed sources."""
+    inventory = list(batch.get("inventory") or [])
+    if not inventory or inventory_digest(inventory) != str(batch.get("inventory_sha256", "")):
+        raise CleanupSafetyError(
+            f"Retention batch source identity changed: {batch.get('batch_id', '<unknown>')}"
+        )
+    recreated = []
+    for row in inventory:
+        rel = str(row.get("path", ""))
+        if _resolve_recorded_path(
+            project_dir,
+            rel,
+            purpose="batch source",
+        ).exists():
+            recreated.append(rel)
+    if recreated:
+        raise CleanupSafetyError(
+            f"Retention batch source was recreated after deletion: {recreated[0]}"
+        )
+    consumers = list(batch.get("consumer_inventory") or [])
+    if inventory_digest(consumers) != str(batch.get("consumer_inventory_sha256", "")):
+        raise CleanupSafetyError(
+            f"Retention batch consumer identity changed: {batch.get('batch_id', '<unknown>')}"
+        )
+    _validate_inventory_files(
+        project_dir,
+        inventory=consumers,
+        purpose="retained consumer",
+    )
+    producers = list(batch.get("producer_manifest_inventory") or [])
+    payload = batch.get("producer_manifest_payload")
+    if not isinstance(payload, dict) or hash_json(payload) != str(batch.get("producer_digest", "")):
+        raise CleanupSafetyError(
+            f"Retention batch producer identity changed: {batch.get('batch_id', '<unknown>')}"
+        )
+    if producers:
+        if payload != {"file_inventory": producers}:
+            raise CleanupSafetyError(
+                f"Retention batch producer inventory changed: {batch.get('batch_id', '<unknown>')}"
+            )
+        _validate_inventory_files(
+            project_dir,
+            inventory=producers,
+            purpose="producer manifest",
+        )
+
+
+def _validate_generation_for_completion(
+    project_dir: Path,
+    *,
+    ledger: dict,
+    generation_record: dict,
+) -> None:
+    """Revalidate all evidence and coverage before accepting a generation."""
+    _validate_generation_record_identity(generation_record)
+    generation = int(generation_record["generation"])
+    batches = _active_generation_batches(ledger, generation)
+    if not batches or any(batch.get("status") != "complete" for batch in batches):
+        raise CleanupSafetyError(
+            f"Retention generation {generation} has incomplete or missing batches"
+        )
+    for batch in batches:
+        _validate_batch_evidence(project_dir, batch)
+    recorded_sources = {
+        str(row.get("path", "")): row
+        for row in generation_record.get("source_inventory") or []
+    }
+    batch_sources = _merge_inventory_rows(
+        *(list(batch.get("inventory") or []) for batch in batches)
+    )
+    if batch_sources != [recorded_sources[key] for key in sorted(recorded_sources)]:
+        raise CleanupSafetyError(
+            f"Retention generation {generation} batches do not cover its exact source identity"
+        )
+    _validate_inventory_files(
+        project_dir,
+        inventory=list(generation_record.get("consumer_inventory") or []),
+        purpose="generation retained consumer",
+    )
+    producers = list(generation_record.get("producer_manifest_inventory") or [])
+    if producers:
+        if generation_record.get("producer_manifest_payload") != {
+            "file_inventory": producers
+        }:
+            raise CleanupSafetyError(
+                f"Retention generation {generation} producer inventory is inconsistent"
+            )
+        _validate_inventory_files(
+            project_dir,
+            inventory=producers,
+            purpose="generation producer manifest",
+        )
 
 
 def apply_retention_batch(
@@ -321,10 +702,18 @@ def apply_retention_batch(
             None,
         )
         if idempotent is not None:
+            if active is None:
+                raise CleanupSafetyError("Completed retention batch has no active generation")
+            _validate_generation_for_completion(
+                project_dir,
+                ledger=ledger,
+                generation_record=active,
+            )
             return idempotent
         generation = start_retention_generation(
             project_dir,
             source_paths=candidates,
+            retained_consumers=consumers,
             producer_manifests=producers,
             producer_manifest_payload=producer_manifest_payload,
         )
@@ -533,9 +922,16 @@ def validate_retained_consumers(
     active = _active_generation_record(ledger)
     if active is None:
         return ()
+    _validate_generation_record_identity(active)
     if require_complete and active.get("status") != "complete":
         raise CleanupSafetyError(
             f"Retention generation is not complete: {active.get('generation')}"
+        )
+    if require_complete:
+        _validate_generation_for_completion(
+            project_dir,
+            ledger=ledger,
+            generation_record=active,
         )
     batch_ids: list[str] = []
     for batch in ledger["batches"]:
@@ -591,6 +987,7 @@ __all__ = [
     "apply_retention_batch",
     "complete_retention_generation",
     "completed_retention_paths",
+    "planned_retention_generation_dependencies",
     "planned_retention_paths",
     "reconcile_retention_ledger",
     "retention_manifest_path",

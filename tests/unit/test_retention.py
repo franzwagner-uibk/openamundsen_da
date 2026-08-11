@@ -10,7 +10,9 @@ from openamundsen_da.manifests import hash_json
 from openamundsen_da.util import retention as retention_mod
 from openamundsen_da.util.retention import (
     apply_retention_batch,
+    complete_retention_generation,
     completed_retention_paths,
+    start_retention_generation,
     validate_retained_consumers,
 )
 
@@ -299,6 +301,178 @@ def test_interrupted_overwrite_never_rolls_validation_back_to_old_generation(
     assert ledger["generations"][1]["status"] == "planned"
 
 
+def test_power_failure_between_classes_refuses_overwrite_generation_mix(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    first = project / "step" / "point.csv"
+    second = project / "step" / "forcing.csv"
+    consumer = project / "results" / "accepted.nc"
+    producer = project / "results" / "run_manifest.json"
+    first.parent.mkdir(parents=True)
+    consumer.parent.mkdir(parents=True)
+    first.write_bytes(b"old point")
+    second.write_bytes(b"old forcing")
+    consumer.write_bytes(b"old compact")
+    producer.write_text('{"run": 1, "status": "success"}\n', encoding="utf-8")
+    generation = start_retention_generation(
+        project,
+        source_paths=(first, second),
+        retained_consumers=(consumer,),
+        producer_manifests=(producer,),
+    )
+    apply_retention_batch(
+        project,
+        artifact_class="point",
+        paths=(first,),
+        final_consumer="compact point output",
+        regeneration_recipe="rerun",
+        retained_consumers=(consumer,),
+        producer_manifests=(producer,),
+        generation=generation,
+    )
+
+    # A process dies before planning the forcing batch, then overwrite creates
+    # a new point file and new scientific generation at the same paths.
+    first.write_bytes(b"new point")
+    second.write_bytes(b"new forcing")
+    consumer.write_bytes(b"new compact")
+    producer.write_text('{"run": 2, "status": "success"}\n', encoding="utf-8")
+
+    with pytest.raises(CleanupSafetyError, match="changed after planning|identity"):
+        start_retention_generation(
+            project,
+            source_paths=(first, second),
+            retained_consumers=(consumer,),
+            producer_manifests=(producer,),
+        )
+
+    assert first.read_bytes() == b"new point"
+    assert second.read_bytes() == b"new forcing"
+    ledger = json.loads(retention_mod.retention_manifest_path(project).read_text())
+    assert len(ledger["generations"]) == 1
+    assert ledger["generations"][0]["status"] == "planned"
+    assert [batch["artifact_class"] for batch in ledger["batches"]] == ["point"]
+
+
+def test_correct_cross_class_generation_resumes_and_completes(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    first = project / "a.bin"
+    second = project / "b.bin"
+    first_consumer = project / "results" / "a.nc"
+    second_consumer = project / "results" / "b.nc"
+    producer = project / "results" / "run_manifest.json"
+    first.parent.mkdir(parents=True)
+    first_consumer.parent.mkdir(parents=True)
+    first.write_bytes(b"a")
+    second.write_bytes(b"b")
+    first_consumer.write_bytes(b"accepted-a")
+    second_consumer.write_bytes(b"accepted-b")
+    producer.write_text('{"run": 1, "status": "success"}\n', encoding="utf-8")
+    generation = start_retention_generation(
+        project,
+        source_paths=(first, second),
+        retained_consumers=(first_consumer, second_consumer),
+        producer_manifests=(producer,),
+    )
+    apply_retention_batch(
+        project,
+        artifact_class="first",
+        paths=(first,),
+        final_consumer="first compact output",
+        regeneration_recipe="rerun",
+        retained_consumers=(first_consumer,),
+        producer_manifests=(producer,),
+        generation=generation,
+    )
+
+    resumed = start_retention_generation(
+        project,
+        source_paths=(second,),
+        retained_consumers=(first_consumer, second_consumer),
+        producer_manifests=(producer,),
+    )
+    assert resumed == generation
+    apply_retention_batch(
+        project,
+        artifact_class="second",
+        paths=(second,),
+        final_consumer="second compact output",
+        regeneration_recipe="rerun",
+        retained_consumers=(second_consumer,),
+        producer_manifests=(producer,),
+        generation=generation,
+    )
+    complete_retention_generation(project, generation=generation)
+
+    assert validate_retained_consumers(project, require_complete=True) == (
+        "0001",
+        "0002",
+    )
+
+
+@pytest.mark.parametrize("changed", ["source", "consumer", "producer"])
+def test_generation_completion_revalidates_every_batch_identity(
+    tmp_path: Path,
+    changed: str,
+) -> None:
+    project = tmp_path / "project"
+    source = project / "source.bin"
+    consumer = project / "results" / "accepted.nc"
+    producer = project / "results" / "run_manifest.json"
+    source.parent.mkdir(parents=True)
+    consumer.parent.mkdir(parents=True)
+    source.write_bytes(b"source")
+    consumer.write_bytes(b"accepted")
+    producer.write_text('{"run": 1, "status": "success"}\n', encoding="utf-8")
+    generation = start_retention_generation(
+        project,
+        source_paths=(source,),
+        retained_consumers=(consumer,),
+        producer_manifests=(producer,),
+    )
+    apply_retention_batch(
+        project,
+        artifact_class="source",
+        paths=(source,),
+        final_consumer="accepted output",
+        regeneration_recipe="rerun",
+        retained_consumers=(consumer,),
+        producer_manifests=(producer,),
+        generation=generation,
+    )
+    if changed == "source":
+        source.write_bytes(b"recreated")
+    elif changed == "consumer":
+        consumer.write_bytes(b"changed")
+    else:
+        producer.write_text('{"run": 2, "status": "success"}\n', encoding="utf-8")
+
+    with pytest.raises(CleanupSafetyError, match="changed|recreated"):
+        complete_retention_generation(project, generation=generation)
+
+
+def test_invalid_active_generation_cannot_validate_as_an_empty_ledger(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    source = project / "source.bin"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"source")
+    _apply_retention(
+        project,
+        artifact_class="source",
+        paths=(source,),
+        final_consumer="accepted output",
+        regeneration_recipe="rerun",
+    )
+    ledger_path = retention_mod.retention_manifest_path(project)
+    ledger = json.loads(ledger_path.read_text())
+    ledger["active_generation"] = None
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+
+    with pytest.raises(CleanupSafetyError, match="no valid active generation"):
+        validate_retained_consumers(project, require_complete=True)
+
+
 def test_planned_retry_refuses_modified_generation(tmp_path: Path, monkeypatch) -> None:
     project = tmp_path / "project"
     artifact = project / "state.bin"
@@ -316,7 +490,7 @@ def test_planned_retry_refuses_modified_generation(tmp_path: Path, monkeypatch) 
         )
     artifact.write_bytes(b"modified")
 
-    with pytest.raises(CleanupSafetyError, match="changed after planning"):
+    with pytest.raises(CleanupSafetyError, match="changed after planning|identity does not match"):
         _apply_retention(
             project,
             artifact_class="state",
@@ -375,3 +549,49 @@ def test_interrupted_cleanup_revalidates_consumer_before_resumed_delete(
             producer_manifests=(producer,),
         )
     assert second.is_file()
+
+
+def test_planned_retry_refuses_changed_producer_before_delete(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    source = project / "source.bin"
+    consumer = project / "results" / "accepted.nc"
+    producer = project / "results" / "run_manifest.json"
+    source.parent.mkdir(parents=True)
+    consumer.parent.mkdir(parents=True)
+    source.write_bytes(b"source")
+    consumer.write_bytes(b"accepted")
+    producer.write_text('{"run": 1, "status": "success"}\n', encoding="utf-8")
+    real_unlink = retention_mod._unlink_path
+    monkeypatch.setattr(
+        retention_mod,
+        "_unlink_path",
+        lambda _path: (_ for _ in ()).throw(OSError("stop")),
+    )
+    with pytest.raises(CleanupSafetyError, match="Retention cleanup failed"):
+        apply_retention_batch(
+            project,
+            artifact_class="source",
+            paths=(source,),
+            final_consumer="accepted output",
+            regeneration_recipe="rerun",
+            retained_consumers=(consumer,),
+            producer_manifests=(producer,),
+        )
+    producer.write_text('{"run": 2, "status": "success"}\n', encoding="utf-8")
+    monkeypatch.setattr(retention_mod, "_unlink_path", real_unlink)
+
+    with pytest.raises(CleanupSafetyError, match="producer manifest changed"):
+        apply_retention_batch(
+            project,
+            artifact_class="source",
+            paths=(source,),
+            final_consumer="accepted output",
+            regeneration_recipe="rerun",
+            retained_consumers=(consumer,),
+            producer_manifests=(producer,),
+        )
+
+    assert source.is_file()

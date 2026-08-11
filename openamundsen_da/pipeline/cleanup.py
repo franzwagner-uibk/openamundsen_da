@@ -27,6 +27,7 @@ from openamundsen_da.util.retention import (
     active_retention_generation,
     apply_retention_batch,
     complete_retention_generation,
+    planned_retention_generation_dependencies,
     planned_retention_paths,
     reconcile_retention_ledger,
     start_retention_generation,
@@ -407,6 +408,39 @@ def _cleanup_classes(project_dir: Path) -> dict[str, list[Path]]:
     }
 
 
+def _retained_consumers_for_class(
+    project_dir: Path,
+    *,
+    artifact_class: str,
+) -> tuple[Path, ...]:
+    """Resolve one cleanup class's stable retained-consumer contract."""
+    if artifact_class == "member_point_csv":
+        consumers = [project_dir / "results" / "points" / "ensemble_points.nc"]
+    elif artifact_class == "member_forcing_csv":
+        consumers = [project_dir / "results" / "forcing" / "ensemble_forcing.nc"]
+    elif artifact_class == "derived_forcing_plot":
+        consumers = [
+            project_dir / "results" / "forcing" / "ensemble_forcing.nc",
+            render_completion_manifest_path(project_dir),
+        ]
+    elif artifact_class == "member_grid":
+        consumers = [project_dir / "results" / "grids" / "da_output_grids.nc"]
+        support = project_dir / "results" / "grids" / "da_map_support.nc"
+        if support.is_file():
+            consumers.append(support)
+    else:
+        consumers = [
+            path
+            for path in (
+                project_dir / "results" / "grids" / "da_output_grids.nc",
+                project_dir / "results" / "points" / "ensemble_points.nc",
+                project_dir / "results" / "forcing" / "ensemble_forcing.nc",
+            )
+            if path.is_file() and not path.is_symlink()
+        ]
+    return tuple(consumers)
+
+
 def clean_project_artifacts(project_dir: Path, *, apply: bool) -> CleanupResult:
     """Preview or delete safe single-domain restart artifacts."""
     project_dir = Path(project_dir).resolve()
@@ -437,9 +471,22 @@ def clean_project_artifacts(project_dir: Path, *, apply: bool) -> CleanupResult:
     active_generation = active_retention_generation(project_dir)
     if candidates:
         producer_manifests: set[Path] = set()
+        retained_consumers: set[Path] = set()
+        if active_generation is not None and active_generation[1] == "planned":
+            recorded_consumers, recorded_producers = (
+                planned_retention_generation_dependencies(project_dir)
+            )
+            retained_consumers.update(recorded_consumers)
+            producer_manifests.update(recorded_producers)
         for artifact_class, class_paths in classes.items():
             if not class_paths:
                 continue
+            retained_consumers.update(
+                _retained_consumers_for_class(
+                    project_dir,
+                    artifact_class=artifact_class,
+                )
+            )
             producer_manifests.update(
                 _forcing_plot_producer_manifests(project_dir, class_paths)
                 if artifact_class == "derived_forcing_plot"
@@ -448,6 +495,7 @@ def clean_project_artifacts(project_dir: Path, *, apply: bool) -> CleanupResult:
         generation = start_retention_generation(
             project_dir,
             source_paths=candidates,
+            retained_consumers=tuple(sorted(retained_consumers)),
             producer_manifests=tuple(sorted(producer_manifests)),
         )
     elif active_generation is not None and active_generation[1] == "planned":
@@ -474,31 +522,10 @@ def clean_project_artifacts(project_dir: Path, *, apply: bool) -> CleanupResult:
             )
             continue
         try:
-            if artifact_class == "member_point_csv":
-                consumers = (project_dir / "results" / "points" / "ensemble_points.nc",)
-            elif artifact_class == "member_forcing_csv":
-                consumers = (project_dir / "results" / "forcing" / "ensemble_forcing.nc",)
-            elif artifact_class == "derived_forcing_plot":
-                consumers = (
-                    project_dir / "results" / "forcing" / "ensemble_forcing.nc",
-                    render_completion_manifest_path(project_dir),
-                )
-            elif artifact_class == "member_grid":
-                consumers = [project_dir / "results" / "grids" / "da_output_grids.nc"]
-                support = project_dir / "results" / "grids" / "da_map_support.nc"
-                if support.is_file():
-                    consumers.append(support)
-                consumers = tuple(consumers)
-            else:
-                consumers = tuple(
-                    path
-                    for path in (
-                        project_dir / "results" / "grids" / "da_output_grids.nc",
-                        project_dir / "results" / "points" / "ensemble_points.nc",
-                        project_dir / "results" / "forcing" / "ensemble_forcing.nc",
-                    )
-                    if path.is_file() and not path.is_symlink()
-                )
+            consumers = _retained_consumers_for_class(
+                project_dir,
+                artifact_class=artifact_class,
+            )
             apply_retention_batch(
                 project_dir,
                 artifact_class=artifact_class,

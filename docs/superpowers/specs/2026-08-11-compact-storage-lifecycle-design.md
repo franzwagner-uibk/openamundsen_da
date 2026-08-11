@@ -37,6 +37,9 @@ design because they change restart and worker-cancellation behavior.
   completed generation is marked superseded in the same durable write, remains
   available as audit history and is excluded from current consumer validation.
   A planned generation must finish or fail validation before another can start.
+  Resume recomputes its identity before deletion and requires the exact
+  surviving source set plus byte-identical full consumer and producer
+  inventories; overwrite artifacts can never join an interrupted generation.
 - Each planned batch records byte inventories for its retained consumers and
   actual producer member manifests, or a canonical completed-stage record for
   parent merge cleanup. Those dependencies are revalidated before every
@@ -121,6 +124,10 @@ each remaining unlink.
   the raw sources before the cleanup ledger can delete them.
 - On successful final render/report, remove final restart states and any
   remaining compact-eligible member artifacts.
+- Revalidate every active batch's source, consumer and producer identity before
+  completing a cleanup generation. The public single-domain API performs the
+  same complete-ledger validation after its final performance/report refresh
+  before it records run success.
 - In full retention, keep and rebuild-validate raw SCF/wet-snow render sources;
   do not require the compact-only DA map-support archive. During overwrite, reserve a complete new
   checkpoint generation alongside every accepted checkpoint until promotion.

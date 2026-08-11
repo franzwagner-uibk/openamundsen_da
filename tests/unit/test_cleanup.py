@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from openamundsen_da.exceptions import CleanupSafetyError
 from openamundsen_da.manifests import write_manifest_atomic
+from openamundsen_da.pipeline import cleanup as cleanup_mod
 from openamundsen_da.pipeline.cleanup import (
     _member_run_manifests,
     clean_predecessor_checkpoint,
@@ -216,6 +218,77 @@ def test_compact_cleanup_preserves_station_metadata_when_forcing_is_compacted(
     assert station.resolve() in result.deleted_paths
     assert not station.exists()
     assert metadata.is_file()
+
+
+def test_cross_class_power_failure_refuses_overwrite_before_any_new_delete(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir, retention="compact")
+    member = (
+        project_dir
+        / "steps"
+        / "step_00_init"
+        / "ensembles"
+        / "prior"
+        / "member_001"
+    )
+    point = member / "results" / "point_station.csv"
+    forcing = member / "meteo" / "station.csv"
+    producer = member / "results" / "member_run.json"
+    point.parent.mkdir(parents=True)
+    forcing.parent.mkdir(parents=True)
+    point.write_text("time,swe\n2023-01-01,1\n", encoding="utf-8")
+    forcing.write_text("time,temp\n2023-01-01,273\n", encoding="utf-8")
+    producer.write_text(
+        '{"member": "member_001", "status": "success"}\n',
+        encoding="utf-8",
+    )
+    compact_point = project_dir / "results" / "points" / "ensemble_points.nc"
+    compact_forcing = project_dir / "results" / "forcing" / "ensemble_forcing.nc"
+    compact_point.parent.mkdir(parents=True)
+    compact_forcing.parent.mkdir(parents=True)
+    compact_point.write_bytes(b"point generation one")
+    compact_forcing.write_bytes(b"forcing generation one")
+    monkeypatch.setattr(
+        cleanup_mod,
+        "validate_project_ensemble_points",
+        lambda *_args, **_kwargs: compact_point,
+    )
+    monkeypatch.setattr(
+        cleanup_mod,
+        "validate_project_ensemble_forcing",
+        lambda *_args, **_kwargs: compact_forcing,
+    )
+    real_apply = cleanup_mod.apply_retention_batch
+
+    def stop_between_classes(*args, artifact_class: str, **kwargs):
+        if artifact_class == "member_forcing_csv":
+            raise RuntimeError("power failure between cleanup classes")
+        return real_apply(*args, artifact_class=artifact_class, **kwargs)
+
+    monkeypatch.setattr(cleanup_mod, "apply_retention_batch", stop_between_classes)
+    interrupted = clean_project_artifacts(project_dir, apply=True)
+    assert interrupted.failures
+    assert not point.exists()
+    assert forcing.is_file()
+
+    point.write_text("time,swe\n2023-01-01,2\n", encoding="utf-8")
+    forcing.write_text("time,temp\n2023-01-01,274\n", encoding="utf-8")
+    compact_point.write_bytes(b"point generation two")
+    compact_forcing.write_bytes(b"forcing generation two")
+    producer.write_text(
+        '{"member": "member_001", "status": "success", "run": 2}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cleanup_mod, "apply_retention_batch", real_apply)
+
+    with pytest.raises(CleanupSafetyError, match="changed after planning|identity"):
+        clean_project_artifacts(project_dir, apply=True)
+
+    assert point.is_file()
+    assert forcing.is_file()
 
 
 def test_compact_cleanup_deletes_derived_forcing_plots_after_render_completion(

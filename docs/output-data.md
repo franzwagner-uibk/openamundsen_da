@@ -118,12 +118,18 @@ generations and every planned and completed deletion batch, source inventory,
 retained-consumer inventory, producer-manifest or completed-stage digest, final
 consumer and regeneration recipe. A verified overwrite starts a new generation
 and marks the prior one superseded. Historical inventories remain available for
-audit, while resume validation uses only the active generation. Cleanup is
+audit, while resume validation uses only the active generation. A planned
+generation resumes only when its complete retained-consumer and producer
+inventories and the exact surviving source inventory still match; a new
+overwrite generation cannot be mixed into an interrupted cleanup. Cleanup is
 contained within the project and can resume an interrupted batch only when the
 current source files and retained dependencies still match their recorded size
 and SHA-256. Dependencies are rechecked before every resumed deletion and a
-recreated path is recorded as a new generation. The retained NetCDFs, weights, benchmarks, plots, maps,
-reports, logs and scientific configuration remain.
+recreated path is recorded as a new generation. Completed older ledgers are
+upgraded to the stronger identity contract when read. A planned ledger from the
+older contract is refused because its not-yet-planned cross-class sources cannot
+be reconstructed safely. The retained NetCDFs, weights, benchmarks, plots,
+maps, reports, logs and scientific configuration remain.
 
 `retention: full` skips this artifact cleanup and preserves the raw member
 forcing, points, grids and restart states for reanalysis.
@@ -173,6 +179,11 @@ filesystem-synchronized same-directory temporaries. Raw grid cleanup
 additionally requires complete configured metrics and member sources, while
 satellite map support is checked against its ROI, probability domain and raw
 source values.
+Before a generation is marked complete, every active batch's source inventory,
+removed-path state, retained consumers and producer evidence are revalidated.
+The supported single-domain run API repeats complete-ledger validation after
+the final performance/report refresh and refuses to publish a successful run
+manifest when retention evidence is incomplete or invalid.
 Full retention keeps raw member grids and forcing/point files. SCF and wet-snow
 projects in this mode must successfully rebuild their configured event fields
 from that raw render support and do not require the compact-only

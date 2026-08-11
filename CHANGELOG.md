@@ -50,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   full checkpoint replacement coexistence during overwrite and include a
   calibrated retained diagnostics/log/metadata allowance in active and queued
   budgets.
+- Bind planned cleanup generations to exact source, consumer and producer
+  inventories. Refuse overwrite/resume identity mixing, revalidate every batch
+  before generation completion and require the public single-domain run API to
+  accept the completed retention ledger before reporting success.
 - Require explicitly configured compact grid sources in openAMUNDSEN output
   before propagation and validate every requested variable and metric in
   member, project and merged subdomain NetCDFs.

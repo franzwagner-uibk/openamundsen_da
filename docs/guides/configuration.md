@@ -328,10 +328,11 @@ Notes:
   projects must share the parent filesystem. This prevents independent leaf
   processes and queued leaves from overcommitting the same free space.
 - First-run bounds use every configured grid variable and output timestamp,
-  8 bytes per grid cell/value, 4096 bytes per restart cell/member and explicit
-  file/serialization margins. Observed artifacts can only refit these rates
-  upward. The fixed 5% operational reserve remains separate from predicted
-  model growth.
+  per-file forcing coverage, 8 bytes per grid cell/value, 4096 bytes per restart
+  cell/member, at least 40 default point columns, configured layer multiplicity
+  and explicit file/serialization margins. Atomic overwrite reserves the full
+  replacement temporary. Observed artifacts can only refit these rates upward.
+  The fixed 5% operational reserve remains separate from predicted model growth.
 - Checks occur between steps and finalization stages; this increment does not
   terminate active openAMUNDSEN members mid-propagation.
 - Compact point, forcing and grid cleanup currently occurs after successful
@@ -342,6 +343,14 @@ Notes:
   compares retained values, not only dimensions and identities, with the raw
   sources. Leaf `da_output_grids.nc` summaries remain available for rerendering
   leaf snow-depth and SWE maps after raw member-grid cleanup.
+- Restart cleanup requires readable successor checkpoints for the open loop and
+  every member. A dump failure is fatal whenever another step follows. Grid and
+  map-support cleanup also validates configured metric completeness, geometry,
+  ROI/domain constraints and source values before deleting raw member grids.
+- This boundary-based increment may conservatively refuse a full 100 m Euregio
+  ES50 run on 3.6 TB. Immediate per-leaf finalization/cleanup and measured
+  prepared-setup capacity validation remain required before claiming that
+  production acceptance.
 - `output.grids.variables[*]` controls both which compact grid variables are exported and which metrics are written for each variable. If this block is omitted, all grid variables and metrics are written for backward compatibility.
 - Compact DA summary NetCDFs use internal compressed storage encodings: snow depth at 0.001 m resolution and SWE/liquid-water content at integer millimeter resolution. This is not a YAML setting; CF-aware readers decode the variables back to physical values.
 - Generated DA-event maps need `analysis_mean` and `analysis_increment` for `snowdepth_daily`, because their snow-depth response panels show the event-weighted posterior and posterior-minus-prior increment.

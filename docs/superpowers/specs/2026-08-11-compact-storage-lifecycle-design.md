@@ -29,7 +29,9 @@ design because they change restart and worker-cancellation behavior.
 - Cleanup is consumer-gated, path-contained, idempotent and recorded atomically
   in a versioned retention ledger before paths become eligible for deletion.
 - A deliberately cleaned artifact is distinguishable from a corrupt or
-  unexpectedly missing artifact.
+  unexpectedly missing artifact. Planned retries recheck each current file's
+  recorded size and SHA-256, and a path recreated after a completed batch is a
+  new generation with a new batch.
 - Single-domain and subdomain leaves use the same lifecycle.
 - `compact` retains every configured final grid metric, a compressed all-member
   point time-series NetCDF and the support needed to rerender configured plots
@@ -47,10 +49,14 @@ design because they change restart and worker-cancellation behavior.
 - All selected leaf projects and the parent must share one filesystem. A mixed
   filesystem manifest fails before workers start rather than applying one
   misleading free-space value to different devices.
-- Before observed artifacts exist, the estimator counts every configured grid
+- Before observed artifacts exist, the estimator scales every forcing station
+  file against its own time coverage, counts every configured grid
   variable and output timestamp at 8 bytes per cell/value, restart state at
-  4096 bytes per cell/member, point values at 32 bytes and explicit file and
-  serialization margins. Measurements can refit those bounds upward only.
+  4096 bytes per cell/member, point values at 32 bytes, at least 40 default
+  point columns plus configured layer multiplicity and explicit file and
+  serialization margins. Atomic overwrites reserve a complete point, forcing
+  or grid temporary beside the accepted file. Measurements can refit those
+  bounds upward only.
   The fixed 5% filesystem reserve is additional operational headroom, not a
   substitute for model-grid, state or merge prediction.
 
@@ -80,7 +86,9 @@ planned entry with the contained paths.
   stores, benchmark and configured render outputs validate. Then remove them
   through the retention ledger. Keep them in full retention.
 - Write the final compact grid, all-member point and consumed-forcing NetCDFs
-  atomically. Persist satellite-event map-support fields before grid cleanup.
+  to validated same-directory temporaries and promote them atomically. Persist
+  satellite-event map-support fields before grid cleanup and compare its grid,
+  ROI mask, probability domain, finite payload and values with the raw sources.
 - Collapse overlapping point and forcing timestamps by numeric mean, exactly as
   the existing raw plot/benchmark readers do, and compare retained values with
   the raw sources before the cleanup ledger can delete them.
@@ -110,3 +118,25 @@ are not claimed by this increment. A conservative refusal on a 3.6 TB disk is
 therefore possible until incremental grid/forcing cleanup reduces the predicted
 peak; the admission check must not call such a run safe merely because 5% free
 space remains.
+
+### Conservative full-Euregio envelope
+
+This is an admission envelope, not a measured production forecast. Using the
+26,254 km2 Euregio boundary (about 2.63 million 100 m cells), 366 days, ES50
+plus open loop, two daily raw grid variables, 14 compact metrics, 90 leaves,
+3-hourly points, 40 default point columns and the deliberately worst-case
+assumption that all 196 point definitions survive in every leaf gives about
+5.7 TiB including the fixed 5% reserve. Approximate components are 0.89 TiB raw
+member grids, 0.50 TiB retained restart baseline, 0.25 TiB leaf plus parent
+compact grids, 0.08 TiB exact-window forcing, 3.83 TiB point CSV allowance and
+0.16 TiB operational reserve, before the concurrency-bound second checkpoint.
+Real leaf filtering should reduce the point term substantially, but that must be
+demonstrated by preflight on the prepared setup rather than assumed.
+
+Consequently this increment does not satisfy the 3.6 TB acceptance by itself.
+After the required-grid-output completeness work is integrated, the smallest
+additional lifecycle increment is to finalize and clean each successful leaf
+immediately, then admit queued leaves against only active-leaf reservations,
+retained compact leaf products and the parent atomic-merge reserve. Per-step
+point/forcing fragments and cooperative mid-member stops remain further peak
+reductions if the measured active-leaf envelope still exceeds the target.

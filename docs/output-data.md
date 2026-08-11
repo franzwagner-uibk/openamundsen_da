@@ -105,7 +105,8 @@ restart checkpoints, member point and forcing CSVs and replaceable member grids.
 The atomic, versioned `results/retention_manifest.json` records every planned
 and completed deletion batch, source inventory, final consumer and regeneration
 recipe. Cleanup is contained within the project and can resume an interrupted
-batch idempotently. The retained NetCDFs, weights, benchmarks, plots, maps,
+batch only when the current files still match their recorded size and SHA-256;
+a recreated path is recorded as a new generation. The retained NetCDFs, weights, benchmarks, plots, maps,
 reports, logs and scientific configuration remain.
 
 `retention: full` skips this artifact cleanup and preserves the raw member
@@ -131,13 +132,18 @@ compaction and rendering succeed. Disk admission is checked between steps and
 uses all unfinished leaves' retained growth, concurrency-bound rolling
 checkpoints and the atomic parent-merge temporary. Active model members are not
 killed mid-propagation. Per-step compact fragments and cooperative mid-member
-disk stops remain future work.
+disk stops remain future work. This is a safe first increment, not evidence that
+the full 100 m Euregio ES50 workflow already fits on a 3.6 TB filesystem.
 
 Compact point and forcing stores collapse overlapping timestamps from adjacent
 steps by their numeric mean, matching the established raw-series readers.
 Cleanup validates every retained value against that collapsed raw source before
 deletion. Subdomain cleanup retains each leaf's `da_output_grids.nc`, so leaf
 snow-depth and SWE maps remain rerenderable without raw member grids.
+Compact grid writes use validated same-directory temporaries. Raw grid cleanup
+additionally requires complete configured metrics and member sources, while
+satellite map support is checked against its ROI, probability domain and raw
+source values.
 
 ## Subdomain outputs
 

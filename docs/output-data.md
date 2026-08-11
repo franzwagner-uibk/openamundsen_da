@@ -45,8 +45,10 @@ The model propagation grids feeding this builder can be NetCDF or GeoTIFF as
 selected in the setup YAML. The compact data assimilation result itself is always
 NetCDF.
 
-Propagation means, standard deviations, quantiles, increments and continuous
-benchmark distributions use the persistent PF prior ledger for each step.
+Weighted propagation means, standard deviations and increments use the
+persistent PF prior ledger for each step. Configured ensemble minima and maxima
+describe the unweighted member collection; compact grid quantiles are not
+currently generated.
 Event-analysis fields use the normalized pre-resampling posterior weights.
 Unweighted member traces and extrema describe the materialized member
 collection and are not interchangeable with the weighted analysis.

@@ -50,11 +50,11 @@ titles remain unchanged.
 
 ## Weight Plot Readability
 
-Each event panel derives a symmetric residual range from the finite residuals
-actually plotted in that panel plus every finite sigma/reference line. A
-deterministic nice-number ceiling and small edge margin keep all marks visible
-without allowing another event to widen the panel. Snow-depth residuals remain
-in meters, SWE residuals in millimeters and fractional residuals dimensionless.
+The existing weights-overview residual contract is unchanged: panels share one
+symmetric range per observable, based on the largest finite residual actually
+plotted. This preserves direct event-to-event comparison and keeps genuine
+extremes visible. Snow-depth residuals remain in meters, SWE residuals in
+millimeters and fractional residuals dimensionless.
 
 Sigma keys with at most five entries preserve the established vertical layout.
 Larger keys remain inside the residual panel and wrap deterministically into a
@@ -82,7 +82,7 @@ change.
 
 Focused tests cover aggregated preflight failures, member and final compact
 NetCDF completeness, legacy compatibility, point panels with and without
-observations, narrow and wide residual data, wrapped sigma keys, dynamic
+observations, unchanged shared residual ranges, wrapped sigma keys, dynamic
 right-axis separation for one-, three- and four-digit project sizes,
 one-decimal headers, degree notation and the 150-second default. The existing
 Rofental plotting tests and compact-grid tests remain green.

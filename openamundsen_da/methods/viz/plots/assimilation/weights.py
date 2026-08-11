@@ -98,6 +98,7 @@ _STANDALONE_SAVE_PAD_INCHES = 0.02
 _OVERVIEW_PAIR_WSPACE = 0.08
 _OVERVIEW_PAIR_SPACER_RATIO = 0.20
 _OVERVIEW_ROW_HSPACE = 0.60
+_OVERVIEW_SHARED_RESIDUAL_PERCENTILE = 90.0
 _AXIS_EDGE_PAD_FRACTION = 0.05
 _OVERVIEW_MAX_ROWS_PER_PAGE = max(1, int(math.floor(_A4_PAGE_HEIGHT_INCHES / _COMPOSITE_ROW_HEIGHT)))
 _WEIGHT_AXIS_TICKS = [0.0, 0.5, 1.0]
@@ -829,21 +830,30 @@ def _nice_axis_extent(extent: float) -> float:
     return math.ceil(extent / step) * step
 
 
-def _event_residual_extent(
+def _robust_shared_extent(
     residual_extents: list[float],
     sigma_extents: list[float],
+    *,
+    percentile: float = _OVERVIEW_SHARED_RESIDUAL_PERCENTILE,
 ) -> float | None:
-    combined = residual_extents + sigma_extents
-    if not combined:
+    if residual_extents:
+        combined = np.asarray(residual_extents + sigma_extents, dtype=float)
+        extent = max(float(np.percentile(combined, percentile)), max(residual_extents))
+    elif sigma_extents:
+        extent = max(sigma_extents)
+    else:
         return None
-    extent = max(combined)
+
+    if sigma_extents and not residual_extents:
+        extent = max(extent, max(sigma_extents))
     if extent <= 0.0:
         return None
     return _nice_axis_extent(extent)
 
 
-def _overview_residual_xlims(event_specs: list[dict[str, object]]) -> dict[Path, tuple[float, float]]:
-    xlims: dict[Path, tuple[float, float]] = {}
+def _overview_residual_xlims(event_specs: list[dict[str, object]]) -> dict[str | None, tuple[float, float]]:
+    residual_by_observable: dict[str | None, list[float]] = {}
+    sigma_by_observable: dict[str | None, list[float]] = {}
     for spec in event_specs:
         observable = spec["observable"]  # type: ignore[index]
         residual_extents, sigma_extents = _residual_extent_components_for_event(
@@ -851,10 +861,22 @@ def _overview_residual_xlims(event_specs: list[dict[str, object]]) -> dict[Path,
             spec["df"],  # type: ignore[arg-type]
             observable,  # type: ignore[arg-type]
         )
-        extent = _event_residual_extent(residual_extents, sigma_extents)
-        if extent is not None:
-            xlims[Path(spec["csv_path"])] = (-extent, extent)
-    return xlims
+        if residual_extents:
+            residual_by_observable.setdefault(observable, []).extend(residual_extents)
+        if sigma_extents:
+            sigma_by_observable.setdefault(observable, []).extend(sigma_extents)
+
+    return {
+        observable: (-extent, extent)
+        for observable in sorted(set(residual_by_observable) | set(sigma_by_observable), key=str)
+        if (
+            extent := _robust_shared_extent(
+                residual_by_observable.get(observable, []),
+                sigma_by_observable.get(observable, []),
+            )
+        )
+        is not None
+    }
 
 
 def _draw_weights_event(
@@ -1261,7 +1283,7 @@ def _build_setup_weights_overview_page(
     page_specs: list[dict[str, object]],
     *,
     all_csv_paths: list[Path],
-    residual_xlims: dict[Path, tuple[float, float]],
+    residual_xlims: dict[str | None, tuple[float, float]],
     ensemble_size: int,
     ess_threshold: float | None,
     page_index: int,
@@ -1342,7 +1364,7 @@ def _build_setup_weights_overview_page(
             bold_axes_da_prefix=False,
             sigma_strip_anchor_y=0.965,
             axes_title_y=1.035,
-            residual_xlim=residual_xlims.get(csv_path),
+            residual_xlim=residual_xlims.get(observable),
             y_ticks=_member_ticks(len(df.index)),
             station_color_config=station_color_config,
         )

@@ -20,11 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Require explicitly configured compact grid sources in openAMUNDSEN output
   before propagation and validate every requested variable and metric in
   member, project and merged subdomain NetCDFs.
+- Sample exact project-directory size every 150 seconds by default while
+  leaving CPU, RAM and plot-refresh sampling unchanged.
 
 ### Fixed
-- Keep point-result titles consistent with the observations actually plotted,
-  derive each weights-panel residual range from its finite data and uncertainty
-  references, and wrap dense station uncertainty keys inside the panel.
+- Keep point-result titles consistent with the observations actually plotted
+  and wrap dense station uncertainty keys inside the panel while preserving the
+  shared symmetric residual range per observable.
+- Keep the two right-hand performance axes readable from small projects through
+  multi-terabyte runs and use one-decimal storage/RAM summaries and `°C` labels.
 
 ## [0.9.4] - 2026-07-29
 

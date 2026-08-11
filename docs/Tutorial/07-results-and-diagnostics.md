@@ -250,10 +250,10 @@ What to read in the weights plot:
 - a **peaked** distribution means a few particles explain the observation much better,
 - very strong peaks often coincide with low ESS and potential resampling pressure.
 
-Each overview event uses a residual range derived from the finite residuals and
-uncertainty references drawn in that panel. This keeps small mismatches readable
-without clipping genuine extremes. Events with many station-specific uncertainty
-values wrap their compact uncertainty key over multiple rows inside the panel.
+The weights overview uses one shared symmetric residual range per observable,
+based on the largest finite residual that is actually plotted. Events with many
+station-specific uncertainty values wrap their compact uncertainty key over
+multiple rows inside the panel.
 
 With the tutorial's fixed seeds and pinned release image, a run should reproduce
 the reference ensemble and diagnostics. Results can differ after changing the

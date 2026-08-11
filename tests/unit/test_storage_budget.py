@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -7,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from openamundsen_da.exceptions import LowDiskEmergencyError, LowDiskPauseError
+from openamundsen_da.pipeline.project_skeleton import create_project_skeleton
 from openamundsen_da.util.storage_budget import (
     DEFAULT_POINT_VARIABLE_COUNT,
     EMERGENCY_USED_FRACTION,
@@ -33,6 +35,56 @@ from openamundsen_da.util.storage_budget import (
 
 def _usage(*, total: int, used: int) -> shutil._ntuple_diskusage:
     return shutil._ntuple_diskusage(total, used, total - used)
+
+
+def _unmaterialized_project(tmp_path: Path) -> tuple[Path, Path]:
+    setup = tmp_path / "setup"
+    project = setup / "projects" / "demo"
+    meteo = setup / "meteo"
+    meteo.mkdir(parents=True)
+    project.mkdir(parents=True)
+    (meteo / "stations.csv").write_text(
+        "id,name,x,y,alt\na,A,0,0,0\n",
+        encoding="utf-8",
+    )
+    (meteo / "a.csv").write_text(
+        "date,temp\n"
+        "2023-01-01,273\n"
+        "2023-01-02,274\n"
+        "2023-01-03,275\n"
+        "2023-01-04,276\n",
+        encoding="utf-8",
+    )
+    (setup / "north.yml").write_text(
+        "domain: demo\n"
+        "resolution: 100\n"
+        "timestep: 1D\n"
+        "input_data:\n  grids:\n    dir: grids\n"
+        "output_data:\n"
+        "  timeseries:\n"
+        "    add_default_points: false\n"
+        "    add_default_variables: false\n"
+        "  grids:\n"
+        "    format: netcdf\n"
+        "    variables:\n"
+        "      - {var: snow.depth, name: snowdepth_daily, freq: 1D}\n",
+        encoding="utf-8",
+    )
+    (project / "demo.yml").write_text(
+        "start_date: '2023-01-01'\n"
+        "end_date: '2023-01-04'\n"
+        "data_assimilation:\n"
+        "  prior_forcing: {ensemble_size: 2}\n"
+        "  assimilation_events:\n"
+        "    - {date: '2023-01-02', variable: station_hs}\n"
+        "  output:\n"
+        "    retention: compact\n"
+        "    grids:\n"
+        "      variables:\n"
+        "        - {var: snowdepth_daily, metrics: [open_loop, ens_mean]}\n",
+        encoding="utf-8",
+    )
+    return setup, project
 
 
 def test_step_admission_uses_fixed_soft_and_emergency_limits(tmp_path: Path) -> None:
@@ -519,6 +571,63 @@ def test_project_reserve_covers_pending_steps_and_final_compaction(tmp_path: Pat
     )
     assert overwritten.compact_timeseries_bytes > 0
     assert overwritten.compact_grid_bytes > 0
+
+
+def test_project_estimate_plans_pristine_unmaterialized_steps_without_writes(
+    tmp_path: Path,
+) -> None:
+    setup, project = _unmaterialized_project(tmp_path)
+
+    planned = estimate_project_storage_components(
+        setup_dir=setup,
+        project_dir=project,
+        grid_cell_count=4,
+    )
+
+    assert planned.total_bytes > 0
+    assert not (project / "steps").exists()
+
+    create_project_skeleton(setup, project)
+    materialized = estimate_project_storage_components(
+        setup_dir=setup,
+        project_dir=project,
+        grid_cell_count=4,
+    )
+    assert materialized == planned
+
+
+@pytest.mark.parametrize("status", ["running", "failed", "paused_low_disk", "success"])
+def test_project_estimate_rejects_missing_steps_after_leaf_started(
+    tmp_path: Path,
+    status: str,
+) -> None:
+    setup, project = _unmaterialized_project(tmp_path)
+    (setup / "run_manifest.json").write_text(
+        json.dumps({"status": status}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FileNotFoundError, match="missing after the leaf project started"):
+        estimate_project_storage_components(
+            setup_dir=setup,
+            project_dir=project,
+            grid_cell_count=4,
+        )
+    assert not (project / "steps").exists()
+
+
+def test_project_estimate_rejects_existing_empty_steps_directory(
+    tmp_path: Path,
+) -> None:
+    setup, project = _unmaterialized_project(tmp_path)
+    (project / "steps").mkdir()
+
+    with pytest.raises(FileNotFoundError, match="steps directory is empty or invalid"):
+        estimate_project_storage_components(
+            setup_dir=setup,
+            project_dir=project,
+            grid_cell_count=4,
+        )
 
 
 def test_coordinator_reserves_all_growth_concurrent_states_and_parent_merge(

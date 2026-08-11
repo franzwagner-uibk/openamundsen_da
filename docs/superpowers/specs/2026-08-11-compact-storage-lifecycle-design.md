@@ -104,6 +104,10 @@ each remaining unlink.
 
 - Before a step, estimate its forcing, grids, states and in-flight worker
   reserve. Check the filesystem containing the project directory.
+- Before a pristine subdomain leaf materializes its step tree, derive the same
+  deterministic windows from the final project YAML through the pure skeleton
+  planner. Once a run manifest exists, missing or empty prepared steps remain a
+  fatal corruption instead of falling back to a new plan.
 - Generate only `step.start_date` through `step.end_date` forcing.
 - Once step `i + 1` has complete member states, remove step `i` restart states
   under compact retention.

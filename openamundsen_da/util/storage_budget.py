@@ -20,6 +20,7 @@ from openamundsen_da.io.paths import (
     list_steps_sorted,
     read_step_config,
 )
+from openamundsen_da.pipeline.project_skeleton import plan_project_steps
 from openamundsen_da.util.roi_grid import resolve_setup_grid_spec
 
 
@@ -265,7 +266,38 @@ def _window_sample_count(start: datetime, end: datetime, frequency: object) -> i
     return max(1, int(math.ceil((end - start).total_seconds() / seconds)) + 1)
 
 
-def _project_steps(project_dir: Path) -> list[tuple[Path, datetime, datetime]]:
+def _project_steps(
+    setup_dir: Path,
+    project_dir: Path,
+) -> list[tuple[Path, datetime, datetime]]:
+    steps_root = project_dir / "steps"
+    if not steps_root.exists():
+        run_manifest = setup_dir / "run_manifest.json"
+        if run_manifest.exists():
+            try:
+                manifest = json.loads(run_manifest.read_text(encoding="utf-8"))
+                status = str(manifest["status"]).strip().lower()
+            except (OSError, KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    "Cannot plan missing project steps because the leaf run manifest "
+                    f"is invalid: {run_manifest}"
+                ) from exc
+            if status not in {"running", "failed", "paused_low_disk", "success"}:
+                raise ValueError(
+                    "Cannot plan missing project steps because the leaf run manifest "
+                    f"has unsupported status {status!r}: {run_manifest}"
+                )
+            raise FileNotFoundError(
+                "Prepared steps are missing after the leaf project started "
+                f"(status={status!r}): {project_dir}"
+            )
+        return [
+            (project_dir / "steps" / plan.name, plan.start, plan.end)
+            for plan in plan_project_steps(setup_dir, project_dir)
+        ]
+    if not steps_root.is_dir():
+        raise FileNotFoundError(f"Steps path is not a directory: {steps_root}")
+
     windows: list[tuple[Path, datetime, datetime]] = []
     for step in list_steps_sorted(project_dir):
         step_cfg = read_step_config(step) or {}
@@ -276,7 +308,9 @@ def _project_steps(project_dir: Path) -> list[tuple[Path, datetime, datetime]]:
             raise ValueError(f"Cannot estimate storage for invalid step window in {step}") from exc
         windows.append((step, start, end))
     if not windows:
-        raise FileNotFoundError(f"No prepared steps found under {project_dir}")
+        raise FileNotFoundError(
+            f"Prepared steps directory is empty or invalid: {steps_root}"
+        )
     return windows
 
 
@@ -714,7 +748,7 @@ def estimate_project_storage_components(
         grid_cell_count = int(spec.rows) * int(spec.cols)
     if grid_cell_count < 1:
         raise ValueError("grid_cell_count must be positive")
-    steps = _project_steps(project_dir)
+    steps = _project_steps(setup_dir, project_dir)
     model_timestep = setup_cfg.get("timestep") or "1h"
     output_data = _merged_output_data(setup_cfg, project_cfg)
 

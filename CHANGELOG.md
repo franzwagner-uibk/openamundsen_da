@@ -30,11 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Resume failed subdomain leaves non-destructively unless overwrite is
   requested explicitly.
 - Require readable successor checkpoints before compact restart cleanup, bind
-  interrupted cleanup retries to the recorded file generation and atomically
-  validate compact grids and DA map support before raw-grid deletion.
+  interrupted cleanup retries to exact source, consumer and producer-manifest
+  generations and durably validate compact grids, time series and DA map
+  support before raw-grid deletion.
 - Make storage admission account for each forcing file independently, layered
-  and default point columns, full atomic overwrite temporaries and completed
-  parent-finalization stages. This remains a safe first increment toward, not
+  and default point columns, explicit map support, full atomic overwrite
+  temporaries and completed parent-finalization stages. This remains a safe
+  first increment toward, not
   completion of, the 3.6 TB full-Euregio target.
 
 ## [0.9.4] - 2026-07-29

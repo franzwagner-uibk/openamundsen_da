@@ -103,10 +103,12 @@ storage reduction visible. The reviewed Rofental walkthrough explains the files 
 After all required outputs validate, `retention: compact` removes package-owned
 restart checkpoints, member point and forcing CSVs and replaceable member grids.
 The atomic, versioned `results/retention_manifest.json` records every planned
-and completed deletion batch, source inventory, final consumer and regeneration
-recipe. Cleanup is contained within the project and can resume an interrupted
-batch only when the current files still match their recorded size and SHA-256;
-a recreated path is recorded as a new generation. The retained NetCDFs, weights, benchmarks, plots, maps,
+and completed deletion batch, source inventory, retained-consumer inventory,
+producer-manifest or completed-stage digest, final consumer and regeneration recipe. Cleanup is
+contained within the project and can resume an interrupted batch only when the
+current source files and retained dependencies still match their recorded size
+and SHA-256. Dependencies are rechecked before every resumed deletion and a
+recreated path is recorded as a new generation. The retained NetCDFs, weights, benchmarks, plots, maps,
 reports, logs and scientific configuration remain.
 
 `retention: full` skips this artifact cleanup and preserves the raw member
@@ -140,7 +142,8 @@ steps by their numeric mean, matching the established raw-series readers.
 Cleanup validates every retained value against that collapsed raw source before
 deletion. Subdomain cleanup retains each leaf's `da_output_grids.nc`, so leaf
 snow-depth and SWE maps remain rerenderable without raw member grids.
-Compact grid writes use validated same-directory temporaries. Raw grid cleanup
+Compact grid, point, forcing and map-support writes use validated,
+filesystem-synchronized same-directory temporaries. Raw grid cleanup
 additionally requires complete configured metrics and member sources, while
 satellite map support is checked against its ROI, probability domain and raw
 source values.

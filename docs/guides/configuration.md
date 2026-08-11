@@ -321,17 +321,21 @@ Notes:
   must remain below 90%. A low-disk stop is recorded as resumable and never
   implies overwrite.
 - Subdomain mode reserves accumulated forcing, point, raw-grid, compact-output
-  and one retained restart-checkpoint growth for every unfinished leaf. It adds
+  (including satellite map support) and one retained restart-checkpoint growth
+  for every unfinished leaf. It adds
   a second rolling checkpoint for the largest leaves allowed by outer
   concurrency and one full atomic parent-merge temporary. The reservation is
   recomputed from measured artifacts at every leaf boundary; all selected
-  projects must share the parent filesystem. This prevents independent leaf
-  processes and queued leaves from overcommitting the same free space.
+  projects must share the parent filesystem. This coordinator prevents leaves
+  from exceeding the conservative reservation, but the deliberately broad
+  first-run envelope can still refuse a workload that might fit in practice.
 - First-run bounds use every configured grid variable and output timestamp,
-  per-file forcing coverage, 8 bytes per grid cell/value, 4096 bytes per restart
-  cell/member, at least 40 default point columns, configured layer multiplicity
-  and explicit file/serialization margins. Atomic overwrite reserves the full
-  replacement temporary. Observed artifacts can only refit these rates upward.
+  exact selected source rows and bytes in each forcing file, 8 bytes per grid
+  cell/value, 4096 bytes per restart cell/member and the current 40 default
+  point variables with conservative soil/snow layer expansion. Explicit
+  variables and layers add to that bound. Atomic overwrite reserves the full
+  point, forcing, grid and map-support replacement temporary. Observed point,
+  grid and state artifacts can only refit these rates upward.
   The fixed 5% operational reserve remains separate from predicted model growth.
 - Checks occur between steps and finalization stages; this increment does not
   terminate active openAMUNDSEN members mid-propagation.
@@ -344,9 +348,15 @@ Notes:
   sources. Leaf `da_output_grids.nc` summaries remain available for rerendering
   leaf snow-depth and SWE maps after raw member-grid cleanup.
 - Restart cleanup requires readable successor checkpoints for the open loop and
-  every member. A dump failure is fatal whenever another step follows. Grid and
+  exactly `member_001` through the configured ensemble size. A dump failure is
+  fatal whenever another step follows. Grid and
   map-support cleanup also validates configured metric completeness, geometry,
   ROI/domain constraints and source values before deleting raw member grids.
+- Compact and checkpoint temporaries are scientifically validated, flushed and
+  atomically promoted before ledger-backed deletion. Every cleanup batch binds
+  the deleted generation to byte-identical retained consumers and actual
+  producer member manifests (or the immutable completed-merge stage record);
+  interrupted cleanup revalidates those dependencies before each resumed unlink.
 - This boundary-based increment may conservatively refuse a full 100 m Euregio
   ES50 run on 3.6 TB. Immediate per-leaf finalization/cleanup and measured
   prepared-setup capacity validation remain required before claiming that

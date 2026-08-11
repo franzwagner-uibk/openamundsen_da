@@ -14,6 +14,7 @@ from openamundsen_da.io.paths import (
     list_steps_sorted,
     project_ensemble_forcing_path,
 )
+from openamundsen_da.util.atomic import durable_replace
 from openamundsen_da.util.ts import collapse_duplicates
 
 
@@ -186,12 +187,18 @@ def validate_project_ensemble_forcing(
                     station=station,
                 ).reindex(retained_times)
                 for name in variable_names:
+                    variable = dataset.variables[name]
+                    if tuple(variable.dimensions) != ("time", "member", "station"):
+                        raise ValueError(f"Invalid compact forcing variable dimensions for {name} in {path}")
+                    expected_unit = _KNOWN_UNITS.get(name)
+                    if expected_unit is not None and getattr(variable, "units", None) != expected_unit:
+                        raise ValueError(f"Invalid compact forcing units for {name} in {path}")
                     expected_values = (
                         expected[name].to_numpy(dtype=float)
                         if name in expected.columns
                         else np.full(len(retained_times), np.nan)
                     )
-                    retained = dataset.variables[name][:, member_idx, station_idx]
+                    retained = variable[:, member_idx, station_idx]
                     retained_values = np.ma.filled(retained, np.nan).astype(float)
                     if not np.allclose(
                         retained_values,
@@ -293,11 +300,14 @@ def write_project_ensemble_forcing(
                         if name not in variables:
                             raise ValueError(f"Unexpected forcing variable {name!r} for {station}")
                         variables[name][time_indices, member_idx, station_idx] = frame[name].to_numpy(dtype=float)
-        os.replace(tmp, output)
+        # Validate the temporary while all raw sources still exist. A failed
+        # validation must not replace an already accepted compact store.
+        validate_project_ensemble_forcing(project_dir, output_nc=tmp)
+        durable_replace(tmp, output)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
-    return validate_project_ensemble_forcing(project_dir, output_nc=output)
+    return output
 
 
 def compact_forcing_stations(project_dir: str | Path) -> list[str]:

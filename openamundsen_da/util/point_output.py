@@ -15,6 +15,7 @@ from openamundsen_da.io.paths import (
     list_steps_sorted,
     project_ensemble_points_path,
 )
+from openamundsen_da.util.atomic import durable_replace
 from openamundsen_da.util.ts import collapse_duplicates
 
 
@@ -186,12 +187,18 @@ def validate_project_ensemble_points(
                     point_name=point,
                 ).reindex(retained_times)
                 for name in variable_names:
+                    variable = dataset.variables[name]
+                    if tuple(variable.dimensions) != ("time", "member", "point"):
+                        raise ValueError(f"Invalid compact point variable dimensions for {name} in {path}")
+                    expected_unit = _KNOWN_UNITS.get(name)
+                    if expected_unit is not None and getattr(variable, "units", None) != expected_unit:
+                        raise ValueError(f"Invalid compact point units for {name} in {path}")
                     expected_values = (
                         expected[name].to_numpy(dtype=float)
                         if name in expected.columns
                         else np.full(len(retained_times), np.nan)
                     )
-                    retained = dataset.variables[name][:, member_idx, point_idx]
+                    retained = variable[:, member_idx, point_idx]
                     retained_values = np.ma.filled(retained, np.nan).astype(float)
                     if not np.allclose(
                         retained_values,
@@ -295,11 +302,14 @@ def write_project_ensemble_points(
                         if name not in variables:
                             raise ValueError(f"Unexpected point variable {name!r} for {point_name}")
                         variables[name][time_indices, member_idx, point_idx] = frame[name].to_numpy(dtype=float)
-        os.replace(tmp, output)
+        # The accepted target is left untouched unless the completed temporary
+        # is scientifically equivalent to every raw consumer series.
+        validate_project_ensemble_points(project_dir, output_nc=tmp)
+        durable_replace(tmp, output)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
-    return validate_project_ensemble_points(project_dir, output_nc=output)
+    return output
 
 
 def load_compact_point_series(

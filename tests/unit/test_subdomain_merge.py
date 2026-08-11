@@ -511,6 +511,9 @@ def test_cleanup_deletes_only_manifest_owned_files_after_render(
         / "output_grids.nc"
     )
     subdomain_artifact.parent.mkdir(parents=True)
+    (subdomain_artifact.parent / "member_run.json").write_text(
+        '{"status": "success"}\n', encoding="utf-8"
+    )
     compact_subdomain.parent.mkdir(parents=True)
     unowned = subdomain_root / "not_in_manifest" / "output_grids.nc"
     unowned.parent.mkdir(parents=True)
@@ -536,7 +539,7 @@ def test_cleanup_deletes_only_manifest_owned_files_after_render(
     manifest = SimpleNamespace(
         project_dir=project_dir,
         subdomain_root=subdomain_root,
-        subdomains={"sd_01": SimpleNamespace(project_dir=sub_project_dir)},
+        subdomains={"sd_01": SimpleNamespace(id="sd_01", project_dir=sub_project_dir)},
         stages={
             "merge": {
                 "status": "completed",
@@ -582,8 +585,10 @@ def test_cleanup_deletes_only_manifest_owned_files_after_render(
         ),
     )
 
+    manifest_path = project_dir / "subdomain_manifest.json"
+    manifest_path.write_text('{"stage": "merge"}\n', encoding="utf-8")
     deleted, bytes_freed = merge_mod.cleanup_compact_grid_artifacts(
-        manifest_path=tmp_path / "manifest.json",
+        manifest_path=manifest_path,
         out_dir=grids_dir,
     )
 

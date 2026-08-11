@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from openamundsen_da.util import map_support as map_support_mod
 from openamundsen_da.methods.viz.maps.panel_renderers import (
     _prior_wet_fraction_array,
     _single_domain_scf_model_probability_array,
@@ -102,3 +103,25 @@ def test_map_support_validation_rejects_finite_values_outside_roi(tmp_path: Path
             fields={"scf_prior_probability"},
             roi_mask=np.asarray([[True, False]]),
         )
+
+
+def test_map_support_temp_validation_failure_preserves_accepted_target(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    target = project / "results" / "grids" / "da_map_support.nc"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"accepted")
+    monkeypatch.setattr(
+        map_support_mod,
+        "_validate_map_support_path",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("bad temp")),
+    )
+    with pytest.raises(ValueError, match="bad temp"):
+        write_map_support(
+            project,
+            dates=[pd.Timestamp("2023-01-01")],
+            fields={"scf_prior_probability": [np.asarray([[0.5]])]},
+        )
+    assert target.read_bytes() == b"accepted"

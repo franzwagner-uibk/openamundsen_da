@@ -119,14 +119,26 @@ def _restart_checkpoint_candidates(project_dir: Path, step_dir: Path) -> list[Pa
 
 def _validated_successor_states(project_dir: Path, successor_step: Path) -> tuple[Path, ...]:
     """Require a readable checkpoint for open loop and every successor member."""
+    project_cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+    try:
+        ensemble_size = int(project_cfg[DA_BLOCK]["prior_forcing"]["ensemble_size"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError("Cannot validate successor checkpoints without ensemble_size") from exc
     prior_dir = successor_step / "ensembles" / "prior"
     roots = sorted(path for path in prior_dir.iterdir() if path.is_dir()) if prior_dir.is_dir() else []
-    names = {path.name for path in roots}
-    if "open_loop" not in names:
-        raise RuntimeError(f"Successor step has no open-loop member directory: {successor_step}")
-    member_roots = [path for path in roots if path.name == "open_loop" or path.name.startswith("member_")]
-    if not any(path.name.startswith("member_") for path in member_roots):
-        raise RuntimeError(f"Successor step has no ensemble member directories: {successor_step}")
+    expected_names = ["open_loop", *(f"member_{index:03d}" for index in range(1, ensemble_size + 1))]
+    root_by_name = {
+        path.name: path
+        for path in roots
+        if path.name == "open_loop" or path.name.startswith("member_")
+    }
+    actual_names = sorted(root_by_name)
+    if actual_names != sorted(expected_names):
+        raise RuntimeError(
+            "Successor checkpoint membership differs from configured ensemble: "
+            f"{actual_names} != {sorted(expected_names)} in {successor_step}"
+        )
+    member_roots = [root_by_name[name] for name in expected_names]
     pattern = state_patterns_from_setup(project_dir)[0]
     output_name = STATE_DEFAULT_NAME if any(char in pattern for char in "*?[]") else pattern
     states: list[Path] = []
@@ -135,6 +147,26 @@ def _validated_successor_states(project_dir: Path, successor_step: Path) -> tupl
         validate_restart_state(state)
         states.append(state.resolve())
     return tuple(states)
+
+
+def _member_run_manifests(project_dir: Path, candidates: Sequence[Path]) -> tuple[Path, ...]:
+    """Resolve immutable package producer manifests for owned member artifacts."""
+    manifests: set[Path] = set()
+    for candidate in candidates:
+        found_member_root = False
+        for parent in candidate.resolve().parents:
+            if parent == project_dir:
+                break
+            if parent.name == "open_loop" or parent.name.startswith("member_"):
+                found_member_root = True
+                manifest = parent / "results" / "member_run.json"
+                if not manifest.is_file() or manifest.is_symlink():
+                    raise RuntimeError(f"Producer member manifest is missing or invalid: {manifest}")
+                manifests.add(manifest.resolve())
+                break
+        if not found_member_root:
+            raise RuntimeError(f"Cannot resolve member producer for cleanup candidate: {candidate}")
+    return tuple(sorted(manifests))
 
 
 def clean_predecessor_checkpoint(
@@ -152,13 +184,15 @@ def clean_predecessor_checkpoint(
     if apply and candidates:
         if successor_step is None:
             raise RuntimeError("Successor step is required before deleting a predecessor checkpoint")
-        _validated_successor_states(project_dir, Path(successor_step).resolve())
+        successor_states = _validated_successor_states(project_dir, Path(successor_step).resolve())
         apply_retention_batch(
             project_dir,
             artifact_class=f"restart_checkpoint:{Path(step_dir).name}",
             paths=candidates,
             final_consumer="validated successor member checkpoints",
             regeneration_recipe="rerun the predecessor step from the prior retained checkpoint",
+            retained_consumers=successor_states,
+            producer_manifests=_member_run_manifests(project_dir, candidates),
         )
     return tuple(candidates)
 
@@ -316,6 +350,26 @@ def clean_project_artifacts(project_dir: Path, *, apply: bool) -> CleanupResult:
         if not class_paths:
             continue
         try:
+            if artifact_class == "member_point_csv":
+                consumers = (project_dir / "results" / "points" / "ensemble_points.nc",)
+            elif artifact_class == "member_forcing_csv":
+                consumers = (project_dir / "results" / "forcing" / "ensemble_forcing.nc",)
+            elif artifact_class == "member_grid":
+                consumers = [project_dir / "results" / "grids" / "da_output_grids.nc"]
+                support = project_dir / "results" / "grids" / "da_map_support.nc"
+                if support.is_file():
+                    consumers.append(support)
+                consumers = tuple(consumers)
+            else:
+                consumers = tuple(
+                    path
+                    for path in (
+                        project_dir / "results" / "grids" / "da_output_grids.nc",
+                        project_dir / "results" / "points" / "ensemble_points.nc",
+                        project_dir / "results" / "forcing" / "ensemble_forcing.nc",
+                    )
+                    if path.is_file() and not path.is_symlink()
+                )
             apply_retention_batch(
                 project_dir,
                 artifact_class=artifact_class,
@@ -334,6 +388,8 @@ def clean_project_artifacts(project_dir: Path, *, apply: bool) -> CleanupResult:
                         )
                     )
                 ),
+                retained_consumers=consumers,
+                producer_manifests=_member_run_manifests(project_dir, class_paths),
             )
             deleted.extend(path for path in class_paths if not path.exists())
             freed += sum(sizes[path] for path in class_paths if not path.exists())

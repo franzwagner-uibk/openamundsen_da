@@ -10,13 +10,14 @@ from openamundsen_da.exceptions import CleanupSafetyError
 from openamundsen_da.manifests import (
     file_inventory,
     inventory_digest,
+    hash_json,
     load_manifest,
     sha256_file,
     write_manifest_atomic,
 )
 
 
-RETENTION_SCHEMA_VERSION = 2
+RETENTION_SCHEMA_VERSION = 3
 RETENTION_MANIFEST = "retention_manifest.json"
 
 
@@ -103,6 +104,31 @@ def _validate_recorded_file(project_dir: Path, batch: dict, rel: str) -> Path:
     return path
 
 
+def _validate_inventory_files(
+    project_dir: Path,
+    *,
+    inventory: list[dict],
+    purpose: str,
+) -> None:
+    """Require every recorded dependency to remain byte-identical."""
+    if not inventory:
+        raise CleanupSafetyError(f"Retention plan has no recorded {purpose}")
+    for row in inventory:
+        rel = str(row.get("path", ""))
+        path = (project_dir / rel).resolve()
+        try:
+            path.relative_to(project_dir)
+        except ValueError as exc:
+            raise CleanupSafetyError(f"Recorded {purpose} escapes project root: {rel}") from exc
+        if not path.is_file() or path.is_symlink():
+            raise CleanupSafetyError(f"Recorded {purpose} is missing or invalid: {rel}")
+        if (
+            path.stat().st_size != int(row.get("size", -1))
+            or sha256_file(path) != str(row.get("sha256", ""))
+        ):
+            raise CleanupSafetyError(f"Recorded {purpose} changed after planning: {rel}")
+
+
 def apply_retention_batch(
     project_dir: str | Path,
     *,
@@ -110,11 +136,19 @@ def apply_retention_batch(
     paths: Iterable[Path],
     final_consumer: str,
     regeneration_recipe: str,
-    producer_digest: str | None = None,
+    retained_consumers: Iterable[Path],
+    producer_manifests: Iterable[Path] = (),
+    producer_manifest_payload: object | None = None,
 ) -> dict:
     """Record, delete and complete one idempotent cleanup batch."""
     project_dir = Path(project_dir).resolve()
     candidates = _contained_files(project_dir, paths)
+    consumers = _contained_files(project_dir, retained_consumers)
+    producers = _contained_files(project_dir, producer_manifests)
+    if not consumers:
+        raise CleanupSafetyError("Retention cleanup requires at least one retained consumer")
+    if not producers and producer_manifest_payload is None:
+        raise CleanupSafetyError("Retention cleanup requires producer manifest evidence")
     ledger_path = retention_manifest_path(project_dir)
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     ledger = _load_ledger(project_dir)
@@ -156,6 +190,17 @@ def apply_retention_batch(
     if existing is None:
         inventory = file_inventory(root=project_dir, files=[path for path in candidates if path.is_file()])
         source_digest = inventory_digest(inventory)
+        consumer_inventory = file_inventory(root=project_dir, files=consumers)
+        producer_inventory = file_inventory(root=project_dir, files=producers)
+        if len(consumer_inventory) != len(consumers):
+            raise CleanupSafetyError("A retained consumer is missing or invalid")
+        if len(producer_inventory) != len(producers):
+            raise CleanupSafetyError("A producer manifest is missing or invalid")
+        producer_payload = (
+            {"file_inventory": producer_inventory}
+            if producer_inventory
+            else {"manifest_payload": producer_manifest_payload}
+        )
         batch = {
             "batch_id": f"{len(ledger['batches']) + 1:04d}",
             "artifact_class": str(artifact_class),
@@ -165,7 +210,11 @@ def apply_retention_batch(
             "paths": relative_paths,
             "inventory": inventory,
             "inventory_sha256": source_digest,
-            "producer_digest": producer_digest or source_digest,
+            "consumer_inventory": consumer_inventory,
+            "consumer_inventory_sha256": inventory_digest(consumer_inventory),
+            "producer_manifest_inventory": producer_inventory,
+            "producer_manifest_payload": producer_payload,
+            "producer_digest": hash_json(producer_payload),
             "final_consumer": str(final_consumer),
             "regeneration_recipe": str(regeneration_recipe),
             "planned_at": datetime.now(timezone.utc).isoformat(),
@@ -175,8 +224,28 @@ def apply_retention_batch(
     else:
         batch = existing
 
+    producer_inventory = list(batch.get("producer_manifest_inventory") or [])
+    if producer_inventory:
+        _validate_inventory_files(
+            project_dir,
+            inventory=producer_inventory,
+            purpose="producer manifest",
+        )
+    elif producer_manifest_payload is None or hash_json(
+        {"manifest_payload": producer_manifest_payload}
+    ) != str(batch.get("producer_digest", "")):
+        raise CleanupSafetyError("Producer manifest payload changed after planning")
+
     failures: list[str] = []
     for rel in batch["paths"]:
+        # This is deliberately repeated before every unlink. If a process was
+        # interrupted after deleting an earlier source, a corrupt or replaced
+        # retained consumer stops the resumed batch before any further loss.
+        _validate_inventory_files(
+            project_dir,
+            inventory=list(batch.get("consumer_inventory") or []),
+            purpose="retained consumer",
+        )
         path = _validate_recorded_file(project_dir, batch, str(rel))
         if not path.exists():
             continue
@@ -217,6 +286,18 @@ def reconcile_retention_ledger(project_dir: str | Path) -> tuple[str, ...]:
         ]
         if remaining:
             continue
+        _validate_inventory_files(
+            project_dir,
+            inventory=list(batch.get("consumer_inventory") or []),
+            purpose="retained consumer",
+        )
+        producer_inventory = list(batch.get("producer_manifest_inventory") or [])
+        if producer_inventory:
+            _validate_inventory_files(
+                project_dir,
+                inventory=producer_inventory,
+                purpose="producer manifest",
+            )
         batch["status"] = "complete"
         batch["completed_at"] = datetime.now(timezone.utc).isoformat()
         batch.pop("failures", None)

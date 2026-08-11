@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from openamundsen_da.io.paths import project_map_support_path
+from openamundsen_da.util.atomic import durable_replace
 
 
 def write_map_support(
@@ -70,7 +71,13 @@ def write_map_support(
                 )
                 variable.units = "1"
                 variable[:] = np.stack([np.asarray(array, dtype=np.float32) for array in arrays])
-        os.replace(tmp, output)
+        _validate_map_support_path(
+            tmp,
+            dates=normalized_dates,
+            fields=set(fields),
+            source_fields=fields,
+        )
+        durable_replace(tmp, output)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
@@ -113,9 +120,29 @@ def validate_map_support(
     fields: set[str],
     roi_mask: np.ndarray | None = None,
     source_fields: dict[str, list[np.ndarray]] | None = None,
+    input_nc: str | Path | None = None,
 ) -> Path:
     """Validate geometry, domain and optional source-value equivalence."""
-    path = project_map_support_path(project_dir)
+    path = Path(input_nc) if input_nc is not None else project_map_support_path(project_dir)
+    return _validate_map_support_path(
+        path,
+        dates=dates,
+        fields=fields,
+        roi_mask=roi_mask,
+        source_fields=source_fields,
+    )
+
+
+def _validate_map_support_path(
+    path: Path,
+    *,
+    dates: list[pd.Timestamp],
+    fields: set[str],
+    roi_mask: np.ndarray | None = None,
+    source_fields: dict[str, list[np.ndarray]] | None = None,
+) -> Path:
+    """Validate one candidate map-support file before atomic promotion."""
+    path = Path(path)
     expected_dates = pd.DatetimeIndex(
         sorted({pd.Timestamp(date).normalize() for date in dates})
     )
@@ -141,6 +168,8 @@ def validate_map_support(
             variable = dataset.variables[field]
             if tuple(variable.dimensions) != ("event", "y", "x"):
                 raise ValueError(f"Invalid map-support dimensions for {field} in {path}")
+            if getattr(variable, "units", None) != "1":
+                raise ValueError(f"Invalid map-support units for {field} in {path}")
             values = np.ma.filled(variable[:], np.nan).astype(float)
             if expected_shape is not None and tuple(values.shape[1:]) != expected_shape:
                 raise ValueError(f"Map-support ROI shape differs for {field} in {path}")

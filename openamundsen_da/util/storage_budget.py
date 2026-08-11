@@ -32,7 +32,24 @@ OPERATIONAL_RESERVE_FRACTION = 0.05
 GRID_BYTES_PER_CELL_SAMPLE = 8
 STATE_BYTES_PER_CELL_MEMBER = 4096
 POINT_BYTES_PER_VALUE = 32
-DEFAULT_POINT_VARIABLE_COUNT = 40
+# openAMUNDSEN's current default point-output contract. Keeping the names here
+# makes the bound auditable and lets layered model state be counted rather than
+# treating the historical total of 40 as 40 scalar columns.
+DEFAULT_POINT_VARIABLES = (
+    "meteo.temp", "meteo.precip", "meteo.snowfall", "meteo.rainfall",
+    "meteo.rel_hum", "meteo.wind_speed", "meteo.sw_in", "meteo.sw_out",
+    "meteo.lw_in", "meteo.lw_out", "meteo.sw_in_clearsky", "meteo.dir_in_clearsky",
+    "meteo.diff_in_clearsky", "meteo.cloud_factor", "meteo.cloud_fraction",
+    "meteo.wet_bulb_temp", "meteo.dew_point_temp", "meteo.atmos_press",
+    "meteo.sat_vap_press", "meteo.vap_press", "meteo.spec_hum",
+    "surface.temp", "surface.heat_flux", "surface.sens_heat_flux",
+    "surface.lat_heat_flux", "surface.advective_heat_flux", "surface.albedo",
+    "soil.temp", "soil.heat_flux",
+    "snow.swe", "snow.depth", "snow.temp", "snow.thickness", "snow.density",
+    "snow.ice_content", "snow.liquid_water_content", "snow.melt", "snow.runoff",
+    "snow.sublimation", "snow.refreezing",
+)
+DEFAULT_POINT_VARIABLE_COUNT = len(DEFAULT_POINT_VARIABLES)
 FILE_OVERHEAD_BYTES = 256 * 1024
 COMPACT_OUTPUT_MARGIN = 1.10
 OBSERVED_REFIT_MARGIN = 1.25
@@ -71,6 +88,7 @@ class ProjectStorageEstimate:
     restart_transition_bytes: int
     compact_timeseries_bytes: int
     compact_grid_bytes: int
+    map_support_bytes: int = 0
 
     @property
     def non_transition_bytes(self) -> int:
@@ -81,6 +99,7 @@ class ProjectStorageEstimate:
             + self.restart_baseline_bytes
             + self.compact_timeseries_bytes
             + self.compact_grid_bytes
+            + self.map_support_bytes
         )
 
     @property
@@ -110,39 +129,6 @@ def _parse_csv_timestamp(raw: str) -> datetime | None:
         return None
 
 
-def _station_file_bounds(path: Path) -> tuple[datetime, datetime] | None:
-    """Read first/last timestamps without loading a station file into memory."""
-    with path.open("rb") as stream:
-        header_raw = stream.readline().decode("utf-8-sig", errors="strict")
-        first_raw = stream.readline().decode("utf-8", errors="strict")
-        if not first_raw:
-            return None
-        size = stream.seek(0, 2)
-        stream.seek(max(0, size - 65536))
-        tail = stream.read().decode("utf-8", errors="strict").splitlines()
-    header = next(csv.reader([header_raw]))
-    first = next(csv.reader([first_raw]))
-    if not header or not first:
-        return None
-    try:
-        date_idx = header.index("date")
-    except ValueError as exc:
-        raise ValueError(f"Forcing CSV has no date column: {path}") from exc
-    first_ts = _parse_csv_timestamp(first[date_idx])
-    last_ts = None
-    for line in reversed(tail):
-        if not line.strip() or line == header_raw.rstrip("\r\n"):
-            continue
-        row = next(csv.reader([line]))
-        if row:
-            last_ts = _parse_csv_timestamp(row[date_idx])
-            if last_ts is not None:
-                break
-    if first_ts is None or last_ts is None:
-        return None
-    return first_ts, last_ts
-
-
 def estimate_step_forcing_bytes(
     meteo_dir: str | Path,
     *,
@@ -159,32 +145,47 @@ def estimate_step_forcing_bytes(
     )
     if not station_files:
         raise FileNotFoundError(f"No station forcing CSV files found in {meteo_dir}")
-    per_copy_payload = 0
-    for path in station_files:
-        bounds = _station_file_bounds(path)
-        if bounds is None:
-            raise ValueError(f"Could not read forcing time coverage in {path}")
-        first, last = bounds
-        coverage_seconds = max(1.0, (last - first).total_seconds())
-        window_seconds = max(1.0, (end - start).total_seconds())
-        fraction = min(1.0, window_seconds / coverage_seconds)
-        # Scale each station independently. Using one network-wide coverage
-        # interval can under-budget short-record stations when another file has
-        # a much longer record.
-        with path.open("rb") as stream:
-            header_bytes = len(stream.readline())
-        payload_bytes = max(0, path.stat().st_size - header_bytes)
-        per_copy_payload += header_bytes + int(payload_bytes * fraction * 1.35)
     if start.tzinfo is not None:
         start = start.astimezone(timezone.utc).replace(tzinfo=None)
     if end.tzinfo is not None:
         end = end.astimezone(timezone.utc).replace(tzinfo=None)
+    per_copy_payload = 0
+    for path in station_files:
+        per_copy_payload += _selected_forcing_source_bytes(path, start=start, end=end)
     metadata_bytes = (meteo_dir / "stations.csv").stat().st_size if (meteo_dir / "stations.csv").is_file() else 0
     # CSV formatting and uneven station coverage make exact byte prediction
     # impossible before generation. Keep a 35% conservative serialization
     # margin while scaling only the requested step window.
     per_copy = per_copy_payload + metadata_bytes
     return per_copy * (ensemble_size + 1)
+
+
+def _selected_forcing_source_bytes(path: Path, *, start: datetime, end: datetime) -> int:
+    """Count exact selected source-row bytes plus conservative serialization growth."""
+    with path.open("rb") as stream:
+        header_raw = stream.readline()
+        if not header_raw:
+            raise ValueError(f"Forcing CSV is empty: {path}")
+        header = next(csv.reader([header_raw.decode("utf-8-sig", errors="strict")]))
+        try:
+            date_idx = header.index("date")
+        except ValueError as exc:
+            raise ValueError(f"Forcing CSV has no date column: {path}") from exc
+        selected_payload = 0
+        for line_number, raw_line in enumerate(stream, start=2):
+            if not raw_line.strip():
+                continue
+            row = next(csv.reader([raw_line.decode("utf-8", errors="strict")]))
+            if date_idx >= len(row):
+                raise ValueError(f"Forcing row {line_number} has no date in {path}")
+            timestamp = _parse_csv_timestamp(row[date_idx])
+            if timestamp is None:
+                raise ValueError(f"Invalid forcing timestamp on row {line_number} in {path}")
+            if start <= timestamp <= end:
+                selected_payload += len(raw_line)
+    # Perturbation formatting can expand numeric fields. Reserve each file's
+    # literal header and 35% above the exact selected source row bytes.
+    return len(header_raw) + math.ceil(selected_payload * 1.35)
 
 
 def estimate_compact_timeseries_bytes(project_dir: str | Path) -> int:
@@ -352,6 +353,7 @@ def _point_storage_bound(
     steps: list[tuple[Path, datetime, datetime]],
     model_timestep: object,
     member_count: int,
+    project_dir: Path | None = None,
 ) -> int:
     timeseries = output_data.get("timeseries") or {}
     explicit_points = list(timeseries.get("points") or [])
@@ -366,21 +368,49 @@ def _point_storage_bound(
         for variable in variables
     )
     if bool(timeseries.get("add_default_variables", True)):
-        variable_count += DEFAULT_POINT_VARIABLE_COUNT
+        variable_count += sum(
+            _grid_layer_count({"var": name}, setup_cfg)
+            for name in DEFAULT_POINT_VARIABLES
+        )
     variable_count = max(1, variable_count)
     write_frequency = timeseries.get("write_freq") or model_timestep
     time_count = sum(
         _window_sample_count(start, end, write_frequency)
         for _step, start, end in steps
     )
+    observed_rate = _observed_point_bytes_per_value(project_dir) if project_dir is not None else 0.0
+    byte_rate = max(
+        POINT_BYTES_PER_VALUE * OBSERVED_REFIT_MARGIN,
+        observed_rate * OBSERVED_REFIT_MARGIN,
+    )
     return int(
         point_count
         * variable_count
         * time_count
         * member_count
-        * POINT_BYTES_PER_VALUE
-        * OBSERVED_REFIT_MARGIN
+        * byte_rate
     )
+
+
+def _observed_point_bytes_per_value(project_dir: Path | None) -> float:
+    """Calibrate the point bound upward from already produced CSVs."""
+    if project_dir is None:
+        return 0.0
+    measured = 0.0
+    for path in Path(project_dir).glob("steps/step_*/ensembles/*/*/results/point_*.csv"):
+        if not path.is_file() or path.is_symlink():
+            continue
+        with path.open("r", encoding="utf-8-sig", errors="strict", newline="") as stream:
+            reader = csv.reader(stream)
+            try:
+                header = next(reader)
+            except StopIteration:
+                continue
+            rows = sum(1 for row in reader if row)
+        values = rows * max(1, len(header) - 1)
+        if values:
+            measured = max(measured, path.stat().st_size / values)
+    return measured
 
 
 def _project_grid_storage_bound(
@@ -509,6 +539,43 @@ def _compact_grid_storage_bound(
     return expected
 
 
+def _map_support_storage_bound(
+    *,
+    project_dir: Path,
+    project_cfg: dict,
+    grid_cell_count: int,
+    overwrite: bool,
+) -> int:
+    """Reserve the event-map support atomic temporary only when still needed."""
+    events = list((project_cfg.get("data_assimilation") or {}).get("assimilation_events") or [])
+    fraction_variables = {
+        str(event.get("variable", ""))
+        for event in events
+        if isinstance(event, dict)
+        and str(event.get("variable", "")) in {"scf", "wet_snow", "wet_snow_line"}
+    }
+    if not fraction_variables:
+        return 0
+    output = project_dir / "results" / "grids" / "da_map_support.nc"
+    if output.is_file() and not overwrite:
+        return 0
+    event_dates = {
+        str(event.get("date", ""))
+        for event in events
+        if isinstance(event, dict) and event.get("date") is not None
+    }
+    field_count = 3 * int("scf" in fraction_variables)
+    field_count += 3 * int(bool(fraction_variables & {"wet_snow", "wet_snow_line"}))
+    return int(
+        max(1, len(event_dates))
+        * field_count
+        * grid_cell_count
+        * 4
+        * OBSERVED_REFIT_MARGIN
+        + FILE_OVERHEAD_BYTES
+    )
+
+
 def estimate_project_storage_components(
     *,
     setup_dir: str | Path,
@@ -577,6 +644,7 @@ def estimate_project_storage_components(
         steps=steps,
         model_timestep=model_timestep,
         member_count=member_count,
+        project_dir=project_dir,
     )
     point_existing = _owned_file_bytes(
         [
@@ -625,6 +693,12 @@ def estimate_project_storage_components(
         grid_cell_count=grid_cell_count,
         overwrite=overwrite,
     )
+    map_support = _map_support_storage_bound(
+        project_dir=project_dir,
+        project_cfg=project_cfg,
+        grid_cell_count=grid_cell_count,
+        overwrite=overwrite,
+    )
     return ProjectStorageEstimate(
         forcing_bytes=forcing_additional,
         member_grid_bytes=grid_additional,
@@ -633,6 +707,7 @@ def estimate_project_storage_components(
         restart_transition_bytes=restart_transition,
         compact_timeseries_bytes=compact_timeseries,
         compact_grid_bytes=compact_grid,
+        map_support_bytes=map_support,
     )
 
 

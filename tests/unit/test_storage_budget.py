@@ -21,6 +21,7 @@ from openamundsen_da.util.storage_budget import (
     estimate_project_storage_reserve,
     estimate_step_forcing_bytes,
     _point_storage_bound,
+    _selected_forcing_source_bytes,
 )
 
 
@@ -115,6 +116,22 @@ def test_forcing_estimate_scales_each_station_coverage_independently(tmp_path: P
     assert estimated >= short_full_bound
 
 
+def test_forcing_estimate_counts_only_exact_selected_rows_conservatively(tmp_path: Path) -> None:
+    path = tmp_path / "station.csv"
+    outside = "2020-01-01," + ("1" * 2_000) + "\n"
+    selected = "2023-01-02," + ("2" * 700) + "\n"
+    path.write_text("date,temp\n" + outside + selected + outside, encoding="utf-8")
+
+    estimated = _selected_forcing_source_bytes(
+        path,
+        start=datetime(2023, 1, 2),
+        end=datetime(2023, 1, 2, 23, 59),
+    )
+
+    assert estimated == len(b"date,temp\n") + int(len(selected.encode()) * 1.35 + 0.999999)
+    assert estimated < path.stat().st_size
+
+
 def test_compact_export_estimate_counts_owned_csvs_with_margin(tmp_path: Path) -> None:
     project = tmp_path / "project"
     point = project / "steps" / "step_00" / "ensembles" / "prior" / "member_001" / "results" / "point_a.csv"
@@ -161,6 +178,36 @@ def test_point_bound_counts_default_columns_and_explicit_layers(tmp_path: Path) 
 
     assert DEFAULT_POINT_VARIABLE_COUNT == 40
     assert explicit_layers > default_only
+
+
+def test_point_bound_counts_layered_defaults_and_refits_only_upward(tmp_path: Path) -> None:
+    setup = tmp_path / "setup"
+    (setup / "meteo").mkdir(parents=True)
+    (setup / "meteo" / "stations.csv").write_text("id\na\n", encoding="utf-8")
+    steps = [(tmp_path / "step", datetime(2023, 1, 1), datetime(2023, 1, 2))]
+    base = _point_storage_bound(
+        setup_dir=setup,
+        setup_cfg={"snow": {"min_thickness": [0.1, 0.2, 0.4]}},
+        output_data={"timeseries": {"add_default_points": True, "add_default_variables": True}},
+        steps=steps,
+        model_timestep="1D",
+        member_count=1,
+    )
+    project = tmp_path / "project"
+    observed = project / "steps" / "step_00" / "ensembles" / "prior" / "open_loop" / "results" / "point_a.csv"
+    observed.parent.mkdir(parents=True)
+    observed.write_text("date,swe\n2023-01-01," + ("9" * 10_000) + "\n", encoding="utf-8")
+    refit = _point_storage_bound(
+        setup_dir=setup,
+        setup_cfg={"snow": {"min_thickness": [0.1, 0.2, 0.4]}},
+        output_data={"timeseries": {"add_default_points": True, "add_default_variables": True}},
+        steps=steps,
+        model_timestep="1D",
+        member_count=1,
+        project_dir=project,
+    )
+
+    assert refit > base
 
 
 def test_project_reserve_covers_pending_steps_and_final_compaction(tmp_path: Path) -> None:
@@ -396,3 +443,48 @@ def test_parent_merge_reserves_one_atomic_full_grid_temporary(tmp_path: Path) ->
         grid_cell_count=100,
     )
     assert reserve > 100 * 2 * 4 * 8
+
+
+def test_map_support_reserve_is_explicit_and_stage_aware(tmp_path: Path) -> None:
+    setup = tmp_path / "setup"
+    project = setup / "projects" / "demo"
+    (setup / "meteo").mkdir(parents=True)
+    (setup / "meteo" / "stations.csv").write_text("id\n", encoding="utf-8")
+    (setup / "meteo" / "a.csv").write_text("date,temp\n2023-01-01,273\n", encoding="utf-8")
+    (setup / "north.yml").write_text(
+        "timestep: 1D\noutput_data:\n  timeseries: {add_default_points: false, add_default_variables: false}\n"
+        "  grids:\n    variables: [{var: snow.depth, name: snowdepth_daily, freq: 1D}]\n",
+        encoding="utf-8",
+    )
+    project.mkdir(parents=True)
+    (project / "demo.yml").write_text(
+        "data_assimilation:\n"
+        "  prior_forcing: {ensemble_size: 1}\n"
+        "  assimilation_events:\n"
+        "    - {date: '2023-01-01', variable: scf, product: TEST}\n"
+        "  output:\n"
+        "    retention: compact\n"
+        "    grids:\n"
+        "      variables: [{var: snowdepth_daily, metrics: [open_loop]}]\n",
+        encoding="utf-8",
+    )
+    step = project / "steps" / "step_00"
+    step.mkdir(parents=True)
+    (step / "step.yml").write_text(
+        "start_date: '2023-01-01'\nend_date: '2023-01-01'\n", encoding="utf-8"
+    )
+    pending = estimate_project_storage_components(
+        setup_dir=setup, project_dir=project, grid_cell_count=100
+    )
+    assert pending.map_support_bytes > 3 * 100 * 4
+    support = project / "results" / "grids" / "da_map_support.nc"
+    support.parent.mkdir(parents=True)
+    support.write_bytes(b"accepted")
+    accepted = estimate_project_storage_components(
+        setup_dir=setup, project_dir=project, grid_cell_count=100
+    )
+    overwritten = estimate_project_storage_components(
+        setup_dir=setup, project_dir=project, grid_cell_count=100, overwrite=True
+    )
+    assert accepted.map_support_bytes == 0
+    assert overwritten.map_support_bytes == pending.map_support_bytes

@@ -27,6 +27,7 @@ from openamundsen_da.util.storage_policy import (
     da_summary_netcdf_encoding,
 )
 from openamundsen_da.methods.pf.weights import load_prior_weights
+from openamundsen_da.util.atomic import durable_replace
 
 _DEFAULT_SUMMARY_METRICS = ("open_loop", "ens_mean", "ens_std", "ens_min", "ens_max", "increment")
 _ANALYSIS_SUMMARY_METRICS = ("analysis_mean", "analysis_increment")
@@ -490,8 +491,45 @@ def _combine_step_summaries(step_summaries: Sequence[xr.Dataset]) -> xr.Dataset:
     return merged_ds
 
 
+def _validate_da_dataset_against_expected(path: Path, expected: xr.Dataset) -> None:
+    """Require exact schema/coordinates and encoding-tolerant scientific values."""
+    with xr.open_dataset(path) as retained:
+        if set(retained.data_vars) != set(expected.data_vars):
+            raise ValueError(f"Atomic DA grid validation found data-variable mismatch in {path}")
+        if set(retained.coords) != set(expected.coords) or dict(retained.sizes) != dict(expected.sizes):
+            raise ValueError(f"Atomic DA grid validation found coordinate/dimension mismatch in {path}")
+        for name in expected.coords:
+            source_coord = expected.coords[name]
+            written_coord = retained.coords[name]
+            if tuple(written_coord.dims) != tuple(source_coord.dims):
+                raise ValueError(f"Atomic DA grid validation found coordinate dimensions changed for {name}")
+            source_values = np.asarray(source_coord.values)
+            written_values = np.asarray(written_coord.values)
+            if not np.array_equal(source_values, written_values, equal_nan=True):
+                raise ValueError(f"Atomic DA grid validation found coordinate values changed for {name}")
+            if "time" in name.lower():
+                index = pd.Index(written_values)
+                if not index.is_unique or not index.is_monotonic_increasing:
+                    raise ValueError(f"Atomic DA grid validation requires unique ordered {name}")
+        for name in expected.data_vars:
+            source_array = expected[name]
+            written_array = retained[name]
+            if tuple(written_array.dims) != tuple(source_array.dims):
+                raise ValueError(f"Atomic DA grid validation found dimensions changed for {name}")
+            if written_array.attrs.get("units") != source_array.attrs.get("units"):
+                raise ValueError(f"Atomic DA grid validation found units changed for {name}")
+            source = np.asarray(source_array.values, dtype=float)
+            written = np.asarray(written_array.values, dtype=float)
+            if not np.array_equal(np.isfinite(source), np.isfinite(written)):
+                raise ValueError(f"Atomic DA grid validation found invalid values for {name} in {path}")
+            scale = da_summary_grid_scale_factor(name)
+            tolerance = float(scale) / 2.0 + 1e-7 if scale is not None else 1e-5
+            if not np.allclose(source, written, rtol=1e-6, atol=tolerance, equal_nan=True):
+                raise ValueError(f"Atomic DA grid validation found changed values for {name} in {path}")
+
+
 def _write_da_dataset_atomic(dataset: xr.Dataset, output_nc: Path) -> Path:
-    """Write and validate a same-directory NetCDF before atomic promotion."""
+    """Write and validate a crash-durable same-directory NetCDF."""
     output_nc = Path(output_nc)
     output_nc.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(
@@ -503,21 +541,8 @@ def _write_da_dataset_atomic(dataset: xr.Dataset, output_nc: Path) -> Path:
     temp = Path(temp_name)
     try:
         dataset.to_netcdf(temp, mode="w", encoding=da_summary_netcdf_encoding(dataset))
-        with xr.open_dataset(temp) as retained:
-            if set(retained.data_vars) != set(dataset.data_vars):
-                raise ValueError(f"Atomic DA grid validation found missing variables in {temp}")
-            if dict(retained.sizes) != dict(dataset.sizes):
-                raise ValueError(f"Atomic DA grid validation found dimension mismatch in {temp}")
-            for name in dataset.data_vars:
-                source = np.asarray(dataset[name].values, dtype=float)
-                written = np.asarray(retained[name].values, dtype=float)
-                if not np.array_equal(np.isfinite(source), np.isfinite(written)):
-                    raise ValueError(f"Atomic DA grid validation found invalid values for {name} in {temp}")
-                scale = da_summary_grid_scale_factor(name)
-                tolerance = float(scale) / 2.0 + 1e-7 if scale is not None else 1e-5
-                if not np.allclose(source, written, rtol=1e-6, atol=tolerance, equal_nan=True):
-                    raise ValueError(f"Atomic DA grid validation found changed values for {name} in {temp}")
-        os.replace(temp, output_nc)
+        _validate_da_dataset_against_expected(temp, dataset)
+        durable_replace(temp, output_nc)
     finally:
         temp.unlink(missing_ok=True)
     return output_nc
@@ -598,12 +623,8 @@ def _load_project_assimilation_events(project_dir: Path) -> list[AssimilationEve
         return []
 
 
-def write_project_da_output_grids(
-    *,
-    step_dirs: Sequence[Path],
-    output_nc: Path,
-) -> Path | None:
-    """Write one compact DA summary NetCDF spanning all available project steps."""
+def _build_project_da_output_dataset(step_dirs: Sequence[Path]) -> xr.Dataset | None:
+    """Build the canonical project compact grid dataset from raw member grids."""
     step_summaries: list[xr.Dataset] = []
     used_steps: list[str] = []
     project_dir: Path | None = None
@@ -653,8 +674,21 @@ def write_project_da_output_grids(
             "source_steps": ",".join(used_steps),
         }
     )
+    return combined
+
+
+def write_project_da_output_grids(
+    *,
+    step_dirs: Sequence[Path],
+    output_nc: Path,
+) -> Path | None:
+    """Write one compact DA summary NetCDF spanning all available project steps."""
+    combined = _build_project_da_output_dataset(step_dirs)
+    if combined is None:
+        return None
     _write_da_dataset_atomic(combined, output_nc)
-    logger.info("Wrote DA output summary NetCDF {} ({} step(s))", output_nc, len(step_summaries))
+    step_count = combined.attrs.get("source_step_count", "0")
+    logger.info("Wrote DA output summary NetCDF {} ({} step(s))", output_nc, step_count)
     return output_nc
 
 
@@ -684,8 +718,6 @@ def validate_project_da_output_grids(
             "Cannot validate compact grid completeness without "
             "data_assimilation.prior_forcing.ensemble_size"
         ) from exc
-    source_specs: dict[str, dict[str, object]] = {}
-    source_times: dict[tuple[str, str], set[int]] = {}
     steps = list_steps_sorted(project_dir)
     if not steps:
         raise ValueError(f"Cannot validate compact grids without prepared steps: {project_dir}")
@@ -706,58 +738,23 @@ def validate_project_da_output_grids(
         if missing_files:
             raise FileNotFoundError(f"Raw member grid required for completeness is missing: {missing_files[0]}")
         with xr.open_dataset(files[0]) as reference:
-            variables = (
-                configured
-                if configured is not None
-                else {
-                    name: set(_DEFAULT_SUMMARY_METRICS)
-                    for name, array in reference.data_vars.items()
-                    if {"y", "x"}.issubset(array.dims)
-                }
-            )
-            for source_name, metrics in variables.items():
+            variables = configured or {
+                name: set(_DEFAULT_SUMMARY_METRICS)
+                for name, array in reference.data_vars.items()
+                if {"y", "x"}.issubset(array.dims)
+            }
+            for source_name in variables:
                 if source_name not in reference:
                     raise ValueError(f"Configured compact grid source {source_name!r} is missing in {files[0]}")
-                array = reference[source_name]
-                spec = source_specs.setdefault(
-                    source_name,
-                    {"dims": tuple(array.dims), "non_time": {d: int(array.sizes[d]) for d in array.dims if "time" not in d.lower()}, "metrics": set()},
-                )
-                cast_metrics = spec["metrics"]
-                assert isinstance(cast_metrics, set)
-                cast_metrics.update(metrics)
-                for dim in array.dims:
-                    if "time" in dim.lower() and dim in reference.coords:
-                        values = pd.to_datetime(reference[dim].values).view("int64")
-                        source_times.setdefault((source_name, dim), set()).update(int(value) for value in values)
         for path in files[1:]:
             with xr.open_dataset(path) as member:
-                for source_name, spec in source_specs.items():
+                for source_name in variables:
                     if source_name not in member:
                         raise ValueError(f"Grid source {source_name!r} is missing in member output {path}")
-                    array = member[source_name]
-                    non_time = {d: int(array.sizes[d]) for d in array.dims if "time" not in d.lower()}
-                    if non_time != spec["non_time"]:
-                        raise ValueError(f"Grid source {source_name!r} shape differs in {path}")
-
-    with xr.open_dataset(output) as retained:
-        for source_name, spec in source_specs.items():
-            metrics = spec["metrics"]
-            assert isinstance(metrics, set)
-            for metric in metrics:
-                name = f"{metric}_{source_name}"
-                if name not in retained:
-                    raise ValueError(f"Compact DA grid metric is missing: {name} in {output}")
-                array = retained[name]
-                non_time = {d: int(array.sizes[d]) for d in array.dims if "time" not in d.lower()}
-                if non_time != spec["non_time"]:
-                    raise ValueError(f"Compact DA grid metric shape differs for {name} in {output}")
-                for dim in array.dims:
-                    expected = source_times.get((source_name, dim))
-                    if expected is not None:
-                        actual = {int(value) for value in pd.to_datetime(retained[dim].values).view("int64")}
-                        if actual != expected:
-                            raise ValueError(f"Compact DA grid time coverage differs for {name} in {output}")
+    expected = _build_project_da_output_dataset(steps)
+    if expected is None:
+        raise ValueError(f"Cannot rebuild expected compact grid dataset for {project_dir}")
+    _validate_da_dataset_against_expected(output, expected)
     return output
 
 

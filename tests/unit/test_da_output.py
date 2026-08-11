@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from openamundsen_da.util import da_output as da_output_mod
 from openamundsen_da.util.da_output import (
     output_retention_mode,
     validate_project_da_output_grids,
@@ -154,6 +155,28 @@ def test_atomic_grid_write_preserves_accepted_output_on_failure(
     assert not list(tmp_path.glob(f".{output.name}.*.tmp.nc"))
 
 
+def test_atomic_grid_write_preserves_accepted_output_on_validation_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    open_loop = tmp_path / "output_grids.nc"
+    member = tmp_path / "member_001_output_grids.nc"
+    output = tmp_path / "da_output_grids.nc"
+    _write_nc(open_loop, np.ones((1, 2, 2)))
+    _write_nc(member, np.ones((1, 2, 2)))
+    output.write_bytes(b"accepted")
+    monkeypatch.setattr(
+        da_output_mod,
+        "_validate_da_dataset_against_expected",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("invalid temp")),
+    )
+
+    with pytest.raises(ValueError, match="invalid temp"):
+        write_da_output_grids(open_loop_nc=open_loop, member_ncs=[member], output_nc=output)
+
+    assert output.read_bytes() == b"accepted"
+
+
 def test_grid_cleanup_completeness_requires_every_configured_metric_and_member(
     tmp_path: Path,
 ) -> None:
@@ -187,7 +210,7 @@ def test_grid_cleanup_completeness_requires_every_configured_metric_and_member(
     with xr.open_dataset(output) as dataset:
         incomplete = dataset.drop_vars("ens_mean_snowdepth_daily").load()
     incomplete.to_netcdf(output, mode="w")
-    with pytest.raises(ValueError, match="metric is missing"):
+    with pytest.raises(ValueError, match="data-variable mismatch"):
         validate_project_da_output_grids(project, output_nc=output)
     write_project_da_output_grids(step_dirs=[step], output_nc=output)
 
@@ -236,6 +259,56 @@ def test_write_project_da_output_grids_spans_all_steps(tmp_path: Path) -> None:
         assert np.isclose(mean_vals[0, 0, 0], 3.0)
         assert np.isclose(mean_vals[1, 0, 0], 25.0)
         assert ds.attrs.get("source_step_count") == "2"
+
+
+@pytest.mark.parametrize("corruption", ["value", "coordinate", "time_order", "time_duplicate"])
+def test_grid_cleanup_validation_rejects_scientific_or_coordinate_corruption(
+    tmp_path: Path,
+    corruption: str,
+) -> None:
+    project = tmp_path / "setup" / "projects" / "demo"
+    project.mkdir(parents=True)
+    (project / "demo.yml").write_text(
+        "data_assimilation:\n"
+        "  prior_forcing: {ensemble_size: 1}\n"
+        "  output:\n"
+        "    grids:\n"
+        "      variables:\n"
+        "        - {var: snowdepth_daily, metrics: [open_loop, ens_mean]}\n",
+        encoding="utf-8",
+    )
+    steps = []
+    for index, day in enumerate(("2023-01-01", "2023-01-02")):
+        step = project / "steps" / f"step_{index:02d}"
+        step.mkdir(parents=True)
+        (step / "step.yml").write_text(
+            f"start_date: '{day}'\nend_date: '{day}'\n", encoding="utf-8"
+        )
+        _write_step_member_ncs(
+            step,
+            np.full((1, 2, 2), float(index + 1)),
+            [np.full((1, 2, 2), float(index + 2))],
+            day,
+        )
+        steps.append(step)
+    output = project / "results" / "grids" / "da_output_grids.nc"
+    write_project_da_output_grids(step_dirs=steps, output_nc=output)
+    with xr.open_dataset(output) as dataset:
+        corrupted = dataset.load()
+    if corruption == "value":
+        corrupted["ens_mean_snowdepth_daily"].values[0, 0, 0] += 1.0
+    elif corruption == "coordinate":
+        corrupted = corrupted.assign_coords(x=np.asarray([0, 2]))
+    elif corruption == "time_order":
+        corrupted = corrupted.isel(time1=[1, 0])
+    else:
+        values = corrupted.time1.values.copy()
+        values[1] = values[0]
+        corrupted = corrupted.assign_coords(time1=values)
+    corrupted.to_netcdf(output, mode="w")
+
+    with pytest.raises(ValueError, match="validation"):
+        validate_project_da_output_grids(project, output_nc=output)
 
 
 def test_write_project_da_output_grids_adds_weighted_analysis_increment(tmp_path: Path) -> None:

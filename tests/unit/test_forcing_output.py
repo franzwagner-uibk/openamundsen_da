@@ -6,6 +6,7 @@ import netCDF4
 import numpy as np
 import pytest
 
+from openamundsen_da.util import forcing_output as forcing_output_mod
 from openamundsen_da.util.forcing_output import (
     _read_forcing_csv,
     compact_forcing_members,
@@ -134,3 +135,24 @@ def test_forcing_output_mean_collapses_overlapping_step_boundaries(tmp_path: Pat
         dataset.variables["temp"][1, 1, 0] = 999.0
     with pytest.raises(ValueError, match="values do not match mean-collapsed"):
         validate_project_ensemble_forcing(project, output_nc=output)
+
+
+def test_forcing_temp_validation_failure_preserves_accepted_target(tmp_path: Path, monkeypatch) -> None:
+    project = tmp_path / "setup" / "projects" / "demo"
+    step = project / "steps" / "step_00"
+    step.mkdir(parents=True)
+    (step / "step.yml").write_text("start_date: 2023-01-01\n", encoding="utf-8")
+    for member in ("open_loop", "member_001"):
+        _write_forcing(step / "ensembles" / "prior" / member / "meteo", "2023-01-01", 270, 1)
+    target = project / "results" / "forcing" / "ensemble_forcing.nc"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"accepted")
+    monkeypatch.setattr(
+        forcing_output_mod,
+        "validate_project_ensemble_forcing",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("bad temp")),
+    )
+
+    with pytest.raises(ValueError, match="bad temp"):
+        write_project_ensemble_forcing(project)
+    assert target.read_bytes() == b"accepted"

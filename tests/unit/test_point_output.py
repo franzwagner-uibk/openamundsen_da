@@ -6,6 +6,7 @@ import netCDF4
 import numpy as np
 import pytest
 
+from openamundsen_da.util import point_output as point_output_mod
 from openamundsen_da.util.point_output import (
     _read_point_csv,
     compact_point_filenames,
@@ -131,3 +132,24 @@ def test_point_output_mean_collapses_overlapping_step_boundaries(tmp_path: Path)
         dataset.variables["snow_depth"][1, 1, 0] = 99.0
     with pytest.raises(ValueError, match="values do not match mean-collapsed"):
         validate_project_ensemble_points(project, output_nc=output)
+
+
+def test_point_temp_validation_failure_preserves_accepted_target(tmp_path: Path, monkeypatch) -> None:
+    project = tmp_path / "setup" / "projects" / "demo"
+    step = project / "steps" / "step_00"
+    step.mkdir(parents=True)
+    (step / "step.yml").write_text("start_date: 2023-01-01\n", encoding="utf-8")
+    for member in ("open_loop", "member_001"):
+        _write_point(step / "ensembles" / "prior" / member / "results", "2023-01-01,1,100\n")
+    target = project / "results" / "points" / "ensemble_points.nc"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"accepted")
+    monkeypatch.setattr(
+        point_output_mod,
+        "validate_project_ensemble_points",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("bad temp")),
+    )
+
+    with pytest.raises(ValueError, match="bad temp"):
+        write_project_ensemble_points(project)
+    assert target.read_bytes() == b"accepted"

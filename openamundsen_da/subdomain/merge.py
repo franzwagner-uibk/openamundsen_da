@@ -25,6 +25,7 @@ from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta
 from openamundsen_da.subdomain.status import save_stage, terminal_status
 from openamundsen_da.pipeline.cleanup import clean_project_artifacts
 from openamundsen_da.util.retention import apply_retention_batch, reconcile_retention_ledger
+from openamundsen_da.util.atomic import durable_replace
 from openamundsen_da.util.da_output import (
     output_retention_mode,
     write_da_output_grids,
@@ -59,7 +60,7 @@ def _atomic_output(path: Path):
     tmp_path.unlink(missing_ok=True)
     try:
         yield tmp_path
-        os.replace(tmp_path, path)
+        durable_replace(tmp_path, path)
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -489,6 +490,8 @@ def cleanup_compact_grid_artifacts(
                 paths=parent_artifacts,
                 final_consumer="validated parent compact grid, maps and report",
                 regeneration_recipe="rerun subdomain merge from retained leaf products",
+                retained_consumers=(Path(out_base) / "da_output_grids.nc",),
+                producer_manifest_payload={"merge": manifest.stages.get("merge") or {}},
             )
             deleted.extend(path for path in parent_artifacts if not path.exists())
             bytes_freed += sum(size for path, size in sizes.items() if not path.exists())

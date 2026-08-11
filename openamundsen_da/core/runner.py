@@ -38,6 +38,7 @@ from openamundsen_da.core.constants import (
     STATE_DEFAULT_NAME,
     STATE_POINTER_JSON,
 )
+from openamundsen_da.util.atomic import durable_replace
 from openamundsen.model import OpenAmundsen
 
 from openamundsen_da.core.config import load_merged_config
@@ -502,6 +503,6 @@ def _dump_init_data(model, filename: Path) -> None:
         with gzip.open(temp_path, "wb") as f:
             pickle.dump(init_data, f)
         validate_restart_state(temp_path)
-        os.replace(temp_path, filename)
+        durable_replace(temp_path, filename)
     finally:
         temp_path.unlink(missing_ok=True)

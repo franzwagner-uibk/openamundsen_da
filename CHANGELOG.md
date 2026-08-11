@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before propagation and validate every requested variable and metric in
   member, project and merged subdomain NetCDFs.
 
+### Fixed
+- Keep point-result titles consistent with the observations actually plotted,
+  derive each weights-panel residual range from its finite data and uncertainty
+  references, and wrap dense station uncertainty keys inside the panel.
+
 ## [0.9.4] - 2026-07-29
 
 ### Changed

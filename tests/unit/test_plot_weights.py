@@ -726,6 +726,32 @@ def test_station_plot_with_five_sigma_entries_stacks_inside_panel(tmp_path: Path
     plt.close(fig)
 
 
+def test_station_plot_wraps_six_sigma_entries_inside_panel() -> None:
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(4.0, 2.0))
+    entries = [(f"C{index}", f"σ={0.1 * index:.1f}") for index in range(1, 7)]
+
+    plot_mod._draw_sigma_strip(ax, entries, fontsize=7.0)
+    legend = ax.get_legend()
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    legend_bbox = legend.get_window_extent(renderer=renderer)
+    axes_bbox = ax.get_window_extent(renderer=renderer)
+    row_positions = {
+        round(text.get_window_extent(renderer=renderer).y0, 3)
+        for text in legend.get_texts()
+    }
+
+    assert getattr(legend, "_ncols", None) == 3
+    assert len(row_positions) == 2
+    assert legend_bbox.x0 >= axes_bbox.x0
+    assert legend_bbox.x1 <= axes_bbox.x1 + 2.0
+    assert legend_bbox.y0 >= axes_bbox.y0
+    assert legend_bbox.y1 <= axes_bbox.y1
+    plt.close(fig)
+
+
 def test_fraction_plot_uses_observable_legend_entry_and_sigma_strip(tmp_path: Path) -> None:
     import matplotlib.pyplot as plt
 
@@ -1305,7 +1331,10 @@ def test_setup_weights_overview_legend_prefers_single_row_until_wrap_is_needed()
     plt.close(narrow_fig)
 
 
-def test_setup_overview_shares_residual_xlim_within_same_observable(tmp_path: Path, monkeypatch) -> None:
+def test_setup_overview_uses_event_specific_residual_xlim_within_same_observable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     import matplotlib.pyplot as plt
 
     setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
@@ -1341,10 +1370,8 @@ def test_setup_overview_shares_residual_xlim_within_same_observable(tmp_path: Pa
 
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
     residual_axes = _axes_with_xlabel(fig, "Residual [m]")
-    expected_xlim = plot_mod._expand_xlim((-0.5, 0.5))
-
-    assert residual_axes[0].get_xlim() == pytest.approx(expected_xlim)
-    assert residual_axes[1].get_xlim() == pytest.approx(expected_xlim)
+    assert residual_axes[0].get_xlim() == pytest.approx(plot_mod._expand_xlim((-0.2, 0.2)))
+    assert residual_axes[1].get_xlim() == pytest.approx(plot_mod._expand_xlim((-0.5, 0.5)))
     plt.close(fig)
 
 
@@ -1452,14 +1479,12 @@ def test_setup_overview_residual_xlim_respects_sigma_when_residuals_are_narrow(t
 
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
     residual_axes = _axes_with_xlabel(fig, "Residual [-]")
-    expected_xlim = plot_mod._expand_xlim((-0.4, 0.4))
-
-    assert residual_axes[0].get_xlim() == pytest.approx(expected_xlim)
-    assert residual_axes[1].get_xlim() == pytest.approx(expected_xlim)
+    assert residual_axes[0].get_xlim() == pytest.approx(plot_mod._expand_xlim((-0.4, 0.4)))
+    assert residual_axes[1].get_xlim() == pytest.approx(plot_mod._expand_xlim((-0.3, 0.3)))
     plt.close(fig)
 
 
-def test_setup_overview_robust_shared_xlim_keeps_extreme_residual_visible(tmp_path: Path, monkeypatch) -> None:
+def test_setup_overview_event_xlim_keeps_extreme_residual_visible(tmp_path: Path, monkeypatch) -> None:
     import matplotlib.pyplot as plt
 
     setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
@@ -1505,15 +1530,13 @@ def test_setup_overview_robust_shared_xlim_keeps_extreme_residual_visible(tmp_pa
 
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
     residual_axes = _axes_with_xlabel(fig, "Residual [m]")
-    expected_xlim = plot_mod._expand_xlim((-2.0, 2.0))
-
     assert len(residual_axes) == 2
-    assert residual_axes[0].get_xlim() == pytest.approx(expected_xlim)
-    assert residual_axes[1].get_xlim() == pytest.approx(expected_xlim)
+    assert residual_axes[0].get_xlim() == pytest.approx(plot_mod._expand_xlim((-0.25, 0.25)))
+    assert residual_axes[1].get_xlim() == pytest.approx(plot_mod._expand_xlim((-2.0, 2.0)))
     plt.close(fig)
 
 
-def test_setup_overview_robust_shared_xlim_ignores_single_sigma_outlier(tmp_path: Path, monkeypatch) -> None:
+def test_setup_overview_event_xlim_keeps_sigma_outlier_visible(tmp_path: Path, monkeypatch) -> None:
     import matplotlib.pyplot as plt
 
     setup_dir, project_dir, _step_dir = _build_project_tree(tmp_path)
@@ -1561,11 +1584,9 @@ def test_setup_overview_robust_shared_xlim_ignores_single_sigma_outlier(tmp_path
 
     fig = _render_setup_weights_overview_figure(project_dir, monkeypatch)
     residual_axes = _axes_with_xlabel(fig, "Residual [m]")
-    expected_xlim = plot_mod._expand_xlim((-0.25, 0.25))
-
     assert len(residual_axes) == 2
-    assert residual_axes[0].get_xlim() == pytest.approx(expected_xlim)
-    assert residual_axes[1].get_xlim() == pytest.approx(expected_xlim)
+    assert residual_axes[0].get_xlim() == pytest.approx(plot_mod._expand_xlim((-0.25, 0.25)))
+    assert residual_axes[1].get_xlim() == pytest.approx(plot_mod._expand_xlim((-2.0, 2.0)))
     plt.close(fig)
 
 

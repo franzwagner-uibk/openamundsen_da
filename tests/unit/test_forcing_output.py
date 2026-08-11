@@ -10,6 +10,7 @@ from openamundsen_da.util.forcing_output import (
     compact_forcing_members,
     compact_forcing_stations,
     load_compact_forcing_series,
+    validate_project_ensemble_forcing,
     write_project_ensemble_forcing,
 )
 
@@ -73,3 +74,52 @@ def test_forcing_output_refuses_incomplete_member_schema(tmp_path: Path) -> None
 
     with pytest.raises(ValueError, match="Forcing station files differ"):
         write_project_ensemble_forcing(project)
+
+
+def test_forcing_output_mean_collapses_overlapping_step_boundaries(tmp_path: Path) -> None:
+    project = tmp_path / "setup" / "projects" / "demo"
+    project.mkdir(parents=True)
+    (project / "demo.yml").write_text("start_date: 2023-01-01\n", encoding="utf-8")
+    rows_by_step = {
+        "step_00": (
+            "date,temp,precip\n"
+            "2023-01-01,270,1\n"
+            "2023-01-02,280,10\n"
+        ),
+        "step_01": (
+            "date,temp,precip\n"
+            "2023-01-02,284,14\n"
+            "2023-01-03,273,3\n"
+        ),
+    }
+    for step_name, contents in rows_by_step.items():
+        step = project / "steps" / step_name
+        step.mkdir(parents=True)
+        (step / f"{step_name}.yml").write_text(
+            "start_date: 2023-01-01\nend_date: 2023-01-03\n",
+            encoding="utf-8",
+        )
+        for member in ("open_loop", "member_001"):
+            meteo = step / "ensembles" / "prior" / member / "meteo"
+            meteo.mkdir(parents=True)
+            (meteo / "stations.csv").write_text(
+                "id,name,x,y,alt\na,A,0,0,0\n",
+                encoding="utf-8",
+            )
+            (meteo / "a.csv").write_text(contents, encoding="utf-8")
+
+    output = write_project_ensemble_forcing(project)
+    compact = load_compact_forcing_series(
+        project,
+        station_filename="a.csv",
+        member="member_001",
+        variables=["temp", "precip"],
+    )
+    assert compact is not None
+    np.testing.assert_array_equal(compact["temp"].to_numpy(), [270.0, 282.0, 273.0])
+    np.testing.assert_array_equal(compact["precip"].to_numpy(), [1.0, 12.0, 3.0])
+
+    with netCDF4.Dataset(output, "a") as dataset:
+        dataset.variables["temp"][1, 1, 0] = 999.0
+    with pytest.raises(ValueError, match="values do not match mean-collapsed"):
+        validate_project_ensemble_forcing(project, output_nc=output)

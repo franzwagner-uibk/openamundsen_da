@@ -32,6 +32,10 @@ from openamundsen_da.util.da_output import (
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.roi_grid import load_setup_roi_mask
 from openamundsen_da.util.run_mode import ensure_run_mode
+from openamundsen_da.util.storage_budget import (
+    check_step_admission,
+    estimate_parent_compact_merge_bytes,
+)
 from openamundsen_da.util.storage_policy import da_summary_netcdf_encoding, preserved_netcdf_encoding
 from openamundsen_da.util.yaml_utils import read_yaml_mapping
 
@@ -255,6 +259,21 @@ def merge_grids(
                 "Compact DA output summary da_output_grids.nc is missing for sub-domain(s): "
                 f"{', '.join(missing_compact_ids)}"
             )
+        merge_reserve = estimate_parent_compact_merge_bytes(
+            setup_dir=getattr(manifest, "setup_dir", manifest.project_dir.parents[1]),
+            project_dir=manifest.project_dir,
+            grid_cell_count=int(manifest.grid_rows) * int(manifest.grid_cols),
+        )
+        merge_budget = check_step_admission(
+            manifest.project_dir,
+            estimated_growth_bytes=merge_reserve,
+            allow_existing_step_drain=True,
+        )
+        logger.info(
+            "Parent compact-merge admission: used={:.1%}, atomic reserve={:.1f} GiB",
+            merge_budget.used_fraction,
+            merge_reserve / (1024**3),
+        )
         merged_nc = _merge_netcdf(
             output_name="da_output_grids.nc",
             nc_paths=compact_entries,
@@ -444,11 +463,10 @@ def cleanup_compact_grid_artifacts(
     validate_compact_cleanup_artifacts_ready(manifest=manifest, out_dir=out_base)
     reconcile_retention_ledger(manifest.project_dir)
     parent_artifacts = _manifest_owned_compact_artifacts(manifest, Path(out_base))
-    leaf_summaries = [
-        subdomain.project_dir.resolve() / "results" / "grids" / "da_output_grids.nc"
-        for subdomain in manifest.subdomains.values()
-    ]
-    planned = [*parent_artifacts, *(path for path in leaf_summaries if path.is_file())]
+    # Leaf compact summaries are authoritative inputs for leaf-level map
+    # rerendering after raw member grids are removed. They are retained even
+    # after the parent mosaic has validated.
+    planned = list(parent_artifacts)
     save_stage(manifest, manifest_path, "cleanup", "running", outputs=planned)
 
     deleted: list[Path] = []
@@ -463,18 +481,6 @@ def cleanup_compact_grid_artifacts(
                 )
             deleted.extend(cleanup.deleted_paths)
             bytes_freed += cleanup.freed_bytes
-            compact_summary = subdomain.project_dir / "results" / "grids" / "da_output_grids.nc"
-            if compact_summary.is_file():
-                size = compact_summary.stat().st_size
-                apply_retention_batch(
-                    subdomain.project_dir,
-                    artifact_class="merged_subdomain_grid_summary",
-                    paths=[compact_summary],
-                    final_consumer="validated parent grid merge and render",
-                    regeneration_recipe="rerun the subdomain project and parent merge",
-                )
-                deleted.append(compact_summary.resolve())
-                bytes_freed += size
         if parent_artifacts:
             sizes = {path: path.stat().st_size for path in parent_artifacts}
             apply_retention_batch(

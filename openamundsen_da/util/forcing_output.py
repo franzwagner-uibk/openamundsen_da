@@ -14,6 +14,7 @@ from openamundsen_da.io.paths import (
     list_steps_sorted,
     project_ensemble_forcing_path,
 )
+from openamundsen_da.util.ts import collapse_duplicates
 
 
 _TIME_COLUMNS = ("date", "time", "datetime")
@@ -118,6 +119,29 @@ def _validate_source_completeness(steps: list[Path]) -> None:
                     raise ValueError(f"Forcing time/variable schema differs in {meteo / name}")
 
 
+def _collapsed_forcing_frame(
+    steps: list[Path],
+    *,
+    member: str,
+    station: str,
+) -> pd.DataFrame:
+    """Load one logical raw series with the established mean-overlap rule."""
+    frames: list[pd.DataFrame] = []
+    filename = f"{station}.csv"
+    for step in steps:
+        roots = dict(_meteo_roots(step))
+        meteo = roots.get(member)
+        path = meteo / filename if meteo is not None else None
+        if path is None or not path.is_file():
+            continue
+        index, frame = _read_forcing_csv(path)
+        frame.index = index
+        frames.append(frame)
+    if not frames:
+        return pd.DataFrame()
+    return collapse_duplicates(pd.concat(frames, axis=0))
+
+
 def validate_project_ensemble_forcing(
     project_dir: str | Path,
     *,
@@ -150,6 +174,47 @@ def validate_project_ensemble_forcing(
         missing = [name for name in variable_names if name not in dataset.variables]
         if missing:
             raise ValueError(f"Compact forcing variables missing in {path}: {', '.join(missing)}")
+        for member_idx, member in enumerate(member_names):
+            for station_idx, station in enumerate(station_names):
+                expected = _collapsed_forcing_frame(
+                    steps,
+                    member=member,
+                    station=station,
+                ).reindex(retained_times)
+                for name in variable_names:
+                    expected_values = (
+                        expected[name].to_numpy(dtype=float)
+                        if name in expected.columns
+                        else np.full(len(retained_times), np.nan)
+                    )
+                    retained = dataset.variables[name][:, member_idx, station_idx]
+                    retained_values = np.ma.filled(retained, np.nan).astype(float)
+                    if not np.allclose(
+                        retained_values,
+                        expected_values,
+                        rtol=0.0,
+                        atol=0.0,
+                        equal_nan=True,
+                    ):
+                        mismatch = next(
+                            (
+                                stamp
+                                for stamp, actual, wanted in zip(
+                                    retained_times,
+                                    retained_values,
+                                    expected_values,
+                                )
+                                if not (
+                                    (np.isnan(actual) and np.isnan(wanted))
+                                    or actual == wanted
+                                )
+                            ),
+                            None,
+                        )
+                        raise ValueError(
+                            "Compact forcing values do not match mean-collapsed raw output "
+                            f"for member={member}, station={station}, variable={name}, time={mismatch}: {path}"
+                        )
     return path
 
 
@@ -206,19 +271,23 @@ def write_project_ensemble_forcing(
                 var.units = _KNOWN_UNITS.get(name, "1")
                 var.long_name = name.replace("_", " ")
                 variables[name] = var
-            for step in steps:
-                for member_name, meteo_dir in _meteo_roots(step):
-                    for path in sorted(meteo_dir.glob("*.csv")):
-                        if path.name == "stations.csv":
-                            continue
-                        index, frame = _read_forcing_csv(path)
-                        time_indices = np.asarray([time_lookup[pd.Timestamp(value)] for value in index], dtype=int)
-                        member_idx = member_lookup[member_name]
-                        station_idx = station_lookup[path.stem]
-                        for name in frame.columns:
-                            if name not in variables:
-                                raise ValueError(f"Unexpected forcing variable {name!r} in {path}")
-                            variables[name][time_indices, member_idx, station_idx] = frame[name].to_numpy(dtype=float)
+            for member_name, member_idx in member_lookup.items():
+                for station, station_idx in station_lookup.items():
+                    frame = _collapsed_forcing_frame(
+                        steps,
+                        member=member_name,
+                        station=station,
+                    )
+                    if frame.empty:
+                        continue
+                    time_indices = np.asarray(
+                        [time_lookup[pd.Timestamp(value)] for value in frame.index],
+                        dtype=int,
+                    )
+                    for name in frame.columns:
+                        if name not in variables:
+                            raise ValueError(f"Unexpected forcing variable {name!r} for {station}")
+                        variables[name][time_indices, member_idx, station_idx] = frame[name].to_numpy(dtype=float)
         os.replace(tmp, output)
     except BaseException:
         tmp.unlink(missing_ok=True)

@@ -15,6 +15,7 @@ from openamundsen_da.io.paths import (
     list_steps_sorted,
     project_ensemble_points_path,
 )
+from openamundsen_da.util.ts import collapse_duplicates
 
 
 _TIME_COLUMNS = ("date", "time", "datetime")
@@ -119,6 +120,29 @@ def _validate_source_completeness(steps: Iterable[Path]) -> None:
                     raise ValueError(f"Point time/variable schema differs in {results / name}")
 
 
+def _collapsed_point_frame(
+    steps: Iterable[Path],
+    *,
+    member: str,
+    point_name: str,
+) -> pd.DataFrame:
+    """Load one logical raw series with the established mean-overlap rule."""
+    frames: list[pd.DataFrame] = []
+    filename = f"point_{point_name}.csv"
+    for step in steps:
+        roots = dict(_result_roots(step))
+        results = roots.get(member)
+        path = results / filename if results is not None else None
+        if path is None or not path.is_file():
+            continue
+        index, frame = _read_point_csv(path)
+        frame.index = index
+        frames.append(frame)
+    if not frames:
+        return pd.DataFrame()
+    return collapse_duplicates(pd.concat(frames, axis=0))
+
+
 def validate_project_ensemble_points(
     project_dir: str | Path,
     *,
@@ -151,6 +175,47 @@ def validate_project_ensemble_points(
         missing = [name for name in variable_names if name not in dataset.variables]
         if missing:
             raise ValueError(f"Compact point variables missing in {path}: {', '.join(missing)}")
+        for member_idx, member in enumerate(member_names):
+            for point_idx, point in enumerate(point_names):
+                expected = _collapsed_point_frame(
+                    steps,
+                    member=member,
+                    point_name=point,
+                ).reindex(retained_times)
+                for name in variable_names:
+                    expected_values = (
+                        expected[name].to_numpy(dtype=float)
+                        if name in expected.columns
+                        else np.full(len(retained_times), np.nan)
+                    )
+                    retained = dataset.variables[name][:, member_idx, point_idx]
+                    retained_values = np.ma.filled(retained, np.nan).astype(float)
+                    if not np.allclose(
+                        retained_values,
+                        expected_values,
+                        rtol=0.0,
+                        atol=0.0,
+                        equal_nan=True,
+                    ):
+                        mismatch = next(
+                            (
+                                stamp
+                                for stamp, actual, wanted in zip(
+                                    retained_times,
+                                    retained_values,
+                                    expected_values,
+                                )
+                                if not (
+                                    (np.isnan(actual) and np.isnan(wanted))
+                                    or actual == wanted
+                                )
+                            ),
+                            None,
+                        )
+                        raise ValueError(
+                            "Compact point values do not match mean-collapsed raw output "
+                            f"for member={member}, point={point}, variable={name}, time={mismatch}: {path}"
+                        )
     return path
 
 
@@ -209,20 +274,23 @@ def write_project_ensemble_points(
                 var.long_name = name.replace("_", " ")
                 variables[name] = var
 
-            for step in steps:
-                for member_name, results_dir in _result_roots(step):
-                    for path in sorted(results_dir.glob("point_*.csv")):
-                        point_name = path.stem.removeprefix("point_")
-                        if point_name not in point_lookup:
-                            raise ValueError(f"Unexpected point output {point_name!r} in {path}")
-                        index, frame = _read_point_csv(path)
-                        time_indices = np.asarray([time_lookup[pd.Timestamp(value)] for value in index], dtype=int)
-                        member_idx = member_lookup[member_name]
-                        point_idx = point_lookup[point_name]
-                        for name in frame.columns:
-                            if name not in variables:
-                                raise ValueError(f"Unexpected point variable {name!r} in {path}")
-                            variables[name][time_indices, member_idx, point_idx] = frame[name].to_numpy(dtype=float)
+            for member_name, member_idx in member_lookup.items():
+                for point_name, point_idx in point_lookup.items():
+                    frame = _collapsed_point_frame(
+                        steps,
+                        member=member_name,
+                        point_name=point_name,
+                    )
+                    if frame.empty:
+                        continue
+                    time_indices = np.asarray(
+                        [time_lookup[pd.Timestamp(value)] for value in frame.index],
+                        dtype=int,
+                    )
+                    for name in frame.columns:
+                        if name not in variables:
+                            raise ValueError(f"Unexpected point variable {name!r} for {point_name}")
+                        variables[name][time_indices, member_idx, point_idx] = frame[name].to_numpy(dtype=float)
         os.replace(tmp, output)
     except BaseException:
         tmp.unlink(missing_ok=True)

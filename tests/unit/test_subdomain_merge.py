@@ -14,6 +14,20 @@ from openamundsen_da.subdomain.manifest import WindowSpec
 from openamundsen_da.util.storage_policy import da_summary_netcdf_encoding
 
 
+@pytest.fixture(autouse=True)
+def _bounded_merge_storage(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        merge_mod,
+        "estimate_parent_compact_merge_bytes",
+        lambda **_kwargs: 1024,
+    )
+    monkeypatch.setattr(
+        merge_mod,
+        "check_step_admission",
+        lambda *_args, **_kwargs: SimpleNamespace(used_fraction=0.1),
+    )
+
+
 def _write_roi(path: Path, data: np.ndarray) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with rasterio.open(
@@ -565,11 +579,11 @@ def test_cleanup_deletes_only_manifest_owned_files_after_render(
         merged_open_loop.resolve(),
         merged_member.resolve(),
         merged_tif.resolve(),
-        compact_subdomain.resolve(),
         subdomain_artifact.resolve(),
     }
-    assert bytes_freed == 5 * len(b"data")
+    assert bytes_freed == 4 * len(b"data")
     assert keep.is_file()
+    assert compact_subdomain.is_file()
     assert unlisted_merged_tif.is_file()
     assert unowned.is_file()
     assert all(not path.exists() for path in deleted)

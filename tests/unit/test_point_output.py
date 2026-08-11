@@ -9,6 +9,7 @@ import pytest
 from openamundsen_da.util.point_output import (
     compact_point_filenames,
     load_compact_point_series,
+    validate_project_ensemble_points,
     write_project_ensemble_points,
 )
 from openamundsen_da.methods.viz.fraction_series import (
@@ -85,3 +86,37 @@ def test_point_output_refuses_incomplete_member_schema(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Point files differ"):
         write_project_ensemble_points(project)
+
+
+def test_point_output_mean_collapses_overlapping_step_boundaries(tmp_path: Path) -> None:
+    project = tmp_path / "setup" / "projects" / "demo"
+    project.mkdir(parents=True)
+    (project / "demo.yml").write_text("start_date: 2023-01-01\n", encoding="utf-8")
+    rows_by_step = {
+        "step_00": "2023-01-01,1,100\n2023-01-02,10,110\n",
+        "step_01": "2023-01-02,14,114\n2023-01-03,3,103\n",
+    }
+    for step_name, rows in rows_by_step.items():
+        step = project / "steps" / step_name
+        step.mkdir(parents=True)
+        (step / f"{step_name}.yml").write_text(
+            "start_date: 2023-01-01\nend_date: 2023-01-03\n",
+            encoding="utf-8",
+        )
+        for member in ("open_loop", "member_001"):
+            _write_point(step / "ensembles" / "prior" / member / "results", rows)
+
+    output = write_project_ensemble_points(project)
+    compact = load_compact_point_series(
+        project,
+        point_filename="point_station.csv",
+        member="member_001",
+        variable="snow_depth",
+    )
+    assert compact is not None
+    np.testing.assert_array_equal(compact.to_numpy(), [1.0, 12.0, 3.0])
+
+    with netCDF4.Dataset(output, "a") as dataset:
+        dataset.variables["snow_depth"][1, 1, 0] = 99.0
+    with pytest.raises(ValueError, match="values do not match mean-collapsed"):
+        validate_project_ensemble_points(project, output_nc=output)

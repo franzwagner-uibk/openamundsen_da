@@ -206,6 +206,8 @@ What it does:
 - copies the external setup named by `OA_DA_SUBDOMAIN_TEST_SETUP_SOURCE` into a
   temporary directory
 - writes a trimmed project config (`project_ci_2022_2023`) under the sub-domain setup
+- removes the legacy runtime event-filter block and explicitly finalizes the
+  pinned fixture's AT-07-22 leaf schedule before execution
 - runs the explicit data-assimilation subdomain stages
   (`openamundsen-da subdomains prepare`, `run` and `merge`) with:
   - setup: `/data/subdomains` (the copied sub-domain setup root)

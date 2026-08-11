@@ -178,6 +178,43 @@ def test_atomic_grid_write_preserves_accepted_output_on_validation_failure(
     assert output.read_bytes() == b"accepted"
 
 
+def test_atomic_grid_write_accepts_exact_multidimensional_time_bounds(tmp_path: Path) -> None:
+    open_loop = tmp_path / "output_grids.nc"
+    member = tmp_path / "member_001_output_grids.nc"
+    output = tmp_path / "da_output_grids.nc"
+    time = np.array([np.datetime64("2023-01-01"), np.datetime64("2023-01-02")])
+    time_bounds = np.array(
+        [
+            [np.datetime64("2023-01-01T00:00"), np.datetime64("2023-01-01T21:00")],
+            [np.datetime64("2023-01-02T00:00"), np.datetime64("2023-01-02T21:00")],
+        ]
+    )
+    dataset = xr.Dataset(
+        data_vars={
+            "snowdepth_daily": (
+                ("time1", "y", "x"),
+                np.ones((2, 1, 1), dtype=np.float32),
+            )
+        },
+        coords={
+            "time1": time,
+            "time1_bounds": (("time1", "bounds"), time_bounds),
+            "y": [0],
+            "x": [0],
+        },
+    )
+    dataset.to_netcdf(open_loop)
+    dataset.to_netcdf(member)
+
+    assert write_da_output_grids(
+        open_loop_nc=open_loop,
+        member_ncs=[member],
+        output_nc=output,
+    ) == output
+    with xr.open_dataset(output) as written:
+        np.testing.assert_array_equal(written["time1_bounds"].values, time_bounds)
+
+
 def test_grid_cleanup_completeness_requires_every_configured_metric_and_member(
     tmp_path: Path,
 ) -> None:

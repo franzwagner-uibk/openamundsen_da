@@ -600,7 +600,11 @@ def _validate_da_dataset_against_expected(path: Path, expected: xr.Dataset) -> N
             written_values = np.asarray(written_coord.values)
             if not np.array_equal(source_values, written_values, equal_nan=True):
                 raise ValueError(f"Atomic DA grid validation found coordinate values changed for {name}")
-            if "time" in name.lower():
+            if (
+                "time" in name.lower()
+                and written_coord.ndim == 1
+                and tuple(written_coord.dims) == (name,)
+            ):
                 index = pd.Index(written_values)
                 if not index.is_unique or not index.is_monotonic_increasing:
                     raise ValueError(f"Atomic DA grid validation requires unique ordered {name}")

@@ -8,6 +8,7 @@ import pytest
 from openamundsen_da.util.observation_time import (
     acquisition_from_manifest,
     match_observation_to_model_time,
+    match_series_value_to_model_time,
     midnight_fallback,
     parse_utc_timestamp,
     read_acquisition_manifest,
@@ -50,6 +51,59 @@ def test_match_rejects_tie_and_excessive_offset() -> None:
             observation_time=datetime(2023, 4, 26, 20, tzinfo=timezone.utc),
             model_times=timeline,
             timezone_config=1,
+        )
+
+
+def test_series_match_accepts_unique_value_within_half_timestep() -> None:
+    series = pd.Series(
+        [1.0, 2.0],
+        index=pd.to_datetime(["2023-04-26 00:45", "2023-04-26 03:00"]),
+    )
+
+    match = match_series_value_to_model_time(
+        series,
+        model_time=datetime(2023, 4, 26, 0),
+        timestep="3h",
+        timezone_config=1,
+    )
+
+    assert match.matched_time == pd.Timestamp("2023-04-26 00:45")
+    assert match.value == 1.0
+    assert match.offset_seconds == 45 * 60
+
+
+def test_series_match_rejects_wrong_year_and_ties() -> None:
+    wrong_year = pd.Series([1.0], index=pd.to_datetime(["2024-04-26 00:00"]))
+    with pytest.raises(ValueError, match="exceeding half"):
+        match_series_value_to_model_time(
+            wrong_year,
+            model_time=datetime(2023, 4, 26),
+            timestep="3h",
+            timezone_config=1,
+        )
+
+    tied = pd.Series(
+        [1.0, 2.0],
+        index=pd.to_datetime(["2023-04-25 22:30", "2023-04-26 01:30"]),
+    )
+    with pytest.raises(ValueError, match="Ambiguous nearest"):
+        match_series_value_to_model_time(
+            tied,
+            model_time=datetime(2023, 4, 26),
+            timestep="3h",
+            timezone_config=1,
+        )
+
+
+def test_series_match_can_require_exact_model_output_time() -> None:
+    series = pd.Series([1.0], index=pd.to_datetime(["2023-04-26 00:30"]))
+    with pytest.raises(ValueError, match="exact model timestamp"):
+        match_series_value_to_model_time(
+            series,
+            model_time=datetime(2023, 4, 26),
+            timestep="3h",
+            timezone_config=1,
+            require_exact=True,
         )
 
 

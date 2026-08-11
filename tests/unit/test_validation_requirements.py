@@ -83,6 +83,8 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
             _write_yaml(
                 setup_dir / "setup_root.yml",
                 {
+                    "timestep": "3h",
+                    "timezone": 1,
                     "output_data": {
                         "grids": {
                             "variables": [
@@ -210,8 +212,14 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                     },
                 },
             )
-            step0.mkdir(parents=True, exist_ok=True)
-            step1.mkdir(parents=True, exist_ok=True)
+            _write_yaml(
+                step0 / "step_00.yml",
+                {"start_date": "2022-10-01 00:00:00", "end_date": "2022-10-03 21:00:00"},
+            )
+            _write_yaml(
+                step1 / "step_01.yml",
+                {"start_date": "2022-10-04 00:00:00", "end_date": "2022-10-10 21:00:00"},
+            )
 
             events = [AssimilationEvent(date=date(2022, 10, 3), variable="station_hs", product="STATION")]
             with self.assertRaises(ValueError) as ctx:
@@ -234,6 +242,8 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
             _write_yaml(
                 setup_dir / "setup_root.yml",
                 {
+                    "timestep": "3h",
+                    "timezone": 1,
                     "output_data": {
                         "timeseries": {
                             "add_default_points": False,
@@ -266,8 +276,14 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                 "station_1,25,0.1,true,false\n",
                 encoding="ascii",
             )
-            step0.mkdir(parents=True, exist_ok=True)
-            step1.mkdir(parents=True, exist_ok=True)
+            _write_yaml(
+                step0 / "step_00.yml",
+                {"start_date": "2022-10-01 00:00:00", "end_date": "2022-10-03 21:00:00"},
+            )
+            _write_yaml(
+                step1 / "step_01.yml",
+                {"start_date": "2022-10-04 00:00:00", "end_date": "2022-10-10 21:00:00"},
+            )
 
             events = [AssimilationEvent(date=date(2022, 10, 3), variable="station_hs", product="STATION")]
             validate_assimilation_requirements(
@@ -276,6 +292,74 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                 steps=[step0, step1],
                 events=events,
             )
+
+    def test_station_event_without_value_inside_half_timestep_fails_preflight(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            setup_dir = Path(tmp) / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2022_2023"
+            step0 = project_dir / "steps" / "step_00_init"
+            step1 = project_dir / "steps" / "step_01_a"
+            _write_yaml(
+                setup_dir / "setup_root.yml",
+                {
+                    "timestep": "3h",
+                    "timezone": 1,
+                    "output_data": {
+                        "timeseries": {
+                            "add_default_points": False,
+                            "points": [{"name": "station_1", "x": 0.5, "y": 0.5}],
+                        },
+                        "grids": {"variables": []},
+                    },
+                },
+            )
+            _write_yaml(
+                project_dir / "project_2022_2023.yml",
+                {
+                    "obs": {"stations": {"dir": "obs/stations"}},
+                    "data_assimilation": {
+                        "station": {
+                            "default_station_uncertainty_pct": 25,
+                            "min_station_uncertainty_pct": 10,
+                            "single_station_factor": 2.0,
+                        }
+                    },
+                },
+            )
+            obs_dir = setup_dir / "obs" / "stations"
+            obs_dir.mkdir(parents=True)
+            (obs_dir / "station_1.csv").write_text(
+                "time,snow_depth\n2022-10-03 02:00:00,0.4\n",
+                encoding="ascii",
+            )
+            (obs_dir / "stations_da_metadata.csv").write_text(
+                "station_id,station_uncertainty_pct,hs_sigma_abs_min,use_for_da,use_for_benchmark\n"
+                "station_1,25,0.1,true,false\n",
+                encoding="ascii",
+            )
+            _write_yaml(
+                step0 / "step_00.yml",
+                {"start_date": "2022-10-01 00:00:00", "end_date": "2022-10-03 21:00:00"},
+            )
+            _write_yaml(
+                step1 / "step_01.yml",
+                {"start_date": "2022-10-04 00:00:00", "end_date": "2022-10-10 21:00:00"},
+            )
+            events = [
+                AssimilationEvent(
+                    date=date(2022, 10, 3),
+                    variable="station_hs",
+                    product="STATION",
+                )
+            ]
+
+            with self.assertRaisesRegex(ValueError, "no active station observation within half"):
+                validate_assimilation_requirements(
+                    setup_dir,
+                    project_dir,
+                    [step0, step1],
+                    events,
+                )
 
     def test_station_identity_reports_active_missing_series_and_point_but_exempts_disabled(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -286,6 +370,8 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
             _write_yaml(
                 setup_dir / "setup_root.yml",
                 {
+                    "timestep": "3h",
+                    "timezone": 1,
                     "output_data": {
                         "timeseries": {
                             "add_default_points": False,
@@ -319,8 +405,14 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                 "disabled_station,25,0.1,false,false\n",
                 encoding="ascii",
             )
-            step0.mkdir(parents=True)
-            step1.mkdir(parents=True)
+            _write_yaml(
+                step0 / "step_00.yml",
+                {"start_date": "2022-10-01 00:00:00", "end_date": "2022-10-03 21:00:00"},
+            )
+            _write_yaml(
+                step1 / "step_01.yml",
+                {"start_date": "2022-10-04 00:00:00", "end_date": "2022-10-10 21:00:00"},
+            )
 
             events = [AssimilationEvent(date=date(2022, 10, 3), variable="station_hs", product="STATION")]
             with self.assertRaises(ValueError) as ctx:
@@ -344,6 +436,8 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
             _write_yaml(
                 setup_dir / "setup_root.yml",
                 {
+                    "timestep": "3h",
+                    "timezone": 1,
                     "domain": "test",
                     "resolution": 1,
                     "crs": "EPSG:25832",
@@ -380,14 +474,23 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
             )
             obs_dir = setup_dir / "obs" / "stations"
             obs_dir.mkdir(parents=True)
-            (obs_dir / "04140864.csv").write_text("time,snow_depth\n", encoding="ascii")
+            (obs_dir / "04140864.csv").write_text(
+                "time,snow_depth\n2022-10-03 00:00:00,0.4\n",
+                encoding="ascii",
+            )
             (obs_dir / "stations_da_metadata.csv").write_text(
                 "station_id,station_uncertainty_pct,hs_sigma_abs_min,use_for_da,use_for_benchmark\n"
                 "04140864,25,0.1,true,false\n",
                 encoding="ascii",
             )
-            step0.mkdir(parents=True)
-            step1.mkdir(parents=True)
+            _write_yaml(
+                step0 / "step_00.yml",
+                {"start_date": "2022-10-01 00:00:00", "end_date": "2022-10-03 21:00:00"},
+            )
+            _write_yaml(
+                step1 / "step_01.yml",
+                {"start_date": "2022-10-04 00:00:00", "end_date": "2022-10-10 21:00:00"},
+            )
 
             events = [AssimilationEvent(date=date(2022, 10, 3), variable="station_hs", product="STATION")]
             validate_assimilation_requirements(setup_dir, project_dir, [step0, step1], events)

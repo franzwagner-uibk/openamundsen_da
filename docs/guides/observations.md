@@ -72,7 +72,10 @@ configured station directory. `stations_da_metadata.csv` declares station roles
 and uncertainty settings. Its `station_id`, `x` and `y` columns also support
 spatial subdomain selection when no legacy `stations_snow_depth.csv` is present.
 Station observations are read directly during project preparation; they do not
-have a raster-summary stage.
+have a raster-summary stage. A station event is supported only by an enabled DA
+station with a same-ID series and one finite, nonnegative observation within
+half the setup timestep of the model assimilation timestamp. Ties are invalid;
+a value elsewhere on the same date is not support.
 
 ## Observation preprocessing
 

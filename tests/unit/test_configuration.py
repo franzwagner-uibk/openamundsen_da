@@ -186,3 +186,19 @@ def test_load_project_configuration_rejects_duplicate_event_dates(tmp_path: Path
 
     with pytest.raises(ProjectValidationError, match="Duplicate assimilation event date"):
         load_project_configuration(project_dir)
+
+
+def test_subdomain_event_filter_requires_external_final_selection(tmp_path: Path) -> None:
+    project_dir = _write_valid_project(tmp_path)
+    path = project_dir / "winter.yml"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "data_assimilation:\n",
+            "data_assimilation:\n  subdomain_event_filter:\n    enabled: true\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProjectValidationError, match="Finalize every project or leaf schedule"):
+        load_project_configuration(project_dir)

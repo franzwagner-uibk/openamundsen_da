@@ -8,57 +8,48 @@ Status: approved by the user on 2026-08-11.
 
 ## Objective
 
-Make subdomain event preparation describe the observations that the runtime can
-actually assimilate. Station support is evaluated at the exact assimilation
-timestamp on the model clock and by the same station IDs that are enabled for
-DA. A finite value elsewhere on the same calendar date is not support.
+Make project validation describe the observations that the runtime can
+actually assimilate. Station support is evaluated by one shared, timezone-aware
+matcher and by the same station IDs that are enabled for DA. The unique nearest
+observation must be within half the configured model timestep; a value elsewhere
+on the same calendar date is not support.
 
-Keep the top-level project schedule authoritative while allowing individual
-leaves to drop events that have no local support. Every top-level event must
-still have at least one supporting leaf. Final merge, rendering and compact
-cleanup consume the explicit leaf event plan instead of treating a legitimate
-leaf drop as a failed global event.
+Keep every project's `assimilation_events` authoritative. Event discovery,
+quality filtering, substitution and role selection happen before and outside
+openAMUNDSEN-DA. Core never chooses or drops an event. Individual leaf project
+YAMLs may contain a subset of their top-level project's events, and every
+top-level event must still have at least one supporting leaf. Final merge,
+rendering and compact cleanup derive the explicit leaf event plan from those
+project YAMLs.
 
 ## Station Event Contract
 
 The assimilation timestamp is the configured event date combined with the
-project start time, matching the timestamp used by project propagation. The
-subdomain filter reads finite, nonnegative station values only at that exact
-timestamp. It intersects those values with same-ID metadata rows whose
+current step's start time, matching the timestamp used by project propagation.
+Naive station timestamps are interpreted in the setup timezone. The matcher
+accepts exactly one nearest finite, nonnegative value no farther than half a
+model timestep from that timestamp. Equidistant ties and duplicate nearest
+timestamps fail. It intersects those values with same-ID metadata rows whose
 `use_for_da` role is enabled. IDs are normalized only for matching; original
 strings and leading zeros are preserved in files and diagnostics.
 
-Unavailable station events are either dropped under the existing enabled
-subdomain filter or rejected with an actionable error when dropping is not
-enabled. Dropped-event records include the exact assimilation timestamp and
-the deterministically sorted active station IDs. The retained event and its
-likelihood calculation are otherwise unchanged. Single-domain scheduling and
-event rendering remain unchanged.
-
-## FSC Reference Footprint
-
-Snow-cover summaries retain the legacy `cloud_fraction` and
-`invalid_fraction` columns and add unambiguous reference-footprint metrics.
-The reference footprint is the subdomain ROI excluding pixels classified as
-water. `cloud_reference_fraction` is cloud divided by that footprint.
-`invalid_reference_fraction` is non-cloud nodata divided by the same footprint;
-cloud and water are not counted as invalid. Counts needed to aggregate these
-fractions across tiles are persisted as well.
-
-When present, the subdomain filter uses the new reference fractions for the
-existing `max_cloud_fraction`, `max_invalid_fraction` and
-`min_valid_fraction` settings. Older summaries without the new columns retain
-their historical behavior. This keeps existing YAML readable while ensuring
-new summaries apply the same quality semantics as the external scheduler.
+Unavailable stations are skipped individually for one event and recorded in
+runtime diagnostics. An event with no timely active station fails before model
+propagation and again defensively during assimilation. The model point output
+must exist at the exact model-clock timestamp. The same bounded matcher is used
+for station analysis benchmarking. Existing single-station uncertainty
+inflation remains unchanged.
 
 ## Final Event Plan
 
-The existing `event_plan_by_subdomain.csv` remains the explicit final plan.
-For every top-level event and leaf it contains exactly one deterministic
-`kept` or `dropped` row. Validation rejects contradictions, an unrecorded
-missing leaf event, duplicate rows and top-level events with no supporting
-leaf. Before final rendering, every supporting leaf must also contain the
-event's weights artifact; dropped leaves are skipped.
+The generated `event_plan_by_subdomain.csv` records the resolved plan. For every
+top-level event and leaf it contains exactly one deterministic `kept` or
+`dropped` row. Presence in the leaf's `assimilation_events` means kept; absence
+means dropped. Optional external audit rows may enrich the reason but never
+override YAML. Validation rejects contradictions, duplicate rows, leaf-only
+events and top-level events with no supporting leaf. Before final rendering,
+every supporting leaf must also contain the event's weights artifact; omitted
+leaves are skipped.
 
 Top-level generated maps continue to be numbered from the top-level schedule.
 SCF mosaics read only supporting leaves. Dropped leaf regions remain visible
@@ -68,10 +59,11 @@ those products incomplete.
 
 ## Error Handling and Verification
 
-Errors identify the project, event timestamp, variable and affected station or
-leaf IDs. Focused tests cover an exact station value versus a wrong-time value
-on the same day, active-role ID intersection with leading-zero IDs, FSC class
-mapping and reference fractions, legacy summary fallback, mixed kept/dropped
-leaf rendering and genuine missing global support. Documentation and the
-Unreleased changelog describe the user-visible contracts. No YAML field,
-version, release or scientific likelihood change is introduced.
+The legacy `subdomain_event_filter` key is rejected with a migration message;
+the external scheduler writes final events instead. Errors identify the
+project, event timestamp, variable and affected station or leaf IDs. Focused
+tests cover within-window and wrong-year station values, time ties, exact model
+outputs, benchmark matching, active-role IDs with leading zeros, mixed leaf
+support and genuine missing global support. Documentation and the Unreleased
+changelog describe the user-visible contracts. No new YAML field, version,
+release or likelihood change is introduced.

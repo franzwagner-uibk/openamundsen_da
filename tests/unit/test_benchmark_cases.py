@@ -32,6 +32,8 @@ def _setup_basic_project(tmp_path: Path, *, events_yaml: str) -> tuple[Path, Pat
         setup_dir / "demo.yml",
         """
         resolution: 100
+        timestep: 3h
+        timezone: 1
         """,
     )
     _write_yaml(
@@ -344,6 +346,38 @@ def test_extract_analysis_cases_uses_weighted_station_posterior(tmp_path: Path) 
     case_scores = build_case_scores(cases)
     posterior = case_scores.loc[case_scores["representation"] == "posterior"].iloc[0]
     assert float(posterior["pred_mean"]) == 1.15
+
+
+def test_extract_analysis_cases_rejects_station_observation_outside_half_timestep(
+    tmp_path: Path,
+) -> None:
+    setup_dir, project_dir = _setup_basic_project(
+        tmp_path,
+        events_yaml="""
+            - date: '2023-01-02'
+              variable: station_hs
+        """,
+    )
+    _write_station_benchmark_inputs(project_dir, setup_dir)
+    _write_series_csv(
+        setup_dir / "obs" / "stations" / "station_a.csv",
+        [{"time": "2023-01-02 02:00:00", "snow_depth": 1.1}],
+    )
+    _write_series_csv(
+        project_dir / "steps" / "step_00_init" / "assim" / "weights_station_hs_20230102.csv",
+        [
+            {"member_id": "member_001", "prior_weight": 0.5, "weight": 0.25},
+            {"member_id": "member_002", "prior_weight": 0.5, "weight": 0.75},
+        ],
+    )
+
+    cases = extract_analysis_cases(
+        project_dir=project_dir,
+        setup_dir=setup_dir,
+        variables=("station_hs",),
+    )
+
+    assert cases == []
 
 
 def test_extract_analysis_cases_include_transfer_streams_on_da_dates(tmp_path: Path) -> None:

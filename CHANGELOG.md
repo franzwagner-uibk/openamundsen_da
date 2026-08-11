@@ -17,6 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `stations_da_metadata.csv`, require same-ID observations and model points for
   every active DA or benchmark station before propagation.
 - Keep particle rejuvenation within the project runner's worker limit.
+- Match station observations consistently in validation, assimilation and
+  analysis benchmarking to the unique nearest value within half the model
+  timestep, with timezone-aware comparison and exact model-output timestamps.
+- Treat every project's `assimilation_events` as final: reject the removed
+  in-core subdomain event filter and derive cross-leaf rendering support from
+  the accepted leaf project YAMLs.
+
+### Fixed
+- Allow final subdomain products to mask events absent from a leaf project while
+  still rejecting configured-but-missing support and top-level events unsupported
+  by every leaf.
 
 ## [0.9.4] - 2026-07-29
 

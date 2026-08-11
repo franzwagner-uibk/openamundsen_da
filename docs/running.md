@@ -82,6 +82,14 @@ Each subdomain is an independent data assimilation problem. This is regional
 decomposition, not particle-filter localization. Use outer and inner worker
 limits together so their product does not oversubscribe the machine.
 
+Every top-level and leaf `assimilation_events` list is a final, externally
+prepared selection. openAMUNDSEN-DA does not choose or drop events. Final merge
+and rendering derive `results/event_plan_by_subdomain.csv` from those YAMLs:
+every top-level event is `kept` when present in a leaf and `dropped` when absent.
+At least one leaf must support each event, and each supporting leaf must contain
+its weights artifact. Unsupported regions are masked in top-level event maps;
+a configured event with missing runtime support still fails.
+
 ## Plain-model subdomains
 
 The intentionally separate model branch tiles one ordinary openAMUNDSEN

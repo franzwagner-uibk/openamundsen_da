@@ -135,11 +135,13 @@ plus open loop, two daily raw grid variables, 14 compact metrics, 90 leaves,
 3-hourly points, the current 40 default variables upper-bounded as 64 scalar
 CSV columns after soil/snow layer expansion and the deliberately worst-case
 assumption that all 196 point definitions survive in every leaf gives about
-8.0 TiB including the fixed 5% reserve after conservatively expanding default
-layered point variables. Approximate components are 0.89 TiB raw
-member grids, 0.50 TiB retained restart baseline, 0.25 TiB leaf plus parent
-compact grids, 0.08 TiB exact-window forcing, 6.13 TiB point CSV allowance and
-0.16 TiB operational reserve, before the concurrency-bound second checkpoint.
+14.9 TiB including the fixed 5% reserve. Approximate components are 0.89 TiB
+raw member grids, 0.50 TiB retained restart baseline, 0.25 TiB leaf plus parent
+compact grids, 0.08 TiB exact-window forcing plus 0.09 TiB for its atomic
+compact export, 6.13 TiB point CSV allowance plus 6.75 TiB for its atomic
+compact export and 0.16 TiB operational reserve. Map support is below 0.01 TiB
+for this envelope. The concurrency-bound second checkpoint adds roughly
+0.04 TiB for eight active leaves.
 Real leaf filtering should reduce the point term substantially, but that must be
 demonstrated by preflight on the prepared setup rather than assumed.
 
@@ -147,6 +149,11 @@ Consequently this increment does not satisfy the 3.6 TB acceptance by itself.
 After the required-grid-output completeness work is integrated, the smallest
 additional lifecycle increment is to finalize and clean each successful leaf
 immediately, then admit queued leaves against only active-leaf reservations,
-retained compact leaf products and the parent atomic-merge reserve. Per-step
-point/forcing fragments and cooperative mid-member stops remain further peak
-reductions if the measured active-leaf envelope still exceeds the target.
+measured retained compact leaf products and the parent atomic-merge reserve.
+That changes the first-wave envelope from all 90 leaves to the active leaves,
+but it does not by itself prove that the eventually accumulated compact point
+stores fit. The prepared setup's actual point filtering and compact sizes must
+be measured and projected before claiming 3.6 TB acceptance. Per-step
+point/forcing fragments, cross-leaf point deduplication or cooperative
+mid-member stops remain necessary if that measured projection still exceeds
+the target.

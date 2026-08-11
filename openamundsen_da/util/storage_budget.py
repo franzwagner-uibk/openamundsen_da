@@ -913,18 +913,24 @@ def estimate_parent_compact_merge_bytes(
     setup_cfg = _read_yaml_file(find_setup_yaml(setup_dir)) or {}
     project_cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
     output_data = _merged_output_data(setup_cfg, project_cfg)
-    steps = _project_steps(project_dir)
+    try:
+        start = datetime.fromisoformat(str(project_cfg["start_date"]))
+        end = datetime.fromisoformat(str(project_cfg["end_date"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "Cannot budget parent compact merge because the top-level project "
+            "start_date/end_date are invalid"
+        ) from exc
+    if end < start:
+        raise ValueError("Cannot budget parent compact merge for an invalid project window")
     model_timestep = setup_cfg.get("timestep") or "1h"
-    total_samples = sum(
-        _configured_compact_grid_samples(
-            setup_output_data=output_data,
-            setup_cfg=setup_cfg,
-            project_cfg=project_cfg,
-            start=start,
-            end=end,
-            model_timestep=model_timestep,
-        )
-        for _step, start, end in steps
+    total_samples = _configured_compact_grid_samples(
+        setup_output_data=output_data,
+        setup_cfg=setup_cfg,
+        project_cfg=project_cfg,
+        start=start,
+        end=end,
+        model_timestep=model_timestep,
     )
     if total_samples == 0:
         raise ValueError(

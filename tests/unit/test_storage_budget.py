@@ -576,6 +576,8 @@ def test_parent_merge_reserves_one_atomic_full_grid_temporary(tmp_path: Path) ->
         encoding="utf-8",
     )
     (project / "demo.yml").write_text(
+        "start_date: 2023-01-01\n"
+        "end_date: 2023-01-04\n"
         "data_assimilation:\n"
         "  prior_forcing: {ensemble_size: 2}\n"
         "  output:\n"
@@ -584,16 +586,6 @@ def test_parent_merge_reserves_one_atomic_full_grid_temporary(tmp_path: Path) ->
         "        - {var: snowdepth_daily, metrics: [open_loop, ens_mean]}\n",
         encoding="utf-8",
     )
-    for name, start, end in (
-        ("step_00", "2023-01-01", "2023-01-02"),
-        ("step_01", "2023-01-03", "2023-01-04"),
-    ):
-        step = project / "steps" / name
-        step.mkdir(parents=True)
-        (step / f"{name}.yml").write_text(
-            f"start_date: {start}\nend_date: {end}\n",
-            encoding="utf-8",
-        )
 
     reserve = estimate_parent_compact_merge_bytes(
         setup_dir=setup,

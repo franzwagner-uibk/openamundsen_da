@@ -10,10 +10,15 @@ from openamundsen_da.util.observation_time import (
     match_observation_to_model_time,
     match_series_value_to_model_time,
     midnight_fallback,
+    parse_model_timestep,
     parse_utc_timestamp,
     read_acquisition_manifest,
     resolve_acquisition_time,
 )
+
+
+def test_model_timestep_accepts_legacy_uppercase_hour_alias() -> None:
+    assert parse_model_timestep("3H") == pd.Timedelta(hours=3)
 
 
 def test_parse_utc_timestamp_requires_timezone() -> None:

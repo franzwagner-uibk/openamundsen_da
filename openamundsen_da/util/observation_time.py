@@ -107,6 +107,12 @@ def parse_model_timestep(raw: object) -> pd.Timedelta:
     text = str(raw).strip() if raw is not None else ""
     if not text:
         raise ValueError("setup.timestep must be configured")
+    # pandas 3 removed the historical uppercase hourly alias while
+    # openAMUNDSEN setup files (including the shipped example) legitimately
+    # use values such as ``3H``. Normalize only that established spelling;
+    # leave all other fixed-frequency parsing to pandas.
+    if re.fullmatch(r"\d*H", text):
+        text = f"{text[:-1]}h"
     try:
         offset = pd.tseries.frequencies.to_offset(text)
         value = pd.Timedelta(offset.nanos, unit="ns")

@@ -342,7 +342,9 @@ def _fake_successful_execution(project_dir: Path) -> RenderResult:
         / "results"
     )
     member_results.mkdir(parents=True, exist_ok=True)
-    (member_results / "member_run.json").write_text('{"status": "success"}\n', encoding="utf-8")
+    (member_results / "member_run.json").write_text(
+        '{"member": "member_001", "status": "success"}\n', encoding="utf-8"
+    )
     (member_results / "model_state.pickle.gz").write_bytes(b"state")
     (member_results.parent / "state_pointer.json").write_text(
         '{"path": "results/model_state.pickle.gz"}\n',
@@ -411,6 +413,40 @@ def test_run_project_finalizes_manifest_then_cleans_restart_states(
     assert manifest["cleanup"]["deleted_count"] == 2
     assert lifecycle == ["post-cleanup-snapshot", "report-refresh"]
     assert (project_dir / "results" / "reports" / "project_report.pdf").read_bytes() == b"refreshed-pdf"
+
+
+def test_run_project_refuses_success_when_post_cleanup_ledger_is_invalid(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    project_dir = _write_public_project(tmp_path)
+    _mark_prepared(project_dir)
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.project.run_project",
+        lambda _config: _fake_successful_execution(project_dir),
+    )
+    import openamundsen_da.api as api_mod
+
+    real_cleanup = api_mod.clean_project_artifacts
+
+    def corrupt_after_cleanup(project: Path, *, apply: bool):
+        result = real_cleanup(project, apply=apply)
+        ledger_path = project / "results" / "retention_manifest.json"
+        ledger = load_manifest(ledger_path)
+        assert ledger is not None
+        ledger["generations"][-1]["identity_sha256"] = "corrupt"
+        write_manifest_atomic(ledger_path, ledger)
+        return result
+
+    monkeypatch.setattr(api_mod, "clean_project_artifacts", corrupt_after_cleanup)
+
+    with pytest.raises(ProjectRunError, match="generation 1 identity changed"):
+        run_project(project_dir)
+
+    manifest = load_manifest(project_dir / "results" / "run_manifest.json")
+    assert manifest is not None
+    assert manifest["status"] == "failed"
+    assert manifest["stages"]["cleanup"] == "failed"
 
 
 def test_completed_run_reuse_ignores_generated_roi_and_later_diagnostics(

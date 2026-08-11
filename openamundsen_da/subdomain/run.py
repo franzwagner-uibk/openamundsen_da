@@ -16,7 +16,9 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
+from openamundsen_da.exceptions import LowDiskSpaceError
 from openamundsen_da.core.env import _read_yaml_file
+from openamundsen_da.manifests import write_manifest_atomic
 from openamundsen_da.methods.wet_snow.area import summarize_s1_directory
 from openamundsen_da.observer.class_config import load_wetsnow_classes
 from openamundsen_da.observer.satellite_scf import generate_project_from_summary as scf_project_obs
@@ -25,19 +27,36 @@ from openamundsen_da.observer.snowcover import summarize_snowcover_directory
 from openamundsen_da.pipeline.project import OrchestratorConfig, run_project
 from openamundsen_da.pipeline.project_skeleton import create_project_skeleton
 from openamundsen_da.subdomain.event_support import resolve_subdomain_event_plan
+from openamundsen_da.subdomain.leaf_finalization import (
+    finalize_leaf as _finalize_leaf,
+    leaf_finalization_manifest_path as _leaf_finalization_manifest_path,
+    measured_retained_leaf_bytes as _measured_retained_leaf_bytes,
+)
 from openamundsen_da.subdomain.manifest import SubdomainManifest
 from openamundsen_da.subdomain.status import save_stage, terminal_status
 from openamundsen_da.util.da_events import load_assimilation_events
+from openamundsen_da.util.da_output import (
+    output_retention_mode,
+    validate_compact_output_file,
+)
 from openamundsen_da.util.parallel import pick_max_workers
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.util.run_mode import ensure_run_mode
+from openamundsen_da.util.storage_budget import (
+    StorageReservationProject,
+    check_step_admission,
+    estimate_coordinated_storage_reserve,
+    estimate_parent_compact_merge_bytes,
+    estimate_parent_render_bytes,
+    estimate_project_storage_components,
+)
 from openamundsen_da.util.ts import parse_datetime_opt
 
 
 @dataclass
 class SubdomainRunResult:
     subdomain_id: str
-    status: str  # success | failed | skipped
+    status: str  # success | failed | paused_low_disk | skipped
     duration_seconds: float
     setup_dir: Path
     log_path: Path
@@ -106,9 +125,7 @@ def _validate_project_events_have_obs(project_yaml: Path, *, available_by_var: d
 
 
 def _write_run_manifest(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    write_manifest_atomic(path, data)
 
 
 def _dropped_events_csv(sub_setup_dir: Path) -> Path:
@@ -233,6 +250,9 @@ def _run_one(
     retries: int,
     log_level: str,
     root_log_path: Path | None,
+    storage_reservation_projects: tuple[StorageReservationProject, ...] = (),
+    storage_outer_workers: int = 1,
+    shared_storage_reserve_bytes: int = 0,
 ) -> SubdomainRunResult:
     """Worker: run one fully independent sub-domain DA setup."""
     manifest = SubdomainManifest.load(manifest_path)
@@ -240,30 +260,66 @@ def _run_one(
 
     run_manifest_path = sub.setup_dir / "run_manifest.json"
     log_path = sub.setup_dir / "run.log"
+    finalization_path = _leaf_finalization_manifest_path(sub.setup_dir)
+
+    if finalization_path.is_file() and not overwrite:
+        finalized = _finalize_leaf(sub, resume=True)
+        if finalized.get("status") == "success":
+            recovered = {
+                "id": sub.id,
+                "setup_dir": str(sub.setup_dir),
+                "project_dir": str(sub.project_dir),
+                "status": "success",
+                "recovered_from_finalization": True,
+                "finished": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "dropped_events": _read_dropped_events(
+                    _dropped_events_csv(sub.setup_dir)
+                ),
+                "leaf_finalization_manifest": str(finalization_path),
+                "retained_leaf_bytes": int(finalized.get("retained_leaf_bytes", 0)),
+            }
+            _write_run_manifest(run_manifest_path, recovered)
+            return SubdomainRunResult(
+                subdomain_id=sub.id,
+                status="skipped",
+                duration_seconds=0.0,
+                setup_dir=sub.setup_dir,
+                log_path=log_path,
+                run_manifest=run_manifest_path,
+                dropped_events=list(recovered["dropped_events"]),
+            )
 
     previous_status: str | None = None
     if run_manifest_path.is_file() and not overwrite:
         try:
             data = json.loads(run_manifest_path.read_text(encoding="utf-8"))
-            previous_status = str(data.get("status", "")).lower()
-            if previous_status == "success":
-                return SubdomainRunResult(
-                    subdomain_id=sub.id,
-                    status="skipped",
-                    duration_seconds=0.0,
-                    setup_dir=sub.setup_dir,
-                    log_path=log_path,
-                    run_manifest=run_manifest_path,
-                    dropped_events=list(
-                        data.get("dropped_events")
-                        or _read_dropped_events(_dropped_events_csv(sub.setup_dir))
-                    ),
-                )
         except Exception:
-            pass
+            data = {}
+        previous_status = str(data.get("status", "")).lower()
+        if previous_status == "success":
+            finalized = _finalize_leaf(sub, resume=False)
+            data["retained_leaf_bytes"] = int(finalized.get("retained_leaf_bytes", 0))
+            if finalization_path.is_file():
+                data["leaf_finalization_manifest"] = str(finalization_path)
+            _write_run_manifest(run_manifest_path, data)
+            return SubdomainRunResult(
+                subdomain_id=sub.id,
+                status="skipped",
+                duration_seconds=0.0,
+                setup_dir=sub.setup_dir,
+                log_path=log_path,
+                run_manifest=run_manifest_path,
+                dropped_events=list(
+                    data.get("dropped_events")
+                    or _read_dropped_events(_dropped_events_csv(sub.setup_dir))
+                ),
+            )
 
-    rebuild_partial = bool(previous_status and previous_status != "success" and not overwrite)
-    effective_overwrite = bool(overwrite or rebuild_partial)
+    # A failed/interrupted leaf is a resumable project. Never turn an ordinary
+    # resume into destructive overwrite implicitly; callers must request
+    # ``--overwrite`` explicitly after deciding that completed work may be
+    # discarded.
+    effective_overwrite = bool(overwrite)
 
     _configure_worker_logger(log_path, log_level, root_log_path)
 
@@ -294,8 +350,12 @@ def _run_one(
                     live_plots=False,
                     plot_workers=int(inner_max_workers),
                     monitor_perf=False,
+                    storage_reservation_projects=storage_reservation_projects,
+                    storage_outer_workers=int(storage_outer_workers),
+                    shared_storage_reserve_bytes=int(shared_storage_reserve_bytes),
                 )
             )
+            finalized = _finalize_leaf(sub, resume=False)
             duration = time.time() - started
             run_meta.update(
                 {
@@ -303,8 +363,12 @@ def _run_one(
                     "finished": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "duration_seconds": duration,
                     "dropped_events": dropped_events,
+                    "retained_leaf_bytes": int(finalized.get("retained_leaf_bytes", 0)),
+                    "cleanup_freed_bytes": int(finalized.get("cleanup_freed_bytes", 0)),
                 }
             )
+            if finalization_path.is_file():
+                run_meta["leaf_finalization_manifest"] = str(finalization_path)
             _write_run_manifest(run_manifest_path, run_meta)
             logger.info("OK sub-domain={} duration_s={:.1f}", sub.id, duration)
             return SubdomainRunResult(
@@ -321,7 +385,7 @@ def _run_one(
             dropped_events = _read_dropped_events(_dropped_events_csv(sub.setup_dir))
             run_meta.update(
                 {
-                    "status": "failed",
+                    "status": "paused_low_disk" if isinstance(exc, LowDiskSpaceError) else "failed",
                     "finished": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "duration_seconds": duration,
                     "error": repr(exc),
@@ -330,6 +394,17 @@ def _run_one(
             )
             _write_run_manifest(run_manifest_path, run_meta)
             logger.exception("Sub-domain {} failed on attempt {}: {}", sub.id, attempt, exc)
+            if isinstance(exc, LowDiskSpaceError):
+                return SubdomainRunResult(
+                    subdomain_id=sub.id,
+                    status="paused_low_disk",
+                    duration_seconds=duration,
+                    setup_dir=sub.setup_dir,
+                    log_path=log_path,
+                    error=repr(exc),
+                    run_manifest=run_manifest_path,
+                    dropped_events=dropped_events,
+                )
             if attempt > retries:
                 return SubdomainRunResult(
                     subdomain_id=sub.id,
@@ -415,6 +490,170 @@ def _write_project_dropped_events(manifest: SubdomainManifest) -> None:
     plan_df.to_csv(plan_out, index=False)
 
 
+def _project_has_started(project_dir: Path) -> bool:
+    return any(
+        path.is_file()
+        for pattern in (
+            "steps/step_*/assim/prior_forcing_manifest.json",
+            "steps/step_*/assim/rejuvenate_manifest.json",
+        )
+        for path in project_dir.glob(pattern)
+    )
+
+
+def _projected_retained_compact_bytes(
+    manifest: SubdomainManifest,
+    *,
+    selected_ids: list[str],
+    overwrite: bool,
+) -> dict[str, int]:
+    """Project queued post-finalization products from prepared leaf inventories."""
+    projected: dict[str, int] = {}
+    for sid in selected_ids:
+        subdomain = manifest.subdomains[sid]
+        estimate = estimate_project_storage_components(
+            setup_dir=subdomain.setup_dir,
+            project_dir=subdomain.project_dir,
+            overwrite=overwrite,
+            grid_cell_count=int(subdomain.window.height) * int(subdomain.window.width),
+        )
+        projected[sid] = (
+            estimate.retained_compact_bytes
+            if output_retention_mode(subdomain.project_dir) == "compact"
+            else estimate.total_bytes
+        )
+    return projected
+
+
+def _coordinator_storage_reserve(
+    manifest: SubdomainManifest,
+    *,
+    selected_ids: list[str],
+    queued_ids: list[str] | None = None,
+    queued_retained_by_id: dict[str, int] | None = None,
+    outer_workers: int,
+    overwrite: bool,
+    reservation_started_ns: int = 0,
+) -> tuple[
+    int,
+    dict[str, int],
+    tuple[StorageReservationProject, ...],
+    int,
+    int,
+]:
+    """Reserve active-leaf growth and unfinished parent finalization."""
+    parent_device = manifest.project_dir.resolve().stat().st_dev
+    projects: list[StorageReservationProject] = []
+    for sid in selected_ids:
+        subdomain = manifest.subdomains[sid]
+        leaf_device = subdomain.project_dir.resolve().stat().st_dev
+        if leaf_device != parent_device:
+            raise ValueError(
+                "Bounded subdomain storage admission requires the parent and all selected "
+                f"leaf projects to share one filesystem; {sid} is on another device"
+            )
+        projects.append(
+            StorageReservationProject(
+                setup_dir=subdomain.setup_dir.resolve(),
+                project_dir=subdomain.project_dir.resolve(),
+                grid_cell_count=int(subdomain.window.height) * int(subdomain.window.width),
+                run_manifest=(subdomain.setup_dir / "run_manifest.json").resolve(),
+                completion_not_before_ns=(reservation_started_ns if overwrite else 0),
+            )
+        )
+    project_specs = tuple(projects)
+    queued_ids = list(queued_ids or [])
+    for sid in queued_ids:
+        subdomain = manifest.subdomains[sid]
+        leaf_device = subdomain.project_dir.resolve().stat().st_dev
+        if leaf_device != parent_device:
+            raise ValueError(
+                "Bounded subdomain storage admission requires the parent and all queued "
+                f"leaf projects to share one filesystem; {sid} is on another device"
+            )
+    if queued_retained_by_id is None:
+        queued_retained_by_id = _projected_retained_compact_bytes(
+            manifest,
+            selected_ids=queued_ids,
+            overwrite=overwrite,
+        )
+    missing_projection = sorted(set(queued_ids) - set(queued_retained_by_id))
+    if missing_projection:
+        raise ValueError(
+            "Queued compact-retention projection is missing subdomain(s): "
+            + ", ".join(missing_projection)
+        )
+    queued_retained_reserve = sum(
+        int(queued_retained_by_id[sid]) for sid in queued_ids
+    )
+    merge_stage = manifest.stages.get("merge") or {}
+    merged_output = manifest.project_dir / "results" / "grids" / "da_output_grids.nc"
+    merge_is_accepted = (
+        not overwrite
+        and str(merge_stage.get("status", "")).lower() == "completed"
+        and merged_output.is_file()
+    )
+    if merge_is_accepted:
+        try:
+            validate_compact_output_file(
+                project_dir=manifest.project_dir,
+                output_nc=merged_output,
+            )
+        except Exception:  # noqa: BLE001 - invalid accepted output must be rebuilt
+            merge_is_accepted = False
+    parent_merge_reserve = 0 if merge_is_accepted else estimate_parent_compact_merge_bytes(
+        setup_dir=manifest.setup_dir,
+        project_dir=manifest.project_dir,
+        grid_cell_count=int(manifest.grid_rows) * int(manifest.grid_cols),
+    )
+    render_stage = manifest.stages.get("render") or {}
+    render_outputs = render_stage.get("outputs")
+    render_is_accepted = (
+        not overwrite
+        and str(render_stage.get("status", "")).lower() == "completed"
+        and isinstance(render_outputs, list)
+        and bool(render_outputs)
+        and all(Path(str(path)).is_file() for path in render_outputs)
+    )
+    parent_render_reserve = 0 if render_is_accepted else estimate_parent_render_bytes(
+        project_dir=manifest.project_dir,
+        grid_cell_count=int(manifest.grid_rows) * int(manifest.grid_cols),
+        overwrite=overwrite,
+    )
+    parent_finalization_reserve = parent_merge_reserve + parent_render_reserve
+    concurrent, estimates = estimate_coordinated_storage_reserve(
+        project_specs,
+        outer_workers=outer_workers,
+        parent_finalization_reserve_bytes=(
+            parent_finalization_reserve + queued_retained_reserve
+        ),
+        overwrite=overwrite,
+    )
+    reserves = {
+        sid: estimates.get(str(manifest.subdomains[sid].project_dir.resolve())).total_bytes
+        if str(manifest.subdomains[sid].project_dir.resolve()) in estimates
+        else 0
+        for sid in selected_ids
+    }
+    return (
+        concurrent,
+        reserves,
+        project_specs,
+        parent_finalization_reserve,
+        queued_retained_reserve,
+    )
+
+
+def _leaf_waves(selected_ids: list[str], outer_workers: int) -> list[list[str]]:
+    """Partition leaves into deterministic storage-admission cohorts."""
+    if outer_workers < 1:
+        raise ValueError("outer_workers must be positive")
+    return [
+        selected_ids[index : index + outer_workers]
+        for index in range(0, len(selected_ids), outer_workers)
+    ]
+
+
 def run_subdomains(
     *,
     manifest_path: Path,
@@ -433,11 +672,11 @@ def run_subdomains(
         raise ValueError(f"Manifest at {manifest_path} is not marked as run_mode='subdomain'.")
     ensure_run_mode(manifest.project_dir, expected="subdomain", write_if_missing=False)
     selected_ids = list(subdomains) if subdomains else list(manifest.subdomains.keys())
+    if not selected_ids:
+        raise ValueError("At least one sub-domain must be selected")
     unknown = [sid for sid in selected_ids if sid not in manifest.subdomains]
     if unknown:
         raise ValueError(f"Sub-domains not in manifest: {', '.join(unknown)}")
-    save_stage(manifest, manifest_path, "run", "running")
-
     root_log = manifest.project_dir / "subdomain_run.log"
     sink_id = None
     if log_to_file:
@@ -457,12 +696,63 @@ def run_subdomains(
     inner_workers = int(inner_max_workers) if inner_max_workers is not None else auto_inner
     inner_workers = max(1, inner_workers)
 
+    waves = _leaf_waves(selected_ids, outer_workers)
+    reservation_started_ns = time.time_ns()
+    try:
+        queued_retained_by_id = _projected_retained_compact_bytes(
+            manifest,
+            selected_ids=[sid for wave in waves[1:] for sid in wave],
+            overwrite=overwrite,
+        )
+        (
+            concurrent_storage_reserve,
+            leaf_storage_reserves,
+            storage_reservation_projects,
+            parent_finalization_reserve,
+            queued_retained_reserve,
+        ) = _coordinator_storage_reserve(
+            manifest,
+            selected_ids=waves[0],
+            queued_ids=[sid for wave in waves[1:] for sid in wave],
+            queued_retained_by_id=queued_retained_by_id,
+            outer_workers=len(waves[0]),
+            overwrite=overwrite,
+            reservation_started_ns=reservation_started_ns,
+        )
+        resuming_batch = not overwrite and all(
+            _project_has_started(manifest.subdomains[sid].project_dir)
+            for sid in waves[0]
+        )
+        storage_budget = check_step_admission(
+            manifest.project_dir,
+            estimated_growth_bytes=concurrent_storage_reserve,
+            allow_existing_step_drain=resuming_batch,
+        )
+    except LowDiskSpaceError as exc:
+        save_stage(manifest, manifest_path, "run", "paused_low_disk", error=str(exc))
+        raise
+    save_stage(manifest, manifest_path, "run", "running")
+
     logger.info(
-        "START sub-domain run count={} outer_workers={} inner_workers={} fail_fast=true",
+        "START sub-domain run count={} outer_workers={} inner_workers={} "
+        "first_wave_storage_reserve_gib={:.1f} parent_finalization_reserve_gib={:.1f} "
+        "queued_retained_reserve_gib={:.1f} retained_leaf_gib={:.1f} "
+        "used={:.1%} fail_fast=true",
         len(selected_ids),
         outer_workers,
         inner_workers,
+        concurrent_storage_reserve / (1024**3),
+        parent_finalization_reserve / (1024**3),
+        queued_retained_reserve / (1024**3),
+        _measured_retained_leaf_bytes(manifest) / (1024**3),
+        storage_budget.used_fraction,
     )
+    for sid in sorted(leaf_storage_reserves):
+        logger.info(
+            "Storage reserve sub-domain={} reserve_gib={:.1f}",
+            sid,
+            leaf_storage_reserves[sid] / (1024**3),
+        )
 
     perf_stop = None
     if perf_monitor:
@@ -475,43 +765,88 @@ def run_subdomains(
 
     ctx = mp.get_context("spawn")
     executor = cf.ProcessPoolExecutor(max_workers=outer_workers, mp_context=ctx)
-    future_map: dict[cf.Future, str] = {}
     try:
-        for sid in selected_ids:
-            fut = executor.submit(
-                _run_one,
-                sid,
-                manifest_path,
-                inner_workers,
-                overwrite,
-                int(max(0, retries)),
-                log_level,
-                root_log if log_to_file else None,
-            )
-            future_map[fut] = sid
-
-        for fut in cf.as_completed(future_map):
-            sid = future_map[fut]
-            res = fut.result()
-            results.append(res)
-            meta = manifest.subdomains[sid]
-            meta.status = "success" if res.status == "skipped" else res.status
-            if res.run_manifest:
-                meta.run_manifest = res.run_manifest
-            meta.dropped_events = list(res.dropped_events or [])
-            manifest.save(manifest_path)
+        for wave_index, wave_ids in enumerate(waves):
+            if wave_index > 0:
+                manifest = SubdomainManifest.load(manifest_path)
+                (
+                    concurrent_storage_reserve,
+                    leaf_storage_reserves,
+                    storage_reservation_projects,
+                    parent_finalization_reserve,
+                    queued_retained_reserve,
+                ) = _coordinator_storage_reserve(
+                    manifest,
+                    selected_ids=wave_ids,
+                    queued_ids=[sid for wave in waves[wave_index + 1 :] for sid in wave],
+                    queued_retained_by_id=queued_retained_by_id,
+                    outer_workers=len(wave_ids),
+                    overwrite=overwrite,
+                    reservation_started_ns=reservation_started_ns,
+                )
+                resuming_batch = not overwrite and all(
+                    _project_has_started(manifest.subdomains[sid].project_dir)
+                    for sid in wave_ids
+                )
+                storage_budget = check_step_admission(
+                    manifest.project_dir,
+                    estimated_growth_bytes=concurrent_storage_reserve,
+                    allow_existing_step_drain=resuming_batch,
+                )
             logger.info(
-                "STATUS sub-domain={} status={} duration_s={:.1f}",
-                sid,
-                res.status,
-                res.duration_seconds,
+                "ADMIT wave={}/{} subdomains={} growth_gib={:.1f} "
+                "retained_leaf_gib={:.1f} queued_retained_gib={:.1f} "
+                "parent_finalization_gib={:.1f} used={:.1%}",
+                wave_index + 1,
+                len(waves),
+                ",".join(wave_ids),
+                concurrent_storage_reserve / (1024**3),
+                _measured_retained_leaf_bytes(manifest) / (1024**3),
+                queued_retained_reserve / (1024**3),
+                parent_finalization_reserve / (1024**3),
+                storage_budget.used_fraction,
             )
-            if res.status == "failed":
-                failed_id = sid
-                logger.error("Fail-fast triggered by sub-domain {}", sid)
-                for other in future_map:
-                    if not other.done():
-                        other.cancel()
+            future_map: dict[cf.Future, str] = {}
+            for sid in wave_ids:
+                fut = executor.submit(
+                    _run_one,
+                    sid,
+                    manifest_path,
+                    inner_workers,
+                    overwrite,
+                    int(max(0, retries)),
+                    log_level,
+                    root_log if log_to_file else None,
+                    storage_reservation_projects,
+                    len(wave_ids),
+                    parent_finalization_reserve + queued_retained_reserve,
+                )
+                future_map[fut] = sid
+
+            for fut in cf.as_completed(future_map):
+                sid = future_map[fut]
+                res = fut.result()
+                results.append(res)
+                meta = manifest.subdomains[sid]
+                meta.status = "success" if res.status == "skipped" else res.status
+                if res.run_manifest:
+                    meta.run_manifest = res.run_manifest
+                meta.dropped_events = list(res.dropped_events or [])
+                manifest.save(manifest_path)
+                logger.info(
+                    "STATUS sub-domain={} status={} duration_s={:.1f}",
+                    sid,
+                    res.status,
+                    res.duration_seconds,
+                )
+                if res.status in {"failed", "paused_low_disk"}:
+                    failed_id = sid
+                    logger.error("Fail-fast triggered by sub-domain {}", sid)
+                    for other in future_map:
+                        if not other.done():
+                            other.cancel()
+                    break
+            if failed_id is not None:
                 executor.shutdown(wait=False, cancel_futures=True)
                 break
     except BaseException as exc:
@@ -545,7 +880,7 @@ def run_subdomains(
     _write_project_dropped_events(manifest)
 
     ok = sum(1 for r in results if r.status == "success")
-    fail = sum(1 for r in results if r.status == "failed")
+    fail = sum(1 for r in results if r.status in {"failed", "paused_low_disk"})
     skip = sum(1 for r in results if r.status == "skipped")
     logger.info(
         "SUMMARY total_selected={} completed={} success={} failed={} skipped={}",
@@ -559,7 +894,10 @@ def run_subdomains(
         logger.remove(sink_id)
     if failed_id is not None:
         error = f"Sub-domain run failed in {failed_id}; fail-fast stopped remaining tasks."
-        save_stage(manifest, manifest_path, "run", "failed", error=error)
+        final_status = "paused_low_disk" if any(
+            result.status == "paused_low_disk" for result in results
+        ) else "failed"
+        save_stage(manifest, manifest_path, "run", final_status, error=error)
         raise RuntimeError(error)
     save_stage(
         manifest,

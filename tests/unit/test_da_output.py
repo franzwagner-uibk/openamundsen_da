@@ -6,8 +6,10 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from openamundsen_da.util import da_output as da_output_mod
 from openamundsen_da.util.da_output import (
     output_retention_mode,
+    validate_project_da_output_grids,
     validate_compact_output_file,
     write_da_output_grids,
     write_project_da_output_grids,
@@ -131,6 +133,131 @@ def test_write_da_output_grids_rejects_scaled_int16_overflow(tmp_path: Path) -> 
         )
 
 
+def test_atomic_grid_write_preserves_accepted_output_on_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    open_loop = tmp_path / "output_grids.nc"
+    member = tmp_path / "member_001_output_grids.nc"
+    output = tmp_path / "da_output_grids.nc"
+    _write_nc(open_loop, np.ones((1, 2, 2)))
+    _write_nc(member, np.ones((1, 2, 2)))
+    output.write_bytes(b"accepted")
+
+    monkeypatch.setattr(xr.Dataset, "to_netcdf", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("stop")))
+    with pytest.raises(OSError, match="stop"):
+        write_da_output_grids(
+            open_loop_nc=open_loop,
+            member_ncs=[member],
+            output_nc=output,
+        )
+
+    assert output.read_bytes() == b"accepted"
+    assert not list(tmp_path.glob(f".{output.name}.*.tmp.nc"))
+
+
+def test_atomic_grid_write_preserves_accepted_output_on_validation_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    open_loop = tmp_path / "output_grids.nc"
+    member = tmp_path / "member_001_output_grids.nc"
+    output = tmp_path / "da_output_grids.nc"
+    _write_nc(open_loop, np.ones((1, 2, 2)))
+    _write_nc(member, np.ones((1, 2, 2)))
+    output.write_bytes(b"accepted")
+    monkeypatch.setattr(
+        da_output_mod,
+        "_validate_da_dataset_against_expected",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("invalid temp")),
+    )
+
+    with pytest.raises(ValueError, match="invalid temp"):
+        write_da_output_grids(open_loop_nc=open_loop, member_ncs=[member], output_nc=output)
+
+    assert output.read_bytes() == b"accepted"
+
+
+def test_atomic_grid_write_accepts_exact_multidimensional_time_bounds(tmp_path: Path) -> None:
+    open_loop = tmp_path / "output_grids.nc"
+    member = tmp_path / "member_001_output_grids.nc"
+    output = tmp_path / "da_output_grids.nc"
+    time = np.array([np.datetime64("2023-01-01"), np.datetime64("2023-01-02")])
+    time_bounds = np.array(
+        [
+            [np.datetime64("2023-01-01T00:00"), np.datetime64("2023-01-01T21:00")],
+            [np.datetime64("2023-01-02T00:00"), np.datetime64("2023-01-02T21:00")],
+        ]
+    )
+    dataset = xr.Dataset(
+        data_vars={
+            "snowdepth_daily": (
+                ("time1", "y", "x"),
+                np.ones((2, 1, 1), dtype=np.float32),
+            )
+        },
+        coords={
+            "time1": time,
+            "time1_bounds": (("time1", "bounds"), time_bounds),
+            "y": [0],
+            "x": [0],
+        },
+    )
+    dataset.to_netcdf(open_loop)
+    dataset.to_netcdf(member)
+
+    assert write_da_output_grids(
+        open_loop_nc=open_loop,
+        member_ncs=[member],
+        output_nc=output,
+    ) == output
+    with xr.open_dataset(output) as written:
+        np.testing.assert_array_equal(written["time1_bounds"].values, time_bounds)
+
+
+def test_grid_cleanup_completeness_requires_every_configured_metric_and_member(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "setup" / "projects" / "demo"
+    step = project / "steps" / "step_00"
+    project.mkdir(parents=True)
+    (project / "demo.yml").write_text(
+        "data_assimilation:\n"
+        "  prior_forcing: {ensemble_size: 1}\n"
+        "  output:\n"
+        "    grids:\n"
+        "      variables:\n"
+        "        - {var: snowdepth_daily, metrics: [open_loop, ens_mean]}\n",
+        encoding="utf-8",
+    )
+    step.mkdir(parents=True)
+    (step / "step.yml").write_text(
+        "start_date: '2023-01-01'\nend_date: '2023-01-01'\n",
+        encoding="utf-8",
+    )
+    _write_step_member_ncs(
+        step,
+        np.ones((1, 2, 2)),
+        [np.full((1, 2, 2), 2.0)],
+        "2023-01-01",
+    )
+    output = project / "results" / "grids" / "da_output_grids.nc"
+    write_project_da_output_grids(step_dirs=[step], output_nc=output)
+    assert validate_project_da_output_grids(project, output_nc=output) == output
+
+    with xr.open_dataset(output) as dataset:
+        incomplete = dataset.drop_vars("ens_mean_snowdepth_daily").load()
+    incomplete.to_netcdf(output, mode="w")
+    with pytest.raises(ValueError, match="missing configured metric-variable"):
+        validate_project_da_output_grids(project, output_nc=output)
+    write_project_da_output_grids(step_dirs=[step], output_nc=output)
+
+    member_grid = step / "ensembles" / "prior" / "member_001" / "results" / "output_grids.nc"
+    member_grid.unlink()
+    with pytest.raises(FileNotFoundError, match="required for completeness"):
+        validate_project_da_output_grids(project, output_nc=output)
+
+
 def test_write_project_da_output_grids_spans_all_steps(tmp_path: Path) -> None:
     project_dir = tmp_path / "project"
     step_00 = project_dir / "steps" / "step_00_init"
@@ -170,6 +297,56 @@ def test_write_project_da_output_grids_spans_all_steps(tmp_path: Path) -> None:
         assert np.isclose(mean_vals[0, 0, 0], 3.0)
         assert np.isclose(mean_vals[1, 0, 0], 25.0)
         assert ds.attrs.get("source_step_count") == "2"
+
+
+@pytest.mark.parametrize("corruption", ["value", "coordinate", "time_order", "time_duplicate"])
+def test_grid_cleanup_validation_rejects_scientific_or_coordinate_corruption(
+    tmp_path: Path,
+    corruption: str,
+) -> None:
+    project = tmp_path / "setup" / "projects" / "demo"
+    project.mkdir(parents=True)
+    (project / "demo.yml").write_text(
+        "data_assimilation:\n"
+        "  prior_forcing: {ensemble_size: 1}\n"
+        "  output:\n"
+        "    grids:\n"
+        "      variables:\n"
+        "        - {var: snowdepth_daily, metrics: [open_loop, ens_mean]}\n",
+        encoding="utf-8",
+    )
+    steps = []
+    for index, day in enumerate(("2023-01-01", "2023-01-02")):
+        step = project / "steps" / f"step_{index:02d}"
+        step.mkdir(parents=True)
+        (step / "step.yml").write_text(
+            f"start_date: '{day}'\nend_date: '{day}'\n", encoding="utf-8"
+        )
+        _write_step_member_ncs(
+            step,
+            np.full((1, 2, 2), float(index + 1)),
+            [np.full((1, 2, 2), float(index + 2))],
+            day,
+        )
+        steps.append(step)
+    output = project / "results" / "grids" / "da_output_grids.nc"
+    write_project_da_output_grids(step_dirs=steps, output_nc=output)
+    with xr.open_dataset(output) as dataset:
+        corrupted = dataset.load()
+    if corruption == "value":
+        corrupted["ens_mean_snowdepth_daily"].values[0, 0, 0] += 1.0
+    elif corruption == "coordinate":
+        corrupted = corrupted.assign_coords(x=np.asarray([0, 2]))
+    elif corruption == "time_order":
+        corrupted = corrupted.isel(time1=[1, 0])
+    else:
+        values = corrupted.time1.values.copy()
+        values[1] = values[0]
+        corrupted = corrupted.assign_coords(time1=values)
+    corrupted.to_netcdf(output, mode="w")
+
+    with pytest.raises(ValueError, match="validation"):
+        validate_project_da_output_grids(project, output_nc=output)
 
 
 def test_write_project_da_output_grids_adds_weighted_analysis_increment(tmp_path: Path) -> None:
@@ -473,3 +650,15 @@ def test_output_retention_mode_explicit_compact_wins_for_subdomain(tmp_path: Pat
     )
 
     assert output_retention_mode(project_dir) == "compact"
+
+
+def test_output_retention_mode_rejects_unknown_value(tmp_path: Path) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "project_2022_2023.yml").write_text(
+        "data_assimilation:\n  output:\n    retention: tiny\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="must be 'compact' or 'full'"):
+        output_retention_mode(project_dir)

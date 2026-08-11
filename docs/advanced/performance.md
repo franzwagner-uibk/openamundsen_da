@@ -57,3 +57,31 @@ Grid resolution, duration, ensemble size, selected model variables and retention
 dominate disk use. The compact `da_output_grids.nc` is the primary post-run grid
 product. Successful runs automatically remove restart pickles, but member grids
 remain available unless a separate safe retention operation inventories them.
+
+Overwrite admission treats restart checkpoints like other atomic products: an
+accepted checkpoint and its complete replacement may coexist until durable
+promotion. Existing checkpoint bytes remain in live filesystem use while the
+full replacement generation is added to projected growth.
+
+Compact subdomain execution admits at most one outer-worker-sized wave at a
+time. Every successful leaf is compacted, its retained consumers are hash-bound
+and its eligible raw member artifacts are removed before the next wave receives
+disk admission. Files retained by completed leaves are already included in the
+live filesystem usage; the projected-growth reserve adds the active wave plus
+the compact outputs still expected from queued leaves and unfinished parent
+merge, map, plot and report output. A failed leaf is not final-cleaned and
+therefore retains its restartable predecessor state.
+
+The first-run reserve for step-local forcing PNGs is calibrated at 4,400 bytes
+per station, member and plotted day, then increased by the standard 25% observed
+artifact margin. For the audited 4,555 station-leaf identities, ES50 and a full
+leap hydrological year this is about 465 GB. Compact retention removes these
+derived PNGs after the compact forcing NetCDF and stable render-completion
+evidence validate, so they cannot accumulate across all queued leaves.
+`retention: full` budgets and keeps them.
+
+Queued compact-leaf estimates also retain a diagnostics, log, member-metadata
+and rendered-output allowance. It is calibrated from 8.01 GB for the audited
+90-leaf ES30 run, scaled by the open loop plus ensemble members and increased by
+25%. For ES50 this contributes at least 16.47 GB across the prepared setup;
+observed artifacts can only refit the allowance upward.

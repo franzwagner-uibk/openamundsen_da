@@ -1,0 +1,127 @@
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from openamundsen_da.util import map_support as map_support_mod
+from openamundsen_da.methods.viz.maps.panel_renderers import (
+    _prior_wet_fraction_array,
+    _single_domain_scf_model_probability_array,
+)
+from openamundsen_da.util.map_support import (
+    load_map_support_field,
+    validate_map_support,
+    write_map_support,
+)
+
+
+def test_retained_map_support_round_trips_and_feeds_render_sources(tmp_path: Path) -> None:
+    project = tmp_path / "setup" / "projects" / "demo"
+    project.mkdir(parents=True)
+    date = pd.Timestamp("2023-03-01")
+    scf = np.asarray([[0.0, 0.5], [1.0, np.nan]], dtype=float)
+    wet = np.asarray([[0.2, 0.4], [0.8, np.nan]], dtype=float)
+    output = write_map_support(
+        project,
+        dates=[date],
+        fields={
+            "scf_prior_probability": [scf],
+            "wet_snow_prior_probability": [wet],
+        },
+    )
+    assert output.is_file()
+    assert validate_map_support(
+        project,
+        dates=[date],
+        fields={"scf_prior_probability", "wet_snow_prior_probability"},
+    ) == output
+    np.testing.assert_allclose(
+        load_map_support_field(project, date=date, field="scf_prior_probability"),
+        scf,
+        equal_nan=True,
+    )
+    context = SimpleNamespace(project_dir=project, roi_mask=np.ones((2, 2), dtype=bool))
+    np.testing.assert_allclose(
+        _single_domain_scf_model_probability_array(
+            context=context,
+            source="prior_probability",
+            date=date,
+            derived_cache={},
+        ),
+        scf,
+        equal_nan=True,
+    )
+    np.testing.assert_allclose(
+        _prior_wet_fraction_array(context=context, date=date, derived_cache={}),
+        wet,
+        equal_nan=True,
+    )
+
+
+def test_map_support_validation_binds_roi_domain_and_source_values(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    date = pd.Timestamp("2023-03-01")
+    source = np.asarray([[0.2, np.nan], [0.8, np.nan]])
+    roi = np.asarray([[True, False], [True, False]])
+    write_map_support(project, dates=[date], fields={"scf_prior_probability": [source]})
+
+    validate_map_support(
+        project,
+        dates=[date],
+        fields={"scf_prior_probability"},
+        roi_mask=roi,
+        source_fields={"scf_prior_probability": [source]},
+    )
+    with pytest.raises(ValueError, match="differ from raw sources"):
+        validate_map_support(
+            project,
+            dates=[date],
+            fields={"scf_prior_probability"},
+            roi_mask=roi,
+            source_fields={"scf_prior_probability": [source + 0.1]},
+        )
+
+
+def test_map_support_validation_rejects_finite_values_outside_roi(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    date = pd.Timestamp("2023-03-01")
+    write_map_support(
+        project,
+        dates=[date],
+        fields={"scf_prior_probability": [np.asarray([[0.2, 0.3]])]},
+    )
+    with pytest.raises(ValueError, match="outside the ROI"):
+        validate_map_support(
+            project,
+            dates=[date],
+            fields={"scf_prior_probability"},
+            roi_mask=np.asarray([[True, False]]),
+        )
+
+
+def test_map_support_temp_validation_failure_preserves_accepted_target(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    target = project / "results" / "grids" / "da_map_support.nc"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"accepted")
+    monkeypatch.setattr(
+        map_support_mod,
+        "_validate_map_support_path",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("bad temp")),
+    )
+    with pytest.raises(ValueError, match="bad temp"):
+        write_map_support(
+            project,
+            dates=[pd.Timestamp("2023-01-01")],
+            fields={"scf_prior_probability": [np.asarray([[0.5]])]},
+        )
+    assert target.read_bytes() == b"accepted"

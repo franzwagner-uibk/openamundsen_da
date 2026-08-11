@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -11,42 +13,47 @@ import xarray as xr
 from loguru import logger
 
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import find_project_yaml, infer_project_dir, read_step_config
+from openamundsen_da.io.paths import (
+    find_project_yaml,
+    infer_project_dir,
+    list_member_dirs,
+    list_steps_sorted,
+    read_step_config,
+)
 from openamundsen_da.util.da_events import AssimilationEvent, load_assimilation_events
 from openamundsen_da.util.da_observables import weights_csv_name
-from openamundsen_da.util.storage_policy import da_summary_netcdf_encoding
 from openamundsen_da.util.compact_grid_contract import (
     ANALYSIS_SUMMARY_METRICS,
     DEFAULT_SUMMARY_METRICS,
     configured_compact_grid_metrics,
     expected_compact_data_vars,
 )
+from openamundsen_da.util.storage_policy import (
+    da_summary_grid_scale_factor,
+    da_summary_netcdf_encoding,
+)
 from openamundsen_da.methods.pf.weights import load_prior_weights
+from openamundsen_da.util.atomic import durable_replace
 
 _DEFAULT_SUMMARY_METRICS = DEFAULT_SUMMARY_METRICS
 _ANALYSIS_SUMMARY_METRICS = ANALYSIS_SUMMARY_METRICS
 
 
 def output_retention_mode(project_dir: Path) -> str:
-    """Return output retention mode from project YAML, defaulting to compact."""
-    try:
-        cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
-        run_mode = str(cfg.get("run_mode", "")).strip().lower()
-        default_mode = "full" if run_mode == "subdomain" else "compact"
-        da_cfg = cfg.get("data_assimilation") or {}
-        out_cfg = da_cfg.get("output") or {}
-        mode = str(out_cfg.get("retention", default_mode)).strip().lower()
-        if mode in {"compact", "full"}:
-            return mode
-        logger.warning(
-            "Unknown data_assimilation.output.retention='{}' in {}; using '{}'",
-            mode,
-            project_dir,
-            default_mode,
+    """Return the explicit or mode-specific output-retention policy."""
+    project_yaml = find_project_yaml(project_dir)
+    cfg = _read_yaml_file(project_yaml) or {}
+    run_mode = str(cfg.get("run_mode", "")).strip().lower()
+    default_mode = "full" if run_mode == "subdomain" else "compact"
+    da_cfg = cfg.get("data_assimilation") or {}
+    out_cfg = da_cfg.get("output") or {}
+    mode = str(out_cfg.get("retention", default_mode)).strip().lower()
+    if mode not in {"compact", "full"}:
+        raise ValueError(
+            "data_assimilation.output.retention must be 'compact' or 'full' "
+            f"in {project_yaml}, got {mode!r}"
         )
-        return default_mode
-    except Exception:
-        return "compact"
+    return mode
 
 
 def _configured_grid_metrics(project_dir: Path | None) -> dict[str, set[str]] | None:
@@ -577,6 +584,67 @@ def _combine_step_summaries(step_summaries: Sequence[xr.Dataset]) -> xr.Dataset:
     return merged_ds
 
 
+def _validate_da_dataset_against_expected(path: Path, expected: xr.Dataset) -> None:
+    """Require exact schema/coordinates and encoding-tolerant scientific values."""
+    with xr.open_dataset(path) as retained:
+        if set(retained.data_vars) != set(expected.data_vars):
+            raise ValueError(f"Atomic DA grid validation found data-variable mismatch in {path}")
+        if set(retained.coords) != set(expected.coords) or dict(retained.sizes) != dict(expected.sizes):
+            raise ValueError(f"Atomic DA grid validation found coordinate/dimension mismatch in {path}")
+        for name in expected.coords:
+            source_coord = expected.coords[name]
+            written_coord = retained.coords[name]
+            if tuple(written_coord.dims) != tuple(source_coord.dims):
+                raise ValueError(f"Atomic DA grid validation found coordinate dimensions changed for {name}")
+            source_values = np.asarray(source_coord.values)
+            written_values = np.asarray(written_coord.values)
+            if not np.array_equal(source_values, written_values, equal_nan=True):
+                raise ValueError(f"Atomic DA grid validation found coordinate values changed for {name}")
+            if (
+                "time" in name.lower()
+                and written_coord.ndim == 1
+                and tuple(written_coord.dims) == (name,)
+            ):
+                index = pd.Index(written_values)
+                if not index.is_unique or not index.is_monotonic_increasing:
+                    raise ValueError(f"Atomic DA grid validation requires unique ordered {name}")
+        for name in expected.data_vars:
+            source_array = expected[name]
+            written_array = retained[name]
+            if tuple(written_array.dims) != tuple(source_array.dims):
+                raise ValueError(f"Atomic DA grid validation found dimensions changed for {name}")
+            if written_array.attrs.get("units") != source_array.attrs.get("units"):
+                raise ValueError(f"Atomic DA grid validation found units changed for {name}")
+            source = np.asarray(source_array.values, dtype=float)
+            written = np.asarray(written_array.values, dtype=float)
+            if not np.array_equal(np.isfinite(source), np.isfinite(written)):
+                raise ValueError(f"Atomic DA grid validation found invalid values for {name} in {path}")
+            scale = da_summary_grid_scale_factor(name)
+            tolerance = float(scale) / 2.0 + 1e-7 if scale is not None else 1e-5
+            if not np.allclose(source, written, rtol=1e-6, atol=tolerance, equal_nan=True):
+                raise ValueError(f"Atomic DA grid validation found changed values for {name} in {path}")
+
+
+def _write_da_dataset_atomic(dataset: xr.Dataset, output_nc: Path) -> Path:
+    """Write and validate a crash-durable same-directory NetCDF."""
+    output_nc = Path(output_nc)
+    output_nc.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        dir=output_nc.parent,
+        prefix=f".{output_nc.name}.",
+        suffix=".tmp.nc",
+    )
+    os.close(fd)
+    temp = Path(temp_name)
+    try:
+        dataset.to_netcdf(temp, mode="w", encoding=da_summary_netcdf_encoding(dataset))
+        _validate_da_dataset_against_expected(temp, dataset)
+        durable_replace(temp, output_nc)
+    finally:
+        temp.unlink(missing_ok=True)
+    return output_nc
+
+
 def write_da_output_grids(
     *,
     open_loop_nc: Path,
@@ -590,8 +658,7 @@ def write_da_output_grids(
     )
     if out_ds is None:
         return None
-    output_nc.parent.mkdir(parents=True, exist_ok=True)
-    out_ds.to_netcdf(output_nc, encoding=da_summary_netcdf_encoding(out_ds))
+    _write_da_dataset_atomic(out_ds, output_nc)
     logger.info("Wrote DA output summary NetCDF {}", output_nc)
     return output_nc
 
@@ -653,12 +720,8 @@ def _load_project_assimilation_events(project_dir: Path) -> list[AssimilationEve
         return []
 
 
-def write_project_da_output_grids(
-    *,
-    step_dirs: Sequence[Path],
-    output_nc: Path,
-) -> Path | None:
-    """Write one compact DA summary NetCDF spanning all available project steps."""
+def _build_project_da_output_dataset(step_dirs: Sequence[Path]) -> xr.Dataset | None:
+    """Build the canonical project compact grid dataset from raw member grids."""
     step_summaries: list[xr.Dataset] = []
     used_steps: list[str] = []
     project_dir: Path | None = None
@@ -714,12 +777,92 @@ def write_project_da_output_grids(
             grid_metrics=grid_metrics,
             source="in-memory compact project dataset",
         )
-    output_nc.parent.mkdir(parents=True, exist_ok=True)
-    combined.to_netcdf(output_nc, encoding=da_summary_netcdf_encoding(combined))
+    return combined
+
+
+def write_project_da_output_grids(
+    *,
+    step_dirs: Sequence[Path],
+    output_nc: Path,
+) -> Path | None:
+    """Write one compact DA summary NetCDF spanning all available project steps."""
+    combined = _build_project_da_output_dataset(step_dirs)
+    if combined is None:
+        return None
+    _write_da_dataset_atomic(combined, output_nc)
+    project_dir: Path | None = None
+    if step_dirs:
+        try:
+            project_dir = infer_project_dir(step_dirs[0])
+        except FileNotFoundError:
+            project_dir = None
     if project_dir is not None:
         validate_compact_output_file(project_dir=project_dir, output_nc=output_nc)
-    logger.info("Wrote DA output summary NetCDF {} ({} step(s))", output_nc, len(step_summaries))
+    step_count = combined.attrs.get("source_step_count", "0")
+    logger.info("Wrote DA output summary NetCDF {} ({} step(s))", output_nc, step_count)
     return output_nc
+
+
+def validate_project_da_output_grids(
+    project_dir: str | Path,
+    *,
+    output_nc: str | Path | None = None,
+) -> Path:
+    """Require the canonical compact contract and raw scientific equivalence."""
+    project_dir = Path(project_dir).resolve()
+    output = (
+        Path(output_nc)
+        if output_nc is not None
+        else project_dir / "results" / "grids" / "da_output_grids.nc"
+    )
+    validate_compact_output_file(project_dir=project_dir, output_nc=output)
+    configured = _configured_grid_metrics(project_dir)
+    project_cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+    try:
+        ensemble_size = int(project_cfg["data_assimilation"]["prior_forcing"]["ensemble_size"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "Cannot validate compact grid completeness without "
+            "data_assimilation.prior_forcing.ensemble_size"
+        ) from exc
+    steps = list_steps_sorted(project_dir)
+    if not steps:
+        raise ValueError(f"Cannot validate compact grids without prepared steps: {project_dir}")
+    for step in steps:
+        prior = step / "ensembles" / "prior"
+        roots = [
+            prior / "open_loop",
+            *(prior / f"member_{index:03d}" for index in range(1, ensemble_size + 1)),
+        ]
+        actual_members = [member.name for member in list_member_dirs(step / "ensembles", "prior")]
+        expected_members = [root.name for root in roots[1:]]
+        if actual_members != expected_members:
+            raise ValueError(
+                f"Raw grid member identities differ in {step}: {actual_members} != {expected_members}"
+            )
+        files = [root / "results" / "output_grids.nc" for root in roots]
+        missing_files = [path for path in files if not path.is_file()]
+        if missing_files:
+            raise FileNotFoundError(f"Raw member grid required for completeness is missing: {missing_files[0]}")
+        with xr.open_dataset(files[0]) as reference:
+            variables = configured or {
+                name: set(_DEFAULT_SUMMARY_METRICS)
+                for name, array in reference.data_vars.items()
+                if {"y", "x"}.issubset(array.dims)
+            }
+            for source_name in variables:
+                if source_name not in reference:
+                    raise ValueError(f"Configured compact grid source {source_name!r} is missing in {files[0]}")
+        for path in files[1:]:
+            with xr.open_dataset(path) as member:
+                for source_name in variables:
+                    if source_name not in member:
+                        raise ValueError(f"Grid source {source_name!r} is missing in member output {path}")
+    expected = _build_project_da_output_dataset(steps)
+    if expected is None:
+        raise ValueError(f"Cannot rebuild expected compact grid dataset for {project_dir}")
+    _validate_da_dataset_against_expected(output, expected)
+    return output
 
 
 def delete_files(paths: Iterable[Path]) -> tuple[int, int]:

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from openamundsen_da.configuration import ProjectConfiguration, load_project_configuration
 from openamundsen_da.exceptions import (
+    LowDiskSpaceError,
     ProjectCleanupError,
     ProjectPreparationError,
     ProjectRenderError,
@@ -36,6 +37,7 @@ from openamundsen_da.pipeline.project_skeleton import create_project_skeleton
 from openamundsen_da.pipeline.rendering import render_required_project_outputs
 from openamundsen_da.results import CleanupResult, PreparationResult, RenderResult, RunResult, WorkflowStatus
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, capture_perf_snapshot
+from openamundsen_da.util.retention import validate_retained_consumers
 
 
 PREPARATION_SCHEMA_VERSION = 2
@@ -497,6 +499,7 @@ def run_project(project_dir: str | Path, *, max_workers: int | None = None) -> R
         ):
             for report_path in render_result.report_paths:
                 build_project_collection_pdf(project_dir=config.project_dir, output=report_path)
+        validate_retained_consumers(config.project_dir, require_complete=True)
         output_files = [
             path
             for path in recursive_files(config.project_dir / "results")
@@ -527,7 +530,10 @@ def run_project(project_dir: str | Path, *, max_workers: int | None = None) -> R
         manifest["stages"]["cleanup"] = "success"
         write_manifest_atomic(manifest_path, manifest)
     except BaseException as exc:
-        terminal_status = "interrupted" if isinstance(exc, KeyboardInterrupt) else "failed"
+        if isinstance(exc, LowDiskSpaceError):
+            terminal_status = "paused_low_disk"
+        else:
+            terminal_status = "interrupted" if isinstance(exc, KeyboardInterrupt) else "failed"
         for stage, stage_status in manifest["stages"].items():
             if stage_status == "running":
                 manifest["stages"][stage] = terminal_status

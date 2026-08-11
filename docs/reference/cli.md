@@ -43,9 +43,10 @@ rerunning the model:
 openamundsen-da render PROJECT_DIR --max-workers COUNT
 ```
 
-Successful project runs already remove restart state according to the configured
-retention policy. To inspect or apply cleanup manually for an older or incomplete
-project:
+Successful compact project runs already remove validated member forcing,
+points, grids and restart state according to the configured retention policy.
+Full-retention projects preserve these artifacts. To inspect or apply cleanup
+manually for an older or incomplete compact project:
 
 ```bash
 openamundsen-da clean PROJECT_DIR

@@ -14,6 +14,20 @@ from openamundsen_da.subdomain.manifest import WindowSpec
 from openamundsen_da.util.storage_policy import da_summary_netcdf_encoding
 
 
+@pytest.fixture(autouse=True)
+def _bounded_merge_storage(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        merge_mod,
+        "estimate_parent_compact_merge_bytes",
+        lambda **_kwargs: 1024,
+    )
+    monkeypatch.setattr(
+        merge_mod,
+        "check_step_admission",
+        lambda *_args, **_kwargs: SimpleNamespace(used_fraction=0.1),
+    )
+
+
 def _write_roi(path: Path, data: np.ndarray) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with rasterio.open(
@@ -490,6 +504,13 @@ def test_cleanup_deletes_only_manifest_owned_files_after_render(
     merged_tif = grids_dir / "snow_depth.tif"
     unlisted_merged_tif = grids_dir / "unlisted_reference.tif"
     compact_subdomain = sub_project_dir / "results" / "grids" / "da_output_grids.nc"
+    leaf_project_yaml = sub_project_dir / "project_2022_2023.yml"
+    leaf_project_yaml.parent.mkdir(parents=True, exist_ok=True)
+    leaf_project_yaml.write_text(
+        "data_assimilation:\n  output:\n    retention: compact\n",
+        encoding="utf-8",
+    )
+    map_support = sub_project_dir / "results" / "grids" / "da_map_support.nc"
     subdomain_artifact = (
         sub_project_dir
         / "steps"
@@ -501,6 +522,9 @@ def test_cleanup_deletes_only_manifest_owned_files_after_render(
         / "output_grids.nc"
     )
     subdomain_artifact.parent.mkdir(parents=True)
+    (subdomain_artifact.parent / "member_run.json").write_text(
+        '{"member": "member_000", "status": "success"}\n', encoding="utf-8"
+    )
     compact_subdomain.parent.mkdir(parents=True)
     unowned = subdomain_root / "not_in_manifest" / "output_grids.nc"
     unowned.parent.mkdir(parents=True)
@@ -511,6 +535,7 @@ def test_cleanup_deletes_only_manifest_owned_files_after_render(
         merged_tif,
         unlisted_merged_tif,
         compact_subdomain,
+        map_support,
         subdomain_artifact,
         unowned,
     ):
@@ -525,7 +550,7 @@ def test_cleanup_deletes_only_manifest_owned_files_after_render(
     manifest = SimpleNamespace(
         project_dir=project_dir,
         subdomain_root=subdomain_root,
-        subdomains={"sd_01": SimpleNamespace(project_dir=sub_project_dir)},
+        subdomains={"sd_01": SimpleNamespace(id="sd_01", project_dir=sub_project_dir)},
         stages={
             "merge": {
                 "status": "completed",
@@ -550,9 +575,31 @@ def test_cleanup_deletes_only_manifest_owned_files_after_render(
         "load_assimilation_events",
         lambda _project_dir: [SimpleNamespace(date="2022-10-01", variable="scf", product="test")],
     )
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.cleanup.load_assimilation_events",
+        lambda _project_dir: [SimpleNamespace(date="2022-10-01", variable="scf")],
+    )
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.cleanup.validate_map_support",
+        lambda *_args, **_kwargs: map_support,
+    )
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.cleanup.validate_project_da_output_grids",
+        lambda *_args, **_kwargs: compact_subdomain,
+    )
+    monkeypatch.setattr(
+        "openamundsen_da.methods.viz.maps.panel_renderers.project_da_map_support_fields",
+        lambda *_args, **_kwargs: (
+            ["2022-10-01"],
+            {"scf_prior_probability": [np.zeros((1, 1))]},
+            np.ones((1, 1), dtype=bool),
+        ),
+    )
 
+    manifest_path = project_dir / "subdomain_manifest.json"
+    manifest_path.write_text('{"stage": "merge"}\n', encoding="utf-8")
     deleted, bytes_freed = merge_mod.cleanup_compact_grid_artifacts(
-        manifest_path=tmp_path / "manifest.json",
+        manifest_path=manifest_path,
         out_dir=grids_dir,
     )
 
@@ -560,11 +607,11 @@ def test_cleanup_deletes_only_manifest_owned_files_after_render(
         merged_open_loop.resolve(),
         merged_member.resolve(),
         merged_tif.resolve(),
-        compact_subdomain.resolve(),
         subdomain_artifact.resolve(),
     }
-    assert bytes_freed == 5 * len(b"data")
+    assert bytes_freed == 4 * len(b"data")
     assert keep.is_file()
+    assert compact_subdomain.is_file()
     assert unlisted_merged_tif.is_file()
     assert unowned.is_file()
     assert all(not path.exists() for path in deleted)

@@ -11,12 +11,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add opt-in project-map markers that distinguish forcing, snow-observation,
   co-located and holdout stations, with holdouts using a smaller black `x`
   rendered above other station markers, plus optional subdomain ID labels.
+- Add fixed disk-admission limits, shared-filesystem subdomain reservations for
+  accumulated forcing/grid/point growth, rolling checkpoints and atomic merge,
+  resumable low-disk status and a versioned cleanup ledger for restart-safe
+  compact retention.
+- Add compressed all-member point and consumed-forcing NetCDFs plus retained
+  satellite-event map support for compact projects, with mean-collapsed step
+  overlaps, retained-value validation and leaf summaries kept for rerendering.
 
 ### Changed
 - Allow subdomain station selection from coordinates in
   `stations_da_metadata.csv`, require same-ID observations and model points for
   every active DA or benchmark station before propagation.
 - Keep particle rejuvenation within the project runner's worker limit.
+- Generate perturbed forcing only for each consuming step's exact time window.
+- Make compact retention remove validated member forcing, point, grid and
+  restart artifacts while full retention preserves them for reanalysis.
+- Resume failed subdomain leaves non-destructively unless overwrite is
+  requested explicitly.
+- Require readable successor checkpoints before compact restart cleanup, bind
+  interrupted cleanup retries to exact source, consumer and producer-manifest
+  generations and durably validate compact grids, time series and DA map
+  support before raw-grid deletion.
+- Make storage admission account for each forcing file independently, layered
+  and default point columns, explicit map support, full atomic overwrite
+  temporaries and completed parent-finalization stages.
+- Finalize and consumer-validate each successful compact subdomain leaf before
+  admitting the next bounded leaf wave, then retain only its compact analysis
+  and parent merge/render support. After compact forcing and stable render
+  completion evidence validate, remove replaceable step forcing PNGs as a
+  ledger-backed derived-artifact class; project forcing plots rerender from
+  compact NetCDF.
+  The audited prepared-Euregio admission envelope now fits a clean 3.6 TB
+  filesystem, but an end-to-end production run remains the acceptance gate.
+- Version cleanup generations explicitly so a validated overwrite supersedes
+  historical consumer hashes without deleting their audit records. Validate
+  raw SCF/wet-snow render support by rebuilding it under full retention, reserve
+  full checkpoint replacement coexistence during overwrite and include a
+  calibrated retained diagnostics/log/metadata allowance in active and queued
+  budgets.
+- Bind planned cleanup generations to exact source, consumer and producer
+  inventories. Refuse overwrite/resume identity mixing, revalidate every batch
+  before generation completion and require the public single-domain run API to
+  accept the completed retention ledger before reporting success.
 - Require explicitly configured compact grid sources in openAMUNDSEN output
   before propagation and validate every requested variable and metric in
   member, project and merged subdomain NetCDFs.

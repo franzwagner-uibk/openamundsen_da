@@ -312,8 +312,63 @@ Notes:
 - Uncertainty preprocessing keys:
   - `input_dir`, `u_min`, `u_max`, `base_uncertainty`, `nodata_value`, and `penalties[]` are used by `openamundsen-da observations snow-cover` and `openamundsen-da observations wet-snow`.
   - `penalties[].input_dir` is required only for `source: shadow`.
-- `output.retention: compact` writes `results/grids/da_output_grids.nc`. Member grids are retained by the safe cleanup contract.
-- `run_mode: subdomain` defaults to `output.retention: full` when retention is omitted, preserving the sub-domain NC grids required for exact generated DA-event map rerendering.
+- `output.retention: compact` writes the configured grid summaries, compressed
+  all-member point and consumed-forcing time series and satellite-event map
+  support. After benchmarking and rendering validate, package-owned member
+  CSVs, grids and restart checkpoints are removed through
+  `results/retention_manifest.json`.
+- `output.retention: full` preserves member forcing, points, grids and restart
+  artifacts for reanalysis. `run_mode: subdomain` defaults to `full` when the
+  key is omitted; single-domain projects default to `compact`.
+- Retention values other than `compact` and `full` are configuration errors;
+  they are never replaced silently.
+- Perturbed forcing for every member covers only the exact inclusive
+  `start_date` to `end_date` window in its consuming step YAML.
+- Before admitting a step, the project filesystem must be below the fixed 80%
+  soft limit and its conservative forcing estimate plus operational reserve
+  must remain below 90%. A low-disk stop is recorded as resumable and never
+  implies overwrite.
+- Subdomain mode reserves accumulated forcing, point, raw-grid, compact-output
+  (including satellite map support) and one retained restart-checkpoint growth
+  for every unfinished leaf. It adds
+  a second rolling checkpoint for the largest leaves allowed by outer
+  concurrency and one full atomic parent-merge temporary. The reservation is
+  recomputed from measured artifacts at every leaf boundary; all selected
+  projects must share the parent filesystem. This coordinator prevents leaves
+  from exceeding the conservative reservation, but the deliberately broad
+  first-run envelope can still refuse a workload that might fit in practice.
+- First-run bounds use every configured grid variable and output timestamp,
+  exact selected source rows and bytes in each forcing file, 8 bytes per grid
+  cell/value, 4096 bytes per restart cell/member and the current 40 default
+  point variables with conservative soil/snow layer expansion. Explicit
+  variables and layers add to that bound. Atomic overwrite reserves the full
+  point, forcing, grid and map-support replacement temporary. Observed point,
+  grid and state artifacts can only refit these rates upward.
+  The fixed 5% operational reserve remains separate from predicted model growth.
+- Checks occur between steps and finalization stages; this increment does not
+  terminate active openAMUNDSEN members mid-propagation.
+- Compact point, forcing and grid cleanup currently occurs after successful
+  project-level compaction, benchmarking and rendering. Only predecessor
+  restart checkpoints are cleaned incrementally between steps.
+- Overlapping step-boundary timestamps in compact point and forcing NetCDFs use
+  the same numeric mean as the raw-series plot and benchmark readers. Cleanup
+  compares retained values, not only dimensions and identities, with the raw
+  sources. Leaf `da_output_grids.nc` summaries remain available for rerendering
+  leaf snow-depth and SWE maps after raw member-grid cleanup.
+- Restart cleanup requires readable successor checkpoints for the open loop and
+  exactly `member_001` through the configured ensemble size. A dump failure is
+  fatal whenever another step follows. Grid and
+  map-support cleanup also validates configured metric completeness, geometry,
+  ROI/domain constraints and source values before deleting raw member grids.
+- Compact and checkpoint temporaries are scientifically validated, flushed and
+  atomically promoted before ledger-backed deletion. Every cleanup batch binds
+  the deleted generation to byte-identical retained consumers and actual
+  producer member manifests (or the immutable completed-merge stage record);
+  interrupted cleanup revalidates those dependencies before each resumed unlink.
+- This boundary-based increment may conservatively refuse a full 100 m Euregio
+  ES50 run on 3.6 TB. Immediate per-leaf finalization/cleanup and measured
+  prepared-setup capacity validation remain required before claiming that
+  production acceptance.
 - `output.grids.variables[*]` controls both which compact grid variables are exported and which metrics are written for each variable. If this block is omitted, all grid variables and metrics are written for backward compatibility.
 - Every explicit `output.grids.variables[*].var` or `name` must match a
   `setup.output_data.grids.variables[*].name`. This is validated before model
@@ -329,6 +384,13 @@ Notes:
 - Compact DA summary NetCDFs use internal compressed storage encodings: snow depth at 0.001 m resolution and SWE/liquid-water content at integer millimeter resolution. This is not a YAML setting; CF-aware readers decode the variables back to physical values.
 - Generated DA-event maps need `analysis_mean` and `analysis_increment` for `snowdepth_daily`, because their snow-depth response panels show the event-weighted posterior and posterior-minus-prior increment.
 - `results/grids/da_output_grids.nc` is aggregated over all project steps (full project timeline).
+- Compact projects additionally retain
+  `results/points/ensemble_points.nc`,
+  `results/forcing/ensemble_forcing.nc` and, when satellite observations are
+  configured, `results/grids/da_map_support.nc`. These NetCDF files preserve
+  open-loop and every ensemble member on explicit time/member/point or
+  time/member/station dimensions and are readable with CF-aware tools such as
+  xarray, netCDF4, R `ncdf4` and R `stars`.
 - In `da_output_grids.nc`, `increment_<var>` is the open-loop departure: `ens_mean_<var> - open_loop_<var>`.
 - Event analysis fields `analysis_mean_<var>` and `analysis_increment_<var>` are written where assimilation weights are available; `analysis_increment_<var>` is `analysis_mean_<var> - ens_mean_<var>`.
 - Satellite operators require instantaneous `snowdepth_instantaneous`,

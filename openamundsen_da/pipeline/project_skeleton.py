@@ -53,6 +53,15 @@ class ProjectConfig:
     assimilation_event_dates: List[datetime]
 
 
+@dataclass(frozen=True)
+class ProjectStepPlan:
+    """One deterministic project step derived from the final project YAML."""
+
+    name: str
+    start: datetime
+    end: datetime
+
+
 def _parse_datetime(text: str | None) -> datetime:
     if not text:
         raise ValueError("Empty datetime string")
@@ -168,8 +177,11 @@ def _write_step_yaml(step_dir: Path, start: datetime, end: datetime, *, overwrit
         raise RuntimeError(f"Failed to write step YAML {yaml_path}: {exc}") from exc
 
 
-def create_project_skeleton(setup_dir: Path, project_dir: Path, *, overwrite: bool = False) -> None:
-    """Create step_* directories (under project_dir/steps) and minimal step YAMLs for a project.
+def plan_project_steps(
+    setup_dir: Path,
+    project_dir: Path,
+) -> tuple[ProjectStepPlan, ...]:
+    """Return the exact step layout without creating or modifying files.
 
     Steps are defined such that:
     - Step 0 starts at project.start_date.
@@ -186,10 +198,7 @@ def create_project_skeleton(setup_dir: Path, project_dir: Path, *, overwrite: bo
     assim = project.assimilation_event_dates
     n_steps = len(assim) + 1
 
-    steps_root = project_dir / "steps"
-    steps_root.mkdir(parents=True, exist_ok=True)
-
-    # Step 0
+    plans: list[ProjectStepPlan] = []
     step_start = project.start
     for idx in range(n_steps):
         if idx < len(assim):
@@ -227,16 +236,29 @@ def create_project_skeleton(setup_dir: Path, project_dir: Path, *, overwrite: bo
             label = f"{assim[-1].strftime('%Y%m%d')}-{project.end.strftime('%Y%m%d')}"
 
         step_name = _step_dir_name(idx, label)
-        step_dir = steps_root / step_name
-        if step_dir.exists() and not overwrite:
-            raise FileExistsError(f"Step directory already exists and overwrite=False: {step_dir}")
-
-        logger.info("Defining {}: {} -> {}", step_name, step_start, step_end)
-        _write_step_yaml(step_dir, start=step_start, end=step_end, overwrite=overwrite)
+        plans.append(ProjectStepPlan(name=step_name, start=step_start, end=step_end))
 
         if next_start is None:
             break
         step_start = next_start
+
+    return tuple(plans)
+
+
+def create_project_skeleton(setup_dir: Path, project_dir: Path, *, overwrite: bool = False) -> None:
+    """Create the planned step directories and minimal step YAMLs."""
+    plans = plan_project_steps(setup_dir, project_dir)
+    steps_root = project_dir / "steps"
+    steps_root.mkdir(parents=True, exist_ok=True)
+
+    for plan in plans:
+        step_name = plan.name
+        step_dir = steps_root / step_name
+        if step_dir.exists() and not overwrite:
+            raise FileExistsError(f"Step directory already exists and overwrite=False: {step_dir}")
+
+        logger.info("Defining {}: {} -> {}", step_name, plan.start, plan.end)
+        _write_step_yaml(step_dir, start=plan.start, end=plan.end, overwrite=overwrite)
 
 
 def cli(argv: list[str] | None = None) -> int:
@@ -269,6 +291,5 @@ def cli(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(cli())
-
 
 

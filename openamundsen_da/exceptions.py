@@ -41,8 +41,23 @@ class CleanupSafetyError(ProjectCleanupError):
     """Raised when a cleanup candidate is outside the owned artifact set."""
 
 
+class LowDiskSpaceError(ProjectRunError):
+    """Base class for resumable disk-safety stops."""
+
+
+class LowDiskPauseError(LowDiskSpaceError):
+    """Raised before admitting work that would exceed the disk budget."""
+
+
+class LowDiskEmergencyError(LowDiskSpaceError):
+    """Raised at the emergency threshold to preserve the last checkpoint."""
+
+
 __all__ = [
     "CleanupSafetyError",
+    "LowDiskEmergencyError",
+    "LowDiskPauseError",
+    "LowDiskSpaceError",
     "ObservationPreprocessingError",
     "OpenAmundsenDAError",
     "ProjectCleanupError",

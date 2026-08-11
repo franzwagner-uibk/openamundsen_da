@@ -13,9 +13,12 @@ Key Behaviors
 """
 
 from __future__ import annotations
+import gzip
 import json
 import os
+import pickle
 import sys
+import tempfile
 import time
 import rasterio.transform as rt
 from dataclasses import dataclass
@@ -35,6 +38,8 @@ from openamundsen_da.core.constants import (
     STATE_DEFAULT_NAME,
     STATE_POINTER_JSON,
 )
+from openamundsen_da.util.atomic import durable_replace
+from openamundsen_da.manifests import write_manifest_atomic
 from openamundsen.model import OpenAmundsen
 
 from openamundsen_da.core.config import load_merged_config
@@ -43,8 +48,10 @@ from openamundsen_da.io.paths import (
     find_setup_yaml,
     find_project_yaml,
     find_step_yaml,
+    list_steps_sorted,
     meteo_dir_for_member,
 )
+from openamundsen_da.util.restart_state import validate_restart_state
 
 @dataclass
 class MemberRunResult:
@@ -188,13 +195,9 @@ def _patch_linear_fit() -> None:
     oa_interp._linear_fit = safe_linear_fit
 
 def _write_manifest(results_dir: Path, manifest: Dict[str, Any]) -> None:
-    """Best-effort write of the per-member run manifest JSON."""
-    try:
-        results_dir.mkdir(parents=True, exist_ok=True)
-        with (results_dir / MEMBER_MANIFEST).open("w", encoding="utf-8") as f:
-            json.dump(manifest, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.warning(f"Could not write manifest in {results_dir}: {e}")
+    """Crash-durably replace the per-member run manifest JSON."""
+    results_dir.mkdir(parents=True, exist_ok=True)
+    write_manifest_atomic(results_dir / MEMBER_MANIFEST, manifest)
 
 
 def _is_successful_run(results_dir: Path) -> bool:
@@ -327,14 +330,18 @@ def run_member(
             logger.info(f"[{member_name}] Loaded state from {state_file}")
         logger.info(f"[{member_name}] Running model")
         model.run()
-        # Dump final state (optional)
+        # A successor cannot be propagated unless this checkpoint exists and is
+        # readable. The final step still attempts a dump for compatibility, but
+        # its failure does not invalidate otherwise complete scientific output.
         if do_dump:
-            try:
-                out_name = _state_output_name(patt)
-                _dump_init_data(model, results_dir / out_name)
+            out_name = _state_output_name(patt)
+            if _save_state_dump(
+                model,
+                results_dir / out_name,
+                required=_step_has_successor(project_dir, step_dir),
+                member_name=member_name,
+            ):
                 logger.info(f"[{member_name}] Saved state to {out_name}")
-            except Exception as e:
-                logger.warning(f"[{member_name}] Could not save state ({e})")
 
         dur = time.time() - start
         manifest.update({
@@ -374,6 +381,36 @@ def run_member(
 def _state_output_name(pattern: str) -> str:
     # Use explicit filename if no wildcards; else fall back to default name
     return STATE_DEFAULT_NAME if any(ch in str(pattern) for ch in "*?[]") else str(pattern)
+
+
+def _step_has_successor(project_dir: Path, step_dir: Path) -> bool:
+    """Return whether ``step_dir`` is followed by another prepared step."""
+    current = Path(step_dir).resolve()
+    steps = [path.resolve() for path in list_steps_sorted(project_dir)]
+    try:
+        return steps.index(current) < len(steps) - 1
+    except ValueError as exc:
+        raise RuntimeError(f"Current step is not part of the prepared project: {step_dir}") from exc
+
+
+def _save_state_dump(
+    model,
+    filename: Path,
+    *,
+    required: bool,
+    member_name: str,
+) -> bool:
+    """Persist a checkpoint, making failure fatal when a successor needs it."""
+    try:
+        _dump_init_data(model, filename)
+    except Exception as exc:
+        if required:
+            raise RuntimeError(
+                f"Required successor checkpoint could not be saved for {member_name}: {exc}"
+            ) from exc
+        logger.warning(f"[{member_name}] Could not save final-step state ({exc})")
+        return False
+    return True
 
 
 def _resolve_state_file(results_dir: Path) -> Path | None:
@@ -445,14 +482,24 @@ def _copy_state_vars_from_init_file(filename: Path, dst_model) -> None:
 
 
 def _dump_init_data(model, filename: Path) -> None:
-    import gzip
-    import pickle
-
     init_data = {}
     for category in model.state.categories:
         init_data[category] = {}
         for var_name in model.state[category]._meta.keys():
             var_data = model.state[category][var_name]
             init_data[category][var_name] = var_data
-    with gzip.open(filename, "wb") as f:
-        pickle.dump(init_data, f)
+    filename.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        dir=filename.parent,
+        prefix=f".{filename.name}.",
+        suffix=".tmp",
+    )
+    os.close(fd)
+    temp_path = Path(temp_name)
+    try:
+        with gzip.open(temp_path, "wb") as f:
+            pickle.dump(init_data, f)
+        validate_restart_state(temp_path)
+        durable_replace(temp_path, filename)
+    finally:
+        temp_path.unlink(missing_ok=True)

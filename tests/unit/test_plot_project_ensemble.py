@@ -4,12 +4,14 @@ from datetime import datetime
 from pathlib import Path
 
 import matplotlib.colors as mcolors
+import numpy as np
 import pandas as pd
 import pytest
 
 import openamundsen_da.methods.viz.plots.project_ensemble as plot_mod
 from openamundsen_da.methods.viz.plots.theme import COLOR_DA_OBS, LS_STATION_OBS, da_variable_style
 from openamundsen_da.methods.viz.plots.project_ensemble import plot_setup_results
+from openamundsen_da.util.forcing_output import write_project_ensemble_forcing
 
 
 def test_point_file_matches_result_variable_keeps_matching_roi_aggregates() -> None:
@@ -87,6 +89,63 @@ def _build_project(tmp_path: Path, *, include_open_loop: bool = True) -> Path:
         ],
     )
     return project_dir
+
+
+def test_setup_forcing_plot_compact_fallback_matches_raw_series(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "projects" / "demo"
+    project.mkdir(parents=True)
+    _write_text(
+        project / "demo.yml",
+        "start_date: 2023-01-01\n"
+        "end_date: 2023-01-03\n"
+        "data_assimilation:\n"
+        "  assimilation_events:\n"
+        "    - {date: 2023-01-02, variable: station_hs, product: test}\n",
+    )
+    for step_name, rows in (
+        (
+            "step_00",
+            "date,temp,precip\n2023-01-01,270,1\n2023-01-02,280,10\n",
+        ),
+        (
+            "step_01",
+            "date,temp,precip\n2023-01-02,284,14\n2023-01-03,273,3\n",
+        ),
+    ):
+        step = project / "steps" / step_name
+        _write_text(
+            step / f"{step_name}.yml",
+            "start_date: 2023-01-01\nend_date: 2023-01-03\n",
+        )
+        for member in ("open_loop", "member_001"):
+            meteo = step / "ensembles" / "prior" / member / "meteo"
+            _write_text(meteo / "stations.csv", "id,name,x,y,alt\na,A,0,0,0\n")
+            _write_text(meteo / "a.csv", rows)
+    write_project_ensemble_forcing(project)
+    captures: list[list[list[float]]] = []
+
+    def capture_figure(fig, _path, **_kwargs):
+        captures.append(
+            [
+                [float(value) for value in line.get_ydata()]
+                for axis in fig.axes
+                for line in axis.lines
+            ]
+        )
+
+    monkeypatch.setattr(plot_mod, "save_figure_png", capture_figure)
+    plot_mod.plot_setup_forcing(setup_dir=project, configure_logger=False)
+    for path in project.glob("steps/step_*/ensembles/*/*/meteo/a.csv"):
+        path.unlink()
+    plot_mod.plot_setup_forcing(setup_dir=project, configure_logger=False)
+
+    assert len(captures) == 2
+    assert len(captures[0]) == len(captures[1])
+    for raw, compact in zip(captures[0], captures[1]):
+        np.testing.assert_array_equal(raw, compact)
 
 
 def test_plot_setup_results_members_mode_draws_members_without_band(tmp_path: Path) -> None:

@@ -416,7 +416,6 @@ def _member_values_at_model_time(
     *,
     model_clock: ModelClockConfig,
 ) -> tuple[pd.Timestamp, dict[str, float]] | None:
-    matched_time: pd.Timestamp | None = None
     values: dict[str, float] = {}
     for member_id, series in named_series.items():
         matched = _matched_series_value(
@@ -427,15 +426,14 @@ def _member_values_at_model_time(
         )
         if matched is None:
             return None
-        current_time, value = matched
-        if matched_time is None:
-            matched_time = current_time
-        elif current_time != matched_time:
-            return None
+        _current_time, value = matched
         values[member_id] = value
-    if matched_time is None:
+    if not values:
         return None
-    return matched_time, values
+    # Exact matching above already proves that every series represents this
+    # model-clock instant. Return the requested clock value so equivalent naive
+    # and timezone-aware CSV timestamps cannot compare unequal downstream.
+    return pd.Timestamp(timestamp), values
 
 
 def _station_sigma_context(

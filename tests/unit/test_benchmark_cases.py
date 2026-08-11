@@ -8,9 +8,13 @@ import pytest
 
 from openamundsen_da.benchmark.cases import analysis_event_contexts, event_dates_by_variable, extract_analysis_cases, extract_continuous_cases
 from openamundsen_da.benchmark.metrics import build_case_scores
-from openamundsen_da.benchmark.extract.cases import _prior_weights_for_members
+from openamundsen_da.benchmark.extract.cases import (
+    _member_values_at_model_time,
+    _prior_weights_for_members,
+)
 from openamundsen_da.methods.pf.weights import initialize_prior_weights, write_prior_weights
 from openamundsen_da.observer.summary_paths import record_fraction_summary_path
+from openamundsen_da.util.observation_time import ModelClockConfig
 
 
 def _write_yaml(path: Path, text: str) -> None:
@@ -21,6 +25,31 @@ def _write_yaml(path: Path, text: str) -> None:
 def _write_series_csv(path: Path, rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_csv(path, index=False)
+
+
+def test_member_model_time_match_normalizes_equivalent_timestamp_representations() -> None:
+    target = pd.Timestamp("2023-01-02 00:00:00")
+    named_series = {
+        "member_000": pd.Series(
+            [1.0],
+            index=pd.DatetimeIndex(["2023-01-02 00:00:00"]),
+        ),
+        "member_001": pd.Series(
+            [2.0],
+            index=pd.DatetimeIndex(["2023-01-02 00:00:00+01:00"]),
+        ),
+    }
+
+    matched = _member_values_at_model_time(
+        named_series,
+        target,
+        model_clock=ModelClockConfig(
+            timestep=pd.Timedelta(hours=3),
+            timezone=1,
+        ),
+    )
+
+    assert matched == (target, {"member_000": 1.0, "member_001": 2.0})
 
 
 def _setup_basic_project(tmp_path: Path, *, events_yaml: str) -> tuple[Path, Path]:

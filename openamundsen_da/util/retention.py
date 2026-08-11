@@ -321,6 +321,43 @@ def completed_retention_paths(project_dir: str | Path) -> set[str]:
     }
 
 
+def validate_retained_consumers(
+    project_dir: str | Path,
+    *,
+    require_complete: bool = False,
+) -> tuple[str, ...]:
+    """Validate every consumer and producer bound to the retention ledger.
+
+    This is the resume-side counterpart to the validation performed before
+    every deletion.  It lets a coordinator accept an already finalized leaf
+    without recreating the raw artifacts that the ledger deliberately removed.
+    """
+    project_dir = Path(project_dir).resolve()
+    ledger = _load_ledger(project_dir)
+    batch_ids: list[str] = []
+    for batch in ledger["batches"]:
+        status = str(batch.get("status", ""))
+        if require_complete and status != "complete":
+            raise CleanupSafetyError(
+                "Retention batch is not complete: "
+                f"{batch.get('batch_id', '<unknown>')} ({status or 'missing status'})"
+            )
+        _validate_inventory_files(
+            project_dir,
+            inventory=list(batch.get("consumer_inventory") or []),
+            purpose="retained consumer",
+        )
+        producer_inventory = list(batch.get("producer_manifest_inventory") or [])
+        if producer_inventory:
+            _validate_inventory_files(
+                project_dir,
+                inventory=producer_inventory,
+                purpose="producer manifest",
+            )
+        batch_ids.append(str(batch.get("batch_id", "")))
+    return tuple(batch_ids)
+
+
 def planned_retention_paths(
     project_dir: str | Path,
     *,
@@ -348,4 +385,5 @@ __all__ = [
     "planned_retention_paths",
     "reconcile_retention_ledger",
     "retention_manifest_path",
+    "validate_retained_consumers",
 ]

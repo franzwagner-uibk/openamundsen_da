@@ -199,6 +199,22 @@ def _build_member_label_map(steps: Sequence[StepInfo]) -> Dict[str, str]:
     """
     return {}
 
+
+def _collapse_labeled_member_series(
+    series: Sequence[pd.Series],
+    labels: Sequence[str],
+) -> tuple[list[pd.Series], list[str]]:
+    """Stitch step segments per member with the shared overlap-mean rule."""
+    grouped: dict[str, list[pd.Series]] = {}
+    order: list[str] = []
+    for values, label in zip(series, labels):
+        if label not in grouped:
+            grouped[label] = []
+            order.append(label)
+        grouped[label].append(values)
+    collapsed = [concat_series(grouped[label]) for label in order]
+    return collapsed, order
+
 def _draw_assim(ax, dates: Sequence[datetime]) -> None:
     """Draw assimilation vlines only; figure-level legend is composed later."""
     draw_assimilation_vlines(ax, dates)
@@ -658,6 +674,15 @@ def plot_setup_forcing(
                     if not values.empty:
                         member_series_prec.append(values)
                         member_labels_prec.append(member_label_map.get(member_name, member_name))
+
+        member_series_temp, member_labels_temp = _collapse_labeled_member_series(
+            member_series_temp,
+            member_labels_temp,
+        )
+        member_series_prec, member_labels_prec = _collapse_labeled_member_series(
+            member_series_prec,
+            member_labels_prec,
+        )
 
         if not member_series_temp and not member_series_prec:
             logger.warning("No member data for station {} across setup; skipping.", fname)

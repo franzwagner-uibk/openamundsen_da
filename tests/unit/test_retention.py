@@ -7,7 +7,11 @@ import pytest
 from openamundsen_da.exceptions import CleanupSafetyError
 from openamundsen_da.manifests import hash_json
 from openamundsen_da.util import retention as retention_mod
-from openamundsen_da.util.retention import apply_retention_batch, completed_retention_paths
+from openamundsen_da.util.retention import (
+    apply_retention_batch,
+    completed_retention_paths,
+    validate_retained_consumers,
+)
 
 
 def _apply_retention(project: Path, **kwargs):
@@ -54,6 +58,25 @@ def test_retention_batch_is_contained_recorded_and_idempotent(tmp_path: Path) ->
         final_consumer="propagation",
         regeneration_recipe="rebuild from setup forcing and keyed RNG ledger",
     )["status"] == "complete"
+
+
+def test_completed_retention_consumer_is_revalidated_on_leaf_resume(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    artifact = project / "step" / "forcing.csv"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"raw")
+    _apply_retention(
+        project,
+        artifact_class="forcing",
+        paths=[artifact],
+        final_consumer="compact forcing",
+        regeneration_recipe="regenerate",
+    )
+
+    assert validate_retained_consumers(project, require_complete=True) == ("0001",)
+    (project / "results" / "accepted.nc").write_bytes(b"corrupt")
+    with pytest.raises(CleanupSafetyError, match="retained consumer changed"):
+        validate_retained_consumers(project, require_complete=True)
 
 
 def test_retention_planned_batch_recovers_after_interrupted_delete(tmp_path: Path, monkeypatch) -> None:

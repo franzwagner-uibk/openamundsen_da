@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import json
 import pickle
 from pathlib import Path
 
@@ -115,12 +116,16 @@ def test_full_retention_preserves_restart_and_member_artifacts(tmp_path: Path) -
     results_dir.mkdir(parents=True)
     state = results_dir / "model_state.pickle.gz"
     state.write_bytes(b"state")
+    plot = project_dir / "steps" / "step_00_init" / "plots" / "forcing" / "station.png"
+    plot.parent.mkdir(parents=True)
+    plot.write_bytes(b"plot")
 
     result = clean_project_artifacts(project_dir, apply=True)
 
     assert result.eligible_paths == ()
     assert result.deleted_paths == ()
     assert state.is_file()
+    assert plot.is_file()
 
 
 def test_compact_cleanup_removes_point_csv_only_after_lossless_store_exists(
@@ -196,6 +201,175 @@ def test_compact_cleanup_preserves_station_metadata_when_forcing_is_compacted(
     assert station.resolve() in result.deleted_paths
     assert not station.exists()
     assert metadata.is_file()
+
+
+def test_compact_cleanup_deletes_derived_forcing_plots_after_report(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir, retention="compact")
+    member = (
+        project_dir
+        / "steps"
+        / "step_00_init"
+        / "ensembles"
+        / "prior"
+        / "member_001"
+    )
+    forcing = member / "meteo" / "station.csv"
+    forcing.parent.mkdir(parents=True)
+    forcing.write_text("date,temp\n2023-01-01,273\n", encoding="utf-8")
+    (member / "results").mkdir(parents=True)
+    (member / "results" / "member_run.json").write_text(
+        '{"member": "member_001", "status": "success"}\n',
+        encoding="utf-8",
+    )
+    plot = project_dir / "steps" / "step_00_init" / "plots" / "forcing" / "station.png"
+    plot.parent.mkdir(parents=True)
+    plot.write_bytes(b"derived plot")
+    retained = project_dir / "results" / "forcing" / "ensemble_forcing.nc"
+    retained.parent.mkdir(parents=True)
+    retained.write_bytes(b"validated compact forcing")
+    report = project_dir / "results" / "reports" / "project_report.pdf"
+    report.parent.mkdir(parents=True)
+    report.write_bytes(b"accepted report")
+    validations: list[bool] = []
+
+    def validate_while_raw_exists(*_args, **_kwargs):
+        validations.append(forcing.is_file())
+        return retained
+
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.cleanup.validate_project_ensemble_forcing",
+        validate_while_raw_exists,
+    )
+
+    result = clean_project_artifacts(project_dir, apply=True)
+
+    assert validations and all(validations)
+    assert plot.resolve() in result.deleted_paths
+    assert forcing.resolve() in result.deleted_paths
+    assert retained.is_file()
+    assert report.is_file()
+    ledger = json.loads((project_dir / "results" / "retention_manifest.json").read_text())
+    plot_batch = next(
+        batch for batch in ledger["batches"]
+        if batch["artifact_class"] == "derived_forcing_plot"
+    )
+    assert plot_batch["status"] == "complete"
+    assert plot_batch["consumer_inventory_sha256"]
+    assert plot_batch["producer_digest"]
+
+
+def test_compact_cleanup_keeps_forcing_and_plots_until_report_succeeds(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir, retention="compact")
+    member = (
+        project_dir
+        / "steps"
+        / "step_00_init"
+        / "ensembles"
+        / "prior"
+        / "member_001"
+    )
+    forcing = member / "meteo" / "station.csv"
+    forcing.parent.mkdir(parents=True)
+    forcing.write_text("date,temp\n2023-01-01,273\n", encoding="utf-8")
+    plot = project_dir / "steps" / "step_00_init" / "plots" / "forcing" / "station.png"
+    plot.parent.mkdir(parents=True)
+    plot.write_bytes(b"derived plot")
+    retained = project_dir / "results" / "forcing" / "ensemble_forcing.nc"
+    retained.parent.mkdir(parents=True)
+    retained.write_bytes(b"validated compact forcing")
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.cleanup.validate_project_ensemble_forcing",
+        lambda *_args, **_kwargs: retained,
+    )
+
+    result = clean_project_artifacts(project_dir, apply=True)
+
+    assert plot.resolve() not in result.eligible_paths
+    assert forcing.resolve() not in result.eligible_paths
+    assert plot.is_file()
+    assert forcing.is_file()
+
+
+def test_compact_cleanup_keeps_forcing_plot_when_compact_validation_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir, retention="compact")
+    plot = project_dir / "steps" / "step_00_init" / "plots" / "forcing" / "station.png"
+    plot.parent.mkdir(parents=True)
+    plot.write_bytes(b"derived plot")
+    retained = project_dir / "results" / "forcing" / "ensemble_forcing.nc"
+    retained.parent.mkdir(parents=True)
+    retained.write_bytes(b"invalid compact forcing")
+    report = project_dir / "results" / "reports" / "project_report.pdf"
+    report.parent.mkdir(parents=True)
+    report.write_bytes(b"accepted report")
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.cleanup.validate_project_ensemble_forcing",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("bad compact forcing")),
+    )
+
+    with pytest.raises(ValueError, match="bad compact forcing"):
+        clean_project_artifacts(project_dir, apply=True)
+    assert plot.is_file()
+
+
+def test_interrupted_forcing_plot_cleanup_never_deletes_raw_forcing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir, retention="compact")
+    member = (
+        project_dir
+        / "steps"
+        / "step_00_init"
+        / "ensembles"
+        / "prior"
+        / "member_001"
+    )
+    forcing = member / "meteo" / "station.csv"
+    forcing.parent.mkdir(parents=True)
+    forcing.write_text("date,temp\n2023-01-01,273\n", encoding="utf-8")
+    (member / "results").mkdir(parents=True)
+    (member / "results" / "member_run.json").write_text(
+        '{"member": "member_001", "status": "success"}\n',
+        encoding="utf-8",
+    )
+    plot = project_dir / "steps" / "step_00_init" / "plots" / "forcing" / "station.png"
+    plot.parent.mkdir(parents=True)
+    plot.write_bytes(b"derived plot")
+    retained = project_dir / "results" / "forcing" / "ensemble_forcing.nc"
+    retained.parent.mkdir(parents=True)
+    retained.write_bytes(b"validated compact forcing")
+    report = project_dir / "results" / "reports" / "project_report.pdf"
+    report.parent.mkdir(parents=True)
+    report.write_bytes(b"accepted report")
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.cleanup.validate_project_ensemble_forcing",
+        lambda *_args, **_kwargs: retained,
+    )
+    monkeypatch.setattr(
+        "openamundsen_da.util.retention._unlink_path",
+        lambda path: (_ for _ in ()).throw(OSError("interrupted"))
+        if path == plot.resolve()
+        else path.unlink(),
+    )
+
+    result = clean_project_artifacts(project_dir, apply=True)
+
+    assert result.failures
+    assert plot.is_file()
+    assert forcing.is_file()
 
 
 def test_compact_predecessor_cleanup_waits_for_explicit_successor_gate(tmp_path: Path) -> None:

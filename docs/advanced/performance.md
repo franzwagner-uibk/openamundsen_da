@@ -57,3 +57,20 @@ Grid resolution, duration, ensemble size, selected model variables and retention
 dominate disk use. The compact `da_output_grids.nc` is the primary post-run grid
 product. Successful runs automatically remove restart pickles, but member grids
 remain available unless a separate safe retention operation inventories them.
+
+Compact subdomain execution admits at most one outer-worker-sized wave at a
+time. Every successful leaf is compacted, its retained consumers are hash-bound
+and its eligible raw member artifacts are removed before the next wave receives
+disk admission. Files retained by completed leaves are already included in the
+live filesystem usage; the projected-growth reserve adds the active wave plus
+the compact outputs still expected from queued leaves and unfinished parent
+merge, map, plot and report output. A failed leaf is not final-cleaned and
+therefore retains its restartable predecessor state.
+
+The first-run reserve for step-local forcing PNGs is calibrated at 4,400 bytes
+per station, member and plotted day, then increased by the standard 25% observed
+artifact margin. For the audited 4,555 station-leaf identities, ES50 and a full
+leap hydrological year this is about 465 GB. Compact retention removes these
+derived PNGs after the compact forcing NetCDF and leaf report validate, so they
+cannot accumulate across all queued leaves. `retention: full` budgets and keeps
+them.

@@ -183,6 +183,33 @@ def _member_run_manifests(project_dir: Path, candidates: Sequence[Path]) -> tupl
     return tuple(sorted(manifests))
 
 
+def _forcing_plot_producer_manifests(
+    project_dir: Path,
+    candidates: Sequence[Path],
+) -> tuple[Path, ...]:
+    """Return successful member manifests for every plotted forcing step."""
+    manifests: set[Path] = set()
+    for candidate in candidates:
+        try:
+            step_dir = candidate.resolve().parents[2]
+            step_dir.relative_to(project_dir / "steps")
+        except (IndexError, ValueError) as exc:
+            raise RuntimeError(
+                f"Cannot resolve forcing-plot producer step: {candidate}"
+            ) from exc
+        roots = sorted(
+            path
+            for path in (step_dir / "ensembles" / "prior").iterdir()
+            if path.is_dir()
+            and (path.name == "open_loop" or path.name.startswith("member_"))
+        ) if (step_dir / "ensembles" / "prior").is_dir() else []
+        if not roots:
+            raise RuntimeError(f"Forcing-plot producer members are missing in {step_dir}")
+        for root in roots:
+            manifests.update(_member_run_manifests(project_dir, (root / "meteo",)))
+    return tuple(sorted(manifests))
+
+
 def clean_predecessor_checkpoint(
     project_dir: Path,
     step_dir: Path,
@@ -245,6 +272,36 @@ def _compact_forcing_candidates(project_dir: Path) -> list[Path]:
     )
     if not candidates:
         return []
+    derived_plots = any(project_dir.glob("steps/step_*/plots/forcing/*.png"))
+    report = project_dir / "results" / "reports" / "project_report.pdf"
+    if derived_plots and not report.is_file():
+        # The accepted report is the durable rendered consumer for these
+        # diagnostics.  Keep their raw forcing regeneration source until the
+        # render succeeds and the derived plot batch can be finalized first.
+        return []
+    validate_project_ensemble_forcing(project_dir, output_nc=retained)
+    return candidates
+
+
+def _derived_forcing_plot_candidates(project_dir: Path) -> list[Path]:
+    """Return step forcing PNGs after their compact source and report exist."""
+    planned = planned_retention_paths(project_dir, artifact_class="derived_forcing_plot")
+    if planned:
+        return list(planned)
+    retained = project_dir / "results" / "forcing" / "ensemble_forcing.nc"
+    report = project_dir / "results" / "reports" / "project_report.pdf"
+    if not retained.is_file() or not report.is_file():
+        return []
+    candidates = sorted(
+        path.resolve()
+        for path in project_dir.glob("steps/step_*/plots/forcing/*.png")
+        if path.is_file() and not path.is_symlink()
+    )
+    if not candidates:
+        return []
+    # Validate against the still-present raw CSVs before the forcing batch is
+    # applied.  On an interrupted retry, the planned ledger batch binds both
+    # retained consumers byte-for-byte and is revalidated before every unlink.
     validate_project_ensemble_forcing(project_dir, output_nc=retained)
     return candidates
 
@@ -326,6 +383,10 @@ def _cleanup_classes(project_dir: Path) -> dict[str, list[Path]]:
             state_patterns_from_setup(project_dir),
         ),
         "member_point_csv": _compact_point_candidates(project_dir),
+        # Plan and remove derived plots while their raw forcing sources are
+        # still available for exact compact-store validation.  This ordering
+        # also makes an interruption before forcing deletion safely resumable.
+        "derived_forcing_plot": _derived_forcing_plot_candidates(project_dir),
         "member_forcing_csv": _compact_forcing_candidates(project_dir),
         "member_grid": _compact_grid_candidates(project_dir),
     }
@@ -360,14 +421,33 @@ def clean_project_artifacts(project_dir: Path, *, apply: bool) -> CleanupResult:
     deleted: list[Path] = []
     failures: list[CleanupFailure] = []
     freed = 0
+    forcing_plot_failed = False
     for artifact_class, class_paths in classes.items():
         if not class_paths:
+            continue
+        if artifact_class == "member_forcing_csv" and forcing_plot_failed:
+            failures.extend(
+                CleanupFailure(
+                    path=path,
+                    error=(
+                        "forcing cleanup withheld because derived forcing-plot "
+                        "cleanup did not complete"
+                    ),
+                )
+                for path in class_paths
+                if path.exists()
+            )
             continue
         try:
             if artifact_class == "member_point_csv":
                 consumers = (project_dir / "results" / "points" / "ensemble_points.nc",)
             elif artifact_class == "member_forcing_csv":
                 consumers = (project_dir / "results" / "forcing" / "ensemble_forcing.nc",)
+            elif artifact_class == "derived_forcing_plot":
+                consumers = (
+                    project_dir / "results" / "forcing" / "ensemble_forcing.nc",
+                    project_dir / "results" / "reports" / "project_report.pdf",
+                )
             elif artifact_class == "member_grid":
                 consumers = [project_dir / "results" / "grids" / "da_output_grids.nc"]
                 support = project_dir / "results" / "grids" / "da_map_support.nc"
@@ -396,18 +476,30 @@ def clean_project_artifacts(project_dir: Path, *, apply: bool) -> CleanupResult:
                         "read results/forcing/ensemble_forcing.nc"
                         if artifact_class == "member_forcing_csv"
                         else (
-                            "read retained DA grid and map-support NetCDF outputs"
-                            if artifact_class == "member_grid"
-                            else "rerun propagation from immutable inputs"
+                            "rerender project forcing plots from retained "
+                            "results/forcing/ensemble_forcing.nc; rerun the project "
+                            "to recreate step-local diagnostic PNGs"
+                            if artifact_class == "derived_forcing_plot"
+                            else (
+                                "read retained DA grid and map-support NetCDF outputs"
+                                if artifact_class == "member_grid"
+                                else "rerun propagation from immutable inputs"
+                            )
                         )
                     )
                 ),
                 retained_consumers=consumers,
-                producer_manifests=_member_run_manifests(project_dir, class_paths),
+                producer_manifests=(
+                    _forcing_plot_producer_manifests(project_dir, class_paths)
+                    if artifact_class == "derived_forcing_plot"
+                    else _member_run_manifests(project_dir, class_paths)
+                ),
             )
             deleted.extend(path for path in class_paths if not path.exists())
             freed += sum(sizes[path] for path in class_paths if not path.exists())
         except Exception as exc:  # noqa: BLE001
+            if artifact_class == "derived_forcing_plot":
+                forcing_plot_failed = True
             failures.extend(CleanupFailure(path=path, error=str(exc)) for path in class_paths if path.exists())
     return CleanupResult(
         project_dir=project_dir,

@@ -10,6 +10,7 @@ from openamundsen_da.exceptions import LowDiskEmergencyError, LowDiskPauseError
 from openamundsen_da.util.storage_budget import (
     DEFAULT_POINT_VARIABLE_COUNT,
     EMERGENCY_USED_FRACTION,
+    FORCING_PLOT_BYTES_PER_STATION_MEMBER_DAY,
     ProjectStorageEstimate,
     SOFT_USED_FRACTION,
     StorageReservationProject,
@@ -17,10 +18,12 @@ from openamundsen_da.util.storage_budget import (
     estimate_compact_timeseries_bytes,
     estimate_coordinated_storage_reserve,
     estimate_parent_compact_merge_bytes,
+    estimate_parent_render_bytes,
     estimate_project_storage_components,
     estimate_project_storage_reserve,
     estimate_step_forcing_bytes,
     _point_storage_bound,
+    _forcing_plot_storage_bound,
     _selected_forcing_source_bytes,
 )
 
@@ -147,6 +150,38 @@ def test_compact_export_estimate_counts_owned_csvs_with_margin(tmp_path: Path) -
     assert estimate_compact_timeseries_bytes(project) == 11
 
 
+def test_forcing_plot_bound_uses_euregio_calibration_and_refits_existing(
+    tmp_path: Path,
+) -> None:
+    setup = tmp_path / "setup"
+    (setup / "meteo").mkdir(parents=True)
+    (setup / "meteo" / "stations.csv").write_text("id\na\nb\n", encoding="utf-8")
+    project = setup / "projects" / "demo"
+    steps = [
+        (project / "steps" / "step_00", datetime(2023, 1, 1), datetime(2023, 1, 10)),
+    ]
+
+    bound = _forcing_plot_storage_bound(
+        setup_dir=setup,
+        project_dir=project,
+        steps=steps,
+        member_count=51,
+    )
+
+    assert FORCING_PLOT_BYTES_PER_STATION_MEMBER_DAY == 4_400
+    assert bound == int(2 * 51 * 10 * 4_400 * 1.25)
+    existing = project / "steps" / "step_00" / "plots" / "forcing" / "a.png"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b"x" * 10_000)
+    resumed = _forcing_plot_storage_bound(
+        setup_dir=setup,
+        project_dir=project,
+        steps=steps,
+        member_count=51,
+    )
+    assert resumed == bound - 10_000
+
+
 def test_point_bound_counts_default_columns_and_explicit_layers(tmp_path: Path) -> None:
     setup = tmp_path / "setup"
     meteo = setup / "meteo"
@@ -208,6 +243,50 @@ def test_point_bound_counts_layered_defaults_and_refits_only_upward(tmp_path: Pa
     )
 
     assert refit > base
+
+
+def test_euregio_point_bound_uses_actual_filtered_leaf_inventory(tmp_path: Path) -> None:
+    """Regression calibration from the 90-leaf prepared Euregio audit."""
+    setup = tmp_path / "filtered"
+    meteo = setup / "meteo"
+    meteo.mkdir(parents=True)
+    station_rows = ["id", *(f"station_{index}" for index in range(4555))]
+    (meteo / "stations.csv").write_text("\n".join(station_rows) + "\n", encoding="utf-8")
+    steps = [(tmp_path / "step", datetime(2023, 1, 1), datetime(2023, 1, 1))]
+    output_data = {
+        "timeseries": {
+            "add_default_points": True,
+            "add_default_variables": True,
+            "points": [{"name": f"snow_{index}"} for index in range(78)],
+        }
+    }
+    filtered = _point_storage_bound(
+        setup_dir=setup,
+        setup_cfg={},
+        output_data=output_data,
+        steps=steps,
+        model_timestep="1D",
+        member_count=1,
+    )
+
+    one = tmp_path / "one"
+    (one / "meteo").mkdir(parents=True)
+    (one / "meteo" / "stations.csv").write_text("id\nstation\n", encoding="utf-8")
+    per_point = _point_storage_bound(
+        setup_dir=one,
+        setup_cfg={},
+        output_data={
+            "timeseries": {
+                "add_default_points": True,
+                "add_default_variables": True,
+            }
+        },
+        steps=steps,
+        model_timestep="1D",
+        member_count=1,
+    )
+
+    assert filtered == per_point * (4555 + 78)
 
 
 def test_project_reserve_covers_pending_steps_and_final_compaction(tmp_path: Path) -> None:
@@ -388,7 +467,7 @@ def test_coordinator_reserves_all_growth_concurrent_states_and_parent_merge(
     reserve, observed = estimate_coordinated_storage_reserve(
         projects,
         outer_workers=2,
-        parent_merge_reserve_bytes=100,
+        parent_finalization_reserve_bytes=100,
     )
 
     expected_non_transition = sum(item.non_transition_bytes for item in estimates.values())
@@ -443,6 +522,33 @@ def test_parent_merge_reserves_one_atomic_full_grid_temporary(tmp_path: Path) ->
         grid_cell_count=100,
     )
     assert reserve > 100 * 2 * 4 * 8
+
+
+def test_parent_render_reserve_refits_existing_outputs(tmp_path: Path) -> None:
+    project = tmp_path / "setup" / "projects" / "demo"
+    project.mkdir(parents=True)
+    (project / "demo.yml").write_text(
+        "data_assimilation:\n"
+        "  assimilation_events:\n"
+        "    - {date: 2023-01-01, variable: scf, product: test}\n"
+        "    - {date: 2023-01-07, variable: station_hs, product: test}\n",
+        encoding="utf-8",
+    )
+
+    first = estimate_parent_render_bytes(project_dir=project, grid_cell_count=100)
+    assert first >= 512 * 1024**2
+
+    report = project / "results" / "reports" / "project_report.pdf"
+    report.parent.mkdir(parents=True)
+    report.write_bytes(b"x" * 100)
+    resumed = estimate_parent_render_bytes(project_dir=project, grid_cell_count=100)
+    overwritten = estimate_parent_render_bytes(
+        project_dir=project,
+        grid_cell_count=100,
+        overwrite=True,
+    )
+    assert resumed == first - 100
+    assert overwritten == first
 
 
 def test_map_support_reserve_is_explicit_and_stage_aware(tmp_path: Path) -> None:

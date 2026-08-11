@@ -391,7 +391,7 @@ class OrchestratorConfig:
     perf_plot_interval: float = 30.0
     storage_reservation_projects: tuple[StorageReservationProject, ...] = ()
     storage_outer_workers: int = 1
-    parent_merge_reserve_bytes: int = 0
+    shared_storage_reserve_bytes: int = 0
 
 
 def _admission_growth(cfg: OrchestratorConfig, own_estimate: int) -> int:
@@ -401,7 +401,7 @@ def _admission_growth(cfg: OrchestratorConfig, own_estimate: int) -> int:
     coordinated, _estimates = estimate_coordinated_storage_reserve(
         cfg.storage_reservation_projects,
         outer_workers=cfg.storage_outer_workers,
-        parent_merge_reserve_bytes=cfg.parent_merge_reserve_bytes,
+        parent_finalization_reserve_bytes=cfg.shared_storage_reserve_bytes,
         overwrite=cfg.overwrite,
     )
     return coordinated

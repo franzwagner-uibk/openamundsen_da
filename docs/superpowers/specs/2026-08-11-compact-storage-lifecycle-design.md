@@ -1,3 +1,7 @@
+---
+published: false
+---
+
 # Compact Storage Lifecycle Design
 
 ## Goal and implemented increment
@@ -8,9 +12,10 @@ subdomain project must fit on a 3.6 TB project filesystem without changing model
 inputs or scientific results. `retention: full` keeps member artifacts for
 reanalysis.
 
-This change is the first safe increment toward the full storage target. It
+This change is a safe boundary-based increment toward the full storage target. It
 implements exact step-window forcing, coordinator-bounded admission, rolling
-restart-checkpoint cleanup and validated final compaction. It does **not** yet
+restart-checkpoint cleanup, immediate successful-leaf finalization and validated
+final compaction. It does **not** yet
 write per-step compact grid/forcing/point fragments, delete forcing or point
 CSVs incrementally during propagation or terminate an openAMUNDSEN member in
 the middle of propagation. Those remaining improvements require a separate
@@ -44,12 +49,13 @@ design because they change restart and worker-cancellation behavior.
   resume only when its conservative completion estimate stays below 90%.
   Admission is checked at project/step boundaries; active openAMUNDSEN member
   processes are not terminated mid-propagation in this increment.
-- Subdomain admission reserves accumulated forcing, point, raw-grid, compact
-  product and one retained checkpoint growth for every unfinished leaf. A
-  second rolling checkpoint is reserved for the largest leaves allowed by
-  outer concurrency, together with one full parent atomic-merge temporary.
-  The aggregate is recomputed from measured artifacts at every boundary, so
-  active and queued leaves cannot spend against unreserved shared space.
+- Subdomain admission uses deterministic outer-worker-sized waves. Live
+  filesystem use contains completed compact leaves, while projected growth
+  reserves the active leaves, a second rolling checkpoint for the concurrent
+  cohort, every queued leaf's compact products and stage-aware parent atomic
+  merge/render temporaries. The aggregate is recomputed from measured artifacts
+  at every boundary, so active and queued leaves cannot spend against
+  unreserved shared space.
 - All selected leaf projects and the parent must share one filesystem. A mixed
   filesystem manifest fails before workers start rather than applying one
   misleading free-space value to different devices.
@@ -62,6 +68,8 @@ design because they change restart and worker-cancellation behavior.
   serialization margins. Atomic overwrites reserve a complete point, forcing
   grid or map-support temporary beside the accepted file. Measurements can
   refit those bounds upward only.
+  Step forcing plots reserve 4,400 bytes per station/member/day plus the same
+  25% margin, calibrated from the archived Euregio run.
   The fixed 5% filesystem reserve is additional operational headroom, not a
   substitute for model-grid, state or merge prediction.
 
@@ -92,6 +100,10 @@ each remaining unlink.
 - Keep step forcing, point CSVs and raw grids until the project-level compact
   stores, benchmark and configured render outputs validate. Then remove them
   through the retention ledger. Keep them in full retention.
+- After the compact forcing store matches the still-present raw sources and the
+  leaf report validates, remove step-local forcing PNGs as derived artifacts.
+  Retain the accepted report and rerender project-wide forcing plots from the
+  compact NetCDF.
 - Write the final compact grid, all-member point and consumed-forcing NetCDFs
   to validated same-directory temporaries, flush them and their parent directory
   and promote them atomically. Persist
@@ -119,13 +131,11 @@ members and steps; destructive rebuilding requires explicit `--overwrite`.
 Focused tests cover exact step windows, in-window numerical identity, ledger
 atomicity and containment, consumer-gated cleanup, restart checkpoint retention,
 coordinator-bounded forcing/grid/state/merge admission, overlapping-boundary
-series equivalence, retained-value validation, leaf rerender support, resumable
+series and forcing-rerender equivalence, retained-value validation, leaf rerender support, resumable
 subdomain behavior and full-mode preservation. Full-Euregio capacity validation
-and incremental time-series/grid cleanup remain follow-up acceptance work; they
-are not claimed by this increment. A conservative refusal on a 3.6 TB disk is
-therefore possible until incremental grid/forcing cleanup reduces the predicted
-peak; the admission check must not call such a run safe merely because 5% free
-space remains.
+by a complete production run and incremental time-series/grid cleanup remain
+follow-up work; they are not claimed by this increment. Admission remains
+conservative and must refuse whenever the fixed thresholds are exceeded.
 
 ### Conservative full-Euregio envelope
 
@@ -145,15 +155,33 @@ for this envelope. The concurrency-bound second checkpoint adds roughly
 Real leaf filtering should reduce the point term substantially, but that must be
 demonstrated by preflight on the prepared setup rather than assumed.
 
-Consequently this increment does not satisfy the 3.6 TB acceptance by itself.
-After the required-grid-output completeness work is integrated, the smallest
-additional lifecycle increment is to finalize and clean each successful leaf
-immediately, then admit queued leaves against only active-leaf reservations,
-measured retained compact leaf products and the parent atomic-merge reserve.
-That changes the first-wave envelope from all 90 leaves to the active leaves,
-but it does not by itself prove that the eventually accumulated compact point
-stores fit. The prepared setup's actual point filtering and compact sizes must
-be measured and projected before claiming 3.6 TB acceptance. Per-step
-point/forcing fragments, cross-leaf point deduplication or cooperative
-mid-member stops remain necessary if that measured projection still exceeds
-the target.
+Consequently the original all-leaf increment did not satisfy the 3.6 TB
+acceptance. The next implemented increment finalizes and cleans each successful
+leaf immediately and admits queued leaves in deterministic outer-worker-sized
+waves. Current filesystem usage contains the measured compact products from
+completed leaves; projected growth contains only the active wave, rolling
+checkpoints, the compact products still expected from queued leaves and the
+stage-aware parent atomic merge/render reserve. A durable leaf finalization
+manifest binds the retained compact analysis and parent support before raw
+deletion, and failed leaves are never final-cleaned.
+
+The prepared 90-leaf audit found 4,555 forcing station-leaf identities and only
+78 explicit output points after actual leaf filtering. Immediate successful-leaf
+cleanup measured about 0.9--1.0 TB peak and about 0.74 TB final. The stricter
+declared envelope starts from a 0.250 TB clean production baseline and reserves
+2.92 TB growth, or about 3.17 TB total, below the 3.426 TB admissible limit
+(90% cap less the fixed 5% reserve) by about 0.25 TB. This bound includes the
+largest eight leaves, 17,195,580 total prepared cells, a 221 GB parent atomic
+merge bound and actual leaf point filtering. Retaining forcing PNGs from all 90
+leaves would add about 465 GB and make the envelope refuse at about 3.64 TB.
+With immediate cleanup, only the active eight-leaf wave is reserved; even the
+conservative eight times the observed 107-station maximum is below 88 GB. The
+result remains below the admissible limit. The strict final upper bound is about
+1.15 TB; the measured final projection is about 0.28 TB.
+
+This is a conservative admission result for the audited prepared setup, not a
+completed full-Euregio production acceptance. The current P8's unrelated North
+Tyrol tree would raise the baseline to about 0.933 TB, so it must be archived or
+removed before the production run. Per-step compact fragments and cooperative
+mid-member stops remain future resilience improvements rather than prerequisites
+of this clean-filesystem envelope.

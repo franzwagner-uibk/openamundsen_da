@@ -53,6 +53,13 @@ DEFAULT_POINT_VARIABLE_COUNT = len(DEFAULT_POINT_VARIABLES)
 FILE_OVERHEAD_BYTES = 256 * 1024
 COMPACT_OUTPUT_MARGIN = 1.10
 OBSERVED_REFIT_MARGIN = 1.25
+PARENT_RENDER_MIN_BYTES = 512 * 1024**2
+PARENT_RENDER_BYTES_PER_CELL_EVENT = 8
+# Calibrated from 136.28 GB for 4,555 station-leaf identities, ES30 and a
+# nine-month archived Euregio run.  The 4,400-byte rate projects about 372 GB
+# for ES50 over a complete leap hydrological year; OBSERVED_REFIT_MARGIN then
+# reserves about 465 GB until each compact leaf is finalized.
+FORCING_PLOT_BYTES_PER_STATION_MEMBER_DAY = 4_400
 
 
 @dataclass(frozen=True)
@@ -89,6 +96,7 @@ class ProjectStorageEstimate:
     compact_timeseries_bytes: int
     compact_grid_bytes: int
     map_support_bytes: int = 0
+    derived_forcing_plot_bytes: int = 0
 
     @property
     def non_transition_bytes(self) -> int:
@@ -100,11 +108,21 @@ class ProjectStorageEstimate:
             + self.compact_timeseries_bytes
             + self.compact_grid_bytes
             + self.map_support_bytes
+            + self.derived_forcing_plot_bytes
         )
 
     @property
     def total_bytes(self) -> int:
         return self.non_transition_bytes + self.restart_transition_bytes
+
+    @property
+    def retained_compact_bytes(self) -> int:
+        """Return outputs that remain after successful compact cleanup."""
+        return (
+            self.compact_timeseries_bytes
+            + self.compact_grid_bytes
+            + self.map_support_bytes
+        )
 
 
 @dataclass(frozen=True)
@@ -343,6 +361,38 @@ def _station_count(setup_dir: Path) -> int:
         return 0
     with stations.open("r", encoding="utf-8-sig", errors="strict") as stream:
         return max(0, sum(1 for line in stream if line.strip()) - 1)
+
+
+def _forcing_plot_storage_bound(
+    *,
+    setup_dir: Path,
+    project_dir: Path,
+    steps: list[tuple[Path, datetime, datetime]],
+    member_count: int,
+) -> int:
+    """Reserve derived per-step forcing PNGs until leaf finalization."""
+    station_count = _station_count(setup_dir)
+    if station_count == 0:
+        return 0
+    plot_days = sum(
+        _window_sample_count(start, end, "1D")
+        for _step, start, end in steps
+    )
+    expected = int(
+        station_count
+        * member_count
+        * plot_days
+        * FORCING_PLOT_BYTES_PER_STATION_MEMBER_DAY
+        * OBSERVED_REFIT_MARGIN
+    )
+    existing = _owned_file_bytes(
+        [
+            path
+            for path in project_dir.glob("steps/step_*/plots/forcing/*.png")
+            if path.is_file() and not path.is_symlink()
+        ]
+    )
+    return max(0, expected - existing)
 
 
 def _point_storage_bound(
@@ -699,6 +749,12 @@ def estimate_project_storage_components(
         grid_cell_count=grid_cell_count,
         overwrite=overwrite,
     )
+    derived_forcing_plots = _forcing_plot_storage_bound(
+        setup_dir=setup_dir,
+        project_dir=project_dir,
+        steps=steps,
+        member_count=member_count,
+    )
     return ProjectStorageEstimate(
         forcing_bytes=forcing_additional,
         member_grid_bytes=grid_additional,
@@ -708,6 +764,7 @@ def estimate_project_storage_components(
         compact_timeseries_bytes=compact_timeseries,
         compact_grid_bytes=compact_grid,
         map_support_bytes=map_support,
+        derived_forcing_plot_bytes=derived_forcing_plots,
     )
 
 
@@ -731,14 +788,14 @@ def estimate_coordinated_storage_reserve(
     projects: tuple[StorageReservationProject, ...],
     *,
     outer_workers: int,
-    parent_merge_reserve_bytes: int,
+    parent_finalization_reserve_bytes: int,
     overwrite: bool = False,
 ) -> tuple[int, dict[str, ProjectStorageEstimate]]:
-    """Reserve retained leaf growth plus rolling concurrent checkpoints.
+    """Reserve one admitted leaf cohort plus unfinished parent finalization.
 
-    Member forcing, grids, point CSVs and compact leaf products accumulate
-    until the subdomain render/cleanup gate, so every unfinished leaf is
-    included. Only the second rolling checkpoint is concurrency-bound.
+    Successful compact leaves are cleaned before the next cohort is admitted.
+    Their retained bytes are already represented in filesystem usage. Only the
+    rolling second checkpoint within the active cohort is concurrency-bound.
     """
     estimates: dict[str, ProjectStorageEstimate] = {}
     for project in projects:
@@ -774,7 +831,7 @@ def estimate_coordinated_storage_reserve(
     total = (
         sum(estimate.non_transition_bytes for estimate in estimates.values())
         + transition
-        + max(0, int(parent_merge_reserve_bytes))
+        + max(0, int(parent_finalization_reserve_bytes))
     )
     return total, estimates
 
@@ -812,6 +869,47 @@ def estimate_parent_compact_merge_bytes(
         grid_cell_count * total_samples * GRID_BYTES_PER_CELL_SAMPLE * OBSERVED_REFIT_MARGIN
         + FILE_OVERHEAD_BYTES
     )
+
+
+def estimate_parent_render_bytes(
+    *,
+    project_dir: str | Path,
+    grid_cell_count: int,
+    overwrite: bool = False,
+) -> int:
+    """Reserve parent maps, plots and reports before the render stage.
+
+    The first-run bound treats each configured event as one full-grid RGBA-like
+    render plus a same-sized temporary. Existing render products can only refit
+    the bound upward; accepted files already consume filesystem ``used`` bytes
+    and therefore are not counted twice when not overwriting.
+    """
+    project_dir = Path(project_dir).resolve()
+    if grid_cell_count < 1:
+        raise ValueError("grid_cell_count must be positive")
+    project_cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
+    events = list(
+        ((project_cfg.get("data_assimilation") or {}).get("assimilation_events"))
+        or []
+    )
+    planned = max(
+        PARENT_RENDER_MIN_BYTES,
+        int(
+            max(1, len(events))
+            * grid_cell_count
+            * PARENT_RENDER_BYTES_PER_CELL_EVENT
+            * OBSERVED_REFIT_MARGIN
+        ),
+    )
+    existing_files = [
+        path
+        for directory in ("maps", "plots", "reports")
+        for path in (project_dir / "results" / directory).rglob("*")
+        if path.is_file() and not path.is_symlink()
+    ]
+    existing = _owned_file_bytes(existing_files)
+    refitted = max(planned, int(existing * OBSERVED_REFIT_MARGIN))
+    return refitted if overwrite else max(0, refitted - existing)
 
 
 def check_step_admission(
@@ -866,6 +964,7 @@ __all__ = [
     "estimate_compact_timeseries_bytes",
     "estimate_coordinated_storage_reserve",
     "estimate_parent_compact_merge_bytes",
+    "estimate_parent_render_bytes",
     "estimate_project_storage_components",
     "estimate_project_storage_reserve",
     "estimate_step_forcing_bytes",

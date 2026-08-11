@@ -110,7 +110,9 @@ storage reduction visible. The reviewed Rofental walkthrough explains the files 
 ## Cleanup and retention
 
 After all required outputs validate, `retention: compact` removes package-owned
-restart checkpoints, member point and forcing CSVs and replaceable member grids.
+restart checkpoints, member point and forcing CSVs, replaceable member grids and
+step-local forcing PNGs already represented in the accepted report. The compact
+forcing NetCDF remains the source for rerendering project-wide forcing plots.
 The atomic, versioned `results/retention_manifest.json` records every planned
 and completed deletion batch, source inventory, retained-consumer inventory,
 producer-manifest or completed-stage digest, final consumer and regeneration recipe. Cleanup is
@@ -130,21 +132,31 @@ openamundsen-da clean PROJECT_DIR
 openamundsen-da clean PROJECT_DIR --apply
 ```
 
-Single-domain and subdomain leaf projects use the same cleanup lifecycle.
-Subdomain compact retention deletes leaf and parent merge inputs only after the
-merged grid, configured render outputs and report have validated. An interrupted
-or low-disk run resumes existing work non-destructively; rebuilding requires an
-explicit overwrite request.
+Single-domain and subdomain leaf projects use the same cleanup lifecycle. A
+successful compact subdomain leaf is finalized after its own benchmark,
+configured render outputs and report validate. Its raw member forcing, point,
+grid and final restart artifacts are then removed immediately, while the leaf
+compact grid, point/forcing stores, DA map support, weights and report remain.
+Step-local forcing PNGs are deleted only after the compact forcing store matches
+their still-present raw source and the accepted report exists; both retained
+consumers and the producing member manifests are bound into the cleanup ledger.
+`leaf_finalization_manifest.json` binds those retained inputs before the next
+leaf wave is admitted. An interrupted or low-disk run resumes existing work
+non-destructively; rebuilding requires an explicit overwrite request.
 
 The current compact lifecycle is deliberately boundary-based. It shortens every
 generated forcing copy to its consuming step and incrementally removes obsolete
-restart checkpoints, but keeps forcing/point CSVs and raw grids until final
-compaction and rendering succeed. Disk admission is checked between steps and
-uses all unfinished leaves' retained growth, concurrency-bound rolling
-checkpoints and the atomic parent-merge temporary. Active model members are not
-killed mid-propagation. Per-step compact fragments and cooperative mid-member
-disk stops remain future work. This is a safe first increment, not evidence that
-the full 100 m Euregio ES50 workflow already fits on a 3.6 TB filesystem.
+restart checkpoints, but keeps a leaf's forcing/point CSVs and raw grids until
+that leaf's final compaction and rendering succeed. Subdomain admission uses
+bounded waves: current filesystem usage already includes measured retained
+compact leaves, while the additional reserve covers only the active wave,
+rolling checkpoints, the projected compact outputs of queued leaves and
+unfinished parent merge/render output. Active model members are not killed
+mid-propagation. Per-step compact fragments and
+cooperative mid-member disk stops remain future work. This is a safe increment,
+and its audited prepared-Euregio estimate fits a clean 3.6 TB filesystem. That
+estimate is not a substitute for the first complete production-run acceptance,
+and unrelated resident runs must be archived before relying on the envelope.
 
 Compact point and forcing stores collapse overlapping timestamps from adjacent
 steps by their numeric mean, matching the established raw-series readers.

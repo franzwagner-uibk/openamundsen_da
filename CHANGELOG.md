@@ -35,9 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   support before raw-grid deletion.
 - Make storage admission account for each forcing file independently, layered
   and default point columns, explicit map support, full atomic overwrite
-  temporaries and completed parent-finalization stages. This remains a safe
-  first increment toward, not
-  completion of, the 3.6 TB full-Euregio target.
+  temporaries and completed parent-finalization stages.
+- Finalize and consumer-validate each successful compact subdomain leaf before
+  admitting the next bounded leaf wave, then retain only its compact analysis
+  and parent merge/render support. After compact forcing and the accepted leaf
+  report validate, remove replaceable step forcing PNGs as a ledger-backed
+  derived-artifact class; project forcing plots rerender from compact NetCDF.
+  The audited prepared-Euregio admission envelope now fits a clean 3.6 TB
+  filesystem, but an end-to-end production run remains the acceptance gate.
 - Require explicitly configured compact grid sources in openAMUNDSEN output
   before propagation and validate every requested variable and metric in
   member, project and merged subdomain NetCDFs.

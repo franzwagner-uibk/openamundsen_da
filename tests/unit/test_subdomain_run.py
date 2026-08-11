@@ -115,6 +115,11 @@ def test_run_one_caps_project_plot_workers_to_inner_workers(tmp_path, monkeypatc
 
     monkeypatch.setattr(run_mod, "_prepare_obs_for_subdomain", lambda *args, **kwargs: None)
     monkeypatch.setattr(run_mod, "run_project", lambda cfg: captured.setdefault("cfg", cfg))
+    monkeypatch.setattr(
+        run_mod,
+        "_finalize_leaf",
+        lambda *_args, **_kwargs: {"retained_leaf_bytes": 10, "cleanup_freed_bytes": 20},
+    )
 
     result = run_mod._run_one(
         "S1",
@@ -126,14 +131,14 @@ def test_run_one_caps_project_plot_workers_to_inner_workers(tmp_path, monkeypatc
         root_log_path=None,
         storage_reservation_projects=(),
         storage_outer_workers=2,
-        parent_merge_reserve_bytes=123456,
+        shared_storage_reserve_bytes=123456,
     )
 
     assert result.status == "success"
     assert captured["cfg"].max_workers == 6
     assert captured["cfg"].plot_workers == 6
     assert captured["cfg"].storage_outer_workers == 2
-    assert captured["cfg"].parent_merge_reserve_bytes == 123456
+    assert captured["cfg"].shared_storage_reserve_bytes == 123456
 
 
 def test_coordinator_reserves_largest_active_leaf_transitions(monkeypatch, tmp_path):
@@ -160,6 +165,7 @@ def test_coordinator_reserves_largest_active_leaf_transitions(monkeypatch, tmp_p
         str((tmp_path / "P3").resolve()): ProjectStorageEstimate(3, 4, 5, 6, 7, 8, 9),
     }
     monkeypatch.setattr(run_mod, "estimate_parent_compact_merge_bytes", lambda **_kwargs: 100)
+    monkeypatch.setattr(run_mod, "estimate_parent_render_bytes", lambda **_kwargs: 0)
     monkeypatch.setattr(
         run_mod,
         "estimate_coordinated_storage_reserve",
@@ -178,7 +184,7 @@ def test_coordinator_reserves_largest_active_leaf_transitions(monkeypatch, tmp_p
         ),
     )
 
-    concurrent, leaves, projects, merge = run_mod._coordinator_storage_reserve(
+    concurrent, leaves, projects, merge, queued = run_mod._coordinator_storage_reserve(
         manifest,
         selected_ids=["S1", "S2", "S3"],
         outer_workers=2,
@@ -193,12 +199,13 @@ def test_coordinator_reserves_largest_active_leaf_transitions(monkeypatch, tmp_p
     assert concurrent == 500
     assert len(projects) == 3
     assert merge == 100
+    assert queued == 0
 
     (tmp_path / "S3" / "run_manifest.json").write_text(
         json.dumps({"status": "success"}),
         encoding="utf-8",
     )
-    concurrent, leaves, _projects, _merge = run_mod._coordinator_storage_reserve(
+    concurrent, leaves, _projects, _merge, _queued = run_mod._coordinator_storage_reserve(
         manifest,
         selected_ids=["S1", "S2", "S3"],
         outer_workers=2,
@@ -206,6 +213,99 @@ def test_coordinator_reserves_largest_active_leaf_transitions(monkeypatch, tmp_p
     )
     assert leaves["S3"] == 0
     assert concurrent == 500
+
+
+def test_leaf_queue_is_admitted_in_bounded_deterministic_waves():
+    assert run_mod._leaf_waves(["S3", "S1", "S2", "S5", "S4"], 2) == [
+        ["S3", "S1"],
+        ["S2", "S5"],
+        ["S4"],
+    ]
+
+
+def test_coordinator_reserves_compact_outputs_of_queued_leaves(monkeypatch, tmp_path):
+    manifest, _ = _single_subdomain_manifest(tmp_path)
+    template = manifest.subdomains["S1"]
+    for sid in ("S2", "S3"):
+        setup_dir = tmp_path / sid
+        project_dir = setup_dir / "projects" / "demo"
+        project_dir.mkdir(parents=True)
+        manifest.subdomains[sid] = SimpleNamespace(
+            setup_dir=setup_dir,
+            project_dir=project_dir,
+            window=WindowSpec(row_off=0, col_off=0, height=1, width=1),
+        )
+    retained = {
+        str(manifest.subdomains["S2"].project_dir.resolve()): ProjectStorageEstimate(
+            1, 2, 3, 4, 5, 50, 60, 7
+        ),
+        str(manifest.subdomains["S3"].project_dir.resolve()): ProjectStorageEstimate(
+            1, 2, 3, 4, 5, 70, 80, 9
+        ),
+    }
+    monkeypatch.setattr(run_mod, "estimate_parent_compact_merge_bytes", lambda **_kwargs: 100)
+    monkeypatch.setattr(run_mod, "estimate_parent_render_bytes", lambda **_kwargs: 10)
+    monkeypatch.setattr(
+        run_mod,
+        "estimate_project_storage_components",
+        lambda *, project_dir, **_kwargs: retained[str(project_dir)],
+    )
+    monkeypatch.setattr(run_mod, "output_retention_mode", lambda _project: "compact")
+    captured = {}
+    monkeypatch.setattr(
+        run_mod,
+        "estimate_coordinated_storage_reserve",
+        lambda projects, **kwargs: (
+            captured.setdefault(
+                "shared", kwargs["parent_finalization_reserve_bytes"]
+            ),
+            {
+                str(template.project_dir.resolve()): ProjectStorageEstimate(
+                    1, 2, 3, 4, 5, 6, 7
+                )
+            },
+        ),
+    )
+
+    _total, _leaves, _projects, parent, queued = run_mod._coordinator_storage_reserve(
+        manifest,
+        selected_ids=["S1"],
+        queued_ids=["S2", "S3"],
+        outer_workers=1,
+        overwrite=False,
+    )
+
+    expected_queued = sum(estimate.retained_compact_bytes for estimate in retained.values())
+    assert parent == 110
+    assert queued == expected_queued
+    assert captured["shared"] == parent + expected_queued
+
+
+def test_queued_full_retention_reserves_all_future_growth(monkeypatch, tmp_path):
+    manifest, _ = _single_subdomain_manifest(tmp_path)
+    queued_setup = tmp_path / "S2"
+    queued_project = queued_setup / "projects" / "demo"
+    queued_project.mkdir(parents=True)
+    manifest.subdomains["S2"] = SimpleNamespace(
+        setup_dir=queued_setup,
+        project_dir=queued_project,
+        window=WindowSpec(row_off=0, col_off=0, height=1, width=1),
+    )
+    estimate = ProjectStorageEstimate(1, 2, 3, 4, 5, 6, 7, 8, 9)
+    monkeypatch.setattr(
+        run_mod,
+        "estimate_project_storage_components",
+        lambda **_kwargs: estimate,
+    )
+    monkeypatch.setattr(run_mod, "output_retention_mode", lambda _project: "full")
+
+    projected = run_mod._projected_retained_compact_bytes(
+        manifest,
+        selected_ids=["S2"],
+        overwrite=False,
+    )
+
+    assert projected == {"S2": estimate.total_bytes}
 
 
 def test_coordinator_drops_parent_finalization_reserve_only_after_accepted_merge(
@@ -218,14 +318,23 @@ def test_coordinator_drops_parent_finalization_reserve_only_after_accepted_merge
     merged.write_bytes(b"accepted")
     manifest.stages["merge"] = {"status": "completed"}
     captured = {}
+    monkeypatch.setattr(
+        run_mod,
+        "validate_compact_output_file",
+        lambda **_kwargs: merged,
+    )
     monkeypatch.setattr(run_mod, "estimate_parent_compact_merge_bytes", lambda **_kwargs: 999)
+    monkeypatch.setattr(run_mod, "estimate_parent_render_bytes", lambda **_kwargs: 0)
     monkeypatch.setattr(
         run_mod,
         "estimate_coordinated_storage_reserve",
-        lambda _projects, **kwargs: (captured.setdefault("merge", kwargs["parent_merge_reserve_bytes"]), {}),
+        lambda _projects, **kwargs: (
+            captured.setdefault("merge", kwargs["parent_finalization_reserve_bytes"]),
+            {},
+        ),
     )
 
-    _total, _leaves, _projects, reserve = run_mod._coordinator_storage_reserve(
+    _total, _leaves, _projects, reserve, _queued = run_mod._coordinator_storage_reserve(
         manifest,
         selected_ids=["S1"],
         outer_workers=1,
@@ -234,13 +343,53 @@ def test_coordinator_drops_parent_finalization_reserve_only_after_accepted_merge
     assert reserve == 0
     assert captured["merge"] == 0
 
-    _total, _leaves, _projects, reserve = run_mod._coordinator_storage_reserve(
+    _total, _leaves, _projects, reserve, _queued = run_mod._coordinator_storage_reserve(
         manifest,
         selected_ids=["S1"],
         outer_workers=1,
         overwrite=True,
     )
     assert reserve == 999
+
+
+def test_coordinator_keeps_merge_reserve_for_invalid_completed_output(
+    monkeypatch,
+    tmp_path,
+):
+    manifest, _ = _single_subdomain_manifest(tmp_path)
+    merged = manifest.project_dir / "results" / "grids" / "da_output_grids.nc"
+    merged.parent.mkdir(parents=True, exist_ok=True)
+    merged.write_bytes(b"corrupt")
+    manifest.stages["merge"] = {"status": "completed"}
+    monkeypatch.setattr(
+        run_mod,
+        "validate_compact_output_file",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("corrupt")),
+    )
+    monkeypatch.setattr(
+        run_mod,
+        "estimate_parent_compact_merge_bytes",
+        lambda **_kwargs: 999,
+    )
+    monkeypatch.setattr(run_mod, "estimate_parent_render_bytes", lambda **_kwargs: 0)
+    monkeypatch.setattr(
+        run_mod,
+        "estimate_coordinated_storage_reserve",
+        lambda _projects, **kwargs: (
+            kwargs["parent_finalization_reserve_bytes"],
+            {},
+        ),
+    )
+
+    total, _leaves, _projects, reserve, _queued = run_mod._coordinator_storage_reserve(
+        manifest,
+        selected_ids=["S1"],
+        outer_workers=1,
+        overwrite=False,
+    )
+
+    assert reserve == 999
+    assert total == 999
 
 
 def test_run_subdomains_refuses_coordinated_growth_before_workers(tmp_path, monkeypatch):
@@ -254,7 +403,7 @@ def test_run_subdomains_refuses_coordinated_growth_before_workers(tmp_path, monk
     monkeypatch.setattr(
         run_mod,
         "_coordinator_storage_reserve",
-        lambda *_args, **_kwargs: (600, {"S1": 500}, (project_spec,), 100),
+        lambda *_args, **_kwargs: (600, {"S1": 500}, (project_spec,), 100, 0),
     )
 
     def _refuse(*_args, **kwargs):
@@ -297,6 +446,11 @@ def test_run_one_resumes_failed_partial_subdomain_without_implicit_overwrite(tmp
 
     monkeypatch.setattr(run_mod, "_prepare_obs_for_subdomain", _prepare)
     monkeypatch.setattr(run_mod, "run_project", _run_project)
+    monkeypatch.setattr(
+        run_mod,
+        "_finalize_leaf",
+        lambda *_args, **_kwargs: {"retained_leaf_bytes": 10, "cleanup_freed_bytes": 20},
+    )
 
     result = run_mod._run_one(
         "S1",
@@ -311,3 +465,70 @@ def test_run_one_resumes_failed_partial_subdomain_without_implicit_overwrite(tmp
     assert result.status == "success"
     assert captured["prepare_overwrite"] is False
     assert captured["project_overwrite"] is False
+
+
+def test_run_one_finalizes_leaf_before_success_manifest(tmp_path, monkeypatch):
+    _, manifest_path = _single_subdomain_manifest(tmp_path)
+    order: list[str] = []
+
+    monkeypatch.setattr(run_mod, "_prepare_obs_for_subdomain", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(run_mod, "run_project", lambda _cfg: order.append("run"))
+    monkeypatch.setattr(
+        run_mod,
+        "_finalize_leaf",
+        lambda *_args, **_kwargs: (
+            order.append("finalize")
+            or {"retained_leaf_bytes": 10, "cleanup_freed_bytes": 20}
+        ),
+    )
+    real_write = run_mod._write_run_manifest
+
+    def _record_manifest(path, data):
+        if data.get("status") == "success":
+            order.append("success")
+        real_write(path, data)
+
+    monkeypatch.setattr(run_mod, "_write_run_manifest", _record_manifest)
+
+    result = run_mod._run_one(
+        "S1",
+        manifest_path,
+        inner_max_workers=1,
+        overwrite=True,
+        retries=0,
+        log_level="INFO",
+        root_log_path=None,
+    )
+
+    assert result.status == "success"
+    assert order == ["run", "finalize", "success"]
+
+
+def test_failed_leaf_never_runs_final_cleanup(tmp_path, monkeypatch):
+    _, manifest_path = _single_subdomain_manifest(tmp_path)
+    monkeypatch.setattr(run_mod, "_prepare_obs_for_subdomain", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        run_mod,
+        "run_project",
+        lambda _cfg: (_ for _ in ()).throw(RuntimeError("propagation failed")),
+    )
+    monkeypatch.setattr(
+        run_mod,
+        "_finalize_leaf",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("failed leaves must retain restart artifacts")
+        ),
+    )
+
+    result = run_mod._run_one(
+        "S1",
+        manifest_path,
+        inner_max_workers=1,
+        overwrite=False,
+        retries=0,
+        log_level="INFO",
+        root_log_path=None,
+    )
+
+    assert result.status == "failed"
+    assert "propagation failed" in str(result.error)

@@ -18,7 +18,11 @@ from openamundsen_da.manifests import (
     recursive_files,
     write_manifest_atomic,
 )
+from openamundsen_da.methods.viz.maps.panel_renderers import (
+    project_da_map_support_fields,
+)
 from openamundsen_da.pipeline.cleanup import clean_project_artifacts
+from openamundsen_da.pipeline.rendering import validate_render_completion
 from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.da_observables import weights_csv_name
@@ -68,6 +72,7 @@ def _leaf_parent_support_files(subdomain: SubdomainMeta) -> tuple[Path, ...]:
     required = [
         project_dir / "results" / "grids" / "da_output_grids.nc",
         project_plots_maps_collection_pdf_path(project_dir),
+        validate_render_completion(project_dir),
     ]
     if output_retention_mode(project_dir) == "compact":
         required.extend(
@@ -78,14 +83,31 @@ def _leaf_parent_support_files(subdomain: SubdomainMeta) -> tuple[Path, ...]:
         )
     map_fields = _required_map_support_fields(events)
     if map_fields:
-        support = project_map_support_path(project_dir)
-        validate_map_support(
-            project_dir,
-            dates=[event.date for event in events],
-            fields=map_fields,
-            input_nc=support,
-        )
-        required.append(support)
+        if output_retention_mode(project_dir) == "compact":
+            support = project_map_support_path(project_dir)
+            validate_map_support(
+                project_dir,
+                dates=[event.date for event in events],
+                fields=map_fields,
+                input_nc=support,
+            )
+            required.append(support)
+        else:
+            rebuilt = project_da_map_support_fields(project_dir)
+            if rebuilt is None:
+                raise RuntimeError(
+                    "Full-retention leaf cannot rebuild configured DA-event map support"
+                )
+            dates, fields, _roi_mask = rebuilt
+            missing_fields = sorted(map_fields - set(fields))
+            event_dates = {event.date for event in events}
+            rebuilt_dates = {date.date() for date in dates}
+            missing_dates = sorted(event_dates - rebuilt_dates)
+            if missing_fields or missing_dates:
+                raise RuntimeError(
+                    "Full-retention leaf raw DA-event map support is incomplete: "
+                    f"missing fields={missing_fields}, missing dates={missing_dates}"
+                )
     for event in events:
         name = weights_csv_name(
             event.variable,

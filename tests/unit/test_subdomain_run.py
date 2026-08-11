@@ -237,10 +237,12 @@ def test_coordinator_reserves_compact_outputs_of_queued_leaves(monkeypatch, tmp_
         )
     retained = {
         str(manifest.subdomains["S2"].project_dir.resolve()): ProjectStorageEstimate(
-            1, 2, 3, 4, 5, 50, 60, 7
+            1, 2, 3, 4, 5, 50, 60, 7,
+            retained_diagnostics_bytes=11,
         ),
         str(manifest.subdomains["S3"].project_dir.resolve()): ProjectStorageEstimate(
-            1, 2, 3, 4, 5, 70, 80, 9
+            1, 2, 3, 4, 5, 70, 80, 9,
+            retained_diagnostics_bytes=13,
         ),
     }
     monkeypatch.setattr(run_mod, "estimate_parent_compact_merge_bytes", lambda **_kwargs: 100)

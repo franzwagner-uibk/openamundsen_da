@@ -60,6 +60,9 @@ PARENT_RENDER_BYTES_PER_CELL_EVENT = 8
 # for ES50 over a complete leap hydrological year; OBSERVED_REFIT_MARGIN then
 # reserves about 465 GB until each compact leaf is finalized.
 FORCING_PLOT_BYTES_PER_STATION_MEMBER_DAY = 4_400
+EUREGIO_ES30_RETAINED_DIAGNOSTICS_BYTES = 8_010_000_000
+EUREGIO_AUDIT_LEAF_COUNT = 90
+EUREGIO_AUDIT_MEMBER_COUNT = 31
 
 
 @dataclass(frozen=True)
@@ -97,6 +100,7 @@ class ProjectStorageEstimate:
     compact_grid_bytes: int
     map_support_bytes: int = 0
     derived_forcing_plot_bytes: int = 0
+    retained_diagnostics_bytes: int = 0
 
     @property
     def non_transition_bytes(self) -> int:
@@ -109,6 +113,7 @@ class ProjectStorageEstimate:
             + self.compact_grid_bytes
             + self.map_support_bytes
             + self.derived_forcing_plot_bytes
+            + self.retained_diagnostics_bytes
         )
 
     @property
@@ -122,6 +127,7 @@ class ProjectStorageEstimate:
             self.compact_timeseries_bytes
             + self.compact_grid_bytes
             + self.map_support_bytes
+            + self.retained_diagnostics_bytes
         )
 
 
@@ -395,6 +401,53 @@ def _forcing_plot_storage_bound(
     return max(0, expected - existing)
 
 
+def _retained_diagnostics_storage_bound(
+    *,
+    project_dir: Path,
+    member_count: int,
+) -> int:
+    """Reserve retained logs, diagnostics, metadata and rendered leaf output."""
+    calibrated = int(
+        (EUREGIO_ES30_RETAINED_DIAGNOSTICS_BYTES / EUREGIO_AUDIT_LEAF_COUNT)
+        * (member_count / EUREGIO_AUDIT_MEMBER_COUNT)
+        * OBSERVED_REFIT_MARGIN
+    )
+    paths: set[Path] = set()
+    for pattern in (
+        "steps/step_*/assim/**/*",
+        "steps/step_*/ensembles/*/*/results/member_run.json",
+        "steps/step_*/ensembles/*/*/meteo/stations.csv",
+        "**/*.log",
+    ):
+        paths.update(
+            path.resolve()
+            for path in project_dir.glob(pattern)
+            if path.is_file() and not path.is_symlink()
+        )
+    paths.update(
+        path.resolve()
+        for path in project_dir.glob("steps/step_*/plots/**/*")
+        if path.is_file()
+        and not path.is_symlink()
+        and "forcing" not in path.relative_to(project_dir).parts
+    )
+    for directory in ("benchmark", "maps", "misc", "plots", "reports"):
+        root = project_dir / "results" / directory
+        paths.update(
+            path.resolve()
+            for path in root.rglob("*")
+            if path.is_file() and not path.is_symlink()
+        )
+    paths.update(
+        path.resolve()
+        for path in (project_dir / "results").glob("*")
+        if path.is_file() and not path.is_symlink()
+    )
+    existing = _owned_file_bytes(list(paths))
+    expected = max(calibrated, int(existing * OBSERVED_REFIT_MARGIN))
+    return max(0, expected - existing)
+
+
 def _point_storage_bound(
     *,
     setup_dir: Path,
@@ -521,6 +574,7 @@ def _restart_storage_bound(
     step_count: int,
     compact: bool,
     state_pattern: str,
+    overwrite: bool = False,
 ) -> tuple[int, int]:
     state_paths = [
         path
@@ -547,6 +601,11 @@ def _restart_storage_bound(
     else:
         baseline_expected = checkpoint_bound * step_count
         transition_expected = 0
+    if overwrite:
+        # Each accepted checkpoint remains in place until its validated
+        # same-directory replacement is promoted. Reserve the entire new
+        # generation rather than subtracting the old bytes already in use.
+        return baseline_expected, transition_expected
     baseline_additional = max(0, baseline_expected - existing)
     existing_after_baseline = max(0, existing - baseline_expected)
     transition_additional = max(0, transition_expected - existing_after_baseline)
@@ -722,6 +781,7 @@ def estimate_project_storage_components(
         step_count=len(steps),
         compact=compact,
         state_pattern=state_pattern,
+        overwrite=overwrite,
     )
 
     compact_timeseries = 0
@@ -755,6 +815,10 @@ def estimate_project_storage_components(
         steps=steps,
         member_count=member_count,
     )
+    retained_diagnostics = _retained_diagnostics_storage_bound(
+        project_dir=project_dir,
+        member_count=member_count,
+    )
     return ProjectStorageEstimate(
         forcing_bytes=forcing_additional,
         member_grid_bytes=grid_additional,
@@ -765,6 +829,7 @@ def estimate_project_storage_components(
         compact_grid_bytes=compact_grid,
         map_support_bytes=map_support,
         derived_forcing_plot_bytes=derived_forcing_plots,
+        retained_diagnostics_bytes=retained_diagnostics,
     )
 
 
@@ -956,6 +1021,7 @@ def check_step_admission(
 __all__ = [
     "DiskBudgetSnapshot",
     "EMERGENCY_USED_FRACTION",
+    "EUREGIO_ES30_RETAINED_DIAGNOSTICS_BYTES",
     "OPERATIONAL_RESERVE_FRACTION",
     "SOFT_USED_FRACTION",
     "ProjectStorageEstimate",

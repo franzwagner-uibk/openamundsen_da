@@ -38,11 +38,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   temporaries and completed parent-finalization stages.
 - Finalize and consumer-validate each successful compact subdomain leaf before
   admitting the next bounded leaf wave, then retain only its compact analysis
-  and parent merge/render support. After compact forcing and the accepted leaf
-  report validate, remove replaceable step forcing PNGs as a ledger-backed
-  derived-artifact class; project forcing plots rerender from compact NetCDF.
+  and parent merge/render support. After compact forcing and stable render
+  completion evidence validate, remove replaceable step forcing PNGs as a
+  ledger-backed derived-artifact class; project forcing plots rerender from
+  compact NetCDF.
   The audited prepared-Euregio admission envelope now fits a clean 3.6 TB
   filesystem, but an end-to-end production run remains the acceptance gate.
+- Version cleanup generations explicitly so a validated overwrite supersedes
+  historical consumer hashes without deleting their audit records. Validate
+  raw SCF/wet-snow render support by rebuilding it under full retention, reserve
+  full checkpoint replacement coexistence during overwrite and include a
+  calibrated retained diagnostics/log/metadata allowance in active and queued
+  budgets.
 - Require explicitly configured compact grid sources in openAMUNDSEN output
   before propagation and validate every requested variable and metric in
   member, project and merged subdomain NetCDFs.

@@ -7,17 +7,32 @@ from pathlib import Path
 
 import pytest
 
+from openamundsen_da.manifests import write_manifest_atomic
 from openamundsen_da.pipeline.cleanup import (
     _member_run_manifests,
     clean_predecessor_checkpoint,
     clean_project_artifacts,
 )
+from openamundsen_da.pipeline.rendering import render_completion_manifest_path
+from openamundsen_da.util.retention import validate_retained_consumers
 
 
 def _write_state(path: Path, value: int = 1) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(path, "wb") as stream:
         pickle.dump({"snow": {"swe": value}}, stream)
+
+
+def _write_render_completion(project_dir: Path) -> Path:
+    path = render_completion_manifest_path(project_dir)
+    return write_manifest_atomic(
+        path,
+        {
+            "contract": "project-render-v1",
+            "status": "success",
+            "project_dir": str(project_dir.resolve()),
+        },
+    )
 
 
 def _write_project_yaml(project_dir: Path, *, retention: str | None = None) -> None:
@@ -203,7 +218,7 @@ def test_compact_cleanup_preserves_station_metadata_when_forcing_is_compacted(
     assert metadata.is_file()
 
 
-def test_compact_cleanup_deletes_derived_forcing_plots_after_report(
+def test_compact_cleanup_deletes_derived_forcing_plots_after_render_completion(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -233,7 +248,8 @@ def test_compact_cleanup_deletes_derived_forcing_plots_after_report(
     retained.write_bytes(b"validated compact forcing")
     report = project_dir / "results" / "reports" / "project_report.pdf"
     report.parent.mkdir(parents=True)
-    report.write_bytes(b"accepted report")
+    report.write_bytes(b"initial accepted report")
+    render_completion = _write_render_completion(project_dir)
     validations: list[bool] = []
 
     def validate_while_raw_exists(*_args, **_kwargs):
@@ -251,7 +267,7 @@ def test_compact_cleanup_deletes_derived_forcing_plots_after_report(
     assert plot.resolve() in result.deleted_paths
     assert forcing.resolve() in result.deleted_paths
     assert retained.is_file()
-    assert report.is_file()
+    assert render_completion.is_file()
     ledger = json.loads((project_dir / "results" / "retention_manifest.json").read_text())
     plot_batch = next(
         batch for batch in ledger["batches"]
@@ -260,9 +276,14 @@ def test_compact_cleanup_deletes_derived_forcing_plots_after_report(
     assert plot_batch["status"] == "complete"
     assert plot_batch["consumer_inventory_sha256"]
     assert plot_batch["producer_digest"]
+    assert ledger["active_generation"] == 1
+    assert ledger["generations"][0]["status"] == "complete"
+    assert {batch["generation"] for batch in ledger["batches"]} == {1}
+    report.write_bytes(b"final performance refresh")
+    assert validate_retained_consumers(project_dir, require_complete=True)
 
 
-def test_compact_cleanup_keeps_forcing_and_plots_until_report_succeeds(
+def test_compact_cleanup_keeps_forcing_and_plots_until_render_succeeds(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -310,9 +331,7 @@ def test_compact_cleanup_keeps_forcing_plot_when_compact_validation_fails(
     retained = project_dir / "results" / "forcing" / "ensemble_forcing.nc"
     retained.parent.mkdir(parents=True)
     retained.write_bytes(b"invalid compact forcing")
-    report = project_dir / "results" / "reports" / "project_report.pdf"
-    report.parent.mkdir(parents=True)
-    report.write_bytes(b"accepted report")
+    _write_render_completion(project_dir)
     monkeypatch.setattr(
         "openamundsen_da.pipeline.cleanup.validate_project_ensemble_forcing",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("bad compact forcing")),
@@ -351,9 +370,7 @@ def test_interrupted_forcing_plot_cleanup_never_deletes_raw_forcing(
     retained = project_dir / "results" / "forcing" / "ensemble_forcing.nc"
     retained.parent.mkdir(parents=True)
     retained.write_bytes(b"validated compact forcing")
-    report = project_dir / "results" / "reports" / "project_report.pdf"
-    report.parent.mkdir(parents=True)
-    report.write_bytes(b"accepted report")
+    _write_render_completion(project_dir)
     monkeypatch.setattr(
         "openamundsen_da.pipeline.cleanup.validate_project_ensemble_forcing",
         lambda *_args, **_kwargs: retained,

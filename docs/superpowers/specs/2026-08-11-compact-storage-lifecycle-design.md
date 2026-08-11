@@ -33,6 +33,10 @@ design because they change restart and worker-cancellation behavior.
   has produced and validated its own checkpoint.
 - Cleanup is consumer-gated, path-contained, idempotent and recorded atomically
   in a versioned retention ledger before paths become eligible for deletion.
+- Each verified overwrite creates a new explicit ledger generation. The prior
+  completed generation is marked superseded in the same durable write, remains
+  available as audit history and is excluded from current consumer validation.
+  A planned generation must finish or fail validation before another can start.
 - Each planned batch records byte inventories for its retained consumers and
   actual producer member manifests, or a canonical completed-stage record for
   parent merge cleanup. Those dependencies are revalidated before every
@@ -70,6 +74,9 @@ design because they change restart and worker-cancellation behavior.
   refit those bounds upward only.
   Step forcing plots reserve 4,400 bytes per station/member/day plus the same
   25% margin, calibrated from the archived Euregio run.
+  Retained diagnostics, logs, member metadata and render products reserve at
+  least the archived ES30 total of 8.01 GB, scaled from 31 to the configured
+  member count and increased by 25%; observed bytes only raise that bound.
   The fixed 5% filesystem reserve is additional operational headroom, not a
   substitute for model-grid, state or merge prediction.
 
@@ -101,7 +108,7 @@ each remaining unlink.
   stores, benchmark and configured render outputs validate. Then remove them
   through the retention ledger. Keep them in full retention.
 - After the compact forcing store matches the still-present raw sources and the
-  leaf report validates, remove step-local forcing PNGs as derived artifacts.
+  stable render-completion manifest validates, remove step-local forcing PNGs as derived artifacts.
   Retain the accepted report and rerender project-wide forcing plots from the
   compact NetCDF.
 - Write the final compact grid, all-member point and consumed-forcing NetCDFs
@@ -114,6 +121,9 @@ each remaining unlink.
   the raw sources before the cleanup ledger can delete them.
 - On successful final render/report, remove final restart states and any
   remaining compact-eligible member artifacts.
+- In full retention, keep and rebuild-validate raw SCF/wet-snow render sources;
+  do not require the compact-only DA map-support archive. During overwrite, reserve a complete new
+  checkpoint generation alongside every accepted checkpoint until promotion.
 - Subdomain merge keeps child compact products until the parent atomic merge
   and render validate, then applies the same child cleanup contract. Leaf
   `da_output_grids.nc` summaries remain retained because they are the source
@@ -176,8 +186,12 @@ merge bound and actual leaf point filtering. Retaining forcing PNGs from all 90
 leaves would add about 465 GB and make the envelope refuse at about 3.64 TB.
 With immediate cleanup, only the active eight-leaf wave is reserved; even the
 conservative eight times the observed 107-station maximum is below 88 GB. The
-result remains below the admissible limit. The strict final upper bound is about
-1.15 TB; the measured final projection is about 0.28 TB.
+retained-diagnostics allowance adds at least 16.47 GB for ES50. The recalculated
+strict peak is no more than about 3.275 TB, leaving at least about 0.151 TB below
+the 3.426 TB admissible limit. The strict final upper bound remains about 1.15 TB;
+the measured final projection is about 0.28 TB. A verified overwrite additionally
+reserves full checkpoint replacement coexistence; that overwrite-specific
+reserve is not part of this clean first-run arithmetic.
 
 This is a conservative admission result for the audited prepared setup, not a
 completed full-Euregio production acceptance. The current P8's unrelated North

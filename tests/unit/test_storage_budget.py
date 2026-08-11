@@ -10,6 +10,7 @@ from openamundsen_da.exceptions import LowDiskEmergencyError, LowDiskPauseError
 from openamundsen_da.util.storage_budget import (
     DEFAULT_POINT_VARIABLE_COUNT,
     EMERGENCY_USED_FRACTION,
+    EUREGIO_ES30_RETAINED_DIAGNOSTICS_BYTES,
     FORCING_PLOT_BYTES_PER_STATION_MEMBER_DAY,
     ProjectStorageEstimate,
     SOFT_USED_FRACTION,
@@ -24,6 +25,8 @@ from openamundsen_da.util.storage_budget import (
     estimate_step_forcing_bytes,
     _point_storage_bound,
     _forcing_plot_storage_bound,
+    _restart_storage_bound,
+    _retained_diagnostics_storage_bound,
     _selected_forcing_source_bytes,
 )
 
@@ -180,6 +183,82 @@ def test_forcing_plot_bound_uses_euregio_calibration_and_refits_existing(
         member_count=51,
     )
     assert resumed == bound - 10_000
+
+
+def test_retained_diagnostics_allowance_scales_es30_audit_to_es50(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+
+    per_leaf = _retained_diagnostics_storage_bound(
+        project_dir=project,
+        member_count=51,
+    )
+
+    expected_total = EUREGIO_ES30_RETAINED_DIAGNOSTICS_BYTES * (51 / 31) * 1.25
+    assert per_leaf * 90 >= int(expected_total) - 90
+    forcing_plot = project / "steps" / "step_00" / "plots" / "forcing" / "large.png"
+    forcing_plot.parent.mkdir(parents=True)
+    with forcing_plot.open("wb") as stream:
+        stream.truncate(per_leaf + 1)
+    assert _retained_diagnostics_storage_bound(
+        project_dir=project,
+        member_count=51,
+    ) == per_leaf
+    diagnostic = project / "results" / "benchmark" / "large.csv"
+    diagnostic.parent.mkdir(parents=True)
+    with diagnostic.open("wb") as stream:
+        stream.truncate(per_leaf + 1)
+    refitted = _retained_diagnostics_storage_bound(
+        project_dir=project,
+        member_count=51,
+    )
+    assert refitted >= int(diagnostic.stat().st_size * 0.25)
+
+
+def test_overwrite_reserves_full_checkpoint_replacement_coexistence(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    existing_checkpoint_bytes = 16 * 1024 * 1024
+    for member in ("open_loop", "member_001", "member_002"):
+        state = (
+            project
+            / "steps"
+            / "step_00"
+            / "ensembles"
+            / "prior"
+            / member
+            / "results"
+            / "model_state.pickle.gz"
+        )
+        state.parent.mkdir(parents=True)
+        with state.open("wb") as stream:
+            stream.truncate(existing_checkpoint_bytes)
+
+    resumed = _restart_storage_bound(
+        project_dir=project,
+        grid_cell_count=1_000,
+        member_count=3,
+        step_count=2,
+        compact=True,
+        state_pattern="model_state.pickle.gz",
+        overwrite=False,
+    )
+    overwritten = _restart_storage_bound(
+        project_dir=project,
+        grid_cell_count=1_000,
+        member_count=3,
+        step_count=2,
+        compact=True,
+        state_pattern="model_state.pickle.gz",
+        overwrite=True,
+    )
+    checkpoint = int(existing_checkpoint_bytes * 3 * 1.25)
+
+    assert overwritten == (checkpoint, checkpoint)
+    assert sum(overwritten) > sum(resumed)
 
 
 def test_point_bound_counts_default_columns_and_explicit_layers(tmp_path: Path) -> None:

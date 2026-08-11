@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -196,7 +197,106 @@ def test_completed_batch_treats_recreated_path_as_new_generation(tmp_path: Path)
 
     assert first["batch_id"] == "0001"
     assert second["batch_id"] == "0002"
+    assert first["generation"] == 1
+    assert second["generation"] == 2
     assert not artifact.exists()
+
+
+def test_overwrite_supersedes_old_consumer_generation_but_preserves_audit(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    artifact = project / "step" / "forcing.csv"
+    consumer = project / "results" / "accepted.nc"
+    producer = project / "results" / "run_manifest.json"
+    artifact.parent.mkdir(parents=True)
+    consumer.parent.mkdir(parents=True)
+    artifact.write_bytes(b"generation-one-raw")
+    consumer.write_bytes(b"generation-one-compact")
+    producer.write_text('{"run": 1, "status": "success"}\n', encoding="utf-8")
+    first = apply_retention_batch(
+        project,
+        artifact_class="forcing",
+        paths=(artifact,),
+        final_consumer="compact forcing",
+        regeneration_recipe="rerun",
+        retained_consumers=(consumer,),
+        producer_manifests=(producer,),
+    )
+
+    artifact.write_bytes(b"generation-two-raw")
+    consumer.write_bytes(b"generation-two-compact")
+    producer.write_text('{"run": 2, "status": "success"}\n', encoding="utf-8")
+    second = apply_retention_batch(
+        project,
+        artifact_class="forcing",
+        paths=(artifact,),
+        final_consumer="compact forcing",
+        regeneration_recipe="rerun",
+        retained_consumers=(consumer,),
+        producer_manifests=(producer,),
+    )
+
+    assert validate_retained_consumers(project, require_complete=True) == ("0002",)
+    ledger = json.loads(retention_mod.retention_manifest_path(project).read_text())
+    assert ledger["active_generation"] == 2
+    assert [item["status"] for item in ledger["generations"]] == [
+        "superseded",
+        "complete",
+    ]
+    assert ledger["batches"][0]["superseded_by_generation"] == 2
+    assert first["consumer_inventory"][0]["sha256"] != second["consumer_inventory"][0]["sha256"]
+
+
+def test_interrupted_overwrite_never_rolls_validation_back_to_old_generation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    artifact = project / "state.bin"
+    consumer = project / "results" / "accepted.nc"
+    producer = project / "results" / "run_manifest.json"
+    artifact.parent.mkdir(parents=True)
+    consumer.parent.mkdir(parents=True)
+    artifact.write_bytes(b"old raw")
+    consumer.write_bytes(b"old accepted")
+    producer.write_text('{"run": 1, "status": "success"}\n', encoding="utf-8")
+    apply_retention_batch(
+        project,
+        artifact_class="state",
+        paths=(artifact,),
+        final_consumer="checkpoint",
+        regeneration_recipe="rerun",
+        retained_consumers=(consumer,),
+        producer_manifests=(producer,),
+    )
+
+    artifact.write_bytes(b"new raw")
+    consumer.write_bytes(b"new accepted")
+    producer.write_text('{"run": 2, "status": "success"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        retention_mod,
+        "_unlink_path",
+        lambda _path: (_ for _ in ()).throw(OSError("power loss")),
+    )
+    with pytest.raises(CleanupSafetyError, match="Retention cleanup failed"):
+        apply_retention_batch(
+            project,
+            artifact_class="state",
+            paths=(artifact,),
+            final_consumer="checkpoint",
+            regeneration_recipe="rerun",
+            retained_consumers=(consumer,),
+            producer_manifests=(producer,),
+        )
+    consumer.write_bytes(b"old accepted")
+
+    with pytest.raises(CleanupSafetyError, match="retained consumer changed"):
+        validate_retained_consumers(project)
+    assert artifact.read_bytes() == b"new raw"
+    ledger = json.loads(retention_mod.retention_manifest_path(project).read_text())
+    assert ledger["generations"][0]["status"] == "superseded"
+    assert ledger["generations"][1]["status"] == "planned"
 
 
 def test_planned_retry_refuses_modified_generation(tmp_path: Path, monkeypatch) -> None:

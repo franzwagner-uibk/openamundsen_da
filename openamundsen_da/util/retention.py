@@ -17,7 +17,7 @@ from openamundsen_da.manifests import (
 )
 
 
-RETENTION_SCHEMA_VERSION = 3
+RETENTION_SCHEMA_VERSION = 4
 RETENTION_MANIFEST = "retention_manifest.json"
 
 
@@ -46,6 +46,8 @@ def _empty_manifest() -> dict:
     return {
         "retention_schema_version": RETENTION_SCHEMA_VERSION,
         "status": "active",
+        "active_generation": None,
+        "generations": [],
         "batches": [],
     }
 
@@ -55,22 +57,169 @@ def _load_ledger(project_dir: Path) -> dict:
     ledger = load_manifest(path)
     if ledger is None:
         return _empty_manifest()
-    if ledger.get("retention_schema_version") != RETENTION_SCHEMA_VERSION:
+    version = ledger.get("retention_schema_version")
+    if version == 3:
+        batches = list(ledger.get("batches") or [])
+        generation_status = (
+            "complete"
+            if batches and all(batch.get("status") == "complete" for batch in batches)
+            else "planned"
+        )
+        for batch in batches:
+            batch["generation"] = 1
+        ledger.update(
+            {
+                "retention_schema_version": RETENTION_SCHEMA_VERSION,
+                "active_generation": 1 if batches else None,
+                "generations": (
+                    [
+                        {
+                            "generation": 1,
+                            "status": generation_status,
+                            "identity_sha256": "legacy-v3",
+                            "started_at": "legacy-v3",
+                        }
+                    ]
+                    if batches
+                    else []
+                ),
+                "batches": batches,
+            }
+        )
+    elif version != RETENTION_SCHEMA_VERSION:
         raise CleanupSafetyError(f"Unsupported retention manifest: {path}")
     if not isinstance(ledger.get("batches"), list):
         raise CleanupSafetyError(f"Invalid retention batches in {path}")
+    if not isinstance(ledger.get("generations"), list):
+        raise CleanupSafetyError(f"Invalid retention generations in {path}")
     return ledger
 
 
 def _write_ledger(project_dir: Path, ledger: dict) -> None:
     """Persist a validated ledger and its aggregate lifecycle state."""
-    batches = ledger.get("batches") or []
+    active = ledger.get("active_generation")
+    generation = next(
+        (
+            item
+            for item in ledger.get("generations") or []
+            if item.get("generation") == active
+        ),
+        None,
+    )
     ledger["status"] = (
-        "complete"
-        if batches and all(batch.get("status") == "complete" for batch in batches)
-        else "active"
+        "complete" if generation is not None and generation.get("status") == "complete" else "active"
     )
     write_manifest_atomic(retention_manifest_path(project_dir), ledger)
+
+
+def _active_generation_record(ledger: dict) -> dict | None:
+    active = ledger.get("active_generation")
+    return next(
+        (
+            generation
+            for generation in ledger.get("generations") or []
+            if generation.get("generation") == active
+        ),
+        None,
+    )
+
+
+def active_retention_generation(project_dir: str | Path) -> tuple[int, str] | None:
+    """Return the active generation number and status, if any."""
+    ledger = _load_ledger(Path(project_dir).resolve())
+    record = _active_generation_record(ledger)
+    if record is None:
+        return None
+    return int(record["generation"]), str(record.get("status", ""))
+
+
+def start_retention_generation(
+    project_dir: str | Path,
+    *,
+    source_paths: Iterable[Path],
+    producer_manifests: Iterable[Path] = (),
+    producer_manifest_payload: object | None = None,
+) -> int:
+    """Start or resume one explicit cleanup generation atomically.
+
+    A planned generation must be resumed before another can start. Starting a
+    verified new generation supersedes only the prior generation's validation
+    authority; its batches and inventories remain as immutable audit history.
+    """
+    project_dir = Path(project_dir).resolve()
+    sources = _contained_files(project_dir, source_paths)
+    producers = _contained_files(project_dir, producer_manifests)
+    if not producers and producer_manifest_payload is None:
+        raise CleanupSafetyError("Retention generation requires producer evidence")
+    ledger = _load_ledger(project_dir)
+    active = _active_generation_record(ledger)
+    if active is not None and active.get("status") == "planned":
+        return int(active["generation"])
+
+    source_inventory = file_inventory(
+        root=project_dir,
+        files=[path for path in sources if path.is_file()],
+    )
+    producer_inventory = file_inventory(root=project_dir, files=producers)
+    if len(producer_inventory) != len(producers):
+        raise CleanupSafetyError("A generation producer manifest is missing or invalid")
+    producer_payload = (
+        {"file_inventory": producer_inventory}
+        if producer_inventory
+        else {"manifest_payload": producer_manifest_payload}
+    )
+    identity = {
+        "source_inventory_sha256": inventory_digest(source_inventory),
+        "producer_digest": hash_json(producer_payload),
+    }
+    generation_number = max(
+        [int(item.get("generation", 0)) for item in ledger.get("generations") or []],
+        default=0,
+    ) + 1
+    if active is not None:
+        active["status"] = "superseded"
+        active["superseded_by_generation"] = generation_number
+        active["superseded_at"] = datetime.now(timezone.utc).isoformat()
+        for batch in ledger.get("batches") or []:
+            if batch.get("generation") == active.get("generation"):
+                batch["superseded_by_generation"] = generation_number
+    record = {
+        "generation": generation_number,
+        "status": "planned",
+        "identity_sha256": hash_json(identity),
+        "source_inventory_sha256": identity["source_inventory_sha256"],
+        "producer_digest": identity["producer_digest"],
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }
+    ledger["generations"].append(record)
+    ledger["active_generation"] = generation_number
+    _write_ledger(project_dir, ledger)
+    return generation_number
+
+
+def complete_retention_generation(
+    project_dir: str | Path,
+    *,
+    generation: int,
+) -> None:
+    """Mark the active generation complete after every batch completes."""
+    project_dir = Path(project_dir).resolve()
+    ledger = _load_ledger(project_dir)
+    active = _active_generation_record(ledger)
+    if active is None or int(active.get("generation", -1)) != int(generation):
+        raise CleanupSafetyError(f"Retention generation is no longer active: {generation}")
+    batches = [
+        batch
+        for batch in ledger.get("batches") or []
+        if int(batch.get("generation", -1)) == int(generation)
+    ]
+    if not batches or any(batch.get("status") != "complete" for batch in batches):
+        raise CleanupSafetyError(
+            f"Retention generation {generation} has incomplete or missing batches"
+        )
+    active["status"] = "complete"
+    active["completed_at"] = datetime.now(timezone.utc).isoformat()
+    _write_ledger(project_dir, ledger)
 
 
 def _unlink_path(path: Path) -> None:
@@ -139,6 +288,7 @@ def apply_retention_batch(
     retained_consumers: Iterable[Path],
     producer_manifests: Iterable[Path] = (),
     producer_manifest_payload: object | None = None,
+    generation: int | None = None,
 ) -> dict:
     """Record, delete and complete one idempotent cleanup batch."""
     project_dir = Path(project_dir).resolve()
@@ -154,12 +304,46 @@ def apply_retention_batch(
     ledger = _load_ledger(project_dir)
     relative_paths = [path.relative_to(project_dir).as_posix() for path in candidates]
 
+    automatic_generation = generation is None
+    if generation is None:
+        active = _active_generation_record(ledger)
+        active_number = None if active is None else int(active["generation"])
+        idempotent = next(
+            (
+                batch
+                for batch in reversed(ledger["batches"])
+                if batch.get("generation") == active_number
+                and batch.get("artifact_class") == artifact_class
+                and batch.get("paths") == relative_paths
+                and batch.get("status") == "complete"
+                and not any((project_dir / rel).exists() for rel in batch.get("paths", []))
+            ),
+            None,
+        )
+        if idempotent is not None:
+            return idempotent
+        generation = start_retention_generation(
+            project_dir,
+            source_paths=candidates,
+            producer_manifests=producers,
+            producer_manifest_payload=producer_manifest_payload,
+        )
+        ledger = _load_ledger(project_dir)
+    active = _active_generation_record(ledger)
+    if (
+        active is None
+        or int(active.get("generation", -1)) != int(generation)
+        or active.get("status") != "planned"
+    ):
+        raise CleanupSafetyError(f"Retention generation is not planned and active: {generation}")
+
     # A retry may find a planned batch with some paths already absent. Reuse
     # that exact plan rather than creating a second provenance record.
     matching = [
         batch
         for batch in ledger["batches"]
-        if batch.get("artifact_class") == artifact_class
+        if batch.get("generation") == generation
+        and batch.get("artifact_class") == artifact_class
         and (
             batch.get("paths") == relative_paths
             or (
@@ -203,6 +387,7 @@ def apply_retention_batch(
         )
         batch = {
             "batch_id": f"{len(ledger['batches']) + 1:04d}",
+            "generation": generation,
             "artifact_class": str(artifact_class),
             "status": "planned",
             "path_count": len(relative_paths),
@@ -263,6 +448,14 @@ def apply_retention_batch(
     batch["completed_at"] = datetime.now(timezone.utc).isoformat()
     batch.pop("failures", None)
     _write_ledger(project_dir, ledger)
+    if automatic_generation:
+        complete_retention_generation(project_dir, generation=int(generation))
+        ledger = _load_ledger(project_dir)
+        batch = next(
+            item
+            for item in ledger["batches"]
+            if item.get("batch_id") == batch.get("batch_id")
+        )
     return batch
 
 
@@ -276,7 +469,10 @@ def reconcile_retention_ledger(project_dir: str | Path) -> tuple[str, ...]:
     ledger = _load_ledger(project_dir)
     completed: list[str] = []
     changed = False
+    active = ledger.get("active_generation")
     for batch in ledger["batches"]:
+        if batch.get("generation") != active:
+            continue
         if batch.get("status") != "planned":
             continue
         remaining = [
@@ -334,8 +530,17 @@ def validate_retained_consumers(
     """
     project_dir = Path(project_dir).resolve()
     ledger = _load_ledger(project_dir)
+    active = _active_generation_record(ledger)
+    if active is None:
+        return ()
+    if require_complete and active.get("status") != "complete":
+        raise CleanupSafetyError(
+            f"Retention generation is not complete: {active.get('generation')}"
+        )
     batch_ids: list[str] = []
     for batch in ledger["batches"]:
+        if batch.get("generation") != active.get("generation"):
+            continue
         status = str(batch.get("status", ""))
         if require_complete and status != "complete":
             raise CleanupSafetyError(
@@ -366,10 +571,12 @@ def planned_retention_paths(
     """Return existing paths from the matching interrupted cleanup batch."""
     project_dir = Path(project_dir).resolve()
     ledger = _load_ledger(project_dir)
+    active = ledger.get("active_generation")
     paths = tuple(
         _validate_recorded_file(project_dir, batch, str(rel))
         for batch in ledger["batches"]
-        if batch.get("status") == "planned"
+        if batch.get("generation") == active
+        and batch.get("status") == "planned"
         and batch.get("artifact_class") == artifact_class
         for rel in batch.get("paths", [])
         if (project_dir / str(rel)).is_file()
@@ -380,10 +587,13 @@ def planned_retention_paths(
 __all__ = [
     "RETENTION_MANIFEST",
     "RETENTION_SCHEMA_VERSION",
+    "active_retention_generation",
     "apply_retention_batch",
+    "complete_retention_generation",
     "completed_retention_paths",
     "planned_retention_paths",
     "reconcile_retention_ledger",
     "retention_manifest_path",
+    "start_retention_generation",
     "validate_retained_consumers",
 ]

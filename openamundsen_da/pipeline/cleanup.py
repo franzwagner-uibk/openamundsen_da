@@ -15,14 +15,21 @@ from openamundsen_da.core.constants import (
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml
 from openamundsen_da.results import CleanupFailure, CleanupResult, WorkflowStatus
+from openamundsen_da.pipeline.rendering import (
+    render_completion_manifest_path,
+    validate_render_completion,
+)
 from openamundsen_da.util.da_output import output_retention_mode, validate_project_da_output_grids
 from openamundsen_da.util.map_support import validate_map_support
 from openamundsen_da.util.point_output import validate_project_ensemble_points
 from openamundsen_da.util.forcing_output import validate_project_ensemble_forcing
 from openamundsen_da.util.retention import (
+    active_retention_generation,
     apply_retention_batch,
+    complete_retention_generation,
     planned_retention_paths,
     reconcile_retention_ledger,
+    start_retention_generation,
 )
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.restart_state import validate_restart_state
@@ -273,8 +280,13 @@ def _compact_forcing_candidates(project_dir: Path) -> list[Path]:
     if not candidates:
         return []
     derived_plots = any(project_dir.glob("steps/step_*/plots/forcing/*.png"))
-    report = project_dir / "results" / "reports" / "project_report.pdf"
-    if derived_plots and not report.is_file():
+    try:
+        validate_render_completion(project_dir)
+    except (FileNotFoundError, ValueError):
+        render_complete = False
+    else:
+        render_complete = True
+    if derived_plots and not render_complete:
         # The accepted report is the durable rendered consumer for these
         # diagnostics.  Keep their raw forcing regeneration source until the
         # render succeeds and the derived plot batch can be finalized first.
@@ -289,8 +301,11 @@ def _derived_forcing_plot_candidates(project_dir: Path) -> list[Path]:
     if planned:
         return list(planned)
     retained = project_dir / "results" / "forcing" / "ensemble_forcing.nc"
-    report = project_dir / "results" / "reports" / "project_report.pdf"
-    if not retained.is_file() or not report.is_file():
+    try:
+        validate_render_completion(project_dir)
+    except (FileNotFoundError, ValueError):
+        return []
+    if not retained.is_file():
         return []
     candidates = sorted(
         path.resolve()
@@ -418,6 +433,26 @@ def clean_project_artifacts(project_dir: Path, *, apply: bool) -> CleanupResult:
             freed_bytes=0,
         )
 
+    generation: int | None = None
+    active_generation = active_retention_generation(project_dir)
+    if candidates:
+        producer_manifests: set[Path] = set()
+        for artifact_class, class_paths in classes.items():
+            if not class_paths:
+                continue
+            producer_manifests.update(
+                _forcing_plot_producer_manifests(project_dir, class_paths)
+                if artifact_class == "derived_forcing_plot"
+                else _member_run_manifests(project_dir, class_paths)
+            )
+        generation = start_retention_generation(
+            project_dir,
+            source_paths=candidates,
+            producer_manifests=tuple(sorted(producer_manifests)),
+        )
+    elif active_generation is not None and active_generation[1] == "planned":
+        generation = active_generation[0]
+
     deleted: list[Path] = []
     failures: list[CleanupFailure] = []
     freed = 0
@@ -446,7 +481,7 @@ def clean_project_artifacts(project_dir: Path, *, apply: bool) -> CleanupResult:
             elif artifact_class == "derived_forcing_plot":
                 consumers = (
                     project_dir / "results" / "forcing" / "ensemble_forcing.nc",
-                    project_dir / "results" / "reports" / "project_report.pdf",
+                    render_completion_manifest_path(project_dir),
                 )
             elif artifact_class == "member_grid":
                 consumers = [project_dir / "results" / "grids" / "da_output_grids.nc"]
@@ -494,6 +529,7 @@ def clean_project_artifacts(project_dir: Path, *, apply: bool) -> CleanupResult:
                     if artifact_class == "derived_forcing_plot"
                     else _member_run_manifests(project_dir, class_paths)
                 ),
+                generation=generation,
             )
             deleted.extend(path for path in class_paths if not path.exists())
             freed += sum(sizes[path] for path in class_paths if not path.exists())
@@ -501,6 +537,8 @@ def clean_project_artifacts(project_dir: Path, *, apply: bool) -> CleanupResult:
             if artifact_class == "derived_forcing_plot":
                 forcing_plot_failed = True
             failures.extend(CleanupFailure(path=path, error=str(exc)) for path in class_paths if path.exists())
+    if generation is not None and not failures:
+        complete_retention_generation(project_dir, generation=generation)
     return CleanupResult(
         project_dir=project_dir,
         status=WorkflowStatus.APPLIED,

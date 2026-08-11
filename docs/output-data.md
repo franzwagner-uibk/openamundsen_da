@@ -111,11 +111,14 @@ storage reduction visible. The reviewed Rofental walkthrough explains the files 
 
 After all required outputs validate, `retention: compact` removes package-owned
 restart checkpoints, member point and forcing CSVs, replaceable member grids and
-step-local forcing PNGs already represented in the accepted report. The compact
+step-local forcing PNGs after their configured render completes. The compact
 forcing NetCDF remains the source for rerendering project-wide forcing plots.
-The atomic, versioned `results/retention_manifest.json` records every planned
-and completed deletion batch, source inventory, retained-consumer inventory,
-producer-manifest or completed-stage digest, final consumer and regeneration recipe. Cleanup is
+The atomic, versioned `results/retention_manifest.json` records explicit cleanup
+generations and every planned and completed deletion batch, source inventory,
+retained-consumer inventory, producer-manifest or completed-stage digest, final
+consumer and regeneration recipe. A verified overwrite starts a new generation
+and marks the prior one superseded. Historical inventories remain available for
+audit, while resume validation uses only the active generation. Cleanup is
 contained within the project and can resume an interrupted batch only when the
 current source files and retained dependencies still match their recorded size
 and SHA-256. Dependencies are rechecked before every resumed deletion and a
@@ -138,8 +141,10 @@ configured render outputs and report validate. Its raw member forcing, point,
 grid and final restart artifacts are then removed immediately, while the leaf
 compact grid, point/forcing stores, DA map support, weights and report remain.
 Step-local forcing PNGs are deleted only after the compact forcing store matches
-their still-present raw source and the accepted report exists; both retained
-consumers and the producing member manifests are bound into the cleanup ledger.
+their still-present raw source and stable render-completion evidence exists. The
+evidence and producing member manifests are bound into the cleanup ledger; the
+report may subsequently be refreshed with the final performance snapshot
+without invalidating cleanup provenance.
 `leaf_finalization_manifest.json` binds those retained inputs before the next
 leaf wave is admitted. An interrupted or low-disk run resumes existing work
 non-destructively; rebuilding requires an explicit overwrite request.
@@ -168,6 +173,10 @@ filesystem-synchronized same-directory temporaries. Raw grid cleanup
 additionally requires complete configured metrics and member sources, while
 satellite map support is checked against its ROI, probability domain and raw
 source values.
+Full retention keeps raw member grids and forcing/point files. SCF and wet-snow
+projects in this mode must successfully rebuild their configured event fields
+from that raw render support and do not require the compact-only
+`da_map_support.nc` archive.
 
 ## Subdomain outputs
 

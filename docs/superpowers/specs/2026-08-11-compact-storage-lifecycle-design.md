@@ -1,12 +1,20 @@
 # Compact Storage Lifecycle Design
 
-## Goal
+## Goal and implemented increment
 
 Make `data_assimilation.output.retention: compact` a restart-safe lifecycle
 policy for single-domain and subdomain projects. A complete 100 m Euregio ES50
 subdomain project must fit on a 3.6 TB project filesystem without changing model
 inputs or scientific results. `retention: full` keeps member artifacts for
 reanalysis.
+
+This change is the first safe increment toward the full storage target. It
+implements exact step-window forcing, coordinator-bounded admission, rolling
+restart-checkpoint cleanup and validated final compaction. It does **not** yet
+write per-step compact grid/forcing/point fragments, delete forcing or point
+CSVs incrementally during propagation or terminate an openAMUNDSEN member in
+the middle of propagation. Those remaining improvements require a separate
+design because they change restart and worker-cancellation behavior.
 
 ## Invariants
 
@@ -26,10 +34,25 @@ reanalysis.
 - `compact` retains every configured final grid metric, a compressed all-member
   point time-series NetCDF and the support needed to rerender configured plots
   and maps. `full` retains raw member artifacts.
-- At 80% filesystem use no new step is admitted. A step may drain only when its
-  conservative completion estimate stays below 90%. At 90% the active work is
-  stopped at the last validated predecessor checkpoint and reported as a
-  resumable low-disk interruption.
+- At 80% filesystem use no new step is admitted. An already started step may
+  resume only when its conservative completion estimate stays below 90%.
+  Admission is checked at project/step boundaries; active openAMUNDSEN member
+  processes are not terminated mid-propagation in this increment.
+- Subdomain admission reserves accumulated forcing, point, raw-grid, compact
+  product and one retained checkpoint growth for every unfinished leaf. A
+  second rolling checkpoint is reserved for the largest leaves allowed by
+  outer concurrency, together with one full parent atomic-merge temporary.
+  The aggregate is recomputed from measured artifacts at every boundary, so
+  active and queued leaves cannot spend against unreserved shared space.
+- All selected leaf projects and the parent must share one filesystem. A mixed
+  filesystem manifest fails before workers start rather than applying one
+  misleading free-space value to different devices.
+- Before observed artifacts exist, the estimator counts every configured grid
+  variable and output timestamp at 8 bytes per cell/value, restart state at
+  4096 bytes per cell/member, point values at 32 bytes and explicit file and
+  serialization margins. Measurements can refit those bounds upward only.
+  The fixed 5% filesystem reserve is additional operational headroom, not a
+  substitute for model-grid, state or merge prediction.
 
 ## Artifact states
 
@@ -51,17 +74,22 @@ planned entry with the contained paths.
 - Before a step, estimate its forcing, grids, states and in-flight worker
   reserve. Check the filesystem containing the project directory.
 - Generate only `step.start_date` through `step.end_date` forcing.
-- After propagation and assimilation, write atomic compact grid and point
-  fragments and the map-support fields needed by configured renderers.
 - Once step `i + 1` has complete member states, remove step `i` restart states
   under compact retention.
-- Once all consumers of a step's forcing and raw grids validate, remove those
-  artifacts under compact retention. Keep them in full retention.
-- Combine fragments atomically into final grid and point NetCDF files.
+- Keep step forcing, point CSVs and raw grids until the project-level compact
+  stores, benchmark and configured render outputs validate. Then remove them
+  through the retention ledger. Keep them in full retention.
+- Write the final compact grid, all-member point and consumed-forcing NetCDFs
+  atomically. Persist satellite-event map-support fields before grid cleanup.
+- Collapse overlapping point and forcing timestamps by numeric mean, exactly as
+  the existing raw plot/benchmark readers do, and compare retained values with
+  the raw sources before the cleanup ledger can delete them.
 - On successful final render/report, remove final restart states and any
   remaining compact-eligible member artifacts.
 - Subdomain merge keeps child compact products until the parent atomic merge
-  and render validate, then applies the same child cleanup contract.
+  and render validate, then applies the same child cleanup contract. Leaf
+  `da_output_grids.nc` summaries remain retained because they are the source
+  for leaf-level SWE and snow-depth map rerendering after raw-grid cleanup.
 
 ## Resume and failure behavior
 
@@ -74,6 +102,11 @@ members and steps; destructive rebuilding requires explicit `--overwrite`.
 
 Focused tests cover exact step windows, in-window numerical identity, ledger
 atomicity and containment, consumer-gated cleanup, restart checkpoint retention,
-low-disk admission, resumable subdomain behavior and full-mode preservation. A
-small multi-step single/subdomain integration compares weights, compact arrays,
-point series, benchmark tables and configured renders against full retention.
+coordinator-bounded forcing/grid/state/merge admission, overlapping-boundary
+series equivalence, retained-value validation, leaf rerender support, resumable
+subdomain behavior and full-mode preservation. Full-Euregio capacity validation
+and incremental time-series/grid cleanup remain follow-up acceptance work; they
+are not claimed by this increment. A conservative refusal on a 3.6 TB disk is
+therefore possible until incremental grid/forcing cleanup reduces the predicted
+peak; the admission check must not call such a run safe merely because 5% free
+space remains.

@@ -320,6 +320,28 @@ Notes:
   soft limit and its conservative forcing estimate plus operational reserve
   must remain below 90%. A low-disk stop is recorded as resumable and never
   implies overwrite.
+- Subdomain mode reserves accumulated forcing, point, raw-grid, compact-output
+  and one retained restart-checkpoint growth for every unfinished leaf. It adds
+  a second rolling checkpoint for the largest leaves allowed by outer
+  concurrency and one full atomic parent-merge temporary. The reservation is
+  recomputed from measured artifacts at every leaf boundary; all selected
+  projects must share the parent filesystem. This prevents independent leaf
+  processes and queued leaves from overcommitting the same free space.
+- First-run bounds use every configured grid variable and output timestamp,
+  8 bytes per grid cell/value, 4096 bytes per restart cell/member and explicit
+  file/serialization margins. Observed artifacts can only refit these rates
+  upward. The fixed 5% operational reserve remains separate from predicted
+  model growth.
+- Checks occur between steps and finalization stages; this increment does not
+  terminate active openAMUNDSEN members mid-propagation.
+- Compact point, forcing and grid cleanup currently occurs after successful
+  project-level compaction, benchmarking and rendering. Only predecessor
+  restart checkpoints are cleaned incrementally between steps.
+- Overlapping step-boundary timestamps in compact point and forcing NetCDFs use
+  the same numeric mean as the raw-series plot and benchmark readers. Cleanup
+  compares retained values, not only dimensions and identities, with the raw
+  sources. Leaf `da_output_grids.nc` summaries remain available for rerendering
+  leaf snow-depth and SWE maps after raw member-grid cleanup.
 - `output.grids.variables[*]` controls both which compact grid variables are exported and which metrics are written for each variable. If this block is omitted, all grid variables and metrics are written for backward compatibility.
 - Compact DA summary NetCDFs use internal compressed storage encodings: snow depth at 0.001 m resolution and SWE/liquid-water content at integer millimeter resolution. This is not a YAML setting; CF-aware readers decode the variables back to physical values.
 - Generated DA-event maps need `analysis_mean` and `analysis_increment` for `snowdepth_daily`, because their snow-depth response panels show the event-weighted posterior and posterior-minus-prior increment.

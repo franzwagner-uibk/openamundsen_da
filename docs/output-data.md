@@ -124,6 +124,21 @@ merged grid, configured render outputs and report have validated. An interrupted
 or low-disk run resumes existing work non-destructively; rebuilding requires an
 explicit overwrite request.
 
+The current compact lifecycle is deliberately boundary-based. It shortens every
+generated forcing copy to its consuming step and incrementally removes obsolete
+restart checkpoints, but keeps forcing/point CSVs and raw grids until final
+compaction and rendering succeed. Disk admission is checked between steps and
+uses all unfinished leaves' retained growth, concurrency-bound rolling
+checkpoints and the atomic parent-merge temporary. Active model members are not
+killed mid-propagation. Per-step compact fragments and cooperative mid-member
+disk stops remain future work.
+
+Compact point and forcing stores collapse overlapping timestamps from adjacent
+steps by their numeric mean, matching the established raw-series readers.
+Cleanup validates every retained value against that collapsed raw source before
+deletion. Subdomain cleanup retains each leaf's `da_output_grids.nc`, so leaf
+snow-depth and SWE maps remain rerenderable without raw member grids.
+
 ## Subdomain outputs
 
 Data assimilation subdomains merge into the same compact NetCDF and project-level

@@ -11,10 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add opt-in project-map markers that distinguish forcing, snow-observation,
   co-located and holdout stations, with holdouts using a smaller black `x`
   rendered above other station markers, plus optional subdomain ID labels.
-- Add fixed disk-admission limits, resumable low-disk status and a versioned
-  cleanup ledger for restart-safe compact retention.
+- Add fixed disk-admission limits, shared-filesystem subdomain reservations for
+  accumulated forcing/grid/point growth, rolling checkpoints and atomic merge,
+  resumable low-disk status and a versioned cleanup ledger for restart-safe
+  compact retention.
 - Add compressed all-member point and consumed-forcing NetCDFs plus retained
-  satellite-event map support for compact projects.
+  satellite-event map support for compact projects, with mean-collapsed step
+  overlaps, retained-value validation and leaf summaries kept for rerendering.
 
 ### Changed
 - Allow subdomain station selection from coordinates in

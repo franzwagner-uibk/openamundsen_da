@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `stations_da_metadata.csv`, require same-ID observations and model points for
   every active DA or benchmark station before propagation.
 - Keep particle rejuvenation within the project runner's worker limit.
+- Require explicitly configured compact grid sources in openAMUNDSEN output
+  before propagation and validate every requested variable and metric in
+  member, project and merged subdomain NetCDFs.
 
 ## [0.9.4] - 2026-07-29
 

@@ -307,6 +307,17 @@ Notes:
 - `output.retention: compact` writes `results/grids/da_output_grids.nc`. Member grids are retained by the safe cleanup contract.
 - `run_mode: subdomain` defaults to `output.retention: full` when retention is omitted, preserving the sub-domain NC grids required for exact generated DA-event map rerendering.
 - `output.grids.variables[*]` controls both which compact grid variables are exported and which metrics are written for each variable. If this block is omitted, all grid variables and metrics are written for backward compatibility.
+- Every explicit `output.grids.variables[*].var` or `name` must match a
+  `setup.output_data.grids.variables[*].name`. This is validated before model
+  propagation. Maintained snow setups request `snow.depth` as
+  `snowdepth_daily` and `snow.swe` as `swe_daily` so both standard products are
+  available to the compact exporter.
+- Explicit compact output contracts are strict: every open-loop and member
+  NetCDF must contain every requested source variable, and the completed
+  `da_output_grids.nc` must contain every requested metric-variable pair.
+  Validation reports all missing names together instead of writing a partial
+  scientific result. Projects without an explicit compact-variable list keep
+  the legacy all-available-output behavior.
 - Compact DA summary NetCDFs use internal compressed storage encodings: snow depth at 0.001 m resolution and SWE/liquid-water content at integer millimeter resolution. This is not a YAML setting; CF-aware readers decode the variables back to physical values.
 - Generated DA-event maps need `analysis_mean` and `analysis_increment` for `snowdepth_daily`, because their snow-depth response panels show the event-weighted posterior and posterior-minus-prior increment.
 - `results/grids/da_output_grids.nc` is aggregated over all project steps (full project timeline).

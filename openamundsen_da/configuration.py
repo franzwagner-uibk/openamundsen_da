@@ -10,6 +10,7 @@ from typing import Any
 from openamundsen_da.exceptions import ProjectValidationError
 from openamundsen_da.io.paths import find_project_yaml, find_setup_yaml
 from openamundsen_da.util.station_da import is_station_variable
+from openamundsen_da.util.compact_grid_contract import compact_grid_configuration_errors
 from openamundsen_da.util.yaml_utils import read_yaml_mapping
 
 _PROJECT_KEYS = {"data_assimilation", "end_date", "obs", "run_mode", "start_date"}
@@ -493,6 +494,12 @@ def load_project_configuration(project_dir: str | Path) -> ProjectConfiguration:
     compact_format = _required(compact_grids, "format", path="project.data_assimilation.output.grids", errors=errors)
     if compact_format is not None and str(compact_format).strip().lower() != "netcdf":
         errors.append("project.data_assimilation.output.grids.format must be netcdf")
+    errors.extend(
+        compact_grid_configuration_errors(
+            setup_cfg=setup,
+            project_cfg=project,
+        )
+    )
 
     if errors:
         raise ProjectValidationError(errors)

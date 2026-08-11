@@ -34,6 +34,13 @@ including the open loop, ensemble statistics and event-weighted analysis fields.
 Typical names are `open_loop_<var>`, `ens_mean_<var>`, `ens_std_<var>`,
 `increment_<var>`, `analysis_mean_<var>` and `analysis_increment_<var>`.
 
+When compact variables are explicitly configured, output completeness is a
+hard contract. The setup must configure the matching openAMUNDSEN grid output
+name before propagation, every open-loop and member NetCDF must contain that
+source and the compact file must contain every requested metric-variable pair.
+The same validation is repeated for subdomain leaf files and their merged
+NetCDF, so a consistently incomplete set of leaves cannot be accepted.
+
 The model propagation grids feeding this builder can be NetCDF or GeoTIFF as
 selected in the setup YAML. The compact data assimilation result itself is always
 NetCDF.

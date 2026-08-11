@@ -26,6 +26,7 @@ from openamundsen_da.subdomain.status import save_stage, terminal_status
 from openamundsen_da.util.da_output import (
     output_retention_mode,
     write_da_output_grids,
+    validate_compact_output_file,
 )
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.roi_grid import load_setup_roi_mask
@@ -253,6 +254,11 @@ def merge_grids(
                 "Compact DA output summary da_output_grids.nc is missing for sub-domain(s): "
                 f"{', '.join(missing_compact_ids)}"
             )
+        for _subdomain, compact_path in compact_entries:
+            validate_compact_output_file(
+                project_dir=manifest.project_dir,
+                output_nc=compact_path,
+            )
         merged_nc = _merge_netcdf(
             output_name="da_output_grids.nc",
             nc_paths=compact_entries,
@@ -265,6 +271,10 @@ def merge_grids(
         written.append(merged_nc)
         da_summary_written = merged_nc.is_file()
         if da_summary_written:
+            validate_compact_output_file(
+                project_dir=manifest.project_dir,
+                output_nc=merged_nc,
+            )
             logger.info("Using merged compact DA output summary {}", merged_nc)
 
         if output_retention_mode(manifest.project_dir) == "compact":
@@ -346,6 +356,11 @@ def merge_grids(
 
     if output_retention_mode(manifest.project_dir) == "compact":
         logger.info("Compact cleanup is deferred until strict top-level rendering and report validation succeed.")
+    if da_summary_written:
+        validate_compact_output_file(
+            project_dir=manifest.project_dir,
+            output_nc=da_summary_path,
+        )
     return written
 
 

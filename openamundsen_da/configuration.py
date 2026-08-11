@@ -312,6 +312,12 @@ def _validate_observation_product(
 def _validate_events(project: dict[str, Any], *, errors: list[str]) -> set[str]:
     da = _mapping(project.get("data_assimilation"), path="project.data_assimilation", errors=errors)
     _unknown_keys(da, _DA_KEYS, path="project.data_assimilation", errors=errors)
+    if "subdomain_event_filter" in da:
+        errors.append(
+            "project.data_assimilation.subdomain_event_filter is no longer supported. "
+            "Finalize every project or leaf schedule before execution and store the complete "
+            "selection in data_assimilation.assimilation_events."
+        )
     if "restart" in da:
         restart = _mapping(
             da.get("restart"),

@@ -11,6 +11,9 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from openamundsen_da.io.paths import find_setup_yaml
+from openamundsen_da.util.yaml_utils import read_yaml_mapping
+
 
 @dataclass(frozen=True)
 class ObservationTimeMatch:
@@ -19,6 +22,35 @@ class ObservationTimeMatch:
     observation_time: datetime
     model_time: datetime
     offset_seconds: float
+
+
+@dataclass(frozen=True)
+class ModelClockConfig:
+    """Model-clock fields required for bounded observation matching."""
+
+    timestep: pd.Timedelta
+    timezone: object
+
+
+@dataclass(frozen=True)
+class SeriesTimeMatch:
+    """One value matched to a model-clock timestamp within its timestep."""
+
+    matched_time: pd.Timestamp
+    value: float
+    offset_seconds: float
+
+
+class SeriesTimeMatchError(ValueError):
+    """Base error for station/model series time matching."""
+
+
+class SeriesTimeUnavailableError(SeriesTimeMatchError):
+    """Raised when no value lies inside the permitted model-time window."""
+
+
+class SeriesTimeAmbiguityError(SeriesTimeMatchError):
+    """Raised when multiple values are equally near the model time."""
 
 
 @dataclass(frozen=True)
@@ -68,6 +100,131 @@ def model_timezone(raw: object) -> timezone | ZoneInfo:
             raise ValueError(
                 "setup.timezone must be a UTC offset in hours or an IANA timezone name"
             ) from exc
+
+
+def parse_model_timestep(raw: object) -> pd.Timedelta:
+    """Parse one positive, fixed model timestep."""
+    text = str(raw).strip() if raw is not None else ""
+    if not text:
+        raise ValueError("setup.timestep must be configured")
+    # pandas 3 removed the historical uppercase hourly alias while
+    # openAMUNDSEN setup files (including the shipped example) legitimately
+    # use values such as ``3H``. Normalize only that established spelling;
+    # leave all other fixed-frequency parsing to pandas.
+    if re.fullmatch(r"\d*H", text):
+        text = f"{text[:-1]}h"
+    try:
+        offset = pd.tseries.frequencies.to_offset(text)
+        value = pd.Timedelta(offset.nanos, unit="ns")
+    except Exception as exc:
+        raise ValueError(
+            f"setup.timestep must be a positive fixed pandas-compatible frequency: {raw!r}"
+        ) from exc
+    if value <= pd.Timedelta(0):
+        raise ValueError("setup.timestep must be positive")
+    return value
+
+
+def load_model_clock_config(setup_dir: Path) -> ModelClockConfig:
+    """Load the authoritative timestep and timezone from a setup YAML."""
+    setup_yaml = find_setup_yaml(setup_dir)
+    config = read_yaml_mapping(
+        setup_yaml,
+        error_cls=ValueError,
+        context="Setup YAML root",
+    )
+    if "timezone" not in config:
+        raise ValueError(f"Setup configuration must define timezone: {setup_yaml}")
+    timezone_config = config["timezone"]
+    model_timezone(timezone_config)
+    return ModelClockConfig(
+        timestep=parse_model_timestep(config.get("timestep")),
+        timezone=timezone_config,
+    )
+
+
+def _as_utc_index(index: pd.DatetimeIndex, *, timezone_config: object) -> pd.DatetimeIndex:
+    tz = model_timezone(timezone_config)
+    if index.tz is None:
+        localized = index.tz_localize(tz, ambiguous="raise", nonexistent="raise")
+    else:
+        localized = index.tz_convert(tz)
+    return localized.tz_convert("UTC")
+
+
+def _as_utc_timestamp(value: datetime | pd.Timestamp, *, timezone_config: object) -> pd.Timestamp:
+    tz = model_timezone(timezone_config)
+    timestamp = pd.Timestamp(value)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize(tz, ambiguous="raise", nonexistent="raise")
+    else:
+        timestamp = timestamp.tz_convert(tz)
+    return timestamp.tz_convert("UTC")
+
+
+def match_series_value_to_model_time(
+    series: pd.Series,
+    *,
+    model_time: datetime | pd.Timestamp,
+    timestep: pd.Timedelta | object,
+    timezone_config: object,
+    require_exact: bool = False,
+) -> SeriesTimeMatch:
+    """Return the unique nearest value within half a model timestep.
+
+    Naive timestamps are interpreted in the configured model timezone. Ties,
+    duplicate nearest timestamps and values outside the allowed window are
+    rejected. Model-output callers can set ``require_exact`` to enforce the
+    exact model-clock timestamp.
+    """
+    if series is None or series.empty:
+        raise SeriesTimeUnavailableError("Cannot match an empty time series")
+    if not isinstance(series.index, pd.DatetimeIndex):
+        raise ValueError("Time series must use a DatetimeIndex")
+
+    step = timestep if isinstance(timestep, pd.Timedelta) else parse_model_timestep(timestep)
+    if step <= pd.Timedelta(0):
+        raise ValueError("Model timestep must be positive")
+    target_utc = _as_utc_timestamp(model_time, timezone_config=timezone_config)
+    candidate_utc = _as_utc_index(series.index, timezone_config=timezone_config)
+    valid_positions = [index for index, stamp in enumerate(candidate_utc) if not pd.isna(stamp)]
+    if not valid_positions:
+        raise SeriesTimeUnavailableError("Time series contains no valid timestamps")
+
+    offsets = [abs(candidate_utc[index] - target_utc) for index in valid_positions]
+    minimum = min(offsets)
+    nearest_positions = [
+        position
+        for position, offset in zip(valid_positions, offsets, strict=True)
+        if offset == minimum
+    ]
+    if len(nearest_positions) != 1:
+        matched = [str(series.index[position]) for position in nearest_positions]
+        raise SeriesTimeAmbiguityError(
+            f"Ambiguous nearest timestamp for model time {pd.Timestamp(model_time)}: {matched}"
+        )
+
+    allowed = pd.Timedelta(0) if require_exact else step / 2
+    if minimum > allowed:
+        qualifier = "exact model timestamp" if require_exact else f"half the {step} model timestep"
+        raise SeriesTimeUnavailableError(
+            f"Nearest timestamp is {minimum.total_seconds():.0f} s from model time "
+            f"{pd.Timestamp(model_time)}, exceeding {qualifier}"
+        )
+
+    position = nearest_positions[0]
+    raw_value = series.iloc[position]
+    try:
+        value = float(raw_value)
+    except Exception as exc:
+        raise ValueError(
+            f"Matched value at {series.index[position]} is not numeric: {raw_value!r}"
+        ) from exc
+    return SeriesTimeMatch(
+        matched_time=pd.Timestamp(series.index[position]),
+        value=value,
+        offset_seconds=float(minimum.total_seconds()),
+    )
 
 
 def match_observation_to_model_time(

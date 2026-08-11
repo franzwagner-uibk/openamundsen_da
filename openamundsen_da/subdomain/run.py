@@ -24,7 +24,7 @@ from openamundsen_da.observer.satellite_wet_snow_s1 import generate_project_from
 from openamundsen_da.observer.snowcover import summarize_snowcover_directory
 from openamundsen_da.pipeline.project import OrchestratorConfig, run_project
 from openamundsen_da.pipeline.project_skeleton import create_project_skeleton
-from openamundsen_da.subdomain.event_filter import filter_project_events_for_subdomain
+from openamundsen_da.subdomain.event_support import resolve_subdomain_event_plan
 from openamundsen_da.subdomain.manifest import SubdomainManifest
 from openamundsen_da.subdomain.status import save_stage, terminal_status
 from openamundsen_da.util.da_events import load_assimilation_events
@@ -193,16 +193,6 @@ def _prepare_obs_for_subdomain(sub, manifest: SubdomainManifest, *, overwrite: b
         except RuntimeError as exc:
             logger.warning("No valid wet-snow observations for {}: {}", sub.id, exc)
 
-    filter_project_events_for_subdomain(
-        project_yaml=sub.project_yaml,
-        setup_dir=sub.setup_dir,
-        project_name=sub.project_name,
-        subdomain_id=sub.id,
-        dropped_events_csv=_dropped_events_csv(sub.setup_dir),
-    )
-    events = load_assimilation_events(sub.project_dir)
-    variables = {ev.variable for ev in events}
-
     _validate_project_events_have_obs(
         sub.project_yaml,
         available_by_var={
@@ -364,35 +354,44 @@ def _run_one(
 
 
 def _write_project_dropped_events(manifest: SubdomainManifest) -> None:
-    rows: list[dict] = []
-    event_plan_rows: list[dict] = []
-    for meta in manifest.subdomains.values():
-        dropped = list(meta.dropped_events or [])
-        rows.extend(dropped)
-        for row in dropped:
-            event_plan_rows.append({**row, "status": "dropped"})
-        try:
-            for event in load_assimilation_events(meta.project_dir):
-                event_plan_rows.append(
-                    {
-                        "subdomain_id": meta.id,
-                        "date": event.date.isoformat(),
-                        "variable": event.variable,
-                        "product": event.product or "",
-                        "reason": "",
-                        "metric": "",
-                        "value": "",
-                        "threshold": "",
-                        "active_station_ids": "",
-                        "project_yaml": str(meta.project_yaml),
-                        "status": "kept",
-                    }
-                )
-        except Exception as exc:
-            logger.warning("Could not read final event plan for sub-domain {}: {}", meta.id, exc)
+    complete = bool(manifest.subdomains) and all(
+        str(meta.status).lower() == "success" for meta in manifest.subdomains.values()
+    )
+    if complete:
+        event_plan_rows = resolve_subdomain_event_plan(manifest, require_artifacts=True)
+        rows = [row for row in event_plan_rows if row["status"] == "dropped"]
+    else:
+        rows = []
+        event_plan_rows = []
+        for meta in manifest.subdomains.values():
+            dropped = list(meta.dropped_events or [])
+            rows.extend(dropped)
+            for row in dropped:
+                event_plan_rows.append({**row, "status": "dropped"})
+            try:
+                for event in load_assimilation_events(meta.project_dir):
+                    event_plan_rows.append(
+                        {
+                            "subdomain_id": meta.id,
+                            "date": event.date.isoformat(),
+                            "assimilation_time": "",
+                            "variable": event.variable,
+                            "product": event.product or "",
+                            "reason": "",
+                            "metric": "",
+                            "value": "",
+                            "threshold": "",
+                            "active_station_ids": "",
+                            "project_yaml": str(meta.project_yaml),
+                            "status": "kept",
+                        }
+                    )
+            except Exception as exc:
+                logger.warning("Could not read partial event plan for sub-domain {}: {}", meta.id, exc)
     columns = [
         "subdomain_id",
         "date",
+        "assimilation_time",
         "variable",
         "product",
         "reason",

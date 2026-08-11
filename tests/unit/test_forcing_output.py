@@ -1,0 +1,75 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import netCDF4
+import numpy as np
+import pytest
+
+from openamundsen_da.util.forcing_output import (
+    compact_forcing_members,
+    compact_forcing_stations,
+    load_compact_forcing_series,
+    write_project_ensemble_forcing,
+)
+
+
+def _write_forcing(root: Path, date: str, temp: float, precip: float) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "stations.csv").write_text("id,name,x,y,alt\na,A,0,0,0\n", encoding="utf-8")
+    (root / "a.csv").write_text(
+        f"date,temp,precip\n{date} 00:00:00,{temp},{precip}\n",
+        encoding="utf-8",
+    )
+
+
+def test_forcing_output_retains_consumed_open_loop_and_member_values(tmp_path: Path) -> None:
+    project = tmp_path / "setup" / "projects" / "demo"
+    project.mkdir(parents=True)
+    (project / "demo.yml").write_text("start_date: 2023-01-01\nend_date: 2023-01-02\n", encoding="utf-8")
+    for step_name, date, offset in (("step_00", "2023-01-01", 0), ("step_01", "2023-01-02", 10)):
+        step = project / "steps" / step_name
+        step.mkdir(parents=True)
+        (step / f"{step_name}.yml").write_text(
+            f"start_date: {date}T00:00:00\nend_date: {date}T21:00:00\n",
+            encoding="utf-8",
+        )
+        _write_forcing(step / "ensembles" / "prior" / "open_loop" / "meteo", date, 270 + offset, 1 + offset)
+        for member_idx in (1, 2):
+            _write_forcing(
+                step / "ensembles" / "prior" / f"member_{member_idx:03d}" / "meteo",
+                date,
+                270 + offset + member_idx,
+                1 + offset + member_idx,
+            )
+
+    output = write_project_ensemble_forcing(project)
+
+    assert compact_forcing_stations(project) == ["a.csv"]
+    assert compact_forcing_members(project) == ["member_001", "member_002"]
+    series = load_compact_forcing_series(
+        project,
+        station_filename="a.csv",
+        member="member_002",
+        variables=["temp", "precip"],
+    )
+    assert series is not None
+    np.testing.assert_array_equal(series["temp"].to_numpy(), [272.0, 282.0])
+    with netCDF4.Dataset(output) as dataset:
+        assert dataset.variables["temp"].units == "K"
+        assert dataset.variables["precip"].filters()["zlib"] is True
+
+
+def test_forcing_output_refuses_incomplete_member_schema(tmp_path: Path) -> None:
+    project = tmp_path / "setup" / "projects" / "demo"
+    step = project / "steps" / "step_00"
+    step.mkdir(parents=True)
+    (step / "step_00.yml").write_text(
+        "start_date: 2023-01-01T00:00:00\nend_date: 2023-01-01T21:00:00\n",
+        encoding="utf-8",
+    )
+    _write_forcing(step / "ensembles" / "prior" / "open_loop" / "meteo", "2023-01-01", 270, 1)
+    (step / "ensembles" / "prior" / "member_001" / "meteo").mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="Forcing station files differ"):
+        write_project_ensemble_forcing(project)

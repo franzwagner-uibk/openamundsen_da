@@ -12,6 +12,7 @@ from pathlib import Path
 
 from openamundsen_da.configuration import ProjectConfiguration, load_project_configuration
 from openamundsen_da.exceptions import (
+    LowDiskSpaceError,
     ProjectCleanupError,
     ProjectPreparationError,
     ProjectRenderError,
@@ -527,7 +528,10 @@ def run_project(project_dir: str | Path, *, max_workers: int | None = None) -> R
         manifest["stages"]["cleanup"] = "success"
         write_manifest_atomic(manifest_path, manifest)
     except BaseException as exc:
-        terminal_status = "interrupted" if isinstance(exc, KeyboardInterrupt) else "failed"
+        if isinstance(exc, LowDiskSpaceError):
+            terminal_status = "paused_low_disk"
+        else:
+            terminal_status = "interrupted" if isinstance(exc, KeyboardInterrupt) else "failed"
         for stage, stage_status in manifest["stages"].items():
             if stage_status == "running":
                 manifest["stages"][stage] = terminal_status

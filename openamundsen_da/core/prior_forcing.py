@@ -133,14 +133,8 @@ def _reject_removed_humidity_method_option(block: dict, path: str) -> None:
     )
 
 
-def _read_step_start_and_project_end(step_dir: Path) -> Tuple[pd.Timestamp, pd.Timestamp]:
-    """Read step start_date and project end_date (inclusive).
-
-    Robustness:
-    - step start_date is mandatory (from step YAML)
-    - project end_date is mandatory (from project YAML)
-    """
-    # Read the required step start.
+def _read_step_window(step_dir: Path) -> Tuple[pd.Timestamp, pd.Timestamp]:
+    """Read the inclusive forcing window from the consuming step YAML."""
     step_yaml = find_step_yaml(step_dir)
     step_cfg = _read_yaml_file(step_yaml) or {}
     try:
@@ -149,17 +143,14 @@ def _read_step_start_and_project_end(step_dir: Path) -> Tuple[pd.Timestamp, pd.T
         raise ValueError(f"Missing required key '{START_DATE}' in {step_yaml}") from e
     if pd.isna(start):
         raise ValueError(f"Invalid {START_DATE} in {step_yaml}")
-
-    # Read the required project end.
-    project_dir = infer_project_dir(step_dir)
-    project_yaml = find_project_yaml(project_dir)
-    project_cfg = _read_yaml_file(project_yaml) or {}
     try:
-        end = pd.to_datetime(project_cfg[END_DATE])
+        end = pd.to_datetime(step_cfg[END_DATE])
     except KeyError as e:
-        raise ValueError(f"Missing required key '{END_DATE}' in {project_yaml}") from e
+        raise ValueError(f"Missing required key '{END_DATE}' in {step_yaml}") from e
     if pd.isna(end):
-        raise ValueError(f"Invalid {END_DATE} in {project_yaml}")
+        raise ValueError(f"Invalid {END_DATE} in {step_yaml}")
+    if end < start:
+        raise ValueError(f"Invalid step window in {step_yaml}: {END_DATE} precedes {START_DATE}")
     return start, end
 
 
@@ -298,9 +289,10 @@ def validate_prior_forcing_manifest(
     manifest = load_manifest(manifest_path)
     if manifest is None:
         raise FileNotFoundError(f"Missing prior-forcing manifest: {manifest_path}")
-    if manifest.get("prior_forcing_schema_version") != 1 or manifest.get("status") != "complete":
+    if manifest.get("prior_forcing_schema_version") != 2 or manifest.get("status") != "complete":
         raise ValueError(f"Unsupported or incomplete prior-forcing manifest: {manifest_path}")
     params = _read_prior_params(project_dir)
+    start, end = _read_step_window(step_dir)
     setup_dir = project_dir.parent.parent.resolve()
     expected = {
         "ensemble_size": params.ensemble_size,
@@ -313,6 +305,8 @@ def validate_prior_forcing_manifest(
         "rng_scheme": RNG_SCHEME,
         "event_key": step_dir.name,
         "event_seed": keyed_seed(params.random_seed, "initial_forcing", step_dir.name),
+        "window_start": start.isoformat(),
+        "window_end": end.isoformat(),
     }
     mismatches = {
         key: (manifest.get(key), value)
@@ -366,7 +360,7 @@ def build_prior_ensemble(
             f"step_dir belongs to {inferred_project_dir}, but --project-dir is {project_dir}"
         )
     params = _read_prior_params(project_dir)
-    start, end = _read_step_start_and_project_end(step_dir)
+    start, end = _read_step_window(step_dir)
     manifest_path = _prior_forcing_manifest_path(step_dir)
     prior_root = prior_root_dir(step_dir)
     if manifest_path.is_file() and not overwrite:
@@ -514,7 +508,7 @@ def build_prior_ensemble(
     write_manifest_atomic(
         manifest_path,
         {
-            "prior_forcing_schema_version": 1,
+            "prior_forcing_schema_version": 2,
             "status": "complete",
             "ensemble_size": params.ensemble_size,
             "random_seed": params.random_seed,
@@ -526,6 +520,8 @@ def build_prior_ensemble(
             "rng_scheme": RNG_SCHEME,
             "event_key": step_dir.name,
             "event_seed": keyed_seed(params.random_seed, "initial_forcing", step_dir.name),
+            "window_start": start.isoformat(),
+            "window_end": end.isoformat(),
             "members": perturbations,
             "input_inventory": inputs,
             "input_inventory_sha256": inventory_digest(inputs),

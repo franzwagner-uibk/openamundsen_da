@@ -23,6 +23,8 @@ from openamundsen_da.io.paths import (
 from openamundsen_da.methods.viz.maps.generated import GENERATED_DA_MAPS_SUBDIR
 from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta
 from openamundsen_da.subdomain.status import save_stage, terminal_status
+from openamundsen_da.pipeline.cleanup import clean_project_artifacts
+from openamundsen_da.util.retention import apply_retention_batch, reconcile_retention_ledger
 from openamundsen_da.util.da_output import (
     output_retention_mode,
     write_da_output_grids,
@@ -398,7 +400,7 @@ def validate_compact_cleanup_artifacts_ready(
 
 
 def _manifest_owned_compact_artifacts(manifest: SubdomainManifest, out_base: Path) -> list[Path]:
-    """Return only transient grid files owned by the selected manifest."""
+    """Return transient parent merge files owned by the selected manifest."""
     artifacts: set[Path] = set()
     resolved_out_base = out_base.resolve()
     merge_outputs = (manifest.stages.get("merge") or {}).get("outputs")
@@ -415,17 +417,6 @@ def _manifest_owned_compact_artifacts(manifest: SubdomainManifest, out_base: Pat
         if path.name != "da_output_grids.nc" and path.is_file():
             artifacts.add(path)
 
-    step_patterns = (
-        "steps/step_*/ensembles/prior/member_*/results/output_grids*.nc",
-        "steps/step_*/ensembles/prior/open_loop/results/output_grids*.nc",
-        "steps/step_*/ensembles/prior/member_*/results/**/*.tif",
-        "steps/step_*/ensembles/prior/member_*/results/**/*.tiff",
-        "steps/step_*/ensembles/prior/open_loop/results/**/*.tif",
-        "steps/step_*/ensembles/prior/open_loop/results/**/*.tiff",
-        "steps/step_*/ensembles/posterior/member_*/results/output_grids*.nc",
-        "steps/step_*/ensembles/posterior/member_*/results/**/*.tif",
-        "steps/step_*/ensembles/posterior/member_*/results/**/*.tiff",
-    )
     manifest_root = manifest.subdomain_root.resolve()
     for subdomain in manifest.subdomains.values():
         project_root = subdomain.project_dir.resolve()
@@ -433,14 +424,6 @@ def _manifest_owned_compact_artifacts(manifest: SubdomainManifest, out_base: Pat
             raise CompactCleanupSafetyError(
                 f"Manifest project escapes its subdomain root: {project_root}"
             )
-        compact_summary = project_root / "results" / "grids" / "da_output_grids.nc"
-        if compact_summary.is_file():
-            artifacts.add(compact_summary.resolve())
-        for pattern in step_patterns:
-            for path in project_root.glob(pattern):
-                resolved = path.resolve()
-                if path.is_file() and resolved.is_relative_to(project_root):
-                    artifacts.add(resolved)
     return sorted(artifacts)
 
 
@@ -459,17 +442,50 @@ def cleanup_compact_grid_artifacts(
 
     out_base = out_dir or (manifest.project_dir / "results" / "grids")
     validate_compact_cleanup_artifacts_ready(manifest=manifest, out_dir=out_base)
-    artifacts = _manifest_owned_compact_artifacts(manifest, Path(out_base))
-    save_stage(manifest, manifest_path, "cleanup", "running", outputs=artifacts)
+    reconcile_retention_ledger(manifest.project_dir)
+    parent_artifacts = _manifest_owned_compact_artifacts(manifest, Path(out_base))
+    leaf_summaries = [
+        subdomain.project_dir.resolve() / "results" / "grids" / "da_output_grids.nc"
+        for subdomain in manifest.subdomains.values()
+    ]
+    planned = [*parent_artifacts, *(path for path in leaf_summaries if path.is_file())]
+    save_stage(manifest, manifest_path, "cleanup", "running", outputs=planned)
 
     deleted: list[Path] = []
     bytes_freed = 0
     try:
-        for path in artifacts:
-            size = path.stat().st_size
-            path.unlink()
-            deleted.append(path)
-            bytes_freed += size
+        for subdomain in manifest.subdomains.values():
+            cleanup = clean_project_artifacts(subdomain.project_dir, apply=True)
+            if cleanup.failures:
+                raise CompactCleanupSafetyError(
+                    f"Compact leaf cleanup failed for {subdomain.id}: "
+                    f"{len(cleanup.failures)} artifact(s)"
+                )
+            deleted.extend(cleanup.deleted_paths)
+            bytes_freed += cleanup.freed_bytes
+            compact_summary = subdomain.project_dir / "results" / "grids" / "da_output_grids.nc"
+            if compact_summary.is_file():
+                size = compact_summary.stat().st_size
+                apply_retention_batch(
+                    subdomain.project_dir,
+                    artifact_class="merged_subdomain_grid_summary",
+                    paths=[compact_summary],
+                    final_consumer="validated parent grid merge and render",
+                    regeneration_recipe="rerun the subdomain project and parent merge",
+                )
+                deleted.append(compact_summary.resolve())
+                bytes_freed += size
+        if parent_artifacts:
+            sizes = {path: path.stat().st_size for path in parent_artifacts}
+            apply_retention_batch(
+                manifest.project_dir,
+                artifact_class="parent_merge_intermediate_grid",
+                paths=parent_artifacts,
+                final_consumer="validated parent compact grid, maps and report",
+                regeneration_recipe="rerun subdomain merge from retained leaf products",
+            )
+            deleted.extend(path for path in parent_artifacts if not path.exists())
+            bytes_freed += sum(size for path, size in sizes.items() if not path.exists())
     except BaseException as exc:
         current = SubdomainManifest.load(manifest_path)
         save_stage(
@@ -482,7 +498,7 @@ def cleanup_compact_grid_artifacts(
         )
         if isinstance(exc, KeyboardInterrupt):
             raise
-        raise CompactCleanupSafetyError(f"Compact cleanup failed at {path}: {exc}") from exc
+        raise CompactCleanupSafetyError(f"Compact cleanup failed: {exc}") from exc
 
     current = SubdomainManifest.load(manifest_path)
     save_stage(current, manifest_path, "cleanup", "completed", outputs=deleted)

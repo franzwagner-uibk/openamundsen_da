@@ -13,6 +13,7 @@ from openamundsen_da.io.paths import (
     list_member_dirs,
     list_step_dirs,
     project_result_overview_output_path,
+    read_step_config,
 )
 from openamundsen_da.methods.pf.weights import load_prior_weights
 from openamundsen_da.util.stats import (
@@ -23,6 +24,7 @@ from openamundsen_da.util.stats import (
     weighted_std,
 )
 from openamundsen_da.util.ts import concat_series, parse_time_column
+from openamundsen_da.util.point_output import compact_point_members, load_compact_point_series
 
 
 def parse_fraction_dates(df: pd.DataFrame) -> pd.DataFrame:
@@ -103,7 +105,15 @@ def load_open_loop_fraction_series(
         if series is not None:
             segments.append(series)
     if not segments:
-        return None
+        compact = load_compact_point_series(
+            project_dir,
+            point_filename=filename,
+            member="open_loop",
+            variable=value_col,
+        )
+        if compact is None:
+            return None
+        segments = [compact]
     stitched = concat_series(segments).sort_index()
     if not preserve_missing_values:
         stitched = stitched.dropna()
@@ -132,6 +142,16 @@ def load_member_series(
                 member_segments[member_dir.name].append(series)
 
     stitched_members: list[pd.Series] = []
+    if not member_segments:
+        for member_name in compact_point_members(project_dir):
+            series = load_compact_point_series(
+                project_dir,
+                point_filename=filename,
+                member=member_name,
+                variable=value_col,
+            )
+            if series is not None:
+                member_segments[member_name].append(series)
     for member_name in sorted(member_segments):
         stitched = concat_series(member_segments[member_name]).sort_index()
         if not preserve_missing_values:
@@ -161,6 +181,16 @@ def load_named_member_series(
                 member_segments[member_dir.name].append(series)
 
     stitched_members: dict[str, pd.Series] = {}
+    if not member_segments:
+        for member_name in compact_point_members(project_dir):
+            series = load_compact_point_series(
+                project_dir,
+                point_filename=filename,
+                member=member_name,
+                variable=value_col,
+            )
+            if series is not None:
+                member_segments[member_name].append(series)
     for member_name in sorted(member_segments):
         stitched = concat_series(member_segments[member_name]).sort_index()
         if not preserve_missing_values:
@@ -200,6 +230,21 @@ def load_weighted_member_envelope(
                 value_col,
                 preserve_missing_values=preserve_missing_values,
             )
+            if series is None:
+                series = load_compact_point_series(
+                    project_dir,
+                    point_filename=filename,
+                    member=member.name,
+                    variable=value_col,
+                )
+                if series is not None:
+                    step_cfg = read_step_config(step) or {}
+                    start = pd.to_datetime(step_cfg.get("start_date"), errors="coerce")
+                    end = pd.to_datetime(step_cfg.get("end_date"), errors="coerce")
+                    if pd.notna(start):
+                        series = series.loc[series.index >= start]
+                    if pd.notna(end):
+                        series = series.loc[series.index <= end]
             if series is None:
                 continue
             if daily_mean:

@@ -318,6 +318,13 @@ def list_point_files_results(step_dir: str | Path, ensemble: str = "prior") -> t
             files = [f.name for f in sorted(res_dir.glob("point_*.csv"))]
             if files:
                 break
+    if not files:
+        try:
+            from openamundsen_da.util.point_output import compact_point_filenames
+
+            files = compact_point_filenames(infer_project_dir(step_dir))
+        except (FileNotFoundError, ValueError):
+            files = []
     return (ol_results if ol_results.is_dir() else None), files
 
 
@@ -333,6 +340,31 @@ def abspath_relative_to(base: str | Path, p: str | Path) -> str:
 def project_results_root(project_dir: str | Path) -> Path:
     """Return the canonical project-level results root."""
     return Path(project_dir) / "results"
+
+
+def project_points_root(project_dir: str | Path) -> Path:
+    """Return the retained project-level point-data directory."""
+    return project_results_root(project_dir) / "points"
+
+
+def project_ensemble_points_path(project_dir: str | Path) -> Path:
+    """Return the compressed all-member point-series NetCDF path."""
+    return project_points_root(project_dir) / "ensemble_points.nc"
+
+
+def project_forcing_root(project_dir: str | Path) -> Path:
+    """Return the retained project-level forcing-data directory."""
+    return project_results_root(project_dir) / "forcing"
+
+
+def project_ensemble_forcing_path(project_dir: str | Path) -> Path:
+    """Return the compressed all-member forcing NetCDF path."""
+    return project_forcing_root(project_dir) / "ensemble_forcing.nc"
+
+
+def project_map_support_path(project_dir: str | Path) -> Path:
+    """Return retained spatial support for configured DA-event maps."""
+    return project_results_root(project_dir) / "grids" / "da_map_support.nc"
 
 
 def project_paper_root(project_dir: str | Path) -> Path:

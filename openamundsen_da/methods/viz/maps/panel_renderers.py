@@ -28,6 +28,7 @@ from openamundsen_da.io.paths import (
     resolve_member_source_dir,
 )
 from openamundsen_da.methods.h_of_x.model_scf import compute_model_scf_binary_grid, load_hofx_from_project
+from openamundsen_da.util.map_support import load_map_support_field, write_map_support
 from openamundsen_da.methods.pf.weights import load_prior_weights
 from openamundsen_da.methods.viz.fraction_series import load_fraction_series, load_open_loop_fraction_series
 from openamundsen_da.methods.viz.theme import da_variable_line_color
@@ -2004,10 +2005,34 @@ def _wet_snow_model_classified_array(
     source: str,
     date: pd.Timestamp,
     derived_cache: dict[str, np.ndarray] | None,
+    allow_retained: bool = True,
 ) -> np.ndarray:
     cache_key = f"wet-snow-model-map:{source}:{pd.Timestamp(date).normalize().isoformat()}"
     if derived_cache is not None and cache_key in derived_cache:
         return np.asarray(derived_cache[cache_key], dtype=float)
+
+    retained_source = {
+        "open_loop": "wet_snow_open_loop",
+        "ensemble_mean": "wet_snow_prior_probability",
+        "posterior": "wet_snow_posterior_probability",
+    }.get(source)
+    retained = (
+        load_map_support_field(context.project_dir, date=date, field=retained_source)
+        if allow_retained and retained_source is not None
+        else None
+    )
+    if retained is not None:
+        if source == "open_loop":
+            classified = retained
+        else:
+            valid = np.isfinite(retained)
+            threshold = _wet_snow_threshold_fraction(context.project_dir)
+            classified = np.full(retained.shape, np.nan, dtype=float)
+            classified[valid & (retained >= threshold)] = float(_WET_SNOW_MODEL_CODES[0])
+            classified[valid & (retained < threshold)] = float(_WET_SNOW_MODEL_CODES[1])
+        if derived_cache is not None:
+            derived_cache[cache_key] = classified
+        return np.asarray(classified, dtype=float)
 
     step_dir = _step_dir_for_date(context.project_dir, date)
     if source == "open_loop":
@@ -2053,10 +2078,25 @@ def _prior_wet_fraction_array(
     context: StaticContext,
     date: pd.Timestamp,
     derived_cache: dict[str, np.ndarray] | None,
+    allow_retained: bool = True,
 ) -> np.ndarray:
     cache_key = f"wet-snow-prior-fraction:{pd.Timestamp(date).normalize().isoformat()}"
     if derived_cache is not None and cache_key in derived_cache:
         return np.asarray(derived_cache[cache_key], dtype=float)
+
+    retained = (
+        load_map_support_field(
+            context.project_dir,
+            date=date,
+            field="wet_snow_prior_probability",
+        )
+        if allow_retained
+        else None
+    )
+    if retained is not None:
+        if derived_cache is not None:
+            derived_cache[cache_key] = retained
+        return retained
 
     step_dir = _step_dir_for_date(context.project_dir, date)
     member_dirs = list_member_dirs(step_dir, "prior")
@@ -2150,6 +2190,7 @@ def _posterior_weighted_wet_fraction_array(
     date: pd.Timestamp,
     derived_cache: dict[str, np.ndarray] | None,
     weights_variable: str | None = None,
+    allow_retained: bool = True,
 ) -> np.ndarray:
     resolved_weights_variable = weights_variable or _event_variable_for_date(context.project_dir, date)
     cache_key = (
@@ -2158,6 +2199,20 @@ def _posterior_weighted_wet_fraction_array(
     )
     if derived_cache is not None and cache_key in derived_cache:
         return np.asarray(derived_cache[cache_key], dtype=float)
+
+    retained = (
+        load_map_support_field(
+            context.project_dir,
+            date=date,
+            field="wet_snow_posterior_probability",
+        )
+        if allow_retained
+        else None
+    )
+    if retained is not None:
+        if derived_cache is not None:
+            derived_cache[cache_key] = retained
+        return retained
 
     step_dir = _step_dir_for_date(context.project_dir, date)
     weights = _posterior_da_weights(context, date, variable=resolved_weights_variable)
@@ -2504,7 +2559,20 @@ def _single_domain_scf_model_probability_array(
     source: str,
     date: pd.Timestamp,
     derived_cache: dict[str, np.ndarray] | None,
+    allow_retained: bool = True,
 ) -> np.ndarray:
+    retained = (
+        load_map_support_field(
+            context.project_dir,
+            date=date,
+            field=f"scf_{source}",
+        )
+        if allow_retained
+        else None
+    )
+    if retained is not None:
+        retained[~context.roi_mask] = np.nan
+        return retained
     step_dir = _step_dir_for_date(context.project_dir, date)
     if source == "open_loop_binary":
         classified = _scf_binary_grid_from_results(
@@ -2544,6 +2612,94 @@ def _single_domain_scf_model_probability_array(
     classified = np.asarray(classified, dtype=float)
     classified[~context.roi_mask] = np.nan
     return classified
+
+
+def _summary_dates_for_support(project_dir: Path, context: StaticContext, filename: str) -> set[pd.Timestamp]:
+    path = resolve_fraction_summary_path(context.setup_dir, project_dir, filename)
+    if not path.is_file():
+        return set()
+    frame = pd.read_csv(path, usecols=["date"])
+    return {
+        pd.Timestamp(value).normalize()
+        for value in pd.to_datetime(frame["date"], errors="coerce").dropna()
+    }
+
+
+def write_project_da_map_support(project_dir: Path) -> Path | None:
+    """Persist the spatial fields required to rerender configured DA maps."""
+    project_dir = Path(project_dir).resolve()
+    events = load_assimilation_events(project_dir)
+    if not events:
+        return None
+    dates = sorted({pd.Timestamp(event.date).normalize() for event in events})
+    context = load_static_context(project_dir)
+    shape = tuple(context.roi_mask.shape)
+    scf_dates = _summary_dates_for_support(project_dir, context, "scf_summary.csv")
+    wet_dates = _summary_dates_for_support(project_dir, context, "wet_snow_summary.csv")
+    event_variables = {pd.Timestamp(event.date).normalize(): event.variable for event in events}
+    fields: dict[str, list[np.ndarray]] = {}
+
+    if scf_dates or any(event.variable == "scf" for event in events):
+        for source in ("open_loop_binary", "prior_probability", "posterior_probability"):
+            values: list[np.ndarray] = []
+            for date in dates:
+                if date not in scf_dates and event_variables.get(date) != "scf":
+                    values.append(np.full(shape, np.nan, dtype=float))
+                    continue
+                values.append(
+                    _single_domain_scf_model_probability_array(
+                        context=context,
+                        source=source,
+                        date=date,
+                        derived_cache=None,
+                        allow_retained=False,
+                    )
+                )
+            fields[f"scf_{source}"] = values
+
+    if wet_dates or any(event.variable in {"wet_snow", "wet_snow_line"} for event in events):
+        open_loop: list[np.ndarray] = []
+        prior: list[np.ndarray] = []
+        posterior: list[np.ndarray] = []
+        for date in dates:
+            if date not in wet_dates and event_variables.get(date) not in {"wet_snow", "wet_snow_line"}:
+                empty = np.full(shape, np.nan, dtype=float)
+                open_loop.append(empty)
+                prior.append(empty.copy())
+                posterior.append(empty.copy())
+                continue
+            open_loop.append(
+                _wet_snow_model_classified_array(
+                    context=context,
+                    source="open_loop",
+                    date=date,
+                    derived_cache=None,
+                    allow_retained=False,
+                )
+            )
+            prior.append(
+                _prior_wet_fraction_array(
+                    context=context,
+                    date=date,
+                    derived_cache=None,
+                    allow_retained=False,
+                )
+            )
+            posterior.append(
+                _posterior_weighted_wet_fraction_array(
+                    context=context,
+                    date=date,
+                    derived_cache=None,
+                    allow_retained=False,
+                )
+            )
+        fields["wet_snow_open_loop"] = open_loop
+        fields["wet_snow_prior_probability"] = prior
+        fields["wet_snow_posterior_probability"] = posterior
+
+    if not fields:
+        return None
+    return write_map_support(project_dir, dates=dates, fields=fields)
 
 
 def _top_level_subdomain_scf_model_probability_array(

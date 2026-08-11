@@ -122,7 +122,7 @@ def test_run_one_caps_project_plot_workers_to_inner_workers(tmp_path, monkeypatc
     assert captured["cfg"].plot_workers == 6
 
 
-def test_run_one_rebuilds_failed_partial_subdomain_on_resume(tmp_path, monkeypatch):
+def test_run_one_resumes_failed_partial_subdomain_without_implicit_overwrite(tmp_path, monkeypatch):
     _, manifest_path = _single_subdomain_manifest(tmp_path)
     run_manifest = tmp_path / "subdomains" / "S1" / "run_manifest.json"
     run_manifest.write_text(json.dumps({"status": "failed"}), encoding="utf-8")
@@ -149,5 +149,5 @@ def test_run_one_rebuilds_failed_partial_subdomain_on_resume(tmp_path, monkeypat
     )
 
     assert result.status == "success"
-    assert captured["prepare_overwrite"] is True
-    assert captured["project_overwrite"] is True
+    assert captured["prepare_overwrite"] is False
+    assert captured["project_overwrite"] is False

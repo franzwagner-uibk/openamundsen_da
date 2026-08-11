@@ -479,6 +479,13 @@ def test_cleanup_deletes_only_manifest_owned_files_after_render(
     merged_tif = grids_dir / "snow_depth.tif"
     unlisted_merged_tif = grids_dir / "unlisted_reference.tif"
     compact_subdomain = sub_project_dir / "results" / "grids" / "da_output_grids.nc"
+    leaf_project_yaml = sub_project_dir / "project_2022_2023.yml"
+    leaf_project_yaml.parent.mkdir(parents=True, exist_ok=True)
+    leaf_project_yaml.write_text(
+        "data_assimilation:\n  output:\n    retention: compact\n",
+        encoding="utf-8",
+    )
+    map_support = sub_project_dir / "results" / "grids" / "da_map_support.nc"
     subdomain_artifact = (
         sub_project_dir
         / "steps"
@@ -500,6 +507,7 @@ def test_cleanup_deletes_only_manifest_owned_files_after_render(
         merged_tif,
         unlisted_merged_tif,
         compact_subdomain,
+        map_support,
         subdomain_artifact,
         unowned,
     ):
@@ -538,6 +546,14 @@ def test_cleanup_deletes_only_manifest_owned_files_after_render(
         merge_mod,
         "load_assimilation_events",
         lambda _project_dir: [SimpleNamespace(date="2022-10-01", variable="scf", product="test")],
+    )
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.cleanup.load_assimilation_events",
+        lambda _project_dir: [SimpleNamespace(date="2022-10-01", variable="scf")],
+    )
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.cleanup.validate_map_support",
+        lambda *_args, **_kwargs: map_support,
     )
 
     deleted, bytes_freed = merge_mod.cleanup_compact_grid_artifacts(

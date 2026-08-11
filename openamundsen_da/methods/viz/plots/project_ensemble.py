@@ -104,6 +104,12 @@ from openamundsen_da.methods.viz.plots.common import (
 )
 from openamundsen_da.methods.viz.plots.ensemble_meta import load_stations_table_from_steps
 from openamundsen_da.util.station_da import station_observation_csvs
+from openamundsen_da.util.point_output import compact_point_members, load_compact_point_series
+from openamundsen_da.util.forcing_output import (
+    compact_forcing_members,
+    compact_forcing_stations,
+    load_compact_forcing_series,
+)
 
 
 # ---- Data structures --------------------------------------------------------
@@ -520,7 +526,11 @@ def plot_setup_forcing(
         if station_files:
             break
     if not station_files:
-        raise FileNotFoundError("No station CSV files found in any step's meteo directories")
+        station_files = compact_forcing_stations(setup_dir)
+    if not station_files:
+        raise FileNotFoundError(
+            "No station forcing found in member CSVs or retained compact forcing output"
+        )
 
     if stations:
         keep = set(stations)
@@ -596,6 +606,51 @@ def plot_setup_forcing(
                     if isinstance(exc, ValueError) and f"Missing column '{precip_col}'" in str(exc):
                         continue
                     logger.warning("Failed reading member forcing {} in {}: {}", fname, m.name, exc)
+
+        if not member_series_temp and not member_series_prec:
+            compact_open_loop = load_compact_forcing_series(
+                setup_dir,
+                station_filename=fname,
+                member="open_loop",
+                variables=[temp_col, precip_col],
+            )
+            if compact_open_loop is not None:
+                compact_open_loop = resample_and_smooth(
+                    compact_open_loop,
+                    resample,
+                    None,
+                    rolling,
+                )
+                compact_open_loop = apply_window(compact_open_loop, start_date, end_date)
+                if temp_col in compact_open_loop:
+                    values = compact_open_loop[temp_col].dropna()
+                    if not values.empty:
+                        open_loop_temp.append(values)
+                if precip_col in compact_open_loop:
+                    values = compact_open_loop[precip_col].dropna()
+                    if not values.empty:
+                        open_loop_prec.append(values)
+            for member_name in compact_forcing_members(setup_dir):
+                compact_member = load_compact_forcing_series(
+                    setup_dir,
+                    station_filename=fname,
+                    member=member_name,
+                    variables=[temp_col, precip_col],
+                )
+                if compact_member is None:
+                    continue
+                compact_member = resample_and_smooth(compact_member, resample, None, rolling)
+                compact_member = apply_window(compact_member, start_date, end_date)
+                if temp_col in compact_member:
+                    values = compact_member[temp_col].dropna()
+                    if not values.empty:
+                        member_series_temp.append(values)
+                        member_labels_temp.append(member_label_map.get(member_name, member_name))
+                if precip_col in compact_member:
+                    values = compact_member[precip_col].dropna()
+                    if not values.empty:
+                        member_series_prec.append(values)
+                        member_labels_prec.append(member_label_map.get(member_name, member_name))
 
         if not member_series_temp and not member_series_prec:
             logger.warning("No member data for station {} across setup; skipping.", fname)
@@ -840,6 +895,36 @@ def plot_setup_results(
                     if isinstance(exc, ValueError) and f"Missing column '{var_col}'" in str(exc):
                         continue
                     logger.warning("Failed reading member results {} in {}: {}", fname, m.name, exc)
+
+        if not member_series and not open_loop:
+            compact_open_loop = load_compact_point_series(
+                setup_dir,
+                point_filename=fname,
+                member="open_loop",
+                variable=var_col,
+            )
+            if compact_open_loop is not None:
+                if effective_start is not None:
+                    compact_open_loop = compact_open_loop.loc[compact_open_loop.index >= effective_start]
+                if effective_end is not None:
+                    compact_open_loop = compact_open_loop.loc[compact_open_loop.index <= effective_end]
+                if not compact_open_loop.empty:
+                    open_loop.append(compact_open_loop)
+            for member_name in compact_point_members(setup_dir):
+                compact_member = load_compact_point_series(
+                    setup_dir,
+                    point_filename=fname,
+                    member=member_name,
+                    variable=var_col,
+                )
+                if compact_member is None:
+                    continue
+                if effective_start is not None:
+                    compact_member = compact_member.loc[compact_member.index >= effective_start]
+                if effective_end is not None:
+                    compact_member = compact_member.loc[compact_member.index <= effective_end]
+                if not compact_member.empty:
+                    member_series.append(compact_member)
 
         if not member_series and not open_loop:
             logger.warning("No data for station {} across setup; skipping.", fname)

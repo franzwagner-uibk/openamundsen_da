@@ -392,3 +392,15 @@ def test_output_retention_mode_explicit_compact_wins_for_subdomain(tmp_path: Pat
     )
 
     assert output_retention_mode(project_dir) == "compact"
+
+
+def test_output_retention_mode_rejects_unknown_value(tmp_path: Path) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "project_2022_2023.yml").write_text(
+        "data_assimilation:\n  output:\n    retention: tiny\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="must be 'compact' or 'full'"):
+        output_retention_mode(project_dir)

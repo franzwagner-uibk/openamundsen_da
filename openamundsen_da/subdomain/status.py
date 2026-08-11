@@ -7,10 +7,13 @@ from pathlib import Path
 from typing import Iterable
 
 from openamundsen_da.subdomain.manifest import SubdomainManifest
+from openamundsen_da.exceptions import LowDiskSpaceError
 
 
 STAGE_NAMES = frozenset({"prepare", "run", "merge", "render", "cleanup"})
-STAGE_STATUSES = frozenset({"pending", "running", "completed", "failed", "interrupted", "skipped"})
+STAGE_STATUSES = frozenset(
+    {"pending", "running", "completed", "failed", "interrupted", "paused_low_disk", "skipped"}
+)
 
 
 def record_stage(
@@ -55,6 +58,8 @@ def save_stage(
 
 def terminal_status(exc: BaseException) -> str:
     """Return the persisted terminal state for an escaping exception."""
+    if isinstance(exc, LowDiskSpaceError):
+        return "paused_low_disk"
     return "interrupted" if isinstance(exc, KeyboardInterrupt) else "failed"
 
 

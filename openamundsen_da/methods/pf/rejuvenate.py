@@ -74,6 +74,7 @@ from openamundsen_da.util.keyed_rng import RNG_SCHEME, keyed_rng, keyed_seed
 from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
 from openamundsen_da.util.meteo import filter_and_write_meteo
 from openamundsen_da.methods.pf.weights import prior_weight_paths
+from openamundsen_da.util.retention import completed_retention_paths
 
 
 @dataclass
@@ -170,16 +171,12 @@ def _read_next_step_dates(next_step_dir: Path) -> tuple[pd.Timestamp, pd.Timesta
         start = pd.to_datetime(step_cfg["start_date"])  # type: ignore[index]
     except Exception as e:
         raise ValueError(f"Missing or invalid start_date in {step_yaml}") from e
-    # Prefer project end; fallback to step end_date.
     try:
-        project_yaml = find_project_yaml(infer_project_dir(next_step_dir))
-        project_cfg = _read_yaml_file(project_yaml) or {}
-        end = pd.to_datetime(project_cfg["end_date"])  # type: ignore[index]
-    except Exception:
-        try:
-            end = pd.to_datetime(step_cfg["end_date"])  # type: ignore[index]
-        except Exception as e:
-            raise ValueError("Could not determine end_date from project/step config") from e
+        end = pd.to_datetime(step_cfg["end_date"])  # type: ignore[index]
+    except Exception as e:
+        raise ValueError(f"Missing or invalid end_date in {step_yaml}") from e
+    if pd.isna(start) or pd.isna(end) or end < start:
+        raise ValueError(f"Invalid step window in {step_yaml}: {start} .. {end}")
     return start, end
 
 
@@ -383,7 +380,7 @@ def rejuvenate(
         target_ensemble=target_ensemble,
     )
     manifest = {
-        "rejuvenation_schema_version": 3,
+        "rejuvenation_schema_version": 4,
         "status": "complete",
         "source_step": str(prev_step_dir),
         "target_step": str(next_step_dir),
@@ -398,6 +395,8 @@ def rejuvenate(
         "rng_scheme": RNG_SCHEME,
         "event_key": event_key,
         "event_seed": keyed_seed(params.seed, "rejuvenation", event_key),
+        "window_start": start.isoformat(),
+        "window_end": end.isoformat(),
         "copied_state_pointers": int(copied_pointers),
         "members": rows_sorted,
         "input_inventory": manifest_inputs,
@@ -467,17 +466,24 @@ def _rejuvenation_output_inventory(
 
 def _completed_cleanup_paths(*, setup_dir: Path, project_dir: Path) -> set[str]:
     """Return pointer paths deliberately removed by successful final cleanup."""
+    allowed: set[str] = set()
+    for rel in completed_retention_paths(project_dir):
+        try:
+            path = (project_dir / rel).resolve()
+            relative = path.relative_to(setup_dir.resolve()).as_posix()
+        except (OSError, ValueError):
+            continue
+        allowed.add(relative)
     run_manifest = load_manifest(project_run_manifest_path(project_dir))
     if (
         run_manifest is None
         or run_manifest.get("status") != "success"
         or (run_manifest.get("stages") or {}).get("cleanup") != "success"
     ):
-        return set()
+        return allowed
     cleanup = run_manifest.get("cleanup")
     if not isinstance(cleanup, dict) or cleanup.get("failures"):
-        return set()
-    allowed: set[str] = set()
+        return allowed
     for raw_path in cleanup.get("deleted_paths", []):
         try:
             path = (project_dir / str(raw_path)).resolve()
@@ -527,9 +533,10 @@ def validate_rejuvenation_manifest(
     manifest = load_manifest(manifest_path)
     if manifest is None:
         raise FileNotFoundError(f"Missing rejuvenation manifest: {manifest_path}")
-    if manifest.get("rejuvenation_schema_version") != 3 or manifest.get("status") != "complete":
+    if manifest.get("rejuvenation_schema_version") != 4 or manifest.get("status") != "complete":
         raise ValueError(f"Unsupported or incomplete rejuvenation manifest: {manifest_path}")
     params = _read_rejuvenation_params(infer_project_dir(next_step_dir))
+    start, end = _read_next_step_dates(next_step_dir)
     expected = {
         "source_step": str(prev_step_dir),
         "target_step": str(next_step_dir),
@@ -544,6 +551,8 @@ def validate_rejuvenation_manifest(
         "rng_scheme": RNG_SCHEME,
         "event_key": Path(next_step_dir).name,
         "event_seed": keyed_seed(params.seed, "rejuvenation", Path(next_step_dir).name),
+        "window_start": start.isoformat(),
+        "window_end": end.isoformat(),
     }
     mismatches = {
         key: (manifest.get(key), value)

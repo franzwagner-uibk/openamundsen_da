@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openamundsen_da.pipeline.cleanup import clean_project_artifacts
+from openamundsen_da.pipeline.cleanup import clean_predecessor_checkpoint, clean_project_artifacts
 
 
-def _write_project_yaml(project_dir: Path) -> None:
+def _write_project_yaml(project_dir: Path, *, retention: str | None = None) -> None:
     project_dir.mkdir(parents=True, exist_ok=True)
     (project_dir / "project_2022_2023.yml").write_text(
         "\n".join(
@@ -16,6 +16,7 @@ def _write_project_yaml(project_dir: Path) -> None:
                 "data_assimilation:",
                 "  restart:",
                 "    state_pattern: model_state.pickle.gz",
+                *( ["  output:", f"    retention: {retention}"] if retention else [] ),
             ]
         )
         + "\n",
@@ -25,7 +26,7 @@ def _write_project_yaml(project_dir: Path) -> None:
 
 def test_public_cleanup_previews_then_deletes_single_domain_restart_artifacts(tmp_path: Path) -> None:
     project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
-    _write_project_yaml(project_dir)
+    _write_project_yaml(project_dir, retention="compact")
     results_dir = project_dir / "steps" / "step_00_init" / "ensembles" / "prior" / "member_001" / "results"
     results_dir.mkdir(parents=True)
     state = results_dir / "model_state.pickle.gz"
@@ -75,3 +76,110 @@ def test_public_cleanup_does_not_descend_into_subdomain_tree(tmp_path: Path) -> 
 
     assert result.eligible_paths == ()
     assert nested.is_file()
+
+
+def test_full_retention_preserves_restart_and_member_artifacts(tmp_path: Path) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir, retention="full")
+    results_dir = (
+        project_dir
+        / "steps"
+        / "step_00_init"
+        / "ensembles"
+        / "prior"
+        / "member_001"
+        / "results"
+    )
+    results_dir.mkdir(parents=True)
+    state = results_dir / "model_state.pickle.gz"
+    state.write_bytes(b"state")
+
+    result = clean_project_artifacts(project_dir, apply=True)
+
+    assert result.eligible_paths == ()
+    assert result.deleted_paths == ()
+    assert state.is_file()
+
+
+def test_compact_cleanup_removes_point_csv_only_after_lossless_store_exists(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir, retention="compact")
+    point_csv = (
+        project_dir
+        / "steps"
+        / "step_00_init"
+        / "ensembles"
+        / "prior"
+        / "member_001"
+        / "results"
+        / "point_station.csv"
+    )
+    point_csv.parent.mkdir(parents=True)
+    point_csv.write_text("date,snow_depth\n2023-01-01,1.0\n", encoding="utf-8")
+
+    assert point_csv not in clean_project_artifacts(project_dir, apply=False).eligible_paths
+    retained = project_dir / "results" / "points" / "ensemble_points.nc"
+    retained.parent.mkdir(parents=True)
+    retained.write_bytes(b"validated-store")
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.cleanup.validate_project_ensemble_points",
+        lambda *_args, **_kwargs: retained,
+    )
+
+    result = clean_project_artifacts(project_dir, apply=True)
+    assert point_csv.resolve() in result.deleted_paths
+    assert retained.is_file()
+
+
+def test_compact_cleanup_preserves_station_metadata_when_forcing_is_compacted(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir, retention="compact")
+    meteo = (
+        project_dir
+        / "steps"
+        / "step_00_init"
+        / "ensembles"
+        / "prior"
+        / "member_001"
+        / "meteo"
+    )
+    meteo.mkdir(parents=True)
+    station = meteo / "station.csv"
+    metadata = meteo / "stations.csv"
+    station.write_text("date,temp\n2023-01-01,273\n", encoding="utf-8")
+    metadata.write_text("id,name,x,y,alt\nstation,S,0,0,0\n", encoding="utf-8")
+    retained = project_dir / "results" / "forcing" / "ensemble_forcing.nc"
+    retained.parent.mkdir(parents=True)
+    retained.write_bytes(b"validated-store")
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.cleanup.validate_project_ensemble_forcing",
+        lambda *_args, **_kwargs: retained,
+    )
+
+    result = clean_project_artifacts(project_dir, apply=True)
+
+    assert station.resolve() in result.deleted_paths
+    assert not station.exists()
+    assert metadata.is_file()
+
+
+def test_compact_predecessor_cleanup_waits_for_explicit_successor_gate(tmp_path: Path) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir, retention="compact")
+    step = project_dir / "steps" / "step_00_init"
+    state = step / "ensembles" / "prior" / "member_001" / "results" / "model_state.pickle.gz"
+    state.parent.mkdir(parents=True)
+    state.write_bytes(b"state")
+
+    preview = clean_predecessor_checkpoint(project_dir, step, apply=False)
+    assert preview == (state.resolve(),)
+    assert state.is_file()
+    removed = clean_predecessor_checkpoint(project_dir, step, apply=True)
+    assert removed == preview
+    assert not state.exists()

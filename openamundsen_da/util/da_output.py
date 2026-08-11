@@ -22,25 +22,20 @@ _ANALYSIS_SUMMARY_METRICS = ("analysis_mean", "analysis_increment")
 
 
 def output_retention_mode(project_dir: Path) -> str:
-    """Return output retention mode from project YAML, defaulting to compact."""
-    try:
-        cfg = _read_yaml_file(find_project_yaml(project_dir)) or {}
-        run_mode = str(cfg.get("run_mode", "")).strip().lower()
-        default_mode = "full" if run_mode == "subdomain" else "compact"
-        da_cfg = cfg.get("data_assimilation") or {}
-        out_cfg = da_cfg.get("output") or {}
-        mode = str(out_cfg.get("retention", default_mode)).strip().lower()
-        if mode in {"compact", "full"}:
-            return mode
-        logger.warning(
-            "Unknown data_assimilation.output.retention='{}' in {}; using '{}'",
-            mode,
-            project_dir,
-            default_mode,
+    """Return the explicit or mode-specific output-retention policy."""
+    project_yaml = find_project_yaml(project_dir)
+    cfg = _read_yaml_file(project_yaml) or {}
+    run_mode = str(cfg.get("run_mode", "")).strip().lower()
+    default_mode = "full" if run_mode == "subdomain" else "compact"
+    da_cfg = cfg.get("data_assimilation") or {}
+    out_cfg = da_cfg.get("output") or {}
+    mode = str(out_cfg.get("retention", default_mode)).strip().lower()
+    if mode not in {"compact", "full"}:
+        raise ValueError(
+            "data_assimilation.output.retention must be 'compact' or 'full' "
+            f"in {project_yaml}, got {mode!r}"
         )
-        return default_mode
-    except Exception:
-        return "compact"
+    return mode
 
 
 def _configured_grid_metrics(project_dir: Path | None) -> dict[str, set[str]] | None:

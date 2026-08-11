@@ -5,11 +5,12 @@ import pandas as pd
 import pytest
 
 from openamundsen_da.core.prior_forcing import (
+    _read_step_window,
     _read_prior_params,
     build_prior_ensemble,
     validate_prior_forcing_manifest,
 )
-from openamundsen_da.methods.pf.rejuvenate import _read_rejuvenation_params
+from openamundsen_da.methods.pf.rejuvenate import _read_next_step_dates, _read_rejuvenation_params
 from openamundsen_da.util.humidity import (
     dew_point_to_relative_humidity,
     perturb_relative_humidity_via_dew_point,
@@ -183,11 +184,13 @@ def test_prior_forcing_manifest_controls_reuse_and_detects_output_tampering(tmp_
     )
     (input_meteo_dir / "station.csv").write_text(
         "date,temp,precip,rel_hum,sw_in\n"
-        "2023-01-01T00:00:00,273.15,1.0,80.0,100.0\n",
+        "2023-01-01T00:00:00,273.15,1.0,80.0,100.0\n"
+        "2023-01-02T00:00:00,274.15,2.0,81.0,110.0\n"
+        "2023-01-03T00:00:00,275.15,3.0,82.0,120.0\n",
         encoding="utf-8",
     )
     (project_dir / "demo.yml").write_text(
-        "end_date: 2023-01-01T00:00:00\n"
+        "end_date: 2023-01-03T00:00:00\n"
         "data_assimilation:\n"
         "  prior_forcing:\n"
         "    ensemble_size: 2\n"
@@ -200,7 +203,8 @@ def test_prior_forcing_manifest_controls_reuse_and_detects_output_tampering(tmp_
         encoding="utf-8",
     )
     (step_dir / "step_00.yml").write_text(
-        "start_date: 2023-01-01T00:00:00\n",
+        "start_date: 2023-01-01T00:00:00\n"
+        "end_date: 2023-01-01T00:00:00\n",
         encoding="utf-8",
     )
 
@@ -212,15 +216,58 @@ def test_prior_forcing_manifest_controls_reuse_and_detects_output_tampering(tmp_
         step_dir=step_dir,
     )
     assert manifest["rng_scheme"] == "keyed-v1"
+    assert manifest["window_end"] == "2023-01-01T00:00:00"
     assert [row["member"] for row in manifest["members"]] == ["member_001", "member_002"]
     assert (step_dir / "ensembles" / "prior" / "member_001" / "INFO.txt").is_file()
+    generated = pd.read_csv(
+        step_dir / "ensembles" / "prior" / "member_001" / "meteo" / "station.csv"
+    )
+    assert pd.to_datetime(generated["date"]).tolist() == [pd.Timestamp("2023-01-01T00:00:00")]
 
     build_prior_ensemble(input_meteo_dir, project_dir, step_dir, max_workers=1)
 
-    generated = step_dir / "ensembles" / "prior" / "member_001" / "meteo" / "station.csv"
-    generated.write_text(generated.read_text(encoding="utf-8") + "# tampered\n", encoding="utf-8")
+    generated_path = step_dir / "ensembles" / "prior" / "member_001" / "meteo" / "station.csv"
+    generated_path.write_text(
+        generated_path.read_text(encoding="utf-8") + "# tampered\n",
+        encoding="utf-8",
+    )
     with pytest.raises(RuntimeError, match="output_inventory_sha256"):
         build_prior_ensemble(input_meteo_dir, project_dir, step_dir, max_workers=1)
+
+
+def test_prior_and_rejuvenated_forcing_use_exact_step_window(tmp_path: Path) -> None:
+    setup_dir = tmp_path / "setup"
+    project_dir = setup_dir / "projects" / "demo"
+    step_dir = project_dir / "steps" / "step_01"
+    step_dir.mkdir(parents=True)
+    (setup_dir / "setup.yml").write_text("input_data: {}\n", encoding="utf-8")
+    (project_dir / "demo.yml").write_text(
+        "start_date: 2023-01-01T00:00:00\n"
+        "end_date: 2023-09-30T21:00:00\n",
+        encoding="utf-8",
+    )
+    (step_dir / "step_01.yml").write_text(
+        "start_date: 2023-01-07T00:00:00\n"
+        "end_date: 2023-01-12T21:00:00\n",
+        encoding="utf-8",
+    )
+
+    expected = (pd.Timestamp("2023-01-07T00:00:00"), pd.Timestamp("2023-01-12T21:00:00"))
+    assert _read_step_window(step_dir) == expected
+    assert _read_next_step_dates(step_dir) == expected
+
+
+def test_step_window_requires_step_end_date_even_when_project_has_end(tmp_path: Path) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "demo"
+    step_dir = project_dir / "steps" / "step_01"
+    step_dir.mkdir(parents=True)
+    (project_dir / "demo.yml").write_text("end_date: 2023-09-30T21:00:00\n", encoding="utf-8")
+    (step_dir / "step_01.yml").write_text("start_date: 2023-01-07T00:00:00\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="end_date"):
+        _read_step_window(step_dir)
+    with pytest.raises(ValueError, match="end_date"):
+        _read_next_step_dates(step_dir)
 
 
 def test_removed_humidity_method_config_is_rejected(tmp_path: Path) -> None:

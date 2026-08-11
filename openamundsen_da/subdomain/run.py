@@ -16,6 +16,7 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
+from openamundsen_da.exceptions import LowDiskSpaceError
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.methods.wet_snow.area import summarize_s1_directory
 from openamundsen_da.observer.class_config import load_wetsnow_classes
@@ -272,8 +273,11 @@ def _run_one(
         except Exception:
             pass
 
-    rebuild_partial = bool(previous_status and previous_status != "success" and not overwrite)
-    effective_overwrite = bool(overwrite or rebuild_partial)
+    # A failed/interrupted leaf is a resumable project. Never turn an ordinary
+    # resume into destructive overwrite implicitly; callers must request
+    # ``--overwrite`` explicitly after deciding that completed work may be
+    # discarded.
+    effective_overwrite = bool(overwrite)
 
     _configure_worker_logger(log_path, log_level, root_log_path)
 
@@ -331,7 +335,7 @@ def _run_one(
             dropped_events = _read_dropped_events(_dropped_events_csv(sub.setup_dir))
             run_meta.update(
                 {
-                    "status": "failed",
+                    "status": "paused_low_disk" if isinstance(exc, LowDiskSpaceError) else "failed",
                     "finished": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "duration_seconds": duration,
                     "error": repr(exc),
@@ -340,6 +344,17 @@ def _run_one(
             )
             _write_run_manifest(run_manifest_path, run_meta)
             logger.exception("Sub-domain {} failed on attempt {}: {}", sub.id, attempt, exc)
+            if isinstance(exc, LowDiskSpaceError):
+                return SubdomainRunResult(
+                    subdomain_id=sub.id,
+                    status="paused_low_disk",
+                    duration_seconds=duration,
+                    setup_dir=sub.setup_dir,
+                    log_path=log_path,
+                    error=repr(exc),
+                    run_manifest=run_manifest_path,
+                    dropped_events=dropped_events,
+                )
             if attempt > retries:
                 return SubdomainRunResult(
                     subdomain_id=sub.id,
@@ -507,7 +522,7 @@ def run_subdomains(
                 res.status,
                 res.duration_seconds,
             )
-            if res.status == "failed":
+            if res.status in {"failed", "paused_low_disk"}:
                 failed_id = sid
                 logger.error("Fail-fast triggered by sub-domain {}", sid)
                 for other in future_map:
@@ -546,7 +561,7 @@ def run_subdomains(
     _write_project_dropped_events(manifest)
 
     ok = sum(1 for r in results if r.status == "success")
-    fail = sum(1 for r in results if r.status == "failed")
+    fail = sum(1 for r in results if r.status in {"failed", "paused_low_disk"})
     skip = sum(1 for r in results if r.status == "skipped")
     logger.info(
         "SUMMARY total_selected={} completed={} success={} failed={} skipped={}",
@@ -560,7 +575,10 @@ def run_subdomains(
         logger.remove(sink_id)
     if failed_id is not None:
         error = f"Sub-domain run failed in {failed_id}; fail-fast stopped remaining tasks."
-        save_stage(manifest, manifest_path, "run", "failed", error=error)
+        final_status = "paused_low_disk" if any(
+            result.status == "paused_low_disk" for result in results
+        ) else "failed"
+        save_stage(manifest, manifest_path, "run", final_status, error=error)
         raise RuntimeError(error)
     save_stage(
         manifest,

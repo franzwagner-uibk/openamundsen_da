@@ -40,6 +40,8 @@ from openamundsen_da.io.paths import (
     list_member_dirs,
     list_steps_sorted,
     project_da_output_grids_path,
+    project_ensemble_points_path,
+    project_ensemble_forcing_path,
     project_fraction_envelope_path,
     project_landcover_mask_report_path,
 )
@@ -54,6 +56,19 @@ from openamundsen_da.util.landcover_mask import (
 from openamundsen_da.util.parallel import pick_max_workers
 from openamundsen_da.util.da_events import load_assimilation_events, AssimilationEvent
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
+from openamundsen_da.util.storage_budget import (
+    check_step_admission,
+    estimate_compact_timeseries_bytes,
+    estimate_step_forcing_bytes,
+)
+from openamundsen_da.util.point_output import (
+    validate_project_ensemble_points,
+    write_project_ensemble_points,
+)
+from openamundsen_da.util.forcing_output import (
+    validate_project_ensemble_forcing,
+    write_project_ensemble_forcing,
+)
 from openamundsen_da.methods.pf.assimilate_fraction import (
     assimilate_scf_for_date,
     assimilate_wet_snow_line_for_date,
@@ -89,10 +104,12 @@ from openamundsen_da.pipeline.plot_tasks import (
 )
 from openamundsen_da.results import RenderResult
 from openamundsen_da.pipeline.rendering import render_required_project_outputs
+from openamundsen_da.pipeline.cleanup import clean_predecessor_checkpoint
 from openamundsen_da.util.validation import validate_assimilation_requirements
 from openamundsen_da.util.run_mode import ensure_run_mode
 from openamundsen_da.util.station_da import is_station_variable
 from openamundsen_da.util.da_output import (
+    output_retention_mode,
     write_project_da_output_grids,
 )
 from openamundsen_da.util.da_observables import (
@@ -133,6 +150,24 @@ def _next_step_start(steps: List[Path], idx: int) -> Optional[datetime]:
         return datetime.fromisoformat(str(val)) if val else None
     except Exception:
         return None
+
+
+def _step_storage_estimate(cfg: "OrchestratorConfig", step_dir: Path) -> int:
+    """Return the conservative forcing reserve for one step."""
+    step_cfg = read_step_config(step_dir) or {}
+    project_cfg = _read_yaml_file(find_project_yaml(cfg.project_dir)) or {}
+    try:
+        start = datetime.fromisoformat(str(step_cfg["start_date"]))
+        end = datetime.fromisoformat(str(step_cfg["end_date"]))
+        ensemble_size = int(project_cfg["data_assimilation"]["prior_forcing"]["ensemble_size"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"Cannot estimate storage for step {step_dir}: invalid dates or ensemble size") from exc
+    return estimate_step_forcing_bytes(
+        cfg.setup_dir / "meteo",
+        start=start,
+        end=end,
+        ensemble_size=ensemble_size,
+    )
 
 
 def _find_roi(setup_dir: Path) -> Path:
@@ -468,6 +503,8 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
     if len(events) > n_expected:
         logger.warning("More assimilation events ({}) than steps needing DA ({}); extra events will be ignored.", len(events), n_expected)
     vars_used = {getattr(ev, "variable", None) for ev in events if getattr(ev, "variable", None)}
+    retention_mode = output_retention_mode(cfg.project_dir)
+    logger.info("Output retention policy: {}", retention_mode)
     scf_enabled = "scf" in vars_used
     wet_snow_enabled = bool({"wet_snow", "wet_snow_line"} & vars_used)
     if not vars_used:
@@ -487,6 +524,21 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
 
     # Validate required outputs and obs inputs before running assimilation
     validate_assimilation_requirements(setup_dir=cfg.setup_dir, project_dir=cfg.project_dir, steps=steps, events=events)
+    initial_forcing_manifest = steps[0] / "assim" / "prior_forcing_manifest.json"
+    initial_resume = initial_forcing_manifest.is_file() and not cfg.overwrite
+    initial_estimate = 0 if initial_resume else _step_storage_estimate(cfg, steps[0])
+    initial_budget = check_step_admission(
+        cfg.project_dir,
+        estimated_growth_bytes=initial_estimate,
+        allow_existing_step_drain=initial_resume,
+    )
+    logger.info(
+        "Disk admission {}: used={:.1%}, step reserve={:.1f} GiB, operational reserve={:.1f} GiB",
+        steps[0].name,
+        initial_budget.used_fraction,
+        initial_estimate / (1024**3),
+        initial_budget.operational_reserve_bytes / (1024**3),
+    )
     build_prior_ensemble(
         input_meteo_dir=meteo_dir,
         project_dir=cfg.project_dir,
@@ -621,6 +673,19 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         )
         if launch_summary.get("summary", {}).get("failed", 0) > 0:
             raise RuntimeError(f"Member propagation failed in {step_name}; restart states were retained")
+
+        if i > 0:
+            removed_checkpoint = clean_predecessor_checkpoint(
+                cfg.project_dir,
+                steps[i - 1],
+                apply=True,
+            )
+            if removed_checkpoint:
+                logger.info(
+                    "Compact retention removed validated predecessor checkpoint {} ({} files)",
+                    steps[i - 1].name,
+                    len(removed_checkpoint),
+                )
 
         _compute_prior_step_diagnostics(
             cfg=cfg,
@@ -877,6 +942,19 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
 
         # Rejuvenate posterior -> next prior
         rejuvenate_manifest = Path(steps[i + 1]) / "assim" / "rejuvenate_manifest.json"
+        next_resume = rejuvenate_manifest.is_file() and not cfg.overwrite
+        next_step_estimate = 0 if next_resume else _step_storage_estimate(cfg, steps[i + 1])
+        next_budget = check_step_admission(
+            cfg.project_dir,
+            estimated_growth_bytes=next_step_estimate,
+            allow_existing_step_drain=next_resume,
+        )
+        logger.info(
+            "Disk admission {}: used={:.1%}, step reserve={:.1f} GiB",
+            steps[i + 1].name,
+            next_budget.used_fraction,
+            next_step_estimate / (1024**3),
+        )
         if rejuvenate_manifest.is_file() and not cfg.overwrite:
             validate_rejuvenation_manifest(
                 setup_dir=cfg.setup_dir,
@@ -938,6 +1016,73 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         )
         if da_path is None or not da_summary_path.is_file():
             raise RuntimeError(f"Required compact DA output was not written: {da_summary_path}")
+
+    if retention_mode == "compact":
+        point_output_path = project_ensemble_points_path(cfg.project_dir)
+        forcing_output_path = project_ensemble_forcing_path(cfg.project_dir)
+        compact_estimate = (
+            0
+            if point_output_path.is_file() and forcing_output_path.is_file() and not cfg.overwrite
+            else estimate_compact_timeseries_bytes(cfg.project_dir)
+        )
+        compact_budget = check_step_admission(
+            cfg.project_dir,
+            estimated_growth_bytes=compact_estimate,
+            allow_existing_step_drain=True,
+        )
+        logger.info(
+            "Compact-export admission: used={:.1%}, reserve={:.1f} GiB",
+            compact_budget.used_fraction,
+            compact_estimate / (1024**3),
+        )
+        if point_output_path.is_file() and not cfg.overwrite:
+            validate_project_ensemble_points(cfg.project_dir, output_nc=point_output_path)
+            logger.info("Using existing compact point output {}", point_output_path)
+        else:
+            written_points = write_project_ensemble_points(cfg.project_dir, output_nc=point_output_path)
+            if not written_points.is_file():
+                raise RuntimeError(f"Required compact point output was not written: {point_output_path}")
+
+        if forcing_output_path.is_file() and not cfg.overwrite:
+            validate_project_ensemble_forcing(cfg.project_dir, output_nc=forcing_output_path)
+            logger.info("Using existing compact forcing output {}", forcing_output_path)
+        else:
+            written_forcing = write_project_ensemble_forcing(
+                cfg.project_dir,
+                output_nc=forcing_output_path,
+            )
+            if not written_forcing.is_file():
+                raise RuntimeError(f"Required compact forcing output was not written: {forcing_output_path}")
+
+        if bool({"scf", "wet_snow", "wet_snow_line"} & vars_used):
+            from openamundsen_da.methods.viz.maps.panel_renderers import write_project_da_map_support
+            from openamundsen_da.util.map_support import validate_map_support
+
+            map_support_path = write_project_da_map_support(cfg.project_dir)
+            if map_support_path is None or not map_support_path.is_file():
+                raise RuntimeError("Required retained DA-event map support was not written")
+            required_fields: set[str] = set()
+            if "scf" in vars_used:
+                required_fields.update(
+                    {
+                        "scf_open_loop_binary",
+                        "scf_prior_probability",
+                        "scf_posterior_probability",
+                    }
+                )
+            if vars_used & {"wet_snow", "wet_snow_line"}:
+                required_fields.update(
+                    {
+                        "wet_snow_open_loop",
+                        "wet_snow_prior_probability",
+                        "wet_snow_posterior_probability",
+                    }
+                )
+            validate_map_support(
+                cfg.project_dir,
+                dates=[event.date for event in events],
+                fields=required_fields,
+            )
 
     try:
         benchmark_outputs = run_project_benchmark(

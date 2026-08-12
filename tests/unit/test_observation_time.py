@@ -75,9 +75,13 @@ def test_series_match_accepts_unique_value_within_half_timestep() -> None:
     assert match.matched_time == pd.Timestamp("2023-04-26 00:45")
     assert match.value == 1.0
     assert match.offset_seconds == 45 * 60
+    assert match.source_offset_seconds == 45 * 60
+    assert match.source_times == (pd.Timestamp("2023-04-26 00:45"),)
+    assert match.source_values == (1.0,)
+    assert not match.interpolated
 
 
-def test_series_match_rejects_wrong_year_and_ties() -> None:
+def test_series_match_rejects_wrong_year() -> None:
     wrong_year = pd.Series([1.0], index=pd.to_datetime(["2024-04-26 00:00"]))
     with pytest.raises(ValueError, match="exceeding half"):
         match_series_value_to_model_time(
@@ -87,15 +91,80 @@ def test_series_match_rejects_wrong_year_and_ties() -> None:
             timezone_config=1,
         )
 
+
+def test_series_match_interpolates_symmetric_tie() -> None:
     tied = pd.Series(
-        [1.0, 2.0],
-        index=pd.to_datetime(["2023-04-25 22:30", "2023-04-26 01:30"]),
+        [1.0, 3.0],
+        index=pd.to_datetime(["2023-04-25 23:00", "2023-04-26 01:00"]),
     )
-    with pytest.raises(ValueError, match="Ambiguous nearest"):
+
+    match = match_series_value_to_model_time(
+        tied,
+        model_time=datetime(2023, 4, 26),
+        timestep="3h",
+        timezone_config=1,
+    )
+
+    assert match.matched_time == pd.Timestamp("2023-04-26 00:00")
+    assert match.value == 2.0
+    assert match.offset_seconds == 0.0
+    assert match.source_offset_seconds == 60 * 60
+    assert match.source_times == (
+        pd.Timestamp("2023-04-25 23:00"),
+        pd.Timestamp("2023-04-26 01:00"),
+    )
+    assert match.source_values == (1.0, 3.0)
+    assert match.interpolated
+
+
+def test_series_match_accepts_inclusive_24_hour_symmetric_span() -> None:
+    tied = pd.Series(
+        [1.0, 3.0],
+        index=pd.to_datetime(["2023-04-25 12:00", "2023-04-26 12:00"]),
+    )
+
+    match = match_series_value_to_model_time(
+        tied,
+        model_time=datetime(2023, 4, 26),
+        timestep="24h",
+        timezone_config=1,
+    )
+
+    assert match.value == 2.0
+    assert match.source_offset_seconds == 12 * 60 * 60
+    assert match.interpolated
+
+
+@pytest.mark.parametrize(
+    ("timestamps", "values", "timestep", "message"),
+    [
+        (
+            ["2023-04-25 11:00", "2023-04-26 13:00"],
+            [1.0, 3.0],
+            "48h",
+            "more than 24 hours apart",
+        ),
+        (
+            ["2023-04-25 23:00", "2023-04-25 23:00", "2023-04-26 01:00"],
+            [1.0, 2.0, 3.0],
+            "3h",
+            "exactly two",
+        ),
+    ],
+)
+def test_series_match_rejects_malformed_symmetric_ties(
+    timestamps: list[str],
+    values: list[float],
+    timestep: str,
+    message: str,
+) -> None:
+    tied = pd.Series(values, index=pd.to_datetime(timestamps))
+
+    with pytest.raises(ValueError, match=message):
         match_series_value_to_model_time(
             tied,
             model_time=datetime(2023, 4, 26),
-            timestep="3h",
+            timestep=timestep,
             timezone_config=1,
         )
 
@@ -105,6 +174,19 @@ def test_series_match_can_require_exact_model_output_time() -> None:
     with pytest.raises(ValueError, match="exact model timestamp"):
         match_series_value_to_model_time(
             series,
+            model_time=datetime(2023, 4, 26),
+            timestep="3h",
+            timezone_config=1,
+            require_exact=True,
+        )
+
+    tied = pd.Series(
+        [1.0, 3.0],
+        index=pd.to_datetime(["2023-04-25 23:00", "2023-04-26 01:00"]),
+    )
+    with pytest.raises(ValueError, match="exact model timestamp"):
+        match_series_value_to_model_time(
+            tied,
             model_time=datetime(2023, 4, 26),
             timestep="3h",
             timezone_config=1,

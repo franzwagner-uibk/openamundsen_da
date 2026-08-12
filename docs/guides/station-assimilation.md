@@ -77,16 +77,20 @@ Notes:
 - `snow_depth` is expected in `m`
 - `swe` is expected in `mm`
 - a station file may exist even if only one variable is later assimilated
-- missing values are allowed, but the requested variable must have a unique
-  nearest finite, nonnegative value within half the model timestep for the
-  station to become active
+- missing values are allowed, but the requested variable must have either a
+  unique nearest finite, nonnegative value within half the model timestep or
+  one accepted symmetric interpolation for the station to become active
 
 For a station event, the assimilation timestamp is the event date at the active
-step's start time. Naive timestamps are interpreted in the setup timezone. An
-equidistant tie or a value farther than half a timestep away is invalid, and
-model point output must exist at the exact model-clock timestamp. The matcher
-uses same-ID metadata rows whose `use_for_da` role is enabled; station IDs
-remain strings so leading zeros are preserved.
+step's start time. Naive timestamps are interpreted in the setup timezone.
+Exactly two equidistant values that lie on opposite sides of the model time are
+averaged when both are inside the half-timestep window and their timestamps are
+no more than 24 hours apart. The mean is treated as an interpolated scalar at
+the model time without reducing its observation uncertainty. Duplicate,
+same-side or larger ties remain invalid, as does a value farther than half a
+timestep away. Model point output must exist at the exact model-clock
+timestamp. The matcher uses same-ID metadata rows whose `use_for_da` role is
+enabled; station IDs remain strings so leading zeros are preserved.
 
 ### Station DA metadata
 
@@ -238,7 +242,7 @@ A station is active on a DA date when:
 - the required observation variable exists,
 - the observation value is finite,
 - the observation value is nonnegative,
-- a unique nearest timestamp can be resolved,
+- a unique nearest timestamp or accepted symmetric interpolation can be resolved,
 - model point output exists for the station for all members.
 
 Stations failing these checks are skipped and logged.

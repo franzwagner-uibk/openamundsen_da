@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   overlaps, retained-value validation and leaf summaries kept for rerendering.
 
 ### Changed
+- Interpolate exactly two symmetric station HS or SWE observations at their
+  model-time midpoint when both lie inside the half-timestep window and are no
+  more than 24 hours apart, while retaining strict matching for other ties and
+  model outputs.
 - Allow subdomain station selection from coordinates in
   `stations_da_metadata.csv`, require same-ID observations and model points for
   every active DA or benchmark station before propagation.

@@ -377,6 +377,52 @@ def test_extract_analysis_cases_uses_weighted_station_posterior(tmp_path: Path) 
     assert float(posterior["pred_mean"]) == 1.15
 
 
+def test_extract_analysis_cases_interpolates_symmetric_station_tie(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_dir, project_dir = _setup_basic_project(
+        tmp_path,
+        events_yaml="""
+            - date: '2023-01-02'
+              variable: station_hs
+        """,
+    )
+    _write_station_benchmark_inputs(project_dir, setup_dir)
+    _write_series_csv(
+        setup_dir / "obs" / "stations" / "station_a.csv",
+        [
+            {"time": "2023-01-01 23:00:00", "snow_depth": 1.0},
+            {"time": "2023-01-02 01:00:00", "snow_depth": 3.0},
+        ],
+    )
+    _write_series_csv(
+        project_dir / "steps" / "step_00_init" / "assim" / "weights_station_hs_20230102.csv",
+        [
+            {"member_id": "member_001", "prior_weight": 0.5, "weight": 0.25},
+            {"member_id": "member_002", "prior_weight": 0.5, "weight": 0.75},
+        ],
+    )
+    logged: list[tuple[object, ...]] = []
+    monkeypatch.setattr(
+        "openamundsen_da.benchmark.extract.cases.logger.info",
+        lambda *args: logged.append(args),
+    )
+
+    cases = extract_analysis_cases(
+        project_dir=project_dir,
+        setup_dir=setup_dir,
+        variables=("station_hs",),
+    )
+
+    assert len(cases) == 1
+    assert cases[0].obs_value == 2.0
+    assert cases[0].sigma_base == pytest.approx(((2.0 * 0.12) ** 2 + 0.15 ** 2) ** 0.5)
+    assert len(logged) == 1
+    assert "Interpolated benchmark station {} {}" in str(logged[0][0])
+    assert logged[0][1:3] == ("station_a", "station_hs")
+
+
 def test_extract_analysis_cases_rejects_station_observation_outside_half_timestep(
     tmp_path: Path,
 ) -> None:

@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 from ruamel.yaml import YAML
@@ -55,6 +56,77 @@ def _write_project_config(project_dir: Path, *, include_legacy_sigma_keys: bool 
 
 
 class AssimilateStationTests(unittest.TestCase):
+    def test_symmetric_station_ties_are_interpolated_for_hs_and_swe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            setup_dir = root / "setup_root"
+            project_dir = setup_dir / "projects" / "project_2024_2025"
+            step_dir = project_dir / "steps" / "step_00_init"
+            obs_dir = setup_dir / "obs" / "stations"
+            prior_root = step_dir / "ensembles" / "prior"
+
+            _write_project_config(project_dir)
+            _write_series(
+                obs_dir / "stations_da_metadata.csv",
+                [
+                    {
+                        "station_id": "station_a",
+                        "station_uncertainty_pct": 10,
+                        "hs_sigma_abs_min": 0.20,
+                        "swe_sigma_abs_min": 20.0,
+                    }
+                ],
+            )
+            _write_series(
+                obs_dir / "station_a.csv",
+                [
+                    {"time": "2024-01-31 23:00:00", "snow_depth": 1.0, "swe": 100.0},
+                    {"time": "2024-02-01 01:00:00", "snow_depth": 3.0, "swe": 300.0},
+                ],
+            )
+            _write_series(
+                prior_root / "member_001" / "results" / "point_station_a.csv",
+                [{"time": "2024-02-01 00:00:00", "snow_depth": 2.0, "swe": 200.0}],
+            )
+
+            for assimilate, variable, expected_value, expected_sigma_base in (
+                (
+                    assimilate_station_hs_for_date,
+                    "station_hs",
+                    2.0,
+                    math.hypot(0.20, 0.20),
+                ),
+                (
+                    assimilate_station_swe_for_date,
+                    "station_swe",
+                    200.0,
+                    math.hypot(20.0, 20.0),
+                ),
+            ):
+                with self.subTest(variable=variable):
+                    with patch("openamundsen_da.methods.pf.assimilate_station.logger.info") as info:
+                        result = assimilate(
+                            setup_dir=setup_dir,
+                            step_dir=step_dir,
+                            ensemble="prior",
+                            date=datetime(2024, 2, 1),
+                        )
+
+                    diagnostic = result.diagnostics.iloc[0]
+                    self.assertEqual(float(diagnostic["obs_value"]), expected_value)
+                    self.assertEqual(diagnostic["matched_obs_time"], "2024-02-01 00:00:00")
+                    self.assertEqual(float(diagnostic["obs_time_offset_seconds"]), 0.0)
+                    self.assertAlmostEqual(float(diagnostic["sigma_base"]), expected_sigma_base)
+                    self.assertAlmostEqual(float(diagnostic["sigma"]), expected_sigma_base * 2.0)
+                    interpolation_calls = [
+                        call
+                        for call in info.call_args_list
+                        if str(call.args[0]).startswith("Interpolated station")
+                    ]
+                    self.assertEqual(len(interpolation_calls), 1)
+                    self.assertIn("Interpolated station {} {}", interpolation_calls[0].args[0])
+                    self.assertEqual(interpolation_calls[0].args[1:3], ("station_a", variable))
+
     def test_station_observation_must_be_within_half_model_timestep(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -1,3 +1,7 @@
+---
+published: false
+---
+
 # Symmetric station-tie interpolation design
 
 ## Purpose

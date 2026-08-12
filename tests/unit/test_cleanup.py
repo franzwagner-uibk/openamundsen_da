@@ -16,6 +16,7 @@ from openamundsen_da.pipeline.cleanup import (
     clean_project_artifacts,
 )
 from openamundsen_da.pipeline.rendering import render_completion_manifest_path
+from openamundsen_da.methods.pf.resample import resample_from_weights
 from openamundsen_da.util.retention import validate_retained_consumers
 
 
@@ -488,6 +489,185 @@ def test_compact_predecessor_cleanup_waits_for_explicit_successor_gate(tmp_path:
     )
     assert removed == preview
     assert not state.exists()
+
+
+def test_predecessor_cleanup_resolves_real_pf_posterior_pointer_producers(
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "setup" / "projects" / "project_2022_2023"
+    _write_project_yaml(project_dir, retention="compact")
+    predecessor = project_dir / "steps" / "step_00_init"
+    prior = predecessor / "ensembles" / "prior"
+    states: dict[str, Path] = {}
+    manifests: list[Path] = []
+    for index, name in enumerate(("open_loop", "member_001", "member_002"), start=1):
+        state = prior / name / "results" / "model_state.pickle.gz"
+        _write_state(state, value=index)
+        manifest = state.parent / "member_run.json"
+        manifest.write_text(
+            f'{{"member": "{name}", "status": "success"}}\n',
+            encoding="utf-8",
+        )
+        states[name] = state
+        manifests.append(manifest)
+
+    weights = predecessor / "assim" / "weights_station_hs_20221001.csv"
+    weights.parent.mkdir(parents=True)
+    weights.write_text(
+        "member_id,weight\nmember_001,0.0\nmember_002,1.0\n",
+        encoding="utf-8",
+    )
+    resample_from_weights(
+        step_dir=predecessor,
+        source_ensemble="prior",
+        weights_csv=weights,
+        target_ensemble="posterior",
+        seed=17,
+        algorithm="systematic",
+        ess_threshold=1.5,
+        ess_threshold_ratio=None,
+        overwrite=False,
+    )
+    posterior = predecessor / "ensembles" / "posterior"
+    posterior_pointers = sorted(posterior.glob("member_*/state_pointer.json"))
+    assert len(posterior_pointers) == 2
+    assert all(
+        json.loads((pointer.parent / "source_pointer.json").read_text(encoding="utf-8"))[
+            "member_dir"
+        ].endswith("member_002")
+        for pointer in posterior_pointers
+    )
+    posterior_pointers[0].write_text(
+        json.dumps(
+            {
+                "path": (
+                    "/setup/projects/project_2022_2023/steps/step_00_init/"
+                    "ensembles/prior/member_002/results/model_state.pickle.gz"
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    successor = project_dir / "steps" / "step_01_da"
+    successor_pointers: list[Path] = []
+    for index, name in enumerate(("open_loop", "member_001", "member_002"), start=10):
+        member = successor / "ensembles" / "prior" / name
+        state = member / "results" / "model_state.pickle.gz"
+        _write_state(state, value=index)
+        source_name = "open_loop" if name == "open_loop" else "member_002"
+        pointer = member / "state_pointer.json"
+        pointer.write_text(
+            json.dumps({"path": str(states[source_name])}),
+            encoding="utf-8",
+        )
+        successor_pointers.append(pointer)
+
+    removed = clean_predecessor_checkpoint(
+        project_dir,
+        predecessor,
+        successor_step=successor,
+        apply=True,
+    )
+
+    assert set(removed) == {
+        *(state.resolve() for state in states.values()),
+        *(pointer.resolve() for pointer in posterior_pointers),
+        *(pointer.resolve() for pointer in successor_pointers),
+    }
+    assert all(not path.exists() for path in removed)
+    assert all(manifest.is_file() for manifest in manifests)
+    assert all(
+        (successor / "ensembles" / "prior" / name / "results" / "model_state.pickle.gz").is_file()
+        for name in ("open_loop", "member_001", "member_002")
+    )
+    validate_retained_consumers(project_dir, require_complete=True)
+
+
+@pytest.mark.parametrize(
+    ("contents", "message"),
+    [
+        ("", "unreadable"),
+        ("{not-json", "unreadable"),
+        ("{}", "no valid path"),
+        ('{"path": "results/missing.pickle.gz"}', "missing or outside"),
+    ],
+)
+def test_cleanup_rejects_invalid_checkpoint_pointer_provenance(
+    tmp_path: Path,
+    contents: str,
+    message: str,
+) -> None:
+    project = tmp_path / "project"
+    _write_project_yaml(project, retention="compact")
+    pointer = (
+        project
+        / "steps"
+        / "step_00"
+        / "ensembles"
+        / "posterior"
+        / "member_001"
+        / "state_pointer.json"
+    )
+    pointer.parent.mkdir(parents=True)
+    pointer.write_text(contents, encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match=message):
+        _member_run_manifests(project, (pointer,))
+    assert pointer.is_file()
+
+
+def test_cleanup_rejects_checkpoint_pointer_outside_project(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    _write_project_yaml(project, retention="compact")
+    external = tmp_path / "external" / "model_state.pickle.gz"
+    _write_state(external)
+    pointer = (
+        project
+        / "steps"
+        / "step_00"
+        / "ensembles"
+        / "posterior"
+        / "member_001"
+        / "state_pointer.json"
+    )
+    pointer.parent.mkdir(parents=True)
+    pointer.write_text(json.dumps({"path": str(external)}), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="missing or outside"):
+        _member_run_manifests(project, (pointer,))
+    assert pointer.is_file()
+    assert external.is_file()
+
+
+def test_predecessor_cleanup_fails_before_deletion_for_malformed_pointer(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "setup" / "projects" / "project_2022_2023"
+    _write_project_yaml(project, retention="compact")
+    predecessor = project / "steps" / "step_00"
+    state = predecessor / "ensembles" / "prior" / "member_001" / "results" / "model_state.pickle.gz"
+    _write_state(state)
+    (state.parent / "member_run.json").write_text(
+        '{"member": "member_001", "status": "success"}\n',
+        encoding="utf-8",
+    )
+    malformed = (
+        project
+        / "steps"
+        / "step_01"
+        / "ensembles"
+        / "prior"
+        / "member_001"
+        / "state_pointer.json"
+    )
+    malformed.parent.mkdir(parents=True)
+    malformed.write_text("{not-json", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="unreadable"):
+        clean_predecessor_checkpoint(project, predecessor, apply=False)
+    assert state.is_file()
+    assert malformed.is_file()
 
 
 def test_predecessor_cleanup_requires_every_successor_state(tmp_path: Path) -> None:

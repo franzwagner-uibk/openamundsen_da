@@ -11,6 +11,7 @@ from openamundsen_da.core.constants import (
     RESTART_BLOCK,
     RESTART_STATE_PATTERN,
     STATE_DEFAULT_NAME,
+    STATE_POINTER_JSON,
 )
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import find_project_yaml
@@ -113,17 +114,50 @@ def _restart_checkpoint_candidates(project_dir: Path, step_dir: Path) -> list[Pa
     for pointer in project_dir.glob("steps/step_*/ensembles/*/*/**/state_pointer.json"):
         if not pointer.is_file() or pointer.is_symlink():
             continue
-        try:
-            import json
-
-            data = json.loads(pointer.read_text(encoding="utf-8"))
-            raw = data.get("path") if isinstance(data, dict) else None
-            target = (pointer.parent / str(raw)).resolve() if raw else None
-        except Exception:
-            target = None
+        target = _resolve_checkpoint_pointer_target(project_dir, pointer)
         if target in states:
             candidates.add(pointer.resolve())
     return sorted(candidates)
+
+
+def _resolve_checkpoint_pointer_target(project_dir: Path, pointer: Path) -> Path:
+    """Resolve one checkpoint pointer to a contained, existing state file."""
+    project_dir = Path(project_dir).resolve()
+    pointer = Path(pointer).resolve()
+    try:
+        pointer.relative_to(project_dir / "steps")
+    except ValueError as exc:
+        raise RuntimeError(f"Checkpoint pointer escapes project steps: {pointer}") from exc
+    try:
+        payload = json.loads(pointer.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Checkpoint pointer is unreadable: {pointer}") from exc
+    raw = payload.get("path") if isinstance(payload, dict) else None
+    if not isinstance(raw, str) or not raw.strip():
+        raise RuntimeError(f"Checkpoint pointer has no valid path: {pointer}")
+
+    raw_target = Path(raw)
+    targets: list[Path] = []
+    if raw_target.is_absolute():
+        parts = raw_target.parts
+        step_indices = [index for index, part in enumerate(parts) if part == "steps"]
+        if step_indices:
+            targets.append(project_dir.joinpath(*parts[step_indices[-1] :]))
+        targets.append(raw_target)
+    else:
+        targets.append(pointer.parent / raw_target)
+
+    for candidate in targets:
+        target = candidate.resolve()
+        try:
+            target.relative_to(project_dir / "steps")
+        except ValueError:
+            continue
+        if target.is_file() and not target.is_symlink():
+            return target
+    raise RuntimeError(
+        f"Checkpoint pointer target is missing or outside project steps: {pointer} -> {raw}"
+    )
 
 
 def _validated_successor_states(project_dir: Path, successor_step: Path) -> tuple[Path, ...]:
@@ -160,10 +194,17 @@ def _validated_successor_states(project_dir: Path, successor_step: Path) -> tupl
 
 def _member_run_manifests(project_dir: Path, candidates: Sequence[Path]) -> tuple[Path, ...]:
     """Resolve immutable package producer manifests for owned member artifacts."""
+    project_dir = Path(project_dir).resolve()
     manifests: set[Path] = set()
     for candidate in candidates:
+        producer_artifact = Path(candidate).resolve()
+        if producer_artifact.name == STATE_POINTER_JSON:
+            producer_artifact = _resolve_checkpoint_pointer_target(
+                project_dir,
+                producer_artifact,
+            )
         found_member_root = False
-        for parent in candidate.resolve().parents:
+        for parent in producer_artifact.parents:
             if parent == project_dir:
                 break
             if parent.name == "open_loop" or parent.name.startswith("member_"):
@@ -187,7 +228,9 @@ def _member_run_manifests(project_dir: Path, candidates: Sequence[Path]) -> tupl
                 manifests.add(manifest.resolve())
                 break
         if not found_member_root:
-            raise RuntimeError(f"Cannot resolve member producer for cleanup candidate: {candidate}")
+            raise RuntimeError(
+                f"Cannot resolve member producer for cleanup candidate: {candidate}"
+            )
     return tuple(sorted(manifests))
 
 

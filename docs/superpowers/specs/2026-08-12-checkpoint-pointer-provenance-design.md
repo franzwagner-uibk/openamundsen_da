@@ -1,3 +1,7 @@
+---
+published: false
+---
+
 # Checkpoint Pointer Producer Provenance
 
 ## Problem
@@ -33,4 +37,3 @@ and a complete successor checkpoint. Require successful cleanup and a valid
 retention ledger. Add fail-closed cases for malformed, missing, mismatched and
 external targets, then run the full unit suite and a pinned-image two-step
 integration before production use.
-

@@ -71,6 +71,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the accepted leaf project YAMLs.
 
 ### Fixed
+- Resolve posterior checkpoint pointers to their actual prior-member producer
+  manifests before compact rolling cleanup, while continuing to reject missing,
+  malformed or external checkpoint provenance before deletion.
 - Keep point-result titles consistent with the observations actually plotted
   and wrap dense station uncertainty keys inside the panel while preserving the
   shared symmetric residual range per observable.

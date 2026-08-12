@@ -31,6 +31,10 @@ design because they change restart and worker-cancellation behavior.
   reports.
 - A predecessor restart checkpoint is retained until every successor member
   has produced and validated its own checkpoint.
+- Posterior checkpoint pointers inherit producer evidence from the referenced
+  prior or open-loop state. Cleanup resolves the pointer target before locating
+  its successful member manifest and fails before deletion when the target is
+  missing, malformed or outside the project.
 - Cleanup is consumer-gated, path-contained, idempotent and recorded atomically
   in a versioned retention ledger before paths become eligible for deletion.
 - Each verified overwrite creates a new explicit ledger generation. The prior

@@ -269,10 +269,12 @@ Notes:
 - Station observation assimilation uses `variable: station_hs` or `variable: station_swe` and does not require a product tag.
 - Station observations live in `obs/stations/<station_id>.csv`; station DA metadata live in `obs/stations/stations_da_metadata.csv`.
 - A station event runs at the event date combined with the active step's start
-  time. The unique nearest same-ID, `use_for_da` observation must lie within
-  half the setup timestep. Naive timestamps use the setup timezone; ties and
-  values farther away fail. The corresponding model point must exist exactly
-  at the model-clock timestamp.
+  time. The nearest same-ID, `use_for_da` observation must lie within half the
+  setup timestep. Naive timestamps use the setup timezone. Exactly two
+  equidistant values that symmetrically bracket the model time are averaged
+  when they are no more than 24 hours apart; other ties and values farther away
+  fail. The corresponding model point must exist exactly at the model-clock
+  timestamp.
 - `assimilation_events` is the final event selection. Discovery, quality
   filtering and date substitution must happen before project execution. The
   removed `subdomain_event_filter` key is rejected instead of mutating a project.

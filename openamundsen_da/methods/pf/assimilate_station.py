@@ -13,6 +13,7 @@ from loguru import logger
 from openamundsen_da.io.paths import default_results_dir, infer_project_dir, list_member_dirs
 from openamundsen_da.util.observation_time import (
     ModelClockConfig,
+    SeriesTimeMatch,
     SeriesTimeUnavailableError,
     load_model_clock_config,
     match_series_value_to_model_time,
@@ -78,7 +79,7 @@ def _matched_value(
     model_clock: ModelClockConfig,
     require_exact: bool,
     require_nonnegative: bool,
-) -> tuple[pd.Timestamp, float, float]:
+) -> SeriesTimeMatch:
     """Return one time-bounded timestamp/value pair for one CSV."""
     df = _read_timeseries_with_fallback(csv_path, value_col)
     series = pd.to_numeric(df[value_col], errors="coerce")
@@ -99,7 +100,7 @@ def _matched_value(
         raise SeriesTimeUnavailableError(f"{csv_path}: {exc}") from exc
     except ValueError as exc:
         raise ValueError(f"{csv_path}: {exc}") from exc
-    return matched.matched_time, matched.value, matched.offset_seconds
+    return matched
 
 
 def _candidate_station_ids(obs_dir: Path, members: list[Path]) -> list[str]:
@@ -157,7 +158,7 @@ def _build_active_stations(
             continue
         obs_csv = obs_dir / f"{station_id}.csv"
         try:
-            obs_time, obs_value, obs_time_offset_seconds = _matched_value(
+            obs_match = _matched_value(
                 obs_csv,
                 spec.obs_column,
                 date,
@@ -168,6 +169,21 @@ def _build_active_stations(
         except SeriesTimeUnavailableError as exc:
             logger.warning("Skipping station {} for {} on {}: {}", station_id, variable, date.date(), exc)
             continue
+        if obs_match.interpolated:
+            logger.info(
+                "Interpolated station {} {} at model time {} from {} ({:.6f}) and {} ({:.6f}); mean={:.6f}",
+                station_id,
+                variable,
+                pd.Timestamp(date),
+                obs_match.source_times[0],
+                obs_match.source_values[0],
+                obs_match.source_times[1],
+                obs_match.source_values[1],
+                obs_match.value,
+            )
+        obs_time = obs_match.matched_time
+        obs_value = obs_match.value
+        obs_time_offset_seconds = obs_match.offset_seconds
         if not np.isfinite(obs_value):
             logger.warning("Skipping station {} for {} on {}: observation is not finite", station_id, variable, date.date())
             continue
@@ -276,7 +292,7 @@ def assimilate_station_for_date(
                 raise FileNotFoundError(
                     f"Missing model point output for station {station.station_id} in {results_dir}"
                 )
-            model_time, model_value, model_time_offset_seconds = _matched_value(
+            model_match = _matched_value(
                 model_csv,
                 spec.model_column,
                 date,
@@ -284,6 +300,9 @@ def assimilate_station_for_date(
                 require_exact=True,
                 require_nonnegative=False,
             )
+            model_time = model_match.matched_time
+            model_value = model_match.value
+            model_time_offset_seconds = model_match.offset_seconds
             if not np.isfinite(model_value):
                 raise ValueError(
                     f"Model value for station {station.station_id} is not finite in {model_csv}"

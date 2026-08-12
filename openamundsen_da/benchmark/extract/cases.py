@@ -23,6 +23,7 @@ from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.da_observables import weights_csv_name
 from openamundsen_da.util.observation_time import (
     ModelClockConfig,
+    SeriesTimeMatch,
     SeriesTimeUnavailableError,
     load_model_clock_config,
     match_series_value_to_model_time,
@@ -297,7 +298,7 @@ def _matched_series_value(
     *,
     model_clock: ModelClockConfig,
     require_exact: bool,
-) -> tuple[pd.Timestamp, float] | None:
+) -> SeriesTimeMatch | None:
     if series is None or series.empty:
         return None
     try:
@@ -310,7 +311,7 @@ def _matched_series_value(
         )
     except SeriesTimeUnavailableError:
         return None
-    return matched.matched_time, matched.value
+    return matched
 
 
 def _filter_series_to_window(series: pd.Series, *, start_date: date, end_date: date) -> pd.Series:
@@ -426,8 +427,7 @@ def _member_values_at_model_time(
         )
         if matched is None:
             return None
-        _current_time, value = matched
-        values[member_id] = value
+        values[member_id] = matched.value
     if not values:
         return None
     # Exact matching above already proves that every series represents this
@@ -920,8 +920,22 @@ def extract_analysis_cases(
                 )
                 if obs_match is None or open_loop_match is None or members_match is None:
                     continue
-                obs_time, obs_value = obs_match
-                _, open_loop_value = open_loop_match
+                if obs_match.interpolated:
+                    logger.info(
+                        "Interpolated benchmark station {} {} at model time {} from {} ({:.6f}) and "
+                        "{} ({:.6f}); mean={:.6f}",
+                        station_id,
+                        benchmark_variable,
+                        event_time,
+                        obs_match.source_times[0],
+                        obs_match.source_values[0],
+                        obs_match.source_times[1],
+                        obs_match.source_values[1],
+                        obs_match.value,
+                    )
+                obs_time = obs_match.matched_time
+                obs_value = obs_match.value
+                open_loop_value = open_loop_match.value
                 member_time, member_values = members_match
                 if member_time != event_time:
                     continue

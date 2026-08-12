@@ -39,6 +39,10 @@ class SeriesTimeMatch:
     matched_time: pd.Timestamp
     value: float
     offset_seconds: float
+    source_times: tuple[pd.Timestamp, ...]
+    source_values: tuple[float, ...]
+    source_offset_seconds: float
+    interpolated: bool
 
 
 class SeriesTimeMatchError(ValueError):
@@ -51,6 +55,9 @@ class SeriesTimeUnavailableError(SeriesTimeMatchError):
 
 class SeriesTimeAmbiguityError(SeriesTimeMatchError):
     """Raised when multiple values are equally near the model time."""
+
+
+_SYMMETRIC_INTERPOLATION_MAX_SPAN = pd.Timedelta(hours=24)
 
 
 @dataclass(frozen=True)
@@ -170,12 +177,15 @@ def match_series_value_to_model_time(
     timezone_config: object,
     require_exact: bool = False,
 ) -> SeriesTimeMatch:
-    """Return the unique nearest value within half a model timestep.
+    """Return one value within half a model timestep.
 
-    Naive timestamps are interpreted in the configured model timezone. Ties,
-    duplicate nearest timestamps and values outside the allowed window are
-    rejected. Model-output callers can set ``require_exact`` to enforce the
-    exact model-clock timestamp.
+    Naive timestamps are interpreted in the configured model timezone. A
+    unique nearest value is returned directly. Exactly two equidistant values
+    that bracket the model time symmetrically are linearly interpolated at the
+    midpoint when they are no more than 24 hours apart. Other ties and values
+    outside the allowed window are rejected. Model-output callers can set
+    ``require_exact`` to enforce the exact model-clock timestamp without
+    interpolation.
     """
     if series is None or series.empty:
         raise SeriesTimeUnavailableError("Cannot match an empty time series")
@@ -198,11 +208,6 @@ def match_series_value_to_model_time(
         for position, offset in zip(valid_positions, offsets, strict=True)
         if offset == minimum
     ]
-    if len(nearest_positions) != 1:
-        matched = [str(series.index[position]) for position in nearest_positions]
-        raise SeriesTimeAmbiguityError(
-            f"Ambiguous nearest timestamp for model time {pd.Timestamp(model_time)}: {matched}"
-        )
 
     allowed = pd.Timedelta(0) if require_exact else step / 2
     if minimum > allowed:
@@ -212,18 +217,59 @@ def match_series_value_to_model_time(
             f"{pd.Timestamp(model_time)}, exceeding {qualifier}"
         )
 
-    position = nearest_positions[0]
-    raw_value = series.iloc[position]
-    try:
-        value = float(raw_value)
-    except Exception as exc:
-        raise ValueError(
-            f"Matched value at {series.index[position]} is not numeric: {raw_value!r}"
-        ) from exc
+    source_times = tuple(pd.Timestamp(series.index[position]) for position in nearest_positions)
+    source_values: list[float] = []
+    for position in nearest_positions:
+        raw_value = series.iloc[position]
+        try:
+            source_values.append(float(raw_value))
+        except Exception as exc:
+            raise ValueError(
+                f"Matched value at {series.index[position]} is not numeric: {raw_value!r}"
+            ) from exc
+
+    if len(nearest_positions) == 1:
+        return SeriesTimeMatch(
+            matched_time=source_times[0],
+            value=source_values[0],
+            offset_seconds=float(minimum.total_seconds()),
+            source_times=source_times,
+            source_values=tuple(source_values),
+            source_offset_seconds=float(minimum.total_seconds()),
+            interpolated=False,
+        )
+
+    matched = [str(value) for value in source_times]
+    if len(nearest_positions) != 2:
+        raise SeriesTimeAmbiguityError(
+            f"Symmetric interpolation requires exactly two nearest timestamps for model time "
+            f"{pd.Timestamp(model_time)}; found {matched}"
+        )
+
+    ordered = sorted(nearest_positions, key=lambda position: candidate_utc[position])
+    before, after = (candidate_utc[position] for position in ordered)
+    if not before < target_utc < after:
+        raise SeriesTimeAmbiguityError(
+            f"Symmetric interpolation timestamps must bracket model time "
+            f"{pd.Timestamp(model_time)}; found {matched}"
+        )
+    span = after - before
+    if span > _SYMMETRIC_INTERPOLATION_MAX_SPAN:
+        raise SeriesTimeAmbiguityError(
+            f"Symmetric interpolation timestamps are more than 24 hours apart for model time "
+            f"{pd.Timestamp(model_time)}: {matched}"
+        )
+
+    ordered_times = tuple(pd.Timestamp(series.index[position]) for position in ordered)
+    ordered_values = tuple(source_values[nearest_positions.index(position)] for position in ordered)
     return SeriesTimeMatch(
-        matched_time=pd.Timestamp(series.index[position]),
-        value=value,
-        offset_seconds=float(minimum.total_seconds()),
+        matched_time=pd.Timestamp(model_time),
+        value=float(sum(ordered_values) / 2.0),
+        offset_seconds=0.0,
+        source_times=ordered_times,
+        source_values=ordered_values,
+        source_offset_seconds=float(minimum.total_seconds()),
+        interpolated=True,
     )
 
 

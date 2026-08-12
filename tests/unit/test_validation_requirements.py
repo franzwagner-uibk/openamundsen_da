@@ -231,7 +231,7 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
                 )
             self.assertIn("Station assimilation requires observation directory", str(ctx.exception))
 
-    def test_station_assimilation_passes_with_station_obs_dir(self):
+    def test_station_assimilation_preflight_accepts_symmetric_tie(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             setup_dir = root / "setup_root"
@@ -268,7 +268,9 @@ class ValidateAssimilationRequirementsTests(unittest.TestCase):
             )
             (setup_dir / "obs" / "stations").mkdir(parents=True, exist_ok=True)
             (setup_dir / "obs" / "stations" / "station_1.csv").write_text(
-                "time,snow_depth\n2022-10-03 00:00:00,0.4\n",
+                "time,snow_depth\n"
+                "2022-10-02 23:00:00,0.3\n"
+                "2022-10-03 01:00:00,0.5\n",
                 encoding="ascii",
             )
             (setup_dir / "obs" / "stations" / "stations_da_metadata.csv").write_text(

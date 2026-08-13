@@ -273,6 +273,11 @@ def _run_one(
     if finalization_path.is_file() and not overwrite:
         finalized = _finalize_leaf(sub, resume=True)
         if finalized.get("status") == "success":
+            if storage_admission_client is not None:
+                storage_admission_client.transition(
+                    "leaf_finalized",
+                    request_id=f"{sub.id}:leaf_finalized",
+                )
             recovered = {
                 "id": sub.id,
                 "setup_dir": str(sub.setup_dir),
@@ -306,6 +311,11 @@ def _run_one(
         previous_status = str(data.get("status", "")).lower()
         if previous_status == "success":
             finalized = _finalize_leaf(sub, resume=False)
+            if storage_admission_client is not None:
+                storage_admission_client.transition(
+                    "leaf_finalized",
+                    request_id=f"{sub.id}:leaf_finalized",
+                )
             data["retained_leaf_bytes"] = int(finalized.get("retained_leaf_bytes", 0))
             if finalization_path.is_file():
                 data["leaf_finalization_manifest"] = str(finalization_path)
@@ -669,23 +679,48 @@ def _leaf_waves(selected_ids: list[str], outer_workers: int) -> list[list[str]]:
     ]
 
 
+def _all_storage_reservation_projects(
+    manifest: SubdomainManifest,
+    *,
+    selected_ids: list[str],
+    overwrite: bool,
+    reservation_started_ns: int,
+) -> tuple[StorageReservationProject, ...]:
+    parent_device = manifest.project_dir.resolve().stat().st_dev
+    projects: list[StorageReservationProject] = []
+    for sid in selected_ids:
+        subdomain = manifest.subdomains[sid]
+        if subdomain.project_dir.resolve().stat().st_dev != parent_device:
+            raise ValueError(
+                "Bounded subdomain storage admission requires all leaves and the "
+                f"parent to share one filesystem; {sid} is on another device"
+            )
+        projects.append(
+            StorageReservationProject(
+                setup_dir=subdomain.setup_dir.resolve(),
+                project_dir=subdomain.project_dir.resolve(),
+                grid_cell_count=int(subdomain.window.height)
+                * int(subdomain.window.width),
+                run_manifest=(subdomain.setup_dir / "run_manifest.json").resolve(),
+                completion_not_before_ns=(reservation_started_ns if overwrite else 0),
+            )
+        )
+    return tuple(projects)
+
+
 def _start_wave_storage_coordinator(
     *,
     root_project_dir: Path,
     projects: tuple[StorageReservationProject, ...],
     leaf_ids: list[str],
+    waves: list[list[str]],
+    queued_retained_by_id: dict[str, int],
     outer_workers: int,
     shared_reserve_bytes: int,
     overwrite: bool,
     allow_existing_step_drain: bool,
-    estimated_growth_bytes: int,
 ) -> tuple[StorageAdmissionServer, DiskBudgetSnapshot]:
     """Build, persist and preflight one spawn-safe wave coordinator."""
-    budget = check_step_admission(
-        root_project_dir,
-        estimated_growth_bytes=estimated_growth_bytes,
-        allow_existing_step_drain=allow_existing_step_drain,
-    )
     plan = build_storage_plan(
         root_project_dir=root_project_dir,
         projects=projects,
@@ -693,6 +728,13 @@ def _start_wave_storage_coordinator(
         parent_finalization_reserve_bytes=shared_reserve_bytes,
         overwrite=overwrite,
         leaf_ids=tuple(leaf_ids),
+        waves=tuple(tuple(wave) for wave in waves),
+        queued_retained_by_id=queued_retained_by_id,
+    )
+    budget = check_step_admission(
+        root_project_dir,
+        estimated_growth_bytes=plan.estimated_growth_bytes,
+        allow_existing_step_drain=allow_existing_step_drain,
     )
     coordinator = StorageAdmissionCoordinator(plan)
     server = StorageAdmissionServer(coordinator)
@@ -751,7 +793,7 @@ def run_subdomains(
     try:
         queued_retained_by_id = _projected_retained_compact_bytes(
             manifest,
-            selected_ids=[sid for wave in waves[1:] for sid in wave],
+            selected_ids=selected_ids,
             overwrite=overwrite,
         )
         (
@@ -773,17 +815,22 @@ def run_subdomains(
             _project_has_started(manifest.subdomains[sid].project_dir)
             for sid in waves[0]
         )
+        all_storage_projects = _all_storage_reservation_projects(
+            manifest,
+            selected_ids=selected_ids,
+            overwrite=overwrite,
+            reservation_started_ns=reservation_started_ns,
+        )
         wave_server, storage_budget = _start_wave_storage_coordinator(
             root_project_dir=manifest.project_dir,
-            projects=storage_reservation_projects,
-            leaf_ids=waves[0],
-            outer_workers=len(waves[0]),
-            shared_reserve_bytes=(
-                parent_finalization_reserve + queued_retained_reserve
-            ),
+            projects=all_storage_projects,
+            leaf_ids=selected_ids,
+            waves=waves,
+            queued_retained_by_id=queued_retained_by_id,
+            outer_workers=outer_workers,
+            shared_reserve_bytes=parent_finalization_reserve,
             overwrite=overwrite,
             allow_existing_step_drain=resuming_batch,
-            estimated_growth_bytes=concurrent_storage_reserve,
         )
     except LowDiskSpaceError as exc:
         save_stage(manifest, manifest_path, "run", "paused_low_disk", error=str(exc))
@@ -845,17 +892,23 @@ def run_subdomains(
                     _project_has_started(manifest.subdomains[sid].project_dir)
                     for sid in wave_ids
                 )
-                wave_server, storage_budget = _start_wave_storage_coordinator(
+                fresh_plan = build_storage_plan(
                     root_project_dir=manifest.project_dir,
-                    projects=storage_reservation_projects,
-                    leaf_ids=wave_ids,
-                    outer_workers=len(wave_ids),
-                    shared_reserve_bytes=(
-                        parent_finalization_reserve + queued_retained_reserve
-                    ),
+                    projects=all_storage_projects,
+                    outer_workers=outer_workers,
+                    parent_finalization_reserve_bytes=parent_finalization_reserve,
                     overwrite=overwrite,
+                    leaf_ids=tuple(selected_ids),
+                    waves=tuple(tuple(wave) for wave in waves),
+                    queued_retained_by_id=queued_retained_by_id,
+                )
+                wave_server.coordinator.reconcile_full_plan(fresh_plan)
+                storage_budget = wave_server.client(
+                    leaf_id=wave_ids[0]
+                ).admit_wave(
+                    wave_index,
+                    request_id=f"wave:{wave_index}",
                     allow_existing_step_drain=resuming_batch,
-                    estimated_growth_bytes=concurrent_storage_reserve,
                 )
             logger.info(
                 "ADMIT wave={}/{} subdomains={} growth_gib={:.1f} "
@@ -911,7 +964,6 @@ def run_subdomains(
                         if not other.done():
                             other.cancel()
                     break
-            wave_server.close()
             if failed_id is not None:
                 executor.shutdown(wait=False, cancel_futures=True)
                 break

@@ -69,6 +69,7 @@ from openamundsen_da.util.storage_admission import (
     StorageAdmissionCoordinator,
     accounting_summary_from_inventory,
     build_storage_plan,
+    reused_accounting_summary,
 )
 from openamundsen_da.util.point_output import (
     validate_project_ensemble_points,
@@ -1025,8 +1026,9 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
                     ),
                     source="rejuvenation_reconciliation",
                 ).as_dict()
-            pending_storage_accounting[steps[i + 1].name] = _storage_summary(
-                storage_accounting
+            pending_storage_accounting[steps[i + 1].name] = reused_accounting_summary(
+                _storage_summary(storage_accounting),
+                source="rejuvenation_reused",
             )
             logger.info(
                 "Validated rejuvenation manifest for {}; overwrite=False -> skipping process-noise rebuild.",

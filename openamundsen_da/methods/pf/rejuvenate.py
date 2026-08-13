@@ -75,7 +75,10 @@ from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
 from openamundsen_da.util.meteo import filter_and_write_meteo
 from openamundsen_da.methods.pf.weights import prior_weight_paths
 from openamundsen_da.util.retention import completed_retention_paths
-from openamundsen_da.util.storage_admission import accounting_summary_from_inventory
+from openamundsen_da.util.storage_admission import (
+    accounting_summary_delta,
+    accounting_summary_from_inventory,
+)
 
 
 @dataclass
@@ -294,6 +297,15 @@ def rejuvenate(
     project_dir = infer_project_dir(next_step_dir)
     params = _read_rejuvenation_params(project_dir)
     start, end = _read_next_step_dates(next_step_dir)
+    before_accounting = accounting_summary_from_inventory(
+        completed_step=Path(next_step_dir).name,
+        inventory=_rejuvenation_output_inventory(
+            setup_dir=Path(setup_dir),
+            next_step_dir=Path(next_step_dir),
+            target_ensemble=target_ensemble,
+        ),
+        source="rejuvenation_before",
+    )
     src_members = list_member_dirs(Path(prev_step_dir) / "ensembles", source_ensemble)
     if not src_members:
         raise RuntimeError(f"No members under {prev_step_dir}/ensembles/{source_ensemble}")
@@ -380,9 +392,13 @@ def rejuvenate(
         next_step_dir=Path(next_step_dir),
         target_ensemble=target_ensemble,
     )
-    storage_accounting = accounting_summary_from_inventory(
-        completed_step=Path(next_step_dir).name,
-        inventory=manifest_outputs,
+    storage_accounting = accounting_summary_delta(
+        before=before_accounting,
+        after=accounting_summary_from_inventory(
+            completed_step=Path(next_step_dir).name,
+            inventory=manifest_outputs,
+            source="rejuvenation_after",
+        ),
         source="rejuvenation",
     ).as_dict()
     manifest = {

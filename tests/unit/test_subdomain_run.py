@@ -404,6 +404,16 @@ def test_run_subdomains_refuses_coordinated_growth_before_workers(tmp_path, monk
     monkeypatch.setattr(run_mod, "ensure_run_mode", lambda *_args, **_kwargs: "subdomain")
     monkeypatch.setattr(
         run_mod,
+        "_projected_retained_compact_bytes",
+        lambda *_args, **_kwargs: {"S1": 0},
+    )
+    monkeypatch.setattr(
+        run_mod,
+        "build_storage_plan",
+        lambda *_args, **_kwargs: SimpleNamespace(estimated_growth_bytes=600),
+    )
+    monkeypatch.setattr(
+        run_mod,
         "_coordinator_storage_reserve",
         lambda *_args, **_kwargs: (600, {"S1": 500}, (project_spec,), 100, 0),
     )

@@ -40,7 +40,12 @@ from openamundsen_da.core.constants import (
 )
 from openamundsen_da.util.atomic import durable_replace
 from openamundsen_da.manifests import file_inventory, recursive_files, write_manifest_atomic
-from openamundsen_da.util.storage_admission import accounting_summary_from_inventory
+from openamundsen_da.util.storage_admission import (
+    StorageAccountingSummary,
+    accounting_summary_delta,
+    accounting_summary_from_inventory,
+    reused_accounting_summary,
+)
 from openamundsen.model import OpenAmundsen
 
 from openamundsen_da.core.config import load_merged_config
@@ -299,6 +304,10 @@ def run_member(
                 results_dir,
                 step_name=step_dir.name,
             )
+        storage_accounting = reused_accounting_summary(
+            StorageAccountingSummary.from_dict(storage_accounting),
+            source="member_runner_reused",
+        ).as_dict()
         return MemberRunResult(
             member_name,
             "skipped",
@@ -307,6 +316,10 @@ def run_member(
             None,
             storage_accounting,
         )
+
+    before_accounting = StorageAccountingSummary.from_dict(
+        _member_storage_accounting(results_dir, step_name=step_dir.name)
+    )
 
     # Step 8: Initialize manifest and timing
     start = time.time()
@@ -378,10 +391,13 @@ def run_member(
                 logger.info(f"[{member_name}] Saved state to {out_name}")
 
         dur = time.time() - start
-        storage_accounting = _member_storage_accounting(
-            results_dir,
-            step_name=step_dir.name,
-        )
+        storage_accounting = accounting_summary_delta(
+            before=before_accounting,
+            after=StorageAccountingSummary.from_dict(
+                _member_storage_accounting(results_dir, step_name=step_dir.name)
+            ),
+            source="member_runner",
+        ).as_dict()
         manifest.update({
             "status": "success",
             "finished": time.strftime("%Y-%m-%d %H:%M:%S"),

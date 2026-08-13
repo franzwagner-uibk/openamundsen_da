@@ -9,35 +9,34 @@ current filesystem usage once.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
-import queue
-import socket
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from multiprocessing import AuthenticationError
-from multiprocessing.connection import (
-    Connection,
-    Listener,
-    answer_challenge,
-    deliver_challenge,
-)
 from pathlib import Path
 from typing import Callable, Mapping
 
 from loguru import logger
 
 from openamundsen_da.manifests import hash_json, sha256_file, write_manifest_atomic
-from openamundsen_da.io.paths import find_project_yaml, find_setup_yaml, list_steps_sorted
+from openamundsen_da.io.paths import (
+    find_project_yaml,
+    find_setup_yaml,
+    list_member_dirs,
+    list_steps_sorted,
+    open_loop_dir,
+)
 from openamundsen_da.util.storage_budget import (
     DiskBudgetSnapshot,
     ProjectStorageEstimate,
     StorageReservationProject,
     check_step_admission,
     estimate_coordinated_storage_reserve,
+    estimate_project_storage_components,
 )
 
 
@@ -332,6 +331,7 @@ class StorageLeafPlan:
     step_obligations: Mapping[str, Mapping[str, int]]
     queued_retained_bytes: int
     identity: str
+    grid_cell_count: int = 0
 
     @property
     def total_bytes(self) -> int:
@@ -361,18 +361,45 @@ def _estimate_obligations(estimate: ProjectStorageEstimate) -> dict[str, int]:
     return obligations
 
 
-def _allocate_exact(total: int, weights: list[int]) -> list[int]:
-    """Allocate one exact integer total proportionally without losing bytes."""
-    if not weights:
-        return []
-    weight_total = sum(max(0, weight) for weight in weights)
-    if weight_total <= 0:
-        weights = [1] * len(weights)
-        weight_total = len(weights)
-    values = [int(total) * max(0, weight) // weight_total for weight in weights]
-    for index in range(int(total) - sum(values)):
-        values[index % len(values)] += 1
-    return values
+def _validate_partial_member_manifests(
+    project: StorageReservationProject,
+    step_names: tuple[str, ...],
+) -> None:
+    """Validate present member manifests without inferring step completion."""
+    for step_name in step_names:
+        step_dir = project.project_dir / "steps" / step_name
+        expected_members = list_member_dirs(step_dir / "ensembles", "prior")
+        expected_open_loop = open_loop_dir(step_dir)
+        if expected_open_loop.is_dir():
+            expected_members = [expected_open_loop, *expected_members]
+        member_manifests = [
+            member_dir / "results" / "member_run.json"
+            for member_dir in expected_members
+        ]
+        statuses: list[str] = []
+        for manifest_path in member_manifests:
+            try:
+                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                payload = {}
+            status = str(payload.get("status") or "").lower()
+            if manifest_path.is_file() and not status:
+                raise RuntimeError(
+                    f"Malformed authoritative member manifest: {manifest_path}"
+                )
+            accounting = payload.get("storage_accounting")
+            if status == "success" and accounting is not None:
+                if not isinstance(accounting, Mapping):
+                    raise RuntimeError(
+                        f"Malformed member storage accounting: {manifest_path}"
+                    )
+                try:
+                    StorageAccountingSummary.from_dict(accounting)
+                except (TypeError, ValueError) as exc:
+                    raise RuntimeError(
+                        f"Malformed member storage accounting: {manifest_path}"
+                    ) from exc
+            statuses.append(status)
 
 
 def _step_obligations(
@@ -381,48 +408,18 @@ def _step_obligations(
     step_names: tuple[str, ...],
     obligations: Mapping[str, int],
 ) -> dict[str, dict[str, int]]:
-    """Split cumulative obligations into immutable step-local obligations."""
-    weights: list[int] = []
-    completed: list[bool] = []
-    for step_name in step_names:
-        step_dir = project.project_dir / "steps" / step_name
-        from openamundsen_da.io.paths import read_step_config
+    """Record completion slots without inventing unproven per-step shares.
 
-        step_cfg = read_step_config(step_dir) or {}
-        try:
-            start = datetime.fromisoformat(str(step_cfg["start_date"]))
-            end = datetime.fromisoformat(str(step_cfg["end_date"]))
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ValueError(f"Invalid prepared step window for storage plan: {step_dir}") from exc
-        member_manifests = list(
-            step_dir.glob("ensembles/*/*/results/member_run.json")
-        )
-        statuses: list[str] = []
-        for manifest_path in member_manifests:
-            try:
-                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                payload = {}
-            statuses.append(str(payload.get("status") or "").lower())
-        step_complete = bool(statuses) and all(status == "success" for status in statuses)
-        completed.append(step_complete)
-        weights.append(
-            0 if step_complete else max(1, int((end - start).total_seconds()) + 1)
-        )
-    if all(completed) and any(int(obligations.get(name, 0)) for name in STEP_MATERIALIZATION_COMPONENTS):
-        raise RuntimeError(
-            "Completed project steps still have unmaterialized storage obligations; "
-            "authoritative reconciliation failed"
-        )
-    by_step = {
+    The estimator provides exact conservative aggregate components, not exact
+    heterogeneous step shares. The aggregate remains reserved until validated
+    finalization, so step-local values deliberately stay zero in this increment.
+    """
+    del project
+    del obligations
+    return {
         step_name: {component: 0 for component in STEP_MATERIALIZATION_COMPONENTS}
         for step_name in step_names
     }
-    for component in STEP_MATERIALIZATION_COMPONENTS:
-        allocated = _allocate_exact(int(obligations.get(component, 0)), weights)
-        for step_name, value in zip(step_names, allocated, strict=True):
-            by_step[step_name][component] = value
-    return by_step
 
 
 def _path_identity(paths: list[Path]) -> str:
@@ -515,6 +512,7 @@ def build_storage_plan(
         step_names = tuple(path.name for path in list_steps_sorted(project_dir))
         if not step_names:
             raise FileNotFoundError(f"Prepared project has no storage-plannable steps: {project_dir}")
+        _validate_partial_member_manifests(project, step_names)
         leaves[leaf_id] = StorageLeafPlan(
             leaf_id=leaf_id,
             setup_dir=project.setup_dir.resolve(),
@@ -530,6 +528,7 @@ def build_storage_plan(
                 queued_retained_by_id.get(leaf_id, sum(obligations.values()))
             ),
             identity=_project_identity(project, step_names),
+            grid_cell_count=int(project.grid_cell_count),
         )
     wave_growth_bytes = tuple(
         _wave_growth(
@@ -555,14 +554,12 @@ def build_storage_plan(
         "root_project_dir": str(root_project_dir),
         "device": device,
         "outer_workers": int(outer_workers),
-        "parent_finalization_reserve_bytes": int(parent_finalization_reserve_bytes),
         "waves": [list(wave) for wave in waves],
         "leaves": {
             leaf_id: {
                 "setup_dir": str(leaf.setup_dir),
                 "project_dir": str(leaf.project_dir),
                 "steps": list(leaf.step_names),
-                "queued_retained_bytes": leaf.queued_retained_bytes,
                 "identity": leaf.identity,
             }
             for leaf_id, leaf in leaves.items()
@@ -638,6 +635,9 @@ def _has_partial_run_evidence(plan: StoragePlan) -> bool:
         next(leaf.project_dir.glob(pattern), None) is not None
         for leaf in plan.leaves.values()
         for pattern in patterns
+    ) or any(
+        (leaf.setup_dir / "leaf_finalization_manifest.json").is_file()
+        for leaf in plan.leaves.values()
     )
 
 
@@ -668,6 +668,10 @@ class StorageAdmissionCoordinator:
     def snapshot(self) -> dict[str, object]:
         with self._lock:
             return copy.deepcopy(self._ledger)
+
+    def active_leaf_ids(self) -> tuple[str, ...]:
+        with self._lock:
+            return tuple(str(item) for item in self._ledger["active_leaf_ids"])
 
     def reconcile_full_plan(self, fresh_plan: StoragePlan) -> None:
         """Raise durable obligations from a serialized phase-transition plan."""
@@ -730,6 +734,62 @@ class StorageAdmissionCoordinator:
             self._recompute_remaining_peak(ledger)
             write_manifest_atomic(self.ledger_path, ledger)
             self._ledger = ledger
+
+    def reconcile_leaf_finalization(
+        self,
+        *,
+        leaf_id: str,
+        request_id: str | None = None,
+        allow_existing_step_drain: bool = True,
+    ) -> DiskBudgetSnapshot:
+        """Run one serialized authoritative estimate before compact finalization."""
+        request_id = request_id or f"{leaf_id}:reconcile_finalization"
+        with self._lock:
+            if leaf_id not in self.plan.leaves:
+                raise KeyError(f"Unknown storage-admission leaf: {leaf_id}")
+            ledger = copy.deepcopy(self._ledger)
+            request = {
+                "kind": "reconcile",
+                "leaf_id": leaf_id,
+                "phase": "project_finalizing",
+                "request_id": request_id,
+            }
+            if not self._is_duplicate_request(
+                ledger,
+                request_id=request_id,
+                request=request,
+            ):
+                leaf_plan = self.plan.leaves[leaf_id]
+                started = time.perf_counter()
+                estimate = estimate_project_storage_components(
+                    setup_dir=leaf_plan.setup_dir,
+                    project_dir=leaf_plan.project_dir,
+                    overwrite=self.plan.overwrite,
+                    grid_cell_count=(leaf_plan.grid_cell_count or None),
+                )
+                obligations = _estimate_obligations(estimate)
+                state = ledger["leaves"][leaf_id]
+                for component, value in obligations.items():
+                    state["planned_by_component"][component] = max(
+                        int(state["planned_by_component"].get(component, 0)),
+                        int(value),
+                    )
+                    state["remaining_by_component"][component] = max(
+                        int(state["remaining_by_component"].get(component, 0)),
+                        int(value),
+                    )
+                ledger["full_estimate_count"] = int(ledger["full_estimate_count"]) + 1
+                ledger["full_estimate_duration_seconds"] = float(
+                    ledger["full_estimate_duration_seconds"]
+                ) + (time.perf_counter() - started)
+                ledger["phase"] = "finalization_reconciliation"
+                self._recompute_remaining_peak(ledger)
+            return self._check_and_commit(
+                ledger,
+                allow_existing_step_drain=allow_existing_step_drain,
+                request_id=request_id,
+                request=request,
+            )
 
     def _new_ledger(self) -> dict[str, object]:
         active_ids = set(self.plan.waves[0])
@@ -1005,6 +1065,8 @@ class StorageAdmissionCoordinator:
         if reconciled_partial:
             ledger["targeted_reconciliation_count"] = 1
             ledger["status"] = "reconciled_legacy_partial"
+            self._reconcile_finalization_manifests(ledger)
+            self._recompute_remaining_peak(ledger)
         write_manifest_atomic(self.ledger_path, ledger)
         return ledger
 
@@ -1089,59 +1151,16 @@ class StorageAdmissionCoordinator:
                 int(leaf_state["observed_step_high_water_bytes"][component]),
                 observed,
             )
-            completed_planned = int(
-                leaf_state["planned_by_step"][expected_step].get(component, 0)
-            )
-            remaining = max(
-                0,
-                int(leaf_state["remaining_by_component"][component])
-                - completed_planned,
-            )
-            future_names = leaf_plan.step_names[admitted_index + 1 :]
-            upward_calibration = 0
-            for name in future_names:
-                future_planned = int(
-                    leaf_state["planned_by_step"][name].get(component, 0)
-                )
-                if high_water > future_planned:
-                    upward_calibration += high_water - future_planned
-                    leaf_state["planned_by_step"][name][component] = high_water
-            # A producer exceedance is evidence about homologous work that has
-            # not started in queued waves.  Propagate the observed absolute
-            # high-water conservatively to the same step/component slot.  This
-            # never lowers a leaf-specific estimate and updates the durable
-            # future-wave peak before that wave can be admitted.
-            active_wave = int(ledger["active_wave_index"])
-            for future_wave_index in range(active_wave + 1, len(ledger["waves"])):
-                wave_increase = 0
-                for future_leaf_id in ledger["waves"][future_wave_index]:
-                    future_leaf = ledger["leaves"][future_leaf_id]
-                    future_steps = future_leaf["step_names"]
-                    if admitted_index >= len(future_steps):
-                        continue
-                    homologous_step = future_steps[admitted_index]
-                    future_planned = int(
-                        future_leaf["planned_by_step"][homologous_step].get(
-                            component, 0
-                        )
-                    )
-                    if high_water <= future_planned:
-                        continue
-                    increase = high_water - future_planned
-                    future_leaf["planned_by_step"][homologous_step][component] = high_water
-                    future_leaf["planned_by_component"][component] = int(
-                        future_leaf["planned_by_component"].get(component, 0)
-                    ) + increase
-                    wave_increase += increase
-                ledger["wave_growth_bytes"][future_wave_index] = int(
-                    ledger["wave_growth_bytes"][future_wave_index]
-                ) + wave_increase
             leaf_state["cumulative_materialized_bytes"][component] = int(
                 leaf_state["cumulative_materialized_bytes"][component]
             ) + actual
             leaf_state["observed_step_high_water_bytes"][component] = high_water
-            leaf_state["remaining_by_component"][component] = (
-                remaining + upward_calibration
+            # Per-step shares cannot be proven from a net aggregate estimate.
+            # Keep the full aggregate obligation until authoritative leaf
+            # finalization; summaries can only raise, never release, it.
+            leaf_state["remaining_by_component"][component] = max(
+                int(leaf_state["remaining_by_component"][component]),
+                observed,
             )
         leaf_state["last_completed_step_index"] = admitted_index
         leaf_state["last_accounting_summary"] = summary.as_dict()
@@ -1201,6 +1220,10 @@ class StorageAdmissionCoordinator:
         if kind == "transition":
             return "transitions", str(request.get("leaf_id") or "parent"), str(
                 request.get("phase") or ""
+            )
+        if kind == "reconcile":
+            return "transitions", str(request.get("leaf_id") or ""), str(
+                request.get("phase") or "reconcile"
             )
         if kind == "wave":
             return "waves", "coordinator", str(request.get("wave_index"))
@@ -1388,7 +1411,17 @@ class StorageAdmissionCoordinator:
                             "A producer accounting summary is required before admitting "
                             f"{leaf_id}/{step_name}"
                         )
-                    self._apply_summary(ledger, leaf_id=leaf_id, summary=summary)
+                    try:
+                        summary_index = leaf_plan.step_names.index(
+                            summary.completed_step
+                        )
+                    except ValueError as exc:
+                        raise ValueError(
+                            "Storage accounting summary is stale or out of order for "
+                            f"{leaf_id}: unknown step {summary.completed_step!r}"
+                        ) from exc
+                    if summary_index > int(leaf_state["last_completed_step_index"]):
+                        self._apply_summary(ledger, leaf_id=leaf_id, summary=summary)
                 elif summary is not None:
                     raise ValueError("Initial step admission cannot include a completed-step summary")
                 leaf_state["last_admitted_step_index"] = step_index
@@ -1437,7 +1470,17 @@ class StorageAdmissionCoordinator:
                 if summary is not None:
                     if leaf_id is None or leaf_id not in self.plan.leaves:
                         raise ValueError("A valid leaf_id is required with a transition summary")
-                    self._apply_summary(ledger, leaf_id=leaf_id, summary=summary)
+                    leaf_state = ledger["leaves"][leaf_id]
+                    try:
+                        summary_index = self.plan.leaves[leaf_id].step_names.index(
+                            summary.completed_step
+                        )
+                    except ValueError as exc:
+                        raise ValueError(
+                            f"Unknown completed step in storage summary: {summary.completed_step}"
+                        ) from exc
+                    if summary_index > int(leaf_state["last_completed_step_index"]):
+                        self._apply_summary(ledger, leaf_id=leaf_id, summary=summary)
                 if phase == "leaf_finalized":
                     if leaf_id is None or leaf_id not in self.plan.leaves:
                         raise ValueError("leaf_finalized requires a valid leaf_id")
@@ -1513,8 +1556,8 @@ class StorageAdmissionCoordinator:
 class StorageAdmissionClient:
     """Spawn-safe client for a parent-owned storage admission coordinator."""
 
-    address: tuple[str, int] | None = None
-    authkey: bytes | None = None
+    ipc_dir: Path | None = None
+    generation: str | None = None
     leaf_id: str = "project"
     _coordinator: StorageAdmissionCoordinator | None = field(
         default=None,
@@ -1533,8 +1576,8 @@ class StorageAdmissionClient:
 
     def for_leaf(self, leaf_id: str) -> "StorageAdmissionClient":
         return StorageAdmissionClient(
-            address=self.address,
-            authkey=self.authkey,
+            ipc_dir=self.ipc_dir,
+            generation=self.generation,
             leaf_id=leaf_id,
             _coordinator=self._coordinator,
         )
@@ -1542,26 +1585,68 @@ class StorageAdmissionClient:
     def _request(self, payload: dict[str, object]) -> DiskBudgetSnapshot:
         if self._coordinator is not None:
             return _dispatch_coordinator_request(self._coordinator, payload)
-        if self.address is None or self.authkey is None:
+        if self.ipc_dir is None or self.generation is None:
             raise RuntimeError("Storage admission coordinator is unavailable")
-        response: object | None = None
-        last_error: BaseException | None = None
-        for _attempt in range(STORAGE_ADMISSION_REQUEST_ATTEMPTS):
+        route_id = "_coordinator" if payload.get("kind") == "wave" else self.leaf_id
+        leaf_token = hashlib.sha256(route_id.encode("utf-8")).hexdigest()[:16]
+        leaf_dir = self.ipc_dir / self.generation / leaf_token
+        leaf_dir.mkdir(parents=True, exist_ok=True)
+        request_id = str(payload["request_id"])
+        request_sha256 = hash_json(payload)
+        request_path = leaf_dir / "request.json"
+        response_path = leaf_dir / (
+            "response."
+            + hashlib.sha256(request_id.encode("utf-8")).hexdigest()[:16]
+            + ".json"
+        )
+        envelope = {
+            "generation": self.generation,
+            "leaf_id": self.leaf_id,
+            "route_id": route_id,
+            "request_id": request_id,
+            "payload_sha256": request_sha256,
+            "payload": payload,
+        }
+        if request_path.is_file():
             try:
-                response = _bounded_ipc_request(
-                    self.address,
-                    self.authkey,
-                    payload,
-                    timeout=STORAGE_ADMISSION_REQUEST_TIMEOUT_SECONDS,
+                pending = json.loads(request_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise RuntimeError(f"Storage IPC request is invalid: {request_path}") from exc
+            if pending != envelope:
+                raise RuntimeError(
+                    f"Another storage request is pending for leaf {self.leaf_id}"
                 )
-                break
-            except (ConnectionError, EOFError, OSError, TimeoutError) as exc:
-                last_error = exc
         else:
+            write_manifest_atomic(request_path, envelope)
+        deadline = time.monotonic() + (
+            STORAGE_ADMISSION_REQUEST_TIMEOUT_SECONDS
+            * STORAGE_ADMISSION_REQUEST_ATTEMPTS
+        )
+        response: object | None = None
+        while time.monotonic() < deadline:
+            if response_path.is_file():
+                try:
+                    candidate = json.loads(response_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    time.sleep(0.005)
+                    continue
+                if (
+                    candidate.get("generation") == self.generation
+                    and candidate.get("request_id") == request_id
+                    and candidate.get("payload_sha256") == request_sha256
+                ):
+                    response = candidate.get("response")
+                    try:
+                        response_path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    break
+            time.sleep(0.005)
+        if response is None:
             raise RuntimeError(
                 "Storage admission coordinator is unavailable or timed out; "
                 "refusing the next boundary"
-            ) from last_error
+            )
         if not isinstance(response, dict):
             raise RuntimeError("Storage admission coordinator returned an invalid response")
         if response.get("ok") is not True:
@@ -1601,6 +1686,23 @@ class StorageAdmissionClient:
                 "leaf_id": self.leaf_id,
                 "step_name": step_name,
                 "summary": summary.as_dict() if summary is not None else None,
+                "request_id": request_id,
+                "allow_existing_step_drain": allow_existing_step_drain,
+            }
+        )
+
+    def reconcile_finalization(
+        self,
+        *,
+        request_id: str | None = None,
+        allow_existing_step_drain: bool = True,
+    ) -> DiskBudgetSnapshot:
+        request_id = request_id or f"{self.leaf_id}:reconcile_finalization"
+        return self._request(
+            {
+                "kind": "reconcile",
+                "leaf_id": self.leaf_id,
+                "phase": "project_finalizing",
                 "request_id": request_id,
                 "allow_existing_step_drain": allow_existing_step_drain,
             }
@@ -1657,65 +1759,6 @@ def _snapshot_dict(snapshot: DiskBudgetSnapshot) -> dict[str, object]:
     }
 
 
-def _timed_connection(
-    address: tuple[str, int],
-    authkey: bytes,
-    *,
-    timeout: float,
-) -> Connection:
-    """Open one authenticated local connection with a bounded connect time."""
-    raw = socket.create_connection(address, timeout=timeout)
-    raw.settimeout(None)
-    connection = Connection(raw.detach())
-    try:
-        answer_challenge(connection, authkey)
-        deliver_challenge(connection, authkey)
-    except BaseException:
-        connection.close()
-        raise
-    return connection
-
-
-def _bounded_ipc_request(
-    address: tuple[str, int],
-    authkey: bytes,
-    payload: Mapping[str, object],
-    *,
-    timeout: float,
-) -> object:
-    """Bound the complete authenticated exchange, including auth and send."""
-    result_queue: queue.Queue[tuple[bool, object]] = queue.Queue(maxsize=1)
-
-    def exchange() -> None:
-        connection: Connection | None = None
-        try:
-            connection = _timed_connection(address, authkey, timeout=timeout)
-            connection.send(dict(payload))
-            if not connection.poll(timeout):
-                raise TimeoutError("storage admission response timed out")
-            result_queue.put((True, connection.recv()))
-        except BaseException as exc:  # noqa: BLE001 - returned to the caller
-            result_queue.put((False, exc))
-        finally:
-            if connection is not None:
-                connection.close()
-
-    worker = threading.Thread(target=exchange, daemon=True)
-    worker.start()
-    worker.join(timeout)
-    if worker.is_alive():
-        raise TimeoutError("storage admission request timed out")
-    try:
-        ok, value = result_queue.get_nowait()
-    except queue.Empty as exc:
-        raise RuntimeError("Storage admission request ended without a response") from exc
-    if not ok:
-        if isinstance(value, BaseException):
-            raise value
-        raise RuntimeError("Storage admission request failed without an exception")
-    return value
-
-
 def _dispatch_coordinator_request(
     coordinator: StorageAdmissionCoordinator,
     payload: Mapping[str, object],
@@ -1752,21 +1795,37 @@ def _dispatch_coordinator_request(
                 payload.get("allow_existing_step_drain", False)
             ),
         )
+    if kind == "reconcile":
+        return coordinator.reconcile_leaf_finalization(
+            leaf_id=str(payload["leaf_id"]),
+            request_id=(str(payload["request_id"]) if payload.get("request_id") else None),
+            allow_existing_step_drain=bool(
+                payload.get("allow_existing_step_drain", True)
+            ),
+        )
     raise ValueError(f"Unknown storage admission request kind: {kind!r}")
 
 
 class StorageAdmissionServer:
-    """Small parent thread serializing spawn-worker admission requests."""
+    """Parent thread serializing durable per-leaf request manifests."""
 
     def __init__(self, coordinator: StorageAdmissionCoordinator) -> None:
         self.coordinator = coordinator
-        self._authkey = os.urandom(32)
-        backlog = max(32, int(coordinator.plan.outer_workers) * 2)
-        self._listener = Listener(
-            ("127.0.0.1", 0),
-            backlog=backlog,
-            authkey=self._authkey,
-        )
+        self._ipc_dir = coordinator.ledger_path.parent / "ipc"
+        self._generation_dir = self._ipc_dir / coordinator.generation
+        self._generation_dir.mkdir(parents=True, exist_ok=True)
+        self._request_paths = {
+            leaf_id: self._generation_dir
+            / hashlib.sha256(leaf_id.encode("utf-8")).hexdigest()[:16]
+            / "request.json"
+            for leaf_id in coordinator.plan.leaves
+        }
+        self._control_request_path = self._generation_dir / (
+            hashlib.sha256(b"_coordinator").hexdigest()[:16]
+        ) / "request.json"
+        self._control_request_path.parent.mkdir(parents=True, exist_ok=True)
+        for path in self._request_paths.values():
+            path.parent.mkdir(parents=True, exist_ok=True)
         self._stop = threading.Event()
         self._thread = threading.Thread(
             target=self._serve,
@@ -1776,59 +1835,78 @@ class StorageAdmissionServer:
         self._thread.start()
 
     def client(self, *, leaf_id: str) -> StorageAdmissionClient:
-        address = self._listener.address
-        if not isinstance(address, tuple) or len(address) != 2:
-            raise RuntimeError("Storage admission listener did not bind a TCP address")
+        if leaf_id not in self._request_paths:
+            raise KeyError(f"Unknown storage-admission leaf: {leaf_id}")
         return StorageAdmissionClient(
-            address=(str(address[0]), int(address[1])),
-            authkey=self._authkey,
+            ipc_dir=self._ipc_dir,
+            generation=self.coordinator.generation,
             leaf_id=leaf_id,
         )
 
     def _serve(self) -> None:
         while not self._stop.is_set():
-            try:
-                connection = self._listener.accept()
-            except (AuthenticationError, EOFError):
-                continue
-            except OSError:
-                if self._stop.is_set():
-                    return
-                continue
-            try:
-                payload = connection.recv()
-                if isinstance(payload, dict) and payload.get("kind") == "shutdown":
-                    connection.send({"ok": True})
-                    return
+            handled = False
+            active_paths = [
+                (leaf_id, self._request_paths[leaf_id])
+                for leaf_id in self.coordinator.active_leaf_ids()
+            ]
+            for leaf_id, request_path in [
+                (None, self._control_request_path),
+                *active_paths,
+            ]:
+                if not request_path.is_file():
+                    continue
+                handled = True
+                envelope: dict[str, object] = {}
                 try:
+                    envelope = json.loads(request_path.read_text(encoding="utf-8"))
+                    payload = envelope.get("payload")
+                    if (
+                        not isinstance(payload, dict)
+                        or envelope.get("generation") != self.coordinator.generation
+                        or (
+                            leaf_id is not None
+                            and envelope.get("leaf_id") != leaf_id
+                        )
+                        or envelope.get("route_id")
+                        != (leaf_id if leaf_id is not None else "_coordinator")
+                        or envelope.get("payload_sha256") != hash_json(payload)
+                    ):
+                        raise ValueError(f"Invalid storage IPC request: {request_path}")
                     snapshot = _dispatch_coordinator_request(self.coordinator, payload)
                 except Exception as exc:  # noqa: BLE001 - serialized to worker
-                    connection.send(
-                        {
-                            "ok": False,
-                            "error_type": type(exc).__name__,
-                            "error": str(exc),
-                        }
-                    )
+                    response = {
+                        "ok": False,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    }
                 else:
-                    connection.send({"ok": True, "snapshot": _snapshot_dict(snapshot)})
-            except (EOFError, OSError):
-                pass
-            finally:
-                connection.close()
+                    response = {"ok": True, "snapshot": _snapshot_dict(snapshot)}
+                request_id = str(envelope.get("request_id") or "invalid")
+                response_path = request_path.parent / (
+                    "response."
+                    + hashlib.sha256(request_id.encode("utf-8")).hexdigest()[:16]
+                    + ".json"
+                )
+                try:
+                    request_path.unlink()
+                except FileNotFoundError:
+                    pass
+                write_manifest_atomic(
+                    response_path,
+                    {
+                        "generation": envelope.get("generation"),
+                        "request_id": request_id,
+                        "payload_sha256": envelope.get("payload_sha256"),
+                        "response": response,
+                    },
+                )
+            if not handled:
+                self._stop.wait(0.005)
 
     def close(self) -> None:
-        if not self._thread.is_alive():
-            self._listener.close()
-            return
         self._stop.set()
-        try:
-            address = self._listener.address
-            wake = socket.create_connection(address, timeout=1.0)
-            wake.close()
-        finally:
-            self._thread.join(timeout=2.0)
-            self._listener.close()
+        self._thread.join(timeout=1.0)
 
     def __enter__(self) -> "StorageAdmissionServer":
         return self

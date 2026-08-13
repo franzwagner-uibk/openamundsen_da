@@ -217,9 +217,12 @@ def test_full_retention_scf_leaf_uses_raw_render_support_without_map_archive(
     parent_grid = parent_project / "results" / "grids" / "da_output_grids.nc"
     parent_grid.parent.mkdir(parents=True)
     parent_grid.write_bytes(b"merged compact grid")
+    (parent_project / "demo.yml").write_text("data_assimilation: {}\n", encoding="utf-8")
     parent_manifest = SimpleNamespace(
         project_dir=parent_project.resolve(),
         subdomains={subdomain.id: SimpleNamespace(status="success")},
+        grid_rows=1,
+        grid_cols=1,
     )
     calls: list[str] = []
     monkeypatch.setattr(render_mod, "ensure_run_mode", lambda *_args, **_kwargs: None)

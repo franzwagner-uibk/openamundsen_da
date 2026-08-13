@@ -1080,6 +1080,11 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
             pass
     if last_step_storage_accounting is None:
         raise RuntimeError("Final step omitted its required storage accounting summary")
+    cfg.storage_admission_client.reconcile_finalization(
+        request_id=(
+            f"{cfg.storage_admission_client.leaf_id}:reconcile_finalization"
+        ),
+    )
     finalization_budget = cfg.storage_admission_client.transition(
         "project_finalizing",
         summary=last_step_storage_accounting,

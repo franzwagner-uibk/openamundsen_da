@@ -305,6 +305,42 @@ def test_missing_ledger_finalized_leaf_skips_prep_and_step_zero_preadmission(
     assert state["S2"]["last_admitted_step_index"] == 0
 
 
+@pytest.mark.parametrize("mutated", ["parent", "leaf"])
+def test_leaf_acquisition_identity_rejects_post_copy_mutation(
+    tmp_path: Path,
+    mutated: str,
+) -> None:
+    manifest, _ = _single_subdomain_manifest(tmp_path)
+    sub = manifest.subdomains["S1"]
+    sub.project_yaml.write_text(
+        sub.project_yaml.read_text(encoding="utf-8").replace(
+            "    - {date: '2023-01-02', variable: station_hs}\n",
+            "    - {date: '2023-01-02', variable: scf}\n",
+        )
+        + "obs:\n  snowcover:\n"
+        "    product_tag: MODIS\n"
+        "    acquisition_manifest: obs/satellite_acquisition_times.csv\n",
+        encoding="utf-8",
+    )
+    parent_support = manifest.setup_dir / "obs/satellite_acquisition_times.csv"
+    leaf_support = sub.setup_dir / "obs/satellite_acquisition_times.csv"
+    parent_support.parent.mkdir(parents=True)
+    leaf_support.parent.mkdir(parents=True)
+    payload = "source,acquisition_time\nscene.tif,2023-01-01T10:00:00Z\n"
+    parent_support.write_text(payload, encoding="utf-8")
+    leaf_support.write_text(payload, encoding="utf-8")
+    manifest.raw_snowcover_dir.mkdir(parents=True)
+
+    bound_paths = run_mod._leaf_scientific_input_paths(manifest, "S1")
+    assert parent_support in bound_paths
+    assert leaf_support in bound_paths
+    target = parent_support if mutated == "parent" else leaf_support
+    target.write_text(payload + "changed.tif,2023-01-02T10:00:00Z\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="differs from.*parent"):
+        run_mod._leaf_scientific_input_paths(manifest, "S1")
+
+
 def test_manifest_save_preserves_existing_file_when_new_write_fails(tmp_path, monkeypatch):
     manifest, manifest_path = _single_subdomain_manifest(tmp_path)
     original = manifest_path.read_text(encoding="utf-8")

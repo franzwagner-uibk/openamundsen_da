@@ -546,6 +546,42 @@ def test_prepare_wave_rejects_raw_source_mutation_and_symlink(
         )
 
 
+def test_prepare_wave_rechecks_both_canonical_and_consumed_support_files(
+    tmp_path: Path,
+) -> None:
+    plan = _plan(tmp_path, steps=("step_00",))
+    leaf = plan.leaves["leaf"]
+    parent_support = tmp_path / "obs/acquisition.csv"
+    consumed_support = tmp_path / "leaf/obs/acquisition.csv"
+    parent_support.parent.mkdir(parents=True)
+    consumed_support.parent.mkdir(parents=True)
+    parent_support.write_bytes(b"same")
+    consumed_support.write_bytes(b"same")
+    inputs = (parent_support, consumed_support)
+    digest = storage_admission_mod._scientific_paths_identity(
+        inputs, identity_root=tmp_path
+    )
+    guarded = type(leaf)(
+        **{
+            **leaf.__dict__,
+            "scientific_input_paths": inputs,
+            "scientific_root": tmp_path,
+            "preparation_inputs_identity": digest,
+        }
+    )
+    coordinator = StorageAdmissionCoordinator(
+        StoragePlan(
+            **{**plan.__dict__, "leaves": {"leaf": guarded}, "identity": "support"}
+        ),
+        disk_usage=lambda _path: _usage(),
+    )
+    coordinator.admit_wave(0, request_id="support-wave")
+    parent_support.write_bytes(b"mutated")
+
+    with pytest.raises(RuntimeError, match="changed during wave preparation"):
+        coordinator.prepare_wave(0, request_id="support-prepared")
+
+
 def test_prepare_wave_terminal_commit_at_85_percent_then_step_zero_pauses(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1310,6 +1346,54 @@ def test_stale_file_response_is_ignored(tmp_path: Path) -> None:
             encoding="utf-8",
         )
         client.admit_step("step_00", request_id="fresh")
+    assert not list((tmp_path / "project/results/storage/ipc").rglob("response.*.json"))
+
+
+def test_server_close_removes_published_response_abandoned_by_client(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        storage_admission_mod,
+        "STORAGE_ADMISSION_REQUEST_TIMEOUT_SECONDS",
+        0.05,
+    )
+    coordinator = StorageAdmissionCoordinator(
+        _plan(tmp_path), disk_usage=lambda _path: _usage()
+    )
+    server = StorageAdmissionServer(coordinator)
+    payload = {
+        "kind": "step",
+        "leaf_id": "leaf",
+        "step_name": "step_00",
+        "summary": None,
+        "request_id": "abandoned",
+        "allow_existing_step_drain": False,
+    }
+    nonce = "a" * 32
+    request_path = server._request_paths["leaf"]
+    write_manifest_atomic(
+        request_path,
+        {
+            "generation": coordinator.generation,
+            "leaf_id": "leaf",
+            "route_id": "leaf",
+            "request_id": "abandoned",
+            "transport_nonce": nonce,
+            "payload_sha256": storage_admission_mod.hash_json(payload),
+            "payload": payload,
+        },
+    )
+    response = request_path.parent / f"response.{nonce}.json"
+    deadline = time.monotonic() + 1.0
+    while not response.is_file() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert response.is_file()
+
+    server.close()
+
+    assert not response.exists()
+    assert not list((tmp_path / "project/results/storage/ipc").rglob("*.json"))
 
 
 def test_whole_ipc_request_timeout_is_bounded(tmp_path: Path, monkeypatch) -> None:

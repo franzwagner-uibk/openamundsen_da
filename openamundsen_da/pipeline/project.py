@@ -61,6 +61,7 @@ from openamundsen_da.util.parallel import pick_max_workers
 from openamundsen_da.util.da_events import load_assimilation_events, AssimilationEvent
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.util.storage_budget import (
+    DiskBudgetSnapshot,
     StorageReservationProject,
     check_step_admission,
 )
@@ -408,47 +409,56 @@ class OrchestratorConfig:
     storage_outer_workers: int = 1
     shared_storage_reserve_bytes: int = 0
     storage_admission_client: StorageAdmissionClient | None = None
+    initial_step_preadmitted: bool = False
+    initial_storage_budget: DiskBudgetSnapshot | None = None
 
 
 def preadmit_project_storage(cfg: OrchestratorConfig) -> OrchestratorConfig:
     """Build and admit a single-domain plan before any runtime mutation."""
-    if cfg.storage_admission_client is not None:
+    if cfg.initial_step_preadmitted:
         return cfg
     project_config = load_project_configuration(cfg.project_dir)
-    grid = resolve_setup_grid_spec(cfg.setup_dir)
-    reservation_project = StorageReservationProject(
-        setup_dir=Path(cfg.setup_dir).resolve(),
-        project_dir=Path(cfg.project_dir).resolve(),
-        grid_cell_count=int(grid.rows) * int(grid.cols),
-    )
-    plan = build_storage_plan(
-        root_project_dir=cfg.project_dir,
-        projects=(reservation_project,),
-        outer_workers=1,
-        overwrite=cfg.overwrite,
-        leaf_ids=("project",),
-    )
     steps = _list_steps_sorted(project_config.project_dir)
     if not steps:
         raise FileNotFoundError(f"No steps found under {project_config.project_dir}")
     initial_resume = (
         steps[0] / "assim" / "prior_forcing_manifest.json"
     ).is_file() and not cfg.overwrite
-    # This read-only gate happens before the coordinator ledger, run manifest,
-    # file log or performance monitor is created.
-    check_step_admission(
-        cfg.project_dir,
-        estimated_growth_bytes=plan.estimated_growth_bytes,
-        allow_existing_step_drain=initial_resume,
-    )
-    coordinator = StorageAdmissionCoordinator(plan)
-    client = StorageAdmissionClient.in_process(coordinator, leaf_id="project")
-    client.admit_step(
+    client = cfg.storage_admission_client
+    if client is None:
+        grid = resolve_setup_grid_spec(cfg.setup_dir)
+        reservation_project = StorageReservationProject(
+            setup_dir=Path(cfg.setup_dir).resolve(),
+            project_dir=Path(cfg.project_dir).resolve(),
+            grid_cell_count=int(grid.rows) * int(grid.cols),
+        )
+        plan = build_storage_plan(
+            root_project_dir=cfg.project_dir,
+            projects=(reservation_project,),
+            outer_workers=1,
+            overwrite=cfg.overwrite,
+            leaf_ids=("project",),
+        )
+        # This read-only gate happens before the coordinator ledger, run
+        # manifest, file log or performance monitor is created.
+        check_step_admission(
+            cfg.project_dir,
+            estimated_growth_bytes=plan.estimated_growth_bytes,
+            allow_existing_step_drain=initial_resume,
+        )
+        coordinator = StorageAdmissionCoordinator(plan)
+        client = StorageAdmissionClient.in_process(coordinator, leaf_id="project")
+    initial_budget = client.admit_step(
         steps[0].name,
-        request_id=f"project:admit:{steps[0].name}",
+        request_id=f"{client.leaf_id}:admit:{steps[0].name}",
         allow_existing_step_drain=initial_resume,
     )
-    return replace(cfg, storage_admission_client=client)
+    return replace(
+        cfg,
+        storage_admission_client=client,
+        initial_step_preadmitted=True,
+        initial_storage_budget=initial_budget,
+    )
 
 
 def _storage_summary(value: object) -> StorageAccountingSummary:
@@ -606,22 +616,27 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
     initial_resume = initial_forcing_manifest.is_file() and not cfg.overwrite
     if cfg.storage_admission_client is None:
         raise RuntimeError("Project execution requires a storage admission client")
-    initial_budget = cfg.storage_admission_client.admit_step(
-        steps[0].name,
-        request_id=f"{cfg.storage_admission_client.leaf_id}:admit:{steps[0].name}",
-        allow_existing_step_drain=initial_resume,
-    )
+    initial_budget = cfg.initial_storage_budget
+    if not cfg.initial_step_preadmitted:
+        initial_budget = cfg.storage_admission_client.admit_step(
+            steps[0].name,
+            request_id=f"{cfg.storage_admission_client.leaf_id}:admit:{steps[0].name}",
+            allow_existing_step_drain=initial_resume,
+        )
     # Do not create/truncate the mutable project log until new work has passed
     # the hard 80% admission gate.
     _setup_logger(cfg.project_dir, cfg.log_level)
-    logger.info(
-        "Disk admission {}: used={:.1%}, incremental reserve={:.1f} GiB, "
-        "operational reserve={:.1f} GiB",
-        steps[0].name,
-        initial_budget.used_fraction,
-        initial_budget.estimated_growth_bytes / (1024**3),
-        initial_budget.operational_reserve_bytes / (1024**3),
-    )
+    if initial_budget is not None:
+        logger.info(
+            "Disk admission {}: used={:.1%}, incremental reserve={:.1f} GiB, "
+            "operational reserve={:.1f} GiB",
+            steps[0].name,
+            initial_budget.used_fraction,
+            initial_budget.estimated_growth_bytes / (1024**3),
+            initial_budget.operational_reserve_bytes / (1024**3),
+        )
+    else:
+        logger.info("Disk admission {} was committed before worker startup", steps[0].name)
     initial_forcing_accounting = build_prior_ensemble(
         input_meteo_dir=meteo_dir,
         project_dir=cfg.project_dir,
@@ -1364,7 +1379,7 @@ def cli(argv: Optional[List[str]] = None) -> int:
     project_dir = Path(args.project_dir) if args.project_dir is not None else _auto_project_dir(setup_dir)
     if args.project_dir is None:
         print(f"[oa-da-project] Auto-detected project dir: {project_dir}", file=sys.stderr)
-    ensure_run_mode(project_dir, expected="single", write_if_missing=True)
+    ensure_run_mode(project_dir, expected="single", write_if_missing=False)
 
     resolved_workers = pick_max_workers(args.max_workers, fallback=4)
 

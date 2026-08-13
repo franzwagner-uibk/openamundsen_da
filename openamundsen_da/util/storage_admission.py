@@ -2578,6 +2578,7 @@ class StorageAdmissionServer:
         self._accepting = threading.Event()
         self._accepting.set()
         self._active_route_ids = coordinator.active_leaf_ids()
+        self._published_response_paths: set[Path] = set()
         self._serve_failure: BaseException | None = None
         self._thread = threading.Thread(
             target=self._serve,
@@ -2713,6 +2714,7 @@ class StorageAdmissionServer:
                             "response": response,
                         },
                     )
+                    self._published_response_paths.add(response_path)
                 self._active_route_ids = self.coordinator.active_leaf_ids()
             if not handled:
                 self._stop.wait(0.005)
@@ -2780,6 +2782,13 @@ class StorageAdmissionServer:
         self._heartbeat_stop.set()
         self._heartbeat_thread.join()
         self._terminalize_pending_shutdown()
+        deadline = time.monotonic() + STORAGE_ADMISSION_REQUEST_TIMEOUT_SECONDS
+        while (
+            any(path.is_file() for path in self._published_response_paths)
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.005)
+        self._remove_orphan_transport_artifacts()
         for request_path in [self._control_request_path, *self._request_paths.values()]:
             try:
                 request_path.parent.rmdir()
@@ -2822,8 +2831,17 @@ class StorageAdmissionServer:
                         },
                     },
                 )
+                self._published_response_paths.add(response_path)
             except (OSError, json.JSONDecodeError):
                 request_path.unlink(missing_ok=True)
+
+    def _remove_orphan_transport_artifacts(self) -> None:
+        """Remove stale responses/progress from exact known route directories."""
+        for request_path in [self._control_request_path, *self._request_paths.values()]:
+            route_dir = request_path.parent
+            for pattern in ("progress.*.json", "response.*.json"):
+                for artifact in route_dir.glob(pattern):
+                    artifact.unlink(missing_ok=True)
 
     def __enter__(self) -> "StorageAdmissionServer":
         return self

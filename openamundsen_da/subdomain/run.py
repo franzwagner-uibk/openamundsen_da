@@ -518,6 +518,10 @@ def _run_one(
                     storage_outer_workers=int(storage_outer_workers),
                     shared_storage_reserve_bytes=int(shared_storage_reserve_bytes),
                     storage_admission_client=storage_admission_client,
+                    initial_step_preadmitted=(
+                        prepared_before_storage_plan
+                        and storage_admission_client is not None
+                    ),
                 )
             )
             finalized = _finalize_leaf(
@@ -740,7 +744,37 @@ def _leaf_scientific_input_paths(
                 continue
             manifest_path = section.get("acquisition_manifest")
             if manifest_path is not None:
-                paths.append((manifest.setup_dir / str(manifest_path)).resolve())
+                relative = Path(str(manifest_path))
+                if relative.is_absolute():
+                    raise ValueError(
+                        f"Sub-domain acquisition manifest must be setup-relative: {relative}"
+                    )
+                parent_support = manifest.setup_dir / relative
+                leaf_support = subdomain.setup_dir / relative
+                try:
+                    parent_support.resolve().relative_to(manifest.setup_dir.resolve())
+                    leaf_support.resolve().relative_to(subdomain.setup_dir.resolve())
+                except ValueError as exc:
+                    raise ValueError(
+                        f"Sub-domain acquisition manifest escapes its setup: {relative}"
+                    ) from exc
+                if not parent_support.is_file() or parent_support.is_symlink():
+                    raise FileNotFoundError(
+                        f"Authoritative acquisition manifest is missing: {parent_support}"
+                    )
+                if not leaf_support.is_file() or leaf_support.is_symlink():
+                    raise FileNotFoundError(
+                        f"Leaf acquisition manifest is missing: {leaf_support}"
+                    )
+                if parent_support.read_bytes() != leaf_support.read_bytes():
+                    raise RuntimeError(
+                        "Leaf acquisition manifest differs from its authoritative "
+                        f"parent source: {leaf_support}"
+                    )
+                # Bind both the canonical source and the file actually consumed
+                # by leaf preparation. The coordinator rehashes both after
+                # preparation, so mutations on either side fail the wave gate.
+                paths.extend((parent_support, leaf_support))
     return tuple(paths)
 
 

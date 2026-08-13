@@ -1747,20 +1747,25 @@ class StorageAdmissionCoordinator:
                 )
                 else 1
             )
+            projected_reporting_aggregate = observed * reporting_units
             if (
-                (
-                    component in SUMMED_STEP_COMPONENTS
-                    or component == "restart_baseline_bytes"
-                )
-                and observed * reporting_units > reporting_aggregate
-                and reporting_aggregate > 0
+                component in SUMMED_STEP_COMPONENTS
+                or component == "restart_baseline_bytes"
+            ) and (
+                projected_reporting_aggregate > reporting_aggregate
+                or (reporting_aggregate == 0 and observed > 0)
             ):
                 for future_wave_index, wave in enumerate(
-                    ledger["waves"][int(ledger["active_wave_index"]) + 1 :],
-                    start=int(ledger["active_wave_index"]) + 1,
+                    ledger["waves"][int(ledger["active_wave_index"]) :],
+                    start=int(ledger["active_wave_index"]),
                 ):
                     for future_leaf_id in wave:
                         future_state = ledger["leaves"][future_leaf_id]
+                        if (
+                            future_leaf_id == leaf_id
+                            or future_state["phase"] == "finalized"
+                        ):
+                            continue
                         future_base = int(
                             future_state.get(
                                 "base_planned_by_component",
@@ -1772,15 +1777,25 @@ class StorageAdmissionCoordinator:
                             component == "restart_baseline_bytes"
                             and future_plan.retention_mode == "full"
                         )
-                        if not future_summed:
-                            continue
-                        calibrated_aggregate = (
-                            future_base
-                            * observed
-                            * reporting_units
-                            + reporting_aggregate
-                            - 1
-                        ) // reporting_aggregate
+                        future_units = (
+                            max(1, len(future_plan.step_names))
+                            if future_summed
+                            else 1
+                        )
+                        absolute_high_water = observed * future_units
+                        if reporting_aggregate > 0:
+                            scaled_from_base = (
+                                future_base * projected_reporting_aggregate
+                                + reporting_aggregate
+                                - 1
+                            ) // reporting_aggregate
+                        else:
+                            scaled_from_base = 0
+                        calibrated_aggregate = max(
+                            future_base,
+                            absolute_high_water,
+                            scaled_from_base,
+                        )
                         current_aggregate = int(
                             future_state["planned_by_component"].get(component, 0)
                         )
@@ -1788,6 +1803,14 @@ class StorageAdmissionCoordinator:
                             increase = calibrated_aggregate - current_aggregate
                             future_state["planned_by_component"][component] = (
                                 calibrated_aggregate
+                            )
+                            future_state["remaining_by_component"][component] = max(
+                                int(
+                                    future_state["remaining_by_component"].get(
+                                        component, 0
+                                    )
+                                ),
+                                calibrated_aggregate,
                             )
                             ledger["wave_growth_bytes"][future_wave_index] = int(
                                 ledger["wave_growth_bytes"][future_wave_index]

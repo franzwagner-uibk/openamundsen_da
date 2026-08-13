@@ -253,7 +253,12 @@ def test_cross_wave_calibration_uses_immutable_base_without_compounding(
 
 @pytest.mark.parametrize(
     ("reporting_mode", "future_mode", "expected"),
-    (("compact", "full", 2_000), ("full", "full", 20_000), ("full", "compact", 1_000)),
+    (
+        ("compact", "compact", 2_000),
+        ("compact", "full", 2_000),
+        ("full", "full", 20_000),
+        ("full", "compact", 20_000),
+    ),
 )
 def test_restart_calibration_uses_reporting_and_future_retention_units(
     tmp_path: Path,
@@ -316,6 +321,174 @@ def test_restart_calibration_uses_reporting_and_future_retention_units(
         ]
         == expected
     )
+
+
+def test_compact_restart_peak_propagates_without_step_multiplication(
+    tmp_path: Path,
+) -> None:
+    steps = tuple(f"step_{index:02d}" for index in range(10))
+    base = _plan(tmp_path, steps=steps)
+    template = base.leaves["leaf"]
+    leaves = {
+        leaf_id: type(template)(
+            **{
+                **template.__dict__,
+                "leaf_id": leaf_id,
+                "retention_mode": "compact",
+                "obligations": {
+                    **template.obligations,
+                    "restart_baseline_bytes": 100,
+                },
+            }
+        )
+        for leaf_id in ("A", "B")
+    }
+    coordinator = StorageAdmissionCoordinator(
+        StoragePlan(
+            **{
+                **base.__dict__,
+                "leaves": leaves,
+                "waves": (("A",), ("B",)),
+                "wave_growth_bytes": (2_000, 2_000),
+                "estimated_growth_bytes": 2_000,
+                "identity": "compact-restart-peak",
+            }
+        ),
+        disk_usage=lambda _path: SimpleNamespace(
+            total=1_000_000, used=1_000, free=999_000
+        ),
+    )
+    client = StorageAdmissionClient.in_process(coordinator, leaf_id="A")
+    client.admit_step("step_00", request_id="compact-A:0")
+    client.admit_step(
+        "step_01",
+        summary=StorageAccountingSummary(
+            completed_step="step_00",
+            materialized_bytes={"restart_baseline_bytes": 200},
+            observed_bytes={"restart_baseline_bytes": 200},
+        ),
+        request_id="compact-A:1",
+    )
+
+    assert (
+        coordinator.snapshot()["leaves"]["B"]["planned_by_component"]
+        ["restart_baseline_bytes"]
+        == 200
+    )
+
+
+@pytest.mark.parametrize(
+    ("component", "future_mode", "expected"),
+    (
+        ("forcing_bytes", "compact", 2_000),
+        ("restart_baseline_bytes", "compact", 200),
+        ("restart_baseline_bytes", "full", 2_000),
+    ),
+)
+def test_zero_plan_nonzero_observation_propagates_absolute_high_water(
+    tmp_path: Path,
+    component: str,
+    future_mode: str,
+    expected: int,
+) -> None:
+    steps = tuple(f"step_{index:02d}" for index in range(10))
+    base = _plan(tmp_path, steps=steps)
+    template = base.leaves["leaf"]
+    zero = {**template.obligations, component: 0}
+    leaves = {
+        "A": type(template)(
+            **{**template.__dict__, "leaf_id": "A", "obligations": zero}
+        ),
+        "B": type(template)(
+            **{
+                **template.__dict__,
+                "leaf_id": "B",
+                "retention_mode": future_mode,
+                "obligations": zero,
+            }
+        ),
+    }
+    coordinator = StorageAdmissionCoordinator(
+        StoragePlan(
+            **{
+                **base.__dict__,
+                "leaves": leaves,
+                "waves": (("A",), ("B",)),
+                "wave_growth_bytes": (1_000, 1_000),
+                "estimated_growth_bytes": 1_000,
+                "identity": f"zero-{component}-{future_mode}",
+            }
+        ),
+        disk_usage=lambda _path: SimpleNamespace(
+            total=1_000_000, used=1_000, free=999_000
+        ),
+    )
+    client = StorageAdmissionClient.in_process(coordinator, leaf_id="A")
+    client.admit_step("step_00", request_id="zero-A:0")
+    client.admit_step(
+        "step_01",
+        summary=StorageAccountingSummary(
+            completed_step="step_00",
+            materialized_bytes={component: 200},
+            observed_bytes={component: 200},
+        ),
+        request_id="zero-A:1",
+    )
+
+    assert coordinator.snapshot()["leaves"]["B"]["planned_by_component"][component] == expected
+
+
+def test_high_water_raises_unfinished_active_sibling_and_current_peak(
+    tmp_path: Path,
+) -> None:
+    steps = tuple(f"step_{index:02d}" for index in range(10))
+    base = _plan(tmp_path, steps=steps)
+    template = base.leaves["leaf"]
+    obligations = {**template.obligations, "forcing_bytes": 1_000}
+    leaves = {
+        leaf_id: type(template)(
+            **{
+                **template.__dict__,
+                "leaf_id": leaf_id,
+                "obligations": obligations,
+            }
+        )
+        for leaf_id in ("A", "B")
+    }
+    coordinator = StorageAdmissionCoordinator(
+        StoragePlan(
+            **{
+                **base.__dict__,
+                "leaves": leaves,
+                "waves": (("A", "B"),),
+                "wave_growth_bytes": (4_000,),
+                "estimated_growth_bytes": 4_000,
+                "identity": "active-sibling-calibration",
+            }
+        ),
+        disk_usage=lambda _path: SimpleNamespace(
+            total=1_000_000, used=1_000, free=999_000
+        ),
+    )
+    client = StorageAdmissionClient.in_process(coordinator, leaf_id="A")
+    client.admit_step("step_00", request_id="active-A:0")
+    before_peak = coordinator.snapshot()["remaining_peak_growth_bytes"]
+    client.admit_step(
+        "step_01",
+        summary=StorageAccountingSummary(
+            completed_step="step_00",
+            materialized_bytes={"forcing_bytes": 200},
+            observed_bytes={"forcing_bytes": 200},
+        ),
+        request_id="active-A:1",
+    )
+
+    state = coordinator.snapshot()
+    sibling = state["leaves"]["B"]
+    assert sibling["planned_by_component"]["forcing_bytes"] == 2_000
+    assert sibling["remaining_by_component"]["forcing_bytes"] >= 2_000
+    assert sibling["last_completed_step_index"] == -1
+    assert state["remaining_peak_growth_bytes"] > before_peak
 
 
 def _prepared_project(tmp_path: Path, *, malformed: bool = False):

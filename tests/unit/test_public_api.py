@@ -7,6 +7,7 @@ import pytest
 
 from openamundsen_da import clean_project, prepare_project, render_project, run_project
 from openamundsen_da.exceptions import (
+    LowDiskPauseError,
     ObservationPreprocessingError,
     ProjectCleanupError,
     ProjectPreparationError,
@@ -21,6 +22,15 @@ from openamundsen_da.manifests import (
 )
 from openamundsen_da.observations import preprocess_snow_cover
 from openamundsen_da.results import ObservationProduct, RenderResult, WorkflowStatus
+
+
+@pytest.fixture(autouse=True)
+def _stub_storage_preadmission(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep public API unit tests focused outside dedicated admission tests."""
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.project.preadmit_project_storage",
+        lambda config: config,
+    )
 
 
 def _write_public_project(tmp_path: Path) -> Path:
@@ -357,6 +367,30 @@ def _fake_successful_execution(project_dir: Path) -> RenderResult:
         map_paths=(),
         report_paths=(report.resolve(),),
     )
+
+
+def test_run_project_low_disk_preflight_writes_no_runtime_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    project_dir = _write_public_project(tmp_path)
+    _mark_prepared(project_dir)
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.project.preadmit_project_storage",
+        lambda _config: (_ for _ in ()).throw(LowDiskPauseError("80% preflight")),
+    )
+    monkeypatch.setattr(
+        "openamundsen_da.pipeline.project.start_perf_monitor",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("performance monitor started before admission")
+        ),
+    )
+
+    with pytest.raises(LowDiskPauseError, match="80%"):
+        run_project(project_dir)
+
+    assert not (project_dir / "results").exists()
+    assert not list(project_dir.glob("*.log"))
 
 
 def test_run_project_finalizes_manifest_then_cleans_restart_states(

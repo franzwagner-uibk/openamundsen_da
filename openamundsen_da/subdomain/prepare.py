@@ -367,6 +367,49 @@ def _copy_project_dir(source_project_dir: Path, target_project_dir: Path) -> Pat
     return find_project_yaml(target_project_dir)
 
 
+def _copy_project_support_inputs(
+    *,
+    source_setup_dir: Path,
+    target_setup_dir: Path,
+    project_yaml: Path,
+) -> None:
+    """Copy configured setup-relative project support files into one leaf."""
+    project_cfg = read_yaml_mapping(
+        project_yaml,
+        error_cls=ValueError,
+        context="Project YAML root",
+    )
+    obs_cfg = project_cfg.get("obs")
+    if not isinstance(obs_cfg, dict):
+        return
+    for section in obs_cfg.values():
+        if not isinstance(section, dict):
+            continue
+        for key in ("acquisition_manifest",):
+            raw = section.get(key)
+            if raw is None:
+                continue
+            relative = Path(str(raw))
+            if relative.is_absolute():
+                raise ValueError(
+                    f"Sub-domain project support path must be setup-relative: {relative}"
+                )
+            source = (source_setup_dir / relative).resolve()
+            try:
+                source.relative_to(source_setup_dir.resolve())
+            except ValueError as exc:
+                raise ValueError(
+                    f"Sub-domain project support path escapes setup: {relative}"
+                ) from exc
+            if not source.is_file() or source.is_symlink():
+                raise FileNotFoundError(
+                    f"Configured project support file is missing or unsupported: {source}"
+                )
+            target = target_setup_dir / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+
+
 def _write_roi_vector(*, roi_geom: BaseGeometry, crs: str | None, out_path: Path, region_label: str) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     attrs = pd.DataFrame({"id": pd.Series([str(region_label)], dtype="object")})
@@ -993,6 +1036,12 @@ def prepare_subdomains(
             roi_geom=geom_roi,
         )
         sub_project_yaml = sub_setup_yaml if model_mode else _copy_project_dir(project_dir, project_out)
+        if not model_mode:
+            _copy_project_support_inputs(
+                source_setup_dir=setup_dir,
+                target_setup_dir=sub_setup_dir,
+                project_yaml=sub_project_yaml,
+            )
 
         manifest.subdomains[clean_id] = SubdomainMeta(
             id=clean_id,

@@ -7,8 +7,10 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from ruamel.yaml.error import YAMLError
 
 from openamundsen_da.exceptions import LowDiskEmergencyError, LowDiskPauseError
+from openamundsen_da.manifests import write_manifest_atomic
 from openamundsen_da.pipeline.project_skeleton import create_project_skeleton
 from openamundsen_da.util.storage_budget import (
     DEFAULT_POINT_VARIABLE_COUNT,
@@ -1021,13 +1023,68 @@ def test_project_estimate_rejects_missing_steps_after_leaf_started(
     assert not (project / "steps").exists()
 
 
-def test_project_estimate_rejects_existing_empty_steps_directory(
+@pytest.mark.parametrize("partial", ["empty", "yaml_less", "malformed"])
+def test_project_estimate_recovers_partial_preparation_from_virtual_plan(
     tmp_path: Path,
+    partial: str,
 ) -> None:
     setup, project = _unmaterialized_project(tmp_path)
     (project / "steps").mkdir()
+    if partial == "yaml_less":
+        (project / "steps" / "step_00_init").mkdir()
+    elif partial == "malformed":
+        step = project / "steps" / "step_00_init"
+        step.mkdir()
+        (step / "00.yml").write_text("start_date: [unterminated\n", encoding="utf-8")
 
-    with pytest.raises(FileNotFoundError, match="steps directory is empty or invalid"):
+    estimate = estimate_project_storage_components(
+        setup_dir=setup,
+        project_dir=project,
+        grid_cell_count=4,
+    )
+
+    assert estimate.total_bytes > 0
+
+
+@pytest.mark.parametrize("partial", ["yaml_less", "malformed"])
+def test_project_estimate_rejects_partial_step_with_runtime_evidence(
+    tmp_path: Path,
+    partial: str,
+) -> None:
+    setup, project = _unmaterialized_project(tmp_path)
+    results = (
+        project
+        / "steps/step_00_init/ensembles/prior/member_000/results"
+    )
+    results.mkdir(parents=True)
+    (results / "member_run.json").write_text('{"status": "success"}')
+    if partial == "malformed":
+        (project / "steps/step_00_init/00.yml").write_text(
+            "start_date: [unterminated\n",
+            encoding="utf-8",
+        )
+
+    with pytest.raises((FileNotFoundError, ValueError, YAMLError)):
+        estimate_project_storage_components(
+            setup_dir=setup,
+            project_dir=project,
+            grid_cell_count=4,
+        )
+
+
+def test_project_estimate_rejects_malformed_step_with_prep_authority(
+    tmp_path: Path,
+) -> None:
+    setup, project = _unmaterialized_project(tmp_path)
+    step = project / "steps/step_00_init"
+    step.mkdir(parents=True)
+    (step / "00.yml").write_text("start_date: [unterminated\n", encoding="utf-8")
+    write_manifest_atomic(
+        setup / ".openamundsen-da/manifests/leaf_preparation.json",
+        {"status": "success"},
+    )
+
+    with pytest.raises((FileNotFoundError, ValueError, YAMLError)):
         estimate_project_storage_components(
             setup_dir=setup,
             project_dir=project,

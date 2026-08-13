@@ -422,6 +422,22 @@ def run_project(project_dir: str | Path, *, max_workers: int | None = None) -> R
                 f"Results exist without a project run manifest: {unmanaged[0]}; move or clean unmanaged outputs first"
             )
 
+    from openamundsen_da.pipeline.project import (
+        OrchestratorConfig,
+        preadmit_project_storage,
+        run_project as execute_project,
+    )
+
+    orchestrator_config = preadmit_project_storage(
+        OrchestratorConfig(
+            project_dir=config.project_dir,
+            setup_dir=config.setup_dir,
+            max_workers=max_workers,
+            plot_workers=max_workers,
+            overwrite=False,
+            monitor_perf=True,
+        )
+    )
     started_at = datetime.now(timezone.utc)
     started = time.monotonic()
     manifest = {
@@ -446,18 +462,7 @@ def run_project(project_dir: str | Path, *, max_workers: int | None = None) -> R
         manifest["resumed_from_status"] = existing.get("status")
     write_manifest_atomic(manifest_path, manifest)
     try:
-        from openamundsen_da.pipeline.project import OrchestratorConfig, run_project as execute_project
-
-        render_result = execute_project(
-            OrchestratorConfig(
-                project_dir=config.project_dir,
-                setup_dir=config.setup_dir,
-                max_workers=max_workers,
-                plot_workers=max_workers,
-                overwrite=False,
-                monitor_perf=True,
-            )
-        )
+        render_result = execute_project(orchestrator_config)
         compact, benchmark = _required_run_outputs(config)
         completed, skipped, members = _member_counts(config.project_dir)
         if not isinstance(render_result, RenderResult):

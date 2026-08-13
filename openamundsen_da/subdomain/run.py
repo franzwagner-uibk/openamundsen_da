@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional
 
 import pandas as pd
+from ruamel.yaml.error import YAMLError
 from loguru import logger
 
 from openamundsen_da.core.constants import LOGURU_FORMAT
@@ -286,7 +287,16 @@ def _prepare_obs_for_subdomain(
     planned_names = tuple(
         plan.name for plan in plan_project_steps(sub.setup_dir, sub.project_dir)
     )
-    existing_names = tuple(path.name for path in list_steps_sorted(sub.project_dir))
+    try:
+        existing_names = tuple(
+            path.name for path in list_steps_sorted(sub.project_dir)
+        )
+    except (FileNotFoundError, ValueError, YAMLError):
+        if _project_has_started(sub.project_dir):
+            raise RuntimeError(
+                f"Incomplete leaf preparation has runtime evidence: {sub.project_dir}"
+            )
+        existing_names = ()
     unexpected = sorted(set(existing_names) - set(planned_names))
     if unexpected:
         raise RuntimeError(
@@ -730,7 +740,7 @@ def _leaf_scientific_input_paths(
                 continue
             manifest_path = section.get("acquisition_manifest")
             if manifest_path is not None:
-                paths.append((subdomain.setup_dir / str(manifest_path)).resolve())
+                paths.append((manifest.setup_dir / str(manifest_path)).resolve())
     return tuple(paths)
 
 
@@ -967,6 +977,44 @@ def _start_wave_storage_coordinator(
     return server, budget
 
 
+def _prepare_and_preadmit_wave(
+    *,
+    manifest: SubdomainManifest,
+    wave_server: StorageAdmissionServer,
+    wave_index: int,
+    wave_ids: list[str],
+    overwrite: bool,
+) -> DiskBudgetSnapshot:
+    """Prepare unfinished leaves and pre-admit their first propagation step."""
+    leaf_states = wave_server.coordinator.snapshot()["leaves"]
+    for sid in wave_ids:
+        if leaf_states[sid]["phase"] == "finalized":
+            continue
+        _prepare_obs_for_subdomain(
+            manifest.subdomains[sid],
+            manifest,
+            overwrite=overwrite,
+            scientific_identity=wave_server.client(leaf_id=sid).leaf_identity,
+        )
+    storage_budget = wave_server.coordinator.prepare_wave(
+        wave_index,
+        request_id=f"wave_prepared:{wave_index}",
+    )
+    leaf_states = wave_server.coordinator.snapshot()["leaves"]
+    for sid in wave_ids:
+        if leaf_states[sid]["phase"] == "finalized":
+            continue
+        first_step = wave_server.coordinator.plan.leaves[sid].step_names[0]
+        wave_server.client(leaf_id=sid).admit_step(
+            first_step,
+            request_id=f"{sid}:admit:{first_step}",
+            allow_existing_step_drain=_project_has_started(
+                manifest.subdomains[sid].project_dir
+            ),
+        )
+    return storage_budget
+
+
 def run_subdomains(
     *,
     manifest_path: Path,
@@ -1154,28 +1202,13 @@ def run_subdomains(
             # preparation manifest, the coordinator rehashes shared raw inputs
             # once and atomically admits the whole prepared wave.  Workers then
             # consume the frozen preparation without writing it again.
-            for sid in wave_ids:
-                _prepare_obs_for_subdomain(
-                    manifest.subdomains[sid],
-                    manifest,
-                    overwrite=overwrite,
-                    scientific_identity=wave_server.client(
-                        leaf_id=sid
-                    ).leaf_identity,
-                )
-            storage_budget = wave_server.coordinator.prepare_wave(
-                wave_index,
-                request_id=f"wave_prepared:{wave_index}",
+            storage_budget = _prepare_and_preadmit_wave(
+                manifest=manifest,
+                wave_server=wave_server,
+                wave_index=wave_index,
+                wave_ids=wave_ids,
+                overwrite=overwrite,
             )
-            for sid in wave_ids:
-                first_step = wave_server.coordinator.plan.leaves[sid].step_names[0]
-                wave_server.client(leaf_id=sid).admit_step(
-                    first_step,
-                    request_id=f"{sid}:admit:{first_step}",
-                    allow_existing_step_drain=_project_has_started(
-                        manifest.subdomains[sid].project_dir
-                    ),
-                )
             future_map: dict[cf.Future, str] = {}
             for sid in wave_ids:
                 fut = executor.submit(

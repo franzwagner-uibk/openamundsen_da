@@ -109,6 +109,7 @@ def render_subdomain_outputs(
         project_dir,
         phase="completed",
         estimated_growth_bytes=0,
+        allow_existing_step_drain=True,
     )
     return result
 

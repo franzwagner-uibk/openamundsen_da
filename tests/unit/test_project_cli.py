@@ -197,6 +197,7 @@ def test_project_pipeline_stops_monitor_and_captures_final_snapshot_on_failure(
             calls.append("capture")
 
     monkeypatch.setattr(project_cli, "start_perf_monitor", lambda _cfg: FakeHandle())
+    monkeypatch.setattr(project_cli, "preadmit_project_storage", lambda cfg: cfg)
     monkeypatch.setattr(
         project_cli,
         "_run_project_impl",

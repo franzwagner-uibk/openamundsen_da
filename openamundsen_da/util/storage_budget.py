@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+from ruamel.yaml.error import YAMLError
 
 from openamundsen_da.exceptions import LowDiskEmergencyError, LowDiskPauseError
 from openamundsen_da.core.env import _read_yaml_file
@@ -445,11 +446,40 @@ def _project_steps(
     if not steps_root.is_dir():
         raise FileNotFoundError(f"Steps path is not a directory: {steps_root}")
 
-    materialized = list_steps_sorted(project_dir)
+    runtime_patterns = (
+        "step_*/assim/prior_forcing_manifest.json",
+        "step_*/assim/rejuvenate_manifest.json",
+        "step_*/ensembles/*/*/results/member_run.json",
+    )
+    has_runtime_evidence = any(
+        next(steps_root.glob(pattern), None) is not None
+        for pattern in runtime_patterns
+    )
+    leaf_preparation = setup_dir / ".openamundsen-da/manifests/leaf_preparation.json"
+    has_preparation_authority = False
+    if leaf_preparation.is_file():
+        try:
+            has_preparation_authority = (
+                json.loads(leaf_preparation.read_text(encoding="utf-8")).get("status")
+                == "success"
+            )
+        except (OSError, json.JSONDecodeError):
+            has_preparation_authority = True
+    try:
+        materialized = list_steps_sorted(project_dir)
+    except (FileNotFoundError, ValueError, YAMLError):
+        if has_runtime_evidence or has_preparation_authority:
+            raise
+        materialized = []
     if not materialized:
-        raise FileNotFoundError(
-            f"Prepared steps directory is empty or invalid: {steps_root}"
-        )
+        if has_runtime_evidence or has_preparation_authority:
+            raise FileNotFoundError(
+                f"Prepared steps directory is empty or invalid: {steps_root}"
+            )
+        return [
+            (project_dir / "steps" / plan.name, plan.start, plan.end)
+            for plan in plan_project_steps(setup_dir, project_dir)
+        ]
     try:
         virtual = [
             (project_dir / "steps" / plan.name, plan.start, plan.end)
@@ -480,7 +510,12 @@ def _project_steps(
             + ", ".join(unexpected)
         )
     for step in materialized:
-        step_cfg = read_step_config(step) or {}
+        try:
+            step_cfg = read_step_config(step) or {}
+        except (FileNotFoundError, YAMLError):
+            if has_runtime_evidence or has_preparation_authority:
+                raise
+            return virtual
         try:
             start = datetime.fromisoformat(str(step_cfg["start_date"]))
             end = datetime.fromisoformat(str(step_cfg["end_date"]))

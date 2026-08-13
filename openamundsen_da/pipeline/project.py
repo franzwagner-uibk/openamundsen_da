@@ -62,6 +62,7 @@ from openamundsen_da.util.da_events import load_assimilation_events, Assimilatio
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.util.storage_budget import (
     StorageReservationProject,
+    check_step_admission,
 )
 from openamundsen_da.util.storage_admission import (
     StorageAccountingSummary,
@@ -407,6 +408,47 @@ class OrchestratorConfig:
     storage_outer_workers: int = 1
     shared_storage_reserve_bytes: int = 0
     storage_admission_client: StorageAdmissionClient | None = None
+
+
+def preadmit_project_storage(cfg: OrchestratorConfig) -> OrchestratorConfig:
+    """Build and admit a single-domain plan before any runtime mutation."""
+    if cfg.storage_admission_client is not None:
+        return cfg
+    project_config = load_project_configuration(cfg.project_dir)
+    grid = resolve_setup_grid_spec(cfg.setup_dir)
+    reservation_project = StorageReservationProject(
+        setup_dir=Path(cfg.setup_dir).resolve(),
+        project_dir=Path(cfg.project_dir).resolve(),
+        grid_cell_count=int(grid.rows) * int(grid.cols),
+    )
+    plan = build_storage_plan(
+        root_project_dir=cfg.project_dir,
+        projects=(reservation_project,),
+        outer_workers=1,
+        overwrite=cfg.overwrite,
+        leaf_ids=("project",),
+    )
+    steps = _list_steps_sorted(project_config.project_dir)
+    if not steps:
+        raise FileNotFoundError(f"No steps found under {project_config.project_dir}")
+    initial_resume = (
+        steps[0] / "assim" / "prior_forcing_manifest.json"
+    ).is_file() and not cfg.overwrite
+    # This read-only gate happens before the coordinator ledger, run manifest,
+    # file log or performance monitor is created.
+    check_step_admission(
+        cfg.project_dir,
+        estimated_growth_bytes=plan.estimated_growth_bytes,
+        allow_existing_step_drain=initial_resume,
+    )
+    coordinator = StorageAdmissionCoordinator(plan)
+    client = StorageAdmissionClient.in_process(coordinator, leaf_id="project")
+    client.admit_step(
+        steps[0].name,
+        request_id=f"project:admit:{steps[0].name}",
+        allow_existing_step_drain=initial_resume,
+    )
+    return replace(cfg, storage_admission_client=client)
 
 
 def _storage_summary(value: object) -> StorageAccountingSummary:
@@ -1236,6 +1278,7 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
 def run_project(cfg: OrchestratorConfig) -> RenderResult:
     """Run the orchestrator while owning performance-monitor shutdown."""
 
+    cfg = preadmit_project_storage(cfg)
     run_start = datetime.utcnow()
     perf_handle = None
     if cfg.monitor_perf:

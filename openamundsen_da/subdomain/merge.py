@@ -20,6 +20,7 @@ from openamundsen_da.io.paths import (
     project_maps_root,
     project_plots_maps_collection_pdf_path,
 )
+from openamundsen_da.exceptions import LowDiskSpaceError
 from openamundsen_da.methods.viz.maps.generated import GENERATED_DA_MAPS_SUBDIR
 from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta
 from openamundsen_da.subdomain.event_support import resolve_subdomain_event_plan
@@ -75,10 +76,13 @@ def _tracked_merge(operation):
     def wrapped(*, manifest_path: Path, **kwargs):
         manifest_path = Path(manifest_path).resolve()
         manifest = SubdomainManifest.load(manifest_path)
-        save_stage(manifest, manifest_path, "merge", "running")
+        if operation.__name__ == "merge_model_grids":
+            save_stage(manifest, manifest_path, "merge", "running")
         try:
             outputs = operation(manifest_path=manifest_path, **kwargs)
         except BaseException as exc:
+            if isinstance(exc, LowDiskSpaceError):
+                raise
             current = SubdomainManifest.load(manifest_path)
             save_stage(
                 current,
@@ -290,6 +294,8 @@ def merge_grids(
             merge_budget.used_fraction,
             merge_reserve / (1024**3),
         )
+        current = SubdomainManifest.load(manifest_path)
+        save_stage(current, manifest_path, "merge", "running")
         merged_nc = _merge_netcdf(
             output_name="da_output_grids.nc",
             nc_paths=compact_entries,

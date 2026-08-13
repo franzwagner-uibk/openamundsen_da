@@ -43,12 +43,19 @@ from openamundsen_da.util.parallel import pick_max_workers
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.util.run_mode import ensure_run_mode
 from openamundsen_da.util.storage_budget import (
+    DiskBudgetSnapshot,
     StorageReservationProject,
     check_step_admission,
     estimate_coordinated_storage_reserve,
     estimate_parent_compact_merge_bytes,
     estimate_parent_render_bytes,
     estimate_project_storage_components,
+)
+from openamundsen_da.util.storage_admission import (
+    StorageAdmissionClient,
+    StorageAdmissionCoordinator,
+    StorageAdmissionServer,
+    build_storage_plan,
 )
 from openamundsen_da.util.ts import parse_datetime_opt
 
@@ -253,6 +260,7 @@ def _run_one(
     storage_reservation_projects: tuple[StorageReservationProject, ...] = (),
     storage_outer_workers: int = 1,
     shared_storage_reserve_bytes: int = 0,
+    storage_admission_client: StorageAdmissionClient | None = None,
 ) -> SubdomainRunResult:
     """Worker: run one fully independent sub-domain DA setup."""
     manifest = SubdomainManifest.load(manifest_path)
@@ -353,9 +361,16 @@ def _run_one(
                     storage_reservation_projects=storage_reservation_projects,
                     storage_outer_workers=int(storage_outer_workers),
                     shared_storage_reserve_bytes=int(shared_storage_reserve_bytes),
+                    storage_admission_client=storage_admission_client,
                 )
             )
             finalized = _finalize_leaf(sub, resume=False)
+            if storage_admission_client is not None:
+                storage_admission_client.transition(
+                    "leaf_finalized",
+                    release_bytes=0,
+                    request_id=f"{sub.id}:leaf_finalized",
+                )
             duration = time.time() - started
             run_meta.update(
                 {
@@ -654,6 +669,41 @@ def _leaf_waves(selected_ids: list[str], outer_workers: int) -> list[list[str]]:
     ]
 
 
+def _start_wave_storage_coordinator(
+    *,
+    root_project_dir: Path,
+    projects: tuple[StorageReservationProject, ...],
+    leaf_ids: list[str],
+    outer_workers: int,
+    shared_reserve_bytes: int,
+    overwrite: bool,
+    allow_existing_step_drain: bool,
+    estimated_growth_bytes: int,
+) -> tuple[StorageAdmissionServer, DiskBudgetSnapshot]:
+    """Build, persist and preflight one spawn-safe wave coordinator."""
+    budget = check_step_admission(
+        root_project_dir,
+        estimated_growth_bytes=estimated_growth_bytes,
+        allow_existing_step_drain=allow_existing_step_drain,
+    )
+    plan = build_storage_plan(
+        root_project_dir=root_project_dir,
+        projects=projects,
+        outer_workers=outer_workers,
+        parent_finalization_reserve_bytes=shared_reserve_bytes,
+        overwrite=overwrite,
+        leaf_ids=tuple(leaf_ids),
+    )
+    coordinator = StorageAdmissionCoordinator(plan)
+    server = StorageAdmissionServer(coordinator)
+    try:
+        coordinator.record_preflight(budget)
+    except Exception:
+        server.close()
+        raise
+    return server, budget
+
+
 def run_subdomains(
     *,
     manifest_path: Path,
@@ -723,10 +773,17 @@ def run_subdomains(
             _project_has_started(manifest.subdomains[sid].project_dir)
             for sid in waves[0]
         )
-        storage_budget = check_step_admission(
-            manifest.project_dir,
-            estimated_growth_bytes=concurrent_storage_reserve,
+        wave_server, storage_budget = _start_wave_storage_coordinator(
+            root_project_dir=manifest.project_dir,
+            projects=storage_reservation_projects,
+            leaf_ids=waves[0],
+            outer_workers=len(waves[0]),
+            shared_reserve_bytes=(
+                parent_finalization_reserve + queued_retained_reserve
+            ),
+            overwrite=overwrite,
             allow_existing_step_drain=resuming_batch,
+            estimated_growth_bytes=concurrent_storage_reserve,
         )
     except LowDiskSpaceError as exc:
         save_stage(manifest, manifest_path, "run", "paused_low_disk", error=str(exc))
@@ -788,10 +845,17 @@ def run_subdomains(
                     _project_has_started(manifest.subdomains[sid].project_dir)
                     for sid in wave_ids
                 )
-                storage_budget = check_step_admission(
-                    manifest.project_dir,
-                    estimated_growth_bytes=concurrent_storage_reserve,
+                wave_server, storage_budget = _start_wave_storage_coordinator(
+                    root_project_dir=manifest.project_dir,
+                    projects=storage_reservation_projects,
+                    leaf_ids=wave_ids,
+                    outer_workers=len(wave_ids),
+                    shared_reserve_bytes=(
+                        parent_finalization_reserve + queued_retained_reserve
+                    ),
+                    overwrite=overwrite,
                     allow_existing_step_drain=resuming_batch,
+                    estimated_growth_bytes=concurrent_storage_reserve,
                 )
             logger.info(
                 "ADMIT wave={}/{} subdomains={} growth_gib={:.1f} "
@@ -820,6 +884,7 @@ def run_subdomains(
                     storage_reservation_projects,
                     len(wave_ids),
                     parent_finalization_reserve + queued_retained_reserve,
+                    wave_server.client(leaf_id=sid),
                 )
                 future_map[fut] = sid
 
@@ -846,6 +911,7 @@ def run_subdomains(
                         if not other.done():
                             other.cancel()
                     break
+            wave_server.close()
             if failed_id is not None:
                 executor.shutdown(wait=False, cancel_futures=True)
                 break
@@ -866,6 +932,10 @@ def run_subdomains(
         # Ensure process cleanup.
         try:
             executor.shutdown(wait=True, cancel_futures=True)
+        except Exception:
+            pass
+        try:
+            wave_server.close()
         except Exception:
             pass
 

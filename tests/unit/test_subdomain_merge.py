@@ -23,7 +23,7 @@ def _bounded_merge_storage(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         merge_mod,
-        "check_step_admission",
+        "admit_storage_transition",
         lambda *_args, **_kwargs: SimpleNamespace(used_fraction=0.1),
     )
 

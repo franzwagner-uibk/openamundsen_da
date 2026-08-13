@@ -17,6 +17,8 @@ from openamundsen_da.subdomain.merge import cleanup_compact_grid_artifacts
 from openamundsen_da.subdomain.report import write_subdomain_reports
 from openamundsen_da.subdomain.status import save_stage, terminal_status
 from openamundsen_da.util.run_mode import ensure_run_mode
+from openamundsen_da.util.storage_admission import admit_storage_transition
+from openamundsen_da.util.storage_budget import estimate_parent_render_bytes
 
 
 def render_subdomain_outputs(
@@ -56,6 +58,17 @@ def render_subdomain_outputs(
             f"Merged compact DA output is required before rendering: {merged_grid}"
         )
 
+    render_reserve = estimate_parent_render_bytes(
+        project_dir=project_dir,
+        grid_cell_count=int(manifest.grid_rows) * int(manifest.grid_cols),
+        overwrite=False,
+    )
+    admit_storage_transition(
+        project_dir,
+        phase="parent_render",
+        estimated_growth_bytes=render_reserve,
+    )
+
     save_stage(manifest, manifest_path, "render", "running")
     try:
         write_subdomain_reports(manifest_path=manifest_path, out_dir=project_dir / "results")
@@ -92,6 +105,11 @@ def render_subdomain_outputs(
         cleanup_compact_grid_artifacts(manifest_path=manifest_path)
     except Exception as exc:
         raise ProjectRenderError(f"Subdomain compact cleanup failed: {exc}") from exc
+    admit_storage_transition(
+        project_dir,
+        phase="completed",
+        estimated_growth_bytes=0,
+    )
     return result
 
 

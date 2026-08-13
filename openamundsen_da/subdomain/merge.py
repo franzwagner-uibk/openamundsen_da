@@ -36,9 +36,9 @@ from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.roi_grid import load_setup_roi_mask
 from openamundsen_da.util.run_mode import ensure_run_mode
 from openamundsen_da.util.storage_budget import (
-    check_step_admission,
     estimate_parent_compact_merge_bytes,
 )
+from openamundsen_da.util.storage_admission import admit_storage_transition
 from openamundsen_da.util.storage_policy import da_summary_netcdf_encoding, preserved_netcdf_encoding
 from openamundsen_da.util.yaml_utils import read_yaml_mapping
 
@@ -274,10 +274,10 @@ def merge_grids(
             project_dir=manifest.project_dir,
             grid_cell_count=int(manifest.grid_rows) * int(manifest.grid_cols),
         )
-        merge_budget = check_step_admission(
+        merge_budget = admit_storage_transition(
             manifest.project_dir,
+            phase="parent_merge",
             estimated_growth_bytes=merge_reserve,
-            allow_existing_step_drain=True,
         )
         logger.info(
             "Parent compact-merge admission: used={:.1%}, atomic reserve={:.1f} GiB",

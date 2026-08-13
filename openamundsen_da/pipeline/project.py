@@ -46,7 +46,11 @@ from openamundsen_da.io.paths import (
     project_landcover_mask_report_path,
 )
 from openamundsen_da.util.roi import read_single_roi
-from openamundsen_da.util.roi_grid import ensure_setup_roi_grid, ensure_setup_roi_vector
+from openamundsen_da.util.roi_grid import (
+    ensure_setup_roi_grid,
+    ensure_setup_roi_vector,
+    resolve_setup_grid_spec,
+)
 from openamundsen_da.util.landcover_mask import (
     LandcoverMaskConfig,
     resolve_landcover_mask,
@@ -58,9 +62,13 @@ from openamundsen_da.util.da_events import load_assimilation_events, Assimilatio
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.util.storage_budget import (
     StorageReservationProject,
-    check_step_admission,
-    estimate_coordinated_storage_reserve,
-    estimate_project_storage_reserve,
+)
+from openamundsen_da.util.storage_admission import (
+    StorageAccountingSummary,
+    StorageAdmissionClient,
+    StorageAdmissionCoordinator,
+    accounting_summary_from_inventory,
+    build_storage_plan,
 )
 from openamundsen_da.util.point_output import (
     validate_project_ensemble_points,
@@ -151,15 +159,6 @@ def _next_step_start(steps: List[Path], idx: int) -> Optional[datetime]:
         return datetime.fromisoformat(str(val)) if val else None
     except Exception:
         return None
-
-
-def _project_storage_estimate(cfg: "OrchestratorConfig") -> int:
-    """Return additional storage required to complete this project."""
-    return estimate_project_storage_reserve(
-        setup_dir=cfg.setup_dir,
-        project_dir=cfg.project_dir,
-        overwrite=cfg.overwrite,
-    )
 
 
 def _find_roi(setup_dir: Path) -> Path:
@@ -392,19 +391,13 @@ class OrchestratorConfig:
     storage_reservation_projects: tuple[StorageReservationProject, ...] = ()
     storage_outer_workers: int = 1
     shared_storage_reserve_bytes: int = 0
+    storage_admission_client: StorageAdmissionClient | None = None
 
 
-def _admission_growth(cfg: OrchestratorConfig, own_estimate: int) -> int:
-    """Recompute the whole shared-filesystem reservation at each boundary."""
-    if not cfg.storage_reservation_projects:
-        return int(own_estimate)
-    coordinated, _estimates = estimate_coordinated_storage_reserve(
-        cfg.storage_reservation_projects,
-        outer_workers=cfg.storage_outer_workers,
-        parent_finalization_reserve_bytes=cfg.shared_storage_reserve_bytes,
-        overwrite=cfg.overwrite,
-    )
-    return coordinated
+def _storage_summary(value: object) -> StorageAccountingSummary:
+    if not isinstance(value, dict):
+        raise RuntimeError("Producer omitted its required storage accounting summary")
+    return StorageAccountingSummary.from_dict(value)
 
 
 def _setup_logger(project_dir: Path, log_level: str) -> None:
@@ -477,6 +470,28 @@ def _setup_log_path(project_dir: Path) -> Path:
 
 def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> RenderResult:
     project_config = load_project_configuration(cfg.project_dir)
+    if cfg.storage_admission_client is None:
+        grid = resolve_setup_grid_spec(cfg.setup_dir)
+        reservation_project = StorageReservationProject(
+            setup_dir=Path(cfg.setup_dir).resolve(),
+            project_dir=Path(cfg.project_dir).resolve(),
+            grid_cell_count=int(grid.rows) * int(grid.cols),
+        )
+        plan = build_storage_plan(
+            root_project_dir=cfg.project_dir,
+            projects=(reservation_project,),
+            outer_workers=1,
+            overwrite=cfg.overwrite,
+            leaf_ids=("project",),
+        )
+        coordinator = StorageAdmissionCoordinator(plan)
+        cfg = replace(
+            cfg,
+            storage_admission_client=StorageAdmissionClient.in_process(
+                coordinator,
+                leaf_id="project",
+            ),
+        )
     if project_config.setup_dir != Path(cfg.setup_dir).resolve():
         raise ValueError(
             f"Project {project_config.project_dir} belongs to setup {project_config.setup_dir}, "
@@ -534,28 +549,31 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
     validate_assimilation_requirements(setup_dir=cfg.setup_dir, project_dir=cfg.project_dir, steps=steps, events=events)
     initial_forcing_manifest = steps[0] / "assim" / "prior_forcing_manifest.json"
     initial_resume = initial_forcing_manifest.is_file() and not cfg.overwrite
-    initial_estimate = _project_storage_estimate(cfg)
-    initial_budget = check_step_admission(
-        cfg.project_dir,
-        estimated_growth_bytes=_admission_growth(cfg, initial_estimate),
+    if cfg.storage_admission_client is None:
+        raise RuntimeError("Project execution requires a storage admission client")
+    initial_budget = cfg.storage_admission_client.admit_step(
+        steps[0].name,
+        request_id=f"{cfg.storage_admission_client.leaf_id}:admit:{steps[0].name}",
         allow_existing_step_drain=initial_resume,
     )
     logger.info(
-        "Disk admission {}: used={:.1%}, own growth={:.1f} GiB, concurrent reserve={:.1f} GiB, "
+        "Disk admission {}: used={:.1%}, incremental reserve={:.1f} GiB, "
         "operational reserve={:.1f} GiB",
         steps[0].name,
         initial_budget.used_fraction,
-        initial_estimate / (1024**3),
         initial_budget.estimated_growth_bytes / (1024**3),
         initial_budget.operational_reserve_bytes / (1024**3),
     )
-    build_prior_ensemble(
+    initial_forcing_accounting = build_prior_ensemble(
         input_meteo_dir=meteo_dir,
         project_dir=cfg.project_dir,
         step_dir=steps[0],
         max_workers=int(workers),
         overwrite=bool(cfg.overwrite),
     )
+    pending_storage_accounting: dict[str, StorageAccountingSummary] = {
+        steps[0].name: _storage_summary(initial_forcing_accounting)
+    }
     initial_members = list_member_dirs(steps[0] / "ensembles", "prior")
     if not initial_members:
         raise RuntimeError(f"No prior members available for PF initialization in {steps[0]}")
@@ -664,6 +682,7 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
             logger.warning("Land-cover mask report failed: {}", exc)
 
     # Process each step
+    last_step_storage_accounting: StorageAccountingSummary | None = None
     for i, step_dir in enumerate(steps):
         step_name = Path(step_dir).name
         logger.info("== Step {} ==", step_name)
@@ -683,6 +702,15 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         )
         if launch_summary.get("summary", {}).get("failed", 0) > 0:
             raise RuntimeError(f"Member propagation failed in {step_name}; restart states were retained")
+        forcing_accounting = pending_storage_accounting.pop(step_name, None)
+        if forcing_accounting is None:
+            raise RuntimeError(
+                f"Storage accounting for generated forcing is missing in {step_name}"
+            )
+        step_storage_accounting = forcing_accounting.merged(
+            _storage_summary(launch_summary.get("storage_accounting"))
+        )
+        last_step_storage_accounting = step_storage_accounting
 
         if i > 0:
             try:
@@ -964,24 +992,41 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         # Rejuvenate posterior -> next prior
         rejuvenate_manifest = Path(steps[i + 1]) / "assim" / "rejuvenate_manifest.json"
         next_resume = rejuvenate_manifest.is_file() and not cfg.overwrite
-        next_step_estimate = _project_storage_estimate(cfg)
-        next_budget = check_step_admission(
-            cfg.project_dir,
-            estimated_growth_bytes=_admission_growth(cfg, next_step_estimate),
+        next_budget = cfg.storage_admission_client.admit_step(
+            steps[i + 1].name,
+            summary=step_storage_accounting,
+            request_id=(
+                f"{cfg.storage_admission_client.leaf_id}:admit:{steps[i + 1].name}"
+            ),
             allow_existing_step_drain=next_resume,
         )
         logger.info(
-            "Disk admission {}: used={:.1%}, own growth={:.1f} GiB, concurrent reserve={:.1f} GiB",
+            "Disk admission {}: used={:.1%}, incremental reserve={:.1f} GiB",
             steps[i + 1].name,
             next_budget.used_fraction,
-            next_step_estimate / (1024**3),
             next_budget.estimated_growth_bytes / (1024**3),
         )
         if rejuvenate_manifest.is_file() and not cfg.overwrite:
-            validate_rejuvenation_manifest(
+            rejuvenation_data = validate_rejuvenation_manifest(
                 setup_dir=cfg.setup_dir,
                 prev_step_dir=step_dir,
                 next_step_dir=steps[i + 1],
+            )
+            storage_accounting = rejuvenation_data.get("storage_accounting")
+            if not isinstance(storage_accounting, dict):
+                from openamundsen_da.methods.pf.rejuvenate import _rejuvenation_output_inventory
+
+                storage_accounting = accounting_summary_from_inventory(
+                    completed_step=steps[i + 1].name,
+                    inventory=_rejuvenation_output_inventory(
+                        setup_dir=cfg.setup_dir,
+                        next_step_dir=steps[i + 1],
+                        target_ensemble="prior",
+                    ),
+                    source="rejuvenation_reconciliation",
+                ).as_dict()
+            pending_storage_accounting[steps[i + 1].name] = _storage_summary(
+                storage_accounting
             )
             logger.info(
                 "Validated rejuvenation manifest for {}; overwrite=False -> skipping process-noise rebuild.",
@@ -989,7 +1034,7 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
             )
         else:
             logger.info("Rejuvenating posterior -> {} (prior) ...", steps[i + 1].name)
-            rejuvenate(
+            rejuvenation_summary = rejuvenate(
                 setup_dir=cfg.setup_dir,
                 prev_step_dir=step_dir,
                 next_step_dir=steps[i + 1],
@@ -997,6 +1042,9 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
                 target_ensemble="prior",
                 source_meteo_dir=None,
                 max_workers=int(workers),
+            )
+            pending_storage_accounting[steps[i + 1].name] = _storage_summary(
+                rejuvenation_summary.get("storage_accounting")
             )
 
         # Update project-wide plots after each assimilation/rejuvenation cycle so
@@ -1028,6 +1076,18 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
             t.join()
         except Exception:
             pass
+    if last_step_storage_accounting is None:
+        raise RuntimeError("Final step omitted its required storage accounting summary")
+    finalization_budget = cfg.storage_admission_client.transition(
+        "project_finalizing",
+        summary=last_step_storage_accounting,
+        request_id=f"{cfg.storage_admission_client.leaf_id}:project_finalizing",
+    )
+    logger.info(
+        "Project-finalization storage admission: used={:.1%}, incremental reserve={:.1f} GiB",
+        finalization_budget.used_fraction,
+        finalization_budget.estimated_growth_bytes / (1024**3),
+    )
     da_summary_path = project_da_output_grids_path(cfg.project_dir)
     if da_summary_path.is_file() and not cfg.overwrite:
         logger.info("Using existing DA output summary {}", da_summary_path)
@@ -1042,18 +1102,6 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
     if retention_mode == "compact":
         point_output_path = project_ensemble_points_path(cfg.project_dir)
         forcing_output_path = project_ensemble_forcing_path(cfg.project_dir)
-        compact_estimate = _project_storage_estimate(cfg)
-        compact_budget = check_step_admission(
-            cfg.project_dir,
-            estimated_growth_bytes=_admission_growth(cfg, compact_estimate),
-            allow_existing_step_drain=True,
-        )
-        logger.info(
-            "Compact-export admission: used={:.1%}, own growth={:.1f} GiB, concurrent reserve={:.1f} GiB",
-            compact_budget.used_fraction,
-            compact_estimate / (1024**3),
-            compact_budget.estimated_growth_bytes / (1024**3),
-        )
         if point_output_path.is_file() and not cfg.overwrite:
             validate_project_ensemble_points(cfg.project_dir, output_nc=point_output_path)
             logger.info("Using existing compact point output {}", point_output_path)
@@ -1129,6 +1177,16 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
     duration = (run_end - run_start).total_seconds()
     logger.info("Project processing complete: {} (wall-clock {:.1f} s, ~{:.2f} h)", cfg.project_dir, duration, duration / 3600.0)
 
+    completion_phase = (
+        "leaf_finalized"
+        if cfg.storage_admission_client.leaf_id == "project"
+        else "leaf_project_complete"
+    )
+    cfg.storage_admission_client.transition(
+        completion_phase,
+        request_id=f"{cfg.storage_admission_client.leaf_id}:{completion_phase}",
+    )
+
     return render_result
 
 
@@ -1147,7 +1205,10 @@ def run_project(cfg: OrchestratorConfig) -> RenderResult:
             )
         )
     try:
-        return _run_project_impl(replace(cfg, monitor_perf=False), run_start=run_start)
+        return _run_project_impl(
+            replace(cfg, monitor_perf=False),
+            run_start=run_start,
+        )
     finally:
         if perf_handle is not None:
             perf_handle.stop_and_join()

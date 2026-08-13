@@ -39,6 +39,7 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
+from openamundsen_da.util.storage_admission import StorageAccountingSummary
 
 # Do NOT import anything that pulls GDAL here. runner is imported later inside the worker.
 
@@ -218,7 +219,29 @@ def launch_members(
 
     summary = {"total": len(members), "ok": ok, "skipped": skipped, "failed": failed}
     logger.info("Summary: total={total}  ok={ok}  skipped={skipped}  failed={failed}", **summary)
-    return {"summary": summary, "results": results}
+    storage_accounting: StorageAccountingSummary | None = None
+    for result in results:
+        if result.status not in {"success", "skipped"}:
+            continue
+        if not isinstance(result.storage_accounting, dict):
+            raise RuntimeError(
+                f"Successful member {result.member_name} omitted storage accounting"
+            )
+        member_accounting = StorageAccountingSummary.from_dict(
+            result.storage_accounting
+        )
+        storage_accounting = (
+            member_accounting
+            if storage_accounting is None
+            else storage_accounting.merged(member_accounting)
+        )
+    if storage_accounting is None:
+        raise RuntimeError(f"No successful member storage accounting for {step_dir}")
+    return {
+        "summary": summary,
+        "results": results,
+        "storage_accounting": storage_accounting.as_dict(),
+    }
 
 
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:

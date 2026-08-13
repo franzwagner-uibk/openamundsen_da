@@ -75,6 +75,7 @@ from openamundsen_da.util.parallel import pick_max_workers, run_tasks_with_pool
 from openamundsen_da.util.meteo import filter_and_write_meteo
 from openamundsen_da.methods.pf.weights import prior_weight_paths
 from openamundsen_da.util.retention import completed_retention_paths
+from openamundsen_da.util.storage_admission import accounting_summary_from_inventory
 
 
 @dataclass
@@ -379,6 +380,11 @@ def rejuvenate(
         next_step_dir=Path(next_step_dir),
         target_ensemble=target_ensemble,
     )
+    storage_accounting = accounting_summary_from_inventory(
+        completed_step=Path(next_step_dir).name,
+        inventory=manifest_outputs,
+        source="rejuvenation",
+    ).as_dict()
     manifest = {
         "rejuvenation_schema_version": 4,
         "status": "complete",
@@ -403,10 +409,15 @@ def rejuvenate(
         "input_inventory_sha256": inventory_digest(manifest_inputs),
         "output_inventory": manifest_outputs,
         "output_inventory_sha256": inventory_digest(manifest_outputs),
+        "storage_accounting": storage_accounting,
     }
     write_manifest_atomic(out_dir / "rejuvenate_manifest.json", manifest)
 
-    return {"members": len(rows_sorted), "copied_state_pointers": copied_pointers}
+    return {
+        "members": len(rows_sorted),
+        "copied_state_pointers": copied_pointers,
+        "storage_accounting": storage_accounting,
+    }
 
 
 def _rejuvenation_input_inventory(

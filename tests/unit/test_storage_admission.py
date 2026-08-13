@@ -527,6 +527,148 @@ def _prepared_project(tmp_path: Path, *, malformed: bool = False):
     return setup, project, reservation
 
 
+def _fresh_virtual_project(tmp_path: Path) -> tuple[Path, Path, StorageReservationProject]:
+    setup = tmp_path / "setup"
+    project = setup / "projects/winter"
+    project.mkdir(parents=True)
+    (setup / "alpine.yml").write_text(
+        "domain: test\ntimestep: 1D\n",
+        encoding="utf-8",
+    )
+    (project / "winter.yml").write_text(
+        "start_date: '2023-01-01'\n"
+        "end_date: '2023-01-03'\n"
+        "data_assimilation:\n"
+        "  assimilation_events:\n"
+        "    - {date: '2023-01-02', variable: station_hs}\n",
+        encoding="utf-8",
+    )
+    return (
+        setup,
+        project,
+        StorageReservationProject(
+            setup_dir=setup,
+            project_dir=project,
+            grid_cell_count=1,
+            requires_preparation=True,
+        ),
+    )
+
+
+@pytest.mark.parametrize("partial", ["absent", "empty", "yaml_less", "truncated"])
+def test_build_storage_plan_uses_virtual_steps_for_fresh_leaf_preparation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    partial: str,
+) -> None:
+    _setup, project, reservation = _fresh_virtual_project(tmp_path)
+    steps_root = project / "steps"
+    if partial != "absent":
+        steps_root.mkdir()
+    if partial in {"yaml_less", "truncated"}:
+        first = steps_root / "step_00_init"
+        first.mkdir()
+        if partial == "truncated":
+            (first / "00.yml").write_text(
+                "start_date: [unterminated\n",
+                encoding="utf-8",
+            )
+    estimate = ProjectStorageEstimate(1, 1, 1, 1, 1, 1, 1)
+    monkeypatch.setattr(
+        storage_admission_mod,
+        "estimate_coordinated_storage_reserve",
+        lambda projects, **_kwargs: (
+            estimate.total_bytes,
+            {str(projects[0].project_dir.resolve()): estimate},
+        ),
+    )
+    monkeypatch.setattr(
+        storage_admission_mod,
+        "_project_identity",
+        lambda _project, step_names, **_kwargs: "virtual:" + ",".join(step_names),
+    )
+
+    plan = build_storage_plan(
+        root_project_dir=project,
+        projects=(reservation,),
+        outer_workers=1,
+        leaf_ids=("leaf",),
+    )
+
+    assert plan.leaves["leaf"].step_names == (
+        "step_00_init",
+        "step_01_20230102-20230103",
+    )
+    assert not (project / "steps/step_01_20230102-20230103").exists()
+
+
+@pytest.mark.parametrize("authority", ["runtime", "preparation"])
+def test_build_storage_plan_rejects_invalid_partial_steps_with_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    authority: str,
+) -> None:
+    setup, project, reservation = _fresh_virtual_project(tmp_path)
+    first = project / "steps/step_00_init"
+    first.mkdir(parents=True)
+    (first / "00.yml").write_text("start_date: [unterminated\n", encoding="utf-8")
+    if authority == "runtime":
+        evidence = first / "ensembles/prior/member_001/results/member_run.json"
+        evidence.parent.mkdir(parents=True)
+        evidence.write_text('{"status": "success"}\n', encoding="utf-8")
+    else:
+        write_manifest_atomic(
+            setup / ".openamundsen-da/manifests/leaf_preparation.json",
+            {"status": "success"},
+        )
+    estimate = ProjectStorageEstimate(1, 1, 1, 1, 1, 1, 1)
+    monkeypatch.setattr(
+        storage_admission_mod,
+        "estimate_coordinated_storage_reserve",
+        lambda projects, **_kwargs: (
+            estimate.total_bytes,
+            {str(projects[0].project_dir.resolve()): estimate},
+        ),
+    )
+
+    with pytest.raises(Exception, match="flow sequence|expected"):
+        build_storage_plan(
+            root_project_dir=project,
+            projects=(reservation,),
+            outer_workers=1,
+            leaf_ids=("leaf",),
+        )
+
+
+@pytest.mark.parametrize("manifest_payload", ['{"status": "success"}\n', "{broken"])
+def test_build_storage_plan_rejects_missing_steps_with_prep_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    manifest_payload: str,
+) -> None:
+    setup, project, reservation = _fresh_virtual_project(tmp_path)
+    authority = setup / ".openamundsen-da/manifests/leaf_preparation.json"
+    authority.parent.mkdir(parents=True)
+    authority.write_text(manifest_payload, encoding="utf-8")
+    estimate = ProjectStorageEstimate(1, 1, 1, 1, 1, 1, 1)
+    monkeypatch.setattr(
+        storage_admission_mod,
+        "estimate_coordinated_storage_reserve",
+        lambda projects, **_kwargs: (
+            estimate.total_bytes,
+            {str(projects[0].project_dir.resolve()): estimate},
+        ),
+    )
+
+    with pytest.raises(FileNotFoundError, match="authoritative leaf preparation"):
+        build_storage_plan(
+            root_project_dir=project,
+            projects=(reservation,),
+            outer_workers=1,
+            leaf_ids=("leaf",),
+        )
+
+
 def _summary(*, forcing: int = 100) -> StorageAccountingSummary:
     return StorageAccountingSummary(
         completed_step="step_00",

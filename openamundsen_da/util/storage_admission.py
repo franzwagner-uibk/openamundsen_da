@@ -50,6 +50,7 @@ from openamundsen_da.util.storage_budget import (
     check_step_admission,
     estimate_coordinated_storage_reserve,
     estimate_project_storage_components,
+    storage_project_steps,
 )
 from openamundsen_da.util.da_output import output_retention_mode
 from openamundsen_da.util.ts import parse_datetime_opt
@@ -801,19 +802,13 @@ def build_storage_plan(
     scientific_path_cache: dict[Path, str] = {}
     for leaf_id, project in zip(leaf_ids, projects, strict=True):
         project_dir = project.project_dir.resolve()
-        materialized_names = tuple(path.name for path in list_steps_sorted(project_dir))
-        try:
-            step_names = tuple(
-                step.name for step in plan_project_steps(project.setup_dir, project_dir)
+        step_names = tuple(
+            step_path.name
+            for step_path, _start, _end in storage_project_steps(
+                project.setup_dir,
+                project_dir,
             )
-        except (ValueError, FileNotFoundError):
-            if not materialized_names:
-                raise
-            step_names = materialized_names
-        if any(name not in step_names for name in materialized_names):
-            raise RuntimeError(
-                f"Materialized steps differ from immutable virtual plan: {project_dir}"
-            )
+        )
         _validate_partial_member_manifests(project, step_names)
         preparation_inputs_identity = _scientific_paths_identity(
             project.scientific_input_paths,

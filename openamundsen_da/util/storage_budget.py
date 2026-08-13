@@ -414,10 +414,29 @@ def _window_sample_count(start: datetime, end: datetime, frequency: object) -> i
     return max(1, int(math.ceil((end - start).total_seconds() / seconds)) + 1)
 
 
-def _project_steps(
+def storage_project_steps(
     setup_dir: Path,
     project_dir: Path,
 ) -> list[tuple[Path, datetime, datetime]]:
+    """Return authoritative materialized or virtual storage-planning steps.
+
+    A pristine or safely repairable preparation tree uses the immutable virtual
+    windows from project configuration. Runtime evidence or completed
+    preparation authority makes missing/invalid materialized steps fail closed.
+    """
+    leaf_preparation = setup_dir / ".openamundsen-da/manifests/leaf_preparation.json"
+
+    def has_preparation_authority() -> bool:
+        if not leaf_preparation.is_file():
+            return False
+        try:
+            return (
+                json.loads(leaf_preparation.read_text(encoding="utf-8")).get("status")
+                == "success"
+            )
+        except (OSError, json.JSONDecodeError):
+            return True
+
     steps_root = project_dir / "steps"
     if not steps_root.exists():
         run_manifest = setup_dir / "run_manifest.json"
@@ -439,6 +458,11 @@ def _project_steps(
                 "Prepared steps are missing after the leaf project started "
                 f"(status={status!r}): {project_dir}"
             )
+        if has_preparation_authority():
+            raise FileNotFoundError(
+                "Prepared steps are missing despite authoritative leaf preparation: "
+                f"{project_dir}"
+            )
         return [
             (project_dir / "steps" / plan.name, plan.start, plan.end)
             for plan in plan_project_steps(setup_dir, project_dir)
@@ -455,24 +479,15 @@ def _project_steps(
         next(steps_root.glob(pattern), None) is not None
         for pattern in runtime_patterns
     )
-    leaf_preparation = setup_dir / ".openamundsen-da/manifests/leaf_preparation.json"
-    has_preparation_authority = False
-    if leaf_preparation.is_file():
-        try:
-            has_preparation_authority = (
-                json.loads(leaf_preparation.read_text(encoding="utf-8")).get("status")
-                == "success"
-            )
-        except (OSError, json.JSONDecodeError):
-            has_preparation_authority = True
+    preparation_is_authoritative = has_preparation_authority()
     try:
         materialized = list_steps_sorted(project_dir)
     except (FileNotFoundError, ValueError, YAMLError):
-        if has_runtime_evidence or has_preparation_authority:
+        if has_runtime_evidence or preparation_is_authoritative:
             raise
         materialized = []
     if not materialized:
-        if has_runtime_evidence or has_preparation_authority:
+        if has_runtime_evidence or preparation_is_authoritative:
             raise FileNotFoundError(
                 f"Prepared steps directory is empty or invalid: {steps_root}"
             )
@@ -513,7 +528,7 @@ def _project_steps(
         try:
             step_cfg = read_step_config(step) or {}
         except (FileNotFoundError, YAMLError):
-            if has_runtime_evidence or has_preparation_authority:
+            if has_runtime_evidence or preparation_is_authoritative:
                 raise
             return virtual
         try:
@@ -1078,7 +1093,7 @@ def estimate_project_storage_components(
         grid_cell_count = int(spec.rows) * int(spec.cols)
     if grid_cell_count < 1:
         raise ValueError("grid_cell_count must be positive")
-    steps = _project_steps(setup_dir, project_dir)
+    steps = storage_project_steps(setup_dir, project_dir)
     model_timestep = setup_cfg.get("timestep") or "1h"
     output_data = _merged_output_data(setup_cfg, project_cfg)
     da_cfg = project_cfg.get("data_assimilation") or {}
@@ -1426,4 +1441,5 @@ __all__ = [
     "estimate_project_storage_components",
     "estimate_project_storage_reserve",
     "estimate_step_forcing_bytes",
+    "storage_project_steps",
 ]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +28,8 @@ from openamundsen_da.util.storage_budget import (
     estimate_step_forcing_bytes,
     _point_storage_bound,
     _forcing_plot_storage_bound,
+    _observed_point_bytes_per_value,
+    _owned_file_bytes,
     _restart_storage_bound,
     _retained_diagnostics_storage_bound,
     _selected_forcing_source_bytes,
@@ -205,6 +208,175 @@ def test_compact_export_estimate_counts_owned_csvs_with_margin(tmp_path: Path) -
     assert estimate_compact_timeseries_bytes(project) == 11
 
 
+def test_owned_file_snapshot_deduplicates_hardlinks(
+    tmp_path: Path,
+) -> None:
+    original = tmp_path / "original.bin"
+    hardlink = tmp_path / "hardlink.bin"
+    original.write_bytes(b"12345")
+    os.link(original, hardlink)
+
+    assert _owned_file_bytes(
+        [original, hardlink],
+        root=tmp_path,
+    ) == 5
+
+
+def test_owned_file_snapshot_ignores_direct_file_symlink(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    outside = tmp_path / "outside.bin"
+    root.mkdir()
+    outside.write_bytes(b"external-payload")
+    direct_symlink = root / "linked.bin"
+    direct_symlink.symlink_to(outside)
+
+    assert _owned_file_bytes([direct_symlink], root=root) == 0
+
+
+def test_owned_file_snapshot_accepts_empty_pristine_project(tmp_path: Path) -> None:
+    project = tmp_path / "not-materialized-yet"
+
+    assert _owned_file_bytes([], root=project) == 0
+
+
+def test_owned_file_snapshot_accepts_contained_ancestor_symlink(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "project"
+    actual = root / "actual"
+    actual.mkdir(parents=True)
+    (actual / "owned.bin").write_bytes(b"data")
+    (root / "contained").symlink_to(actual, target_is_directory=True)
+
+    assert _owned_file_bytes(
+        [root / "contained" / "owned.bin"],
+        root=root,
+    ) == 4
+
+
+def test_owned_file_snapshot_rejects_escaping_ancestor_symlink(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "project"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    (outside / "not-owned.bin").write_bytes(b"external")
+    (root / "escape").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="escapes its project root"):
+        _owned_file_bytes(
+            [root / "escape" / "not-owned.bin"],
+            root=root,
+            tolerate_disappearance=True,
+        )
+
+
+def test_point_calibration_rejects_escaping_ancestor_symlink(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    results_parent = (
+        project / "steps" / "step_00" / "ensembles" / "prior" / "member_001"
+    )
+    outside = tmp_path / "outside-results"
+    results_parent.mkdir(parents=True)
+    outside.mkdir()
+    (outside / "point_station.csv").write_text(
+        "date,value\n2023-01-01,1\n",
+        encoding="utf-8",
+    )
+    (results_parent / "results").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="escapes its project root"):
+        _observed_point_bytes_per_value(
+            project,
+            tolerate_disappearance=True,
+        )
+
+
+@pytest.mark.parametrize("tolerate_disappearance", [False, True])
+def test_owned_file_snapshot_handles_identity_replacement_conservatively(
+    monkeypatch,
+    tmp_path: Path,
+    tolerate_disappearance: bool,
+) -> None:
+    target = tmp_path / "owned.bin"
+    replacement = tmp_path / "replacement.bin"
+    target.write_bytes(b"old")
+    replacement.write_bytes(b"replacement")
+    original_lstat = Path.lstat
+    calls = 0
+
+    def replacing_lstat(path: Path, *args, **kwargs):
+        nonlocal calls
+        if path == target:
+            calls += 1
+            if calls == 2:
+                replacement.replace(target)
+        return original_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "lstat", replacing_lstat)
+
+    if tolerate_disappearance:
+        assert _owned_file_bytes(
+            [target],
+            root=tmp_path,
+            tolerate_disappearance=True,
+        ) == 0
+    else:
+        with pytest.raises(RuntimeError, match="identity changed"):
+            _owned_file_bytes([target], root=tmp_path)
+
+
+def test_owned_file_snapshot_does_not_credit_new_file_between_passes(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "owned.bin"
+    newcomer = tmp_path / "new.bin"
+    target.write_bytes(b"old")
+    original_lstat = Path.lstat
+    calls = 0
+
+    def creating_lstat(path: Path, *args, **kwargs):
+        nonlocal calls
+        if path == target:
+            calls += 1
+            if calls == 2:
+                newcomer.write_bytes(b"a much larger newly materialized file")
+        return original_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "lstat", creating_lstat)
+
+    assert _owned_file_bytes(
+        [target],
+        root=tmp_path,
+        tolerate_disappearance=True,
+    ) == 3
+    assert newcomer.stat().st_size > 3
+
+
+def test_owned_file_snapshot_never_hides_other_metadata_errors(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "owned.bin"
+    target.write_bytes(b"data")
+
+    def denied_lstat(_path: Path, *_args, **_kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "lstat", denied_lstat)
+
+    with pytest.raises(PermissionError, match="denied"):
+        _owned_file_bytes(
+            [target],
+            root=tmp_path,
+            tolerate_disappearance=True,
+        )
+
+
 def test_forcing_plot_bound_uses_euregio_calibration_and_refits_existing(
     tmp_path: Path,
 ) -> None:
@@ -311,6 +483,239 @@ def test_overwrite_reserves_full_checkpoint_replacement_coexistence(
 
     assert overwritten == (checkpoint, checkpoint)
     assert sum(overwritten) > sum(resumed)
+
+
+def test_compact_restart_reserve_does_not_credit_cleanup_eligible_predecessor(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    members = ("open_loop", "member_001", "member_002")
+    states_by_step: dict[str, list[Path]] = {}
+    for index, step_name in enumerate(("step_00", "step_01")):
+        step = project / "steps" / step_name
+        step.mkdir(parents=True)
+        (step / f"{step_name}.yml").write_text(
+            f"start_date: 2023-01-0{index + 1}\n"
+            f"end_date: 2023-01-0{index + 1}\n",
+            encoding="utf-8",
+        )
+        states_by_step[step_name] = []
+        for member in members:
+            state = (
+                step
+                / "ensembles"
+                / "prior"
+                / member
+                / "results"
+                / "model_state.pickle.gz"
+            )
+            state.parent.mkdir(parents=True)
+            with state.open("wb") as stream:
+                stream.truncate(1024 * 1024)
+            states_by_step[step_name].append(state)
+
+    during_cleanup = _restart_storage_bound(
+        project_dir=project,
+        grid_cell_count=1_000,
+        member_count=3,
+        step_count=2,
+        compact=True,
+        state_pattern="model_state.pickle.gz",
+    )
+    for state in states_by_step["step_00"]:
+        state.unlink()
+    after_cleanup = _restart_storage_bound(
+        project_dir=project,
+        grid_cell_count=1_000,
+        member_count=3,
+        step_count=2,
+        compact=True,
+        state_pattern="model_state.pickle.gz",
+    )
+
+    assert during_cleanup == after_cleanup
+    assert after_cleanup[0] > 0
+    assert after_cleanup[1] > 0
+
+
+def test_compact_restart_uses_predecessors_only_as_observed_size_high_water(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    members = ("open_loop", "member_001", "member_002")
+    for index, (step_name, state_size) in enumerate(
+        (("step_00", 16 * 1024 * 1024), ("step_01", 1024 * 1024))
+    ):
+        step = project / "steps" / step_name
+        step.mkdir(parents=True)
+        (step / f"{step_name}.yml").write_text(
+            f"start_date: 2023-01-0{index + 1}\n"
+            f"end_date: 2023-01-0{index + 1}\n",
+            encoding="utf-8",
+        )
+        for member in members:
+            state = (
+                step
+                / "ensembles"
+                / "prior"
+                / member
+                / "results"
+                / "model_state.pickle.gz"
+            )
+            state.parent.mkdir(parents=True)
+            with state.open("wb") as stream:
+                stream.truncate(state_size)
+
+    baseline, transition = _restart_storage_bound(
+        project_dir=project,
+        grid_cell_count=1_000,
+        member_count=3,
+        step_count=2,
+        compact=True,
+        state_pattern="model_state.pickle.gz",
+    )
+    observed_checkpoint = int(16 * 1024 * 1024 * 3 * 1.25)
+    newest_existing = 3 * 1024 * 1024
+
+    assert baseline == observed_checkpoint - newest_existing
+    assert transition == observed_checkpoint
+
+
+def _storage_race_project(
+    tmp_path: Path,
+    *,
+    retention: str,
+) -> tuple[Path, Path, dict[str, Path]]:
+    setup, project = _unmaterialized_project(tmp_path)
+    project_yaml = project / "demo.yml"
+    project_yaml.write_text(
+        project_yaml.read_text(encoding="utf-8").replace(
+            "retention: compact",
+            f"retention: {retention}",
+        ),
+        encoding="utf-8",
+    )
+    create_project_skeleton(setup, project)
+    step = sorted((project / "steps").glob("step_*"))[0]
+    member = step / "ensembles" / "prior" / "member_001"
+    artifacts = {
+        "forcing": member / "meteo" / "a.csv",
+        "point": member / "results" / "point_a.csv",
+        "grid": member / "results" / "output_grids.nc",
+        "forcing_plot": step / "plots" / "forcing" / "member_001.png",
+        "state": member / "results" / "model_state.pickle.gz",
+    }
+    for artifact_class, path in artifacts.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = (
+            b"date,value\n2023-01-01,1\n"
+            if artifact_class == "point"
+            else artifact_class.encode("ascii")
+        )
+        path.write_bytes(payload)
+    return setup, project, artifacts
+
+
+@pytest.mark.parametrize(
+    "artifact_class",
+    ["forcing", "point", "grid", "forcing_plot", "state"],
+)
+@pytest.mark.parametrize("disappearance", ["before_stat", "after_stat"])
+def test_compact_estimate_tolerates_cleanup_race_for_owned_artifact_classes(
+    monkeypatch,
+    tmp_path: Path,
+    artifact_class: str,
+    disappearance: str,
+) -> None:
+    setup, project, artifacts = _storage_race_project(
+        tmp_path,
+        retention="compact",
+    )
+    target = artifacts[artifact_class]
+    stable_estimate = estimate_project_storage_components(
+        setup_dir=setup,
+        project_dir=project,
+        grid_cell_count=4,
+    )
+    original_lstat = Path.lstat
+    deleted = False
+
+    def racing_lstat(path: Path, *args, **kwargs):
+        nonlocal deleted
+        if path == target and not deleted:
+            deleted = True
+            if disappearance == "before_stat":
+                target.unlink()
+                raise FileNotFoundError(target)
+            metadata = original_lstat(path, *args, **kwargs)
+            target.unlink()
+            return metadata
+        return original_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "lstat", racing_lstat)
+
+    estimate = estimate_project_storage_components(
+        setup_dir=setup,
+        project_dir=project,
+        grid_cell_count=4,
+    )
+
+    assert deleted
+    assert estimate.total_bytes > 0
+    assert estimate.total_bytes >= stable_estimate.total_bytes
+    assert all(
+        value >= 0
+        for value in (
+            estimate.forcing_bytes,
+            estimate.member_grid_bytes,
+            estimate.point_bytes,
+            estimate.restart_baseline_bytes,
+            estimate.restart_transition_bytes,
+            estimate.derived_forcing_plot_bytes,
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "artifact_class",
+    ["forcing", "point", "grid", "forcing_plot", "state"],
+)
+@pytest.mark.parametrize("disappearance", ["before_stat", "after_stat"])
+def test_full_retention_estimate_rejects_disappearing_owned_artifacts(
+    monkeypatch,
+    tmp_path: Path,
+    artifact_class: str,
+    disappearance: str,
+) -> None:
+    setup, project, artifacts = _storage_race_project(
+        tmp_path,
+        retention="full",
+    )
+    target = artifacts[artifact_class]
+    original_lstat = Path.lstat
+    deleted = False
+
+    def racing_lstat(path: Path, *args, **kwargs):
+        nonlocal deleted
+        if path == target and not deleted:
+            deleted = True
+            if disappearance == "before_stat":
+                target.unlink()
+                raise FileNotFoundError(target)
+            metadata = original_lstat(path, *args, **kwargs)
+            target.unlink()
+            return metadata
+        return original_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "lstat", racing_lstat)
+
+    with pytest.raises(FileNotFoundError):
+        estimate_project_storage_components(
+            setup_dir=setup,
+            project_dir=project,
+            grid_cell_count=4,
+        )
+    assert deleted
 
 
 def test_point_bound_counts_default_columns_and_explicit_layers(tmp_path: Path) -> None:

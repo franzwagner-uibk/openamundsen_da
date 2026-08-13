@@ -67,6 +67,22 @@ design because they change restart and worker-cancellation behavior.
   merge/render temporaries. The aggregate is recomputed from measured artifacts
   at every boundary, so active and queued leaves cannot spend against
   unreserved shared space.
+- Shared-filesystem admission snapshots package-owned mutable artifacts without
+  following final-component symlinks and verifies each file identity twice.
+  Ancestor symlinks are accepted only when they resolve inside the project root
+  on the same filesystem; escaping or cross-filesystem artifacts fail closed.
+  A compact leaf may
+  finish rolling or final cleanup while a sibling recomputes the coordinated
+  reserve; disappearance of an eligible forcing CSV, point CSV, member grid,
+  forcing PNG or restart state therefore removes its existing-byte credit
+  instead of aborting admission. Unexpected disappearance remains fatal under
+  full retention, and every metadata error other than a compact cleanup race
+  remains fatal. Compact restart accounting credits only the newest
+  materialized checkpoint generation, so cleanup-eligible predecessor states
+  cannot make projected growth appear smaller.
+  A file newly materialized after enumeration receives no existing-byte credit;
+  its actual bytes enter the current or following filesystem-usage sample and
+  its size can refit the next boundary estimate upward.
 - All selected leaf projects and the parent must share one filesystem. A mixed
   filesystem manifest fails before workers start rather than applying one
   misleading free-space value to different devices.

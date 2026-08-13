@@ -1265,7 +1265,12 @@ class StorageAdmissionCoordinator:
             "max_precommit_latency_seconds": 0.0,
             "targeted_reconciliation_count": 0,
             "requests": {},
-            "idempotence": {"steps": {}, "transitions": {}, "waves": {}},
+            "idempotence": {
+                "steps": {},
+                "transitions": {},
+                "reconciliations": {},
+                "waves": {},
+            },
         }
 
     @staticmethod
@@ -1573,7 +1578,17 @@ class StorageAdmissionCoordinator:
         )
         if can_resume:
             ledger = copy.deepcopy(existing)
-            ledger.setdefault("idempotence", {"steps": {}, "transitions": {}, "waves": {}})
+            ledger.setdefault(
+                "idempotence",
+                {
+                    "steps": {},
+                    "transitions": {},
+                    "reconciliations": {},
+                    "waves": {},
+                },
+            )
+            ledger["idempotence"].setdefault("reconciliations", {})
+            self._migrate_legacy_reconciliation_slots(ledger)
             for leaf_id, state in ledger["leaves"].items():
                 state.setdefault(
                     "base_planned_by_component",
@@ -1623,6 +1638,58 @@ class StorageAdmissionCoordinator:
             self._recompute_remaining_peak(ledger)
         write_manifest_atomic(self.ledger_path, ledger)
         return ledger
+
+    @staticmethod
+    def _migrate_legacy_reconciliation_slots(ledger: dict[str, object]) -> None:
+        """Move only hash-proven legacy reconciliation slots out of transitions."""
+        idempotence = ledger.get("idempotence")
+        if not isinstance(idempotence, dict):
+            raise RuntimeError("Storage ledger idempotence state is malformed")
+        transitions = idempotence.get("transitions")
+        reconciliations = idempotence.get("reconciliations")
+        if not isinstance(transitions, dict) or not isinstance(reconciliations, dict):
+            raise RuntimeError("Storage ledger idempotence categories are malformed")
+        for leaf_id, owner_state in list(transitions.items()):
+            if not isinstance(owner_state, dict):
+                raise RuntimeError(
+                    f"Storage transition idempotence state is malformed for {leaf_id}"
+                )
+            accepted = owner_state.get("project_finalizing")
+            if accepted is None:
+                continue
+            if not isinstance(accepted, dict):
+                raise RuntimeError(
+                    f"Storage project-finalizing idempotence state is malformed for {leaf_id}"
+                )
+            request_id = accepted.get("request_id")
+            payload_sha256 = accepted.get("payload_sha256")
+            if not isinstance(request_id, str) or not isinstance(payload_sha256, str):
+                raise RuntimeError(
+                    f"Storage project-finalizing idempotence entry is ambiguous for {leaf_id}"
+                )
+            legacy_reconcile = {
+                "kind": "reconcile",
+                "leaf_id": str(leaf_id),
+                "phase": "project_finalizing",
+                "request_id": request_id,
+            }
+            if hash_json(legacy_reconcile) != payload_sha256:
+                # The legacy category was also the correct home for actual
+                # lifecycle transitions. Preserve all entries that are not an
+                # exact cryptographic match for the old reconcile payload.
+                continue
+            target = reconciliations.setdefault(str(leaf_id), {})
+            if not isinstance(target, dict):
+                raise RuntimeError(
+                    f"Storage reconciliation idempotence state is malformed for {leaf_id}"
+                )
+            existing = target.get("project_finalizing")
+            if existing is not None and existing != accepted:
+                raise RuntimeError(
+                    f"Storage reconciliation idempotence migration conflicts for {leaf_id}"
+                )
+            target["project_finalizing"] = accepted
+            del owner_state["project_finalizing"]
 
     def _reconcile_finalization_manifests(self, ledger: dict[str, object]) -> None:
         """Reconcile the only lifecycle state that may commit after the ledger.
@@ -1875,7 +1942,7 @@ class StorageAdmissionCoordinator:
                 request.get("phase") or ""
             )
         if kind == "reconcile":
-            return "transitions", str(request.get("leaf_id") or ""), str(
+            return "reconciliations", str(request.get("leaf_id") or ""), str(
                 request.get("phase") or "reconcile"
             )
         if kind == "wave":

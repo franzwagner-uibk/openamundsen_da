@@ -1710,6 +1710,109 @@ def test_finalization_reconciliation_never_lowers_aggregate_obligation(
     assert coordinator.snapshot()["leaves"]["leaf"]["remaining_by_component"] == before
 
 
+def test_reconciliation_and_finalizing_transition_have_distinct_idempotence_slots(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan(tmp_path, steps=("step_00",))
+    coordinator = StorageAdmissionCoordinator(plan, disk_usage=lambda _path: _usage())
+    client = StorageAdmissionClient.in_process(coordinator, leaf_id="leaf")
+    client.admit_step("step_00", request_id="reconcile-sequence-admit")
+    estimate_calls = 0
+
+    def estimate(**_kwargs):
+        nonlocal estimate_calls
+        estimate_calls += 1
+        return ProjectStorageEstimate(
+            forcing_bytes=1,
+            member_grid_bytes=1,
+            point_bytes=1,
+            restart_baseline_bytes=1,
+            restart_transition_bytes=1,
+            compact_timeseries_bytes=1,
+            compact_grid_bytes=1,
+        )
+
+    monkeypatch.setattr(
+        "openamundsen_da.util.storage_admission.estimate_project_storage_components",
+        estimate,
+    )
+
+    first = client.reconcile_finalization(request_id="reconcile-sequence")
+    duplicate = client.reconcile_finalization(request_id="reconcile-sequence")
+    assert duplicate.estimated_growth_bytes == first.estimated_growth_bytes
+    assert estimate_calls == 1
+    with pytest.raises(ValueError, match="lifecycle slot.*different request"):
+        client.reconcile_finalization(request_id="conflicting-reconcile")
+
+    transitioned = client.transition(
+        "project_finalizing",
+        summary=StorageAccountingSummary(
+            completed_step="step_00",
+            materialized_bytes={},
+        ),
+        request_id="project-finalizing-transition",
+    )
+
+    assert transitioned.estimated_growth_bytes >= 0
+    state = coordinator.snapshot()
+    assert "project_finalizing" in state["idempotence"]["reconciliations"]["leaf"]
+    assert "project_finalizing" in state["idempotence"]["transitions"]["leaf"]
+
+
+def test_legacy_reconciliation_slot_migrates_after_request_audit_eviction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan(tmp_path, steps=("step_00",))
+    coordinator = StorageAdmissionCoordinator(plan, disk_usage=lambda _path: _usage())
+    client = StorageAdmissionClient.in_process(coordinator, leaf_id="leaf")
+    client.admit_step("step_00", request_id="legacy-admit")
+    monkeypatch.setattr(
+        "openamundsen_da.util.storage_admission.estimate_project_storage_components",
+        lambda **_kwargs: ProjectStorageEstimate(1, 1, 1, 1, 1, 1, 1),
+    )
+    client.reconcile_finalization(request_id="legacy-reconcile")
+    ledger = coordinator.snapshot()
+    accepted = ledger["idempotence"]["reconciliations"]["leaf"].pop(
+        "project_finalizing"
+    )
+    ledger["idempotence"]["transitions"].setdefault("leaf", {})[
+        "project_finalizing"
+    ] = accepted
+    ledger["idempotence"].pop("reconciliations")
+    ledger["requests"].pop("legacy-reconcile")
+    write_manifest_atomic(coordinator.ledger_path, ledger)
+    estimate_calls = 0
+
+    def unexpected_estimate(**_kwargs):
+        nonlocal estimate_calls
+        estimate_calls += 1
+        raise AssertionError("migrated reconcile retry must not estimate again")
+
+    monkeypatch.setattr(
+        "openamundsen_da.util.storage_admission.estimate_project_storage_components",
+        unexpected_estimate,
+    )
+    resumed = StorageAdmissionCoordinator(plan, disk_usage=lambda _path: _usage())
+    resumed_client = StorageAdmissionClient.in_process(resumed, leaf_id="leaf")
+
+    resumed_client.reconcile_finalization(request_id="legacy-reconcile")
+    resumed_client.transition(
+        "project_finalizing",
+        summary=StorageAccountingSummary(
+            completed_step="step_00",
+            materialized_bytes={},
+        ),
+        request_id="legacy-transition",
+    )
+
+    assert estimate_calls == 0
+    state = resumed.snapshot()["idempotence"]
+    assert "project_finalizing" in state["reconciliations"]["leaf"]
+    assert "project_finalizing" in state["transitions"]["leaf"]
+
+
 def test_resume_reconciles_crash_after_leaf_finalization_manifest(tmp_path: Path) -> None:
     plan = _plan(tmp_path, steps=("step_00",))
     leaf = plan.leaves["leaf"]

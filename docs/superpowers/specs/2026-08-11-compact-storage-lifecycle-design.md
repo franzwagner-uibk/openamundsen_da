@@ -122,8 +122,10 @@ each remaining unlink.
 
 ## Lifecycle
 
-- Before a step, estimate its forcing, grids, states and in-flight worker
-  reserve. Check the filesystem containing the project directory.
+- Before workers start, build the conservative forcing, grid, state and
+  in-flight-worker plan. At an ordinary step boundary, apply producer
+  accounting to the durable reservation ledger and check the filesystem once;
+  do not rebuild the full estimate.
 - Before a pristine subdomain leaf materializes its step tree, derive the same
   deterministic windows from the final project YAML through the pure skeleton
   planner. Once a run manifest exists, missing or empty prepared steps remain a

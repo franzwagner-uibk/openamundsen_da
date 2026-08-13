@@ -327,15 +327,17 @@ Notes:
 - Perturbed forcing for every member covers only the exact inclusive
   `start_date` to `end_date` window in its consuming step YAML.
 - Before admitting a step, the project filesystem must be below the fixed 80%
-  soft limit and its conservative forcing estimate plus operational reserve
-  must remain below 90%. A low-disk stop is recorded as resumable and never
-  implies overwrite.
+  soft limit and its remaining conservative plan plus the fixed 5% operational
+  reserve must remain below 90%. Full planning occurs before execution and at
+  lifecycle transitions. Ordinary step boundaries use durable producer
+  accounting plus one filesystem usage check. A low-disk stop is recorded as
+  resumable and never implies overwrite.
 - Subdomain mode reserves accumulated forcing, point, raw-grid, compact-output
   (including satellite map support) and one retained restart-checkpoint growth
   for every unfinished leaf. It adds
   a second rolling checkpoint for the largest leaves allowed by outer
   concurrency and one full atomic parent-merge temporary. The reservation is
-  recomputed from measured artifacts at every leaf boundary; all selected
+  reconciled from measured artifacts at every leaf-wave boundary; all selected
   projects must share the parent filesystem. This coordinator prevents leaves
   from exceeding the conservative reservation, but the deliberately broad
   first-run envelope can still refuse a workload that might fit in practice.

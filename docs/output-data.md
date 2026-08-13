@@ -155,6 +155,21 @@ without invalidating cleanup provenance.
 leaf wave is admitted. An interrupted or low-disk run resumes existing work
 non-destructively; rebuilding requires an explicit overwrite request.
 
+Every executing project also retains
+`results/storage/storage_reservation.json`. This operational audit artifact
+records the immutable conservative plan, lifecycle phase, per-leaf admission
+progress, upward-only observed byte high-water marks, latest filesystem
+snapshot and estimate/check timing. It does not replace scientific provenance
+or the retention ledger. Normal step boundaries update this fixed-size record
+from producer summaries and call the filesystem usage check once; they do not
+rescan accumulated steps or sibling leaves. Resume reconciles the plan and
+authoritative workflow manifests before admitting new work. Explicit overwrite
+archives the superseded storage ledger generation beside the active ledger.
+Spawned leaf workers exchange bounded atomic request/response manifests under
+`results/storage/ipc/<generation>/`; these are operational coordination files,
+not scientific output. Requests use deterministic IDs and remain recoverable if
+the coordinator exits before acknowledging them.
+
 The current compact lifecycle is deliberately boundary-based. It shortens every
 generated forcing copy to its consuming step and incrementally removes obsolete
 restart checkpoints, but keeps a leaf's forcing/point CSVs and raw grids until

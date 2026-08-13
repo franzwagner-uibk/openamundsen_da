@@ -1,9 +1,9 @@
 """Durable, coordinator-owned incremental storage admission.
 
 The expensive storage estimator remains the source of conservative planning
-bounds.  This module turns one such plan into a small mutable ledger so normal
-step boundaries need only update a fixed-size accounting record and inspect the
-current filesystem usage once.
+bounds. This module turns one such plan into a compact mutable ledger so normal
+step boundaries update prepared lifecycle entries without scanning data trees
+and inspect current filesystem usage once.
 """
 
 from __future__ import annotations
@@ -18,11 +18,24 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Callable, Iterable, Mapping
 
 from loguru import logger
 
-from openamundsen_da.manifests import hash_json, sha256_file, write_manifest_atomic
+from openamundsen_da.configuration import load_project_configuration
+from openamundsen_da.core.env import _read_yaml_file
+from openamundsen_da.exceptions import ProjectValidationError
+from openamundsen_da.manifests import (
+    file_inventory,
+    hash_json,
+    inventory_digest,
+    load_manifest,
+    project_scientific_input_inventory,
+    recursive_files,
+    sha256_file,
+    workflow_manifest_path,
+    write_manifest_atomic,
+)
 from openamundsen_da.io.paths import (
     find_project_yaml,
     find_setup_yaml,
@@ -38,6 +51,9 @@ from openamundsen_da.util.storage_budget import (
     estimate_coordinated_storage_reserve,
     estimate_project_storage_components,
 )
+from openamundsen_da.util.da_output import output_retention_mode
+from openamundsen_da.util.ts import parse_datetime_opt
+from openamundsen_da.pipeline.project_skeleton import plan_project_steps
 
 
 STORAGE_RESERVATION_SCHEMA_VERSION = 1
@@ -66,6 +82,14 @@ STEP_MATERIALIZATION_COMPONENTS = (
     "member_grid_bytes",
     "point_bytes",
     "restart_baseline_bytes",
+    "derived_forcing_plot_bytes",
+    "retained_diagnostics_bytes",
+)
+
+SUMMED_STEP_COMPONENTS = (
+    "forcing_bytes",
+    "member_grid_bytes",
+    "point_bytes",
     "derived_forcing_plot_bytes",
     "retained_diagnostics_bytes",
 )
@@ -106,6 +130,41 @@ def accounting_summary_from_inventory(
         materialized_bytes=materialized,
         observed_bytes=materialized,
         file_counts=counts,
+        source=source,
+    )
+
+
+def accounting_summary_from_paths(
+    *,
+    completed_step: str,
+    root: Path,
+    paths: Iterable[Path],
+    source: str,
+) -> StorageAccountingSummary:
+    """Account trusted producer-returned paths with contained stat calls only."""
+    root = Path(root).resolve()
+    inventory: list[dict[str, object]] = []
+    seen_inodes: set[tuple[int, int]] = set()
+    for raw_path in paths:
+        path = Path(raw_path)
+        if not path.exists() or not path.is_file() or path.is_symlink():
+            raise ValueError(
+                f"Producer storage output is missing, nonregular or symlinked: {path}"
+            )
+        resolved = path.resolve()
+        try:
+            relative = resolved.relative_to(root).as_posix()
+        except ValueError as exc:
+            raise ValueError(f"Producer storage output is outside {root}: {resolved}") from exc
+        stat = resolved.stat()
+        inode = (int(stat.st_dev), int(stat.st_ino))
+        if inode in seen_inodes:
+            continue
+        seen_inodes.add(inode)
+        inventory.append({"path": relative, "size": int(stat.st_size)})
+    return accounting_summary_from_inventory(
+        completed_step=completed_step,
+        inventory=inventory,
         source=source,
     )
 
@@ -165,7 +224,7 @@ def admit_storage_transition(
     *,
     phase: str,
     estimated_growth_bytes: int,
-    allow_existing_step_drain: bool = True,
+    allow_existing_step_drain: bool = False,
 ) -> DiskBudgetSnapshot:
     """Fully reconcile and durably admit a standalone parent lifecycle stage."""
     project_dir = Path(project_dir).resolve()
@@ -332,6 +391,12 @@ class StorageLeafPlan:
     queued_retained_bytes: int
     identity: str
     grid_cell_count: int = 0
+    retention_mode: str = "compact"
+    scientific_input_paths: tuple[Path, ...] = ()
+    scientific_root: Path | None = None
+    preparation_inputs_identity: str = ""
+    preparation_bytes: int = 0
+    requires_preparation: bool = False
 
     @property
     def total_bytes(self) -> int:
@@ -437,20 +502,236 @@ def _path_identity(paths: list[Path]) -> str:
     return hash_json(records)
 
 
-def _project_identity(project: StorageReservationProject, step_names: tuple[str, ...]) -> str:
-    inputs = [find_setup_yaml(project.setup_dir), find_project_yaml(project.project_dir)]
-    for step_name in step_names:
-        step_dir = project.project_dir / "steps" / step_name
-        inputs.extend(sorted(step_dir.glob("*.yml")))
-        inputs.extend(sorted(step_dir.glob("*.yaml")))
-    meteo_dir = project.setup_dir / "meteo"
-    if meteo_dir.is_dir():
-        inputs.extend(
-            path
-            for path in sorted(meteo_dir.glob("*.csv"))
-            if path.is_file() and not path.is_symlink()
+def _project_identity(
+    project: StorageReservationProject,
+    step_names: tuple[str, ...],
+    *,
+    identity_root: Path,
+    preparation_inputs_identity: str | None = None,
+) -> str:
+    preparation = load_manifest(workflow_manifest_path(project.project_dir, "preparation"))
+    if preparation is not None and preparation.get("status") != "success":
+        raise RuntimeError(
+            f"Prepared project has an incomplete preparation manifest: {project.project_dir}"
         )
-    return _path_identity(inputs)
+    try:
+        config = load_project_configuration(project.project_dir)
+    except ProjectValidationError:
+        legacy_evidence = any(
+            next(
+                (project.project_dir / "steps" / step_name).glob(
+                    "ensembles/*/*/results/member_run.json"
+                ),
+                None,
+            )
+            is not None
+            for step_name in step_names
+        )
+        if not legacy_evidence or preparation is not None:
+            raise
+        legacy_inputs = [
+            find_setup_yaml(project.setup_dir),
+            find_project_yaml(project.project_dir),
+        ]
+        for step_name in step_names:
+            step_dir = project.project_dir / "steps" / step_name
+            legacy_inputs.extend(sorted(step_dir.glob("*.yml")))
+            legacy_inputs.extend(sorted(step_dir.glob("*.yaml")))
+            legacy_inputs.extend(
+                path
+                for path in sorted((step_dir / "obs").rglob("*"))
+                if path.is_file() and not path.is_symlink()
+            )
+        for source_dir in (project.setup_dir / "meteo", project.setup_dir / "env"):
+            if source_dir.is_dir():
+                legacy_inputs.extend(
+                    path
+                    for path in sorted(source_dir.rglob("*"))
+                    if path.is_file() and not path.is_symlink()
+                )
+        for source_dir in (
+            project.setup_dir / "grids",
+            project.setup_dir / "obs",
+            project.project_dir / "obs",
+        ):
+            if source_dir.is_dir():
+                legacy_inputs.extend(
+                    path
+                    for path in sorted(source_dir.rglob("*"))
+                    if path.is_file() and not path.is_symlink()
+                )
+
+        def scalar_paths(value: object) -> Iterable[str]:
+            if isinstance(value, Mapping):
+                for item in value.values():
+                    yield from scalar_paths(item)
+            elif isinstance(value, list):
+                for item in value:
+                    yield from scalar_paths(item)
+            elif isinstance(value, str):
+                yield value
+
+        for yaml_path in legacy_inputs[:2]:
+            for raw in scalar_paths(_read_yaml_file(yaml_path) or {}):
+                candidate = (project.setup_dir / raw).resolve()
+                try:
+                    candidate.relative_to(identity_root)
+                except ValueError:
+                    continue
+                if candidate.is_file() and not candidate.is_symlink():
+                    legacy_inputs.append(candidate)
+                elif candidate.is_dir() and not candidate.is_symlink():
+                    legacy_inputs.extend(
+                        path
+                        for path in sorted(candidate.rglob("*"))
+                        if path.is_file() and not path.is_symlink()
+                    )
+        symlinks = [
+            path
+            for root in (
+                project.setup_dir / "meteo",
+                project.setup_dir / "env",
+                project.setup_dir / "grids",
+                project.setup_dir / "obs",
+                project.project_dir / "obs",
+                *(project.project_dir / "steps" / step / "obs" for step in step_names),
+            )
+            if root.is_dir()
+            for path in sorted(root.rglob("*"))
+            if path.is_symlink()
+        ]
+        symlink_records = []
+        for logical in symlinks:
+            target = logical.resolve(strict=True)
+            try:
+                target_relative = target.relative_to(identity_root).as_posix()
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"Legacy scientific input symlink escapes {identity_root}: {logical}"
+                ) from exc
+            if not target.is_file():
+                raise RuntimeError(
+                    f"Legacy scientific input directory symlink is unsupported: {logical}"
+                )
+            symlink_records.append(
+                {
+                    "logical_path": str(logical),
+                    "target_relative": target_relative,
+                    "size": target.stat().st_size,
+                    "sha256": sha256_file(target),
+                }
+            )
+        logger.warning(
+            "Using conservative legacy storage identity for incomplete partial project {}",
+            project.project_dir,
+        )
+        return hash_json(
+            {
+                "legacy_inputs": _path_identity(legacy_inputs),
+                "symlinks": symlink_records,
+            }
+        )
+    _inventory, digest = project_scientific_input_inventory(
+        config,
+        preparation,
+        identity_root=identity_root,
+    )
+    virtual_plan = [
+        {
+            "name": step.name,
+            "start": step.start.isoformat(),
+            "end": step.end.isoformat(),
+        }
+        for step in plan_project_steps(project.setup_dir, project.project_dir)
+    ]
+    external_identity = preparation_inputs_identity or _scientific_paths_identity(
+        project.scientific_input_paths,
+        identity_root=identity_root,
+    )
+    return hash_json(
+        {
+            "scientific_source_identity": digest,
+            "virtual_step_plan": virtual_plan,
+            "preparation_inputs": external_identity,
+        }
+    )
+
+
+def _scientific_paths_identity(
+    paths: Iterable[Path],
+    *,
+    identity_root: Path,
+    path_cache: dict[Path, str] | None = None,
+) -> str:
+    path_cache = path_cache if path_cache is not None else {}
+    path_digests: list[dict[str, str]] = []
+    for configured in paths:
+        path = Path(configured)
+        if path.is_symlink():
+            raise RuntimeError(
+                f"Declared scientific preparation input symlink is unsupported: {path}"
+            )
+        resolved_path = path.resolve()
+        try:
+            logical_root = resolved_path.relative_to(identity_root).as_posix()
+        except ValueError as exc:
+            raise RuntimeError(
+                f"Scientific preparation input escapes {identity_root}: {resolved_path}"
+            ) from exc
+        cached = path_cache.get(resolved_path)
+        if cached is not None:
+            path_digests.append({"path": logical_root, "sha256": cached})
+            continue
+        candidates: list[Path]
+        if path.is_file():
+            candidates = [path]
+        elif path.is_dir():
+            candidates = []
+            for directory, dir_names, file_names in os.walk(path, followlinks=False):
+                directory_path = Path(directory)
+                symlink_dirs = [
+                    directory_path / name
+                    for name in dir_names
+                    if (directory_path / name).is_symlink()
+                ]
+                symlink_files = [
+                    directory_path / name
+                    for name in file_names
+                    if (directory_path / name).is_symlink()
+                ]
+                if symlink_dirs or symlink_files:
+                    raise RuntimeError(
+                        "Declared scientific preparation input contains unsupported symlink: "
+                        + ", ".join(str(item) for item in sorted(symlink_dirs + symlink_files))
+                    )
+                dir_names[:] = sorted(dir_names)
+                candidates.extend(
+                    directory_path / name
+                    for name in sorted(file_names)
+                    if (directory_path / name).is_file()
+                )
+        else:
+            raise RuntimeError(f"Scientific preparation input is missing: {path}")
+        records: list[dict[str, object]] = []
+        for item in candidates:
+            resolved = item.resolve()
+            try:
+                relative = resolved.relative_to(identity_root).as_posix()
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"Scientific preparation input escapes {identity_root}: {resolved}"
+                ) from exc
+            records.append(
+                {
+                    "path": relative,
+                    "size": resolved.stat().st_size,
+                    "sha256": sha256_file(resolved),
+                }
+            )
+        digest = hash_json(records)
+        path_cache[resolved_path] = digest
+        path_digests.append({"path": logical_root, "sha256": digest})
+    return hash_json(path_digests)
 
 
 def build_storage_plan(
@@ -468,6 +749,22 @@ def build_storage_plan(
     """Build one immutable conservative plan using the expensive estimator."""
     started = time.perf_counter()
     root_project_dir = Path(root_project_dir).resolve()
+    explicit_roots = {
+        Path(project.scientific_root).resolve()
+        for project in projects
+        if project.scientific_root is not None
+    }
+    if len(explicit_roots) > 1:
+        raise ValueError("Storage projects declare different trusted scientific roots")
+    identity_root = (
+        next(iter(explicit_roots))
+        if explicit_roots
+        else Path(
+            os.path.commonpath(
+                [str(root_project_dir), *(str(project.setup_dir.resolve()) for project in projects)]
+            )
+        ).resolve()
+    )
     if not projects:
         raise ValueError("At least one project is required for storage planning")
     if outer_workers < 1:
@@ -501,18 +798,56 @@ def build_storage_plan(
         overwrite=overwrite,
     )
     leaves: dict[str, StorageLeafPlan] = {}
+    scientific_path_cache: dict[Path, str] = {}
     for leaf_id, project in zip(leaf_ids, projects, strict=True):
         project_dir = project.project_dir.resolve()
+        materialized_names = tuple(path.name for path in list_steps_sorted(project_dir))
+        try:
+            step_names = tuple(
+                step.name for step in plan_project_steps(project.setup_dir, project_dir)
+            )
+        except (ValueError, FileNotFoundError):
+            if not materialized_names:
+                raise
+            step_names = materialized_names
+        if any(name not in step_names for name in materialized_names):
+            raise RuntimeError(
+                f"Materialized steps differ from immutable virtual plan: {project_dir}"
+            )
+        _validate_partial_member_manifests(project, step_names)
+        preparation_inputs_identity = _scientific_paths_identity(
+            project.scientific_input_paths,
+            identity_root=identity_root,
+            path_cache=scientific_path_cache,
+        )
+        scientific_identity = _project_identity(
+            project,
+            step_names,
+            identity_root=identity_root,
+            preparation_inputs_identity=preparation_inputs_identity,
+        )
         estimate = estimates.get(str(project_dir))
         if estimate is None:
-            # A durably completed project contributes no future growth.
+            if project.run_manifest is None or not project.run_manifest.is_file():
+                raise RuntimeError(
+                    f"Completed storage leaf lacks its authoritative run manifest: {project_dir}"
+                )
+            run_payload = json.loads(project.run_manifest.read_text(encoding="utf-8"))
+            finalization = project.setup_dir / "leaf_finalization_manifest.json"
+            finalization_payload = load_manifest(finalization)
+            if (
+                run_payload.get("scientific_identity") != scientific_identity
+                or finalization_payload is None
+                or finalization_payload.get("status") != "success"
+                or finalization_payload.get("scientific_identity") != scientific_identity
+            ):
+                raise RuntimeError(
+                    f"Completed storage leaf scientific identity is stale: {project_dir}"
+                )
+            # Only a current identity-bound completed leaf contributes no future growth.
             obligations = {name: 0 for name in _ESTIMATE_COMPONENTS}
         else:
             obligations = _estimate_obligations(estimate)
-        step_names = tuple(path.name for path in list_steps_sorted(project_dir))
-        if not step_names:
-            raise FileNotFoundError(f"Prepared project has no storage-plannable steps: {project_dir}")
-        _validate_partial_member_manifests(project, step_names)
         leaves[leaf_id] = StorageLeafPlan(
             leaf_id=leaf_id,
             setup_dir=project.setup_dir.resolve(),
@@ -527,8 +862,14 @@ def build_storage_plan(
             queued_retained_bytes=int(
                 queued_retained_by_id.get(leaf_id, sum(obligations.values()))
             ),
-            identity=_project_identity(project, step_names),
+            identity=scientific_identity,
             grid_cell_count=int(project.grid_cell_count),
+            retention_mode=output_retention_mode(project_dir),
+            scientific_input_paths=tuple(project.scientific_input_paths),
+            scientific_root=identity_root,
+            preparation_inputs_identity=preparation_inputs_identity,
+            preparation_bytes=int(project.preparation_bytes),
+            requires_preparation=bool(project.requires_preparation),
         )
     wave_growth_bytes = tuple(
         _wave_growth(
@@ -612,6 +953,7 @@ def _wave_growth(
         + active_transition
         + retained_inactive
         + int(parent_finalization_reserve_bytes)
+        + sum(int(leaf.preparation_bytes) for leaf in leaves.values())
     )
 
 
@@ -685,6 +1027,18 @@ class StorageAdmissionCoordinator:
                 state = ledger["leaves"][leaf_id]
                 if state["phase"] == "finalized":
                     continue
+                if state["phase"] != "leaf_prepared" and int(
+                    state.get("last_admitted_step_index", -1)
+                ) < 0:
+                    raised_preparation = max(
+                        int(ledger["preparation_by_leaf"].get(leaf_id, 0)),
+                        int(fresh_leaf.preparation_bytes),
+                    )
+                    ledger["preparation_by_leaf"][leaf_id] = raised_preparation
+                    ledger["immutable_preparation_by_leaf"][leaf_id] = max(
+                        int(ledger["immutable_preparation_by_leaf"].get(leaf_id, 0)),
+                        raised_preparation,
+                    )
                 for component, value in fresh_leaf.obligations.items():
                     state["planned_by_component"][component] = max(
                         int(state["planned_by_component"].get(component, 0)),
@@ -740,9 +1094,10 @@ class StorageAdmissionCoordinator:
         *,
         leaf_id: str,
         request_id: str | None = None,
-        allow_existing_step_drain: bool = True,
+        allow_existing_step_drain: bool = False,
     ) -> DiskBudgetSnapshot:
         """Run one serialized authoritative estimate before compact finalization."""
+        request_started = time.perf_counter()
         request_id = request_id or f"{leaf_id}:reconcile_finalization"
         with self._lock:
             if leaf_id not in self.plan.leaves:
@@ -789,6 +1144,7 @@ class StorageAdmissionCoordinator:
                 allow_existing_step_drain=allow_existing_step_drain,
                 request_id=request_id,
                 request=request,
+                request_started=request_started,
             )
 
     def _new_ledger(self) -> dict[str, object]:
@@ -806,6 +1162,7 @@ class StorageAdmissionCoordinator:
                     else {name: 0 for name in leaf.obligations}
                 ),
                 "planned_by_component": dict(leaf.obligations),
+                "base_planned_by_component": dict(leaf.obligations),
                 "planned_by_step": {
                     step: dict(components)
                     for step, components in leaf.step_obligations.items()
@@ -848,6 +1205,7 @@ class StorageAdmissionCoordinator:
                 for leaf_id in wave
             )
             + self.plan.parent_finalization_reserve_bytes
+            + sum(int(leaf.preparation_bytes) for leaf in self.plan.leaves.values())
         )
         return {
             "storage_reservation_schema_version": STORAGE_RESERVATION_SCHEMA_VERSION,
@@ -862,6 +1220,14 @@ class StorageAdmissionCoordinator:
             "wave_growth_bytes": list(self.plan.wave_growth_bytes),
             "queued_retained_by_leaf": {
                 leaf_id: int(leaf.queued_retained_bytes)
+                for leaf_id, leaf in self.plan.leaves.items()
+            },
+            "preparation_by_leaf": {
+                leaf_id: int(leaf.preparation_bytes)
+                for leaf_id, leaf in self.plan.leaves.items()
+            },
+            "immutable_preparation_by_leaf": {
+                leaf_id: int(leaf.preparation_bytes)
                 for leaf_id, leaf in self.plan.leaves.items()
             },
             "active_wave_index": 0,
@@ -894,6 +1260,9 @@ class StorageAdmissionCoordinator:
             "full_estimate_duration_seconds": self.plan.estimate_duration_seconds,
             "lightweight_check_count": 0,
             "lightweight_check_duration_seconds": 0.0,
+            "precommit_request_count": 0,
+            "cumulative_precommit_latency_seconds": 0.0,
+            "max_precommit_latency_seconds": 0.0,
             "targeted_reconciliation_count": 0,
             "requests": {},
             "idempotence": {"steps": {}, "transitions": {}, "waves": {}},
@@ -929,6 +1298,7 @@ class StorageAdmissionCoordinator:
             + active_transition
             + int(ledger["queued_retained_reserve_bytes"])
             + int(ledger["parent_finalization_reserve_bytes"])
+            + sum(int(value) for value in ledger["preparation_by_leaf"].values())
         )
 
     @staticmethod
@@ -940,9 +1310,18 @@ class StorageAdmissionCoordinator:
             for leaf_id in wave
             if ledger["leaves"][leaf_id]["phase"] == "finalized"
         )
+        released_preparation = sum(
+            int(value)
+            for leaf_id, value in ledger["immutable_preparation_by_leaf"].items()
+        ) - sum(int(value) for value in ledger["preparation_by_leaf"].values())
         future_waves = ledger["wave_growth_bytes"][active_wave_index + 1 :]
         live_future_peak = (
-            max(0, max(int(value) for value in future_waves) - finalized_retained_credit)
+            max(
+                0,
+                max(int(value) for value in future_waves)
+                - finalized_retained_credit
+                - released_preparation,
+            )
             if future_waves
             else 0
         )
@@ -963,8 +1342,23 @@ class StorageAdmissionCoordinator:
         allow_existing_step_drain: bool = False,
     ) -> DiskBudgetSnapshot:
         """Activate the next immutable wave without changing generations."""
+        request_started = time.perf_counter()
         if not 0 <= wave_index < len(self.plan.waves):
             raise ValueError(f"Invalid storage admission wave index: {wave_index}")
+        scientific_path_cache: dict[Path, str] = {}
+        for leaf_id in self.plan.waves[wave_index]:
+            leaf = self.plan.leaves[leaf_id]
+            if not leaf.scientific_input_paths:
+                continue
+            current_identity = _scientific_paths_identity(
+                leaf.scientific_input_paths,
+                identity_root=leaf.scientific_root or self.plan.root_project_dir,
+                path_cache=scientific_path_cache,
+            )
+            if current_identity != leaf.preparation_inputs_identity:
+                raise RuntimeError(
+                    f"Scientific preparation inputs changed before wave admission: {leaf_id}"
+                )
         request_id = request_id or f"wave:{wave_index}"
         with self._lock:
             ledger = copy.deepcopy(self._ledger)
@@ -1012,7 +1406,151 @@ class StorageAdmissionCoordinator:
                 allow_existing_step_drain=allow_existing_step_drain,
                 request_id=request_id,
                 request=request,
+                request_started=request_started,
             )
+
+    def prepare_wave(
+        self,
+        wave_index: int,
+        *,
+        request_id: str | None = None,
+    ) -> DiskBudgetSnapshot:
+        """Validate one prepared wave and release its prep obligations atomically."""
+        request_started = time.perf_counter()
+        if wave_index != int(self._ledger["active_wave_index"]):
+            raise ValueError(f"Storage preparation wave is not active: {wave_index}")
+        scientific_path_cache: dict[Path, str] = {}
+        for leaf_id in self.plan.waves[wave_index]:
+            leaf = self.plan.leaves[leaf_id]
+            external_identity = leaf.preparation_inputs_identity
+            if leaf.scientific_input_paths:
+                external_identity = _scientific_paths_identity(
+                    leaf.scientific_input_paths,
+                    identity_root=leaf.scientific_root or self.plan.root_project_dir,
+                    path_cache=scientific_path_cache,
+                )
+                if external_identity != leaf.preparation_inputs_identity:
+                    raise RuntimeError(
+                        f"Scientific preparation inputs changed during wave preparation: {leaf_id}"
+                    )
+            current_identity = _project_identity(
+                StorageReservationProject(
+                    setup_dir=leaf.setup_dir,
+                    project_dir=leaf.project_dir,
+                    grid_cell_count=leaf.grid_cell_count,
+                    scientific_input_paths=leaf.scientific_input_paths,
+                    scientific_root=leaf.scientific_root,
+                ),
+                leaf.step_names,
+                identity_root=leaf.scientific_root or self.plan.root_project_dir,
+                preparation_inputs_identity=external_identity,
+            )
+            if current_identity != leaf.identity:
+                raise RuntimeError(
+                    f"Scientific inputs changed during wave preparation: {leaf_id}"
+                )
+        request_id = request_id or f"wave_prepared:{wave_index}"
+        with self._lock:
+            ledger = copy.deepcopy(self._ledger)
+            request = {
+                "kind": "wave_prepared",
+                "wave_index": wave_index,
+                "request_id": request_id,
+            }
+            if not self._is_duplicate_request(
+                ledger, request_id=request_id, request=request
+            ):
+                for leaf_id in self.plan.waves[wave_index]:
+                    state = ledger["leaves"][leaf_id]
+                    if state["phase"] == "prepared":
+                        self._validate_leaf_preparation(leaf_id)
+                        state["phase"] = "leaf_prepared"
+                        ledger["preparation_by_leaf"][leaf_id] = 0
+                    elif state["phase"] not in {
+                        "leaf_prepared",
+                        "running",
+                        "leaf_project_complete",
+                        "project_finalizing",
+                        "finalized",
+                    }:
+                        raise ValueError(
+                            f"Leaf cannot enter prepared wave from phase {state['phase']}: {leaf_id}"
+                        )
+                if all(
+                    ledger["leaves"][leaf_id]["phase"] == "leaf_prepared"
+                    for leaf_id in self.plan.waves[wave_index]
+                ):
+                    ledger["phase"] = "leaf_prepared"
+                else:
+                    ledger["phase"] = "wave_resume"
+                self._recompute_remaining_peak(ledger)
+            return self._check_and_commit(
+                ledger,
+                # Preparation outputs already exist. Commit their terminal
+                # authority through the 80--90% drain band so the reservation
+                # can be released; the subsequent step-0 admission remains a
+                # false-drain new-work gate.
+                allow_existing_step_drain=True,
+                request_id=request_id,
+                request=request,
+                request_started=request_started,
+            )
+
+    def _validate_leaf_preparation(self, leaf_id: str) -> None:
+        leaf_plan = self.plan.leaves[leaf_id]
+        preparation_path = (
+            leaf_plan.setup_dir
+            / ".openamundsen-da"
+            / "manifests"
+            / "leaf_preparation.json"
+        )
+        preparation = load_manifest(preparation_path)
+        if (
+            preparation is None
+            or preparation.get("status") != "success"
+            or preparation.get("scientific_identity") != leaf_plan.identity
+        ):
+            raise ValueError(
+                f"Leaf preparation authority is missing or stale: {preparation_path}"
+            )
+        recorded = preparation.get("outputs")
+        if not isinstance(recorded, list):
+            raise ValueError(f"Leaf preparation inventory is invalid: {preparation_path}")
+        prepared_files = [
+            path
+            for root in (leaf_plan.project_dir / "steps", leaf_plan.setup_dir / "obs")
+            for path in recursive_files(root)
+            if "/ensembles/" not in path.as_posix()
+            and "/assim/" not in path.as_posix()
+            and "/results/" not in path.as_posix()
+        ]
+        current = file_inventory(root=leaf_plan.setup_dir, files=prepared_files)
+        if current != recorded or inventory_digest(current) != preparation.get("output_digest"):
+            raise ValueError(f"Leaf preparation outputs changed: {preparation_path}")
+        current_steps = tuple(path.name for path in list_steps_sorted(leaf_plan.project_dir))
+        if current_steps != leaf_plan.step_names:
+            raise ValueError(f"Leaf preparation step plan changed: {preparation_path}")
+        virtual_steps = tuple(
+            (step.name, step.start.isoformat(), step.end.isoformat())
+            for step in plan_project_steps(leaf_plan.setup_dir, leaf_plan.project_dir)
+        )
+        materialized_steps = []
+        for step_dir in list_steps_sorted(leaf_plan.project_dir):
+            step_yaml = next(iter(sorted(step_dir.glob("*.yml"))), None) or next(
+                iter(sorted(step_dir.glob("*.yaml"))), None
+            )
+            if step_yaml is None:
+                raise ValueError(f"Leaf preparation step YAML is missing: {step_dir}")
+            payload = _read_yaml_file(step_yaml) or {}
+            materialized_steps.append(
+                (
+                    step_dir.name,
+                    parse_datetime_opt(str(payload.get("start_date"))).isoformat(),
+                    parse_datetime_opt(str(payload.get("end_date"))).isoformat(),
+                )
+            )
+        if tuple(materialized_steps) != virtual_steps:
+            raise ValueError(f"Leaf preparation step windows changed: {preparation_path}")
 
     def _initialize_ledger(self) -> dict[str, object]:
         existing: dict[str, object] | None = None
@@ -1036,12 +1574,28 @@ class StorageAdmissionCoordinator:
         if can_resume:
             ledger = copy.deepcopy(existing)
             ledger.setdefault("idempotence", {"steps": {}, "transitions": {}, "waves": {}})
+            for leaf_id, state in ledger["leaves"].items():
+                state.setdefault(
+                    "base_planned_by_component",
+                    dict(self.plan.leaves[leaf_id].obligations),
+                )
             ledger.setdefault(
                 "queued_retained_by_leaf",
                 {
                     leaf_id: int(leaf.queued_retained_bytes)
                     for leaf_id, leaf in self.plan.leaves.items()
                 },
+            )
+            ledger.setdefault(
+                "immutable_preparation_by_leaf",
+                {
+                    leaf_id: int(leaf.preparation_bytes)
+                    for leaf_id, leaf in self.plan.leaves.items()
+                },
+            )
+            ledger.setdefault(
+                "preparation_by_leaf",
+                dict(ledger["immutable_preparation_by_leaf"]),
             )
             self._reconcile_finalization_manifests(ledger)
             self._recompute_remaining_peak(ledger)
@@ -1104,6 +1658,10 @@ class StorageAdmissionCoordinator:
                 raise RuntimeError(
                     f"Leaf finalization project identity changed: {manifest_path}"
                 )
+            if payload.get("scientific_identity") != leaf_plan.identity:
+                raise RuntimeError(
+                    f"Leaf finalization scientific identity changed: {manifest_path}"
+                )
             final_index = len(leaf_plan.step_names) - 1
             if leaf_state["phase"] != "finalized":
                 leaf_state["last_admitted_step_index"] = final_index
@@ -1111,6 +1669,7 @@ class StorageAdmissionCoordinator:
                 leaf_state["remaining_by_component"] = {
                     name: 0 for name in leaf_state["remaining_by_component"]
                 }
+                ledger["preparation_by_leaf"][leaf_id] = 0
                 leaf_state["phase"] = "finalized"
                 reconciled += 1
         if reconciled:
@@ -1158,10 +1717,81 @@ class StorageAdmissionCoordinator:
             # Per-step shares cannot be proven from a net aggregate estimate.
             # Keep the full aggregate obligation until authoritative leaf
             # finalization; summaries can only raise, never release, it.
+            future_step_count = len(leaf_plan.step_names) - admitted_index - 1
+            summed_component = component in SUMMED_STEP_COMPONENTS or (
+                component == "restart_baseline_bytes"
+                and leaf_plan.retention_mode == "full"
+            )
+            calibrated_remaining = (
+                high_water * future_step_count
+                if summed_component
+                else high_water
+            )
             leaf_state["remaining_by_component"][component] = max(
                 int(leaf_state["remaining_by_component"][component]),
-                observed,
+                calibrated_remaining,
             )
+            reporting_aggregate = int(
+                leaf_state.get(
+                    "base_planned_by_component",
+                    leaf_state["planned_by_component"],
+                ).get(component, 0)
+            )
+            reporting_steps = max(1, len(leaf_plan.step_names))
+            reporting_units = (
+                reporting_steps
+                if component in SUMMED_STEP_COMPONENTS
+                or (
+                    component == "restart_baseline_bytes"
+                    and leaf_plan.retention_mode == "full"
+                )
+                else 1
+            )
+            if (
+                (
+                    component in SUMMED_STEP_COMPONENTS
+                    or component == "restart_baseline_bytes"
+                )
+                and observed * reporting_units > reporting_aggregate
+                and reporting_aggregate > 0
+            ):
+                for future_wave_index, wave in enumerate(
+                    ledger["waves"][int(ledger["active_wave_index"]) + 1 :],
+                    start=int(ledger["active_wave_index"]) + 1,
+                ):
+                    for future_leaf_id in wave:
+                        future_state = ledger["leaves"][future_leaf_id]
+                        future_base = int(
+                            future_state.get(
+                                "base_planned_by_component",
+                                future_state["planned_by_component"],
+                            ).get(component, 0)
+                        )
+                        future_plan = self.plan.leaves[future_leaf_id]
+                        future_summed = component in SUMMED_STEP_COMPONENTS or (
+                            component == "restart_baseline_bytes"
+                            and future_plan.retention_mode == "full"
+                        )
+                        if not future_summed:
+                            continue
+                        calibrated_aggregate = (
+                            future_base
+                            * observed
+                            * reporting_units
+                            + reporting_aggregate
+                            - 1
+                        ) // reporting_aggregate
+                        current_aggregate = int(
+                            future_state["planned_by_component"].get(component, 0)
+                        )
+                        if calibrated_aggregate > current_aggregate:
+                            increase = calibrated_aggregate - current_aggregate
+                            future_state["planned_by_component"][component] = (
+                                calibrated_aggregate
+                            )
+                            ledger["wave_growth_bytes"][future_wave_index] = int(
+                                ledger["wave_growth_bytes"][future_wave_index]
+                            ) + increase
         leaf_state["last_completed_step_index"] = admitted_index
         leaf_state["last_accounting_summary"] = summary.as_dict()
         self._recompute_remaining_peak(ledger)
@@ -1227,6 +1857,8 @@ class StorageAdmissionCoordinator:
             )
         if kind == "wave":
             return "waves", "coordinator", str(request.get("wave_index"))
+        if kind == "wave_prepared":
+            return "waves", "coordinator", f"prepared:{request.get('wave_index')}"
         raise ValueError(f"Unknown storage request kind: {kind!r}")
 
     @staticmethod
@@ -1305,8 +1937,10 @@ class StorageAdmissionCoordinator:
         allow_existing_step_drain: bool,
         request_id: str,
         request: Mapping[str, object],
+        request_started: float | None = None,
     ) -> DiskBudgetSnapshot:
-        started = time.perf_counter()
+        request_started = request_started or time.perf_counter()
+        disk_check_started = time.perf_counter()
         try:
             usage = self._disk_usage(self.plan.root_project_dir) if self._disk_usage else None
             snapshot = check_step_admission(
@@ -1316,7 +1950,6 @@ class StorageAdmissionCoordinator:
                 usage=usage,
             )
         except Exception as exc:
-            duration = time.perf_counter() - started
             ledger["status"] = "paused_low_disk" if exc.__class__.__name__.startswith("LowDisk") else "failed"
             ledger["last_error"] = str(exc)
             ledger["updated_at"] = _utc_now()
@@ -1327,11 +1960,26 @@ class StorageAdmissionCoordinator:
                 request=request,
                 status=str(ledger["status"]),
             )
+            precommit_duration = time.perf_counter() - request_started
+            ledger["precommit_request_count"] = int(
+                ledger.get("precommit_request_count", 0)
+            ) + 1
+            ledger["cumulative_precommit_latency_seconds"] = float(
+                ledger.get("cumulative_precommit_latency_seconds", 0.0)
+            ) + precommit_duration
+            ledger["max_precommit_latency_seconds"] = max(
+                float(ledger.get("max_precommit_latency_seconds", 0.0)),
+                precommit_duration,
+            )
             write_manifest_atomic(self.ledger_path, ledger)
             self._ledger = ledger
             raise
-        duration = time.perf_counter() - started
-        self._record_filesystem_snapshot(ledger, snapshot, duration=duration)
+        disk_check_duration = time.perf_counter() - disk_check_started
+        self._record_filesystem_snapshot(
+            ledger,
+            snapshot,
+            duration=disk_check_duration,
+        )
         ledger["status"] = "admitted"
         ledger.pop("last_error", None)
         ledger["updated_at"] = _utc_now()
@@ -1341,6 +1989,17 @@ class StorageAdmissionCoordinator:
             request_id=request_id,
             request=request,
             status="admitted",
+        )
+        precommit_duration = time.perf_counter() - request_started
+        ledger["precommit_request_count"] = int(
+            ledger.get("precommit_request_count", 0)
+        ) + 1
+        ledger["cumulative_precommit_latency_seconds"] = float(
+            ledger.get("cumulative_precommit_latency_seconds", 0.0)
+        ) + precommit_duration
+        ledger["max_precommit_latency_seconds"] = max(
+            float(ledger.get("max_precommit_latency_seconds", 0.0)),
+            precommit_duration,
         )
         write_manifest_atomic(self.ledger_path, ledger)
         self._ledger = ledger
@@ -1356,7 +2015,7 @@ class StorageAdmissionCoordinator:
             snapshot.estimated_growth_bytes / (1024**3),
             snapshot.operational_reserve_bytes / (1024**3),
             int(ledger["latest_projected_headroom_bytes"]) / (1024**3),
-            duration * 1000.0,
+            precommit_duration * 1000.0,
         )
         return snapshot
 
@@ -1369,6 +2028,7 @@ class StorageAdmissionCoordinator:
         request_id: str | None = None,
         allow_existing_step_drain: bool = False,
     ) -> DiskBudgetSnapshot:
+        request_started = time.perf_counter()
         request_id = request_id or str(uuid.uuid4())
         with self._lock:
             if leaf_id not in self.plan.leaves:
@@ -1400,6 +2060,15 @@ class StorageAdmissionCoordinator:
                     )
                 leaf_state = ledger["leaves"][leaf_id]
                 expected_index = int(leaf_state["last_admitted_step_index"]) + 1
+                is_subdomain_leaf = leaf_plan.requires_preparation
+                if (
+                    expected_index == 0
+                    and is_subdomain_leaf
+                    and leaf_state["phase"] != "leaf_prepared"
+                ):
+                    raise ValueError(
+                        f"Subdomain leaf must complete authoritative preparation before admission: {leaf_id}"
+                    )
                 if step_index != expected_index:
                     raise ValueError(
                         "Storage admission request is stale or out of order for "
@@ -1432,6 +2101,7 @@ class StorageAdmissionCoordinator:
                 allow_existing_step_drain=allow_existing_step_drain,
                 request_id=request_id,
                 request=request,
+                request_started=request_started,
             )
 
     def transition(
@@ -1442,9 +2112,10 @@ class StorageAdmissionCoordinator:
         summary: StorageAccountingSummary | None = None,
         release_bytes: int = 0,
         request_id: str | None = None,
-        allow_existing_step_drain: bool = True,
+        allow_existing_step_drain: bool = False,
     ) -> DiskBudgetSnapshot:
         """Apply an authoritative lifecycle release and admit the next phase."""
+        request_started = time.perf_counter()
         phase = str(phase).strip()
         if not phase:
             raise ValueError("phase is required")
@@ -1467,6 +2138,15 @@ class StorageAdmissionCoordinator:
                 ledger, request_id=request_id, request=request
             )
             if not duplicate:
+                if phase == "leaf_prepared":
+                    if leaf_id is None or leaf_id not in self.plan.leaves:
+                        raise ValueError("leaf_prepared requires a valid leaf_id")
+                    if leaf_id not in set(ledger["active_leaf_ids"]):
+                        raise ValueError(f"Cannot prepare inactive leaf: {leaf_id}")
+                    self._validate_leaf_preparation(leaf_id)
+                    ledger["leaves"][leaf_id]["phase"] = "leaf_prepared"
+                    ledger["preparation_by_leaf"][leaf_id] = 0
+                    self._recompute_remaining_peak(ledger)
                 if summary is not None:
                     if leaf_id is None or leaf_id not in self.plan.leaves:
                         raise ValueError("A valid leaf_id is required with a transition summary")
@@ -1521,9 +2201,17 @@ class StorageAdmissionCoordinator:
                             raise ValueError(
                                 f"Authoritative leaf finalization project identity changed: {finalization}"
                             )
+                        if (
+                            finalization_payload.get("scientific_identity")
+                            != self.plan.leaves[leaf_id].identity
+                        ):
+                            raise ValueError(
+                                f"Authoritative leaf finalization scientific identity changed: {finalization}"
+                            )
                     leaf_state["remaining_by_component"] = {
                         key: 0 for key in leaf_state["remaining_by_component"]
                     }
+                    ledger["preparation_by_leaf"][leaf_id] = 0
                     leaf_state["phase"] = "finalized"
                     self._recompute_remaining_peak(ledger)
                 if release_bytes:
@@ -1546,9 +2234,13 @@ class StorageAdmissionCoordinator:
                 ledger["phase"] = phase
             return self._check_and_commit(
                 ledger,
-                allow_existing_step_drain=allow_existing_step_drain,
+                allow_existing_step_drain=(
+                    allow_existing_step_drain
+                    or phase in {"leaf_finalized", "leaf_project_complete", "completed"}
+                ),
                 request_id=request_id,
                 request=request,
+                request_started=request_started,
             )
 
 
@@ -1559,6 +2251,7 @@ class StorageAdmissionClient:
     ipc_dir: Path | None = None
     generation: str | None = None
     leaf_id: str = "project"
+    leaf_identity: str | None = None
     _coordinator: StorageAdmissionCoordinator | None = field(
         default=None,
         repr=False,
@@ -1572,13 +2265,22 @@ class StorageAdmissionClient:
         *,
         leaf_id: str,
     ) -> "StorageAdmissionClient":
-        return cls(leaf_id=leaf_id, _coordinator=coordinator)
+        return cls(
+            leaf_id=leaf_id,
+            leaf_identity=coordinator.plan.leaves[leaf_id].identity,
+            _coordinator=coordinator,
+        )
 
     def for_leaf(self, leaf_id: str) -> "StorageAdmissionClient":
         return StorageAdmissionClient(
             ipc_dir=self.ipc_dir,
             generation=self.generation,
             leaf_id=leaf_id,
+            leaf_identity=(
+                self._coordinator.plan.leaves[leaf_id].identity
+                if self._coordinator is not None
+                else (self.leaf_identity if leaf_id == self.leaf_id else None)
+            ),
             _coordinator=self._coordinator,
         )
 
@@ -1593,10 +2295,16 @@ class StorageAdmissionClient:
         leaf_dir.mkdir(parents=True, exist_ok=True)
         request_id = str(payload["request_id"])
         request_sha256 = hash_json(payload)
+        transport_nonce = uuid.uuid4().hex
         request_path = leaf_dir / "request.json"
         response_path = leaf_dir / (
             "response."
-            + hashlib.sha256(request_id.encode("utf-8")).hexdigest()[:16]
+            + transport_nonce
+            + ".json"
+        )
+        progress_path = leaf_dir / (
+            "progress."
+            + transport_nonce
             + ".json"
         )
         envelope = {
@@ -1604,6 +2312,7 @@ class StorageAdmissionClient:
             "leaf_id": self.leaf_id,
             "route_id": route_id,
             "request_id": request_id,
+            "transport_nonce": transport_nonce,
             "payload_sha256": request_sha256,
             "payload": payload,
         }
@@ -1622,6 +2331,10 @@ class StorageAdmissionClient:
             STORAGE_ADMISSION_REQUEST_TIMEOUT_SECONDS
             * STORAGE_ADMISSION_REQUEST_ATTEMPTS
         )
+        lease_timeout = (
+            STORAGE_ADMISSION_REQUEST_TIMEOUT_SECONDS
+            * STORAGE_ADMISSION_REQUEST_ATTEMPTS
+        )
         response: object | None = None
         while time.monotonic() < deadline:
             if response_path.is_file():
@@ -1633,6 +2346,7 @@ class StorageAdmissionClient:
                 if (
                     candidate.get("generation") == self.generation
                     and candidate.get("request_id") == request_id
+                    and candidate.get("transport_nonce") == transport_nonce
                     and candidate.get("payload_sha256") == request_sha256
                 ):
                     response = candidate.get("response")
@@ -1641,8 +2355,38 @@ class StorageAdmissionClient:
                     except FileNotFoundError:
                         pass
                     break
+            if progress_path.is_file():
+                try:
+                    progress = json.loads(progress_path.read_text(encoding="utf-8"))
+                    heartbeat_age = time.time() - float(
+                        progress.get("heartbeat_epoch_seconds", 0.0)
+                    )
+                except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                    progress = {}
+                    heartbeat_age = lease_timeout + 1.0
+                if (
+                    progress.get("generation") == self.generation
+                    and progress.get("request_id") == request_id
+                    and progress.get("transport_nonce") == transport_nonce
+                    and progress.get("payload_sha256") == request_sha256
+                    and heartbeat_age <= lease_timeout
+                ):
+                    deadline = max(deadline, time.monotonic() + lease_timeout)
             time.sleep(0.005)
         if response is None:
+            try:
+                current = json.loads(request_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                current = None
+            if isinstance(current, dict) and current.get("transport_nonce") == transport_nonce:
+                try:
+                    request_path.unlink()
+                except FileNotFoundError:
+                    pass
+            try:
+                progress_path.unlink()
+            except FileNotFoundError:
+                pass
             raise RuntimeError(
                 "Storage admission coordinator is unavailable or timed out; "
                 "refusing the next boundary"
@@ -1695,7 +2439,7 @@ class StorageAdmissionClient:
         self,
         *,
         request_id: str | None = None,
-        allow_existing_step_drain: bool = True,
+        allow_existing_step_drain: bool = False,
     ) -> DiskBudgetSnapshot:
         request_id = request_id or f"{self.leaf_id}:reconcile_finalization"
         return self._request(
@@ -1715,7 +2459,7 @@ class StorageAdmissionClient:
         summary: StorageAccountingSummary | None = None,
         release_bytes: int = 0,
         request_id: str | None = None,
-        allow_existing_step_drain: bool = True,
+        allow_existing_step_drain: bool = False,
     ) -> DiskBudgetSnapshot:
         request_id = request_id or str(uuid.uuid4())
         return self._request(
@@ -1785,7 +2529,7 @@ def _dispatch_coordinator_request(
             summary=summary,
             release_bytes=int(payload.get("release_bytes") or 0),
             request_id=(str(payload["request_id"]) if payload.get("request_id") else None),
-            allow_existing_step_drain=bool(payload.get("allow_existing_step_drain", True)),
+            allow_existing_step_drain=bool(payload.get("allow_existing_step_drain", False)),
         )
     if kind == "wave":
         return coordinator.admit_wave(
@@ -1800,7 +2544,7 @@ def _dispatch_coordinator_request(
             leaf_id=str(payload["leaf_id"]),
             request_id=(str(payload["request_id"]) if payload.get("request_id") else None),
             allow_existing_step_drain=bool(
-                payload.get("allow_existing_step_drain", True)
+                payload.get("allow_existing_step_drain", False)
             ),
         )
     raise ValueError(f"Unknown storage admission request kind: {kind!r}")
@@ -1827,28 +2571,62 @@ class StorageAdmissionServer:
         for path in self._request_paths.values():
             path.parent.mkdir(parents=True, exist_ok=True)
         self._stop = threading.Event()
+        self._heartbeat_stop = threading.Event()
+        self._serve_alive = threading.Event()
+        self._serve_alive.set()
+        self._ipc_lock = threading.Lock()
+        self._accepting = threading.Event()
+        self._accepting.set()
+        self._active_route_ids = coordinator.active_leaf_ids()
+        self._serve_failure: BaseException | None = None
         self._thread = threading.Thread(
             target=self._serve,
             name="storage-admission-coordinator",
-            daemon=True,
+            daemon=False,
+        )
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_pending,
+            name="storage-admission-heartbeat",
+            daemon=False,
         )
         self._thread.start()
+        self._heartbeat_thread.start()
 
     def client(self, *, leaf_id: str) -> StorageAdmissionClient:
+        if not self._accepting.is_set():
+            raise RuntimeError("Storage admission coordinator is shutting down")
         if leaf_id not in self._request_paths:
             raise KeyError(f"Unknown storage-admission leaf: {leaf_id}")
         return StorageAdmissionClient(
             ipc_dir=self._ipc_dir,
             generation=self.coordinator.generation,
             leaf_id=leaf_id,
+            leaf_identity=self.coordinator.plan.leaves[leaf_id].identity,
         )
 
     def _serve(self) -> None:
-        while not self._stop.is_set():
+        try:
+            self._serve_requests()
+        except BaseException as exc:  # keep unexpected coordinator death observable
+            self._serve_failure = exc
+            logger.exception("Storage admission coordinator thread stopped unexpectedly")
+        finally:
+            self._serve_alive.clear()
+            self._heartbeat_stop.set()
+
+    def _has_pending_requests(self) -> bool:
+        """Return whether an exact active route still has queued work."""
+        return self._control_request_path.is_file() or any(
+            self._request_paths[leaf_id].is_file()
+            for leaf_id in self._active_route_ids
+        )
+
+    def _serve_requests(self) -> None:
+        while not self._stop.is_set() or self._has_pending_requests():
             handled = False
             active_paths = [
                 (leaf_id, self._request_paths[leaf_id])
-                for leaf_id in self.coordinator.active_leaf_ids()
+                for leaf_id in self._active_route_ids
             ]
             for leaf_id, request_path in [
                 (None, self._control_request_path),
@@ -1861,8 +2639,11 @@ class StorageAdmissionServer:
                 try:
                     envelope = json.loads(request_path.read_text(encoding="utf-8"))
                     payload = envelope.get("payload")
+                    transport_nonce = str(envelope.get("transport_nonce") or "")
                     if (
                         not isinstance(payload, dict)
+                        or len(transport_nonce) != 32
+                        or any(char not in "0123456789abcdef" for char in transport_nonce)
                         or envelope.get("generation") != self.coordinator.generation
                         or (
                             leaf_id is not None
@@ -1873,40 +2654,176 @@ class StorageAdmissionServer:
                         or envelope.get("payload_sha256") != hash_json(payload)
                     ):
                         raise ValueError(f"Invalid storage IPC request: {request_path}")
-                    snapshot = _dispatch_coordinator_request(self.coordinator, payload)
                 except Exception as exc:  # noqa: BLE001 - serialized to worker
                     response = {
                         "ok": False,
                         "error_type": type(exc).__name__,
                         "error": str(exc),
                     }
-                else:
-                    response = {"ok": True, "snapshot": _snapshot_dict(snapshot)}
+                    payload = None
                 request_id = str(envelope.get("request_id") or "invalid")
+                transport_nonce = str(envelope.get("transport_nonce") or "invalid")
+                if len(transport_nonce) != 32 or any(
+                    char not in "0123456789abcdef" for char in transport_nonce
+                ):
+                    transport_nonce = uuid.uuid4().hex
                 response_path = request_path.parent / (
                     "response."
-                    + hashlib.sha256(request_id.encode("utf-8")).hexdigest()[:16]
+                    + transport_nonce
                     + ".json"
                 )
+                progress_path = request_path.parent / (
+                    "progress."
+                    + transport_nonce
+                    + ".json"
+                )
+                if isinstance(payload, dict):
+                    try:
+                        snapshot = _dispatch_coordinator_request(
+                            self.coordinator,
+                            payload,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - serialized to worker
+                        response = {
+                            "ok": False,
+                            "error_type": type(exc).__name__,
+                            "error": str(exc),
+                        }
+                    else:
+                        response = {
+                            "ok": True,
+                            "snapshot": _snapshot_dict(snapshot),
+                        }
+                with self._ipc_lock:
+                    try:
+                        request_path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    try:
+                        progress_path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    write_manifest_atomic(
+                        response_path,
+                        {
+                            "generation": envelope.get("generation"),
+                            "request_id": request_id,
+                            "transport_nonce": transport_nonce,
+                            "payload_sha256": envelope.get("payload_sha256"),
+                            "response": response,
+                        },
+                    )
+                self._active_route_ids = self.coordinator.active_leaf_ids()
+            if not handled:
+                self._stop.wait(0.005)
+
+    def _heartbeat_pending(self) -> None:
+        """Refresh leases for queued and in-flight exact-path requests."""
+        while self._serve_alive.is_set() and not self._heartbeat_stop.is_set():
+            active_paths = [
+                (leaf_id, self._request_paths[leaf_id])
+                for leaf_id in self._active_route_ids
+            ]
+            for leaf_id, request_path in [
+                (None, self._control_request_path),
+                *active_paths,
+            ]:
                 try:
-                    request_path.unlink()
-                except FileNotFoundError:
-                    pass
+                    with self._ipc_lock:
+                        if not request_path.is_file():
+                            continue
+                        envelope = json.loads(request_path.read_text(encoding="utf-8"))
+                    payload = envelope.get("payload")
+                    route = leaf_id if leaf_id is not None else "_coordinator"
+                    transport_nonce = str(envelope.get("transport_nonce") or "")
+                    if (
+                        not isinstance(payload, dict)
+                        or len(transport_nonce) != 32
+                        or any(char not in "0123456789abcdef" for char in transport_nonce)
+                        or envelope.get("generation") != self.coordinator.generation
+                        or envelope.get("route_id") != route
+                        or envelope.get("payload_sha256") != hash_json(payload)
+                    ):
+                        continue
+                    request_id = str(envelope["request_id"])
+                    progress_path = request_path.parent / (
+                        "progress."
+                        + transport_nonce
+                        + ".json"
+                    )
+                    with self._ipc_lock:
+                        if request_path.is_file():
+                            write_manifest_atomic(
+                                progress_path,
+                                {
+                                    "generation": envelope["generation"],
+                                    "request_id": request_id,
+                                    "transport_nonce": transport_nonce,
+                                    "payload_sha256": envelope["payload_sha256"],
+                                    "heartbeat_epoch_seconds": time.time(),
+                                },
+                            )
+                except (OSError, KeyError, json.JSONDecodeError):
+                    continue
+            self._heartbeat_stop.wait(0.5)
+
+    def close(self) -> None:
+        self._accepting.clear()
+        self._stop.set()
+        self._thread.join(timeout=1.0)
+        if self._thread.is_alive():
+            logger.warning(
+                "Storage admission shutdown is waiting for an in-flight "
+                "request to reach its durable terminal response"
+            )
+            self._thread.join()
+        self._heartbeat_stop.set()
+        self._heartbeat_thread.join()
+        self._terminalize_pending_shutdown()
+        for request_path in [self._control_request_path, *self._request_paths.values()]:
+            try:
+                request_path.parent.rmdir()
+            except OSError:
+                pass
+        try:
+            self._generation_dir.rmdir()
+            self._ipc_dir.rmdir()
+        except OSError:
+            pass
+
+    def _terminalize_pending_shutdown(self) -> None:
+        """Publish durable errors for requests left by an orderly failed serve."""
+        for request_path in [self._control_request_path, *self._request_paths.values()]:
+            if not request_path.is_file():
+                continue
+            try:
+                envelope = json.loads(request_path.read_text(encoding="utf-8"))
+                nonce = str(envelope.get("transport_nonce") or "")
+                if len(nonce) != 32 or any(
+                    char not in "0123456789abcdef" for char in nonce
+                ):
+                    request_path.unlink(missing_ok=True)
+                    continue
+                response_path = request_path.parent / f"response.{nonce}.json"
+                progress_path = request_path.parent / f"progress.{nonce}.json"
+                request_path.unlink(missing_ok=True)
+                progress_path.unlink(missing_ok=True)
                 write_manifest_atomic(
                     response_path,
                     {
                         "generation": envelope.get("generation"),
-                        "request_id": request_id,
+                        "request_id": envelope.get("request_id"),
+                        "transport_nonce": nonce,
                         "payload_sha256": envelope.get("payload_sha256"),
-                        "response": response,
+                        "response": {
+                            "ok": False,
+                            "error_type": "RuntimeError",
+                            "error": "Storage admission coordinator stopped before completing the request",
+                        },
                     },
                 )
-            if not handled:
-                self._stop.wait(0.005)
-
-    def close(self) -> None:
-        self._stop.set()
-        self._thread.join(timeout=1.0)
+            except (OSError, json.JSONDecodeError):
+                request_path.unlink(missing_ok=True)
 
     def __enter__(self) -> "StorageAdmissionServer":
         return self
@@ -1925,6 +2842,7 @@ __all__ = [
     "StorageLeafPlan",
     "StoragePlan",
     "accounting_summary_from_inventory",
+    "accounting_summary_from_paths",
     "admit_storage_transition",
     "build_storage_plan",
     "storage_reservation_path",

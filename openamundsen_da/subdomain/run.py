@@ -18,14 +18,23 @@ from loguru import logger
 from openamundsen_da.core.constants import LOGURU_FORMAT
 from openamundsen_da.exceptions import LowDiskSpaceError
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.manifests import write_manifest_atomic
+from openamundsen_da.manifests import (
+    file_inventory,
+    inventory_digest,
+    load_manifest,
+    recursive_files,
+    write_manifest_atomic,
+)
 from openamundsen_da.methods.wet_snow.area import summarize_s1_directory
 from openamundsen_da.observer.class_config import load_wetsnow_classes
 from openamundsen_da.observer.satellite_scf import generate_project_from_summary as scf_project_obs
 from openamundsen_da.observer.satellite_wet_snow_s1 import generate_project_from_summary as wet_project_obs
 from openamundsen_da.observer.snowcover import summarize_snowcover_directory
 from openamundsen_da.pipeline.project import OrchestratorConfig, run_project
-from openamundsen_da.pipeline.project_skeleton import create_project_skeleton
+from openamundsen_da.pipeline.project_skeleton import (
+    create_project_skeleton,
+    plan_project_steps,
+)
 from openamundsen_da.subdomain.event_support import resolve_subdomain_event_plan
 from openamundsen_da.subdomain.leaf_finalization import (
     finalize_leaf as _finalize_leaf,
@@ -58,6 +67,7 @@ from openamundsen_da.util.storage_admission import (
     build_storage_plan,
 )
 from openamundsen_da.util.ts import parse_datetime_opt
+from openamundsen_da.io.paths import list_steps_sorted
 
 
 @dataclass
@@ -169,7 +179,53 @@ def _configure_worker_logger(log_path: Path, log_level: str, root_log_path: Path
         )
 
 
-def _prepare_obs_for_subdomain(sub, manifest: SubdomainManifest, *, overwrite: bool) -> None:
+def _prepare_obs_for_subdomain(
+    sub,
+    manifest: SubdomainManifest,
+    *,
+    overwrite: bool,
+    scientific_identity: str | None = None,
+) -> None:
+    def preparation_inventory() -> list[dict]:
+        paths = [
+            path
+            for root in (sub.project_dir / "steps", sub.setup_dir / "obs")
+            for path in recursive_files(root)
+            if "/ensembles/" not in path.as_posix()
+            and "/assim/" not in path.as_posix()
+            and "/results/" not in path.as_posix()
+        ]
+        return file_inventory(root=sub.setup_dir, files=paths)
+
+    preparation_manifest_path = (
+        sub.setup_dir / ".openamundsen-da" / "manifests" / "leaf_preparation.json"
+    )
+    existing_preparation = load_manifest(preparation_manifest_path)
+    if (
+        existing_preparation is not None
+        and existing_preparation.get("status") == "success"
+        and not overwrite
+    ):
+        if existing_preparation.get("scientific_identity") != scientific_identity:
+            raise RuntimeError(
+                f"Leaf preparation scientific identity changed: {preparation_manifest_path}"
+            )
+        recorded = existing_preparation.get("outputs")
+        if not isinstance(recorded, list):
+            raise RuntimeError(f"Leaf preparation outputs are invalid: {preparation_manifest_path}")
+        current = preparation_inventory()
+        if current != recorded:
+            raise RuntimeError(f"Leaf preparation inventory changed: {preparation_manifest_path}")
+        if inventory_digest(current) != existing_preparation.get("output_digest"):
+            raise RuntimeError(f"Leaf preparation outputs changed: {preparation_manifest_path}")
+        return
+    if _project_has_started(sub.project_dir):
+        raise RuntimeError(
+            f"Incomplete leaf preparation has runtime evidence: {sub.project_dir}"
+        )
+    # Without completed authority, every prep-owned output is potentially a
+    # truncated crash artifact. Rebuild deterministically before propagation.
+    preparation_overwrite = True
     events = load_assimilation_events(sub.project_dir)
     variables = {ev.variable for ev in events}
     if not variables:
@@ -206,7 +262,7 @@ def _prepare_obs_for_subdomain(sub, manifest: SubdomainManifest, *, overwrite: b
                 raster_dir=manifest.raw_wetsnow_dir,
                 aoi_path=sub.roi_vector_path,
                 output_csv=wet_summary,
-                overwrite=overwrite,
+                overwrite=preparation_overwrite,
                 start=start,
                 end=end,
                 wet_values=wet,
@@ -225,19 +281,34 @@ def _prepare_obs_for_subdomain(sub, manifest: SubdomainManifest, *, overwrite: b
         },
     )
 
-    # Build step folders first, then distribute per-step obs CSVs from summaries.
-    create_project_skeleton(
-        setup_dir=sub.setup_dir,
-        project_dir=sub.project_dir,
-        overwrite=overwrite,
+    # Build or validate the immutable virtual step plan. Partial preparation may
+    # be completed only before any model/runtime evidence exists.
+    planned_names = tuple(
+        plan.name for plan in plan_project_steps(sub.setup_dir, sub.project_dir)
     )
+    existing_names = tuple(path.name for path in list_steps_sorted(sub.project_dir))
+    unexpected = sorted(set(existing_names) - set(planned_names))
+    if unexpected:
+        raise RuntimeError(
+            f"Prepared leaf steps differ from virtual plan: {unexpected}"
+        )
+    if existing_names != planned_names:
+        if _project_has_started(sub.project_dir):
+            raise RuntimeError(
+                f"Incomplete leaf preparation has runtime evidence: {sub.project_dir}"
+            )
+        create_project_skeleton(
+            setup_dir=sub.setup_dir,
+            project_dir=sub.project_dir,
+            overwrite=True,
+        )
 
     if scf_summary.is_file() and "scf" in variables:
         scf_project_obs(
             project_dir=sub.project_dir,
             summary_csv=scf_summary,
             product=None,
-            overwrite=overwrite,
+            overwrite=preparation_overwrite,
         )
 
     if wet_summary.is_file() and ({"wet_snow", "wet_snow_line"} & variables):
@@ -245,8 +316,18 @@ def _prepare_obs_for_subdomain(sub, manifest: SubdomainManifest, *, overwrite: b
             project_dir=sub.project_dir,
             summary_csv=wet_summary,
             product=None,
-            overwrite=overwrite,
+            overwrite=preparation_overwrite,
         )
+    prepared_inventory = preparation_inventory()
+    write_manifest_atomic(
+        preparation_manifest_path,
+        {
+            "status": "success",
+            "scientific_identity": scientific_identity,
+            "outputs": prepared_inventory,
+            "output_digest": inventory_digest(prepared_inventory),
+        },
+    )
 
 
 def _run_one(
@@ -261,6 +342,7 @@ def _run_one(
     storage_outer_workers: int = 1,
     shared_storage_reserve_bytes: int = 0,
     storage_admission_client: StorageAdmissionClient | None = None,
+    prepared_before_storage_plan: bool = False,
 ) -> SubdomainRunResult:
     """Worker: run one fully independent sub-domain DA setup."""
     manifest = SubdomainManifest.load(manifest_path)
@@ -271,7 +353,15 @@ def _run_one(
     finalization_path = _leaf_finalization_manifest_path(sub.setup_dir)
 
     if finalization_path.is_file() and not overwrite:
-        finalized = _finalize_leaf(sub, resume=True)
+        finalized = _finalize_leaf(
+            sub,
+            resume=True,
+            scientific_identity=(
+                storage_admission_client.leaf_identity
+                if storage_admission_client is not None
+                else None
+            ),
+        )
         if finalized.get("status") == "success":
             if storage_admission_client is not None:
                 storage_admission_client.transition(
@@ -283,6 +373,11 @@ def _run_one(
                 "setup_dir": str(sub.setup_dir),
                 "project_dir": str(sub.project_dir),
                 "status": "success",
+                "scientific_identity": (
+                    storage_admission_client.leaf_identity
+                    if storage_admission_client is not None
+                    else None
+                ),
                 "recovered_from_finalization": True,
                 "finished": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "dropped_events": _read_dropped_events(
@@ -310,7 +405,24 @@ def _run_one(
             data = {}
         previous_status = str(data.get("status", "")).lower()
         if previous_status == "success":
-            finalized = _finalize_leaf(sub, resume=False)
+            current_identity = (
+                storage_admission_client.leaf_identity
+                if storage_admission_client is not None
+                else None
+            )
+            if data.get("scientific_identity") != current_identity:
+                raise RuntimeError(
+                    f"Completed leaf run scientific identity changed: {run_manifest_path}"
+                )
+            finalized = _finalize_leaf(
+                sub,
+                resume=False,
+                scientific_identity=(
+                    storage_admission_client.leaf_identity
+                    if storage_admission_client is not None
+                    else None
+                ),
+            )
             if storage_admission_client is not None:
                 storage_admission_client.transition(
                     "leaf_finalized",
@@ -352,11 +464,35 @@ def _run_one(
             "attempt": attempt,
             "status": "running",
             "started": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "scientific_identity": (
+                storage_admission_client.leaf_identity
+                if storage_admission_client is not None
+                else None
+            ),
         }
-        _write_run_manifest(run_manifest_path, run_meta)
         logger.info("START sub-domain={} attempt={}", sub.id, attempt)
         try:
-            _prepare_obs_for_subdomain(sub, manifest, overwrite=effective_overwrite)
+            if not prepared_before_storage_plan:
+                _prepare_obs_for_subdomain(
+                    sub,
+                    manifest,
+                    overwrite=effective_overwrite,
+                    scientific_identity=(
+                        storage_admission_client.leaf_identity
+                        if storage_admission_client is not None
+                        else None
+                    ),
+                )
+            elif not list_steps_sorted(sub.project_dir):
+                raise RuntimeError(
+                    f"Prepared leaf steps disappeared after storage preflight: {sub.project_dir}"
+                )
+            if storage_admission_client is not None:
+                storage_admission_client.transition(
+                    "leaf_prepared",
+                    request_id=f"{sub.id}:leaf_prepared",
+                )
+            _write_run_manifest(run_manifest_path, run_meta)
             dropped_events = _read_dropped_events(_dropped_events_csv(sub.setup_dir))
             run_project(
                 OrchestratorConfig(
@@ -374,7 +510,15 @@ def _run_one(
                     storage_admission_client=storage_admission_client,
                 )
             )
-            finalized = _finalize_leaf(sub, resume=False)
+            finalized = _finalize_leaf(
+                sub,
+                resume=False,
+                scientific_identity=(
+                    storage_admission_client.leaf_identity
+                    if storage_admission_client is not None
+                    else None
+                ),
+            )
             if storage_admission_client is not None:
                 storage_admission_client.transition(
                     "leaf_finalized",
@@ -521,9 +665,73 @@ def _project_has_started(project_dir: Path) -> bool:
         for pattern in (
             "steps/step_*/assim/prior_forcing_manifest.json",
             "steps/step_*/assim/rejuvenate_manifest.json",
+            "steps/step_*/ensembles/*/*/results/member_run.json",
         )
         for path in project_dir.glob(pattern)
     )
+
+
+def _deterministic_preparation_reserve(
+    manifest: SubdomainManifest,
+    selected_ids: list[str],
+) -> dict[str, int]:
+    """Conservatively bound preparation outputs plus atomic coexistence."""
+    by_leaf: dict[str, int] = {}
+    for sid in selected_ids:
+        source_bytes = sum(
+            path.stat().st_size
+            for root in _leaf_scientific_input_paths(manifest, sid)
+            for path in recursive_files(root)
+        )
+        existing_bytes = sum(
+            path.stat().st_size
+            for path in recursive_files(manifest.subdomains[sid].setup_dir / "obs")
+        )
+        try:
+            event_count = len(
+                load_assimilation_events(manifest.subdomains[sid].project_dir)
+            )
+        except (ValueError, FileNotFoundError):
+            event_count = 1
+        metadata_bound = (event_count + 2) * 1024 * 1024
+        by_leaf[sid] = 2 * (source_bytes + existing_bytes + metadata_bound)
+    return by_leaf
+
+
+def _leaf_scientific_input_paths(
+    manifest: SubdomainManifest,
+    sid: str,
+) -> tuple[Path, ...]:
+    subdomain = manifest.subdomains[sid]
+    variables = {
+        event.variable
+        for event in load_assimilation_events(subdomain.project_dir)
+    }
+    paths: list[Path] = []
+    if "scf" in variables:
+        paths.append(manifest.raw_snowcover_dir)
+    if {"wet_snow", "wet_snow_line"} & variables:
+        paths.append(manifest.raw_wetsnow_dir)
+    if {"scf", "wet_snow", "wet_snow_line"} & variables:
+        paths.append(
+            getattr(subdomain, "roi_vector_path", subdomain.setup_dir / "env")
+        )
+    project_cfg = _read_yaml_file(subdomain.project_yaml) or {}
+    obs_cfg = project_cfg.get("obs")
+    if isinstance(obs_cfg, dict):
+        used_sections: list[str] = []
+        if "scf" in variables:
+            used_sections.append("snowcover")
+        if {"wet_snow", "wet_snow_line"} & variables:
+            used_sections.append("wetsnow")
+        for key in used_sections:
+            section = obs_cfg.get(key)
+            if not isinstance(section, dict):
+                continue
+            manifest_path = section.get("acquisition_manifest")
+            if manifest_path is not None:
+                paths.append((subdomain.setup_dir / str(manifest_path)).resolve())
+    return tuple(paths)
 
 
 def _projected_retained_compact_bytes(
@@ -584,6 +792,8 @@ def _coordinator_storage_reserve(
                 grid_cell_count=int(subdomain.window.height) * int(subdomain.window.width),
                 run_manifest=(subdomain.setup_dir / "run_manifest.json").resolve(),
                 completion_not_before_ns=(reservation_started_ns if overwrite else 0),
+                scientific_input_paths=_leaf_scientific_input_paths(manifest, sid),
+                scientific_root=manifest.setup_dir,
             )
         )
     project_specs = tuple(projects)
@@ -685,9 +895,11 @@ def _all_storage_reservation_projects(
     selected_ids: list[str],
     overwrite: bool,
     reservation_started_ns: int,
+    preparation_by_id: dict[str, int] | None = None,
 ) -> tuple[StorageReservationProject, ...]:
     parent_device = manifest.project_dir.resolve().stat().st_dev
     projects: list[StorageReservationProject] = []
+    preparation_by_id = preparation_by_id or {}
     for sid in selected_ids:
         subdomain = manifest.subdomains[sid]
         if subdomain.project_dir.resolve().stat().st_dev != parent_device:
@@ -703,6 +915,10 @@ def _all_storage_reservation_projects(
                 * int(subdomain.window.width),
                 run_manifest=(subdomain.setup_dir / "run_manifest.json").resolve(),
                 completion_not_before_ns=(reservation_started_ns if overwrite else 0),
+                scientific_input_paths=_leaf_scientific_input_paths(manifest, sid),
+                scientific_root=manifest.setup_dir,
+                preparation_bytes=int(preparation_by_id.get(sid, 0)),
+                requires_preparation=True,
             )
         )
     return tuple(projects)
@@ -740,6 +956,11 @@ def _start_wave_storage_coordinator(
     server = StorageAdmissionServer(coordinator)
     try:
         coordinator.record_preflight(budget)
+        budget = coordinator.admit_wave(
+            0,
+            request_id="wave:0",
+            allow_existing_step_drain=allow_existing_step_drain,
+        )
     except Exception:
         server.close()
         raise
@@ -771,16 +992,6 @@ def run_subdomains(
         raise ValueError(f"Sub-domains not in manifest: {', '.join(unknown)}")
     root_log = manifest.project_dir / "subdomain_run.log"
     sink_id = None
-    if log_to_file:
-        root_log.parent.mkdir(parents=True, exist_ok=True)
-        sink_id = logger.add(
-            root_log,
-            level=log_level.upper(),
-            colorize=False,
-            enqueue=True,
-            format=LOGURU_FORMAT,
-            mode="w" if overwrite else "a",
-        )
 
     outer_workers = pick_max_workers(max_workers, fallback=len(selected_ids), limit=len(selected_ids))
     cpu = os.cpu_count() or 1
@@ -791,6 +1002,10 @@ def run_subdomains(
     waves = _leaf_waves(selected_ids, outer_workers)
     reservation_started_ns = time.time_ns()
     try:
+        preparation_by_id = _deterministic_preparation_reserve(
+            manifest,
+            selected_ids,
+        )
         queued_retained_by_id = _projected_retained_compact_bytes(
             manifest,
             selected_ids=selected_ids,
@@ -820,6 +1035,7 @@ def run_subdomains(
             selected_ids=selected_ids,
             overwrite=overwrite,
             reservation_started_ns=reservation_started_ns,
+            preparation_by_id=preparation_by_id,
         )
         wave_server, storage_budget = _start_wave_storage_coordinator(
             root_project_dir=manifest.project_dir,
@@ -835,6 +1051,16 @@ def run_subdomains(
     except LowDiskSpaceError as exc:
         save_stage(manifest, manifest_path, "run", "paused_low_disk", error=str(exc))
         raise
+    if log_to_file:
+        root_log.parent.mkdir(parents=True, exist_ok=True)
+        sink_id = logger.add(
+            root_log,
+            level=log_level.upper(),
+            colorize=False,
+            enqueue=True,
+            format=LOGURU_FORMAT,
+            mode="w" if overwrite else "a",
+        )
     save_stage(manifest, manifest_path, "run", "running")
 
     logger.info(
@@ -923,6 +1149,33 @@ def run_subdomains(
                 parent_finalization_reserve / (1024**3),
                 storage_budget.used_fraction,
             )
+            # Preparation happens only after the coordinated preflight.  Once
+            # every active leaf has produced or validated its deterministic
+            # preparation manifest, the coordinator rehashes shared raw inputs
+            # once and atomically admits the whole prepared wave.  Workers then
+            # consume the frozen preparation without writing it again.
+            for sid in wave_ids:
+                _prepare_obs_for_subdomain(
+                    manifest.subdomains[sid],
+                    manifest,
+                    overwrite=overwrite,
+                    scientific_identity=wave_server.client(
+                        leaf_id=sid
+                    ).leaf_identity,
+                )
+            storage_budget = wave_server.coordinator.prepare_wave(
+                wave_index,
+                request_id=f"wave_prepared:{wave_index}",
+            )
+            for sid in wave_ids:
+                first_step = wave_server.coordinator.plan.leaves[sid].step_names[0]
+                wave_server.client(leaf_id=sid).admit_step(
+                    first_step,
+                    request_id=f"{sid}:admit:{first_step}",
+                    allow_existing_step_drain=_project_has_started(
+                        manifest.subdomains[sid].project_dir
+                    ),
+                )
             future_map: dict[cf.Future, str] = {}
             for sid in wave_ids:
                 fut = executor.submit(
@@ -938,6 +1191,7 @@ def run_subdomains(
                     len(wave_ids),
                     parent_finalization_reserve + queued_retained_reserve,
                     wave_server.client(leaf_id=sid),
+                    True,
                 )
                 future_map[fut] = sid
 

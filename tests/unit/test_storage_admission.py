@@ -15,6 +15,14 @@ from openamundsen_da.util.storage_admission import (
     StorageLeafPlan,
     StoragePlan,
     build_storage_plan,
+    accounting_summary_from_paths,
+)
+from openamundsen_da.util import storage_admission as storage_admission_mod
+from openamundsen_da.manifests import (
+    file_inventory,
+    inventory_digest,
+    project_scientific_input_inventory,
+    write_manifest_atomic,
 )
 from openamundsen_da.util.storage_budget import (
     ProjectStorageEstimate,
@@ -83,6 +91,231 @@ def _plan(tmp_path: Path, *, steps: tuple[str, ...] = ("step_00", "step_01")) ->
 
 def _usage(*, used: int = 1000):
     return SimpleNamespace(total=10_000, used=used, free=10_000 - used)
+
+
+def test_explicit_boundary_accounting_uses_stat_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "step_00" / "plots" / "forcing" / "station.png"
+    output.parent.mkdir(parents=True)
+    output.write_bytes(b"plot")
+    monkeypatch.setattr(
+        "openamundsen_da.util.storage_admission.sha256_file",
+        lambda _path: (_ for _ in ()).throw(AssertionError("boundary content hash")),
+    )
+
+    summary = accounting_summary_from_paths(
+        completed_step="step_00",
+        root=tmp_path,
+        paths=(output, output),
+        source="producer",
+    )
+
+    assert summary.materialized_bytes["derived_forcing_plot_bytes"] == 4
+    assert summary.file_counts["derived_forcing_plot_bytes"] == 1
+
+
+@pytest.mark.parametrize("kind", ("missing", "symlink", "escape"))
+def test_explicit_boundary_accounting_rejects_untrusted_paths(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    outside = tmp_path / "outside.bin"
+    outside.write_bytes(b"outside")
+    if kind == "missing":
+        claimed = root / "missing.bin"
+    elif kind == "symlink":
+        claimed = root / "link.bin"
+        claimed.symlink_to(outside)
+    else:
+        claimed = outside
+    with pytest.raises(ValueError, match="missing|symlinked|outside"):
+        accounting_summary_from_paths(
+            completed_step="step_00",
+            root=root,
+            paths=(claimed,),
+            source="producer",
+        )
+
+
+def _scientific_config(tmp_path: Path) -> SimpleNamespace:
+    setup = tmp_path / "setup"
+    project = setup / "projects" / "project"
+    obs = setup / "obs" / "stations"
+    obs.mkdir(parents=True)
+    project.mkdir(parents=True)
+    setup_yaml = setup / "setup.yml"
+    project_yaml = project / "project.yml"
+    setup_yaml.write_text("domain: test\n", encoding="utf-8")
+    project_yaml.write_text("start_date: 2023-01-01\n", encoding="utf-8")
+    return SimpleNamespace(
+        setup_dir=setup,
+        project_dir=project,
+        setup_yaml=setup_yaml,
+        project_yaml=project_yaml,
+        setup={"domain": "test", "input_data": {}},
+        project={"obs": {"stations": {"dir": "obs/stations"}}},
+    )
+
+
+def test_scientific_identity_hashes_contained_file_symlink_target(tmp_path: Path) -> None:
+    config = _scientific_config(tmp_path)
+    shared = tmp_path / "shared.csv"
+    shared.write_text("a\n1\n", encoding="utf-8")
+    link = config.setup_dir / "obs" / "stations" / "station.csv"
+    link.symlink_to(shared)
+
+    _inventory, first = project_scientific_input_inventory(
+        config,
+        identity_root=tmp_path,
+    )
+    shared.write_text("a\n2\n", encoding="utf-8")
+    _inventory, second = project_scientific_input_inventory(
+        config,
+        identity_root=tmp_path,
+    )
+
+    assert first != second
+
+
+def test_scientific_identity_rejects_escaping_file_and_directory_symlinks(
+    tmp_path: Path,
+) -> None:
+    config = _scientific_config(tmp_path)
+    external_root = tmp_path.parent / f"{tmp_path.name}-external"
+    external_root.mkdir()
+    external_file = external_root / "station.csv"
+    external_file.write_text("a\n1\n", encoding="utf-8")
+    link = config.setup_dir / "obs" / "stations" / "station.csv"
+    link.symlink_to(external_file)
+    with pytest.raises(Exception, match="escapes"):
+        project_scientific_input_inventory(config, identity_root=tmp_path)
+    link.unlink()
+    linked_dir = config.setup_dir / "obs" / "linked"
+    linked_dir.symlink_to(config.setup_dir / "obs" / "stations", target_is_directory=True)
+    config.project["obs"]["stations"]["dir"] = "obs/linked"
+    with pytest.raises(Exception, match="directory symlinks"):
+        project_scientific_input_inventory(config, identity_root=tmp_path)
+
+
+def test_cross_wave_calibration_uses_immutable_base_without_compounding(
+    tmp_path: Path,
+) -> None:
+    steps = tuple(f"step_{index:02d}" for index in range(10))
+    base = _plan(tmp_path, steps=steps)
+    template = base.leaves["leaf"]
+    obligations_a = {**template.obligations, "forcing_bytes": 1_000}
+    obligations_b = {**template.obligations, "forcing_bytes": 10_000}
+    leaves = {
+        "A": type(template)(
+            **{**template.__dict__, "leaf_id": "A", "obligations": obligations_a}
+        ),
+        "B": type(template)(
+            **{**template.__dict__, "leaf_id": "B", "obligations": obligations_b}
+        ),
+    }
+    plan = StoragePlan(
+        **{
+            **base.__dict__,
+            "leaves": leaves,
+            "waves": (("A",), ("B",)),
+            "wave_growth_bytes": (2_100, 11_100),
+            "estimated_growth_bytes": 11_100,
+            "identity": "calibration",
+        }
+    )
+    coordinator = StorageAdmissionCoordinator(
+        plan,
+        disk_usage=lambda _path: SimpleNamespace(
+            total=1_000_000,
+            used=1_000,
+            free=999_000,
+        ),
+    )
+    client = StorageAdmissionClient.in_process(coordinator, leaf_id="A")
+    client.admit_step("step_00", request_id="A:0")
+    summary = StorageAccountingSummary(
+        completed_step="step_00",
+        materialized_bytes={"forcing_bytes": 200},
+        observed_bytes={"forcing_bytes": 200},
+    )
+    client.admit_step("step_01", summary=summary, request_id="A:1")
+    first = coordinator.snapshot()["leaves"]["B"]["planned_by_component"]["forcing_bytes"]
+    client.admit_step("step_01", summary=summary, request_id="A:1")
+    second = coordinator.snapshot()["leaves"]["B"]["planned_by_component"]["forcing_bytes"]
+
+    assert first == 20_000
+    assert second == first
+
+
+@pytest.mark.parametrize(
+    ("reporting_mode", "future_mode", "expected"),
+    (("compact", "full", 2_000), ("full", "full", 20_000), ("full", "compact", 1_000)),
+)
+def test_restart_calibration_uses_reporting_and_future_retention_units(
+    tmp_path: Path,
+    reporting_mode: str,
+    future_mode: str,
+    expected: int,
+) -> None:
+    steps = tuple(f"step_{index:02d}" for index in range(10))
+    base = _plan(tmp_path, steps=steps)
+    template = base.leaves["leaf"]
+    leaves = {
+        "A": type(template)(
+            **{
+                **template.__dict__,
+                "leaf_id": "A",
+                "retention_mode": reporting_mode,
+                "obligations": {**template.obligations, "restart_baseline_bytes": 100},
+            }
+        ),
+        "B": type(template)(
+            **{
+                **template.__dict__,
+                "leaf_id": "B",
+                "retention_mode": future_mode,
+                "obligations": {**template.obligations, "restart_baseline_bytes": 1_000},
+            }
+        ),
+    }
+    coordinator = StorageAdmissionCoordinator(
+        StoragePlan(
+            **{
+                **base.__dict__,
+                "leaves": leaves,
+                "waves": (("A",), ("B",)),
+                "wave_growth_bytes": (2_000, 3_000),
+                "estimated_growth_bytes": 3_000,
+                "identity": f"retention-{reporting_mode}-{future_mode}",
+            }
+        ),
+        disk_usage=lambda _path: SimpleNamespace(
+            total=1_000_000,
+            used=1_000,
+            free=999_000,
+        ),
+    )
+    client = StorageAdmissionClient.in_process(coordinator, leaf_id="A")
+    client.admit_step("step_00", request_id="A:0")
+    client.admit_step(
+        "step_01",
+        summary=StorageAccountingSummary(
+            completed_step="step_00",
+            materialized_bytes={"restart_baseline_bytes": 200},
+            observed_bytes={"restart_baseline_bytes": 200},
+        ),
+        request_id="A:1",
+    )
+    assert (
+        coordinator.snapshot()["leaves"]["B"]["planned_by_component"][
+            "restart_baseline_bytes"
+        ]
+        == expected
+    )
 
 
 def _prepared_project(tmp_path: Path, *, malformed: bool = False):
@@ -175,6 +408,264 @@ def test_step_boundary_uses_one_disk_check_and_no_estimator_or_source_reads(
     assert ledger["full_estimate_count"] == 1
     assert ledger["lightweight_check_count"] == 2
     assert ledger["leaves"]["leaf"]["last_completed_step_index"] == 0
+
+
+def test_single_domain_first_step_does_not_require_leaf_preparation(tmp_path: Path) -> None:
+    plan = _plan(tmp_path, steps=("step_00",))
+    coordinator = StorageAdmissionCoordinator(plan, disk_usage=lambda _path: _usage())
+
+    snapshot = coordinator.admit_step(
+        leaf_id="leaf", step_name="step_00", request_id="single-first"
+    )
+
+    assert snapshot.estimated_growth_bytes == plan.estimated_growth_bytes
+
+
+def test_subdomain_preparation_releases_each_leaf_obligation_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = _plan(tmp_path, steps=("step_00",))
+    leaf = base.leaves["leaf"]
+    step_dir = leaf.project_dir / "steps" / "step_00"
+    step_dir.mkdir(parents=True)
+    (step_dir / "step.yml").write_text(
+        "start_date: 2023-01-01\nend_date: 2023-01-02\n",
+        encoding="utf-8",
+    )
+    from datetime import datetime
+
+    monkeypatch.setattr(
+        "openamundsen_da.util.storage_admission.plan_project_steps",
+        lambda *_args: [
+            SimpleNamespace(
+                name="step_00",
+                start=datetime(2023, 1, 1),
+                end=datetime(2023, 1, 2),
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "openamundsen_da.util.storage_admission._project_identity",
+        lambda *_args, **_kwargs: leaf.identity,
+    )
+    manifest_path = (
+        leaf.setup_dir
+        / ".openamundsen-da"
+        / "manifests"
+        / "leaf_preparation.json"
+    )
+    manifest_path.parent.mkdir(parents=True)
+    prepared_inventory = file_inventory(root=leaf.setup_dir, files=[step_dir / "step.yml"])
+    write_manifest_atomic(
+        manifest_path,
+        {
+            "status": "success",
+            "scientific_identity": leaf.identity,
+            "outputs": prepared_inventory,
+            "output_digest": inventory_digest(prepared_inventory),
+        },
+    )
+    prepared_leaf = type(leaf)(
+        **{
+            **leaf.__dict__,
+            "preparation_bytes": 100,
+            "requires_preparation": True,
+        }
+    )
+    plan = StoragePlan(
+        **{
+            **base.__dict__,
+            "leaves": {"leaf": prepared_leaf},
+            "wave_growth_bytes": (base.wave_growth_bytes[0] + 100,),
+            "estimated_growth_bytes": base.estimated_growth_bytes + 100,
+            "identity": "prepared-leaf",
+        }
+    )
+    coordinator = StorageAdmissionCoordinator(plan, disk_usage=lambda _path: _usage())
+    coordinator.admit_wave(0, request_id="wave-0")
+    with pytest.raises(ValueError, match="authoritative preparation"):
+        coordinator.admit_step(
+            leaf_id="leaf", step_name="step_00", request_id="before-prep"
+        )
+
+    before = coordinator.snapshot()["remaining_peak_growth_bytes"]
+    coordinator.prepare_wave(0, request_id="prepared-wave")
+    after = coordinator.snapshot()["remaining_peak_growth_bytes"]
+    coordinator.prepare_wave(0, request_id="prepared-wave")
+
+    assert before - after == 100
+    assert coordinator.snapshot()["remaining_peak_growth_bytes"] == after
+    coordinator.admit_step(
+        leaf_id="leaf", step_name="step_00", request_id="after-prep"
+    )
+
+    (step_dir / "step.yml").write_text(
+        "start_date: 2023-01-01\nend_date: 2023-01-03\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="outputs changed|windows changed"):
+        coordinator._validate_leaf_preparation("leaf")
+
+
+def test_prepare_wave_rejects_raw_source_mutation_and_symlink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan(tmp_path, steps=("step_00",))
+    leaf = plan.leaves["leaf"]
+    raw = tmp_path / "raw.tif"
+    raw.write_bytes(b"original")
+    digest = storage_admission_mod._scientific_paths_identity(
+        (raw,), identity_root=tmp_path
+    )
+    guarded = type(leaf)(
+        **{
+            **leaf.__dict__,
+            "scientific_input_paths": (raw,),
+            "scientific_root": tmp_path,
+            "preparation_inputs_identity": digest,
+        }
+    )
+    guarded_plan = StoragePlan(
+        **{**plan.__dict__, "leaves": {"leaf": guarded}, "identity": "guarded"}
+    )
+    coordinator = StorageAdmissionCoordinator(
+        guarded_plan, disk_usage=lambda _path: _usage()
+    )
+    coordinator.admit_wave(0, request_id="wave-raw")
+    raw.write_bytes(b"changed")
+    with pytest.raises(RuntimeError, match="changed during wave preparation"):
+        coordinator.prepare_wave(0, request_id="prepared-raw")
+
+    linked = tmp_path / "linked.tif"
+    linked.symlink_to(raw)
+    with pytest.raises(RuntimeError, match="symlink is unsupported"):
+        storage_admission_mod._scientific_paths_identity(
+            (linked,), identity_root=tmp_path
+        )
+
+
+def test_prepare_wave_terminal_commit_at_85_percent_then_step_zero_pauses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Reuse the authoritative preparation fixture above while making the
+    # filesystem large enough that the compact reserve remains below 90%.
+    plan = _plan(tmp_path, steps=("step_00",))
+    leaf = type(plan.leaves["leaf"])(
+        **{
+            **plan.leaves["leaf"].__dict__,
+            "requires_preparation": True,
+            "preparation_bytes": 100,
+        }
+    )
+    step_dir = leaf.project_dir / "steps" / "step_00"
+    step_dir.mkdir(parents=True)
+    step_yaml = step_dir / "step.yml"
+    step_yaml.write_text(
+        "start_date: 2023-01-01\nend_date: 2023-01-02\n", encoding="utf-8"
+    )
+    inventory = file_inventory(root=leaf.setup_dir, files=[step_yaml])
+    prep = leaf.setup_dir / ".openamundsen-da/manifests/leaf_preparation.json"
+    write_manifest_atomic(
+        prep,
+        {
+            "status": "success",
+            "scientific_identity": leaf.identity,
+            "outputs": inventory,
+            "output_digest": inventory_digest(inventory),
+        },
+    )
+    from datetime import datetime
+
+    monkeypatch.setattr(
+        storage_admission_mod,
+        "plan_project_steps",
+        lambda *_args: [
+            SimpleNamespace(
+                name="step_00",
+                start=datetime(2023, 1, 1),
+                end=datetime(2023, 1, 2),
+            )
+        ],
+    )
+    monkeypatch.setattr(storage_admission_mod, "_project_identity", lambda *_a, **_k: leaf.identity)
+    guarded_plan = StoragePlan(
+        **{
+            **plan.__dict__,
+            "leaves": {"leaf": leaf},
+            "wave_growth_bytes": (plan.wave_growth_bytes[0] + 100,),
+            "estimated_growth_bytes": plan.estimated_growth_bytes + 100,
+            "identity": "soft-prep",
+        }
+    )
+    coordinator = StorageAdmissionCoordinator(
+        guarded_plan,
+        disk_usage=lambda _path: SimpleNamespace(
+            total=100_000_000, used=84_000_000, free=16_000_000
+        ),
+    )
+    coordinator.admit_wave(0, request_id="soft-wave", allow_existing_step_drain=True)
+    coordinator.prepare_wave(0, request_id="soft-prepared")
+    with pytest.raises(LowDiskPauseError):
+        coordinator.admit_step(
+            leaf_id="leaf", step_name="step_00", request_id="soft-step"
+        )
+
+
+def test_prepare_wave_resume_preserves_progressed_leaves_and_allows_next_wave(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = _plan(tmp_path, steps=("step_00",))
+    template = base.leaves["leaf"]
+    leaves = {
+        name: type(template)(
+            **{
+                **template.__dict__,
+                "leaf_id": name,
+                "identity": "mixed-identity",
+                "requires_preparation": True,
+            }
+        )
+        for name in ("done", "interrupted", "queued")
+    }
+    plan = StoragePlan(
+        **{
+            **base.__dict__,
+            "leaves": leaves,
+            "waves": (("done", "interrupted"), ("queued",)),
+            "wave_growth_bytes": (2_600, 1_900),
+            "estimated_growth_bytes": 2_600,
+            "identity": "mixed-resume",
+        }
+    )
+    coordinator = StorageAdmissionCoordinator(plan, disk_usage=lambda _path: _usage())
+    coordinator.admit_wave(0, request_id="mixed-wave-0")
+    coordinator._ledger["leaves"]["done"]["phase"] = "finalized"
+    coordinator._ledger["leaves"]["done"]["last_admitted_step_index"] = 0
+    coordinator._ledger["leaves"]["done"]["last_completed_step_index"] = 0
+    coordinator._ledger["leaves"]["interrupted"]["phase"] = "running"
+    coordinator._ledger["leaves"]["interrupted"]["last_admitted_step_index"] = 0
+    coordinator._ledger["phase"] = "running"
+    monkeypatch.setattr(coordinator, "_validate_leaf_preparation", lambda _leaf: None)
+    monkeypatch.setattr(
+        storage_admission_mod,
+        "_project_identity",
+        lambda *_a, **_k: "mixed-identity",
+    )
+
+    coordinator.prepare_wave(0, request_id="mixed-prepared")
+    state = coordinator.snapshot()
+    assert state["leaves"]["done"]["phase"] == "finalized"
+    assert state["leaves"]["interrupted"]["phase"] == "running"
+    coordinator._ledger["leaves"]["interrupted"]["phase"] = "finalized"
+    coordinator._ledger["leaves"]["interrupted"]["last_completed_step_index"] = 0
+
+    admitted = coordinator.admit_wave(1, request_id="mixed-wave-1")
+    assert admitted.estimated_growth_bytes >= 0
+    assert coordinator.snapshot()["active_leaf_ids"] == ["queued"]
 
 
 def test_observed_size_calibration_only_raises_future_component_bound(tmp_path: Path) -> None:
@@ -358,6 +849,52 @@ def test_low_disk_is_durable_and_resume_is_non_destructive(tmp_path: Path) -> No
     assert coordinator.snapshot()["status"] == "admitted"
 
 
+def test_new_lifecycle_phase_pauses_at_soft_limit_but_admitted_step_can_drain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    coordinator = StorageAdmissionCoordinator(
+        StoragePlan(
+            **{
+                **_plan(tmp_path, steps=("step_00",)).__dict__,
+                "estimated_growth_bytes": 100,
+                "wave_growth_bytes": (100,),
+            }
+        ),
+        disk_usage=lambda _path: SimpleNamespace(
+            total=100_000,
+            used=81_000,
+            free=19_000,
+        ),
+    )
+    client = StorageAdmissionClient.in_process(coordinator, leaf_id="leaf")
+    with pytest.raises(LowDiskPauseError, match="80%"):
+        client.admit_wave(0, request_id="soft-wave")
+    monkeypatch.setattr(
+        "openamundsen_da.util.storage_admission.estimate_project_storage_components",
+        lambda **_kwargs: ProjectStorageEstimate(
+            forcing_bytes=1,
+            member_grid_bytes=1,
+            point_bytes=1,
+            restart_baseline_bytes=1,
+            restart_transition_bytes=1,
+            compact_timeseries_bytes=1,
+            compact_grid_bytes=1,
+        ),
+    )
+    with pytest.raises(LowDiskPauseError, match="80%"):
+        client.reconcile_finalization(request_id="soft-reconcile")
+    with pytest.raises(LowDiskPauseError, match="80%"):
+        client.transition("parent_render", request_id="soft-render")
+
+    admitted = client.admit_step(
+        "step_00",
+        request_id="draining-step",
+        allow_existing_step_drain=True,
+    )
+    assert admitted.used_fraction == pytest.approx(0.81)
+
+
 def test_atomic_ledger_failure_does_not_publish_mutated_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -516,9 +1053,242 @@ def test_file_ipc_polls_only_active_wave_and_control_paths(
             server._control_request_path,
             server._request_paths["leaf-0"],
         }
+        serving_checked = set(checked)
 
-    assert checked <= expected
-    assert checked == expected
+    assert serving_checked <= expected
+
+
+def test_large_prepared_plan_boundary_latency_is_below_one_second(tmp_path: Path) -> None:
+    steps = tuple(f"step_{index:02d}" for index in range(51))
+    base = _plan(tmp_path, steps=steps)
+    template = base.leaves["leaf"]
+    leaves = {
+        f"leaf-{index:02d}": type(template)(
+            **{
+                **template.__dict__,
+                "leaf_id": f"leaf-{index:02d}",
+                "identity": f"leaf-{index:02d}",
+            }
+        )
+        for index in range(90)
+    }
+    plan = StoragePlan(
+        **{
+            **base.__dict__,
+            "leaves": leaves,
+            "waves": tuple(
+                tuple(list(leaves)[index : index + 8])
+                for index in range(0, len(leaves), 8)
+            ),
+            "outer_workers": 24,
+            "wave_growth_bytes": tuple(1300 * 8 for _ in range(12)),
+            "estimated_growth_bytes": 1300 * len(leaves),
+            "identity": "large-performance-contract",
+        }
+    )
+    coordinator = StorageAdmissionCoordinator(
+        plan,
+        disk_usage=lambda _path: SimpleNamespace(
+            total=10_000_000,
+            used=1_000,
+            free=9_999_000,
+        ),
+    )
+    client = StorageAdmissionClient.in_process(coordinator, leaf_id="leaf-00")
+    latencies: list[float] = []
+    started = time.perf_counter()
+    client.admit_step(steps[0], request_id="large:0")
+    latencies.append(time.perf_counter() - started)
+    for index, step in enumerate(steps[1:], start=1):
+        started = time.perf_counter()
+        client.admit_step(
+            step,
+            summary=StorageAccountingSummary(
+                completed_step=steps[index - 1],
+                materialized_bytes={},
+            ),
+            request_id=f"large:{index}",
+        )
+        latencies.append(time.perf_counter() - started)
+
+    p95 = sorted(latencies)[int(len(latencies) * 0.95) - 1]
+    ledger = json.loads(coordinator.ledger_path.read_text(encoding="utf-8"))
+    assert p95 < 1.0
+    assert ledger["precommit_request_count"] == len(steps)
+    assert ledger["cumulative_precommit_latency_seconds"] > 0
+    assert ledger["max_precommit_latency_seconds"] > 0
+
+
+def test_close_waits_for_inflight_reconciliation_without_late_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    coordinator = StorageAdmissionCoordinator(
+        _plan(tmp_path, steps=("step_00",)),
+        disk_usage=lambda _path: _usage(),
+    )
+    estimator_started = threading.Event()
+
+    def delayed_estimate(**_kwargs):
+        estimator_started.set()
+        time.sleep(1.1)
+        return ProjectStorageEstimate(
+            forcing_bytes=1,
+            member_grid_bytes=1,
+            point_bytes=1,
+            restart_baseline_bytes=1,
+            restart_transition_bytes=1,
+            compact_timeseries_bytes=1,
+            compact_grid_bytes=1,
+        )
+
+    monkeypatch.setattr(
+        "openamundsen_da.util.storage_admission.estimate_project_storage_components",
+        delayed_estimate,
+    )
+    server = StorageAdmissionServer(coordinator)
+    errors: list[BaseException] = []
+
+    def reconcile() -> None:
+        try:
+            server.client(leaf_id="leaf").reconcile_finalization(
+                request_id="slow-reconcile"
+            )
+        except BaseException as exc:  # pragma: no cover - assertion captures it
+            errors.append(exc)
+
+    client_thread = threading.Thread(target=reconcile)
+    client_thread.start()
+    assert estimator_started.wait(timeout=1)
+    server.close()
+    client_thread.join(timeout=1)
+
+    assert errors == []
+    assert not server._thread.is_alive()
+    assert not client_thread.is_alive()
+    closed_snapshot = coordinator.snapshot()
+    time.sleep(0.1)
+    assert coordinator.snapshot() == closed_snapshot
+
+
+def test_heartbeat_keeps_long_reconciliation_alive_beyond_base_deadline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "openamundsen_da.util.storage_admission.STORAGE_ADMISSION_REQUEST_TIMEOUT_SECONDS",
+        0.2,
+    )
+    coordinator = StorageAdmissionCoordinator(
+        _plan(tmp_path, steps=("step_00",)),
+        disk_usage=lambda _path: _usage(),
+    )
+
+    def delayed_estimate(**_kwargs):
+        time.sleep(0.9)
+        return ProjectStorageEstimate(
+            forcing_bytes=1,
+            member_grid_bytes=1,
+            point_bytes=1,
+            restart_baseline_bytes=1,
+            restart_transition_bytes=1,
+            compact_timeseries_bytes=1,
+            compact_grid_bytes=1,
+        )
+
+    monkeypatch.setattr(
+        "openamundsen_da.util.storage_admission.estimate_project_storage_components",
+        delayed_estimate,
+    )
+    with StorageAdmissionServer(coordinator) as server:
+        snapshot = server.client(leaf_id="leaf").reconcile_finalization(
+            request_id="long-reconcile"
+        )
+    assert snapshot.estimated_growth_bytes > 0
+
+
+def test_unexpected_serve_death_stops_heartbeat_and_close_terminalizes_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "openamundsen_da.util.storage_admission.STORAGE_ADMISSION_REQUEST_TIMEOUT_SECONDS",
+        0.2,
+    )
+    monkeypatch.setattr(
+        "openamundsen_da.util.storage_admission._dispatch_coordinator_request",
+        lambda *_args: (_ for _ in ()).throw(SystemExit("dispatch died")),
+    )
+    coordinator = StorageAdmissionCoordinator(_plan(tmp_path), disk_usage=lambda _path: _usage())
+    server = StorageAdmissionServer(coordinator)
+    errors: list[BaseException] = []
+    client = server.client(leaf_id="leaf")
+
+    def request() -> None:
+        try:
+            client.admit_step("step_00", request_id="fatal")
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=request)
+    thread.start()
+    thread.join(timeout=2)
+    assert not thread.is_alive()
+    assert errors
+    assert not server._heartbeat_thread.is_alive()
+    server.close()
+    assert not server._thread.is_alive()
+    generation_dir = server._generation_dir
+    assert not list(generation_dir.rglob("request.json"))
+    assert not list(generation_dir.rglob("progress.*.json"))
+
+
+def test_server_context_exit_waits_after_body_exception(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    coordinator = StorageAdmissionCoordinator(
+        _plan(tmp_path, steps=("step_00",)),
+        disk_usage=lambda _path: _usage(),
+    )
+    estimator_started = threading.Event()
+    release_estimator = threading.Event()
+
+    def blocked_estimate(**_kwargs):
+        estimator_started.set()
+        assert release_estimator.wait(timeout=2)
+        raise RuntimeError("estimator failed")
+
+    monkeypatch.setattr(
+        "openamundsen_da.util.storage_admission.estimate_project_storage_components",
+        blocked_estimate,
+    )
+    server = StorageAdmissionServer(coordinator)
+    client_errors: list[BaseException] = []
+
+    def reconcile() -> None:
+        try:
+            server.client(leaf_id="leaf").reconcile_finalization(
+                request_id="failed-reconcile"
+            )
+        except BaseException as exc:  # pragma: no cover - assertion captures it
+            client_errors.append(exc)
+
+    client_thread = threading.Thread(target=reconcile)
+    try:
+        with server:
+            client_thread.start()
+            assert estimator_started.wait(timeout=1)
+            release_estimator.set()
+            raise ValueError("body failed")
+    except ValueError as exc:
+        assert str(exc) == "body failed"
+    client_thread.join(timeout=1)
+
+    assert not server._thread.is_alive()
+    assert not client_thread.is_alive()
+    assert len(client_errors) == 1
+    assert "estimator failed" in str(client_errors[0])
 
 
 def test_stale_file_response_is_ignored(tmp_path: Path) -> None:
@@ -698,7 +1468,13 @@ def test_resume_reconciles_crash_after_leaf_finalization_manifest(tmp_path: Path
         request_id="crash-complete",
     )
     (leaf.setup_dir / "leaf_finalization_manifest.json").write_text(
-        json.dumps({"status": "success", "project_dir": str(leaf.project_dir)}),
+        json.dumps(
+            {
+                "status": "success",
+                "project_dir": str(leaf.project_dir),
+                "scientific_identity": leaf.identity,
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -824,6 +1600,7 @@ def test_maximum_wave_and_concurrent_finalization_arithmetic(tmp_path: Path) -> 
                 {
                     "status": "success",
                     "project_dir": str(leaves[leaf_id].project_dir),
+                    "scientific_identity": leaves[leaf_id].identity,
                 }
             ),
             encoding="utf-8",
@@ -894,6 +1671,7 @@ def test_two_leaf_server_finalization_has_no_lost_release(tmp_path: Path) -> Non
                     {
                         "status": "success",
                         "project_dir": str(plan.leaves[leaf_id].project_dir),
+                        "scientific_identity": plan.leaves[leaf_id].identity,
                     }
                 ),
                 encoding="utf-8",

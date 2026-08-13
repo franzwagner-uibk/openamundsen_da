@@ -150,11 +150,11 @@ def compute_step_roi_mean_daily_for_all_members(
     model_grid_format: str,
     max_workers: int = 4,
     overwrite: bool = False,
-) -> None:
+) -> tuple[Path, ...]:
     """Compute full-ROI daily mean series for all prior members in one step."""
     spec = roi_mean_spec(variable)
     start, end = step_start_end(step_dir)
-    compute_step_daily_series_for_all_members(
+    return compute_step_daily_series_for_all_members(
         step_dir=Path(step_dir),
         aoi_path=Path(aoi_path),
         start=start,

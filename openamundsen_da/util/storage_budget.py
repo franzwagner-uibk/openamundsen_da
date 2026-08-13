@@ -143,6 +143,10 @@ class StorageReservationProject:
     grid_cell_count: int
     run_manifest: Path | None = None
     completion_not_before_ns: int = 0
+    scientific_input_paths: tuple[Path, ...] = ()
+    scientific_root: Path | None = None
+    preparation_bytes: int = 0
+    requires_preparation: bool = False
 
 
 @dataclass(frozen=True)
@@ -441,20 +445,51 @@ def _project_steps(
     if not steps_root.is_dir():
         raise FileNotFoundError(f"Steps path is not a directory: {steps_root}")
 
-    windows: list[tuple[Path, datetime, datetime]] = []
-    for step in list_steps_sorted(project_dir):
+    materialized = list_steps_sorted(project_dir)
+    if not materialized:
+        raise FileNotFoundError(
+            f"Prepared steps directory is empty or invalid: {steps_root}"
+        )
+    try:
+        virtual = [
+            (project_dir / "steps" / plan.name, plan.start, plan.end)
+            for plan in plan_project_steps(setup_dir, project_dir)
+        ]
+    except (ValueError, FileNotFoundError):
+        virtual = []
+    if not virtual:
+        windows: list[tuple[Path, datetime, datetime]] = []
+        for step in materialized:
+            step_cfg = read_step_config(step) or {}
+            try:
+                windows.append(
+                    (
+                        step,
+                        datetime.fromisoformat(str(step_cfg["start_date"])),
+                        datetime.fromisoformat(str(step_cfg["end_date"])),
+                    )
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(f"Cannot estimate storage for invalid step window in {step}") from exc
+        return windows
+    expected_by_name = {path.name: (path, start, end) for path, start, end in virtual}
+    unexpected = [step.name for step in materialized if step.name not in expected_by_name]
+    if unexpected:
+        raise ValueError(
+            "Prepared steps differ from the immutable virtual plan: "
+            + ", ".join(unexpected)
+        )
+    for step in materialized:
         step_cfg = read_step_config(step) or {}
         try:
             start = datetime.fromisoformat(str(step_cfg["start_date"]))
             end = datetime.fromisoformat(str(step_cfg["end_date"]))
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"Cannot estimate storage for invalid step window in {step}") from exc
-        windows.append((step, start, end))
-    if not windows:
-        raise FileNotFoundError(
-            f"Prepared steps directory is empty or invalid: {steps_root}"
-        )
-    return windows
+        _expected_path, expected_start, expected_end = expected_by_name[step.name]
+        if start != expected_start or end != expected_end:
+            raise ValueError(f"Prepared step differs from virtual window: {step}")
+    return virtual
 
 
 def _merged_output_data(setup_cfg: dict, project_cfg: dict) -> dict:
@@ -1177,8 +1212,19 @@ def estimate_coordinated_storage_reserve(
                     or project.run_manifest.stat().st_mtime_ns
                     >= project.completion_not_before_ns
                 )
+                finalization_path = project.setup_dir / "leaf_finalization_manifest.json"
+                try:
+                    finalization = json.loads(
+                        finalization_path.read_text(encoding="utf-8")
+                    )
+                except (OSError, ValueError, TypeError):
+                    finalization = {}
                 if (
                     str(data.get("status", "")).lower() == "success"
+                    and isinstance(data.get("scientific_identity"), str)
+                    and finalization.get("status") == "success"
+                    and finalization.get("scientific_identity")
+                    == data.get("scientific_identity")
                     and (not overwrite or completed_during_reservation)
                 ):
                     continue

@@ -33,6 +33,8 @@ from openamundsen_da.core.constants import (
     RESAMPLING_ESS_THRESHOLD_RATIO,
     DA_BLOCK,
     MEMBER_PREFIX,
+    MEMBER_SOURCE_POINTER,
+    STATE_POINTER_JSON,
 )
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import list_member_dirs, find_project_yaml, infer_project_dir
@@ -148,7 +150,7 @@ def _mirror_or_resample(
         w_map = [float(weights[int(i)]) if weights is not None else None for i in draw_indices]
 
     pairs: list[tuple[str, str, float | None]] = []
-    from openamundsen_da.core.constants import STATE_POINTER_JSON, MEMBER_SOURCE_POINTER, STATE_DEFAULT_NAME
+    from openamundsen_da.core.constants import STATE_DEFAULT_NAME
     patt = STATE_DEFAULT_NAME
 
     for k, (src_member, wv) in enumerate(zip(mapping, w_map), start=1):
@@ -432,6 +434,23 @@ def resample_from_weights(
         "indices_csv": str(idx_csv),
         "manifest_json": str(man_json),
         "target_root": str(Path(step_dir) / "ensembles" / target_ensemble),
+        "storage_output_paths": [
+            str(path)
+            for posterior_member, _source_member, _weight in pairs
+            for path in (
+                Path(step_dir)
+                / "ensembles"
+                / target_ensemble
+                / posterior_member
+                / MEMBER_SOURCE_POINTER,
+                Path(step_dir)
+                / "ensembles"
+                / target_ensemble
+                / posterior_member
+                / STATE_POINTER_JSON,
+            )
+            if path.is_file()
+        ],
         "unique_sources": int(unique_sources),
         "unique_fraction": (float(unique_sources) / float(n) if n > 0 else 0.0),
     }

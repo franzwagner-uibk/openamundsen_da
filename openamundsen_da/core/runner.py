@@ -221,14 +221,18 @@ def _is_successful_run(results_dir: Path) -> bool:
         return False
 
 
-def _member_storage_accounting(results_dir: Path, *, step_name: str) -> dict[str, Any]:
+def _member_storage_accounting(
+    results_dir: Path,
+    *,
+    step_name: str,
+    log_file: Path | None = None,
+) -> dict[str, Any]:
     """Return producer-owned byte counts for one completed member run."""
-    files = [
-        path
-        for path in recursive_files(results_dir)
-        if path.name != MEMBER_MANIFEST
-    ]
-    inventory = file_inventory(root=results_dir, files=files)
+    member_dir = results_dir.parent
+    files = recursive_files(results_dir)
+    if log_file is not None and log_file.is_file():
+        files.append(log_file)
+    inventory = file_inventory(root=member_dir, files=files)
     return accounting_summary_from_inventory(
         completed_step=step_name,
         inventory=inventory,
@@ -303,6 +307,7 @@ def run_member(
             storage_accounting = _member_storage_accounting(
                 results_dir,
                 step_name=step_dir.name,
+                log_file=log_file,
             )
         storage_accounting = reused_accounting_summary(
             StorageAccountingSummary.from_dict(storage_accounting),
@@ -318,7 +323,9 @@ def run_member(
         )
 
     before_accounting = StorageAccountingSummary.from_dict(
-        _member_storage_accounting(results_dir, step_name=step_dir.name)
+        _member_storage_accounting(
+            results_dir, step_name=step_dir.name, log_file=log_file
+        )
     )
 
     # Step 8: Initialize manifest and timing
@@ -391,20 +398,32 @@ def run_member(
                 logger.info(f"[{member_name}] Saved state to {out_name}")
 
         dur = time.time() - start
-        storage_accounting = accounting_summary_delta(
-            before=before_accounting,
-            after=StorageAccountingSummary.from_dict(
-                _member_storage_accounting(results_dir, step_name=step_dir.name)
-            ),
-            source="member_runner",
-        ).as_dict()
         manifest.update({
             "status": "success",
             "finished": time.strftime("%Y-%m-%d %H:%M:%S"),
             "duration_seconds": dur,
-            "storage_accounting": storage_accounting,
         })
         _write_manifest(results_dir, manifest)
+        log_handle.flush()
+        # The manifest records its own producer summary. Iterate the tiny JSON
+        # write to a stable size so the returned high-water also includes that
+        # authoritative manifest and the flushed member log.
+        storage_accounting: dict[str, Any] = {}
+        for _ in range(4):
+            updated = accounting_summary_delta(
+                before=before_accounting,
+                after=StorageAccountingSummary.from_dict(
+                    _member_storage_accounting(
+                        results_dir, step_name=step_dir.name, log_file=log_file
+                    )
+                ),
+                source="member_runner",
+            ).as_dict()
+            if updated == storage_accounting:
+                break
+            storage_accounting = updated
+            manifest["storage_accounting"] = storage_accounting
+            _write_manifest(results_dir, manifest)
         return MemberRunResult(
             member_name,
             "success",

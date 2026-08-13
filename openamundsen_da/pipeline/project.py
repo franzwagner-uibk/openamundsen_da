@@ -68,6 +68,7 @@ from openamundsen_da.util.storage_admission import (
     StorageAdmissionClient,
     StorageAdmissionCoordinator,
     accounting_summary_from_inventory,
+    accounting_summary_from_paths,
     build_storage_plan,
     reused_accounting_summary,
 )
@@ -108,6 +109,7 @@ from openamundsen_da.methods.pf.weights import (
     load_prior_weights,
     prior_weight_paths,
     write_event_weights,
+    event_weights_manifest_path,
 )
 from openamundsen_da.pipeline.plot_tasks import (
     run_live_plots,
@@ -198,13 +200,19 @@ def _compute_prior_step_diagnostics(
     scf_enabled: bool,
     wet_snow_enabled: bool,
     wet_snow_classification: WetSnowClassificationConfig | None,
-) -> None:
+) -> StorageAccountingSummary:
     """Compute setup-level prior diagnostics that depend on propagated member outputs."""
     step_name = Path(step_dir).name
+    outputs: list[Path] = []
+
+    def record(produced: object) -> None:
+        if produced is None:
+            return
+        outputs.extend(Path(path) for path in produced)
 
     try:
         if scf_enabled:
-            compute_step_scf_daily_for_all_members(
+            record(compute_step_scf_daily_for_all_members(
                 setup_dir=cfg.setup_dir,
                 project_dir=cfg.project_dir,
                 step_dir=step_dir,
@@ -212,20 +220,20 @@ def _compute_prior_step_diagnostics(
                 landcover_cfg=lc_cfg,
                 max_workers=int(workers),
                 overwrite=bool(cfg.overwrite),
-            )
+            ))
     except Exception as exc:
         logger.warning("Model SCF daily computation failed for {}: {}", step_name, exc)
 
     for variable in ("swe", "hs"):
         try:
-            compute_step_roi_mean_daily_for_all_members(
+            record(compute_step_roi_mean_daily_for_all_members(
                 step_dir=step_dir,
                 aoi_path=roi,
                 variable=variable,
                 model_grid_format=configured_model_grid_format(cfg.setup_dir).value,
                 max_workers=int(workers),
                 overwrite=bool(cfg.overwrite),
-            )
+            ))
         except Exception as exc:
             logger.warning("ROI mean {} daily computation failed for {}: {}", variable, step_name, exc)
 
@@ -233,7 +241,7 @@ def _compute_prior_step_diagnostics(
         if wet_snow_enabled:
             if wet_snow_classification is None:
                 raise ValueError("Wet-snow diagnostics are enabled but no classification config was loaded")
-            classify_step_wet_snow(
+            record(classify_step_wet_snow(
                 step_dir=step_dir,
                 members=None,
                 threshold_percent=wet_snow_classification.threshold_percent,
@@ -245,8 +253,8 @@ def _compute_prior_step_diagnostics(
                 write_fraction=False,
                 overwrite=bool(cfg.overwrite),
                 max_workers=int(workers),
-            )
-            compute_step_wet_snow_daily_for_all_members(
+            ))
+            record(compute_step_wet_snow_daily_for_all_members(
                 setup_dir=cfg.setup_dir,
                 project_dir=cfg.project_dir,
                 step_dir=step_dir,
@@ -256,9 +264,15 @@ def _compute_prior_step_diagnostics(
                 overwrite=bool(cfg.overwrite),
                 mask_subdir="wet_snow",
                 mask_prefix="wet_snow_mask",
-            )
+            ))
     except Exception as exc:
         logger.warning("Model wet-snow diagnostics failed for {}: {}", step_name, exc)
+    return accounting_summary_from_paths(
+        completed_step=step_name,
+        root=step_dir,
+        paths=outputs,
+        source="prior_step_diagnostics",
+    )
 
 
 def _write_station_diagnostics(
@@ -499,8 +513,6 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
             f"not configured setup {Path(cfg.setup_dir).resolve()}"
         )
 
-    # Console + file log under project root.
-    _setup_logger(cfg.project_dir, cfg.log_level)
     live_plot_threads: list[threading.Thread] = []
 
     steps = _list_steps_sorted(cfg.project_dir)
@@ -557,6 +569,9 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         request_id=f"{cfg.storage_admission_client.leaf_id}:admit:{steps[0].name}",
         allow_existing_step_drain=initial_resume,
     )
+    # Do not create/truncate the mutable project log until new work has passed
+    # the hard 80% admission gate.
+    _setup_logger(cfg.project_dir, cfg.log_level)
     logger.info(
         "Disk admission {}: used={:.1%}, incremental reserve={:.1f} GiB, "
         "operational reserve={:.1f} GiB",
@@ -711,7 +726,6 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         step_storage_accounting = forcing_accounting.merged(
             _storage_summary(launch_summary.get("storage_accounting"))
         )
-        last_step_storage_accounting = step_storage_accounting
 
         if i > 0:
             try:
@@ -737,7 +751,7 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
                     len(removed_checkpoint),
                 )
 
-        _compute_prior_step_diagnostics(
+        diagnostics_accounting = _compute_prior_step_diagnostics(
             cfg=cfg,
             step_dir=step_dir,
             roi=roi,
@@ -747,6 +761,10 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
             wet_snow_enabled=wet_snow_enabled,
             wet_snow_classification=wet_snow_classification,
         )
+        step_storage_accounting = step_storage_accounting.merged(
+            diagnostics_accounting
+        )
+        last_step_storage_accounting = step_storage_accounting
 
         # If not the last step: Assimilation -> Resample -> Rejuvenate
         next_start = _next_step_start(steps, i)
@@ -993,6 +1011,24 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         # Rejuvenate posterior -> next prior
         rejuvenate_manifest = Path(steps[i + 1]) / "assim" / "rejuvenate_manifest.json"
         next_resume = rejuvenate_manifest.is_file() and not cfg.overwrite
+        boundary_outputs = [
+            wcsv,
+            event_weights_manifest_path(wcsv),
+            Path(resampling_summary["indices_csv"]),
+            Path(resampling_summary["manifest_json"]),
+            next_weight_csv,
+            next_weight_manifest,
+            *(Path(path) for path in resampling_summary["storage_output_paths"]),
+        ]
+        if station_diag_csv is not None:
+            boundary_outputs.append(station_diag_csv)
+        boundary_accounting = accounting_summary_from_paths(
+            completed_step=step_name,
+            root=cfg.project_dir,
+            paths=boundary_outputs,
+            source="step_lifecycle_outputs",
+        )
+        step_storage_accounting = step_storage_accounting.merged(boundary_accounting)
         next_budget = cfg.storage_admission_client.admit_step(
             steps[i + 1].name,
             summary=step_storage_accounting,

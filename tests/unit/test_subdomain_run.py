@@ -19,7 +19,12 @@ def _single_subdomain_manifest(tmp_path: Path) -> tuple[SubdomainManifest, Path]
     setup_yaml = setup_dir / "S1.yml"
     project_yaml = project_dir / "project_2022_2023.yml"
     setup_yaml.write_text("domain: test\n", encoding="utf-8")
-    project_yaml.write_text("start_date: 2023-01-01\nend_date: 2023-01-02\n", encoding="utf-8")
+    project_yaml.write_text(
+        "start_date: 2023-01-01\nend_date: 2023-01-02\n"
+        "data_assimilation:\n  assimilation_events:\n"
+        "    - {date: '2023-01-02', variable: station_hs}\n",
+        encoding="utf-8",
+    )
 
     sub = SubdomainMeta(
         id="S1",
@@ -166,6 +171,7 @@ def test_coordinator_reserves_largest_active_leaf_transitions(monkeypatch, tmp_p
     }
     monkeypatch.setattr(run_mod, "estimate_parent_compact_merge_bytes", lambda **_kwargs: 100)
     monkeypatch.setattr(run_mod, "estimate_parent_render_bytes", lambda **_kwargs: 0)
+    monkeypatch.setattr(run_mod, "_leaf_scientific_input_paths", lambda *_args: ())
     monkeypatch.setattr(
         run_mod,
         "estimate_coordinated_storage_reserve",

@@ -116,9 +116,12 @@ def test_full_retention_leaf_finalization_does_not_remove_raw_artifacts(
     assert completed["status"] == "success"
     assert completed["retention"] == "full"
     assert raw.read_bytes() == b"raw"
-    assert not finalization_mod.leaf_finalization_manifest_path(
-        subdomain.setup_dir
-    ).exists()
+    manifest = finalization_mod.load_manifest(
+        finalization_mod.leaf_finalization_manifest_path(subdomain.setup_dir)
+    )
+    assert manifest is not None
+    assert manifest["status"] == "success"
+    assert manifest["cleanup_deleted_files"] == 0
 
 
 def test_full_retention_scf_leaf_uses_raw_render_support_without_map_archive(

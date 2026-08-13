@@ -23,6 +23,11 @@ def _bounded_merge_storage(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         merge_mod,
+        "estimate_parent_render_bytes",
+        lambda **_kwargs: 512,
+    )
+    monkeypatch.setattr(
+        merge_mod,
         "admit_storage_transition",
         lambda *_args, **_kwargs: SimpleNamespace(used_fraction=0.1),
     )

@@ -79,7 +79,7 @@ def compute_step_daily_series_for_all_members(
     max_workers: int = 4,
     overwrite: bool = False,
     worker_kwargs: Dict[str, Any] | None = None,
-) -> None:
+) -> tuple[Path, ...]:
     """Compute daily AOI series for all members in a step.
 
     Parameters
@@ -118,7 +118,7 @@ def compute_step_daily_series_for_all_members(
     members = _list_members_with_optional_open_loop(step_dir, ensemble, include_open_loop)
     if not members:
         logger.warning("No members found under {}/ensembles/{}; skipping daily AOI series.", step_dir, ensemble)
-        return
+        return ()
 
     jobs: List[Tuple[Path, Path, datetime, datetime, Path, bool, Dict[str, Any]]] = []
     all_exist = True
@@ -134,7 +134,7 @@ def compute_step_daily_series_for_all_members(
 
     if not jobs:
         logger.warning("No member results directories found for {}; skipping daily AOI series.", step_dir)
-        return
+        return ()
 
     if all_exist and not overwrite:
         logger.info(
@@ -142,7 +142,7 @@ def compute_step_daily_series_for_all_members(
             csv_name,
             step_dir.name,
         )
-        return
+        return tuple(args[4] for args in jobs if Path(args[4]).is_file())
 
     n_workers = max(1, min(int(max_workers or 1), len(jobs)))
     logger.info(
@@ -188,3 +188,4 @@ def compute_step_daily_series_for_all_members(
         len(jobs),
         step_dir.name,
     )
+    return tuple(args[4] for args in jobs if Path(args[4]).is_file())

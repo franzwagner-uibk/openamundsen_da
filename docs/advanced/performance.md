@@ -79,9 +79,13 @@ parent merge, render or resume reconciliation. Member propagation and forcing
 producers attach byte/count summaries to their existing manifests. At the next
 ordinary step boundary the coordinator applies those summaries, raises
 observed component high-water marks when necessary and calls `disk_usage`
-once. Boundary work therefore does not grow with accumulated steps or sibling
-leaves. The retained reservation ledger reports check counts and cumulative
-durations for performance regression analysis.
+once. It does not scan configs, source data, accumulated artifacts or sibling
+project trees. The compact ledger serialization does scale with the immutable
+prepared lifecycle entries (leaves and steps), so it is bounded by the
+preflight plan rather than constant size. The retained ledger reports disk-check
+counts/durations plus pre-commit coordinator-request count, cumulative latency
+and maximum latency. Caller-side performance tests cover the final atomic ledger
+write and end-to-end request latency.
 
 The estimator currently proves aggregate component bounds, not heterogeneous
 per-step shares. For safety, propagation summaries never release that aggregate:

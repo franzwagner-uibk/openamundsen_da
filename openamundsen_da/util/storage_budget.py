@@ -241,24 +241,50 @@ def estimate_compact_timeseries_bytes(project_dir: str | Path) -> int:
         for pattern in patterns
         for path in project_dir.glob(pattern)
     }
-    files, _stable = _owned_file_snapshot(list(paths))
+    files, _stable = _owned_file_snapshot(list(paths), root=project_dir)
     # Compression normally makes the NetCDF smaller than the CSV source. Keep
     # ten percent for metadata, temporary files and sparse point variables.
     estimate = int(sum(item.size for item in files) * COMPACT_OUTPUT_MARGIN)
-    _verify_owned_file_snapshot(files, tolerate_disappearance=False)
+    _verify_owned_file_snapshot(
+        files,
+        root=project_dir,
+        tolerate_disappearance=False,
+    )
     return estimate
 
 
 def _owned_file_snapshot(
     paths: list[Path],
     *,
+    root: Path,
     tolerate_disappearance: bool = False,
 ) -> tuple[tuple[_OwnedFileMetadata, ...], bool]:
-    """Capture regular files once per inode with an explicit race policy."""
+    """Capture contained regular files once per inode with an explicit race policy."""
+    if not paths:
+        return (), True
+    root = root.resolve(strict=True)
+    root_device = int(root.stat().st_dev)
     seen: set[tuple[int, int]] = set()
     files: list[_OwnedFileMetadata] = []
     stable = True
     for path in paths:
+        path = Path(path)
+        try:
+            path.absolute().relative_to(root)
+        except ValueError as exc:
+            raise ValueError(f"Owned file path is outside its project root: {path}") from exc
+        try:
+            resolved_parent = path.parent.resolve(strict=True)
+            resolved_parent.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(
+                f"Owned file path escapes its project root through an ancestor: {path}"
+            ) from exc
+        except FileNotFoundError:
+            if not tolerate_disappearance:
+                raise
+            stable = False
+            continue
         try:
             metadata = path.lstat()
         except FileNotFoundError:
@@ -268,6 +294,10 @@ def _owned_file_snapshot(
             continue
         if not stat_module.S_ISREG(metadata.st_mode):
             continue
+        if int(metadata.st_dev) != root_device:
+            raise ValueError(
+                f"Owned file path is on a different filesystem than its project root: {path}"
+            )
         identity = (int(metadata.st_dev), int(metadata.st_ino))
         if identity in seen:
             continue
@@ -286,6 +316,7 @@ def _owned_file_snapshot(
 def _verify_owned_file_snapshot(
     files: tuple[_OwnedFileMetadata, ...],
     *,
+    root: Path,
     tolerate_disappearance: bool,
 ) -> bool:
     """Verify identities after callers finish deriving existing-byte credit.
@@ -293,8 +324,25 @@ def _verify_owned_file_snapshot(
     Size growth in an actively written file does not invalidate the identity;
     the next boundary can refit the observed high-water mark upward.
     """
+    if not files:
+        return True
+    root = root.resolve(strict=True)
+    root_device = int(root.stat().st_dev)
     stable = True
     for item in files:
+        try:
+            resolved_parent = item.path.parent.resolve(strict=True)
+            resolved_parent.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(
+                "Owned file path escapes its project root through an ancestor: "
+                f"{item.path}"
+            ) from exc
+        except FileNotFoundError:
+            if not tolerate_disappearance:
+                raise
+            stable = False
+            continue
         try:
             metadata = item.path.lstat()
         except FileNotFoundError:
@@ -302,9 +350,13 @@ def _verify_owned_file_snapshot(
                 raise
             stable = False
             continue
+        if int(metadata.st_dev) != root_device:
+            raise ValueError(
+                "Owned file path moved to a different filesystem than its project root: "
+                f"{item.path}"
+            )
         if (
             not stat_module.S_ISREG(metadata.st_mode)
-            or int(metadata.st_dev) != item.device
             or int(metadata.st_ino) != item.inode
         ):
             if not tolerate_disappearance:
@@ -318,16 +370,19 @@ def _verify_owned_file_snapshot(
 def _owned_file_bytes(
     paths: list[Path],
     *,
+    root: Path,
     tolerate_disappearance: bool = False,
 ) -> int:
     """Return allocated payload bytes once per inode."""
     files, stable = _owned_file_snapshot(
         paths,
+        root=root,
         tolerate_disappearance=tolerate_disappearance,
     )
     total = sum(item.size for item in files)
     stable = _verify_owned_file_snapshot(
         files,
+        root=root,
         tolerate_disappearance=tolerate_disappearance,
     ) and stable
     if tolerate_disappearance and not stable:
@@ -516,6 +571,7 @@ def _forcing_plot_storage_bound(
     )
     existing = _owned_file_bytes(
         list(project_dir.glob("steps/step_*/plots/forcing/*.png")),
+        root=project_dir,
         tolerate_disappearance=tolerate_disappearance,
     )
     return max(0, expected - existing)
@@ -563,7 +619,7 @@ def _retained_diagnostics_storage_bound(
         for path in (project_dir / "results").glob("*")
         if path.is_file() and not path.is_symlink()
     )
-    existing = _owned_file_bytes(list(paths))
+    existing = _owned_file_bytes(list(paths), root=project_dir)
     expected = max(calibrated, int(existing * OBSERVED_REFIT_MARGIN))
     return max(0, expected - existing)
 
@@ -631,13 +687,41 @@ def _observed_point_bytes_per_value(
     """Calibrate the point bound upward from already produced CSVs."""
     if project_dir is None:
         return 0.0
+    project_dir = Path(project_dir).resolve()
+    paths = list(
+        project_dir.glob("steps/step_*/ensembles/*/*/results/point_*.csv")
+    )
+    files, _stable_snapshot = _owned_file_snapshot(
+        paths,
+        root=project_dir,
+        tolerate_disappearance=tolerate_disappearance,
+    )
     measured = 0.0
-    for path in Path(project_dir).glob("steps/step_*/ensembles/*/*/results/point_*.csv"):
-        if path.is_symlink():
-            continue
+    for item in files:
         try:
-            with path.open("r", encoding="utf-8-sig", errors="strict", newline="") as stream:
-                size = int(os.fstat(stream.fileno()).st_size)
+            with item.path.open(
+                "r",
+                encoding="utf-8-sig",
+                errors="strict",
+                newline="",
+            ) as stream:
+                metadata = os.fstat(stream.fileno())
+                if int(metadata.st_dev) != item.device:
+                    raise ValueError(
+                        "Owned file path moved to a different filesystem than its "
+                        f"project root: {item.path}"
+                    )
+                if (
+                    not stat_module.S_ISREG(metadata.st_mode)
+                    or int(metadata.st_ino) != item.inode
+                ):
+                    if not tolerate_disappearance:
+                        raise RuntimeError(
+                            "Owned file identity changed during storage estimation: "
+                            f"{item.path}"
+                        )
+                    continue
+                size = int(metadata.st_size)
                 reader = csv.reader(stream)
                 try:
                     header = next(reader)
@@ -651,6 +735,11 @@ def _observed_point_bytes_per_value(
         values = rows * max(1, len(header) - 1)
         if values:
             measured = max(measured, size / values)
+    _verify_owned_file_snapshot(
+        files,
+        root=project_dir,
+        tolerate_disappearance=tolerate_disappearance,
+    )
     return measured
 
 
@@ -680,6 +769,7 @@ def _project_grid_storage_bound(
     )
     existing_files, stable_snapshot = _owned_file_snapshot(
         existing_paths,
+        root=project_dir,
         tolerate_disappearance=tolerate_disappearance,
     )
     measured_rate = 0.0
@@ -705,6 +795,7 @@ def _project_grid_storage_bound(
     )
     stable_snapshot = _verify_owned_file_snapshot(
         existing_files,
+        root=project_dir,
         tolerate_disappearance=tolerate_disappearance,
     ) and stable_snapshot
     existing = (
@@ -762,6 +853,7 @@ def _restart_storage_bound(
 
     state_files, stable_snapshot = _owned_file_snapshot(
         state_paths,
+        root=project_dir,
         tolerate_disappearance=compact,
     )
     existing_files = state_files
@@ -788,6 +880,7 @@ def _restart_storage_bound(
     )
     stable_snapshot = _verify_owned_file_snapshot(
         state_files,
+        root=project_dir,
         tolerate_disappearance=compact,
     ) and stable_snapshot
     if compact and not stable_snapshot:
@@ -945,6 +1038,7 @@ def estimate_project_storage_components(
             for path in project_dir.glob("steps/step_*/ensembles/*/*/meteo/*.csv")
             if path.name != "stations.csv"
         ],
+        root=project_dir,
         tolerate_disappearance=compact,
     )
     forcing_additional = max(0, forcing_expected - forcing_existing)
@@ -975,6 +1069,7 @@ def estimate_project_storage_components(
             path
             for path in project_dir.glob("steps/step_*/ensembles/*/*/results/point_*.csv")
         ],
+        root=project_dir,
         tolerate_disappearance=compact,
     )
     point_additional = max(0, point_expected - point_existing)
@@ -1188,7 +1283,7 @@ def estimate_parent_render_bytes(
         for path in (project_dir / "results" / directory).rglob("*")
         if path.is_file() and not path.is_symlink()
     ]
-    existing = _owned_file_bytes(existing_files)
+    existing = _owned_file_bytes(existing_files, root=project_dir)
     refitted = max(planned, int(existing * OBSERVED_REFIT_MARGIN))
     return refitted if overwrite else max(0, refitted - existing)
 

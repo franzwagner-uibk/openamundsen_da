@@ -28,6 +28,7 @@ from openamundsen_da.util.storage_budget import (
     estimate_step_forcing_bytes,
     _point_storage_bound,
     _forcing_plot_storage_bound,
+    _observed_point_bytes_per_value,
     _owned_file_bytes,
     _restart_storage_bound,
     _retained_diagnostics_storage_bound,
@@ -207,17 +208,91 @@ def test_compact_export_estimate_counts_owned_csvs_with_margin(tmp_path: Path) -
     assert estimate_compact_timeseries_bytes(project) == 11
 
 
-def test_owned_file_snapshot_deduplicates_hardlinks_and_ignores_symlinks(
+def test_owned_file_snapshot_deduplicates_hardlinks(
     tmp_path: Path,
 ) -> None:
     original = tmp_path / "original.bin"
     hardlink = tmp_path / "hardlink.bin"
-    symlink = tmp_path / "symlink.bin"
     original.write_bytes(b"12345")
     os.link(original, hardlink)
-    symlink.symlink_to(original)
 
-    assert _owned_file_bytes([original, hardlink, symlink]) == 5
+    assert _owned_file_bytes(
+        [original, hardlink],
+        root=tmp_path,
+    ) == 5
+
+
+def test_owned_file_snapshot_ignores_direct_file_symlink(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    outside = tmp_path / "outside.bin"
+    root.mkdir()
+    outside.write_bytes(b"external-payload")
+    direct_symlink = root / "linked.bin"
+    direct_symlink.symlink_to(outside)
+
+    assert _owned_file_bytes([direct_symlink], root=root) == 0
+
+
+def test_owned_file_snapshot_accepts_empty_pristine_project(tmp_path: Path) -> None:
+    project = tmp_path / "not-materialized-yet"
+
+    assert _owned_file_bytes([], root=project) == 0
+
+
+def test_owned_file_snapshot_accepts_contained_ancestor_symlink(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "project"
+    actual = root / "actual"
+    actual.mkdir(parents=True)
+    (actual / "owned.bin").write_bytes(b"data")
+    (root / "contained").symlink_to(actual, target_is_directory=True)
+
+    assert _owned_file_bytes(
+        [root / "contained" / "owned.bin"],
+        root=root,
+    ) == 4
+
+
+def test_owned_file_snapshot_rejects_escaping_ancestor_symlink(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "project"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    (outside / "not-owned.bin").write_bytes(b"external")
+    (root / "escape").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="escapes its project root"):
+        _owned_file_bytes(
+            [root / "escape" / "not-owned.bin"],
+            root=root,
+            tolerate_disappearance=True,
+        )
+
+
+def test_point_calibration_rejects_escaping_ancestor_symlink(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    results_parent = (
+        project / "steps" / "step_00" / "ensembles" / "prior" / "member_001"
+    )
+    outside = tmp_path / "outside-results"
+    results_parent.mkdir(parents=True)
+    outside.mkdir()
+    (outside / "point_station.csv").write_text(
+        "date,value\n2023-01-01,1\n",
+        encoding="utf-8",
+    )
+    (results_parent / "results").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="escapes its project root"):
+        _observed_point_bytes_per_value(
+            project,
+            tolerate_disappearance=True,
+        )
 
 
 @pytest.mark.parametrize("tolerate_disappearance", [False, True])
@@ -246,11 +321,12 @@ def test_owned_file_snapshot_handles_identity_replacement_conservatively(
     if tolerate_disappearance:
         assert _owned_file_bytes(
             [target],
+            root=tmp_path,
             tolerate_disappearance=True,
         ) == 0
     else:
         with pytest.raises(RuntimeError, match="identity changed"):
-            _owned_file_bytes([target])
+            _owned_file_bytes([target], root=tmp_path)
 
 
 def test_owned_file_snapshot_does_not_credit_new_file_between_passes(
@@ -273,7 +349,11 @@ def test_owned_file_snapshot_does_not_credit_new_file_between_passes(
 
     monkeypatch.setattr(Path, "lstat", creating_lstat)
 
-    assert _owned_file_bytes([target], tolerate_disappearance=True) == 3
+    assert _owned_file_bytes(
+        [target],
+        root=tmp_path,
+        tolerate_disappearance=True,
+    ) == 3
     assert newcomer.stat().st_size > 3
 
 
@@ -290,7 +370,11 @@ def test_owned_file_snapshot_never_hides_other_metadata_errors(
     monkeypatch.setattr(Path, "lstat", denied_lstat)
 
     with pytest.raises(PermissionError, match="denied"):
-        _owned_file_bytes([target], tolerate_disappearance=True)
+        _owned_file_bytes(
+            [target],
+            root=tmp_path,
+            tolerate_disappearance=True,
+        )
 
 
 def test_forcing_plot_bound_uses_euregio_calibration_and_refits_existing(

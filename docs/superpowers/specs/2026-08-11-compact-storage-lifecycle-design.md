@@ -68,7 +68,10 @@ design because they change restart and worker-cancellation behavior.
   at every boundary, so active and queued leaves cannot spend against
   unreserved shared space.
 - Shared-filesystem admission snapshots package-owned mutable artifacts without
-  following symlinks and verifies each file identity twice. A compact leaf may
+  following final-component symlinks and verifies each file identity twice.
+  Ancestor symlinks are accepted only when they resolve inside the project root
+  on the same filesystem; escaping or cross-filesystem artifacts fail closed.
+  A compact leaf may
   finish rolling or final cleanup while a sibling recomputes the coordinated
   reserve; disappearance of an eligible forcing CSV, point CSV, member grid,
   forcing PNG or restart state therefore removes its existing-byte credit

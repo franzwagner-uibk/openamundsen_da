@@ -71,6 +71,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the accepted leaf project YAMLs.
 
 ### Fixed
+- Keep coordinated compact-storage admission conservative when rolling or
+  final cleanup in one subdomain removes package-owned checkpoints, forcing,
+  point, grid or forcing-plot artifacts while another subdomain recomputes the
+  shared-filesystem reserve.
 - Resolve posterior checkpoint pointers to their actual prior-member producer
   manifests before compact rolling cleanup, while continuing to reject missing,
   malformed or external checkpoint provenance before deletion.

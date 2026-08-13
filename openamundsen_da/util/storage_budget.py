@@ -5,7 +5,9 @@ from __future__ import annotations
 import csv
 import json
 import math
+import os
 import shutil
+import stat as stat_module
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -143,6 +145,16 @@ class StorageReservationProject:
     completion_not_before_ns: int = 0
 
 
+@dataclass(frozen=True)
+class _OwnedFileMetadata:
+    """One regular package-owned file captured without following symlinks."""
+
+    path: Path
+    size: int
+    device: int
+    inode: int
+
+
 def _parse_csv_timestamp(raw: str) -> datetime | None:
     value = raw.strip().replace("Z", "+00:00")
     try:
@@ -214,36 +226,112 @@ def _selected_forcing_source_bytes(path: Path, *, start: datetime, end: datetime
 
 
 def estimate_compact_timeseries_bytes(project_dir: str | Path) -> int:
-    """Conservatively reserve one raw-byte equivalent for compact exports."""
+    """Conservatively reserve one raw-byte equivalent for compact exports.
+
+    This standalone helper has no retention context, so mutable-path
+    disappearance remains a strict error rather than an implicit fallback.
+    """
     project_dir = Path(project_dir).resolve()
     patterns = (
         "steps/step_*/ensembles/*/*/results/point_*.csv",
         "steps/step_*/ensembles/*/*/meteo/*.csv",
     )
     paths = {
-        path.resolve()
+        path
         for pattern in patterns
         for path in project_dir.glob(pattern)
-        if path.is_file() and not path.is_symlink()
     }
+    files, _stable = _owned_file_snapshot(list(paths))
     # Compression normally makes the NetCDF smaller than the CSV source. Keep
     # ten percent for metadata, temporary files and sparse point variables.
-    return int(sum(path.stat().st_size for path in paths) * COMPACT_OUTPUT_MARGIN)
+    estimate = int(sum(item.size for item in files) * COMPACT_OUTPUT_MARGIN)
+    _verify_owned_file_snapshot(files, tolerate_disappearance=False)
+    return estimate
 
 
-def _owned_file_bytes(paths: list[Path]) -> int:
-    """Return allocated payload bytes once per inode."""
+def _owned_file_snapshot(
+    paths: list[Path],
+    *,
+    tolerate_disappearance: bool = False,
+) -> tuple[tuple[_OwnedFileMetadata, ...], bool]:
+    """Capture regular files once per inode with an explicit race policy."""
     seen: set[tuple[int, int]] = set()
-    total = 0
+    files: list[_OwnedFileMetadata] = []
+    stable = True
     for path in paths:
-        if not path.is_file() or path.is_symlink():
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            if not tolerate_disappearance:
+                raise
+            stable = False
             continue
-        stat = path.stat()
-        identity = (int(stat.st_dev), int(stat.st_ino))
+        if not stat_module.S_ISREG(metadata.st_mode):
+            continue
+        identity = (int(metadata.st_dev), int(metadata.st_ino))
         if identity in seen:
             continue
         seen.add(identity)
-        total += int(stat.st_size)
+        files.append(
+            _OwnedFileMetadata(
+                path=path,
+                size=int(metadata.st_size),
+                device=identity[0],
+                inode=identity[1],
+            )
+        )
+    return tuple(files), stable
+
+
+def _verify_owned_file_snapshot(
+    files: tuple[_OwnedFileMetadata, ...],
+    *,
+    tolerate_disappearance: bool,
+) -> bool:
+    """Verify identities after callers finish deriving existing-byte credit.
+
+    Size growth in an actively written file does not invalidate the identity;
+    the next boundary can refit the observed high-water mark upward.
+    """
+    stable = True
+    for item in files:
+        try:
+            metadata = item.path.lstat()
+        except FileNotFoundError:
+            if not tolerate_disappearance:
+                raise
+            stable = False
+            continue
+        if (
+            not stat_module.S_ISREG(metadata.st_mode)
+            or int(metadata.st_dev) != item.device
+            or int(metadata.st_ino) != item.inode
+        ):
+            if not tolerate_disappearance:
+                raise RuntimeError(
+                    f"Owned file identity changed during storage estimation: {item.path}"
+                )
+            stable = False
+    return stable
+
+
+def _owned_file_bytes(
+    paths: list[Path],
+    *,
+    tolerate_disappearance: bool = False,
+) -> int:
+    """Return allocated payload bytes once per inode."""
+    files, stable = _owned_file_snapshot(
+        paths,
+        tolerate_disappearance=tolerate_disappearance,
+    )
+    total = sum(item.size for item in files)
+    stable = _verify_owned_file_snapshot(
+        files,
+        tolerate_disappearance=tolerate_disappearance,
+    ) and stable
+    if tolerate_disappearance and not stable:
+        return 0
     return total
 
 
@@ -409,6 +497,7 @@ def _forcing_plot_storage_bound(
     project_dir: Path,
     steps: list[tuple[Path, datetime, datetime]],
     member_count: int,
+    tolerate_disappearance: bool = False,
 ) -> int:
     """Reserve derived per-step forcing PNGs until leaf finalization."""
     station_count = _station_count(setup_dir)
@@ -426,11 +515,8 @@ def _forcing_plot_storage_bound(
         * OBSERVED_REFIT_MARGIN
     )
     existing = _owned_file_bytes(
-        [
-            path
-            for path in project_dir.glob("steps/step_*/plots/forcing/*.png")
-            if path.is_file() and not path.is_symlink()
-        ]
+        list(project_dir.glob("steps/step_*/plots/forcing/*.png")),
+        tolerate_disappearance=tolerate_disappearance,
     )
     return max(0, expected - existing)
 
@@ -491,6 +577,7 @@ def _point_storage_bound(
     model_timestep: object,
     member_count: int,
     project_dir: Path | None = None,
+    tolerate_disappearance: bool = False,
 ) -> int:
     timeseries = output_data.get("timeseries") or {}
     explicit_points = list(timeseries.get("points") or [])
@@ -515,7 +602,14 @@ def _point_storage_bound(
         _window_sample_count(start, end, write_frequency)
         for _step, start, end in steps
     )
-    observed_rate = _observed_point_bytes_per_value(project_dir) if project_dir is not None else 0.0
+    observed_rate = (
+        _observed_point_bytes_per_value(
+            project_dir,
+            tolerate_disappearance=tolerate_disappearance,
+        )
+        if project_dir is not None
+        else 0.0
+    )
     byte_rate = max(
         POINT_BYTES_PER_VALUE * OBSERVED_REFIT_MARGIN,
         observed_rate * OBSERVED_REFIT_MARGIN,
@@ -529,24 +623,34 @@ def _point_storage_bound(
     )
 
 
-def _observed_point_bytes_per_value(project_dir: Path | None) -> float:
+def _observed_point_bytes_per_value(
+    project_dir: Path | None,
+    *,
+    tolerate_disappearance: bool = False,
+) -> float:
     """Calibrate the point bound upward from already produced CSVs."""
     if project_dir is None:
         return 0.0
     measured = 0.0
     for path in Path(project_dir).glob("steps/step_*/ensembles/*/*/results/point_*.csv"):
-        if not path.is_file() or path.is_symlink():
+        if path.is_symlink():
             continue
-        with path.open("r", encoding="utf-8-sig", errors="strict", newline="") as stream:
-            reader = csv.reader(stream)
-            try:
-                header = next(reader)
-            except StopIteration:
-                continue
-            rows = sum(1 for row in reader if row)
+        try:
+            with path.open("r", encoding="utf-8-sig", errors="strict", newline="") as stream:
+                size = int(os.fstat(stream.fileno()).st_size)
+                reader = csv.reader(stream)
+                try:
+                    header = next(reader)
+                except StopIteration:
+                    continue
+                rows = sum(1 for row in reader if row)
+        except FileNotFoundError:
+            if not tolerate_disappearance:
+                raise
+            continue
         values = rows * max(1, len(header) - 1)
         if values:
-            measured = max(measured, path.stat().st_size / values)
+            measured = max(measured, size / values)
     return measured
 
 
@@ -559,6 +663,7 @@ def _project_grid_storage_bound(
     model_timestep: object,
     grid_cell_count: int,
     member_count: int,
+    tolerate_disappearance: bool = False,
 ) -> tuple[int, int]:
     sample_counts = {
         step.name: _configured_grid_samples(
@@ -570,22 +675,24 @@ def _project_grid_storage_bound(
         )
         for step, start, end in steps
     }
-    existing_paths = [
-        path
-        for path in project_dir.glob("steps/step_*/ensembles/*/*/results/output_grids*.nc")
-        if path.is_file() and not path.is_symlink()
-    ]
+    existing_paths = list(
+        project_dir.glob("steps/step_*/ensembles/*/*/results/output_grids*.nc")
+    )
+    existing_files, stable_snapshot = _owned_file_snapshot(
+        existing_paths,
+        tolerate_disappearance=tolerate_disappearance,
+    )
     measured_rate = 0.0
-    for path in existing_paths:
+    for item in existing_files:
         try:
-            step_name = path.relative_to(project_dir / "steps").parts[0]
+            step_name = item.path.relative_to(project_dir / "steps").parts[0]
         except (ValueError, IndexError):
             continue
         samples = sample_counts.get(step_name, 0)
         if samples > 0:
             measured_rate = max(
                 measured_rate,
-                path.stat().st_size / (grid_cell_count * samples),
+                item.size / (grid_cell_count * samples),
             )
     byte_rate = max(
         float(GRID_BYTES_PER_CELL_SAMPLE),
@@ -596,7 +703,15 @@ def _project_grid_storage_bound(
         grid_cell_count * sum(sample_counts.values()) * member_count * byte_rate
         + expected_files * FILE_OVERHEAD_BYTES
     )
-    existing = _owned_file_bytes(existing_paths)
+    stable_snapshot = _verify_owned_file_snapshot(
+        existing_files,
+        tolerate_disappearance=tolerate_disappearance,
+    ) and stable_snapshot
+    existing = (
+        0
+        if tolerate_disappearance and not stable_snapshot
+        else sum(item.size for item in existing_files)
+    )
     return max(0, expected - existing), existing
 
 
@@ -610,18 +725,60 @@ def _restart_storage_bound(
     state_pattern: str,
     overwrite: bool = False,
 ) -> tuple[int, int]:
-    state_paths = [
-        path
-        for path in project_dir.glob(
+    state_paths = list(
+        project_dir.glob(
             f"steps/step_*/ensembles/*/*/results/{state_pattern}"
         )
-        if path.is_file() and not path.is_symlink()
-    ]
-    existing = _owned_file_bytes(state_paths)
+    )
+    newest_step: str | None = None
+    if compact and state_paths:
+        # Only the newest checkpoint generation is durable input to the next
+        # transition. Older generations are eligible for concurrent rolling
+        # cleanup and must therefore never reduce the projected-growth reserve.
+        step_root = project_dir / "steps"
+        state_paths_by_step: dict[str, list[Path]] = {}
+        for path in state_paths:
+            try:
+                step_name = path.relative_to(step_root).parts[0]
+            except (ValueError, IndexError) as exc:
+                raise ValueError(
+                    f"Restart state path is outside the project steps: {path}"
+                ) from exc
+            state_paths_by_step.setdefault(step_name, []).append(path)
+        if len(state_paths_by_step) == 1:
+            newest_step = next(iter(state_paths_by_step))
+        else:
+            step_rank = {
+                step.name: index
+                for index, step in enumerate(list_steps_sorted(project_dir))
+            }
+            unknown_steps = sorted(set(state_paths_by_step) - set(step_rank))
+            if unknown_steps:
+                raise ValueError(
+                    "Restart state paths belong to unknown project steps: "
+                    + ", ".join(unknown_steps)
+                )
+            newest_step = max(state_paths_by_step, key=step_rank.__getitem__)
+
+    state_files, stable_snapshot = _owned_file_snapshot(
+        state_paths,
+        tolerate_disappearance=compact,
+    )
+    existing_files = state_files
+    if compact and newest_step is not None:
+        existing_files = tuple(
+            item
+            for item in state_files
+            if item.path.relative_to(step_root).parts[0] == newest_step
+        )
+    existing = sum(item.size for item in existing_files)
+    # Every observed generation remains useful as an upward size high-water,
+    # even though only the newest generation receives existing-byte credit.
+    largest_checkpoint = max((item.size for item in state_files), default=0)
     measured_per_checkpoint = 0.0
-    if state_paths:
+    if largest_checkpoint:
         measured_per_checkpoint = (
-            max(path.stat().st_size for path in state_paths)
+            largest_checkpoint
             * member_count
             * OBSERVED_REFIT_MARGIN
         )
@@ -629,6 +786,16 @@ def _restart_storage_bound(
         grid_cell_count * member_count * STATE_BYTES_PER_CELL_MEMBER,
         int(measured_per_checkpoint),
     )
+    stable_snapshot = _verify_owned_file_snapshot(
+        state_files,
+        tolerate_disappearance=compact,
+    ) and stable_snapshot
+    if compact and not stable_snapshot:
+        # A final cleanup can remove the newest generation while another leaf
+        # recomputes the coordinated reserve. Do not credit any bytes from that
+        # changing generation; the fixed/observed checkpoint bound still
+        # reserves a complete replacement conservatively.
+        existing = 0
     if compact:
         baseline_expected = checkpoint_bound if step_count else 0
         transition_expected = checkpoint_bound if step_count > 1 else 0
@@ -751,6 +918,17 @@ def estimate_project_storage_components(
     steps = _project_steps(setup_dir, project_dir)
     model_timestep = setup_cfg.get("timestep") or "1h"
     output_data = _merged_output_data(setup_cfg, project_cfg)
+    da_cfg = project_cfg.get("data_assimilation") or {}
+    output_cfg = da_cfg.get("output") or {}
+    default_retention = (
+        "full"
+        if str(project_cfg.get("run_mode", "")).lower() == "subdomain"
+        else "compact"
+    )
+    retention = str(output_cfg.get("retention", default_retention)).strip().lower()
+    if retention not in {"compact", "full"}:
+        raise ValueError(f"Invalid output retention in {project_yaml}: {retention!r}")
+    compact = retention == "compact"
 
     forcing_expected = sum(
         estimate_step_forcing_bytes(
@@ -766,7 +944,8 @@ def estimate_project_storage_components(
             path
             for path in project_dir.glob("steps/step_*/ensembles/*/*/meteo/*.csv")
             if path.name != "stations.csv"
-        ]
+        ],
+        tolerate_disappearance=compact,
     )
     forcing_additional = max(0, forcing_expected - forcing_existing)
 
@@ -778,6 +957,7 @@ def estimate_project_storage_components(
         model_timestep=model_timestep,
         grid_cell_count=grid_cell_count,
         member_count=member_count,
+        tolerate_disappearance=compact,
     )
 
     point_expected = _point_storage_bound(
@@ -788,22 +968,17 @@ def estimate_project_storage_components(
         model_timestep=model_timestep,
         member_count=member_count,
         project_dir=project_dir,
+        tolerate_disappearance=compact,
     )
     point_existing = _owned_file_bytes(
         [
             path
             for path in project_dir.glob("steps/step_*/ensembles/*/*/results/point_*.csv")
-        ]
+        ],
+        tolerate_disappearance=compact,
     )
     point_additional = max(0, point_expected - point_existing)
 
-    da_cfg = project_cfg.get("data_assimilation") or {}
-    output_cfg = da_cfg.get("output") or {}
-    default_retention = "full" if str(project_cfg.get("run_mode", "")).lower() == "subdomain" else "compact"
-    retention = str(output_cfg.get("retention", default_retention)).strip().lower()
-    if retention not in {"compact", "full"}:
-        raise ValueError(f"Invalid output retention in {project_yaml}: {retention!r}")
-    compact = retention == "compact"
     restart_cfg = da_cfg.get("restart") or {}
     state_pattern = str(restart_cfg.get("state_pattern") or "model_state.pickle.gz")
     if any(character in state_pattern for character in "*?[]"):
@@ -848,6 +1023,7 @@ def estimate_project_storage_components(
         project_dir=project_dir,
         steps=steps,
         member_count=member_count,
+        tolerate_disappearance=compact,
     )
     retained_diagnostics = _retained_diagnostics_storage_bound(
         project_dir=project_dir,

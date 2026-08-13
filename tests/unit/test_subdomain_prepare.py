@@ -7,11 +7,42 @@ import pytest
 import yaml
 from shapely.geometry import box
 
-from openamundsen_da.subdomain.prepare import _prepare_obs_station_subset, _write_subdomain_setup_yaml
+from openamundsen_da.subdomain.prepare import (
+    _copy_project_support_inputs,
+    _prepare_obs_station_subset,
+    _write_subdomain_setup_yaml,
+)
 
 
 def _write_obs(path: Path) -> None:
     path.write_text("time,snow_depth\n2022-10-01 00:00:00,0.1\n", encoding="utf-8")
+
+
+def test_copy_project_support_inputs_materializes_acquisition_manifest(
+    tmp_path: Path,
+) -> None:
+    source_setup = tmp_path / "source"
+    leaf_setup = tmp_path / "leaf"
+    project = leaf_setup / "projects" / "winter"
+    project.mkdir(parents=True)
+    project_yaml = project / "winter.yml"
+    project_yaml.write_text(
+        "obs:\n  snowcover:\n"
+        "    acquisition_manifest: obs/satellite_acquisition_times.csv\n",
+        encoding="utf-8",
+    )
+    source = source_setup / "obs" / "satellite_acquisition_times.csv"
+    source.parent.mkdir(parents=True)
+    source.write_text("source,acquisition_time\nscene.tif,2023-01-01T10:00:00Z\n")
+
+    _copy_project_support_inputs(
+        source_setup_dir=source_setup,
+        target_setup_dir=leaf_setup,
+        project_yaml=project_yaml,
+    )
+
+    copied = leaf_setup / "obs" / "satellite_acquisition_times.csv"
+    assert copied.read_bytes() == source.read_bytes()
 
 
 def test_prepare_obs_subset_copies_requested_station_ids_without_metadata(tmp_path: Path) -> None:

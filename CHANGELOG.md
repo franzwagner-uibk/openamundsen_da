@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accumulated forcing/grid/point growth, rolling checkpoints and atomic merge,
   resumable low-disk status and a versioned cleanup ledger for restart-safe
   compact retention.
+- Add a retained `results/storage/storage_reservation.json` audit ledger and a
+  coordinator-owned incremental admission path. Full estimation now occurs at
+  preflight and lifecycle transitions, while ordinary step boundaries consume
+  producer byte summaries and perform one filesystem usage check.
 - Add compressed all-member point and consumed-forcing NetCDFs plus retained
   satellite-event map support for compact projects, with mean-collapsed step
   overlaps, retained-value validation and leaf summaries kept for rerendering.

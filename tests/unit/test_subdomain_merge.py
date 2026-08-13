@@ -23,7 +23,12 @@ def _bounded_merge_storage(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         merge_mod,
-        "check_step_admission",
+        "estimate_parent_render_bytes",
+        lambda **_kwargs: 512,
+    )
+    monkeypatch.setattr(
+        merge_mod,
+        "admit_storage_transition",
         lambda *_args, **_kwargs: SimpleNamespace(used_fraction=0.1),
     )
 
@@ -695,4 +700,68 @@ def test_tracked_merge_records_interruption(monkeypatch: pytest.MonkeyPatch, tmp
     with pytest.raises(KeyboardInterrupt):
         interrupted_merge(manifest_path=tmp_path / "manifest.json")
 
-    assert transitions == [("merge", "running"), ("merge", "interrupted")]
+    assert transitions == [("merge", "interrupted")]
+
+
+def test_tracked_merge_low_disk_does_not_mutate_stage(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    transitions: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        merge_mod.SubdomainManifest,
+        "load",
+        classmethod(lambda cls, path: SimpleNamespace(stages={})),
+    )
+    monkeypatch.setattr(
+        merge_mod,
+        "save_stage",
+        lambda _manifest, _path, stage, status, **_kwargs: transitions.append(
+            (stage, status)
+        ),
+    )
+
+    @merge_mod._tracked_merge
+    def refused_merge(*, manifest_path: Path) -> list[Path]:
+        del manifest_path
+        from openamundsen_da.exceptions import LowDiskPauseError
+
+        raise LowDiskPauseError("80%")
+
+    from openamundsen_da.exceptions import LowDiskPauseError
+
+    with pytest.raises(LowDiskPauseError):
+        refused_merge(manifest_path=tmp_path / "manifest.json")
+
+    assert transitions == []
+
+
+def test_tracked_model_merge_preserves_running_and_completed_stages(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    transitions: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        merge_mod.SubdomainManifest,
+        "load",
+        classmethod(lambda cls, path: SimpleNamespace(stages={})),
+    )
+    monkeypatch.setattr(
+        merge_mod,
+        "save_stage",
+        lambda _manifest, _path, stage, status, **_kwargs: transitions.append(
+            (stage, status)
+        ),
+    )
+
+    def model_merge(*, manifest_path: Path) -> list[Path]:
+        del manifest_path
+        return [tmp_path / "model.nc"]
+
+    model_merge.__name__ = "merge_model_grids"
+    tracked = merge_mod._tracked_merge(model_merge)
+
+    assert tracked(manifest_path=tmp_path / "manifest.json") == [
+        tmp_path / "model.nc"
+    ]
+    assert transitions == [("merge", "running"), ("merge", "completed")]

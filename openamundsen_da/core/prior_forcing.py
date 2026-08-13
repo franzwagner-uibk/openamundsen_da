@@ -66,6 +66,12 @@ from openamundsen_da.manifests import (
     recursive_files,
     write_manifest_atomic,
 )
+from openamundsen_da.util.storage_admission import (
+    StorageAccountingSummary,
+    accounting_summary_delta,
+    accounting_summary_from_inventory,
+    reused_accounting_summary,
+)
 from openamundsen_da.util.parallel import pick_max_workers
 from openamundsen_da.util.meteo import filter_and_write_meteo
 from openamundsen_da.io.paths import (
@@ -336,7 +342,7 @@ def build_prior_ensemble(
     *,
     max_workers: int | None = None,
     overwrite: bool = False,
-) -> None:
+) -> dict[str, object]:
     """Build open-loop and prior ensemble member meteo directories for a step.
 
     Parameters
@@ -363,14 +369,32 @@ def build_prior_ensemble(
     start, end = _read_step_window(step_dir)
     manifest_path = _prior_forcing_manifest_path(step_dir)
     prior_root = prior_root_dir(step_dir)
+    before_accounting = accounting_summary_from_inventory(
+        completed_step=step_dir.name,
+        inventory=_prior_forcing_output_inventory(
+            setup_dir=project_dir.parent.parent.resolve(),
+            step_dir=step_dir,
+        ),
+        source="prior_forcing_before",
+    )
     if manifest_path.is_file() and not overwrite:
-        validate_prior_forcing_manifest(
+        validated = validate_prior_forcing_manifest(
             input_meteo_dir=input_meteo_dir,
             project_dir=project_dir,
             step_dir=step_dir,
         )
         logger.info("Validated prior-forcing manifest -> {}", manifest_path)
-        return
+        accounting = validated.get("storage_accounting")
+        if not isinstance(accounting, dict):
+            accounting = accounting_summary_from_inventory(
+                completed_step=step_dir.name,
+                inventory=list(validated.get("output_inventory") or []),
+                source="prior_forcing_reconciliation",
+            ).as_dict()
+        return reused_accounting_summary(
+            StorageAccountingSummary.from_dict(accounting),
+            source="prior_forcing_reused",
+        ).as_dict()
     if prior_root.exists() and any(prior_root.iterdir()) and not overwrite:
         raise RuntimeError(
             f"Existing prior forcing under {prior_root} lacks a compatible versioned manifest; "
@@ -450,7 +474,15 @@ def build_prior_ensemble(
     if not tasks:
         logger.info("No members to build (all exist and overwrite is False).")
         logger.info("Prior ensemble completed under: {root}", root=str(prior_root))
-        return
+        outputs = _prior_forcing_output_inventory(
+            setup_dir=project_dir.parent.parent.resolve(),
+            step_dir=step_dir,
+        )
+        return reused_accounting_summary(accounting_summary_from_inventory(
+            completed_step=step_dir.name,
+            inventory=outputs,
+            source="prior_forcing_reconciliation",
+        ), source="prior_forcing_reused").as_dict()
 
     workers = pick_max_workers(max_workers, fallback=params.ensemble_size, limit=len(tasks))
     logger.info("Building {} member(s) with max_workers={}", len(tasks), workers)
@@ -505,6 +537,15 @@ def build_prior_ensemble(
         step_dir=step_dir,
     )
     outputs = _prior_forcing_output_inventory(setup_dir=setup_dir, step_dir=step_dir)
+    storage_accounting = accounting_summary_delta(
+        before=before_accounting,
+        after=accounting_summary_from_inventory(
+            completed_step=step_dir.name,
+            inventory=outputs,
+            source="prior_forcing_after",
+        ),
+        source="prior_forcing",
+    ).as_dict()
     write_manifest_atomic(
         manifest_path,
         {
@@ -527,8 +568,10 @@ def build_prior_ensemble(
             "input_inventory_sha256": inventory_digest(inputs),
             "output_inventory": outputs,
             "output_inventory_sha256": inventory_digest(outputs),
+            "storage_accounting": storage_accounting,
         },
     )
+    return storage_accounting
 
 
 def _parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:

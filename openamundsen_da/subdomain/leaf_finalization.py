@@ -142,20 +142,16 @@ def measure_leaf_bytes(setup_dir: Path) -> int:
     return sum(path.stat().st_size for path in recursive_files(Path(setup_dir)))
 
 
-def finalize_leaf(subdomain: SubdomainMeta, *, resume: bool = False) -> dict:
+def finalize_leaf(
+    subdomain: SubdomainMeta,
+    *,
+    resume: bool = False,
+    scientific_identity: str | None = None,
+) -> dict:
     """Validate, compact-clean and durably accept one successful leaf."""
     setup_dir = Path(subdomain.setup_dir).resolve()
     project_dir = Path(subdomain.project_dir).resolve()
     retention = output_retention_mode(project_dir)
-    if retention != "compact":
-        _leaf_parent_support_files(subdomain)
-        return {
-            "status": "success",
-            "retention": retention,
-            "cleanup_deleted_files": 0,
-            "cleanup_freed_bytes": 0,
-            "retained_leaf_bytes": measure_leaf_bytes(setup_dir),
-        }
     manifest_path = leaf_finalization_manifest_path(setup_dir)
     existing = load_manifest(manifest_path) if manifest_path.is_file() else None
     if resume and existing is not None:
@@ -163,19 +159,38 @@ def finalize_leaf(subdomain: SubdomainMeta, *, resume: bool = False) -> dict:
             raise RuntimeError(f"Unsupported leaf finalization contract: {manifest_path}")
         if Path(str(existing.get("project_dir", ""))).resolve() != project_dir:
             raise RuntimeError(f"Leaf finalization project identity changed: {manifest_path}")
+        if existing.get("scientific_identity") != scientific_identity:
+            raise RuntimeError(f"Leaf finalization scientific identity changed: {manifest_path}")
         inventory = list(existing.get("retained_support") or [])
         _validate_leaf_inventory(setup_dir, inventory)
         if existing.get("status") == "success":
             validate_retained_consumers(project_dir, require_complete=True)
             _leaf_parent_support_files(subdomain)
             return existing
-
+    if retention != "compact":
+        support = _leaf_parent_support_files(subdomain)
+        retained_inventory = file_inventory(root=setup_dir, files=support)
+        completed = {
+            "contract": LEAF_FINALIZATION_CONTRACT,
+            "status": "success",
+            "project_dir": str(project_dir),
+            "scientific_identity": scientific_identity,
+            "retention": retention,
+            "cleanup_deleted_files": 0,
+            "cleanup_freed_bytes": 0,
+            "retained_leaf_bytes": measure_leaf_bytes(setup_dir),
+            "retained_support": retained_inventory,
+            "retained_support_sha256": inventory_digest(retained_inventory),
+        }
+        write_manifest_atomic(manifest_path, completed)
+        return load_manifest(manifest_path) or completed
     support = _leaf_parent_support_files(subdomain)
     retained_inventory = file_inventory(root=setup_dir, files=support)
     planned = {
         "contract": LEAF_FINALIZATION_CONTRACT,
         "status": "planned",
         "project_dir": str(project_dir),
+        "scientific_identity": scientific_identity,
         "retention": retention,
         "retained_support": retained_inventory,
         "retained_support_sha256": inventory_digest(retained_inventory),

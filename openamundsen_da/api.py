@@ -23,6 +23,7 @@ from openamundsen_da.manifests import (
     inventory_digest,
     load_manifest,
     project_run_manifest_path,
+    project_scientific_input_inventory,
     recursive_files,
     workflow_manifest_path,
     write_manifest_atomic,
@@ -257,29 +258,7 @@ def clean_project(project_dir: str | Path, *, apply: bool = False) -> CleanupRes
 
 
 def _run_input_inventory(config: ProjectConfiguration, preparation: dict) -> tuple[list[dict], str]:
-    files = [config.setup_yaml, config.project_yaml, *sorted(config.project_dir.glob("*.yml"))]
-    generated_roi_paths = {path.resolve() for path in _configured_roi_grid_paths(config)}
-    input_data = config.setup.get("input_data")
-    if isinstance(input_data, dict):
-        for name in ("grids", "meteo"):
-            section = input_data.get(name)
-            if isinstance(section, dict) and section.get("dir"):
-                discovered = recursive_files(_setup_path(config, section["dir"]))
-                files.extend(path for path in discovered if path.resolve() not in generated_roi_paths)
-    obs = config.project.get("obs")
-    if isinstance(obs, dict):
-        for section in obs.values():
-            if isinstance(section, dict) and section.get("dir"):
-                files.extend(recursive_files(_setup_path(config, section["dir"])))
-            if isinstance(section, dict):
-                for key in ("summary_csv", "wet_snow_line_diagnostics_csv", "acquisition_manifest"):
-                    if section.get(key):
-                        files.extend(recursive_files(_setup_path(config, section[key])))
-    files.extend(recursive_files(config.setup_dir / "env"))
-    files.append(workflow_manifest_path(config.project_dir, "preparation"))
-    files.extend(_validate_preparation_outputs(config, preparation))
-    inventory = file_inventory(root=config.setup_dir, files=files)
-    return inventory, inventory_digest(inventory)
+    return project_scientific_input_inventory(config, preparation)
 
 
 def _software_version() -> str:
@@ -443,6 +422,22 @@ def run_project(project_dir: str | Path, *, max_workers: int | None = None) -> R
                 f"Results exist without a project run manifest: {unmanaged[0]}; move or clean unmanaged outputs first"
             )
 
+    from openamundsen_da.pipeline.project import (
+        OrchestratorConfig,
+        preadmit_project_storage,
+        run_project as execute_project,
+    )
+
+    orchestrator_config = preadmit_project_storage(
+        OrchestratorConfig(
+            project_dir=config.project_dir,
+            setup_dir=config.setup_dir,
+            max_workers=max_workers,
+            plot_workers=max_workers,
+            overwrite=False,
+            monitor_perf=True,
+        )
+    )
     started_at = datetime.now(timezone.utc)
     started = time.monotonic()
     manifest = {
@@ -467,18 +462,7 @@ def run_project(project_dir: str | Path, *, max_workers: int | None = None) -> R
         manifest["resumed_from_status"] = existing.get("status")
     write_manifest_atomic(manifest_path, manifest)
     try:
-        from openamundsen_da.pipeline.project import OrchestratorConfig, run_project as execute_project
-
-        render_result = execute_project(
-            OrchestratorConfig(
-                project_dir=config.project_dir,
-                setup_dir=config.setup_dir,
-                max_workers=max_workers,
-                plot_workers=max_workers,
-                overwrite=False,
-                monitor_perf=True,
-            )
-        )
+        render_result = execute_project(orchestrator_config)
         compact, benchmark = _required_run_outputs(config)
         completed, skipped, members = _member_counts(config.project_dir)
         if not isinstance(render_result, RenderResult):

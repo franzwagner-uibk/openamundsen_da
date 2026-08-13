@@ -85,7 +85,12 @@ def _mixed_manifest(tmp_path: Path) -> SimpleNamespace:
             project_yaml=leaf_project / "winter.yml",
             dropped_events=dropped,
         )
-    return SimpleNamespace(project_dir=project_dir, subdomains=subdomains)
+    return SimpleNamespace(
+        project_dir=project_dir,
+        subdomains=subdomains,
+        grid_rows=2,
+        grid_cols=2,
+    )
 
 
 def test_final_render_accepts_mixed_supported_and_dropped_leaves(

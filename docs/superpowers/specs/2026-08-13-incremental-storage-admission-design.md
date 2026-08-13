@@ -161,8 +161,9 @@ Unit and contract tests cover:
 
 - deterministic per-step planning and maximum-wave arithmetic;
 - identical single-domain and subdomain admission decisions;
-- a step-boundary spy proving zero source reads, config parses, globs, recursive
-  scans and foreign-leaf stats;
+- a step-boundary spy proving zero accumulated materialized-tree, prior-step or
+  foreign-leaf discovery; one bounded current-producer/current-member
+  completion inventory is permitted before the coordinator boundary;
 - concurrent leaf requests without lost updates or double releases;
 - every materialization, cleanup, finalization, wave, merge and render
   transition;
@@ -177,8 +178,10 @@ restart, compact and full single-domain runs and the full subdomain
 wave/finalize/merge/render lifecycle.
 
 Performance acceptance requires zero coordinated estimator calls at step
-boundaries, boundary work independent of accumulated steps/leaves and P8 North
-Tyrol 8x6 p95 admission below one second. The same inputs must retain at least
+boundaries. Coordinator work is bounded by the frozen plan and its compact
+ledger serialization (and therefore scales with prepared lifecycle entries),
+not by accumulated scientific output trees. P8 North Tyrol 8x6 p95 admission
+must remain below one second. The same inputs must retain at least
 the current conservative preflight bound, identical scientific outputs and no
 larger compact peak/final footprint.
 

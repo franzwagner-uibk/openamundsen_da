@@ -873,7 +873,7 @@ def compute_step_wet_snow_daily_for_all_members(
     overwrite: bool = False,
     mask_subdir: str = "wet_snow",
     mask_prefix: str = "wet_snow_mask",
-) -> None:
+) -> tuple[Path, ...]:
     """Compute daily wet-snow fractions for all prior members in a step."""
 
     step_dir = Path(step_dir)
@@ -904,7 +904,7 @@ def compute_step_wet_snow_daily_for_all_members(
 
     start, end = step_start_end(step_dir)
 
-    compute_step_daily_series_for_all_members(
+    fraction_paths = compute_step_daily_series_for_all_members(
         step_dir=step_dir,
         aoi_path=aoi_path,
         start=start,
@@ -923,7 +923,7 @@ def compute_step_wet_snow_daily_for_all_members(
             "project_dir": str(project_dir),
         },
     )
-    compute_step_daily_series_for_all_members(
+    line_paths = compute_step_daily_series_for_all_members(
         step_dir=step_dir,
         aoi_path=aoi_path,
         start=start,
@@ -942,6 +942,7 @@ def compute_step_wet_snow_daily_for_all_members(
             "project_dir": str(project_dir),
         },
     )
+    return (*fraction_paths, *line_paths)
 
 
 def summarize_s1_directory(

@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+from ruamel.yaml.error import YAMLError
 
 from openamundsen_da.exceptions import LowDiskEmergencyError, LowDiskPauseError
 from openamundsen_da.core.env import _read_yaml_file
@@ -143,6 +144,10 @@ class StorageReservationProject:
     grid_cell_count: int
     run_manifest: Path | None = None
     completion_not_before_ns: int = 0
+    scientific_input_paths: tuple[Path, ...] = ()
+    scientific_root: Path | None = None
+    preparation_bytes: int = 0
+    requires_preparation: bool = False
 
 
 @dataclass(frozen=True)
@@ -409,10 +414,29 @@ def _window_sample_count(start: datetime, end: datetime, frequency: object) -> i
     return max(1, int(math.ceil((end - start).total_seconds() / seconds)) + 1)
 
 
-def _project_steps(
+def storage_project_steps(
     setup_dir: Path,
     project_dir: Path,
 ) -> list[tuple[Path, datetime, datetime]]:
+    """Return authoritative materialized or virtual storage-planning steps.
+
+    A pristine or safely repairable preparation tree uses the immutable virtual
+    windows from project configuration. Runtime evidence or completed
+    preparation authority makes missing/invalid materialized steps fail closed.
+    """
+    leaf_preparation = setup_dir / ".openamundsen-da/manifests/leaf_preparation.json"
+
+    def has_preparation_authority() -> bool:
+        if not leaf_preparation.is_file():
+            return False
+        try:
+            return (
+                json.loads(leaf_preparation.read_text(encoding="utf-8")).get("status")
+                == "success"
+            )
+        except (OSError, json.JSONDecodeError):
+            return True
+
     steps_root = project_dir / "steps"
     if not steps_root.exists():
         run_manifest = setup_dir / "run_manifest.json"
@@ -434,6 +458,11 @@ def _project_steps(
                 "Prepared steps are missing after the leaf project started "
                 f"(status={status!r}): {project_dir}"
             )
+        if has_preparation_authority():
+            raise FileNotFoundError(
+                "Prepared steps are missing despite authoritative leaf preparation: "
+                f"{project_dir}"
+            )
         return [
             (project_dir / "steps" / plan.name, plan.start, plan.end)
             for plan in plan_project_steps(setup_dir, project_dir)
@@ -441,20 +470,76 @@ def _project_steps(
     if not steps_root.is_dir():
         raise FileNotFoundError(f"Steps path is not a directory: {steps_root}")
 
-    windows: list[tuple[Path, datetime, datetime]] = []
-    for step in list_steps_sorted(project_dir):
-        step_cfg = read_step_config(step) or {}
+    runtime_patterns = (
+        "step_*/assim/prior_forcing_manifest.json",
+        "step_*/assim/rejuvenate_manifest.json",
+        "step_*/ensembles/*/*/results/member_run.json",
+    )
+    has_runtime_evidence = any(
+        next(steps_root.glob(pattern), None) is not None
+        for pattern in runtime_patterns
+    )
+    preparation_is_authoritative = has_preparation_authority()
+    try:
+        materialized = list_steps_sorted(project_dir)
+    except (FileNotFoundError, ValueError, YAMLError):
+        if has_runtime_evidence or preparation_is_authoritative:
+            raise
+        materialized = []
+    if not materialized:
+        if has_runtime_evidence or preparation_is_authoritative:
+            raise FileNotFoundError(
+                f"Prepared steps directory is empty or invalid: {steps_root}"
+            )
+        return [
+            (project_dir / "steps" / plan.name, plan.start, plan.end)
+            for plan in plan_project_steps(setup_dir, project_dir)
+        ]
+    try:
+        virtual = [
+            (project_dir / "steps" / plan.name, plan.start, plan.end)
+            for plan in plan_project_steps(setup_dir, project_dir)
+        ]
+    except (ValueError, FileNotFoundError):
+        virtual = []
+    if not virtual:
+        windows: list[tuple[Path, datetime, datetime]] = []
+        for step in materialized:
+            step_cfg = read_step_config(step) or {}
+            try:
+                windows.append(
+                    (
+                        step,
+                        datetime.fromisoformat(str(step_cfg["start_date"])),
+                        datetime.fromisoformat(str(step_cfg["end_date"])),
+                    )
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(f"Cannot estimate storage for invalid step window in {step}") from exc
+        return windows
+    expected_by_name = {path.name: (path, start, end) for path, start, end in virtual}
+    unexpected = [step.name for step in materialized if step.name not in expected_by_name]
+    if unexpected:
+        raise ValueError(
+            "Prepared steps differ from the immutable virtual plan: "
+            + ", ".join(unexpected)
+        )
+    for step in materialized:
+        try:
+            step_cfg = read_step_config(step) or {}
+        except (FileNotFoundError, YAMLError):
+            if has_runtime_evidence or preparation_is_authoritative:
+                raise
+            return virtual
         try:
             start = datetime.fromisoformat(str(step_cfg["start_date"]))
             end = datetime.fromisoformat(str(step_cfg["end_date"]))
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"Cannot estimate storage for invalid step window in {step}") from exc
-        windows.append((step, start, end))
-    if not windows:
-        raise FileNotFoundError(
-            f"Prepared steps directory is empty or invalid: {steps_root}"
-        )
-    return windows
+        _expected_path, expected_start, expected_end = expected_by_name[step.name]
+        if start != expected_start or end != expected_end:
+            raise ValueError(f"Prepared step differs from virtual window: {step}")
+    return virtual
 
 
 def _merged_output_data(setup_cfg: dict, project_cfg: dict) -> dict:
@@ -1008,7 +1093,7 @@ def estimate_project_storage_components(
         grid_cell_count = int(spec.rows) * int(spec.cols)
     if grid_cell_count < 1:
         raise ValueError("grid_cell_count must be positive")
-    steps = _project_steps(setup_dir, project_dir)
+    steps = storage_project_steps(setup_dir, project_dir)
     model_timestep = setup_cfg.get("timestep") or "1h"
     output_data = _merged_output_data(setup_cfg, project_cfg)
     da_cfg = project_cfg.get("data_assimilation") or {}
@@ -1177,8 +1262,19 @@ def estimate_coordinated_storage_reserve(
                     or project.run_manifest.stat().st_mtime_ns
                     >= project.completion_not_before_ns
                 )
+                finalization_path = project.setup_dir / "leaf_finalization_manifest.json"
+                try:
+                    finalization = json.loads(
+                        finalization_path.read_text(encoding="utf-8")
+                    )
+                except (OSError, ValueError, TypeError):
+                    finalization = {}
                 if (
                     str(data.get("status", "")).lower() == "success"
+                    and isinstance(data.get("scientific_identity"), str)
+                    and finalization.get("status") == "success"
+                    and finalization.get("scientific_identity")
+                    == data.get("scientific_identity")
                     and (not overwrite or completed_during_reservation)
                 ):
                     continue
@@ -1345,4 +1441,5 @@ __all__ = [
     "estimate_project_storage_components",
     "estimate_project_storage_reserve",
     "estimate_step_forcing_bytes",
+    "storage_project_steps",
 ]

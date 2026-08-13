@@ -46,7 +46,11 @@ from openamundsen_da.io.paths import (
     project_landcover_mask_report_path,
 )
 from openamundsen_da.util.roi import read_single_roi
-from openamundsen_da.util.roi_grid import ensure_setup_roi_grid, ensure_setup_roi_vector
+from openamundsen_da.util.roi_grid import (
+    ensure_setup_roi_grid,
+    ensure_setup_roi_vector,
+    resolve_setup_grid_spec,
+)
 from openamundsen_da.util.landcover_mask import (
     LandcoverMaskConfig,
     resolve_landcover_mask,
@@ -57,10 +61,18 @@ from openamundsen_da.util.parallel import pick_max_workers
 from openamundsen_da.util.da_events import load_assimilation_events, AssimilationEvent
 from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
 from openamundsen_da.util.storage_budget import (
+    DiskBudgetSnapshot,
     StorageReservationProject,
     check_step_admission,
-    estimate_coordinated_storage_reserve,
-    estimate_project_storage_reserve,
+)
+from openamundsen_da.util.storage_admission import (
+    StorageAccountingSummary,
+    StorageAdmissionClient,
+    StorageAdmissionCoordinator,
+    accounting_summary_from_inventory,
+    accounting_summary_from_paths,
+    build_storage_plan,
+    reused_accounting_summary,
 )
 from openamundsen_da.util.point_output import (
     validate_project_ensemble_points,
@@ -99,6 +111,7 @@ from openamundsen_da.methods.pf.weights import (
     load_prior_weights,
     prior_weight_paths,
     write_event_weights,
+    event_weights_manifest_path,
 )
 from openamundsen_da.pipeline.plot_tasks import (
     run_live_plots,
@@ -153,15 +166,6 @@ def _next_step_start(steps: List[Path], idx: int) -> Optional[datetime]:
         return None
 
 
-def _project_storage_estimate(cfg: "OrchestratorConfig") -> int:
-    """Return additional storage required to complete this project."""
-    return estimate_project_storage_reserve(
-        setup_dir=cfg.setup_dir,
-        project_dir=cfg.project_dir,
-        overwrite=cfg.overwrite,
-    )
-
-
 def _find_roi(setup_dir: Path) -> Path:
     """Return an ROI vector path, generating one from ROI raster if needed."""
     return ensure_setup_roi_vector(Path(setup_dir))
@@ -198,13 +202,19 @@ def _compute_prior_step_diagnostics(
     scf_enabled: bool,
     wet_snow_enabled: bool,
     wet_snow_classification: WetSnowClassificationConfig | None,
-) -> None:
+) -> StorageAccountingSummary:
     """Compute setup-level prior diagnostics that depend on propagated member outputs."""
     step_name = Path(step_dir).name
+    outputs: list[Path] = []
+
+    def record(produced: object) -> None:
+        if produced is None:
+            return
+        outputs.extend(Path(path) for path in produced)
 
     try:
         if scf_enabled:
-            compute_step_scf_daily_for_all_members(
+            record(compute_step_scf_daily_for_all_members(
                 setup_dir=cfg.setup_dir,
                 project_dir=cfg.project_dir,
                 step_dir=step_dir,
@@ -212,20 +222,20 @@ def _compute_prior_step_diagnostics(
                 landcover_cfg=lc_cfg,
                 max_workers=int(workers),
                 overwrite=bool(cfg.overwrite),
-            )
+            ))
     except Exception as exc:
         logger.warning("Model SCF daily computation failed for {}: {}", step_name, exc)
 
     for variable in ("swe", "hs"):
         try:
-            compute_step_roi_mean_daily_for_all_members(
+            record(compute_step_roi_mean_daily_for_all_members(
                 step_dir=step_dir,
                 aoi_path=roi,
                 variable=variable,
                 model_grid_format=configured_model_grid_format(cfg.setup_dir).value,
                 max_workers=int(workers),
                 overwrite=bool(cfg.overwrite),
-            )
+            ))
         except Exception as exc:
             logger.warning("ROI mean {} daily computation failed for {}: {}", variable, step_name, exc)
 
@@ -233,7 +243,7 @@ def _compute_prior_step_diagnostics(
         if wet_snow_enabled:
             if wet_snow_classification is None:
                 raise ValueError("Wet-snow diagnostics are enabled but no classification config was loaded")
-            classify_step_wet_snow(
+            record(classify_step_wet_snow(
                 step_dir=step_dir,
                 members=None,
                 threshold_percent=wet_snow_classification.threshold_percent,
@@ -245,8 +255,8 @@ def _compute_prior_step_diagnostics(
                 write_fraction=False,
                 overwrite=bool(cfg.overwrite),
                 max_workers=int(workers),
-            )
-            compute_step_wet_snow_daily_for_all_members(
+            ))
+            record(compute_step_wet_snow_daily_for_all_members(
                 setup_dir=cfg.setup_dir,
                 project_dir=cfg.project_dir,
                 step_dir=step_dir,
@@ -256,9 +266,15 @@ def _compute_prior_step_diagnostics(
                 overwrite=bool(cfg.overwrite),
                 mask_subdir="wet_snow",
                 mask_prefix="wet_snow_mask",
-            )
+            ))
     except Exception as exc:
         logger.warning("Model wet-snow diagnostics failed for {}: {}", step_name, exc)
+    return accounting_summary_from_paths(
+        completed_step=step_name,
+        root=step_dir,
+        paths=outputs,
+        source="prior_step_diagnostics",
+    )
 
 
 def _write_station_diagnostics(
@@ -392,19 +408,63 @@ class OrchestratorConfig:
     storage_reservation_projects: tuple[StorageReservationProject, ...] = ()
     storage_outer_workers: int = 1
     shared_storage_reserve_bytes: int = 0
+    storage_admission_client: StorageAdmissionClient | None = None
+    initial_step_preadmitted: bool = False
+    initial_storage_budget: DiskBudgetSnapshot | None = None
 
 
-def _admission_growth(cfg: OrchestratorConfig, own_estimate: int) -> int:
-    """Recompute the whole shared-filesystem reservation at each boundary."""
-    if not cfg.storage_reservation_projects:
-        return int(own_estimate)
-    coordinated, _estimates = estimate_coordinated_storage_reserve(
-        cfg.storage_reservation_projects,
-        outer_workers=cfg.storage_outer_workers,
-        parent_finalization_reserve_bytes=cfg.shared_storage_reserve_bytes,
-        overwrite=cfg.overwrite,
+def preadmit_project_storage(cfg: OrchestratorConfig) -> OrchestratorConfig:
+    """Build and admit a single-domain plan before any runtime mutation."""
+    if cfg.initial_step_preadmitted:
+        return cfg
+    project_config = load_project_configuration(cfg.project_dir)
+    steps = _list_steps_sorted(project_config.project_dir)
+    if not steps:
+        raise FileNotFoundError(f"No steps found under {project_config.project_dir}")
+    initial_resume = (
+        steps[0] / "assim" / "prior_forcing_manifest.json"
+    ).is_file() and not cfg.overwrite
+    client = cfg.storage_admission_client
+    if client is None:
+        grid = resolve_setup_grid_spec(cfg.setup_dir)
+        reservation_project = StorageReservationProject(
+            setup_dir=Path(cfg.setup_dir).resolve(),
+            project_dir=Path(cfg.project_dir).resolve(),
+            grid_cell_count=int(grid.rows) * int(grid.cols),
+        )
+        plan = build_storage_plan(
+            root_project_dir=cfg.project_dir,
+            projects=(reservation_project,),
+            outer_workers=1,
+            overwrite=cfg.overwrite,
+            leaf_ids=("project",),
+        )
+        # This read-only gate happens before the coordinator ledger, run
+        # manifest, file log or performance monitor is created.
+        check_step_admission(
+            cfg.project_dir,
+            estimated_growth_bytes=plan.estimated_growth_bytes,
+            allow_existing_step_drain=initial_resume,
+        )
+        coordinator = StorageAdmissionCoordinator(plan)
+        client = StorageAdmissionClient.in_process(coordinator, leaf_id="project")
+    initial_budget = client.admit_step(
+        steps[0].name,
+        request_id=f"{client.leaf_id}:admit:{steps[0].name}",
+        allow_existing_step_drain=initial_resume,
     )
-    return coordinated
+    return replace(
+        cfg,
+        storage_admission_client=client,
+        initial_step_preadmitted=True,
+        initial_storage_budget=initial_budget,
+    )
+
+
+def _storage_summary(value: object) -> StorageAccountingSummary:
+    if not isinstance(value, dict):
+        raise RuntimeError("Producer omitted its required storage accounting summary")
+    return StorageAccountingSummary.from_dict(value)
 
 
 def _setup_logger(project_dir: Path, log_level: str) -> None:
@@ -477,14 +537,34 @@ def _setup_log_path(project_dir: Path) -> Path:
 
 def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> RenderResult:
     project_config = load_project_configuration(cfg.project_dir)
+    if cfg.storage_admission_client is None:
+        grid = resolve_setup_grid_spec(cfg.setup_dir)
+        reservation_project = StorageReservationProject(
+            setup_dir=Path(cfg.setup_dir).resolve(),
+            project_dir=Path(cfg.project_dir).resolve(),
+            grid_cell_count=int(grid.rows) * int(grid.cols),
+        )
+        plan = build_storage_plan(
+            root_project_dir=cfg.project_dir,
+            projects=(reservation_project,),
+            outer_workers=1,
+            overwrite=cfg.overwrite,
+            leaf_ids=("project",),
+        )
+        coordinator = StorageAdmissionCoordinator(plan)
+        cfg = replace(
+            cfg,
+            storage_admission_client=StorageAdmissionClient.in_process(
+                coordinator,
+                leaf_id="project",
+            ),
+        )
     if project_config.setup_dir != Path(cfg.setup_dir).resolve():
         raise ValueError(
             f"Project {project_config.project_dir} belongs to setup {project_config.setup_dir}, "
             f"not configured setup {Path(cfg.setup_dir).resolve()}"
         )
 
-    # Console + file log under project root.
-    _setup_logger(cfg.project_dir, cfg.log_level)
     live_plot_threads: list[threading.Thread] = []
 
     steps = _list_steps_sorted(cfg.project_dir)
@@ -534,28 +614,39 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
     validate_assimilation_requirements(setup_dir=cfg.setup_dir, project_dir=cfg.project_dir, steps=steps, events=events)
     initial_forcing_manifest = steps[0] / "assim" / "prior_forcing_manifest.json"
     initial_resume = initial_forcing_manifest.is_file() and not cfg.overwrite
-    initial_estimate = _project_storage_estimate(cfg)
-    initial_budget = check_step_admission(
-        cfg.project_dir,
-        estimated_growth_bytes=_admission_growth(cfg, initial_estimate),
-        allow_existing_step_drain=initial_resume,
-    )
-    logger.info(
-        "Disk admission {}: used={:.1%}, own growth={:.1f} GiB, concurrent reserve={:.1f} GiB, "
-        "operational reserve={:.1f} GiB",
-        steps[0].name,
-        initial_budget.used_fraction,
-        initial_estimate / (1024**3),
-        initial_budget.estimated_growth_bytes / (1024**3),
-        initial_budget.operational_reserve_bytes / (1024**3),
-    )
-    build_prior_ensemble(
+    if cfg.storage_admission_client is None:
+        raise RuntimeError("Project execution requires a storage admission client")
+    initial_budget = cfg.initial_storage_budget
+    if not cfg.initial_step_preadmitted:
+        initial_budget = cfg.storage_admission_client.admit_step(
+            steps[0].name,
+            request_id=f"{cfg.storage_admission_client.leaf_id}:admit:{steps[0].name}",
+            allow_existing_step_drain=initial_resume,
+        )
+    # Do not create/truncate the mutable project log until new work has passed
+    # the hard 80% admission gate.
+    _setup_logger(cfg.project_dir, cfg.log_level)
+    if initial_budget is not None:
+        logger.info(
+            "Disk admission {}: used={:.1%}, incremental reserve={:.1f} GiB, "
+            "operational reserve={:.1f} GiB",
+            steps[0].name,
+            initial_budget.used_fraction,
+            initial_budget.estimated_growth_bytes / (1024**3),
+            initial_budget.operational_reserve_bytes / (1024**3),
+        )
+    else:
+        logger.info("Disk admission {} was committed before worker startup", steps[0].name)
+    initial_forcing_accounting = build_prior_ensemble(
         input_meteo_dir=meteo_dir,
         project_dir=cfg.project_dir,
         step_dir=steps[0],
         max_workers=int(workers),
         overwrite=bool(cfg.overwrite),
     )
+    pending_storage_accounting: dict[str, StorageAccountingSummary] = {
+        steps[0].name: _storage_summary(initial_forcing_accounting)
+    }
     initial_members = list_member_dirs(steps[0] / "ensembles", "prior")
     if not initial_members:
         raise RuntimeError(f"No prior members available for PF initialization in {steps[0]}")
@@ -664,6 +755,7 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
             logger.warning("Land-cover mask report failed: {}", exc)
 
     # Process each step
+    last_step_storage_accounting: StorageAccountingSummary | None = None
     for i, step_dir in enumerate(steps):
         step_name = Path(step_dir).name
         logger.info("== Step {} ==", step_name)
@@ -683,6 +775,14 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         )
         if launch_summary.get("summary", {}).get("failed", 0) > 0:
             raise RuntimeError(f"Member propagation failed in {step_name}; restart states were retained")
+        forcing_accounting = pending_storage_accounting.pop(step_name, None)
+        if forcing_accounting is None:
+            raise RuntimeError(
+                f"Storage accounting for generated forcing is missing in {step_name}"
+            )
+        step_storage_accounting = forcing_accounting.merged(
+            _storage_summary(launch_summary.get("storage_accounting"))
+        )
 
         if i > 0:
             try:
@@ -708,7 +808,7 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
                     len(removed_checkpoint),
                 )
 
-        _compute_prior_step_diagnostics(
+        diagnostics_accounting = _compute_prior_step_diagnostics(
             cfg=cfg,
             step_dir=step_dir,
             roi=roi,
@@ -718,6 +818,10 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
             wet_snow_enabled=wet_snow_enabled,
             wet_snow_classification=wet_snow_classification,
         )
+        step_storage_accounting = step_storage_accounting.merged(
+            diagnostics_accounting
+        )
+        last_step_storage_accounting = step_storage_accounting
 
         # If not the last step: Assimilation -> Resample -> Rejuvenate
         next_start = _next_step_start(steps, i)
@@ -964,24 +1068,60 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         # Rejuvenate posterior -> next prior
         rejuvenate_manifest = Path(steps[i + 1]) / "assim" / "rejuvenate_manifest.json"
         next_resume = rejuvenate_manifest.is_file() and not cfg.overwrite
-        next_step_estimate = _project_storage_estimate(cfg)
-        next_budget = check_step_admission(
-            cfg.project_dir,
-            estimated_growth_bytes=_admission_growth(cfg, next_step_estimate),
+        boundary_outputs = [
+            wcsv,
+            event_weights_manifest_path(wcsv),
+            Path(resampling_summary["indices_csv"]),
+            Path(resampling_summary["manifest_json"]),
+            next_weight_csv,
+            next_weight_manifest,
+            *(Path(path) for path in resampling_summary["storage_output_paths"]),
+        ]
+        if station_diag_csv is not None:
+            boundary_outputs.append(station_diag_csv)
+        boundary_accounting = accounting_summary_from_paths(
+            completed_step=step_name,
+            root=cfg.project_dir,
+            paths=boundary_outputs,
+            source="step_lifecycle_outputs",
+        )
+        step_storage_accounting = step_storage_accounting.merged(boundary_accounting)
+        next_budget = cfg.storage_admission_client.admit_step(
+            steps[i + 1].name,
+            summary=step_storage_accounting,
+            request_id=(
+                f"{cfg.storage_admission_client.leaf_id}:admit:{steps[i + 1].name}"
+            ),
             allow_existing_step_drain=next_resume,
         )
         logger.info(
-            "Disk admission {}: used={:.1%}, own growth={:.1f} GiB, concurrent reserve={:.1f} GiB",
+            "Disk admission {}: used={:.1%}, incremental reserve={:.1f} GiB",
             steps[i + 1].name,
             next_budget.used_fraction,
-            next_step_estimate / (1024**3),
             next_budget.estimated_growth_bytes / (1024**3),
         )
         if rejuvenate_manifest.is_file() and not cfg.overwrite:
-            validate_rejuvenation_manifest(
+            rejuvenation_data = validate_rejuvenation_manifest(
                 setup_dir=cfg.setup_dir,
                 prev_step_dir=step_dir,
                 next_step_dir=steps[i + 1],
+            )
+            storage_accounting = rejuvenation_data.get("storage_accounting")
+            if not isinstance(storage_accounting, dict):
+                from openamundsen_da.methods.pf.rejuvenate import _rejuvenation_output_inventory
+
+                storage_accounting = accounting_summary_from_inventory(
+                    completed_step=steps[i + 1].name,
+                    inventory=_rejuvenation_output_inventory(
+                        setup_dir=cfg.setup_dir,
+                        next_step_dir=steps[i + 1],
+                        target_ensemble="prior",
+                    ),
+                    source="rejuvenation_reconciliation",
+                ).as_dict()
+            pending_storage_accounting[steps[i + 1].name] = reused_accounting_summary(
+                _storage_summary(storage_accounting),
+                source="rejuvenation_reused",
             )
             logger.info(
                 "Validated rejuvenation manifest for {}; overwrite=False -> skipping process-noise rebuild.",
@@ -989,7 +1129,7 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
             )
         else:
             logger.info("Rejuvenating posterior -> {} (prior) ...", steps[i + 1].name)
-            rejuvenate(
+            rejuvenation_summary = rejuvenate(
                 setup_dir=cfg.setup_dir,
                 prev_step_dir=step_dir,
                 next_step_dir=steps[i + 1],
@@ -997,6 +1137,9 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
                 target_ensemble="prior",
                 source_meteo_dir=None,
                 max_workers=int(workers),
+            )
+            pending_storage_accounting[steps[i + 1].name] = _storage_summary(
+                rejuvenation_summary.get("storage_accounting")
             )
 
         # Update project-wide plots after each assimilation/rejuvenation cycle so
@@ -1028,6 +1171,23 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
             t.join()
         except Exception:
             pass
+    if last_step_storage_accounting is None:
+        raise RuntimeError("Final step omitted its required storage accounting summary")
+    cfg.storage_admission_client.reconcile_finalization(
+        request_id=(
+            f"{cfg.storage_admission_client.leaf_id}:reconcile_finalization"
+        ),
+    )
+    finalization_budget = cfg.storage_admission_client.transition(
+        "project_finalizing",
+        summary=last_step_storage_accounting,
+        request_id=f"{cfg.storage_admission_client.leaf_id}:project_finalizing",
+    )
+    logger.info(
+        "Project-finalization storage admission: used={:.1%}, incremental reserve={:.1f} GiB",
+        finalization_budget.used_fraction,
+        finalization_budget.estimated_growth_bytes / (1024**3),
+    )
     da_summary_path = project_da_output_grids_path(cfg.project_dir)
     if da_summary_path.is_file() and not cfg.overwrite:
         logger.info("Using existing DA output summary {}", da_summary_path)
@@ -1042,18 +1202,6 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
     if retention_mode == "compact":
         point_output_path = project_ensemble_points_path(cfg.project_dir)
         forcing_output_path = project_ensemble_forcing_path(cfg.project_dir)
-        compact_estimate = _project_storage_estimate(cfg)
-        compact_budget = check_step_admission(
-            cfg.project_dir,
-            estimated_growth_bytes=_admission_growth(cfg, compact_estimate),
-            allow_existing_step_drain=True,
-        )
-        logger.info(
-            "Compact-export admission: used={:.1%}, own growth={:.1f} GiB, concurrent reserve={:.1f} GiB",
-            compact_budget.used_fraction,
-            compact_estimate / (1024**3),
-            compact_budget.estimated_growth_bytes / (1024**3),
-        )
         if point_output_path.is_file() and not cfg.overwrite:
             validate_project_ensemble_points(cfg.project_dir, output_nc=point_output_path)
             logger.info("Using existing compact point output {}", point_output_path)
@@ -1129,12 +1277,23 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
     duration = (run_end - run_start).total_seconds()
     logger.info("Project processing complete: {} (wall-clock {:.1f} s, ~{:.2f} h)", cfg.project_dir, duration, duration / 3600.0)
 
+    completion_phase = (
+        "leaf_finalized"
+        if cfg.storage_admission_client.leaf_id == "project"
+        else "leaf_project_complete"
+    )
+    cfg.storage_admission_client.transition(
+        completion_phase,
+        request_id=f"{cfg.storage_admission_client.leaf_id}:{completion_phase}",
+    )
+
     return render_result
 
 
 def run_project(cfg: OrchestratorConfig) -> RenderResult:
     """Run the orchestrator while owning performance-monitor shutdown."""
 
+    cfg = preadmit_project_storage(cfg)
     run_start = datetime.utcnow()
     perf_handle = None
     if cfg.monitor_perf:
@@ -1147,7 +1306,10 @@ def run_project(cfg: OrchestratorConfig) -> RenderResult:
             )
         )
     try:
-        return _run_project_impl(replace(cfg, monitor_perf=False), run_start=run_start)
+        return _run_project_impl(
+            replace(cfg, monitor_perf=False),
+            run_start=run_start,
+        )
     finally:
         if perf_handle is not None:
             perf_handle.stop_and_join()
@@ -1217,7 +1379,7 @@ def cli(argv: Optional[List[str]] = None) -> int:
     project_dir = Path(args.project_dir) if args.project_dir is not None else _auto_project_dir(setup_dir)
     if args.project_dir is None:
         print(f"[oa-da-project] Auto-detected project dir: {project_dir}", file=sys.stderr)
-    ensure_run_mode(project_dir, expected="single", write_if_missing=True)
+    ensure_run_mode(project_dir, expected="single", write_if_missing=False)
 
     resolved_workers = pick_max_workers(args.max_workers, fallback=4)
 

@@ -39,7 +39,13 @@ from openamundsen_da.core.constants import (
     STATE_POINTER_JSON,
 )
 from openamundsen_da.util.atomic import durable_replace
-from openamundsen_da.manifests import write_manifest_atomic
+from openamundsen_da.manifests import file_inventory, recursive_files, write_manifest_atomic
+from openamundsen_da.util.storage_admission import (
+    StorageAccountingSummary,
+    accounting_summary_delta,
+    accounting_summary_from_inventory,
+    reused_accounting_summary,
+)
 from openamundsen.model import OpenAmundsen
 
 from openamundsen_da.core.config import load_merged_config
@@ -60,6 +66,7 @@ class MemberRunResult:
     results_dir: str
     duration_seconds: float
     error: Optional[str] = None
+    storage_accounting: Optional[dict[str, Any]] = None
 
 
 def _patch_pandas_inferred_freq() -> None:
@@ -213,6 +220,25 @@ def _is_successful_run(results_dir: Path) -> bool:
         # Corrupt or unreadable manifest -> treat as not successfully completed.
         return False
 
+
+def _member_storage_accounting(
+    results_dir: Path,
+    *,
+    step_name: str,
+    log_file: Path | None = None,
+) -> dict[str, Any]:
+    """Return producer-owned byte counts for one completed member run."""
+    member_dir = results_dir.parent
+    files = recursive_files(results_dir)
+    if log_file is not None and log_file.is_file():
+        files.append(log_file)
+    inventory = file_inventory(root=member_dir, files=files)
+    return accounting_summary_from_inventory(
+        completed_step=step_name,
+        inventory=inventory,
+        source="member_runner",
+    ).as_dict()
+
 def run_member(
     project_dir: Path | str,
     setup_dir: Path | str,
@@ -272,7 +298,35 @@ def run_member(
     # 'starting'; we only trust status='success' as a signal to skip.
     if results_dir.exists() and _is_successful_run(results_dir) and not overwrite:
         logger.info(f"[{member_name}] Results already exist -> skipping (use --overwrite to rerun)")
-        return MemberRunResult(member_name, "skipped", str(results_dir), 0.0, None)
+        try:
+            existing = json.loads((results_dir / MEMBER_MANIFEST).read_text(encoding="utf-8"))
+            storage_accounting = existing.get("storage_accounting")
+        except (OSError, json.JSONDecodeError):
+            storage_accounting = None
+        if not isinstance(storage_accounting, dict):
+            storage_accounting = _member_storage_accounting(
+                results_dir,
+                step_name=step_dir.name,
+                log_file=log_file,
+            )
+        storage_accounting = reused_accounting_summary(
+            StorageAccountingSummary.from_dict(storage_accounting),
+            source="member_runner_reused",
+        ).as_dict()
+        return MemberRunResult(
+            member_name,
+            "skipped",
+            str(results_dir),
+            0.0,
+            None,
+            storage_accounting,
+        )
+
+    before_accounting = StorageAccountingSummary.from_dict(
+        _member_storage_accounting(
+            results_dir, step_name=step_dir.name, log_file=log_file
+        )
+    )
 
     # Step 8: Initialize manifest and timing
     start = time.time()
@@ -350,7 +404,34 @@ def run_member(
             "duration_seconds": dur,
         })
         _write_manifest(results_dir, manifest)
-        return MemberRunResult(member_name, "success", str(results_dir), dur, None)
+        log_handle.flush()
+        # The manifest records its own producer summary. Iterate the tiny JSON
+        # write to a stable size so the returned high-water also includes that
+        # authoritative manifest and the flushed member log.
+        storage_accounting: dict[str, Any] = {}
+        for _ in range(4):
+            updated = accounting_summary_delta(
+                before=before_accounting,
+                after=StorageAccountingSummary.from_dict(
+                    _member_storage_accounting(
+                        results_dir, step_name=step_dir.name, log_file=log_file
+                    )
+                ),
+                source="member_runner",
+            ).as_dict()
+            if updated == storage_accounting:
+                break
+            storage_accounting = updated
+            manifest["storage_accounting"] = storage_accounting
+            _write_manifest(results_dir, manifest)
+        return MemberRunResult(
+            member_name,
+            "success",
+            str(results_dir),
+            dur,
+            None,
+            storage_accounting,
+        )
 
     except Exception as e:
         dur = time.time() - start

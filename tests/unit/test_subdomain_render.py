@@ -18,6 +18,8 @@ def _ignore_event_support(monkeypatch: pytest.MonkeyPatch) -> None:
 def _manifest(project_dir: Path, *, status: str = "success") -> SimpleNamespace:
     return SimpleNamespace(
         project_dir=project_dir,
+        grid_rows=1,
+        grid_cols=1,
         subdomains={"sd_01": SimpleNamespace(status=status)},
     )
 
@@ -33,6 +35,13 @@ def test_render_subdomain_outputs_runs_parent_level_stages(
     calls: list[str] = []
 
     monkeypatch.setattr(render_mod, "ensure_run_mode", lambda *args, **kwargs: calls.append("mode"))
+    monkeypatch.setattr(render_mod, "estimate_parent_render_bytes", lambda **_kwargs: 1024)
+    admissions: list[dict] = []
+    monkeypatch.setattr(
+        render_mod,
+        "admit_storage_transition",
+        lambda *_args, **kwargs: admissions.append(kwargs),
+    )
     monkeypatch.setattr(render_mod, "save_stage", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         render_mod.SubdomainManifest,
@@ -74,6 +83,11 @@ def test_render_subdomain_outputs_runs_parent_level_stages(
     assert result.status is WorkflowStatus.COMPLETED
     assert [path.name for path in result.map_paths] == ["overview.png"]
     assert [path.name for path in result.report_paths] == ["project_report.pdf"]
+    assert admissions[-1] == {
+        "phase": "completed",
+        "estimated_growth_bytes": 0,
+        "allow_existing_step_drain": True,
+    }
 
 
 def test_render_subdomain_outputs_rejects_incomplete_run(
@@ -83,6 +97,12 @@ def test_render_subdomain_outputs_rejects_incomplete_run(
     project_dir = tmp_path / "setup" / "projects" / "winter"
     project_dir.mkdir(parents=True)
     monkeypatch.setattr(render_mod, "ensure_run_mode", lambda *args, **kwargs: None)
+    monkeypatch.setattr(render_mod, "estimate_parent_render_bytes", lambda **_kwargs: 1024)
+    monkeypatch.setattr(
+        render_mod,
+        "admit_storage_transition",
+        lambda *_args, **_kwargs: None,
+    )
     monkeypatch.setattr(
         render_mod.SubdomainManifest,
         "load",
@@ -105,6 +125,12 @@ def test_render_subdomain_outputs_records_interruption(
     transitions: list[tuple[str, str]] = []
 
     monkeypatch.setattr(render_mod, "ensure_run_mode", lambda *args, **kwargs: None)
+    monkeypatch.setattr(render_mod, "estimate_parent_render_bytes", lambda **_kwargs: 1024)
+    monkeypatch.setattr(
+        render_mod,
+        "admit_storage_transition",
+        lambda *_args, **_kwargs: None,
+    )
     monkeypatch.setattr(
         render_mod.SubdomainManifest,
         "load",

@@ -72,6 +72,29 @@ the compact outputs still expected from queued leaves and unfinished parent
 merge, map, plot and report output. A failed leaf is not final-cleaned and
 therefore retains its restartable predecessor state.
 
+Storage estimation is separated from the step-boundary hot path. The
+coordinator builds the conservative component plan before workers start and
+again only at a lifecycle transition such as a new leaf wave, finalization,
+parent merge, render or resume reconciliation. Member propagation and forcing
+producers attach byte/count summaries to their existing manifests. At the next
+ordinary step boundary the coordinator applies those summaries, raises
+observed component high-water marks when necessary and calls `disk_usage`
+once. It does not scan configs, source data, accumulated artifacts or sibling
+project trees. The compact ledger serialization does scale with the immutable
+prepared lifecycle entries (leaves and steps), so it is bounded by the
+preflight plan rather than constant size. The retained ledger reports disk-check
+counts/durations plus pre-commit coordinator-request count, cumulative latency
+and maximum latency. Caller-side performance tests cover the final atomic ledger
+write and end-to-end request latency.
+
+The estimator currently proves aggregate component bounds, not heterogeneous
+per-step shares. For safety, propagation summaries never release that aggregate:
+it remains reserved until authoritative leaf finalization and may temporarily
+double-count bytes already visible in filesystem usage. This can conservatively
+refuse a run that would fit. A serialized full estimate immediately before
+compact finalization and before each later leaf wave can only raise the durable
+obligations; validated finalization is the only operation that releases them.
+
 The first-run reserve for step-local forcing PNGs is calibrated at 4,400 bytes
 per station, member and plotted day, then increased by the standard 25% observed
 artifact margin. For the audited 4,555 station-leaf identities, ES50 and a full

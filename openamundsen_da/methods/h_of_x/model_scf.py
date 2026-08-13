@@ -403,7 +403,7 @@ def compute_step_scf_daily_for_all_members(
     landcover_cfg: LandcoverMaskConfig | None = None,
     max_workers: int = 4,
     overwrite: bool = False,
-) -> None:
+) -> tuple[Path, ...]:
     """Compute daily model SCF for all prior members in a step.
 
     For the given ``step_dir``, this function:
@@ -443,7 +443,7 @@ def compute_step_scf_daily_for_all_members(
 
     start, end = step_start_end(step_dir)
 
-    compute_step_daily_series_for_all_members(
+    return compute_step_daily_series_for_all_members(
         step_dir=step_dir,
         aoi_path=aoi_path,
         start=start,

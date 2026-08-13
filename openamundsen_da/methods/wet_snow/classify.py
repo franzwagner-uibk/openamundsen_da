@@ -157,7 +157,7 @@ def _compute_fraction(
     overwrite: bool,
     rho_water: float,
     min_depth_m: float,
-) -> None:
+) -> tuple[Path, ...]:
     """
     Compute volumetric LWC fraction and write classification rasters.
 
@@ -194,7 +194,11 @@ def _compute_fraction(
 
     if mask_path.exists() and not overwrite:
         logger.info("Wet snow mask exists -> skipping {}", mask_path)
-        return
+        return tuple(
+            path
+            for path in (mask_path, frac_path if write_fraction else None)
+            if path is not None and path.is_file()
+        )
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -254,6 +258,7 @@ def _compute_fraction(
         with rasterio.open(frac_path, "w", **frac_profile) as dst:
             dst.write(percent_to_uint8_nodata(frac_array, nodata_value=_FRACTION_NODATA), 1)
         logger.info("Wrote LWC fraction {}", frac_path)
+    return (mask_path, frac_path) if write_fraction else (mask_path,)
 
 
 def _iter_steps(setup_dir: Optional[Path], step_dir: Optional[Path]) -> List[Path]:
@@ -321,7 +326,7 @@ def _process_member(
     threshold_frac: float,
     args: SimpleNamespace,
     grid_format: str,
-) -> None:
+) -> tuple[str, ...]:
     """
     Run the wet-snow classification for a single member directory.
 
@@ -337,19 +342,20 @@ def _process_member(
     results_dir = member_dir / "results"
     if not results_dir.is_dir():
         logger.warning("Results directory missing for {}", member_dir)
-        return
+        return ()
 
     reader = model_grid_reader(grid_format)
     depth_entries = reader.depth_series(results_dir)
     lwc_files = reader.liquid_water_series(results_dir)
     if not depth_entries:
         logger.warning("No snow depth grids in {}", results_dir)
-        return
+        return ()
     if not lwc_files:
         logger.warning("No liquid water grids in {}", results_dir)
-        return
+        return ()
 
     out_dir = results_dir / args.output_subdir
+    outputs: list[str] = []
     for depth in depth_entries:
         lw_paths = lwc_files.get(depth.stamp)
         if not lw_paths:
@@ -357,7 +363,9 @@ def _process_member(
             continue
         lw_arrays = [np.asarray(array, dtype=np.float32) for array in lw_paths]
         try:
-            _compute_fraction(
+            outputs.extend(
+                str(path)
+                for path in _compute_fraction(
                 depth_entry=depth,
                 lw_arrays=lw_arrays,
                 threshold_frac=threshold_frac,
@@ -370,9 +378,11 @@ def _process_member(
                 overwrite=args.overwrite,
                 rho_water=args.water_density,
                 min_depth_m=args.min_depth_mm / 1000.0,
+                )
             )
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to classify {} {}: {}", member_dir.name, depth.stamp, exc)
+    return tuple(outputs)
 
 
 def _classify_members(
@@ -381,16 +391,23 @@ def _classify_members(
     args: SimpleNamespace,
     grid_format: str,
     max_workers: int | None,
-) -> None:
+) -> tuple[Path, ...]:
     """Classify wet snow for all members, optionally in parallel."""
     tasks = [(m, threshold_frac, args, grid_format) for m in members]
     workers = pick_max_workers(max_workers, fallback=len(members), limit=len(members))
     logger.info("Classifying {} member(s) with max_workers={}", len(tasks), workers)
     try:
-        run_tasks_with_pool(_process_member, tasks, max_workers=workers, fallback_workers=len(tasks), label="wet_snow")
+        results = run_tasks_with_pool(
+            _process_member,
+            tasks,
+            max_workers=workers,
+            fallback_workers=len(tasks),
+            label="wet_snow",
+        )
     except Exception as exc:  # noqa: BLE001
         logger.error("Wet-snow classification failed: {}", exc)
         raise
+    return tuple(Path(path) for member_paths in results for path in member_paths)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -522,7 +539,7 @@ def classify_step_wet_snow(
     water_density: float = _RHO_WATER_DEFAULT,
     min_depth_mm: float = 5.0,
     max_workers: int | None = None,
-) -> None:
+) -> tuple[Path, ...]:
     """Classify wet-snow masks for a single step directory.
 
     This programmatic helper mirrors the CLI behavior for one step. It is
@@ -569,10 +586,16 @@ def classify_step_wet_snow(
     members_iter = list(_iter_members(step_dir, members))
     if not members_iter:
         logger.warning("No members found under {}; skipping wet-snow classification.", step_dir)
-        return
+        return ()
     grid_format = _grid_format_for_step(step_dir)
 
-    _classify_members(members_iter, threshold_frac, args, grid_format, max_workers)
+    return _classify_members(
+        members_iter,
+        threshold_frac,
+        args,
+        grid_format,
+        max_workers,
+    )
 
 
 if __name__ == "__main__":

@@ -5,10 +5,19 @@ from types import SimpleNamespace
 import pytest
 
 from openamundsen_da.exceptions import LowDiskPauseError
+from openamundsen_da.io.paths import list_steps_sorted, read_step_config
+from openamundsen_da.manifests import inventory_digest, write_manifest_atomic
+from openamundsen_da.pipeline.project_skeleton import plan_project_steps
 from openamundsen_da.subdomain import manifest as manifest_mod
 from openamundsen_da.subdomain import run as run_mod
 from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta, WindowSpec
 from openamundsen_da.util.storage_budget import ProjectStorageEstimate
+from openamundsen_da.util.storage_admission import (
+    StorageAdmissionClient,
+    StorageAdmissionCoordinator,
+    StorageLeafPlan,
+    StoragePlan,
+)
 
 
 def _single_subdomain_manifest(tmp_path: Path) -> tuple[SubdomainManifest, Path]:
@@ -18,8 +27,13 @@ def _single_subdomain_manifest(tmp_path: Path) -> tuple[SubdomainManifest, Path]
     project_dir.mkdir(parents=True)
     setup_yaml = setup_dir / "S1.yml"
     project_yaml = project_dir / "project_2022_2023.yml"
-    setup_yaml.write_text("domain: test\n", encoding="utf-8")
-    project_yaml.write_text("start_date: 2023-01-01\nend_date: 2023-01-02\n", encoding="utf-8")
+    setup_yaml.write_text("domain: test\ntimestep: 1D\n", encoding="utf-8")
+    project_yaml.write_text(
+        "start_date: 2023-01-01\nend_date: 2023-01-03\n"
+        "data_assimilation:\n  assimilation_events:\n"
+        "    - {date: '2023-01-02', variable: station_hs}\n",
+        encoding="utf-8",
+    )
 
     sub = SubdomainMeta(
         id="S1",
@@ -72,6 +86,259 @@ def _single_subdomain_manifest(tmp_path: Path) -> tuple[SubdomainManifest, Path]
     manifest_path = tmp_path / "manifest.json"
     manifest.save(manifest_path)
     return manifest, manifest_path
+
+
+@pytest.mark.parametrize("partial", ["empty", "yaml_less", "malformed"])
+def test_prepare_obs_rebuilds_partial_step_skeleton_without_runtime_evidence(
+    tmp_path: Path,
+    partial: str,
+) -> None:
+    manifest, _ = _single_subdomain_manifest(tmp_path)
+    sub = manifest.subdomains["S1"]
+    expected = plan_project_steps(sub.setup_dir, sub.project_dir)
+    steps_root = sub.project_dir / "steps"
+    steps_root.mkdir()
+    if partial != "empty":
+        partial_step = steps_root / expected[0].name
+        partial_step.mkdir()
+        if partial == "malformed":
+            (partial_step / "00.yml").write_text(
+                "start_date: [unterminated\n",
+                encoding="utf-8",
+            )
+
+    run_mod._prepare_obs_for_subdomain(
+        sub,
+        manifest,
+        overwrite=False,
+        scientific_identity="scientific-v1",
+    )
+
+    actual_steps = list_steps_sorted(sub.project_dir)
+    assert [path.name for path in actual_steps] == [plan.name for plan in expected]
+    for path, plan in zip(actual_steps, expected, strict=True):
+        config = read_step_config(path)
+        assert run_mod.parse_datetime_opt(str(config["start_date"])) == plan.start
+        assert run_mod.parse_datetime_opt(str(config["end_date"])) == plan.end
+    preparation = run_mod.load_manifest(
+        sub.setup_dir / ".openamundsen-da/manifests/leaf_preparation.json"
+    )
+    assert preparation is not None
+    assert preparation["status"] == "success"
+    assert preparation["scientific_identity"] == "scientific-v1"
+
+
+def test_prepare_obs_rejects_partial_step_skeleton_with_runtime_evidence(
+    tmp_path: Path,
+) -> None:
+    manifest, _ = _single_subdomain_manifest(tmp_path)
+    sub = manifest.subdomains["S1"]
+    partial_step = sub.project_dir / "steps/step_00_init"
+    partial_step.mkdir(parents=True)
+    (partial_step / "00.yml").write_text(
+        "start_date: [unterminated\n",
+        encoding="utf-8",
+    )
+    member_run = partial_step / "ensembles/prior/member_001/results/member_run.json"
+    member_run.parent.mkdir(parents=True)
+    member_run.write_text('{"status": "success"}\n', encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="runtime evidence"):
+        run_mod._prepare_obs_for_subdomain(
+            sub,
+            manifest,
+            overwrite=False,
+            scientific_identity="scientific-v1",
+        )
+
+
+def test_prepare_obs_rejects_malformed_steps_with_completed_prep_authority(
+    tmp_path: Path,
+) -> None:
+    manifest, _ = _single_subdomain_manifest(tmp_path)
+    sub = manifest.subdomains["S1"]
+    partial_step = sub.project_dir / "steps/step_00_init"
+    partial_step.mkdir(parents=True)
+    (partial_step / "00.yml").write_text(
+        "start_date: [unterminated\n",
+        encoding="utf-8",
+    )
+    preparation_path = (
+        sub.setup_dir / ".openamundsen-da/manifests/leaf_preparation.json"
+    )
+    write_manifest_atomic(
+        preparation_path,
+        {
+            "status": "success",
+            "scientific_identity": "scientific-v1",
+            "outputs": [],
+            "output_digest": inventory_digest([]),
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="inventory changed"):
+        run_mod._prepare_obs_for_subdomain(
+            sub,
+            manifest,
+            overwrite=False,
+            scientific_identity="scientific-v1",
+        )
+
+
+def test_missing_ledger_finalized_leaf_skips_prep_and_step_zero_preadmission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest, _ = _single_subdomain_manifest(tmp_path)
+    done = manifest.subdomains["S1"]
+    interrupted_setup = tmp_path / "subdomains/S2"
+    interrupted_project = interrupted_setup / "projects/project_2022_2023"
+    interrupted_project.mkdir(parents=True)
+    interrupted = SimpleNamespace(
+        id="S2",
+        setup_dir=interrupted_setup,
+        project_dir=interrupted_project,
+    )
+    manifest.subdomains["S2"] = interrupted
+    obligations = {
+        "forcing_bytes": 100,
+        "member_grid_bytes": 0,
+        "point_bytes": 0,
+        "restart_baseline_bytes": 0,
+        "restart_transition_bytes": 0,
+        "compact_timeseries_bytes": 0,
+        "compact_grid_bytes": 0,
+        "map_support_bytes": 0,
+        "derived_forcing_plot_bytes": 0,
+        "retained_diagnostics_bytes": 0,
+    }
+    leaves = {
+        sid: StorageLeafPlan(
+            leaf_id=sid,
+            setup_dir=sub.setup_dir,
+            project_dir=sub.project_dir,
+            step_names=("step_00",),
+            obligations=obligations,
+            step_obligations={"step_00": obligations},
+            queued_retained_bytes=0,
+            identity=f"identity-{sid}",
+        )
+        for sid, sub in (("S1", done), ("S2", interrupted))
+    }
+    plan = StoragePlan(
+        root_project_dir=manifest.project_dir,
+        leaves=leaves,
+        waves=(("S1", "S2"),),
+        wave_growth_bytes=(200,),
+        outer_workers=2,
+        parent_finalization_reserve_bytes=0,
+        estimated_growth_bytes=200,
+        overwrite=False,
+        filesystem_device=manifest.project_dir.stat().st_dev,
+        filesystem_capacity_bytes=10_000,
+        identity="mixed-missing-ledger",
+        estimate_duration_seconds=0.0,
+    )
+    (done.setup_dir / "leaf_finalization_manifest.json").write_text(
+        json.dumps(
+            {
+                "status": "success",
+                "project_dir": str(done.project_dir),
+                "scientific_identity": "identity-S1",
+            }
+        ),
+        encoding="utf-8",
+    )
+    coordinator = StorageAdmissionCoordinator(
+        plan,
+        disk_usage=lambda _path: SimpleNamespace(total=10_000, used=1_000, free=9_000),
+    )
+    assert coordinator.snapshot()["leaves"]["S1"]["phase"] == "finalized"
+    coordinator.admit_wave(0, request_id="wave:0")
+    monkeypatch.setattr(
+        run_mod,
+        "_prepare_obs_for_subdomain",
+        lambda sub, *_args, **_kwargs: prepared.append(sub.id),
+    )
+    monkeypatch.setattr(coordinator, "_validate_leaf_preparation", lambda _sid: None)
+    monkeypatch.setattr(
+        run_mod,
+        "_project_has_started",
+        lambda _project: False,
+    )
+    monkeypatch.setattr(
+        "openamundsen_da.util.storage_admission._project_identity",
+        lambda project, *_args, **_kwargs: f"identity-{project.setup_dir.name}",
+    )
+    prepared: list[str] = []
+    admitted: list[tuple[str, str]] = []
+
+    class _WaveServer:
+        def __init__(self) -> None:
+            self.coordinator = coordinator
+
+        def client(self, *, leaf_id: str):
+            client = StorageAdmissionClient.in_process(coordinator, leaf_id=leaf_id)
+
+            class _Client:
+                leaf_identity = client.leaf_identity
+
+                @staticmethod
+                def admit_step(step_name: str, **kwargs):
+                    admitted.append((leaf_id, step_name))
+                    return client.admit_step(step_name, **kwargs)
+
+            return _Client()
+
+    run_mod._prepare_and_preadmit_wave(
+        manifest=manifest,
+        wave_server=_WaveServer(),
+        wave_index=0,
+        wave_ids=["S1", "S2"],
+        overwrite=False,
+    )
+
+    assert prepared == ["S2"]
+    assert admitted == [("S2", "step_00")]
+    state = coordinator.snapshot()["leaves"]
+    assert state["S1"]["phase"] == "finalized"
+    assert state["S2"]["last_admitted_step_index"] == 0
+
+
+@pytest.mark.parametrize("mutated", ["parent", "leaf"])
+def test_leaf_acquisition_identity_rejects_post_copy_mutation(
+    tmp_path: Path,
+    mutated: str,
+) -> None:
+    manifest, _ = _single_subdomain_manifest(tmp_path)
+    sub = manifest.subdomains["S1"]
+    sub.project_yaml.write_text(
+        sub.project_yaml.read_text(encoding="utf-8").replace(
+            "    - {date: '2023-01-02', variable: station_hs}\n",
+            "    - {date: '2023-01-02', variable: scf}\n",
+        )
+        + "obs:\n  snowcover:\n"
+        "    product_tag: MODIS\n"
+        "    acquisition_manifest: obs/satellite_acquisition_times.csv\n",
+        encoding="utf-8",
+    )
+    parent_support = manifest.setup_dir / "obs/satellite_acquisition_times.csv"
+    leaf_support = sub.setup_dir / "obs/satellite_acquisition_times.csv"
+    parent_support.parent.mkdir(parents=True)
+    leaf_support.parent.mkdir(parents=True)
+    payload = "source,acquisition_time\nscene.tif,2023-01-01T10:00:00Z\n"
+    parent_support.write_text(payload, encoding="utf-8")
+    leaf_support.write_text(payload, encoding="utf-8")
+    manifest.raw_snowcover_dir.mkdir(parents=True)
+
+    bound_paths = run_mod._leaf_scientific_input_paths(manifest, "S1")
+    assert parent_support in bound_paths
+    assert leaf_support in bound_paths
+    target = parent_support if mutated == "parent" else leaf_support
+    target.write_text(payload + "changed.tif,2023-01-02T10:00:00Z\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="differs from.*parent"):
+        run_mod._leaf_scientific_input_paths(manifest, "S1")
 
 
 def test_manifest_save_preserves_existing_file_when_new_write_fails(tmp_path, monkeypatch):
@@ -166,6 +433,7 @@ def test_coordinator_reserves_largest_active_leaf_transitions(monkeypatch, tmp_p
     }
     monkeypatch.setattr(run_mod, "estimate_parent_compact_merge_bytes", lambda **_kwargs: 100)
     monkeypatch.setattr(run_mod, "estimate_parent_render_bytes", lambda **_kwargs: 0)
+    monkeypatch.setattr(run_mod, "_leaf_scientific_input_paths", lambda *_args: ())
     monkeypatch.setattr(
         run_mod,
         "estimate_coordinated_storage_reserve",
@@ -402,6 +670,16 @@ def test_run_subdomains_refuses_coordinated_growth_before_workers(tmp_path, monk
         grid_cell_count=1,
     )
     monkeypatch.setattr(run_mod, "ensure_run_mode", lambda *_args, **_kwargs: "subdomain")
+    monkeypatch.setattr(
+        run_mod,
+        "_projected_retained_compact_bytes",
+        lambda *_args, **_kwargs: {"S1": 0},
+    )
+    monkeypatch.setattr(
+        run_mod,
+        "build_storage_plan",
+        lambda *_args, **_kwargs: SimpleNamespace(estimated_growth_bytes=600),
+    )
     monkeypatch.setattr(
         run_mod,
         "_coordinator_storage_reserve",

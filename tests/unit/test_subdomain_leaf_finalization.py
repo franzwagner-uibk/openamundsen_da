@@ -116,9 +116,12 @@ def test_full_retention_leaf_finalization_does_not_remove_raw_artifacts(
     assert completed["status"] == "success"
     assert completed["retention"] == "full"
     assert raw.read_bytes() == b"raw"
-    assert not finalization_mod.leaf_finalization_manifest_path(
-        subdomain.setup_dir
-    ).exists()
+    manifest = finalization_mod.load_manifest(
+        finalization_mod.leaf_finalization_manifest_path(subdomain.setup_dir)
+    )
+    assert manifest is not None
+    assert manifest["status"] == "success"
+    assert manifest["cleanup_deleted_files"] == 0
 
 
 def test_full_retention_scf_leaf_uses_raw_render_support_without_map_archive(
@@ -217,9 +220,12 @@ def test_full_retention_scf_leaf_uses_raw_render_support_without_map_archive(
     parent_grid = parent_project / "results" / "grids" / "da_output_grids.nc"
     parent_grid.parent.mkdir(parents=True)
     parent_grid.write_bytes(b"merged compact grid")
+    (parent_project / "demo.yml").write_text("data_assimilation: {}\n", encoding="utf-8")
     parent_manifest = SimpleNamespace(
         project_dir=parent_project.resolve(),
         subdomains={subdomain.id: SimpleNamespace(status="success")},
+        grid_rows=1,
+        grid_cols=1,
     )
     calls: list[str] = []
     monkeypatch.setattr(render_mod, "ensure_run_mode", lambda *_args, **_kwargs: None)

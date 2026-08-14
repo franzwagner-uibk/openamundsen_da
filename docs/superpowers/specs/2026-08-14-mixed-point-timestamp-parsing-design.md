@@ -18,16 +18,24 @@ defect, not an observation, model or particle-filter defect.
 
 ## Decision
 
-Parse point-output timestamps with pandas' strict mixed-format parser:
+Validate the supported point-output timestamp forms explicitly, then parse them
+with Python's ISO parser before building the pandas index:
 
 ```python
-pd.to_datetime(values, format="mixed", errors="raise")
+YYYY-MM-DD[ T]HH:MM:SS[.ffffff][Z|+HH:MM]
 ```
 
-This accepts date-only and date-time ISO rows in one column while preserving
-their exact instants. Existing timezone normalization remains unchanged:
-timezone-aware values are converted to UTC and made timezone-naive for the
-compact NetCDF coordinate. Malformed timestamps still fail closed.
+The date-time part is optional, so date-only rows remain valid. Fractional
+seconds are limited to Python and NetCDF's lossless microsecond precision;
+other separators, ambiguous dates and higher-precision fractions fail closed
+instead of being silently interpreted or truncated. This works across every
+supported pandas version while preserving accepted instants exactly. Uniformly
+timezone-aware values, including rows with different UTC offsets, are converted
+to UTC and made timezone-naive for the compact NetCDF coordinate. A column that
+mixes timezone-aware and naive values is ambiguous and fails closed. The same
+mode must be used by every point source file in the project, so the compact
+coordinate cannot silently combine normalized UTC instants with literal naive
+instants. Malformed and unsupported timestamps also fail closed.
 
 No fallback parser, timestamp interpolation or coercion is introduced. Point
 values, overlap collapsing, compact schemas and public interfaces remain
@@ -35,10 +43,12 @@ unchanged.
 
 ## Alternatives
 
-1. Manually branch between date-only and date-time formats. This duplicates
+1. Use pandas `format="mixed"`. This is unavailable in the supported pandas
+   1.5 baseline and accepts some ambiguous non-ISO strings.
+2. Manually branch between date-only and date-time formats. This duplicates
    pandas parsing and creates additional timezone and fractional-second edge
    cases.
-2. Append midnight to date-only source strings before parsing. This mutates
+3. Append midnight to date-only source strings before parsing. This mutates
    source text unnecessarily and remains less general than the strict mixed
    ISO parser.
 
@@ -47,6 +57,9 @@ unchanged.
 - Unit-test one CSV containing both date-only and date-time rows.
 - Verify exact parsed instants and values.
 - Verify timezone-aware mixed rows normalize to UTC as before.
+- Verify different explicit UTC offsets normalize correctly and mixed
+  aware/naive rows or source files fail closed.
+- Verify ambiguous non-ISO strings are rejected.
 - Verify malformed timestamps remain fatal.
 - Reproduce compact point export with the real step-boundary pattern.
 - Run the focused point/storage/finalization suite, the complete unit suite and

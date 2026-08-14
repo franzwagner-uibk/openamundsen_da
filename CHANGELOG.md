@@ -75,6 +75,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the accepted leaf project YAMLs.
 
 ### Fixed
+- Parse mixed ISO date-only and date-time rows in point-output CSVs strictly so
+  compact point export does not fail after otherwise successful propagation.
 - Keep coordinated compact-storage admission conservative when rolling or
   final cleanup in one subdomain removes package-owned checkpoints, forcing,
   point, grid or forcing-plot artifacts while another subdomain recomputes the

@@ -36,7 +36,9 @@ def _read_point_csv(path: Path) -> tuple[pd.DatetimeIndex, pd.DataFrame]:
     time_col = next((column for column in _TIME_COLUMNS if column in frame.columns), None)
     if time_col is None:
         raise ValueError(f"Point output has no date/time column: {path}")
-    times = pd.DatetimeIndex(pd.to_datetime(frame.pop(time_col), errors="raise"))
+    times = pd.DatetimeIndex(
+        pd.to_datetime(frame.pop(time_col), format="mixed", errors="raise")
+    )
     if times.tz is not None:
         times = times.tz_convert("UTC").tz_localize(None)
     try:

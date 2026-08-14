@@ -4,8 +4,13 @@ from pathlib import Path
 
 import netCDF4
 import numpy as np
+import pandas as pd
 import pytest
 
+from openamundsen_da.methods.viz.fraction_series import (
+    load_member_series,
+    load_open_loop_fraction_series,
+)
 from openamundsen_da.util import point_output as point_output_mod
 from openamundsen_da.util.point_output import (
     _read_point_csv,
@@ -24,10 +29,55 @@ def test_point_csv_rejects_unknown_text_but_accepts_missing_tokens(tmp_path: Pat
     path.write_text("date,swe\n2023-01-01,NA\n2023-01-02,\n", encoding="utf-8")
     _times, frame = _read_point_csv(path)
     assert frame["swe"].isna().all()
-from openamundsen_da.methods.viz.fraction_series import (
-    load_member_series,
-    load_open_loop_fraction_series,
-)
+
+
+def test_point_csv_accepts_mixed_iso_date_and_datetime_rows(tmp_path: Path) -> None:
+    path = tmp_path / "point.csv"
+    path.write_text(
+        "date,swe\n"
+        "2017-10-01,100\n"
+        "2017-10-01 03:00:00,101\n"
+        "2017-10-01T06:00:00,102\n",
+        encoding="utf-8",
+    )
+
+    times, frame = _read_point_csv(path)
+
+    expected = pd.DatetimeIndex(
+        ["2017-10-01 00:00:00", "2017-10-01 03:00:00", "2017-10-01 06:00:00"],
+        name="date",
+    )
+    pd.testing.assert_index_equal(times, expected)
+    np.testing.assert_array_equal(frame["swe"].to_numpy(), [100, 101, 102])
+
+
+def test_point_csv_normalizes_mixed_timezone_aware_rows_to_utc(tmp_path: Path) -> None:
+    path = tmp_path / "point.csv"
+    path.write_text(
+        "time,swe\n"
+        "2017-10-01T00:00:00+02:00,100\n"
+        "2017-10-01 03:00:00+02:00,101\n",
+        encoding="utf-8",
+    )
+
+    times, _frame = _read_point_csv(path)
+
+    expected = pd.DatetimeIndex(
+        ["2017-09-30 22:00:00", "2017-10-01 01:00:00"],
+        name="time",
+    )
+    pd.testing.assert_index_equal(times, expected)
+
+
+def test_point_csv_rejects_malformed_timestamp_in_mixed_column(tmp_path: Path) -> None:
+    path = tmp_path / "point.csv"
+    path.write_text(
+        "date,swe\n2017-10-01,100\nnot-a-timestamp,101\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError):
+        _read_point_csv(path)
 
 
 def _write_point(root: Path, rows: str) -> None:

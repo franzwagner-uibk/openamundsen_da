@@ -1,3 +1,7 @@
+---
+published: false
+---
+
 # Mixed Point Timestamp Parsing Design
 
 ## Problem

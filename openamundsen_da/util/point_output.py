@@ -24,7 +24,7 @@ from openamundsen_da.util.ts import collapse_duplicates
 _TIME_COLUMNS = ("date", "time", "datetime")
 _ISO_TIMESTAMP = re.compile(
     r"^\d{4}-\d{2}-\d{2}"
-    r"(?:(?:T| )\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})?)?$"
+    r"(?:(?:T| )\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})?)?$"
 )
 _KNOWN_UNITS = {
     "snow_depth": "m",

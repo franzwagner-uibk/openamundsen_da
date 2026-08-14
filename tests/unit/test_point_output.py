@@ -37,8 +37,7 @@ def test_point_csv_accepts_mixed_iso_date_and_datetime_rows(tmp_path: Path) -> N
         "date,swe\n"
         "2017-10-01,100\n"
         "2017-10-01 03:00:00,101\n"
-        "2017-10-01T06:00:00,102\n"
-        "2017-10-01T09:00:00.123456,103\n",
+        "2017-10-01T06:00:00,102\n",
         encoding="utf-8",
     )
 
@@ -49,12 +48,11 @@ def test_point_csv_accepts_mixed_iso_date_and_datetime_rows(tmp_path: Path) -> N
             "2017-10-01 00:00:00",
             "2017-10-01 03:00:00",
             "2017-10-01 06:00:00",
-            "2017-10-01 09:00:00.123456",
         ],
         name="date",
     )
     pd.testing.assert_index_equal(times, expected)
-    np.testing.assert_array_equal(frame["swe"].to_numpy(), [100, 101, 102, 103])
+    np.testing.assert_array_equal(frame["swe"].to_numpy(), [100, 101, 102])
 
 
 def test_point_csv_normalizes_mixed_timezone_aware_rows_to_utc(tmp_path: Path) -> None:
@@ -99,6 +97,7 @@ def test_point_csv_normalizes_different_utc_offsets(tmp_path: Path) -> None:
         ("2017-10-01,100\n2017-10-01T03:00:00+02:00,101\n", "mixes timezone"),
         ("01/02/2017,100\n", "invalid ISO timestamp"),
         ("2017-10-01X03:00:00,100\n", "invalid ISO timestamp"),
+        ("2017-10-01T03:00:00.1,100\n", "invalid ISO timestamp"),
         ("2017-10-01T03:00:00.123456789,100\n", "invalid ISO timestamp"),
     ],
 )

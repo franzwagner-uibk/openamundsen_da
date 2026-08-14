@@ -22,13 +22,14 @@ Validate the supported point-output timestamp forms explicitly, then parse them
 with Python's ISO parser before building the pandas index:
 
 ```python
-YYYY-MM-DD[ T]HH:MM:SS[.ffffff][Z|+HH:MM]
+YYYY-MM-DD[ T]HH:MM:SS[Z|+HH:MM]
 ```
 
-The date-time part is optional, so date-only rows remain valid. Fractional
-seconds are limited to Python and NetCDF's lossless microsecond precision;
-other separators, ambiguous dates and higher-precision fractions fail closed
-instead of being silently interpreted or truncated. This works across every
+The date-time part is optional, so date-only rows remain valid. Point outputs
+are model-timestep values and the compact NetCDF coordinate stores whole
+seconds, so fractional seconds fail closed rather than being rounded by the
+floating-point time encoding. Other separators and ambiguous dates also fail
+closed instead of being silently interpreted. This works across every
 supported pandas version while preserving accepted instants exactly. Uniformly
 timezone-aware values, including rows with different UTC offsets, are converted
 to UTC and made timezone-naive for the compact NetCDF coordinate. A column that

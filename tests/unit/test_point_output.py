@@ -4,8 +4,13 @@ from pathlib import Path
 
 import netCDF4
 import numpy as np
+import pandas as pd
 import pytest
 
+from openamundsen_da.methods.viz.fraction_series import (
+    load_member_series,
+    load_open_loop_fraction_series,
+)
 from openamundsen_da.util import point_output as point_output_mod
 from openamundsen_da.util.point_output import (
     _read_point_csv,
@@ -24,15 +29,188 @@ def test_point_csv_rejects_unknown_text_but_accepts_missing_tokens(tmp_path: Pat
     path.write_text("date,swe\n2023-01-01,NA\n2023-01-02,\n", encoding="utf-8")
     _times, frame = _read_point_csv(path)
     assert frame["swe"].isna().all()
-from openamundsen_da.methods.viz.fraction_series import (
-    load_member_series,
-    load_open_loop_fraction_series,
+
+
+def test_point_csv_accepts_mixed_iso_date_and_datetime_rows(tmp_path: Path) -> None:
+    path = tmp_path / "point.csv"
+    path.write_text(
+        "date,swe\n"
+        "2017-10-01,100\n"
+        "2017-10-01 03:00:00,101\n"
+        "2017-10-01T06:00:00,102\n",
+        encoding="utf-8",
+    )
+
+    times, frame = _read_point_csv(path)
+
+    expected = pd.DatetimeIndex(
+        [
+            "2017-10-01 00:00:00",
+            "2017-10-01 03:00:00",
+            "2017-10-01 06:00:00",
+        ],
+        name="date",
+    )
+    pd.testing.assert_index_equal(times, expected)
+    np.testing.assert_array_equal(frame["swe"].to_numpy(), [100, 101, 102])
+
+
+def test_point_csv_normalizes_mixed_timezone_aware_rows_to_utc(tmp_path: Path) -> None:
+    path = tmp_path / "point.csv"
+    path.write_text(
+        "time,swe\n"
+        "2017-10-01T00:00:00+02:00,100\n"
+        "2017-10-01 03:00:00+02:00,101\n",
+        encoding="utf-8",
+    )
+
+    times, _frame = _read_point_csv(path)
+
+    expected = pd.DatetimeIndex(
+        ["2017-09-30 22:00:00", "2017-10-01 01:00:00"],
+        name="time",
+    )
+    pd.testing.assert_index_equal(times, expected)
+
+
+def test_point_csv_normalizes_different_utc_offsets(tmp_path: Path) -> None:
+    path = tmp_path / "point.csv"
+    path.write_text(
+        "time,swe\n"
+        "2017-10-01T00:00:00+02:00,100\n"
+        "2017-10-01T00:00:00+01:00,101\n",
+        encoding="utf-8",
+    )
+
+    times, _frame = _read_point_csv(path)
+
+    expected = pd.DatetimeIndex(
+        ["2017-09-30 22:00:00", "2017-09-30 23:00:00"],
+        name="time",
+    )
+    pd.testing.assert_index_equal(times, expected)
+
+
+@pytest.mark.parametrize(
+    "rows, message",
+    [
+        ("2017-10-01,100\n2017-10-01T03:00:00+02:00,101\n", "mixes timezone"),
+        ("01/02/2017,100\n", "invalid ISO timestamp"),
+        ("2017-10-01X03:00:00,100\n", "invalid ISO timestamp"),
+        ("2017-10-01T03:00:00.1,100\n", "invalid ISO timestamp"),
+        ("2017-10-01T03:00:00.123456789,100\n", "invalid ISO timestamp"),
+        ("2017-10-01T03:00:00+14:99,100\n", "invalid ISO timestamp"),
+        ("2017-10-01T03:00:00+24:00,100\n", "invalid ISO timestamp"),
+    ],
 )
+def test_point_csv_rejects_ambiguous_timestamp_columns(
+    tmp_path: Path,
+    rows: str,
+    message: str,
+) -> None:
+    path = tmp_path / "point.csv"
+    path.write_text("date,swe\n" + rows, encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        _read_point_csv(path)
+
+
+def test_point_csv_rejects_malformed_timestamp_in_mixed_column(tmp_path: Path) -> None:
+    path = tmp_path / "point.csv"
+    path.write_text(
+        "date,swe\n2017-10-01,100\nnot-a-timestamp,101\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="invalid ISO timestamp"):
+        _read_point_csv(path)
 
 
 def _write_point(root: Path, rows: str) -> None:
     root.mkdir(parents=True, exist_ok=True)
     (root / "point_station.csv").write_text("date,snow_depth,swe\n" + rows, encoding="utf-8")
+
+
+def test_compact_point_export_preserves_mixed_step_timestamps(tmp_path: Path) -> None:
+    project = tmp_path / "setup" / "projects" / "demo"
+    step = project / "steps" / "step_00"
+    step.mkdir(parents=True)
+    (project / "demo.yml").write_text("start_date: 2017-10-01\n", encoding="utf-8")
+    (step / "step_00.yml").write_text(
+        "start_date: 2017-10-01T00:00:00\nend_date: 2017-10-01T03:00:00\n",
+        encoding="utf-8",
+    )
+    rows = "2017-10-01,1,100\n2017-10-01 03:00:00,2,101\n"
+    for member in ("open_loop", "member_001"):
+        _write_point(step / "ensembles" / "prior" / member / "results", rows)
+
+    write_project_ensemble_points(project)
+    compact = load_compact_point_series(
+        project,
+        point_filename="point_station.csv",
+        member="member_001",
+        variable="snow_depth",
+    )
+
+    assert compact is not None
+    expected_index = pd.DatetimeIndex(
+        ["2017-10-01 00:00:00", "2017-10-01 03:00:00"]
+    )
+    pd.testing.assert_index_equal(compact.index, expected_index)
+    np.testing.assert_array_equal(compact.to_numpy(), [1.0, 2.0])
+
+
+def test_compact_point_export_rejects_timezone_mode_changes_between_steps(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "setup" / "projects" / "demo"
+    (project / "demo.yml").parent.mkdir(parents=True)
+    (project / "demo.yml").write_text(
+        "start_date: 2017-10-01\nend_date: 2017-10-02\n",
+        encoding="utf-8",
+    )
+    for step_name, step_timestamp, point_timestamp in (
+        ("step_00", "2017-10-01 00:00:00", "2017-10-01 00:00:00"),
+        ("step_01", "2017-10-02 00:00:00", "2017-10-02T00:00:00+02:00"),
+    ):
+        step = project / "steps" / step_name
+        step.mkdir(parents=True)
+        (step / f"{step_name}.yml").write_text(
+            f"start_date: {step_timestamp}\nend_date: {step_timestamp}\n",
+            encoding="utf-8",
+        )
+        for member in ("open_loop", "member_001"):
+            _write_point(
+                step / "ensembles" / "prior" / member / "results",
+                f"{point_timestamp},1,100\n",
+            )
+
+    with pytest.raises(ValueError, match="mixes timezone-aware and naive source files"):
+        write_project_ensemble_points(project)
+
+
+def test_compact_point_validation_rejects_member_timezone_mode_change(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "setup" / "projects" / "demo"
+    step = project / "steps" / "step_00"
+    step.mkdir(parents=True)
+    (project / "demo.yml").write_text("start_date: 2017-10-01\n", encoding="utf-8")
+    (step / "step_00.yml").write_text(
+        "start_date: 2017-10-01T00:00:00\nend_date: 2017-10-01T00:00:00\n",
+        encoding="utf-8",
+    )
+    rows = "2017-10-01 00:00:00,1,100\n"
+    for member in ("open_loop", "member_001"):
+        _write_point(step / "ensembles" / "prior" / member / "results", rows)
+    output = write_project_ensemble_points(project)
+    _write_point(
+        step / "ensembles" / "prior" / "member_001" / "results",
+        "2017-10-01T00:00:00+00:00,1,100\n",
+    )
+
+    with pytest.raises(ValueError, match="Point time/variable schema differs"):
+        validate_project_ensemble_points(project, output_nc=output)
 
 
 def test_point_output_retains_open_loop_and_all_members_losslessly(tmp_path: Path) -> None:

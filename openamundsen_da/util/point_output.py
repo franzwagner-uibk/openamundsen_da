@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import os
 from pathlib import Path
+import re
 from typing import Iterable
 
 import netCDF4
@@ -20,6 +22,11 @@ from openamundsen_da.util.ts import collapse_duplicates
 
 
 _TIME_COLUMNS = ("date", "time", "datetime")
+_ISO_TIMESTAMP = re.compile(
+    r"^\d{4}-\d{2}-\d{2}"
+    r"(?:(?:T| )\d{2}:\d{2}:\d{2}"
+    r"(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?)?$"
+)
 _KNOWN_UNITS = {
     "snow_depth": "m",
     "swe": "kg m-2",
@@ -31,19 +38,43 @@ _KNOWN_UNITS = {
 }
 
 
-def _read_point_csv(path: Path) -> tuple[pd.DatetimeIndex, pd.DataFrame]:
+def _read_point_csv_with_timezone(
+    path: Path,
+) -> tuple[pd.DatetimeIndex, pd.DataFrame, str]:
     frame = pd.read_csv(path)
     time_col = next((column for column in _TIME_COLUMNS if column in frame.columns), None)
     if time_col is None:
         raise ValueError(f"Point output has no date/time column: {path}")
-    times = pd.DatetimeIndex(pd.to_datetime(frame.pop(time_col), errors="raise"))
-    if times.tz is not None:
-        times = times.tz_convert("UTC").tz_localize(None)
+    try:
+        time_values = frame.pop(time_col)
+        if not all(
+            isinstance(value, str) and _ISO_TIMESTAMP.fullmatch(value)
+            for value in time_values
+        ):
+            raise ValueError
+        parsed_times = [datetime.fromisoformat(value) for value in time_values]
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Point output contains an invalid ISO timestamp: {path}") from exc
+    awareness = {value.tzinfo is not None for value in parsed_times}
+    if len(awareness) > 1:
+        raise ValueError(f"Point output mixes timezone-aware and naive timestamps: {path}")
+    timezone_mode = "aware" if awareness == {True} else "naive"
+    if awareness == {True}:
+        parsed_times = [
+            value.astimezone(timezone.utc).replace(tzinfo=None)
+            for value in parsed_times
+        ]
+    times = pd.DatetimeIndex(parsed_times, name=time_col)
     try:
         numeric = frame.apply(pd.to_numeric, errors="raise")
     except (TypeError, ValueError) as exc:
         raise ValueError(f"Point output contains an unrecognized nonnumeric value: {path}") from exc
-    return times, numeric
+    return times, numeric, timezone_mode
+
+
+def _read_point_csv(path: Path) -> tuple[pd.DatetimeIndex, pd.DataFrame]:
+    times, frame, _timezone_mode = _read_point_csv_with_timezone(path)
+    return times, frame
 
 
 def _reference_results_dir(step_dir: Path) -> Path:
@@ -62,13 +93,17 @@ def _schema(steps: Iterable[Path]) -> tuple[list[str], list[str], pd.DatetimeInd
     point_names: set[str] = set()
     variable_names: set[str] = set()
     times: set[pd.Timestamp] = set()
+    timezone_modes: set[str] = set()
     for step in steps:
         reference = _reference_results_dir(step)
         for path in sorted(reference.glob("point_*.csv")):
             point_names.add(path.stem.removeprefix("point_"))
-            index, frame = _read_point_csv(path)
+            index, frame, timezone_mode = _read_point_csv_with_timezone(path)
             times.update(pd.Timestamp(value) for value in index)
             variable_names.update(str(column) for column in frame.columns)
+            timezone_modes.add(timezone_mode)
+    if len(timezone_modes) > 1:
+        raise ValueError("Point output mixes timezone-aware and naive source files")
     if not point_names or not variable_names or not times:
         raise ValueError("Point output schema is empty")
     return sorted(point_names), sorted(variable_names), pd.DatetimeIndex(sorted(times))
@@ -103,7 +138,7 @@ def _validate_source_completeness(steps: Iterable[Path]) -> None:
         expected_paths = sorted(reference.glob("point_*.csv"))
         expected_names = [path.name for path in expected_paths]
         expected = {
-            path.name: _read_point_csv(path)
+            path.name: _read_point_csv_with_timezone(path)
             for path in expected_paths
         }
         for member, results in _result_roots(step):
@@ -116,11 +151,17 @@ def _validate_source_completeness(steps: Iterable[Path]) -> None:
                     f"{actual_names} != {expected_names}"
                 )
             for name in expected_names:
-                expected_index, expected_frame = expected[name]
-                index, frame = _read_point_csv(results / name)
+                expected_index, expected_frame, expected_timezone_mode = expected[name]
+                index, frame, timezone_mode = _read_point_csv_with_timezone(
+                    results / name
+                )
                 if not index.is_unique:
                     raise ValueError(f"Duplicate point timestamps in {results / name}")
-                if not index.equals(expected_index) or list(frame.columns) != list(expected_frame.columns):
+                if (
+                    timezone_mode != expected_timezone_mode
+                    or not index.equals(expected_index)
+                    or list(frame.columns) != list(expected_frame.columns)
+                ):
                     raise ValueError(f"Point time/variable schema differs in {results / name}")
 
 
@@ -155,6 +196,7 @@ def validate_project_ensemble_points(
     """Validate the retained all-member point NetCDF contract."""
     project_dir = Path(project_dir).resolve()
     steps = list_steps_sorted(project_dir)
+    _validate_source_completeness(steps)
     point_names, variable_names, times = _schema(steps)
     member_names = _member_names(steps)
     path = Path(output_nc) if output_nc is not None else project_ensemble_points_path(project_dir)

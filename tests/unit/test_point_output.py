@@ -99,6 +99,8 @@ def test_point_csv_normalizes_different_utc_offsets(tmp_path: Path) -> None:
         ("2017-10-01X03:00:00,100\n", "invalid ISO timestamp"),
         ("2017-10-01T03:00:00.1,100\n", "invalid ISO timestamp"),
         ("2017-10-01T03:00:00.123456789,100\n", "invalid ISO timestamp"),
+        ("2017-10-01T03:00:00+14:99,100\n", "invalid ISO timestamp"),
+        ("2017-10-01T03:00:00+24:00,100\n", "invalid ISO timestamp"),
     ],
 )
 def test_point_csv_rejects_ambiguous_timestamp_columns(

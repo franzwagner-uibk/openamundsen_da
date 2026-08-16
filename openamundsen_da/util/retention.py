@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
+import stat
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -436,6 +440,166 @@ def _validate_inventory_files(
             raise CleanupSafetyError(f"Recorded {purpose} changed after planning: {rel}")
 
 
+def _sha256_fd(fd: int, *, chunk_size: int = 1024 * 1024) -> str:
+    """Hash an open descriptor without changing its shared file offset."""
+    digest = hashlib.sha256()
+    original_offset = os.lseek(fd, 0, os.SEEK_CUR)
+    try:
+        os.lseek(fd, 0, os.SEEK_SET)
+        while chunk := os.read(fd, chunk_size):
+            digest.update(chunk)
+    finally:
+        os.lseek(fd, original_offset, os.SEEK_SET)
+    return digest.hexdigest()
+
+
+def _stat_identity(file_stat: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    """Return the mutation-sensitive identity used by a live cleanup guard."""
+    return (
+        int(file_stat.st_dev),
+        int(file_stat.st_ino),
+        int(stat.S_IFMT(file_stat.st_mode)),
+        int(file_stat.st_size),
+        int(file_stat.st_mtime_ns),
+        int(file_stat.st_ctime_ns),
+    )
+
+
+@dataclass(frozen=True)
+class _GuardedConsumer:
+    rel: str
+    path: Path
+    fd: int
+    identity: tuple[int, int, int, int, int, int]
+    sha256: str
+
+
+class _RetainedConsumerGuard:
+    """Pin byte-validated consumers during one destructive cleanup batch."""
+
+    def __init__(self, project_dir: Path, inventory: list[dict]) -> None:
+        if not inventory:
+            raise CleanupSafetyError("Retention plan has no recorded retained consumer")
+        self._project_dir = project_dir
+        self._files: list[_GuardedConsumer] = []
+        try:
+            for row in inventory:
+                self._files.append(self._open(row))
+        except BaseException:
+            self.close()
+            raise
+
+    def _open(self, row: dict) -> _GuardedConsumer:
+        rel = str(row.get("path", ""))
+        path = _resolve_recorded_path(
+            self._project_dir,
+            rel,
+            purpose="retained consumer",
+        )
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        try:
+            fd = os.open(path, flags)
+        except OSError as exc:
+            raise CleanupSafetyError(
+                f"Recorded retained consumer is missing or invalid: {rel}"
+            ) from exc
+        try:
+            before = os.fstat(fd)
+            if not stat.S_ISREG(before.st_mode):
+                raise CleanupSafetyError(
+                    f"Recorded retained consumer is missing or invalid: {rel}"
+                )
+            try:
+                digest = _sha256_fd(fd)
+            except OSError as exc:
+                raise CleanupSafetyError(
+                    f"Cannot read recorded retained consumer: {rel}"
+                ) from exc
+            after = os.fstat(fd)
+            identity = _stat_identity(before)
+            if (
+                identity != _stat_identity(after)
+                or int(row.get("size", -1)) != before.st_size
+                or str(row.get("sha256", "")) != digest
+            ):
+                raise CleanupSafetyError(
+                    f"Recorded retained consumer changed after planning: {rel}"
+                )
+            guarded = _GuardedConsumer(
+                rel=rel,
+                path=path,
+                fd=fd,
+                identity=identity,
+                sha256=digest,
+            )
+            self._validate_one(guarded)
+            return guarded
+        except BaseException:
+            os.close(fd)
+            raise
+
+    def _validate_one(self, guarded: _GuardedConsumer) -> None:
+        try:
+            current_path = _resolve_recorded_path(
+                self._project_dir,
+                guarded.rel,
+                purpose="retained consumer",
+            )
+            descriptor_stat = os.fstat(guarded.fd)
+            path_stat = os.stat(current_path, follow_symlinks=False)
+        except (CleanupSafetyError, OSError) as exc:
+            raise CleanupSafetyError(
+                f"Recorded retained consumer changed after planning: {guarded.rel}"
+            ) from exc
+        if (
+            current_path != guarded.path
+            or not stat.S_ISREG(descriptor_stat.st_mode)
+            or not stat.S_ISREG(path_stat.st_mode)
+            or _stat_identity(descriptor_stat) != guarded.identity
+            or _stat_identity(path_stat) != guarded.identity
+        ):
+            raise CleanupSafetyError(
+                f"Recorded retained consumer changed after planning: {guarded.rel}"
+            )
+
+    def validate_fast(self) -> None:
+        """Reject replacement or metadata-visible mutation without rereading content."""
+        for guarded in self._files:
+            self._validate_one(guarded)
+
+    def validate_full(self) -> None:
+        """Revalidate byte identity before the batch is accepted."""
+        self.validate_fast()
+        for guarded in self._files:
+            try:
+                digest = _sha256_fd(guarded.fd)
+            except OSError as exc:
+                raise CleanupSafetyError(
+                    f"Cannot read recorded retained consumer: {guarded.rel}"
+                ) from exc
+            if digest != guarded.sha256:
+                raise CleanupSafetyError(
+                    f"Recorded retained consumer changed after planning: {guarded.rel}"
+                )
+        self.validate_fast()
+
+    def close(self) -> None:
+        while self._files:
+            guarded = self._files.pop()
+            os.close(guarded.fd)
+
+    def __enter__(self) -> _RetainedConsumerGuard:
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback) -> None:
+        self.close()
+
+
 def _validate_generation_record_identity(generation_record: dict) -> None:
     """Require the stored inventories to reproduce the generation identity."""
     try:
@@ -811,22 +975,24 @@ def apply_retention_batch(
         raise CleanupSafetyError("Producer manifest payload changed after planning")
 
     failures: list[str] = []
-    for rel in batch["paths"]:
-        # This is deliberately repeated before every unlink. If a process was
-        # interrupted after deleting an earlier source, a corrupt or replaced
-        # retained consumer stops the resumed batch before any further loss.
-        _validate_inventory_files(
-            project_dir,
-            inventory=list(batch.get("consumer_inventory") or []),
-            purpose="retained consumer",
-        )
-        path = _validate_recorded_file(project_dir, batch, str(rel))
-        if not path.exists():
-            continue
-        try:
-            _unlink_path(path)
-        except OSError as exc:
-            failures.append(f"{rel}: {exc}")
+    with _RetainedConsumerGuard(
+        project_dir,
+        list(batch.get("consumer_inventory") or []),
+    ) as consumer_guard:
+        for rel in batch["paths"]:
+            # The full byte identity was verified when the guard opened. The
+            # descriptor and path metadata checks remain O(1) per unlink while
+            # still stopping replacement or ordinary in-place mutation before
+            # another source is removed.
+            consumer_guard.validate_fast()
+            path = _validate_recorded_file(project_dir, batch, str(rel))
+            if not path.exists():
+                continue
+            try:
+                _unlink_path(path)
+            except OSError as exc:
+                failures.append(f"{rel}: {exc}")
+        consumer_guard.validate_full()
     if failures:
         batch["failures"] = failures
         _write_ledger(project_dir, ledger)

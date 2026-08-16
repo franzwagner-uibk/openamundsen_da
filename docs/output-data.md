@@ -126,10 +126,14 @@ contained within the project and can resume an interrupted batch only when the
 current source files and retained dependencies still match their recorded size
 and SHA-256. Dependencies are rechecked before every resumed deletion and a
 recreated path is recorded as a new generation. Completed older ledgers are
-upgraded to the stronger identity contract when read. A planned ledger from the
-older contract is refused because its not-yet-planned cross-class sources cannot
-be reconstructed safely. The retained NetCDFs, weights, benchmarks, plots,
-maps, reports, logs and scientific configuration remain.
+upgraded to the stronger identity contract when read. Within one active batch,
+retained consumers are fully hash-checked on entry and before completion, kept
+open and checked for replacement or metadata-visible mutation before every
+unlink. This preserves fail-closed cleanup without rereading a large compact
+NetCDF once per raw source file. A planned ledger from the older contract is
+refused because its not-yet-planned cross-class sources cannot be reconstructed
+safely. The retained NetCDFs, weights, benchmarks, plots, maps, reports, logs
+and scientific configuration remain.
 
 `retention: full` skips this artifact cleanup and preserves the raw member
 forcing, points, grids and restart states for reanalysis.

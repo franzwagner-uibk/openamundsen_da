@@ -443,10 +443,13 @@ def _validate_inventory_files(
 def _sha256_fd(fd: int, *, chunk_size: int = 1024 * 1024) -> str:
     """Hash an open descriptor without changing its shared file offset."""
     digest = hashlib.sha256()
-    offset = 0
-    while chunk := os.pread(fd, chunk_size, offset):
-        digest.update(chunk)
-        offset += len(chunk)
+    original_offset = os.lseek(fd, 0, os.SEEK_CUR)
+    try:
+        os.lseek(fd, 0, os.SEEK_SET)
+        while chunk := os.read(fd, chunk_size):
+            digest.update(chunk)
+    finally:
+        os.lseek(fd, original_offset, os.SEEK_SET)
     return digest.hexdigest()
 
 
@@ -493,7 +496,12 @@ class _RetainedConsumerGuard:
             rel,
             purpose="retained consumer",
         )
-        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
         try:
             fd = os.open(path, flags)
         except OSError as exc:

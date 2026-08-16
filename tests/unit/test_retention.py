@@ -192,7 +192,42 @@ def test_retention_consumer_full_hash_count_is_independent_of_source_count(
     assert calls[0] == calls[1]
 
 
-@pytest.mark.parametrize("mutation", ["replace", "rewrite", "truncate", "timestamp"])
+def test_retention_consumer_hash_restores_descriptor_offset(tmp_path: Path) -> None:
+    consumer = tmp_path / "accepted.nc"
+    consumer.write_bytes(b"accepted-consumer")
+    fd = os.open(consumer, os.O_RDONLY)
+    try:
+        os.lseek(fd, 7, os.SEEK_SET)
+
+        assert retention_mod._sha256_fd(fd) == retention_mod.sha256_file(consumer)
+        assert os.lseek(fd, 0, os.SEEK_CUR) == 7
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "replace",
+        "rewrite",
+        "truncate",
+        "timestamp",
+        pytest.param(
+            "unlink",
+            marks=pytest.mark.skipif(
+                os.name == "nt",
+                reason="Windows does not unlink an open retained consumer",
+            ),
+        ),
+        pytest.param(
+            "directory",
+            marks=pytest.mark.skipif(
+                os.name == "nt",
+                reason="Windows does not replace an open retained consumer",
+            ),
+        ),
+    ],
+)
 def test_retention_consumer_guard_stops_after_mid_batch_mutation(
     tmp_path: Path,
     monkeypatch,
@@ -225,6 +260,11 @@ def test_retention_consumer_guard_stops_after_mid_batch_mutation(
             consumer.write_bytes(b"ACCEPTED")
         elif mutation == "truncate":
             consumer.write_bytes(b"short")
+        elif mutation == "unlink":
+            consumer.unlink()
+        elif mutation == "directory":
+            consumer.unlink()
+            consumer.mkdir()
         else:
             file_stat = consumer.stat()
             os.utime(
@@ -247,6 +287,44 @@ def test_retention_consumer_guard_stops_after_mid_batch_mutation(
 
     assert not first.exists()
     assert second.is_file()
+
+
+def test_retention_consumer_guard_closes_descriptors_after_success(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    source = project / "source.bin"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"source")
+    opened: list[int] = []
+    closed: list[int] = []
+    real_open = retention_mod.os.open
+    real_close = retention_mod.os.close
+
+    def tracked_open(*args, **kwargs) -> int:
+        fd = real_open(*args, **kwargs)
+        opened.append(fd)
+        return fd
+
+    def tracked_close(fd: int) -> None:
+        closed.append(fd)
+        real_close(fd)
+
+    monkeypatch.setattr(retention_mod.os, "open", tracked_open)
+    monkeypatch.setattr(retention_mod.os, "close", tracked_close)
+
+    batch = _apply_retention(
+        project,
+        artifact_class="forcing",
+        paths=(source,),
+        final_consumer="compact forcing",
+        regeneration_recipe="regenerate",
+    )
+
+    assert batch["status"] == "complete"
+    assert opened
+    assert set(opened) <= set(closed)
 
 
 def test_retention_consumer_guard_final_hash_failure_keeps_batch_planned(

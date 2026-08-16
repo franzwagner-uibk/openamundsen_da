@@ -117,8 +117,9 @@ The retention ledger groups paths by artifact class and records count, bytes,
 source and retained-consumer inventories, a digest of the actual producer
 manifests, final consumer, regeneration recipe, planned time and completion
 time. Cleanup resumes safely after interruption by reconciling the planned
-entry with the contained paths and revalidating the retained consumer before
-each remaining unlink.
+entry with the contained paths, fully hash-validating the retained consumer at
+batch entry and completion and checking its pinned file identity before each
+remaining unlink.
 
 ## Lifecycle
 

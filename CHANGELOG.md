@@ -75,6 +75,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the accepted leaf project YAMLs.
 
 ### Fixed
+- Keep large compact-retention batches fail-closed without rehashing the same
+  retained NetCDF before every source unlink. Consumers are fully hash-checked
+  at batch entry and completion and pinned by mutation-sensitive file identity
+  throughout deletion.
 - Parse mixed ISO date-only and date-time rows in point-output CSVs strictly so
   compact point export does not fail after otherwise successful propagation.
 - Keep coordinated compact-storage admission conservative when rolling or

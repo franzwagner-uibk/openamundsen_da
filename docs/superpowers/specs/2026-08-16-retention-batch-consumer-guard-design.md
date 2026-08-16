@@ -1,3 +1,7 @@
+---
+published: false
+---
+
 # Retention Batch Consumer Guard
 
 ## Problem

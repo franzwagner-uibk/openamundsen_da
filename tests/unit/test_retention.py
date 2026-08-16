@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -158,6 +159,202 @@ def test_retention_planned_batch_matches_only_remaining_paths(tmp_path: Path, mo
 
     assert batch["batch_id"] == "0001"
     assert batch["status"] == "complete"
+
+
+def test_retention_consumer_full_hash_count_is_independent_of_source_count(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    sources = [project / f"source_{index}.bin" for index in range(5)]
+    for index, source in enumerate(sources):
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(f"source-{index}".encode())
+    calls: list[int] = []
+    real_hash = retention_mod._sha256_fd
+
+    def counted_hash(fd: int) -> str:
+        calls.append(fd)
+        return real_hash(fd)
+
+    monkeypatch.setattr(retention_mod, "_sha256_fd", counted_hash)
+
+    batch = _apply_retention(
+        project,
+        artifact_class="forcing",
+        paths=sources,
+        final_consumer="compact forcing",
+        regeneration_recipe="regenerate",
+    )
+
+    assert batch["status"] == "complete"
+    assert len(calls) == 2
+    assert calls[0] == calls[1]
+
+
+@pytest.mark.parametrize("mutation", ["replace", "rewrite", "truncate", "timestamp"])
+def test_retention_consumer_guard_stops_after_mid_batch_mutation(
+    tmp_path: Path,
+    monkeypatch,
+    mutation: str,
+) -> None:
+    project = tmp_path / "project"
+    first = project / "first.bin"
+    second = project / "second.bin"
+    consumer = project / "results" / "accepted.nc"
+    producer = project / "results" / "run_manifest.json"
+    consumer.parent.mkdir(parents=True)
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    consumer.write_bytes(b"accepted")
+    producer.write_text('{"status": "success"}\n', encoding="utf-8")
+    real_unlink = retention_mod._unlink_path
+    calls = 0
+
+    def mutate_after_first_unlink(path: Path) -> None:
+        nonlocal calls
+        real_unlink(path)
+        calls += 1
+        if calls != 1:
+            return
+        if mutation == "replace":
+            replacement = consumer.with_suffix(".replacement")
+            replacement.write_bytes(b"accepted")
+            os.replace(replacement, consumer)
+        elif mutation == "rewrite":
+            consumer.write_bytes(b"ACCEPTED")
+        elif mutation == "truncate":
+            consumer.write_bytes(b"short")
+        else:
+            file_stat = consumer.stat()
+            os.utime(
+                consumer,
+                ns=(file_stat.st_atime_ns, file_stat.st_mtime_ns + 1_000_000),
+            )
+
+    monkeypatch.setattr(retention_mod, "_unlink_path", mutate_after_first_unlink)
+
+    with pytest.raises(CleanupSafetyError, match="retained consumer changed"):
+        apply_retention_batch(
+            project,
+            artifact_class="forcing",
+            paths=(first, second),
+            final_consumer="compact forcing",
+            regeneration_recipe="regenerate",
+            retained_consumers=(consumer,),
+            producer_manifests=(producer,),
+        )
+
+    assert not first.exists()
+    assert second.is_file()
+
+
+def test_retention_consumer_guard_final_hash_failure_keeps_batch_planned(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    source = project / "source.bin"
+    consumer = project / "results" / "accepted.nc"
+    producer = project / "results" / "run_manifest.json"
+    consumer.parent.mkdir(parents=True)
+    source.write_bytes(b"source")
+    consumer.write_bytes(b"accepted")
+    producer.write_text('{"status": "success"}\n', encoding="utf-8")
+    real_hash = retention_mod._sha256_fd
+    calls = 0
+
+    def fail_final_hash(fd: int) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            return "0" * 64
+        return real_hash(fd)
+
+    monkeypatch.setattr(retention_mod, "_sha256_fd", fail_final_hash)
+
+    with pytest.raises(CleanupSafetyError, match="retained consumer changed"):
+        apply_retention_batch(
+            project,
+            artifact_class="forcing",
+            paths=(source,),
+            final_consumer="compact forcing",
+            regeneration_recipe="regenerate",
+            retained_consumers=(consumer,),
+            producer_manifests=(producer,),
+        )
+
+    ledger = json.loads(retention_mod.retention_manifest_path(project).read_text())
+    assert ledger["batches"][-1]["status"] == "planned"
+
+
+def test_retention_consumer_guard_closes_descriptors_after_unlink_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    source = project / "source.bin"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"source")
+    opened: list[int] = []
+    closed: list[int] = []
+    real_open = retention_mod.os.open
+    real_close = retention_mod.os.close
+
+    def tracked_open(*args, **kwargs) -> int:
+        fd = real_open(*args, **kwargs)
+        opened.append(fd)
+        return fd
+
+    def tracked_close(fd: int) -> None:
+        closed.append(fd)
+        real_close(fd)
+
+    monkeypatch.setattr(retention_mod.os, "open", tracked_open)
+    monkeypatch.setattr(retention_mod.os, "close", tracked_close)
+    monkeypatch.setattr(
+        retention_mod,
+        "_unlink_path",
+        lambda _path: (_ for _ in ()).throw(OSError("injected failure")),
+    )
+
+    with pytest.raises(CleanupSafetyError, match="Retention cleanup failed"):
+        _apply_retention(
+            project,
+            artifact_class="forcing",
+            paths=(source,),
+            final_consumer="compact forcing",
+            regeneration_recipe="regenerate",
+        )
+
+    assert opened
+    assert set(opened) <= set(closed)
+
+
+def test_retention_consumer_guard_wraps_read_failure_before_delete(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    source = project / "source.bin"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"source")
+    monkeypatch.setattr(
+        retention_mod,
+        "_sha256_fd",
+        lambda _fd: (_ for _ in ()).throw(OSError("injected read failure")),
+    )
+
+    with pytest.raises(CleanupSafetyError, match="Cannot read recorded retained consumer"):
+        _apply_retention(
+            project,
+            artifact_class="forcing",
+            paths=(source,),
+            final_consumer="compact forcing",
+            regeneration_recipe="regenerate",
+        )
+
+    assert source.is_file()
 
 
 def test_retention_refuses_paths_outside_project(tmp_path: Path) -> None:

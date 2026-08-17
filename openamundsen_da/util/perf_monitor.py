@@ -18,6 +18,7 @@ If psutil is missing, the monitor logs a warning and no files are written.
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import sys
 import tempfile
@@ -65,6 +66,8 @@ class PerfMonitorConfig:
     plot_interval_sec: float = 30.0
     disk_scan_interval_sec: float = DEFAULT_DISK_SCAN_INTERVAL_SEC
     run_start: datetime | None = None
+    storage_ledger_path: Path | None = None
+    temperature_reporting_levels_c: tuple[float, ...] = (85.0, 90.0, 95.0)
 
 
 @dataclass(frozen=True)
@@ -131,6 +134,8 @@ def start_perf_monitor(cfg: PerfMonitorConfig) -> PerfMonitorHandle | None:
 def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> None:
     csv_path = out_dir / "project_perf_metrics.csv"
     png_path = out_dir / "project_perf.png"
+    phase_csv_path = out_dir / "project_perf_phases.csv"
+    phase_png_path = out_dir / "project_perf_phases.png"
 
     timestamps: List[datetime] = []
     cpu_pct: List[float] = []
@@ -151,6 +156,35 @@ def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> N
     last_disk_scan_ts: float | None = None
     last_project_used_gb = 0.0
     run_start = cfg.run_start or datetime.utcnow()
+    ledger_path = cfg.storage_ledger_path or (
+        cfg.project_dir / "results" / "storage" / "storage_reservation.json"
+    )
+    baseline_materialized, baseline_removed, current_phase = _storage_ledger_state(ledger_path)
+    ledger_baseline = _storage_ledger_baseline(ledger_path)
+    if ledger_baseline is None:
+        baseline_project_used_gb = _directory_size_gb(cfg.project_dir)
+    else:
+        (
+            baseline_project_used_gb,
+            baseline_materialized,
+            baseline_removed,
+        ) = ledger_baseline
+    last_project_used_gb = baseline_project_used_gb
+    if current_phase is None:
+        last_disk_scan_ts = datetime.utcnow().timestamp()
+    phase_events = _load_phase_events(phase_csv_path)
+    if phase_events:
+        _append_phase_event(
+            phase_csv_path,
+            datetime.utcnow(),
+            "unmonitored_downtime",
+        )
+        phase_events.append((datetime.utcnow(), "unmonitored_downtime"))
+    if current_phase:
+        phase_time = datetime.utcnow()
+        _append_phase_event(phase_csv_path, phase_time, current_phase)
+        phase_events.append((phase_time, current_phase))
+    last_phase = current_phase
 
     while not stop_event.is_set():
         now = datetime.utcnow()
@@ -185,10 +219,23 @@ def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> N
         cpu_temp_source.append(thermal_sample.source)
         thermal_sample_ok.append(thermal_sample.temp_c is not None)
 
-        disk_interval = max(0.0, float(cfg.disk_scan_interval_sec or 0.0))
-        if last_disk_scan_ts is None or (now_ts - last_disk_scan_ts) >= disk_interval:
-            last_project_used_gb = _directory_size_gb(cfg.project_dir)
-            last_disk_scan_ts = now_ts
+        materialized, removed, phase = _storage_ledger_state(ledger_path)
+        if phase is not None:
+            last_project_used_gb = max(
+                0.0,
+                baseline_project_used_gb
+                + _bytes_to_gb(materialized - baseline_materialized)
+                - _bytes_to_gb(removed - baseline_removed),
+            )
+            if phase != last_phase:
+                _append_phase_event(phase_csv_path, now, phase)
+                phase_events.append((now, phase))
+                last_phase = phase
+        else:
+            disk_interval = max(0.0, float(cfg.disk_scan_interval_sec or 0.0))
+            if last_disk_scan_ts is None or (now_ts - last_disk_scan_ts) >= disk_interval:
+                last_project_used_gb = _directory_size_gb(cfg.project_dir)
+                last_disk_scan_ts = now_ts
         disk_project_used_gb.append(last_project_used_gb)
 
         try:
@@ -214,7 +261,11 @@ def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> N
 
         if plt is not None:
             ts = now.timestamp()
-            if last_plot_ts is None or (ts - last_plot_ts) >= cfg.plot_interval_sec:
+            plot_interval = _adaptive_plot_interval_seconds(
+                cfg.plot_interval_sec,
+                len(timestamps),
+            )
+            if last_plot_ts is None or (ts - last_plot_ts) >= plot_interval:
                 try:
                     _render_plot(
                         png_path,
@@ -229,6 +280,14 @@ def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> N
                         disk_project_used_gb=disk_project_used_gb,
                         cpu_temp_c=cpu_temp_c,
                         cpu_temp_crit_c=cpu_temp_crit_c,
+                        temperature_reporting_levels_c=(
+                            cfg.temperature_reporting_levels_c
+                        ),
+                    )
+                    _render_phase_timeline(
+                        phase_png_path,
+                        phase_events,
+                        end=now,
                     )
                     last_plot_ts = ts
                 except Exception as exc:  # pragma: no cover
@@ -239,6 +298,18 @@ def _monitor_loop(cfg: PerfMonitorConfig, out_dir: Path, stop_event: Event) -> N
 
 def _bytes_to_gb(value: float) -> float:
     return float(value) / (1024.0 * 1024.0 * 1024.0)
+
+
+def _adaptive_plot_interval_seconds(base: float, sample_count: int) -> float:
+    """Refresh less often as the retained history grows."""
+    base = max(1.0, float(base))
+    if sample_count >= 10_000:
+        return max(base, 300.0)
+    if sample_count >= 2_000:
+        return max(base, 120.0)
+    if sample_count >= 500:
+        return max(base, 60.0)
+    return base
 
 
 def _filesystem_disk_usage_gb(path: Path) -> tuple[float, float, float, float]:
@@ -255,16 +326,21 @@ def _filesystem_disk_usage_gb(path: Path) -> tuple[float, float, float, float]:
 
 
 def _directory_size_gb(path: Path) -> float:
+    return _bytes_to_gb(project_tree_size_bytes(path))
+
+
+def project_tree_size_bytes(path: Path) -> int:
+    """Return one physical non-symlink project-tree reconciliation."""
     total = 0
     try:
         for entry in os.scandir(path):
             total += _directory_entry_size_bytes(entry)
     except FileNotFoundError:
-        return 0.0
+        return 0
     except Exception as exc:  # pragma: no cover
         logger.warning("Performance monitor project disk scan failed for {}: {}", path, exc)
-        return 0.0
-    return _bytes_to_gb(total)
+        return 0
+    return total
 
 
 def _directory_entry_size_bytes(entry: os.DirEntry[str]) -> int:
@@ -282,6 +358,140 @@ def _directory_entry_size_bytes(entry: os.DirEntry[str]) -> int:
     except (FileNotFoundError, PermissionError):
         return 0
     return 0
+
+
+def _storage_ledger_state(path: Path) -> tuple[int, int, str | None]:
+    """Return accounting counters from one atomic storage-ledger snapshot."""
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return 0, 0, None
+    try:
+        materialized = int(payload.get("materialized_bytes_total", 0))
+        removed = int(payload.get("removed_bytes_total", 0))
+    except (TypeError, ValueError):
+        return 0, 0, None
+    if materialized < 0 or removed < 0:
+        return 0, 0, None
+    phase = str(payload.get("phase") or "").strip() or None
+    return materialized, removed, phase
+
+
+def _storage_ledger_baseline(path: Path) -> tuple[float, int, int] | None:
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        size = int(payload["project_size_baseline_bytes"])
+        materialized = int(payload.get("project_size_baseline_materialized_bytes", 0))
+        removed = int(payload.get("project_size_baseline_removed_bytes", 0))
+    except (FileNotFoundError, OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if min(size, materialized, removed) < 0:
+        return None
+    return _bytes_to_gb(size), materialized, removed
+
+
+def _load_phase_events(path: Path) -> list[tuple[datetime, str]]:
+    if not path.is_file():
+        return []
+    import csv
+
+    events: list[tuple[datetime, str]] = []
+    try:
+        with path.open("r", encoding="utf-8", newline="") as stream:
+            for row in csv.DictReader(stream):
+                events.append(
+                    (datetime.fromisoformat(row["timestamp"]), str(row["phase"]))
+                )
+    except (OSError, KeyError, ValueError):
+        return []
+    return events
+
+
+def _append_phase_event(path: Path, timestamp: datetime, phase: str) -> None:
+    is_new = not path.exists()
+    with path.open("a", encoding="utf-8") as stream:
+        if is_new:
+            stream.write("timestamp,phase\n")
+        stream.write(
+            f"{timestamp.isoformat(timespec='seconds')},{_sanitize_csv_string(phase)}\n"
+        )
+
+
+def record_perf_phase(project_dir: Path, phase: str) -> None:
+    """Retain a parent lifecycle phase even when no sampler thread is active."""
+    out_dir = project_plot_perf_dir(Path(project_dir))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = out_dir / "project_perf_phases.csv"
+    events = _load_phase_events(csv_path)
+    normalized = str(phase).strip()
+    if not normalized or (events and events[-1][1] == normalized):
+        return
+    now = datetime.utcnow()
+    _append_phase_event(csv_path, now, normalized)
+    events.append((now, normalized))
+    _render_phase_timeline(
+        out_dir / "project_perf_phases.png",
+        events,
+        end=now,
+    )
+
+
+def _render_phase_timeline(
+    out_path: Path,
+    events: list[tuple[datetime, str]],
+    *,
+    end: datetime,
+) -> None:
+    """Render compact command phases, including explicit monitor gaps."""
+    if plt is None or not events:
+        return
+    import matplotlib.dates as mdates
+
+    fig, axis = plt.subplots(figsize=(PROJECT_PERF_FIGSIZE[0], 1.15))
+    palette = {
+        "preflight": "#56B4E9",
+        "wave_preflight": "#56B4E9",
+        "running": "#009E73",
+        "project_finalizing": "#E69F00",
+        "finalization_admission": "#E69F00",
+        "leaf_finalized": "#0072B2",
+        "parent_merge": "#CC79A7",
+        "parent_render": "#D55E00",
+        "completed": "#333333",
+        "unmonitored_downtime": "#BDBDBD",
+    }
+    ordered = sorted(events, key=lambda item: item[0])
+    for index, (start, phase) in enumerate(ordered):
+        stop = ordered[index + 1][0] if index + 1 < len(ordered) else end
+        if stop <= start:
+            continue
+        axis.axvspan(
+            start,
+            stop,
+            color=palette.get(phase, "#999999"),
+            alpha=0.9,
+            label=phase,
+        )
+    handles, labels = axis.get_legend_handles_labels()
+    unique = dict(zip(labels, handles, strict=False))
+    axis.legend(
+        unique.values(),
+        unique.keys(),
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.22),
+        ncol=min(4, max(1, len(unique))),
+        fontsize=7,
+        frameon=False,
+    )
+    axis.set_yticks([])
+    axis.set_xlabel("Workflow phase")
+    axis.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
+    axis.grid(axis="x", alpha=0.25)
+    fig.subplots_adjust(left=0.075, right=0.98, top=0.94, bottom=0.42)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    force_figure_text_black(fig, [axis])
+    _save_perf_plot_atomic(fig, out_path)
+    plt.close(fig)
 
 
 def _sample_cpu_temperature_c(sysfs_root: Path | None = None) -> CpuThermalSample:
@@ -599,6 +809,14 @@ def capture_perf_snapshot(cfg: PerfMonitorConfig, out_dir: Path | None = None) -
                 disk_project_used_gb=disk_project_used_gb,
                 cpu_temp_c=cpu_temp_c,
                 cpu_temp_crit_c=cpu_temp_crit_c,
+                temperature_reporting_levels_c=(
+                    cfg.temperature_reporting_levels_c
+                ),
+            )
+            _render_phase_timeline(
+                out_dir / "project_perf_phases.png",
+                _load_phase_events(out_dir / "project_perf_phases.csv"),
+                end=now,
             )
         return True
     except Exception as exc:  # pragma: no cover - final monitoring is best effort
@@ -619,9 +837,52 @@ def _render_plot(
     disk_project_used_gb: List[float] | None = None,
     cpu_temp_c: List[float | None] | None = None,
     cpu_temp_crit_c: List[float | None] | None = None,
+    temperature_reporting_levels_c: tuple[float, ...] = (85.0, 90.0, 95.0),
 ) -> None:
     if not timestamps or plt is None:
         return
+
+    full_timestamps = list(timestamps)
+    full_project_size = list(disk_project_used_gb or [])
+    full_temp = _optional_plot_series(cpu_temp_c)
+    indices = _plot_sample_indices(timestamps)
+    timestamps = [timestamps[index] for index in indices]
+    cpu_pct = _gap_broken_series(
+        timestamps,
+        [cpu_pct[index] for index in indices],
+    )
+    mem_pct = _gap_broken_series(
+        timestamps,
+        [mem_pct[index] for index in indices],
+    )
+    mem_used_gb = [mem_used_gb[index] for index in indices]
+    mem_total_gb = [mem_total_gb[index] for index in indices]
+    disk_project_used_gb = (
+        _gap_broken_series(
+            timestamps,
+            [disk_project_used_gb[index] for index in indices],
+        )
+        if disk_project_used_gb
+        else []
+    )
+    cpu_temp_c = (
+        _gap_broken_series(
+            timestamps,
+            [cpu_temp_c[index] for index in indices],
+            missing=None,
+        )
+        if cpu_temp_c
+        else []
+    )
+    cpu_temp_crit_c = (
+        _gap_broken_series(
+            timestamps,
+            [cpu_temp_crit_c[index] for index in indices],
+            missing=None,
+        )
+        if cpu_temp_crit_c
+        else []
+    )
 
     fig, ax1 = plt.subplots(figsize=PROJECT_PERF_FIGSIZE)
 
@@ -687,11 +948,30 @@ def _render_plot(
     hh, rem = divmod(elapsed_sec, 3600)
     mm = rem // 60
     elapsed_hhmm = f"{hh:02d}:{mm:02d}"
-    peak_project_size = max(disk_project_used_gb) if disk_project_used_gb else 0.0
-    final_project_size = disk_project_used_gb[-1] if disk_project_used_gb else 0.0
+    peak_project_size = max(full_project_size) if full_project_size else 0.0
+    final_project_size = full_project_size[-1] if full_project_size else 0.0
     summary_parts = [f"Elapsed: {elapsed_hhmm}"]
-    if cpu_temp_values:
-        summary_parts.append(f"Peak CPU temp: {max(cpu_temp_values):.1f} °C")
+    temperature_hours_summary: str | None = None
+    full_temp_values = [value for value in full_temp if value is not None]
+    if full_temp_values:
+        summary_parts.append(
+            "CPU temp p50/p95/max: "
+            f"{_percentile(full_temp_values, 50):.1f}/"
+            f"{_percentile(full_temp_values, 95):.1f}/"
+            f"{max(full_temp_values):.1f} °C"
+        )
+        above = _temperature_time_above(
+            full_timestamps,
+            full_temp,
+            temperature_reporting_levels_c,
+        )
+        temperature_hours_summary = (
+            "Temp hours "
+            + "/".join(
+                f">={level:g}°:{above[level] / 3600.0:.1f}"
+                for level in temperature_reporting_levels_c
+            )
+        )
     summary_parts.extend(
         [
             f"Peak RAM: {max(mem_used_gb or [0]):.1f} / {max(mem_total_gb or [0]):.1f} GB",
@@ -699,10 +979,17 @@ def _render_plot(
         ]
     )
     summary = "   ".join(summary_parts)
+    if temperature_hours_summary is not None:
+        summary += "\n" + temperature_hours_summary
     fig.text(0.5, 0.985, summary, ha="center", va="top", fontsize=9)
 
     right_margin = PERF_PLOT_RIGHT_MARGIN_WITH_TEMPERATURE if ax3 is not None else 0.91
-    fig.subplots_adjust(left=0.075, right=right_margin, top=0.86, bottom=0.27)
+    fig.subplots_adjust(
+        left=0.075,
+        right=right_margin,
+        top=0.78 if temperature_hours_summary is not None else 0.86,
+        bottom=0.27,
+    )
     _show_every_second_time_label(ax1)
     if ax3 is not None:
         _layout_performance_right_axes(fig, ax1, ax2, ax3)
@@ -792,6 +1079,83 @@ def _optional_plot_series(values: List[float | None] | None) -> list[float | Non
     for value in values:
         plotted.append(_finite_float(value))
     return plotted
+
+
+def _plot_sample_indices(
+    timestamps: List[datetime],
+    *,
+    maximum: int = 2400,
+) -> list[int]:
+    """Bound PNG work while preserving both endpoints and detected gaps."""
+    count = len(timestamps)
+    if count <= maximum:
+        return list(range(count))
+    stride = max(1, (count - 2 + maximum - 3) // (maximum - 2))
+    selected = {0, count - 1, *range(1, count - 1, stride)}
+    gap_limit = _gap_limit_seconds(timestamps)
+    for index in range(1, count):
+        if (timestamps[index] - timestamps[index - 1]).total_seconds() > gap_limit:
+            selected.update((index - 1, index))
+    return sorted(selected)
+
+
+def _gap_limit_seconds(timestamps: List[datetime]) -> float:
+    intervals = sorted(
+        (current - previous).total_seconds()
+        for previous, current in zip(timestamps, timestamps[1:], strict=False)
+        if current > previous
+    )
+    if not intervals:
+        return float("inf")
+    median = intervals[len(intervals) // 2]
+    return max(60.0, median * 3.0)
+
+
+def _gap_broken_series(
+    timestamps: List[datetime],
+    values: list,
+    *,
+    missing: object = float("nan"),
+) -> list:
+    plotted = list(values)
+    gap_limit = _gap_limit_seconds(timestamps)
+    for index in range(1, len(timestamps)):
+        if (timestamps[index] - timestamps[index - 1]).total_seconds() > gap_limit:
+            plotted[index] = missing
+    return plotted
+
+
+def _percentile(values: list[float], percentile: float) -> float:
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    position = (len(ordered) - 1) * percentile / 100.0
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = position - lower
+    return ordered[lower] * (1.0 - fraction) + ordered[upper] * fraction
+
+
+def _temperature_time_above(
+    timestamps: List[datetime],
+    values: list[float | None],
+    levels: tuple[float, ...],
+) -> dict[float, float]:
+    durations = {float(level): 0.0 for level in levels}
+    gap_limit = _gap_limit_seconds(timestamps)
+    for previous_time, current_time, value in zip(
+        timestamps,
+        timestamps[1:],
+        values,
+        strict=False,
+    ):
+        elapsed = (current_time - previous_time).total_seconds()
+        if elapsed <= 0 or elapsed > gap_limit or value is None:
+            continue
+        for level in durations:
+            if value >= level:
+                durations[level] += elapsed
+    return durations
 
 
 def _finite_float(value: float | None) -> float | None:

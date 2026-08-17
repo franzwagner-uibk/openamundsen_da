@@ -64,9 +64,12 @@ design because they change restart and worker-cancellation behavior.
   filesystem use contains completed compact leaves, while projected growth
   reserves the active leaves, a second rolling checkpoint for the concurrent
   cohort, every queued leaf's compact products and stage-aware parent atomic
-  merge/render temporaries. The aggregate is recomputed from measured artifacts
-  at every boundary, so active and queued leaves cannot spend against
-  unreserved shared space.
+  merge/render temporaries. The approved 2026-08-17 catalog/ledger follow-up
+  computes this aggregate once at preflight, raises it from producer high-water
+  accounting and performs only a live filesystem-usage check at ordinary
+  boundaries. Full artifact reconciliation is reserved for authority recovery,
+  so active and queued leaves cannot spend against unreserved shared space
+  without repeatedly traversing sibling trees.
 - Shared-filesystem admission snapshots package-owned mutable artifacts without
   following final-component symlinks and verifies each file identity twice.
   Ancestor symlinks are accepted only when they resolve inside the project root

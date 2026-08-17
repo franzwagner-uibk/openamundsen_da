@@ -478,6 +478,13 @@ def run_project(project_dir: str | Path, *, max_workers: int | None = None) -> R
             raise ProjectRunError(
                 f"Restart-state cleanup failed for {len(cleanup_result.failures)} artifact(s)"
             )
+        if orchestrator_config.storage_admission_client is not None:
+            orchestrator_config.storage_admission_client.transition(
+                "cleanup_completed",
+                removed_bytes=int(cleanup_result.freed_bytes),
+                request_id="project:cleanup_completed",
+                allow_existing_step_drain=True,
+            )
         if capture_perf_snapshot(
             PerfMonitorConfig(project_dir=config.project_dir, run_start=started_at)
         ):
@@ -508,6 +515,8 @@ def run_project(project_dir: str | Path, *, max_workers: int | None = None) -> R
                 "performance_outputs": [
                     "results/plots/perf/project_perf_metrics.csv",
                     "results/plots/perf/project_perf.png",
+                    "results/plots/perf/project_perf_phases.csv",
+                    "results/plots/perf/project_perf_phases.png",
                 ],
             }
         )

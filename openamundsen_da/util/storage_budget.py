@@ -11,6 +11,7 @@ import stat as stat_module
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 from ruamel.yaml.error import YAMLError
@@ -25,6 +26,7 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.pipeline.project_skeleton import plan_project_steps
 from openamundsen_da.util.roi_grid import resolve_setup_grid_spec
+from openamundsen_da.util.source_catalog import SourceCatalog
 
 
 SOFT_USED_FRACTION = 0.80
@@ -177,9 +179,17 @@ def estimate_step_forcing_bytes(
     start: datetime,
     end: datetime,
     ensemble_size: int,
+    source_catalog: SourceCatalog | None = None,
 ) -> int:
     """Estimate generated forcing bytes from source size and temporal coverage."""
     meteo_dir = Path(meteo_dir)
+    if source_catalog is not None:
+        return source_catalog.estimate_step_forcing_bytes(
+            meteo_dir,
+            start=start,
+            end=end,
+            ensemble_size=ensemble_size,
+        )
     if ensemble_size < 1 or end < start:
         raise ValueError("Invalid forcing estimate inputs")
     station_files = sorted(
@@ -1070,6 +1080,7 @@ def estimate_project_storage_components(
     project_dir: str | Path,
     overwrite: bool = False,
     grid_cell_count: int | None = None,
+    source_catalog: SourceCatalog | None = None,
 ) -> ProjectStorageEstimate:
     """Estimate all additional retained and peak-transition project bytes.
 
@@ -1114,6 +1125,7 @@ def estimate_project_storage_components(
             start=start,
             end=end,
             ensemble_size=ensemble_size,
+            source_catalog=source_catalog,
         )
         for _step, start, end in steps
     )
@@ -1229,6 +1241,7 @@ def estimate_project_storage_reserve(
     project_dir: str | Path,
     overwrite: bool = False,
     grid_cell_count: int | None = None,
+    source_catalog: SourceCatalog | None = None,
 ) -> int:
     """Estimate all additional bytes needed to finish one project safely."""
     return estimate_project_storage_components(
@@ -1236,6 +1249,7 @@ def estimate_project_storage_reserve(
         project_dir=project_dir,
         overwrite=overwrite,
         grid_cell_count=grid_cell_count,
+        source_catalog=source_catalog,
     ).total_bytes
 
 
@@ -1245,6 +1259,8 @@ def estimate_coordinated_storage_reserve(
     outer_workers: int,
     parent_finalization_reserve_bytes: int,
     overwrite: bool = False,
+    source_catalog: SourceCatalog | None = None,
+    progress: Callable[[int, int, Path, str], None] | None = None,
 ) -> tuple[int, dict[str, ProjectStorageEstimate]]:
     """Reserve one admitted leaf cohort plus unfinished parent finalization.
 
@@ -1253,7 +1269,15 @@ def estimate_coordinated_storage_reserve(
     rolling second checkpoint within the active cohort is concurrency-bound.
     """
     estimates: dict[str, ProjectStorageEstimate] = {}
-    for project in projects:
+    total_projects = len(projects)
+    for project_index, project in enumerate(projects, start=1):
+        if progress is not None:
+            progress(
+                project_index,
+                total_projects,
+                project.project_dir,
+                "start",
+            )
         if project.run_manifest is not None and project.run_manifest.is_file():
             try:
                 data = json.loads(project.run_manifest.read_text(encoding="utf-8"))
@@ -1277,6 +1301,13 @@ def estimate_coordinated_storage_reserve(
                     == data.get("scientific_identity")
                     and (not overwrite or completed_during_reservation)
                 ):
+                    if progress is not None:
+                        progress(
+                            project_index,
+                            total_projects,
+                            project.project_dir,
+                            "complete",
+                        )
                     continue
             except (OSError, ValueError, TypeError):
                 pass
@@ -1285,8 +1316,16 @@ def estimate_coordinated_storage_reserve(
             project_dir=project.project_dir,
             overwrite=overwrite,
             grid_cell_count=project.grid_cell_count,
+            source_catalog=source_catalog,
         )
         estimates[str(project.project_dir)] = estimate
+        if progress is not None:
+            progress(
+                project_index,
+                total_projects,
+                project.project_dir,
+                "complete",
+            )
     active_count = min(max(1, int(outer_workers)), len(estimates))
     transition = sum(
         sorted(

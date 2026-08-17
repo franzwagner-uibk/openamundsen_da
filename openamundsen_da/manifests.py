@@ -7,7 +7,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 MANIFEST_SCHEMA_VERSION = 1
 
@@ -27,7 +27,12 @@ def hash_json(value: object) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def file_inventory(*, root: Path, files: Iterable[Path]) -> list[dict[str, Any]]:
+def file_inventory(
+    *,
+    root: Path,
+    files: Iterable[Path],
+    hash_file: Callable[[Path], str] = sha256_file,
+) -> list[dict[str, Any]]:
     """Return a deterministic content inventory with root-relative paths."""
     root = Path(root).resolve()
     unique: dict[str, Path] = {}
@@ -45,7 +50,7 @@ def file_inventory(*, root: Path, files: Iterable[Path]) -> list[dict[str, Any]]
         {
             "path": relative,
             "size": unique[relative].stat().st_size,
-            "sha256": sha256_file(unique[relative]),
+            "sha256": hash_file(unique[relative]),
         }
         for relative in sorted(unique)
     ]
@@ -125,6 +130,7 @@ def project_scientific_input_inventory(
     preparation: dict | None = None,
     *,
     identity_root: Path | None = None,
+    hash_file: Callable[[Path], str] = sha256_file,
 ) -> tuple[list[dict], str]:
     """Return the canonical prepared-run scientific input inventory."""
     from openamundsen_da.exceptions import ProjectRunError
@@ -200,11 +206,19 @@ def project_scientific_input_inventory(
             for entry in recorded
             if isinstance(entry, dict)
         ]
-        current = file_inventory(root=config.setup_dir, files=output_paths)
+        current = file_inventory(
+            root=config.setup_dir,
+            files=output_paths,
+            hash_file=hash_file,
+        )
         if inventory_digest(current) != preparation["output_digest"]:
             raise ProjectRunError("Preparation outputs differ from the completed preparation manifest")
         files.extend(output_paths)
-    inventory = file_inventory(root=config.setup_dir, files=files)
+    inventory = file_inventory(
+        root=config.setup_dir,
+        files=files,
+        hash_file=hash_file,
+    )
     allowed_root = Path(identity_root or config.setup_dir).resolve()
     symlink_records: dict[str, dict[str, object]] = {}
     scan_roots = scientific_roots | {
@@ -259,7 +273,7 @@ def project_scientific_input_inventory(
                     "logical_path": logical_relative,
                     "target_relative": target_relative,
                     "size": target.stat().st_size,
-                    "sha256": sha256_file(target),
+                    "sha256": hash_file(target),
                 }
     digest = inventory_digest(inventory)
     if symlink_records:

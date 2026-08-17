@@ -49,9 +49,9 @@ from openamundsen_da.util.storage_budget import (
     StorageReservationProject,
     check_step_admission,
     estimate_coordinated_storage_reserve,
-    estimate_project_storage_components,
     storage_project_steps,
 )
+from openamundsen_da.util.source_catalog import SourceCatalog
 from openamundsen_da.util.da_output import output_retention_mode
 from openamundsen_da.util.ts import parse_datetime_opt
 from openamundsen_da.pipeline.project_skeleton import plan_project_steps
@@ -227,7 +227,7 @@ def admit_storage_transition(
     estimated_growth_bytes: int,
     allow_existing_step_drain: bool = False,
 ) -> DiskBudgetSnapshot:
-    """Fully reconcile and durably admit a standalone parent lifecycle stage."""
+    """Admit a parent stage from its retained ledger obligation."""
     project_dir = Path(project_dir).resolve()
     started = time.perf_counter()
     snapshot = check_step_admission(
@@ -276,13 +276,20 @@ def admit_storage_transition(
                 - snapshot.estimated_growth_bytes
                 - snapshot.operational_reserve_bytes
             ),
-            "full_estimate_count": int(ledger.get("full_estimate_count", 0)) + 1,
-            "full_estimate_duration_seconds": float(
-                ledger.get("full_estimate_duration_seconds", 0.0)
-            ) + duration,
+            "lightweight_check_count": int(
+                ledger.get("lightweight_check_count", 0)
+            )
+            + 1,
+            "lightweight_check_duration_seconds": float(
+                ledger.get("lightweight_check_duration_seconds", 0.0)
+            )
+            + duration,
         }
     )
     write_manifest_atomic(path, ledger)
+    from openamundsen_da.util.perf_monitor import record_perf_phase
+
+    record_perf_phase(project_dir, str(phase))
     return snapshot
 
 
@@ -418,6 +425,8 @@ class StoragePlan:
     filesystem_capacity_bytes: int
     identity: str
     estimate_duration_seconds: float
+    source_catalog_summary: Mapping[str, int] = field(default_factory=dict)
+    source_catalog_snapshot: tuple[Mapping[str, object], ...] = ()
 
 
 def _estimate_obligations(estimate: ProjectStorageEstimate) -> dict[str, int]:
@@ -488,7 +497,11 @@ def _step_obligations(
     }
 
 
-def _path_identity(paths: list[Path]) -> str:
+def _path_identity(
+    paths: list[Path],
+    *,
+    source_catalog: SourceCatalog | None = None,
+) -> str:
     records: list[dict[str, object]] = []
     for path in sorted({Path(item).resolve() for item in paths}):
         stat = path.stat()
@@ -497,7 +510,11 @@ def _path_identity(paths: list[Path]) -> str:
                 "path": str(path),
                 "size": int(stat.st_size),
                 "mtime_ns": int(stat.st_mtime_ns),
-                "sha256": sha256_file(path),
+                "sha256": (
+                    source_catalog.sha256_file(path)
+                    if source_catalog is not None
+                    else sha256_file(path)
+                ),
             }
         )
     return hash_json(records)
@@ -509,6 +526,7 @@ def _project_identity(
     *,
     identity_root: Path,
     preparation_inputs_identity: str | None = None,
+    source_catalog: SourceCatalog | None = None,
 ) -> str:
     preparation = load_manifest(workflow_manifest_path(project.project_dir, "preparation"))
     if preparation is not None and preparation.get("status") != "success":
@@ -619,7 +637,11 @@ def _project_identity(
                     "logical_path": str(logical),
                     "target_relative": target_relative,
                     "size": target.stat().st_size,
-                    "sha256": sha256_file(target),
+                    "sha256": (
+                        source_catalog.sha256_file(target)
+                        if source_catalog is not None
+                        else sha256_file(target)
+                    ),
                 }
             )
         logger.warning(
@@ -628,7 +650,10 @@ def _project_identity(
         )
         return hash_json(
             {
-                "legacy_inputs": _path_identity(legacy_inputs),
+                "legacy_inputs": _path_identity(
+                    legacy_inputs,
+                    source_catalog=source_catalog,
+                ),
                 "symlinks": symlink_records,
             }
         )
@@ -636,6 +661,11 @@ def _project_identity(
         config,
         preparation,
         identity_root=identity_root,
+        hash_file=(
+            source_catalog.sha256_file
+            if source_catalog is not None
+            else sha256_file
+        ),
     )
     virtual_plan = [
         {
@@ -663,6 +693,7 @@ def _scientific_paths_identity(
     *,
     identity_root: Path,
     path_cache: dict[Path, str] | None = None,
+    source_catalog: SourceCatalog | None = None,
 ) -> str:
     path_cache = path_cache if path_cache is not None else {}
     path_digests: list[dict[str, str]] = []
@@ -726,7 +757,11 @@ def _scientific_paths_identity(
                 {
                     "path": relative,
                     "size": resolved.stat().st_size,
-                    "sha256": sha256_file(resolved),
+                    "sha256": (
+                        source_catalog.sha256_file(resolved)
+                        if source_catalog is not None
+                        else sha256_file(resolved)
+                    ),
                 }
             )
         digest = hash_json(records)
@@ -782,6 +817,27 @@ def build_storage_plan(
     if flattened != leaf_ids or any(not wave for wave in waves):
         raise ValueError("waves must contain every leaf exactly once in leaf_ids order")
     queued_retained_by_id = dict(queued_retained_by_id or {})
+    source_catalog = SourceCatalog(trusted_root=identity_root)
+    progress_started: dict[int, float] = {}
+
+    def report_progress(index: int, total: int, project_dir: Path, state: str) -> None:
+        if state == "start":
+            progress_started[index] = time.perf_counter()
+            logger.info(
+                "Storage preflight leaf {}/{} start project={}",
+                index,
+                total,
+                project_dir.name,
+            )
+            return
+        elapsed = time.perf_counter() - progress_started.get(index, started)
+        logger.info(
+            "Storage preflight leaf {}/{} complete project={} elapsed_s={:.1f}",
+            index,
+            total,
+            project_dir.name,
+            elapsed,
+        )
 
     usage = os.statvfs(root_project_dir)
     capacity = int(usage.f_frsize * usage.f_blocks)
@@ -797,6 +853,8 @@ def build_storage_plan(
         outer_workers=outer_workers,
         parent_finalization_reserve_bytes=parent_finalization_reserve_bytes,
         overwrite=overwrite,
+        source_catalog=source_catalog,
+        progress=report_progress,
     )
     leaves: dict[str, StorageLeafPlan] = {}
     scientific_path_cache: dict[Path, str] = {}
@@ -814,12 +872,14 @@ def build_storage_plan(
             project.scientific_input_paths,
             identity_root=identity_root,
             path_cache=scientific_path_cache,
+            source_catalog=source_catalog,
         )
         scientific_identity = _project_identity(
             project,
             step_names,
             identity_root=identity_root,
             preparation_inputs_identity=preparation_inputs_identity,
+            source_catalog=source_catalog,
         )
         estimate = estimates.get(str(project_dir))
         if estimate is None:
@@ -841,8 +901,14 @@ def build_storage_plan(
                 )
             # Only a current identity-bound completed leaf contributes no future growth.
             obligations = {name: 0 for name in _ESTIMATE_COMPONENTS}
+            retained_bytes = 0
         else:
             obligations = _estimate_obligations(estimate)
+            retained_bytes = (
+                estimate.retained_compact_bytes
+                if output_retention_mode(project_dir) == "compact"
+                else estimate.total_bytes
+            )
         leaves[leaf_id] = StorageLeafPlan(
             leaf_id=leaf_id,
             setup_dir=project.setup_dir.resolve(),
@@ -855,7 +921,7 @@ def build_storage_plan(
                 obligations=obligations,
             ),
             queued_retained_bytes=int(
-                queued_retained_by_id.get(leaf_id, sum(obligations.values()))
+                queued_retained_by_id.get(leaf_id, retained_bytes)
             ),
             identity=scientific_identity,
             grid_cell_count=int(project.grid_cell_count),
@@ -901,6 +967,16 @@ def build_storage_plan(
             for leaf_id, leaf in leaves.items()
         },
     }
+    catalog_summary = source_catalog.summary()
+    logger.info(
+        "Storage preflight catalog files={} logical_paths={} payload_read_gib={:.3f} "
+        "forcing_queries={} elapsed_s={:.1f}",
+        catalog_summary["unique_source_files"],
+        catalog_summary["logical_source_paths"],
+        catalog_summary["unique_payload_bytes_read"] / (1024**3),
+        catalog_summary["forcing_window_queries"],
+        time.perf_counter() - started,
+    )
     return StoragePlan(
         root_project_dir=root_project_dir,
         leaves=leaves,
@@ -914,6 +990,8 @@ def build_storage_plan(
         filesystem_capacity_bytes=capacity,
         identity=hash_json(identity_payload),
         estimate_duration_seconds=time.perf_counter() - started,
+        source_catalog_summary=catalog_summary,
+        source_catalog_snapshot=source_catalog.snapshot(),
     )
 
 
@@ -1091,7 +1169,7 @@ class StorageAdmissionCoordinator:
         request_id: str | None = None,
         allow_existing_step_drain: bool = False,
     ) -> DiskBudgetSnapshot:
-        """Run one serialized authoritative estimate before compact finalization."""
+        """Admit finalization from immutable obligations and producer accounting."""
         request_started = time.perf_counter()
         request_id = request_id or f"{leaf_id}:reconcile_finalization"
         with self._lock:
@@ -1109,30 +1187,14 @@ class StorageAdmissionCoordinator:
                 request_id=request_id,
                 request=request,
             ):
-                leaf_plan = self.plan.leaves[leaf_id]
-                started = time.perf_counter()
-                estimate = estimate_project_storage_components(
-                    setup_dir=leaf_plan.setup_dir,
-                    project_dir=leaf_plan.project_dir,
-                    overwrite=self.plan.overwrite,
-                    grid_cell_count=(leaf_plan.grid_cell_count or None),
-                )
-                obligations = _estimate_obligations(estimate)
                 state = ledger["leaves"][leaf_id]
-                for component, value in obligations.items():
-                    state["planned_by_component"][component] = max(
-                        int(state["planned_by_component"].get(component, 0)),
-                        int(value),
+                final_index = len(state["step_names"]) - 1
+                if int(state["last_admitted_step_index"]) != final_index:
+                    raise ValueError(
+                        "Cannot admit project finalization before the final propagation "
+                        f"step is admitted: {leaf_id}"
                     )
-                    state["remaining_by_component"][component] = max(
-                        int(state["remaining_by_component"].get(component, 0)),
-                        int(value),
-                    )
-                ledger["full_estimate_count"] = int(ledger["full_estimate_count"]) + 1
-                ledger["full_estimate_duration_seconds"] = float(
-                    ledger["full_estimate_duration_seconds"]
-                ) + (time.perf_counter() - started)
-                ledger["phase"] = "finalization_reconciliation"
+                ledger["phase"] = "finalization_admission"
                 self._recompute_remaining_peak(ledger)
             return self._check_and_commit(
                 ledger,
@@ -1253,6 +1315,9 @@ class StorageAdmissionCoordinator:
             "latest_projected_headroom_bytes": None,
             "full_estimate_count": 1,
             "full_estimate_duration_seconds": self.plan.estimate_duration_seconds,
+            "source_catalog": dict(self.plan.source_catalog_summary),
+            "materialized_bytes_total": 0,
+            "removed_bytes_total": 0,
             "lightweight_check_count": 0,
             "lightweight_check_duration_seconds": 0.0,
             "precommit_request_count": 0,
@@ -1345,20 +1410,33 @@ class StorageAdmissionCoordinator:
         request_started = time.perf_counter()
         if not 0 <= wave_index < len(self.plan.waves):
             raise ValueError(f"Invalid storage admission wave index: {wave_index}")
-        scientific_path_cache: dict[Path, str] = {}
-        for leaf_id in self.plan.waves[wave_index]:
-            leaf = self.plan.leaves[leaf_id]
-            if not leaf.scientific_input_paths:
-                continue
-            current_identity = _scientific_paths_identity(
-                leaf.scientific_input_paths,
-                identity_root=leaf.scientific_root or self.plan.root_project_dir,
-                path_cache=scientific_path_cache,
+        if self.plan.source_catalog_snapshot:
+            SourceCatalog.verify_snapshot(
+                list(self.plan.source_catalog_snapshot),
+                trusted_root=(
+                    next(iter(self.plan.leaves.values())).scientific_root
+                    or self.plan.root_project_dir
+                ),
             )
-            if current_identity != leaf.preparation_inputs_identity:
-                raise RuntimeError(
-                    f"Scientific preparation inputs changed before wave admission: {leaf_id}"
+        else:
+            # Compatibility for programmatically constructed plans predating
+            # the command-scoped catalog. Production plans always take the
+            # stat-only snapshot path above.
+            path_cache: dict[Path, str] = {}
+            for leaf_id in self.plan.waves[wave_index]:
+                leaf = self.plan.leaves[leaf_id]
+                if not leaf.scientific_input_paths:
+                    continue
+                current_identity = _scientific_paths_identity(
+                    leaf.scientific_input_paths,
+                    identity_root=leaf.scientific_root or self.plan.root_project_dir,
+                    path_cache=path_cache,
                 )
+                if current_identity != leaf.preparation_inputs_identity:
+                    raise RuntimeError(
+                        "Scientific preparation inputs changed during wave "
+                        f"preparation: {leaf_id}"
+                    )
         request_id = request_id or f"wave:{wave_index}"
         with self._lock:
             ledger = copy.deepcopy(self._ledger)
@@ -1419,36 +1497,30 @@ class StorageAdmissionCoordinator:
         request_started = time.perf_counter()
         if wave_index != int(self._ledger["active_wave_index"]):
             raise ValueError(f"Storage preparation wave is not active: {wave_index}")
-        scientific_path_cache: dict[Path, str] = {}
-        for leaf_id in self.plan.waves[wave_index]:
-            leaf = self.plan.leaves[leaf_id]
-            external_identity = leaf.preparation_inputs_identity
-            if leaf.scientific_input_paths:
-                external_identity = _scientific_paths_identity(
+        if self.plan.source_catalog_snapshot:
+            SourceCatalog.verify_snapshot(
+                list(self.plan.source_catalog_snapshot),
+                trusted_root=(
+                    next(iter(self.plan.leaves.values())).scientific_root
+                    or self.plan.root_project_dir
+                ),
+            )
+        else:
+            path_cache: dict[Path, str] = {}
+            for leaf_id in self.plan.waves[wave_index]:
+                leaf = self.plan.leaves[leaf_id]
+                if not leaf.scientific_input_paths:
+                    continue
+                current_identity = _scientific_paths_identity(
                     leaf.scientific_input_paths,
                     identity_root=leaf.scientific_root or self.plan.root_project_dir,
-                    path_cache=scientific_path_cache,
+                    path_cache=path_cache,
                 )
-                if external_identity != leaf.preparation_inputs_identity:
+                if current_identity != leaf.preparation_inputs_identity:
                     raise RuntimeError(
-                        f"Scientific preparation inputs changed during wave preparation: {leaf_id}"
+                        "Scientific preparation inputs changed during wave "
+                        f"preparation: {leaf_id}"
                     )
-            current_identity = _project_identity(
-                StorageReservationProject(
-                    setup_dir=leaf.setup_dir,
-                    project_dir=leaf.project_dir,
-                    grid_cell_count=leaf.grid_cell_count,
-                    scientific_input_paths=leaf.scientific_input_paths,
-                    scientific_root=leaf.scientific_root,
-                ),
-                leaf.step_names,
-                identity_root=leaf.scientific_root or self.plan.root_project_dir,
-                preparation_inputs_identity=external_identity,
-            )
-            if current_identity != leaf.identity:
-                raise RuntimeError(
-                    f"Scientific inputs changed during wave preparation: {leaf_id}"
-                )
         request_id = request_id or f"wave_prepared:{wave_index}"
         with self._lock:
             ledger = copy.deepcopy(self._ledger)
@@ -1607,6 +1679,9 @@ class StorageAdmissionCoordinator:
                 "preparation_by_leaf",
                 dict(ledger["immutable_preparation_by_leaf"]),
             )
+            ledger.setdefault("materialized_bytes_total", 0)
+            ledger.setdefault("removed_bytes_total", 0)
+            ledger["source_catalog"] = dict(self.plan.source_catalog_summary)
             self._reconcile_finalization_manifests(ledger)
             self._recompute_remaining_peak(ledger)
             ledger["full_estimate_count"] = int(ledger.get("full_estimate_count", 0)) + 1
@@ -1765,8 +1840,10 @@ class StorageAdmissionCoordinator:
                 f"Storage accounting summary for {leaf_id}/{expected_step} was already applied"
             )
 
+        materialized_total = 0
         for component in STEP_MATERIALIZATION_COMPONENTS:
             actual = int(summary.materialized_bytes.get(component, 0))
+            materialized_total += actual
             observed = int(summary.observed_bytes.get(component, actual))
             high_water = max(
                 int(leaf_state["observed_step_high_water_bytes"][component]),
@@ -1877,6 +1954,12 @@ class StorageAdmissionCoordinator:
                             ledger["wave_growth_bytes"][future_wave_index] = int(
                                 ledger["wave_growth_bytes"][future_wave_index]
                             ) + increase
+        ledger["materialized_bytes_total"] = int(
+            ledger.get("materialized_bytes_total", 0)
+        ) + materialized_total
+        ledger["removed_bytes_total"] = int(
+            ledger.get("removed_bytes_total", 0)
+        ) + int(summary.cleanup_freed_bytes)
         leaf_state["last_completed_step_index"] = admitted_index
         leaf_state["last_accounting_summary"] = summary.as_dict()
         self._recompute_remaining_peak(ledger)
@@ -1915,12 +1998,22 @@ class StorageAdmissionCoordinator:
         phase: str = "wave_preflight",
     ) -> None:
         """Commit a full-plan admission snapshot already checked by the caller."""
+        from openamundsen_da.util.perf_monitor import project_tree_size_bytes
+
+        project_size_bytes = project_tree_size_bytes(self.plan.root_project_dir)
         with self._lock:
             ledger = copy.deepcopy(self._ledger)
             ledger["phase"] = phase
             ledger["status"] = "admitted"
             ledger["updated_at"] = _utc_now()
             ledger["transition_sequence"] = int(ledger["transition_sequence"]) + 1
+            ledger["project_size_baseline_bytes"] = project_size_bytes
+            ledger["project_size_baseline_materialized_bytes"] = int(
+                ledger.get("materialized_bytes_total", 0)
+            )
+            ledger["project_size_baseline_removed_bytes"] = int(
+                ledger.get("removed_bytes_total", 0)
+            )
             self._record_filesystem_snapshot(ledger, snapshot, duration=0.0)
             write_manifest_atomic(self.ledger_path, ledger)
             self._ledger = ledger
@@ -2196,6 +2289,7 @@ class StorageAdmissionCoordinator:
         leaf_id: str | None = None,
         summary: StorageAccountingSummary | None = None,
         release_bytes: int = 0,
+        removed_bytes: int = 0,
         request_id: str | None = None,
         allow_existing_step_drain: bool = False,
     ) -> DiskBudgetSnapshot:
@@ -2206,6 +2300,8 @@ class StorageAdmissionCoordinator:
             raise ValueError("phase is required")
         if release_bytes < 0:
             raise ValueError("release_bytes must be non-negative")
+        if removed_bytes < 0:
+            raise ValueError("removed_bytes must be non-negative")
         request_id = request_id or str(uuid.uuid4())
         with self._lock:
             ledger = copy.deepcopy(self._ledger)
@@ -2219,6 +2315,8 @@ class StorageAdmissionCoordinator:
                     hash_json(summary.as_dict()) if summary is not None else None
                 ),
             }
+            if removed_bytes:
+                request["removed_bytes"] = int(removed_bytes)
             duplicate = self._is_duplicate_request(
                 ledger, request_id=request_id, request=request
             )
@@ -2316,6 +2414,10 @@ class StorageAdmissionCoordinator:
                             "Lifecycle release exceeds coordinator-owned parent and padding reserves"
                         )
                     self._recompute_remaining_peak(ledger)
+                if removed_bytes:
+                    ledger["removed_bytes_total"] = int(
+                        ledger.get("removed_bytes_total", 0)
+                    ) + int(removed_bytes)
                 ledger["phase"] = phase
             return self._check_and_commit(
                 ledger,
@@ -2543,12 +2645,12 @@ class StorageAdmissionClient:
         *,
         summary: StorageAccountingSummary | None = None,
         release_bytes: int = 0,
+        removed_bytes: int = 0,
         request_id: str | None = None,
         allow_existing_step_drain: bool = False,
     ) -> DiskBudgetSnapshot:
         request_id = request_id or str(uuid.uuid4())
-        return self._request(
-            {
+        payload = {
                 "kind": "transition",
                 "phase": phase,
                 "leaf_id": self.leaf_id,
@@ -2557,7 +2659,9 @@ class StorageAdmissionClient:
                 "request_id": request_id,
                 "allow_existing_step_drain": allow_existing_step_drain,
             }
-        )
+        if removed_bytes:
+            payload["removed_bytes"] = int(removed_bytes)
+        return self._request(payload)
 
     def admit_wave(
         self,
@@ -2613,6 +2717,7 @@ def _dispatch_coordinator_request(
             leaf_id=(str(payload["leaf_id"]) if payload.get("leaf_id") else None),
             summary=summary,
             release_bytes=int(payload.get("release_bytes") or 0),
+            removed_bytes=int(payload.get("removed_bytes") or 0),
             request_id=(str(payload["request_id"]) if payload.get("request_id") else None),
             allow_existing_step_drain=bool(payload.get("allow_existing_step_drain", False)),
         )

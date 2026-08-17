@@ -36,6 +36,7 @@ from openamundsen_da.util.storage_budget import (
     _retained_diagnostics_storage_bound,
     _selected_forcing_source_bytes,
 )
+from openamundsen_da.util.source_catalog import SourceCatalog
 
 
 def _usage(*, total: int, used: int) -> shutil._ntuple_diskusage:
@@ -155,6 +156,27 @@ def test_forcing_estimate_scales_to_step_window_and_ensemble(tmp_path: Path) -> 
     )
 
     assert 0 < short < full
+
+
+def test_catalog_preserves_complete_project_storage_bound(tmp_path: Path) -> None:
+    setup, project = _unmaterialized_project(tmp_path)
+    legacy = estimate_project_storage_components(
+        setup_dir=setup,
+        project_dir=project,
+        grid_cell_count=4,
+    )
+    catalog = SourceCatalog(trusted_root=setup)
+
+    indexed = estimate_project_storage_components(
+        setup_dir=setup,
+        project_dir=project,
+        grid_cell_count=4,
+        source_catalog=catalog,
+    )
+
+    assert indexed == legacy
+    assert catalog.summary()["forcing_files_parsed"] == 1
+    assert catalog.summary()["forcing_window_queries"] >= 1
 
 
 def test_forcing_estimate_scales_each_station_coverage_independently(tmp_path: Path) -> None:

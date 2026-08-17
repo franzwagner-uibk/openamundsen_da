@@ -376,6 +376,7 @@ def _run_one(
             if storage_admission_client is not None:
                 storage_admission_client.transition(
                     "leaf_finalized",
+                    removed_bytes=int(finalized.get("cleanup_freed_bytes", 0)),
                     request_id=f"{sub.id}:leaf_finalized",
                 )
             recovered = {
@@ -436,6 +437,7 @@ def _run_one(
             if storage_admission_client is not None:
                 storage_admission_client.transition(
                     "leaf_finalized",
+                    removed_bytes=int(finalized.get("cleanup_freed_bytes", 0)),
                     request_id=f"{sub.id}:leaf_finalized",
                 )
             data["retained_leaf_bytes"] = int(finalized.get("retained_leaf_bytes", 0))
@@ -537,6 +539,7 @@ def _run_one(
                 storage_admission_client.transition(
                     "leaf_finalized",
                     release_bytes=0,
+                    removed_bytes=int(finalized.get("cleanup_freed_bytes", 0)),
                     request_id=f"{sub.id}:leaf_finalized",
                 )
             duration = time.time() - started
@@ -802,6 +805,57 @@ def _projected_retained_compact_bytes(
     return projected
 
 
+def _parent_finalization_reserve(
+    manifest: SubdomainManifest,
+    *,
+    overwrite: bool,
+) -> int:
+    """Return parent merge/render growth without estimating any leaf again."""
+    merge_stage = manifest.stages.get("merge") or {}
+    merged_output = manifest.project_dir / "results" / "grids" / "da_output_grids.nc"
+    merge_is_accepted = (
+        not overwrite
+        and str(merge_stage.get("status", "")).lower() == "completed"
+        and merged_output.is_file()
+    )
+    if merge_is_accepted:
+        try:
+            validate_compact_output_file(
+                project_dir=manifest.project_dir,
+                output_nc=merged_output,
+            )
+        except Exception:  # noqa: BLE001 - invalid accepted output must be rebuilt
+            merge_is_accepted = False
+    parent_merge_reserve = (
+        0
+        if merge_is_accepted
+        else estimate_parent_compact_merge_bytes(
+            setup_dir=manifest.setup_dir,
+            project_dir=manifest.project_dir,
+            grid_cell_count=int(manifest.grid_rows) * int(manifest.grid_cols),
+        )
+    )
+    render_stage = manifest.stages.get("render") or {}
+    render_outputs = render_stage.get("outputs")
+    render_is_accepted = (
+        not overwrite
+        and str(render_stage.get("status", "")).lower() == "completed"
+        and isinstance(render_outputs, list)
+        and bool(render_outputs)
+        and all(Path(str(path)).is_file() for path in render_outputs)
+    )
+    parent_render_reserve = (
+        0
+        if render_is_accepted
+        else estimate_parent_render_bytes(
+            project_dir=manifest.project_dir,
+            grid_cell_count=int(manifest.grid_rows) * int(manifest.grid_cols),
+            overwrite=overwrite,
+        )
+    )
+    return parent_merge_reserve + parent_render_reserve
+
+
 def _coordinator_storage_reserve(
     manifest: SubdomainManifest,
     *,
@@ -865,41 +919,10 @@ def _coordinator_storage_reserve(
     queued_retained_reserve = sum(
         int(queued_retained_by_id[sid]) for sid in queued_ids
     )
-    merge_stage = manifest.stages.get("merge") or {}
-    merged_output = manifest.project_dir / "results" / "grids" / "da_output_grids.nc"
-    merge_is_accepted = (
-        not overwrite
-        and str(merge_stage.get("status", "")).lower() == "completed"
-        and merged_output.is_file()
-    )
-    if merge_is_accepted:
-        try:
-            validate_compact_output_file(
-                project_dir=manifest.project_dir,
-                output_nc=merged_output,
-            )
-        except Exception:  # noqa: BLE001 - invalid accepted output must be rebuilt
-            merge_is_accepted = False
-    parent_merge_reserve = 0 if merge_is_accepted else estimate_parent_compact_merge_bytes(
-        setup_dir=manifest.setup_dir,
-        project_dir=manifest.project_dir,
-        grid_cell_count=int(manifest.grid_rows) * int(manifest.grid_cols),
-    )
-    render_stage = manifest.stages.get("render") or {}
-    render_outputs = render_stage.get("outputs")
-    render_is_accepted = (
-        not overwrite
-        and str(render_stage.get("status", "")).lower() == "completed"
-        and isinstance(render_outputs, list)
-        and bool(render_outputs)
-        and all(Path(str(path)).is_file() for path in render_outputs)
-    )
-    parent_render_reserve = 0 if render_is_accepted else estimate_parent_render_bytes(
-        project_dir=manifest.project_dir,
-        grid_cell_count=int(manifest.grid_rows) * int(manifest.grid_cols),
+    parent_finalization_reserve = _parent_finalization_reserve(
+        manifest,
         overwrite=overwrite,
     )
-    parent_finalization_reserve = parent_merge_reserve + parent_render_reserve
     concurrent, estimates = estimate_coordinated_storage_reserve(
         project_specs,
         outer_workers=outer_workers,
@@ -1088,25 +1111,9 @@ def run_subdomains(
             manifest,
             selected_ids,
         )
-        queued_retained_by_id = _projected_retained_compact_bytes(
+        parent_finalization_reserve = _parent_finalization_reserve(
             manifest,
-            selected_ids=selected_ids,
             overwrite=overwrite,
-        )
-        (
-            concurrent_storage_reserve,
-            leaf_storage_reserves,
-            storage_reservation_projects,
-            parent_finalization_reserve,
-            queued_retained_reserve,
-        ) = _coordinator_storage_reserve(
-            manifest,
-            selected_ids=waves[0],
-            queued_ids=[sid for wave in waves[1:] for sid in wave],
-            queued_retained_by_id=queued_retained_by_id,
-            outer_workers=len(waves[0]),
-            overwrite=overwrite,
-            reservation_started_ns=reservation_started_ns,
         )
         resuming_batch = not overwrite and all(
             _project_has_started(manifest.subdomains[sid].project_dir)
@@ -1124,11 +1131,26 @@ def run_subdomains(
             projects=all_storage_projects,
             leaf_ids=selected_ids,
             waves=waves,
-            queued_retained_by_id=queued_retained_by_id,
+            queued_retained_by_id={},
             outer_workers=outer_workers,
             shared_reserve_bytes=parent_finalization_reserve,
             overwrite=overwrite,
             allow_existing_step_drain=resuming_batch,
+        )
+        plan = wave_server.coordinator.plan
+        storage_reservation_projects = all_storage_projects
+        concurrent_storage_reserve = plan.estimated_growth_bytes
+        leaf_storage_reserves = {
+            leaf_id: leaf.total_bytes for leaf_id, leaf in plan.leaves.items()
+        }
+        queued_retained_by_id = {
+            leaf_id: int(leaf.queued_retained_bytes)
+            for leaf_id, leaf in plan.leaves.items()
+        }
+        queued_retained_reserve = sum(
+            queued_retained_by_id[sid]
+            for wave in waves[1:]
+            for sid in wave
         )
     except LowDiskSpaceError as exc:
         save_stage(manifest, manifest_path, "run", "paused_low_disk", error=str(exc))
@@ -1181,42 +1203,24 @@ def run_subdomains(
         for wave_index, wave_ids in enumerate(waves):
             if wave_index > 0:
                 manifest = SubdomainManifest.load(manifest_path)
-                (
-                    concurrent_storage_reserve,
-                    leaf_storage_reserves,
-                    storage_reservation_projects,
-                    parent_finalization_reserve,
-                    queued_retained_reserve,
-                ) = _coordinator_storage_reserve(
-                    manifest,
-                    selected_ids=wave_ids,
-                    queued_ids=[sid for wave in waves[wave_index + 1 :] for sid in wave],
-                    queued_retained_by_id=queued_retained_by_id,
-                    outer_workers=len(wave_ids),
-                    overwrite=overwrite,
-                    reservation_started_ns=reservation_started_ns,
-                )
                 resuming_batch = not overwrite and all(
                     _project_has_started(manifest.subdomains[sid].project_dir)
                     for sid in wave_ids
                 )
-                fresh_plan = build_storage_plan(
-                    root_project_dir=manifest.project_dir,
-                    projects=all_storage_projects,
-                    outer_workers=outer_workers,
-                    parent_finalization_reserve_bytes=parent_finalization_reserve,
-                    overwrite=overwrite,
-                    leaf_ids=tuple(selected_ids),
-                    waves=tuple(tuple(wave) for wave in waves),
-                    queued_retained_by_id=queued_retained_by_id,
-                )
-                wave_server.coordinator.reconcile_full_plan(fresh_plan)
                 storage_budget = wave_server.client(
                     leaf_id=wave_ids[0]
                 ).admit_wave(
                     wave_index,
                     request_id=f"wave:{wave_index}",
                     allow_existing_step_drain=resuming_batch,
+                )
+                ledger = wave_server.coordinator.snapshot()
+                concurrent_storage_reserve = storage_budget.estimated_growth_bytes
+                queued_retained_reserve = int(
+                    ledger["queued_retained_reserve_bytes"]
+                )
+                parent_finalization_reserve = int(
+                    ledger["parent_finalization_reserve_bytes"]
                 )
             logger.info(
                 "ADMIT wave={}/{} subdomains={} growth_gib={:.1f} "

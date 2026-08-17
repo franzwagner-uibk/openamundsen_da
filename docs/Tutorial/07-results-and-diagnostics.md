@@ -124,10 +124,17 @@ What to read in the plot:
   CSV instead of competing with these curves in the figure.
 - **Project-size curve**: follow project-directory growth across the steps. The
   final forced sample shows the drop after automatic restart-state cleanup; in
-  this run, project size falls from an 8.02 GB peak to 6.65 GB. Periodic samples
-  are throttled, so earlier growth can update in steps rather than every row.
-- **Thermal curve**: when host sensors are readable, CPU temperature is plotted on its own axis. Missing thermal data is expected in some containers and does not invalidate the CPU/RAM/disk diagnostics.
-- **Timing structure**: repeated patterns often correspond to repeated step execution.
+  this run, project size falls from an 8.02 GB peak to 6.65 GB. Live size comes
+  from the storage reservation ledger after one baseline scan; the terminal
+  point is reconciled against the physical tree.
+- **Thermal curve**: when host sensors are readable, CPU temperature is plotted
+  on its own axis. The heading reports p50/p95/maximum temperature and time
+  above the configured reporting levels. These values do not by themselves
+  prove thermal throttling.
+- **Timing structure**: use `project_perf_phases.png` beside the main plot to
+  distinguish preflight, propagation, finalization and unmonitored restart
+  gaps. Lines in the main plot break across such gaps rather than implying
+  continuous sampling.
 
 {: .references }
 > - [Advanced Performance]({{ site.baseurl }}{% link advanced/performance.md %}) (deeper interpretation of runtime behavior)

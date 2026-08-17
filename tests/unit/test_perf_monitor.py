@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import json
 from pathlib import Path
 import stat
 from types import SimpleNamespace
@@ -149,7 +150,8 @@ def test_project_perf_plot_places_one_row_legend_below_axes_without_x_title(
     ]
     assert "Disk used [%]" not in labels
     summary = " ".join(text.get_text() for text in fig.texts)
-    assert "Peak CPU temp: 83.0 °C" in summary
+    assert "CPU temp p50/p95/max: 76.5/82.2/83.0 °C" in summary
+    assert "Temp hours >=85°:0.0/>=90°:0.0/>=95°:0.0" in summary
     assert "Peak RAM: 30.0 / 128.0 GB" in summary
     assert "Project: peak 80.0 GB \N{RIGHTWARDS ARROW} final 80.0 GB" in summary
     fig.canvas.draw()
@@ -562,3 +564,97 @@ def test_project_size_scan_is_throttled(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert scans == [tmp_path]
     assert [row["disk_project_used_gb"] for row in data_rows] == ["12.000", "12.000", "12.000"]
     assert [row["thermal_sample_ok"] for row in data_rows] == ["false", "false", "false"]
+
+
+def test_monitor_uses_storage_ledger_without_recurring_tree_scans(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out_dir = tmp_path / "results" / "plots" / "perf"
+    out_dir.mkdir(parents=True)
+    ledger = tmp_path / "results" / "storage" / "storage_reservation.json"
+    ledger.parent.mkdir(parents=True)
+
+    def write_ledger(materialized: int, removed: int, phase: str) -> None:
+        ledger.write_text(
+            json.dumps(
+                {
+                    "materialized_bytes_total": materialized,
+                    "removed_bytes_total": removed,
+                    "project_size_baseline_bytes": 10 * 1024**3,
+                    "project_size_baseline_materialized_bytes": 100,
+                    "project_size_baseline_removed_bytes": 20,
+                    "phase": phase,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    write_ledger(100, 20, "preflight")
+    scans: list[Path] = []
+    monkeypatch.setattr(
+        perf_monitor,
+        "_directory_size_gb",
+        lambda path: scans.append(path) or 10.0,
+    )
+    monkeypatch.setattr(
+        perf_monitor,
+        "_filesystem_disk_usage_gb",
+        lambda _path: (40.0, 400.0, 600.0, 1000.0),
+    )
+    monkeypatch.setattr(
+        perf_monitor,
+        "_sample_cpu_temperature_c",
+        lambda: perf_monitor.CpuThermalSample(None, "unavailable"),
+    )
+    monkeypatch.setattr(
+        perf_monitor,
+        "psutil",
+        SimpleNamespace(
+            virtual_memory=lambda: SimpleNamespace(percent=25.0, used=8, total=32),
+            cpu_percent=lambda interval=None: 50.0,
+        ),
+    )
+    monkeypatch.setattr(perf_monitor, "plt", None)
+
+    class StopAfterThreeSamples:
+        def __init__(self) -> None:
+            self.waits = 0
+
+        def is_set(self) -> bool:
+            return self.waits >= 3
+
+        def wait(self, _interval: float) -> None:
+            self.waits += 1
+            if self.waits == 1:
+                write_ledger(100 + 1024**3, 20, "running")
+            elif self.waits == 2:
+                write_ledger(
+                    100 + 1024**3,
+                    20 + 512 * 1024**2,
+                    "cleanup",
+                )
+
+    perf_monitor._monitor_loop(
+        perf_monitor.PerfMonitorConfig(
+            project_dir=tmp_path,
+            storage_ledger_path=ledger,
+            sample_interval_sec=0.0,
+        ),
+        out_dir,
+        StopAfterThreeSamples(),
+    )
+
+    rows = (out_dir / "project_perf_metrics.csv").read_text(encoding="utf-8").splitlines()
+    header = rows[0].split(",")
+    data_rows = [dict(zip(header, row.split(","))) for row in rows[1:]]
+    assert scans == []
+    assert [row["disk_project_used_gb"] for row in data_rows] == [
+        "10.000",
+        "11.000",
+        "10.500",
+    ]
+    phases = (out_dir / "project_perf_phases.csv").read_text(encoding="utf-8")
+    assert "preflight" in phases
+    assert "running" in phases
+    assert "cleanup" in phases

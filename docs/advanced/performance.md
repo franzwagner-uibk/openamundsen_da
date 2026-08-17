@@ -37,26 +37,24 @@ raw filesystem used/free/total telemetry, but filesystem utilization is not
 drawn in the plot. Temperature is recorded only when a readable host sensor is
 exposed to the container.
 
-The plot records exact project-size samples immediately before and after the
-automatic restart-state cleanup of a successful single-domain run. Its summary
-therefore reports `Project: peak ... GB → final ... GB`. Staged subdomain runs
-do not invent an equivalent cleanup sample; interpret their project-size series
-according to the configured retention stage.
+The monitor performs one recursive project-size reconciliation at startup and
+one at terminal completion. Between those points it derives project growth and
+cleanup from the storage ledger's materialized and removed byte counters. Its
+summary therefore reports `Project: peak ... GB → final ... GB` without walking
+a multi-million-file runtime tree every five minutes.
 
-CPU and RAM are sampled every 5 seconds and the live plot is refreshed every
-30 seconds. The exact recursive project-directory size scan is intentionally
-less frequent because it can be expensive for projects containing millions of
-files; it defaults to every 150 seconds. The plot measures its project-size tick
-and axis-label widths before positioning the optional temperature axis, so its
-fixed figure size remains readable for both small projects and sizes of several
-terabytes.
+CPU and RAM are sampled every 5 seconds. Full-resolution samples remain in the
+CSV, while live PNG downsampling and refresh frequency adapt as its history
+grows. The plot measures its project-size tick and axis-label widths before
+positioning the optional temperature axis, so its fixed figure size remains
+readable for both small projects and sizes of several terabytes.
 
 ## Storage
 
 Grid resolution, duration, ensemble size, selected model variables and retention
 dominate disk use. The compact `da_output_grids.nc` is the primary post-run grid
-product. Successful runs automatically remove restart pickles, but member grids
-remain available unless a separate safe retention operation inventories them.
+product. Successful compact runs remove validated raw member grids, forcing,
+points, forcing plots and restart state; full retention preserves them.
 
 Overwrite admission treats restart checkpoints like other atomic products: an
 accepted checkpoint and its complete replacement may coexist until durable
@@ -71,6 +69,31 @@ live filesystem usage; the projected-growth reserve adds the active wave plus
 the compact outputs still expected from queued leaves and unfinished parent
 merge, map, plot and report output. A failed leaf is not final-cleaned and
 therefore retains its restartable predecessor state.
+
+Fresh compact projects own all disposable runtime artifacts below one
+`.openamundsen-da/runtime/<generation>/` tree. Cleanup validates compact
+consumers and producer authority, atomically renames that tree into a
+same-filesystem quarantine and deletes independent member/plot directories with
+bounded workers. The worker count is selected by the target-filesystem
+benchmark; it is not inferred from CPU core count. Existing schema-v5 projects
+retain their established batch cleanup path.
+
+Maintainers can select the worker count on a scratch filesystem and then confirm
+the audited full-scale tree with:
+
+```bash
+PYTHONPATH=. python3 scripts/benchmark_runtime_cleanup.py \
+  --scratch-root /path/on/target-filesystem/runtime-cleanup-benchmark \
+  --workers 1,2,4,8,12,16 \
+  --sample-files 100000 --sample-bytes 8000000000 --sample-units 800 \
+  --full-files 2373290 --full-bytes 195300000000 --full-units 20400 \
+  --allocate --result-json /path/outside/scratch/runtime-cleanup-benchmark.json
+```
+
+The command checks the unchanged 90% emergency and 5% operational reserves,
+prints creation progress, chooses the fastest bounded sample candidate and uses
+it once for full-scale confirmation. The result records physical allocation,
+freed bytes, exact deleted file/directory counts and cleanup duration.
 
 Storage estimation is separated from the step-boundary hot path. The
 coordinator builds the conservative component plan before workers start and

@@ -10,6 +10,8 @@ SOURCE_SETUP="${OA_DA_TEST_SETUP_SOURCE:-${ROOT_DIR}/examples/rofental}"
 ARTIFACT_DIR="${CI_ARTIFACT_DIR:-}"
 SETUP_RESOLUTION_OVERRIDE="${OA_DA_TEST_SETUP_RESOLUTION:-}"
 ENSEMBLE_SIZE_OVERRIDE="${OA_DA_TEST_ENSEMBLE_SIZE:-}"
+RETENTION_OVERRIDE="${OA_DA_TEST_RETENTION:-}"
+EXCLUDED_EVENT_VARIABLES="${OA_DA_TEST_EXCLUDE_EVENTS:-}"
 RUNTIME_PYTHON="${OA_DA_TEST_PYTHON:-python}"
 RUNTIME_CLI="${OA_DA_TEST_CLI:-openamundsen-da}"
 
@@ -120,15 +122,19 @@ exec > >(tee -a "${HOST_LOG_FILE}") 2>&1
 echo "[integration] Runtime: ${TEST_RUNTIME}"
 echo "[integration] Project driver: ${PROJECT_DRIVER}"
 
-if [[ -n "${SETUP_RESOLUTION_OVERRIDE}" || -n "${ENSEMBLE_SIZE_OVERRIDE}" ]]; then
+if [[ -n "${SETUP_RESOLUTION_OVERRIDE}" || -n "${ENSEMBLE_SIZE_OVERRIDE}" || -n "${RETENTION_OVERRIDE}" || -n "${EXCLUDED_EVENT_VARIABLES}" ]]; then
   echo "[integration] Applying derived CI copy overrides"
   echo "[integration]   setup resolution: ${SETUP_RESOLUTION_OVERRIDE:-unchanged}"
   echo "[integration]   ensemble size: ${ENSEMBLE_SIZE_OVERRIDE:-unchanged}"
+  echo "[integration]   output retention: ${RETENTION_OVERRIDE:-unchanged}"
+  echo "[integration]   excluded event variables: ${EXCLUDED_EVENT_VARIABLES:-none}"
   runtime_run "${RUNTIME_PYTHON}" - \
     "${PROJECT_RUNTIME_ROOT}" \
     "${SOURCE_PROJECT_NAME}" \
     "${SETUP_RESOLUTION_OVERRIDE}" \
-    "${ENSEMBLE_SIZE_OVERRIDE}" <<'PY'
+    "${ENSEMBLE_SIZE_OVERRIDE}" \
+    "${RETENTION_OVERRIDE}" \
+    "${EXCLUDED_EVENT_VARIABLES}" <<'PY'
 from pathlib import Path
 import sys
 import yaml
@@ -137,6 +143,12 @@ setup_dir = Path(sys.argv[1])
 project_name = str(sys.argv[2]).strip()
 resolution_raw = str(sys.argv[3]).strip()
 ensemble_raw = str(sys.argv[4]).strip()
+retention = str(sys.argv[5]).strip()
+excluded_events = {
+    value.strip().lower()
+    for value in str(sys.argv[6]).split(",")
+    if value.strip()
+}
 
 setup_yaml_candidates = [
     path
@@ -162,6 +174,22 @@ if ensemble_raw:
     da_cfg = project_cfg.setdefault("data_assimilation", {})
     prior_cfg = da_cfg.setdefault("prior_forcing", {})
     prior_cfg["ensemble_size"] = ensemble_size
+
+if retention:
+    if retention not in {"compact", "full"}:
+        raise ValueError(f"Unsupported CI retention override: {retention}")
+    da_cfg = project_cfg.setdefault("data_assimilation", {})
+    output_cfg = da_cfg.setdefault("output", {})
+    output_cfg["retention"] = retention
+
+if excluded_events:
+    da_cfg = project_cfg.setdefault("data_assimilation", {})
+    events = list(da_cfg.get("assimilation_events") or [])
+    da_cfg["assimilation_events"] = [
+        event
+        for event in events
+        if str((event or {}).get("variable", "")).strip().lower() not in excluded_events
+    ]
 
 with setup_yaml.open("w", encoding="utf-8") as f:
     yaml.safe_dump(setup_cfg, f, sort_keys=False)

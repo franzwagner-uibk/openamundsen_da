@@ -310,9 +310,38 @@ def record_runtime_step_accounting(
     )
     accounting = dict(manifest.get("step_accounting") or {})
     previous = dict(accounting.get(str(step_name)) or {})
+    previous_component_bytes = {
+        str(component): max(0, int(value))
+        for component, value in (previous.get("component_bytes") or {}).items()
+    }
+    previous_file_counts = {
+        str(component): max(0, int(value))
+        for component, value in (previous.get("file_counts") or {}).items()
+    }
+    for component in disposable_components:
+        if component in component_bytes:
+            previous_component_bytes[component] = max(
+                previous_component_bytes.get(component, 0),
+                max(0, int(component_bytes[component])),
+            )
+        if component in file_counts:
+            previous_file_counts[component] = max(
+                previous_file_counts.get(component, 0),
+                max(0, int(file_counts[component])),
+            )
     accounting[str(step_name)] = {
-        "bytes": max(int(previous.get("bytes", 0)), recorded_bytes),
-        "files": max(int(previous.get("files", 0)), recorded_files),
+        "bytes": max(
+            int(previous.get("bytes", 0)),
+            recorded_bytes,
+            sum(previous_component_bytes.values()),
+        ),
+        "files": max(
+            int(previous.get("files", 0)),
+            recorded_files,
+            sum(previous_file_counts.values()),
+        ),
+        "component_bytes": previous_component_bytes,
+        "file_counts": previous_file_counts,
         "updated_at": _utc_now(),
     }
     manifest["step_accounting"] = accounting

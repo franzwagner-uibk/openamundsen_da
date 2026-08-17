@@ -37,6 +37,7 @@ from openamundsen_da.io.paths import (
     read_step_config,
     find_setup_yaml,
     find_project_yaml,
+    forcing_plot_dir,
     list_member_dirs,
     list_steps_sorted,
     project_da_output_grids_path,
@@ -156,6 +157,34 @@ DA_DIAGNOSTICS = {
         "wet_plots": True,
     },
 }
+
+
+def _record_runtime_forcing_plot_accounting(
+    project_dir: Path,
+    steps: list[Path],
+) -> None:
+    """Record phase-local forcing plots without recursively rediscovering runtime data."""
+    for step in steps:
+        plot_dir = forcing_plot_dir(step)
+        if not plot_dir.is_dir() or plot_dir.is_symlink():
+            continue
+        plot_files = []
+        for path in plot_dir.iterdir():
+            if path.is_symlink() or not path.is_file():
+                raise RuntimeError(
+                    f"Compact forcing-plot producer created an invalid artifact: {path}"
+                )
+            plot_files.append(path)
+        record_runtime_step_accounting(
+            project_dir,
+            step_name=step.name,
+            component_bytes={
+                "derived_forcing_plot_bytes": sum(
+                    path.stat().st_size for path in plot_files
+                )
+            },
+            file_counts={"derived_forcing_plot_bytes": len(plot_files)},
+        )
 
 
 def _list_steps_sorted(project_dir: Path) -> List[Path]:
@@ -1301,6 +1330,7 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         max_workers=cfg.plot_workers or cfg.max_workers,
     )
     if retention_mode == "compact":
+        _record_runtime_forcing_plot_accounting(cfg.project_dir, steps)
         record_runtime_cleanup_authority(cfg.project_dir)
 
     _setup_logger(cfg.project_dir, cfg.log_level)

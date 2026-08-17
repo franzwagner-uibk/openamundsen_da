@@ -7,7 +7,12 @@ from types import SimpleNamespace
 import pytest
 
 from openamundsen_da.exceptions import ProjectValidationError
+from openamundsen_da.io.paths import forcing_plot_dir
 from openamundsen_da.pipeline import plot_tasks, project as project_cli
+from openamundsen_da.util.runtime_generation import (
+    ensure_runtime_generation,
+    runtime_accounted_totals,
+)
 
 
 def _write_project_yaml(project_dir: Path) -> None:
@@ -187,6 +192,21 @@ def test_project_pipeline_runs_report_after_final_artifact_stages() -> None:
     assert source.index("write_project_da_output_grids(") < source.index("run_project_benchmark(")
     assert source.index("run_project_benchmark(") < source.index("render_required_project_outputs(")
     assert source.index("render_required_project_outputs(") < source.index("Project processing complete:")
+
+
+def test_compact_render_accounts_phase_local_forcing_plots(tmp_path: Path) -> None:
+    project_dir = tmp_path / "setup/projects/project"
+    step = project_dir / "steps/step_00"
+    step.mkdir(parents=True)
+    ensure_runtime_generation(project_dir)
+    plots = forcing_plot_dir(step)
+    plots.mkdir(parents=True)
+    (plots / "station_a.png").write_bytes(b"1234")
+    (plots / "station_b.png").write_bytes(b"123456")
+
+    project_cli._record_runtime_forcing_plot_accounting(project_dir, [step])
+
+    assert runtime_accounted_totals(project_dir) == (10, 2)
 
 
 def test_project_pipeline_validates_configuration_before_discovery(monkeypatch, tmp_path: Path) -> None:

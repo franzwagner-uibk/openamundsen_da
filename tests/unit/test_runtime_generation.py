@@ -155,11 +155,17 @@ def test_runtime_accounting_is_monotonic_and_excludes_durable_components(
     record_runtime_step_accounting(
         project,
         step_name="step_00",
-        component_bytes={"forcing_bytes": 50},
-        file_counts={"forcing_bytes": 1},
+        component_bytes={
+            "forcing_bytes": 50,
+            "derived_forcing_plot_bytes": 25,
+        },
+        file_counts={
+            "forcing_bytes": 1,
+            "derived_forcing_plot_bytes": 2,
+        },
     )
 
-    assert runtime_accounted_totals(project) == (300, 5)
+    assert runtime_accounted_totals(project) == (325, 7)
 
 
 def test_runtime_manifest_refuses_an_escaping_root(tmp_path: Path) -> None:

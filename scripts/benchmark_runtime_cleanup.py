@@ -18,6 +18,7 @@ import time
 
 from openamundsen_da.manifests import write_manifest_atomic
 from openamundsen_da.util.retention import delete_quarantined_runtime_tree
+from openamundsen_da.util.storage_budget import check_step_admission
 
 
 def _positive_int(value: str) -> int:
@@ -165,7 +166,6 @@ def main() -> int:
         raise ValueError("Full-scale file and byte counts cannot be negative")
     if bool(args.full_files) != bool(args.full_bytes):
         raise ValueError("--full-files and --full-bytes must be supplied together")
-    disk = shutil.disk_usage(scratch_root)
     largest_files, largest_bytes = max(
         (
             (args.sample_files, args.sample_bytes),
@@ -175,11 +175,10 @@ def main() -> int:
     )
     allocation_floor = max(largest_bytes, largest_files * 4096)
     benchmark_reserve = int(allocation_floor * 1.10)
-    if disk.used + benchmark_reserve + int(disk.total * 0.05) >= int(disk.total * 0.90):
-        raise RuntimeError(
-            "Benchmark tree would violate the 90% emergency limit plus 5% reserve: "
-            f"used={disk.used}, benchmark={benchmark_reserve}, total={disk.total}"
-        )
+    check_step_admission(
+        scratch_root,
+        estimated_growth_bytes=benchmark_reserve,
+    )
 
     sample_results = []
     for workers in args.workers:

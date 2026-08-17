@@ -14,6 +14,7 @@ from loguru import logger
 
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import (
+    default_results_dir,
     find_project_yaml,
     infer_project_dir,
     list_member_dirs,
@@ -735,9 +736,9 @@ def _build_project_da_output_dataset(step_dirs: Sequence[Path]) -> xr.Dataset | 
 
     for step_dir in step_dirs:
         prior_root = Path(step_dir) / "ensembles" / "prior"
-        open_loop_nc = prior_root / "open_loop" / "results" / "output_grids.nc"
+        open_loop_nc = default_results_dir(prior_root / "open_loop") / "output_grids.nc"
         member_ncs = [
-            p / "results" / "output_grids.nc"
+            default_results_dir(p) / "output_grids.nc"
             for p in sorted(prior_root.glob("member_*"))
             if p.is_dir()
         ]
@@ -840,7 +841,7 @@ def validate_project_da_output_grids(
             raise ValueError(
                 f"Raw grid member identities differ in {step}: {actual_members} != {expected_members}"
             )
-        files = [root / "results" / "output_grids.nc" for root in roots]
+        files = [default_results_dir(root) / "output_grids.nc" for root in roots]
         missing_files = [path for path in files if not path.is_file()]
         if missing_files:
             raise FileNotFoundError(f"Raw member grid required for completeness is missing: {missing_files[0]}")

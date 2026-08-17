@@ -328,3 +328,51 @@ def test_project_impl_consumes_preadmitted_budget_before_opening_runtime_log(
 
     with pytest.raises(RuntimeError, match="runtime log opened"):
         project_cli._run_project_impl(cfg, run_start=project_cli.datetime.utcnow())
+
+
+def test_full_retention_does_not_create_a_disposable_runtime_generation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    setup_dir = tmp_path / "setup"
+    project_dir = setup_dir / "projects/project"
+    step = project_dir / "steps/step_00"
+    step.mkdir(parents=True)
+    (setup_dir / "meteo").mkdir()
+    config = SimpleNamespace(
+        project_dir=project_dir.resolve(),
+        setup_dir=setup_dir.resolve(),
+    )
+    monkeypatch.setattr(project_cli, "load_project_configuration", lambda _project: config)
+    monkeypatch.setattr(project_cli, "_list_steps_sorted", lambda _project: [step])
+    monkeypatch.setattr(project_cli, "load_assimilation_events", lambda _project: [])
+    monkeypatch.setattr(project_cli, "output_retention_mode", lambda _project: "full")
+    monkeypatch.setattr(project_cli, "validate_assimilation_requirements", lambda **_kwargs: None)
+    monkeypatch.setattr(project_cli, "_setup_logger", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        project_cli,
+        "ensure_runtime_generation",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("full retention must not create a runtime generation")
+        ),
+    )
+    monkeypatch.setattr(
+        project_cli,
+        "build_prior_ensemble",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("reached propagation")),
+    )
+    budget = SimpleNamespace(
+        used_fraction=0.1,
+        estimated_growth_bytes=100,
+        operational_reserve_bytes=50,
+    )
+    cfg = project_cli.OrchestratorConfig(
+        project_dir=project_dir,
+        setup_dir=setup_dir,
+        storage_admission_client=SimpleNamespace(leaf_id="project"),
+        initial_step_preadmitted=True,
+        initial_storage_budget=budget,
+    )
+
+    with pytest.raises(RuntimeError, match="reached propagation"):
+        project_cli._run_project_impl(cfg, run_start=project_cli.datetime.utcnow())

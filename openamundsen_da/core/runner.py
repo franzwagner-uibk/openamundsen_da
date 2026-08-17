@@ -29,8 +29,8 @@ from rasterio.transform import guard_transform
 from loguru import logger
 from openamundsen_da.core.env import apply_numeric_thread_defaults, _read_yaml_file
 from openamundsen_da.core.constants import (
-    MEMBER_LOG_REL,
     MEMBER_MANIFEST,
+    MEMBER_LOG_REL,
     LOGURU_FORMAT,
     DA_BLOCK,
     RESTART_BLOCK,
@@ -55,6 +55,7 @@ from openamundsen_da.io.paths import (
     find_project_yaml,
     find_step_yaml,
     list_steps_sorted,
+    member_run_manifest_path,
     meteo_dir_for_member,
 )
 from openamundsen_da.util.restart_state import validate_restart_state
@@ -201,15 +202,15 @@ def _patch_linear_fit() -> None:
     safe_linear_fit.__oa_da_patched__ = True
     oa_interp._linear_fit = safe_linear_fit
 
-def _write_manifest(results_dir: Path, manifest: Dict[str, Any]) -> None:
+def _write_manifest(path: Path, manifest: Dict[str, Any]) -> None:
     """Crash-durably replace the per-member run manifest JSON."""
-    results_dir.mkdir(parents=True, exist_ok=True)
-    write_manifest_atomic(results_dir / MEMBER_MANIFEST, manifest)
+    manifest_path = path if path.name == MEMBER_MANIFEST else path / MEMBER_MANIFEST
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    write_manifest_atomic(manifest_path, manifest)
 
 
-def _is_successful_run(results_dir: Path) -> bool:
+def _is_successful_run(manifest_path: Path) -> bool:
     """Return True if member_run.json exists and reports status='success'."""
-    manifest_path = results_dir / MEMBER_MANIFEST
     if not manifest_path.is_file():
         return False
     try:
@@ -224,15 +225,19 @@ def _is_successful_run(results_dir: Path) -> bool:
 def _member_storage_accounting(
     results_dir: Path,
     *,
+    project_dir: Path,
+    member_dir: Path,
     step_name: str,
     log_file: Path | None = None,
 ) -> dict[str, Any]:
     """Return producer-owned byte counts for one completed member run."""
-    member_dir = results_dir.parent
     files = recursive_files(results_dir)
+    manifest_path = member_run_manifest_path(member_dir)
+    if manifest_path.is_file():
+        files.append(manifest_path)
     if log_file is not None and log_file.is_file():
         files.append(log_file)
-    inventory = file_inventory(root=member_dir, files=files)
+    inventory = file_inventory(root=project_dir, files=files)
     return accounting_summary_from_inventory(
         completed_step=step_name,
         inventory=inventory,
@@ -273,6 +278,7 @@ def run_member(
     step_yaml = find_step_yaml(step_dir)
     meteo_dir = meteo_dir_for_member(member_dir)
     results_dir = Path(results_dir) if results_dir is not None else default_results_dir(member_dir)
+    manifest_path = member_run_manifest_path(member_dir)
 
     # Step 5: Redirect stderr/logging to a per-member log file
     # Use a dedicated logs/ folder under the member directory to not
@@ -296,16 +302,18 @@ def run_member(
     # Step 7: Skip only if a previous run is clearly completed and overwrite is not requested.
     # Rationale: prior_forcing may create empty results/ dirs and manifests start as
     # 'starting'; we only trust status='success' as a signal to skip.
-    if results_dir.exists() and _is_successful_run(results_dir) and not overwrite:
+    if results_dir.exists() and _is_successful_run(manifest_path) and not overwrite:
         logger.info(f"[{member_name}] Results already exist -> skipping (use --overwrite to rerun)")
         try:
-            existing = json.loads((results_dir / MEMBER_MANIFEST).read_text(encoding="utf-8"))
+            existing = json.loads(manifest_path.read_text(encoding="utf-8"))
             storage_accounting = existing.get("storage_accounting")
         except (OSError, json.JSONDecodeError):
             storage_accounting = None
         if not isinstance(storage_accounting, dict):
             storage_accounting = _member_storage_accounting(
                 results_dir,
+                project_dir=project_dir,
+                member_dir=member_dir,
                 step_name=step_dir.name,
                 log_file=log_file,
             )
@@ -324,7 +332,11 @@ def run_member(
 
     before_accounting = StorageAccountingSummary.from_dict(
         _member_storage_accounting(
-            results_dir, step_name=step_dir.name, log_file=log_file
+            results_dir,
+            project_dir=project_dir,
+            member_dir=member_dir,
+            step_name=step_dir.name,
+            log_file=log_file,
         )
     )
 
@@ -341,7 +353,7 @@ def run_member(
         "pid": os.getpid(),
         "started": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
-    _write_manifest(results_dir, manifest)
+    _write_manifest(manifest_path, manifest)
 
     # Step 9: Build merged OA config and run the model
     try:
@@ -403,7 +415,7 @@ def run_member(
             "finished": time.strftime("%Y-%m-%d %H:%M:%S"),
             "duration_seconds": dur,
         })
-        _write_manifest(results_dir, manifest)
+        _write_manifest(manifest_path, manifest)
         log_handle.flush()
         # The manifest records its own producer summary. Iterate the tiny JSON
         # write to a stable size so the returned high-water also includes that
@@ -414,7 +426,11 @@ def run_member(
                 before=before_accounting,
                 after=StorageAccountingSummary.from_dict(
                     _member_storage_accounting(
-                        results_dir, step_name=step_dir.name, log_file=log_file
+                        results_dir,
+                        project_dir=project_dir,
+                        member_dir=member_dir,
+                        step_name=step_dir.name,
+                        log_file=log_file,
                     )
                 ),
                 source="member_runner",
@@ -423,7 +439,7 @@ def run_member(
                 break
             storage_accounting = updated
             manifest["storage_accounting"] = storage_accounting
-            _write_manifest(results_dir, manifest)
+            _write_manifest(manifest_path, manifest)
         return MemberRunResult(
             member_name,
             "success",
@@ -441,7 +457,7 @@ def run_member(
             "duration_seconds": dur,
             "error": repr(e),
         })
-        _write_manifest(results_dir, manifest)
+        _write_manifest(manifest_path, manifest)
         logger.exception(f"[{member_name}] Failed with error: {e}")
         return MemberRunResult(member_name, "failed", str(results_dir), dur, repr(e))
     finally:
@@ -495,11 +511,7 @@ def _save_state_dump(
 
 
 def _resolve_state_file(results_dir: Path) -> Path | None:
-    """Resolve restart state strictly from the member-root pointer.
-
-    Only `<member_dir>/state_pointer.json` is considered. Local files under
-    results/ are ignored to avoid ambiguity.
-    """
+    """Resolve restart state from the layout-owned pointer."""
     def _find_setup_dir(p: Path) -> Path | None:
         for parent in p.parents:
             try:
@@ -520,12 +532,21 @@ def _resolve_state_file(results_dir: Path) -> Path | None:
             cand = setup_dir.joinpath(*suffix)
             if cand.exists() and cand.is_file():
                 return cand
+        if "projects" in parts:
+            idx = parts.index("projects")
+            cand = setup_dir.joinpath(*parts[idx:])
+            if cand.exists() and cand.is_file():
+                return cand
         return None
 
     try:
         import json
-        root_ptr = results_dir.parent / STATE_POINTER_JSON
-        if not root_ptr.exists():
+        pointers = (
+            results_dir / STATE_POINTER_JSON,
+            results_dir.parent / STATE_POINTER_JSON,
+        )
+        root_ptr = next((path for path in pointers if path.is_file()), None)
+        if root_ptr is None:
             return None
         d = json.loads(root_ptr.read_text(encoding="utf-8")) or {}
         target = d.get("path") or d.get("state_path")
@@ -533,7 +554,7 @@ def _resolve_state_file(results_dir: Path) -> Path | None:
             return None
         q = Path(target)
         if not q.is_absolute():
-            q = (results_dir.parent / q).resolve()
+            q = (root_ptr.parent / q).resolve()
         if q.exists() and q.is_file():
             return q
         if q.is_absolute():

@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import os
 import stat
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,9 +21,18 @@ from openamundsen_da.manifests import (
     sha256_file,
     write_manifest_atomic,
 )
+from openamundsen_da.util.atomic import fsync_directory
+from openamundsen_da.util.runtime_generation import (
+    RUNTIME_LAYOUT,
+    load_runtime_generation,
+    runtime_accounted_totals,
+    runtime_generation_root,
+    update_runtime_generation,
+)
 
 
-RETENTION_SCHEMA_VERSION = 5
+RETENTION_SCHEMA_VERSION = 6
+LEGACY_RETENTION_SCHEMA_VERSION = 5
 RETENTION_MANIFEST = "retention_manifest.json"
 
 
@@ -48,7 +59,7 @@ def _contained_files(project_dir: Path, paths: Iterable[Path]) -> list[Path]:
 
 def _empty_manifest() -> dict:
     return {
-        "retention_schema_version": RETENTION_SCHEMA_VERSION,
+        "retention_schema_version": LEGACY_RETENTION_SCHEMA_VERSION,
         "status": "active",
         "active_generation": None,
         "generations": [],
@@ -138,13 +149,13 @@ def _load_ledger(project_dir: Path) -> dict:
             )
         ledger.update(
             {
-                "retention_schema_version": RETENTION_SCHEMA_VERSION,
+                "retention_schema_version": LEGACY_RETENTION_SCHEMA_VERSION,
                 "active_generation": active_generation,
                 "generations": migrated_generations,
                 "batches": batches,
             }
         )
-    elif version != RETENTION_SCHEMA_VERSION:
+    elif version not in {LEGACY_RETENTION_SCHEMA_VERSION, RETENTION_SCHEMA_VERSION}:
         raise CleanupSafetyError(f"Unsupported retention manifest: {path}")
     if not isinstance(ledger.get("batches"), list):
         raise CleanupSafetyError(f"Invalid retention batches in {path}")
@@ -1014,6 +1025,405 @@ def apply_retention_batch(
     return batch
 
 
+def _runtime_generation_identity(record: dict) -> dict:
+    return {
+        "generation": int(record["generation"]),
+        "runtime_generation_id": str(record["runtime_generation_id"]),
+        "runtime_root": str(record["runtime_root"]),
+        "runtime_device": int(record["runtime_device"]),
+        "runtime_inode": int(record["runtime_inode"]),
+        "consumer_inventory": list(record["consumer_inventory"]),
+        "producer_manifest_inventory": list(record["producer_manifest_inventory"]),
+        "accounted_bytes": int(record.get("accounted_bytes", 0)),
+        "accounted_files": int(record.get("accounted_files", 0)),
+    }
+
+
+def _validate_runtime_generation_record(
+    project_dir: Path,
+    record: dict,
+    *,
+    validate_consumers: bool = True,
+) -> None:
+    try:
+        identity = _runtime_generation_identity(record)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise CleanupSafetyError("Runtime retention generation identity is invalid") from exc
+    if hash_json(identity) != str(record.get("identity_sha256", "")):
+        raise CleanupSafetyError("Runtime retention generation identity changed")
+    consumers = list(record.get("consumer_inventory") or [])
+    producers = list(record.get("producer_manifest_inventory") or [])
+    if not consumers or not producers:
+        raise CleanupSafetyError("Runtime retention evidence is incomplete")
+    if validate_consumers:
+        _validate_inventory_files(
+            project_dir,
+            inventory=consumers,
+            purpose="runtime retained consumer",
+        )
+    _validate_inventory_files(
+        project_dir,
+        inventory=producers,
+        purpose="runtime producer manifest",
+    )
+
+
+def _runtime_tree_record(project_dir: Path, ledger: dict) -> dict | None:
+    if int(ledger.get("retention_schema_version", -1)) != RETENTION_SCHEMA_VERSION:
+        return None
+    record = _active_generation_record(ledger)
+    if record is None or record.get("kind") != "runtime_tree":
+        raise CleanupSafetyError("Retention v6 has no active runtime-tree generation")
+    return record
+
+
+def start_runtime_tree_cleanup(
+    project_dir: str | Path,
+    *,
+    retained_consumers: Iterable[Path],
+    producer_manifests: Iterable[Path],
+    retained_consumer_inventory: list[dict] | None = None,
+) -> int:
+    """Plan one generation-level compact cleanup without raw-file inventory."""
+    project_dir = Path(project_dir).resolve()
+    runtime = load_runtime_generation(project_dir)
+    if runtime is None or runtime.get("layout") != RUNTIME_LAYOUT:
+        raise CleanupSafetyError("Project has no generation-owned compact runtime")
+    root = runtime_generation_root(project_dir)
+    if root is None:
+        raise CleanupSafetyError("Runtime generation root is unavailable")
+    consumers = _contained_files(project_dir, retained_consumers)
+    producers = _contained_files(project_dir, producer_manifests)
+    if retained_consumer_inventory is None:
+        consumer_inventory = file_inventory(root=project_dir, files=consumers)
+    else:
+        consumer_inventory = list(retained_consumer_inventory)
+        recorded_paths = sorted(str(row.get("path", "")) for row in consumer_inventory)
+        expected_paths = sorted(path.relative_to(project_dir).as_posix() for path in consumers)
+        if recorded_paths != expected_paths or any(not path for path in recorded_paths):
+            raise CleanupSafetyError(
+                "Runtime retained-consumer evidence does not match its contained paths"
+            )
+    producer_inventory = file_inventory(root=project_dir, files=producers)
+    if len(consumer_inventory) != len(consumers) or not consumers:
+        raise CleanupSafetyError("A runtime retained consumer is missing or invalid")
+    if len(producer_inventory) != len(producers) or not producers:
+        raise CleanupSafetyError("A runtime producer manifest is missing or invalid")
+
+    path = retention_manifest_path(project_dir)
+    existing_raw = load_manifest(path)
+    existing_ledger: dict | None = None
+    if existing_raw is not None:
+        version = int(existing_raw.get("retention_schema_version", -1))
+        if version != RETENTION_SCHEMA_VERSION:
+            raise CleanupSafetyError(
+                "A legacy retention ledger already owns this project; resume its v5 cleanup path"
+            )
+        existing_ledger = _load_ledger(project_dir)
+        matches = [
+            record
+            for record in existing_ledger["generations"]
+            if record.get("runtime_generation_id") == runtime.get("generation_id")
+        ]
+        if len(matches) > 1:
+            raise CleanupSafetyError("Runtime cleanup generation is duplicated in its ledger")
+        if matches:
+            record = matches[0]
+            if record.get("generation") != existing_ledger.get("active_generation"):
+                raise CleanupSafetyError("Runtime cleanup generation is no longer active")
+            _validate_runtime_generation_record(
+                project_dir,
+                record,
+                validate_consumers=False,
+            )
+            return int(record["generation"])
+        active = _runtime_tree_record(project_dir, existing_ledger)
+        assert active is not None
+        if active.get("status") != "complete" or existing_ledger.get("status") != "complete":
+            raise CleanupSafetyError(
+                "A different runtime cleanup generation is still incomplete"
+            )
+
+    root_stat = root.stat()
+    if not stat.S_ISDIR(root_stat.st_mode) or root.is_symlink():
+        raise CleanupSafetyError(f"Runtime generation root is invalid: {root}")
+    if (
+        int(root_stat.st_dev) != int(runtime.get("root_device", -1))
+        or int(root_stat.st_ino) != int(runtime.get("root_inode", -1))
+    ):
+        raise CleanupSafetyError("Runtime generation root identity changed")
+    accounted_bytes, accounted_files = runtime_accounted_totals(project_dir)
+    generation = int(runtime["generation"])
+    record = {
+        "generation": generation,
+        "kind": "runtime_tree",
+        "status": "planned",
+        "runtime_generation_id": str(runtime["generation_id"]),
+        "runtime_root": root.relative_to(project_dir).as_posix(),
+        "quarantine_root": (
+            Path(".openamundsen-da")
+            / "quarantine"
+            / str(runtime["generation_id"])
+        ).as_posix(),
+        "runtime_device": int(root_stat.st_dev),
+        "runtime_inode": int(root_stat.st_ino),
+        "accounted_bytes": accounted_bytes,
+        "accounted_files": accounted_files,
+        "consumer_inventory": consumer_inventory,
+        "consumer_inventory_sha256": inventory_digest(consumer_inventory),
+        "producer_manifest_inventory": producer_inventory,
+        "producer_inventory_sha256": inventory_digest(producer_inventory),
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }
+    record["identity_sha256"] = hash_json(_runtime_generation_identity(record))
+    if existing_ledger is None:
+        ledger = {
+            "retention_schema_version": RETENTION_SCHEMA_VERSION,
+            "status": "active",
+            "active_generation": generation,
+            "generations": [record],
+            "batches": [],
+        }
+    else:
+        if any(int(item["generation"]) == generation for item in existing_ledger["generations"]):
+            raise CleanupSafetyError("Runtime cleanup generation number was reused")
+        ledger = existing_ledger
+        ledger["active_generation"] = generation
+        ledger["generations"].append(record)
+    _write_ledger(project_dir, ledger)
+    return generation
+
+
+@dataclass(frozen=True)
+class RuntimeTreeDeletion:
+    files: int
+    directories: int
+
+    def merged(self, other: "RuntimeTreeDeletion") -> "RuntimeTreeDeletion":
+        return RuntimeTreeDeletion(
+            files=self.files + other.files,
+            directories=self.directories + other.directories,
+        )
+
+
+def _delete_runtime_subtree(path: Path) -> RuntimeTreeDeletion:
+    """Delete one contained tree without following links or pre-enumerating files."""
+    if path.is_symlink() or not path.is_dir():
+        raise CleanupSafetyError(f"Runtime deletion unit is missing or invalid: {path}")
+    files = 0
+    directories = 0
+    with os.scandir(path) as entries:
+        for entry in entries:
+            child = Path(entry.path)
+            if entry.is_symlink():
+                raise CleanupSafetyError(
+                    f"Runtime quarantine contains an unexpected symlink: {child}"
+                )
+            elif entry.is_dir(follow_symlinks=False):
+                nested = _delete_runtime_subtree(child)
+                files += nested.files
+                directories += nested.directories
+            else:
+                child.unlink()
+                files += 1
+    path.rmdir()
+    return RuntimeTreeDeletion(files=files, directories=directories + 1)
+
+
+def _runtime_delete_units(root: Path) -> list[Path]:
+    """Return independent member/plot subtrees for bounded parallel deletion."""
+    def checked_directory(path: Path, *, purpose: str) -> bool:
+        if path.is_symlink():
+            raise CleanupSafetyError(f"Runtime quarantine {purpose} is a symlink: {path}")
+        return path.is_dir()
+
+    def child_directories(path: Path, *, purpose: str) -> list[Path]:
+        if not checked_directory(path, purpose=purpose):
+            return []
+        children: list[Path] = []
+        for child in path.iterdir():
+            if child.is_symlink():
+                raise CleanupSafetyError(
+                    f"Runtime quarantine {purpose} contains a symlink: {child}"
+                )
+            if child.is_dir():
+                children.append(child)
+        return sorted(children)
+
+    units: list[Path] = []
+    steps = root / "steps"
+    if checked_directory(steps, purpose="steps root"):
+        for step in child_directories(steps, purpose="steps root"):
+            ensembles = step / "ensembles"
+            if checked_directory(ensembles, purpose="ensemble root"):
+                for ensemble in child_directories(
+                    ensembles,
+                    purpose="ensemble root",
+                ):
+                    units.extend(
+                        child_directories(ensemble, purpose="member root")
+                    )
+            plots = step / "plots"
+            if plots.is_symlink():
+                raise CleanupSafetyError(
+                    f"Runtime quarantine plots root is a symlink: {plots}"
+                )
+            forcing_plots = plots / "forcing"
+            if checked_directory(forcing_plots, purpose="forcing plots root"):
+                units.append(forcing_plots)
+    return units
+
+
+def delete_quarantined_runtime_tree(
+    root: Path,
+    *,
+    workers: int,
+) -> RuntimeTreeDeletion:
+    """Physically remove a quarantined runtime with bounded directory parallelism."""
+    root = Path(root)
+    if int(workers) < 1:
+        raise ValueError("Runtime cleanup workers must be at least one")
+    if not root.is_dir() or root.is_symlink():
+        raise CleanupSafetyError(f"Runtime quarantine is missing or invalid: {root}")
+    units = _runtime_delete_units(root)
+    total = RuntimeTreeDeletion(files=0, directories=0)
+    if units:
+        with ThreadPoolExecutor(max_workers=min(int(workers), len(units))) as pool:
+            futures = {pool.submit(_delete_runtime_subtree, path): path for path in units}
+            for future in as_completed(futures):
+                try:
+                    total = total.merged(future.result())
+                except OSError as exc:
+                    raise CleanupSafetyError(
+                        f"Runtime quarantine deletion failed under {futures[future]}: {exc}"
+                    ) from exc
+    if root.exists():
+        total = total.merged(_delete_runtime_subtree(root))
+    return total
+
+
+def apply_runtime_tree_cleanup(
+    project_dir: str | Path,
+    *,
+    workers: int,
+) -> dict:
+    """Quarantine and physically delete one planned runtime generation."""
+    project_dir = Path(project_dir).resolve()
+    ledger = _load_ledger(project_dir)
+    record = _runtime_tree_record(project_dir, ledger)
+    if record is None:
+        raise CleanupSafetyError("Runtime cleanup is not planned")
+    _validate_runtime_generation_record(
+        project_dir,
+        record,
+        validate_consumers=False,
+    )
+    root = _resolve_recorded_path(
+        project_dir,
+        str(record["runtime_root"]),
+        purpose="runtime generation root",
+    )
+    quarantine = _resolve_recorded_path(
+        project_dir,
+        str(record["quarantine_root"]),
+        purpose="runtime quarantine root",
+    )
+    if root == quarantine:
+        raise CleanupSafetyError("Runtime root and quarantine must differ")
+    quarantine.parent.mkdir(parents=True, exist_ok=True)
+    if quarantine.parent.stat().st_dev != int(record["runtime_device"]):
+        raise CleanupSafetyError("Runtime quarantine is not on the generation filesystem")
+
+    started = time.monotonic()
+    with _RetainedConsumerGuard(
+        project_dir,
+        list(record["consumer_inventory"]),
+    ) as consumer_guard:
+        status = str(record.get("status", ""))
+        if status == "complete":
+            if root.exists() or quarantine.exists():
+                raise CleanupSafetyError("Completed runtime cleanup still has physical data")
+            return record
+        if status == "planned":
+            if root.is_dir() and not root.is_symlink():
+                root_stat = root.stat()
+                if (
+                    int(root_stat.st_dev) != int(record["runtime_device"])
+                    or int(root_stat.st_ino) != int(record["runtime_inode"])
+                ):
+                    raise CleanupSafetyError("Runtime root changed after cleanup planning")
+                if quarantine.exists():
+                    raise CleanupSafetyError("Runtime quarantine already exists beside live root")
+                os.replace(root, quarantine)
+                fsync_directory(root.parent)
+                fsync_directory(quarantine.parent)
+            elif not quarantine.is_dir() or quarantine.is_symlink():
+                raise CleanupSafetyError("Planned runtime tree disappeared before quarantine")
+            quarantine_stat = quarantine.stat()
+            if (
+                int(quarantine_stat.st_dev) != int(record["runtime_device"])
+                or int(quarantine_stat.st_ino) != int(record["runtime_inode"])
+            ):
+                raise CleanupSafetyError("Runtime quarantine identity changed")
+            record["status"] = "quarantined"
+            record["quarantined_at"] = datetime.now(timezone.utc).isoformat()
+            _write_ledger(project_dir, ledger)
+            update_runtime_generation(
+                project_dir,
+                status="quarantined",
+                quarantine_root=str(record["quarantine_root"]),
+            )
+            consumer_guard.validate_fast()
+
+        if record.get("status") in {"quarantined", "deleting"}:
+            record["status"] = "deleting"
+            record["deletion_workers"] = int(workers)
+            _write_ledger(project_dir, ledger)
+            update_runtime_generation(
+                project_dir,
+                status="deleting",
+                quarantine_root=str(record["quarantine_root"]),
+            )
+            if quarantine.exists():
+                deletion = delete_quarantined_runtime_tree(
+                    quarantine,
+                    workers=workers,
+                )
+            else:
+                deletion = RuntimeTreeDeletion(files=0, directories=0)
+            record["deleted_files"] = int(record.get("deleted_files", 0)) + deletion.files
+            record["deleted_directories"] = int(
+                record.get("deleted_directories", 0)
+            ) + deletion.directories
+            # Persist physical progress before the final retained-consumer
+            # validation.  A crash after the last unlink must not make a
+            # recovery report zero deletions merely because the quarantined
+            # tree is already gone.
+            _write_ledger(project_dir, ledger)
+            consumer_guard.validate_full()
+
+    if root.exists() or quarantine.exists():
+        raise CleanupSafetyError("Runtime physical cleanup did not remove the generation")
+    record["status"] = "complete"
+    record["completed_at"] = datetime.now(timezone.utc).isoformat()
+    record["cleanup_duration_seconds"] = float(
+        record.get("cleanup_duration_seconds", 0.0)
+    ) + (time.monotonic() - started)
+    ledger["status"] = "complete"
+    _write_ledger(project_dir, ledger)
+    update_runtime_generation(
+        project_dir,
+        status="complete",
+        quarantine_root=None,
+        extra={
+            "cleanup_completed_at": record["completed_at"],
+            "cleanup_duration_seconds": record["cleanup_duration_seconds"],
+            "deleted_files": record.get("deleted_files", 0),
+        },
+    )
+    return record
+
+
 def reconcile_retention_ledger(project_dir: str | Path) -> tuple[str, ...]:
     """Complete interrupted batches whose recorded files are all absent.
 
@@ -1022,6 +1432,8 @@ def reconcile_retention_ledger(project_dir: str | Path) -> tuple[str, ...]:
     """
     project_dir = Path(project_dir).resolve()
     ledger = _load_ledger(project_dir)
+    if int(ledger.get("retention_schema_version", -1)) == RETENTION_SCHEMA_VERSION:
+        return ()
     completed: list[str] = []
     changed = False
     active = ledger.get("active_generation")
@@ -1063,6 +1475,16 @@ def completed_retention_paths(project_dir: str | Path) -> set[str]:
     """Return project-relative paths deliberately removed by complete batches."""
     project_dir = Path(project_dir).resolve()
     ledger = _load_ledger(project_dir)
+    if int(ledger.get("retention_schema_version", -1)) == RETENTION_SCHEMA_VERSION:
+        runtime = load_runtime_generation(project_dir)
+        if runtime is None:
+            return set()
+        root_rel = Path(str(runtime["runtime_root"]))
+        return {
+            (root_rel / str(item.get("path"))).as_posix()
+            for item in runtime.get("rolling_removed_paths") or []
+            if isinstance(item, dict) and item.get("path")
+        }
     return {
         str(rel)
         for batch in ledger["batches"]
@@ -1085,6 +1507,22 @@ def validate_retained_consumers(
     """
     project_dir = Path(project_dir).resolve()
     ledger = _load_ledger(project_dir)
+    if int(ledger.get("retention_schema_version", -1)) == RETENTION_SCHEMA_VERSION:
+        record = _runtime_tree_record(project_dir, ledger)
+        assert record is not None
+        _validate_runtime_generation_record(project_dir, record)
+        if require_complete and record.get("status") != "complete":
+            raise CleanupSafetyError(
+                f"Runtime retention generation is not complete: {record.get('generation')}"
+            )
+        if require_complete:
+            root = project_dir / str(record["runtime_root"])
+            quarantine = project_dir / str(record["quarantine_root"])
+            if root.exists() or quarantine.exists():
+                raise CleanupSafetyError(
+                    "Completed runtime retention still has physical generation data"
+                )
+        return (f"runtime-generation-{record['generation']}",)
     active = _active_generation_record(ledger)
     if active is None:
         return ()
@@ -1133,6 +1571,8 @@ def planned_retention_paths(
     """Return existing paths from the matching interrupted cleanup batch."""
     project_dir = Path(project_dir).resolve()
     ledger = _load_ledger(project_dir)
+    if int(ledger.get("retention_schema_version", -1)) == RETENTION_SCHEMA_VERSION:
+        return ()
     active = ledger.get("active_generation")
     paths = tuple(
         _validate_recorded_file(project_dir, batch, str(rel))
@@ -1149,8 +1589,11 @@ def planned_retention_paths(
 __all__ = [
     "RETENTION_MANIFEST",
     "RETENTION_SCHEMA_VERSION",
+    "LEGACY_RETENTION_SCHEMA_VERSION",
+    "RuntimeTreeDeletion",
     "active_retention_generation",
     "apply_retention_batch",
+    "apply_runtime_tree_cleanup",
     "complete_retention_generation",
     "completed_retention_paths",
     "planned_retention_generation_dependencies",
@@ -1158,5 +1601,7 @@ __all__ = [
     "reconcile_retention_ledger",
     "retention_manifest_path",
     "start_retention_generation",
+    "start_runtime_tree_cleanup",
+    "delete_quarantined_runtime_tree",
     "validate_retained_consumers",
 ]

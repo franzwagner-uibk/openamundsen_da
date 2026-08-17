@@ -21,6 +21,7 @@ from rasterio.warp import Resampling, reproject
 from shapely.geometry import Point, box
 
 from openamundsen_da.io.paths import (
+    default_results_dir,
     list_member_dirs,
     list_steps_sorted,
     project_fraction_envelope_path,
@@ -2040,7 +2041,14 @@ def _wet_snow_model_classified_array(
 
     step_dir = _step_dir_for_date(context.project_dir, date)
     if source == "open_loop":
-        mask = _load_wet_snow_mask(_wet_snow_mask_path(step_dir / "ensembles" / "prior" / "open_loop" / "results", date))
+        mask = _load_wet_snow_mask(
+            _wet_snow_mask_path(
+                default_results_dir(
+                    step_dir / "ensembles" / "prior" / "open_loop"
+                ),
+                date,
+            )
+        )
         classified = np.full(mask.shape, np.nan, dtype=float)
         classified[mask == 1] = float(_WET_SNOW_MODEL_CODES[0])
         classified[mask == 0] = float(_WET_SNOW_MODEL_CODES[1])
@@ -2050,7 +2058,9 @@ def _wet_snow_model_classified_array(
         member_dirs = list_member_dirs(step_dir, ensemble)
         for member_dir in member_dirs:
             source_member_dir = resolve_member_source_dir(member_dir) if source == "posterior" else member_dir
-            mask_path = _wet_snow_mask_path(source_member_dir / "results", date)
+            mask_path = _wet_snow_mask_path(
+                default_results_dir(source_member_dir), date
+            )
             member_masks.append(_load_wet_snow_mask(mask_path))
         if not member_masks:
             raise FileNotFoundError(f"Missing {ensemble} members for wet-snow ensemble map in {step_dir}")
@@ -2106,7 +2116,7 @@ def _prior_wet_fraction_array(
     member_dirs = list_member_dirs(step_dir, "prior")
     member_masks: list[np.ndarray] = []
     for member_dir in member_dirs:
-        mask_path = _wet_snow_mask_path(member_dir / "results", date)
+        mask_path = _wet_snow_mask_path(default_results_dir(member_dir), date)
         member_masks.append(_load_wet_snow_mask(mask_path))
     if not member_masks:
         raise FileNotFoundError(f"Missing prior members for wet-snow probability map in {step_dir}")
@@ -2229,14 +2239,16 @@ def _posterior_weighted_wet_fraction_array(
             member_dir = prior_members.get(str(member_id))
             if member_dir is None:
                 continue
-            mask_path = _wet_snow_mask_path(member_dir / "results", date)
+            mask_path = _wet_snow_mask_path(default_results_dir(member_dir), date)
             mask = _load_wet_snow_mask(mask_path)
             member_masks.append(np.where(mask == 255, np.nan, mask.astype(float)))
             member_weights.append(float(weight))
     else:
         for member_dir in list_member_dirs(step_dir, "posterior"):
             source_member_dir = resolve_member_source_dir(member_dir)
-            mask_path = _wet_snow_mask_path(source_member_dir / "results", date)
+            mask_path = _wet_snow_mask_path(
+                default_results_dir(source_member_dir), date
+            )
             mask = _load_wet_snow_mask(mask_path)
             member_masks.append(np.where(mask == 255, np.nan, mask.astype(float)))
             member_weights.append(1.0)
@@ -2581,7 +2593,9 @@ def _single_domain_scf_model_probability_array(
     if source == "open_loop_binary":
         classified = _scf_binary_grid_from_results(
             context=context,
-            results_dir=step_dir / "ensembles" / "prior" / "open_loop" / "results",
+            results_dir=default_results_dir(
+                step_dir / "ensembles" / "prior" / "open_loop"
+            ),
             date=date,
         )
     elif source in {"prior_probability", "posterior_probability"}:
@@ -2592,7 +2606,7 @@ def _single_domain_scf_model_probability_array(
             member_fields.append(
                 _scf_binary_grid_from_results(
                     context=context,
-                    results_dir=member_dir / "results",
+                    results_dir=default_results_dir(member_dir),
                     date=date,
                 )
             )

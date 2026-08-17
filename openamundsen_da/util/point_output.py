@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from openamundsen_da.io.paths import (
+    default_results_dir,
     list_member_dirs,
     list_steps_sorted,
     project_ensemble_points_path,
@@ -78,12 +79,14 @@ def _read_point_csv(path: Path) -> tuple[pd.DatetimeIndex, pd.DataFrame]:
 
 
 def _reference_results_dir(step_dir: Path) -> Path:
-    open_loop = step_dir / "ensembles" / "prior" / "open_loop" / "results"
+    open_loop = default_results_dir(
+        step_dir / "ensembles" / "prior" / "open_loop"
+    )
     if list(open_loop.glob("point_*.csv")):
         return open_loop
     members = list_member_dirs(step_dir / "ensembles", "prior")
     for member in members:
-        results = member / "results"
+        results = default_results_dir(member)
         if list(results.glob("point_*.csv")):
             return results
     raise FileNotFoundError(f"No point outputs found in {step_dir}")
@@ -123,9 +126,14 @@ def _member_names(steps: Iterable[Path]) -> list[str]:
 
 
 def _result_roots(step: Path) -> list[tuple[str, Path]]:
-    roots = [("open_loop", step / "ensembles" / "prior" / "open_loop" / "results")]
+    roots = [
+        (
+            "open_loop",
+            default_results_dir(step / "ensembles" / "prior" / "open_loop"),
+        )
+    ]
     roots.extend(
-        (member.name, member / "results")
+        (member.name, default_results_dir(member))
         for member in list_member_dirs(step / "ensembles", "prior")
     )
     return roots

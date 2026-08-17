@@ -16,7 +16,11 @@ from typing import Iterable, List, Optional, Tuple
 import pandas as pd
 from loguru import logger
 
-from openamundsen_da.io.paths import list_member_dirs, list_point_files_results
+from openamundsen_da.io.paths import (
+    default_results_dir,
+    list_member_dirs,
+    list_point_files_results,
+)
 from openamundsen_da.methods.viz.plots.theme import (
     BAND_ALPHA,
     COLOR_MEAN,
@@ -203,7 +207,11 @@ def cli_main(argv: Iterable[str] | None = None) -> int:
         logger.error("No member directories found for ensemble={}", args.ensemble)
         return 4
 
-    member_results = [(m.name, m / "results") for m in member_dirs if (m / "results").is_dir()]
+    member_results = [
+        (member.name, default_results_dir(member))
+        for member in member_dirs
+        if default_results_dir(member).is_dir()
+    ]
     if not member_results:
         logger.error("No member results directories found under {}/ensembles/{}", args.step_dir, args.ensemble)
         return 5

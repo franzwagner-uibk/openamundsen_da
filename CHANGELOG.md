@@ -24,12 +24,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add compressed all-member point and consumed-forcing NetCDFs plus retained
   satellite-event map support for compact projects, with mean-collapsed step
   overlaps, retained-value validation and leaf summaries kept for rerendering.
+- Add generation-owned compact runtime trees and retention-ledger schema v6.
+  Fresh compact projects place disposable member forcing, point files, raw
+  grids, restart states and forcing plots below one quarantinable tree while
+  keeping scientific manifests, weights, logs and compact consumers durable.
 
 ### Changed
 - Derive live project-size telemetry from storage-ledger materialized/removed
   byte counters after one baseline scan, downsample growing PNG histories,
   break curves across monitor gaps and retain a companion workflow-phase
   timeline plus CPU-temperature percentile/exceedance summaries.
+- Quarantine and remove fresh compact runtime generations as one contained
+  lifecycle instead of hashing and recording millions of raw paths. Physical
+  deletion uses benchmark-selected bounded directory parallelism and remains
+  resumable before rename, after rename, during deletion and before the final
+  durable completion record. Completed v5 ledgers remain readable and planned
+  v5 cleanup continues through its legacy path.
 - Interpolate exactly two symmetric station HS or SWE observations at their
   model-time midpoint when both lie inside the half-timestep window and are no
   more than 24 hours apart, while retaining strict matching for other ties and

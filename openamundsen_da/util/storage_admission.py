@@ -41,6 +41,7 @@ from openamundsen_da.io.paths import (
     find_setup_yaml,
     list_member_dirs,
     list_steps_sorted,
+    member_run_manifest_path,
     open_loop_dir,
 )
 from openamundsen_da.util.storage_budget import (
@@ -112,13 +113,15 @@ def accounting_summary_from_inventory(
             raise ValueError("Producer storage inventory contains an invalid file entry")
         name = Path(relative).name
         parts = Path(relative).parts
-        if "meteo" in parts and name != "stations.csv":
+        if "meteo" in parts:
             component = "forcing_bytes"
         elif name.startswith("output_grids") and name.endswith(".nc"):
             component = "member_grid_bytes"
         elif name.startswith("point_") and name.endswith(".csv"):
             component = "point_bytes"
-        elif name.endswith((".pickle.gz", ".pickle", ".pkl.gz", ".pkl")):
+        elif name == "state_pointer.json" or name.endswith(
+            (".pickle.gz", ".pickle", ".pkl.gz", ".pkl")
+        ):
             component = "restart_baseline_bytes"
         elif "plots" in parts and "forcing" in parts:
             component = "derived_forcing_plot_bytes"
@@ -448,7 +451,7 @@ def _validate_partial_member_manifests(
         if expected_open_loop.is_dir():
             expected_members = [expected_open_loop, *expected_members]
         member_manifests = [
-            member_dir / "results" / "member_run.json"
+            member_run_manifest_path(member_dir)
             for member_dir in expected_members
         ]
         statuses: list[str] = []
@@ -538,13 +541,15 @@ def _project_identity(
     except ProjectValidationError:
         legacy_evidence = any(
             next(
-                (project.project_dir / "steps" / step_name).glob(
-                    "ensembles/*/*/results/member_run.json"
-                ),
+                (project.project_dir / "steps" / step_name).glob(pattern),
                 None,
             )
             is not None
             for step_name in step_names
+            for pattern in (
+                "ensembles/*/*/results/member_run.json",
+                "ensembles/*/*/member_run.json",
+            )
         )
         if not legacy_evidence or preparation is not None:
             raise
@@ -1045,6 +1050,7 @@ def _has_partial_run_evidence(plan: StoragePlan) -> bool:
         "steps/step_*/assim/prior_forcing_manifest.json",
         "steps/step_*/assim/rejuvenate_manifest.json",
         "steps/step_*/ensembles/*/*/results/member_run.json",
+        "steps/step_*/ensembles/*/*/member_run.json",
     )
     return any(
         next(leaf.project_dir.glob(pattern), None) is not None

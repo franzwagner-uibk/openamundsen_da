@@ -316,9 +316,11 @@ Notes:
   - `penalties[].input_dir` is required only for `source: shadow`.
 - `output.retention: compact` writes the configured grid summaries, compressed
   all-member point and consumed-forcing time series and satellite-event map
-  support. After benchmarking and rendering validate, package-owned member
-  CSVs, grids and restart checkpoints are removed through
-  `results/retention_manifest.json`.
+  support. Fresh runs route disposable member CSVs, grids, restart checkpoints
+  and forcing plots through one generation-owned runtime tree. After
+  benchmarking and rendering validate, that tree is quarantined and physically
+  removed through retention-ledger schema v6 without a per-file raw inventory.
+  Older member-local projects retain their schema-v5 batch cleanup path.
 - `output.retention: full` preserves member forcing, points, grids and restart
   artifacts for reanalysis. `run_mode: subdomain` defaults to `full` when the
   key is omitted; single-domain projects default to `compact`.
@@ -351,9 +353,10 @@ Notes:
   The fixed 5% operational reserve remains separate from predicted model growth.
 - Checks occur between steps and finalization stages; this increment does not
   terminate active openAMUNDSEN members mid-propagation.
-- Compact point, forcing and grid cleanup currently occurs after successful
-  project-level compaction, benchmarking and rendering. Only predecessor
-  restart checkpoints are cleaned incrementally between steps.
+- Compact point, forcing and grid cleanup occurs after successful project-level
+  compaction, benchmarking and rendering. Predecessor restart checkpoints are
+  removed incrementally between steps and deducted from the generation's
+  producer accounting.
 - Overlapping step-boundary timestamps in compact point and forcing NetCDFs use
   the same numeric mean as the raw-series plot and benchmark readers. Cleanup
   compares retained values, not only dimensions and identities, with the raw
@@ -365,10 +368,10 @@ Notes:
   map-support cleanup also validates configured metric completeness, geometry,
   ROI/domain constraints and source values before deleting raw member grids.
 - Compact and checkpoint temporaries are scientifically validated, flushed and
-  atomically promoted before ledger-backed deletion. Every cleanup batch binds
-  the deleted generation to byte-identical retained consumers and actual
-  producer member manifests (or the immutable completed-merge stage record);
-  interrupted cleanup revalidates those dependencies before each resumed unlink.
+  atomically promoted before ledger-backed deletion. Schema v6 binds the whole
+  contained runtime generation to byte-identical retained consumers and actual
+  producer member manifests before same-filesystem quarantine; the legacy v5
+  path retains its per-batch dependency and resumed-unlink checks.
 - This boundary-based increment may conservatively refuse a full 100 m Euregio
   ES50 run on 3.6 TB. Immediate per-leaf finalization/cleanup and measured
   prepared-setup capacity validation remain required before claiming that

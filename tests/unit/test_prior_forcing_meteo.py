@@ -17,6 +17,10 @@ from openamundsen_da.util.humidity import (
     relative_humidity_to_dew_point,
 )
 from openamundsen_da.util.meteo import filter_and_write_meteo
+from openamundsen_da.util.runtime_generation import (
+    ensure_runtime_generation,
+    runtime_generation_root,
+)
 from openamundsen_da.util.stats import sample_shortwave_factor
 
 
@@ -233,6 +237,59 @@ def test_prior_forcing_manifest_controls_reuse_and_detects_output_tampering(tmp_
     )
     with pytest.raises(RuntimeError, match="output_inventory_sha256"):
         build_prior_ensemble(input_meteo_dir, project_dir, step_dir, max_workers=1)
+
+
+def test_prior_forcing_keeps_member_authority_outside_compact_runtime(
+    tmp_path: Path,
+) -> None:
+    setup_dir = tmp_path / "setup"
+    input_meteo_dir = setup_dir / "meteo"
+    project_dir = setup_dir / "projects" / "demo"
+    step_dir = project_dir / "steps" / "step_00"
+    input_meteo_dir.mkdir(parents=True)
+    step_dir.mkdir(parents=True)
+    (setup_dir / "setup.yml").write_text("input_data: {}\n", encoding="utf-8")
+    (input_meteo_dir / "stations.csv").write_text(
+        "id,name,x,y,alt\nstation,Station,0,0,0\n",
+        encoding="utf-8",
+    )
+    (input_meteo_dir / "station.csv").write_text(
+        "date,temp,precip,rel_hum,sw_in\n"
+        "2023-01-01T00:00:00,273.15,1.0,80.0,100.0\n",
+        encoding="utf-8",
+    )
+    (project_dir / "demo.yml").write_text(
+        "data_assimilation:\n"
+        "  prior_forcing:\n"
+        "    ensemble_size: 1\n"
+        "    random_seed: 42\n"
+        "    sigma_t: 0.5\n"
+        "    mu_p: 0.1\n"
+        "    sigma_p: 0.2\n"
+        "    sigma_rh: 0.3\n"
+        "    sigma_sw: 0.05\n",
+        encoding="utf-8",
+    )
+    (step_dir / "step_00.yml").write_text(
+        "start_date: 2023-01-01T00:00:00\n"
+        "end_date: 2023-01-01T00:00:00\n",
+        encoding="utf-8",
+    )
+    ensure_runtime_generation(project_dir)
+
+    build_prior_ensemble(input_meteo_dir, project_dir, step_dir, max_workers=1)
+
+    member = step_dir / "ensembles" / "prior" / "member_001"
+    runtime_root = runtime_generation_root(project_dir)
+    assert runtime_root is not None
+    assert (member / "INFO.txt").is_file()
+    assert not (member / "meteo").exists()
+    assert (
+        runtime_root
+        / member.relative_to(project_dir)
+        / "meteo"
+        / "station.csv"
+    ).is_file()
 
 
 def test_prior_and_rejuvenated_forcing_use_exact_step_window(tmp_path: Path) -> None:

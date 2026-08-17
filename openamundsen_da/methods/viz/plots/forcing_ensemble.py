@@ -26,7 +26,13 @@ from typing import Iterable, List, Optional, Tuple
 import pandas as pd
 from loguru import logger
 
-from openamundsen_da.io.paths import list_member_dirs, read_step_config, list_station_files_forcing
+from openamundsen_da.io.paths import (
+    forcing_plot_dir,
+    list_member_dirs,
+    list_station_files_forcing,
+    meteo_dir_for_member,
+    read_step_config,
+)
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.ts import (
     apply_window,
@@ -210,7 +216,7 @@ def cli_main(argv: Iterable[str] | None = None, *, configure_logger: bool = True
         logger.error("No member directories found for ensemble={}", args.ensemble)
         return 3
 
-    out_root = args.output_dir if args.output_dir else (Path(args.step_dir) / "plots" / "forcing")
+    out_root = args.output_dir if args.output_dir else forcing_plot_dir(args.step_dir)
     stations_df = load_stations_table(Path(args.step_dir), args.ensemble)
     step_name = Path(args.step_dir).name
     effective_title = f"{args.title} | {step_name}" if args.title else step_name
@@ -235,7 +241,7 @@ def cli_main(argv: Iterable[str] | None = None, *, configure_logger: bool = True
         # Read members
         mem_dfs: List[pd.DataFrame] = []
         for m in member_dirs:
-            p = m / "meteo" / fname
+            p = meteo_dir_for_member(m) / fname
             if not p.is_file():
                 continue
             try:

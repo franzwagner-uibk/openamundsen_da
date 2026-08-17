@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Sequence
 
@@ -14,7 +15,15 @@ from openamundsen_da.core.constants import (
     STATE_POINTER_JSON,
 )
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import find_project_yaml
+from openamundsen_da.io.paths import (
+    default_results_dir,
+    find_project_yaml,
+    list_member_dirs,
+    list_steps_sorted,
+    member_run_manifest_path,
+    open_loop_dir,
+    state_pointer_path,
+)
 from openamundsen_da.results import CleanupFailure, CleanupResult, WorkflowStatus
 from openamundsen_da.pipeline.rendering import (
     render_completion_manifest_path,
@@ -27,11 +36,22 @@ from openamundsen_da.util.forcing_output import validate_project_ensemble_forcin
 from openamundsen_da.util.retention import (
     active_retention_generation,
     apply_retention_batch,
+    apply_runtime_tree_cleanup,
     complete_retention_generation,
     planned_retention_generation_dependencies,
     planned_retention_paths,
     reconcile_retention_ledger,
     start_retention_generation,
+    start_runtime_tree_cleanup,
+)
+from openamundsen_da.util.runtime_generation import (
+    RUNTIME_LAYOUT,
+    load_runtime_generation,
+    record_runtime_consumer_validation,
+    record_runtime_rolling_removal,
+    runtime_accounted_totals,
+    runtime_consumer_validation_evidence,
+    runtime_generation_root,
 )
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.restart_state import validate_restart_state
@@ -104,14 +124,37 @@ def _restart_checkpoint_candidates(project_dir: Path, step_dir: Path) -> list[Pa
     step_dir = Path(step_dir).resolve()
     step_dir.relative_to(project_dir / "steps")
     states: set[Path] = set()
+    member_roots: list[Path] = []
+    for ensemble in ("prior", "posterior"):
+        member_roots.extend(list_member_dirs(step_dir / "ensembles", ensemble))
+    prior_open_loop = open_loop_dir(step_dir)
+    if prior_open_loop.is_dir():
+        member_roots.append(prior_open_loop)
     for pattern in state_patterns_from_setup(project_dir):
         states.update(
             path.resolve()
-            for path in step_dir.glob(f"ensembles/*/*/results/{pattern}")
+            for member in member_roots
+            for path in default_results_dir(member).glob(pattern)
             if path.is_file() and not path.is_symlink()
         )
     candidates = set(states)
-    for pointer in project_dir.glob("steps/step_*/ensembles/*/*/**/state_pointer.json"):
+    project_steps = sorted(
+        path
+        for path in (project_dir / "steps").glob("step_*")
+        if path.is_dir() and not path.is_symlink()
+    )
+    pointers = [
+        state_pointer_path(member)
+        for step in project_steps
+        for ensemble in ("prior", "posterior")
+        for member in list_member_dirs(step / "ensembles", ensemble)
+    ]
+    pointers.extend(
+        state_pointer_path(open_loop_dir(step))
+        for step in project_steps
+        if open_loop_dir(step).is_dir()
+    )
+    for pointer in pointers:
         if not pointer.is_file() or pointer.is_symlink():
             continue
         target = _resolve_checkpoint_pointer_target(project_dir, pointer)
@@ -124,10 +167,19 @@ def _resolve_checkpoint_pointer_target(project_dir: Path, pointer: Path) -> Path
     """Resolve one checkpoint pointer to a contained, existing state file."""
     project_dir = Path(project_dir).resolve()
     pointer = Path(pointer).resolve()
-    try:
-        pointer.relative_to(project_dir / "steps")
-    except ValueError as exc:
-        raise RuntimeError(f"Checkpoint pointer escapes project steps: {pointer}") from exc
+    runtime_root = runtime_generation_root(project_dir)
+
+    def contained(path: Path) -> bool:
+        roots = [project_dir / "steps"]
+        if runtime_root is not None:
+            roots.append(runtime_root)
+        return any(
+            path == root or root in path.parents
+            for root in roots
+        )
+
+    if not contained(pointer):
+        raise RuntimeError(f"Checkpoint pointer escapes project runtime: {pointer}")
     try:
         payload = json.loads(pointer.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -140,6 +192,11 @@ def _resolve_checkpoint_pointer_target(project_dir: Path, pointer: Path) -> Path
     targets: list[Path] = []
     if raw_target.is_absolute():
         parts = raw_target.parts
+        runtime_indices = [
+            index for index, part in enumerate(parts) if part == ".openamundsen-da"
+        ]
+        if runtime_indices:
+            targets.append(project_dir.joinpath(*parts[runtime_indices[-1] :]))
         step_indices = [index for index, part in enumerate(parts) if part == "steps"]
         if step_indices:
             targets.append(project_dir.joinpath(*parts[step_indices[-1] :]))
@@ -149,9 +206,7 @@ def _resolve_checkpoint_pointer_target(project_dir: Path, pointer: Path) -> Path
 
     for candidate in targets:
         target = candidate.resolve()
-        try:
-            target.relative_to(project_dir / "steps")
-        except ValueError:
+        if not contained(target):
             continue
         if target.is_file() and not target.is_symlink():
             return target
@@ -186,7 +241,7 @@ def _validated_successor_states(project_dir: Path, successor_step: Path) -> tupl
     output_name = STATE_DEFAULT_NAME if any(char in pattern for char in "*?[]") else pattern
     states: list[Path] = []
     for root in member_roots:
-        state = root / "results" / output_name
+        state = default_results_dir(root) / output_name
         validate_restart_state(state)
         states.append(state.resolve())
     return tuple(states)
@@ -209,7 +264,7 @@ def _member_run_manifests(project_dir: Path, candidates: Sequence[Path]) -> tupl
                 break
             if parent.name == "open_loop" or parent.name.startswith("member_"):
                 found_member_root = True
-                manifest = parent / "results" / "member_run.json"
+                manifest = member_run_manifest_path(parent)
                 if not manifest.is_file() or manifest.is_symlink():
                     raise RuntimeError(f"Producer member manifest is missing or invalid: {manifest}")
                 try:
@@ -277,6 +332,47 @@ def clean_predecessor_checkpoint(
         if successor_step is None:
             raise RuntimeError("Successor step is required before deleting a predecessor checkpoint")
         successor_states = _validated_successor_states(project_dir, Path(successor_step).resolve())
+        runtime = load_runtime_generation(project_dir)
+        if runtime is not None and runtime.get("layout") == RUNTIME_LAYOUT:
+            runtime_root = runtime_generation_root(project_dir)
+            if runtime_root is None:
+                raise RuntimeError("Compact runtime generation root is unavailable")
+            producer_manifests = [
+                member_run_manifest_path(member)
+                for member in [
+                    open_loop_dir(step_dir),
+                    *list_member_dirs(step_dir / "ensembles", "prior"),
+                ]
+            ]
+            for manifest in producer_manifests:
+                if not manifest.is_file() or manifest.is_symlink():
+                    raise RuntimeError(
+                        f"Predecessor checkpoint producer is missing: {manifest}"
+                    )
+                payload = json.loads(manifest.read_text(encoding="utf-8"))
+                if payload.get("status") != "success":
+                    raise RuntimeError(
+                        f"Predecessor checkpoint producer is not successful: {manifest}"
+                    )
+            sizes: dict[Path, int] = {}
+            for candidate in candidates:
+                resolved = candidate.resolve()
+                try:
+                    resolved.relative_to(runtime_root.resolve())
+                except ValueError as exc:
+                    raise RuntimeError(
+                        f"Runtime checkpoint cleanup path escapes generation: {candidate}"
+                    ) from exc
+                sizes[resolved] = resolved.stat().st_size
+            for candidate in sizes:
+                candidate.unlink()
+            for successor in successor_states:
+                validate_restart_state(successor)
+            record_runtime_rolling_removal(
+                project_dir,
+                path_sizes=sizes,
+            )
+            return tuple(candidates)
         apply_retention_batch(
             project_dir,
             artifact_class=f"restart_checkpoint:{Path(step_dir).name}",
@@ -484,11 +580,111 @@ def _retained_consumers_for_class(
     return tuple(consumers)
 
 
+def runtime_retained_consumers(project_dir: str | Path) -> tuple[Path, ...]:
+    """Return the small retained authority set for tree-level cleanup."""
+    project_dir = Path(project_dir).resolve()
+    consumers = [
+        project_dir / "results" / "grids" / "da_output_grids.nc",
+        project_dir / "results" / "points" / "ensemble_points.nc",
+        project_dir / "results" / "forcing" / "ensemble_forcing.nc",
+        validate_render_completion(project_dir),
+    ]
+    map_support = project_dir / "results" / "grids" / "da_map_support.nc"
+    if map_support.is_file():
+        consumers.append(map_support)
+    missing = [path for path in consumers if not path.is_file() or path.is_symlink()]
+    if missing:
+        raise RuntimeError(f"Required retained compact consumer is missing: {missing[0]}")
+    return tuple(dict.fromkeys(path.resolve() for path in consumers))
+
+
+def record_runtime_cleanup_authority(project_dir: str | Path) -> Path | None:
+    """Record already-validated compact outputs after successful rendering."""
+    project_dir = Path(project_dir).resolve()
+    return record_runtime_consumer_validation(
+        project_dir,
+        consumers=list(runtime_retained_consumers(project_dir)),
+    )
+
+
+def _runtime_producer_manifests(project_dir: Path) -> tuple[Path, ...]:
+    manifests: list[Path] = []
+    for step in list_steps_sorted(project_dir):
+        roots = [open_loop_dir(step), *list_member_dirs(step / "ensembles", "prior")]
+        for member in roots:
+            path = member_run_manifest_path(member)
+            if not path.is_file() or path.is_symlink():
+                raise RuntimeError(f"Runtime producer manifest is missing: {path}")
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise RuntimeError(f"Runtime producer manifest is unreadable: {path}") from exc
+            if (
+                not isinstance(payload, dict)
+                or payload.get("status") != "success"
+                or payload.get("member") != member.name
+            ):
+                raise RuntimeError(f"Runtime producer is not quiescent and successful: {path}")
+            manifests.append(path.resolve())
+    if not manifests:
+        raise RuntimeError(f"No runtime producer manifests found under {project_dir}")
+    return tuple(dict.fromkeys(manifests))
+
+
+def _clean_runtime_generation(
+    project_dir: Path,
+    *,
+    apply: bool,
+) -> CleanupResult:
+    """Preview or delete one generation-owned compact runtime tree."""
+    accounted_bytes, accounted_files = runtime_accounted_totals(project_dir)
+    if not apply:
+        return CleanupResult(
+            project_dir=project_dir,
+            status=WorkflowStatus.PREVIEW,
+            applied=False,
+            eligible_paths=(),
+            deleted_paths=(),
+            failures=(),
+            eligible_bytes=accounted_bytes,
+            freed_bytes=0,
+            eligible_count=accounted_files,
+            deleted_count=0,
+        )
+    consumers, consumer_inventory = runtime_consumer_validation_evidence(project_dir)
+    producers = _runtime_producer_manifests(project_dir)
+    start_runtime_tree_cleanup(
+        project_dir,
+        retained_consumers=consumers,
+        producer_manifests=producers,
+        retained_consumer_inventory=consumer_inventory,
+    )
+    workers = int(os.environ.get("OPENAMUNDSEN_DA_CLEANUP_WORKERS", "8"))
+    if workers < 1:
+        raise ValueError("OPENAMUNDSEN_DA_CLEANUP_WORKERS must be at least one")
+    record = apply_runtime_tree_cleanup(project_dir, workers=workers)
+    return CleanupResult(
+        project_dir=project_dir,
+        status=WorkflowStatus.APPLIED,
+        applied=True,
+        eligible_paths=(),
+        deleted_paths=(),
+        failures=(),
+        eligible_bytes=int(record.get("accounted_bytes", accounted_bytes)),
+        freed_bytes=int(record.get("accounted_bytes", accounted_bytes)),
+        eligible_count=int(record.get("accounted_files", accounted_files)),
+        deleted_count=int(record.get("deleted_files", 0)),
+    )
+
+
 def clean_project_artifacts(project_dir: Path, *, apply: bool) -> CleanupResult:
     """Preview or delete safe single-domain restart artifacts."""
     project_dir = Path(project_dir).resolve()
     if not project_dir.is_dir():
         raise FileNotFoundError(f"Project directory not found: {project_dir}")
+    runtime = load_runtime_generation(project_dir)
+    if runtime is not None and runtime.get("layout") == RUNTIME_LAYOUT:
+        return _clean_runtime_generation(project_dir, apply=apply)
     reconcile_retention_ledger(project_dir)
     classes = _cleanup_classes(project_dir)
     candidates = sorted({path for paths in classes.values() for path in paths})

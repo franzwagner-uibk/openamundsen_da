@@ -27,6 +27,7 @@ from openamundsen_da.methods.viz.plots.benchmark.core import (
 )
 from openamundsen_da.io.paths import (
     abspath_relative_to,
+    default_results_dir,
     find_project_yaml,
     list_member_dirs,
     list_steps_sorted,
@@ -553,13 +554,19 @@ def _load_station_panel_data(
     open_loop_segments: list[pd.Series] = []
 
     for step_dir in list_steps_sorted(project_dir):
-        open_loop_path = step_dir / "ensembles" / "prior" / "open_loop" / "results" / point_name
+        open_loop_path = (
+            default_results_dir(step_dir / "ensembles" / "prior" / "open_loop")
+            / point_name
+        )
         open_loop_series = _read_series_with_fallback(open_loop_path, value_col)
         if open_loop_series is not None:
             open_loop_segments.append(open_loop_series)
 
         for member_dir in list_member_dirs(step_dir / "ensembles", "prior"):
-            series = _read_series_with_fallback(member_dir / "results" / point_name, value_col)
+            series = _read_series_with_fallback(
+                default_results_dir(member_dir) / point_name,
+                value_col,
+            )
             if series is not None:
                 member_segments.setdefault(member_dir.name, []).append(series)
 

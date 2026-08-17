@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from openamundsen_da.io.paths import (
+    default_results_dir,
     list_member_dirs,
     list_step_dirs,
     project_result_overview_output_path,
@@ -98,7 +99,8 @@ def load_open_loop_fraction_series(
     segments: list[pd.Series] = []
     for step in list_step_dirs(project_dir):
         series = _load_fraction_value_series(
-            step / "ensembles" / "prior" / "open_loop" / "results" / filename,
+            default_results_dir(step / "ensembles" / "prior" / "open_loop")
+            / filename,
             value_col,
             preserve_missing_values=preserve_missing_values,
         )
@@ -134,7 +136,7 @@ def load_member_series(
     for step in list_step_dirs(project_dir):
         for member_dir in list_member_dirs(step / "ensembles", "prior"):
             series = _load_fraction_value_series(
-                member_dir / "results" / filename,
+                default_results_dir(member_dir) / filename,
                 value_col,
                 preserve_missing_values=preserve_missing_values,
             )
@@ -173,7 +175,7 @@ def load_named_member_series(
     for step in list_step_dirs(project_dir):
         for member_dir in list_member_dirs(step / "ensembles", "prior"):
             series = _load_fraction_value_series(
-                member_dir / "results" / filename,
+                default_results_dir(member_dir) / filename,
                 value_col,
                 preserve_missing_values=preserve_missing_values,
             )
@@ -226,7 +228,7 @@ def load_weighted_member_envelope(
         series_by_member: dict[str, pd.Series] = {}
         for member in members:
             series = _load_fraction_value_series(
-                member / "results" / filename,
+                default_results_dir(member) / filename,
                 value_col,
                 preserve_missing_values=preserve_missing_values,
             )

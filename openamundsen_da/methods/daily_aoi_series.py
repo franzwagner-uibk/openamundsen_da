@@ -23,7 +23,12 @@ from typing import Any, Callable, Dict, List, Tuple
 from loguru import logger
 
 from openamundsen_da.core.constants import ENSEMBLE_PRIOR
-from openamundsen_da.io.paths import list_member_dirs, open_loop_dir, read_step_config
+from openamundsen_da.io.paths import (
+    default_results_dir,
+    list_member_dirs,
+    open_loop_dir,
+    read_step_config,
+)
 
 
 DailySeriesWorker = Callable[
@@ -123,7 +128,7 @@ def compute_step_daily_series_for_all_members(
     jobs: List[Tuple[Path, Path, datetime, datetime, Path, bool, Dict[str, Any]]] = []
     all_exist = True
     for mdir in members:
-        res_dir = Path(mdir) / "results"
+        res_dir = default_results_dir(mdir)
         if not res_dir.is_dir():
             all_exist = False
             continue

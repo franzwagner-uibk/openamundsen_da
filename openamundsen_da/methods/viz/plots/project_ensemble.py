@@ -45,8 +45,10 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.io.paths import (
+    default_results_dir,
     list_member_dirs,
     list_steps_sorted,
+    meteo_dir_for_member,
     read_step_config,
     list_station_files_forcing as io_list_station_files_forcing,
     list_point_files_results as io_list_point_files_results,
@@ -579,7 +581,9 @@ def plot_setup_forcing(
 
         for st in steps:
             # Open loop
-            ol_dir = st.path / "ensembles" / "prior" / "open_loop" / "meteo"
+            ol_dir = meteo_dir_for_member(
+                st.path / "ensembles" / "prior" / "open_loop"
+            )
             if ol_dir.is_dir():
                 csv_path = ol_dir / fname
                 if csv_path.is_file():
@@ -604,7 +608,7 @@ def plot_setup_forcing(
             # Members
             members = list_member_dirs(st.path / "ensembles", "prior")
             for m in members:
-                met_dir = m / "meteo"
+                met_dir = meteo_dir_for_member(m)
                 if not met_dir.is_dir():
                     continue
                 csv_path = met_dir / fname
@@ -887,7 +891,9 @@ def plot_setup_results(
 
         for st in steps:
             # Open loop
-            ol_dir = st.path / "ensembles" / "prior" / "open_loop" / "results"
+            ol_dir = default_results_dir(
+                st.path / "ensembles" / "prior" / "open_loop"
+            )
             if ol_dir.is_dir():
                 csv_path = ol_dir / fname
                 if csv_path.is_file():
@@ -907,7 +913,7 @@ def plot_setup_results(
             # Members
             members = list_member_dirs(st.path / "ensembles", "prior")
             for m in members:
-                res_dir = m / "results"
+                res_dir = default_results_dir(m)
                 if not res_dir.is_dir():
                     continue
                 csv_path = res_dir / fname

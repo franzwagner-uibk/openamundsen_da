@@ -37,6 +37,7 @@ from openamundsen_da.methods.viz.maps.annotations import (
 )
 import openamundsen_da.methods.viz.maps.layout as _layout_module
 from openamundsen_da.methods.viz.maps.config import MapRecipe
+from openamundsen_da.util.figure_lifecycle import close_created_figures
 from openamundsen_da.methods.viz.maps.data import (
     ModelFields,
     ObservationScene,
@@ -643,6 +644,7 @@ def _draw_generated_da_event_status_overlay(
     )
 
 
+@close_created_figures
 def render_map_recipe(
     *,
     project_dir: Path,

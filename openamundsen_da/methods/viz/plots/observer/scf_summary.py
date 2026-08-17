@@ -31,6 +31,7 @@ from openamundsen_da.methods.viz.common import (
 from openamundsen_da.methods.viz.plots.common import apply_month_interval_axis_labels
 from openamundsen_da.observer.summary_io import load_scf_summary
 from openamundsen_da.util.loguru_utils import configure_cli_logger
+from openamundsen_da.util.figure_lifecycle import close_created_figures
 
 
 def _load_summary(csv_path: Path) -> pd.DataFrame:
@@ -38,6 +39,7 @@ def _load_summary(csv_path: Path) -> pd.DataFrame:
     return load_scf_summary(csv_path)
 
 
+@close_created_figures
 def _plot(df: pd.DataFrame, title: str | None = None, subtitle: str | None = None, *, backend: str = "Agg"):
     """Render a compact SCF time series plot.
 

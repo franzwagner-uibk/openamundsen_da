@@ -9,6 +9,7 @@ import pytest
 from openamundsen_da.io.paths import meteo_dir_for_member
 from openamundsen_da.util import forcing_output as forcing_output_mod
 from openamundsen_da.util.forcing_output import (
+    _collapsed_forcing_frame,
     _read_forcing_csv,
     compact_forcing_members,
     compact_forcing_stations,
@@ -179,6 +180,37 @@ def test_forcing_output_mean_collapses_overlapping_step_boundaries(tmp_path: Pat
         dataset.variables["temp"][1, 1, 0] = 999.0
     with pytest.raises(ValueError, match="values do not match mean-collapsed"):
         validate_project_ensemble_forcing(project, output_nc=output)
+
+
+def test_forcing_collapse_excludes_empty_all_na_frames(tmp_path: Path) -> None:
+    project = tmp_path / "setup" / "projects" / "demo"
+    for step_name, rows in (
+        ("step_00", "date,temp,precip\n2023-01-01,,\n"),
+        ("step_01", "date,temp,precip\n2023-01-02,273.15,1.0\n"),
+    ):
+        step = project / "steps" / step_name
+        step.mkdir(parents=True)
+        (step / f"{step_name}.yml").write_text(
+            "start_date: 2023-01-01\nend_date: 2023-01-02\n",
+            encoding="utf-8",
+        )
+        for member in ("open_loop", "member_001"):
+            meteo = step / "ensembles" / "prior" / member / "meteo"
+            meteo.mkdir(parents=True)
+            (meteo / "stations.csv").write_text(
+                "id,name,x,y,alt\na,A,0,0,0\n",
+                encoding="utf-8",
+            )
+            (meteo / "a.csv").write_text(rows, encoding="utf-8")
+
+    frame = _collapsed_forcing_frame(
+        sorted((project / "steps").iterdir()),
+        member="member_001",
+        station="a",
+    )
+
+    assert frame.index.tolist() == [np.datetime64("2023-01-02")]
+    np.testing.assert_array_equal(frame[["temp", "precip"]].to_numpy(), [[273.15, 1.0]])
 
 
 def test_forcing_temp_validation_failure_preserves_accepted_target(tmp_path: Path, monkeypatch) -> None:

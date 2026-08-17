@@ -13,6 +13,15 @@ from openamundsen_da.subdomain.event_support import (
 from openamundsen_da.subdomain import render as render_mod
 
 
+@pytest.fixture(autouse=True)
+def _canonical_manifest_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        render_mod,
+        "require_canonical_manifest_path",
+        lambda _manifest, path: Path(path),
+    )
+
+
 def _write_project(project_dir: Path, events: list[tuple[str, str]]) -> None:
     project_dir.mkdir(parents=True, exist_ok=True)
     lines = [

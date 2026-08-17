@@ -26,6 +26,7 @@ import pandas as pd
 from loguru import logger
 
 from openamundsen_da.util.loguru_utils import configure_cli_logger
+from openamundsen_da.util.figure_lifecycle import close_created_figures
 from openamundsen_da.methods.viz.plots.common import (
     force_figure_text_black,
     pretty_var_title,
@@ -43,6 +44,7 @@ def _load_series(csv_path: Path, time_col: str, var_col: str) -> pd.Series:
     return df[var_col].dropna()
 
 
+@close_created_figures
 def plot_station_variable(
     *,
     csv_path: Path,

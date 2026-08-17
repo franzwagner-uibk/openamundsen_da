@@ -37,20 +37,21 @@ def filter_and_write_meteo(
     - Applies humidity perturbation as an additive dew-point temperature offset.
     - Applies multiplicative f_p to positive precip values (if present).
     - Applies multiplicative f_sw to positive sw_in values only (if present).
-    - Copies stations.csv unchanged.
+    - Writes only stations that have at least one row in the selected window.
     """
     src_dir = Path(src_dir)
     dst_dir = Path(dst_dir)
     dst_dir.mkdir(parents=True, exist_ok=True)
 
     stations_csv = src_dir / STATIONS_CSV
-    if stations_csv.exists():
-        (dst_dir / STATIONS_CSV).write_bytes(stations_csv.read_bytes())
+    written_station_ids: list[str] = []
 
     for src in sorted(p for p in src_dir.glob("*.csv") if p.name != STATIONS_CSV):
         df = pd.read_csv(src, parse_dates=True, index_col=0)
         time_col = df.index.name or DEFAULT_TIME_COL
         df = _inclusive_filter(df, start, end)
+        if df.empty:
+            continue
         df.index = _normalize_datetime_index(df.index)
         has_temp = DEFAULT_TEMP_COL in df.columns
         has_rel_hum = DEFAULT_REL_HUM_COL in df.columns
@@ -86,6 +87,22 @@ def filter_and_write_meteo(
         df_out = apply_meteo_csv_precision(df_out)
         dst_dir.mkdir(parents=True, exist_ok=True)
         df_out.to_csv(dst_dir / src.name, index=False)
+        written_station_ids.append(src.stem)
+
+    if stations_csv.exists():
+        metadata = pd.read_csv(stations_csv, dtype={"id": "string"})
+        if "id" not in metadata.columns:
+            raise ValueError(f"Meteo station metadata has no 'id' column: {stations_csv}")
+        station_ids = metadata["id"].astype("string")
+        selected = metadata.loc[station_ids.isin(written_station_ids)].copy()
+        selected_ids = set(selected["id"].dropna().astype(str))
+        missing = sorted(set(written_station_ids) - selected_ids)
+        if missing:
+            raise ValueError(
+                "Meteo forcing files have no matching stations.csv row: "
+                + ", ".join(missing)
+            )
+        selected.to_csv(dst_dir / STATIONS_CSV, index=False)
 
 
 def _inclusive_filter(df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:

@@ -158,6 +158,27 @@ performance snapshot without invalidating cleanup provenance.
 leaf wave is admitted. An interrupted or low-disk run resumes existing work
 non-destructively; rebuilding requires an explicit overwrite request.
 
+Each leaf `run_manifest.json` keeps separate propagation, compact-export,
+render and cleanup timestamps and durations. Recovery from an already accepted
+finalization preserves those measurements and the successful status instead of
+rewriting the leaf as a zero-duration skipped run. The project-level subdomain
+overview exposes the four durations as separate columns.
+
+Station DA events retain
+`steps/<step>/assim/station_support_audit_<variable>_<date>.csv` with one row
+per candidate station and log one count summary per event. FSC preprocessing
+retains `scf_source_audit.csv` with accepted, discarded and expected-failure
+detail and logs one source summary. Expected data gaps therefore remain
+auditable without thousands of repeated warnings; a configured event with no
+usable support still fails.
+
+Forcing preparation omits zero-row station CSVs and writes each member's
+`stations.csv` from exactly the stations with nonempty forcing in that window.
+The compact forcing NetCDF still uses the project-wide union of all nonempty
+station series. Explicit output points belong to the single leaf selected by
+the final ROI ownership raster, including points on overlapping polygon
+boundaries.
+
 Every executing project also retains
 `results/storage/storage_reservation.json`. This operational audit artifact
 records the immutable conservative plan, lifecycle phase, per-leaf admission
@@ -181,7 +202,8 @@ responses from satisfying a new filesystem check.
 Performance monitoring uses the ledger counters after one baseline directory
 reconciliation, so the five-second CPU/RAM/temperature sampler never walks the
 growing project tree. `project_perf_phases.csv` and
-`project_perf_phases.png` retain the storage-ledger phase sequence and mark a
+`project_perf_phases.png` retain preflight, propagation, compact-export,
+render, cleanup and parent merge phases and mark a
 restart gap as `unmonitored_downtime`. The terminal performance snapshot is the
 next allowed full project-size reconciliation.
 
@@ -225,3 +247,9 @@ Data assimilation subdomains merge into the same compact NetCDF and project-leve
 summary/report tree. Plain-model subdomains merge the exact configured NetCDF or
 GeoTIFF model grids. Both modes use hard mosaics: no interpolation, blending or
 particle exchange occurs across boundaries.
+
+Preparation links any already staged GISCO country assets from the parent
+`env/` directory into every leaf, so network-disabled rendering keeps the
+country context. Run, merge and render must use the canonical manifest path
+recorded by preparation; invoking the same files through a second container
+mount alias fails before new work starts.

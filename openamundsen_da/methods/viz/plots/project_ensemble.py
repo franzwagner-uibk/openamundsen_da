@@ -44,6 +44,8 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import pandas as pd
 from loguru import logger
 
+from openamundsen_da.util.figure_lifecycle import close_created_figures
+
 from openamundsen_da.io.paths import (
     default_results_dir,
     list_member_dirs,
@@ -493,6 +495,7 @@ def _load_station_obs_for_setup(
 # ---- Plotting: Forcing (two-panel) -----------------------------------------
 
 
+@close_created_figures
 def plot_setup_forcing(
     *,
     setup_dir: Path,
@@ -786,6 +789,7 @@ def plot_setup_forcing(
 # ---- Plotting: Results (single-panel) --------------------------------------
 
 
+@close_created_figures
 def plot_setup_results(
     *,
     setup_dir: Path,

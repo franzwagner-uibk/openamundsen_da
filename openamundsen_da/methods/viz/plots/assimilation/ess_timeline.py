@@ -26,6 +26,7 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.da_events import load_assimilation_events
+from openamundsen_da.util.figure_lifecycle import close_created_figures
 from openamundsen_da.util.yaml_utils import read_yaml_mapping
 from openamundsen_da.methods.viz.plots.common import (
     add_assim_label_axis,
@@ -197,6 +198,7 @@ def load_setup_ess_threshold(setup_dir: Path, *, ensemble_size: int | None) -> f
     return absolute
 
 
+@close_created_figures
 def _plot(
     df: pd.DataFrame,
     normalized: bool,

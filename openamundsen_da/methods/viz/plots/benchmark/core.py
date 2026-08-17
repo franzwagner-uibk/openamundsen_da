@@ -36,6 +36,7 @@ from openamundsen_da.methods.viz.common import (
     set_matplotlib_text_black,
 )
 from openamundsen_da.util.da_events import load_assimilation_events
+from openamundsen_da.util.figure_lifecycle import close_created_figures
 
 from openamundsen_da.benchmark.render.common import ensure_dir, variable_label, variable_style
 
@@ -579,6 +580,7 @@ def align_score_title_to_plot_block(fig, axes: tuple) -> None:
     _align_title_to_plot_block(fig, axes)
 
 
+@close_created_figures
 def _write_event_skill_figure(
     out_path: Path,
     *,

@@ -220,3 +220,19 @@ class SubdomainManifest:
         with Path(path).open("r", encoding="utf-8") as f:
             data = json.load(f)
         return cls.from_dict(data)
+
+
+def require_canonical_manifest_path(
+    manifest: SubdomainManifest,
+    manifest_path: str | Path,
+) -> Path:
+    """Reject commands that mix aliases for one mounted subdomain project."""
+    supplied = Path(os.path.abspath(manifest_path))
+    expected = Path(os.path.abspath(Path(manifest.subdomain_root) / "subdomain_manifest.json"))
+    if supplied != expected:
+        raise ValueError(
+            "Subdomain manifest was invoked through a different setup/project alias: "
+            f"expected {expected}, got {supplied}. Use one canonical container mount "
+            "and project path for prepare, run, merge and render."
+        )
+    return supplied

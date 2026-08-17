@@ -646,8 +646,10 @@ def summarize_snowcover_directory(
     output_dir = output_root / project_label
     output_dir.mkdir(parents=True, exist_ok=True)
     summary_path = output_dir / "scf_summary.csv"
+    audit_path = output_dir / "scf_source_audit.csv"
 
     rows: list[dict[str, object]] = []
+    audit_rows: list[dict[str, object]] = []
     written: list[Path] = []
     disabled_uncertainty_cfg = _disabled_uncertainty_ingest_config()
     for rast in rasters:
@@ -692,7 +694,10 @@ def summarize_snowcover_directory(
                 raise RuntimeError(
                     f"Snow-cover preprocessing failed for {rast.name} with uncertainty enabled: {exc}"
                 ) from exc
-            logger.error("Skipping {}: {}", rast.name, exc)
+            audit_rows.append(
+                {"source": rast.name, "status": "failed", "reason": str(exc)}
+            )
+            logger.debug("Skipping snow-cover source {}: {}", rast.name, exc)
             continue
         accepted = 0
         for stats in stats_rows:
@@ -722,11 +727,23 @@ def summarize_snowcover_directory(
             stats["acquisition_time"] = acquisition.value.isoformat().replace("+00:00", "Z")
             stats["time_source"] = acquisition.source
             stats["time_quality"] = acquisition.quality
-            if acquisition.quality == "fallback_midnight":
-                logger.warning("No acquisition timestamp for {}; using UTC midnight", source_name)
             rows.append(stats)
             accepted += 1
-            logger.info(
+            audit_rows.append(
+                {
+                    "source": str(stats.get("source", rast.name)),
+                    "status": "accepted",
+                    "reason": (
+                        "fallback_midnight"
+                        if acquisition.quality == "fallback_midnight"
+                        else ""
+                    ),
+                    "date": stats["date"],
+                    "acquisition_time": stats["acquisition_time"],
+                    "n_valid": int(stats["n_valid"]),
+                }
+            )
+            logger.debug(
                 "Snowcover {} -> scf={:.3f} n_valid={} n_snow={}",
                 str(stats.get("source", rast.name)),
                 float(stats["scf"]),
@@ -736,9 +753,42 @@ def summarize_snowcover_directory(
         if accepted > 0:
             written.append(rast)
         elif stats_rows:
-            logger.warning("Discarded {} because date filter removed all matching records", rast.name)
+            audit_rows.append(
+                {
+                    "source": rast.name,
+                    "status": "discarded",
+                    "reason": "date filter removed all matching records",
+                }
+            )
         else:
-            logger.warning("Discarded {} because AOI contained no valid pixels", rast.name)
+            audit_rows.append(
+                {
+                    "source": rast.name,
+                    "status": "discarded",
+                    "reason": "AOI contained no valid pixels",
+                }
+            )
+
+    audit = pd.DataFrame(
+        audit_rows,
+        columns=[
+            "source",
+            "status",
+            "reason",
+            "date",
+            "acquisition_time",
+            "n_valid",
+        ],
+    )
+    audit.to_csv(audit_path, index=False)
+    status_counts = audit.get("status", pd.Series(dtype="object")).value_counts()
+    logger.info(
+        "Snow-cover source audit | accepted={} discarded={} failed={} details={}",
+        int(status_counts.get("accepted", 0)),
+        int(status_counts.get("discarded", 0)),
+        int(status_counts.get("failed", 0)),
+        audit_path,
+    )
 
     if not rows:
         logger.warning("No valid snow-cover rasters processed.")

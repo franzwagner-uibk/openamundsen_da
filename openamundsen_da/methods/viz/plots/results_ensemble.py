@@ -43,6 +43,7 @@ from openamundsen_da.methods.viz.plots.ensemble_meta import (
     read_member_perturbations,
 )
 from openamundsen_da.util.stats import envelope
+from openamundsen_da.util.figure_lifecycle import close_created_figures
 from openamundsen_da.util.ts import apply_window, resample_and_smooth, read_timeseries_csv
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 
@@ -67,6 +68,7 @@ def _series_has_data(series: pd.Series) -> bool:
     return pd.to_numeric(series, errors="coerce").notna().any()
 
 
+@close_created_figures
 def _plot_point_station(
     *,
     station_token: str,

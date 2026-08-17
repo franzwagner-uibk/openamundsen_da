@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Add retained station-support and FSC source audits with one concise event or
+  leaf summary, complete expected-gap detail and fatal handling for unexpected
+  configured-support failures.
 - Add opt-in project-map markers that distinguish forcing, snow-observation,
   co-located and holdout stations, with holdouts using a smaller black `x`
   rendered above other station markers, plus optional subdomain ID labels.
@@ -30,6 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keeping scientific manifests, weights, logs and compact consumers durable.
 
 ### Changed
+- Prune empty station forcing files and write each member's `stations.csv` from
+  exactly its nonempty station set while compact forcing retains the union.
+- Assign explicit output points from the final ROI ownership raster, expose
+  staged GISCO country assets to offline leaf rendering and require one
+  canonical subdomain manifest path across run, merge and render.
+- Record propagation, compact export, render and cleanup as separate durable
+  leaf phases. Finalization recovery preserves the original timings and reports
+  a successful completed leaf instead of a zero-duration skipped run.
 - Derive live project-size telemetry from storage-ledger materialized/removed
   byte counters after one baseline scan, downsample growing PNG histories,
   break curves across monitor gaps and retain a companion workflow-phase
@@ -91,6 +102,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the accepted leaf project YAMLs.
 
 ### Fixed
+- Close every Matplotlib figure created by project plotting and reporting on
+  both success and failure, ignore empty/all-NA forcing frames before compact
+  concatenation and validate the real FSC NetCDF CRS/transform/shape/nodata
+  contract before suppressing its known GDAL georeferencing warning.
 - Keep large compact-retention batches fail-closed without rehashing the same
   retained NetCDF before every source unlink. Consumers are fully hash-checked
   at batch entry and completion and pinned by mutation-sensitive file identity

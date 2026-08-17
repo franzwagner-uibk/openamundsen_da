@@ -21,7 +21,7 @@ import sys
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from loguru import logger
 import numpy as np
@@ -60,7 +60,11 @@ from openamundsen_da.util.landcover_mask import (
 )
 from openamundsen_da.util.parallel import pick_max_workers
 from openamundsen_da.util.da_events import load_assimilation_events, AssimilationEvent
-from openamundsen_da.util.perf_monitor import PerfMonitorConfig, start_perf_monitor
+from openamundsen_da.util.perf_monitor import (
+    PerfMonitorConfig,
+    record_perf_phase,
+    start_perf_monitor,
+)
 from openamundsen_da.util.storage_budget import (
     DiskBudgetSnapshot,
     StorageReservationProject,
@@ -326,6 +330,19 @@ def _write_station_diagnostics(
     return out
 
 
+def _write_station_support_audit(
+    *,
+    assim_dir: Path,
+    variable: str,
+    dt: datetime,
+    audit: pd.DataFrame,
+) -> Path:
+    out = assim_dir / f"station_support_audit_{variable}_{dt:%Y%m%d}.csv"
+    audit.to_csv(out, index=False)
+    logger.info("Wrote station support audit -> {}", out)
+    return out
+
+
 def _update_station_diagnostics_weights(path: Path, weights: pd.DataFrame) -> None:
     """Replace provisional likelihood-only station weights with PF posteriors."""
     diagnostics = pd.read_csv(path)
@@ -363,7 +380,7 @@ def _run_assimilation_for_event(
     assim_dir: Path,
     ev: AssimilationEvent,
     assim_dt: datetime,
-) -> tuple[pd.DataFrame, Path | None]:
+) -> tuple[pd.DataFrame, Path | None, Path | None]:
     if ev.variable == "wet_snow_line":
         weights = assimilate_wet_snow_line_for_date(
             setup_dir=cfg.setup_dir,
@@ -375,7 +392,7 @@ def _run_assimilation_for_event(
             obs_csv=None,
             product=ev.product,
         )
-        return weights, None
+        return weights, None, None
     if ev.variable == "wet_snow":
         weights = assimilate_wet_snow_for_date(
             setup_dir=cfg.setup_dir,
@@ -387,7 +404,7 @@ def _run_assimilation_for_event(
             obs_csv=None,
             product=ev.product,
         )
-        return weights, None
+        return weights, None, None
     if ev.variable == "station_hs":
         station_result = assimilate_station_hs_for_date(
             setup_dir=cfg.setup_dir,
@@ -401,7 +418,13 @@ def _run_assimilation_for_event(
             dt=assim_dt,
             diagnostics=station_result.diagnostics,
         )
-        return station_result.weights, diag_csv
+        support_csv = _write_station_support_audit(
+            assim_dir=assim_dir,
+            variable=ev.variable,
+            dt=assim_dt,
+            audit=station_result.support_audit,
+        )
+        return station_result.weights, diag_csv, support_csv
     if ev.variable == "station_swe":
         station_result = assimilate_station_swe_for_date(
             setup_dir=cfg.setup_dir,
@@ -415,7 +438,13 @@ def _run_assimilation_for_event(
             dt=assim_dt,
             diagnostics=station_result.diagnostics,
         )
-        return station_result.weights, diag_csv
+        support_csv = _write_station_support_audit(
+            assim_dir=assim_dir,
+            variable=ev.variable,
+            dt=assim_dt,
+            audit=station_result.support_audit,
+        )
+        return station_result.weights, diag_csv, support_csv
     weights = assimilate_scf_for_date(
         setup_dir=cfg.setup_dir,
         step_dir=step_dir,
@@ -426,7 +455,7 @@ def _run_assimilation_for_event(
         obs_csv=None,
         product=ev.product,
     )
-    return weights, None
+    return weights, None, None
 
 
 @dataclass
@@ -447,6 +476,14 @@ class OrchestratorConfig:
     storage_admission_client: StorageAdmissionClient | None = None
     initial_step_preadmitted: bool = False
     initial_storage_budget: DiskBudgetSnapshot | None = None
+    phase_callback: Callable[[str], None] | None = None
+
+
+def _record_project_phase(cfg: OrchestratorConfig, phase: str) -> None:
+    """Record one exact project lifecycle boundary for monitoring and recovery."""
+    record_perf_phase(cfg.project_dir, phase)
+    if cfg.phase_callback is not None:
+        cfg.phase_callback(phase)
 
 
 def preadmit_project_storage(cfg: OrchestratorConfig) -> OrchestratorConfig:
@@ -673,6 +710,7 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         )
     else:
         logger.info("Disk admission {} was committed before worker startup", steps[0].name)
+    _record_project_phase(cfg, "propagation")
     if retention_mode == "compact":
         runtime_generation = ensure_runtime_generation(
             cfg.project_dir,
@@ -948,8 +986,12 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         ess_thr_abs = float(rs_cfg.ess_threshold or 0.0)
         ess_thr_ratio = rs_cfg.ess_threshold_ratio
         station_diag_csv: Path | None = None
+        station_support_audit_csv: Path | None = None
         if is_station_variable(ev.variable):
             station_diag_csv = assim_dir / station_diagnostics_csv_name(ev.variable, assim_dt)
+            audit_candidate = assim_dir / f"station_support_audit_{ev.variable}_{assim_dt:%Y%m%d}.csv"
+            if audit_candidate.is_file():
+                station_support_audit_csv = audit_candidate
         if wcsv.is_file() and not cfg.overwrite:
             logger.info(
                 "Weights CSV already exists for {}; overwrite=False -> reusing existing weights: {}",
@@ -982,7 +1024,11 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
                 raise RuntimeError(f"Existing event weights do not match the prior-weight ledger: {wcsv}")
         else:
             try:
-                weights, station_diag_csv = _run_assimilation_for_event(
+                (
+                    weights,
+                    station_diag_csv,
+                    station_support_audit_csv,
+                ) = _run_assimilation_for_event(
                     cfg=cfg,
                     step_dir=step_dir,
                     roi=roi,
@@ -1125,6 +1171,8 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         ]
         if station_diag_csv is not None:
             boundary_outputs.append(station_diag_csv)
+        if station_support_audit_csv is not None:
+            boundary_outputs.append(station_support_audit_csv)
         boundary_accounting = accounting_summary_from_paths(
             completed_step=step_name,
             root=cfg.project_dir,
@@ -1231,6 +1279,7 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         component_bytes=last_step_storage_accounting.observed_bytes,
         file_counts=last_step_storage_accounting.file_counts,
     )
+    _record_project_phase(cfg, "compact_export")
     cfg.storage_admission_client.reconcile_finalization(
         request_id=(
             f"{cfg.storage_admission_client.leaf_id}:reconcile_finalization"
@@ -1309,6 +1358,7 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
                 fields=required_fields,
             )
 
+    _record_project_phase(cfg, "render")
     try:
         benchmark_outputs = run_project_benchmark(
             project_dir=cfg.project_dir,

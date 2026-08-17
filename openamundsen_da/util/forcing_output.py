@@ -148,6 +148,11 @@ def _collapsed_forcing_frame(
         if path is None or not path.is_file():
             continue
         index, frame = _read_forcing_csv(path)
+        nonempty = ~frame.isna().all(axis=1)
+        if not bool(nonempty.any()):
+            continue
+        index = index[nonempty.to_numpy()]
+        frame = frame.loc[nonempty].copy()
         frame.index = index
         frames.append(frame)
     if not frames:

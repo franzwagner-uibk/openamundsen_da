@@ -143,6 +143,38 @@ def test_filter_and_write_meteo_formats_known_columns_to_storage_precision(tmp_p
     ]
 
 
+def test_filter_and_write_meteo_omits_empty_station_files_and_metadata(
+    tmp_path: Path,
+) -> None:
+    src_dir = tmp_path / "src"
+    dst_dir = tmp_path / "dst"
+    src_dir.mkdir()
+    (src_dir / "stations.csv").write_text(
+        "id,name,x,y,alt\ninside,Inside,0,0,0\noutside,Outside,1,1,1\n",
+        encoding="utf-8",
+    )
+    (src_dir / "inside.csv").write_text(
+        "date,temp\n2023-01-02T00:00:00,273.15\n",
+        encoding="utf-8",
+    )
+    (src_dir / "outside.csv").write_text(
+        "date,temp\n2023-02-01T00:00:00,274.15\n",
+        encoding="utf-8",
+    )
+
+    filter_and_write_meteo(
+        src_dir=src_dir,
+        dst_dir=dst_dir,
+        start=pd.Timestamp("2023-01-01T00:00:00"),
+        end=pd.Timestamp("2023-01-03T00:00:00"),
+    )
+
+    assert (dst_dir / "inside.csv").is_file()
+    assert not (dst_dir / "outside.csv").exists()
+    metadata = pd.read_csv(dst_dir / "stations.csv", dtype={"id": "string"})
+    assert metadata["id"].tolist() == ["inside"]
+
+
 def test_prior_and_rejuvenation_require_configured_scientific_sigmas(tmp_path: Path) -> None:
     setup_dir = tmp_path / "setup"
     project_dir = setup_dir / "projects" / "demo"

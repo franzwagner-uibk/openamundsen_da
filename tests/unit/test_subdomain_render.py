@@ -13,6 +13,11 @@ from openamundsen_da.subdomain import render as render_mod
 @pytest.fixture(autouse=True)
 def _ignore_event_support(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(render_mod, "resolve_subdomain_event_plan", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        render_mod,
+        "require_canonical_manifest_path",
+        lambda _manifest, path: Path(path),
+    )
 
 
 def _manifest(project_dir: Path, *, status: str = "success") -> SimpleNamespace:

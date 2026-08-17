@@ -54,6 +54,7 @@ class StationAssimilationResult:
 
     weights: pd.DataFrame
     diagnostics: pd.DataFrame
+    support_audit: pd.DataFrame
 
 
 def _read_station_metadata(metadata_path: Path) -> pd.DataFrame:
@@ -145,16 +146,26 @@ def _build_active_stations(
     config: StationAssimilationConfig,
     model_clock: ModelClockConfig,
     variable: str,
-) -> list[ActiveStation]:
+) -> tuple[list[ActiveStation], pd.DataFrame]:
     """Resolve active stations with observation values and effective sigmas."""
     spec = station_variable_spec(variable)
     metadata_df = _read_station_metadata(config.metadata_path)
     disabled_station_ids = station_ids_disabled_for_role(metadata_df, "da")
 
     active: list[ActiveStation] = []
+    audit_rows: list[dict[str, object]] = []
     for station_id in _candidate_station_ids(obs_dir, members):
         if station_id in disabled_station_ids:
             logger.debug("Skipping station {} for {}: use_for_da=false", station_id, variable)
+            audit_rows.append(
+                {
+                    "station_id": station_id,
+                    "variable": variable,
+                    "target_time": pd.Timestamp(date),
+                    "status": "disabled",
+                    "reason": "use_for_da=false",
+                }
+            )
             continue
         obs_csv = obs_dir / f"{station_id}.csv"
         try:
@@ -167,7 +178,15 @@ def _build_active_stations(
                 require_nonnegative=True,
             )
         except SeriesTimeUnavailableError as exc:
-            logger.warning("Skipping station {} for {} on {}: {}", station_id, variable, date.date(), exc)
+            audit_rows.append(
+                {
+                    "station_id": station_id,
+                    "variable": variable,
+                    "target_time": pd.Timestamp(date),
+                    "status": "unavailable",
+                    "reason": str(exc),
+                }
+            )
             continue
         if obs_match.interpolated:
             logger.info(
@@ -185,15 +204,25 @@ def _build_active_stations(
         obs_value = obs_match.value
         obs_time_offset_seconds = obs_match.offset_seconds
         if not np.isfinite(obs_value):
-            logger.warning("Skipping station {} for {} on {}: observation is not finite", station_id, variable, date.date())
+            audit_rows.append(
+                {
+                    "station_id": station_id,
+                    "variable": variable,
+                    "target_time": pd.Timestamp(date),
+                    "status": "unavailable",
+                    "reason": "observation is not finite",
+                }
+            )
             continue
         if obs_value < 0.0:
-            logger.warning(
-                "Skipping station {} for {} on {}: observation is negative ({:.6f})",
-                station_id,
-                variable,
-                date.date(),
-                obs_value,
+            audit_rows.append(
+                {
+                    "station_id": station_id,
+                    "variable": variable,
+                    "target_time": pd.Timestamp(date),
+                    "status": "unavailable",
+                    "reason": f"observation is negative ({obs_value:.6f})",
+                }
             )
             continue
         sigma_terms = resolve_station_sigma_base(
@@ -218,6 +247,18 @@ def _build_active_stations(
                 single_station_inflated=False,
             )
         )
+        audit_rows.append(
+            {
+                "station_id": station_id,
+                "variable": variable,
+                "target_time": pd.Timestamp(date),
+                "status": "active",
+                "reason": "interpolated" if obs_match.interpolated else "matched",
+                "matched_obs_time": obs_time,
+                "obs_time_offset_seconds": obs_time_offset_seconds,
+                "obs_value": float(obs_value),
+            }
+        )
 
     if not active:
         raise ValueError(f"No active station observations found for {variable} on {date.date()} in {obs_dir}")
@@ -225,7 +266,7 @@ def _build_active_stations(
     if len(active) == 1:
         st = active[0]
         inflated_sigma = float(st.sigma_base) * float(config.single_station_factor)
-        logger.warning(
+        logger.info(
             "Only one active station ({}) found for {} on {}. Inflating sigma by factor {:.3f} -> {:.6f}.",
             st.station_id,
             variable,
@@ -247,7 +288,18 @@ def _build_active_stations(
             single_station_inflated=True,
         )
 
-    return active
+    audit = pd.DataFrame(audit_rows).sort_values("station_id").reset_index(drop=True)
+    unavailable = int((audit["status"] == "unavailable").sum())
+    disabled = int((audit["status"] == "disabled").sum())
+    logger.info(
+        "{} station support | date={} active={} unavailable={} disabled={}",
+        variable,
+        pd.Timestamp(date).strftime("%Y-%m-%d"),
+        len(active),
+        unavailable,
+        disabled,
+    )
+    return active, audit
 
 
 def assimilate_station_for_date(
@@ -268,7 +320,7 @@ def assimilate_station_for_date(
     if not members:
         raise RuntimeError(f"No members found under {step_dir}/ensembles/{ensemble}")
 
-    active_stations = _build_active_stations(
+    active_stations, support_audit = _build_active_stations(
         obs_dir=config.obs_dir,
         members=members,
         date=date,
@@ -382,7 +434,11 @@ def assimilate_station_for_date(
         len(active_stations),
         ess,
     )
-    return StationAssimilationResult(weights=weights_df, diagnostics=diagnostics_df)
+    return StationAssimilationResult(
+        weights=weights_df,
+        diagnostics=diagnostics_df,
+        support_audit=support_audit,
+    )
 
 
 def assimilate_station_hs_for_date(

@@ -6,6 +6,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from openamundsen_da.util.figure_lifecycle import close_created_figures
 from openamundsen_da.methods.viz.common import (
     force_figure_text_black,
     save_figure_png,
@@ -27,6 +29,7 @@ def _default_output_path(csv_path: Path) -> Path:
     return Path(csv_path).with_suffix(".png")
 
 
+@close_created_figures
 def plot_station_diagnostics_for_csv(
     csv_path: Path,
     *,

@@ -34,6 +34,7 @@ from openamundsen_da.io.paths import (
     read_step_config,
 )
 from openamundsen_da.util.loguru_utils import configure_cli_logger
+from openamundsen_da.util.figure_lifecycle import close_created_figures
 from openamundsen_da.util.ts import (
     apply_window,
     resample_and_smooth,
@@ -85,6 +86,7 @@ def _read_station_series(csv_path: Path, time_col: str, temp_col: str, precip_co
     return collapse_duplicates(df)
 
 
+@close_created_figures
 def _plot_station(
     *,
     ol_df: Optional[pd.DataFrame],

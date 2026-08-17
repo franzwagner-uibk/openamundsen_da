@@ -18,6 +18,11 @@ from openamundsen_da.util.storage_policy import da_summary_netcdf_encoding
 def _bounded_merge_storage(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         merge_mod,
+        "require_canonical_manifest_path",
+        lambda _manifest, path: Path(path),
+    )
+    monkeypatch.setattr(
+        merge_mod,
         "estimate_parent_compact_merge_bytes",
         lambda **_kwargs: 1024,
     )

@@ -129,7 +129,8 @@ periodic samples. The terminal snapshot performs one final physical
 reconciliation. PNG rendering is downsampled to a bounded history, refreshes
 less often as the run grows and breaks lines across monitor gaps. The companion
 `project_perf_phases.csv` and `project_perf_phases.png` distinguish preflight,
-propagation, finalization and unmonitored downtime. Temperature text reports
+propagation, compact export, render, cleanup, merge and unmonitored downtime.
+Temperature text reports
 the p50, p95 and maximum plus accumulated time above the configured reporting
 levels; these observations are not evidence of hardware throttling by
 themselves.

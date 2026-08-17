@@ -722,6 +722,8 @@ def test_step_boundary_uses_one_disk_check_and_no_estimator_or_source_reads(
     ledger = json.loads(coordinator.ledger_path.read_text(encoding="utf-8"))
     assert ledger["full_estimate_count"] == 1
     assert ledger["lightweight_check_count"] == 2
+    assert ledger["materialized_bytes_total"] == 280
+    assert ledger["removed_bytes_total"] == 15
     assert ledger["leaves"]["leaf"]["last_completed_step_index"] == 0
 
 
@@ -1221,8 +1223,13 @@ def test_new_lifecycle_phase_pauses_at_soft_limit_but_admitted_step_can_drain(
     client = StorageAdmissionClient.in_process(coordinator, leaf_id="leaf")
     with pytest.raises(LowDiskPauseError, match="80%"):
         client.admit_wave(0, request_id="soft-wave")
+    admitted = client.admit_step(
+        "step_00",
+        request_id="draining-step",
+        allow_existing_step_drain=True,
+    )
     monkeypatch.setattr(
-        "openamundsen_da.util.storage_admission.estimate_project_storage_components",
+        "openamundsen_da.util.storage_budget.estimate_project_storage_components",
         lambda **_kwargs: ProjectStorageEstimate(
             forcing_bytes=1,
             member_grid_bytes=1,
@@ -1238,11 +1245,6 @@ def test_new_lifecycle_phase_pauses_at_soft_limit_but_admitted_step_can_drain(
     with pytest.raises(LowDiskPauseError, match="80%"):
         client.transition("parent_render", request_id="soft-render")
 
-    admitted = client.admit_step(
-        "step_00",
-        request_id="draining-step",
-        allow_existing_step_drain=True,
-    )
     assert admitted.used_fraction == pytest.approx(0.81)
 
 
@@ -1478,25 +1480,17 @@ def test_close_waits_for_inflight_reconciliation_without_late_mutation(
         _plan(tmp_path, steps=("step_00",)),
         disk_usage=lambda _path: _usage(),
     )
-    estimator_started = threading.Event()
-
-    def delayed_estimate(**_kwargs):
-        estimator_started.set()
-        time.sleep(1.1)
-        return ProjectStorageEstimate(
-            forcing_bytes=1,
-            member_grid_bytes=1,
-            point_bytes=1,
-            restart_baseline_bytes=1,
-            restart_transition_bytes=1,
-            compact_timeseries_bytes=1,
-            compact_grid_bytes=1,
-        )
-
-    monkeypatch.setattr(
-        "openamundsen_da.util.storage_admission.estimate_project_storage_components",
-        delayed_estimate,
+    StorageAdmissionClient.in_process(coordinator, leaf_id="leaf").admit_step(
+        "step_00", request_id="close-admit"
     )
+    disk_check_started = threading.Event()
+
+    def delayed_usage(_path):
+        disk_check_started.set()
+        time.sleep(1.1)
+        return _usage()
+
+    coordinator._disk_usage = delayed_usage
     server = StorageAdmissionServer(coordinator)
     errors: list[BaseException] = []
 
@@ -1510,7 +1504,7 @@ def test_close_waits_for_inflight_reconciliation_without_late_mutation(
 
     client_thread = threading.Thread(target=reconcile)
     client_thread.start()
-    assert estimator_started.wait(timeout=1)
+    assert disk_check_started.wait(timeout=1)
     server.close()
     client_thread.join(timeout=1)
 
@@ -1534,23 +1528,15 @@ def test_heartbeat_keeps_long_reconciliation_alive_beyond_base_deadline(
         _plan(tmp_path, steps=("step_00",)),
         disk_usage=lambda _path: _usage(),
     )
-
-    def delayed_estimate(**_kwargs):
-        time.sleep(0.9)
-        return ProjectStorageEstimate(
-            forcing_bytes=1,
-            member_grid_bytes=1,
-            point_bytes=1,
-            restart_baseline_bytes=1,
-            restart_transition_bytes=1,
-            compact_timeseries_bytes=1,
-            compact_grid_bytes=1,
-        )
-
-    monkeypatch.setattr(
-        "openamundsen_da.util.storage_admission.estimate_project_storage_components",
-        delayed_estimate,
+    StorageAdmissionClient.in_process(coordinator, leaf_id="leaf").admit_step(
+        "step_00", request_id="heartbeat-admit"
     )
+
+    def delayed_usage(_path):
+        time.sleep(0.9)
+        return _usage()
+
+    coordinator._disk_usage = delayed_usage
     with StorageAdmissionServer(coordinator) as server:
         snapshot = server.client(leaf_id="leaf").reconcile_finalization(
             request_id="long-reconcile"
@@ -1602,18 +1588,18 @@ def test_server_context_exit_waits_after_body_exception(
         _plan(tmp_path, steps=("step_00",)),
         disk_usage=lambda _path: _usage(),
     )
-    estimator_started = threading.Event()
-    release_estimator = threading.Event()
-
-    def blocked_estimate(**_kwargs):
-        estimator_started.set()
-        assert release_estimator.wait(timeout=2)
-        raise RuntimeError("estimator failed")
-
-    monkeypatch.setattr(
-        "openamundsen_da.util.storage_admission.estimate_project_storage_components",
-        blocked_estimate,
+    StorageAdmissionClient.in_process(coordinator, leaf_id="leaf").admit_step(
+        "step_00", request_id="failed-admit"
     )
+    disk_check_started = threading.Event()
+    release_disk_check = threading.Event()
+
+    def blocked_usage(_path):
+        disk_check_started.set()
+        assert release_disk_check.wait(timeout=2)
+        raise RuntimeError("disk check failed")
+
+    coordinator._disk_usage = blocked_usage
     server = StorageAdmissionServer(coordinator)
     client_errors: list[BaseException] = []
 
@@ -1629,8 +1615,8 @@ def test_server_context_exit_waits_after_body_exception(
     try:
         with server:
             client_thread.start()
-            assert estimator_started.wait(timeout=1)
-            release_estimator.set()
+            assert disk_check_started.wait(timeout=1)
+            release_disk_check.set()
             raise ValueError("body failed")
     except ValueError as exc:
         assert str(exc) == "body failed"
@@ -1639,7 +1625,7 @@ def test_server_context_exit_waits_after_body_exception(
     assert not server._thread.is_alive()
     assert not client_thread.is_alive()
     assert len(client_errors) == 1
-    assert "estimator failed" in str(client_errors[0])
+    assert "disk check failed" in str(client_errors[0])
 
 
 def test_stale_file_response_is_ignored(tmp_path: Path) -> None:
@@ -1835,7 +1821,7 @@ def test_finalization_reconciliation_never_lowers_aggregate_obligation(
         coordinator.snapshot()["leaves"]["leaf"]["remaining_by_component"]
     )
     monkeypatch.setattr(
-        "openamundsen_da.util.storage_admission.estimate_project_storage_components",
+        "openamundsen_da.util.storage_budget.estimate_project_storage_components",
         lambda **_kwargs: ProjectStorageEstimate(
             forcing_bytes=1,
             member_grid_bytes=1,
@@ -1850,6 +1836,7 @@ def test_finalization_reconciliation_never_lowers_aggregate_obligation(
     client.reconcile_finalization(request_id="final-reconcile")
 
     assert coordinator.snapshot()["leaves"]["leaf"]["remaining_by_component"] == before
+    assert coordinator.snapshot()["full_estimate_count"] == 1
 
 
 def test_reconciliation_and_finalizing_transition_have_distinct_idempotence_slots(
@@ -1876,14 +1863,14 @@ def test_reconciliation_and_finalizing_transition_have_distinct_idempotence_slot
         )
 
     monkeypatch.setattr(
-        "openamundsen_da.util.storage_admission.estimate_project_storage_components",
+        "openamundsen_da.util.storage_budget.estimate_project_storage_components",
         estimate,
     )
 
     first = client.reconcile_finalization(request_id="reconcile-sequence")
     duplicate = client.reconcile_finalization(request_id="reconcile-sequence")
     assert duplicate.estimated_growth_bytes == first.estimated_growth_bytes
-    assert estimate_calls == 1
+    assert estimate_calls == 0
     with pytest.raises(ValueError, match="lifecycle slot.*different request"):
         client.reconcile_finalization(request_id="conflicting-reconcile")
 
@@ -1911,7 +1898,7 @@ def test_legacy_reconciliation_slot_migrates_after_request_audit_eviction(
     client = StorageAdmissionClient.in_process(coordinator, leaf_id="leaf")
     client.admit_step("step_00", request_id="legacy-admit")
     monkeypatch.setattr(
-        "openamundsen_da.util.storage_admission.estimate_project_storage_components",
+        "openamundsen_da.util.storage_budget.estimate_project_storage_components",
         lambda **_kwargs: ProjectStorageEstimate(1, 1, 1, 1, 1, 1, 1),
     )
     client.reconcile_finalization(request_id="legacy-reconcile")
@@ -1933,7 +1920,7 @@ def test_legacy_reconciliation_slot_migrates_after_request_audit_eviction(
         raise AssertionError("migrated reconcile retry must not estimate again")
 
     monkeypatch.setattr(
-        "openamundsen_da.util.storage_admission.estimate_project_storage_components",
+        "openamundsen_da.util.storage_budget.estimate_project_storage_components",
         unexpected_estimate,
     )
     resumed = StorageAdmissionCoordinator(plan, disk_usage=lambda _path: _usage())

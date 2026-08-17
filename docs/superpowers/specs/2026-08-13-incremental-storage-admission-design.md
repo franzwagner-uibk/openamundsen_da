@@ -4,6 +4,12 @@ published: false
 
 # Durable Incremental Storage Admission Design
 
+> Updated by the approved
+> `2026-08-17-fast-storage-admission-compact-cleanup-design.md`: full estimator
+> rebuilds are now limited to initial preflight and authority recovery. Normal
+> phase changes consume the immutable catalog/ledger plan and producer
+> accounting.
+
 ## Goal
 
 Preserve openAMUNDSEN-DA's conservative storage guarantees without repeatedly

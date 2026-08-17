@@ -74,8 +74,11 @@ therefore retains its restartable predecessor state.
 
 Storage estimation is separated from the step-boundary hot path. The
 coordinator builds the conservative component plan before workers start and
-again only at a lifecycle transition such as a new leaf wave, finalization,
-parent merge, render or resume reconciliation. Member propagation and forcing
+again only when missing, stale or inconsistent recovery authority requires a
+rebuild. One command-scoped source catalog hashes and parses each physical
+source inode once, even when many leaf/step paths alias it. New leaf waves,
+finalization, parent merge and render reuse the immutable ledger obligations
+and upward-only producer accounting. Member propagation and forcing
 producers attach byte/count summaries to their existing manifests. At the next
 ordinary step boundary the coordinator applies those summaries, raises
 observed component high-water marks when necessary and calls `disk_usage`
@@ -91,9 +94,22 @@ The estimator currently proves aggregate component bounds, not heterogeneous
 per-step shares. For safety, propagation summaries never release that aggregate:
 it remains reserved until authoritative leaf finalization and may temporarily
 double-count bytes already visible in filesystem usage. This can conservatively
-refuse a run that would fit. A serialized full estimate immediately before
-compact finalization and before each later leaf wave can only raise the durable
-obligations; validated finalization is the only operation that releases them.
+refuse a run that would fit. Observed producer high-water marks can only raise
+the immutable obligations, and validated finalization is the only operation
+that releases them. A full estimate is rebuilt only for recovery from missing,
+stale or inconsistent authority.
+
+The performance monitor performs one project-size baseline reconciliation when
+it starts, then derives live growth from the reservation ledger's materialized
+and removed byte counters. It does not recursively scan the growing project at
+periodic samples. The terminal snapshot performs one final physical
+reconciliation. PNG rendering is downsampled to a bounded history, refreshes
+less often as the run grows and breaks lines across monitor gaps. The companion
+`project_perf_phases.csv` and `project_perf_phases.png` distinguish preflight,
+propagation, finalization and unmonitored downtime. Temperature text reports
+the p50, p95 and maximum plus accumulated time above the configured reporting
+levels; these observations are not evidence of hardware throttling by
+themselves.
 
 The first-run reserve for step-local forcing PNGs is calibrated at 4,400 bytes
 per station, member and plotted day, then increased by the standard 25% observed

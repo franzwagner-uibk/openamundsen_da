@@ -16,14 +16,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resumable low-disk status and a versioned cleanup ledger for restart-safe
   compact retention.
 - Add a retained `results/storage/storage_reservation.json` audit ledger and a
-  coordinator-owned incremental admission path. Full estimation now occurs at
-  preflight and lifecycle transitions, while ordinary step boundaries consume
-  producer byte summaries and perform one filesystem usage check.
+  coordinator-owned incremental admission path. One inode-deduplicated source
+  catalog supplies scientific identity and all forcing-window estimates during
+  preflight. Later waves and finalization reuse immutable ledger obligations;
+  ordinary step boundaries consume producer byte summaries and perform one
+  filesystem usage check without source or project-tree scans.
 - Add compressed all-member point and consumed-forcing NetCDFs plus retained
   satellite-event map support for compact projects, with mean-collapsed step
   overlaps, retained-value validation and leaf summaries kept for rerendering.
 
 ### Changed
+- Derive live project-size telemetry from storage-ledger materialized/removed
+  byte counters after one baseline scan, downsample growing PNG histories,
+  break curves across monitor gaps and retain a companion workflow-phase
+  timeline plus CPU-temperature percentile/exceedance summaries.
 - Interpolate exactly two symmetric station HS or SWE observations at their
   model-time midpoint when both lie inside the half-timestep window and are no
   more than 24 hours apart, while retaining strict matching for other ties and

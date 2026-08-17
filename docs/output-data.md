@@ -163,7 +163,8 @@ Every executing project also retains
 `results/storage/storage_reservation.json`. This operational audit artifact
 records the immutable conservative plan, lifecycle phase, per-leaf admission
 progress, upward-only observed byte high-water marks, latest filesystem
-snapshot and estimate/check timing. It does not replace scientific provenance
+snapshot, source-catalog read counters, materialized/removed byte counters and
+estimate/check timing. It does not replace scientific provenance
 or the retention ledger. Normal step boundaries update this compact record
 from producer summaries and call the filesystem usage check once; they do not
 rescan configs, source data, accumulated artifacts or sibling project trees.
@@ -177,6 +178,13 @@ generation; abrupt process death retains pending transport evidence for retry.
 These are operational coordination files, not scientific output. Lifecycle
 request IDs remain deterministic while fresh transport nonces prevent orphaned
 responses from satisfying a new filesystem check.
+
+Performance monitoring uses the ledger counters after one baseline directory
+reconciliation, so the five-second CPU/RAM/temperature sampler never walks the
+growing project tree. `project_perf_phases.csv` and
+`project_perf_phases.png` retain the storage-ledger phase sequence and mark a
+restart gap as `unmonitored_downtime`. The terminal performance snapshot is the
+next allowed full project-size reconciliation.
 
 The current compact lifecycle is deliberately boundary-based. It shortens every
 generated forcing copy to its consuming step and incrementally removes obsolete

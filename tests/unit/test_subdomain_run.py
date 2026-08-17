@@ -677,6 +677,11 @@ def test_run_subdomains_refuses_coordinated_growth_before_workers(tmp_path, monk
     )
     monkeypatch.setattr(
         run_mod,
+        "_parent_finalization_reserve",
+        lambda *_args, **_kwargs: 100,
+    )
+    monkeypatch.setattr(
+        run_mod,
         "build_storage_plan",
         lambda *_args, **_kwargs: SimpleNamespace(estimated_growth_bytes=600),
     )

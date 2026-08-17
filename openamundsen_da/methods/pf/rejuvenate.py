@@ -15,7 +15,7 @@ Behavior
   - Read station CSVs from that source meteo directory, filter to the next
     step time window, apply perturbations, and write into the next step prior
     member meteo directory
-  - Copy stations.csv unchanged
+  - Keep only station metadata and forcing with rows in the next-step window
   - Copy the state pointer file (STATE_POINTER_JSON) from the posterior
     member's results into the next step prior member results directory
 - Writes a compact manifest JSON under next_step/assim.
@@ -45,7 +45,6 @@ from openamundsen_da.core.constants import (
     DA_MU_P,
     DA_SIGMA_RH,
     DA_SIGMA_SW,
-    DEFAULT_TIME_COL,
     MEMBER_PREFIX,
     STATE_POINTER_JSON,
     STATE_DEFAULT_NAME,
@@ -161,14 +160,6 @@ def _strip_timezone(ts: pd.Timestamp) -> pd.Timestamp:
         return ts
 
 
-def _normalize_datetime_index(idx: pd.Index) -> pd.DatetimeIndex:
-    """Return a tz-naive DatetimeIndex (converted from UTC if originally tz-aware)."""
-    dt_idx = pd.to_datetime(idx, errors="coerce")
-    if getattr(dt_idx, "tz", None) is not None:
-        dt_idx = dt_idx.tz_convert("UTC").tz_localize(None)
-    return dt_idx
-
-
 def _read_next_step_dates(next_step_dir: Path) -> tuple[pd.Timestamp, pd.Timestamp]:
     step_yaml = find_step_yaml(next_step_dir)
     step_cfg = _read_yaml_file(step_yaml) or {}
@@ -183,21 +174,6 @@ def _read_next_step_dates(next_step_dir: Path) -> tuple[pd.Timestamp, pd.Timesta
     if pd.isna(start) or pd.isna(end) or end < start:
         raise ValueError(f"Invalid step window in {step_yaml}: {start} .. {end}")
     return start, end
-
-
-def _inclusive_filter(df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-    start = _strip_timezone(start)
-    end = _strip_timezone(end)
-    dt_idx = _normalize_datetime_index(df.index)
-    mask = (dt_idx >= start) & (dt_idx <= end)
-    out = df.loc[mask].copy()
-    out.index = dt_idx[mask]
-    return out
-
-
-def _write_csv(df: pd.DataFrame, dst: Path) -> None:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(dst, index=False)
 
 
 def _source_member_dir(posterior_member: Path) -> Path:
@@ -656,20 +632,12 @@ def _copy_open_loop_to_next(
     met_next = meteo_dir_for_member(next_ol)
     met_next.mkdir(parents=True, exist_ok=True)
 
-    stations_csv = met_prev / "stations.csv"
-    if stations_csv.exists():
-        (met_next / "stations.csv").write_bytes(stations_csv.read_bytes())
-
-    for src in sorted(met_prev.glob("*.csv")):
-        if src.name.lower() == "stations.csv":
-            continue
-        df = pd.read_csv(src, parse_dates=True, index_col=0)
-        time_col = df.index.name or DEFAULT_TIME_COL
-        df = _inclusive_filter(df, start, end)
-        df.index = _normalize_datetime_index(df.index)
-        idx_col_name = df.index.name or "index"
-        df_out = df.reset_index().rename(columns={idx_col_name: time_col})
-        _write_csv(df_out, met_next / src.name)
+    filter_and_write_meteo(
+        src_dir=met_prev,
+        dst_dir=met_next,
+        start=start,
+        end=end,
+    )
 
     # Copy a pointer to the previous step's open_loop state file
     res_prev = default_results_dir(prev_ol)

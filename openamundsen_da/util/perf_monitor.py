@@ -33,6 +33,7 @@ from loguru import logger
 from openamundsen_da.io.paths import project_plot_perf_dir
 from openamundsen_da.methods.viz.common import force_figure_text_black, save_figure_png
 from openamundsen_da.methods.viz.theme import FIGWIDTH_OVERVIEW_PAPER
+from openamundsen_da.util.figure_lifecycle import close_created_figures
 
 try:
     import psutil  # type: ignore[import]
@@ -436,6 +437,7 @@ def record_perf_phase(project_dir: Path, phase: str) -> None:
     )
 
 
+@close_created_figures
 def _render_phase_timeline(
     out_path: Path,
     events: list[tuple[datetime, str]],
@@ -824,6 +826,7 @@ def capture_perf_snapshot(cfg: PerfMonitorConfig, out_dir: Path | None = None) -
         return False
 
 
+@close_created_figures
 def _render_plot(
     out_path: Path,
     timestamps: List[datetime],

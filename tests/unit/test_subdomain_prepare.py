@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
+from rasterio.transform import from_origin
 import yaml
 from shapely.geometry import box
 
 from openamundsen_da.subdomain.prepare import (
     _copy_project_support_inputs,
+    _link_country_assets,
     _prepare_obs_station_subset,
     _write_subdomain_setup_yaml,
 )
@@ -300,7 +303,8 @@ def test_write_subdomain_setup_yaml_filters_configured_points(tmp_path: Path) ->
         domain="full_sd",
         grids_dir=tmp_path / "sd" / "grids",
         meteo_dir=tmp_path / "sd" / "meteo",
-        roi_geom=box(0, 0, 1, 1),
+        roi_mask=np.asarray([[True, False], [False, False]]),
+        roi_transform=from_origin(0, 1, 1, 1),
     )
 
     text = out_yaml.read_text(encoding="utf-8")
@@ -315,3 +319,73 @@ def test_write_subdomain_setup_yaml_filters_configured_points(tmp_path: Path) ->
     kept_names = [point["name"] for point in cfg["output_data"]["timeseries"]["points"]]
     assert "6988000" in kept_names
     assert "01890168" in kept_names
+
+
+def test_output_point_ownership_uses_final_raster_mask(tmp_path: Path) -> None:
+    source_cfg = {
+        "domain": "full",
+        "input_data": {"grids": {}, "meteo": {}},
+        "output_data": {
+            "timeseries": {
+                "points": [
+                    {"name": "Breiter Grieskogel", "x": 1.5, "y": 1.5},
+                    {"name": "other", "x": 0.5, "y": 1.5},
+                ]
+            }
+        },
+    }
+    transform = from_origin(0, 2, 1, 1)
+    owner_02 = np.asarray([[False, True], [False, False]])
+    owner_03 = np.asarray([[True, False], [False, False]])
+
+    yaml_02 = _write_subdomain_setup_yaml(
+        source_cfg=source_cfg,
+        sub_setup_dir=tmp_path / "AT-07-14-02",
+        domain="full_02",
+        grids_dir=tmp_path / "AT-07-14-02" / "grids",
+        meteo_dir=tmp_path / "AT-07-14-02" / "meteo",
+        roi_mask=owner_02,
+        roi_transform=transform,
+    )
+    yaml_03 = _write_subdomain_setup_yaml(
+        source_cfg=source_cfg,
+        sub_setup_dir=tmp_path / "AT-07-14-03",
+        domain="full_03",
+        grids_dir=tmp_path / "AT-07-14-03" / "grids",
+        meteo_dir=tmp_path / "AT-07-14-03" / "meteo",
+        roi_mask=owner_03,
+        roi_transform=transform,
+    )
+
+    names_02 = [
+        point["name"]
+        for point in yaml.safe_load(yaml_02.read_text())["output_data"]["timeseries"]["points"]
+    ]
+    names_03 = [
+        point["name"]
+        for point in yaml.safe_load(yaml_03.read_text())["output_data"]["timeseries"]["points"]
+    ]
+    assert "Breiter Grieskogel" in names_02
+    assert "Breiter Grieskogel" not in names_03
+
+
+def test_link_country_assets_exposes_staged_parent_files_offline(tmp_path: Path) -> None:
+    source_setup = tmp_path / "setup"
+    leaf_env = tmp_path / "leaf" / "env"
+    source_env = source_setup / "env"
+    source_env.mkdir(parents=True)
+    for filename in (
+        "CNTR_BN_01M_2020_3857.geojson",
+        "CNTR_RG_01M_2020_3857.geojson",
+        "CNTR_LB_2020_3857.geojson",
+    ):
+        (source_env / filename).write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+
+    linked = _link_country_assets(
+        source_setup_dir=source_setup,
+        leaf_env_dir=leaf_env,
+    )
+
+    assert len(linked) == 3
+    assert all(path.is_file() for path in linked)
+    assert all(path.read_bytes() == (source_env / path.name).read_bytes() for path in linked)

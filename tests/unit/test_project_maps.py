@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import textwrap
 from types import SimpleNamespace
+import warnings
 
 import geopandas as gpd
 import matplotlib
@@ -95,6 +96,51 @@ from openamundsen_da.util.run_mode import write_run_mode
 
 
 PROJECT_MAPS_FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "project_maps" / "rofental"
+
+
+def test_compact_map_support_uses_only_authored_event_variables(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    event_date = pd.Timestamp("2023-02-01")
+    monkeypatch.setattr(
+        panel_renderers_module,
+        "load_assimilation_events",
+        lambda _project: [SimpleNamespace(date=event_date.date(), variable="scf")],
+    )
+    monkeypatch.setattr(
+        panel_renderers_module,
+        "load_static_context",
+        lambda _project: SimpleNamespace(roi_mask=np.ones((2, 2), dtype=bool)),
+    )
+    monkeypatch.setattr(
+        panel_renderers_module,
+        "_summary_dates_for_support",
+        lambda *_args: {event_date},
+    )
+    monkeypatch.setattr(
+        panel_renderers_module,
+        "_single_domain_scf_model_probability_array",
+        lambda **_kwargs: np.ones((2, 2), dtype=float),
+    )
+    monkeypatch.setattr(
+        panel_renderers_module,
+        "_wet_snow_model_classified_array",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("wet-snow support must not be built for an SCF-only schedule")
+        ),
+    )
+
+    built = panel_renderers_module.project_da_map_support_fields(project)
+
+    assert built is not None
+    _dates, fields, _roi = built
+    assert set(fields) == {
+        "scf_open_loop_binary",
+        "scf_prior_probability",
+        "scf_posterior_probability",
+    }
 
 
 def _assert_upright_station_marker(collection) -> None:
@@ -2595,13 +2641,17 @@ def test_load_observation_scene_reads_eurac_netcdf_uncertainty_variable(tmp_path
     _write_eurac_observation_netcdf(setup_dir / "obs" / "snowcover" / "SnowFLAKES_20230103_v3_eurac.nc")
     context = load_static_context(project_dir)
 
-    scene = load_observation_scene(project_dir, context, observation="scf", date=pd.Timestamp("2023-01-03"))
-    unc_scene = load_observation_uncertainty_scene(
-        project_dir,
-        context,
-        observation="scf",
-        date=pd.Timestamp("2023-01-03"),
-    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        scene = load_observation_scene(project_dir, context, observation="scf", date=pd.Timestamp("2023-01-03"))
+        unc_scene = load_observation_uncertainty_scene(
+            project_dir,
+            context,
+            observation="scf",
+            date=pd.Timestamp("2023-01-03"),
+        )
+
+    assert not any(isinstance(item.message, rasterio.errors.NotGeoreferencedWarning) for item in caught)
 
     assert scene.coverage_fraction == pytest.approx(14.0 / 16.0)
     assert np.isfinite(scene.array).sum() == 14
@@ -2612,6 +2662,29 @@ def test_load_observation_scene_reads_eurac_netcdf_uncertainty_variable(tmp_path
     assert unc_scene.array[0, 0] == 25.0
     assert np.isnan(unc_scene.array[1, 1])
     assert np.isnan(unc_scene.array[2, 2])
+
+
+def test_eurac_netcdf_contract_rejects_irregular_transform(tmp_path: Path) -> None:
+    setup_dir, project_dir = _build_project_fixture(tmp_path)
+    source = setup_dir / "obs" / "snowcover" / "irregular.nc"
+    _write_eurac_observation_netcdf(source)
+    with xr.open_dataset(source) as opened:
+        dataset = opened.load()
+    dataset = dataset.assign_coords(x=np.asarray([50.0, 150.0, 275.0, 350.0]))
+    dataset.to_netcdf(source, mode="w")
+    _write_summary(
+        setup_dir / "obs" / "summaries" / project_dir.name / "scf_summary.csv",
+        [{"date": "2023-01-03", "source": "irregular.nc@2023-01-03T00:00:00Z"}],
+    )
+    context = load_static_context(project_dir)
+
+    with pytest.raises(ValueError, match="spacing is not regular"):
+        load_observation_scene(
+            project_dir,
+            context,
+            observation="scf",
+            date=pd.Timestamp("2023-01-03"),
+        )
 
 
 def test_load_observation_uncertainty_scene_requires_sidecars(tmp_path: Path) -> None:

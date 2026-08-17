@@ -115,7 +115,16 @@ class AssimilateUncertaintyTests(unittest.TestCase):
             def __exit__(self, *_exc):
                 return False
 
-        with patch("openamundsen_da.methods.pf.fraction_support.rasterio.open", return_value=_Container()):
+        with (
+            patch(
+                "openamundsen_da.methods.pf.fraction_support._validate_netcdf_raster_contract",
+                return_value={"uncertainty", "fsc"},
+            ),
+            patch(
+                "openamundsen_da.methods.pf.fraction_support.rasterio.open",
+                return_value=_Container(),
+            ),
+        ):
             ref = _source_dataset_ref(
                 Path("/tmp/scene.nc"),
                 token="scene.nc@2024-04-01T00:00:00Z",

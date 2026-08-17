@@ -31,6 +31,21 @@ def test_point_csv_rejects_unknown_text_but_accepts_missing_tokens(tmp_path: Pat
     assert frame["swe"].isna().all()
 
 
+def test_point_csv_excludes_nonnumeric_wet_snow_gate_diagnostics(tmp_path: Path) -> None:
+    path = tmp_path / "point.csv"
+    path.write_text(
+        "date,wet_snow_line,wet_snow_line_gate_reason,"
+        "wet_snow_line_gate_reason_full_roi\n"
+        "2023-01-01,2450,no_crossing_fraction,no_qualifying_band\n",
+        encoding="utf-8",
+    )
+
+    _times, frame = _read_point_csv(path)
+
+    assert frame.columns.tolist() == ["wet_snow_line"]
+    assert frame.iloc[0, 0] == 2450
+
+
 def test_point_csv_accepts_mixed_iso_date_and_datetime_rows(tmp_path: Path) -> None:
     path = tmp_path / "point.csv"
     path.write_text(

@@ -37,6 +37,10 @@ _KNOWN_UNITS = {
     "temp": "K",
     "precip": "kg m-2",
 }
+_NONNUMERIC_DIAGNOSTIC_COLUMNS = {
+    "wet_snow_line_gate_reason",
+    "wet_snow_line_gate_reason_full_roi",
+}
 
 
 def _read_point_csv_with_timezone(
@@ -66,6 +70,13 @@ def _read_point_csv_with_timezone(
             for value in parsed_times
         ]
     times = pd.DatetimeIndex(parsed_times, name=time_col)
+    frame = frame.drop(
+        columns=[
+            name
+            for name in _NONNUMERIC_DIAGNOSTIC_COLUMNS
+            if name in frame.columns
+        ]
+    )
     try:
         numeric = frame.apply(pd.to_numeric, errors="raise")
     except (TypeError, ValueError) as exc:

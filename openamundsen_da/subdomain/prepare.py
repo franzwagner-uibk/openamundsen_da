@@ -17,7 +17,6 @@ import rasterio
 from loguru import logger
 from rasterio.enums import Resampling
 from rasterio import features, windows
-from shapely.geometry import Point
 from shapely.geometry import Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
@@ -38,6 +37,13 @@ from openamundsen_da.util.station_da import (
     STATION_SNOW_DEPTH_METADATA_FILENAME,
     is_station_metadata_file,
     normalize_station_id_series,
+)
+
+
+_GISCO_COUNTRY_ASSETS = (
+    "CNTR_BN_01M_2020_3857.geojson",
+    "CNTR_RG_01M_2020_3857.geojson",
+    "CNTR_LB_2020_3857.geojson",
 )
 
 
@@ -283,7 +289,8 @@ def _write_subdomain_setup_yaml(
     domain: str,
     grids_dir: Path,
     meteo_dir: Path,
-    roi_geom: BaseGeometry | None = None,
+    roi_mask: np.ndarray | None = None,
+    roi_transform: rasterio.Affine | None = None,
 ) -> Path:
     sub_setup_dir.mkdir(parents=True, exist_ok=True)
     cfg = copy.deepcopy(source_cfg)
@@ -295,7 +302,11 @@ def _write_subdomain_setup_yaml(
     # Sub-domains may rely on nearby stations outside the clipped grid extent.
     # Use global station bounds to avoid dropping all stations in small tiles.
     cfg["input_data"]["meteo"]["bounds"] = "global"
-    _filter_output_timeseries_points(cfg, roi_geom=roi_geom)
+    _filter_output_timeseries_points(
+        cfg,
+        roi_mask=roi_mask,
+        roi_transform=roi_transform,
+    )
     cfg["results_dir"] = str((sub_setup_dir / "results").resolve())
     out_yaml = sub_setup_dir / f"{sub_setup_dir.name}.yml"
     out_yaml.write_text(_to_yaml_text(cfg), encoding="utf-8")
@@ -329,10 +340,18 @@ def _normalize_output_point_cfg(point_cfg: object) -> object:
     return point_cfg
 
 
-def _filter_output_timeseries_points(cfg: dict, *, roi_geom: BaseGeometry | None) -> None:
-    """Keep configured point outputs that fall inside the sub-domain ROI."""
-    if roi_geom is None or roi_geom.is_empty:
+def _filter_output_timeseries_points(
+    cfg: dict,
+    *,
+    roi_mask: np.ndarray | None,
+    roi_transform: rasterio.Affine | None,
+) -> None:
+    """Keep configured points owned by this leaf's final ROI raster."""
+    if roi_mask is None or roi_transform is None:
         return
+    roi_mask = np.asarray(roi_mask, dtype=bool)
+    if roi_mask.ndim != 2:
+        raise ValueError(f"Output-point ROI ownership mask must be 2-D, got {roi_mask.shape}")
     timeseries_cfg = ((cfg.get("output_data") or {}).get("timeseries") or {})
     points = timeseries_cfg.get("points")
     if not isinstance(points, list):
@@ -345,7 +364,13 @@ def _filter_output_timeseries_points(cfg: dict, *, roi_geom: BaseGeometry | None
         if xy is None:
             kept.append(_normalize_output_point_cfg(point_cfg))
             continue
-        if roi_geom.covers(Point(xy)):
+        row, col = rasterio.transform.rowcol(roi_transform, *xy)
+        owned = (
+            0 <= int(row) < roi_mask.shape[0]
+            and 0 <= int(col) < roi_mask.shape[1]
+            and bool(roi_mask[int(row), int(col)])
+        )
+        if owned:
             kept.append(_normalize_output_point_cfg(point_cfg))
         else:
             dropped += 1
@@ -353,6 +378,19 @@ def _filter_output_timeseries_points(cfg: dict, *, roi_geom: BaseGeometry | None
     timeseries_cfg["points"] = kept
     if dropped:
         logger.debug("Dropped {} configured point output(s) outside sub-domain ROI", dropped)
+
+
+def _link_country_assets(*, source_setup_dir: Path, leaf_env_dir: Path) -> list[Path]:
+    """Expose staged parent GISCO assets to one network-isolated leaf."""
+    linked: list[Path] = []
+    for filename in _GISCO_COUNTRY_ASSETS:
+        source = source_setup_dir / "env" / filename
+        if not source.is_file() or source.is_symlink():
+            continue
+        target = leaf_env_dir / filename
+        _copy_or_link(source, target)
+        linked.append(target)
+    return linked
 
 
 def _copy_project_dir(source_project_dir: Path, target_project_dir: Path) -> Path:
@@ -973,6 +1011,7 @@ def prepare_subdomains(
         )
         for d in setup_dirs:
             d.mkdir(parents=True, exist_ok=True)
+        _link_country_assets(source_setup_dir=setup_dir, leaf_env_dir=env_out)
 
         sub_domain = f"{domain}_{clean_id}"
         if clip_mode == "roi-symlink":
@@ -1033,7 +1072,8 @@ def prepare_subdomains(
             domain=sub_domain,
             grids_dir=grids_out,
             meteo_dir=meteo_out,
-            roi_geom=geom_roi,
+            roi_mask=roi_mask,
+            roi_transform=(transform if clip_mode == "roi-symlink" else sub_transform),
         )
         sub_project_yaml = sub_setup_yaml if model_mode else _copy_project_dir(project_dir, project_out)
         if not model_mode:

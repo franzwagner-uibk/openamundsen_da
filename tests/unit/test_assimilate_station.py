@@ -348,15 +348,23 @@ class AssimilateStationTests(unittest.TestCase):
                     [{"time": "2024-02-01 00:00:00", "snow_depth": 1.05, "swe": 28.0}],
                 )
 
-            result = assimilate_station_hs_for_date(
-                setup_dir=setup_dir,
-                step_dir=step_dir,
-                ensemble="prior",
-                date=datetime(2024, 2, 1),
-            )
+            with patch(
+                "openamundsen_da.methods.pf.assimilate_station.logger.warning"
+            ) as warning:
+                result = assimilate_station_hs_for_date(
+                    setup_dir=setup_dir,
+                    step_dir=step_dir,
+                    ensemble="prior",
+                    date=datetime(2024, 2, 1),
+                )
 
             self.assertEqual(set(result.diagnostics["station_id"]), {"station_a"})
             self.assertTrue(result.diagnostics["single_station_inflated"].all())
+            audit = result.support_audit.set_index("station_id")
+            self.assertEqual(audit.loc["station_a", "status"], "active")
+            self.assertEqual(audit.loc["station_b", "status"], "disabled")
+            self.assertEqual(audit.loc["station_b", "reason"], "use_for_da=false")
+            warning.assert_not_called()
 
     def test_station_hs_sigma_uses_metadata_abs_floor_combination(self):
         with tempfile.TemporaryDirectory() as tmp:

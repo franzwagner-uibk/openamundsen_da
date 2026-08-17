@@ -8,7 +8,10 @@ from openamundsen_da.exceptions import ProjectRenderError
 from openamundsen_da.methods.viz.maps import project_maps_enabled, render_project_maps
 from openamundsen_da.methods.viz.reports import build_project_collection_pdf
 from openamundsen_da.results import RenderResult, WorkflowStatus
-from openamundsen_da.subdomain.manifest import SubdomainManifest
+from openamundsen_da.subdomain.manifest import (
+    SubdomainManifest,
+    require_canonical_manifest_path,
+)
 from openamundsen_da.subdomain.event_support import (
     SubdomainEventSupportError,
     resolve_subdomain_event_plan,
@@ -31,6 +34,7 @@ def render_subdomain_outputs(
     ensure_run_mode(project_dir, expected="subdomain", write_if_missing=False)
     manifest_path = project_dir / "subdomains" / "subdomain_manifest.json"
     manifest = SubdomainManifest.load(manifest_path)
+    require_canonical_manifest_path(manifest, manifest_path)
     if manifest.project_dir.resolve() != project_dir:
         raise ProjectRenderError(
             f"Subdomain manifest project does not match requested project: {manifest.project_dir}"

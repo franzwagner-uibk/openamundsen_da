@@ -6,6 +6,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import xarray as xr
 from pyproj import CRS
 from ruamel.yaml import YAML
@@ -361,6 +362,15 @@ class SnowcoverUncertaintyTests(unittest.TestCase):
             self.assertEqual(float(df["unc_min"]), 10.123)
             self.assertEqual(float(df["unc_max"]), 40.988)
             self.assertEqual(str(df["source"]), "SnowFLAKES_20240401_v3_eurac.nc@2024-04-01T00:00:00Z")
+            audit = pd.read_csv(
+                setup_dir
+                / "obs"
+                / "summaries"
+                / "project_2024_2025"
+                / "scf_source_audit.csv"
+            )
+            self.assertEqual(list(audit["status"]), ["accepted"])
+            self.assertEqual(int(audit["n_valid"].iloc[0]), 2)
 
     def test_out_of_range_uncertainty_raises(self):
         classes = SnowcoverClasses(

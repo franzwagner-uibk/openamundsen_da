@@ -83,7 +83,7 @@ def _single_subdomain_manifest(tmp_path: Path) -> tuple[SubdomainManifest, Path]
         "run_mode: subdomain\nstart_date: 2023-01-01\nend_date: 2023-01-02\n",
         encoding="utf-8",
     )
-    manifest_path = tmp_path / "manifest.json"
+    manifest_path = manifest.subdomain_root / "subdomain_manifest.json"
     manifest.save(manifest_path)
     return manifest, manifest_path
 
@@ -817,3 +817,57 @@ def test_failed_leaf_never_runs_final_cleanup(tmp_path, monkeypatch):
 
     assert result.status == "failed"
     assert "propagation failed" in str(result.error)
+
+
+def test_finalization_recovery_preserves_propagation_timing(tmp_path, monkeypatch):
+    manifest, manifest_path = _single_subdomain_manifest(tmp_path)
+    sub = manifest.subdomains["S1"]
+    finalization = sub.setup_dir / "leaf_finalization_manifest.json"
+    finalization.write_text('{"status":"success"}\n', encoding="utf-8")
+    run_manifest = sub.setup_dir / "run_manifest.json"
+    run_manifest.write_text(
+        json.dumps(
+            {
+                "status": "failed",
+                "started": "2026-08-13 00:00:00",
+                "duration_seconds": 123.0,
+                "phases": {
+                    "propagation": {
+                        "started": "2026-08-13T00:00:00+00:00",
+                        "finished": "2026-08-13T00:02:00+00:00",
+                        "duration_seconds": 120.0,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        run_mod,
+        "_finalize_leaf",
+        lambda *_args, **_kwargs: {
+            "status": "success",
+            "retained_leaf_bytes": 10,
+            "cleanup_freed_bytes": 20,
+            "cleanup_started": "2026-08-13T00:02:00+00:00",
+            "cleanup_finished": "2026-08-13T00:02:30+00:00",
+            "cleanup_duration_seconds": 30.0,
+        },
+    )
+
+    result = run_mod._run_one(
+        "S1",
+        manifest_path,
+        inner_max_workers=1,
+        overwrite=False,
+        retries=0,
+        log_level="INFO",
+        root_log_path=None,
+    )
+
+    recovered = json.loads(run_manifest.read_text(encoding="utf-8"))
+    assert result.status == "success"
+    assert result.duration_seconds == 150.0
+    assert recovered["phases"]["propagation"]["duration_seconds"] == 120.0
+    assert recovered["phases"]["cleanup"]["duration_seconds"] == 30.0
+    assert recovered["recovered_from_finalization"] is True

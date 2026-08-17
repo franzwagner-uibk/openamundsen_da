@@ -8,7 +8,7 @@ import multiprocessing as mp
 import os
 import time
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional
 
@@ -42,7 +42,10 @@ from openamundsen_da.subdomain.leaf_finalization import (
     leaf_finalization_manifest_path as _leaf_finalization_manifest_path,
     measured_retained_leaf_bytes as _measured_retained_leaf_bytes,
 )
-from openamundsen_da.subdomain.manifest import SubdomainManifest
+from openamundsen_da.subdomain.manifest import (
+    SubdomainManifest,
+    require_canonical_manifest_path,
+)
 from openamundsen_da.subdomain.status import save_stage, terminal_status
 from openamundsen_da.util.da_events import load_assimilation_events
 from openamundsen_da.util.da_output import (
@@ -144,6 +147,49 @@ def _validate_project_events_have_obs(project_yaml: Path, *, available_by_var: d
 
 def _write_run_manifest(path: Path, data: dict) -> None:
     write_manifest_atomic(path, data)
+
+
+def _phase_recorder(run_meta: dict, run_manifest_path: Path):
+    """Return callbacks that durably delimit leaf lifecycle phases."""
+    active: dict[str, object] = {"name": None, "started": None}
+
+    def finish_active(now: datetime) -> None:
+        name = active["name"]
+        started = active["started"]
+        if isinstance(name, str) and isinstance(started, datetime):
+            run_meta.setdefault("phases", {})[name].update(
+                {
+                    "finished": now.isoformat(timespec="seconds"),
+                    "duration_seconds": max(0.0, (now - started).total_seconds()),
+                }
+            )
+            active.update(name=None, started=None)
+
+    def record(phase: str) -> None:
+        now = datetime.now(timezone.utc)
+        finish_active(now)
+        run_meta.setdefault("phases", {})[str(phase)] = {
+            "started": now.isoformat(timespec="seconds"),
+        }
+        active.update(name=str(phase), started=now)
+        _write_run_manifest(run_manifest_path, run_meta)
+
+    def finish() -> None:
+        finish_active(datetime.now(timezone.utc))
+        _write_run_manifest(run_manifest_path, run_meta)
+
+    return record, finish
+
+
+def _preserved_run_duration(data: dict) -> float:
+    """Return measured lifecycle duration without inventing zero work."""
+    phases = data.get("phases") or {}
+    phase_total = sum(
+        float(value.get("duration_seconds", 0.0) or 0.0)
+        for value in phases.values()
+        if isinstance(value, dict)
+    )
+    return max(float(data.get("duration_seconds", 0.0) or 0.0), phase_total)
 
 
 def _dropped_events_csv(sub_setup_dir: Path) -> Path:
@@ -363,6 +409,15 @@ def _run_one(
     finalization_path = _leaf_finalization_manifest_path(sub.setup_dir)
 
     if finalization_path.is_file() and not overwrite:
+        if run_manifest_path.is_file():
+            try:
+                previous = json.loads(run_manifest_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise RuntimeError(
+                    f"Cannot recover leaf timing from run manifest: {run_manifest_path}"
+                ) from exc
+        else:
+            previous = {}
         finalized = _finalize_leaf(
             sub,
             resume=True,
@@ -380,6 +435,7 @@ def _run_one(
                     request_id=f"{sub.id}:leaf_finalized",
                 )
             recovered = {
+                **previous,
                 "id": sub.id,
                 "setup_dir": str(sub.setup_dir),
                 "project_dir": str(sub.project_dir),
@@ -396,12 +452,22 @@ def _run_one(
                 ),
                 "leaf_finalization_manifest": str(finalization_path),
                 "retained_leaf_bytes": int(finalized.get("retained_leaf_bytes", 0)),
+                "cleanup_freed_bytes": int(finalized.get("cleanup_freed_bytes", 0)),
             }
+            if finalized.get("cleanup_started"):
+                recovered.setdefault("phases", {})["cleanup"] = {
+                    "started": finalized.get("cleanup_started"),
+                    "finished": finalized.get("cleanup_finished"),
+                    "duration_seconds": float(
+                        finalized.get("cleanup_duration_seconds", 0.0) or 0.0
+                    ),
+                }
+            recovered["duration_seconds"] = _preserved_run_duration(recovered)
             _write_run_manifest(run_manifest_path, recovered)
             return SubdomainRunResult(
                 subdomain_id=sub.id,
-                status="skipped",
-                duration_seconds=0.0,
+                status="success",
+                duration_seconds=float(recovered["duration_seconds"]),
                 setup_dir=sub.setup_dir,
                 log_path=log_path,
                 run_manifest=run_manifest_path,
@@ -441,13 +507,23 @@ def _run_one(
                     request_id=f"{sub.id}:leaf_finalized",
                 )
             data["retained_leaf_bytes"] = int(finalized.get("retained_leaf_bytes", 0))
+            data["cleanup_freed_bytes"] = int(finalized.get("cleanup_freed_bytes", 0))
+            if finalized.get("cleanup_started"):
+                data.setdefault("phases", {})["cleanup"] = {
+                    "started": finalized.get("cleanup_started"),
+                    "finished": finalized.get("cleanup_finished"),
+                    "duration_seconds": float(
+                        finalized.get("cleanup_duration_seconds", 0.0) or 0.0
+                    ),
+                }
+            data["duration_seconds"] = _preserved_run_duration(data)
             if finalization_path.is_file():
                 data["leaf_finalization_manifest"] = str(finalization_path)
             _write_run_manifest(run_manifest_path, data)
             return SubdomainRunResult(
                 subdomain_id=sub.id,
-                status="skipped",
-                duration_seconds=0.0,
+                status="success",
+                duration_seconds=float(data["duration_seconds"]),
                 setup_dir=sub.setup_dir,
                 log_path=log_path,
                 run_manifest=run_manifest_path,
@@ -482,6 +558,7 @@ def _run_one(
                 else None
             ),
         }
+        record_phase, finish_phase = _phase_recorder(run_meta, run_manifest_path)
         logger.info("START sub-domain={} attempt={}", sub.id, attempt)
         try:
             if not prepared_before_storage_plan:
@@ -524,8 +601,10 @@ def _run_one(
                         prepared_before_storage_plan
                         and storage_admission_client is not None
                     ),
+                    phase_callback=record_phase,
                 )
             )
+            record_phase("cleanup")
             finalized = _finalize_leaf(
                 sub,
                 resume=False,
@@ -543,6 +622,7 @@ def _run_one(
                     request_id=f"{sub.id}:leaf_finalized",
                 )
             duration = time.time() - started
+            finish_phase()
             run_meta.update(
                 {
                     "status": "success",
@@ -568,6 +648,7 @@ def _run_one(
             )
         except Exception as exc:  # noqa: BLE001
             duration = time.time() - started
+            finish_phase()
             dropped_events = _read_dropped_events(_dropped_events_csv(sub.setup_dir))
             run_meta.update(
                 {
@@ -1087,6 +1168,7 @@ def run_subdomains(
 ) -> List[SubdomainRunResult]:
     """Run sub-domain DA workflows in parallel and stop on first failure."""
     manifest = SubdomainManifest.load(manifest_path)
+    require_canonical_manifest_path(manifest, manifest_path)
     if str(getattr(manifest, "run_mode", "")).lower() != "subdomain":
         raise ValueError(f"Manifest at {manifest_path} is not marked as run_mode='subdomain'.")
     ensure_run_mode(manifest.project_dir, expected="subdomain", write_if_missing=False)

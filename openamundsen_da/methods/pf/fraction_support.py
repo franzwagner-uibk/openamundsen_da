@@ -3,12 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import warnings
 
 import numpy as np
 import pandas as pd
 import rasterio
 from pyproj import CRS
 from rasterio.warp import Resampling, reproject
+from rasterio.errors import NotGeoreferencedWarning
 
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import abspath_relative_to, find_project_yaml
@@ -17,6 +19,7 @@ from openamundsen_da.subdomain.manifest import SubdomainManifest
 from openamundsen_da.util.config_validators import require_mapping
 from openamundsen_da.util.landcover_mask import LandcoverMaskConfig, apply_landcover_mask
 from openamundsen_da.util.observation_raster import (
+    crs_from_netcdf,
     is_netcdf_path,
     netcdf_band_index_for_token,
     open_netcdf_variable_raster,
@@ -108,6 +111,51 @@ def _subdataset_variable_name(subdataset: str) -> str:
     return str(subdataset).rsplit(":", 1)[-1].strip().strip('"').strip("'")
 
 
+def _validate_netcdf_raster_contract(source_path: Path) -> set[str]:
+    """Validate spatial metadata before suppressing GDAL's container warning."""
+    try:
+        import xarray as xr
+    except Exception as exc:  # pragma: no cover - dependency guard
+        raise RuntimeError("xarray is required to validate NetCDF observations") from exc
+
+    with xr.open_dataset(source_path) as dataset:
+        if "x" not in dataset.coords or "y" not in dataset.coords:
+            raise ValueError(f"NetCDF observation lacks x/y coordinates: {source_path}")
+        x = np.asarray(dataset["x"].values, dtype=float)
+        y = np.asarray(dataset["y"].values, dtype=float)
+        if x.ndim != 1 or y.ndim != 1 or x.size < 2 or y.size < 2:
+            raise ValueError(f"NetCDF observation has invalid x/y coordinate shape: {source_path}")
+        if not np.isfinite(x).all() or not np.isfinite(y).all():
+            raise ValueError(f"NetCDF observation has non-finite x/y coordinates: {source_path}")
+        for name, values in (("x", x), ("y", y)):
+            differences = np.diff(values)
+            if not (np.all(differences > 0) or np.all(differences < 0)):
+                raise ValueError(f"NetCDF observation {name} coordinates are not monotonic: {source_path}")
+            if not np.allclose(np.abs(differences), abs(float(differences[0])), rtol=1e-6, atol=0.0):
+                raise ValueError(f"NetCDF observation {name} spacing is not regular: {source_path}")
+
+        variables: set[str] = set()
+        for name, variable in dataset.data_vars.items():
+            if "y" not in variable.dims or "x" not in variable.dims:
+                continue
+            if int(variable.sizes["y"]) != y.size or int(variable.sizes["x"]) != x.size:
+                raise ValueError(f"NetCDF observation variable shape disagrees with x/y: {source_path}::{name}")
+            nodata_values = [
+                source[key]
+                for source in (variable.encoding, variable.attrs)
+                for key in ("_FillValue", "missing_value")
+                if key in source
+            ]
+            if any(np.asarray(value).size != 1 for value in nodata_values):
+                raise ValueError(f"NetCDF observation has nonscalar nodata metadata: {source_path}::{name}")
+            if crs_from_netcdf(dataset, variable=str(name)) is None:
+                raise ValueError(f"NetCDF observation has no CRS: {source_path}::{name}")
+            variables.add(str(name))
+    if not variables:
+        raise ValueError(f"NetCDF observation has no 2-D raster variables: {source_path}")
+    return variables
+
+
 def _source_dataset_ref(source_path: Path, *, token: str, observable: str) -> str:
     suffix = source_path.suffix.lower()
     if suffix in _GEOTIFF_SUFFIXES:
@@ -122,15 +170,24 @@ def _source_dataset_ref(source_path: Path, *, token: str, observable: str) -> st
     if token_suffix in preferred_variables:
         preferred_variables = (token_suffix,) + tuple(v for v in preferred_variables if v != token_suffix)
 
-    with rasterio.open(source_path) as src:
-        subdatasets = tuple(src.subdatasets)
-        if src.count > 0:
-            return str(source_path)
+    validated_variables = _validate_netcdf_raster_contract(source_path)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            category=NotGeoreferencedWarning,
+            message="Dataset has no geotransform, gcps, or rpcs.*",
+        )
+        with rasterio.open(source_path) as src:
+            subdatasets = tuple(src.subdatasets)
+            if src.count > 0:
+                return str(source_path)
 
     if not subdatasets:
         raise ValueError(f"NetCDF observation source has no raster variables: {source_path}")
 
     for variable in preferred_variables:
+        if variable not in validated_variables:
+            continue
         for subdataset in subdatasets:
             if _subdataset_variable_name(subdataset).lower() == variable:
                 return subdataset

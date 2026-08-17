@@ -36,6 +36,7 @@ from openamundsen_da.methods.viz.plots.common import apply_plot_grid
 from openamundsen_da.methods.viz.plots.theme import OVERVIEW_XTICK_SIZE, OVERVIEW_YTICK_SIZE
 from openamundsen_da.methods.viz.wet_snow_fields import finite_numeric_column
 from openamundsen_da.util.da_events import load_assimilation_events
+from openamundsen_da.util.figure_lifecycle import close_created_figures
 from openamundsen_da.util.da_observables import station_diagnostics_csv_name, weight_plot_title_from_csv_path
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.stats import effective_sample_size
@@ -1166,6 +1167,7 @@ def _draw_weights_event(
             )
 
 
+@close_created_figures
 def _plot(
     csv_path: Path,
     df: pd.DataFrame,
@@ -1279,6 +1281,7 @@ def _remove_stale_setup_weights_overview_pages(output_path: Path, keep_paths: li
             candidate.unlink(missing_ok=True)
 
 
+@close_created_figures
 def _build_setup_weights_overview_page(
     page_specs: list[dict[str, object]],
     *,

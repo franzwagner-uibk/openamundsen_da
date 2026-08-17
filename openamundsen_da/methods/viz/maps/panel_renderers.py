@@ -2659,7 +2659,7 @@ def project_da_map_support_fields(
     event_variables = {pd.Timestamp(event.date).normalize(): event.variable for event in events}
     fields: dict[str, list[np.ndarray]] = {}
 
-    if scf_dates or any(event.variable == "scf" for event in events):
+    if any(event.variable == "scf" for event in events):
         for source in ("open_loop_binary", "prior_probability", "posterior_probability"):
             values: list[np.ndarray] = []
             for date in dates:
@@ -2677,7 +2677,7 @@ def project_da_map_support_fields(
                 )
             fields[f"scf_{source}"] = values
 
-    if wet_dates or any(event.variable in {"wet_snow", "wet_snow_line"} for event in events):
+    if any(event.variable in {"wet_snow", "wet_snow_line"} for event in events):
         open_loop: list[np.ndarray] = []
         prior: list[np.ndarray] = []
         posterior: list[np.ndarray] = []

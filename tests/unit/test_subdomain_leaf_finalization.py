@@ -223,6 +223,7 @@ def test_full_retention_scf_leaf_uses_raw_render_support_without_map_archive(
     (parent_project / "demo.yml").write_text("data_assimilation: {}\n", encoding="utf-8")
     parent_manifest = SimpleNamespace(
         project_dir=parent_project.resolve(),
+        subdomain_root=parent_project / "subdomains",
         subdomains={subdomain.id: SimpleNamespace(status="success")},
         grid_rows=1,
         grid_cols=1,

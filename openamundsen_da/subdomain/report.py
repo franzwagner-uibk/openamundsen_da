@@ -142,6 +142,19 @@ def write_subdomain_reports(
                 "label": sub.label,
                 "status": str(run_manifest.get("status", sub.status)),
                 "duration_seconds": float(run_manifest.get("duration_seconds", float("nan"))),
+                **{
+                    f"{phase}_duration_seconds": float(
+                        (run_manifest.get("phases") or {})
+                        .get(phase, {})
+                        .get("duration_seconds", float("nan"))
+                    )
+                    for phase in (
+                        "propagation",
+                        "compact_export",
+                        "render",
+                        "cleanup",
+                    )
+                },
                 "n_steps": int(n_steps),
                 "n_assimilation_events": int(n_events),
                 **{

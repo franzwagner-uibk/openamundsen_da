@@ -34,6 +34,7 @@ from openamundsen_da.io.paths import (
     project_fraction_envelope_path,
 )
 from openamundsen_da.methods.viz.station_meta import load_ensemble_station_table_from_steps
+from openamundsen_da.util.figure_lifecycle import close_created_figures
 from openamundsen_da.methods.viz.common import (
     PosterRenderStyle,
     force_figure_text_black,
@@ -1793,6 +1794,7 @@ def _filter_panel_specs(
     return out
 
 
+@close_created_figures
 def plot_result_overview(
     *,
     scf_obs: pd.DataFrame | None,

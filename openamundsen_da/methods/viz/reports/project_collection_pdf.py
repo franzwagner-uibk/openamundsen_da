@@ -31,6 +31,7 @@ from openamundsen_da.io.paths import (
 from openamundsen_da.methods.viz.maps.generated import GENERATED_DA_MAPS_SUBDIR
 from openamundsen_da.methods.viz.theme import EXPORT_DPI
 from openamundsen_da.util.da_events import load_assimilation_events
+from openamundsen_da.util.figure_lifecycle import close_created_figures
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.util.yaml_utils import read_yaml_mapping
 
@@ -821,6 +822,7 @@ def _draw_image_at_original_size(fig: Figure, path: Path, *, left: float, top: f
     )
 
 
+@close_created_figures
 def _write_single_image_page(pdf: PdfPages, item: PdfImageItem, *, page_number: int, total_pages: int) -> None:
     import matplotlib.pyplot as plt
 
@@ -838,6 +840,7 @@ def _write_single_image_page(pdf: PdfPages, item: PdfImageItem, *, page_number: 
     plt.close(fig)
 
 
+@close_created_figures
 def _write_image_group_page(
     pdf: PdfPages,
     items: Iterable[PdfImageItem],
@@ -864,6 +867,7 @@ def _write_image_group_page(
     plt.close(fig)
 
 
+@close_created_figures
 def _write_da_steps_pages(
     pdf: PdfPages,
     da_steps: Iterable[PdfDaStepItem],
@@ -1026,6 +1030,7 @@ def _draw_content_section(
         current_y -= line_height
 
 
+@close_created_figures
 def _write_project_summary_page(
     pdf: PdfPages,
     summary: ProjectReportSummary,

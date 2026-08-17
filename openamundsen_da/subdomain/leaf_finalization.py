@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from openamundsen_da.io.paths import (
@@ -194,6 +194,7 @@ def finalize_leaf(
         "retention": retention,
         "retained_support": retained_inventory,
         "retained_support_sha256": inventory_digest(retained_inventory),
+        "cleanup_started": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     write_manifest_atomic(manifest_path, planned)
 
@@ -206,12 +207,19 @@ def finalize_leaf(
     _validate_leaf_inventory(setup_dir, retained_inventory)
     validate_retained_consumers(project_dir, require_complete=True)
     _leaf_parent_support_files(subdomain)
+    cleanup_finished = datetime.now(timezone.utc)
+    cleanup_started = datetime.fromisoformat(str(planned["cleanup_started"]))
     completed = {
         **planned,
         "status": "success",
         "cleanup_deleted_files": len(cleanup.deleted_paths),
         "cleanup_freed_bytes": int(cleanup.freed_bytes),
         "retained_leaf_bytes": measure_leaf_bytes(setup_dir),
+        "cleanup_finished": cleanup_finished.isoformat(timespec="seconds"),
+        "cleanup_duration_seconds": max(
+            0.0,
+            (cleanup_finished - cleanup_started).total_seconds(),
+        ),
     }
     write_manifest_atomic(manifest_path, completed)
     return load_manifest(manifest_path) or completed

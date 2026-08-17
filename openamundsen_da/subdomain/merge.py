@@ -23,7 +23,11 @@ from openamundsen_da.io.paths import (
 )
 from openamundsen_da.exceptions import LowDiskSpaceError
 from openamundsen_da.methods.viz.maps.generated import GENERATED_DA_MAPS_SUBDIR
-from openamundsen_da.subdomain.manifest import SubdomainManifest, SubdomainMeta
+from openamundsen_da.subdomain.manifest import (
+    SubdomainManifest,
+    SubdomainMeta,
+    require_canonical_manifest_path,
+)
 from openamundsen_da.subdomain.event_support import resolve_subdomain_event_plan
 from openamundsen_da.subdomain.status import save_stage, terminal_status
 from openamundsen_da.pipeline.cleanup import clean_project_artifacts
@@ -77,6 +81,7 @@ def _tracked_merge(operation):
     def wrapped(*, manifest_path: Path, **kwargs):
         manifest_path = Path(manifest_path).resolve()
         manifest = SubdomainManifest.load(manifest_path)
+        require_canonical_manifest_path(manifest, manifest_path)
         if operation.__name__ == "merge_model_grids":
             save_stage(manifest, manifest_path, "merge", "running")
         try:

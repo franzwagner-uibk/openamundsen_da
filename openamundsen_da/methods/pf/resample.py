@@ -34,10 +34,16 @@ from openamundsen_da.core.constants import (
     DA_BLOCK,
     MEMBER_PREFIX,
     MEMBER_SOURCE_POINTER,
-    STATE_POINTER_JSON,
 )
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import list_member_dirs, find_project_yaml, infer_project_dir
+from openamundsen_da.io.paths import (
+    default_results_dir,
+    find_project_yaml,
+    infer_project_dir,
+    list_member_dirs,
+    meteo_dir_for_member,
+    state_pointer_path,
+)
 from openamundsen_da.util.loguru_utils import configure_cli_logger
 from openamundsen_da.manifests import hash_json, load_manifest, sha256_file, write_manifest_atomic
 from openamundsen_da.util.keyed_rng import RNG_SCHEME, keyed_rng, keyed_seed
@@ -194,16 +200,17 @@ def _mirror_or_resample(
         )
 
         # Ensure meteo/ exists for compatibility; results/ will be created by the launcher
-        (tgt_member / "meteo").mkdir(exist_ok=True)
+        meteo_dir_for_member(tgt_member).mkdir(parents=True, exist_ok=True)
 
         # Create a state pointer instead of copying the state file
         src_state = None
         # Try exact file, then glob
-        exact = (src_member / "results" / str(patt))
+        source_results = default_results_dir(src_member)
+        exact = source_results / str(patt)
         if exact.exists() and exact.is_file():
             src_state = exact
         else:
-            matches = list((src_member / "results").glob(str(patt)))
+            matches = list(source_results.glob(str(patt)))
             if matches:
                 matches.sort(key=lambda x: x.stat().st_mtime, reverse=True)
                 src_state = matches[0]
@@ -215,7 +222,9 @@ def _mirror_or_resample(
                 out = {"path": str(rel)}
             except Exception:
                 out = {"path": str(src_resolved)}
-            (tgt_member / STATE_POINTER_JSON).write_text(json.dumps(out, indent=2), encoding="utf-8")
+            target_pointer = state_pointer_path(tgt_member)
+            target_pointer.parent.mkdir(parents=True, exist_ok=True)
+            target_pointer.write_text(json.dumps(out, indent=2), encoding="utf-8")
     return pairs
 
 
@@ -438,16 +447,19 @@ def resample_from_weights(
             str(path)
             for posterior_member, _source_member, _weight in pairs
             for path in (
-                Path(step_dir)
-                / "ensembles"
-                / target_ensemble
-                / posterior_member
-                / MEMBER_SOURCE_POINTER,
-                Path(step_dir)
-                / "ensembles"
-                / target_ensemble
-                / posterior_member
-                / STATE_POINTER_JSON,
+                (
+                    Path(step_dir)
+                    / "ensembles"
+                    / target_ensemble
+                    / posterior_member
+                    / MEMBER_SOURCE_POINTER
+                ),
+                state_pointer_path(
+                    Path(step_dir)
+                    / "ensembles"
+                    / target_ensemble
+                    / posterior_member
+                ),
             )
             if path.is_file()
         ],

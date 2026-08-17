@@ -70,6 +70,8 @@ class CleanupResult:
     failures: tuple[CleanupFailure, ...]
     eligible_bytes: int
     freed_bytes: int
+    eligible_count: int = 0
+    deleted_count: int = 0
 
 
 @dataclass(frozen=True)

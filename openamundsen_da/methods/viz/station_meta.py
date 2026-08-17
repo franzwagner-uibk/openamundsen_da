@@ -11,7 +11,13 @@ import pyproj
 import xarray as xr
 
 from openamundsen_da.core.env import _read_yaml_file
-from openamundsen_da.io.paths import abspath_relative_to, find_project_yaml, find_setup_yaml, list_member_dirs
+from openamundsen_da.io.paths import (
+    abspath_relative_to,
+    find_project_yaml,
+    find_setup_yaml,
+    list_member_dirs,
+    meteo_dir_for_member,
+)
 from openamundsen_da.util.station_da import STATION_DA_METADATA_FILENAME
 
 
@@ -99,10 +105,10 @@ def load_project_snow_station_table(project_dir: Path, setup_dir: Path) -> pd.Da
 def load_ensemble_station_table(step_dir: Path, ensemble: str) -> Optional[pd.DataFrame]:
     """Load per-step station metadata from open_loop or first member meteo dir."""
     base = Path(step_dir) / "ensembles" / str(ensemble)
-    candidates = [base / "open_loop" / "meteo" / "stations.csv"]
+    candidates = [meteo_dir_for_member(base / "open_loop") / "stations.csv"]
     members = list_member_dirs(Path(step_dir) / "ensembles", ensemble)
     if members:
-        candidates.append(members[0] / "meteo" / "stations.csv")
+        candidates.append(meteo_dir_for_member(members[0]) / "stations.csv")
     for path in candidates:
         if path.is_file():
             try:

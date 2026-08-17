@@ -26,6 +26,7 @@ from openamundsen_da.benchmark.render.tables import (
 )
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import (
+    default_results_dir,
     find_project_yaml,
     infer_setup_dir_from_project,
     list_member_dirs,
@@ -150,8 +151,11 @@ def _load_wet_snow_threshold(project_dir: Path) -> float:
 
 def _prior_member_point_series_paths(step_dir: Path, filename: str) -> list[Path]:
     base = Path(step_dir) / "ensembles" / "prior"
-    targets = [base / "open_loop" / "results" / filename]
-    targets.extend(member_dir / "results" / filename for member_dir in list_member_dirs(base.parent, "prior"))
+    targets = [default_results_dir(base / "open_loop") / filename]
+    targets.extend(
+        default_results_dir(member_dir) / filename
+        for member_dir in list_member_dirs(base.parent, "prior")
+    )
     return targets
 
 

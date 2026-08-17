@@ -162,6 +162,10 @@ def _read_step_window(step_dir: Path) -> Tuple[pd.Timestamp, pd.Timestamp]:
 
 def _make_member_dirs(root: Path) -> Tuple[Path, Path]:
     """Create meteo and results subdirs under the given member/open_loop root."""
+    # The member root owns durable INFO/member-run/log authority even when the
+    # bulky forcing and model results are redirected into a compact runtime
+    # generation.
+    root.mkdir(parents=True, exist_ok=True)
     meteo = meteo_dir_for_member(root)
     results = default_results_dir(root)
     meteo.mkdir(parents=True, exist_ok=True)
@@ -272,11 +276,11 @@ def _prior_forcing_output_inventory(*, setup_dir: Path, step_dir: Path) -> list[
     files: list[Path] = []
     root = prior_root_dir(step_dir)
     for member in sorted(root.glob("member_*")):
-        files.extend(recursive_files(member / "meteo"))
+        files.extend(recursive_files(meteo_dir_for_member(member)))
         info = member / "INFO.txt"
         if info.is_file():
             files.append(info)
-    files.extend(recursive_files(open_loop_dir_for_step(step_dir) / "meteo"))
+    files.extend(recursive_files(meteo_dir_for_member(open_loop_dir_for_step(step_dir))))
     return _prior_forcing_inventory(root=setup_dir, paths=files)
 
 

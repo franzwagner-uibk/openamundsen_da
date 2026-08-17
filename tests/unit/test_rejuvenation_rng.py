@@ -9,6 +9,10 @@ import yaml
 
 import openamundsen_da.methods.pf.rejuvenate as rejuvenate_module
 from openamundsen_da.methods.pf.rejuvenate import rejuvenate, validate_rejuvenation_manifest
+from openamundsen_da.util.runtime_generation import (
+    ensure_runtime_generation,
+    runtime_generation_root,
+)
 
 
 def _write_yaml(path: Path, data: dict) -> None:
@@ -123,6 +127,34 @@ def test_rejuvenation_respects_explicit_worker_limit(
     )
 
     assert observed == {"requested": 1, "pool": 1}
+
+
+def test_rejuvenation_keeps_member_roots_outside_compact_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup, step_0, step_1, _step_2 = _prepare_project(tmp_path)
+    project = step_0.parent.parent
+    ensure_runtime_generation(project)
+    monkeypatch.setattr(
+        rejuvenate_module,
+        "run_tasks_with_pool",
+        lambda func, tasks, **_kwargs: [func(*task) for task in tasks],
+    )
+
+    rejuvenate(setup_dir=setup, prev_step_dir=step_0, next_step_dir=step_1)
+
+    member = step_1 / "ensembles" / "prior" / "member_001"
+    runtime_root = runtime_generation_root(project)
+    assert runtime_root is not None
+    assert member.is_dir()
+    assert not (member / "meteo").exists()
+    assert (
+        runtime_root
+        / member.relative_to(project)
+        / "meteo"
+        / "station_a.csv"
+    ).is_file()
 
 
 def test_rejuvenation_resume_ignores_diagnostics_but_binds_weight_ancestry(

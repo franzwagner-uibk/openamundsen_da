@@ -11,10 +11,18 @@ from openamundsen_da.manifests import hash_json
 from openamundsen_da.util import retention as retention_mod
 from openamundsen_da.util.retention import (
     apply_retention_batch,
+    apply_runtime_tree_cleanup,
     complete_retention_generation,
     completed_retention_paths,
+    start_runtime_tree_cleanup,
     start_retention_generation,
     validate_retained_consumers,
+)
+from openamundsen_da.util.runtime_generation import (
+    ensure_runtime_generation,
+    load_runtime_generation,
+    record_runtime_step_accounting,
+    runtime_generation_root,
 )
 
 
@@ -30,6 +38,282 @@ def _apply_retention(project: Path, **kwargs):
         producer_manifests=(producer,),
         **kwargs,
     )
+
+
+def _runtime_cleanup_fixture(project: Path) -> tuple[Path, Path, Path]:
+    project.mkdir(parents=True, exist_ok=True)
+    ensure_runtime_generation(project)
+    root = runtime_generation_root(project)
+    assert root is not None
+    raw = root / "steps/step_00/ensembles/prior/member_001/results/raw.bin"
+    raw.parent.mkdir(parents=True)
+    raw.write_bytes(b"raw-payload")
+    record_runtime_step_accounting(
+        project,
+        step_name="step_00",
+        component_bytes={"member_grid_bytes": raw.stat().st_size},
+        file_counts={"member_grid_bytes": 1},
+    )
+    consumer = project / "results/grids/da_output_grids.nc"
+    producer = project / "steps/step_00/ensembles/prior/member_001/member_run.json"
+    consumer.parent.mkdir(parents=True)
+    producer.parent.mkdir(parents=True)
+    consumer.write_bytes(b"compact")
+    producer.write_text('{"status":"success"}\n', encoding="utf-8")
+    return root, consumer, producer
+
+
+def _plan_runtime_cleanup(project: Path, consumer: Path, producer: Path) -> int:
+    return start_runtime_tree_cleanup(
+        project,
+        retained_consumers=(consumer,),
+        producer_manifests=(producer,),
+    )
+
+
+def test_runtime_tree_cleanup_records_only_generation_and_retained_evidence(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    root, consumer, producer = _runtime_cleanup_fixture(project)
+    raw = next(root.rglob("raw.bin"))
+    inventoried: list[Path] = []
+    real_inventory = retention_mod.file_inventory
+
+    def counted_inventory(*, root: Path, files, **kwargs):
+        selected = [Path(path).resolve() for path in files]
+        inventoried.extend(selected)
+        return real_inventory(root=root, files=selected, **kwargs)
+
+    monkeypatch.setattr(retention_mod, "file_inventory", counted_inventory)
+    generation = _plan_runtime_cleanup(project, consumer, producer)
+    ledger = json.loads(retention_mod.retention_manifest_path(project).read_text())
+
+    assert generation == 1
+    assert ledger["retention_schema_version"] == 6
+    assert ledger["batches"] == []
+    assert raw.resolve() not in inventoried
+    assert {consumer.resolve(), producer.resolve()} == set(inventoried)
+    assert "raw.bin" not in retention_mod.retention_manifest_path(project).read_text()
+
+
+def test_runtime_tree_cleanup_quarantines_then_removes_whole_generation(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    root, consumer, producer = _runtime_cleanup_fixture(project)
+    _plan_runtime_cleanup(project, consumer, producer)
+
+    record = apply_runtime_tree_cleanup(project, workers=2)
+
+    assert record["status"] == "complete"
+    assert record["deleted_files"] == 1
+    assert not root.exists()
+    assert consumer.read_bytes() == b"compact"
+    assert producer.is_file()
+    assert validate_retained_consumers(project, require_complete=True) == (
+        "runtime-generation-1",
+    )
+
+
+def test_runtime_tree_cleanup_resumes_after_rename_before_ledger_transition(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    root, consumer, producer = _runtime_cleanup_fixture(project)
+    _plan_runtime_cleanup(project, consumer, producer)
+    real_fsync = retention_mod.fsync_directory
+    calls = 0
+
+    def interrupted_fsync(path: Path) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError("injected crash after rename")
+        real_fsync(path)
+
+    monkeypatch.setattr(retention_mod, "fsync_directory", interrupted_fsync)
+    with pytest.raises(OSError, match="injected crash"):
+        apply_runtime_tree_cleanup(project, workers=1)
+    assert not root.exists()
+
+    monkeypatch.setattr(retention_mod, "fsync_directory", real_fsync)
+    record = apply_runtime_tree_cleanup(project, workers=1)
+    assert record["status"] == "complete"
+
+
+def test_runtime_tree_cleanup_resumes_after_partial_physical_delete(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    root, consumer, producer = _runtime_cleanup_fixture(project)
+    second = root / "steps/step_00/ensembles/prior/member_002/results/raw.bin"
+    second.parent.mkdir(parents=True)
+    second.write_bytes(b"second")
+    _plan_runtime_cleanup(project, consumer, producer)
+    real_delete = retention_mod._delete_runtime_subtree
+    failed = False
+
+    def interrupted_delete(path: Path):
+        nonlocal failed
+        if not failed:
+            failed = True
+            raise OSError("injected physical deletion failure")
+        return real_delete(path)
+
+    monkeypatch.setattr(retention_mod, "_delete_runtime_subtree", interrupted_delete)
+    with pytest.raises(CleanupSafetyError, match="physical deletion failure"):
+        apply_runtime_tree_cleanup(project, workers=1)
+
+    monkeypatch.setattr(retention_mod, "_delete_runtime_subtree", real_delete)
+    record = apply_runtime_tree_cleanup(project, workers=1)
+    assert record["status"] == "complete"
+
+
+def test_runtime_tree_cleanup_resumes_when_delete_finished_before_completion(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    root, consumer, producer = _runtime_cleanup_fixture(project)
+    _plan_runtime_cleanup(project, consumer, producer)
+    real_validate = retention_mod._RetainedConsumerGuard.validate_full
+    calls = 0
+
+    def interrupted_validation(self) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise CleanupSafetyError("injected crash after physical deletion")
+        real_validate(self)
+
+    monkeypatch.setattr(
+        retention_mod._RetainedConsumerGuard,
+        "validate_full",
+        interrupted_validation,
+    )
+    with pytest.raises(CleanupSafetyError, match="after physical deletion"):
+        apply_runtime_tree_cleanup(project, workers=1)
+    assert not root.exists()
+
+    monkeypatch.setattr(
+        retention_mod._RetainedConsumerGuard,
+        "validate_full",
+        real_validate,
+    )
+    record = apply_runtime_tree_cleanup(project, workers=1)
+    assert record["status"] == "complete"
+    assert record["deleted_files"] == 1
+
+
+def test_runtime_tree_cleanup_heals_generation_authority_after_complete_ledger(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    root, consumer, producer = _runtime_cleanup_fixture(project)
+    _plan_runtime_cleanup(project, consumer, producer)
+    real_update = retention_mod.update_runtime_generation
+
+    def interrupted_update(project_dir: Path, *, status: str, **kwargs):
+        if status == "complete":
+            raise OSError("injected crash before runtime authority completion")
+        return real_update(project_dir, status=status, **kwargs)
+
+    monkeypatch.setattr(retention_mod, "update_runtime_generation", interrupted_update)
+    with pytest.raises(OSError, match="runtime authority completion"):
+        apply_runtime_tree_cleanup(project, workers=1)
+    assert not root.exists()
+
+    monkeypatch.setattr(retention_mod, "update_runtime_generation", real_update)
+    record = apply_runtime_tree_cleanup(project, workers=1)
+
+    assert record["status"] == "complete"
+    assert load_runtime_generation(project)["status"] == "complete"
+
+
+def test_runtime_tree_cleanup_starts_a_new_generation_after_overwrite(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    _root, consumer, producer = _runtime_cleanup_fixture(project)
+    _plan_runtime_cleanup(project, consumer, producer)
+    first = apply_runtime_tree_cleanup(project, workers=1)
+
+    ensure_runtime_generation(project, overwrite=True)
+    second_root = runtime_generation_root(project)
+    assert second_root is not None
+    raw = second_root / "steps/step_00/ensembles/prior/member_001/results/raw.bin"
+    raw.parent.mkdir(parents=True)
+    raw.write_bytes(b"overwrite")
+    record_runtime_step_accounting(
+        project,
+        step_name="step_00",
+        component_bytes={"member_grid_bytes": raw.stat().st_size},
+        file_counts={"member_grid_bytes": 1},
+    )
+    consumer.write_bytes(b"compact overwrite")
+    producer.write_text('{"status":"success","run":2}\n', encoding="utf-8")
+
+    generation = _plan_runtime_cleanup(project, consumer, producer)
+    second = apply_runtime_tree_cleanup(project, workers=1)
+    ledger = json.loads(retention_mod.retention_manifest_path(project).read_text())
+
+    assert generation == 2
+    assert first["generation"] == 1
+    assert second["generation"] == 2
+    assert [item["generation"] for item in ledger["generations"]] == [1, 2]
+    assert [item["status"] for item in ledger["generations"]] == ["complete", "complete"]
+    assert ledger["active_generation"] == 2
+    assert ledger["status"] == "complete"
+    assert not second_root.exists()
+
+
+def test_runtime_tree_cleanup_refuses_symlink_inside_quarantine(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    root, consumer, producer = _runtime_cleanup_fixture(project)
+    external = tmp_path / "external.bin"
+    external.write_bytes(b"external")
+    (root / "unexpected-link").symlink_to(external)
+    _plan_runtime_cleanup(project, consumer, producer)
+
+    with pytest.raises(CleanupSafetyError, match="unexpected symlink"):
+        apply_runtime_tree_cleanup(project, workers=1)
+
+    assert external.read_bytes() == b"external"
+
+
+def test_runtime_tree_cleanup_refuses_symlinked_member_unit(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    root, consumer, producer = _runtime_cleanup_fixture(project)
+    external = tmp_path / "external-member"
+    external.mkdir()
+    protected = external / "protected.bin"
+    protected.write_bytes(b"external")
+    member = root / "steps/step_00/ensembles/prior/member_001"
+    raw = next(member.rglob("raw.bin"))
+    raw.unlink()
+    raw.parent.rmdir()
+    member.rmdir()
+    member.symlink_to(external, target_is_directory=True)
+    _plan_runtime_cleanup(project, consumer, producer)
+
+    with pytest.raises(CleanupSafetyError, match="contains a symlink"):
+        apply_runtime_tree_cleanup(project, workers=1)
+
+    assert protected.read_bytes() == b"external"
+
+
+def test_runtime_tree_cleanup_rejects_zero_workers(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    _root, consumer, producer = _runtime_cleanup_fixture(project)
+    _plan_runtime_cleanup(project, consumer, producer)
+
+    with pytest.raises(ValueError, match="at least one"):
+        apply_runtime_tree_cleanup(project, workers=0)
 
 
 def test_retention_batch_is_contained_recorded_and_idempotent(tmp_path: Path) -> None:

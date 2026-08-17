@@ -19,9 +19,14 @@ from ruamel.yaml.error import YAMLError
 from openamundsen_da.exceptions import LowDiskEmergencyError, LowDiskPauseError
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import (
+    default_results_dir,
     find_project_yaml,
     find_setup_yaml,
+    forcing_plot_dir,
+    list_member_dirs,
     list_steps_sorted,
+    meteo_dir_for_member,
+    open_loop_dir,
     read_step_config,
 )
 from openamundsen_da.pipeline.project_skeleton import plan_project_steps
@@ -60,6 +65,45 @@ FILE_OVERHEAD_BYTES = 256 * 1024
 COMPACT_OUTPUT_MARGIN = 1.10
 OBSERVED_REFIT_MARGIN = 1.25
 PARENT_RENDER_MIN_BYTES = 512 * 1024**2
+
+
+def _materialized_member_roots(project_dir: Path) -> list[Path]:
+    """Return present member roots without assuming the artifact layout."""
+    roots: list[Path] = []
+    steps_root = project_dir / "steps"
+    if not steps_root.is_dir():
+        return roots
+    for step in sorted(path for path in steps_root.glob("step_*") if path.is_dir()):
+        prior_open_loop = open_loop_dir(step)
+        if prior_open_loop.is_dir():
+            roots.append(prior_open_loop)
+        for ensemble in ("prior", "posterior"):
+            roots.extend(list_member_dirs(step / "ensembles", ensemble))
+    return roots
+
+
+def _member_artifact_paths(
+    project_dir: Path,
+    *,
+    directory: str,
+    pattern: str,
+) -> list[Path]:
+    resolver = meteo_dir_for_member if directory == "meteo" else default_results_dir
+    return [
+        path
+        for member in _materialized_member_roots(project_dir)
+        for path in resolver(member).glob(pattern)
+    ]
+
+
+def _step_name_from_artifact(project_dir: Path, path: Path) -> str:
+    """Return the owning step for legacy or generation-routed artifacts."""
+    try:
+        relative = path.resolve().relative_to(project_dir.resolve())
+        index = relative.parts.index("steps")
+        return relative.parts[index + 1]
+    except (ValueError, IndexError) as exc:
+        raise ValueError(f"Artifact has no contained step identity: {path}") from exc
 PARENT_RENDER_BYTES_PER_CELL_EVENT = 8
 # Calibrated from 136.28 GB for 4,555 station-leaf identities, ES30 and a
 # nine-month archived Euregio run.  The 4,400-byte rate projects about 372 GB
@@ -247,14 +291,17 @@ def estimate_compact_timeseries_bytes(project_dir: str | Path) -> int:
     disappearance remains a strict error rather than an implicit fallback.
     """
     project_dir = Path(project_dir).resolve()
-    patterns = (
-        "steps/step_*/ensembles/*/*/results/point_*.csv",
-        "steps/step_*/ensembles/*/*/meteo/*.csv",
-    )
     paths = {
-        path
-        for pattern in patterns
-        for path in project_dir.glob(pattern)
+        *_member_artifact_paths(
+            project_dir,
+            directory="results",
+            pattern="point_*.csv",
+        ),
+        *_member_artifact_paths(
+            project_dir,
+            directory="meteo",
+            pattern="*.csv",
+        ),
     }
     files, _stable = _owned_file_snapshot(list(paths), root=project_dir)
     # Compression normally makes the NetCDF smaller than the CSV source. Keep
@@ -484,6 +531,7 @@ def storage_project_steps(
         "step_*/assim/prior_forcing_manifest.json",
         "step_*/assim/rejuvenate_manifest.json",
         "step_*/ensembles/*/*/results/member_run.json",
+        "step_*/ensembles/*/*/member_run.json",
     )
     has_runtime_evidence = any(
         next(steps_root.glob(pattern), None) is not None
@@ -665,7 +713,11 @@ def _forcing_plot_storage_bound(
         * OBSERVED_REFIT_MARGIN
     )
     existing = _owned_file_bytes(
-        list(project_dir.glob("steps/step_*/plots/forcing/*.png")),
+        [
+            path
+            for step, _start, _end in steps
+            for path in forcing_plot_dir(step).glob("*.png")
+        ],
         root=project_dir,
         tolerate_disappearance=tolerate_disappearance,
     )
@@ -687,6 +739,7 @@ def _retained_diagnostics_storage_bound(
     for pattern in (
         "steps/step_*/assim/**/*",
         "steps/step_*/ensembles/*/*/results/member_run.json",
+        "steps/step_*/ensembles/*/*/member_run.json",
         "steps/step_*/ensembles/*/*/meteo/stations.csv",
         "**/*.log",
     ):
@@ -783,8 +836,10 @@ def _observed_point_bytes_per_value(
     if project_dir is None:
         return 0.0
     project_dir = Path(project_dir).resolve()
-    paths = list(
-        project_dir.glob("steps/step_*/ensembles/*/*/results/point_*.csv")
+    paths = _member_artifact_paths(
+        project_dir,
+        directory="results",
+        pattern="point_*.csv",
     )
     files, _stable_snapshot = _owned_file_snapshot(
         paths,
@@ -859,8 +914,10 @@ def _project_grid_storage_bound(
         )
         for step, start, end in steps
     }
-    existing_paths = list(
-        project_dir.glob("steps/step_*/ensembles/*/*/results/output_grids*.nc")
+    existing_paths = _member_artifact_paths(
+        project_dir,
+        directory="results",
+        pattern="output_grids*.nc",
     )
     existing_files, stable_snapshot = _owned_file_snapshot(
         existing_paths,
@@ -869,10 +926,7 @@ def _project_grid_storage_bound(
     )
     measured_rate = 0.0
     for item in existing_files:
-        try:
-            step_name = item.path.relative_to(project_dir / "steps").parts[0]
-        except (ValueError, IndexError):
-            continue
+        step_name = _step_name_from_artifact(project_dir, item.path)
         samples = sample_counts.get(step_name, 0)
         if samples > 0:
             measured_rate = max(
@@ -911,25 +965,19 @@ def _restart_storage_bound(
     state_pattern: str,
     overwrite: bool = False,
 ) -> tuple[int, int]:
-    state_paths = list(
-        project_dir.glob(
-            f"steps/step_*/ensembles/*/*/results/{state_pattern}"
-        )
+    state_paths = _member_artifact_paths(
+        project_dir,
+        directory="results",
+        pattern=state_pattern,
     )
     newest_step: str | None = None
     if compact and state_paths:
         # Only the newest checkpoint generation is durable input to the next
         # transition. Older generations are eligible for concurrent rolling
         # cleanup and must therefore never reduce the projected-growth reserve.
-        step_root = project_dir / "steps"
         state_paths_by_step: dict[str, list[Path]] = {}
         for path in state_paths:
-            try:
-                step_name = path.relative_to(step_root).parts[0]
-            except (ValueError, IndexError) as exc:
-                raise ValueError(
-                    f"Restart state path is outside the project steps: {path}"
-                ) from exc
+            step_name = _step_name_from_artifact(project_dir, path)
             state_paths_by_step.setdefault(step_name, []).append(path)
         if len(state_paths_by_step) == 1:
             newest_step = next(iter(state_paths_by_step))
@@ -956,7 +1004,7 @@ def _restart_storage_bound(
         existing_files = tuple(
             item
             for item in state_files
-            if item.path.relative_to(step_root).parts[0] == newest_step
+            if _step_name_from_artifact(project_dir, item.path) == newest_step
         )
     existing = sum(item.size for item in existing_files)
     # Every observed generation remains useful as an upward size high-water,
@@ -1132,7 +1180,11 @@ def estimate_project_storage_components(
     forcing_existing = _owned_file_bytes(
         [
             path
-            for path in project_dir.glob("steps/step_*/ensembles/*/*/meteo/*.csv")
+            for path in _member_artifact_paths(
+                project_dir,
+                directory="meteo",
+                pattern="*.csv",
+            )
             if path.name != "stations.csv"
         ],
         root=project_dir,
@@ -1162,10 +1214,11 @@ def estimate_project_storage_components(
         tolerate_disappearance=compact,
     )
     point_existing = _owned_file_bytes(
-        [
-            path
-            for path in project_dir.glob("steps/step_*/ensembles/*/*/results/point_*.csv")
-        ],
+        _member_artifact_paths(
+            project_dir,
+            directory="results",
+            pattern="point_*.csv",
+        ),
         root=project_dir,
         tolerate_disappearance=compact,
     )

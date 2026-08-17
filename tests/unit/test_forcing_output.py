@@ -6,6 +6,7 @@ import netCDF4
 import numpy as np
 import pytest
 
+from openamundsen_da.io.paths import meteo_dir_for_member
 from openamundsen_da.util import forcing_output as forcing_output_mod
 from openamundsen_da.util.forcing_output import (
     _read_forcing_csv,
@@ -15,6 +16,7 @@ from openamundsen_da.util.forcing_output import (
     validate_project_ensemble_forcing,
     write_project_ensemble_forcing,
 )
+from openamundsen_da.util.runtime_generation import ensure_runtime_generation
 
 
 def test_forcing_csv_rejects_unknown_text_but_accepts_missing_tokens(tmp_path: Path) -> None:
@@ -71,6 +73,48 @@ def test_forcing_output_retains_consumed_open_loop_and_member_values(tmp_path: P
     with netCDF4.Dataset(output) as dataset:
         assert dataset.variables["temp"].units == "K"
         assert dataset.variables["precip"].filters()["zlib"] is True
+
+
+def test_generation_routed_forcing_compacts_identically_to_legacy_layout(
+    tmp_path: Path,
+) -> None:
+    outputs: list[np.ndarray] = []
+    for layout in ("legacy", "generation"):
+        project = tmp_path / layout / "projects/demo"
+        project.mkdir(parents=True)
+        (project / "demo.yml").write_text(
+            "start_date: 2023-01-01\nend_date: 2023-01-02\n",
+            encoding="utf-8",
+        )
+        if layout == "generation":
+            ensure_runtime_generation(project)
+        step = project / "steps/step_00"
+        step.mkdir(parents=True)
+        (step / "step_00.yml").write_text(
+            "start_date: 2023-01-01T00:00:00\nend_date: 2023-01-01T21:00:00\n",
+            encoding="utf-8",
+        )
+        for index, member_name in enumerate(("open_loop", "member_001")):
+            member = step / "ensembles/prior" / member_name
+            member.mkdir(parents=True)
+            _write_forcing(
+                meteo_dir_for_member(member),
+                "2023-01-01",
+                270 + index,
+                1 + index,
+            )
+
+        write_project_ensemble_forcing(project)
+        series = load_compact_forcing_series(
+            project,
+            station_filename="a.csv",
+            member="member_001",
+            variables=["temp", "precip"],
+        )
+        assert series is not None
+        outputs.append(series[["temp", "precip"]].to_numpy())
+
+    np.testing.assert_array_equal(outputs[0], outputs[1])
 
 
 def test_forcing_output_refuses_incomplete_member_schema(tmp_path: Path) -> None:

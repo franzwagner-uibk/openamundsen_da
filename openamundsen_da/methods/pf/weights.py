@@ -16,6 +16,11 @@ from openamundsen_da.manifests import (
     sha256_file,
     write_manifest_atomic,
 )
+from openamundsen_da.io.paths import (
+    default_results_dir,
+    list_member_dirs,
+    member_run_manifest_path,
+)
 from openamundsen_da.util.stats import effective_sample_size, logsumexp, normalize_weights
 
 
@@ -46,15 +51,18 @@ def _event_input_files(*, project_dir: Path, step_dir: Path) -> list[Path]:
     files.extend(recursive_files(Path(step_dir) / "obs"))
     prior_csv, prior_manifest = prior_weight_paths(step_dir)
     files.extend((prior_csv, prior_manifest))
-    for member_results in sorted((Path(step_dir) / "ensembles" / "prior").glob("member_*/results")):
+    for member in list_member_dirs(Path(step_dir) / "ensembles", "prior"):
+        member_results = default_results_dir(member)
         files.extend(
             path
             for path in recursive_files(member_results)
-            if path.name == "member_run.json"
-            or path.name == "output_grids.nc"
+            if path.name == "output_grids.nc"
             or path.name.startswith("point_")
             or path.suffix.lower() in {".tif", ".tiff"}
         )
+        manifest = member_run_manifest_path(member)
+        if manifest.is_file():
+            files.append(manifest)
     return files
 
 

@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from openamundsen_da.io.paths import (
+    meteo_dir_for_member,
     list_member_dirs,
     list_steps_sorted,
     project_ensemble_forcing_path,
@@ -45,11 +46,13 @@ def _read_forcing_csv(path: Path) -> tuple[pd.DatetimeIndex, pd.DataFrame]:
 
 
 def _reference_meteo_dir(step_dir: Path) -> Path:
-    open_loop = step_dir / "ensembles" / "prior" / "open_loop" / "meteo"
+    open_loop = meteo_dir_for_member(
+        step_dir / "ensembles" / "prior" / "open_loop"
+    )
     if any(path.name != "stations.csv" for path in open_loop.glob("*.csv")):
         return open_loop
     for member in list_member_dirs(step_dir / "ensembles", "prior"):
-        meteo = member / "meteo"
+        meteo = meteo_dir_for_member(member)
         if any(path.name != "stations.csv" for path in meteo.glob("*.csv")):
             return meteo
     raise FileNotFoundError(f"No member forcing found in {step_dir}")
@@ -87,9 +90,14 @@ def _member_names(steps: list[Path]) -> list[str]:
 
 
 def _meteo_roots(step: Path) -> list[tuple[str, Path]]:
-    roots = [("open_loop", step / "ensembles" / "prior" / "open_loop" / "meteo")]
+    roots = [
+        (
+            "open_loop",
+            meteo_dir_for_member(step / "ensembles" / "prior" / "open_loop"),
+        )
+    ]
     roots.extend(
-        (member.name, member / "meteo")
+        (member.name, meteo_dir_for_member(member))
         for member in list_member_dirs(step / "ensembles", "prior")
     )
     return roots

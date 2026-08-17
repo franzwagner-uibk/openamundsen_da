@@ -14,6 +14,14 @@ from openamundsen_da.util.da_observables import (
     weights_glob_pattern,
 )
 from openamundsen_da.util.da_output import output_retention_mode
+from openamundsen_da.util.retention import (
+    retention_manifest_path,
+    validate_retained_consumers,
+)
+from openamundsen_da.util.runtime_generation import (
+    RUNTIME_LAYOUT,
+    load_runtime_generation,
+)
 from openamundsen_da.util.station_da import station_observation_csvs
 from openamundsen_da.util.storage_policy import DA_SUMMARY_NC_FILL_VALUE, METEO_CSV_DECIMALS
 
@@ -121,12 +129,8 @@ def _check_logs(log_file: Path) -> None:
         raise ValueError(f"Integration log contains severe warning lines:\n{sample}")
 
 
-def _check_plot_outputs(project_dir: Path) -> None:
+def _check_plot_outputs(project_dir: Path, *, retention_mode: str) -> None:
     plot_specs = [
-        CheckSpec(
-            label="step forcing plots",
-            patterns=("steps/step_*/plots/forcing/**/*.png", "steps/step_*/plots/forcing/**/*.svg"),
-        ),
         CheckSpec(
             label="project overview plots",
             patterns=("results/plots/results/**/*.png", "results/plots/results/**/*.svg"),
@@ -154,6 +158,17 @@ def _check_plot_outputs(project_dir: Path) -> None:
             min_count=1,
         ),
     ]
+    if retention_mode == "full":
+        plot_specs.insert(
+            0,
+            CheckSpec(
+                label="step forcing plots",
+                patterns=(
+                    "steps/step_*/plots/forcing/**/*.png",
+                    "steps/step_*/plots/forcing/**/*.svg",
+                ),
+            ),
+        )
     if (project_dir / "maps.yml").is_file():
         plot_specs.append(
             CheckSpec(
@@ -326,7 +341,12 @@ def _check_station_obs_inputs(project_dir: Path) -> None:
         _assert_non_empty(path)
 
 
-def _check_required_outputs(project_dir: Path, steps_dir: Path) -> None:
+def _check_required_outputs(
+    project_dir: Path,
+    steps_dir: Path,
+    *,
+    retention_mode: str,
+) -> None:
     step_dirs = sorted(steps_dir.glob("step_*"))
     if not step_dirs:
         raise FileNotFoundError(f"No step directories found under {steps_dir}")
@@ -348,12 +368,13 @@ def _check_required_outputs(project_dir: Path, steps_dir: Path) -> None:
             patterns=(f"step_*/assim/{weights_glob_pattern('scf')}",),
             min_count=event_counts["scf"],
         )
-        _require_files(
-            steps_dir,
-            label="SCF model time series (point_scf_roi.csv)",
-            patterns=("step_*/ensembles/prior/member_*/results/point_scf_roi.csv",),
-            min_count=1,
-        )
+        if retention_mode == "full":
+            _require_files(
+                steps_dir,
+                label="SCF model time series (point_scf_roi.csv)",
+                patterns=("step_*/ensembles/prior/member_*/results/point_scf_roi.csv",),
+                min_count=1,
+            )
 
     if event_counts.get("wet_snow", 0) > 0:
         _require_files(
@@ -368,12 +389,13 @@ def _check_required_outputs(project_dir: Path, steps_dir: Path) -> None:
             patterns=(f"step_*/assim/{weights_glob_pattern('wet_snow')}",),
             min_count=event_counts["wet_snow"],
         )
-        _require_files(
-            steps_dir,
-            label="Wet-snow model time series (point_wet_snow_roi.csv)",
-            patterns=("step_*/ensembles/prior/member_*/results/point_wet_snow_roi.csv",),
-            min_count=1,
-        )
+        if retention_mode == "full":
+            _require_files(
+                steps_dir,
+                label="Wet-snow model time series (point_wet_snow_roi.csv)",
+                patterns=("step_*/ensembles/prior/member_*/results/point_wet_snow_roi.csv",),
+                min_count=1,
+            )
 
     if event_counts.get("station_hs", 0) > 0:
         _check_station_obs_inputs(project_dir)
@@ -405,18 +427,52 @@ def _check_required_outputs(project_dir: Path, steps_dir: Path) -> None:
             min_count=event_counts["station_swe"],
         )
 
-    _require_files(
-        steps_dir,
-        label="ROI SWE model time series (point_swe_roi.csv)",
-        patterns=("step_*/ensembles/prior/member_*/results/point_swe_roi.csv",),
-        min_count=1,
-    )
-    _require_files(
-        steps_dir,
-        label="ROI snow-depth model time series (point_snow_depth_roi.csv)",
-        patterns=("step_*/ensembles/prior/member_*/results/point_snow_depth_roi.csv",),
-        min_count=1,
-    )
+    if retention_mode == "full":
+        _require_files(
+            steps_dir,
+            label="ROI SWE model time series (point_swe_roi.csv)",
+            patterns=("step_*/ensembles/prior/member_*/results/point_swe_roi.csv",),
+            min_count=1,
+        )
+        _require_files(
+            steps_dir,
+            label="ROI snow-depth model time series (point_snow_depth_roi.csv)",
+            patterns=("step_*/ensembles/prior/member_*/results/point_snow_depth_roi.csv",),
+            min_count=1,
+        )
+
+
+def _check_compact_runtime_cleanup(project_dir: Path) -> None:
+    runtime = load_runtime_generation(project_dir)
+    if runtime is None or runtime.get("layout") != RUNTIME_LAYOUT:
+        raise ValueError("Compact integration did not create a generation-owned runtime")
+    if runtime.get("status") != "complete":
+        raise ValueError(f"Compact runtime cleanup is incomplete: {runtime.get('status')!r}")
+    if runtime.get("quarantine_root") is not None:
+        raise ValueError("Completed compact runtime still records a quarantine root")
+    live_root = project_dir / str(runtime["runtime_root"])
+    if live_root.exists():
+        raise ValueError(f"Completed compact runtime tree still exists: {live_root}")
+
+    ledger = load_manifest(retention_manifest_path(project_dir))
+    if ledger is None or int(ledger.get("retention_schema_version", -1)) != 6:
+        raise ValueError("Compact integration did not write a v6 retention ledger")
+    if ledger.get("status") != "complete" or ledger.get("batches") != []:
+        raise ValueError("Compact v6 retention ledger is not generation-complete")
+    generations = ledger.get("generations") or []
+    if len(generations) != 1 or generations[0].get("status") != "complete":
+        raise ValueError("Compact v6 runtime generation is not complete")
+    quarantine = project_dir / str(generations[0]["quarantine_root"])
+    if quarantine.exists():
+        raise ValueError(f"Completed compact quarantine still exists: {quarantine}")
+
+    for relative in (
+        "results/points/ensemble_points.nc",
+        "results/forcing/ensemble_forcing.nc",
+        "results/grids/da_output_grids.nc",
+    ):
+        _assert_non_empty(project_dir / relative)
+    validate_retained_consumers(project_dir, require_complete=True)
 
 
 def _check_minimal_weight_sanity(steps_dir: Path) -> None:
@@ -536,16 +592,24 @@ def _check_run_manifest_and_cleanup(project_dir: Path) -> None:
     deleted_paths = cleanup.get("deleted_paths") or []
     deleted_count = int(cleanup.get("deleted_count", 0))
     freed_bytes = int(cleanup.get("freed_bytes", 0))
-    if deleted_count != len(deleted_paths):
+    retention_mode = output_retention_mode(project_dir)
+    runtime = load_runtime_generation(project_dir)
+    generation_cleanup = (
+        retention_mode == "compact"
+        and runtime is not None
+        and runtime.get("layout") == RUNTIME_LAYOUT
+    )
+    if not generation_cleanup and deleted_count != len(deleted_paths):
         raise ValueError(f"Run manifest cleanup count is inconsistent: {manifest_path}")
+    if generation_cleanup and deleted_paths:
+        raise ValueError("Generation cleanup must not materialize per-file deleted paths")
     for relative in deleted_paths:
         if (project_dir / relative).exists():
             raise ValueError(f"Cleaned artifact still exists: {project_dir / relative}")
 
     remaining_states = sorted((project_dir / "steps").glob("step_*/ensembles/*/*/results/model_state.pickle.gz"))
     remaining_pointers = sorted((project_dir / "steps").glob("step_*/ensembles/*/*/state_pointer.json"))
-    retention_mode = output_retention_mode(project_dir)
-    if retention_mode == "compact" and (not deleted_paths or freed_bytes <= 0):
+    if retention_mode == "compact" and (deleted_count <= 0 or freed_bytes <= 0):
         raise ValueError(f"Run manifest does not record applied compact cleanup: {manifest_path}")
     if retention_mode == "compact" and (remaining_states or remaining_pointers):
         raise ValueError(
@@ -571,14 +635,19 @@ def validate_project(project_dir: Path, log_file: Path) -> None:
     steps_dir = project_dir / "steps"
     if not steps_dir.is_dir():
         raise FileNotFoundError(f"Missing steps directory: {steps_dir}")
+    retention_mode = output_retention_mode(project_dir)
     _check_logs(log_file)
-    _check_required_outputs(project_dir, steps_dir)
-    _check_plot_outputs(project_dir)
-    _check_openamundsen_outputs(steps_dir)
+    _check_required_outputs(project_dir, steps_dir, retention_mode=retention_mode)
+    _check_plot_outputs(project_dir, retention_mode=retention_mode)
+    if retention_mode == "full":
+        _check_openamundsen_outputs(steps_dir)
     _check_da_output_grid(project_dir)
-    _check_member_grid_storage(steps_dir)
-    _check_meteo_csv_precision(steps_dir)
-    _check_wet_snow_mask_storage(steps_dir)
+    if retention_mode == "full":
+        _check_member_grid_storage(steps_dir)
+        _check_meteo_csv_precision(steps_dir)
+        _check_wet_snow_mask_storage(steps_dir)
+    else:
+        _check_compact_runtime_cleanup(project_dir)
     _check_benchmark_outputs(project_dir)
     _check_minimal_weight_sanity(steps_dir)
     _check_run_manifest_and_cleanup(project_dir)

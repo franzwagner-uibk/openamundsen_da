@@ -683,6 +683,7 @@ def _project_has_started(project_dir: Path) -> bool:
             "steps/step_*/assim/prior_forcing_manifest.json",
             "steps/step_*/assim/rejuvenate_manifest.json",
             "steps/step_*/ensembles/*/*/results/member_run.json",
+            "steps/step_*/ensembles/*/*/member_run.json",
         )
         for path in project_dir.glob(pattern)
     )

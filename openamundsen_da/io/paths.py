@@ -29,7 +29,9 @@ from openamundsen_da.core.constants import (
     MEMBER_SOURCE_POINTER,
     MEMBER_PREFIX,
     OPEN_LOOP,
+    STATE_POINTER_JSON,
 )
+from openamundsen_da.util.runtime_generation import mapped_runtime_path
 
 # ---- Raster/NetCDF discovery helpers ---------------------------------------
 
@@ -213,12 +215,36 @@ def list_steps_sorted(project_dir: str | Path) -> list[Path]:
 # ---- Ensemble layout helpers -----------------------------------------------
 
 def meteo_dir_for_member(member_dir: str | Path) -> Path:
-    """Member meteo directory: <member_dir>/meteo"""
-    return Path(member_dir) / "meteo"
+    """Return the member forcing directory for the active retention layout."""
+    mapped = mapped_runtime_path(member_dir, "meteo")
+    return mapped if mapped is not None else Path(member_dir) / "meteo"
 
 def default_results_dir(member_dir: str | Path) -> Path:
-    """Default outputs under <member_dir>/results"""
-    return Path(member_dir) / "results"
+    """Return the member model-output directory for the active retention layout."""
+    mapped = mapped_runtime_path(member_dir, "results")
+    return mapped if mapped is not None else Path(member_dir) / "results"
+
+
+def member_run_manifest_path(member_dir: str | Path) -> Path:
+    """Return the durable member-run authority for the active layout."""
+    member_dir = Path(member_dir)
+    if mapped_runtime_path(member_dir, "results") is not None:
+        return member_dir / "member_run.json"
+    return member_dir / "results" / "member_run.json"
+
+
+def forcing_plot_dir(step_dir: str | Path) -> Path:
+    """Return the disposable forcing-plot directory for one step."""
+    mapped = mapped_runtime_path(step_dir, "plots/forcing")
+    return mapped if mapped is not None else Path(step_dir) / "plots" / "forcing"
+
+
+def state_pointer_path(member_dir: str | Path) -> Path:
+    """Return the disposable restart pointer for the active layout."""
+    member_dir = Path(member_dir)
+    if mapped_runtime_path(member_dir, "results") is not None:
+        return default_results_dir(member_dir) / STATE_POINTER_JSON
+    return member_dir / STATE_POINTER_JSON
 
 def list_member_dirs(base_dir: str | Path, ensemble: str) -> list[Path]:
     base_dir = Path(base_dir)
@@ -289,14 +315,14 @@ def list_station_files_forcing(step_dir: str | Path, ensemble: str = "prior") ->
     """
     step_dir = Path(step_dir)
     base = step_dir / "ensembles" / ensemble
-    ol_meteo = base / "open_loop" / "meteo"
+    ol_meteo = meteo_dir_for_member(base / "open_loop")
     if ol_meteo.is_dir():
         files = [f.name for f in sorted(ol_meteo.glob("*.csv")) if f.name.lower() != "stations.csv"]
         return ol_meteo, files
     members = list_member_dirs(step_dir / "ensembles", ensemble)
     if not members:
         return None, []
-    first_meteo = members[0] / "meteo"
+    first_meteo = meteo_dir_for_member(members[0])
     files = [f.name for f in sorted(first_meteo.glob("*.csv")) if f.name.lower() != "stations.csv"]
     return None, files
 
@@ -305,14 +331,14 @@ def list_point_files_results(step_dir: str | Path, ensemble: str = "prior") -> t
     """Return (open_loop_results_dir_if_any, sorted point_*.csv files) for results."""
     step_dir = Path(step_dir)
     base = step_dir / "ensembles" / ensemble
-    ol_results = base / "open_loop" / "results"
+    ol_results = default_results_dir(base / "open_loop")
     files: list[str] = []
     if ol_results.is_dir():
         files = [f.name for f in sorted(ol_results.glob("point_*.csv"))]
     if not files:
         members = list_member_dirs(step_dir / "ensembles", ensemble)
         for member in members:
-            res_dir = member / "results"
+            res_dir = default_results_dir(member)
             if not res_dir.is_dir():
                 continue
             files = [f.name for f in sorted(res_dir.glob("point_*.csv"))]

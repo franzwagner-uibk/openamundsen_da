@@ -21,6 +21,7 @@ from loguru import logger
 from openamundsen_da.core.constants import ENSEMBLE_PRIOR
 from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import (
+    default_results_dir,
     list_member_dirs,
     infer_project_dir,
     infer_setup_dir_from_project,
@@ -339,7 +340,7 @@ def _process_member(
     args : argparse.Namespace
         Parsed CLI arguments (shared options).
     """
-    results_dir = member_dir / "results"
+    results_dir = default_results_dir(member_dir)
     if not results_dir.is_dir():
         logger.warning("Results directory missing for {}", member_dir)
         return ()

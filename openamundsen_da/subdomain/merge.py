@@ -16,6 +16,7 @@ from affine import Affine
 from loguru import logger
 
 from openamundsen_da.io.paths import (
+    default_results_dir,
     list_steps_sorted,
     project_maps_root,
     project_plots_maps_collection_pdf_path,
@@ -125,13 +126,13 @@ def _result_sources(sub: SubdomainMeta) -> list[tuple[str, Path]]:
         return []
 
     out: list[tuple[str, Path]] = []
-    open_loop_results = prior_root / "open_loop" / "results"
+    open_loop_results = default_results_dir(prior_root / "open_loop")
     if open_loop_results.is_dir():
         out.append(("open_loop", open_loop_results))
     for member_dir in sorted(prior_root.glob("member_*")):
         if not member_dir.is_dir():
             continue
-        res_dir = member_dir / "results"
+        res_dir = default_results_dir(member_dir)
         if res_dir.is_dir():
             out.append((member_dir.name, res_dir))
     return out

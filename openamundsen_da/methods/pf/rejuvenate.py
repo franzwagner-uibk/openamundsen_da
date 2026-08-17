@@ -55,6 +55,7 @@ from openamundsen_da.core.env import _read_yaml_file
 from openamundsen_da.io.paths import (
     list_member_dirs,
     meteo_dir_for_member,
+    state_pointer_path,
     default_results_dir,
     find_step_yaml,
     find_project_yaml,
@@ -232,6 +233,9 @@ def _rejuvenate_member_task(
     """Worker: rebase one member's meteo and copy state pointer."""
     member_name = f"{MEMBER_PREFIX}{member_idx:03d}"
     tgt_member = tgt_root / member_name
+    # Keep the lightweight member identity durable while routing forcing and
+    # restart artifacts into the disposable compact generation.
+    tgt_member.mkdir(parents=True, exist_ok=True)
     tgt_meteo = meteo_dir_for_member(tgt_member)
     tgt_meteo.mkdir(parents=True, exist_ok=True)
 
@@ -269,7 +273,9 @@ def _rejuvenate_member_task(
                 out = {"path": str(rel)}
             except Exception:
                 out = {"path": str(q)}
-            (tgt_member / STATE_POINTER_JSON).write_text(json.dumps(out, indent=2), encoding="utf-8")
+            target_pointer = state_pointer_path(tgt_member)
+            target_pointer.parent.mkdir(parents=True, exist_ok=True)
+            target_pointer.write_text(json.dumps(out, indent=2), encoding="utf-8")
             copied_ptr = True
 
     return {
@@ -465,7 +471,11 @@ def _rejuvenation_input_inventory(
     files.extend(path for path in prior_weight_paths(next_step_dir) if path.is_file())
     for member in list_member_dirs(prev_step_dir / "ensembles", source_ensemble):
         for pointer_name in (MEMBER_SOURCE_POINTER, STATE_POINTER_JSON):
-            pointer = member / pointer_name
+            pointer = (
+                state_pointer_path(member)
+                if pointer_name == STATE_POINTER_JSON
+                else member / pointer_name
+            )
             if pointer.is_file():
                 files.append(pointer)
     return file_inventory(root=setup_dir, files=files)
@@ -480,14 +490,15 @@ def _rejuvenation_output_inventory(
     files: list[Path] = []
     target_root = next_step_dir / "ensembles" / target_ensemble
     for member in list_member_dirs(next_step_dir / "ensembles", target_ensemble):
-        files.extend(recursive_files(member / "meteo"))
-        pointer = member / STATE_POINTER_JSON
+        files.extend(recursive_files(meteo_dir_for_member(member)))
+        pointer = state_pointer_path(member)
         if pointer.is_file():
             files.append(pointer)
     open_loop = target_root / "open_loop"
-    files.extend(recursive_files(open_loop / "meteo"))
-    if (open_loop / STATE_POINTER_JSON).is_file():
-        files.append(open_loop / STATE_POINTER_JSON)
+    files.extend(recursive_files(meteo_dir_for_member(open_loop)))
+    open_loop_pointer = state_pointer_path(open_loop)
+    if open_loop_pointer.is_file():
+        files.append(open_loop_pointer)
     return file_inventory(root=setup_dir, files=files)
 
 
@@ -642,7 +653,7 @@ def _copy_open_loop_to_next(
 
     # Base meteo comes from project-level meteo directory
     met_prev = Path(setup_dir) / "meteo"
-    met_next = next_ol / "meteo"
+    met_next = meteo_dir_for_member(next_ol)
     met_next.mkdir(parents=True, exist_ok=True)
 
     stations_csv = met_prev / "stations.csv"
@@ -661,7 +672,7 @@ def _copy_open_loop_to_next(
         _write_csv(df_out, met_next / src.name)
 
     # Copy a pointer to the previous step's open_loop state file
-    res_prev = prev_ol / "results"
+    res_prev = default_results_dir(prev_ol)
     cand = res_prev / STATE_DEFAULT_NAME
     if not cand.exists():
         picks = sorted(res_prev.glob("*.pickle.gz"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -673,7 +684,9 @@ def _copy_open_loop_to_next(
             out = {"path": str(rel)}
         except Exception:
             out = {"path": str(cand.resolve())}
-        (next_ol / STATE_POINTER_JSON).write_text(json.dumps(out, indent=2), encoding="utf-8")
+        target_pointer = state_pointer_path(next_ol)
+        target_pointer.parent.mkdir(parents=True, exist_ok=True)
+        target_pointer.write_text(json.dumps(out, indent=2), encoding="utf-8")
 
 
 def cli_main(argv: Iterable[str] | None = None) -> int:

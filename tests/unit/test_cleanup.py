@@ -8,16 +8,24 @@ from pathlib import Path
 import pytest
 
 from openamundsen_da.exceptions import CleanupSafetyError
+from openamundsen_da.io.paths import default_results_dir, member_run_manifest_path
 from openamundsen_da.manifests import write_manifest_atomic
 from openamundsen_da.pipeline import cleanup as cleanup_mod
 from openamundsen_da.pipeline.cleanup import (
     _member_run_manifests,
     clean_predecessor_checkpoint,
     clean_project_artifacts,
+    record_runtime_cleanup_authority,
 )
 from openamundsen_da.pipeline.rendering import render_completion_manifest_path
 from openamundsen_da.methods.pf.resample import resample_from_weights
 from openamundsen_da.util.retention import validate_retained_consumers
+from openamundsen_da.util.runtime_generation import (
+    ensure_runtime_generation,
+    record_runtime_step_accounting,
+    runtime_accounted_totals,
+    runtime_generation_root,
+)
 
 
 def _write_state(path: Path, value: int = 1) -> None:
@@ -57,6 +65,114 @@ def _write_project_yaml(project_dir: Path, *, retention: str | None = None) -> N
         + "\n",
         encoding="utf-8",
     )
+
+
+def test_public_cleanup_deletes_generation_tree_and_retains_compact_authority(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "setup/projects/project_2022_2023"
+    _write_project_yaml(project, retention="compact")
+    step = project / "steps/step_00"
+    step.mkdir(parents=True)
+    (step / "step_00.yml").write_text(
+        "start_date: '2022-10-01'\nend_date: '2022-10-02'\n",
+        encoding="utf-8",
+    )
+    ensure_runtime_generation(project)
+    root = runtime_generation_root(project)
+    assert root is not None
+    member = step / "ensembles/prior/member_001"
+    member.mkdir(parents=True)
+    raw = root / member.relative_to(project) / "results/output_grids.nc"
+    raw.parent.mkdir(parents=True)
+    raw.write_bytes(b"raw-grid")
+    (member / "member_run.json").write_text(
+        '{"member":"member_001","status":"success"}\n',
+        encoding="utf-8",
+    )
+    open_loop = step / "ensembles/prior/open_loop"
+    open_loop.mkdir(parents=True)
+    (open_loop / "member_run.json").write_text(
+        '{"member":"open_loop","status":"success"}\n',
+        encoding="utf-8",
+    )
+    record_runtime_step_accounting(
+        project,
+        step_name="step_00",
+        component_bytes={"member_grid_bytes": raw.stat().st_size},
+        file_counts={"member_grid_bytes": 1},
+    )
+    for relative in (
+        "results/grids/da_output_grids.nc",
+        "results/points/ensemble_points.nc",
+        "results/forcing/ensemble_forcing.nc",
+    ):
+        path = project / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(relative.encode())
+    _write_render_completion(project)
+    record_runtime_cleanup_authority(project)
+    monkeypatch.setenv("OPENAMUNDSEN_DA_CLEANUP_WORKERS", "2")
+
+    preview = clean_project_artifacts(project, apply=False)
+    applied = clean_project_artifacts(project, apply=True)
+
+    assert preview.eligible_count == 1
+    assert preview.eligible_bytes == len(b"raw-grid")
+    assert preview.eligible_paths == ()
+    assert applied.deleted_count == 1
+    assert applied.freed_bytes == len(b"raw-grid")
+    assert not root.exists()
+    assert (project / "results/grids/da_output_grids.nc").is_file()
+    assert validate_retained_consumers(project, require_complete=True) == (
+        "runtime-generation-1",
+    )
+
+
+def test_runtime_predecessor_cleanup_records_rolling_bytes_without_v5_batches(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "setup/projects/project_2022_2023"
+    _write_project_yaml(project, retention="compact")
+    ensure_runtime_generation(project)
+    predecessor = project / "steps/step_00"
+    successor = project / "steps/step_01"
+    predecessor_bytes = 0
+    predecessor_files = 0
+    for name in ("open_loop", "member_001", "member_002"):
+        source_member = predecessor / "ensembles/prior" / name
+        source_member.mkdir(parents=True)
+        state = default_results_dir(source_member) / "model_state.pickle.gz"
+        _write_state(state)
+        predecessor_bytes += state.stat().st_size
+        predecessor_files += 1
+        manifest = member_run_manifest_path(source_member)
+        manifest.write_text(
+            json.dumps({"member": name, "status": "success"}) + "\n",
+            encoding="utf-8",
+        )
+        target_member = successor / "ensembles/prior" / name
+        target_member.mkdir(parents=True)
+        _write_state(default_results_dir(target_member) / "model_state.pickle.gz", value=2)
+    record_runtime_step_accounting(
+        project,
+        step_name="step_00",
+        component_bytes={"restart_baseline_bytes": predecessor_bytes},
+        file_counts={"restart_baseline_bytes": predecessor_files},
+    )
+
+    removed = clean_predecessor_checkpoint(
+        project,
+        predecessor,
+        successor_step=successor,
+        apply=True,
+    )
+
+    assert len(removed) == predecessor_files
+    assert all(not path.exists() for path in removed)
+    assert runtime_accounted_totals(project) == (0, 0)
+    assert not (project / "results/retention_manifest.json").exists()
 
 
 def test_public_cleanup_previews_then_deletes_single_domain_restart_artifacts(tmp_path: Path) -> None:

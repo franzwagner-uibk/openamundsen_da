@@ -28,6 +28,12 @@ from openamundsen_da.manifests import (
     workflow_manifest_path,
     write_manifest_atomic,
 )
+from openamundsen_da.io.paths import (
+    list_member_dirs,
+    list_steps_sorted,
+    member_run_manifest_path,
+    open_loop_dir,
+)
 from openamundsen_da.methods.viz.reports import build_project_collection_pdf
 from openamundsen_da.observer.satellite_scf import generate_project_from_summary as prepare_scf_observations
 from openamundsen_da.observer.satellite_wet_snow_s1 import (
@@ -291,7 +297,16 @@ def _member_counts(project_dir: Path) -> tuple[int, int, list[dict]]:
     completed = 0
     skipped = 0
     members: list[dict] = []
-    for path in sorted((project_dir / "steps").glob("step_*/ensembles/prior/*/results/member_run.json")):
+    paths = sorted(
+        member_run_manifest_path(member)
+        for step in list_steps_sorted(project_dir)
+        for member in [
+            open_loop_dir(step),
+            *list_member_dirs(step / "ensembles", "prior"),
+        ]
+        if member_run_manifest_path(member).is_file()
+    )
+    for path in paths:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
@@ -325,7 +340,8 @@ def _render_data(result: RenderResult, project_dir: Path) -> dict[str, list[str]
 def _cleanup_data(result: CleanupResult, project_dir: Path) -> dict:
     return {
         "deleted_paths": [path.relative_to(project_dir).as_posix() for path in result.deleted_paths],
-        "deleted_count": len(result.deleted_paths),
+        "deleted_count": int(result.deleted_count or len(result.deleted_paths)),
+        "eligible_count": int(result.eligible_count or len(result.eligible_paths)),
         "eligible_bytes": result.eligible_bytes,
         "freed_bytes": result.freed_bytes,
         "failures": [
@@ -362,6 +378,8 @@ def _result_from_manifest(
         failures=(),
         eligible_bytes=int(cleanup.get("eligible_bytes", 0)),
         freed_bytes=int(cleanup.get("freed_bytes", 0)),
+        eligible_count=int(cleanup.get("eligible_count", len(deleted))),
+        deleted_count=int(cleanup.get("deleted_count", len(deleted))),
     )
     return RunResult(
         setup_dir=config.setup_dir,

@@ -55,6 +55,22 @@ store millions of source-path records. Completed schema-v5 ledgers remain
 readable; an interrupted v5 generation follows the legacy resume path and is
 never silently migrated.
 
+The tree identity is the canonical contained generation path plus its generation
+ID, device and inode. Producer summaries retain monotonic byte and file counts;
+rolling predecessor deletion deducts only explicitly removed checkpoint paths.
+At final cleanup the physical deletion count is recorded separately from the
+producer count, but cleanup does not add a pre-deletion raw-tree walk merely to
+make those counters identical. Retained consumers are generation-bound when
+rendering succeeds, opened without following symlinks, fully hash-checked at
+cleanup entry, metadata-checked around quarantine and fully checked again after
+physical deletion. Unexpected links inside the disposable tree fail closed.
+
+Directory parallelism is internal and bounded. The default is eight workers;
+the target-filesystem benchmark supplies `OPENAMUNDSEN_DA_CLEANUP_WORKERS` for
+the accepted launch kit. Selection uses smaller structurally equivalent trees,
+then one full 2,373,290-file and 195.3-GB allocated confirmation with the fastest
+candidate. A zero or negative worker count is invalid.
+
 ## Run-audit corrections
 
 - A step writes forcing only for stations with at least one selected row and

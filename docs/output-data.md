@@ -113,27 +113,26 @@ After all required outputs validate, `retention: compact` removes package-owned
 restart checkpoints, member point and forcing CSVs, replaceable member grids and
 step-local forcing PNGs after their configured render completes. The compact
 forcing NetCDF remains the source for rerendering project-wide forcing plots.
-The atomic, versioned `results/retention_manifest.json` records explicit cleanup
-generations and every planned and completed deletion batch, source inventory,
-retained-consumer inventory, producer-manifest or completed-stage digest, final
-consumer and regeneration recipe. A verified overwrite starts a new generation
-and marks the prior one superseded. Historical inventories remain available for
-audit, while resume validation uses only the active generation. A planned
-generation resumes only when its complete retained-consumer and producer
-inventories and the exact surviving source inventory still match; a new
-overwrite generation cannot be mixed into an interrupted cleanup. Cleanup is
-contained within the project and can resume an interrupted batch only when the
-current source files and retained dependencies still match their recorded size
-and SHA-256. Dependencies are rechecked before every resumed deletion and a
-recreated path is recorded as a new generation. Completed older ledgers are
-upgraded to the stronger identity contract when read. Within one active batch,
-retained consumers are fully hash-checked on entry and before completion, kept
-open and checked for replacement or metadata-visible mutation before every
-unlink. This preserves fail-closed cleanup without rereading a large compact
-NetCDF once per raw source file. A planned ledger from the older contract is
-refused because its not-yet-planned cross-class sources cannot be reconstructed
-safely. The retained NetCDFs, weights, benchmarks, plots, maps, reports, logs
-and scientific configuration remain.
+Fresh compact projects place those disposable files below
+`.openamundsen-da/runtime/<generation>/`; durable weights, member and PF
+manifests, logs, benchmarks, compact NetCDFs, maps and reports stay outside.
+After consumer and render validation, retention-ledger schema v6 records the
+generation root identity, producer authority, retained-consumer hashes and
+cleanup state without enumerating the raw tree. Cleanup pins and validates the
+retained consumers, atomically renames the generation to the same-filesystem
+`.openamundsen-da/quarantine/` tree and physically deletes it with bounded
+directory parallelism. The generation is complete only after neither live nor
+quarantined bytes remain and that fact is durably recorded. A crash before or
+after rename, during deletion or before final ledger completion resumes the
+same generation safely. Disposable raw files are not rehashed after compact
+consumer validation.
+
+Existing projects with member-local raw artifacts retain the schema-v5 batch
+contract: every planned source path is bound to its retained consumer and
+producer evidence, and interrupted batches resume only when those identities
+still match. Completed v5 ledgers remain readable; an interrupted v5 cleanup is
+never silently migrated into a v6 tree. The retained NetCDFs, weights,
+benchmarks, plots, maps, reports, logs and scientific configuration remain.
 
 `retention: full` skips this artifact cleanup and preserves the raw member
 forcing, points, grids and restart states for reanalysis.
@@ -150,11 +149,11 @@ successful compact subdomain leaf is finalized after its own benchmark,
 configured render outputs and report validate. Its raw member forcing, point,
 grid and final restart artifacts are then removed immediately, while the leaf
 compact grid, point/forcing stores, DA map support, weights and report remain.
-Step-local forcing PNGs are deleted only after the compact forcing store matches
-their still-present raw source and stable render-completion evidence exists. The
-evidence and producing member manifests are bound into the cleanup ledger; the
-report may subsequently be refreshed with the final performance snapshot
-without invalidating cleanup provenance.
+For fresh projects, step-local forcing PNGs and all other disposable member
+outputs are removed with the generation tree after stable render-completion
+evidence exists. The evidence and producing member manifests are bound into the
+cleanup ledger; the report may subsequently be refreshed with the final
+performance snapshot without invalidating cleanup provenance.
 `leaf_finalization_manifest.json` binds those retained inputs before the next
 leaf wave is admitted. An interrupted or low-disk run resumes existing work
 non-destructively; rebuilding requires an explicit overwrite request.

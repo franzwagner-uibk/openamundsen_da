@@ -95,3 +95,30 @@ def test_nonfinal_state_dump_failure_is_fatal(monkeypatch, tmp_path: Path) -> No
         required=False,
         member_name="member_001",
     )
+
+
+def test_runtime_state_pointer_remaps_a_relocated_setup_mount(tmp_path: Path) -> None:
+    setup = tmp_path / "north_tyrol"
+    project = setup / "projects/demo"
+    results = (
+        project
+        / ".openamundsen-da/runtime/generation-0001/steps/step_00/ensembles/prior/member_001/results"
+    )
+    results.mkdir(parents=True)
+    (setup / "north_tyrol.yml").write_text("timestep: 3h\n", encoding="utf-8")
+    state = results / "model_state.pickle.gz"
+    state.write_bytes(b"state")
+    (results / "state_pointer.json").write_text(
+        json.dumps(
+            {
+                "path": (
+                    "/setup/projects/demo/.openamundsen-da/runtime/generation-0001/"
+                    "steps/step_00/ensembles/prior/member_001/results/"
+                    "model_state.pickle.gz"
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert runner._resolve_state_file(results) == state

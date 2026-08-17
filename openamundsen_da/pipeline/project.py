@@ -37,6 +37,7 @@ from openamundsen_da.io.paths import (
     read_step_config,
     find_setup_yaml,
     find_project_yaml,
+    forcing_plot_dir,
     list_member_dirs,
     list_steps_sorted,
     project_da_output_grids_path,
@@ -118,10 +119,17 @@ from openamundsen_da.pipeline.plot_tasks import (
 )
 from openamundsen_da.results import RenderResult
 from openamundsen_da.pipeline.rendering import render_required_project_outputs
-from openamundsen_da.pipeline.cleanup import clean_predecessor_checkpoint
+from openamundsen_da.pipeline.cleanup import (
+    clean_predecessor_checkpoint,
+    record_runtime_cleanup_authority,
+)
 from openamundsen_da.util.validation import validate_assimilation_requirements
 from openamundsen_da.util.run_mode import ensure_run_mode
 from openamundsen_da.util.station_da import is_station_variable
+from openamundsen_da.util.runtime_generation import (
+    ensure_runtime_generation,
+    record_runtime_step_accounting,
+)
 from openamundsen_da.util.da_output import (
     output_retention_mode,
     write_project_da_output_grids,
@@ -149,6 +157,34 @@ DA_DIAGNOSTICS = {
         "wet_plots": True,
     },
 }
+
+
+def _record_runtime_forcing_plot_accounting(
+    project_dir: Path,
+    steps: list[Path],
+) -> None:
+    """Record phase-local forcing plots without recursively rediscovering runtime data."""
+    for step in steps:
+        plot_dir = forcing_plot_dir(step)
+        if not plot_dir.is_dir() or plot_dir.is_symlink():
+            continue
+        plot_files = []
+        for path in plot_dir.iterdir():
+            if path.is_symlink() or not path.is_file():
+                raise RuntimeError(
+                    f"Compact forcing-plot producer created an invalid artifact: {path}"
+                )
+            plot_files.append(path)
+        record_runtime_step_accounting(
+            project_dir,
+            step_name=step.name,
+            component_bytes={
+                "derived_forcing_plot_bytes": sum(
+                    path.stat().st_size for path in plot_files
+                )
+            },
+            file_counts={"derived_forcing_plot_bytes": len(plot_files)},
+        )
 
 
 def _list_steps_sorted(project_dir: Path) -> List[Path]:
@@ -271,7 +307,7 @@ def _compute_prior_step_diagnostics(
         logger.warning("Model wet-snow diagnostics failed for {}: {}", step_name, exc)
     return accounting_summary_from_paths(
         completed_step=step_name,
-        root=step_dir,
+        root=cfg.project_dir,
         paths=outputs,
         source="prior_step_diagnostics",
     )
@@ -637,6 +673,16 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         )
     else:
         logger.info("Disk admission {} was committed before worker startup", steps[0].name)
+    if retention_mode == "compact":
+        runtime_generation = ensure_runtime_generation(
+            cfg.project_dir,
+            overwrite=bool(cfg.overwrite),
+        )
+        logger.info(
+            "Compact runtime layout: {} ({})",
+            runtime_generation["layout"],
+            runtime_generation.get("generation_id", "legacy"),
+        )
     initial_forcing_accounting = build_prior_ensemble(
         input_meteo_dir=meteo_dir,
         project_dir=cfg.project_dir,
@@ -1086,6 +1132,12 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
             source="step_lifecycle_outputs",
         )
         step_storage_accounting = step_storage_accounting.merged(boundary_accounting)
+        record_runtime_step_accounting(
+            cfg.project_dir,
+            step_name=step_name,
+            component_bytes=step_storage_accounting.observed_bytes,
+            file_counts=step_storage_accounting.file_counts,
+        )
         next_budget = cfg.storage_admission_client.admit_step(
             steps[i + 1].name,
             summary=step_storage_accounting,
@@ -1173,6 +1225,12 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
             pass
     if last_step_storage_accounting is None:
         raise RuntimeError("Final step omitted its required storage accounting summary")
+    record_runtime_step_accounting(
+        cfg.project_dir,
+        step_name=last_step_storage_accounting.completed_step,
+        component_bytes=last_step_storage_accounting.observed_bytes,
+        file_counts=last_step_storage_accounting.file_counts,
+    )
     cfg.storage_admission_client.reconcile_finalization(
         request_id=(
             f"{cfg.storage_admission_client.leaf_id}:reconcile_finalization"
@@ -1271,6 +1329,9 @@ def _run_project_impl(cfg: OrchestratorConfig, *, run_start: datetime) -> Render
         cfg.project_dir,
         max_workers=cfg.plot_workers or cfg.max_workers,
     )
+    if retention_mode == "compact":
+        _record_runtime_forcing_plot_accounting(cfg.project_dir, steps)
+        record_runtime_cleanup_authority(cfg.project_dir)
 
     _setup_logger(cfg.project_dir, cfg.log_level)
     run_end = datetime.utcnow()

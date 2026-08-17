@@ -20,6 +20,7 @@ from openamundsen_da.util.retention import (
 )
 from openamundsen_da.util.runtime_generation import (
     ensure_runtime_generation,
+    load_runtime_generation,
     record_runtime_step_accounting,
     runtime_generation_root,
 )
@@ -206,6 +207,32 @@ def test_runtime_tree_cleanup_resumes_when_delete_finished_before_completion(
     record = apply_runtime_tree_cleanup(project, workers=1)
     assert record["status"] == "complete"
     assert record["deleted_files"] == 1
+
+
+def test_runtime_tree_cleanup_heals_generation_authority_after_complete_ledger(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    root, consumer, producer = _runtime_cleanup_fixture(project)
+    _plan_runtime_cleanup(project, consumer, producer)
+    real_update = retention_mod.update_runtime_generation
+
+    def interrupted_update(project_dir: Path, *, status: str, **kwargs):
+        if status == "complete":
+            raise OSError("injected crash before runtime authority completion")
+        return real_update(project_dir, status=status, **kwargs)
+
+    monkeypatch.setattr(retention_mod, "update_runtime_generation", interrupted_update)
+    with pytest.raises(OSError, match="runtime authority completion"):
+        apply_runtime_tree_cleanup(project, workers=1)
+    assert not root.exists()
+
+    monkeypatch.setattr(retention_mod, "update_runtime_generation", real_update)
+    record = apply_runtime_tree_cleanup(project, workers=1)
+
+    assert record["status"] == "complete"
+    assert load_runtime_generation(project)["status"] == "complete"
 
 
 def test_runtime_tree_cleanup_starts_a_new_generation_after_overwrite(

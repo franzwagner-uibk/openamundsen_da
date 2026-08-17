@@ -92,6 +92,46 @@ def test_completed_generation_overwrite_starts_a_new_root(tmp_path: Path) -> Non
     assert replacement["generation_id"] != first["generation_id"]
 
 
+def test_generation_creation_recovers_only_empty_unowned_root(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = _project(tmp_path)
+    real_write = runtime_generation_mod.write_manifest_atomic
+
+    def interrupted_write(_path: Path, _payload: dict) -> Path:
+        raise OSError("injected crash before authority publication")
+
+    monkeypatch.setattr(
+        runtime_generation_mod,
+        "write_manifest_atomic",
+        interrupted_write,
+    )
+    with pytest.raises(OSError, match="before authority publication"):
+        ensure_runtime_generation(project)
+    orphans = list((project / ".openamundsen-da/runtime").iterdir())
+    assert len(orphans) == 1
+    assert not any(orphans[0].iterdir())
+
+    monkeypatch.setattr(runtime_generation_mod, "write_manifest_atomic", real_write)
+    manifest = ensure_runtime_generation(project)
+
+    assert manifest["layout"] == RUNTIME_LAYOUT
+    assert runtime_generation_root(project) is not None
+
+
+def test_generation_creation_refuses_nonempty_unowned_root(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+    orphan = project / ".openamundsen-da/runtime/generation-orphan"
+    orphan.mkdir(parents=True)
+    (orphan / "unknown.bin").write_bytes(b"unknown")
+
+    with pytest.raises(CleanupSafetyError, match="requires manual inspection"):
+        ensure_runtime_generation(project)
+
+    assert (orphan / "unknown.bin").read_bytes() == b"unknown"
+
+
 def test_runtime_accounting_is_monotonic_and_excludes_durable_components(
     tmp_path: Path,
 ) -> None:

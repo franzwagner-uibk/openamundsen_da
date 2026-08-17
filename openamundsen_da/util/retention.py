@@ -1343,6 +1343,25 @@ def apply_runtime_tree_cleanup(
         if status == "complete":
             if root.exists() or quarantine.exists():
                 raise CleanupSafetyError("Completed runtime cleanup still has physical data")
+            runtime = load_runtime_generation(project_dir)
+            if (
+                runtime is not None
+                and runtime.get("layout") == RUNTIME_LAYOUT
+                and runtime.get("status") != "complete"
+            ):
+                update_runtime_generation(
+                    project_dir,
+                    status="complete",
+                    quarantine_root=None,
+                    extra={
+                        "cleanup_completed_at": record.get("completed_at"),
+                        "cleanup_duration_seconds": record.get(
+                            "cleanup_duration_seconds",
+                            0.0,
+                        ),
+                        "deleted_files": record.get("deleted_files", 0),
+                    },
+                )
             return record
         if status == "planned":
             if root.is_dir() and not root.is_symlink():

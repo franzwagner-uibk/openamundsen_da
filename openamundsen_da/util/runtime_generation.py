@@ -16,6 +16,7 @@ from openamundsen_da.manifests import (
     workflow_manifest_path,
     write_manifest_atomic,
 )
+from openamundsen_da.util.atomic import fsync_directory
 
 
 RUNTIME_GENERATION_SCHEMA_VERSION = 1
@@ -126,6 +127,27 @@ def _has_legacy_runtime_artifacts(project_dir: Path) -> bool:
     return any(path.exists() for pattern in patterns for path in steps.glob(pattern))
 
 
+def _recover_empty_runtime_orphans(project_dir: Path) -> None:
+    """Remove only empty generation roots left before authority publication."""
+    parent = project_dir / ".openamundsen-da" / "runtime"
+    if not parent.exists():
+        return
+    if parent.is_symlink() or not parent.is_dir():
+        raise CleanupSafetyError(f"Runtime generation parent is invalid: {parent}")
+    removed = False
+    for child in parent.iterdir():
+        if child.is_symlink() or not child.is_dir():
+            raise CleanupSafetyError(f"Unowned runtime generation path is invalid: {child}")
+        if next(child.iterdir(), None) is not None:
+            raise CleanupSafetyError(
+                f"Unowned nonempty runtime generation requires manual inspection: {child}"
+            )
+        child.rmdir()
+        removed = True
+    if removed:
+        fsync_directory(parent)
+
+
 def ensure_runtime_generation(
     project_dir: str | Path,
     *,
@@ -147,6 +169,9 @@ def ensure_runtime_generation(
         if status != "complete" or not overwrite:
             _RUNTIME_LAYOUT_CACHE[project_dir] = dict(manifest)
             return manifest
+
+    if manifest is None or (manifest.get("status") == "complete" and overwrite):
+        _recover_empty_runtime_orphans(project_dir)
 
     if manifest is None and _has_legacy_runtime_artifacts(project_dir):
         legacy = {
